@@ -3,6 +3,7 @@ resolver = "2"
 members = [
   "crates/bsa",
   "crates/commonlib-shim",
+  "crates/dds",
   "crates/esm",
   "crates/godot-host",
   "crates/havok",
