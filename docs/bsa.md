@@ -1,0 +1,88 @@
+# soe-bsa: archives and the data view
+
+`crates/bsa` reads Bethesda archives and answers "what bytes does the game see
+at `meshes/x.nif`" the way the shipped engine does. It is a port of
+linux-mod-organizer's `src/bsa/parser.rs` (Dr. Baklava, GPL-3.0-or-later),
+kept under the same licence, with three additions: the TES4 name hash from
+LMO's BSA writer, an in-memory read API, and Windows-1252 name decoding.
+
+## Formats
+
+| Format | Where | Compression |
+|---|---|---|
+| BSA v103 | Oblivion | zlib |
+| BSA v104 | Fallout 3, New Vegas, Skyrim LE | zlib |
+| BSA v105 | Skyrim SE and AE | LZ4 frame |
+| BA2 GNRL | Fallout 4, Starfield general files | zlib per file |
+| BA2 DX10 | Fallout 4, Starfield textures | zlib per chunk, DDS header rebuilt on read |
+
+A compressed BSA entry starts with its uncompressed size as a u32 and then the
+packed stream. Per-file compression is the archive default XOR the record's
+bit 30. Names in every BSA version are decoded as Windows-1252, which is
+lossless for ASCII and right for the accented names Skyrim SE mods ship.
+Archives with flag 0x100 (every Skyrim SE texture archive) embed each file's
+path at the front of its data block, before the size word. The record keeps
+the block as stored and the read peels the prefix off, so an off-disk index
+never has to look into the payload for it. BA2 names are read from the name
+table at the end of the file.
+
+## Two ways in
+
+`index_archive(path)` reads only the header and tables. A 246 MB archive
+describes 468 files in 20 KB, and a mod manager lists hundreds of archives per
+refresh, so this path never touches the payload. A test counts bytes pulled
+through the reader to keep it that way. `uncompressed_size` stays 0 for
+compressed BSA entries on this path, because that number lives out in the
+payload.
+
+`Archive::open(path)` holds the whole file and answers `read(path)` with the
+decompressed bytes, case-insensitive on either slash. This is the engine path.
+`read_record(data, format, record)` is the same thing over a byte slice a
+caller already owns, so memory mapping stays possible without a change to the
+API.
+
+Every record read is bounds-checked against the archive length and reports
+`Error::Truncated` with the name and offset instead of panicking, which is what
+a cut-off download produces. Header counts larger than the file can hold are
+refused before any allocation.
+
+## The data view
+
+`Vfs` applies the game's override rule:
+
+1. loose files beat every archive,
+2. among loose roots, the one added last wins,
+3. among archives, the one added last wins.
+
+The caller adds archives in the order the load order produces them, which is
+`sResourceArchiveList` and `sResourceArchiveList2` from the INIs followed by
+each plugin's associated archives in plugin order (`find_associated_archives`
+implements the stem rule: `MyMod.esp` loads `MyMod.bsa` and `MyMod - X.bsa`).
+Loose roots are added in the order the mod manager stacks them. `Vfs` never
+reads the plugin list itself, that decision belongs to the load-order code.
+
+Lookups go through `normalize`: lowercase, forward slashes, no leading
+separator, no `data/` prefix. Every other crate that keys on a data path
+should call the same function.
+
+## Hash
+
+`tes4_hash`, `file_name_hash` and `folder_hash` compute the value stored next
+to every BSA name. The reader does not verify hashes, since names are present
+in every archive the game ships, but a writer or a repair tool needs the exact
+value, including the reference implementation's quirk of stopping the middle
+loop two bytes short of the end of the name.
+
+## Tests
+
+Synthetic archives cover every format and both compression paths, a name
+with a non-ASCII byte, a truncated payload, absurd header counts, a DX10
+texture rebuilt into a DDS file, and the override rules of the view.
+
+`tests/real_data.rs` runs when `SKYRIM_DATA` points at a Skyrim SE `Data/`
+folder: it indexes every vanilla archive, reads a record from each, and pulls
+a known mesh, texture, SWF and PEX through the view by their plugin spellings.
+On 2026-09-06 against the Steam install it indexed all 30 archives without a
+failure, 172,961 files, and read the first record of each, which caught the
+embedded-name layout of the texture archives that LMO's parser never handled. Not covered by any real file yet: v103, v104 and BA2 archives, since
+only Skyrim SE is installed here.
