@@ -3,5 +3,6 @@ name = "soe-papyrus"
 version = "0.1.0"
 edition = "2021"
 license = "GPL-3.0-or-later"
+description = "Papyrus PEX loader and virtual machine for the Skyrim open engine"
 
 [dependencies]

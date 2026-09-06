@@ -1,0 +1,162 @@
+# soe-papyrus: PEX loader and virtual machine
+
+Crate `crates/papyrus`. Round 1 of `ENGINE-PLAN.md`, written 2026-09-06.
+
+## What is in it
+
+- `pex`: the compiled script file format. Header, string table, debug block,
+  user flags, objects with variables, properties, states and functions, and
+  every instruction with its operands. Line numbers from the debug block are
+  attached to functions.
+- `asm`: a writer for the same model and a builder on top of it. Tests build a
+  script, serialize it, and load the bytes, so the reader is on the path of
+  every VM test. It is also the seed of an assembler for tooling.
+- `value`: run-time values and the language's conversion rules.
+- `vm`: objects, attached script instances, threads with their own frame
+  stacks, a scheduler with sleeping and latent threads, events, states, and the
+  native registry.
+
+No dependencies outside the standard library.
+
+## Format facts, checked against the references
+
+- Skyrim and Skyrim SE files (format 3.1 and 3.2) are big-endian. Fallout 4
+  files are little-endian. Caprica detects the order from the byte-swapped
+  magic and skymp's reader is big-endian throughout, so this reader does the
+  same: `DE C0 57 FA` on disk is a Skyrim file. Format 3.9 and later use a
+  different object layout (const flags, structs, property groups) and are
+  rejected with `UnsupportedVersion`.
+- Object layout for 3.1 and 3.2: name, a size field that counts itself, parent
+  class, docstring, user flags, auto state name, variables (name, type, user
+  flags, default value), properties (name, type, docstring, user flags, flags
+  byte, then either the auto variable name or the getter and setter function
+  bodies), states (name, functions).
+- Function body: return type, docstring, user flags, flags byte (bit 0 global,
+  bit 1 native), parameters, locals, instructions.
+- Property flags: bit 0 readable, bit 1 writable, bit 2 auto variable.
+- Operand encoding: type byte then payload, 0 None, 1 identifier (string
+  index), 2 string (string index), 3 int (four bytes), 4 float (four bytes),
+  5 bool (one byte).
+- Operand counts per opcode are Champollion's table. The three call opcodes
+  carry a trailing integer operand with the count of variable arguments.
+- Jump offsets are relative to the jump instruction itself.
+- Debug function kinds: 0 method, 1 property getter, 2 property setter.
+
+Checked on the installed game: all 14,026 `.pex` files in `Skyrim - Misc.bsa`
+parse, 54,620 functions, zero failures, and every one loads into the VM.
+
+## VM design
+
+**Frames on threads.** A thread owns a stack of frames. A script function call
+pushes a frame, `Return` pops it and writes the value into the caller's
+destination variable. Because the stack is data rather than the host's call
+stack, a native can suspend the thread at any depth and the VM resumes it
+later. skymp's papyrus-vm runs calls recursively on the C++ stack and has no
+scheduler, which is the gap the map named.
+
+**Scheduler.** `run(budget)` executes runnable threads round-robin in slices of
+64 instructions until the budget is spent or nothing is runnable. `advance(dt)`
+moves the VM clock and wakes sleepers. `Utility.Wait`, `WaitMenuMode` and
+`WaitGameTime` are the scheduler's own and put the thread to sleep for the
+requested seconds of VM time. A native returns `Value`, `Wait(seconds)` or
+`Latent(id)`. A latent thread sleeps until the host calls `resolve_latent(id,
+value)`, and the value lands in the variable the call site named.
+
+**Lookup order.** A method call on an object walks the attached instances in
+attach order. Inside an instance the script chain runs from the most derived
+script to the root, checking the current state and then the empty state of
+each script before moving to the parent. Parent calls start the walk after the
+script that defines the running function. When no loaded script defines the
+function, the native registry is asked for each class name in the chain, then
+for parents the registry declared for classes whose PEX is not loaded
+(`declare_parent("Actor", "ObjectReference")`). With the vanilla scripts
+loaded the declared parents are unnecessary, the chain is in the PEX files.
+
+**Natives.** `register_method(class, name, f)` for functions called on an
+object, `register_global(class, name, f)` for `Class.Function()`. Names are
+case-insensitive. Collision rule: first registration wins, later ones are
+recorded in `duplicates` and reported back to the caller, never silently
+replaced. A native gets the self object, the arguments, the clock, the log, and
+`defer()` to allocate a latent id.
+
+**States and events.** `send_event(object, name, args)` starts one thread per
+attached script that handles the event, resolved through the current state.
+`GotoState` and `GetState` are built in, and a state change delivers
+`OnEndState` and `OnBeginState`.
+
+**Errors.** Script errors follow the game: they are logged with the script,
+function and source line and the thread continues with `None`. Calling a
+method on `None`, indexing outside an array, dividing by zero and unknown
+functions all take that path. The stack depth limit is 128 frames and a
+runaway recursion is logged and the thread dropped. Only host API misuse
+returns `VmError`.
+
+**Values.** Strings compare without case, numbers compare across int and
+float, arrays are shared references compared by identity, objects compare by
+handle. Casts follow the declared type of the destination variable, which is
+why locals and script variables keep their type names. Floats print with six
+decimals, as in the game's log.
+
+## Vanilla numbers worth keeping
+
+From the 14,026 shipped scripts, counting call sites by target. The
+`OnBeginState` and `OnEndState` counts are the compiler's state-change
+prologue in every script, not hand-written calls.
+
+Native declarations in the vanilla PEX files: 686 across 44 classes. Largest:
+Actor 184, ObjectReference 121, Game 80, Debug 29, ActiveMagicEffect 25,
+Faction 24, Quest 24, Utility 24, Form 22, Alias 19. This is the base game's
+own native surface before SKSE and the extenders.
+
+Most called globals: `Game.GetPlayer` 5,746, `Utility.Wait` 2,008,
+`Debug.Trace` 395, `CWScript.Log` 255 (a script function), `Utility.RandomFloat`
+217, `Utility.RandomInt` 177, `Game.ShakeCamera` 121, `Game.EnablePlayerControls`
+120, `Game.DisablePlayerControls` 98, `Game.AddAchievement` 97.
+
+Most called methods by name: `GetOwningQuest` 8,713, `SetStage` 8,467,
+`GetReference` 4,527, `GetActorRef` 3,516, `Disable` 2,138,
+`SetObjectiveDisplayed` 2,089, `GetActorReference` 2,025, `Enable` 1,978,
+`SetObjectiveCompleted` 1,900, `Stop` 1,824, `GotoState` 1,716, `GetRef` 1,714,
+`GetLinkedRef` 1,508, `AddItem` 1,305, `MoveTo` 1,262, `EvaluatePackage` 1,241,
+`GetStageDone` 1,214, `Start` 1,168, `GetStage` 1,022, `Play` 905, `Activate`
+857, `RemoveItem` 806, `SetValue` 801, `ForceRefTo` 747, `PlayAnimation` 650.
+
+The full ranking prints from the gated test, see below. Quest and alias
+plumbing dominates, so the first hundred natives for week 6 to 9 of the map
+are quest stages and objectives, reference aliases, enable and disable,
+inventory, and package evaluation, before combat or magic.
+
+## Running the tests
+
+```
+cargo test -p soe-papyrus
+```
+
+The real-file test needs the shipped scripts. They are inside
+`Skyrim - Misc.bsa`, so until the bsa crate can read archives, extract them
+first (LMO's `bsa::extract_archive` does it) and point the test at the folder:
+
+```
+SOE_PEX_DIR=/path/to/extracted cargo test -p soe-papyrus --test vm real_scripts -- --nocapture
+```
+
+`SKYRIM_DATA=<Data>` works once a loose `Data/Scripts` exists.
+
+## Not done, and known gaps
+
+- Fallout 4 opcodes (`Is`, structs, the array mutators) parse but abort the
+  thread with the line number when executed. Skyrim never emits them.
+- Save and load of VM state (threads, frames, variables) is not implemented.
+  The frame model was chosen so it can be serialized, nothing does it yet.
+- The lookup order inside a chain is per script, state then empty state. The
+  original engine's exact precedence when a parent defines a state function
+  and the child defines only the empty-state one is not documented and was
+  not tested against the game.
+- No vanilla script has been executed end to end against natives, only loaded.
+  The mock native set covers `Debug.Notification`, a property getter, a method
+  reached through the chain, a latent call and `Utility.Wait`.
+- `String` ordering comparisons use lowercase byte order. The compiler does
+  not emit them for strings, so this only matters for hand-built bytecode.
+- Object display in `as String` and string concatenation uses the object's
+  first script name and the host-given name. The game prints the form id as
+  well, which the VM does not know.
