@@ -9,6 +9,7 @@ members = [
   "crates/havok",
   "crates/nif",
   "crates/papyrus",
+  "crates/physics",
   "crates/profile",
 ]
 

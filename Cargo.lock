@@ -716,6 +716,14 @@ name = "soe-papyrus"
 version = "0.1.0"
 
 [[package]]
+name = "soe-physics"
+version = "0.1.0"
+dependencies = [
+ "soe-bsa",
+ "soe-nif",
+]
+
+[[package]]
 name = "soe-profile"
 version = "0.1.0"
 dependencies = [
