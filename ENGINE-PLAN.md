@@ -88,3 +88,45 @@ branch, and reports branch, commit, test count, and what is untested.
 
 Deferred to round 2: Jolt binding from bhk shapes, DDS loading, the top hundred natives, the
 CommonLib shim scope, Recast navmesh generation, the Creation Kit replacement.
+
+## Round 2 (after round 1 merges): the runtime seams
+
+Each item is a fork in its own worktree, same rules. Items depend on the round-1 crates by name,
+so they start once master carries them.
+
+- **game** (`crates/game`, branch `game`). The runtime form table: load a load order through
+  `soe-esm` into resolved forms, define the object model Papyrus sees (Form, ObjectReference,
+  Actor, Cell, Quest, with the base fields every native reads), register the first hundred
+  natives by vanilla call count into the `soe-papyrus` native registry (Debug, Utility, Game,
+  Form, ObjectReference activation and enable state, Quest stages and objectives, Actor
+  inventory and values), and a game clock that drives the VM scheduler. Done: a synthetic
+  plugin with a quest script that advances stages on activation runs end to end.
+- **dds** (`crates/dds`, branch `dds`). DDS container and DXGI decoding (BC1, BC3, BC4, BC5,
+  BC7, uncompressed RGBA) to RGBA8 with mip levels, plus the encode path the mod manager's
+  TransformedTexture already needs, so both share one crate. Done: a synthetic BC1 block
+  decodes to the expected pixels, every unsupported format is a typed error.
+- **physics** (`crates/physics`, branch `physics`). Jolt through its C bindings: bhk shapes from
+  the `soe-nif` collision blocks (box, sphere, capsule, convex, compressed mesh) converted to
+  Jolt shapes for statics, a world stepped from the game clock, and a character controller
+  capsule. Done: a static mesh from a synthetic NIF stops a falling capsule.
+- **navmesh** (`crates/navmesh`, branch `navmesh`). Two halves: read the vanilla NAVM records
+  through `soe-esm` into a walkable graph so vanilla AI packages have their data, and generate
+  a Recast navmesh from `soe-nif` collision plus LAND heights so new content and mods with
+  broken navmeshes get one without the Creation Kit. Done: a synthetic cell produces a
+  navmesh whose path between two points avoids a placed box.
+- **shim** (`crates/commonlib-shim`, branch `shim`, MIT). The CommonLib shim scope: a header
+  diff against the alandtse CommonLibSSE-NG `include/RE` listing every type SPID, Base Object
+  Swapper and Papyrus Extender touch, grouped by whether the new engine has the concept, and
+  the skeleton of the Rust-side API those headers would bind to. Done: `docs/shim.md` with the
+  grouped list and counts, and the skeleton compiles.
+- **editor** (`docs/editor.md`, branch `editor`, documentation only). The Creation Kit
+  replacement design: the Godot editor as host, a forms dock backed by `soe-esm` with
+  winning-override display, standard-format import (glTF and PNG to NIF and DDS through the
+  crates above), navmesh regeneration on save, and what of the Creation Kit's own workflow is
+  worth keeping. Draws on `docs/design-system.md` and the CKPE and Skyrim-Behavior-Editor
+  references for what modders have had to bolt on.
+- **profile** (`crates/profile`, branch `profile`). Load order and INI conventions from the
+  installers-ini research lead: `plugins.txt` and `loadorder.txt` reading with ESM and ESL
+  rules, `Skyrim.ini` and `SkyrimPrefs.ini` with the precedence documented there, MO2 profile
+  layout so a manager loadout is playable directly. Done: an MO2-shaped profile directory
+  resolves to the expected load order.
