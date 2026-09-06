@@ -284,6 +284,10 @@ dependencies = [
 [[package]]
 name = "soe-esm"
 version = "0.1.0"
+dependencies = [
+ "flate2",
+ "thiserror",
+]
 
 [[package]]
 name = "soe-godot-host"
