@@ -1,0 +1,306 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+//! A load order and the form table it produces.
+//!
+//! A FormID written in a file is `index:object`, where the top byte indexes
+//! that file's master list and the low 24 bits name the object. The same
+//! object is written with different top bytes in different files, so the
+//! table is keyed by a `GlobalFormId` that names the owning file by its load
+//! order position instead. Every file that carries a record for a global id
+//! is an override, and the last one in load order wins, which is the rule
+//! Mutagen's cheat sheet and xEdit's conflict view both describe.
+//!
+//! A light plugin (the `ESL` header flag) does not get a top-byte slot of its
+//! own at runtime. The game packs it as `FE:sss:ooo`, a twelve-bit light slot
+//! and a twelve-bit object id. `runtime_id` produces that form, the table
+//! itself never needs it.
+
+use std::collections::HashMap;
+
+use crate::error::{Error, Result};
+use crate::plugin::{Plugin, Record};
+use crate::tag::Tag;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct GlobalFormId {
+    /// Position of the owning file in the load order.
+    pub file: u16,
+    /// The 24-bit object id as written in the file.
+    pub object: u32,
+}
+
+impl std::fmt::Display for GlobalFormId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}:{:06X}", self.file, self.object)
+    }
+}
+
+/// The slot a file occupies in the game's 32-bit FormID space.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Slot {
+    Regular(u8),
+    Light(u16),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct RecordRef {
+    pub file: usize,
+    pub record: usize,
+}
+
+pub struct LoadedFile {
+    pub name: String,
+    pub plugin: Plugin,
+    pub slot: Slot,
+    /// For each master in the header, its position in the load order.
+    pub master_positions: Vec<usize>,
+}
+
+#[derive(Default)]
+pub struct LoadOrder {
+    files: Vec<LoadedFile>,
+    table: HashMap<GlobalFormId, Vec<RecordRef>>,
+    regular_slots: u8,
+    light_slots: u16,
+}
+
+pub const MAX_REGULAR_SLOTS: u8 = 0xFE;
+pub const MAX_LIGHT_SLOTS: u16 = 0x1000;
+
+impl LoadOrder {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Add a file at the end of the order. Its masters must already be
+    /// loaded, matched by name without regard to case.
+    pub fn add(&mut self, name: &str, plugin: Plugin) -> Result<usize> {
+        let mut master_positions = Vec::with_capacity(plugin.header.masters.len());
+        for m in &plugin.header.masters {
+            let pos = self
+                .files
+                .iter()
+                .position(|f| f.name.eq_ignore_ascii_case(m))
+                .ok_or_else(|| {
+                    Error::Invalid(format!("{name} needs master {m}, which is not loaded before it"))
+                })?;
+            master_positions.push(pos);
+        }
+        let slot = if plugin.header.is_light() {
+            if self.light_slots >= MAX_LIGHT_SLOTS {
+                return Err(Error::Invalid(format!("{name}: no light slots left")));
+            }
+            let s = Slot::Light(self.light_slots);
+            self.light_slots += 1;
+            s
+        } else {
+            if self.regular_slots >= MAX_REGULAR_SLOTS {
+                return Err(Error::Invalid(format!("{name}: no regular slots left")));
+            }
+            let s = Slot::Regular(self.regular_slots);
+            self.regular_slots += 1;
+            s
+        };
+        let file_index = self.files.len();
+        let file = LoadedFile {
+            name: name.to_string(),
+            plugin,
+            slot,
+            master_positions,
+        };
+        for (i, rec) in file.plugin.records.iter().enumerate() {
+            let id = resolve_in(&file, file_index, rec.form_id);
+            self.table.entry(id).or_default().push(RecordRef {
+                file: file_index,
+                record: i,
+            });
+        }
+        self.files.push(file);
+        Ok(file_index)
+    }
+
+    pub fn files(&self) -> &[LoadedFile] {
+        &self.files
+    }
+
+    pub fn file(&self, index: usize) -> &LoadedFile {
+        &self.files[index]
+    }
+
+    pub fn position_of(&self, name: &str) -> Option<usize> {
+        self.files.iter().position(|f| f.name.eq_ignore_ascii_case(name))
+    }
+
+    /// Resolve a FormID as written in `file` to its global id.
+    pub fn resolve(&self, file: usize, raw: u32) -> GlobalFormId {
+        resolve_in(&self.files[file], file, raw)
+    }
+
+    /// The 32-bit FormID the game would use for this id under this order.
+    pub fn runtime_id(&self, id: GlobalFormId) -> u32 {
+        match self.files[id.file as usize].slot {
+            Slot::Regular(s) => (u32::from(s) << 24) | (id.object & 0x00FF_FFFF),
+            Slot::Light(s) => 0xFE00_0000 | (u32::from(s) << 12) | (id.object & 0xFFF),
+        }
+    }
+
+    /// Every record for the id, in load order. Empty when no file has it.
+    pub fn overrides(&self, id: GlobalFormId) -> &[RecordRef] {
+        self.table.get(&id).map(Vec::as_slice).unwrap_or(&[])
+    }
+
+    /// The winning record, the last one in load order.
+    pub fn winner(&self, id: GlobalFormId) -> Option<&Record> {
+        self.overrides(id).last().map(|r| self.record(*r))
+    }
+
+    pub fn winner_ref(&self, id: GlobalFormId) -> Option<RecordRef> {
+        self.overrides(id).last().copied()
+    }
+
+    pub fn record(&self, r: RecordRef) -> &Record {
+        &self.files[r.file].plugin.records[r.record]
+    }
+
+    /// Whether any file defines the id at all.
+    pub fn contains(&self, id: GlobalFormId) -> bool {
+        self.table.contains_key(&id)
+    }
+
+    pub fn len(&self) -> usize {
+        self.table.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.table.is_empty()
+    }
+
+    /// Winning records of one signature, in no particular order.
+    pub fn winners_of(&self, tag: Tag) -> impl Iterator<Item = (GlobalFormId, &Record)> {
+        self.table.iter().filter_map(move |(id, refs)| {
+            let r = self.record(*refs.last()?);
+            (r.tag == tag).then_some((*id, r))
+        })
+    }
+
+    /// Ids whose winning record does not come from the file that owns the
+    /// id, which is what "overridden" means in the conflict sense.
+    pub fn overridden(&self) -> impl Iterator<Item = GlobalFormId> + '_ {
+        self.table.iter().filter_map(|(id, refs)| {
+            let last = refs.last()?;
+            (last.file != id.file as usize).then_some(*id)
+        })
+    }
+}
+
+fn resolve_in(file: &LoadedFile, file_index: usize, raw: u32) -> GlobalFormId {
+    let index = (raw >> 24) as usize;
+    let object = raw & 0x00FF_FFFF;
+    // An index past the master list names the file itself, however large it
+    // is. The Creation Kit writes the file's own records with exactly
+    // masters.len(), other tools sometimes write 0xFF.
+    let owner = match file.master_positions.get(index) {
+        Some(pos) => *pos,
+        None => file_index,
+    };
+    GlobalFormId {
+        file: owner as u16,
+        object,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::plugin::{flags, FileHeader, Record};
+    use crate::tag;
+
+    fn master(name: &str, light: bool) -> Plugin {
+        let mut p = Plugin::new(FileHeader {
+            flags: flags::MASTER | if light { flags::LIGHT_MASTER } else { 0 },
+            author: name.into(),
+            ..Default::default()
+        });
+        p.push_top(Record::new(tag::STAT, 0x800).zsub(tag::EDID, "RockA"));
+        p.push_top(Record::new(tag::STAT, 0x801).zsub(tag::EDID, "RockB"));
+        p
+    }
+
+    fn patch(masters: &[&str]) -> Plugin {
+        Plugin::new(FileHeader {
+            masters: masters.iter().map(|s| s.to_string()).collect(),
+            ..Default::default()
+        })
+    }
+
+    #[test]
+    fn the_last_override_wins_and_the_owner_is_the_master() {
+        let mut lo = LoadOrder::new();
+        lo.add("Skyrim.esm", master("Skyrim.esm", false)).unwrap();
+        let mut a = patch(&["Skyrim.esm"]);
+        a.push_top(Record::new(tag::STAT, 0x00000800).zsub(tag::EDID, "RockA_fromA"));
+        a.push_top(Record::new(tag::STAT, 0x01000800).zsub(tag::EDID, "NewInA"));
+        lo.add("A.esp", a).unwrap();
+        let mut b = patch(&["Skyrim.esm", "A.esp"]);
+        b.push_top(Record::new(tag::STAT, 0x00000800).zsub(tag::EDID, "RockA_fromB"));
+        // B refers to A's new record through its own master list, index 1.
+        b.push_top(Record::new(tag::STAT, 0x01000800).zsub(tag::EDID, "NewInA_fromB"));
+        lo.add("B.esp", b).unwrap();
+
+        let rock = GlobalFormId { file: 0, object: 0x800 };
+        assert_eq!(lo.overrides(rock).len(), 3);
+        assert_eq!(lo.winner(rock).unwrap().editor_id().as_deref(), Some("RockA_fromB"));
+        let new_in_a = GlobalFormId { file: 1, object: 0x800 };
+        assert_eq!(lo.winner(new_in_a).unwrap().editor_id().as_deref(), Some("NewInA_fromB"));
+        // The same raw id means different things in A and in B.
+        assert_eq!(lo.resolve(1, 0x01000800), new_in_a);
+        assert_eq!(lo.resolve(2, 0x01000800), new_in_a);
+        assert_eq!(lo.resolve(2, 0x02000123), GlobalFormId { file: 2, object: 0x123 });
+        assert_eq!(lo.runtime_id(new_in_a), 0x01000800);
+        assert_eq!(lo.runtime_id(GlobalFormId { file: 2, object: 0x123 }), 0x02000123);
+        let overridden: Vec<_> = lo.overridden().collect();
+        assert_eq!(overridden.len(), 2);
+        assert_eq!(lo.winners_of(tag::STAT).count(), 3);
+    }
+
+    #[test]
+    fn a_missing_master_is_refused() {
+        let mut lo = LoadOrder::new();
+        let err = lo.add("A.esp", patch(&["Skyrim.esm"])).unwrap_err();
+        assert!(err.to_string().contains("Skyrim.esm"));
+    }
+
+    #[test]
+    fn master_names_match_without_case() {
+        let mut lo = LoadOrder::new();
+        lo.add("Skyrim.esm", master("Skyrim.esm", false)).unwrap();
+        lo.add("A.esp", patch(&["skyrim.ESM"])).unwrap();
+        assert_eq!(lo.file(1).master_positions, vec![0]);
+    }
+
+    #[test]
+    fn light_files_share_the_fe_slot() {
+        let mut lo = LoadOrder::new();
+        lo.add("Skyrim.esm", master("Skyrim.esm", false)).unwrap();
+        lo.add("L1.esl", master("L1", true)).unwrap();
+        lo.add("Mid.esp", patch(&["Skyrim.esm"])).unwrap();
+        lo.add("L2.esl", master("L2", true)).unwrap();
+        assert_eq!(lo.file(1).slot, Slot::Light(0));
+        assert_eq!(lo.file(2).slot, Slot::Regular(1));
+        assert_eq!(lo.file(3).slot, Slot::Light(1));
+        assert_eq!(lo.runtime_id(GlobalFormId { file: 1, object: 0x801 }), 0xFE000801);
+        assert_eq!(lo.runtime_id(GlobalFormId { file: 3, object: 0x801 }), 0xFE001801);
+        assert_eq!(lo.runtime_id(GlobalFormId { file: 2, object: 0x123 }), 0x01000123);
+    }
+
+    #[test]
+    fn an_index_past_the_master_list_means_the_file_itself() {
+        let mut lo = LoadOrder::new();
+        lo.add("Skyrim.esm", master("Skyrim.esm", false)).unwrap();
+        let mut a = patch(&["Skyrim.esm"]);
+        a.push_top(Record::new(tag::STAT, 0xFF000800));
+        lo.add("A.esp", a).unwrap();
+        assert_eq!(lo.resolve(1, 0xFF000800), GlobalFormId { file: 1, object: 0x800 });
+        assert!(lo.contains(GlobalFormId { file: 1, object: 0x800 }));
+    }
+}

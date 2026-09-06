@@ -3,5 +3,12 @@ name = "soe-esm"
 version = "0.1.0"
 edition = "2021"
 license = "GPL-3.0-or-later"
+description = "Load-order aware reader for TES4 family plugins (Skyrim SE ESM, ESP, ESL) with a winning-override form table"
+
+[lib]
+name = "soe_esm"
+path = "src/lib.rs"
 
 [dependencies]
+flate2 = "1.1"
+thiserror = "2.0"
