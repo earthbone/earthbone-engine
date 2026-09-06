@@ -1,0 +1,17 @@
+[package]
+name = "soe-navmesh"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-or-later"
+description = "Vanilla NAVM walkable graph with A*, and Recast navmesh generation from meshes and LAND heights"
+
+[lib]
+name = "soe_navmesh"
+path = "src/lib.rs"
+
+[dependencies]
+soe-esm = { path = "../esm" }
+soe-nif = { path = "../nif" }
+rerecast = { version = "0.4.0", default-features = false, features = ["std"] }
+glam = "0.32"
+thiserror = "2.0"

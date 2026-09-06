@@ -1,0 +1,499 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+//! A walkable graph over triangles, and A* on it.
+//!
+//! Nodes are triangles. A triangle has up to three neighbours, one across
+//! each edge, and a neighbour may live in another mesh: that is how the
+//! vanilla navmeshes of adjacent cells join, and the graph does not care
+//! which mesh a node belongs to once the links are in.
+//!
+//! Paths come back as the triangles crossed and as a polyline through the
+//! midpoints of the crossed edges. A segment from a triangle's centroid to
+//! the midpoint of one of its edges stays inside that triangle, so the
+//! polyline never leaves the walkable surface. It is not the shortest
+//! polyline, that needs string pulling, which is noted as future work.
+
+use std::cmp::Ordering;
+use std::collections::{BinaryHeap, HashMap};
+
+/// A triangle in the graph: which mesh, and which triangle in it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct NodeId {
+    pub mesh: u32,
+    pub triangle: u32,
+}
+
+impl NodeId {
+    pub const fn new(mesh: u32, triangle: u32) -> Self {
+        NodeId { mesh, triangle }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Triangle {
+    pub vertices: [u32; 3],
+    /// Across edge 0-1, 1-2, 2-0.
+    pub neighbors: [Option<NodeId>; 3],
+    /// A triangle the game would not path over. It stays in the graph so
+    /// links through it still resolve, A* skips it.
+    pub blocked: bool,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct Mesh {
+    pub vertices: Vec<[f32; 3]>,
+    pub triangles: Vec<Triangle>,
+    min: [f32; 3],
+    max: [f32; 3],
+}
+
+impl Mesh {
+    fn recompute_bounds(&mut self) {
+        let mut min = [f32::INFINITY; 3];
+        let mut max = [f32::NEG_INFINITY; 3];
+        for v in &self.vertices {
+            for i in 0..3 {
+                min[i] = min[i].min(v[i]);
+                max[i] = max[i].max(v[i]);
+            }
+        }
+        self.min = min;
+        self.max = max;
+    }
+
+    pub fn bounds(&self) -> ([f32; 3], [f32; 3]) {
+        (self.min, self.max)
+    }
+
+    pub fn centroid(&self, triangle: u32) -> [f32; 3] {
+        let t = &self.triangles[triangle as usize];
+        let mut c = [0f32; 3];
+        for v in t.vertices {
+            let p = self.vertices[v as usize];
+            for i in 0..3 {
+                c[i] += p[i] / 3.0;
+            }
+        }
+        c
+    }
+
+    /// Midpoint of edge `edge` (0-1, 1-2, 2-0) of a triangle.
+    pub fn edge_midpoint(&self, triangle: u32, edge: usize) -> [f32; 3] {
+        let t = &self.triangles[triangle as usize];
+        let a = self.vertices[t.vertices[edge] as usize];
+        let b = self.vertices[t.vertices[(edge + 1) % 3] as usize];
+        [
+            (a[0] + b[0]) / 2.0,
+            (a[1] + b[1]) / 2.0,
+            (a[2] + b[2]) / 2.0,
+        ]
+    }
+
+    /// Height of the triangle's plane at an XY position, or `None` when the
+    /// XY position is outside the triangle.
+    fn height_at(&self, triangle: u32, x: f32, y: f32) -> Option<f32> {
+        let t = &self.triangles[triangle as usize];
+        let [a, b, c] = t.vertices.map(|v| self.vertices[v as usize]);
+        let d = (b[1] - c[1]) * (a[0] - c[0]) + (c[0] - b[0]) * (a[1] - c[1]);
+        if d.abs() < 1e-9 {
+            return None;
+        }
+        let l0 = ((b[1] - c[1]) * (x - c[0]) + (c[0] - b[0]) * (y - c[1])) / d;
+        let l1 = ((c[1] - a[1]) * (x - c[0]) + (a[0] - c[0]) * (y - c[1])) / d;
+        let l2 = 1.0 - l0 - l1;
+        let eps = -1e-4;
+        if l0 < eps || l1 < eps || l2 < eps {
+            return None;
+        }
+        Some(l0 * a[2] + l1 * b[2] + l2 * c[2])
+    }
+}
+
+/// The route between two triangles.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Path {
+    pub nodes: Vec<NodeId>,
+    /// Start point, the midpoint of every crossed edge, end point.
+    pub points: Vec<[f32; 3]>,
+    /// Sum of centroid to centroid distances, the cost A* minimised.
+    pub cost: f32,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct NavGraph {
+    meshes: Vec<Mesh>,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+struct Open {
+    f: f32,
+    node: NodeId,
+}
+
+impl Eq for Open {}
+
+impl Ord for Open {
+    fn cmp(&self, other: &Self) -> Ordering {
+        // Reversed so the heap pops the smallest f. NaN never enters.
+        other
+            .f
+            .partial_cmp(&self.f)
+            .unwrap_or(Ordering::Equal)
+            .then_with(|| other.node.cmp(&self.node))
+    }
+}
+
+impl PartialOrd for Open {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+fn distance(a: [f32; 3], b: [f32; 3]) -> f32 {
+    let d = [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+    (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt()
+}
+
+impl NavGraph {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Add a mesh whose triangles carry only their in-mesh neighbours (or
+    /// none, to be linked later). Returns the mesh index for [`NodeId`]s.
+    pub fn add_mesh(&mut self, vertices: Vec<[f32; 3]>, triangles: Vec<Triangle>) -> u32 {
+        let mut mesh = Mesh {
+            vertices,
+            triangles,
+            min: [0.0; 3],
+            max: [0.0; 3],
+        };
+        mesh.recompute_bounds();
+        self.meshes.push(mesh);
+        (self.meshes.len() - 1) as u32
+    }
+
+    /// Add a mesh and derive its in-mesh adjacency from shared vertex pairs.
+    pub fn add_mesh_with_adjacency(&mut self, vertices: Vec<[f32; 3]>, tris: &[[u32; 3]]) -> u32 {
+        let mut by_edge: HashMap<(u32, u32), Vec<(u32, usize)>> = HashMap::new();
+        for (ti, t) in tris.iter().enumerate() {
+            for e in 0..3 {
+                let a = t[e];
+                let b = t[(e + 1) % 3];
+                by_edge
+                    .entry((a.min(b), a.max(b)))
+                    .or_default()
+                    .push((ti as u32, e));
+            }
+        }
+        let mesh_index = self.meshes.len() as u32;
+        let mut triangles: Vec<Triangle> = tris
+            .iter()
+            .map(|t| Triangle {
+                vertices: *t,
+                neighbors: [None; 3],
+                blocked: false,
+            })
+            .collect();
+        for users in by_edge.values() {
+            if users.len() == 2 {
+                let (t0, e0) = users[0];
+                let (t1, e1) = users[1];
+                triangles[t0 as usize].neighbors[e0] = Some(NodeId::new(mesh_index, t1));
+                triangles[t1 as usize].neighbors[e1] = Some(NodeId::new(mesh_index, t0));
+            }
+        }
+        self.add_mesh(vertices, triangles)
+    }
+
+    /// Make `b` the neighbour of `a` across `edge`. One direction only, the
+    /// other mesh carries its own link back.
+    pub fn link(&mut self, a: NodeId, edge: usize, b: NodeId) {
+        self.meshes[a.mesh as usize].triangles[a.triangle as usize].neighbors[edge] = Some(b);
+    }
+
+    pub fn set_blocked(&mut self, node: NodeId, blocked: bool) {
+        self.meshes[node.mesh as usize].triangles[node.triangle as usize].blocked = blocked;
+    }
+
+    pub fn meshes(&self) -> &[Mesh] {
+        &self.meshes
+    }
+
+    pub fn mesh(&self, index: u32) -> &Mesh {
+        &self.meshes[index as usize]
+    }
+
+    pub fn triangle(&self, node: NodeId) -> &Triangle {
+        &self.meshes[node.mesh as usize].triangles[node.triangle as usize]
+    }
+
+    pub fn triangle_count(&self) -> usize {
+        self.meshes.iter().map(|m| m.triangles.len()).sum()
+    }
+
+    pub fn centroid(&self, node: NodeId) -> [f32; 3] {
+        self.meshes[node.mesh as usize].centroid(node.triangle)
+    }
+
+    /// The triangle under a point: its XY inside the triangle, and of those
+    /// the one whose surface is nearest in Z. Meshes whose bounds exclude
+    /// the point are skipped, so this is cheap on a world-sized graph.
+    pub fn locate(&self, point: [f32; 3]) -> Option<NodeId> {
+        let mut best: Option<(f32, NodeId)> = None;
+        for (mi, mesh) in self.meshes.iter().enumerate() {
+            let (min, max) = mesh.bounds();
+            if point[0] < min[0] || point[0] > max[0] || point[1] < min[1] || point[1] > max[1] {
+                continue;
+            }
+            for ti in 0..mesh.triangles.len() {
+                if let Some(z) = mesh.height_at(ti as u32, point[0], point[1]) {
+                    let dz = (z - point[2]).abs();
+                    if best.is_none_or(|(d, _)| dz < d) {
+                        best = Some((dz, NodeId::new(mi as u32, ti as u32)));
+                    }
+                }
+            }
+        }
+        best.map(|(_, n)| n)
+    }
+
+    /// The triangle whose centroid is nearest, for points just off the mesh.
+    pub fn nearest(&self, point: [f32; 3]) -> Option<NodeId> {
+        let mut best: Option<(f32, NodeId)> = None;
+        for (mi, mesh) in self.meshes.iter().enumerate() {
+            for ti in 0..mesh.triangles.len() {
+                let d = distance(mesh.centroid(ti as u32), point);
+                if best.is_none_or(|(bd, _)| d < bd) {
+                    best = Some((d, NodeId::new(mi as u32, ti as u32)));
+                }
+            }
+        }
+        best.map(|(_, n)| n)
+    }
+
+    /// A* over triangle adjacency, centroid distance as cost and as the
+    /// heuristic (which is admissible, a straight line is never longer than
+    /// the walked route).
+    pub fn find_path(&self, from: NodeId, to: NodeId) -> Option<Path> {
+        if self.triangle(from).blocked || self.triangle(to).blocked {
+            return None;
+        }
+        let goal = self.centroid(to);
+        let mut open = BinaryHeap::new();
+        let mut g: HashMap<NodeId, f32> = HashMap::new();
+        let mut came: HashMap<NodeId, (NodeId, usize)> = HashMap::new();
+        g.insert(from, 0.0);
+        open.push(Open {
+            f: distance(self.centroid(from), goal),
+            node: from,
+        });
+        while let Some(Open { node, .. }) = open.pop() {
+            if node == to {
+                return Some(self.assemble(from, to, &came, g[&to]));
+            }
+            let here = g[&node];
+            let c = self.centroid(node);
+            let tri = self.triangle(node);
+            for (edge, next) in tri.neighbors.iter().enumerate() {
+                let Some(next) = *next else { continue };
+                let Some(m) = self.meshes.get(next.mesh as usize) else {
+                    continue;
+                };
+                let Some(nt) = m.triangles.get(next.triangle as usize) else {
+                    continue;
+                };
+                if nt.blocked {
+                    continue;
+                }
+                let tentative = here + distance(c, m.centroid(next.triangle));
+                if g.get(&next).is_none_or(|&old| tentative < old) {
+                    g.insert(next, tentative);
+                    came.insert(next, (node, edge));
+                    open.push(Open {
+                        f: tentative + distance(m.centroid(next.triangle), goal),
+                        node: next,
+                    });
+                }
+            }
+        }
+        None
+    }
+
+    /// Path between two world points, each located on the graph first.
+    pub fn find_path_between(&self, from: [f32; 3], to: [f32; 3]) -> Option<Path> {
+        let a = self.locate(from).or_else(|| self.nearest(from))?;
+        let b = self.locate(to).or_else(|| self.nearest(to))?;
+        let mut path = self.find_path(a, b)?;
+        if let Some(first) = path.points.first_mut() {
+            *first = from;
+        }
+        if let Some(last) = path.points.last_mut() {
+            *last = to;
+        }
+        Some(path)
+    }
+
+    fn assemble(
+        &self,
+        from: NodeId,
+        to: NodeId,
+        came: &HashMap<NodeId, (NodeId, usize)>,
+        cost: f32,
+    ) -> Path {
+        let mut nodes = vec![to];
+        let mut edges = Vec::new();
+        let mut cur = to;
+        while cur != from {
+            let (prev, edge) = came[&cur];
+            edges.push((prev, edge));
+            nodes.push(prev);
+            cur = prev;
+        }
+        nodes.reverse();
+        edges.reverse();
+        let mut points = Vec::with_capacity(edges.len() + 2);
+        points.push(self.centroid(from));
+        for (node, edge) in edges {
+            points.push(self.meshes[node.mesh as usize].edge_midpoint(node.triangle, edge));
+        }
+        points.push(self.centroid(to));
+        Path {
+            nodes,
+            points,
+            cost,
+        }
+    }
+
+    /// Every triangle reachable from `start`, for connectivity checks.
+    pub fn reachable(&self, start: NodeId) -> Vec<NodeId> {
+        let mut seen = std::collections::HashSet::new();
+        let mut stack = vec![start];
+        let mut out = Vec::new();
+        while let Some(n) = stack.pop() {
+            if !seen.insert(n) {
+                continue;
+            }
+            out.push(n);
+            for next in self.triangle(n).neighbors.iter().flatten() {
+                if self
+                    .meshes
+                    .get(next.mesh as usize)
+                    .is_some_and(|m| (next.triangle as usize) < m.triangles.len())
+                {
+                    stack.push(*next);
+                }
+            }
+        }
+        out
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A 1 by 4 strip of squares, two triangles each, 100 units per square.
+    fn strip() -> NavGraph {
+        let mut vertices = Vec::new();
+        for i in 0..=4 {
+            vertices.push([i as f32 * 100.0, 0.0, 0.0]);
+            vertices.push([i as f32 * 100.0, 100.0, 0.0]);
+        }
+        let mut tris = Vec::new();
+        for i in 0..4u32 {
+            let bl = i * 2;
+            let br = bl + 2;
+            tris.push([bl, br, br + 1]);
+            tris.push([bl, br + 1, bl + 1]);
+        }
+        let mut g = NavGraph::new();
+        g.add_mesh_with_adjacency(vertices, &tris);
+        g
+    }
+
+    #[test]
+    fn adjacency_comes_from_shared_edges() {
+        let g = strip();
+        let t0 = g.triangle(NodeId::new(0, 0));
+        assert_eq!(
+            t0.neighbors[1],
+            Some(NodeId::new(0, 3)),
+            "across the right edge"
+        );
+        assert_eq!(
+            t0.neighbors[2],
+            Some(NodeId::new(0, 1)),
+            "across the diagonal"
+        );
+        assert_eq!(t0.neighbors[0], None, "the bottom edge is a border");
+    }
+
+    #[test]
+    fn a_star_walks_the_strip_and_stays_on_it() {
+        let g = strip();
+        let p = g.find_path(NodeId::new(0, 0), NodeId::new(0, 7)).unwrap();
+        // Two triangles per square, the diagonal alternates, six hops.
+        assert_eq!(p.nodes.len(), 6, "{:?}", p.nodes);
+        assert_eq!(p.points.len(), 7);
+        for pt in &p.points {
+            assert!(pt[0] >= 0.0 && pt[0] <= 400.0 && pt[1] >= 0.0 && pt[1] <= 100.0);
+        }
+        assert!(p.cost > 300.0 && p.cost < 500.0, "{}", p.cost);
+    }
+
+    #[test]
+    fn a_blocked_triangle_cuts_the_strip() {
+        let mut g = strip();
+        g.set_blocked(NodeId::new(0, 4), true);
+        g.set_blocked(NodeId::new(0, 5), true);
+        assert!(g.find_path(NodeId::new(0, 0), NodeId::new(0, 7)).is_none());
+        assert!(g.find_path(NodeId::new(0, 0), NodeId::new(0, 3)).is_some());
+    }
+
+    #[test]
+    fn locate_picks_the_triangle_under_a_point() {
+        let g = strip();
+        let n = g.locate([250.0, 20.0, 5.0]).unwrap();
+        assert_eq!(n.mesh, 0);
+        assert!(n.triangle == 4 || n.triangle == 5);
+        assert!(g.locate([900.0, 20.0, 0.0]).is_none());
+        assert_eq!(g.nearest([900.0, 20.0, 0.0]).unwrap().triangle, 6);
+    }
+
+    #[test]
+    fn links_join_two_meshes() {
+        let mut g = NavGraph::new();
+        let a = g.add_mesh_with_adjacency(
+            vec![[0.0, 0.0, 0.0], [100.0, 0.0, 0.0], [0.0, 100.0, 0.0]],
+            &[[0, 1, 2]],
+        );
+        let b = g.add_mesh_with_adjacency(
+            vec![[100.0, 0.0, 0.0], [100.0, 100.0, 0.0], [0.0, 100.0, 0.0]],
+            &[[0, 1, 2]],
+        );
+        assert!(g.find_path(NodeId::new(a, 0), NodeId::new(b, 0)).is_none());
+        g.link(NodeId::new(a, 0), 1, NodeId::new(b, 0));
+        g.link(NodeId::new(b, 0), 2, NodeId::new(a, 0));
+        let p = g.find_path(NodeId::new(a, 0), NodeId::new(b, 0)).unwrap();
+        assert_eq!(p.nodes, vec![NodeId::new(a, 0), NodeId::new(b, 0)]);
+        assert_eq!(
+            p.points[1],
+            [50.0, 50.0, 0.0],
+            "the midpoint of the shared diagonal"
+        );
+        assert_eq!(g.reachable(NodeId::new(a, 0)).len(), 2);
+    }
+
+    #[test]
+    fn a_dangling_link_is_ignored_not_followed() {
+        let mut g = NavGraph::new();
+        let a = g.add_mesh_with_adjacency(
+            vec![[0.0, 0.0, 0.0], [100.0, 0.0, 0.0], [0.0, 100.0, 0.0]],
+            &[[0, 1, 2]],
+        );
+        g.link(NodeId::new(a, 0), 1, NodeId::new(99, 7));
+        assert!(g.find_path(NodeId::new(a, 0), NodeId::new(a, 0)).is_some());
+        assert_eq!(g.reachable(NodeId::new(a, 0)).len(), 1);
+    }
+}
