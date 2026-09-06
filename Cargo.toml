@@ -1,13 +1,14 @@
 [workspace]
 resolver = "2"
 members = [
-  "crates/esm",
   "crates/bsa",
+  "crates/commonlib-shim",
+  "crates/esm",
+  "crates/godot-host",
+  "crates/havok",
   "crates/nif",
   "crates/papyrus",
-  "crates/havok",
-  "crates/godot-host",
-  "crates/commonlib-shim",
+  "crates/profile",
 ]
 
 [workspace.package]

@@ -1,0 +1,17 @@
+[package]
+name = "soe-profile"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-or-later"
+description = "Load order, INI layering and mod-manager profile conventions for Skyrim SE, so a loadout resolves to what the engine should read"
+
+[lib]
+name = "soe_profile"
+path = "src/lib.rs"
+
+[dependencies]
+soe-esm = { path = "../esm" }
+thiserror = "2.0"
+
+[dev-dependencies]
+tempfile = "3"
