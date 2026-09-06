@@ -3,5 +3,22 @@ name = "soe-godot-host"
 version = "0.1.0"
 edition = "2021"
 license = "GPL-3.0-or-later"
+description = "Godot 4 host for the open Skyrim engine: cell streaming, mesh and terrain builders"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default = ["godot"]
+# The Godot node layer. Off, the crate is the pure streaming, mesh and terrain
+# logic with no engine dependency, which is what the tests and the benchmark
+# exercise.
+godot = ["dep:godot"]
 
 [dependencies]
+# godot-rust gdext 0.5.5 (crates.io 2026-08-09, matches engine-refs/gdext).
+# api-4-4 is the floor because Jolt became the built-in physics in 4.4.
+godot = { version = "0.5.5", features = ["api-4-4"], optional = true }
+thiserror = "2"
+
+[dev-dependencies]
