@@ -3,5 +3,9 @@ name = "soe-nif"
 version = "0.1.0"
 edition = "2021"
 license = "GPL-3.0-or-later"
+description = "Reader for Skyrim Special Edition NIF meshes with a renderer-neutral output"
+
+[lib]
+name = "soe_nif"
 
 [dependencies]
