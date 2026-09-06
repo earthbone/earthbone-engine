@@ -3,6 +3,7 @@ resolver = "2"
 members = [
   "crates/esm",
   "crates/bsa",
+  "crates/dds",
   "crates/nif",
   "crates/papyrus",
   "crates/havok",

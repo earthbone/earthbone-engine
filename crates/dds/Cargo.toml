@@ -1,0 +1,21 @@
+[package]
+name = "soe-dds"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-or-later"
+description = "DDS container reader with BC1 to BC7 decoding to RGBA8, and an optional encode path"
+
+[features]
+default = []
+# Block-compression encoding through image_dds, for the mod manager's
+# TransformedTexture step. Off by default so the engine core stays free of
+# the intel_tex C++ dependency.
+encode = ["dep:image_dds"]
+
+[dependencies]
+thiserror = "2"
+image_dds = { version = "0.3", default-features = false, features = ["ddsfile", "image", "encode"], optional = true }
+
+[dev-dependencies]
+soe-bsa = { path = "../bsa" }
+image_dds = { version = "0.3", default-features = false, features = ["ddsfile", "image", "decode"] }
