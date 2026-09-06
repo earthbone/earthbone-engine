@@ -310,6 +310,14 @@ name = "soe-papyrus"
 version = "0.1.0"
 
 [[package]]
+name = "soe-physics"
+version = "0.1.0"
+dependencies = [
+ "soe-bsa",
+ "soe-nif",
+]
+
+[[package]]
 name = "syn"
 version = "3.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
