@@ -7,6 +7,7 @@ members = [
   "crates/esm",
   "crates/godot-host",
   "crates/havok",
+  "crates/navmesh",
   "crates/nif",
   "crates/papyrus",
   "crates/physics",
