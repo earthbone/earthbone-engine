@@ -1,0 +1,13 @@
+; Engine configuration file.
+; Loads the soe-godot-host extension from ../target once Godot is installed.
+
+config_version=5
+
+[application]
+
+config/name="Skyrim open engine host"
+config/features=PackedStringArray("4.4")
+
+[rendering]
+
+renderer/rendering_method="forward_plus"
