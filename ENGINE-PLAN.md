@@ -16,7 +16,10 @@ Crate prefix `soe-`. Every parser crate exposes plain data structs with no rende
 dependency, and every crate has malformed-input tests (no parser in the briefs was ever fuzzed).
 No Skyrim data files exist on the development machine: tests use synthetic files written by the
 test suite from the spec, and real-file tests are gated on `SKYRIM_DATA=<path to Data/>` so they
-skip cleanly when unset. No Godot binary is installed either, so the host crate must build with
+skip cleanly when unset. Skyrim SE is being installed on 2026-09-06 into the Steam library under
+`/run/host/media/pengolodh/Data` (find it with `find /run/host/media/pengolodh/Data -maxdepth 7
+-iname Skyrim.esm`), so a fork whose crate is ready before it finishes reports the gated test as
+written but not run, and one that finds the files runs it and reports the numbers. No Godot binary is installed either, so the host crate must build with
 cargo alone.
 
 Rules for every fork: Edit tool for source edits, `cargo check --workspace`, clippy clean on the
