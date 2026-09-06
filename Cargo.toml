@@ -1,0 +1,14 @@
+[workspace]
+resolver = "2"
+members = [
+  "crates/esm",
+  "crates/bsa",
+  "crates/nif",
+  "crates/papyrus",
+  "crates/havok",
+  "crates/godot-host",
+]
+
+[workspace.package]
+edition = "2021"
+license = "GPL-3.0-or-later"

@@ -1,0 +1,8 @@
+target/
+*.esm
+*.esp
+*.bsa
+*.nif
+*.hkx
+*.pex
+!crates/*/tests/fixtures/**
