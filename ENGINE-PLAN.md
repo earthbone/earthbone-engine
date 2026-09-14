@@ -138,18 +138,34 @@ scenario harness. The VM gained per-object base classes for it (`Vm::create_obje
 met: the synthetic quest advances on activation end to end, a door teleports, a container opens,
 an `OnUpdate` timer fires on the clock. Every item in rounds 1 and 2 now has a first implementation.
 
-## Round 3 (not started): live validation and the seams the map left open
+## Round 3: fill the engine gaps (started 2026-09-14)
 
-- Run every `SKYRIM_DATA` gated test against the installed game and record the numbers in the docs.
-- Capture Papyrus logs from vanilla for three scenarios (a door, a container, a quest stage) and
-  check them in under `crates/game/tests/captures/` with their scenario files, see
-  `docs/validation.md`.
-- A save-file reader (`crates/save`) so quest stages, globals and reference state from a vanilla
-  save become scenario expectations without hand transcription.
-- Fetch the Creation Kit wiki's Papyrus function pages through a browser session (the site is
-  behind a Cloudflare challenge for plain fetches) into `engine-refs/ck-wiki/`, then review each
-  native in `docs/game.md` against its page.
-- Godot binary installed, the extension loaded, the Whiterun benchmark run for real.
+Same fork rules as rounds 1 and 2. Each item is one worktree branch, merged to master when its done
+check holds. Order is by what unblocks the most.
+
+| Item | Branch | Done check |
+|---|---|---|
+| Live validation | `live-validation` | Every `SKYRIM_DATA` gated test in every crate has run against the installed game, failures fixed or filed, and each `docs/<crate>.md` carries the numbers (records, archives, meshes, scripts, cells parsed, time taken). |
+| Actor base stats | `game-npc` | `NPC_` `ACBS` and `DNAM` feed actor values, level and flags, `CNTO` and `SPLO` seed inventory and spells, `RNAM` gives `GetRace`. Test on a synthetic NPC_ and on the Skyrim.esm Prisoner. |
+| VM save and load | `vm-save` | Script instances, variables, threads and the world's run-time state serialize to a file and load back, a quest mid-flow resumes and finishes. Own format first, ESS import is round 4. |
+| Godot headless load | `godot-headless` | A Godot 4 binary in `../tools/godot/`, the extension built as a cdylib and loaded by `godot --headless` on a test project, one cell streamed and its mesh count printed. |
+| Behavior interpreter | `behavior` | The havok crate's graph model runs: state machines, blend nodes, clip generators, transitions on events, for one vanilla actor skeleton and its idle plus walk clips, pose output checked against the clip sampler. The single hard blocker of the map. |
+| Packages and AI | `packages` | `PACK` records read, sandbox, travel and sleep packages drive an actor through the navmesh graph on the clock, `EvaluatePackage` is real. |
+| Parser fuzzing | `fuzz` | `cargo fuzz` targets for esm, bsa, nif, hkx, dds and pex, one hour each without a panic, findings fixed. |
+| Natives by call count | `natives-2` | The next hundred natives from `docs/papyrus.md` with state behind them, each with a scenario, and the conformance table updated. |
+
+## Round 4: tooling
+
+Rust by default. Go only where a component is easier to maintain in Go than in Rust, behind the
+protobuf seam, never inside the runtime crates.
+
+| Item | Done check |
+|---|---|
+| Validation runner | A binary that loads a profile, runs a directory of scenario files, and prints a conformance report with the capture each scenario cites. |
+| Save reader | `crates/save`: ESS header, change forms and globals table read, quest stages and globals from a vanilla save become scenario expectations. |
+| CK wiki review | `engine-refs/ck-wiki/` filled, every native in `docs/game.md` checked against its page, differences fixed or listed. |
+| Editor backend | `docs/editor.md` becomes code: record editing over the esm crate with the Godot editor as the front end. |
+| Packaging | A profile plus load order becomes a runnable install without a mod manager in the loop. |
 
 Decisions (2026-09-14, user): the runtime stays Rust. Go is used for a tooling component only when
 it makes that component easier to maintain than Rust would, behind a protobuf seam, never inside
