@@ -113,3 +113,58 @@ machine.
 `impl MeshSource for soe_nif::Shape` is the integration with the `nif` crate. The `esm`
 crate's LAND view feeds `decode_vhgt`. The Jolt binding from bhk shapes will need collision
 data that `MeshSource` does not carry and should be a second trait, not a widening of this one.
+
+## Headless run (2026-09-14)
+
+A Godot 4.4.1 Linux editor binary now lives at `../tools/godot/Godot_v4.4.1-stable_linux.x86_64`
+(round 3, `godot-headless`). The crate builds as a cdylib with `cargo build -p soe-godot-host
+--release`, no source changes were needed.
+
+Loading the extension outside the editor took two fixes, both now committed:
+
+- `godot/soe.gdextension`'s `linux.debug.x86_64` key pointed at
+  `res://../target/debug/libsoe_godot_host.so`, which is never built here. The stock editor
+  binary reports the `debug` feature tag even in headless script mode, so the loader picked
+  that key and failed with `GDExtension dynamic library not found: 'res://soe.gdextension'`
+  rather than falling back to the release key. Both `linux.debug.x86_64` and
+  `linux.release.x86_64` now point at the same `res://../target/release/libsoe_godot_host.so`,
+  since only the release build exists.
+- Godot only reads a project's `.gdextension` files through a cache it writes on first import
+  (`godot/.godot/extension_list.cfg`), which a bare `--script` run never generates. A project
+  never opened before needs one editor pass first:
+  `godot --headless --path godot --import`. That pass now prints
+  `Initialize godot-rust (API v4.4.stable.official, runtime v4.4.1.stable.official, safeguards
+  balanced)` with no GDExtension errors, confirming the load.
+
+`godot/headless_test.gd` is a `SceneTree` script, run with
+`godot --headless --path godot --script headless_test.gd`. What it actually exercises: this
+crate has no `esm`, `bsa` or `nif` dependency yet (see "Round 2 hooks" above), so there is no
+way for the extension to resolve a named cell such as `WhiterunBanneredMare` or read anything
+under `SKYRIM_DATA`, and `array_mesh_from` is a plain Rust function, not a `#[func]` GDScript
+can call. The script instead drives the one thing that is wired up, `CellStreamerNode`, with a
+synthetic focus placed mid exterior cell `(0, 0)`, `load_radius = 1`, builds one placeholder
+`MeshInstance3D` per `cell_load_requested` signal, and exits 0 once at least one mesh node
+exists, 1 otherwise. Real content loading through `SKYRIM_DATA` and named interior cells is the
+retry item once `godot-host` gains the `esm`, `bsa` and `nif` dependencies (round 4 territory,
+not scoped to this branch).
+
+Run and result (`SKYRIM_DATA` set to the vanilla install, 2026-09-14):
+
+```
+$ godot --headless --path godot --script headless_test.gd
+Initialize godot-rust (API v4.4.stable.official, runtime v4.4.1.stable.official, safeguards balanced)
+SKYRIM_DATA=/run/host/media/pengolodh/Data/SteamLibrary/steamapps/common/Skyrim Special Edition/Data
+Godot version: 4.4.1-stable (official)
+Godot headless load: cells streamed = 9, mesh nodes built = 9
+RESULT: PASS
+```
+
+Exit code 0. Nine cells is the full 3 by 3 ring `load_radius = 1` asks for around the focus
+cell, so every cell the streamer wanted got a placeholder mesh. One benign warning appears on
+the first frame, `ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()` from
+`get_global_transform`, because `CellStreamerNode::process` reads the focus node's global
+position before the scene's first `_ready` pass finishes placing it in the tree. It does not
+change the result (the focus position is fixed and correct from the second frame on) and needs
+no fix for this smoke test, but a real game-side user of `CellStreamerNode` should add the
+focus node to the tree before the streamer node, or gate the first `process` tick on
+`is_inside_tree()`.
