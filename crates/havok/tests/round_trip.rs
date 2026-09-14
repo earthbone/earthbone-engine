@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 //! A synthetic `skeleton.hkx`-shaped file with one skeleton, one spline
 //! animation and one binding, written with the builder and read back.

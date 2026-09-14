@@ -188,7 +188,7 @@ mod tests {
 
     /// A DX10-headed BC7 file with `mips` levels of solid mode-6 blocks.
     fn synthetic(
-        fourcc: &[u8; 4],
+        fourcc: [u8; 4],
         dxgi: Option<u32>,
         w: u32,
         h: u32,
@@ -208,7 +208,7 @@ mod tests {
             mip_map_count: mips,
             pixel_format: PixelFormat {
                 flags: pf::FOURCC,
-                four_cc: *fourcc,
+                four_cc: fourcc,
                 rgb_bit_count: 0,
                 r_mask: 0,
                 g_mask: 0,
@@ -240,7 +240,7 @@ mod tests {
     fn a_bc1_mip_chain_decodes_level_by_level() {
         // Solid red block: c0 = c1 = red in 565, all indices 0.
         let block = [0x00, 0xF8, 0x00, 0xF8, 0, 0, 0, 0];
-        let bytes = synthetic(b"DXT1", None, 8, 4, 4, &block);
+        let bytes = synthetic(*b"DXT1", None, 8, 4, 4, &block);
         let dds = Dds::parse(&bytes).unwrap();
         assert_eq!(dds.format(), Format::Bc1);
         assert_eq!(dds.mip_count(), 4);
@@ -253,7 +253,7 @@ mod tests {
         let chain = dds.decode_chain(0).unwrap();
         assert_eq!(chain.len(), 4);
         assert_eq!(chain[0].rgba.len(), 8 * 4 * 4);
-        assert!(chain[3].rgba == [255, 0, 0, 255]);
+        assert_eq!(chain[3].rgba, [255, 0, 0, 255]);
         assert!(matches!(
             dds.level(0, 4),
             Err(Error::NoSuchLevel { layer: 0, mip: 4 })
@@ -263,7 +263,7 @@ mod tests {
     #[test]
     fn a_truncated_file_is_refused_at_parse() {
         let block = [0u8; 16];
-        let mut bytes = synthetic(b"DX10", Some(dxgi::BC7_UNORM_SRGB), 4, 4, 2, &block);
+        let mut bytes = synthetic(*b"DX10", Some(dxgi::BC7_UNORM_SRGB), 4, 4, 2, &block);
         let whole = Dds::parse(&bytes).unwrap();
         assert_eq!(whole.color_space(), ColorSpace::Srgb);
         bytes.pop();
@@ -273,13 +273,13 @@ mod tests {
 
     #[test]
     fn unsupported_formats_name_themselves() {
-        let bytes = synthetic(b"DX10", Some(dxgi::BC6H_UF16), 4, 4, 1, &[0u8; 16]);
+        let bytes = synthetic(*b"DX10", Some(dxgi::BC6H_UF16), 4, 4, 1, &[0u8; 16]);
         let err = Dds::parse(&bytes).unwrap_err();
         assert_eq!(
             err.to_string(),
             "unsupported texture format: BC6H half-float"
         );
-        let bytes = synthetic(b"DXT9", None, 4, 4, 1, &[0u8; 16]);
+        let bytes = synthetic(*b"DXT9", None, 4, 4, 1, &[0u8; 16]);
         assert!(matches!(
             Dds::parse(&bytes),
             Err(Error::Unsupported(Unsupported::FourCc(_)))
@@ -289,7 +289,7 @@ mod tests {
     #[test]
     fn a_cube_map_has_six_layers_of_chains() {
         let block = [0u8; 8];
-        let mut bytes = synthetic(b"ATI1", None, 4, 4, 2, &block);
+        let mut bytes = synthetic(*b"ATI1", None, 4, 4, 2, &block);
         // Five more faces, each two levels of one block.
         for _ in 0..5 {
             bytes.extend_from_slice(&block);

@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 //! Parses every loose `.nif` under `$SKYRIM_DATA/meshes` and every file
 //! under `$SOE_NIF_SAMPLES`, and reports what loaded. Skips when neither

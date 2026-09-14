@@ -86,3 +86,12 @@ On 2026-09-06 against the Steam install it indexed all 30 archives without a
 failure, 172,961 files, and read the first record of each, which caught the
 embedded-name layout of the texture archives that LMO's parser never handled. Not covered by any real file yet: v103, v104 and BA2 archives, since
 only Skyrim SE is installed here.
+
+## Live run (2026-09-14)
+
+Reran the gated test against the same install. It indexed and read every file of
+every archive, 172961 files across 23 archives, the eight base Skyrim archives, the
+nine texture archives, the Creation Club archives and the resource pack, plus the
+loose marketplace archive. The VFS test answered every vanilla path case
+insensitively. Both tests passed in 12.2 seconds with no failures and no code
+change was needed.

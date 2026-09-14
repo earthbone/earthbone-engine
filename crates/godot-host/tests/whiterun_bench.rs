@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 //! A synthetic Whiterun-sized streaming benchmark.
 //!
@@ -16,7 +17,7 @@
 
 use std::time::Instant;
 
-use soe_godot_host::mesh::{build_surface, MeshData, MeshOptions};
+use soe_godot_host::mesh::{build_surface, MaterialDesc, MeshData, MeshOptions};
 use soe_godot_host::streaming::{CellCoord, CellStreamer, StreamConfig};
 use soe_godot_host::terrain::{CellHeights, RegionBuilder, RegionSpec};
 use soe_godot_host::units::{SkyrimPos, CELL_UNITS, LAND_SAMPLES};
@@ -66,7 +67,7 @@ fn synthetic_static(rng: &mut Rng, cell: CellCoord, tris: usize) -> MeshData {
         indices,
         bone_indices: None,
         bone_weights: None,
-        material: Default::default(),
+        material: MaterialDesc::default(),
     }
 }
 
@@ -138,8 +139,7 @@ fn whiterun_sized_grid_streams_through_the_rust_pipeline() {
     let secs = elapsed.as_secs_f64();
 
     eprintln!(
-        "whiterun bench: {cells_loaded} cells, {surfaces_kept} surfaces, {triangles} triangles, {regions_built} region builds in {:.3} s",
-        secs
+        "whiterun bench: {cells_loaded} cells, {surfaces_kept} surfaces, {triangles} triangles, {regions_built} region builds in {secs:.3} s"
     );
     eprintln!(
         "whiterun bench: {:.1} cells/s, {:.0} triangles/s",

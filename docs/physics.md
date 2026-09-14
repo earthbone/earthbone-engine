@@ -114,6 +114,18 @@ extent above 200,000 units. The same test then drops a capsule onto
 `examples/dump.rs` prints the colliders of one mesh, from a file or an
 archive path, with `--raw` for the trailing bytes of each rigid body.
 
+## Live run (2026-09-14)
+
+Both gated tests passed against the installed archives. The farmhouse capsule test
+dropped a capsule from height 815.99 onto a roof starting at 615.99 and it came to
+rest at z 551.15, on the farmhouse. The collider decode test converted 2000 shipped
+meshes in 1.2 seconds, 1333 of them carrying collision, 1705 colliders and 376971
+triangles feeding a world of 1219 statics and 380326 primitives. Shapes broke down
+as 1073 triangle meshes, 289 convex hulls, 200 capsules, 189 boxes, 59 compounds, 7
+spheres and 42 convex transforms. Twenty one `bhkSimpleShapePhantom` bodies and 4
+`bhkNiTriStripsShape` shapes were skipped, both already listed as gaps below. No
+code change was needed.
+
 ## Not yet
 
 - Jolt as the world, once CMake is on the build machine.

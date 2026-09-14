@@ -1078,6 +1078,7 @@ dependencies = [
 name = "soe-game"
 version = "0.1.0"
 dependencies = [
+ "soe-bsa",
  "soe-esm",
  "soe-papyrus",
 ]
@@ -1093,6 +1094,9 @@ dependencies = [
 [[package]]
 name = "soe-havok"
 version = "0.1.0"
+dependencies = [
+ "soe-bsa",
+]
 
 [[package]]
 name = "soe-navmesh"
@@ -1108,10 +1112,16 @@ dependencies = [
 [[package]]
 name = "soe-nif"
 version = "0.1.0"
+dependencies = [
+ "soe-bsa",
+]
 
 [[package]]
 name = "soe-papyrus"
 version = "0.1.0"
+dependencies = [
+ "soe-bsa",
+]
 
 [[package]]
 name = "soe-physics"

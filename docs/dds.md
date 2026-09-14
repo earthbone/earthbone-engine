@@ -77,6 +77,16 @@ Skyrim SE `Data/` folder and reads the textures straight out of the archives thr
 `soe-bsa`, `SOE_DDS_SAMPLE` sets how many per archive (default 150). `tests/bc7_roundtrip.rs`
 needs the `encode` feature.
 
+## Live run (2026-09-14)
+
+The gated test compared 1134 textures pulled from the installed archives against the
+image_dds reference decoder. Formats seen were BC1 (272 textures), BC3 (862), BGR8
+(5), BGRA8 (15) and BGRX8 (196). The worst per channel difference was 0 for BC1 and 1
+for BC3, both within tolerance, and every format decoded. No BC7 texture turned up in
+the sample, that format stays covered by the synthetic round trip in
+tests/bc7_roundtrip.rs. The test finished in 20.93 seconds with no failures and no
+code change was needed.
+
 ## Untested
 
 BC4 and BC5 against textures in the wild (only synthetic blocks), BC7 against textures in the

@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 //! The plan's done check: a synthetic cell produces a navmesh whose path
 //! between two points avoids a placed box.

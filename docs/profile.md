@@ -75,6 +75,14 @@ archives from `Skyrim_Default.ini` plus one per creation. One finding: the shipp
 `Skyrim_Default.ini` names `Skyrim - Patch.bsa`, which the install does not contain,
 so an engine must tolerate a listed archive that is absent.
 
+## Live run (2026-09-14)
+
+Reran the gated test against the same installed copy. It resolved 7 regular masters
+(Skyrim.esm, Update.esm, Dawnguard.esm, HearthFires.esm, Dragonborn.esm,
+ccBGSSSE001-Fish.esm and ccBGSSSE025-AdvDSGS.esm), 3 light early loaders
+(ccQDRSSE001-SurvivalMode.esl, ccBGSSSE037-Curios.esl and _ResourcePack.esl) and 23
+archives, in the correct early loader order. No code change was needed.
+
 ## Not done yet
 
 - No `plugins.txt` from `%LOCALAPPDATA%` was tested, the machine has no Windows profile,

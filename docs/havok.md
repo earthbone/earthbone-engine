@@ -268,6 +268,14 @@ needs is loaded by this crate today except conditions (`hkbCondition`
 expressions on transitions, flagged but not decoded) and the extracted
 motion frame.
 
+## Live run (2026-09-14)
+
+The gated test parses every packfile inside `Skyrim - Animations.bsa` and decodes
+every spline compressed animation it finds. 7699 packfiles parsed in 0.3 seconds, 0
+parse failures, every root a `hkRootLevelContainer`. 6126 spline animations turned
+up and all 6126 decoded, 466793 tracks sampled, 0 decode failures. No code change
+was needed.
+
 ## 6. Not done and next
 
 - 32-bit (Skyrim LE) layouts, wanted for Nemesis's LE cached behaviors.

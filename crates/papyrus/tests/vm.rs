@@ -638,36 +638,57 @@ fn host_api_errors_are_typed() {
 
 #[test]
 fn real_scripts_from_the_game_load_when_present() {
-    // The vanilla scripts ship inside `Skyrim - Misc.bsa`, so a loose
-    // `Data/Scripts` only exists once something extracted it. `SOE_PEX_DIR`
-    // points at such an extraction until the bsa crate can open the archive.
-    let dir = match (
-        std::env::var_os("SOE_PEX_DIR"),
-        std::env::var_os("SKYRIM_DATA"),
-    ) {
-        (Some(d), _) => std::path::PathBuf::from(d),
-        (None, Some(d)) => std::path::PathBuf::from(d).join("Scripts"),
-        (None, None) => {
-            eprintln!("SKYRIM_DATA and SOE_PEX_DIR not set, skipping the real-file test");
+    // The vanilla scripts ship inside `Skyrim - Misc.bsa` under `scripts/`.
+    // `SOE_PEX_DIR` points at a loose extraction if one exists (a plain
+    // install has none), otherwise the scripts are read straight out of the
+    // archive through `soe_bsa`.
+    let mut scripts: Vec<(String, Vec<u8>)> = Vec::new();
+    if let Some(d) = std::env::var_os("SOE_PEX_DIR") {
+        let dir = std::path::PathBuf::from(d);
+        if !dir.is_dir() {
+            eprintln!("no script folder at {}, skipping", dir.display());
             return;
         }
-    };
-    if !dir.is_dir() {
-        eprintln!("no script folder at {}, skipping", dir.display());
-        return;
-    }
-    fn walk(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
-        for e in std::fs::read_dir(dir).into_iter().flatten().flatten() {
-            let p = e.path();
-            if p.is_dir() {
-                walk(&p, out);
-            } else {
-                out.push(p);
+        fn walk(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+            for e in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+                let p = e.path();
+                if p.is_dir() {
+                    walk(&p, out);
+                } else {
+                    out.push(p);
+                }
             }
         }
+        let mut files = Vec::new();
+        walk(&dir, &mut files);
+        for p in files {
+            if p.extension().is_some_and(|x| x.eq_ignore_ascii_case("pex")) {
+                let bytes = std::fs::read(&p).unwrap();
+                scripts.push((p.display().to_string(), bytes));
+            }
+        }
+    } else if let Some(d) = std::env::var_os("SKYRIM_DATA") {
+        let data = std::path::PathBuf::from(d);
+        let archive =
+            soe_bsa::Archive::open(&data.join("Skyrim - Misc.bsa")).expect("archive opens");
+        let names: Vec<String> = archive
+            .files()
+            .iter()
+            .filter(|n| n.to_lowercase().ends_with(".pex"))
+            .cloned()
+            .collect();
+        for name in names {
+            let bytes = archive.read(&name).expect("file reads");
+            scripts.push((name, bytes));
+        }
+    } else {
+        eprintln!("SKYRIM_DATA and SOE_PEX_DIR not set, skipping the real-file test");
+        return;
     }
-    let mut files = Vec::new();
-    walk(&dir, &mut files);
+    if scripts.is_empty() {
+        eprintln!("no pex scripts found, skipping");
+        return;
+    }
     let (mut ok, mut failed, mut functions) = (0usize, Vec::new(), 0usize);
     let mut vm = Vm::new();
     // Call sites by target, to rank the natives the vanilla scripts lean on.
@@ -677,50 +698,43 @@ fn real_scripts_from_the_game_load_when_present() {
         std::collections::HashMap::default();
     let mut native_decls: std::collections::HashMap<String, usize> =
         std::collections::HashMap::default();
-    for p in files {
-        if p.extension().is_some_and(|x| x.eq_ignore_ascii_case("pex")) {
-            let bytes = std::fs::read(&p).unwrap();
-            match pex::parse(&bytes) {
-                Ok(s) => {
-                    ok += 1;
-                    for o in &s.objects {
-                        for st in &o.states {
-                            for f in &st.functions {
-                                functions += 1;
-                                if f.is_native() {
-                                    *native_decls
-                                        .entry(o.name.to_ascii_lowercase())
-                                        .or_default() += 1;
-                                }
-                                for ins in &f.code {
-                                    match ins.op {
-                                        CallStatic => {
-                                            let key = format!(
-                                                "{}.{}",
-                                                ins.args[0].as_ident().unwrap_or("?"),
-                                                ins.args[1].as_ident().unwrap_or("?")
-                                            );
-                                            *statics
-                                                .entry(key.to_ascii_lowercase())
-                                                .or_default() += 1;
-                                        }
-                                        CallMethod => {
-                                            let key = ins.args[0]
-                                                .as_ident()
-                                                .unwrap_or("?")
-                                                .to_ascii_lowercase();
-                                            *methods.entry(key).or_default() += 1;
-                                        }
-                                        _ => {}
+    for (name, bytes) in scripts {
+        match pex::parse(&bytes) {
+            Ok(s) => {
+                ok += 1;
+                for o in &s.objects {
+                    for st in &o.states {
+                        for f in &st.functions {
+                            functions += 1;
+                            if f.is_native() {
+                                *native_decls.entry(o.name.to_ascii_lowercase()).or_default() += 1;
+                            }
+                            for ins in &f.code {
+                                match ins.op {
+                                    CallStatic => {
+                                        let key = format!(
+                                            "{}.{}",
+                                            ins.args[0].as_ident().unwrap_or("?"),
+                                            ins.args[1].as_ident().unwrap_or("?")
+                                        );
+                                        *statics.entry(key.to_ascii_lowercase()).or_default() += 1;
                                     }
+                                    CallMethod => {
+                                        let key = ins.args[0]
+                                            .as_ident()
+                                            .unwrap_or("?")
+                                            .to_ascii_lowercase();
+                                        *methods.entry(key).or_default() += 1;
+                                    }
+                                    _ => {}
                                 }
                             }
                         }
                     }
-                    vm.load(s);
                 }
-                Err(err) => failed.push(format!("{}: {err}", p.display())),
+                vm.load(s);
             }
+            Err(err) => failed.push(format!("{name}: {err}")),
         }
     }
     eprintln!(
@@ -752,7 +766,7 @@ fn real_scripts_from_the_game_load_when_present() {
     for (k, n) in me.iter().take(60) {
         eprintln!("  method {n:6} {k}");
     }
-    assert!(ok > 0, "no scripts under {}", dir.display());
+    assert!(ok > 0, "no scripts parsed");
     assert!(failed.is_empty());
     assert!(vm.has_script("Actor") && vm.has_script("ObjectReference") && vm.has_script("Form"));
 }

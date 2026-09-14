@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 //! Synthetic files written from nif.xml by `common::NifWriter`, read back
 //! through the public API. Each test pins one layout the reader must get
@@ -538,4 +539,27 @@ fn unsupported_streams_are_named() {
         parse(&bytes),
         Err(Error::UnsupportedVersion { bs_version: 34, .. })
     ));
+}
+
+/// `BSBoneLODExtraData` inherits `NiExtraData`, not `NiNode`, so it carries a
+/// bone LOD count and a `{distance, name}` list instead of node fields. It
+/// was wrongly grouped with the node family, so the reader walked its bone
+/// list as if it were a garbage-length child ref array and failed on every
+/// vanilla creature skeleton (`skeleton.nif` ships one on every actor). It
+/// must be read as opaque extra data instead.
+#[test]
+fn a_bs_bone_lod_extra_data_is_read_as_extra_data_not_a_node() {
+    let mut w = NifWriter::new(100);
+    let name = w.string("NPC Spine1 [Spn1]");
+    let mut extra = Buf::default();
+    extra.u32(2).u32(10).u32(name).u32(20).u32(name);
+    let extra_bytes = extra.0;
+    let extra = w.add("BSBoneLODExtraData", extra_bytes.clone());
+    let root = w.ni_node("Root", [0.0; 3], IDENTITY, 1.0, &[extra]);
+    let root = w.add("NiNode", root);
+    w.roots = vec![root];
+    let file = parse(&w.finish()).expect("the extra data block parses as opaque data");
+    assert!(
+        matches!(&file.blocks[0], Block::Unknown { type_name, data } if type_name == "BSBoneLODExtraData" && data == &extra_bytes)
+    );
 }

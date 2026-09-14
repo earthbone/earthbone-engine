@@ -149,6 +149,19 @@ SOE_PEX_DIR=/path/to/extracted cargo test -p soe-papyrus --test vm real_scripts 
 
 `SKYRIM_DATA=<Data>` works once a loose `Data/Scripts` exists.
 
+## Live run (2026-09-14)
+
+`real_scripts_from_the_game_load_when_present` always skipped on a plain Steam
+install, it only looked for a loose `Data/Scripts` folder, but the vanilla scripts
+ship packed inside `Skyrim - Misc.bsa` and this install has never had them
+extracted. The test now opens that archive with `soe_bsa::Archive` when no
+`SOE_PEX_DIR` override and no loose folder are set, the same fix already used for
+the havok and nif gated tests, and reads every `.pex` straight out of it. `soe-bsa`
+was added as a dev dependency for this. The live run then parsed 14026 scripts with
+54620 functions and 0 failures, found 686 native declarations across 44 classes, 131
+distinct static call targets and 2615 distinct method call names, all loaded into a
+VM that carries `Actor`, `ObjectReference` and `Form`.
+
 ## Not done, and known gaps
 
 - Fallout 4 opcodes (`Is`, structs, the array mutators) parse but abort the

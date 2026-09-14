@@ -349,10 +349,10 @@ mod tests {
         }
     }
 
-    fn fourcc(c: &[u8; 4]) -> PixelFormat {
+    fn fourcc(c: [u8; 4]) -> PixelFormat {
         PixelFormat {
             flags: pf::FOURCC,
-            four_cc: *c,
+            four_cc: c,
             rgb_bit_count: 0,
             r_mask: 0,
             g_mask: 0,
@@ -372,11 +372,11 @@ mod tests {
             (b"BC5S", Format::Bc5 { signed: true }),
         ] {
             assert_eq!(
-                Format::from_header(&header(fourcc(c), None)).unwrap(),
+                Format::from_header(&header(fourcc(*c), None)).unwrap(),
                 (f, ColorSpace::Linear)
             );
         }
-        let err = Format::from_header(&header(fourcc(b"DXT9"), None)).unwrap_err();
+        let err = Format::from_header(&header(fourcc(*b"DXT9"), None)).unwrap_err();
         assert!(matches!(err, Error::Unsupported(Unsupported::FourCc(c)) if &c == b"DXT9"));
     }
 
@@ -384,7 +384,7 @@ mod tests {
     fn dxgi_formats_carry_srgb_and_refuse_bc6h() {
         let dx = |n| {
             header(
-                fourcc(b"DX10"),
+                fourcc(*b"DX10"),
                 Some(Dx10 {
                     dxgi_format: n,
                     dimension: 3,
