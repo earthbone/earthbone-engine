@@ -133,6 +133,50 @@ plumbing dominates, so the first hundred natives for week 6 to 9 of the map
 are quest stages and objectives, reference aliases, enable and disable,
 inventory, and package evaluation, before combat or magic.
 
+## Save and load
+
+`vm::state` (module `crates/papyrus/src/vm/state.rs`) gives `Vm::save_state(&self)
+-> Result<Vec<u8>, VmError>` and `Vm::load_state(&mut self, bytes) ->
+Result<(), VmError>`. No serde, an own little-endian binary format read and
+written by a small `Writer` and `Reader`, the same shape as `crates/game/src/vmad.rs`.
+`load_state` expects the caller to have loaded the same scripts first, the
+same way the VM itself never owns PEX bytes across a save, only the objects
+and threads built from them.
+
+Magic `SOEV`, a `u16` version (1), then an array pool, then the VM body.
+Everything a script variable can hold round trips: objects by id, strings,
+ints, floats, bools, and arrays. An array is a shared reference
+(`Rc<RefCell<Vec<Value>>>`), so it is pooled once by first-seen order and
+every variable or stack slot that names it writes only its pool index. Two
+variables pointing at the same array come back pointing at the same array
+after load, checked by a test that shares one array between two variables
+and asserts identity, not just equal contents, after the round trip.
+
+The VM body covers everything `load_state` needs to keep running exactly
+where `save_state` found it: every object (id, name, class, instance ids),
+every instance (its script chain by name, resolved back to `Rc<LoadedScript>`
+through the freshly loaded scripts, its state name, its variables with their
+declared types), every thread (its state, including a sleeping thread's
+remaining VM seconds and a latent thread's pending id, and its full frame
+stack, each frame naming its script, its function by a state-plus-name or
+getter or setter key, the instruction pointer, locals with their types, and
+where the return value goes), the latent and object id counters, the VM
+clock, and the trace log. A frame with no script (a native's own call frame)
+cannot be saved, `save_state` reports it rather than losing it silently.
+
+A thread saved mid-`Utility.Wait` is a saved `Sleeping(seconds)` state on a
+frame sitting inside the wait, nothing about the scheduler is special-cased,
+so loading it back and advancing the clock past the wait resumes and
+finishes the thread exactly as if it had never been serialized. A test
+builds such a thread, saves and loads it into a fresh `Vm` with the same
+script loaded, and checks it stays asleep until the clock passes the
+deadline.
+
+`ArrayPool`, `ArrayTable`, `Writer` and `Reader` are public under
+`vm::state` so `crates/game/src/world.rs` writes its own state (references,
+actors, quests, and the `Value` arguments of a pending event or call) in the
+same encoding, with its own array pool separate from the VM's.
+
 ## Running the tests
 
 ```bash
@@ -166,8 +210,6 @@ VM that carries `Actor`, `ObjectReference` and `Form`.
 
 - Fallout 4 opcodes (`Is`, structs, the array mutators) parse but abort the
   thread with the line number when executed. Skyrim never emits them.
-- Save and load of VM state (threads, frames, variables) is not implemented.
-  The frame model was chosen so it can be serialized, nothing does it yet.
 - The lookup order inside a chain is per script, state then empty state. The
   original engine's exact precedence when a parent defines a state function
   and the child defines only the empty-state one is not documented and was

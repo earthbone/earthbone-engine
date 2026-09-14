@@ -27,6 +27,7 @@ pub mod harness;
 pub mod natives;
 pub mod npc;
 pub mod quest;
+pub mod save;
 pub mod vmad;
 pub mod world;
 
@@ -300,16 +301,21 @@ impl Game {
             .set_stage(id, stage, &mut |n, c| vm.create_object_of(n, c))
     }
 
+    /// Queue the activation without running the VM. `activate` is this
+    /// followed by [`Game::run_until_idle`], split out so a caller can save
+    /// state with the `OnActivate` event still queued and unresolved.
+    pub fn activate_no_settle(&mut self, target: GlobalFormId, activator: GlobalFormId) -> bool {
+        let vm = &mut self.vm;
+        self.world
+            .borrow_mut()
+            .activate(target, activator, true, &mut |n, c| {
+                vm.create_object_of(n, c)
+            })
+    }
+
     /// Activate a reference the way a player click would, then settle.
     pub fn activate(&mut self, target: GlobalFormId, activator: GlobalFormId) -> bool {
-        let ok = {
-            let vm = &mut self.vm;
-            self.world
-                .borrow_mut()
-                .activate(target, activator, true, &mut |n, c| {
-                    vm.create_object_of(n, c)
-                })
-        };
+        let ok = self.activate_no_settle(target, activator);
         self.run_until_idle(64);
         ok
     }

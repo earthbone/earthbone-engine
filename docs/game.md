@@ -142,6 +142,49 @@ The next step to validate that path, mirroring the fix already applied to the
 papyrus crate's gated test, is to open `Skyrim - Misc.bsa` with `soe_bsa` and load
 every `scripts/*.pex` straight out of it when no loose folder is present.
 
+## Save and load
+
+`World::save_state(&self) -> Vec<u8>` and `World::load_state(&mut self,
+bytes) -> Result<(), VmError>` write and read the run-time half of the form
+table, magic `SOEW`, version 1, in the same `Writer`/`Reader` encoding as
+`soe_papyrus::vm::state`, an `ArrayPool` and `ArrayTable` of its own ahead of
+the body for the `Value` arguments a pending event or call is carrying.
+
+A form's record-derived data is not stored twice. A quest's definition (its
+stages, objectives and aliases as `QUST` and `VMAD` wrote them) is read back
+from the load order the same `quest_state` call already uses to build it the
+first time, `load_state` keeps only the mutable half a running game changes:
+whether it is running, completed, failed or active, the current and highest
+stage, the done set, per-objective displayed and completed and failed flags,
+and where each alias currently points. Everything with no record behind it,
+every reference's position, cell, enable state, inventory and links, a door's
+own teleport, every actor value, faction and spell, every global's current
+value, the VM object and handle tables, the dynamic id counter, the player,
+the RNG state, the clock, and whatever is queued (pending events and calls,
+update timers, notifications, message boxes, animation events, the INI
+overlay), is written and read in full since there is nothing to recompute it
+from.
+
+`Game::save_state(&self) -> Result<Vec<u8>, VmError>` and
+`Game::load_state(&mut self, bytes) -> Result<(), VmError>`
+(`crates/game/src/save.rs`) wrap `World::save_state`/`load_state` and
+`soe_papyrus::Vm::save_state`/`load_state` behind one envelope, magic
+`SOEG`, version 1, each inner blob length-prefixed. Neither the load order
+nor the loaded scripts travel in the file, `load_state` expects a `Game`
+built against the same load order with the same scripts already loaded, the
+way `Game::new` and `Game::load_script` already ask for them, and it should
+not have been bound or started first since it overwrites object and instance
+state wholesale.
+
+A test in `tests/quest_flow.rs` calls the new `Game::activate_no_settle`
+(the part of `Game::activate` before `run_until_idle`) on the lever so the
+`OnActivate` event is queued but not yet run, saves, loads the bytes into a
+freshly built `Game` with the same scripts and no binding done, then runs
+until idle and checks it reaches the same end state as
+`a_quest_advances_on_activation_end_to_end`: the quest completed at stage 20,
+the objective completed, the gold given, the lever disabled, the
+notification fired, and the alias resolved to the lever.
+
 ## Not done, and known gaps
 
 - Race records are not read, so race starting stats and the skill bonuses
@@ -156,5 +199,4 @@ every `scripts/*.pex` straight out of it when no loose folder is present.
 - `bind` attaches every script in the load order at start. The game does this
   lazily per cell. On the five base masters this is tens of thousands of
   instances and has not been timed.
-- Save and load of world state is not implemented.
 - No native has been checked against its CK wiki page yet, see above.

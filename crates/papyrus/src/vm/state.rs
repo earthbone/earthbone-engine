@@ -1,0 +1,853 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+//! Save and load of live VM state: objects, script instances with their
+//! variables, threads with their frame stacks, the clock and the log.
+//!
+//! The format is the engine's own, versioned by `VERSION`, little-endian,
+//! with no dependency outside the standard library. Scripts are not stored,
+//! the host loads the same PEX files before `load_state`, and every frame
+//! names its function by script, state and name so it can be found again.
+//! Arrays keep their identity: every distinct array reachable from a
+//! variable, local, result or pending argument goes into a pool once and
+//! values refer to it by index, so two variables that shared an array before
+//! the save share it after the load.
+//!
+//! [`Writer`], [`Reader`] and [`ArrayPool`] are public so the game crate can
+//! write its own state in the same encoding, including `Value`s.
+
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::rc::Rc;
+
+use crate::pex::Function;
+use crate::value::{ArrayRef, ElementKind, ObjectId, Value};
+
+use super::{
+    Frame, GameObject, InstanceId, LatentId, LoadedScript, LogEntry, Thread, ThreadId, ThreadState,
+    Vm, VmError,
+};
+
+pub const MAGIC: &[u8; 4] = b"SOEV";
+pub const VERSION: u16 = 1;
+
+/// Little-endian byte writer.
+#[derive(Default)]
+pub struct Writer {
+    pub out: Vec<u8>,
+}
+
+impl Writer {
+    pub fn new() -> Self {
+        Self::default()
+    }
+    pub fn u8(&mut self, v: u8) {
+        self.out.push(v);
+    }
+    pub fn bool(&mut self, v: bool) {
+        self.out.push(u8::from(v));
+    }
+    pub fn u16(&mut self, v: u16) {
+        self.out.extend_from_slice(&v.to_le_bytes());
+    }
+    pub fn u32(&mut self, v: u32) {
+        self.out.extend_from_slice(&v.to_le_bytes());
+    }
+    pub fn i32(&mut self, v: i32) {
+        self.out.extend_from_slice(&v.to_le_bytes());
+    }
+    pub fn u64(&mut self, v: u64) {
+        self.out.extend_from_slice(&v.to_le_bytes());
+    }
+    pub fn f32(&mut self, v: f32) {
+        self.out.extend_from_slice(&v.to_le_bytes());
+    }
+    pub fn f64(&mut self, v: f64) {
+        self.out.extend_from_slice(&v.to_le_bytes());
+    }
+    pub fn len(&mut self, n: usize) {
+        self.u32(u32::try_from(n).unwrap_or(u32::MAX));
+    }
+    pub fn str(&mut self, s: &str) {
+        self.len(s.len());
+        self.out.extend_from_slice(s.as_bytes());
+    }
+    pub fn opt_str(&mut self, s: Option<&str>) {
+        match s {
+            Some(s) => {
+                self.bool(true);
+                self.str(s);
+            }
+            None => self.bool(false),
+        }
+    }
+    pub fn opt_u64(&mut self, v: Option<u64>) {
+        match v {
+            Some(v) => {
+                self.bool(true);
+                self.u64(v);
+            }
+            None => self.bool(false),
+        }
+    }
+    pub fn bytes(&mut self, b: &[u8]) {
+        self.len(b.len());
+        self.out.extend_from_slice(b);
+    }
+}
+
+/// Little-endian byte reader that refuses to run past the end.
+pub struct Reader<'a> {
+    data: &'a [u8],
+    pos: usize,
+}
+
+impl<'a> Reader<'a> {
+    pub fn new(data: &'a [u8]) -> Self {
+        Reader { data, pos: 0 }
+    }
+    pub fn remaining(&self) -> usize {
+        self.data.len() - self.pos
+    }
+    pub fn take(&mut self, n: usize) -> Result<&'a [u8], VmError> {
+        let end = self
+            .pos
+            .checked_add(n)
+            .filter(|e| *e <= self.data.len())
+            .ok_or_else(|| bad(&format!("needs {n} bytes at {}", self.pos)))?;
+        let s = &self.data[self.pos..end];
+        self.pos = end;
+        Ok(s)
+    }
+    pub fn u8(&mut self) -> Result<u8, VmError> {
+        Ok(self.take(1)?[0])
+    }
+    pub fn bool(&mut self) -> Result<bool, VmError> {
+        Ok(self.u8()? != 0)
+    }
+    pub fn u16(&mut self) -> Result<u16, VmError> {
+        let b = self.take(2)?;
+        Ok(u16::from_le_bytes([b[0], b[1]]))
+    }
+    pub fn u32(&mut self) -> Result<u32, VmError> {
+        let b = self.take(4)?;
+        Ok(u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+    }
+    pub fn i32(&mut self) -> Result<i32, VmError> {
+        Ok(self.u32()? as i32)
+    }
+    pub fn u64(&mut self) -> Result<u64, VmError> {
+        let b = self.take(8)?;
+        let mut a = [0u8; 8];
+        a.copy_from_slice(b);
+        Ok(u64::from_le_bytes(a))
+    }
+    pub fn f32(&mut self) -> Result<f32, VmError> {
+        Ok(f32::from_bits(self.u32()?))
+    }
+    pub fn f64(&mut self) -> Result<f64, VmError> {
+        Ok(f64::from_bits(self.u64()?))
+    }
+    /// A count that must fit in the bytes that remain. Not a collection
+    /// length, `Reader` has nothing to be empty, so `is_empty` would not
+    /// mean anything here.
+    #[allow(clippy::len_without_is_empty)]
+    pub fn len(&mut self) -> Result<usize, VmError> {
+        let n = self.u32()? as usize;
+        if n > self.remaining() {
+            return Err(bad(&format!("count {n} exceeds the data")));
+        }
+        Ok(n)
+    }
+    pub fn str(&mut self) -> Result<String, VmError> {
+        let n = self.len()?;
+        let b = self.take(n)?;
+        String::from_utf8(b.to_vec()).map_err(|_| bad("string is not UTF-8"))
+    }
+    pub fn opt_str(&mut self) -> Result<Option<String>, VmError> {
+        Ok(if self.bool()? {
+            Some(self.str()?)
+        } else {
+            None
+        })
+    }
+    pub fn opt_u64(&mut self) -> Result<Option<u64>, VmError> {
+        Ok(if self.bool()? {
+            Some(self.u64()?)
+        } else {
+            None
+        })
+    }
+    pub fn bytes(&mut self) -> Result<&'a [u8], VmError> {
+        let n = self.len()?;
+        self.take(n)
+    }
+    pub fn expect_end(&self) -> Result<(), VmError> {
+        if self.remaining() == 0 {
+            Ok(())
+        } else {
+            Err(bad(&format!("{} trailing bytes", self.remaining())))
+        }
+    }
+}
+
+fn bad(msg: &str) -> VmError {
+    VmError::State(msg.to_string())
+}
+
+fn kind_byte(k: ElementKind) -> u8 {
+    match k {
+        ElementKind::Object => 0,
+        ElementKind::Str => 1,
+        ElementKind::Int => 2,
+        ElementKind::Float => 3,
+        ElementKind::Bool => 4,
+    }
+}
+
+fn kind_from(b: u8) -> Result<ElementKind, VmError> {
+    Ok(match b {
+        0 => ElementKind::Object,
+        1 => ElementKind::Str,
+        2 => ElementKind::Int,
+        3 => ElementKind::Float,
+        4 => ElementKind::Bool,
+        other => return Err(bad(&format!("unknown array kind {other}"))),
+    })
+}
+
+/// Every distinct array reachable from the values written through it, in
+/// first-seen order, so identity survives the round trip.
+#[derive(Default)]
+pub struct ArrayPool {
+    arrays: Vec<ArrayRef>,
+    index: HashMap<*const RefCell<Vec<Value>>, u32>,
+}
+
+impl ArrayPool {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    fn intern(&mut self, a: &ArrayRef) -> u32 {
+        let key = Rc::as_ptr(&a.items);
+        if let Some(i) = self.index.get(&key) {
+            return *i;
+        }
+        let i = u32::try_from(self.arrays.len()).unwrap_or(u32::MAX);
+        self.arrays.push(a.clone());
+        self.index.insert(key, i);
+        // Elements may be arrays too: intern them so the pool is closed.
+        let items: Vec<Value> = a.items.borrow().clone();
+        for v in &items {
+            if let Value::Array(inner) = v {
+                self.intern(inner);
+            }
+        }
+        i
+    }
+
+    /// Write one value. Arrays go into the pool and are written by index.
+    pub fn write_value(&mut self, w: &mut Writer, v: &Value) {
+        match v {
+            Value::None => w.u8(0),
+            Value::Object(o) => {
+                w.u8(1);
+                w.u64(o.0);
+            }
+            Value::Str(s) => {
+                w.u8(2);
+                w.str(s);
+            }
+            Value::Int(i) => {
+                w.u8(3);
+                w.i32(*i);
+            }
+            Value::Float(f) => {
+                w.u8(4);
+                w.f32(*f);
+            }
+            Value::Bool(b) => {
+                w.u8(5);
+                w.bool(*b);
+            }
+            Value::Array(a) => {
+                let i = self.intern(a);
+                w.u8(6);
+                w.u32(i);
+            }
+        }
+    }
+
+    /// Write the pool itself. Call after every value has been written, the
+    /// reader needs the pool before the values, so write it into its own
+    /// writer and put it first.
+    pub fn write_pool(&mut self, w: &mut Writer) {
+        // Interning while writing elements can grow the pool, so loop by
+        // index rather than iterating a borrowed vector.
+        let mut i = 0;
+        let mut bodies = Vec::new();
+        while i < self.arrays.len() {
+            let a = self.arrays[i].clone();
+            let mut body = Writer::new();
+            body.u8(kind_byte(a.kind));
+            let items: Vec<Value> = a.items.borrow().clone();
+            body.len(items.len());
+            for v in &items {
+                self.write_value(&mut body, v);
+            }
+            bodies.push(body.out);
+            i += 1;
+        }
+        w.len(bodies.len());
+        for b in bodies {
+            w.out.extend_from_slice(&b);
+        }
+    }
+}
+
+/// The reading side of [`ArrayPool`].
+pub struct ArrayTable {
+    arrays: Vec<ArrayRef>,
+}
+
+impl ArrayTable {
+    /// Read a pool written by [`ArrayPool::write_pool`].
+    pub fn read_pool(r: &mut Reader<'_>) -> Result<ArrayTable, VmError> {
+        let n = r.len()?;
+        let mut arrays = Vec::with_capacity(n);
+        let mut kinds = Vec::with_capacity(n);
+        // Two passes: allocate every array first so element references to
+        // later arrays resolve, then fill them.
+        let start = r.pos;
+        for _ in 0..n {
+            let kind = kind_from(r.u8()?)?;
+            kinds.push(kind);
+            let len = r.len()?;
+            for _ in 0..len {
+                skip_value(r)?;
+            }
+            arrays.push(ArrayRef::new(kind, 0));
+        }
+        let table = ArrayTable { arrays };
+        r.pos = start;
+        for i in 0..n {
+            r.u8()?;
+            let len = r.len()?;
+            let mut items = Vec::with_capacity(len);
+            for _ in 0..len {
+                items.push(table.read_value(r)?);
+            }
+            *table.arrays[i].items.borrow_mut() = items;
+        }
+        Ok(table)
+    }
+
+    pub fn empty() -> ArrayTable {
+        ArrayTable { arrays: Vec::new() }
+    }
+
+    pub fn read_value(&self, r: &mut Reader<'_>) -> Result<Value, VmError> {
+        Ok(match r.u8()? {
+            0 => Value::None,
+            1 => Value::Object(ObjectId(r.u64()?)),
+            2 => Value::string(&r.str()?),
+            3 => Value::Int(r.i32()?),
+            4 => Value::Float(r.f32()?),
+            5 => Value::Bool(r.bool()?),
+            6 => {
+                let i = r.u32()? as usize;
+                let a = self
+                    .arrays
+                    .get(i)
+                    .ok_or_else(|| bad(&format!("array {i} is not in the pool")))?;
+                Value::Array(a.clone())
+            }
+            other => return Err(bad(&format!("unknown value tag {other}"))),
+        })
+    }
+}
+
+fn skip_value(r: &mut Reader<'_>) -> Result<(), VmError> {
+    match r.u8()? {
+        0 => {}
+        1 => {
+            r.u64()?;
+        }
+        2 => {
+            r.str()?;
+        }
+        3 | 4 | 6 => {
+            r.u32()?;
+        }
+        5 => {
+            r.u8()?;
+        }
+        other => return Err(bad(&format!("unknown value tag {other}"))),
+    }
+    Ok(())
+}
+
+fn write_vars(
+    pool: &mut ArrayPool,
+    w: &mut Writer,
+    vars: &HashMap<String, Value>,
+    types: &HashMap<String, String>,
+) {
+    w.len(vars.len());
+    for (name, value) in vars {
+        w.str(name);
+        w.opt_str(types.get(name).map(String::as_str));
+        pool.write_value(w, value);
+    }
+}
+
+/// A script instance's or a frame's variables, and the declared type name
+/// of each variable that has one (every script variable does, a local only
+/// when a cast needs it).
+type Vars = (HashMap<String, Value>, HashMap<String, String>);
+
+fn read_vars(table: &ArrayTable, r: &mut Reader<'_>) -> Result<Vars, VmError> {
+    let n = r.len()?;
+    let mut vars = HashMap::with_capacity(n);
+    let mut types = HashMap::with_capacity(n);
+    for _ in 0..n {
+        let name = r.str()?;
+        if let Some(t) = r.opt_str()? {
+            types.insert(name.clone(), t);
+        }
+        vars.insert(name, table.read_value(r)?);
+    }
+    Ok((vars, types))
+}
+
+fn write_state(w: &mut Writer, s: &ThreadState) {
+    match s {
+        ThreadState::Runnable => w.u8(0),
+        ThreadState::Sleeping(until) => {
+            w.u8(1);
+            w.f64(*until);
+        }
+        ThreadState::Latent(id) => {
+            w.u8(2);
+            w.u64(id.0);
+        }
+        ThreadState::Done => w.u8(3),
+    }
+}
+
+fn read_state(r: &mut Reader<'_>) -> Result<ThreadState, VmError> {
+    Ok(match r.u8()? {
+        0 => ThreadState::Runnable,
+        1 => ThreadState::Sleeping(r.f64()?),
+        2 => ThreadState::Latent(LatentId(r.u64()?)),
+        3 => ThreadState::Done,
+        other => return Err(bad(&format!("unknown thread state {other}"))),
+    })
+}
+
+/// Where a frame's function lives in its script.
+enum FnKey {
+    Method { state: String, name: String },
+    Getter(String),
+    Setter(String),
+}
+
+fn key_of(script: &LoadedScript, f: &Rc<Function>) -> Option<FnKey> {
+    if let Some(((state, name), _)) = script.functions.iter().find(|(_, g)| Rc::ptr_eq(g, f)) {
+        return Some(FnKey::Method {
+            state: state.clone(),
+            name: name.clone(),
+        });
+    }
+    if let Some((p, _)) = script.getters.iter().find(|(_, g)| Rc::ptr_eq(g, f)) {
+        return Some(FnKey::Getter(p.clone()));
+    }
+    if let Some((p, _)) = script.setters.iter().find(|(_, g)| Rc::ptr_eq(g, f)) {
+        return Some(FnKey::Setter(p.clone()));
+    }
+    None
+}
+
+fn find_fn(script: &LoadedScript, key: &FnKey) -> Option<Rc<Function>> {
+    match key {
+        FnKey::Method { state, name } => script
+            .functions
+            .get(&(state.clone(), name.clone()))
+            .cloned(),
+        FnKey::Getter(p) => script.getters.get(p).cloned(),
+        FnKey::Setter(p) => script.setters.get(p).cloned(),
+    }
+}
+
+impl Vm {
+    /// Serialize everything but the loaded scripts and the native registry.
+    ///
+    /// # Errors
+    ///
+    /// A frame whose function cannot be named (no script attached to it)
+    /// cannot be restored and is refused.
+    pub fn save_state(&self) -> Result<Vec<u8>, VmError> {
+        let mut pool = ArrayPool::new();
+        let mut body = Writer::new();
+
+        body.u64(self.next_object);
+        body.len(self.objects.len());
+        for (id, o) in &self.objects {
+            body.u64(id.0);
+            body.str(&o.name);
+            body.opt_str(o.class.as_deref());
+            body.len(o.instances.len());
+            for i in &o.instances {
+                body.u64(i.0 as u64);
+            }
+        }
+
+        body.len(self.instances.len());
+        for inst in &self.instances {
+            body.u64(inst.object.0);
+            body.len(inst.chain.len());
+            for s in &inst.chain {
+                body.str(&s.name);
+            }
+            body.str(&inst.state);
+            write_vars(&mut pool, &mut body, &inst.vars, &inst.var_types);
+        }
+
+        body.u64(self.next_thread);
+        body.len(self.threads.len());
+        for t in &self.threads {
+            body.u64(t.id.0);
+            write_state(&mut body, &t.state);
+            pool.write_value(&mut body, &t.result);
+            body.opt_str(t.pending_dest.as_deref());
+            body.len(t.frames.len());
+            for f in &t.frames {
+                let script = f
+                    .script
+                    .as_ref()
+                    .ok_or_else(|| bad("a frame without a script cannot be saved"))?;
+                let key = key_of(script, &f.function).ok_or_else(|| {
+                    bad(&format!(
+                        "frame function {} not found in {}",
+                        f.function.name, script.name
+                    ))
+                })?;
+                body.str(&script.name);
+                match key {
+                    FnKey::Method { state, name } => {
+                        body.u8(0);
+                        body.str(&state);
+                        body.str(&name);
+                    }
+                    FnKey::Getter(p) => {
+                        body.u8(1);
+                        body.str(&p);
+                    }
+                    FnKey::Setter(p) => {
+                        body.u8(2);
+                        body.str(&p);
+                    }
+                }
+                body.opt_u64(f.instance.map(|i| i.0 as u64));
+                body.opt_u64(f.self_object.map(|o| o.0));
+                body.u64(f.pc as u64);
+                write_vars(&mut pool, &mut body, &f.locals, &f.local_types);
+                body.opt_str(f.ret_dest.as_deref());
+            }
+        }
+
+        body.u64(self.latent_counter);
+        body.len(self.latent_waiters.len());
+        for (l, t) in &self.latent_waiters {
+            body.u64(l.0);
+            body.u64(t.0);
+        }
+        body.f64(self.time);
+        body.len(self.log.entries.len());
+        for e in &self.log.entries {
+            body.f64(e.time);
+            body.str(&e.message);
+        }
+
+        let mut out = Writer::new();
+        out.out.extend_from_slice(MAGIC);
+        out.u16(VERSION);
+        pool.write_pool(&mut out);
+        out.out.extend_from_slice(&body.out);
+        Ok(out.out)
+    }
+
+    /// Replace the live state with a saved one. The scripts the save names
+    /// must be loaded already, the native registry is kept.
+    ///
+    /// # Errors
+    ///
+    /// A wrong magic or version, a truncated or inconsistent stream, or a
+    /// script or function the save names that is not loaded.
+    pub fn load_state(&mut self, bytes: &[u8]) -> Result<(), VmError> {
+        let mut r = Reader::new(bytes);
+        if r.take(4)? != MAGIC {
+            return Err(bad("not a VM state file"));
+        }
+        let version = r.u16()?;
+        if version != VERSION {
+            return Err(bad(&format!(
+                "state version {version}, this VM reads {VERSION}"
+            )));
+        }
+        let table = ArrayTable::read_pool(&mut r)?;
+
+        let next_object = r.u64()?;
+        let n = r.len()?;
+        let mut objects = HashMap::with_capacity(n);
+        for _ in 0..n {
+            let id = ObjectId(r.u64()?);
+            let name = r.str()?;
+            let class = r.opt_str()?;
+            let k = r.len()?;
+            let mut instances = Vec::with_capacity(k);
+            for _ in 0..k {
+                instances.push(InstanceId(r.u64()? as usize));
+            }
+            objects.insert(
+                id,
+                GameObject {
+                    name,
+                    class,
+                    instances,
+                },
+            );
+        }
+
+        let n = r.len()?;
+        let mut instances = Vec::with_capacity(n);
+        for _ in 0..n {
+            let object = ObjectId(r.u64()?);
+            let k = r.len()?;
+            let mut chain = Vec::with_capacity(k);
+            for _ in 0..k {
+                let name = r.str()?;
+                chain.push(self.script(&name).ok_or(VmError::UnknownScript(name))?);
+            }
+            let state = r.str()?;
+            let (vars, var_types) = read_vars(&table, &mut r)?;
+            instances.push(super::Instance {
+                object,
+                chain,
+                state,
+                vars,
+                var_types,
+            });
+        }
+        for o in objects.values() {
+            if o.instances.iter().any(|i| i.0 >= instances.len()) {
+                return Err(bad("object refers to an instance past the table"));
+            }
+        }
+
+        let next_thread = r.u64()?;
+        let n = r.len()?;
+        let mut threads = Vec::with_capacity(n);
+        for _ in 0..n {
+            let id = ThreadId(r.u64()?);
+            let state = read_state(&mut r)?;
+            let result = table.read_value(&mut r)?;
+            let pending_dest = r.opt_str()?;
+            let k = r.len()?;
+            let mut frames = Vec::with_capacity(k);
+            for _ in 0..k {
+                let script_name = r.str()?;
+                let script = self
+                    .script(&script_name)
+                    .ok_or_else(|| VmError::UnknownScript(script_name.clone()))?;
+                let key = match r.u8()? {
+                    0 => FnKey::Method {
+                        state: r.str()?,
+                        name: r.str()?,
+                    },
+                    1 => FnKey::Getter(r.str()?),
+                    2 => FnKey::Setter(r.str()?),
+                    other => return Err(bad(&format!("unknown function kind {other}"))),
+                };
+                let function = find_fn(&script, &key).ok_or_else(|| VmError::UnknownFunction {
+                    class: script_name.clone(),
+                    name: match &key {
+                        FnKey::Method { name, .. } => name.clone(),
+                        FnKey::Getter(p) | FnKey::Setter(p) => p.clone(),
+                    },
+                })?;
+                let instance = r.opt_u64()?.map(|i| InstanceId(i as usize));
+                let self_object = r.opt_u64()?.map(ObjectId);
+                let pc = r.u64()? as usize;
+                let (locals, local_types) = read_vars(&table, &mut r)?;
+                let ret_dest = r.opt_str()?;
+                frames.push(Frame {
+                    instance,
+                    self_object,
+                    script: Some(script),
+                    function,
+                    pc,
+                    locals,
+                    local_types,
+                    ret_dest,
+                });
+            }
+            threads.push(Thread {
+                id,
+                frames,
+                state,
+                result,
+                pending_dest,
+            });
+        }
+
+        let latent_counter = r.u64()?;
+        let n = r.len()?;
+        let mut latent_waiters = HashMap::with_capacity(n);
+        for _ in 0..n {
+            latent_waiters.insert(LatentId(r.u64()?), ThreadId(r.u64()?));
+        }
+        let time = r.f64()?;
+        let n = r.len()?;
+        let mut entries = Vec::with_capacity(n);
+        for _ in 0..n {
+            entries.push(LogEntry {
+                time: r.f64()?,
+                message: r.str()?,
+            });
+        }
+        r.expect_end()?;
+
+        self.objects = objects;
+        self.next_object = next_object;
+        self.instances = instances;
+        self.threads = threads;
+        self.next_thread = next_thread;
+        self.latent_counter = latent_counter;
+        self.latent_waiters = latent_waiters;
+        self.time = time;
+        self.log.entries = entries;
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn values_round_trip_and_shared_arrays_stay_shared() {
+        let shared = ArrayRef::new(ElementKind::Int, 2);
+        shared.items.borrow_mut()[0] = Value::Int(7);
+        let nested = ArrayRef::new(ElementKind::Object, 1);
+        nested.items.borrow_mut()[0] = Value::Array(shared.clone());
+        let values = vec![
+            Value::None,
+            Value::Object(ObjectId(9)),
+            Value::string("Hallo"),
+            Value::Int(-3),
+            Value::Float(2.5),
+            Value::Bool(true),
+            Value::Array(shared.clone()),
+            Value::Array(shared.clone()),
+            Value::Array(nested),
+        ];
+        let mut pool = ArrayPool::new();
+        let mut body = Writer::new();
+        body.len(values.len());
+        for v in &values {
+            pool.write_value(&mut body, v);
+        }
+        let mut out = Writer::new();
+        pool.write_pool(&mut out);
+        out.out.extend_from_slice(&body.out);
+
+        let mut r = Reader::new(&out.out);
+        let table = ArrayTable::read_pool(&mut r).unwrap();
+        let n = r.len().unwrap();
+        let back: Vec<Value> = (0..n).map(|_| table.read_value(&mut r).unwrap()).collect();
+        r.expect_end().unwrap();
+        for (a, b) in values.iter().zip(&back) {
+            assert!(
+                a.equals(b) || matches!((a, b), (Value::Array(_), Value::Array(_))),
+                "{a:?} vs {b:?}"
+            );
+        }
+        let (Value::Array(x), Value::Array(y)) = (&back[6], &back[7]) else {
+            panic!("arrays expected");
+        };
+        assert!(x.same(y), "identity kept");
+        assert_eq!(x.get(0), Some(Value::Int(7)));
+        let Value::Array(outer) = &back[8] else {
+            panic!()
+        };
+        let Some(Value::Array(inner)) = outer.get(0) else {
+            panic!()
+        };
+        assert!(inner.same(x), "nested array is the same shared one");
+    }
+
+    #[test]
+    fn a_thread_asleep_in_wait_resumes_after_load() {
+        use crate::asm::{f, i, ident, s, FunctionBuilder, ScriptBuilder};
+        use crate::pex::Opcode::{CallStatic, IAdd, Return};
+        let script = ScriptBuilder::new("Sleepy", "")
+            .variable("::n", "Int", i(1))
+            .function(
+                FunctionBuilder::new("Nap", "Int")
+                    .ins(IAdd, vec![ident("::n"), ident("::n"), i(10)])
+                    .ins(
+                        CallStatic,
+                        vec![s("Utility"), s("Wait"), ident("::nonevar"), f(2.0)],
+                    )
+                    .ins(IAdd, vec![ident("::n"), ident("::n"), i(100)])
+                    .ins(Return, vec![ident("::n")])
+                    .build(),
+            )
+            .bytes();
+        let mut vm = Vm::new();
+        vm.load_bytes(&script).unwrap();
+        let obj = vm.create_object("o");
+        vm.attach(obj, "Sleepy").unwrap();
+        let tid = vm.call(obj, "Nap", &[]).unwrap();
+        vm.run(1000);
+        assert!(matches!(
+            vm.thread_state(tid),
+            Some(ThreadState::Sleeping(_))
+        ));
+        assert_eq!(vm.get_var(obj, "Sleepy", "::n"), Some(Value::Int(11)));
+        let bytes = vm.save_state().unwrap();
+
+        let mut fresh = Vm::new();
+        fresh.load_bytes(&script).unwrap();
+        fresh.load_state(&bytes).unwrap();
+        assert!(matches!(
+            fresh.thread_state(tid),
+            Some(ThreadState::Sleeping(_))
+        ));
+        fresh.run(1000);
+        assert_eq!(fresh.thread_result(tid), None, "still asleep");
+        fresh.advance(2.5);
+        fresh.run(1000);
+        assert_eq!(fresh.thread_result(tid), Some(Value::Int(111)));
+        assert_eq!(fresh.get_var(obj, "Sleepy", "::n"), Some(Value::Int(111)));
+        assert!(matches!(fresh.thread_state(tid), Some(ThreadState::Done)));
+    }
+
+    #[test]
+    fn truncated_state_is_refused() {
+        let mut vm = Vm::new();
+        let obj = vm.create_object_of("x", "Form");
+        let _ = obj;
+        let bytes = vm.save_state().unwrap();
+        for cut in [0, 3, 5, 6, 10, bytes.len() - 1] {
+            assert!(Vm::new().load_state(&bytes[..cut]).is_err(), "cut {cut}");
+        }
+        let mut wrong = bytes.clone();
+        wrong[4] = 9;
+        assert!(Vm::new().load_state(&wrong).is_err());
+        let mut fresh = Vm::new();
+        fresh.load_state(&bytes).unwrap();
+        assert_eq!(fresh.object_class(obj), Some("Form"));
+    }
+}
