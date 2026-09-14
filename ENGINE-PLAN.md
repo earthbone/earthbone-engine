@@ -150,5 +150,7 @@ an `OnUpdate` timer fires on the clock. Every item in rounds 1 and 2 now has a f
   behind a Cloudflare challenge for plain fetches) into `engine-refs/ck-wiki/`, then review each
   native in `docs/game.md` against its page.
 - Godot binary installed, the extension loaded, the Whiterun benchmark run for real.
-- Decide the Go plus Rust split recorded on 2026-09-05 (Go tooling, Rust runtime, protobuf seam)
-  against the all-Rust workspace that exists, and write the outcome here.
+
+Decisions (2026-09-14, user): the runtime stays Rust. Go is used for a tooling component only when
+it makes that component easier to maintain than Rust would, behind a protobuf seam, never inside
+the runtime crates. Licensing stands: GPL-3.0-or-later core, MIT shim.

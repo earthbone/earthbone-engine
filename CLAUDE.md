@@ -87,9 +87,9 @@ Open the corpus before writing a parser or a native, not after.
 - Untested live: every `SKYRIM_DATA` gated test beyond esm and papyrus, a
   Godot binary loading the extension, a real Proton launch, fuzzing over any
   parser, VM save and load.
-- A 2026-09-05 session agreed a Go for tooling plus Rust for runtime split with
-  a protobuf seam. The plan and all crates are Rust only and do not reflect
-  that decision yet.
+- Language decision (2026-09-14): runtime crates stay Rust. Go only for a
+  tooling component where it eases maintenance, behind a protobuf seam.
+  Licensing confirmed: GPL-3.0-or-later core, MIT shim.
 - Open risks (map section 12): no open behavior-graph interpreter exists,
   about a thousand natives with unwritten semantics, EULA and reverse
   engineering exposure, GPL sources in the reading list, a single-maintainer
