@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 //! Every test builds a script with the assembler, serializes it to PEX bytes,
 //! and loads those bytes, so the reader and the VM are both on the path.
@@ -56,7 +57,16 @@ fn pex_round_trips_in_both_byte_orders() {
                     .param("n", "Int")
                     .local("acc", "Int")
                     .ins(IAdd, vec![ident("acc"), ident("n"), i(1)])
-                    .ins(CallStatic, vec![s("Debug"), s("Notification"), ident("::nonevar"), s("hi"), ident("acc")])
+                    .ins(
+                        CallStatic,
+                        vec![
+                            s("Debug"),
+                            s("Notification"),
+                            ident("::nonevar"),
+                            s("hi"),
+                            ident("acc"),
+                        ],
+                    )
                     .ins(Return, vec![ident("acc")])
                     .lines(&[3, 4, 5])
                     .build(),
@@ -68,9 +78,16 @@ fn pex_round_trips_in_both_byte_orders() {
         assert_eq!(back.header.byte_order, order);
         assert_eq!(back, script);
         let obj = back.object();
-        assert_eq!(obj.property("speed").unwrap().auto_var.as_deref(), Some("::Speed_var"));
+        assert_eq!(
+            obj.property("speed").unwrap().auto_var.as_deref(),
+            Some("::Speed_var")
+        );
         let sum = obj.function_in("", "sum").unwrap();
-        assert_eq!(sum.code[1].args.len(), 5, "varargs come back after the fixed operands");
+        assert_eq!(
+            sum.code[1].args.len(),
+            5,
+            "varargs come back after the fixed operands"
+        );
         assert_eq!(sum.line_of(1), Some(4));
     }
 }
@@ -94,7 +111,10 @@ fn malformed_files_fail_without_panicking() {
     assert!(matches!(pex::parse(&bad), Err(PexError::BadMagic(_))));
     let mut fo4 = bytes.clone();
     fo4[5] = 9;
-    assert!(matches!(pex::parse(&fo4), Err(PexError::UnsupportedVersion { major: 3, minor: 9 })));
+    assert!(matches!(
+        pex::parse(&fo4),
+        Err(PexError::UnsupportedVersion { major: 3, minor: 9 })
+    ));
     // Every single-byte mutation either parses or errors, never panics.
     for pos in 0..bytes.len() {
         let mut m = bytes.clone();
@@ -157,7 +177,10 @@ fn casts_follow_the_declared_type_of_the_destination() {
     let script = ScriptBuilder::new("Caster", "").function(cast).bytes();
     let mut vm = vm_with(vec![script]);
     let tid = vm.call_global("Caster", "Casts", &[]).unwrap();
-    assert_eq!(run_to_result(&mut vm, tid), Value::string("3.000000|2TrueNone"));
+    assert_eq!(
+        run_to_result(&mut vm, tid),
+        Value::string("3.000000|2TrueNone")
+    );
 }
 
 #[test]
@@ -201,13 +224,22 @@ fn arrays_are_shared_references_with_bounds_checks() {
         .ins(ArrayGetElement, vec![ident("r"), ident("xs"), i(2)])
         .ins(IMul, vec![ident("r"), ident("r"), i(100)])
         .ins(IAdd, vec![ident("r"), ident("r"), ident("n")])
-        .ins(ArrayFindElement, vec![ident("xs"), ident("found"), i(7), i(0)])
+        .ins(
+            ArrayFindElement,
+            vec![ident("xs"), ident("found"), i(7), i(0)],
+        )
         .ins(IMul, vec![ident("found"), ident("found"), i(10)])
         .ins(IAdd, vec![ident("r"), ident("r"), ident("found")])
-        .ins(ArrayRFindElement, vec![ident("xs"), ident("found"), i(0), i(-1)])
+        .ins(
+            ArrayRFindElement,
+            vec![ident("xs"), ident("found"), i(0), i(-1)],
+        )
         .ins(IMul, vec![ident("found"), ident("found"), i(1000)])
         .ins(IAdd, vec![ident("r"), ident("r"), ident("found")])
-        .ins(ArrayFindElement, vec![ident("xs"), ident("found"), i(42), i(0)])
+        .ins(
+            ArrayFindElement,
+            vec![ident("xs"), ident("found"), i(42), i(0)],
+        )
         .ins(IMul, vec![ident("found"), ident("found"), i(10000)])
         .ins(IAdd, vec![ident("r"), ident("r"), ident("found")])
         .ins(ArrayGetElement, vec![ident("n"), ident("xs"), i(3)])
@@ -251,8 +283,14 @@ fn greeter_scripts() -> Vec<Vec<u8>> {
             FunctionBuilder::new("Quad", "Int")
                 .param("x", "Int")
                 .local("r", "Int")
-                .ins(CallMethod, vec![s("Twice"), ident("self"), ident("r"), ident("x")])
-                .ins(CallMethod, vec![s("Twice"), ident("self"), ident("r"), ident("r")])
+                .ins(
+                    CallMethod,
+                    vec![s("Twice"), ident("self"), ident("r"), ident("x")],
+                )
+                .ins(
+                    CallMethod,
+                    vec![s("Twice"), ident("self"), ident("r"), ident("r")],
+                )
                 .ins(Return, vec![ident("r")])
                 .build(),
         )
@@ -279,7 +317,10 @@ fn calling_a_method_on_none_logs_and_continues() {
             FunctionBuilder::new("Go", "Int")
                 .local("target", "Parent")
                 .local("r", "Int")
-                .ins(CallMethod, vec![s("Twice"), ident("target"), ident("r"), i(1)])
+                .ins(
+                    CallMethod,
+                    vec![s("Twice"), ident("target"), ident("r"), i(1)],
+                )
                 .ins(IAdd, vec![ident("r"), ident("r"), i(5)])
                 .ins(Return, vec![ident("r")])
                 .lines(&[7, 8, 9])
@@ -290,7 +331,10 @@ fn calling_a_method_on_none_logs_and_continues() {
     let tid = vm.call_global("Caller", "Go", &[]).unwrap();
     assert_eq!(run_to_result(&mut vm, tid), Value::Int(5));
     let msg = vm.log.messages().join("\n");
-    assert!(msg.contains("cannot call Twice() on a None object"), "{msg}");
+    assert!(
+        msg.contains("cannot call Twice() on a None object"),
+        "{msg}"
+    );
     assert!(msg.contains("Caller.Go line 7"), "{msg}");
 }
 
@@ -327,13 +371,23 @@ fn auto_properties_and_getter_setter_properties() {
     let mut vm = vm_with(vec![script]);
     let obj = vm.create_object("Thing");
     vm.attach(obj, "Props").unwrap();
-    assert_eq!(vm.get_property(obj, "Props", "Health"), Some(Value::Float(50.0)));
+    assert_eq!(
+        vm.get_property(obj, "Props", "Health"),
+        Some(Value::Float(50.0))
+    );
     let tid = vm.call(obj, "Read", &[]).unwrap();
     assert_eq!(run_to_result(&mut vm, tid), Value::Float(92.0));
-    assert_eq!(vm.get_property(obj, "Props", "Health"), Some(Value::Float(10.0)));
+    assert_eq!(
+        vm.get_property(obj, "Props", "Health"),
+        Some(Value::Float(10.0))
+    );
     assert_eq!(vm.get_var(obj, "Props", "::val"), Some(Value::Int(21)));
-    vm.set_property(obj, "Props", "Health", Value::Float(1.0)).unwrap();
-    assert_eq!(vm.get_property(obj, "Props", "Health"), Some(Value::Float(1.0)));
+    vm.set_property(obj, "Props", "Health", Value::Float(1.0))
+        .unwrap();
+    assert_eq!(
+        vm.get_property(obj, "Props", "Health"),
+        Some(Value::Float(1.0))
+    );
 }
 
 #[test]
@@ -345,8 +399,7 @@ fn a_latent_native_suspends_the_thread_two_frames_deep_and_resumes() {
                 .ins(CallStatic, vec![s("Lat"), s("Inner"), ident("r")])
                 .ins(IAdd, vec![ident("r"), ident("r"), i(1)])
                 .ins(Return, vec![ident("r")])
-                .build()
-                ,
+                .build(),
         )
         .function(
             FunctionBuilder::new("Inner", "Int")
@@ -375,7 +428,10 @@ fn a_latent_native_suspends_the_thread_two_frames_deep_and_resumes() {
     assert_eq!(vm.thread_state(tid), Some(ThreadState::Latent(id)));
     assert_eq!(vm.thread_result(tid), None);
     assert!(vm.resolve_latent(id, Value::Int(20)));
-    assert!(!vm.resolve_latent(id, Value::Int(20)), "a latent resolves once");
+    assert!(
+        !vm.resolve_latent(id, Value::Int(20)),
+        "a latent resolves once"
+    );
     assert_eq!(run_to_result(&mut vm, tid), Value::Int(41));
 }
 
@@ -384,7 +440,10 @@ fn utility_wait_sleeps_until_the_clock_passes() {
     let script = ScriptBuilder::new("Sleepy", "")
         .function(
             FunctionBuilder::new("Nap", "Int")
-                .ins(CallStatic, vec![s("Utility"), s("Wait"), ident("::nonevar"), f(1.5)])
+                .ins(
+                    CallStatic,
+                    vec![s("Utility"), s("Wait"), ident("::nonevar"), f(1.5)],
+                )
                 .ins(Return, vec![i(7)])
                 .build(),
         )
@@ -408,11 +467,22 @@ fn mock_natives_notification_and_a_method_reached_through_declared_parents() {
             FunctionBuilder::new("Hail", "String")
                 .local("name", "String")
                 .local("msg", "String")
-                .ins(CallMethod, vec![s("GetDisplayName"), ident("self"), ident("name")])
+                .ins(
+                    CallMethod,
+                    vec![s("GetDisplayName"), ident("self"), ident("name")],
+                )
                 .ins(PropGet, vec![s("Greeting"), ident("self"), ident("msg")])
                 .ins(StrCat, vec![ident("msg"), ident("msg"), s(" ")])
                 .ins(StrCat, vec![ident("msg"), ident("msg"), ident("name")])
-                .ins(CallStatic, vec![s("Debug"), s("Notification"), ident("::nonevar"), ident("msg")])
+                .ins(
+                    CallStatic,
+                    vec![
+                        s("Debug"),
+                        s("Notification"),
+                        ident("::nonevar"),
+                        ident("msg"),
+                    ],
+                )
                 .ins(Return, vec![ident("msg")])
                 .build(),
         )
@@ -428,7 +498,11 @@ fn mock_natives_notification_and_a_method_reached_through_declared_parents() {
             NativeReturn::Value(Value::None)
         }),
     ));
-    assert!(!vm.natives.register_global("debug", "NOTIFICATION", Box::new(|_| NativeReturn::Value(Value::None))));
+    assert!(!vm.natives.register_global(
+        "debug",
+        "NOTIFICATION",
+        Box::new(|_| NativeReturn::Value(Value::None))
+    ));
     assert_eq!(vm.natives.duplicates.len(), 1);
     vm.natives.declare_parent("Actor", "ObjectReference");
     vm.natives.register_method(
@@ -459,7 +533,10 @@ fn events_reach_every_script_and_states_change_which_function_runs() {
         )
         .function(
             FunctionBuilder::new("Alert", "None")
-                .ins(CallMethod, vec![s("GotoState"), ident("self"), ident("::nonevar"), s("Busy")])
+                .ins(
+                    CallMethod,
+                    vec![s("GotoState"), ident("self"), ident("::nonevar"), s("Busy")],
+                )
                 .build(),
         )
         .function_in(
@@ -492,7 +569,10 @@ fn events_reach_every_script_and_states_change_which_function_runs() {
     assert_eq!(threads.len(), 2);
     assert!(vm.run_until_idle(1000));
     assert_eq!(vm.thread_result(threads[0]), Some(Value::string("idle")));
-    assert_eq!(vm.get_var(obj, "Bystander", "::seen"), Some(Value::Bool(true)));
+    assert_eq!(
+        vm.get_var(obj, "Bystander", "::seen"),
+        Some(Value::Bool(true))
+    );
     let tid = vm.call(obj, "Alert", &[]).unwrap();
     assert!(vm.run_until_idle(1000));
     assert_eq!(vm.thread_result(tid), Some(Value::None));
@@ -521,7 +601,10 @@ fn fallout_4_opcodes_abort_the_thread_with_the_line() {
     assert!(vm.run_until_idle(1000));
     assert_eq!(vm.thread_state(tid), Some(ThreadState::Done));
     let msg = vm.log.messages().join("\n");
-    assert!(msg.contains("ArrayClear") && msg.contains("Fo4.Bad line 21"), "{msg}");
+    assert!(
+        msg.contains("ArrayClear") && msg.contains("Fo4.Bad line 21"),
+        "{msg}"
+    );
 }
 
 #[test]
@@ -558,7 +641,10 @@ fn real_scripts_from_the_game_load_when_present() {
     // The vanilla scripts ship inside `Skyrim - Misc.bsa`, so a loose
     // `Data/Scripts` only exists once something extracted it. `SOE_PEX_DIR`
     // points at such an extraction until the bsa crate can open the archive.
-    let dir = match (std::env::var_os("SOE_PEX_DIR"), std::env::var_os("SKYRIM_DATA")) {
+    let dir = match (
+        std::env::var_os("SOE_PEX_DIR"),
+        std::env::var_os("SKYRIM_DATA"),
+    ) {
         (Some(d), _) => std::path::PathBuf::from(d),
         (None, Some(d)) => std::path::PathBuf::from(d).join("Scripts"),
         (None, None) => {
@@ -585,9 +671,12 @@ fn real_scripts_from_the_game_load_when_present() {
     let (mut ok, mut failed, mut functions) = (0usize, Vec::new(), 0usize);
     let mut vm = Vm::new();
     // Call sites by target, to rank the natives the vanilla scripts lean on.
-    let mut statics: std::collections::HashMap<String, usize> = Default::default();
-    let mut methods: std::collections::HashMap<String, usize> = Default::default();
-    let mut native_decls: std::collections::HashMap<String, usize> = Default::default();
+    let mut statics: std::collections::HashMap<String, usize> =
+        std::collections::HashMap::default();
+    let mut methods: std::collections::HashMap<String, usize> =
+        std::collections::HashMap::default();
+    let mut native_decls: std::collections::HashMap<String, usize> =
+        std::collections::HashMap::default();
     for p in files {
         if p.extension().is_some_and(|x| x.eq_ignore_ascii_case("pex")) {
             let bytes = std::fs::read(&p).unwrap();
@@ -599,16 +688,27 @@ fn real_scripts_from_the_game_load_when_present() {
                             for f in &st.functions {
                                 functions += 1;
                                 if f.is_native() {
-                                    *native_decls.entry(o.name.to_ascii_lowercase()).or_default() += 1;
+                                    *native_decls
+                                        .entry(o.name.to_ascii_lowercase())
+                                        .or_default() += 1;
                                 }
                                 for ins in &f.code {
                                     match ins.op {
                                         CallStatic => {
-                                            let key = format!("{}.{}", ins.args[0].as_ident().unwrap_or("?"), ins.args[1].as_ident().unwrap_or("?"));
-                                            *statics.entry(key.to_ascii_lowercase()).or_default() += 1;
+                                            let key = format!(
+                                                "{}.{}",
+                                                ins.args[0].as_ident().unwrap_or("?"),
+                                                ins.args[1].as_ident().unwrap_or("?")
+                                            );
+                                            *statics
+                                                .entry(key.to_ascii_lowercase())
+                                                .or_default() += 1;
                                         }
                                         CallMethod => {
-                                            let key = ins.args[0].as_ident().unwrap_or("?").to_ascii_lowercase();
+                                            let key = ins.args[0]
+                                                .as_ident()
+                                                .unwrap_or("?")
+                                                .to_ascii_lowercase();
                                             *methods.entry(key).or_default() += 1;
                                         }
                                         _ => {}
@@ -623,13 +723,20 @@ fn real_scripts_from_the_game_load_when_present() {
             }
         }
     }
-    eprintln!("parsed {ok} scripts with {functions} functions, {} failed", failed.len());
+    eprintln!(
+        "parsed {ok} scripts with {functions} functions, {} failed",
+        failed.len()
+    );
     for f in &failed {
         eprintln!("  {f}");
     }
     let mut decl: Vec<_> = native_decls.into_iter().collect();
     decl.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
-    eprintln!("native declarations: {} across {} classes", decl.iter().map(|d| d.1).sum::<usize>(), decl.len());
+    eprintln!(
+        "native declarations: {} across {} classes",
+        decl.iter().map(|d| d.1).sum::<usize>(),
+        decl.len()
+    );
     for (c, n) in decl.iter().take(25) {
         eprintln!("  decl {n:5} {c}");
     }

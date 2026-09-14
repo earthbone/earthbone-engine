@@ -306,7 +306,9 @@ pub struct Object {
 
 impl Object {
     pub fn state(&self, name: &str) -> Option<&State> {
-        self.states.iter().find(|s| s.name.eq_ignore_ascii_case(name))
+        self.states
+            .iter()
+            .find(|s| s.name.eq_ignore_ascii_case(name))
     }
 
     /// A function by name in one state, or in the empty state.
@@ -365,7 +367,7 @@ struct Reader<'a> {
     strings: Vec<String>,
 }
 
-impl<'a> Reader<'a> {
+impl Reader<'_> {
     fn need(&self, n: usize) -> Result<(), PexError> {
         if self.pos + n > self.data.len() {
             return Err(PexError::Truncated {

@@ -263,19 +263,37 @@ pub fn write(script: &Script) -> Vec<u8> {
         for s in &o.states {
             for f in &s.functions {
                 if !f.lines.is_empty() {
-                    debug.push((o.name.clone(), s.name.clone(), f.name.clone(), 0, f.lines.clone()));
+                    debug.push((
+                        o.name.clone(),
+                        s.name.clone(),
+                        f.name.clone(),
+                        0,
+                        f.lines.clone(),
+                    ));
                 }
             }
         }
         for p in &o.properties {
             if let Some(g) = &p.getter {
                 if !g.lines.is_empty() {
-                    debug.push((o.name.clone(), String::new(), p.name.clone(), 1, g.lines.clone()));
+                    debug.push((
+                        o.name.clone(),
+                        String::new(),
+                        p.name.clone(),
+                        1,
+                        g.lines.clone(),
+                    ));
                 }
             }
             if let Some(s) = &p.setter {
                 if !s.lines.is_empty() {
-                    debug.push((o.name.clone(), String::new(), p.name.clone(), 2, s.lines.clone()));
+                    debug.push((
+                        o.name.clone(),
+                        String::new(),
+                        p.name.clone(),
+                        2,
+                        s.lines.clone(),
+                    ));
                 }
             }
         }

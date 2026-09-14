@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
 //! Papyrus for the Skyrim open engine: a PEX loader, a small assembler that
 //! emits PEX, and a virtual machine with a scheduler, latent calls and a native
