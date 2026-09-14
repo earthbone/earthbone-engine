@@ -4,7 +4,11 @@ compatibility_minimum = 4.4
 reloadable = true
 
 [libraries]
-linux.debug.x86_64 = "res://../target/debug/libsoe_godot_host.so"
+; Only the release build is produced (crates/godot-host is built with
+; `cargo build --release`), so both keys resolve to it. Godot's own editor
+; binary reports the "debug" feature, and without a debug key present the
+; loader reports the library missing rather than falling back to release.
+linux.debug.x86_64 = "res://../target/release/libsoe_godot_host.so"
 linux.release.x86_64 = "res://../target/release/libsoe_godot_host.so"
 windows.debug.x86_64 = "res://../target/debug/soe_godot_host.dll"
 windows.release.x86_64 = "res://../target/release/soe_godot_host.dll"
