@@ -147,7 +147,7 @@ pub fn register(vm: &mut Vm, world: &Shared) -> Registered {
 
 /// Hand-kept count of the non-stub natives registered below. The test in
 /// this module checks it against the registry.
-pub const NATIVE_COUNT: usize = 138;
+pub const NATIVE_COUNT: usize = 141;
 
 fn declare_parents(vm: &mut Vm) {
     for (class, parent) in [
@@ -687,6 +687,16 @@ fn actor(vm: &mut Vm, w: &Shared) {
     method!(vm, w, "Actor", "IsEssential", |world, call, me| b(world
         .actor(me)
         .is_some_and(|a| a.essential)));
+    method!(vm, w, "Actor", "IsProtected", |world, call, me| b(world
+        .actor(me)
+        .is_some_and(|a| a.protected)));
+    method!(vm, w, "Actor", "GetLevel", |world, call, me| i(world
+        .actor(me)
+        .map_or(1, |a| a.level as i32)));
+    method!(vm, w, "Actor", "GetRace", |world, call, me| {
+        let race = world.actor(me).and_then(|a| a.race);
+        form_value(world, call, race)
+    });
     method!(vm, w, "Actor", "IsPlayerTeammate", |world, call, me| b(
         world.actor(me).is_some_and(|a| a.teammate)
     ));
@@ -1294,7 +1304,6 @@ fn stubs(vm: &mut Vm) -> usize {
     let ints: &[(&str, &str, i32)] = &[
         ("ObjectReference", "GetTriggerObjectCount", 0),
         ("ObjectReference", "GetCurrentDestructionStage", 0),
-        ("Actor", "GetLevel", 1),
         ("Actor", "GetCombatState", 0),
         ("Actor", "GetSleepState", 0),
         ("Actor", "GetSitState", 0),
@@ -1361,7 +1370,6 @@ fn stubs(vm: &mut Vm) -> usize {
         ("Actor", "GetCombatTarget"),
         ("Actor", "GetDialogueTarget"),
         ("Actor", "GetKiller"),
-        ("Actor", "GetRace"),
         ("Actor", "GetEquippedWeapon"),
         ("Actor", "GetEquippedShield"),
         ("Actor", "GetEquippedSpell"),

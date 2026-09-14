@@ -15,6 +15,9 @@ week 6 to 9 gate.
   `FF` like the game's own.
 - `vmad`: the `VMAD` subrecord. Scripts, their filled properties, quest stage
   fragments and alias scripts. Round-trips through `write`.
+- `npc`: the `NPC_` view. `ACBS` configuration, `DNAM` stats and skills,
+  spells, factions, items, race, class and template, with the template flags
+  applied one level. `World::actor` builds actor state from it.
 - `quest`: the `QUST` view. Flags, stages with log entries, objectives, aliases
   with forced references.
 - `natives`: the base game's natives, closed over the shared world.
@@ -52,7 +55,7 @@ native below is marked for review against its page once that happens.
 
 ## Conformance table
 
-Counts from `natives::register`: 138 natives with state behind them and 178
+Counts from `natives::register`: 141 natives with state behind them and 176
 quiet stubs. A stub returns the value the game gives when nothing is going on
 (`IsSneaking` false, `ShakeCamera` nothing) so vanilla scripts run past it.
 
@@ -60,7 +63,7 @@ quiet stubs. A stub returns the value the game gives when nothing is going on
 |---|---|---|
 | Form | GetFormID, GetName, GetType, HasKeyword, GetKeywords, RegisterForSingleUpdate, RegisterForUpdate, RegisterForSingleUpdateGameTime, RegisterForUpdateGameTime, UnregisterForUpdate, UnregisterForUpdateGameTime | |
 | ObjectReference | Enable, EnableNoWait, Disable, DisableNoWait, IsEnabled, IsDisabled, Delete, IsDeleted, GetBaseObject, GetParentCell, GetWorldSpace, IsInInterior, GetPositionX/Y/Z, GetAngleX/Y/Z, SetPosition, SetAngle, MoveTo, GetDistance, Activate, BlockActivation, IsActivationBlocked, GetLinkedRef, GetItemCount, AddItem, RemoveItem, RemoveAllItems, GetScale, SetScale, GetDisplayName, SetDisplayName, PlayAnimation, GetOpenState, SetOpen, Lock, IsLocked, GetLockLevel, SetLockLevel, PlaceAtMe | Is3DLoaded, IsFurnitureInUse, IsInLocation, GetCurrentLocation, GetActorOwner, SetMotionType, ApplyHavokImpulse and 14 more |
-| Actor | GetActorValue, GetBaseActorValue, SetActorValue, ModActorValue, DamageActorValue, RestoreActorValue, GetActorValuePercentage (and the AV short names), IsDead, Kill, Resurrect, IsInCombat, StartCombat, StopCombat, GetActorBase, GetLeveledActorBase, IsEssential, IsPlayerTeammate, SetPlayerTeammate, IsGhost, SetGhost, IsUnconscious, SetUnconscious, IsDoingFavor, SetDoingFavor, AddSpell, RemoveSpell, HasSpell, EquipItem, UnequipItem, IsEquipped, IsInFaction, GetFactionRank, AddToFaction, RemoveFromFaction, SetFactionRank | IsAlerted, IsSneaking, IsWeaponDrawn, GetLevel, GetCombatState, EvaluatePackage, SetAlert, GetRace, GetEquippedWeapon and 50 more |
+| Actor | GetActorValue, GetBaseActorValue, SetActorValue, ModActorValue, DamageActorValue, RestoreActorValue, GetActorValuePercentage (and the AV short names), IsDead, Kill, Resurrect, IsInCombat, StartCombat, StopCombat, GetActorBase, GetLeveledActorBase, IsEssential, IsPlayerTeammate, SetPlayerTeammate, IsGhost, SetGhost, IsProtected, GetLevel, GetRace, IsUnconscious, SetUnconscious, IsDoingFavor, SetDoingFavor, AddSpell, RemoveSpell, HasSpell, EquipItem, UnequipItem, IsEquipped, IsInFaction, GetFactionRank, AddToFaction, RemoveFromFaction, SetFactionRank | IsAlerted, IsSneaking, IsWeaponDrawn, GetCombatState, EvaluatePackage, SetAlert, GetEquippedWeapon and 50 more |
 | Quest | Start, Stop, Reset, IsRunning, IsCompleted, IsActive, SetActive, CompleteQuest, CompleteAllObjectives, FailAllObjectives, SetStage, SetCurrentStageID, GetStage, GetCurrentStageID, GetStageDone, IsStageDone, SetObjectiveDisplayed, SetObjectiveCompleted, SetObjectiveFailed, IsObjectiveDisplayed, IsObjectiveCompleted, IsObjectiveFailed, GetAlias, GetAliasById, GetAliasByName, GetID, GetPriority, GetQuest | IsStarting, IsStopping, UpdateCurrentInstanceGlobal, ModObjectiveGlobal, SetObjectiveDisplayedNoWait |
 | Alias, ReferenceAlias | GetOwningQuest, GetID, GetName, GetReference, GetRef, GetActorReference, GetActorRef, ForceRefTo, ForceRefIfEmpty, Clear | |
 | Game | GetPlayer, GetForm, GetFormEx, GetFormFromFile, EnablePlayerControls, DisablePlayerControls, GetGameSettingFloat/Int/String, GetRealHoursPassed | ShakeCamera, AddAchievement, FadeOutGame, RequestSave, ForceFirstPerson, IsFastTravelEnabled and 36 more |
@@ -84,8 +87,13 @@ Semantics worth stating because they were decided here, not read:
   target's scripts with the activator. `Activate(x, true)` skips the event.
 - `GetStage` is the highest stage set, `GetCurrentStageID` the last one.
 - Inventories start from the base record's `CNTO` list.
-- Actor values default to 100 health, magicka and stamina until `NPC_` stats
-  are read (not yet). Health reaching zero kills a non-essential actor.
+- Actor values come from the base `NPC_`: `DNAM` health, magicka, stamina
+  and the 18 skills plus the `ACBS` offsets, with the `TPLT` template applied
+  one level where the template flags say so. Race starting values are not
+  read yet, so they add nothing. `GetLevel` applies the PC level multiplier
+  against `World::player_level` and clamps to the calc range. An actor with
+  no base (the fallback player) starts at 100 for the three main values.
+  Health reaching zero kills a non-essential actor.
 - `GetAngle*` return degrees, the record stores radians.
 - Update timers run on real seconds, the game-time variants on game hours.
 - `Game.GetForm` accepts the runtime id under the current load order, light
@@ -110,10 +118,19 @@ Semantics worth stating because they were decided here, not read:
 cargo test -p soe-game
 ```
 
+## Live run (2026-09-14)
+
+`tests/npc.rs` against the installed Skyrim.esm: the player base (`Player`,
+form 7) reads level 1, health 150, magicka 150, stamina 50, OneHanded 20,
+Sneak 15, three spells, four factions, sixteen items, race NordRace.
+`MQ101Alduin` reads through its template (flags 0xf63): level 10, essential,
+health 1550, magicka 80, four spells. `Prisoner` is a `CLAS` record, not an
+actor base.
+
 ## Not done, and known gaps
 
-- No `NPC_` stats, races, factions from records. Actor state is what scripts
-  set.
+- Race records are not read, so race starting stats and the skill bonuses
+  they carry are missing from actor values.
 - No packages, AI, combat, magic, dialogue, scenes, perks. Their natives are
   stubs.
 - Quest aliases are filled only from `ALFR`. Conditions, `ALCO`, location and
