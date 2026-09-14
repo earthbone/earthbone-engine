@@ -26,12 +26,19 @@ use std::rc::Rc;
 use crate::pex::{Function, Object, Opcode, Operand, Script};
 use crate::value::{ArrayRef, ElementKind, ObjectId, Value};
 
+pub mod state;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum VmError {
     UnknownScript(String),
     UnknownObject(ObjectId),
-    UnknownFunction { class: String, name: String },
+    UnknownFunction {
+        class: String,
+        name: String,
+    },
     Pex(String),
+    /// A saved state that cannot be read or does not match the loaded scripts.
+    State(String),
 }
 
 impl fmt::Display for VmError {
@@ -43,6 +50,7 @@ impl fmt::Display for VmError {
                 write!(f, "{class} has no function {name}")
             }
             VmError::Pex(e) => write!(f, "{e}"),
+            VmError::State(e) => write!(f, "saved state: {e}"),
         }
     }
 }

@@ -415,6 +415,55 @@ fn a_quest_advances_on_activation_end_to_end() {
 }
 
 #[test]
+fn saving_before_the_activation_event_runs_reaches_the_same_end_state_after_load() {
+    let make = game;
+    let mut game = make();
+    game.start();
+    let quest = game.form("MQ01").unwrap();
+    let lever = game.form("LeverRef").unwrap();
+    let gold = game.form("Gold001").unwrap();
+    let player = game.player();
+
+    assert!(game.activate_no_settle(lever, player));
+    assert!(
+        !game.world().pending.is_empty(),
+        "the OnActivate event is queued, not yet run"
+    );
+    let bytes = game.save_state().unwrap();
+
+    let mut loaded = make();
+    loaded.load_state(&bytes).unwrap();
+    assert!(loaded.run_until_idle(64));
+
+    {
+        let mut w = loaded.world_mut();
+        let q = w.quest_state(quest).unwrap().clone();
+        assert_eq!(q.highest, 20, "{q:?}");
+        assert!(q.done.contains(&10) && q.done.contains(&20));
+        assert!(q.completed && !q.running, "stage 20 completes the quest");
+        assert!(w.objective(quest, 10).unwrap().completed);
+        assert_eq!(
+            w.item_count(player, gold),
+            5,
+            "the fragment gave the player gold"
+        );
+        assert!(
+            !w.reference(lever).unwrap().enabled,
+            "the lever disabled itself"
+        );
+        assert_eq!(w.notifications, ["Lever pulled"]);
+        assert_eq!(
+            w.alias_ref(quest, 0),
+            Some(lever),
+            "the forced alias holds the lever"
+        );
+    }
+    let traces = loaded.traces();
+    assert!(traces.contains(&"fragment 10".to_string()), "{traces:?}");
+    assert!(script_errors(&loaded).is_empty(), "{traces:?}");
+}
+
+#[test]
 fn doors_teleport_containers_open_and_timers_fire_on_the_clock() {
     let mut game = game();
     game.start();
