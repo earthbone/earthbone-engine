@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 //! Synthetic scenes: bhk blocks written byte by byte from nif.xml, placed
 //! in a block list the way `soe_nif` would parse them, then collected and

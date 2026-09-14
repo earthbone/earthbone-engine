@@ -76,6 +76,14 @@ SKYRIM_DATA="/run/host/media/pengolodh/Data/SteamLibrary/steamapps/common/Skyrim
   cargo test -p soe-esm --release --test real_files -- --nocapture
 ```
 
+## Live run (2026-09-14)
+
+The gated test loaded the five base masters against the installed Steam copy. The
+form table held 1168671 ids. Tamriel resolved to 13849 cell records, 263415
+references, 0 unresolved reference bases, 13074 land records, 13713 navmesh records
+and 12107 static records in the form table. The test finished in 5.07 seconds. No
+parser change was needed, every record type the checks touch read cleanly.
+
 ## Not done yet
 
 - Only six typed views. Everything else is raw subrecords.

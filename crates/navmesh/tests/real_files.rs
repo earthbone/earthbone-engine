@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 //! Every NAVM under Tamriel, stitched into one graph. Runs only when
 //! `SKYRIM_DATA` points at the game's `Data` folder:

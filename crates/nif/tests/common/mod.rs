@@ -576,7 +576,7 @@ impl NifWriter {
 }
 
 pub fn norm_byte(v: f32) -> u8 {
-    ((v + 1.0) / 2.0 * 255.0).round().clamp(0.0, 255.0) as u8
+    (f32::midpoint(v, 1.0) * 255.0).round().clamp(0.0, 255.0) as u8
 }
 
 #[derive(Clone, Debug)]

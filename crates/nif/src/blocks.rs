@@ -539,7 +539,6 @@ const NODE_FAMILY: &[&str] = &[
     "NiBSAnimationNode",
     "NiBSParticleNode",
     "NiSortAdjustNode",
-    "BSBoneLODExtraData",
 ];
 
 /// Block types read as NiTriShape.

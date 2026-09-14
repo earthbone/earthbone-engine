@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 //! The real archives, when `SKYRIM_DATA` points at a Skyrim SE `Data/` folder.
 //! Skips cleanly otherwise. Indexes every archive, reads one file out of each

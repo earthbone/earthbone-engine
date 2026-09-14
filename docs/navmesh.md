@@ -120,6 +120,17 @@ five masters). The single reachable region of 2.1 million triangles is the
 overworld, the rest are islands: mountain tops, sealed areas, and cells whose
 links go through interiors.
 
+## Live run (2026-09-14)
+
+The gated test stitches every vanilla `NAVM` record into one graph. 13011 meshes,
+2271709 triangles, 0 deleted triangles, 187216 edge links, 187193 resolved and 23
+unresolved (the interior and Creation Club edges noted above), 558 door links,
+built in 0.20 seconds. The largest navmesh in Tamriel has 1296 triangles, a path
+across it costs 5205 over 59 triangles. All fifty cross mesh paths tried succeeded.
+Following links from the largest navmesh reaches 2101384 triangles across 9221
+navmeshes, the single connected overworld region described above. No code change
+was needed.
+
 ## Not done yet
 
 - String pulling. Paths are correct, not short.

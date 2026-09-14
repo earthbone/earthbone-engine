@@ -127,6 +127,21 @@ Sneak 15, three spells, four factions, sixteen items, race NordRace.
 health 1550, magicka 80, four spells. `Prisoner` is a `CLAS` record, not an
 actor base.
 
+A new gated test, `the_installed_game_binds_its_vanilla_scripts` in
+`tests/real_files.rs`, loads the five base masters through `soe_esm`, builds a
+`Game`, loads every `.pex` under `Data/Scripts` when that folder exists, then calls
+`bind` and prints the `BindReport`. This install ships its scripts packed inside
+`Skyrim - Misc.bsa` with no loose `Data/Scripts` folder, so the test found none to
+load and bound against the record data alone. 23443 forms carry a `VMAD`, 0 scripts
+attached, 28152 scripts missing since nothing was loaded, 0 properties set, 0
+properties missing, 0 quests started. The first 20 missing scripts are magic effect
+and quest scripts such as `DragonPriestUltraMaskEffect`, `magicAbsorbFXScript` and
+`DA08EbonyBladeMagicEffectScript`. This run exercises the VMAD scan and form
+resolution across the full load order but not the script attachment path itself.
+The next step to validate that path, mirroring the fix already applied to the
+papyrus crate's gated test, is to open `Skyrim - Misc.bsa` with `soe_bsa` and load
+every `scripts/*.pex` straight out of it when no loose folder is present.
+
 ## Not done, and known gaps
 
 - Race records are not read, so race starting stats and the skill bonuses

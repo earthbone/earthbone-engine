@@ -104,6 +104,24 @@ is correct. `examples/dump.rs` prints this per file:
 cargo run -p soe-nif --example dump -- --quiet meshes/**/*.nif
 ```
 
+## Live run (2026-09-14)
+
+The archived mesh test parses every `.nif` inside `Skyrim - Meshes0.bsa` and
+`Skyrim - Meshes1.bsa`, 22047 meshes. It first ran with 52 failures, all of them
+skeleton files failing on a `BSBoneLODExtraData` block. That type was wrongly
+grouped into `NODE_FAMILY` in `blocks.rs`, so the reader walked its bone LOD list as
+a node's child reference array and read garbage lengths. `BSBoneLODExtraData`
+inherits `NiExtraData`, not `NiNode` (checked against `nif.xml`), so it belongs with
+the opaque extra data blocks the reader already keeps as raw bytes. The fix drops it
+from `NODE_FAMILY`, one line, and a regression test in `tests/synthetic.rs`,
+`a_bs_bone_lod_extra_data_is_read_as_extra_data_not_a_node`, builds a synthetic bone
+LOD payload and checks it comes back as `Block::Unknown` instead of being walked as
+a node. After the fix the live run shows 22047 archived meshes in 3.7 seconds, 21588
+with geometry, 42128269 triangles, 0 failures. The loose file test
+(`real_files.rs`) finds no `.nif` under `Data/meshes` on this install, every mesh
+ships packed in the two mesh archives, so that test prints its skip message here.
+The archived mesh test is the one that exercises real content on a plain install.
+
 ## Not yet
 
 - DDS loading (round 2).

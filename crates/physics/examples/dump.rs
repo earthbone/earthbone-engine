@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 //! Print the colliders of one mesh, either a loose file or a path inside
 //! an archive: `dump <file.nif>` or `dump <archive.bsa> <path/in/archive>`.
