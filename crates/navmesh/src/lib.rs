@@ -15,6 +15,8 @@
 //! handed, Z up, one unit is one game unit (a cell is 4096 of them). Recast
 //! is Y up, and the conversion is private to [`generate`].
 
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
+
 pub mod generate;
 pub mod graph;
 pub mod scene;

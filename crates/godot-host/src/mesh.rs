@@ -278,7 +278,10 @@ pub fn build_surface(src: &dyn MeshSource, opts: MeshOptions) -> Result<SurfaceA
     }
 
     let normals = match src.normals() {
-        Some(n) => n.iter().map(|v| normalize(direction_to_godot(*v))).collect(),
+        Some(n) => n
+            .iter()
+            .map(|v| normalize(direction_to_godot(*v)))
+            .collect(),
         None if opts.generate_missing_normals => generate_normals(&positions, &indices),
         None => Vec::new(),
     };
@@ -405,7 +408,10 @@ mod tests {
     #[test]
     fn bounds_cover_every_vertex() {
         let s = build_surface(&floor_triangle(), MeshOptions::default()).unwrap();
-        assert_eq!(s.bounds.min, GodotPos::new(0.0, 0.0, -70.0 * METRES_PER_UNIT));
+        assert_eq!(
+            s.bounds.min,
+            GodotPos::new(0.0, 0.0, -70.0 * METRES_PER_UNIT)
+        );
         assert!((s.bounds.max.x - 70.0 * METRES_PER_UNIT).abs() < 1e-6);
         assert_eq!(s.bounds.max.z, 0.0);
     }
@@ -413,7 +419,10 @@ mod tests {
     #[test]
     fn malformed_sources_are_refused_with_the_reason() {
         let empty = MeshData::default();
-        assert_eq!(build_surface(&empty, MeshOptions::default()).err(), Some(MeshError::Empty));
+        assert_eq!(
+            build_surface(&empty, MeshOptions::default()).err(),
+            Some(MeshError::Empty)
+        );
 
         let mut m = floor_triangle();
         m.indices = vec![0, 1];

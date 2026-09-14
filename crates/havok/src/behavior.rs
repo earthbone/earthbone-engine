@@ -535,7 +535,7 @@ impl Node {
             }
             NodeKind::Blender(b) => out.extend(b.children.iter().filter_map(|c| c.generator)),
             NodeKind::ManualSelector { generators, .. } => {
-                out.extend(generators.iter().flatten().copied())
+                out.extend(generators.iter().flatten().copied());
             }
             NodeKind::ModifierGenerator {
                 modifier,
@@ -545,7 +545,7 @@ impl Node {
                 out.extend(*generator);
             }
             NodeKind::ModifierList { modifiers, .. } => {
-                out.extend(modifiers.iter().flatten().copied())
+                out.extend(modifiers.iter().flatten().copied());
             }
             NodeKind::GeneratorTransition(g) => out.extend(g.transition_generator),
             NodeKind::IStateTagging {

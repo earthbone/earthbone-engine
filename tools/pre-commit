@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Installed via `git config core.hooksPath tools` (see docs/style.md,
+# "Running the gate"). Runs the same gate CI runs, before the commit lands.
+set -euo pipefail
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+exec "$root/tools/lint.sh"

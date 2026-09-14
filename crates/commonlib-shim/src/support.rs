@@ -30,17 +30,61 @@ pub struct Group {
 
 /// 349 names across four plugins, surveyed 2026-09-06.
 pub const GROUPS: &[Group] = &[
-    Group { name: "Forms and record enums", types: 86, support: Support::Bound },
-    Group { name: "References, actors, inventory and world singletons", types: 70, support: Support::Planned },
-    Group { name: "Papyrus VM", types: 11, support: Support::Bound },
-    Group { name: "Conditions", types: 4, support: Support::Planned },
-    Group { name: "Event sources, sinks and story events", types: 26, support: Support::Planned },
-    Group { name: "Containers, strings, locks and memory", types: 23, support: Support::ShimProvided },
-    Group { name: "NetImmerse scene graph and materials", types: 35, support: Support::Different },
-    Group { name: "Havok animation and physics", types: 29, support: Support::Missing },
-    Group { name: "Camera, input and player controls", types: 27, support: Support::Different },
-    Group { name: "Scaleform UI and menus", types: 19, support: Support::Missing },
-    Group { name: "Vtable hooks", types: 19, support: Support::Never },
+    Group {
+        name: "Forms and record enums",
+        types: 86,
+        support: Support::Bound,
+    },
+    Group {
+        name: "References, actors, inventory and world singletons",
+        types: 70,
+        support: Support::Planned,
+    },
+    Group {
+        name: "Papyrus VM",
+        types: 11,
+        support: Support::Bound,
+    },
+    Group {
+        name: "Conditions",
+        types: 4,
+        support: Support::Planned,
+    },
+    Group {
+        name: "Event sources, sinks and story events",
+        types: 26,
+        support: Support::Planned,
+    },
+    Group {
+        name: "Containers, strings, locks and memory",
+        types: 23,
+        support: Support::ShimProvided,
+    },
+    Group {
+        name: "NetImmerse scene graph and materials",
+        types: 35,
+        support: Support::Different,
+    },
+    Group {
+        name: "Havok animation and physics",
+        types: 29,
+        support: Support::Missing,
+    },
+    Group {
+        name: "Camera, input and player controls",
+        types: 27,
+        support: Support::Different,
+    },
+    Group {
+        name: "Scaleform UI and menus",
+        types: 19,
+        support: Support::Missing,
+    },
+    Group {
+        name: "Vtable hooks",
+        types: 19,
+        support: Support::Never,
+    },
 ];
 
 pub fn total_types() -> usize {
@@ -51,7 +95,12 @@ pub fn total_types() -> usize {
 pub fn reachable_share() -> f64 {
     let reachable: usize = GROUPS
         .iter()
-        .filter(|g| matches!(g.support, Support::Bound | Support::Planned | Support::ShimProvided | Support::Different))
+        .filter(|g| {
+            matches!(
+                g.support,
+                Support::Bound | Support::Planned | Support::ShimProvided | Support::Different
+            )
+        })
         .map(|g| g.types)
         .sum();
     reachable as f64 / total_types() as f64
@@ -69,8 +118,9 @@ mod tests {
 
     #[test]
     fn the_document_carries_the_same_counts() {
-        let doc = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../docs/shim.md"))
-            .expect("docs/shim.md sits two levels up from the crate");
+        let doc =
+            std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../docs/shim.md"))
+                .expect("docs/shim.md sits two levels up from the crate");
         for g in GROUPS {
             let row = doc
                 .lines()

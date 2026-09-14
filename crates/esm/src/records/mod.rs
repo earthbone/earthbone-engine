@@ -40,7 +40,9 @@ impl Text {
 pub(crate) fn text(rec: &Record, tag: Tag, localized: bool) -> Option<Text> {
     let d = rec.find(tag)?;
     if localized && d.len() == 4 {
-        Some(Text::Localized(u32::from_le_bytes([d[0], d[1], d[2], d[3]])))
+        Some(Text::Localized(u32::from_le_bytes([
+            d[0], d[1], d[2], d[3],
+        ])))
     } else {
         Some(Text::Plain(zstring(d)))
     }

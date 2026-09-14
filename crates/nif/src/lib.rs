@@ -21,6 +21,8 @@
 //! nif.xml from the niftools project is the format authority this reader
 //! follows, and OpenMW's `components/nif` the worked example.
 
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
+
 pub mod blocks;
 pub mod error;
 pub mod header;

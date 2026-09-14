@@ -47,10 +47,7 @@ impl Layer {
                 | Layer::TRIGGER
                 | Layer::NON_COLLIDABLE
                 | Layer::CHAR_CONTROLLER
-                | Layer(21..=25)
-                | Layer(7)
-                | Layer(16)
-                | Layer(18)
+                | Layer(7 | 16 | 18 | 21..=25)
         )
     }
 }

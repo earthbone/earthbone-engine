@@ -13,7 +13,9 @@
 
 use std::path::PathBuf;
 
-use soe_esm::records::{cell::Cell, land::Land, navm::NavMesh, refr::Refr, stat::Static, wrld::World};
+use soe_esm::records::{
+    cell::Cell, land::Land, navm::NavMesh, refr::Refr, stat::Static, wrld::World,
+};
 use soe_esm::{tag, LoadOrder, Plugin};
 
 const MASTERS: [&str; 5] = [
@@ -60,8 +62,15 @@ fn the_base_masters_load_and_tamriel_resolves() {
         .map(|(id, _)| id)
         .expect("Tamriel exists");
     let tamriel_raw = order.record(order.overrides(tamriel)[0]).form_id;
-    let world = World::from_record(order.winner(tamriel).unwrap(), order.file(0).plugin.header.is_localized()).unwrap();
-    eprintln!("Tamriel: {tamriel} bounds {:?} to {:?}", world.bounds_min, world.bounds_max);
+    let world = World::from_record(
+        order.winner(tamriel).unwrap(),
+        order.file(0).plugin.header.is_localized(),
+    )
+    .unwrap();
+    eprintln!(
+        "Tamriel: {tamriel} bounds {:?} to {:?}",
+        world.bounds_min, world.bounds_max
+    );
 
     let mut cells = 0;
     let mut refs = 0;
@@ -71,24 +80,29 @@ fn the_base_masters_load_and_tamriel_resolves() {
     for (file_index, file) in order.files().iter().enumerate() {
         let localized = file.plugin.header.is_localized();
         for rec in &file.plugin.records {
-            if rec.placement.world != Some(tamriel_raw) && !(rec.tag == tag::WRLD && rec.form_id == tamriel_raw) {
+            if rec.placement.world != Some(tamriel_raw)
+                && !(rec.tag == tag::WRLD && rec.form_id == tamriel_raw)
+            {
                 continue;
             }
             match rec.tag {
                 tag::CELL => {
-                    Cell::from_record(rec, localized).unwrap_or_else(|e| panic!("{} {:08X}: {e}", file.name, rec.form_id));
+                    Cell::from_record(rec, localized)
+                        .unwrap_or_else(|e| panic!("{} {:08X}: {e}", file.name, rec.form_id));
                     assert!(order.contains(order.resolve(file_index, rec.form_id)));
                     cells += 1;
                 }
                 tag::REFR => {
-                    let r = Refr::from_record(rec).unwrap_or_else(|e| panic!("{} {:08X}: {e}", file.name, rec.form_id));
+                    let r = Refr::from_record(rec)
+                        .unwrap_or_else(|e| panic!("{} {:08X}: {e}", file.name, rec.form_id));
                     if !order.contains(order.resolve(file_index, r.base)) {
                         unresolved += 1;
                     }
                     refs += 1;
                 }
                 tag::LAND => {
-                    let l = Land::from_record(rec).unwrap_or_else(|e| panic!("{} {:08X}: {e}", file.name, rec.form_id));
+                    let l = Land::from_record(rec)
+                        .unwrap_or_else(|e| panic!("{} {:08X}: {e}", file.name, rec.form_id));
                     if let Some(h) = &l.heights {
                         let decoded = h.decode();
                         assert!(decoded.iter().all(|v| v.is_finite()));
@@ -96,7 +110,8 @@ fn the_base_masters_load_and_tamriel_resolves() {
                     lands += 1;
                 }
                 tag::NAVM => {
-                    NavMesh::from_record(rec).unwrap_or_else(|e| panic!("{} {:08X}: {e}", file.name, rec.form_id));
+                    NavMesh::from_record(rec)
+                        .unwrap_or_else(|e| panic!("{} {:08X}: {e}", file.name, rec.form_id));
                     navmeshes += 1;
                 }
                 _ => {}
@@ -112,5 +127,8 @@ fn the_base_masters_load_and_tamriel_resolves() {
     eprintln!("Tamriel: {cells} cell records, {refs} references, {unresolved} unresolved bases, {lands} land, {navmeshes} navmesh, {statics} statics in the table");
     assert!(cells > 1000);
     assert!(refs > 100_000);
-    assert_eq!(unresolved, 0, "every reference base must be in the form table");
+    assert_eq!(
+        unresolved, 0,
+        "every reference base must be in the form table"
+    );
 }

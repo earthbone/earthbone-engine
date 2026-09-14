@@ -5,4 +5,7 @@ edition = "2021"
 license = "GPL-3.0-or-later"
 description = "Reader for Skyrim SE Havok 2010.2 hkx packfiles: skeletons, spline animations, behavior graphs"
 
+[lints]
+workspace = true
+
 [dependencies]

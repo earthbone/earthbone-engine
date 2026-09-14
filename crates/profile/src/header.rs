@@ -60,9 +60,7 @@ impl PluginHeader {
         }
         let size = u32::from_le_bytes([head[4], head[5], head[6], head[7]]) as usize;
         let mut bytes = head.to_vec();
-        file.take(size as u64)
-            .read_to_end(&mut bytes)
-            .map_err(io)?;
+        file.take(size as u64).read_to_end(&mut bytes).map_err(io)?;
         if bytes.len() < 24 + size {
             return Err(Error::Truncated {
                 path: path.to_path_buf(),
@@ -165,14 +163,27 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let short = dir.path().join("short.esp");
         std::fs::write(&short, b"TES4").unwrap();
-        assert!(matches!(PluginHeader::read(&short), Err(Error::Truncated { .. })));
+        assert!(matches!(
+            PluginHeader::read(&short),
+            Err(Error::Truncated { .. })
+        ));
         let cut = dir.path().join("cut.esp");
         let full = bytes(&["Skyrim.esm"], 0);
         std::fs::write(&cut, &full[..full.len() - 3]).unwrap();
-        assert!(matches!(PluginHeader::read(&cut), Err(Error::Truncated { .. })));
+        assert!(matches!(
+            PluginHeader::read(&cut),
+            Err(Error::Truncated { .. })
+        ));
         let foreign = dir.path().join("foreign.esp");
-        std::fs::write(&foreign, b"BSA\0this is not a plugin at all, padding padding").unwrap();
-        assert!(matches!(PluginHeader::read(&foreign), Err(Error::Header { .. })));
+        std::fs::write(
+            &foreign,
+            b"BSA\0this is not a plugin at all, padding padding",
+        )
+        .unwrap();
+        assert!(matches!(
+            PluginHeader::read(&foreign),
+            Err(Error::Header { .. })
+        ));
         assert!(matches!(
             PluginHeader::read(&dir.path().join("absent.esp")),
             Err(Error::Io { .. })

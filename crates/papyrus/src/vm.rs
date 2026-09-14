@@ -15,6 +15,10 @@
 //! native on `ObjectReference` is reached from an `Actor` through the chain,
 //! and the registry can declare parents for classes whose PEX is not loaded.
 
+// A running thread always has a frame and a spawned thread always has an
+// index. The unwraps below state those invariants, a broken one is a VM bug.
+#![allow(clippy::unwrap_used)]
+
 use std::collections::HashMap;
 use std::fmt;
 use std::rc::Rc;
@@ -106,6 +110,8 @@ pub struct NativeCall<'a> {
     pub time: f64,
     pub log: &'a mut Log,
     latent_counter: &'a mut u64,
+    objects: &'a mut HashMap<ObjectId, GameObject>,
+    next_object: &'a mut u64,
 }
 
 impl NativeCall<'_> {
@@ -116,6 +122,25 @@ impl NativeCall<'_> {
     pub fn defer(&mut self) -> LatentId {
         *self.latent_counter += 1;
         LatentId(*self.latent_counter)
+    }
+    /// Create an object of a base class from inside a native, so a host can
+    /// hand back forms the VM has not seen yet (`Game.GetForm`, a linked
+    /// reference, a quest alias). Same as [`Vm::create_object_of`].
+    pub fn create_object(&mut self, name: &str, class: &str) -> ObjectId {
+        *self.next_object += 1;
+        let id = ObjectId(*self.next_object);
+        self.objects.insert(
+            id,
+            GameObject {
+                name: name.to_string(),
+                class: Some(class.to_string()),
+                instances: Vec::new(),
+            },
+        );
+        id
+    }
+    pub fn object_name(&self, id: ObjectId) -> Option<&str> {
+        self.objects.get(&id).map(|o| o.name.as_str())
     }
 }
 
@@ -200,6 +225,10 @@ struct Instance {
 #[derive(Debug)]
 pub struct GameObject {
     pub name: String,
+    /// The base class the object answers to when no attached script
+    /// defines a function, `Quest` for a quest form, `Actor` for an actor
+    /// reference. `None` for objects created with [`Vm::create_object`].
+    pub class: Option<String>,
     pub instances: Vec<InstanceId>,
 }
 
@@ -330,16 +359,32 @@ impl Vm {
     // ----- objects -----
 
     pub fn create_object(&mut self, name: &str) -> ObjectId {
+        self.new_object(name, None)
+    }
+
+    /// An object with a base class. Natives registered for that class and
+    /// for the parents declared through [`NativeRegistry::declare_parent`]
+    /// are reachable on it without any script attached.
+    pub fn create_object_of(&mut self, name: &str, class: &str) -> ObjectId {
+        self.new_object(name, Some(class.to_string()))
+    }
+
+    fn new_object(&mut self, name: &str, class: Option<String>) -> ObjectId {
         self.next_object += 1;
         let id = ObjectId(self.next_object);
         self.objects.insert(
             id,
             GameObject {
                 name: name.to_string(),
+                class,
                 instances: Vec::new(),
             },
         );
         id
+    }
+
+    pub fn object_class(&self, id: ObjectId) -> Option<&str> {
+        self.objects.get(&id).and_then(|o| o.class.as_deref())
     }
 
     pub fn object_name(&self, id: ObjectId) -> Option<&str> {
@@ -561,11 +606,24 @@ impl Vm {
                 out.push(n);
             }
         }
+        let mut next = obj.class.clone();
+        while let Some(n) = next {
+            let n = n.to_ascii_lowercase();
+            next = self.natives.parents.get(&n).cloned();
+            if !out.contains(&n) {
+                out.push(n);
+            }
+        }
         out
     }
 
     /// Start a thread that calls a method on an object.
-    pub fn call(&mut self, object: ObjectId, name: &str, args: &[Value]) -> Result<ThreadId, VmError> {
+    pub fn call(
+        &mut self,
+        object: ObjectId,
+        name: &str,
+        args: &[Value],
+    ) -> Result<ThreadId, VmError> {
         if !self.objects.contains_key(&object) {
             return Err(VmError::UnknownObject(object));
         }
@@ -580,7 +638,12 @@ impl Vm {
     }
 
     /// Start a thread that calls a global function of a script.
-    pub fn call_global(&mut self, class: &str, name: &str, args: &[Value]) -> Result<ThreadId, VmError> {
+    pub fn call_global(
+        &mut self,
+        class: &str,
+        name: &str,
+        args: &[Value],
+    ) -> Result<ThreadId, VmError> {
         let script = self
             .script(class)
             .ok_or_else(|| VmError::UnknownScript(class.to_string()))?;
@@ -628,7 +691,10 @@ impl Vm {
     }
 
     pub fn thread_state(&self, id: ThreadId) -> Option<ThreadState> {
-        self.threads.iter().find(|t| t.id == id).map(|t| t.state.clone())
+        self.threads
+            .iter()
+            .find(|t| t.id == id)
+            .map(|t| t.state.clone())
     }
 
     /// The return value of a finished thread.
@@ -640,7 +706,9 @@ impl Vm {
     }
 
     pub fn idle(&self) -> bool {
-        self.threads.iter().all(|t| t.state != ThreadState::Runnable)
+        self.threads
+            .iter()
+            .all(|t| t.state != ThreadState::Runnable)
     }
 
     pub fn live_threads(&self) -> usize {
@@ -702,7 +770,6 @@ impl Vm {
                 break;
             }
         }
-        self.threads.retain(|t| t.state != ThreadState::Done || true);
         used
     }
 
@@ -778,7 +845,11 @@ impl Vm {
             .unwrap_or_default();
         match f.function.line_of(f.pc.saturating_sub(1)) {
             Some(line) => format!("{script}.{} line {line}", f.function.name),
-            None => format!("{script}.{} instruction {}", f.function.name, f.pc.saturating_sub(1)),
+            None => format!(
+                "{script}.{} instruction {}",
+                f.function.name,
+                f.pc.saturating_sub(1)
+            ),
         }
     }
 
@@ -796,6 +867,7 @@ impl Vm {
                         .first()
                         .and_then(|i| self.instances[i.0].chain.first())
                         .map(|s| s.name.clone())
+                        .or_else(|| g.class.clone())
                         .unwrap_or_else(|| "Form".into());
                     format!("[{script} <{}>]", g.name)
                 }
@@ -875,6 +947,8 @@ impl Vm {
             time: self.time,
             log: &mut self.log,
             latent_counter: &mut self.latent_counter,
+            objects: &mut self.objects,
+            next_object: &mut self.next_object,
         };
         let ret = f(&mut call);
         let thread = &mut self.threads[t];
@@ -901,7 +975,14 @@ impl Vm {
     }
 
     /// `Utility.Wait` and friends are the scheduler's own.
-    fn builtin_global(&mut self, t: usize, class: &str, name: &str, args: &[Value], dest: Option<String>) -> bool {
+    fn builtin_global(
+        &mut self,
+        t: usize,
+        class: &str,
+        name: &str,
+        args: &[Value],
+        dest: Option<String>,
+    ) -> bool {
         if !class.eq_ignore_ascii_case("utility") {
             return false;
         }
@@ -920,12 +1001,23 @@ impl Vm {
     }
 
     /// `GotoState` and `GetState` live on every script object.
-    fn builtin_method(&mut self, t: usize, object: ObjectId, name: &str, args: &[Value], dest: Option<String>) -> bool {
+    fn builtin_method(
+        &mut self,
+        t: usize,
+        object: ObjectId,
+        name: &str,
+        args: &[Value],
+        dest: Option<String>,
+    ) -> bool {
         let lname = name.to_ascii_lowercase();
         let frame_instance = self.threads[t].frames.last().unwrap().instance;
         let iid = match frame_instance.filter(|i| self.instances[i.0].object == object) {
             Some(i) => i,
-            None => match self.objects.get(&object).and_then(|o| o.instances.first().copied()) {
+            None => match self
+                .objects
+                .get(&object)
+                .and_then(|o| o.instances.first().copied())
+            {
                 Some(i) => i,
                 None => return false,
             },
@@ -987,7 +1079,11 @@ impl Vm {
                 .map(|a| Self::operand(&self.instances, frame, a))
                 .collect()
         };
-        let dest_name = |i: usize| -> Option<String> { args.get(i).and_then(|a| a.as_ident()).map(|s| s.to_string()) };
+        let dest_name = |i: usize| -> Option<String> {
+            args.get(i)
+                .and_then(|a| a.as_ident())
+                .map(|s| s.to_string())
+        };
         let set = |vm: &mut Vm, i: usize, v: Value| {
             if let Some(name) = args.get(i).and_then(|a| a.as_ident()) {
                 let frame = vm.threads[t].frames.last_mut().unwrap();
@@ -997,12 +1093,36 @@ impl Vm {
 
         match op {
             Nop => {}
-            IAdd => set(self, 0, Value::Int(vals[1].as_int().wrapping_add(vals[2].as_int()))),
-            FAdd => set(self, 0, Value::Float(vals[1].as_float() + vals[2].as_float())),
-            ISub => set(self, 0, Value::Int(vals[1].as_int().wrapping_sub(vals[2].as_int()))),
-            FSub => set(self, 0, Value::Float(vals[1].as_float() - vals[2].as_float())),
-            IMul => set(self, 0, Value::Int(vals[1].as_int().wrapping_mul(vals[2].as_int()))),
-            FMul => set(self, 0, Value::Float(vals[1].as_float() * vals[2].as_float())),
+            IAdd => set(
+                self,
+                0,
+                Value::Int(vals[1].as_int().wrapping_add(vals[2].as_int())),
+            ),
+            FAdd => set(
+                self,
+                0,
+                Value::Float(vals[1].as_float() + vals[2].as_float()),
+            ),
+            ISub => set(
+                self,
+                0,
+                Value::Int(vals[1].as_int().wrapping_sub(vals[2].as_int())),
+            ),
+            FSub => set(
+                self,
+                0,
+                Value::Float(vals[1].as_float() - vals[2].as_float()),
+            ),
+            IMul => set(
+                self,
+                0,
+                Value::Int(vals[1].as_int().wrapping_mul(vals[2].as_int())),
+            ),
+            FMul => set(
+                self,
+                0,
+                Value::Float(vals[1].as_float() * vals[2].as_float()),
+            ),
             IDiv => {
                 let d = vals[2].as_int();
                 if d == 0 {
@@ -1064,7 +1184,10 @@ impl Vm {
                 let call_args = vals[3..].to_vec();
                 match vals[1].as_object() {
                     None => {
-                        self.err(t, &format!("cannot call {name}() on a None object, aborting the call"));
+                        self.err(
+                            t,
+                            &format!("cannot call {name}() on a None object, aborting the call"),
+                        );
                         set(self, 2, Value::None);
                     }
                     Some(obj) => self.call_method(t, obj, &name, call_args, dest, None),
@@ -1076,10 +1199,15 @@ impl Vm {
                 let call_args = vals[2..].to_vec();
                 let (obj, script) = {
                     let frame = self.threads[t].frames.last().unwrap();
-                    (frame.self_object, frame.script.as_ref().map(|s| s.name.clone()))
+                    (
+                        frame.self_object,
+                        frame.script.as_ref().map(|s| s.name.clone()),
+                    )
                 };
                 match (obj, script) {
-                    (Some(obj), Some(script)) => self.call_method(t, obj, &name, call_args, dest, Some(script)),
+                    (Some(obj), Some(script)) => {
+                        self.call_method(t, obj, &name, call_args, dest, Some(script));
+                    }
                     _ => {
                         self.err(t, &format!("parent call to {name}() outside an object"));
                         set(self, 1, Value::None);
@@ -1164,7 +1292,10 @@ impl Vm {
                             None => {
                                 let len = items.len();
                                 drop(items);
-                                self.err(t, &format!("array index {idx} out of range, length {len}"));
+                                self.err(
+                                    t,
+                                    &format!("array index {idx} out of range, length {len}"),
+                                );
                             }
                         }
                     }
@@ -1178,7 +1309,11 @@ impl Vm {
                         let items = a.items.borrow();
                         let start = vals[3].as_int();
                         if reverse {
-                            let start = if start < 0 { items.len() as i32 - 1 } else { start.min(items.len() as i32 - 1) };
+                            let start = if start < 0 {
+                                items.len() as i32 - 1
+                            } else {
+                                start.min(items.len() as i32 - 1)
+                            };
                             (0..=start.max(-1))
                                 .rev()
                                 .find(|&i| items[i as usize].equals(&vals[2]))
@@ -1193,9 +1328,22 @@ impl Vm {
                 };
                 set(self, 1, Value::Int(found));
             }
-            Is | StructCreate | StructGet | StructSet | ArrayFindStruct | ArrayRFindStruct | ArrayAdd
-            | ArrayInsert | ArrayRemoveLast | ArrayRemove | ArrayClear | ArrayGetAllMatchingStructs => {
-                self.err(t, &format!("opcode {op:?} is a Fallout 4 opcode, not supported"));
+            Is
+            | StructCreate
+            | StructGet
+            | StructSet
+            | ArrayFindStruct
+            | ArrayRFindStruct
+            | ArrayAdd
+            | ArrayInsert
+            | ArrayRemoveLast
+            | ArrayRemove
+            | ArrayClear
+            | ArrayGetAllMatchingStructs => {
+                self.err(
+                    t,
+                    &format!("opcode {op:?} is a Fallout 4 opcode, not supported"),
+                );
                 let thread = &mut self.threads[t];
                 thread.frames.clear();
                 thread.state = ThreadState::Done;
@@ -1290,7 +1438,15 @@ impl Vm {
             }
         }
         for class in classes {
-            if self.call_native(t, false, &class, name, Some(obj), args.clone(), dest.clone()) {
+            if self.call_native(
+                t,
+                false,
+                &class,
+                name,
+                Some(obj),
+                args.clone(),
+                dest.clone(),
+            ) {
                 return;
             }
         }
@@ -1302,7 +1458,14 @@ impl Vm {
         }
     }
 
-    fn call_static(&mut self, t: usize, class: &str, name: &str, args: Vec<Value>, dest: Option<String>) {
+    fn call_static(
+        &mut self,
+        t: usize,
+        class: &str,
+        name: &str,
+        args: Vec<Value>,
+        dest: Option<String>,
+    ) {
         if self.builtin_global(t, class, name, &args, dest.clone()) {
             return;
         }
@@ -1366,7 +1529,9 @@ impl Vm {
             return;
         }
         match script.getters.get(&prop.to_ascii_lowercase()).cloned() {
-            Some(getter) => self.push_call(t, Some(iid), Some(obj), Some(script), getter, &[], dest),
+            Some(getter) => {
+                self.push_call(t, Some(iid), Some(obj), Some(script), getter, &[], dest);
+            }
             None => {
                 self.err(t, &format!("property {prop} is write-only"));
                 if let Some(d) = dest {
@@ -1391,7 +1556,15 @@ impl Vm {
             return;
         }
         match script.setters.get(&prop.to_ascii_lowercase()).cloned() {
-            Some(setter) => self.push_call(t, Some(iid), Some(obj), Some(script), setter, &[value], None),
+            Some(setter) => self.push_call(
+                t,
+                Some(iid),
+                Some(obj),
+                Some(script),
+                setter,
+                &[value],
+                None,
+            ),
             None => self.err(t, &format!("property {prop} is read-only")),
         }
     }

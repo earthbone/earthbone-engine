@@ -28,7 +28,10 @@ fn vanilla_textures_decode_and_match_the_reference_decoder() {
         eprintln!("SKYRIM_DATA not set, skipping the real-texture test");
         return;
     };
-    let per_archive: usize = std::env::var("SOE_DDS_SAMPLE").ok().and_then(|s| s.parse().ok()).unwrap_or(150);
+    let per_archive: usize = std::env::var("SOE_DDS_SAMPLE")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(150);
     let mut formats: BTreeMap<String, usize> = BTreeMap::new();
     let mut compared = 0usize;
     let mut worst_by_format: BTreeMap<String, i32> = BTreeMap::new();
@@ -42,7 +45,12 @@ fn vanilla_textures_decode_and_match_the_reference_decoder() {
         }
         archives += 1;
         let archive = Archive::open(&path).unwrap();
-        let files: Vec<String> = archive.files().iter().filter(|f| f.ends_with(".dds")).cloned().collect();
+        let files: Vec<String> = archive
+            .files()
+            .iter()
+            .filter(|f| f.ends_with(".dds"))
+            .cloned()
+            .collect();
         let step = (files.len() / per_archive).max(1);
         for file in files.iter().step_by(step).take(per_archive) {
             let bytes = archive.read(file).unwrap();
@@ -57,9 +65,11 @@ fn vanilla_textures_decode_and_match_the_reference_decoder() {
             *formats.entry(dds.format().name()).or_default() += 1;
             let ours = dds.decode(0, 0).unwrap_or_else(|e| panic!("{file}: {e}"));
             for mip in 1..dds.mip_count() {
-                dds.decode(0, mip).unwrap_or_else(|e| panic!("{file} mip {mip}: {e}"));
+                dds.decode(0, mip)
+                    .unwrap_or_else(|e| panic!("{file} mip {mip}: {e}"));
             }
-            let reference = image_dds::ddsfile::Dds::read(&mut std::io::Cursor::new(&bytes)).unwrap();
+            let reference =
+                image_dds::ddsfile::Dds::read(&mut std::io::Cursor::new(&bytes)).unwrap();
             let theirs = match image_dds::image_from_dds(&reference, 0) {
                 Ok(i) => i,
                 Err(_) => continue,
@@ -79,13 +89,25 @@ fn vanilla_textures_decode_and_match_the_reference_decoder() {
                 Format::Bc7 | Format::Uncompressed(_) => (4, 0),
             };
             let mut worst = 0;
-            for (a, b) in ours.rgba.chunks(4).zip(theirs.as_raw()[..face_len].chunks(4)) {
+            for (a, b) in ours
+                .rgba
+                .chunks(4)
+                .zip(theirs.as_raw()[..face_len].chunks(4))
+            {
                 for c in 0..channels {
                     worst = worst.max((a[c] as i32 - b[c] as i32).abs());
                 }
             }
-            assert!(worst <= tolerance, "{file} ({}): worst channel difference {worst}", dds.format().name());
-            *worst_by_format.entry(dds.format().name()).or_default() = worst_by_format.get(&dds.format().name()).copied().unwrap_or(0).max(worst);
+            assert!(
+                worst <= tolerance,
+                "{file} ({}): worst channel difference {worst}",
+                dds.format().name()
+            );
+            *worst_by_format.entry(dds.format().name()).or_default() = worst_by_format
+                .get(&dds.format().name())
+                .copied()
+                .unwrap_or(0)
+                .max(worst);
             compared += 1;
         }
     }

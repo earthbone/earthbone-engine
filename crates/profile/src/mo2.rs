@@ -236,23 +236,37 @@ mod tests {
         assert_eq!(lines[2].name, "DLC: Dawnguard");
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("modlist.txt"), text).unwrap();
-        std::fs::write(dir.path().join("settings.ini"), "[General]\nLocalSaves=true\nLocalSettings=false\n").unwrap();
+        std::fs::write(
+            dir.path().join("settings.ini"),
+            "[General]\nLocalSaves=true\nLocalSettings=false\n",
+        )
+        .unwrap();
         let p = Mo2Profile::read(dir.path()).unwrap();
         let enabled: Vec<&str> = p.enabled_mods().collect();
         assert_eq!(enabled, vec!["Bottom", "Top.esp mod"]);
         assert!(p.settings.local_saves);
         assert!(!p.settings.local_settings);
         assert!(p.settings.automatic_archive_invalidation);
-        assert_eq!(p.ini_dir(Some(Path::new("/mg"))), Some(PathBuf::from("/mg")));
+        assert_eq!(
+            p.ini_dir(Some(Path::new("/mg"))),
+            Some(PathBuf::from("/mg"))
+        );
         assert_eq!(p.saves_dir(None), Some(dir.path().join("saves")));
     }
 
     #[test]
     fn local_settings_point_the_inis_at_the_profile() {
         let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("settings.ini"), "[General]\nLocalSettings=true\n").unwrap();
+        std::fs::write(
+            dir.path().join("settings.ini"),
+            "[General]\nLocalSettings=true\n",
+        )
+        .unwrap();
         let p = Mo2Profile::read(dir.path()).unwrap();
-        assert_eq!(p.ini_dir(Some(Path::new("/mg"))), Some(dir.path().to_path_buf()));
+        assert_eq!(
+            p.ini_dir(Some(Path::new("/mg"))),
+            Some(dir.path().to_path_buf())
+        );
         assert!(p.mods_low_to_high.is_empty());
         assert!(p.plugins.is_empty());
     }

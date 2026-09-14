@@ -5,6 +5,9 @@ edition = "2021"
 license = "GPL-3.0-or-later"
 description = "Load-order aware reader for TES4 family plugins (Skyrim SE ESM, ESP, ESL) with a winning-override form table"
 
+[lints]
+workspace = true
+
 [lib]
 name = "soe_esm"
 path = "src/lib.rs"

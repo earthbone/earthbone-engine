@@ -11,6 +11,8 @@
 //! This crate is MIT so plugin authors can link it. It depends on nothing
 //! engine-side: the engine implements the traits, the shim only names them.
 
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
+
 pub mod events;
 pub mod form;
 pub mod ni;

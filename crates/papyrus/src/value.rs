@@ -173,16 +173,17 @@ impl Value {
     pub fn equals(&self, other: &Value) -> bool {
         match (self, other) {
             (Value::None, Value::None) => true,
-            (Value::None, Value::Object(_)) | (Value::Object(_), Value::None) => false,
             (Value::Object(a), Value::Object(b)) => a == b,
             (Value::Str(a), Value::Str(b)) => a.eq_ignore_ascii_case(b),
-            (Value::Str(_), _) | (_, Value::Str(_)) => false,
+            (Value::None, Value::Object(_))
+            | (Value::Object(_), Value::None)
+            | (Value::Str(_), _)
+            | (_, Value::Str(_)) => false,
             (Value::Bool(a), Value::Bool(b)) => a == b,
             (Value::Bool(_), _) | (_, Value::Bool(_)) => self.as_bool() == other.as_bool(),
             (Value::Int(a), Value::Int(b)) => a == b,
             (Value::Array(a), Value::Array(b)) => a.same(b),
-            (Value::Array(_), _) | (_, Value::Array(_)) => false,
-            (Value::None, _) | (_, Value::None) => false,
+            (Value::Array(_) | Value::None, _) | (_, Value::Array(_) | Value::None) => false,
             _ => self.as_float() == other.as_float(),
         }
     }

@@ -20,16 +20,26 @@ pub type Block = [u8; 64];
 pub fn decode_slice(format: Format, width: u32, height: u32, data: &[u8]) -> Result<Vec<u8>> {
     let needed = format.slice_bytes(width, height);
     if data.len() < needed {
-        return Err(Error::Truncated { needed, have: data.len() });
+        return Err(Error::Truncated {
+            needed,
+            have: data.len(),
+        });
     }
     let pixels = (width as usize)
         .checked_mul(height as usize)
         .and_then(|n| n.checked_mul(4))
-        .ok_or(Error::TooLarge { width, height, depth: 1 })?;
+        .ok_or(Error::TooLarge {
+            width,
+            height,
+            depth: 1,
+        })?;
     let mut out = vec![0u8; pixels];
     match format {
         Format::Uncompressed(m) => uncompressed::decode(m, width, height, data, &mut out),
         _ => {
+            // CONTEXT: every `Format` other than `Uncompressed`, handled
+            // above, is a block format and reports a block size.
+            #[allow(clippy::expect_used)]
             let bs = format.block_size().expect("block format");
             let bw = (width as usize).div_ceil(4);
             let bh = (height as usize).div_ceil(4);
@@ -90,6 +100,12 @@ mod tests {
     #[test]
     fn short_data_is_a_typed_error() {
         let err = decode_slice(Format::Bc7, 8, 8, &[0u8; 63]).unwrap_err();
-        assert!(matches!(err, Error::Truncated { needed: 64, have: 63 }));
+        assert!(matches!(
+            err,
+            Error::Truncated {
+                needed: 64,
+                have: 63
+            }
+        ));
     }
 }

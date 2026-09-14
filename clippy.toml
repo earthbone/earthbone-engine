@@ -1,0 +1,5 @@
+# Binary-format readers naturally take more positional fields than clippy's
+# default of 7 (a record header, a chunk descriptor with offset, size, flags,
+# compression, name), so raise the bar rather than wrapping every one of them
+# in a struct.
+too-many-arguments-threshold = 8

@@ -71,7 +71,11 @@ impl Cell {
                 let mut f = Fields::new(rec.tag, Tag::new(b"XCLC"), d);
                 let x = f.i32()?;
                 let y = f.i32()?;
-                let flags = if f.remaining() >= 4 { Some(f.u32()?) } else { None };
+                let flags = if f.remaining() >= 4 {
+                    Some(f.u32()?)
+                } else {
+                    None
+                };
                 Some(Grid { x, y, flags })
             }
         };
@@ -121,11 +125,21 @@ mod tests {
             .sub(b"DATA", [flags::HAS_WATER as u8, 0])
             .sub(b"XCLC", xclc)
             .sub(b"XCLW", (-14000.0f32).to_le_bytes())
-            .sub(b"XCLR", [0x11u32.to_le_bytes(), 0x22u32.to_le_bytes()].concat());
+            .sub(
+                b"XCLR",
+                [0x11u32.to_le_bytes(), 0x22u32.to_le_bytes()].concat(),
+            );
         let c = Cell::from_record(&rec, false).unwrap();
         assert!(!c.is_interior());
         assert!(c.has_water());
-        assert_eq!(c.grid, Some(Grid { x: 5, y: -3, flags: Some(0) }));
+        assert_eq!(
+            c.grid,
+            Some(Grid {
+                x: 5,
+                y: -3,
+                flags: Some(0)
+            })
+        );
         assert_eq!(c.water_height, Some(-14000.0));
         assert_eq!(c.regions, vec![0x11, 0x22]);
     }

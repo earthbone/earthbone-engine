@@ -12,6 +12,7 @@
 //! low word.
 
 /// Hash of a lowercase name and its extension (with the leading dot).
+#[must_use]
 pub fn tes4_hash(name: &str, ext: &str) -> u64 {
     let name = name.to_lowercase();
     let ext = ext.to_lowercase();
@@ -37,17 +38,18 @@ pub fn tes4_hash(name: &str, ext: &str) -> u64 {
     let mut hash2: u32 = 0;
     let mut i = 1;
     while i + 2 < len {
-        hash2 = hash2.wrapping_mul(0x1003f).wrapping_add(n[i] as u32);
+        hash2 = hash2.wrapping_mul(0x1003f).wrapping_add(u32::from(n[i]));
         i += 1;
     }
     let mut hash3: u32 = 0;
     for c in ext.bytes() {
-        hash3 = hash3.wrapping_mul(0x1003f).wrapping_add(c as u32);
+        hash3 = hash3.wrapping_mul(0x1003f).wrapping_add(u32::from(c));
     }
-    ((hash2.wrapping_add(hash3) as u64) << 32) + hash1 as u64
+    (u64::from(hash2.wrapping_add(hash3)) << 32) + u64::from(hash1)
 }
 
 /// Hash of a file name without its folder, extension split off at the last dot.
+#[must_use]
 pub fn file_name_hash(file_name: &str) -> u64 {
     let file_name = file_name.replace('/', "\\");
     match file_name.rfind('.') {
@@ -57,6 +59,7 @@ pub fn file_name_hash(file_name: &str) -> u64 {
 }
 
 /// Hash of a folder path. Stored with backslashes and no extension part.
+#[must_use]
 pub fn folder_hash(folder: &str) -> u64 {
     tes4_hash(&folder.replace('/', "\\"), "")
 }

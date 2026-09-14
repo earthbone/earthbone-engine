@@ -79,6 +79,13 @@ recorded in `duplicates` and reported back to the caller, never silently
 replaced. A native gets the self object, the arguments, the clock, the log, and
 `defer()` to allocate a latent id.
 
+**Base classes.** `create_object_of(name, class)` gives an object a class
+with no script attached, and `NativeCall::create_object` does the same from
+inside a native. Method lookup falls through the attached scripts to that
+class and the parents the registry declared, so a quest form with no script
+still answers `SetStage`. This is how the game crate hands forms to scripts
+without preloading every form as a VM object.
+
 **States and events.** `send_event(object, name, args)` starts one thread per
 attached script that handles the event, resolved through the current state.
 `GotoState` and `GetState` are built in, and a state change delivers
@@ -128,7 +135,7 @@ inventory, and package evaluation, before combat or magic.
 
 ## Running the tests
 
-```
+```bash
 cargo test -p soe-papyrus
 ```
 
@@ -136,7 +143,7 @@ The real-file test needs the shipped scripts. They are inside
 `Skyrim - Misc.bsa`, so until the bsa crate can read archives, extract them
 first (LMO's `bsa::extract_archive` does it) and point the test at the folder:
 
-```
+```bash
 SOE_PEX_DIR=/path/to/extracted cargo test -p soe-papyrus --test vm real_scripts -- --nocapture
 ```
 

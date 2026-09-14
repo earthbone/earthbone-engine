@@ -1075,6 +1075,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "soe-game"
+version = "0.1.0"
+dependencies = [
+ "soe-esm",
+ "soe-papyrus",
+]
+
+[[package]]
 name = "soe-godot-host"
 version = "0.1.0"
 dependencies = [

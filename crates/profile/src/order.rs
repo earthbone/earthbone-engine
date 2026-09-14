@@ -54,14 +54,30 @@ pub struct Entry {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Problem {
     /// A list names a plugin that is not on disk.
-    Missing { name: String },
+    Missing {
+        name: String,
+    },
     /// A hardcoded master is not on disk, the engine will not start.
-    HardcodedMissing { name: String },
-    MissingMaster { plugin: String, master: String },
-    MasterDisabled { plugin: String, master: String },
-    MasterLater { plugin: String, master: String },
+    HardcodedMissing {
+        name: String,
+    },
+    MissingMaster {
+        plugin: String,
+        master: String,
+    },
+    MasterDisabled {
+        plugin: String,
+        master: String,
+    },
+    MasterLater {
+        plugin: String,
+        master: String,
+    },
     /// A file on disk whose header could not be read, left out.
-    Unreadable { name: String, error: String },
+    Unreadable {
+        name: String,
+        error: String,
+    },
 }
 
 #[derive(Debug, Clone, Default)]
@@ -80,7 +96,9 @@ impl LoadOrder {
     }
 
     pub fn find(&self, name: &str) -> Option<&Entry> {
-        self.entries.iter().find(|e| e.name.eq_ignore_ascii_case(name))
+        self.entries
+            .iter()
+            .find(|e| e.name.eq_ignore_ascii_case(name))
     }
 
     /// The lines to write to a `plugins.txt`: the engine ignores the early
@@ -127,11 +145,8 @@ fn key(name: &str) -> String {
 }
 
 pub fn resolve<'a>(inputs: &Inputs<'a>) -> Result<LoadOrder> {
-    let by_name: HashMap<String, &'a PluginHeader> = inputs
-        .available
-        .iter()
-        .map(|h| (key(&h.name), h))
-        .collect();
+    let by_name: HashMap<String, &'a PluginHeader> =
+        inputs.available.iter().map(|h| (key(&h.name), h)).collect();
     let mut placed: HashMap<String, ()> = HashMap::new();
     let mut problems = Vec::new();
     let mut early = Vec::new();
@@ -280,7 +295,12 @@ mod tests {
             header("Skyrim.esm", &[], true, false),
             header("Update.esm", &["Skyrim.esm"], true, false),
             header("Dawnguard.esm", &["Skyrim.esm", "Update.esm"], true, false),
-            header("HearthFires.esm", &["Skyrim.esm", "Update.esm"], true, false),
+            header(
+                "HearthFires.esm",
+                &["Skyrim.esm", "Update.esm"],
+                true,
+                false,
+            ),
             header("Dragonborn.esm", &["Skyrim.esm", "Update.esm"], true, false),
         ]
     }
@@ -297,7 +317,8 @@ mod tests {
         let plugins = parse_plugins_txt(
             "*Skyrim.esm\n*Plain.esp\n*Flagged.esp\nDisabledOne.esp\n*Tiny.esl\n*Fe.esp\n",
         );
-        let early = crate::ccc::early_loading(&["ccFish.esm".to_string(), "ccGone.esl".to_string()]);
+        let early =
+            crate::ccc::early_loading(&["ccFish.esm".to_string(), "ccGone.esl".to_string()]);
         let order = resolve(&Inputs {
             available: &files,
             plugins_txt: &plugins,
@@ -309,21 +330,41 @@ mod tests {
         assert_eq!(
             names,
             vec![
-                "Skyrim.esm", "Update.esm", "Dawnguard.esm", "HearthFires.esm", "Dragonborn.esm",
-                "ccFish.esm", "Flagged.esp", "Tiny.esl", "Plain.esp", "Fe.esp", "Unlisted.esp",
+                "Skyrim.esm",
+                "Update.esm",
+                "Dawnguard.esm",
+                "HearthFires.esm",
+                "Dragonborn.esm",
+                "ccFish.esm",
+                "Flagged.esp",
+                "Tiny.esl",
+                "Plain.esp",
+                "Fe.esp",
+                "Unlisted.esp",
             ]
         );
         assert!(order.find("ccFish.esm").unwrap().early);
         assert!(!order.find("Unlisted.esp").unwrap().enabled);
-        assert_eq!(order.find("Update.esm").unwrap().slot, Some(Slot::Regular(1)));
-        assert_eq!(order.find("Flagged.esp").unwrap().slot, Some(Slot::Regular(6)));
+        assert_eq!(
+            order.find("Update.esm").unwrap().slot,
+            Some(Slot::Regular(1))
+        );
+        assert_eq!(
+            order.find("Flagged.esp").unwrap().slot,
+            Some(Slot::Regular(6))
+        );
         assert_eq!(order.find("Tiny.esl").unwrap().slot, Some(Slot::Light(0)));
-        assert_eq!(order.find("Plain.esp").unwrap().slot, Some(Slot::Regular(7)));
+        assert_eq!(
+            order.find("Plain.esp").unwrap().slot,
+            Some(Slot::Regular(7))
+        );
         assert_eq!(order.find("Fe.esp").unwrap().slot, Some(Slot::Light(1)));
         assert_eq!(order.find("Unlisted.esp").unwrap().slot, None);
         assert_eq!(
             order.problems,
-            vec![Problem::Missing { name: "DisabledOne.esp".into() }]
+            vec![Problem::Missing {
+                name: "DisabledOne.esp".into()
+            }]
         );
         assert!(!order.broken());
         assert_eq!(order.plugins_txt_lines().len(), 11);
@@ -335,7 +376,12 @@ mod tests {
         files.push(header("A.esp", &["Skyrim.esm", "B.esp"], false, false));
         files.push(header("B.esp", &["Skyrim.esm", "Off.esp"], false, false));
         files.push(header("Off.esp", &["Skyrim.esm"], false, false));
-        files.push(header("Orphan.esp", &["Skyrim.esm", "Nowhere.esm"], false, false));
+        files.push(header(
+            "Orphan.esp",
+            &["Skyrim.esm", "Nowhere.esm"],
+            false,
+            false,
+        ));
         let plugins = parse_plugins_txt("*A.esp\n*B.esp\nOff.esp\n*Orphan.esp\n");
         let loadorder: Vec<String> = ["Skyrim.esm", "A.esp", "Off.esp", "B.esp", "Orphan.esp"]
             .iter()
@@ -349,12 +395,26 @@ mod tests {
             early: &early,
         })
         .unwrap();
-        let names: Vec<&str> = order.entries.iter().skip(5).map(|e| e.name.as_str()).collect();
+        let names: Vec<&str> = order
+            .entries
+            .iter()
+            .skip(5)
+            .map(|e| e.name.as_str())
+            .collect();
         assert_eq!(names, vec!["A.esp", "Off.esp", "B.esp", "Orphan.esp"]);
         assert!(order.broken());
-        assert!(order.problems.contains(&Problem::MasterLater { plugin: "A.esp".into(), master: "B.esp".into() }));
-        assert!(order.problems.contains(&Problem::MasterDisabled { plugin: "B.esp".into(), master: "Off.esp".into() }));
-        assert!(order.problems.contains(&Problem::MissingMaster { plugin: "Orphan.esp".into(), master: "Nowhere.esm".into() }));
+        assert!(order.problems.contains(&Problem::MasterLater {
+            plugin: "A.esp".into(),
+            master: "B.esp".into()
+        }));
+        assert!(order.problems.contains(&Problem::MasterDisabled {
+            plugin: "B.esp".into(),
+            master: "Off.esp".into()
+        }));
+        assert!(order.problems.contains(&Problem::MissingMaster {
+            plugin: "Orphan.esp".into(),
+            master: "Nowhere.esm".into()
+        }));
         assert_eq!(order.problems.len(), 3);
     }
 
@@ -369,7 +429,9 @@ mod tests {
             early: &early,
         })
         .unwrap();
-        assert!(order.problems.contains(&Problem::HardcodedMissing { name: "Skyrim.esm".into() }));
+        assert!(order.problems.contains(&Problem::HardcodedMissing {
+            name: "Skyrim.esm".into()
+        }));
         assert!(order.broken());
 
         let mut many = vanilla();

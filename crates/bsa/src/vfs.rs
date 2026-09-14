@@ -35,6 +35,7 @@ pub struct Vfs {
 }
 
 impl Vfs {
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
@@ -48,7 +49,13 @@ impl Vfs {
             match self.map.get(&key) {
                 Some(Source::Loose(_)) => {}
                 _ => {
-                    self.map.insert(key, Source::Archived { archive: idx, record });
+                    self.map.insert(
+                        key,
+                        Source::Archived {
+                            archive: idx,
+                            record,
+                        },
+                    );
                 }
             }
         }
@@ -70,10 +77,7 @@ impl Vfs {
         while let Some(dir) = stack.pop() {
             for entry in std::fs::read_dir(&dir)?.flatten() {
                 let path = entry.path();
-                let ty = match entry.file_type() {
-                    Ok(t) => t,
-                    Err(_) => continue,
-                };
+                let Ok(ty) = entry.file_type() else { continue };
                 if ty.is_dir() {
                     stack.push(path);
                     continue;
@@ -90,18 +94,22 @@ impl Vfs {
         Ok(count)
     }
 
+    #[must_use]
     pub fn archives(&self) -> &[Archive] {
         &self.archives
     }
 
+    #[must_use]
     pub fn loose_roots(&self) -> &[PathBuf] {
         &self.loose_roots
     }
 
+    #[must_use]
     pub fn resolve(&self, path: &str) -> Option<&Source> {
         self.map.get(&normalize(path))
     }
 
+    #[must_use]
     pub fn exists(&self, path: &str) -> bool {
         self.resolve(path).is_some()
     }
@@ -110,7 +118,9 @@ impl Vfs {
     pub fn read(&self, path: &str) -> Result<Vec<u8>> {
         match self.resolve(path) {
             Some(Source::Loose(p)) => Ok(std::fs::read(p)?),
-            Some(Source::Archived { archive, record }) => self.archives[*archive].read_record(*record),
+            Some(Source::Archived { archive, record }) => {
+                self.archives[*archive].read_record(*record)
+            }
             None => Err(Error::NotFound {
                 name: path.to_string(),
             }),
@@ -122,10 +132,12 @@ impl Vfs {
         self.map.keys().map(String::as_str)
     }
 
+    #[must_use]
     pub fn len(&self) -> usize {
         self.map.len()
     }
 
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.map.is_empty()
     }
@@ -161,7 +173,10 @@ mod tests {
         let mut vfs = Vfs::new();
         vfs.add_archive(archive(
             "Skyrim - Meshes0.bsa",
-            &[("meshes", "chair.nif", b"vanilla chair"), ("meshes", "table.nif", b"vanilla table")],
+            &[
+                ("meshes", "chair.nif", b"vanilla chair"),
+                ("meshes", "table.nif", b"vanilla table"),
+            ],
         ));
         vfs.add_archive(archive(
             "Patch.bsa",
@@ -171,7 +186,10 @@ mod tests {
         assert_eq!(vfs.read("Meshes\\Table.NIF").unwrap(), b"vanilla table");
         assert_eq!(
             vfs.resolve("meshes/chair.nif"),
-            Some(&Source::Archived { archive: 1, record: 0 })
+            Some(&Source::Archived {
+                archive: 1,
+                record: 0
+            })
         );
 
         let tmp = tempfile::tempdir().unwrap();
@@ -181,11 +199,20 @@ mod tests {
         assert_eq!(vfs.read("meshes/chair.nif").unwrap(), b"loose chair");
 
         // An archive added after the loose root still loses to it.
-        vfs.add_archive(archive("Late.bsa", &[("meshes", "chair.nif", b"late chair")]));
+        vfs.add_archive(archive(
+            "Late.bsa",
+            &[("meshes", "chair.nif", b"late chair")],
+        ));
         assert_eq!(vfs.read("meshes/chair.nif").unwrap(), b"loose chair");
-        assert!(matches!(vfs.resolve("meshes/chair.nif"), Some(Source::Loose(_))));
+        assert!(matches!(
+            vfs.resolve("meshes/chair.nif"),
+            Some(Source::Loose(_))
+        ));
 
-        assert_eq!(vfs.list("meshes"), vec!["meshes/chair.nif", "meshes/table.nif"]);
+        assert_eq!(
+            vfs.list("meshes"),
+            vec!["meshes/chair.nif", "meshes/table.nif"]
+        );
         assert_eq!(vfs.len(), 2);
     }
 

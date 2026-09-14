@@ -94,14 +94,14 @@ impl std::fmt::Display for ArchiveFormat {
                     BsaVersion::Fo3Skyrim => "v104/FO3+SkyrimLE",
                     BsaVersion::SkyrimSe => "v105/SkyrimSE",
                 };
-                write!(f, "BSA ({})", ver)
+                write!(f, "BSA ({ver})")
             }
             ArchiveFormat::Ba2(t) => {
                 let typ = match t {
                     Ba2Type::General => "General",
                     Ba2Type::Dx10 => "DX10/Textures",
                 };
-                write!(f, "BA2 ({})", typ)
+                write!(f, "BA2 ({typ})")
             }
         }
     }
@@ -155,7 +155,7 @@ pub(crate) fn index_from<R: Read + Seek>(
         parse_ba2(r, len, path)
     } else {
         Err(Error::format(
-            format!("Unknown archive format (magic: {:?})", magic),
+            format!("Unknown archive format (magic: {magic:?})"),
             path,
         ))
     }
@@ -170,6 +170,10 @@ pub struct Archive {
     lookup: HashMap<String, usize>,
 }
 
+// CONTEXT: `data` is the whole archive's bytes and `lookup` is a derived
+// index, both too large to print, so this intentionally shows a summary
+// rather than every field.
+#[allow(clippy::missing_fields_in_debug)]
 impl std::fmt::Debug for Archive {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Archive")
@@ -202,28 +206,34 @@ impl Archive {
         })
     }
 
+    #[must_use]
     pub fn path(&self) -> &Path {
         &self.path
     }
 
+    #[must_use]
     pub fn index(&self) -> &ArchiveIndex {
         &self.index
     }
 
+    #[must_use]
     pub fn format(&self) -> ArchiveFormat {
         self.index.format
     }
 
     /// Paths as stored, in archive order.
+    #[must_use]
     pub fn files(&self) -> &[String] {
         &self.index.files
     }
 
     /// Record position for a path, case-insensitive, either slash.
+    #[must_use]
     pub fn find(&self, path: &str) -> Option<usize> {
         self.lookup.get(&normalize(path)).copied()
     }
 
+    #[must_use]
     pub fn contains(&self, path: &str) -> bool {
         self.find(path).is_some()
     }
@@ -266,16 +276,21 @@ pub fn read_record(data: &[u8], format: ArchiveFormat, record: &FileRecord) -> R
         return rebuild_dds(data, &record.path, dds);
     }
     if record.name_embedded {
-        let block = slice(data, &record.path, record.offset, record.raw_size as u64)?;
+        let block = slice(
+            data,
+            &record.path,
+            record.offset,
+            u64::from(record.raw_size),
+        )?;
         let name_len = *block.first().ok_or_else(|| Error::Truncated {
             name: record.path.clone(),
             offset: record.offset,
-            size: record.raw_size as u64,
+            size: u64::from(record.raw_size),
         })? as usize;
         let rest = block.get(1 + name_len..).ok_or_else(|| Error::Truncated {
             name: record.path.clone(),
             offset: record.offset,
-            size: record.raw_size as u64,
+            size: u64::from(record.raw_size),
         })?;
         if !record.compressed {
             return Ok(rest.to_vec());
@@ -284,7 +299,7 @@ pub fn read_record(data: &[u8], format: ArchiveFormat, record: &FileRecord) -> R
             return Err(Error::Truncated {
                 name: record.path.clone(),
                 offset: record.offset,
-                size: record.raw_size as u64,
+                size: u64::from(record.raw_size),
             });
         }
         let unc = u32::from_le_bytes([rest[0], rest[1], rest[2], rest[3]]);
@@ -295,7 +310,12 @@ pub fn read_record(data: &[u8], format: ArchiveFormat, record: &FileRecord) -> R
         };
     }
     if record.compressed && record.raw_size > 0 {
-        let compressed = slice(data, &record.path, record.offset, record.raw_size as u64)?;
+        let compressed = slice(
+            data,
+            &record.path,
+            record.offset,
+            u64::from(record.raw_size),
+        )?;
         // Skyrim SE archives pack with LZ4 frames, everything older with zlib.
         return if is_sse(format) {
             decompress_lz4_frame(compressed, record.uncompressed_size, &record.path)
@@ -308,7 +328,7 @@ pub fn read_record(data: &[u8], format: ArchiveFormat, record: &FileRecord) -> R
     } else {
         record.raw_size
     };
-    slice(data, &record.path, record.offset, size as u64).map(|s| s.to_vec())
+    slice(data, &record.path, record.offset, u64::from(size)).map(<[u8]>::to_vec)
 }
 
 /// Extract every file into `output_dir`, returning how many.
@@ -316,7 +336,11 @@ pub fn extract_archive(archive_path: &Path, output_dir: &Path) -> Result<u32> {
     let archive = Archive::open(archive_path)?;
     let mut count = 0;
     for i in 0..archive.index.records.len() {
-        write_out(output_dir, &archive.index.records[i].path, &archive.read_record(i)?)?;
+        write_out(
+            output_dir,
+            &archive.index.records[i].path,
+            &archive.read_record(i)?,
+        )?;
         count += 1;
     }
     Ok(count)
@@ -377,14 +401,14 @@ fn rebuild_dds(data: &[u8], name: &str, dds: &DdsInfo) -> Result<Vec<u8>> {
     write_dds_header(&mut out, dds)?;
     for chunk in &dds.chunks {
         if chunk.packed_size > 0 {
-            let compressed = slice(data, name, chunk.offset, chunk.packed_size as u64)?;
+            let compressed = slice(data, name, chunk.offset, u64::from(chunk.packed_size))?;
             out.extend(decompress_zlib(compressed, chunk.unpacked_size, name)?);
         } else {
             out.extend_from_slice(slice(
                 data,
                 name,
                 chunk.offset,
-                chunk.unpacked_size as u64,
+                u64::from(chunk.unpacked_size),
             )?);
         }
     }
@@ -397,11 +421,11 @@ fn write_dds_header<W: Write>(w: &mut W, dds: &DdsInfo) -> Result<()> {
     w.write_u32::<LittleEndian>(124)?;
     // CAPS | HEIGHT | WIDTH | PIXELFORMAT | MIPMAPCOUNT
     w.write_u32::<LittleEndian>(0x1 | 0x2 | 0x4 | 0x1000 | 0x20000)?;
-    w.write_u32::<LittleEndian>(dds.height as u32)?;
-    w.write_u32::<LittleEndian>(dds.width as u32)?;
+    w.write_u32::<LittleEndian>(u32::from(dds.height))?;
+    w.write_u32::<LittleEndian>(u32::from(dds.width))?;
     w.write_u32::<LittleEndian>(0)?; // pitch or linear size
     w.write_u32::<LittleEndian>(0)?; // depth
-    w.write_u32::<LittleEndian>(dds.num_mips as u32)?;
+    w.write_u32::<LittleEndian>(u32::from(dds.num_mips))?;
     for _ in 0..11 {
         w.write_u32::<LittleEndian>(0)?; // reserved
     }
@@ -417,7 +441,7 @@ fn write_dds_header<W: Write>(w: &mut W, dds: &DdsInfo) -> Result<()> {
         w.write_u32::<LittleEndian>(0)?;
     }
     // DDS_HEADER_DXT10, 20 bytes
-    w.write_u32::<LittleEndian>(dds.dxgi_format as u32)?;
+    w.write_u32::<LittleEndian>(u32::from(dds.dxgi_format))?;
     w.write_u32::<LittleEndian>(3)?; // TEXTURE2D
     w.write_u32::<LittleEndian>(0)?;
     w.write_u32::<LittleEndian>(1)?; // array size
@@ -425,9 +449,10 @@ fn write_dds_header<W: Write>(w: &mut W, dds: &DdsInfo) -> Result<()> {
     Ok(())
 }
 
+#[must_use]
 pub fn is_bsa_or_ba2(path: &Path) -> bool {
     let ext = path.extension().map(|e| e.to_string_lossy().to_lowercase());
-    matches!(ext.as_deref(), Some("bsa") | Some("ba2"))
+    matches!(ext.as_deref(), Some("bsa" | "ba2"))
 }
 
 /// Bethesda convention: `MyMod.esp` auto-loads `MyMod.bsa`, `MyMod - Textures.bsa`
@@ -502,7 +527,7 @@ fn parse_bsa<R: Read + Seek>(
         105 => BsaVersion::SkyrimSe,
         _ => {
             return Err(Error::format(
-                format!("Unknown BSA version {}", version),
+                format!("Unknown BSA version {version}"),
                 path,
             ))
         }
@@ -535,11 +560,10 @@ fn parse_bsa<R: Read + Seek>(
     // A count the file cannot hold is a corrupt header, not a request for
     // gigabytes of Vec.
     let folder_record_size = if version >= 105 { 24 } else { 16 };
-    if (folder_count as u64) * folder_record_size > len || (file_count as u64) * 16 > len {
+    if u64::from(folder_count) * folder_record_size > len || u64::from(file_count) * 16 > len {
         return Err(Error::format(
             format!(
-                "Header claims {} folders and {} files, more than the archive can hold",
-                folder_count, file_count
+                "Header claims {folder_count} folders and {file_count} files, more than the archive can hold"
             ),
             path,
         ));
@@ -590,11 +614,11 @@ fn parse_bsa<R: Read + Seek>(
 
     for &(raw_size_field, raw_offset) in raw_file_records.iter().take(file_count as usize) {
         let file_name = read_null_terminated(cursor, len)?;
-        let folder_name = folder_names.get(folder_idx).map(String::as_str).unwrap_or("");
+        let folder_name = folder_names.get(folder_idx).map_or("", String::as_str);
         let full_path = if folder_name.is_empty() {
             file_name
         } else {
-            format!("{}/{}", folder_name, file_name)
+            format!("{folder_name}/{file_name}")
         };
         let compression_toggled = raw_size_field & BSA_SIZE_COMPRESSION_BIT != 0;
         let data_size = raw_size_field & !BSA_SIZE_COMPRESSION_BIT;
@@ -604,11 +628,11 @@ fn parse_bsa<R: Read + Seek>(
             // The block is `u8 len, name, [u32 uncompressed size], payload`.
             // Its offset and full size are kept as stored and the read peels
             // the prefix, since the name length is out in the payload too.
-            let ofs = raw_offset as u64;
+            let ofs = u64::from(raw_offset);
             let unc_size = if peek_payload && is_compressed && ofs < len {
                 let here = cursor.stream_position()?;
                 cursor.seek(SeekFrom::Start(ofs))?;
-                let name_len = cursor.read_u8()? as u64;
+                let name_len = u64::from(cursor.read_u8()?);
                 cursor.seek(SeekFrom::Start(ofs + 1 + name_len))?;
                 let v = cursor.read_u32::<LittleEndian>()?;
                 cursor.seek(SeekFrom::Start(here))?;
@@ -632,7 +656,7 @@ fn parse_bsa<R: Read + Seek>(
             // size at 0.
             let (actual_offset, compressed_size, uncompressed_size) =
                 if is_compressed && data_size > 4 {
-                    let ofs = raw_offset as u64;
+                    let ofs = u64::from(raw_offset);
                     if ofs + 4 <= len {
                         let unc_size = if peek_payload {
                             let here = cursor.stream_position()?;
@@ -648,7 +672,7 @@ fn parse_bsa<R: Read + Seek>(
                         (ofs, data_size, 0)
                     }
                 } else {
-                    (raw_offset as u64, data_size, data_size)
+                    (u64::from(raw_offset), data_size, data_size)
                 };
             FileRecord {
                 path: full_path.clone(),
@@ -686,7 +710,7 @@ fn parse_ba2<R: Read + Seek>(cursor: &mut R, len: u64, path: &Path) -> Result<Ar
     let version = cursor.read_u32::<LittleEndian>()?;
     if version != 1 {
         return Err(Error::format(
-            format!("Unknown BA2 version {}", version),
+            format!("Unknown BA2 version {version}"),
             path,
         ));
     }
@@ -698,7 +722,10 @@ fn parse_ba2<R: Read + Seek>(cursor: &mut R, len: u64, path: &Path) -> Result<Ar
         b"DX10" => Ba2Type::Dx10,
         _ => {
             return Err(Error::format(
-                format!("Unknown BA2 type {:?}", String::from_utf8_lossy(&type_bytes)),
+                format!(
+                    "Unknown BA2 type {:?}",
+                    String::from_utf8_lossy(&type_bytes)
+                ),
                 path,
             ))
         }
@@ -706,9 +733,9 @@ fn parse_ba2<R: Read + Seek>(cursor: &mut R, len: u64, path: &Path) -> Result<Ar
 
     let file_count = cursor.read_u32::<LittleEndian>()?;
     let name_table_offset = cursor.read_u64::<LittleEndian>()?;
-    if (file_count as u64) * 24 > len {
+    if u64::from(file_count) * 24 > len {
         return Err(Error::format(
-            format!("Header claims {} files, more than the archive can hold", file_count),
+            format!("Header claims {file_count} files, more than the archive can hold"),
             path,
         ));
     }
@@ -1101,7 +1128,10 @@ mod tests {
     #[test]
     fn extract_ba2_gnrl_uncompressed() {
         let file_data = b"Hello from inside a BA2!";
-        let data = gnrl_ba2(&[(b"test/hello.txt", file_data, file_data.len() as u32)], false);
+        let data = gnrl_ba2(
+            &[(b"test/hello.txt", file_data, file_data.len() as u32)],
+            false,
+        );
 
         let tmpdir = tempfile::tempdir().unwrap();
         let archive_path = tmpdir.path().join("test.ba2");
@@ -1284,7 +1314,10 @@ mod tests {
         let archive = Archive::from_bytes(Path::new("sse.bsa"), d).unwrap();
         assert_eq!(archive.format(), ArchiveFormat::Bsa(BsaVersion::SkyrimSe));
         assert_eq!(archive.files(), ["textures/caf\u{e9}/Sign.dds"]);
-        assert_eq!(archive.read("Textures/Caf\u{c9}/sign.dds").unwrap(), payload);
+        assert_eq!(
+            archive.read("Textures/Caf\u{c9}/sign.dds").unwrap(),
+            payload
+        );
     }
 
     #[test]
@@ -1343,7 +1376,10 @@ mod tests {
 
         let archive = Archive::from_bytes(Path::new("tex.bsa"), d).unwrap();
         assert!(archive.index().records[0].name_embedded);
-        assert_eq!(archive.index().records[1].uncompressed_size, packed_src.len() as u32);
+        assert_eq!(
+            archive.index().records[1].uncompressed_size,
+            packed_src.len() as u32
+        );
         assert_eq!(archive.read("textures/a.dds").unwrap(), plain);
         assert_eq!(archive.read("textures/b.dds").unwrap(), packed_src);
     }

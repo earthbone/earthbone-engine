@@ -1,0 +1,17 @@
+[package]
+name = "soe-game"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-or-later"
+description = "Runtime form table, the object model Papyrus sees, the first natives by vanilla call count, and the game clock that drives the VM"
+
+[lib]
+name = "soe_game"
+path = "src/lib.rs"
+
+[dependencies]
+soe-esm = { path = "../esm" }
+soe-papyrus = { path = "../papyrus" }
+
+[lints]
+workspace = true

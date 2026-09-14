@@ -34,7 +34,12 @@ fn interpolate(a: u32, b: u32, weights: &[u32], i: u32) -> u8 {
 }
 
 pub fn decode(src: &[u8], out: &mut Block) {
-    let mut bits = Bits(u128::from_le_bytes(src[..16].try_into().expect("16-byte block")));
+    // CONTEXT: the caller (decode_slice) always hands this a full 16-byte
+    // BC7 block, sliced by its own block size.
+    #[allow(clippy::expect_used)]
+    let mut bits = Bits(u128::from_le_bytes(
+        src[..16].try_into().expect("16-byte block"),
+    ));
     let mut mode = 0;
     while mode < 8 && bits.read(1) == 0 {
         mode += 1;
@@ -53,7 +58,11 @@ pub fn decode(src: &[u8], out: &mut Block) {
         1 | 2 | 3 | 7 => bits.read(6),
         _ => 0,
     } as usize;
-    let rotation = if mode == 4 || mode == 5 { bits.read(2) } else { 0 };
+    let rotation = if mode == 4 || mode == 5 {
+        bits.read(2)
+    } else {
+        0
+    };
     let index_selection = if mode == 4 { bits.read(1) } else { 0 };
     let endpoints_n = subsets * 2;
 
@@ -155,7 +164,11 @@ pub fn decode(src: &[u8], out: &mut Block) {
                 rgba[c] = interpolate(e0[c], e1[c], weights, i);
             }
         } else {
-            let i2 = bits.read(if px == 0 { index_bits2 - 1 } else { index_bits2 });
+            let i2 = bits.read(if px == 0 {
+                index_bits2 - 1
+            } else {
+                index_bits2
+            });
             let (ci, cw, ai, aw): (u32, &[u32], u32, &[u32]) = if index_selection == 0 {
                 (i, weights, i2, weights2)
             } else {
@@ -211,7 +224,11 @@ mod tests {
         }
         let mut out = [0u8; 64];
         decode(&w.bytes(), &mut out);
-        assert!(out.chunks(4).all(|p| p == [255, 255, 255, 255]), "{:?}", &out[..8]);
+        assert!(
+            out.chunks(4).all(|p| p == [255, 255, 255, 255]),
+            "{:?}",
+            &out[..8]
+        );
         // Index 15 selects endpoint 1 exactly.
         let mut w2 = Writer(0, 0);
         w2.put(0b100_0000, 7);

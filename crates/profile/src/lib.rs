@@ -19,6 +19,8 @@
 //! println!("archives: {:?}", loadout.archives);
 //! ```
 
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
+
 pub mod ccc;
 pub mod error;
 pub mod header;
@@ -91,7 +93,11 @@ pub struct LoadoutInput {
 impl LoadoutInput {
     /// The unmodded game: its Data, its `plugins.txt` from the local app data
     /// folder, its INIs from My Games. Either folder may be absent.
-    pub fn vanilla(game_dir: &Path, my_games: Option<&Path>, local_appdata: Option<&Path>) -> LoadoutInput {
+    pub fn vanilla(
+        game_dir: &Path,
+        my_games: Option<&Path>,
+        local_appdata: Option<&Path>,
+    ) -> LoadoutInput {
         LoadoutInput {
             game_dir: game_dir.to_path_buf(),
             data_roots: vec![game_dir.join("Data")],
@@ -110,7 +116,10 @@ impl LoadoutInput {
             match PluginHeader::read(path) {
                 Ok(h) => available.push(h),
                 Err(e) => problems.push(Problem::Unreadable {
-                    name: path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default(),
+                    name: path
+                        .file_name()
+                        .map(|n| n.to_string_lossy().to_string())
+                        .unwrap_or_default(),
                     error: e.to_string(),
                 }),
             }
@@ -123,7 +132,10 @@ impl LoadoutInput {
             Some(p) => plugins_txt::read_loadorder_txt(p)?,
             None => Vec::new(),
         };
-        let ccc_path = self.ccc.clone().unwrap_or_else(|| self.game_dir.join("Skyrim.ccc"));
+        let ccc_path = self
+            .ccc
+            .clone()
+            .unwrap_or_else(|| self.game_dir.join("Skyrim.ccc"));
         let early = ccc::early_loading(&ccc::read_ccc(&ccc_path));
         let mut load_order = order::resolve(&order::Inputs {
             available: &available,
@@ -134,17 +146,24 @@ impl LoadoutInput {
         load_order.problems.extend(problems);
 
         let mut settings = Settings::new();
-        apply_if_present(&mut settings, Layer::Default, &self.game_dir.join("Skyrim_Default.ini"))?;
+        apply_if_present(
+            &mut settings,
+            &Layer::Default,
+            &self.game_dir.join("Skyrim_Default.ini"),
+        )?;
         if let Some(dir) = &self.ini_dir {
-            for (name, layer) in INI_NAMES.iter().zip([Layer::Base, Layer::Custom, Layer::Prefs]) {
-                apply_if_present(&mut settings, layer, &dir.join(name))?;
+            for (name, layer) in INI_NAMES
+                .iter()
+                .zip([Layer::Base, Layer::Custom, Layer::Prefs])
+            {
+                apply_if_present(&mut settings, &layer, &dir.join(name))?;
             }
         }
         let by_lower = lower_index(&self.data_roots);
         for e in load_order.active() {
             let ini_name = format!("{}.ini", stem(&e.name)).to_ascii_lowercase();
             if let Some(path) = by_lower.get(&ini_name) {
-                apply_if_present(&mut settings, Layer::Plugin(e.name.clone()), path)?;
+                apply_if_present(&mut settings, &Layer::Plugin(e.name.clone()), path)?;
             }
         }
 
@@ -165,7 +184,10 @@ impl LoadoutInput {
             let plain = format!("{}.bsa", stem(&e.name)).to_ascii_lowercase();
             let prefix = format!("{} - ", stem(&e.name)).to_ascii_lowercase();
             for n in &names {
-                let matches = **n == plain || (n.starts_with(&prefix) && n.ends_with(".bsa"));
+                let has_bsa_ext = Path::new(n.as_str())
+                    .extension()
+                    .is_some_and(|e| e.eq_ignore_ascii_case("bsa"));
+                let matches = **n == plain || (n.starts_with(&prefix) && has_bsa_ext);
                 if matches && seen.insert((*n).clone()) {
                     archives.push(ArchiveRef {
                         name: by_lower[*n]
@@ -189,10 +211,13 @@ impl LoadoutInput {
 }
 
 fn stem(name: &str) -> &str {
-    Path::new(name).file_stem().and_then(|s| s.to_str()).unwrap_or(name)
+    Path::new(name)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or(name)
 }
 
-fn apply_if_present(settings: &mut Settings, layer: Layer, path: &Path) -> Result<()> {
+fn apply_if_present(settings: &mut Settings, layer: &Layer, path: &Path) -> Result<()> {
     match std::fs::read_to_string(path) {
         Ok(text) => {
             settings.apply(layer, &Ini::parse(&text));

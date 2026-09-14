@@ -5,6 +5,9 @@ edition = "2021"
 license = "GPL-3.0-or-later"
 description = "Reader for Skyrim Special Edition NIF meshes with a renderer-neutral output"
 
+[lints]
+workspace = true
+
 [lib]
 name = "soe_nif"
 

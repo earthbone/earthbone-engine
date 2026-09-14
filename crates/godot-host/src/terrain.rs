@@ -175,7 +175,10 @@ impl RegionHeightmap {
     /// Little-endian `f32` bytes, the layout `Image.create_from_data` wants
     /// for `FORMAT_RF`.
     pub fn rf_bytes(&self) -> Vec<u8> {
-        self.heights_m.iter().flat_map(|h| h.to_le_bytes()).collect()
+        self.heights_m
+            .iter()
+            .flat_map(|h| h.to_le_bytes())
+            .collect()
     }
 }
 
@@ -302,7 +305,10 @@ mod tests {
 
     #[test]
     fn a_short_vhgt_is_refused() {
-        assert_eq!(decode_vhgt(0.0, &[0; 10]).err(), Some(TerrainError::DeltaCount(10)));
+        assert_eq!(
+            decode_vhgt(0.0, &[0; 10]).err(),
+            Some(TerrainError::DeltaCount(10))
+        );
         assert_eq!(
             CellHeights::new(CellCoord::new(0, 0), vec![0.0; 5]).err(),
             Some(TerrainError::SampleCount(5))
@@ -329,9 +335,18 @@ mod tests {
     #[test]
     fn cells_map_to_regions_with_euclidean_division() {
         let s = RegionSpec::default();
-        assert_eq!(s.region_of(CellCoord::new(7, 0)), RegionCoord { x: 0, y: 0 });
-        assert_eq!(s.region_of(CellCoord::new(8, -1)), RegionCoord { x: 1, y: -1 });
-        assert_eq!(s.region_of(CellCoord::new(-1, -8)), RegionCoord { x: -1, y: -1 });
+        assert_eq!(
+            s.region_of(CellCoord::new(7, 0)),
+            RegionCoord { x: 0, y: 0 }
+        );
+        assert_eq!(
+            s.region_of(CellCoord::new(8, -1)),
+            RegionCoord { x: 1, y: -1 }
+        );
+        assert_eq!(
+            s.region_of(CellCoord::new(-1, -8)),
+            RegionCoord { x: -1, y: -1 }
+        );
         assert_eq!(s.godot_region_location(RegionCoord { x: 1, y: 0 }), (1, -1));
         assert_eq!(s.godot_region_location(RegionCoord { x: 0, y: -1 }), (0, 0));
     }
@@ -365,7 +380,7 @@ mod tests {
         // Column 32 is the eastern cell's column 0.
         assert!((r.height_at(32, 63) - expect(1, 0, 0, 1) * m).abs() < 1e-3);
         // Row 31 is the southern cell's row 32 seam, which equals the
-        // northern cell's row 0 only if the data agrees; here the ramp
+        // northern cell's row 0 only if the data agrees. Here the ramp
         // makes them differ, so check the row 32 of the southern cell is
         // what landed.
         assert!((r.height_at(5, 32) - expect(0, 0, 5, 32) * m).abs() < 1e-3);

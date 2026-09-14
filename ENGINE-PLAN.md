@@ -69,7 +69,7 @@ branch, and reports branch, commit, test count, and what is untested.
   with its decoder, and the hkb behavior classes as a typed data model (hkbBehaviorGraph,
   hkbStateMachine, states, transitions, events, variables, hkbClipGenerator, blender
   generators, modifiers) drawn from the activeragdoll `havok_behavior.h` class layouts
-  (https://github.com/adamhynek/activeragdoll, fetch it into `engine-refs/activeragdoll`) and
+  (<https://github.com/adamhynek/activeragdoll>, fetch it into `engine-refs/activeragdoll`) and
   `engine-refs/serde-hkx`, `engine-refs/HavokLib`, `engine-refs/Skyrim-Behavior-Editor-`.
   Then `docs/havok.md`: the behavior-graph interpreter design with the event and variable model
   and how a replay harness would drive it. Done: a synthetic packfile round trip for the
@@ -130,3 +130,25 @@ so they start once master carries them.
   rules, `Skyrim.ini` and `SkyrimPrefs.ini` with the precedence documented there, MO2 profile
   layout so a manager loadout is playable directly. Done: an MO2-shaped profile directory
   resolves to the expected load order.
+
+Round 2 status (2026-09-14): dds, physics, navmesh, profile, shim and editor merged on 2026-09-06.
+`game` merged on 2026-09-14 (`crates/game`, `docs/game.md`, `docs/validation.md`): VMAD and QUST
+readers, the form table with lazy per-form state, 138 natives plus 178 quiet stubs, the clock, the
+scenario harness. The VM gained per-object base classes for it (`Vm::create_object_of`). Done check
+met: the synthetic quest advances on activation end to end, a door teleports, a container opens,
+an `OnUpdate` timer fires on the clock. Every item in rounds 1 and 2 now has a first implementation.
+
+## Round 3 (not started): live validation and the seams the map left open
+
+- Run every `SKYRIM_DATA` gated test against the installed game and record the numbers in the docs.
+- Capture Papyrus logs from vanilla for three scenarios (a door, a container, a quest stage) and
+  check them in under `crates/game/tests/captures/` with their scenario files, see
+  `docs/validation.md`.
+- A save-file reader (`crates/save`) so quest stages, globals and reference state from a vanilla
+  save become scenario expectations without hand transcription.
+- Fetch the Creation Kit wiki's Papyrus function pages through a browser session (the site is
+  behind a Cloudflare challenge for plain fetches) into `engine-refs/ck-wiki/`, then review each
+  native in `docs/game.md` against its page.
+- Godot binary installed, the extension loaded, the Whiterun benchmark run for real.
+- Decide the Go plus Rust split recorded on 2026-09-05 (Go tooling, Rust runtime, protobuf seam)
+  against the all-Rust workspace that exists, and write the outcome here.

@@ -27,6 +27,8 @@
 //! }
 //! ```
 
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
+
 pub mod cursor;
 pub mod error;
 pub mod load_order;

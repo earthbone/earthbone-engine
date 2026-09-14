@@ -31,12 +31,26 @@ fn every_vanilla_archive_indexes_and_reads() {
         "archives that failed to index: {:?}",
         scan.failed
     );
-    assert!(scan.archives.len() >= 10, "found {} archives", scan.archives.len());
+    assert!(
+        scan.archives.len() >= 10,
+        "found {} archives",
+        scan.archives.len()
+    );
 
     let mut total_files = 0usize;
     for (path, index) in &scan.archives {
-        assert_eq!(index.format, ArchiveFormat::Bsa(BsaVersion::SkyrimSe), "{}", path.display());
-        assert_eq!(index.files.len(), index.file_count as usize, "{}", path.display());
+        assert_eq!(
+            index.format,
+            ArchiveFormat::Bsa(BsaVersion::SkyrimSe),
+            "{}",
+            path.display()
+        );
+        assert_eq!(
+            index.files.len(),
+            index.file_count as usize,
+            "{}",
+            path.display()
+        );
         total_files += index.files.len();
 
         // Reading one file from each archive exercises both the LZ4 frame
@@ -46,7 +60,12 @@ fn every_vanilla_archive_indexes_and_reads() {
         assert!(!bytes.is_empty(), "{} record 0 is empty", path.display());
         let record = &archive.index().records[0];
         if record.compressed {
-            assert_eq!(bytes.len(), record.uncompressed_size as usize, "{}", path.display());
+            assert_eq!(
+                bytes.len(),
+                record.uncompressed_size as usize,
+                "{}",
+                path.display()
+            );
         }
         eprintln!(
             "{}: {} files, first {} ({} bytes)",
@@ -57,7 +76,10 @@ fn every_vanilla_archive_indexes_and_reads() {
         );
     }
     eprintln!("total files across archives: {total_files}");
-    assert!(total_files > 100_000, "vanilla ships well over 100k files, saw {total_files}");
+    assert!(
+        total_files > 100_000,
+        "vanilla ships well over 100k files, saw {total_files}"
+    );
 }
 
 #[test]
@@ -82,7 +104,11 @@ fn the_vfs_answers_vanilla_paths_case_insensitively() {
     let dds = vfs.read("Textures/Actors/Dog/Dog.dds").unwrap();
     assert_eq!(&dds[..4], b"DDS ");
     let gfx = vfs.read("interface/exported/hudmenu.gfx").unwrap();
-    assert!(&gfx[..3] == b"CFX" || &gfx[..3] == b"GFX", "{:?}", &gfx[..3]);
+    assert!(
+        &gfx[..3] == b"CFX" || &gfx[..3] == b"GFX",
+        "{:?}",
+        &gfx[..3]
+    );
     // Skyrim PEX files are big-endian, magic FA57C0DE.
     let script = vfs.read("scripts/actor.pex").unwrap();
     assert_eq!(&script[..4], &[0xFA, 0x57, 0xC0, 0xDE], "PEX magic");

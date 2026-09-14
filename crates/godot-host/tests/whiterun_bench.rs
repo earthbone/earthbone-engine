@@ -19,7 +19,7 @@ use std::time::Instant;
 use soe_godot_host::mesh::{build_surface, MeshData, MeshOptions};
 use soe_godot_host::streaming::{CellCoord, CellStreamer, StreamConfig};
 use soe_godot_host::terrain::{CellHeights, RegionBuilder, RegionSpec};
-use soe_godot_host::units::{CELL_UNITS, LAND_SAMPLES, SkyrimPos};
+use soe_godot_host::units::{SkyrimPos, CELL_UNITS, LAND_SAMPLES};
 
 const GRID: i32 = 9;
 const STATICS_PER_CELL: usize = 40;
@@ -107,7 +107,11 @@ fn whiterun_sized_grid_streams_through_the_rust_pipeline() {
         .map(|x| SkyrimPos::new((x as f32 + 0.5) * CELL_UNITS, 4.5 * CELL_UNITS, 0.0))
         .collect();
     path.extend((0..GRID).map(|y| {
-        SkyrimPos::new((GRID as f32 - 0.5) * CELL_UNITS, (y as f32 + 0.5) * CELL_UNITS, 0.0)
+        SkyrimPos::new(
+            (GRID as f32 - 0.5) * CELL_UNITS,
+            (y as f32 + 0.5) * CELL_UNITS,
+            0.0,
+        )
     }));
 
     for focus in path {
@@ -143,8 +147,14 @@ fn whiterun_sized_grid_streams_through_the_rust_pipeline() {
         triangles as f64 / secs
     );
 
-    assert!(cells_loaded >= 25, "the first tick alone loads a 5 by 5 square");
-    assert_eq!(triangles, cells_loaded * STATICS_PER_CELL * TRIANGLES_PER_STATIC);
+    assert!(
+        cells_loaded >= 25,
+        "the first tick alone loads a 5 by 5 square"
+    );
+    assert_eq!(
+        triangles,
+        cells_loaded * STATICS_PER_CELL * TRIANGLES_PER_STATIC
+    );
     // A cell of forty statics at two thousand triangles converting in under
     // a second on any machine this runs on. If this trips, the pipeline
     // regressed, not the machine.
