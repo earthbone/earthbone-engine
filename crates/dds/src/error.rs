@@ -15,7 +15,13 @@ pub enum Unsupported {
     Bc6h,
     /// A pixel format described by masks the generic path cannot read: a bit
     /// count other than 8, 16, 24 or 32, or a mask wider than the pixel.
-    Masks { bits: u32, r: u32, g: u32, b: u32, a: u32 },
+    Masks {
+        bits: u32,
+        r: u32,
+        g: u32,
+        b: u32,
+        a: u32,
+    },
 }
 
 impl std::fmt::Display for Unsupported {

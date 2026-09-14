@@ -347,18 +347,27 @@ impl FileHeader {
     }
 
     pub fn from_record(rec: &Record) -> Result<Self> {
-        let mut f = crate::cursor::Fields::new(rec.tag, Tag::new(b"HEDR"), rec.required(Tag::new(b"HEDR"))?);
+        let mut f = crate::cursor::Fields::new(
+            rec.tag,
+            Tag::new(b"HEDR"),
+            rec.required(Tag::new(b"HEDR"))?,
+        );
         f.exact(12)?;
         let version = f.f32()?;
         let record_count = f.u32()?;
         let next_object_id = f.u32()?;
         let mut overridden_forms = Vec::new();
         if let Some(onam) = rec.find(Tag::new(b"ONAM")) {
-            overridden_forms.extend(onam.as_chunks::<4>().0.iter().map(|c| u32::from_le_bytes(*c)));
+            overridden_forms.extend(
+                onam.as_chunks::<4>()
+                    .0
+                    .iter()
+                    .map(|c| u32::from_le_bytes(*c)),
+            );
         }
-        let interior_cell_count = rec.find(Tag::new(b"INCC")).and_then(|d| {
-            (d.len() == 4).then(|| u32::from_le_bytes([d[0], d[1], d[2], d[3]]))
-        });
+        let interior_cell_count = rec
+            .find(Tag::new(b"INCC"))
+            .and_then(|d| (d.len() == 4).then(|| u32::from_le_bytes([d[0], d[1], d[2], d[3]])));
         Ok(FileHeader {
             flags: rec.flags,
             version,
@@ -372,7 +381,10 @@ impl FileHeader {
                 .find(Tag::new(b"SNAM"))
                 .map(crate::cursor::zstring)
                 .unwrap_or_default(),
-            masters: rec.all(Tag::new(b"MAST")).map(crate::cursor::zstring).collect(),
+            masters: rec
+                .all(Tag::new(b"MAST"))
+                .map(crate::cursor::zstring)
+                .collect(),
             overridden_forms,
             interior_cell_count,
         })
@@ -452,7 +464,10 @@ impl Plugin {
         let mut cur = Cursor::new(bytes, 0);
         let first = cur.peek_tag()?;
         if first != tag::TES4 {
-            return Err(Error::NoHeader { at: 0, found: first });
+            return Err(Error::NoHeader {
+                at: 0,
+                found: first,
+            });
         }
         let header_record = parse_record(&mut cur, Placement::default())?;
         let header = FileHeader::from_record(&header_record)?;
@@ -496,6 +511,8 @@ impl Plugin {
         if self.find_group_mut(top).is_none() {
             self.groups.push(Group::new(top));
         }
+        // CONTEXT: the group was just pushed above if it was missing.
+        #[allow(clippy::expect_used)]
         self.find_group_mut(top)
             .expect("just created")
             .entries
@@ -605,7 +622,8 @@ fn parse_subrecords(record: Tag, data: &[u8], base: usize) -> Result<Vec<Subreco
                     expected: "exactly 4".into(),
                 });
             }
-            pending_size = Some(u32::from_le_bytes([payload[0], payload[1], payload[2], payload[3]]) as usize);
+            pending_size =
+                Some(u32::from_le_bytes([payload[0], payload[1], payload[2], payload[3]]) as usize);
             if cur.is_empty() {
                 return Err(Error::DanglingXxxx { at });
             }
@@ -648,7 +666,10 @@ fn parse_group(cur: &mut Cursor<'_>, records: &mut Vec<Record>, outer: Placement
     let version = cur.u16()?;
     let unknown = cur.u16()?;
     if (group_size as usize) < HEADER_SIZE {
-        return Err(Error::GroupTooSmall { at, size: group_size });
+        return Err(Error::GroupTooSmall {
+            at,
+            size: group_size,
+        });
     }
     let body_len = group_size as usize - HEADER_SIZE;
     if cur.remaining() < body_len {
@@ -728,7 +749,8 @@ mod tests {
         let mut p = Plugin::new(header());
         p.push_top(Record::new(tag::STAT, 0x801).zsub(tag::EDID, "Rock"));
         let cell = p.push_record(Record::new(tag::CELL, 0x802).zsub(tag::EDID, "Cave"));
-        let refr = p.push_record(Record::new(tag::REFR, 0x803).sub(b"NAME", 0x801u32.to_le_bytes()));
+        let refr =
+            p.push_record(Record::new(tag::REFR, 0x803).sub(b"NAME", 0x801u32.to_le_bytes()));
         let mut temp = Group::new(GroupKind::CellTemporary(0x802));
         temp.entries.push(Entry::Record(refr));
         let mut children = Group::new(GroupKind::CellChildren(0x802));
@@ -749,7 +771,10 @@ mod tests {
         assert_eq!(r.placement.cell, Some(0x802));
         assert_eq!(r.placement.group, Some(GroupKind::CellTemporary(0x802)));
         assert_eq!(back.to_bytes(), bytes);
-        assert_eq!(back.counts(), vec![(tag::CELL, 1), (tag::REFR, 1), (tag::STAT, 1)]);
+        assert_eq!(
+            back.counts(),
+            vec![(tag::CELL, 1), (tag::REFR, 1), (tag::STAT, 1)]
+        );
     }
 
     #[test]
@@ -804,13 +829,20 @@ mod tests {
 
         let parsed = Plugin::parse(&file).unwrap();
         assert!(parsed.records[0].is_compressed());
-        assert_eq!(parsed.records[0].find(Tag::new(b"DATA")).unwrap(), payload.as_slice());
+        assert_eq!(
+            parsed.records[0].find(Tag::new(b"DATA")).unwrap(),
+            payload.as_slice()
+        );
     }
 
     #[test]
     fn garbage_in_a_compressed_record_is_an_inflate_error() {
         let mut p = Plugin::new(header());
-        p.push_top(Record::new(tag::STAT, 0x801).with_flags(flags::COMPRESSED).sub(b"DATA", [1, 2, 3]));
+        p.push_top(
+            Record::new(tag::STAT, 0x801)
+                .with_flags(flags::COMPRESSED)
+                .sub(b"DATA", [1, 2, 3]),
+        );
         // to_bytes clears the flag, so put it back and let the payload be garbage.
         let mut bytes = p.to_bytes();
         let hdr_len = {
@@ -822,18 +854,28 @@ mod tests {
         let flags_at = rec_at + 8;
         bytes[flags_at..flags_at + 4].copy_from_slice(&flags::COMPRESSED.to_le_bytes());
         let err = Plugin::parse(&bytes).unwrap_err();
-        assert!(matches!(err, Error::Inflate { tag, .. } if tag == tag::STAT), "{err}");
+        assert!(
+            matches!(err, Error::Inflate { tag, .. } if tag == tag::STAT),
+            "{err}"
+        );
     }
 
     #[test]
     fn oversized_subrecords_use_xxxx() {
         let mut p = Plugin::new(header());
         let big = vec![3u8; 70_000];
-        p.push_top(Record::new(tag::STAT, 0x801).sub(b"DATA", big.clone()).zsub(tag::EDID, "after"));
+        p.push_top(
+            Record::new(tag::STAT, 0x801)
+                .sub(b"DATA", big.clone())
+                .zsub(tag::EDID, "after"),
+        );
         let bytes = p.to_bytes();
         assert!(bytes.windows(4).any(|w| w == b"XXXX"));
         let back = Plugin::parse(&bytes).unwrap();
-        assert_eq!(back.records[0].find(Tag::new(b"DATA")).unwrap(), big.as_slice());
+        assert_eq!(
+            back.records[0].find(Tag::new(b"DATA")).unwrap(),
+            big.as_slice()
+        );
         assert_eq!(back.records[0].editor_id().as_deref(), Some("after"));
     }
 
@@ -861,9 +903,15 @@ mod tests {
             h.len()
         };
         bytes[hdr_len + 4..hdr_len + 8].copy_from_slice(&3u32.to_le_bytes());
-        assert!(matches!(Plugin::parse(&bytes).unwrap_err(), Error::GroupTooSmall { .. }));
+        assert!(matches!(
+            Plugin::parse(&bytes).unwrap_err(),
+            Error::GroupTooSmall { .. }
+        ));
         bytes[hdr_len + 4..hdr_len + 8].copy_from_slice(&0xFFFF_FFFFu32.to_le_bytes());
-        assert!(matches!(Plugin::parse(&bytes).unwrap_err(), Error::GroupOverflow { .. }));
+        assert!(matches!(
+            Plugin::parse(&bytes).unwrap_err(),
+            Error::GroupOverflow { .. }
+        ));
     }
 
     #[test]
@@ -876,7 +924,10 @@ mod tests {
                 found: tag::GRUP
             }
         );
-        assert!(matches!(Plugin::parse(b"TE").unwrap_err(), Error::Truncated { .. }));
+        assert!(matches!(
+            Plugin::parse(b"TE").unwrap_err(),
+            Error::Truncated { .. }
+        ));
     }
 
     #[test]
@@ -888,6 +939,9 @@ mod tests {
         // The DATA size field sits 4 bytes before the payload at the end.
         bytes[n - 6..n - 4].copy_from_slice(&200u16.to_le_bytes());
         let err = Plugin::parse(&bytes).unwrap_err();
-        assert!(matches!(err, Error::SubrecordOverflow { overshoot: 196, .. }), "{err}");
+        assert!(
+            matches!(err, Error::SubrecordOverflow { overshoot: 196, .. }),
+            "{err}"
+        );
     }
 }

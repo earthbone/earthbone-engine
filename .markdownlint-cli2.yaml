@@ -1,0 +1,23 @@
+config:
+  default: true
+  # Reference tables, code fences and long prose lines all exceed a fixed
+  # width in this repo, and wrapping them by hand fights every future edit.
+  MD013: false
+  # docs/*.md and ENGINE-PLAN.md link back to the same heading text
+  # ("Status", "Known issues") from more than one file's section, and
+  # markdownlint-cli2 only sees one file per run.
+  MD024:
+    siblings_only: true
+  # Every table in docs/ uses padded pipes ("| a | b |") for readability in a
+  # plain-text editor. MD060 wants the unpadded "compact" style instead, which
+  # would mean reformatting every table for a purely cosmetic pipe-spacing
+  # choice.
+  MD060: false
+
+globs:
+  - "docs/**/*.md"
+  - "*.md"
+
+ignores:
+  - "target/**"
+  - ".git/**"

@@ -33,13 +33,20 @@ pub struct StringCache {
 impl StringCache {
     pub fn intern(&self, s: &str) -> FixedString {
         let key = s.to_lowercase();
-        if let Some(a) = self.table.read().expect("string cache").get(&key) {
+        // CONTEXT: a poisoned lock still holds a valid map, a panicking reader
+        // never partially wrote it, so recovering the guard is safe here.
+        if let Some(a) = self
+            .table
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(&key)
+        {
             return FixedString(a.clone());
         }
         let a: Arc<str> = Arc::from(s);
         self.table
             .write()
-            .expect("string cache")
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .entry(key)
             .or_insert(a.clone());
         FixedString(a)

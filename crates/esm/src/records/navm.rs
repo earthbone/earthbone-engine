@@ -81,7 +81,12 @@ pub struct Geometry {
 /// Counts in a navmesh are bounded by the subrecord size, so a count that
 /// could not fit in the remaining bytes is a malformed file, not an
 /// allocation request.
-fn counted<T>(f: &mut Fields<'_>, item_size: usize, what: &str, mut read: impl FnMut(&mut Fields<'_>) -> Result<T>) -> Result<Vec<T>> {
+fn counted<T>(
+    f: &mut Fields<'_>,
+    item_size: usize,
+    what: &str,
+    mut read: impl FnMut(&mut Fields<'_>) -> Result<T>,
+) -> Result<Vec<T>> {
     let count = f.u32()? as usize;
     if count.saturating_mul(item_size) > f.remaining() {
         return Err(Error::Invalid(format!(
@@ -109,7 +114,9 @@ impl Geometry {
             let x = f.i16()?;
             Parent::Grid { world, x, y }
         };
-        let vertices = counted(&mut f, 12, "vertices", |f| Ok([f.f32()?, f.f32()?, f.f32()?]))?;
+        let vertices = counted(&mut f, 12, "vertices", |f| {
+            Ok([f.f32()?, f.f32()?, f.f32()?])
+        })?;
         let triangles = counted(&mut f, 16, "triangles", |f| {
             Ok(Triangle {
                 vertices: [f.u16()?, f.u16()?, f.u16()?],
@@ -119,7 +126,10 @@ impl Geometry {
             })
         })?;
         let vertex_count = vertices.len();
-        if let Some(t) = triangles.iter().find(|t| t.vertices.iter().any(|v| usize::from(*v) >= vertex_count)) {
+        if let Some(t) = triangles
+            .iter()
+            .find(|t| t.vertices.iter().any(|v| usize::from(*v) >= vertex_count))
+        {
             return Err(Error::Invalid(format!(
                 "NVNM triangle {:?} indexes past its {vertex_count} vertices",
                 t.vertices
@@ -223,7 +233,13 @@ impl Geometry {
             out.extend_from_slice(&c.to_le_bytes());
         }
         out.extend_from_slice(&self.grid.divisor.to_le_bytes());
-        for v in self.grid.size.iter().chain(&self.grid.min).chain(&self.grid.max) {
+        for v in self
+            .grid
+            .size
+            .iter()
+            .chain(&self.grid.min)
+            .chain(&self.grid.max)
+        {
             out.extend_from_slice(&v.to_le_bytes());
         }
         for cell in &self.grid.cells {
@@ -279,14 +295,41 @@ mod tests {
         Geometry {
             version: 12,
             location_crc: 0xDEADBEEF,
-            parent: Parent::Grid { world: 0x3C, x: 4, y: -2 },
-            vertices: vec![[0.0, 0.0, 0.0], [100.0, 0.0, 0.0], [100.0, 100.0, 0.0], [0.0, 100.0, 0.0]],
-            triangles: vec![
-                Triangle { vertices: [0, 1, 2], edges: [-1, -1, 1], flags: 0, cover_flags: 0 },
-                Triangle { vertices: [0, 2, 3], edges: [0, -1, -1], flags: 0, cover_flags: 0 },
+            parent: Parent::Grid {
+                world: 0x3C,
+                x: 4,
+                y: -2,
+            },
+            vertices: vec![
+                [0.0, 0.0, 0.0],
+                [100.0, 0.0, 0.0],
+                [100.0, 100.0, 0.0],
+                [0.0, 100.0, 0.0],
             ],
-            edge_links: vec![EdgeLink { kind: 2, navmesh: 0x7000, triangle: 0 }],
-            door_links: vec![DoorLink { triangle: 1, crc: 0x9F5C46A1, door: 0x8000 }],
+            triangles: vec![
+                Triangle {
+                    vertices: [0, 1, 2],
+                    edges: [-1, -1, 1],
+                    flags: 0,
+                    cover_flags: 0,
+                },
+                Triangle {
+                    vertices: [0, 2, 3],
+                    edges: [0, -1, -1],
+                    flags: 0,
+                    cover_flags: 0,
+                },
+            ],
+            edge_links: vec![EdgeLink {
+                kind: 2,
+                navmesh: 0x7000,
+                triangle: 0,
+            }],
+            door_links: vec![DoorLink {
+                triangle: 1,
+                crc: 0x9F5C46A1,
+                door: 0x8000,
+            }],
             cover_triangles: vec![1],
             grid: NavGrid {
                 divisor: 2,
@@ -309,12 +352,24 @@ mod tests {
             .sub(b"ONAM", 0x800u32.to_le_bytes())
             .sub(b"PNAM", [1u16.to_le_bytes(), 2u16.to_le_bytes()].concat());
         let n = NavMesh::from_record(&rec).unwrap();
-        assert_eq!(n.geometry.unwrap().parent, Parent::Grid { world: 0x3C, x: 4, y: -2 });
+        assert_eq!(
+            n.geometry.unwrap().parent,
+            Parent::Grid {
+                world: 0x3C,
+                x: 4,
+                y: -2
+            }
+        );
         assert_eq!(n.base_objects, vec![0x800]);
         assert_eq!(n.preferred_connectors, vec![1, 2]);
         let mut interior = square();
         interior.parent = Parent::Cell(0x9999);
-        assert_eq!(Geometry::parse(tag::NAVM, &interior.to_bytes()).unwrap().parent, Parent::Cell(0x9999));
+        assert_eq!(
+            Geometry::parse(tag::NAVM, &interior.to_bytes())
+                .unwrap()
+                .parent,
+            Parent::Cell(0x9999)
+        );
     }
 
     #[test]
@@ -323,7 +378,10 @@ mod tests {
         // The vertex count sits after version, crc, world, grid (16 bytes).
         bytes[16..20].copy_from_slice(&0xFFFF_FFFFu32.to_le_bytes());
         let err = Geometry::parse(tag::NAVM, &bytes).unwrap_err();
-        assert!(err.to_string().contains("declares 4294967295 vertices"), "{err}");
+        assert!(
+            err.to_string().contains("declares 4294967295 vertices"),
+            "{err}"
+        );
         let mut bad_index = square();
         bad_index.triangles[0].vertices[2] = 9;
         let err = Geometry::parse(tag::NAVM, &bad_index.to_bytes()).unwrap_err();
@@ -336,7 +394,13 @@ mod tests {
         // Cut inside the vertex count field: a plain size error. Cut after
         // it: the count no longer fits and is refused as absurd.
         let full = square().to_bytes();
-        assert!(matches!(Geometry::parse(tag::NAVM, &full[..18]).unwrap_err(), Error::SubrecordSize { .. }));
-        assert!(matches!(Geometry::parse(tag::NAVM, &full[..30]).unwrap_err(), Error::Invalid(_)));
+        assert!(matches!(
+            Geometry::parse(tag::NAVM, &full[..18]).unwrap_err(),
+            Error::SubrecordSize { .. }
+        ));
+        assert!(matches!(
+            Geometry::parse(tag::NAVM, &full[..30]).unwrap_err(),
+            Error::Invalid(_)
+        ));
     }
 }

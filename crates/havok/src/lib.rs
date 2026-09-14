@@ -27,6 +27,8 @@
 //! Every parser returns [`Error`] on malformed input rather than panicking,
 //! and every read is bounds-checked against the data section.
 
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
+
 pub mod animation;
 pub mod behavior;
 pub mod character;

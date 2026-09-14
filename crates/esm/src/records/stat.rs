@@ -136,7 +136,10 @@ mod tests {
             .sub(b"MNAM", mnam);
         let s = Static::from_record(&rec).unwrap();
         assert_eq!(s.bounds, Some([-10, -20, -30, 10, 20, 30]));
-        assert_eq!(s.model.as_deref(), Some("Architecture\\Whiterun\\WRTowerRoof.nif"));
+        assert_eq!(
+            s.model.as_deref(),
+            Some("Architecture\\Whiterun\\WRTowerRoof.nif")
+        );
         assert!(s.has_distant_lod());
         assert!(s.direction_material.unwrap().considered_snow);
         let lod = s.lod_models.unwrap();

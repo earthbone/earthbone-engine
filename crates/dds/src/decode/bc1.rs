@@ -17,7 +17,14 @@ fn color_block(src: &[u8], opaque_only: bool, out: &mut Block) {
     let c1 = u16le(&src[2..4]);
     let (r0, g0, b0) = ((c0 >> 11) & 0x1F, (c0 >> 5) & 0x3F, c0 & 0x1F);
     let (r1, g1, b1) = ((c1 >> 11) & 0x1F, (c1 >> 5) & 0x3F, c1 & 0x1F);
-    let expand = |r: u32, g: u32, b: u32| [((r * 527 + 23) >> 6) as u8, ((g * 259 + 33) >> 6) as u8, ((b * 527 + 23) >> 6) as u8, 255];
+    let expand = |r: u32, g: u32, b: u32| {
+        [
+            ((r * 527 + 23) >> 6) as u8,
+            ((g * 259 + 33) >> 6) as u8,
+            ((b * 527 + 23) >> 6) as u8,
+            255,
+        ]
+    };
     let mut refs = [expand(r0, g0, b0), expand(r1, g1, b1), [0; 4], [0; 4]];
     if c0 > c1 || opaque_only {
         refs[2] = [
@@ -64,7 +71,9 @@ pub fn decode_bc2(src: &[u8], out: &mut Block) {
 
 /// The 8-byte smooth alpha block shared by BC3, BC4 and BC5, unsigned.
 pub fn smooth_alpha(src: &[u8]) -> [u8; 16] {
-    let block = u64::from_le_bytes([src[0], src[1], src[2], src[3], src[4], src[5], src[6], src[7]]);
+    let block = u64::from_le_bytes([
+        src[0], src[1], src[2], src[3], src[4], src[5], src[6], src[7],
+    ]);
     let a0 = (block & 0xFF) as u32;
     let a1 = ((block >> 8) & 0xFF) as u32;
     let mut a = [a0 as u8, a1 as u8, 0, 0, 0, 0, 0, 0];
@@ -104,7 +113,16 @@ mod tests {
     fn a_bc1_block_decodes_to_the_expected_pixels() {
         // c0 pure red, c1 pure blue, c0 > c1 so four colours. Indices: row 0
         // all c0, row 1 all c1, row 2 all the 2/3 mix, row 3 all the 1/3 mix.
-        let src = [0x00, 0xF8, 0x1F, 0x00, 0b0000_0000, 0b0101_0101, 0b1010_1010, 0b1111_1111];
+        let src = [
+            0x00,
+            0xF8,
+            0x1F,
+            0x00,
+            0b0000_0000,
+            0b0101_0101,
+            0b1010_1010,
+            0b1111_1111,
+        ];
         let mut out = [0u8; 64];
         decode_bc1(&src, &mut out);
         assert_eq!(&out[0..4], &[255, 0, 0, 255]);

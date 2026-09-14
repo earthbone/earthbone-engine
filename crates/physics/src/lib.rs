@@ -20,6 +20,8 @@
 //! using the same 69.99 factor Bethesda's exporter and OpenMW use. Axes are
 //! the file's, right-handed with Z up.
 
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
+
 pub mod bhk;
 pub mod hull;
 pub mod math;

@@ -439,14 +439,14 @@ impl<'f> Walker<'f> {
             Some(p) if t.vertices.is_empty() => {
                 let mut tris = Vec::new();
                 for part in &p.partitions {
-                    if !part.triangles_copy.is_empty() {
-                        tris.extend_from_slice(&part.triangles_copy);
-                    } else {
+                    if part.triangles_copy.is_empty() {
                         for tri in &part.triangles {
                             let mapped =
                                 tri.map(|v| part.vertex_map.get(v as usize).copied().unwrap_or(v));
                             tris.push(mapped);
                         }
+                    } else {
+                        tris.extend_from_slice(&part.triangles_copy);
                     }
                 }
                 (&p.vertices, p.desc.attributes(), tris)

@@ -46,7 +46,13 @@ fn bc7_blocks_from_the_intel_encoder_decode_like_the_reference() {
             encode_rgba8(w, h, &rgba, 1, dxgi::BC7_UNORM).unwrap()
         } else {
             let image = image_dds::image::RgbaImage::from_raw(w, h, rgba.clone()).unwrap();
-            let dds = image_dds::dds_from_image(&image, image_dds::ImageFormat::BC7Unorm, image_dds::Quality::Slow, image_dds::Mipmaps::Disabled).unwrap();
+            let dds = image_dds::dds_from_image(
+                &image,
+                image_dds::ImageFormat::BC7Unorm,
+                image_dds::Quality::Slow,
+                image_dds::Mipmaps::Disabled,
+            )
+            .unwrap();
             let mut out = Vec::new();
             dds.write(&mut std::io::Cursor::new(&mut out)).unwrap();
             out
@@ -62,7 +68,10 @@ fn bc7_blocks_from_the_intel_encoder_decode_like_the_reference() {
         assert_eq!(ours.rgba, theirs.as_raw().as_slice(), "round {round}");
     }
     eprintln!("BC7 modes exercised: {modes_seen:?}");
-    assert!(modes_seen.len() >= 6, "the encoders only used modes {modes_seen:?}");
+    assert!(
+        modes_seen.len() >= 6,
+        "the encoders only used modes {modes_seen:?}"
+    );
 }
 
 /// Random blocks with the mode bits forced, so every mode including the
@@ -87,17 +96,41 @@ fn every_bc7_mode_decodes_like_the_reference_on_random_blocks() {
             pitch_or_linear_size: 0,
             depth: 0,
             mip_map_count: 0,
-            pixel_format: PixelFormat { flags: pf::FOURCC, four_cc: *b"DX10", rgb_bit_count: 0, r_mask: 0, g_mask: 0, b_mask: 0, a_mask: 0 },
+            pixel_format: PixelFormat {
+                flags: pf::FOURCC,
+                four_cc: *b"DX10",
+                rgb_bit_count: 0,
+                r_mask: 0,
+                g_mask: 0,
+                b_mask: 0,
+                a_mask: 0,
+            },
             caps: caps::TEXTURE,
             caps2: 0,
-            dx10: Some(Dx10 { dxgi_format: dxgi::BC7_UNORM, dimension: 3, misc_flag: 0, array_size: 1, misc_flags2: 0 }),
+            dx10: Some(Dx10 {
+                dxgi_format: dxgi::BC7_UNORM,
+                dimension: 3,
+                misc_flag: 0,
+                array_size: 1,
+                misc_flags2: 0,
+            }),
         };
         let mut bytes = header.to_bytes();
         bytes.extend_from_slice(&data);
         let ours = Dds::parse(&bytes).unwrap().decode(0, 0).unwrap();
         let reference = image_dds::ddsfile::Dds::read(&mut std::io::Cursor::new(&bytes)).unwrap();
         let theirs = image_dds::image_from_dds(&reference, 0).unwrap();
-        let mismatches = ours.rgba.chunks(64).zip(theirs.as_raw().chunks(64)).filter(|(a, b)| a != b).count();
-        assert_eq!(mismatches, 0, "mode {mode}: {mismatches} differing 16-pixel runs of {}", w * h / 16);
+        let mismatches = ours
+            .rgba
+            .chunks(64)
+            .zip(theirs.as_raw().chunks(64))
+            .filter(|(a, b)| a != b)
+            .count();
+        assert_eq!(
+            mismatches,
+            0,
+            "mode {mode}: {mismatches} differing 16-pixel runs of {}",
+            w * h / 16
+        );
     }
 }

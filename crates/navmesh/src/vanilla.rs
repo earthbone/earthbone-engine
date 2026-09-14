@@ -88,7 +88,7 @@ impl Builder {
                     match target.and_then(|l| resolve(l.navmesh).map(|k| (k, l.triangle))) {
                         Some((k, tri)) => {
                             self.pending
-                                .push((NodeId::new(mesh_index, ti as u32), edge, k, tri))
+                                .push((NodeId::new(mesh_index, ti as u32), edge, k, tri));
                         }
                         None => self.stats.unresolved_links += 1,
                     }

@@ -230,9 +230,18 @@ mod tests {
 
     #[test]
     fn cell_of_a_position_floors_toward_negative() {
-        assert_eq!(CellCoord::containing(SkyrimPos::new(0.0, 0.0, 0.0)), CellCoord::new(0, 0));
-        assert_eq!(CellCoord::containing(SkyrimPos::new(4095.9, 4096.0, 0.0)), CellCoord::new(0, 1));
-        assert_eq!(CellCoord::containing(SkyrimPos::new(-0.5, -4096.5, 0.0)), CellCoord::new(-1, -2));
+        assert_eq!(
+            CellCoord::containing(SkyrimPos::new(0.0, 0.0, 0.0)),
+            CellCoord::new(0, 0)
+        );
+        assert_eq!(
+            CellCoord::containing(SkyrimPos::new(4095.9, 4096.0, 0.0)),
+            CellCoord::new(0, 1)
+        );
+        assert_eq!(
+            CellCoord::containing(SkyrimPos::new(-0.5, -4096.5, 0.0)),
+            CellCoord::new(-1, -2)
+        );
     }
 
     #[test]
@@ -312,10 +321,16 @@ mod tests {
     #[test]
     fn a_failed_load_is_retried_after_mark_unloaded() {
         let mut s = unlimited(0, 0);
-        assert_eq!(s.update(SkyrimPos::default()).load, vec![CellCoord::new(0, 0)]);
+        assert_eq!(
+            s.update(SkyrimPos::default()).load,
+            vec![CellCoord::new(0, 0)]
+        );
         assert!(s.update(SkyrimPos::default()).load.is_empty());
         s.mark_unloaded(CellCoord::new(0, 0));
-        assert_eq!(s.update(SkyrimPos::default()).load, vec![CellCoord::new(0, 0)]);
+        assert_eq!(
+            s.update(SkyrimPos::default()).load,
+            vec![CellCoord::new(0, 0)]
+        );
     }
 
     #[test]
@@ -333,6 +348,9 @@ mod tests {
             load_radius: -1,
             ..StreamConfig::default()
         };
-        assert_eq!(CellStreamer::new(neg).err(), Some(ConfigError::NegativeRadius(-1)));
+        assert_eq!(
+            CellStreamer::new(neg).err(),
+            Some(ConfigError::NegativeRadius(-1))
+        );
     }
 }

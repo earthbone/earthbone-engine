@@ -14,7 +14,11 @@ pub enum Error {
     NoHeader { at: usize, found: Tag },
 
     #[error("group at byte {at} declares {size} bytes but only {available} remain")]
-    GroupOverflow { at: usize, size: u32, available: usize },
+    GroupOverflow {
+        at: usize,
+        size: u32,
+        available: usize,
+    },
 
     #[error("group at byte {at} declares {size} bytes, smaller than its own header")]
     GroupTooSmall { at: usize, size: u32 },
@@ -23,22 +27,44 @@ pub enum Error {
     UnknownGroupType { at: usize, kind: i32 },
 
     #[error("record {tag} at byte {at} declares {size} bytes but only {available} remain")]
-    RecordOverflow { at: usize, tag: Tag, size: u32, available: usize },
+    RecordOverflow {
+        at: usize,
+        tag: Tag,
+        size: u32,
+        available: usize,
+    },
 
     #[error("compressed record {tag} at byte {at} could not be inflated: {reason}")]
     Inflate { at: usize, tag: Tag, reason: String },
 
-    #[error("compressed record {tag} at byte {at} inflated to {got} bytes, header said {expected}")]
-    InflateSize { at: usize, tag: Tag, expected: u32, got: usize },
+    #[error(
+        "compressed record {tag} at byte {at} inflated to {got} bytes, header said {expected}"
+    )]
+    InflateSize {
+        at: usize,
+        tag: Tag,
+        expected: u32,
+        got: usize,
+    },
 
     #[error("subrecord {tag} at byte {at} (inside record {record}) runs {overshoot} bytes past its record")]
-    SubrecordOverflow { at: usize, tag: Tag, record: Tag, overshoot: usize },
+    SubrecordOverflow {
+        at: usize,
+        tag: Tag,
+        record: Tag,
+        overshoot: usize,
+    },
 
     #[error("XXXX size marker at byte {at} is not followed by a subrecord")]
     DanglingXxxx { at: usize },
 
     #[error("subrecord {tag} in record {record} is {len} bytes, {expected} expected")]
-    SubrecordSize { record: Tag, tag: Tag, len: usize, expected: String },
+    SubrecordSize {
+        record: Tag,
+        tag: Tag,
+        len: usize,
+        expected: String,
+    },
 
     #[error("record {record} has no {tag} subrecord, which is required")]
     MissingSubrecord { record: Tag, tag: Tag },

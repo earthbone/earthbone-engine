@@ -10,6 +10,8 @@
 //! `CellStreamer` node and two conversion functions. It compiles without a
 //! Godot binary and is only exercised once the extension is loaded.
 
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
+
 pub mod mesh;
 pub mod streaming;
 pub mod terrain;

@@ -5,6 +5,9 @@ edition = "2021"
 license = "GPL-3.0-or-later"
 description = "Vanilla NAVM walkable graph with A*, and Recast navmesh generation from meshes and LAND heights"
 
+[lints]
+workspace = true
+
 [lib]
 name = "soe_navmesh"
 path = "src/lib.rs"

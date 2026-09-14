@@ -19,7 +19,11 @@ pub enum Error {
 
     /// A record points outside the archive. A truncated download looks like this.
     #[error("File record extends past archive end: {name} (offset={offset}, size={size})")]
-    Truncated { name: String, offset: u64, size: u64 },
+    Truncated {
+        name: String,
+        offset: u64,
+        size: u64,
+    },
 
     #[error("{codec} decompression failed for {name}: {source}")]
     Decompress {

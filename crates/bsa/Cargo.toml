@@ -5,6 +5,9 @@ edition = "2021"
 license = "GPL-3.0-or-later"
 description = "Bethesda BSA and BA2 archive reader with a load-order aware loose-file overlay"
 
+[lints]
+workspace = true
+
 [dependencies]
 byteorder = "1"
 encoding_rs = "0.8"

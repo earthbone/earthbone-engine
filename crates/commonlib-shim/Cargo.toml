@@ -5,4 +5,7 @@ edition = "2021"
 license = "MIT"
 description = "The Rust side of a source-level CommonLibSSE-NG compatibility shim over the open engine"
 
+[lints]
+workspace = true
+
 [dependencies]

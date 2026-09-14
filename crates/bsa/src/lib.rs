@@ -8,6 +8,8 @@
 //! (Copyright (C) 2026 Dr. Baklava, GPL-3.0-or-later) with the writer's name
 //! hash, an in-memory read API and Windows-1252 names added.
 
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
+
 pub mod archive;
 pub mod error;
 pub mod hash;
@@ -25,6 +27,7 @@ pub use vfs::{Source, Vfs};
 /// The one spelling of a data path every lookup in this crate agrees on:
 /// lowercase, forward slashes, no leading separator, no `data/` prefix. The
 /// game matches names case-insensitively and plugins write them either way.
+#[must_use]
 pub fn normalize(path: &str) -> String {
     let mut s = path.replace('\\', "/").to_lowercase();
     while s.starts_with('/') {

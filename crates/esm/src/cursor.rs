@@ -249,7 +249,10 @@ mod tests {
     #[test]
     fn zstring_stops_at_nul_and_decodes_1252() {
         assert_eq!(zstring(b"Whiterun\0junk"), "Whiterun");
-        assert_eq!(zstring(&[0x93, b'a', 0x94, 0xE9]), "\u{201C}a\u{201D}\u{E9}");
+        assert_eq!(
+            zstring(&[0x93, b'a', 0x94, 0xE9]),
+            "\u{201C}a\u{201D}\u{E9}"
+        );
         assert_eq!(zstring(b"no terminator"), "no terminator");
     }
 }

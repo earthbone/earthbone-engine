@@ -117,7 +117,9 @@ impl CellStreamerNode {
 
     #[func]
     pub fn resident_count(&self) -> i32 {
-        self.streamer.as_ref().map_or(0, |s| s.resident_count() as i32)
+        self.streamer
+            .as_ref()
+            .map_or(0, |s| s.resident_count() as i32)
     }
 
     #[func]
@@ -185,5 +187,11 @@ pub fn array_mesh_from(surface: &SurfaceArrays) -> Gd<ArrayMesh> {
 /// `Terrain3DRegion.set_height_map`, at the region's `godot_location`.
 pub fn heightmap_image_from(region: &RegionHeightmap) -> Option<Gd<Image>> {
     let bytes: PackedByteArray = region.rf_bytes().into_iter().collect();
-    Image::create_from_data(region.size as i32, region.size as i32, false, Format::RF, &bytes)
+    Image::create_from_data(
+        region.size as i32,
+        region.size as i32,
+        false,
+        Format::RF,
+        &bytes,
+    )
 }

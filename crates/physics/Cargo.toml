@@ -5,6 +5,9 @@ edition = "2021"
 license = "GPL-3.0-or-later"
 description = "Havok collision shapes from Skyrim SE meshes, and a static collision world behind a trait Jolt can replace"
 
+[lints]
+workspace = true
+
 [lib]
 name = "soe_physics"
 

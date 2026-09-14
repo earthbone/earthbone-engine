@@ -273,14 +273,14 @@ fn find_knot_span(degree: usize, t: f32, num_points: usize, knots: &[u8]) -> usi
     }
     let mut low = degree;
     let mut high = num_points;
-    let mut mid = (low + high) / 2;
+    let mut mid = low.midpoint(high);
     while t < knots[mid] as f32 || t >= knots[mid + 1] as f32 {
         if t < knots[mid] as f32 {
             high = mid;
         } else {
             low = mid;
         }
-        let next = (low + high) / 2;
+        let next = low.midpoint(high);
         if next == mid {
             break;
         }
@@ -451,7 +451,7 @@ fn read_vec_track(
     })
 }
 
-fn read_quat_track(r: &mut Reader<'_>, mask: &TransformMask) -> Result<QuatTrack> {
+fn read_quat_track(r: &mut Reader<'_>, mask: TransformMask) -> Result<QuatTrack> {
     let q = mask.rotation_quantization()?;
     match mask.rotation_kind() {
         TrackKind::Identity => Ok(QuatTrack::Static([0.0, 0.0, 0.0, 1.0])),
@@ -511,7 +511,7 @@ pub fn decode_block(
             m.position_quantization()?,
             0.0,
         )?;
-        let rotation = read_quat_track(&mut r, m)?;
+        let rotation = read_quat_track(&mut r, *m)?;
         r.align(4);
         let scale = read_vec_track(
             &mut r,
@@ -553,8 +553,10 @@ pub mod encode {
     /// Pack a unit quaternion into the 48-bit form: the largest component
     /// is dropped and its sign carried in the z slot's top bit.
     pub fn quat_48(q: [f32; 4]) -> [u8; 6] {
+        // CONTEXT: `0..4` is never empty, so `max_by` always returns `Some`.
+        #[allow(clippy::unwrap_used)]
         let largest = (0..4)
-            .max_by(|&a, &b| q[a].abs().partial_cmp(&q[b].abs()).unwrap())
+            .max_by(|&a, &b| q[a].abs().total_cmp(&q[b].abs()))
             .unwrap();
         let sign_negative = q[largest] < 0.0;
         let rest: Vec<f32> = (0..4).filter(|&i| i != largest).map(|i| q[i]).collect();

@@ -18,22 +18,56 @@ fn the_installed_game_resolves_to_its_early_loaders_and_archives() {
     let loadout = LoadoutInput::vanilla(&game, None, None).resolve().unwrap();
     let order = &loadout.load_order;
     for e in &order.entries {
-        eprintln!("{:>18?} {:<5} {}", e.slot, if e.early { "early" } else { "" }, e.name);
+        eprintln!(
+            "{:>18?} {:<5} {}",
+            e.slot,
+            if e.early { "early" } else { "" },
+            e.name
+        );
     }
     for p in &order.problems {
         eprintln!("problem: {p:?}");
     }
     let active = order.active_names();
     assert!(active.len() >= 5);
-    assert_eq!(&active[..5], &["Skyrim.esm", "Update.esm", "Dawnguard.esm", "HearthFires.esm", "Dragonborn.esm"]);
-    assert!(order.active().all(|e| e.early), "with no plugins.txt only the engine's own list is active");
+    assert_eq!(
+        &active[..5],
+        &[
+            "Skyrim.esm",
+            "Update.esm",
+            "Dawnguard.esm",
+            "HearthFires.esm",
+            "Dragonborn.esm"
+        ]
+    );
+    assert!(
+        order.active().all(|e| e.early),
+        "with no plugins.txt only the engine's own list is active"
+    );
     assert!(!order.broken(), "{:?}", order.problems);
-    assert!(order.problems.iter().all(|p| !matches!(p, Problem::Unreadable { .. })), "{:?}", order.problems);
-    let light: Vec<&str> = order.active().filter(|e| e.light).map(|e| e.name.as_str()).collect();
+    assert!(
+        order
+            .problems
+            .iter()
+            .all(|p| !matches!(p, Problem::Unreadable { .. })),
+        "{:?}",
+        order.problems
+    );
+    let light: Vec<&str> = order
+        .active()
+        .filter(|e| e.light)
+        .map(|e| e.name.as_str())
+        .collect();
     eprintln!("light early loaders: {light:?}");
 
-    assert_eq!(loadout.settings.get("General", "sLanguage"), Some("ENGLISH"));
-    assert_eq!(loadout.settings.source("General", "sLanguage"), Some(&Layer::Default));
+    assert_eq!(
+        loadout.settings.get("General", "sLanguage"),
+        Some("ENGLISH")
+    );
+    assert_eq!(
+        loadout.settings.source("General", "sLanguage"),
+        Some(&Layer::Default)
+    );
     let names: Vec<&str> = loadout.archives.iter().map(|a| a.name.as_str()).collect();
     eprintln!("archives: {names:?}");
     assert_eq!(names[0], "Skyrim - Misc.bsa");

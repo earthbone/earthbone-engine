@@ -83,9 +83,9 @@ impl Mesh {
         let a = self.vertices[t.vertices[edge] as usize];
         let b = self.vertices[t.vertices[(edge + 1) % 3] as usize];
         [
-            (a[0] + b[0]) / 2.0,
-            (a[1] + b[1]) / 2.0,
-            (a[2] + b[2]) / 2.0,
+            a[0].midpoint(b[0]),
+            a[1].midpoint(b[1]),
+            a[2].midpoint(b[2]),
         ]
     }
 

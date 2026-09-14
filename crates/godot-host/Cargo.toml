@@ -5,6 +5,46 @@ edition = "2021"
 license = "GPL-3.0-or-later"
 description = "Godot 4 host for the open Skyrim engine: cell streaming, mesh and terrain builders"
 
+# Cargo will not let a crate inherit `[lints] workspace = true` and then
+# override one entry, so this restates the workspace clippy table by hand and
+# sets its own `unsafe_code`, the only crate allowed the one `unsafe impl
+# ExtensionLibrary` gdext requires. Keep this table in sync with
+# `[workspace.lints.clippy]` in the root Cargo.toml when that changes.
+[lints.rust]
+unsafe_code = "allow"
+
+[lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+unwrap_used = "warn"
+expect_used = "warn"
+panic = "warn"
+must_use_candidate = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+cast_possible_truncation = "allow"
+doc_markdown = "allow"
+cast_lossless = "allow"
+cast_possible_wrap = "allow"
+cast_sign_loss = "allow"
+return_self_not_must_use = "allow"
+unreadable_literal = "allow"
+cast_precision_loss = "allow"
+many_single_char_names = "allow"
+too_many_lines = "allow"
+map_unwrap_or = "allow"
+single_match_else = "allow"
+explicit_iter_loop = "allow"
+items_after_statements = "allow"
+redundant_closure_for_method_calls = "allow"
+struct_excessive_bools = "allow"
+enum_glob_use = "allow"
+zero_sized_map_values = "allow"
+assigning_clones = "allow"
+float_cmp = "allow"
+format_push_string = "allow"
+used_underscore_binding = "allow"
+unused_self = "allow"
+
 [lib]
 crate-type = ["cdylib", "rlib"]
 

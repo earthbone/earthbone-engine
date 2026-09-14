@@ -9,7 +9,9 @@ use super::bc1::smooth_alpha;
 use super::Block;
 
 fn signed_channel(src: &[u8]) -> [u8; 16] {
-    let block = u64::from_le_bytes([src[0], src[1], src[2], src[3], src[4], src[5], src[6], src[7]]);
+    let block = u64::from_le_bytes([
+        src[0], src[1], src[2], src[3], src[4], src[5], src[6], src[7],
+    ]);
     let clamp = |v: i32| v.max(-127);
     let a0 = clamp((block & 0xFF) as u8 as i8 as i32);
     let a1 = clamp(((block >> 8) & 0xFF) as u8 as i8 as i32);

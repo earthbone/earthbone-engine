@@ -57,8 +57,7 @@ impl fmt::Display for Error {
                 bs_version,
             } => write!(
                 f,
-                "unsupported NIF layout: version {:#x}, user version {}, BS version {}",
-                version, user_version, bs_version
+                "unsupported NIF layout: version {version:#x}, user version {user_version}, BS version {bs_version}"
             ),
             Error::BadHeader(why) => write!(f, "bad header: {why}"),
             Error::CountTooLarge {

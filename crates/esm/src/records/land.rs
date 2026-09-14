@@ -304,7 +304,10 @@ mod tests {
         let mut atxt2 = 0x300u32.to_le_bytes().to_vec();
         atxt2.extend_from_slice(&[1, 0, 0, 0]);
         let rec = Record::new(tag::LAND, 0x5000)
-            .sub(b"DATA", (flags::HAS_NORMALS_AND_HEIGHTS | flags::HAS_LAYERS).to_le_bytes())
+            .sub(
+                b"DATA",
+                (flags::HAS_NORMALS_AND_HEIGHTS | flags::HAS_LAYERS).to_le_bytes(),
+            )
             .sub(b"VNML", vec![0u8; VERTS * 3])
             .sub(b"VHGT", h.to_bytes())
             .sub(b"BTXT", btxt)
@@ -316,7 +319,13 @@ mod tests {
         assert_eq!(land.normals.as_ref().unwrap().len(), VERTS);
         assert_eq!(land.quadrants[2].base, Some(0x100));
         assert_eq!(land.quadrants[2].layers.len(), 1);
-        assert_eq!(land.quadrants[2].layers[0].alphas[1], Alpha { position: 17, opacity: 0.5 });
+        assert_eq!(
+            land.quadrants[2].layers[0].alphas[1],
+            Alpha {
+                position: 17,
+                opacity: 0.5
+            }
+        );
         assert_eq!(land.quadrants[1].layers[0].texture, 0x300);
         assert!(land.quadrants[1].layers[0].alphas.is_empty());
     }
@@ -324,12 +333,21 @@ mod tests {
     #[test]
     fn malformed_land_is_refused_with_a_reason() {
         let rec = Record::new(tag::LAND, 1).sub(b"VHGT", vec![0u8; 100]);
-        assert!(matches!(Land::from_record(&rec).unwrap_err(), Error::SubrecordSize { .. }));
+        assert!(matches!(
+            Land::from_record(&rec).unwrap_err(),
+            Error::SubrecordSize { .. }
+        ));
         let rec = Record::new(tag::LAND, 1).sub(b"VTXT", vec![0u8; 8]);
-        assert!(Land::from_record(&rec).unwrap_err().to_string().contains("without a preceding ATXT"));
+        assert!(Land::from_record(&rec)
+            .unwrap_err()
+            .to_string()
+            .contains("without a preceding ATXT"));
         let mut btxt = 0u32.to_le_bytes().to_vec();
         btxt.extend_from_slice(&[9, 0, 0, 0]);
         let rec = Record::new(tag::LAND, 1).sub(b"BTXT", btxt);
-        assert!(Land::from_record(&rec).unwrap_err().to_string().contains("quadrant 9"));
+        assert!(Land::from_record(&rec)
+            .unwrap_err()
+            .to_string()
+            .contains("quadrant 9"));
     }
 }

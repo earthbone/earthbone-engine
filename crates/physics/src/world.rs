@@ -371,7 +371,7 @@ fn flatten(shape: &Shape, t: &Iso, out: &mut Vec<Prim>) {
         }
         Shape::Sphere { radius } => out.push(Prim::Sphere(t.apply(Vec3::ZERO), radius * t.scale)),
         Shape::Capsule { a, b, radius } => {
-            out.push(Prim::Capsule(t.apply(*a), t.apply(*b), radius * t.scale))
+            out.push(Prim::Capsule(t.apply(*a), t.apply(*b), radius * t.scale));
         }
         Shape::ConvexHull { points } => {
             let pts: Vec<Vec3> = points.iter().map(|p| t.apply(*p)).collect();

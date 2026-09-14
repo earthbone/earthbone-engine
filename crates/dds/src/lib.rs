@@ -9,6 +9,8 @@
 //! Nothing here depends on a renderer. A [`Dds`] borrows the file bytes and
 //! hands out levels by layer and mip, and [`Image`] is plain RGBA8.
 
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
+
 pub mod decode;
 #[cfg(feature = "encode")]
 pub mod encode;
@@ -66,15 +68,40 @@ impl<'a> Dds<'a> {
                 let len = format
                     .slice_bytes(width, height)
                     .checked_mul(depth as usize)
-                    .ok_or(Error::TooLarge { width, height, depth })?;
-                levels.push(Level { layer, mip, width, height, depth, offset, len });
-                offset = offset.checked_add(len).ok_or(Error::TooLarge { width, height, depth })?;
+                    .ok_or(Error::TooLarge {
+                        width,
+                        height,
+                        depth,
+                    })?;
+                levels.push(Level {
+                    layer,
+                    mip,
+                    width,
+                    height,
+                    depth,
+                    offset,
+                    len,
+                });
+                offset = offset.checked_add(len).ok_or(Error::TooLarge {
+                    width,
+                    height,
+                    depth,
+                })?;
             }
         }
         if bytes.len() < offset {
-            return Err(Error::Truncated { needed: offset, have: bytes.len() });
+            return Err(Error::Truncated {
+                needed: offset,
+                have: bytes.len(),
+            });
         }
-        Ok(Dds { header, format, color_space, data: bytes, levels })
+        Ok(Dds {
+            header,
+            format,
+            color_space,
+            data: bytes,
+            levels,
+        })
     }
 
     pub fn header(&self) -> &Header {
@@ -128,16 +155,29 @@ impl<'a> Dds<'a> {
         let l = self.level(layer, mip)?;
         let bytes = &self.data[l.offset..l.offset + l.len];
         let slice_len = self.format.slice_bytes(l.width, l.height);
-        let mut rgba = Vec::with_capacity(l.width as usize * l.height as usize * l.depth as usize * 4);
+        let mut rgba =
+            Vec::with_capacity(l.width as usize * l.height as usize * l.depth as usize * 4);
         for z in 0..l.depth as usize {
-            rgba.extend(decode::decode_slice(self.format, l.width, l.height, &bytes[z * slice_len..][..slice_len])?);
+            rgba.extend(decode::decode_slice(
+                self.format,
+                l.width,
+                l.height,
+                &bytes[z * slice_len..][..slice_len],
+            )?);
         }
-        Ok(Image { width: l.width, height: l.height, depth: l.depth, rgba })
+        Ok(Image {
+            width: l.width,
+            height: l.height,
+            depth: l.depth,
+            rgba,
+        })
     }
 
     /// Every mip of one layer, base first.
     pub fn decode_chain(&self, layer: u32) -> Result<Vec<Image>> {
-        (0..self.mip_count()).map(|m| self.decode(layer, m)).collect()
+        (0..self.mip_count())
+            .map(|m| self.decode(layer, m))
+            .collect()
     }
 }
 
@@ -147,18 +187,43 @@ mod tests {
     use header::{caps, flags, pf, Dx10, PixelFormat};
 
     /// A DX10-headed BC7 file with `mips` levels of solid mode-6 blocks.
-    fn synthetic(fourcc: &[u8; 4], dxgi: Option<u32>, w: u32, h: u32, mips: u32, block: &[u8]) -> Vec<u8> {
+    fn synthetic(
+        fourcc: &[u8; 4],
+        dxgi: Option<u32>,
+        w: u32,
+        h: u32,
+        mips: u32,
+        block: &[u8],
+    ) -> Vec<u8> {
         let header = Header {
-            flags: flags::CAPS | flags::HEIGHT | flags::WIDTH | flags::PIXELFORMAT | flags::MIPMAPCOUNT,
+            flags: flags::CAPS
+                | flags::HEIGHT
+                | flags::WIDTH
+                | flags::PIXELFORMAT
+                | flags::MIPMAPCOUNT,
             height: h,
             width: w,
             pitch_or_linear_size: 0,
             depth: 0,
             mip_map_count: mips,
-            pixel_format: PixelFormat { flags: pf::FOURCC, four_cc: *fourcc, rgb_bit_count: 0, r_mask: 0, g_mask: 0, b_mask: 0, a_mask: 0 },
+            pixel_format: PixelFormat {
+                flags: pf::FOURCC,
+                four_cc: *fourcc,
+                rgb_bit_count: 0,
+                r_mask: 0,
+                g_mask: 0,
+                b_mask: 0,
+                a_mask: 0,
+            },
             caps: caps::TEXTURE | caps::MIPMAP,
             caps2: 0,
-            dx10: dxgi.map(|d| Dx10 { dxgi_format: d, dimension: 3, misc_flag: 0, array_size: 1, misc_flags2: 0 }),
+            dx10: dxgi.map(|d| Dx10 {
+                dxgi_format: d,
+                dimension: 3,
+                misc_flag: 0,
+                array_size: 1,
+                misc_flags2: 0,
+            }),
         };
         let mut out = header.to_bytes();
         for m in 0..mips {
@@ -179,13 +244,20 @@ mod tests {
         let dds = Dds::parse(&bytes).unwrap();
         assert_eq!(dds.format(), Format::Bc1);
         assert_eq!(dds.mip_count(), 4);
-        let sizes: Vec<_> = dds.levels().iter().map(|l| (l.width, l.height, l.len)).collect();
+        let sizes: Vec<_> = dds
+            .levels()
+            .iter()
+            .map(|l| (l.width, l.height, l.len))
+            .collect();
         assert_eq!(sizes, vec![(8, 4, 16), (4, 2, 8), (2, 1, 8), (1, 1, 8)]);
         let chain = dds.decode_chain(0).unwrap();
         assert_eq!(chain.len(), 4);
         assert_eq!(chain[0].rgba.len(), 8 * 4 * 4);
         assert!(chain[3].rgba == [255, 0, 0, 255]);
-        assert!(matches!(dds.level(0, 4), Err(Error::NoSuchLevel { layer: 0, mip: 4 })));
+        assert!(matches!(
+            dds.level(0, 4),
+            Err(Error::NoSuchLevel { layer: 0, mip: 4 })
+        ));
     }
 
     #[test]
@@ -203,9 +275,15 @@ mod tests {
     fn unsupported_formats_name_themselves() {
         let bytes = synthetic(b"DX10", Some(dxgi::BC6H_UF16), 4, 4, 1, &[0u8; 16]);
         let err = Dds::parse(&bytes).unwrap_err();
-        assert_eq!(err.to_string(), "unsupported texture format: BC6H half-float");
+        assert_eq!(
+            err.to_string(),
+            "unsupported texture format: BC6H half-float"
+        );
         let bytes = synthetic(b"DXT9", None, 4, 4, 1, &[0u8; 16]);
-        assert!(matches!(Dds::parse(&bytes), Err(Error::Unsupported(Unsupported::FourCc(_)))));
+        assert!(matches!(
+            Dds::parse(&bytes),
+            Err(Error::Unsupported(Unsupported::FourCc(_)))
+        ));
     }
 
     #[test]
@@ -218,7 +296,8 @@ mod tests {
             bytes.extend_from_slice(&block);
         }
         let caps2_at = 4 + 108;
-        bytes[caps2_at..caps2_at + 4].copy_from_slice(&(caps::CUBEMAP | caps::CUBEMAP_ALL_FACES).to_le_bytes());
+        bytes[caps2_at..caps2_at + 4]
+            .copy_from_slice(&(caps::CUBEMAP | caps::CUBEMAP_ALL_FACES).to_le_bytes());
         let dds = Dds::parse(&bytes).unwrap();
         assert_eq!(dds.layer_count(), 6);
         assert_eq!(dds.levels().len(), 12);

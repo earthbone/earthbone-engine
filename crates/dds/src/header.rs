@@ -177,7 +177,10 @@ impl Header {
             w(&mut out, d.array_size);
             w(&mut out, d.misc_flags2);
         }
-        debug_assert_eq!(out.len(), 4 + HEADER_SIZE + if self.dx10.is_some() { DX10_SIZE } else { 0 });
+        debug_assert_eq!(
+            out.len(),
+            4 + HEADER_SIZE + if self.dx10.is_some() { DX10_SIZE } else { 0 }
+        );
         out
     }
 
@@ -229,7 +232,11 @@ mod tests {
     #[test]
     fn a_header_round_trips_with_and_without_dx10() {
         let mut h = Header {
-            flags: flags::CAPS | flags::HEIGHT | flags::WIDTH | flags::PIXELFORMAT | flags::MIPMAPCOUNT,
+            flags: flags::CAPS
+                | flags::HEIGHT
+                | flags::WIDTH
+                | flags::PIXELFORMAT
+                | flags::MIPMAPCOUNT,
             height: 8,
             width: 16,
             pitch_or_linear_size: 0,
@@ -254,7 +261,13 @@ mod tests {
         assert_eq!(back.mip_count(), 5);
         assert_eq!(back.layer_count(), 1);
         h.pixel_format.four_cc = *b"DX10";
-        h.dx10 = Some(Dx10 { dxgi_format: 98, dimension: 3, misc_flag: 0, array_size: 1, misc_flags2: 0 });
+        h.dx10 = Some(Dx10 {
+            dxgi_format: 98,
+            dimension: 3,
+            misc_flag: 0,
+            array_size: 1,
+            misc_flags2: 0,
+        });
         let (back, off) = Header::parse(&h.to_bytes()).unwrap();
         assert_eq!(back, h);
         assert_eq!(off, 148);
@@ -263,11 +276,17 @@ mod tests {
     #[test]
     fn bad_magic_and_short_files_are_typed() {
         assert!(matches!(Header::parse(b"PNG\0"), Err(Error::NotDds)));
-        assert!(matches!(Header::parse(b"DDS \0\0"), Err(Error::BadHeader(_))));
+        assert!(matches!(
+            Header::parse(b"DDS \0\0"),
+            Err(Error::BadHeader(_))
+        ));
         let mut bytes = vec![0u8; 128];
         bytes[..4].copy_from_slice(MAGIC);
         bytes[4] = 100;
-        assert!(matches!(Header::parse(&bytes), Err(Error::BadHeader("header size is not 124"))));
+        assert!(matches!(
+            Header::parse(&bytes),
+            Err(Error::BadHeader("header size is not 124"))
+        ));
     }
 
     #[test]
@@ -279,7 +298,15 @@ mod tests {
             pitch_or_linear_size: 0,
             depth: 0,
             mip_map_count: 0,
-            pixel_format: PixelFormat { flags: 0, four_cc: [0; 4], rgb_bit_count: 32, r_mask: 0, g_mask: 0, b_mask: 0, a_mask: 0 },
+            pixel_format: PixelFormat {
+                flags: 0,
+                four_cc: [0; 4],
+                rgb_bit_count: 32,
+                r_mask: 0,
+                g_mask: 0,
+                b_mask: 0,
+                a_mask: 0,
+            },
             caps: 0,
             caps2: caps::CUBEMAP | caps::CUBEMAP_ALL_FACES,
             dx10: None,

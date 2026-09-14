@@ -169,10 +169,19 @@ mod tests {
             .zsub(tag::FULL, "Skyrim")
             .sub(b"DATA", [flags::NO_GRASS])
             .sub(b"WCTR", [0i16.to_le_bytes(), 0i16.to_le_bytes()].concat())
-            .sub(b"NAM0", [(-64.0f32).to_le_bytes(), (-64.0f32).to_le_bytes()].concat())
-            .sub(b"NAM9", [64.0f32.to_le_bytes(), 64.0f32.to_le_bytes()].concat())
+            .sub(
+                b"NAM0",
+                [(-64.0f32).to_le_bytes(), (-64.0f32).to_le_bytes()].concat(),
+            )
+            .sub(
+                b"NAM9",
+                [64.0f32.to_le_bytes(), 64.0f32.to_le_bytes()].concat(),
+            )
             .sub(b"MNAM", mnam)
-            .sub(b"DNAM", [(-27000.0f32).to_le_bytes(), (-14000.0f32).to_le_bytes()].concat());
+            .sub(
+                b"DNAM",
+                [(-27000.0f32).to_le_bytes(), (-14000.0f32).to_le_bytes()].concat(),
+            );
         let w = World::from_record(&rec, false).unwrap();
         assert_eq!(w.name.as_ref().unwrap().plain(), Some("Skyrim"));
         assert!(w.has_landscape());

@@ -93,7 +93,11 @@ impl Refr {
                 }
                 let door = f.u32()?;
                 let destination = Transform::read(&mut f)?;
-                let flags = if f.remaining() >= 4 { Some(f.u32()?) } else { None };
+                let flags = if f.remaining() >= 4 {
+                    Some(f.u32()?)
+                } else {
+                    None
+                };
                 Some(Teleport {
                     door,
                     destination,
@@ -185,8 +189,14 @@ mod tests {
             .sub(b"DATA", t.to_bytes())
             .sub(b"XSCL", 2.5f32.to_le_bytes())
             .sub(b"XTEL", xtel)
-            .sub(b"XESP", [0x40u32.to_le_bytes(), 1u32.to_le_bytes()].concat())
-            .sub(b"XLKR", [0x50u32.to_le_bytes(), 0x60u32.to_le_bytes()].concat());
+            .sub(
+                b"XESP",
+                [0x40u32.to_le_bytes(), 1u32.to_le_bytes()].concat(),
+            )
+            .sub(
+                b"XLKR",
+                [0x50u32.to_le_bytes(), 0x60u32.to_le_bytes()].concat(),
+            );
         let r = Refr::from_record(&rec).unwrap();
         assert_eq!(r.base, 0x1000);
         assert_eq!(r.transform, Some(t));
@@ -194,8 +204,20 @@ mod tests {
         assert!(r.is_persistent());
         assert_eq!(r.teleport.unwrap().door, 0x2000);
         assert_eq!(r.teleport.unwrap().destination, t);
-        assert_eq!(r.enable_parent, Some(EnableParent { parent: 0x40, flags: 1 }));
-        assert_eq!(r.linked_refs, vec![LinkedRef { keyword: 0x50, reference: 0x60 }]);
+        assert_eq!(
+            r.enable_parent,
+            Some(EnableParent {
+                parent: 0x40,
+                flags: 1
+            })
+        );
+        assert_eq!(
+            r.linked_refs,
+            vec![LinkedRef {
+                keyword: 0x50,
+                reference: 0x60
+            }]
+        );
     }
 
     #[test]

@@ -82,7 +82,9 @@ impl LoadOrder {
                 .iter()
                 .position(|f| f.name.eq_ignore_ascii_case(m))
                 .ok_or_else(|| {
-                    Error::Invalid(format!("{name} needs master {m}, which is not loaded before it"))
+                    Error::Invalid(format!(
+                        "{name} needs master {m}, which is not loaded before it"
+                    ))
                 })?;
             master_positions.push(pos);
         }
@@ -128,7 +130,9 @@ impl LoadOrder {
     }
 
     pub fn position_of(&self, name: &str) -> Option<usize> {
-        self.files.iter().position(|f| f.name.eq_ignore_ascii_case(name))
+        self.files
+            .iter()
+            .position(|f| f.name.eq_ignore_ascii_case(name))
     }
 
     /// Resolve a FormID as written in `file` to its global id.
@@ -247,17 +251,41 @@ mod tests {
         b.push_top(Record::new(tag::STAT, 0x01000800).zsub(tag::EDID, "NewInA_fromB"));
         lo.add("B.esp", b).unwrap();
 
-        let rock = GlobalFormId { file: 0, object: 0x800 };
+        let rock = GlobalFormId {
+            file: 0,
+            object: 0x800,
+        };
         assert_eq!(lo.overrides(rock).len(), 3);
-        assert_eq!(lo.winner(rock).unwrap().editor_id().as_deref(), Some("RockA_fromB"));
-        let new_in_a = GlobalFormId { file: 1, object: 0x800 };
-        assert_eq!(lo.winner(new_in_a).unwrap().editor_id().as_deref(), Some("NewInA_fromB"));
+        assert_eq!(
+            lo.winner(rock).unwrap().editor_id().as_deref(),
+            Some("RockA_fromB")
+        );
+        let new_in_a = GlobalFormId {
+            file: 1,
+            object: 0x800,
+        };
+        assert_eq!(
+            lo.winner(new_in_a).unwrap().editor_id().as_deref(),
+            Some("NewInA_fromB")
+        );
         // The same raw id means different things in A and in B.
         assert_eq!(lo.resolve(1, 0x01000800), new_in_a);
         assert_eq!(lo.resolve(2, 0x01000800), new_in_a);
-        assert_eq!(lo.resolve(2, 0x02000123), GlobalFormId { file: 2, object: 0x123 });
+        assert_eq!(
+            lo.resolve(2, 0x02000123),
+            GlobalFormId {
+                file: 2,
+                object: 0x123
+            }
+        );
         assert_eq!(lo.runtime_id(new_in_a), 0x01000800);
-        assert_eq!(lo.runtime_id(GlobalFormId { file: 2, object: 0x123 }), 0x02000123);
+        assert_eq!(
+            lo.runtime_id(GlobalFormId {
+                file: 2,
+                object: 0x123
+            }),
+            0x02000123
+        );
         let overridden: Vec<_> = lo.overridden().collect();
         assert_eq!(overridden.len(), 2);
         assert_eq!(lo.winners_of(tag::STAT).count(), 3);
@@ -288,9 +316,27 @@ mod tests {
         assert_eq!(lo.file(1).slot, Slot::Light(0));
         assert_eq!(lo.file(2).slot, Slot::Regular(1));
         assert_eq!(lo.file(3).slot, Slot::Light(1));
-        assert_eq!(lo.runtime_id(GlobalFormId { file: 1, object: 0x801 }), 0xFE000801);
-        assert_eq!(lo.runtime_id(GlobalFormId { file: 3, object: 0x801 }), 0xFE001801);
-        assert_eq!(lo.runtime_id(GlobalFormId { file: 2, object: 0x123 }), 0x01000123);
+        assert_eq!(
+            lo.runtime_id(GlobalFormId {
+                file: 1,
+                object: 0x801
+            }),
+            0xFE000801
+        );
+        assert_eq!(
+            lo.runtime_id(GlobalFormId {
+                file: 3,
+                object: 0x801
+            }),
+            0xFE001801
+        );
+        assert_eq!(
+            lo.runtime_id(GlobalFormId {
+                file: 2,
+                object: 0x123
+            }),
+            0x01000123
+        );
     }
 
     #[test]
@@ -300,7 +346,16 @@ mod tests {
         let mut a = patch(&["Skyrim.esm"]);
         a.push_top(Record::new(tag::STAT, 0xFF000800));
         lo.add("A.esp", a).unwrap();
-        assert_eq!(lo.resolve(1, 0xFF000800), GlobalFormId { file: 1, object: 0x800 });
-        assert!(lo.contains(GlobalFormId { file: 1, object: 0x800 }));
+        assert_eq!(
+            lo.resolve(1, 0xFF000800),
+            GlobalFormId {
+                file: 1,
+                object: 0x800
+            }
+        );
+        assert!(lo.contains(GlobalFormId {
+            file: 1,
+            object: 0x800
+        }));
     }
 }

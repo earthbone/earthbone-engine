@@ -31,7 +31,11 @@ pub fn decode(m: Masks, width: u32, height: u32, data: &[u8], out: &mut [u8]) {
             pixel |= (*b as u32) << (8 * i);
         }
         let r = extract(pixel, m.r);
-        let (g, b) = if m.grey { (r, r) } else { (extract(pixel, m.g), extract(pixel, m.b)) };
+        let (g, b) = if m.grey {
+            (r, r)
+        } else {
+            (extract(pixel, m.g), extract(pixel, m.b))
+        };
         let a = if m.a == 0 { 255 } else { extract(pixel, m.a) };
         out[px * 4..px * 4 + 4].copy_from_slice(&[r, g, b, a]);
     }

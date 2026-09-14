@@ -229,11 +229,11 @@ impl Settings {
     }
 
     /// Lay one file over the current view.
-    pub fn apply(&mut self, layer: Layer, ini: &Ini) {
+    pub fn apply(&mut self, layer: &Layer, ini: &Ini) {
         for section in &ini.sections {
             for (key, value) in &section.entries {
                 let id = norm(&section.name, key);
-                if let Layer::Plugin(plugin) = &layer {
+                if let Layer::Plugin(plugin) = layer {
                     if self.startup_only.contains(&id) {
                         self.refused.push(Refused {
                             plugin: plugin.clone(),
@@ -260,7 +260,9 @@ impl Settings {
     }
 
     pub fn get(&self, section: &str, key: &str) -> Option<&str> {
-        self.values.get(&norm(section, key)).map(|v| v.value.as_str())
+        self.values
+            .get(&norm(section, key))
+            .map(|v| v.value.as_str())
     }
 
     pub fn source(&self, section: &str, key: &str) -> Option<&Layer> {
@@ -290,9 +292,7 @@ impl Settings {
 
     /// A comma-separated list, entries trimmed and empty ones dropped.
     pub fn get_list(&self, section: &str, key: &str) -> Vec<String> {
-        self.get(section, key)
-            .map(split_list)
-            .unwrap_or_default()
+        self.get(section, key).map(split_list).unwrap_or_default()
     }
 
     /// The archives the game opens before anything else, first list then
@@ -337,7 +337,11 @@ mod tests {
         assert_eq!(ini.get("general", "slanguage"), Some("ENGLISH"));
         assert_eq!(ini.get("General", "uGridsToLoad"), Some("5"));
         assert_eq!(ini.get("Display", "bUseTAA"), Some("0"), "last wins");
-        assert_eq!(ini.sections[1].entries.len(), 2, "the broken line is dropped");
+        assert_eq!(
+            ini.sections[1].entries.len(),
+            2,
+            "the broken line is dropped"
+        );
     }
 
     #[test]
@@ -352,10 +356,19 @@ mod tests {
     #[test]
     fn layers_rank_whatever_order_they_are_applied() {
         let mut s = Settings::new();
-        s.apply(Layer::Prefs, &Ini::parse("[Display]\nbUseTAA=0\n"));
-        s.apply(Layer::Base, &Ini::parse("[Display]\nbUseTAA=1\nfShadowDistance=3000\n"));
-        s.apply(Layer::Default, &Ini::parse("[Display]\nbUseTAA=1\nfShadowDistance=1000\niX=2\n"));
-        s.apply(Layer::Custom, &Ini::parse("[Display]\nfShadowDistance=8000\n"));
+        s.apply(&Layer::Prefs, &Ini::parse("[Display]\nbUseTAA=0\n"));
+        s.apply(
+            &Layer::Base,
+            &Ini::parse("[Display]\nbUseTAA=1\nfShadowDistance=3000\n"),
+        );
+        s.apply(
+            &Layer::Default,
+            &Ini::parse("[Display]\nbUseTAA=1\nfShadowDistance=1000\niX=2\n"),
+        );
+        s.apply(
+            &Layer::Custom,
+            &Ini::parse("[Display]\nfShadowDistance=8000\n"),
+        );
         assert_eq!(s.get_bool("Display", "bUseTAA"), Some(false));
         assert_eq!(s.source("Display", "bUseTAA"), Some(&Layer::Prefs));
         assert_eq!(s.get_float("Display", "fShadowDistance"), Some(8000.0));
@@ -367,13 +380,20 @@ mod tests {
     fn plugin_inis_win_over_prefs_except_for_startup_settings() {
         let mut s = Settings::new();
         s.apply(
-            Layer::Default,
-            &Ini::parse("[Archive]\nsResourceArchiveList=A.bsa, B.bsa\n[Grass]\nfGrassFadeRange=3000\n"),
+            &Layer::Default,
+            &Ini::parse(
+                "[Archive]\nsResourceArchiveList=A.bsa, B.bsa\n[Grass]\nfGrassFadeRange=3000\n",
+            ),
         );
-        s.apply(Layer::Prefs, &Ini::parse("[Grass]\nfGrassFadeRange=5000\n"));
         s.apply(
-            Layer::Plugin("Mod.esp".into()),
-            &Ini::parse("[Archive]\nsResourceArchiveList=Evil.bsa\n[Grass]\nfGrassFadeRange=7000\n"),
+            &Layer::Prefs,
+            &Ini::parse("[Grass]\nfGrassFadeRange=5000\n"),
+        );
+        s.apply(
+            &Layer::Plugin("Mod.esp".into()),
+            &Ini::parse(
+                "[Archive]\nsResourceArchiveList=Evil.bsa\n[Grass]\nfGrassFadeRange=7000\n",
+            ),
         );
         assert_eq!(s.archives(), vec!["A.bsa", "B.bsa"]);
         assert_eq!(s.get_float("Grass", "fGrassFadeRange"), Some(7000.0));
@@ -385,17 +405,32 @@ mod tests {
     #[test]
     fn a_later_plugin_ini_replaces_a_list_wholesale() {
         let mut s = Settings::new().with_startup_only(Vec::<(&str, &str)>::new());
-        s.apply(Layer::Base, &Ini::parse("[Archive]\nsResourceArchiveList=A.bsa, B.bsa\n"));
-        s.apply(Layer::Plugin("One.esp".into()), &Ini::parse("[Archive]\nsResourceArchiveList=C.bsa\n"));
-        s.apply(Layer::Plugin("Two.esp".into()), &Ini::parse("[Archive]\nsResourceArchiveList=D.bsa,,E.bsa\n"));
+        s.apply(
+            &Layer::Base,
+            &Ini::parse("[Archive]\nsResourceArchiveList=A.bsa, B.bsa\n"),
+        );
+        s.apply(
+            &Layer::Plugin("One.esp".into()),
+            &Ini::parse("[Archive]\nsResourceArchiveList=C.bsa\n"),
+        );
+        s.apply(
+            &Layer::Plugin("Two.esp".into()),
+            &Ini::parse("[Archive]\nsResourceArchiveList=D.bsa,,E.bsa\n"),
+        );
         assert_eq!(s.archives(), vec!["D.bsa", "E.bsa"]);
-        assert_eq!(s.source("Archive", "sResourceArchiveList"), Some(&Layer::Plugin("Two.esp".into())));
+        assert_eq!(
+            s.source("Archive", "sResourceArchiveList"),
+            Some(&Layer::Plugin("Two.esp".into()))
+        );
     }
 
     #[test]
     fn typed_getters_follow_the_prefix_rules() {
         let mut s = Settings::new();
-        s.apply(Layer::Base, &Ini::parse("[A]\nbOn=true\nbOff=0\nbOdd=maybe\niN=-3\nuN=7\nfN=1.5\nsT=hello\n"));
+        s.apply(
+            &Layer::Base,
+            &Ini::parse("[A]\nbOn=true\nbOff=0\nbOdd=maybe\niN=-3\nuN=7\nfN=1.5\nsT=hello\n"),
+        );
         assert_eq!(s.get_bool("A", "bOn"), Some(true));
         assert_eq!(s.get_bool("A", "bOff"), Some(false));
         assert_eq!(s.get_bool("A", "bOdd"), None);
