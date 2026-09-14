@@ -25,6 +25,7 @@
 pub mod clock;
 pub mod harness;
 pub mod natives;
+pub mod npc;
 pub mod quest;
 pub mod vmad;
 pub mod world;
