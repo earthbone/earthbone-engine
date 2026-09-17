@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 //! Loads the five base masters from a real install and prints record counts
 //! per signature in a form that diffs against xEdit's xDump output. Runs

@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 //! Every collision block in a sample of the shipped meshes, read straight
 //! out of the archive through `soe_bsa`. Gated on `SKYRIM_DATA` pointing
@@ -59,7 +60,11 @@ fn shipped_meshes_decode_to_colliders() {
         let names: Vec<String> = archive
             .files()
             .iter()
-            .filter(|n| n.ends_with(".nif"))
+            .filter(|n| {
+                std::path::Path::new(n)
+                    .extension()
+                    .is_some_and(|ext| ext.eq_ignore_ascii_case("nif"))
+            })
             .cloned()
             .collect();
         for name in names {

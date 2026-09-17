@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 //! The installed game, gated on `SKYRIM_DATA` pointing at its `Data` folder.
 //! With no `plugins.txt` in reach, the engine loads the hardcoded masters and

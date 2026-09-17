@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 //! Tests against Skyrim SE's own files. They need `hkx` files extracted
 //! from `Skyrim - Animations.bsa` in a directory named by `SOE_HKX_DIR`
@@ -133,7 +134,7 @@ fn the_master_behavior_loads_as_a_graph() {
         .filter(|n| matches!(n.kind, NodeKind::Unknown))
         .map(|n| n.class.as_str())
         .collect();
-    unknown_classes.sort();
+    unknown_classes.sort_unstable();
     unknown_classes.dedup();
     eprintln!(
         "0_master: {} nodes ({} state machines, {} clips, {} unknown: {:?}), {} events, {} variables, {} referenced behaviors",

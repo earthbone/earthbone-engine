@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 //! A synthetic hundred-plugin load order in the shape a Wabbajack list has:
 //! one base master with a worldspace, a handful of light plugins, and many
@@ -96,7 +97,8 @@ fn a_hundred_plugin_order_resolves_every_reference_and_picks_the_last_override()
     assert_eq!(cell_ids.len(), 25);
     assert_eq!(refr_ids.len(), 100);
 
-    let mut expected_winner: std::collections::HashMap<GlobalFormId, String> = Default::default();
+    let mut expected_winner: std::collections::HashMap<GlobalFormId, String> =
+        std::collections::HashMap::default();
     for n in 1..=99u32 {
         let light = n % 7 == 0;
         let name = format!("Plugin{n:03}.{}", if light { "esl" } else { "esp" });
@@ -149,8 +151,8 @@ fn a_hundred_plugin_order_resolves_every_reference_and_picks_the_last_override()
     let mut refs = 0;
     for (file_index, file) in order.files().iter().enumerate() {
         for rec in file.plugin.records_of(tag::REFR) {
-            let refr = Refr::from_record(rec).unwrap();
-            let base = order.resolve(file_index, refr.base);
+            let parsed = Refr::from_record(rec).unwrap();
+            let base = order.resolve(file_index, parsed.base);
             assert!(
                 order.contains(base),
                 "{} refers to unknown base {base}",
