@@ -8,13 +8,17 @@
 
 use std::path::Path;
 
+use godot::classes::base_material_3d::{CullMode, Feature, TextureParam, Transparency};
 use godot::classes::image::Format;
 use godot::classes::mesh::{ArrayType, PrimitiveType};
-use godot::classes::{ArrayMesh, INode3D, Image, MeshInstance3D, Node3D};
+use godot::classes::{
+    ArrayMesh, INode3D, Image, ImageTexture, MeshInstance3D, Node3D, StandardMaterial3D,
+};
 use godot::prelude::*;
+use soe_dds::Image as DdsImage;
 
-use crate::data_source::DataSource;
-use crate::mesh::SurfaceArrays;
+use crate::data_source::{DataSource, LoadedSurface, SurfaceTextures};
+use crate::mesh::{AlphaMode, MaterialDesc, SurfaceArrays};
 use crate::streaming::{CellCoord, CellStreamer, StreamConfig};
 use crate::terrain::RegionHeightmap;
 use crate::units::GodotPos;
@@ -178,11 +182,15 @@ impl CellStreamerNode {
                 return -1;
             }
         };
+        let mut materials: std::collections::HashMap<TextureSetKey, Gd<StandardMaterial3D>> =
+            std::collections::HashMap::new();
         let mut built = 0;
         for surface in &loaded.surfaces {
-            let mesh = array_mesh_from(surface);
+            let mesh = array_mesh_from(&surface.arrays);
             let mut instance = MeshInstance3D::new_alloc();
             instance.set_mesh(&mesh);
+            let material = material_for(&mut materials, surface);
+            instance.set_surface_override_material(0, &material);
             self.base_mut().add_child(&instance);
             built += 1;
         }
@@ -190,9 +198,96 @@ impl CellStreamerNode {
     }
 }
 
+/// A distinct texture set: the material's diffuse and normal paths,
+/// lowercased. Two materials that name the same textures share one
+/// `StandardMaterial3D` rather than each getting their own `ImageTexture`
+/// upload.
+type TextureSetKey = (Option<String>, Option<String>);
+
+fn texture_set_key(material: &MaterialDesc) -> TextureSetKey {
+    (
+        material.diffuse.as_deref().map(str::to_lowercase),
+        material.normal.as_deref().map(str::to_lowercase),
+    )
+}
+
+/// Looks up or builds the `StandardMaterial3D` for `surface`'s texture set,
+/// cloning the cached `Gd` handle (cheap, Godot objects are reference
+/// counted) rather than re-uploading the same textures for every reference
+/// that shares them.
+fn material_for(
+    cache: &mut std::collections::HashMap<TextureSetKey, Gd<StandardMaterial3D>>,
+    surface: &LoadedSurface,
+) -> Gd<StandardMaterial3D> {
+    let key = texture_set_key(&surface.arrays.material);
+    if let Some(existing) = cache.get(&key) {
+        return existing.clone();
+    }
+    let material = standard_material_from(&surface.arrays.material, &surface.textures);
+    cache.insert(key, material.clone());
+    material
+}
+
+/// Builds a `StandardMaterial3D` from a NIF material description and its
+/// decoded textures. `normal_texture` gets only the RGB channels: Skyrim
+/// stores specular strength in the normal map's alpha channel, not a
+/// transparency mask, and Godot's normal mapping already ignores alpha, so
+/// nothing further is needed to drop it. Alpha handling follows the shader's
+/// own flags, cutout for `NiAlphaProperty`'s test, blend for its blend mode,
+/// opaque otherwise, and `cull_mode` follows the double-sided flag.
+pub fn standard_material_from(
+    material: &MaterialDesc,
+    textures: &SurfaceTextures,
+) -> Gd<StandardMaterial3D> {
+    let mut mat = StandardMaterial3D::new_gd();
+
+    if let Some(diffuse) = &textures.diffuse {
+        if let Some(tex) = image_texture_from(diffuse) {
+            mat.set_texture(TextureParam::ALBEDO, &tex);
+        }
+    }
+    if let Some(normal) = &textures.normal {
+        if let Some(tex) = image_texture_from(normal) {
+            mat.set_feature(Feature::NORMAL_MAPPING, true);
+            mat.set_texture(TextureParam::NORMAL, &tex);
+        }
+    }
+
+    match material.alpha {
+        AlphaMode::Opaque => {}
+        AlphaMode::Cutout(threshold) => {
+            mat.set_transparency(Transparency::ALPHA_SCISSOR);
+            mat.set_alpha_scissor_threshold(f32::from(threshold) / 255.0);
+        }
+        AlphaMode::Blend => mat.set_transparency(Transparency::ALPHA),
+    }
+
+    if material.double_sided {
+        mat.set_cull_mode(CullMode::DISABLED);
+    }
+
+    mat
+}
+
+/// Uploads a decoded RGBA8 texture as an `ImageTexture`. `None` only if
+/// Godot's own `Image::create_from_data` refuses the buffer, which needs a
+/// length mismatch against width times height times four and should not
+/// happen for a `soe_dds` decode this crate produced itself.
+fn image_texture_from(image: &DdsImage) -> Option<Gd<ImageTexture>> {
+    let bytes: PackedByteArray = image.rgba.iter().copied().collect();
+    let godot_image = Image::create_from_data(
+        image.width as i32,
+        image.height as i32,
+        false,
+        Format::RGBA8,
+        &bytes,
+    )?;
+    ImageTexture::create_from_image(&godot_image)
+}
+
 /// An `ArrayMesh` with one triangle surface from converted arrays. The
-/// material is not applied here, the caller maps `surface.material` onto
-/// whatever material system it uses.
+/// caller applies a material through `set_surface_override_material`, this
+/// function only builds the geometry.
 pub fn array_mesh_from(surface: &SurfaceArrays) -> Gd<ArrayMesh> {
     let mut arrays = VarArray::new();
     for _ in 0..ArrayType::MAX.ord() {
