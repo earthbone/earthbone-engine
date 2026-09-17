@@ -48,8 +48,10 @@ Open the corpus before writing a parser or a native, not after.
 - `TES5Edit/Core/wbDefinitionsTES5.pas`: record and subrecord layouts, the
   authority for every field.
 - `uesp-modfileformat/*.wikitext`: the same layouts in prose, per record type.
-- `ck-wiki/*.wikitext`: Papyrus native semantics per function (being filled by
-  a crawl, check the directory is non-empty before relying on it).
+- `ck-wiki/*.wikitext`: Papyrus native semantics per function, 402 pages
+  fetched through the Wayback Machine (the live site is behind Cloudflare),
+  289 of them reconstructed from HTML (`HTML_FALLBACK.txt`), 60 missing
+  (`FAILED.txt`), resume with `ck-wiki/crawl_ck_wiki.py`.
 - `uesp-skyrim-mod/*.wikitext`: engine quirks and modding conventions.
 - `wrye-bash/Mopy/bash/brec` and `wrye-bash/Mopy/bash/game/skyrimse`: a
   second record-definition source, plus `wrye-bash.wiki` for bash tags.
@@ -81,12 +83,17 @@ Open the corpus before writing a parser or a native, not after.
 
 ## Status (2026-09-14)
 
-- Round 1 (esm, bsa, nif, papyrus, havok, godot-host) merged. Round 2 (dds,
-  physics, navmesh, profile, shim, editor, game) complete as first
-  implementations once the `game` branch merges.
-- Untested live: every `SKYRIM_DATA` gated test beyond esm and papyrus, a
-  Godot binary loading the extension, a real Proton launch, fuzzing over any
-  parser, VM save and load.
+- Rounds 1 and 2 merged. Round 3 merged so far: live validation (every gated
+  test ran on the installed game, numbers in each `docs/<crate>.md`), actor
+  base stats from `NPC_`, VM and world save and load (formats SOEV, SOEW,
+  SOEG), Godot 4.4.1 loading the extension headless (`tools/godot/`,
+  `godot/headless_test.gd`). Open in round 3: parser fuzzing (branch `fuzz`),
+  the behavior interpreter, packages and AI, the next hundred natives.
+- Known gaps from the live run: the game crate binds 0 of 28,152 vanilla
+  scripts because they ship inside `Skyrim - Misc.bsa` and `bind` reads loose
+  files only (mirror the papyrus test's BSA path), and `godot-host` does not
+  link esm, bsa or nif yet so it streams synthetic cells.
+- Untested live: a real Proton launch, natives against the CK wiki pages.
 - Language decision (2026-09-14): runtime crates stay Rust. Go only for a
   tooling component where it eases maintenance, behind a protobuf seam.
   Licensing confirmed: GPL-3.0-or-later core, MIT shim.
