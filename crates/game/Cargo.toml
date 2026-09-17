@@ -10,6 +10,7 @@ name = "soe_game"
 path = "src/lib.rs"
 
 [dependencies]
+soe-trace = { path = "../trace" }
 soe-esm = { path = "../esm" }
 soe-papyrus = { path = "../papyrus" }
 soe-bsa = { path = "../bsa" }

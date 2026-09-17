@@ -787,6 +787,7 @@ impl Vm {
     /// Run runnable threads round-robin until the budget of instructions is
     /// spent or nothing is runnable. Returns instructions executed.
     pub fn run(&mut self, budget: usize) -> usize {
+        let mut run_span = soe_trace::Span::new("vm.run", "vm");
         let slice = 64;
         let mut used = 0;
         while used < budget {
@@ -795,7 +796,9 @@ impl Vm {
                 if self.threads[i].state != ThreadState::Runnable {
                     continue;
                 }
+                let _slice_span = soe_trace::Span::new("vm.slice", "vm");
                 let n = self.step_thread(i, slice.min(budget - used));
+                run_span.set_payload(used as u64 + n as u64);
                 used += n;
                 progressed |= n > 0;
                 if used >= budget {
@@ -968,6 +971,7 @@ impl Vm {
         args: Vec<Value>,
         dest: Option<String>,
     ) -> bool {
+        let _span = soe_trace::Span::dynamic(|| format!("{class}.{name}"), "native");
         let key = NativeRegistry::key(class, name);
         let table = if global {
             &mut self.natives.globals

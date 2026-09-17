@@ -152,6 +152,7 @@ check holds. Order is by what unblocks the most.
 | Behavior interpreter | `behavior` | The havok crate's graph model runs: state machines, blend nodes, clip generators, transitions on events, for one vanilla actor skeleton and its idle plus walk clips, pose output checked against the clip sampler. The single hard blocker of the map. |
 | Packages and AI | `packages` | `PACK` records read, sandbox, travel and sleep packages drive an actor through the navmesh graph on the clock, `EvaluatePackage` is real. |
 | Parser fuzzing | `fuzz` | `cargo fuzz` targets for esm, bsa, nif, hkx, dds and pex, one hour each without a panic, findings fixed. |
+| Performance harness | `perf` | `soe-bench` times every subsystem over the installed game, the trace crate records spans per phase and per native call and exports Chrome trace files, `docs/performance.md` carries the numbers, the thread scaling and the tracing overhead on this machine. Landed 2026-09-17. |
 | Natives by call count | `natives-2` | The next hundred natives from `docs/papyrus.md` with state behind them, each with a scenario, and the conformance table updated. |
 
 ## Round 4: tooling

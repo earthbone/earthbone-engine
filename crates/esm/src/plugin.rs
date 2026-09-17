@@ -461,6 +461,7 @@ impl Plugin {
     }
 
     pub fn parse(bytes: &[u8]) -> Result<Plugin> {
+        let _span = soe_trace::Span::with_payload("esm.plugin_parse", "esm", bytes.len() as u64);
         let mut cur = Cursor::new(bytes, 0);
         let first = cur.peek_tag()?;
         if first != tag::TES4 {

@@ -256,7 +256,9 @@ impl Game {
             }
             out
         };
+        let _bind_span = soe_trace::Span::with_payload("game.bind", "game", carriers.len() as u64);
         for (id, rref, _tag, vmad) in carriers {
+            let _span = soe_trace::Span::new("game.bind_form", "game");
             report.forms_with_scripts += 1;
             let object = self.object_of(Handle::Form(id));
             self.attach_all(object, id, rref.file, &vmad.scripts, &mut report);
@@ -450,6 +452,7 @@ impl Game {
     pub fn pump(&mut self) -> usize {
         let pending: Vec<Pending> = std::mem::take(&mut self.world.borrow_mut().pending);
         let n = pending.len();
+        let _span = soe_trace::Span::with_payload("game.pump", "game", n as u64);
         for p in pending {
             match p {
                 Pending::Event { object, name, args } => {

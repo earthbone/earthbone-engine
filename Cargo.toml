@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
+    "crates/bench",
     "crates/bsa",
     "crates/commonlib-shim",
     "crates/dds",
@@ -13,6 +14,7 @@ members = [
     "crates/papyrus",
     "crates/physics",
     "crates/profile",
+    "crates/trace",
 ]
 
 [workspace.package]

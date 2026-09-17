@@ -276,6 +276,7 @@ impl NavGraph {
     /// heuristic (which is admissible, a straight line is never longer than
     /// the walked route).
     pub fn find_path(&self, from: NodeId, to: NodeId) -> Option<Path> {
+        let _span = soe_trace::Span::new("navmesh.find_path", "navmesh");
         if self.triangle(from).blocked || self.triangle(to).blocked {
             return None;
         }

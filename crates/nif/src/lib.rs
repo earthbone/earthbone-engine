@@ -65,6 +65,7 @@ impl NifFile {
 
     /// Every mesh reachable from the roots, see [`mesh::meshes`].
     pub fn meshes(&self) -> Result<Vec<Mesh>> {
+        let _span = soe_trace::Span::new("nif.meshes", "nif");
         mesh::meshes(self)
     }
 
@@ -76,6 +77,7 @@ impl NifFile {
 
 /// Parse a whole file from memory.
 pub fn parse(bytes: &[u8]) -> Result<NifFile> {
+    let _span = soe_trace::Span::with_payload("nif.parse", "nif", bytes.len() as u64);
     let mut s = stream::Stream::new(bytes);
     let header = header::read_header(&mut s)?;
     let blocks = blocks::read_blocks(&mut s, &header)?;

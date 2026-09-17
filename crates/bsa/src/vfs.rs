@@ -116,6 +116,7 @@ impl Vfs {
 
     /// The winning bytes for a data path.
     pub fn read(&self, path: &str) -> Result<Vec<u8>> {
+        let _span = soe_trace::Span::new("bsa.vfs_read", "bsa");
         match self.resolve(path) {
             Some(Source::Loose(p)) => Ok(std::fs::read(p)?),
             Some(Source::Archived { archive, record }) => {

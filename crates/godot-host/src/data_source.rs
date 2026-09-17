@@ -81,38 +81,84 @@ pub struct LoadedCell {
 pub struct DataSource {
     order: LoadOrder,
     vfs: Vfs,
+    threads: usize,
+}
+
+/// Parse the base masters, on `threads` workers when more than one, and hand
+/// them back in master order so the load order stays deterministic.
+fn parse_masters(data_dir: &Path, threads: usize) -> Vec<Result<soe_esm::Plugin, DataSourceError>> {
+    let _span = soe_trace::Span::with_payload("host.parse_masters", "host", threads as u64);
+    let parse_one = |name: &str| -> Result<soe_esm::Plugin, DataSourceError> {
+        let path = data_dir.join(name);
+        soe_esm::read_plugin(&path)
+            .map_err(|source| DataSourceError::Io {
+                path: path.clone(),
+                source,
+            })?
+            .map_err(|source| DataSourceError::Plugin {
+                name: name.to_string(),
+                source,
+            })
+    };
+    if threads <= 1 {
+        return BASE_MASTERS.iter().map(|name| parse_one(name)).collect();
+    }
+    let mut out = Vec::with_capacity(BASE_MASTERS.len());
+    std::thread::scope(|scope| {
+        let handles: Vec<_> = BASE_MASTERS
+            .iter()
+            .map(|name| scope.spawn(move || parse_one(name)))
+            .collect();
+        for handle in handles {
+            out.push(handle.join().unwrap_or_else(|_| {
+                Err(DataSourceError::CellNotFound(
+                    "a plugin parse thread panicked".into(),
+                ))
+            }));
+        }
+    });
+    out
 }
 
 impl DataSource {
     /// Loads the base masters and their associated archives from `data_dir`,
     /// then adds `data_dir` itself as a loose overlay so a texture or mesh
     /// replacer placed there beats the archives, matching the shipped engine.
+    /// Parsing and mesh building use the machine's parallelism.
     pub fn open(data_dir: &Path) -> Result<Self, DataSourceError> {
+        let threads = std::thread::available_parallelism().map_or(1, std::num::NonZero::get);
+        Self::open_with_threads(data_dir, threads)
+    }
+
+    /// `open` with a fixed worker count, one for the sequential path.
+    pub fn open_with_threads(data_dir: &Path, threads: usize) -> Result<Self, DataSourceError> {
+        let _span = soe_trace::Span::with_payload("host.open", "host", threads as u64);
+        let threads = threads.max(1);
+        let parsed = parse_masters(data_dir, threads);
         let mut order = LoadOrder::new();
-        let mut vfs = Vfs::new();
-        for name in BASE_MASTERS {
-            let path = data_dir.join(name);
-            let plugin = soe_esm::read_plugin(&path)
-                .map_err(|source| DataSourceError::Io {
-                    path: path.clone(),
-                    source,
-                })?
-                .map_err(|source| DataSourceError::Plugin {
-                    name: name.to_string(),
-                    source,
-                })?;
+        for (name, plugin) in BASE_MASTERS.iter().zip(parsed) {
             order
-                .add(name, plugin)
+                .add(name, plugin?)
                 .map_err(|source| DataSourceError::Plugin {
-                    name: name.to_string(),
+                    name: (*name).to_string(),
                     source,
                 })?;
-            for archive_path in find_associated_archives(name, data_dir)? {
-                vfs.add_archive_path(&archive_path)?;
-            }
         }
-        vfs.add_loose_root(data_dir)?;
-        Ok(DataSource { order, vfs })
+        let mut vfs = Vfs::new();
+        {
+            let _archives = soe_trace::Span::new("host.index_archives", "host");
+            for name in BASE_MASTERS {
+                for archive_path in find_associated_archives(name, data_dir)? {
+                    vfs.add_archive_path(&archive_path)?;
+                }
+            }
+            vfs.add_loose_root(data_dir)?;
+        }
+        Ok(DataSource {
+            order,
+            vfs,
+            threads,
+        })
     }
 
     /// The winning `CELL` record whose editor id matches, preferring an
@@ -187,41 +233,63 @@ impl DataSource {
     /// for each `STAT` reference with a model, and reports what it found.
     /// A reference whose mesh fails to read or parse is counted as failed and
     /// skipped, it does not stop the rest of the cell from loading.
+    /// Worker threads for NIF parsing and mesh building. One means the
+    /// sequential path. Defaults to the machine's parallelism.
+    pub fn set_threads(&mut self, threads: usize) {
+        self.threads = threads.max(1);
+    }
+
+    #[must_use]
+    pub fn threads(&self) -> usize {
+        self.threads
+    }
+
     pub fn stream_cell_id(&self, cell_id: GlobalFormId) -> Result<LoadedCell, DataSourceError> {
+        let _span = soe_trace::Span::new("host.stream_cell", "host");
         let mut stats = CellStats::default();
+        let work = {
+            let _scan = soe_trace::Span::new("host.scan_references", "host");
+            let mut work: Vec<(String, Refr)> = Vec::new();
+            for (id, _) in self.order.winners_of(tag::REFR) {
+                let Some(rref) = self.order.winner_ref(id) else {
+                    continue;
+                };
+                let rec = self.order.record(rref);
+                let Ok(refr) = Refr::from_record(rec) else {
+                    continue;
+                };
+                let Some(raw_cell) = refr.cell else {
+                    continue;
+                };
+                if self.order.resolve(rref.file, raw_cell) != cell_id {
+                    continue;
+                }
+                let _reference = soe_trace::Span::new("host.reference", "host");
+                stats.references += 1;
+
+                let base_id = self.order.resolve(rref.file, refr.base);
+                let Some(base_rec) = self.order.winner(base_id) else {
+                    continue;
+                };
+                if base_rec.tag != tag::STAT {
+                    continue;
+                }
+                let Ok(stat) = Static::from_record(base_rec) else {
+                    continue;
+                };
+                let Some(model) = stat.model.filter(|m| !m.is_empty()) else {
+                    continue;
+                };
+                stats.statics_with_model += 1;
+                work.push((model, refr));
+            }
+            work
+        };
+
+        let results = self.build_all(&work);
         let mut surfaces = Vec::new();
-        for (id, _) in self.order.winners_of(tag::REFR) {
-            let Some(rref) = self.order.winner_ref(id) else {
-                continue;
-            };
-            let rec = self.order.record(rref);
-            let Ok(refr) = Refr::from_record(rec) else {
-                continue;
-            };
-            let Some(raw_cell) = refr.cell else {
-                continue;
-            };
-            if self.order.resolve(rref.file, raw_cell) != cell_id {
-                continue;
-            }
-            stats.references += 1;
-
-            let base_id = self.order.resolve(rref.file, refr.base);
-            let Some(base_rec) = self.order.winner(base_id) else {
-                continue;
-            };
-            if base_rec.tag != tag::STAT {
-                continue;
-            }
-            let Ok(stat) = Static::from_record(base_rec) else {
-                continue;
-            };
-            let Some(model) = stat.model.filter(|m| !m.is_empty()) else {
-                continue;
-            };
-            stats.statics_with_model += 1;
-
-            match self.load_static_surfaces(&model, &refr) {
+        for (model, result) in work.iter().map(|(m, _)| m).zip(results) {
+            match result {
                 Ok(built) => {
                     stats.meshes_parsed += 1;
                     for surface in built {
@@ -238,11 +306,58 @@ impl DataSource {
         Ok(LoadedCell { stats, surfaces })
     }
 
+    /// Parse and build every model, in order, on `threads` workers over
+    /// chunks of the work list. The archive view is shared read-only.
+    fn build_all(
+        &self,
+        work: &[(String, Refr)],
+    ) -> Vec<Result<Vec<SurfaceArrays>, DataSourceError>> {
+        let _span = soe_trace::Span::with_payload("host.build_all", "host", work.len() as u64);
+        let threads = self.threads.min(work.len().max(1));
+        if threads <= 1 {
+            return work
+                .iter()
+                .map(|(model, refr)| self.load_static_surfaces(model, refr))
+                .collect();
+        }
+        let chunk = work.len().div_ceil(threads);
+        let mut results: Vec<Result<Vec<SurfaceArrays>, DataSourceError>> =
+            Vec::with_capacity(work.len());
+        std::thread::scope(|scope| {
+            let handles: Vec<_> = work
+                .chunks(chunk)
+                .map(|items| {
+                    scope.spawn(move || {
+                        let _worker = soe_trace::Span::with_payload(
+                            "host.worker",
+                            "host",
+                            items.len() as u64,
+                        );
+                        items
+                            .iter()
+                            .map(|(model, refr)| self.load_static_surfaces(model, refr))
+                            .collect::<Vec<_>>()
+                    })
+                })
+                .collect();
+            for handle in handles {
+                match handle.join() {
+                    Ok(part) => results.extend(part),
+                    Err(_) => results.push(Err(DataSourceError::CellNotFound(
+                        "a worker thread panicked".into(),
+                    ))),
+                }
+            }
+        });
+        results
+    }
+
     fn load_static_surfaces(
         &self,
         model: &str,
         refr: &Refr,
     ) -> Result<Vec<SurfaceArrays>, DataSourceError> {
+        let _span = soe_trace::Span::new("host.static", "host");
         let path = format!("meshes/{model}");
         let bytes = self.vfs.read(&path)?;
         let file = soe_nif::parse(&bytes)?;
@@ -250,6 +365,7 @@ impl DataSource {
         let refr_transform = placement_transform(refr);
         let mut out = Vec::with_capacity(meshes.len());
         for shape in &meshes {
+            let _surface = soe_trace::Span::new("host.build_surface", "host");
             let combined = refr_transform.then(&shape.transform);
             let data = mesh_data_from(shape, &combined);
             out.push(build_surface(&data, MeshOptions::default())?);
