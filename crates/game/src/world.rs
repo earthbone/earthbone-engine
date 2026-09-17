@@ -1639,6 +1639,12 @@ fn write_actor_state(w: &mut Writer, a: &ActorState) {
     for id in &a.equipped {
         write_form_id(w, *id);
     }
+    w.bool(a.protected);
+    w.u32(a.level);
+    w.bool(a.race.is_some());
+    if let Some(race) = a.race {
+        write_form_id(w, race);
+    }
 }
 
 fn read_actor_state(r: &mut Reader<'_>) -> Result<ActorState, VmError> {
@@ -1672,6 +1678,11 @@ fn read_actor_state(r: &mut Reader<'_>) -> Result<ActorState, VmError> {
     let n = r.len()?;
     for _ in 0..n {
         a.equipped.insert(read_form_id(r)?);
+    }
+    a.protected = r.bool()?;
+    a.level = r.u32()?;
+    if r.bool()? {
+        a.race = Some(read_form_id(r)?);
     }
     Ok(a)
 }
