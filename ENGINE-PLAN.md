@@ -166,6 +166,7 @@ protobuf seam, never inside the runtime crates.
 | CK wiki review | `engine-refs/ck-wiki/` filled, every native in `docs/game.md` checked against its page, differences fixed or listed. |
 | Editor backend | `docs/editor.md` becomes code: record editing over the esm crate with the Godot editor as the front end. |
 | Packaging | A profile plus load order becomes a runnable install without a mod manager in the loop. |
+| Scripting beyond Papyrus | Proposal (2026-09-17): WebAssembly through wasmtime as the mod extension ABI, bound to the same native registry and form table Papyrus uses, with the component model for versioned interfaces. Rust natives stay the engine-level path. Lua only on author demand. GDScript for editor tooling and UI only. Done check: a Rust mod compiled to wasm subscribes to OnActivate and calls SetStage on the synthetic quest. |
 
 Decisions (2026-09-14, user): the runtime stays Rust. Go is used for a tooling component only when
 it makes that component easier to maintain than Rust would, behind a protobuf seam, never inside
