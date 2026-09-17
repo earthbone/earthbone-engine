@@ -168,9 +168,10 @@ Edition patch, which folded every DLC's assets into the base archives, so
 `.bsa` of their own and none is expected. Loading all 14026 scripts the archive
 holds takes 0.3 seconds. `bind` then attaches 28143 of the 28152 scripts the
 load order's `VMAD` data names in 0.2 seconds, tens of thousands of instances
-and nowhere near slow enough to worry about. 71066 properties are set, 349
+and nowhere near slow enough to worry about. 71318 properties are set, 97
 missing, 0 quests started (this test calls `bind`, not `start`, so no Start
-Game Enabled quest runs).
+Game Enabled quest runs). The first run of this test reported 349 missing
+properties, before `set_property` learned to run a compiled setter (below).
 
 The 9 remaining missing scripts, `DLC1testPhilVortexSCRIPT`,
 `dlc1testPhilVortexTrigSCRIPT`, `DLC1TestPhilAtronach`,
@@ -184,23 +185,22 @@ quest script (the shipped file is `MQ101Lokir.pex`) that Bethesda never
 cleaned out of the masters, and the real game hits the same lookup failure at
 runtime.
 
-The 349 missing properties are one real bug, and it lives in `crates/papyrus`,
-outside this worktree's scope (`crates/game` and `docs/game.md` only). Every
-one of the first 20 is the same pattern: `TrapLever.TriggerType` (repeated),
-`TrapTriggerBase.TriggerType`, `TrapTriggerTimeInterval.TriggerType`,
-`defaultActSelfOnEnterOnLeave.TriggerType`, `SoundTrap.TriggerCount`.
-`TrapTriggerBase.psc` (the parent `TrapLever` and `SoundTrap` extend) declares
-`TriggerType` and `TriggerCount` as full properties, a hand-written `Get`/`Set`
-pair backed by a separate `StoredTriggerType` auto var, not a plain auto
-property. Creation Kit still lets a form's `VMAD` carry a value for a full
-property, and the real engine applies it by calling the compiled `Set`
-function. `Vm::set_property` in `crates/papyrus/src/vm.rs` only ever writes a
-property's auto var (`p.auto_var`), so a full property has none to write to
-and the fill fails with `VmError::UnknownFunction`. The fix is to call the
-property's `setter` function on the instance when `auto_var` is `None`,
-instead of erroring, which needs the same frame-and-run machinery
-`Vm::call` already has. That call belongs next to `Vm::call`, in the papyrus
-crate, so it is out of reach here and left for a `papyrus` fork.
+The first run reported 349 missing properties, 252 of them one pattern:
+`TrapTriggerBase.psc` (the parent `TrapLever`, `SoundTrap` and
+`TrapTriggerTimeInterval` extend) declares `TriggerType` and `TriggerCount`
+as full properties, a hand-written `Get` and `Set` pair backed by a separate
+`StoredTriggerType` auto var. The Creation Kit lets a form's `VMAD` carry a
+value for a full property and the real engine applies it by calling the
+compiled `Set` function. `Vm::set_property` now does the same: when the
+property has no auto var it runs the setter's bytecode on a fresh thread with
+the value as its argument and drives it to completion before returning (the
+setter may not wait or call a latent native, that case is logged). The 97
+that remain name properties the loaded script does not declare at all, such
+as `TG06QuestScript.TG05KarliahInvisibilitySpell`,
+`DLC1CrystalDrainHealthCheckScript.vampLordRace` and the
+`DLC1SeranaLevelingScript` perk properties: `VMAD` entries left behind after
+the script source dropped the property, which the real engine cannot fill
+either. They are vanilla data, not an engine gap.
 
 ## Save and load
 
@@ -260,10 +260,4 @@ notification fired, and the alias resolved to the lever.
   lazily per cell. On the five base masters this is tens of thousands of
   instances, timed at 0.2 seconds against the installed game (2026-09-17),
   not a performance concern.
-- Properties compiled as full properties (a hand-written `Get`/`Set` pair, no
-  auto var) are not filled from `VMAD` data. `Vm::set_property` in
-  `crates/papyrus` only writes an auto var, so it errors instead of calling
-  the `setter` function. The vanilla trap family (`TrapTriggerBase.TriggerType`
-  and `TriggerCount`) hits this, 349 properties missing in the live run above.
-  The fix belongs in `crates/papyrus`, not this crate.
 - No native has been checked against its CK wiki page yet, see above.

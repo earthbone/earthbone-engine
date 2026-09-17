@@ -86,6 +86,14 @@ class and the parents the registry declared, so a quest form with no script
 still answers `SetStage`. This is how the game crate hands forms to scripts
 without preloading every form as a VM object.
 
+**Host property writes.** `set_property` writes an auto property's variable
+directly. A full property (a compiled `Get` and `Set` pair) has no variable
+of its own, so the host runs the `Set` function on a fresh thread with the
+value as its argument and drives that thread to completion before returning,
+the way the game applies `VMAD` values to such properties. A setter that
+waits or calls a latent native is logged and left running. `get_property`
+reads auto variables only.
+
 **States and events.** `send_event(object, name, args)` starts one thread per
 attached script that handles the event, resolved through the current state.
 `GotoState` and `GetState` are built in, and a state change delivers
