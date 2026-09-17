@@ -263,6 +263,9 @@ struct Thread {
 }
 
 const MAX_DEPTH: usize = 128;
+/// Instructions a property setter may run per scheduler pass when the host
+/// sets a full property.
+const SETTER_BUDGET: usize = 4096;
 
 #[derive(Default)]
 pub struct Vm {
@@ -482,17 +485,42 @@ impl Vm {
         let id = self
             .instance_on(object, script)
             .ok_or_else(|| VmError::UnknownScript(script.to_string()))?;
-        let var = self.instances[id.0]
+        let auto_var = self.instances[id.0]
             .chain
             .iter()
-            .find_map(|s| s.object.property(property).and_then(|p| p.auto_var.clone()))
+            .find_map(|s| s.object.property(property).and_then(|p| p.auto_var.clone()));
+        if let Some(var) = auto_var {
+            self.instances[id.0]
+                .vars
+                .insert(var.to_ascii_lowercase(), value);
+            return Ok(());
+        }
+        // A full property has no backing variable of its own: the game runs
+        // its compiled Set function, so the host does the same.
+        let key = property.to_ascii_lowercase();
+        let (owner, setter) = self.instances[id.0]
+            .chain
+            .iter()
+            .find_map(|s| s.setters.get(&key).map(|f| (s.clone(), f.clone())))
             .ok_or_else(|| VmError::UnknownFunction {
                 class: script.to_string(),
                 name: property.to_string(),
             })?;
-        self.instances[id.0]
-            .vars
-            .insert(var.to_ascii_lowercase(), value);
+        let frame = Self::make_frame(Some(id), Some(object), Some(owner), setter, &[value], None);
+        let tid = self.spawn(frame);
+        for _ in 0..64 {
+            self.run(SETTER_BUDGET);
+            if self.thread_state(tid) != Some(ThreadState::Runnable) {
+                break;
+            }
+        }
+        if self.thread_state(tid) != Some(ThreadState::Done) {
+            let time = self.time;
+            self.log.push(
+                time,
+                format!("{script}.{property} setter did not finish synchronously"),
+            );
+        }
         Ok(())
     }
 
