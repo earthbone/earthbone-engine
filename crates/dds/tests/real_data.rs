@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 //! Real textures out of the vanilla archives, when `SKYRIM_DATA` points at a
 //! Skyrim SE `Data/` folder. Every sampled texture is decoded here and by
@@ -40,7 +41,10 @@ fn vanilla_textures_decode_and_match_the_reference_decoder() {
     for entry in std::fs::read_dir(&dir).unwrap() {
         let path = entry.unwrap().path();
         let name = path.file_name().unwrap().to_string_lossy().to_string();
-        if !name.starts_with("Skyrim - Textures") || !name.ends_with(".bsa") {
+        let is_bsa = std::path::Path::new(&name)
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("bsa"));
+        if !name.starts_with("Skyrim - Textures") || !is_bsa {
             continue;
         }
         archives += 1;
@@ -48,7 +52,11 @@ fn vanilla_textures_decode_and_match_the_reference_decoder() {
         let files: Vec<String> = archive
             .files()
             .iter()
-            .filter(|f| f.ends_with(".dds"))
+            .filter(|f| {
+                std::path::Path::new(f.as_str())
+                    .extension()
+                    .is_some_and(|ext| ext.eq_ignore_ascii_case("dds"))
+            })
             .cloned()
             .collect();
         let step = (files.len() / per_archive).max(1);
@@ -70,9 +78,8 @@ fn vanilla_textures_decode_and_match_the_reference_decoder() {
             }
             let reference =
                 image_dds::ddsfile::Dds::read(&mut std::io::Cursor::new(&bytes)).unwrap();
-            let theirs = match image_dds::image_from_dds(&reference, 0) {
-                Ok(i) => i,
-                Err(_) => continue,
+            let Ok(theirs) = image_dds::image_from_dds(&reference, 0) else {
+                continue;
             };
             // image_dds stacks a cube map's faces vertically, so compare the
             // first face only.

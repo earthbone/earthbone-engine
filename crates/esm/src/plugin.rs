@@ -27,6 +27,15 @@ use crate::tag::{self, Tag};
 pub const HEADER_SIZE: usize = 24;
 pub const SUBRECORD_HEADER_SIZE: usize = 6;
 
+/// Upper bound on the up-front allocation for a compressed record's inflate
+/// buffer. The 32-bit "expected size" prefix is attacker controlled and read
+/// before a single byte of the zlib stream is checked, so a crafted file can
+/// claim close to 4 GiB there. No vanilla or modded record comes near this
+/// bound, so capping the preallocation only costs a realloc on the (never
+/// seen) legitimate record that exceeds it, while a hostile claim still gets
+/// caught by the `buf.len() != expected as usize` check right below.
+const MAX_INFLATE_PREALLOC: usize = 64 * 1024 * 1024;
+
 /// Record header flags shared by every record type. Type-specific bits are
 /// documented on the typed views.
 pub mod flags {
@@ -567,7 +576,7 @@ fn parse_record(cur: &mut Cursor<'_>, placement: Placement) -> Result<Record> {
             });
         }
         let expected = u32::from_le_bytes([raw[0], raw[1], raw[2], raw[3]]);
-        let mut buf = Vec::with_capacity(expected as usize);
+        let mut buf = Vec::with_capacity((expected as usize).min(MAX_INFLATE_PREALLOC));
         flate2::read::ZlibDecoder::new(&raw[4..])
             .take(u64::from(expected) + 1)
             .read_to_end(&mut buf)
@@ -853,6 +862,39 @@ mod tests {
         let rec_at = hdr_len + HEADER_SIZE;
         let flags_at = rec_at + 8;
         bytes[flags_at..flags_at + 4].copy_from_slice(&flags::COMPRESSED.to_le_bytes());
+        let err = Plugin::parse(&bytes).unwrap_err();
+        assert!(
+            matches!(err, Error::Inflate { tag, .. } if tag == tag::STAT),
+            "{err}"
+        );
+    }
+
+    /// Fuzz find (fuzz/artifacts/fuzz-esm/oom-b240fbaea1ba89b3e299e65bcab54895236456a8):
+    /// a compressed record's leading "expected size" u32 is attacker
+    /// controlled and was used to preallocate the inflate buffer before a
+    /// single byte of the zlib stream was checked. A value near u32::MAX
+    /// aborted the process with an out-of-memory allocation failure. The
+    /// cap in `MAX_INFLATE_PREALLOC` bounds that allocation, so parsing
+    /// must now fail cleanly instead.
+    #[test]
+    fn a_bogus_compressed_expected_size_does_not_preallocate_it() {
+        let mut p = Plugin::new(header());
+        p.push_top(
+            Record::new(tag::STAT, 0x801)
+                .with_flags(flags::COMPRESSED)
+                .sub(b"DATA", [1, 2, 3, 4, 5, 6, 7, 8]),
+        );
+        let mut bytes = p.to_bytes();
+        let hdr_len = {
+            let mut h = Vec::new();
+            p.header_record.write(&mut h);
+            h.len()
+        };
+        let rec_at = hdr_len + HEADER_SIZE;
+        let flags_at = rec_at + 8;
+        bytes[flags_at..flags_at + 4].copy_from_slice(&flags::COMPRESSED.to_le_bytes());
+        let data_at = rec_at + HEADER_SIZE;
+        bytes[data_at..data_at + 4].copy_from_slice(&0xFFFF_FFF0u32.to_le_bytes());
         let err = Plugin::parse(&bytes).unwrap_err();
         assert!(
             matches!(err, Error::Inflate { tag, .. } if tag == tag::STAT),

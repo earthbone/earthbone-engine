@@ -1,0 +1,74 @@
+[package]
+name = "soe-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[workspace]
+members = ["."]
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+
+[dependencies.soe-esm]
+path = "../crates/esm"
+
+[dependencies.soe-bsa]
+path = "../crates/bsa"
+
+[dependencies.soe-nif]
+path = "../crates/nif"
+
+[dependencies.soe-havok]
+path = "../crates/havok"
+
+[dependencies.soe-dds]
+path = "../crates/dds"
+
+[dependencies.soe-papyrus]
+path = "../crates/papyrus"
+
+[[bin]]
+name = "fuzz-esm"
+path = "fuzz_targets/fuzz_esm.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz-bsa"
+path = "fuzz_targets/fuzz_bsa.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz-nif"
+path = "fuzz_targets/fuzz_nif.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz-havok"
+path = "fuzz_targets/fuzz_havok.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz-dds"
+path = "fuzz_targets/fuzz_dds.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz-pex"
+path = "fuzz_targets/fuzz_pex.rs"
+test = false
+doc = false
+bench = false
