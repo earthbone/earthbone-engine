@@ -4,22 +4,23 @@ extends SceneTree
 ## round 3, "Godot headless load"). Run with:
 ##   godot --headless --path godot --script headless_test.gd
 ##
-## What this actually exercises: crates/godot-host has no esm, bsa or nif
-## dependency yet (see docs/godot-host.md, "Round 2 hooks"), so the
-## extension cannot resolve a named cell such as WhiterunBanneredMare or
-## read anything under SKYRIM_DATA. It only exposes CellStreamerNode, the
-## coordinate-based load and unload decision logic, plus two Rust-only
-## conversion functions that GDScript cannot call directly. This script
-## drives CellStreamerNode with one synthetic focus placed in exterior cell
-## (0, 0), lets it emit cell_load_requested, builds one placeholder
-## MeshInstance3D per requested cell, and prints the resulting count. It
-## exits 0 when at least one cell streamed and a mesh node was built for
-## it, 1 otherwise.
+## crates/godot-host now links esm, bsa and nif (docs/godot-host.md, "Real
+## cell"), so when SKYRIM_DATA points at an installed game's Data folder this
+## script calls CellStreamerNode.load_data and stream_cell to build real
+## meshes for WhiterunBanneredMare and exits on that result alone, no frame
+## wait needed since the call is synchronous. When SKYRIM_DATA is unset it
+## falls back to the original synthetic run: one focus in exterior cell
+## (0, 0), one placeholder MeshInstance3D per cell_load_requested signal,
+## exiting 0 once at least one was built.
 
 var frame := 0
 var loaded := {}
 var scene_root: Node3D
 var failed := false
+# Set once _run_real has already decided pass or fail and called quit, so a
+# stray _process call before the tree actually stops does not run the
+# synthetic path's frame-count logic against an empty loaded map.
+var real_run_done := false
 
 func _initialize() -> void:
 	var skyrim_data := OS.get_environment("SKYRIM_DATA")
@@ -36,6 +37,38 @@ func _initialize() -> void:
 	scene_root.name = "Root"
 	get_root().add_child(scene_root)
 
+	if skyrim_data != "":
+		_run_real(skyrim_data)
+		return
+
+	_run_synthetic()
+
+func _run_real(skyrim_data: String) -> void:
+	var streamer := ClassDB.instantiate("CellStreamerNode") as Node3D
+	if streamer == null:
+		printerr("FAIL: could not instantiate CellStreamerNode")
+		quit(1)
+		return
+	streamer.name = "Streamer"
+	scene_root.add_child(streamer)
+
+	if not streamer.call("load_data", skyrim_data):
+		printerr("RESULT: FAIL: load_data could not open %s" % skyrim_data)
+		quit(1)
+		return
+
+	var cell_name := "WhiterunBanneredMare"
+	var built: int = streamer.call("stream_cell", cell_name)
+	print("Godot headless load: cell = %s, mesh nodes built = %d" % [cell_name, built])
+	real_run_done = true
+	if built > 0:
+		print("RESULT: PASS")
+		quit(0)
+	else:
+		printerr("RESULT: FAIL: stream_cell built no meshes for %s" % cell_name)
+		quit(1)
+
+func _run_synthetic() -> void:
 	var focus := Node3D.new()
 	focus.name = "Focus"
 	# 29.25 m, 29.25 m puts the focus mid cell (0, 0) in Skyrim units
@@ -73,7 +106,7 @@ func _on_cell_load_requested(cell_x: int, cell_y: int) -> void:
 	loaded[key] = true
 
 func _process(_delta: float) -> bool:
-	if failed:
+	if failed or real_run_done:
 		return true
 	frame += 1
 	if frame < 10:

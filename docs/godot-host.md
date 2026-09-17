@@ -13,6 +13,7 @@ With `--no-default-features` the `godot` dependency is gone and what remains is 
 | `streaming` | no | which cells to load and unload around a focus, with budgets and hysteresis |
 | `mesh` | no | a decoded NIF shape to `ArrayMesh` surface arrays, with validation |
 | `terrain` | no | LAND heights to Terrain3D regions |
+| `data_source` | no | a real `Data` folder through `esm`, `bsa` and `nif` to loaded cells |
 | `godot_layer` | yes | the `CellStreamer` node, `array_mesh_from`, `heightmap_image_from` |
 
 The Godot layer decides nothing. That is what keeps the tests engine-free, and it is the
@@ -110,9 +111,13 @@ machine.
 
 ## Round 2 hooks
 
-`impl MeshSource for soe_nif::Shape` is the integration with the `nif` crate. The `esm`
-crate's LAND view feeds `decode_vhgt`. The Jolt binding from bhk shapes will need collision
-data that `MeshSource` does not carry and should be a second trait, not a widening of this one.
+`data_source::mesh_data_from` is the integration with the `nif` crate: it owns a copy of
+`nif::Mesh`'s vertex data with the reference's placement baked in and adapts it into
+`mesh::MeshData`, rather than `nif::Mesh` implementing `MeshSource` directly, since the axis
+and unit conversion in `build_surface` still needs to run on top. The `esm` crate's LAND view
+feeds `decode_vhgt`, not yet wired to `data_source`. The Jolt binding from bhk shapes will need
+collision data that `MeshSource` does not carry and should be a second trait, not a widening
+of this one.
 
 ## Headless run (2026-09-14)
 
@@ -168,3 +173,81 @@ change the result (the focus position is fixed and correct from the second frame
 no fix for this smoke test, but a real game-side user of `CellStreamerNode` should add the
 focus node to the tree before the streamer node, or gate the first `process` tick on
 `is_inside_tree()`.
+
+## Real cell (2026-09-17)
+
+`godot-host` now depends on `esm`, `bsa` and `nif` (`crates/godot-host/Cargo.toml`), closing
+the gap the previous section called out. `src/data_source.rs` is the new module, engine-free
+like the rest of the crate below the Godot layer. `DataSource::open` loads the five base
+masters through a `LoadOrder` and builds a `bsa::Vfs` from their associated archives plus the
+data folder as a loose overlay, matching the shipped engine's override order. `resolve_cell`
+finds a cell's winning `CELL` record by editor id, preferring an interior cell when an
+interior and an exterior one share a name, and `first_populated_interior_cell` picks any
+interior cell with more than a given reference count when a named one is missing, so the
+gated test still has real content to load on a different install. `stream_cell` walks the
+winning `REFR` records placed in the cell, and for each one whose base resolves to a `STAT`
+with a model, reads the NIF through the `Vfs`, parses it, and runs every shape through
+`mesh::build_surface` with the reference's own placement transform composed with the shape's
+transform inside the NIF. A reference whose mesh fails to read or parse is counted and
+skipped rather than aborting the cell.
+
+The reference's rotation floats become a matrix the same way `NiMatrix3::SetEulerAnglesXYZ`
+does in CommonLibSSE, since that is what the engine itself uses to turn a REFR's `DATA`
+rotation into world orientation. `Transform::then` composes the two transforms so the shape's
+own NIF-internal transform applies first and the reference's placement applies second, which
+is the order `mesh_data_from` needs before `build_surface` converts axes and units.
+
+`CellStreamerNode` exposes this as two `#[func]` methods. `load_data(path)` opens a
+`DataSource` over a `Data` folder and returns whether it opened, storing the source on the
+node for `stream_cell` to use, logging the reason to Godot's error log on failure.
+`stream_cell(editor_id)` resolves the cell, builds a `MeshInstance3D` with `array_mesh_from`
+for every surface returned, adds each as a child of the node, and returns how many were built
+(-1 if `load_data` was never called, 0 if the cell resolved but nothing built).
+
+`crates/godot-host/tests/real_cell.rs` is the gated Rust test, run without a Godot binary:
+
+```
+$ SKYRIM_DATA="/path/to/Skyrim Special Edition/Data" cargo test -p soe-godot-host --release --test real_cell -- --nocapture
+cell: 0:01605E
+references: 690
+statics with a model: 318
+meshes parsed: 318
+meshes failed: 0
+triangles: 124924
+wall time: 22.89s
+test a_real_cell_streams_statics_from_the_installed_game ... ok
+```
+
+`0:01605E` is `WhiterunBanneredMare`, found directly, the fallback to
+`first_populated_interior_cell` was not needed on this install. Every static with a model
+parsed, none failed, and the cell produced 318 mesh loads for 124,924 triangles in 22.89
+wall clock seconds including archive indexing and load order setup, release build, single
+thread, development machine.
+
+`godot/headless_test.gd` now branches on whether `SKYRIM_DATA` is set. Set, it calls
+`load_data` and `stream_cell("WhiterunBanneredMare")` on `CellStreamerNode` and exits on that
+result alone, no frame wait needed since the call is synchronous. Unset, it falls back to the
+original synthetic run from the previous section unchanged. Run against the same install:
+
+```
+$ SKYRIM_DATA="/path/to/Skyrim Special Edition/Data" godot --headless --path godot --script headless_test.gd
+Initialize godot-rust (API v4.4.stable.official, runtime v4.4.1.stable.official, safeguards balanced)
+SKYRIM_DATA=/run/host/media/pengolodh/Data/SteamLibrary/steamapps/common/Skyrim Special Edition/Data
+Godot version: 4.4.1-stable (official)
+Godot headless load: cell = WhiterunBanneredMare, mesh nodes built = 763
+RESULT: PASS
+```
+
+763 mesh nodes for 318 parsed statics is expected, since one NIF can carry more than one
+shape and `stream_cell` adds one `MeshInstance3D` per surface, while the Rust test's
+`meshes_parsed` counts references, not surfaces. Exit code 0. This closes the "Godot headless
+load" done check from `ENGINE-PLAN.md`: one real cell, streamed from the installed game,
+through the full `esm`, `bsa`, `nif`, `mesh`, `godot_layer` pipeline.
+
+Not done in this round: winding and UV orientation are still unverified against what the
+meshes actually look like on screen, since the headless run has no display to check against,
+only node and triangle counts. Material mapping onto `StandardMaterial3D` is still deferred
+(see "Mesh" above), so `stream_cell`'s meshes carry no texture yet even though
+`MaterialDesc` is populated from the NIF. Per-cell triangle and byte budgets, and interior
+cell streaming by proximity rather than by editor id, are unstarted, `stream_cell` loads
+exactly the one cell it is asked for.

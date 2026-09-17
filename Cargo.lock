@@ -1088,6 +1088,9 @@ name = "soe-godot-host"
 version = "0.1.0"
 dependencies = [
  "godot",
+ "soe-bsa",
+ "soe-esm",
+ "soe-nif",
  "thiserror 2.0.20",
 ]
 

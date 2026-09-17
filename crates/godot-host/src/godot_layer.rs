@@ -6,11 +6,14 @@
 //! into Godot's packed types. Keeping it this thin is what lets the rest of
 //! the crate test without an engine.
 
+use std::path::Path;
+
 use godot::classes::image::Format;
 use godot::classes::mesh::{ArrayType, PrimitiveType};
-use godot::classes::{ArrayMesh, INode3D, Image, Node3D};
+use godot::classes::{ArrayMesh, INode3D, Image, MeshInstance3D, Node3D};
 use godot::prelude::*;
 
+use crate::data_source::DataSource;
 use crate::mesh::SurfaceArrays;
 use crate::streaming::{CellCoord, CellStreamer, StreamConfig};
 use crate::terrain::RegionHeightmap;
@@ -40,6 +43,9 @@ pub struct CellStreamerNode {
     #[export]
     focus: Option<Gd<Node3D>>,
     streamer: Option<CellStreamer>,
+    /// Set by `load_data`. `stream_cell` needs this before it can read a
+    /// real cell, the synthetic streaming above never touches it.
+    data_source: Option<DataSource>,
 }
 
 #[godot_api]
@@ -54,6 +60,7 @@ impl INode3D for CellStreamerNode {
             max_unloads_per_tick: d.max_unloads_per_tick as i32,
             focus: None,
             streamer: None,
+            data_source: None,
         }
     }
 
@@ -127,6 +134,59 @@ impl CellStreamerNode {
         self.streamer
             .as_ref()
             .is_some_and(|s| s.is_resident(CellCoord::new(cell_x, cell_y)))
+    }
+
+    /// Opens `path` as a Skyrim SE `Data` folder: the five base masters and
+    /// their archives, plus `path` itself as a loose overlay. Returns
+    /// whether it opened, the reason goes to Godot's error log. Call this
+    /// once before `stream_cell`.
+    // gdext's `#[func]` marshals a GDScript argument into an owned value, so
+    // there is no borrowed form to take instead.
+    #[allow(clippy::needless_pass_by_value)]
+    #[func]
+    pub fn load_data(&mut self, path: GString) -> bool {
+        match DataSource::open(Path::new(&path.to_string())) {
+            Ok(source) => {
+                self.data_source = Some(source);
+                true
+            }
+            Err(e) => {
+                godot_error!("CellStreamerNode::load_data: {e}");
+                self.data_source = None;
+                false
+            }
+        }
+    }
+
+    /// Resolves `editor_id` against the data loaded by `load_data`, builds a
+    /// `MeshInstance3D` for every static reference's surface, adds each as a
+    /// child of this node, and returns how many were added. Returns -1 if
+    /// `load_data` has not opened a data source, 0 if the cell resolved but
+    /// nothing built (either it is empty or every mesh failed, check the
+    /// Godot error log).
+    #[allow(clippy::needless_pass_by_value)]
+    #[func]
+    pub fn stream_cell(&mut self, editor_id: GString) -> i32 {
+        let Some(source) = self.data_source.as_ref() else {
+            godot_error!("CellStreamerNode::stream_cell: load_data was not called");
+            return -1;
+        };
+        let loaded = match source.stream_cell(&editor_id.to_string()) {
+            Ok(loaded) => loaded,
+            Err(e) => {
+                godot_error!("CellStreamerNode::stream_cell: {e}");
+                return -1;
+            }
+        };
+        let mut built = 0;
+        for surface in &loaded.surfaces {
+            let mesh = array_mesh_from(surface);
+            let mut instance = MeshInstance3D::new_alloc();
+            instance.set_mesh(&mesh);
+            self.base_mut().add_child(&instance);
+            built += 1;
+        }
+        built
     }
 }
 
