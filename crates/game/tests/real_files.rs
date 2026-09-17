@@ -60,12 +60,13 @@ fn the_installed_game_binds_its_vanilla_scripts() {
     let bind_started = Instant::now();
     let report = game.bind();
     eprintln!(
-        "bind: {} forms with scripts, {} scripts attached, {} scripts missing, {} properties set, {} properties missing, {} quests started, in {:.1}s",
+        "bind: {} forms with scripts, {} scripts attached, {} scripts missing, {} properties set, {} properties missing, {} properties read-only, {} quests started, in {:.1}s",
         report.forms_with_scripts,
         report.scripts_attached,
         report.scripts_missing.len(),
         report.properties_set,
         report.properties_missing.len(),
+        report.properties_read_only.len(),
         report.quests_started,
         bind_started.elapsed().as_secs_f32(),
     );
@@ -75,6 +76,10 @@ fn the_installed_game_binds_its_vanilla_scripts() {
     }
     eprintln!("first 20 missing properties:");
     for (script, prop) in report.properties_missing.iter().take(20) {
+        eprintln!("  {script}.{prop}");
+    }
+    eprintln!("first 20 read-only properties:");
+    for (script, prop) in report.properties_read_only.iter().take(20) {
         eprintln!("  {script}.{prop}");
     }
     assert!(

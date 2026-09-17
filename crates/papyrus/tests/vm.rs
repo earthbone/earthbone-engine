@@ -9,7 +9,7 @@ use std::rc::Rc;
 
 use soe_papyrus::asm::{b, f, i, ident, none, s, FunctionBuilder, ScriptBuilder};
 use soe_papyrus::pex::{self, ByteOrder, Opcode::*, PexError};
-use soe_papyrus::{NativeReturn, ThreadState, Value, Vm};
+use soe_papyrus::{NativeReturn, ThreadState, Value, Vm, VmError};
 
 fn vm_with(scripts: Vec<Vec<u8>>) -> Vm {
     let mut vm = Vm::new();
@@ -388,6 +388,62 @@ fn auto_properties_and_getter_setter_properties() {
         vm.get_property(obj, "Props", "Health"),
         Some(Value::Float(1.0))
     );
+}
+
+/// `Vm::set_property` and `Vm::get_property` fill and read a full property
+/// from outside a running thread, the way the loader fills a form's `VMAD`
+/// values, by running the compiled setter or getter to completion. This is
+/// the vanilla trap family's shape: `TriggerCount` stores into a variable
+/// distinct from the property name and doubles it on the way in, and
+/// `TriggerType` is read-only, a getter with no setter.
+#[test]
+fn set_property_and_get_property_run_the_compiled_setter_and_getter() {
+    let setter = FunctionBuilder::new("set", "None")
+        .param("v", "Int")
+        .ins(IMul, vec![ident("::stored"), ident("v"), i(2)])
+        .build();
+    let getter = FunctionBuilder::new("get", "Int")
+        .ins(Return, vec![ident("::stored")])
+        .build();
+    let read_only_getter = FunctionBuilder::new("get", "Int")
+        .ins(Return, vec![ident("::fixed")])
+        .build();
+    let script = ScriptBuilder::new("TrapTriggerBase", "")
+        .variable("::stored", "Int", i(0))
+        .variable("::fixed", "Int", i(7))
+        .property("TriggerCount", "Int", Some(getter), Some(setter))
+        .property("TriggerType", "Int", Some(read_only_getter), None)
+        .function(
+            FunctionBuilder::new("ReadStored", "Int")
+                .ins(Return, vec![ident("::stored")])
+                .build(),
+        )
+        .bytes();
+    let mut vm = vm_with(vec![script]);
+    let obj = vm.create_object("Trap01");
+    vm.attach(obj, "TrapTriggerBase").unwrap();
+
+    vm.set_property(obj, "TrapTriggerBase", "TriggerCount", Value::Int(21))
+        .unwrap();
+    let tid = vm.call(obj, "ReadStored", &[]).unwrap();
+    assert_eq!(run_to_result(&mut vm, tid), Value::Int(42));
+    assert_eq!(
+        vm.get_property(obj, "TrapTriggerBase", "TriggerCount"),
+        Some(Value::Int(42))
+    );
+
+    assert_eq!(
+        vm.set_property(obj, "TrapTriggerBase", "TriggerType", Value::Int(1)),
+        Err(VmError::ReadOnlyProperty {
+            class: "TrapTriggerBase".into(),
+            name: "TriggerType".into(),
+        })
+    );
+    assert_eq!(
+        vm.get_property(obj, "TrapTriggerBase", "TriggerType"),
+        Some(Value::Int(7))
+    );
+    assert!(vm.log.entries.is_empty(), "{:?}", vm.log.messages());
 }
 
 #[test]

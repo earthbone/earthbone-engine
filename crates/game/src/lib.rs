@@ -55,6 +55,10 @@ pub struct BindReport {
     pub properties_set: usize,
     /// `(script, property)` the loaded PEX does not declare.
     pub properties_missing: Vec<(String, String)>,
+    /// `(script, property)` for a full property with a getter and no setter,
+    /// counted apart from `properties_missing` since the property is real,
+    /// the form just has nothing to set.
+    pub properties_read_only: Vec<(String, String)>,
     pub quests_started: usize,
 }
 
@@ -298,6 +302,9 @@ impl Game {
                 let value = self.property_value(owner, file, &p.value);
                 match self.vm.set_property(object, &entry.name, &p.name, value) {
                     Ok(()) => report.properties_set += 1,
+                    Err(VmError::ReadOnlyProperty { .. }) => report
+                        .properties_read_only
+                        .push((entry.name.clone(), p.name.clone())),
                     Err(_) => report
                         .properties_missing
                         .push((entry.name.clone(), p.name.clone())),

@@ -39,6 +39,14 @@ pub enum VmError {
     Pex(String),
     /// A saved state that cannot be read or does not match the loaded scripts.
     State(String),
+    /// A full property with a getter and no setter, so [`Vm::set_property`]
+    /// cannot fill it. Kept apart from [`VmError::UnknownFunction`] so a
+    /// caller can count a property the game never expected to set separately
+    /// from one that is genuinely missing.
+    ReadOnlyProperty {
+        class: String,
+        name: String,
+    },
 }
 
 impl fmt::Display for VmError {
@@ -51,6 +59,9 @@ impl fmt::Display for VmError {
             }
             VmError::Pex(e) => write!(f, "{e}"),
             VmError::State(e) => write!(f, "saved state: {e}"),
+            VmError::ReadOnlyProperty { class, name } => {
+                write!(f, "{class}.{name} is a read-only property")
+            }
         }
     }
 }
@@ -470,8 +481,14 @@ impl Vm {
         Ok(())
     }
 
-    /// Fill an auto property, the way the loader fills properties from a
-    /// plugin's VMAD data.
+    /// Fill a property, the way the loader fills properties from a plugin's
+    /// `VMAD` data. An auto property writes its backing variable directly. A
+    /// full property runs the compiled `setter` to completion first, the same
+    /// frame-and-run machinery [`Vm::call`] uses, so the game's own logic
+    /// (the trap family's `TriggerType` doubling into a separate stored
+    /// variable, for one) applies exactly as it would from a running script.
+    /// A read-only full property (a getter and no setter) is reported as
+    /// [`VmError::ReadOnlyProperty`] rather than run at all.
     pub fn set_property(
         &mut self,
         object: ObjectId,
@@ -482,28 +499,67 @@ impl Vm {
         let id = self
             .instance_on(object, script)
             .ok_or_else(|| VmError::UnknownScript(script.to_string()))?;
-        let var = self.instances[id.0]
-            .chain
-            .iter()
-            .find_map(|s| s.object.property(property).and_then(|p| p.auto_var.clone()))
-            .ok_or_else(|| VmError::UnknownFunction {
+        let (decl_script, auto_var) =
+            self.property_on(id, property)
+                .ok_or_else(|| VmError::UnknownFunction {
+                    class: script.to_string(),
+                    name: property.to_string(),
+                })?;
+        if let Some(var) = auto_var {
+            self.instances[id.0]
+                .vars
+                .insert(var.to_ascii_lowercase(), value);
+            return Ok(());
+        }
+        let Some(setter) = decl_script
+            .setters
+            .get(&property.to_ascii_lowercase())
+            .cloned()
+        else {
+            return Err(VmError::ReadOnlyProperty {
                 class: script.to_string(),
                 name: property.to_string(),
-            })?;
-        self.instances[id.0]
-            .vars
-            .insert(var.to_ascii_lowercase(), value);
+            });
+        };
+        self.run_call_to_completion(Some(id), Some(object), Some(decl_script), setter, &[value]);
         Ok(())
     }
 
-    pub fn get_property(&self, object: ObjectId, script: &str, property: &str) -> Option<Value> {
+    /// Read a property, running the compiled `getter` to completion for a
+    /// full property the same way [`Vm::set_property`] runs the `setter`. A
+    /// write-only full property (no getter) reads as `None`.
+    pub fn get_property(
+        &mut self,
+        object: ObjectId,
+        script: &str,
+        property: &str,
+    ) -> Option<Value> {
         let id = self.instance_on(object, script)?;
-        let inst = &self.instances[id.0];
-        let var = inst
-            .chain
-            .iter()
-            .find_map(|s| s.object.property(property).and_then(|p| p.auto_var.clone()))?;
-        inst.vars.get(&var.to_ascii_lowercase()).cloned()
+        let (decl_script, auto_var) = self.property_on(id, property)?;
+        if let Some(var) = auto_var {
+            return self.instances[id.0]
+                .vars
+                .get(&var.to_ascii_lowercase())
+                .cloned();
+        }
+        let getter = decl_script
+            .getters
+            .get(&property.to_ascii_lowercase())
+            .cloned()?;
+        Some(self.run_call_to_completion(Some(id), Some(object), Some(decl_script), getter, &[]))
+    }
+
+    /// The script that declares `property` on the instance (most derived
+    /// first) and its auto var, when it has one.
+    fn property_on(
+        &self,
+        id: InstanceId,
+        property: &str,
+    ) -> Option<(Rc<LoadedScript>, Option<String>)> {
+        self.instances[id.0].chain.iter().find_map(|s| {
+            let p = s.object.property(property)?;
+            Some((s.clone(), p.auto_var.clone()))
+        })
     }
 
     pub fn state_of(&self, object: ObjectId, script: &str) -> Option<String> {
@@ -864,6 +920,50 @@ impl Vm {
     fn err(&mut self, t: usize, msg: &str) {
         let at = self.where_am_i(t);
         self.log.push(self.time, format!("error: {msg} ({at})"));
+    }
+
+    /// Run one function to completion outside the scheduler, for a property
+    /// getter or setter the host fills from `VMAD` data rather than from a
+    /// running thread. Spawns a thread with [`Vm::make_frame`] and steps it
+    /// alone, the same frame-and-run machinery [`Vm::call`] hands to `run`,
+    /// until it finishes. A script error inside the call is logged like any
+    /// other, it never surfaces to the caller, the call just yields `None`. A
+    /// getter or setter that goes latent or to sleep cannot finish
+    /// synchronously here, that is also logged as a script error and the call
+    /// is abandoned.
+    fn run_call_to_completion(
+        &mut self,
+        instance: Option<InstanceId>,
+        self_object: Option<ObjectId>,
+        script: Option<Rc<LoadedScript>>,
+        function: Rc<Function>,
+        args: &[Value],
+    ) -> Value {
+        let frame = Self::make_frame(instance, self_object, script, function, args, None);
+        let tid = self.spawn(frame);
+        let idx = self.threads.iter().position(|t| t.id == tid).unwrap();
+        loop {
+            match self.threads[idx].state {
+                ThreadState::Done => break,
+                ThreadState::Runnable => {
+                    if self.step_thread(idx, 64) == 0 {
+                        break;
+                    }
+                }
+                ThreadState::Sleeping(_) | ThreadState::Latent(_) => {
+                    self.err(
+                        idx,
+                        "property call did not finish synchronously, aborting it",
+                    );
+                    let thread = &mut self.threads[idx];
+                    thread.frames.clear();
+                    thread.state = ThreadState::Done;
+                }
+            }
+        }
+        let result = self.threads[idx].result.clone();
+        self.threads.remove(idx);
+        result
     }
 
     fn describe(&self, v: &Value) -> String {
