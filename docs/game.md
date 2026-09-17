@@ -24,10 +24,15 @@ week 6 to 9 gate.
 - `clock`: real seconds drive the scheduler and update timers, game time runs
   at `timescale` (20) for `GetCurrentGameTime`.
 - `harness`: the conformance scenario runner, see `docs/validation.md`.
-- `Game`: owns the VM and the world. `bind` attaches every script the load
-  order names and fills its properties, `start` also starts the quests flagged
-  Start Game Enabled, `tick` advances time, `activate` and `send_event` do what
-  a player or the engine would, `pump` drains what natives queued.
+- `Game`: owns the VM and the world. `load_scripts_from_data` builds the load
+  order's `soe_bsa::Vfs` (each plugin's `<stem> - Misc.bsa` or `<stem>.bsa`
+  archive if the install shipped one, loose files on top) and loads every
+  `.pex` it answers under `scripts/`, so an install that ships its scripts
+  packed rather than loose still has something for `bind` to attach. `bind`
+  attaches every script the load order names and fills its properties, `start`
+  also starts the quests flagged Start Game Enabled, `tick` advances time,
+  `activate` and `send_event` do what a player or the engine would, `pump`
+  drains what natives queued.
 
 ## Design
 
@@ -113,6 +118,10 @@ Semantics worth stating because they were decided here, not read:
   the timer firing on the clock and not before, scriptless forms answering
   natives, a second provider losing a collision, and the scenario harness
   running the same flow against a captured log.
+- `tests/real_files.rs`: `the_installed_game_binds_its_vanilla_scripts`, gated
+  on `SKYRIM_DATA`, calls `Game::load_scripts_from_data` before `bind` so the
+  `BindReport` reflects the vanilla scripts read out of the install's archives
+  and loose files, not the record data alone. See "Live run" below.
 
 ```bash
 cargo test -p soe-game
@@ -127,7 +136,7 @@ Sneak 15, three spells, four factions, sixteen items, race NordRace.
 health 1550, magicka 80, four spells. `Prisoner` is a `CLAS` record, not an
 actor base.
 
-A new gated test, `the_installed_game_binds_its_vanilla_scripts` in
+A gated test, `the_installed_game_binds_its_vanilla_scripts` in
 `tests/real_files.rs`, loads the five base masters through `soe_esm`, builds a
 `Game`, loads every `.pex` under `Data/Scripts` when that folder exists, then calls
 `bind` and prints the `BindReport`. This install ships its scripts packed inside
@@ -138,9 +147,60 @@ properties missing, 0 quests started. The first 20 missing scripts are magic eff
 and quest scripts such as `DragonPriestUltraMaskEffect`, `magicAbsorbFXScript` and
 `DA08EbonyBladeMagicEffectScript`. This run exercises the VMAD scan and form
 resolution across the full load order but not the script attachment path itself.
-The next step to validate that path, mirroring the fix already applied to the
-papyrus crate's gated test, is to open `Skyrim - Misc.bsa` with `soe_bsa` and load
-every `scripts/*.pex` straight out of it when no loose folder is present.
+
+## Live run (2026-09-17): scripts from the archive
+
+`Game::load_scripts_from_data` closed the gap above. For every plugin in the
+load order it looks for `<stem> - Misc.bsa` and `<stem>.bsa` in `data_dir`
+(case-insensitively), adds every one it finds to a `soe_bsa::Vfs` in load
+order, adds `data_dir` itself as a loose root on top, then loads every `.pex`
+the view answers under `scripts/`. Loose files win over archived ones and a
+later archive wins over an earlier one, the same rule `Vfs` always applies, so
+a loose `Data/Scripts` folder (a mod's override, or a manual extraction) still
+takes priority over the packed vanilla copy without the caller doing anything
+special.
+
+`tests/real_files.rs` now calls it before `bind`. Against the installed game
+(`SKYRIM_DATA` pointing at Steam's `Skyrim Special Edition/Data`) it finds one
+archive, `Skyrim - Misc.bsa` for `Skyrim.esm`: this install is the Anniversary
+Edition patch, which folded every DLC's assets into the base archives, so
+`Update.esm`, `Dawnguard.esm`, `HearthFires.esm` and `Dragonborn.esm` have no
+`.bsa` of their own and none is expected. Loading all 14026 scripts the archive
+holds takes 0.3 seconds. `bind` then attaches 28143 of the 28152 scripts the
+load order's `VMAD` data names in 0.2 seconds, tens of thousands of instances
+and nowhere near slow enough to worry about. 71066 properties are set, 349
+missing, 0 quests started (this test calls `bind`, not `start`, so no Start
+Game Enabled quest runs).
+
+The 9 remaining missing scripts, `DLC1testPhilVortexSCRIPT`,
+`dlc1testPhilVortexTrigSCRIPT`, `DLC1TestPhilAtronach`,
+`DLC01SoulCairnSkullPuzzleScript` (twice), `DragurEmergeScript`,
+`LokirsDraugrResurrection` (twice) and `DLC2BenthicLurkerFXSCRIPT`, are not in
+`Skyrim - Misc.bsa` under any spelling checked (a probe against the archive's
+own file list found none of them, nor a close respelling such as
+`DraugrEmergeScript`). This is a vanilla data quirk, not an engine bug: these
+forms still carry `VMAD` entries for developer test scripts and a renamed
+quest script (the shipped file is `MQ101Lokir.pex`) that Bethesda never
+cleaned out of the masters, and the real game hits the same lookup failure at
+runtime.
+
+The 349 missing properties are one real bug, and it lives in `crates/papyrus`,
+outside this worktree's scope (`crates/game` and `docs/game.md` only). Every
+one of the first 20 is the same pattern: `TrapLever.TriggerType` (repeated),
+`TrapTriggerBase.TriggerType`, `TrapTriggerTimeInterval.TriggerType`,
+`defaultActSelfOnEnterOnLeave.TriggerType`, `SoundTrap.TriggerCount`.
+`TrapTriggerBase.psc` (the parent `TrapLever` and `SoundTrap` extend) declares
+`TriggerType` and `TriggerCount` as full properties, a hand-written `Get`/`Set`
+pair backed by a separate `StoredTriggerType` auto var, not a plain auto
+property. Creation Kit still lets a form's `VMAD` carry a value for a full
+property, and the real engine applies it by calling the compiled `Set`
+function. `Vm::set_property` in `crates/papyrus/src/vm.rs` only ever writes a
+property's auto var (`p.auto_var`), so a full property has none to write to
+and the fill fails with `VmError::UnknownFunction`. The fix is to call the
+property's `setter` function on the instance when `auto_var` is `None`,
+instead of erroring, which needs the same frame-and-run machinery
+`Vm::call` already has. That call belongs next to `Vm::call`, in the papyrus
+crate, so it is out of reach here and left for a `papyrus` fork.
 
 ## Save and load
 
@@ -198,5 +258,12 @@ notification fired, and the alias resolved to the lever.
   readers are wired in.
 - `bind` attaches every script in the load order at start. The game does this
   lazily per cell. On the five base masters this is tens of thousands of
-  instances and has not been timed.
+  instances, timed at 0.2 seconds against the installed game (2026-09-17),
+  not a performance concern.
+- Properties compiled as full properties (a hand-written `Get`/`Set` pair, no
+  auto var) are not filled from `VMAD` data. `Vm::set_property` in
+  `crates/papyrus` only writes an auto var, so it errors instead of calling
+  the `setter` function. The vanilla trap family (`TrapTriggerBase.TriggerType`
+  and `TriggerCount`) hits this, 349 properties missing in the live run above.
+  The fix belongs in `crates/papyrus`, not this crate.
 - No native has been checked against its CK wiki page yet, see above.

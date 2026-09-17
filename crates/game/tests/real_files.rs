@@ -2,16 +2,16 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 //! Loads the five base masters from a real install through `soe_esm`,
-//! builds a `Game` and binds every `VMAD` script the load order names. When
-//! a loose `Data/Scripts` folder exists its `.pex` files are loaded first,
-//! so the `BindReport` reflects the vanilla scripts and not only the record
-//! data. Gated on `SKYRIM_DATA` pointing at the game's `Data` folder:
+//! builds a `Game`, loads its scripts through `Game::load_scripts_from_data`
+//! (loose `Data/Scripts` if present, otherwise the plugin-named archives
+//! such as `Skyrim - Misc.bsa`), then binds every `VMAD` script the load
+//! order names. Gated on `SKYRIM_DATA` pointing at the game's `Data` folder:
 //!
 //! ```text
 //! SKYRIM_DATA="/path/to/Skyrim Special Edition/Data" cargo test -p soe-game --test real_files -- --nocapture
 //! ```
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::time::Instant;
 
 use soe_esm::{LoadOrder, Plugin};
@@ -24,17 +24,6 @@ const MASTERS: [&str; 5] = [
     "HearthFires.esm",
     "Dragonborn.esm",
 ];
-
-fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
-    for e in std::fs::read_dir(dir).into_iter().flatten().flatten() {
-        let p = e.path();
-        if p.is_dir() {
-            walk(&p, out);
-        } else {
-            out.push(p);
-        }
-    }
-}
 
 #[test]
 fn the_installed_game_binds_its_vanilla_scripts() {
@@ -51,47 +40,34 @@ fn the_installed_game_binds_its_vanilla_scripts() {
     }
     let mut game = Game::new(order);
 
-    let scripts_dir = data.join("Scripts");
-    if scripts_dir.is_dir() {
-        let started = Instant::now();
-        let mut files = Vec::new();
-        walk(&scripts_dir, &mut files);
-        let mut loaded = 0usize;
-        let mut load_failures: Vec<String> = Vec::new();
-        for p in &files {
-            if p.extension().is_some_and(|x| x.eq_ignore_ascii_case("pex")) {
-                let bytes = std::fs::read(p).unwrap();
-                match game.load_script(&bytes) {
-                    Ok(()) => loaded += 1,
-                    Err(e) => load_failures.push(format!("{}: {e}", p.display())),
-                }
-            }
-        }
-        eprintln!(
-            "loaded {loaded} scripts under {} in {:.1}s, {} failures",
-            scripts_dir.display(),
-            started.elapsed().as_secs_f32(),
-            load_failures.len()
-        );
-        for f in load_failures.iter().take(40) {
-            eprintln!("  {f}");
-        }
-    } else {
-        eprintln!(
-            "no script folder at {}, binding against the record data alone",
-            scripts_dir.display()
-        );
+    let load_started = Instant::now();
+    let scripts = game.load_scripts_from_data(&data);
+    eprintln!(
+        "load_scripts_from_data: {} archives, {} scripts found, {} loaded, {} failed, in {:.1}s",
+        scripts.archives_loaded.len(),
+        scripts.scripts_found,
+        scripts.scripts_loaded,
+        scripts.scripts_failed.len(),
+        load_started.elapsed().as_secs_f32(),
+    );
+    for a in &scripts.archives_loaded {
+        eprintln!("  archive: {}", a.display());
+    }
+    for (path, err) in scripts.scripts_failed.iter().take(20) {
+        eprintln!("  failed: {path}: {err}");
     }
 
+    let bind_started = Instant::now();
     let report = game.bind();
     eprintln!(
-        "bind: {} forms with scripts, {} scripts attached, {} scripts missing, {} properties set, {} properties missing, {} quests started",
+        "bind: {} forms with scripts, {} scripts attached, {} scripts missing, {} properties set, {} properties missing, {} quests started, in {:.1}s",
         report.forms_with_scripts,
         report.scripts_attached,
         report.scripts_missing.len(),
         report.properties_set,
         report.properties_missing.len(),
         report.quests_started,
+        bind_started.elapsed().as_secs_f32(),
     );
     eprintln!("first 20 missing scripts:");
     for (script, form) in report.scripts_missing.iter().take(20) {
@@ -104,5 +80,9 @@ fn the_installed_game_binds_its_vanilla_scripts() {
     assert!(
         report.forms_with_scripts > 0,
         "no VMAD-carrying forms found"
+    );
+    assert!(
+        scripts.scripts_loaded > 0,
+        "no scripts loaded from the data view"
     );
 }

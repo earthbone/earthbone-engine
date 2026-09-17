@@ -32,6 +32,7 @@ pub mod vmad;
 pub mod world;
 
 use std::cell::{Ref, RefCell, RefMut};
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use soe_esm::{GlobalFormId, LoadOrder, RecordRef, Tag};
@@ -55,6 +56,53 @@ pub struct BindReport {
     /// `(script, property)` the loaded PEX does not declare.
     pub properties_missing: Vec<(String, String)>,
     pub quests_started: usize,
+}
+
+/// What [`Game::load_scripts_from_data`] found building the load order's
+/// [`soe_bsa::Vfs`] and loading every `.pex` it answered under `scripts/`.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct ScriptLoadReport {
+    /// Archives added to the view, one entry per plugin that shipped one.
+    pub archives_loaded: Vec<PathBuf>,
+    /// `.pex` paths the view answered under `scripts/`, loose files and
+    /// archive records combined, loose beating archived the way `Vfs` always
+    /// resolves it.
+    pub scripts_found: usize,
+    pub scripts_loaded: usize,
+    /// `(path, error)` for a script the view had but the VM would not parse,
+    /// or an archive the view could not open.
+    pub scripts_failed: Vec<(String, String)>,
+}
+
+/// The archives a plugin's Papyrus scripts travel in, by the two spellings
+/// the base game and every DLC use: `<stem> - Misc.bsa` for the split
+/// archives `Skyrim.esm` ships, `<stem>.bsa` for a DLC that bundles its
+/// scripts with everything else in one combined archive. Matched
+/// case-insensitively since installs spell plugin names either way.
+fn script_archives_for(plugin_name: &str, data_dir: &Path) -> Vec<PathBuf> {
+    let stem = Path::new(plugin_name)
+        .file_stem()
+        .map(|s| s.to_string_lossy().to_lowercase())
+        .unwrap_or_default();
+    if stem.is_empty() {
+        return Vec::new();
+    }
+    let wanted = [format!("{stem} - misc.bsa"), format!("{stem}.bsa")];
+    let mut found = Vec::new();
+    let Ok(entries) = std::fs::read_dir(data_dir) else {
+        return found;
+    };
+    for entry in entries.flatten() {
+        if !soe_bsa::is_bsa_or_ba2(&entry.path()) {
+            continue;
+        }
+        let name = entry.file_name().to_string_lossy().to_lowercase();
+        if wanted.contains(&name) {
+            found.push(entry.path());
+        }
+    }
+    found.sort();
+    found
 }
 
 pub struct Game {
@@ -94,6 +142,60 @@ impl Game {
 
     pub fn load_script(&mut self, pex: &[u8]) -> Result<(), VmError> {
         self.vm.load_bytes(pex)
+    }
+
+    /// Build the load order's data view over `data_dir` (a `soe_bsa::Vfs`)
+    /// and load every `.pex` it answers under `scripts/` into the VM.
+    ///
+    /// An install ships its compiled scripts either loose under
+    /// `Data/Scripts` or packed inside an archive named after the plugin
+    /// that owns them (`Skyrim - Misc.bsa`, or a DLC's own `<stem>.bsa`).
+    /// The view resolves both the same way the game does: loose files beat
+    /// archived ones, and among archives the one added last wins, so this
+    /// mirrors `Game::bind` reading VMAD script names against whatever
+    /// actually got loaded here rather than assuming a loose folder exists.
+    pub fn load_scripts_from_data(&mut self, data_dir: &Path) -> ScriptLoadReport {
+        let mut report = ScriptLoadReport::default();
+        let mut vfs = soe_bsa::Vfs::new();
+        let plugin_names: Vec<String> = self
+            .world
+            .borrow()
+            .order()
+            .files()
+            .iter()
+            .map(|f| f.name.clone())
+            .collect();
+        for name in &plugin_names {
+            for path in script_archives_for(name, data_dir) {
+                match vfs.add_archive_path(&path) {
+                    Ok(_) => report.archives_loaded.push(path),
+                    Err(e) => report
+                        .scripts_failed
+                        .push((path.display().to_string(), e.to_string())),
+                }
+            }
+        }
+        if data_dir.is_dir() {
+            let _ = vfs.add_loose_root(data_dir);
+        }
+        let mut pex: Vec<String> = vfs
+            .list("scripts")
+            .into_iter()
+            .filter(|p| Path::new(p).extension().is_some_and(|e| e == "pex"))
+            .map(str::to_string)
+            .collect();
+        pex.sort();
+        report.scripts_found = pex.len();
+        for path in pex {
+            match vfs.read(&path) {
+                Ok(bytes) => match self.load_script(&bytes) {
+                    Ok(()) => report.scripts_loaded += 1,
+                    Err(e) => report.scripts_failed.push((path, e.to_string())),
+                },
+                Err(e) => report.scripts_failed.push((path, e.to_string())),
+            }
+        }
+        report
     }
 
     pub fn world(&self) -> Ref<'_, World> {
