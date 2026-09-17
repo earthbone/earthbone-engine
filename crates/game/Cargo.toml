@@ -12,8 +12,6 @@ path = "src/lib.rs"
 [dependencies]
 soe-esm = { path = "../esm" }
 soe-papyrus = { path = "../papyrus" }
-
-[dev-dependencies]
 soe-bsa = { path = "../bsa" }
 
 [lints]
