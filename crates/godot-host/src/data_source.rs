@@ -11,11 +11,22 @@
 //! shape at the reference's own position and rotation, and runs it through
 //! the same `mesh::build_surface` the synthetic path already used. Nothing
 //! here touches Godot, so it builds and tests without the `godot` feature.
+//!
+//! `stream_cell` also resolves each surface's material: `MaterialDesc`'s
+//! diffuse and normal texture paths are Windows style and case insensitive,
+//! same as a NIF's mesh path, so they go through the same `Vfs::read`, which
+//! normalises separators and case before it looks the path up (loose files
+//! win over archives there, same as meshes). `Dds::parse` and `decode` turn
+//! the bytes into RGBA8, top mip only, and `DataSource::texture_cache` keeps
+//! one decode per lowercase path alive for the life of the `DataSource`, so a
+//! texture shared by many statics in a cell decodes once.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 
 use soe_bsa::{find_associated_archives, Vfs};
+use soe_dds::{Dds, Image as DdsImage};
 use soe_esm::records::cell::Cell;
 use soe_esm::records::refr::Refr;
 use soe_esm::records::stat::Static;
@@ -56,24 +67,137 @@ pub enum DataSourceError {
     Nif(#[from] soe_nif::Error),
     #[error("{0}")]
     Mesh(#[from] MeshError),
+    #[error("{0}")]
+    Dds(#[from] soe_dds::Error),
     #[error("cell '{0}' was not found in the load order")]
     CellNotFound(String),
 }
 
 /// Counts from one `stream_cell` run, for the headless smoke test and the
-/// gated real-data test to report.
-#[derive(Debug, Clone, Copy, Default)]
+/// gated real-data test to report. Not `Copy`, `textures_missing` is a list.
+#[derive(Debug, Clone, Default)]
 pub struct CellStats {
     pub references: usize,
     pub statics_with_model: usize,
     pub meshes_parsed: usize,
     pub meshes_failed: usize,
     pub triangles: usize,
+    /// Distinct (diffuse, normal) texture path pairs seen across the cell's
+    /// materials, lowercased. This is the number of `StandardMaterial3D`
+    /// instances the Godot layer builds, one per set.
+    pub distinct_texture_sets: usize,
+    /// Texture files decoded, counted once per distinct lowercase path, not
+    /// once per surface that names it.
+    pub textures_decoded: usize,
+    /// Texture paths a material named that were not found through the `Vfs`,
+    /// lowercased and deduplicated. The caller reports the first few.
+    pub textures_missing: Vec<String>,
+    /// Texture paths that were found but failed to parse or decode as DDS.
+    pub texture_decode_failures: usize,
+    /// Wall time spent inside `Vfs::read` and `Dds::decode` for every texture
+    /// actually read, cache hits excluded. Archive indexing and load order
+    /// setup are outside this, they are counted once in the surrounding
+    /// `stream_cell_id` wall time the caller times itself.
+    pub texture_decode_time: std::time::Duration,
+}
+
+/// One built surface with its material's textures decoded to RGBA8, ready
+/// for the Godot layer to upload. Kept apart from `SurfaceArrays`, which the
+/// synthetic streaming path also builds and has no `Vfs` to read textures
+/// from.
+pub struct LoadedSurface {
+    pub arrays: SurfaceArrays,
+    pub textures: SurfaceTextures,
+}
+
+/// A surface's diffuse and normal textures, decoded to RGBA8 at the top mip.
+/// `None` means the material named no texture in that slot, or the read or
+/// decode failed, counted in `CellStats` either way. `Rc` because a texture
+/// shared by many statics in a cell is decoded once and cloned out of
+/// `MaterialCache` cheaply for every surface that uses it.
+#[derive(Debug, Clone, Default)]
+pub struct SurfaceTextures {
+    pub diffuse: Option<Rc<DdsImage>>,
+    /// Skyrim packs specular into this texture's alpha channel. The RGB
+    /// channels alone are the normal map, alpha is not a transparency mask
+    /// here even though `DdsImage` carries one.
+    pub normal: Option<Rc<DdsImage>>,
 }
 
 pub struct LoadedCell {
     pub stats: CellStats,
-    pub surfaces: Vec<SurfaceArrays>,
+    pub surfaces: Vec<LoadedSurface>,
+}
+
+/// Reads a texture through `vfs` and decodes its top mip (layer 0, mip 0) to
+/// RGBA8. Windowed capture and the real-cell test only ever need the base
+/// level, a streamed mip chain is future work once distance-based texture
+/// budgets exist.
+fn load_texture(vfs: &Vfs, path: &str) -> Result<DdsImage, DataSourceError> {
+    let bytes = vfs.read(path)?;
+    let dds = Dds::parse(&bytes)?;
+    Ok(dds.decode(0, 0)?)
+}
+
+/// Decodes and caches a cell's materials' textures, keyed by lowercase path
+/// so a texture shared by many references decodes once. Lives for one
+/// `stream_cell_id` call, not on `DataSource` itself, since it also tallies
+/// that run's texture stats.
+#[derive(Default)]
+struct MaterialCache {
+    textures: HashMap<String, Option<Rc<DdsImage>>>,
+    texture_sets: std::collections::HashSet<(Option<String>, Option<String>)>,
+    textures_missing: Vec<String>,
+    texture_decode_failures: usize,
+    textures_decoded: usize,
+    texture_decode_time: std::time::Duration,
+}
+
+impl MaterialCache {
+    fn resolve(&mut self, vfs: &Vfs, material: &MaterialDesc) -> SurfaceTextures {
+        let set_key = (
+            material.diffuse.as_deref().map(str::to_lowercase),
+            material.normal.as_deref().map(str::to_lowercase),
+        );
+        self.texture_sets.insert(set_key);
+        SurfaceTextures {
+            diffuse: material
+                .diffuse
+                .as_deref()
+                .and_then(|p| self.get_or_decode(vfs, p)),
+            normal: material
+                .normal
+                .as_deref()
+                .and_then(|p| self.get_or_decode(vfs, p)),
+        }
+    }
+
+    fn get_or_decode(&mut self, vfs: &Vfs, path: &str) -> Option<Rc<DdsImage>> {
+        let key = path.to_lowercase();
+        if let Some(cached) = self.textures.get(&key) {
+            return cached.clone();
+        }
+        let started = std::time::Instant::now();
+        let result = load_texture(vfs, path);
+        self.texture_decode_time += started.elapsed();
+        let value = match result {
+            Ok(image) => {
+                self.textures_decoded += 1;
+                Some(Rc::new(image))
+            }
+            Err(DataSourceError::Bsa(soe_bsa::Error::NotFound { .. })) => {
+                self.textures_missing.push(path.to_string());
+                None
+            }
+            Err(e) => {
+                eprintln!("stream_cell: texture {path}: {e}");
+                self.texture_decode_failures += 1;
+                None
+            }
+        };
+        self.textures.insert(key, value.clone());
+        value
+    }
 }
 
 /// An opened `Data` folder: the load order and the archive and loose file
@@ -190,6 +314,7 @@ impl DataSource {
     pub fn stream_cell_id(&self, cell_id: GlobalFormId) -> Result<LoadedCell, DataSourceError> {
         let mut stats = CellStats::default();
         let mut surfaces = Vec::new();
+        let mut materials = MaterialCache::default();
         for (id, _) in self.order.winners_of(tag::REFR) {
             let Some(rref) = self.order.winner_ref(id) else {
                 continue;
@@ -221,11 +346,11 @@ impl DataSource {
             };
             stats.statics_with_model += 1;
 
-            match self.load_static_surfaces(&model, &refr) {
+            match self.load_static_surfaces(&model, &refr, &mut materials) {
                 Ok(built) => {
                     stats.meshes_parsed += 1;
                     for surface in built {
-                        stats.triangles += surface.triangle_count();
+                        stats.triangles += surface.arrays.triangle_count();
                         surfaces.push(surface);
                     }
                 }
@@ -235,6 +360,11 @@ impl DataSource {
                 }
             }
         }
+        stats.distinct_texture_sets = materials.texture_sets.len();
+        stats.textures_decoded = materials.textures_decoded;
+        stats.textures_missing = materials.textures_missing;
+        stats.texture_decode_failures = materials.texture_decode_failures;
+        stats.texture_decode_time = materials.texture_decode_time;
         Ok(LoadedCell { stats, surfaces })
     }
 
@@ -242,7 +372,8 @@ impl DataSource {
         &self,
         model: &str,
         refr: &Refr,
-    ) -> Result<Vec<SurfaceArrays>, DataSourceError> {
+        materials: &mut MaterialCache,
+    ) -> Result<Vec<LoadedSurface>, DataSourceError> {
         let path = format!("meshes/{model}");
         let bytes = self.vfs.read(&path)?;
         let file = soe_nif::parse(&bytes)?;
@@ -252,7 +383,9 @@ impl DataSource {
         for shape in &meshes {
             let combined = refr_transform.then(&shape.transform);
             let data = mesh_data_from(shape, &combined);
-            out.push(build_surface(&data, MeshOptions::default())?);
+            let arrays = build_surface(&data, MeshOptions::default())?;
+            let textures = materials.resolve(&self.vfs, &arrays.material);
+            out.push(LoadedSurface { arrays, textures });
         }
         Ok(out)
     }

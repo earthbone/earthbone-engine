@@ -63,9 +63,9 @@ four-bone skinning. `build_surface` validates (empty, non-triangle, out-of-range
 attribute length, half-skinned), converts axes and units, optionally flips winding, generates
 area-weighted normals when the source has none, flattens tangents to four floats and bones to
 four per vertex, and computes bounds in metres. The material descriptor carries texture paths
-and the BSLightingShaderProperty flags verbatim, and the mapping onto `StandardMaterial3D`
-is deferred to where the feature set is known. Validation fails loudly because Godot's own
-response to bad arrays is a console line and a missing mesh.
+and the BSLightingShaderProperty flags verbatim. `data_source` resolves those paths and
+`godot_layer` maps the result onto `StandardMaterial3D` ("Materials" below). Validation fails
+loudly because Godot's own response to bad arrays is a console line and a missing mesh.
 
 ## Terrain
 
@@ -244,10 +244,73 @@ shape and `stream_cell` adds one `MeshInstance3D` per surface, while the Rust te
 load" done check from `ENGINE-PLAN.md`: one real cell, streamed from the installed game,
 through the full `esm`, `bsa`, `nif`, `mesh`, `godot_layer` pipeline.
 
-Not done in this round: winding and UV orientation are still unverified against what the
-meshes actually look like on screen, since the headless run has no display to check against,
-only node and triangle counts. Material mapping onto `StandardMaterial3D` is still deferred
-(see "Mesh" above), so `stream_cell`'s meshes carry no texture yet even though
-`MaterialDesc` is populated from the NIF. Per-cell triangle and byte budgets, and interior
-cell streaming by proximity rather than by editor id, are unstarted, `stream_cell` loads
-exactly the one cell it is asked for.
+Not done in this round: winding and UV orientation were unverified against what the meshes
+actually look like on screen, since the headless run has no display to check against, only
+node and triangle counts, and material mapping onto `StandardMaterial3D` was still deferred so
+`stream_cell`'s meshes carried no texture even though `MaterialDesc` was populated from the
+NIF. Both are closed below. Per-cell triangle and byte budgets, and interior cell streaming by
+proximity rather than by editor id, are still unstarted, `stream_cell` loads exactly the one
+cell it is asked for.
+
+## Materials (2026-09-17)
+
+`soe-dds` is now a `godot-host` dependency. `data_source.rs` resolves each surface's
+`MaterialDesc` into decoded textures. A NIF material's `diffuse` and `normal` fields already
+carry the full `textures\...` path (checked against the `nif` crate's own fixtures), so no
+prefix is added, only `soe_bsa`'s normal casing and separator handling, which `Vfs::read`
+already does internally. The read goes through the same `Vfs` the meshes use, so a loose file
+in the `Data` folder overrides an archive's copy of the same texture. `load_texture` reads the
+bytes and decodes the top mip with `soe_dds::Dds::parse` and `.decode(0, 0)` to an RGBA8
+`Image`. `MaterialCache`, built once per `stream_cell_id` call and keyed on the lowercased
+path, decodes each distinct texture once per cell and hands out `Rc<Image>` clones to every
+surface that names it, so a texture used by forty statics costs one decode. The cache also
+counts distinct texture sets (by lowercased diffuse and normal path pair), textures decoded,
+missing paths, and decode failures, folded into `CellStats`.
+
+`godot_layer.rs` turns a decoded `Image` into a Godot `ImageTexture` with
+`Image::create_from_data` (`FORMAT_RGBA8`) and `ImageTexture::create_from_image`.
+`CellStreamerNode::stream_cell` keys a `StandardMaterial3D` cache on the surface's diffuse and
+normal path pair, so surfaces sharing a texture set share one material instead of building a
+duplicate per mesh. The diffuse image becomes `TextureParam::ALBEDO`, and when a normal map is
+present it becomes `TextureParam::NORMAL` with `Feature::NORMAL_MAPPING` turned on. Skyrim's
+BC7 or BC5 normal maps carry a specular mask in the alpha channel, not opacity, and Godot's
+`normal_texture` only ever reads RGB for the surface normal, so that alpha channel is inert
+here rather than fed into anything, until a specular term is added. Alpha mode comes from
+`MaterialDesc::alpha`: `Opaque` leaves `Transparency::DISABLED`, `Cutout(threshold)` sets
+`Transparency::ALPHA_SCISSOR` with that threshold, `Blend` sets `Transparency::ALPHA`.
+`double_sided` sets `CullMode::DISABLED`, otherwise Godot's default back-face cull applies.
+
+`crates/godot-host/tests/real_cell.rs` reports the new stats alongside the existing ones:
+
+```
+$ SKYRIM_DATA="/path/to/Skyrim Special Edition/Data" cargo test -p soe-godot-host --release --test real_cell -- --nocapture
+cell: 0:01605E
+references: 690
+statics with a model: 318
+meshes parsed: 318
+meshes failed: 0
+triangles: 124924
+wall time: 9.02s
+distinct texture sets: 46
+textures decoded: 88
+textures missing: 0
+texture decode failures: 0
+texture decode wall time: 0.56s
+test a_real_cell_streams_statics_from_the_installed_game ... ok
+```
+
+46 distinct diffuse and normal path pairs across the cell's 318 statics decoded to 88
+textures (most sets carry both a diffuse and a normal map), none missing from the `Vfs`, none
+failed to decode, 0.56 of the 9.02 second wall time. The wall time itself dropped from the
+22.89 seconds the previous section recorded to 9.02, both release builds on the same machine,
+which is archive indexing and load order setup noise between runs rather than anything this
+change accounts for.
+
+`godot/capture.gd` (windowed, `--resolution 1600x900`, `SKYRIM_DATA` set) overwrote
+`docs/images/bannered-mare-1.png` through `-3.png`. The three views show wood grain on beams,
+floor and furniture, plaster and stone wall textures, a woven basket motif, a banner-carved
+pillar, and a hanging feather fetish rendering with alpha-scissor cutout, gaps between the
+feathers rather than an opaque quad. This confirms winding and UV orientation are correct: a
+wrong winding would have culled these surfaces from the camera's side instead of showing their
+textures. A few surfaces still render flat white, references whose base form or model this
+round's static-only path does not cover, out of scope here.
