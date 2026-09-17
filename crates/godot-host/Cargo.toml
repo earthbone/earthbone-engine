@@ -60,5 +60,8 @@ godot = ["dep:godot"]
 # api-4-4 is the floor because Jolt became the built-in physics in 4.4.
 godot = { version = "0.5.5", features = ["api-4-4"], optional = true }
 thiserror = "2"
+soe-esm = { path = "../esm" }
+soe-bsa = { path = "../bsa" }
+soe-nif = { path = "../nif" }
 
 [dev-dependencies]
