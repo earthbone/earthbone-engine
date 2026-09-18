@@ -116,6 +116,21 @@ Open the corpus before writing a parser or a native, not after.
   bound, not that their calls dispatched.
 - `Vm::get_property` runs compiled getters and read-only properties are
   counted apart in `BindReport` (branch `vm-props`, merged 2026-09-18).
+- Merged later on 2026-09-18: `cell-index` (esm `CellIndex`, reference scan
+  361 ms to 0.5 ms, the material path is now 97 percent of a stream),
+  `behavior` (havok interpreter, vanilla `mt_behavior.hkx` walks, pose within
+  3.8e-6 of the sampler, behavior references and modifiers still open),
+  `packages` (PACK view, sandbox, travel and sleep on the navmesh, 4,635 of
+  5,961 vanilla packages resolve), `natives-2` (296 natives, alias dispatch
+  walks base classes, the first real `start` has one unresolved call left),
+  `test-plan` (`TEST_PLAN.md`, phase 2 waits for the user). Save format
+  `SOEW` is version 2 with both branches' fields. Godot 4.7.2 loads the
+  extension headless with the same Bannered Mare counts as 4.4.1, the binary
+  sits next to the old one under `../tools/godot/`. Rendering decisions in
+  `../research/rendering-performance.md`: compressed texture upload first,
+  no Godot patches. Open: `batching` and `determinism-hash` branches, then
+  the `world-split` refactor before any other code fork, see ENGINE-PLAN.md
+  rounds 5 and 6.
 - Untested live: a real Proton launch, natives against the CK wiki pages.
 - Language decision (2026-09-14): runtime crates stay Rust. Go only for a
   tooling component where it eases maintenance, behind a protobuf seam.
