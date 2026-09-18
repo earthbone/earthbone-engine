@@ -3,17 +3,51 @@
 Crate `crates/physics`, library `soe_physics`. Depends on `soe-nif` only,
 `soe-bsa` for the gated tests.
 
-## Jolt, and why it is not linked yet
+## Two worlds, and why
 
-The plan called for Jolt through its C bindings. `joltc-sys` 0.3.1 on
-crates.io (Jolt 5.0.0, May 2024) builds JoltC with the `cmake` crate, and
-this machine has no CMake, so the binding cannot build here. `jolt-rust`
-is not published on crates.io. Rather than stub Jolt, the crate puts the
-world behind the `PhysicsWorld` trait and ships `SimpleWorld`, a plain
-Rust implementation of what the engine needs first: statics, a capsule
-character controller, and rays. Jolt replaces `SimpleWorld` behind the
-same trait once CMake is available, and the two layers below (block
-decoding and shape collection) are what a Jolt backend consumes as well.
+The engine links no physics library of its own, and it never will. Godot bundles
+Jolt as a module from 4.4 on, selectable with the `physics/3d/physics_engine`
+project setting, which `godot/project.godot` now sets to `Jolt Physics`. So the
+rendered path drives Godot's server and gets Jolt for free, the way the mesh
+path drives `RenderingServer` rather than shipping a renderer. Decided by the
+user on 2026-09-18: "if godot has jolt its best to use their tooling".
+
+Two implementations remain, behind one trait, and a caller picks by what it is:
+
+| | `SimpleWorld`, this crate | Godot's server, `crates/godot-host/src/godot_physics.rs` |
+|---|---|---|
+| Who uses it | The simulation, the determinism tests, `soe-bench`, continuous integration | The rendered path, the player, anything the viewer touches |
+| Needs | Nothing, it is plain Rust | Godot running, a `World3D` with a space |
+| Solver | Statics, one capsule, rays | Jolt: rigid bodies, constraints, ragdolls, the lot |
+| Reproducible from a seed | Yes, and the per tick state hash covers it | No, see below |
+
+**Why the simulation cannot simply live in Godot.** The engine treats
+determinism as a property to keep: `crates/game/src/determinism.rs` hashes the
+world, the VM and the clock every tick, and a gated test runs 600 ticks of the
+installed game twice and requires an identical hash stream. A simulation inside
+Godot's server breaks all three legs of that. Its solver state is not ours to
+hash. Its stepping is tied to Godot's frame loop rather than to our fixed
+timestep. And it cannot run at all in continuous integration or in `soe-bench`,
+neither of which has Godot. Jolt is deterministic in the sense its own
+documentation claims, same binary and same inputs giving the same result, which
+is not the property being asked for here. So the authority stays in our process
+and Godot's bodies are what the player collides with, which is the same split
+the renderer already has: our data, their device.
+
+**What linking our own would have cost.** `joltc-sys` 0.3.1 (Jolt 5.0.0, May
+2024) builds JoltC through the `cmake` crate, and this machine has a C and C++
+toolchain but no CMake, so it cannot build here today. `jolt-rust` is not
+published. Beyond that it would put a C++ build on every build machine, tie the
+engine to Jolt's ABI across releases, and keep a second copy of the same solver
+Godot already ships. Against a standing rule to bound dependency scope, that is
+a clear loss, and nothing in round 6 needs a feature `SimpleWorld` lacks.
+
+**What Godot's server gives a character controller**, checked through
+godot-rust 0.5.5 against the api-4-4 floor: `body_create`, `body_set_mode`,
+`body_set_space` and `body_add_shape` build the static world by resource id with
+no node per body, `concave_polygon_shape_create` takes triangle soup through
+`shape_set_data`, and `body_test_motion` is the sweep a kinematic character
+moves on. The `controller` item of round 6 is what will use the last of those.
 
 ## Layers
 
@@ -128,7 +162,14 @@ code change was needed.
 
 ## Not yet
 
-- Jolt as the world, once CMake is on the build machine.
+- Rigid bodies, constraints and ragdolls in the headless world. Godot's side
+  has them through Jolt already, `SimpleWorld` has statics, one capsule and
+  rays, which is what the simulation needs so far.
+- Step height and crouch on the character, which belong to the `controller`
+  item of round 6 rather than here.
+- Godot's box, sphere, capsule and convex hull shapes where a collider's
+  transform allows them, instead of the triangle soup the converter emits
+  today. Correct as it stands, cheaper if narrowed.
 - The convex shell radius (0.05 m on most shapes) is not added to boxes
   and hulls, so their surfaces sit 3.5 units inside where Havok puts them.
 - `bhkNiTriStripsShape`, `bhkCylinderShape`, `bhkPlaneShape`, phantoms,
@@ -137,3 +178,62 @@ code change was needed.
   rest pose only.
 - Skyrim LE files are decoded by the same layouts but were not run
   against real data.
+
+## The character controller, measured (2026-09-18)
+
+`tests/character.rs` builds its geometry directly rather than through `bhk`
+bytes, so a 30 degree ramp is 30 degrees and a wall is vertical to the bit, and
+a failure points at the controller rather than at the test's own file writer.
+Every case reports positions over time, so a failure shows its trajectory.
+
+| Case | Result |
+|---|---|
+| Fall from 400 units onto a floor | Rests at z 0.0, on ground, and stays within 0.01 units for the last 20 frames |
+| A 60 degree face, steeper than the 45 degree standable limit | Slides from x 600 to 542 while z drops 1400 to 972, never penetrates the face, never counts as ground |
+| A 20 degree ramp, walkable | Climbs x 198 to 589 and rises z 74 to 217, on ground throughout |
+| Walk into a wall at 600 units per second | Stops at x 268.0, which is the wall at 300 minus the 32 unit capsule radius, and no frame crosses the plane |
+| Ray down from the feet | Hits the floor plane with an upward normal |
+
+## Collision for a real cell (2026-09-18)
+
+`crates/godot-host/src/collision.rs` walks the same references the renderer
+draws and places each model's Havok collision with the same reference
+transform, so the two cannot disagree about where a wall is. Gated on
+`SKYRIM_DATA`, `WhiterunBanneredMare`:
+
+| | |
+|---|---|
+| Placed statics with a model | 318 |
+| Carrying collision | 287 |
+| Static bodies | 281 |
+| World primitives | 11,182 |
+| Failed to read, blocks skipped | 0, 0 |
+| Build time | 0.022 s |
+
+A capsule dropped 300 units above the cell settles on ground, and a ray from
+its feet finds a floor within 40 units with an upward normal, which is what
+separates standing from being wedged inside geometry by the depenetration loop.
+Worth knowing for anyone reading that test: the capsule rests about 240 units
+above what a ray straight down the cell's origin finds, because the hearth
+leaves an open shaft at the middle, so the ray drops to the ground floor while a
+capsule 32 units wide catches the upper floor around it. Walking 1,800 units
+from the settled spot is blocked in every direction tried, as a closed interior
+must be.
+
+## The same cell inside Godot (2026-09-18)
+
+`godot/physics_test.gd` builds that collision into Godot's physics space through
+`CellStreamerNode.stream_cell_collision` and drops a `RigidBody3D` on it. With
+`physics/3d/physics_engine` set to `Jolt Physics`, identical on both binaries:
+
+| Godot | Bodies | Shapes | Triangles | Dropped from | Rests at | Frames |
+|---|---|---|---|---|---|---|
+| 4.4.1 | 281 | 285 | 11,182 | y 12.0 | y 8.295 | 87 |
+| 4.7.2 | 281 | 285 | 11,182 | y 12.0 | y 8.295 | 87 |
+
+Boxes and convex hulls become triangle soup rather than Godot's box and hull
+shapes, because a collider's transform can carry a rotation those shapes have no
+place for and a static body never needs the cheaper representation. A sphere or
+capsule away from the origin becomes a box hull for the same reason, since the
+server places a shape at the body's origin and these bodies carry world space
+geometry. Those approximations are listed under "Not yet" below.

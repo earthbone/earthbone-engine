@@ -75,6 +75,11 @@ pub struct CellStreamerNode {
     /// camera to frame the scene without walking mesh nodes.
     bounds: Option<crate::mesh::Aabb>,
     last_stats: VarDictionary,
+    /// Static bodies this node put into the physics space, freed with the
+    /// instances. Empty until `stream_cell_collision` is called, since a
+    /// scene that only draws needs no collision.
+    collision: crate::godot_physics::CellBodies,
+    last_collision_stats: VarDictionary,
 }
 
 /// One drawn batch: its instance and mesh RIDs and the side table that maps
@@ -168,6 +173,8 @@ impl INode3D for CellStreamerNode {
             materials: MaterialMap::new(),
             bounds: None,
             last_stats: VarDictionary::new(),
+            collision: crate::godot_physics::CellBodies::default(),
+            last_collision_stats: VarDictionary::new(),
         }
     }
 
@@ -177,6 +184,7 @@ impl INode3D for CellStreamerNode {
 
     fn exit_tree(&mut self) {
         self.free_instances();
+        self.collision.free();
     }
 
     fn process(&mut self, _delta: f64) {
@@ -364,10 +372,69 @@ impl CellStreamerNode {
         })
     }
 
+    /// Builds the cell's Havok collision into this node's physics space and
+    /// returns how many static bodies were created, or -1 on failure.
+    ///
+    /// Godot's own physics server owns the result, and from 4.4 that server
+    /// is Jolt, so the engine links no physics library of its own. The
+    /// headless simulation keeps its own world, see `docs/physics.md` for why
+    /// the two exist. Call `collision_stats` after this for the counts.
+    #[allow(clippy::needless_pass_by_value)]
+    #[func]
+    pub fn stream_cell_collision(&mut self, editor_id: GString) -> i32 {
+        let Some(source) = self.data_source.as_ref() else {
+            godot_error!("stream_cell_collision: load_data was not called");
+            return -1;
+        };
+        let Some(cell_id) = source.resolve_cell(&editor_id.to_string()) else {
+            godot_error!("stream_cell_collision: no cell named {editor_id}");
+            return -1;
+        };
+        let (colliders, read) = match source.cell_colliders(cell_id) {
+            Ok(pair) => pair,
+            Err(e) => {
+                godot_error!("stream_cell_collision: {e}");
+                return -1;
+            }
+        };
+        let Some(space) = self
+            .base()
+            .get_world_3d()
+            .map(|w| w.get_space())
+            .filter(|s| s.is_valid())
+        else {
+            godot_error!("stream_cell_collision: the node is outside a 3D world");
+            return -1;
+        };
+        self.collision.free();
+        self.collision = crate::godot_physics::add_statics(space, &colliders);
+        let built = &self.collision.stats;
+        self.last_collision_stats = {
+            let mut d = VarDictionary::new();
+            d.set("references", read.references as i64);
+            d.set("with_collision", read.with_collision as i64);
+            d.set("colliders", read.colliders as i64);
+            d.set("failed", read.failed as i64);
+            d.set("bodies", built.bodies as i64);
+            d.set("shapes", built.shapes as i64);
+            d.set("triangles", built.triangles as i64);
+            d.set("skipped", built.skipped as i64);
+            d
+        };
+        built.bodies as i32
+    }
+
+    /// The counts from the last `stream_cell_collision` call.
+    #[func]
+    pub fn collision_stats(&self) -> VarDictionary {
+        self.last_collision_stats.clone()
+    }
+
     /// Frees every instance and mesh this node created and forgets the
     /// bounds. Materials stay cached.
     #[func]
     pub fn clear(&mut self) {
+        self.collision.free();
         self.free_instances();
         self.bounds = None;
     }

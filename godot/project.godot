@@ -8,6 +8,13 @@ config_version=5
 config/name="Skyrim open engine host"
 config/features=PackedStringArray("4.4")
 
+[physics]
+
+; Jolt ships inside Godot from 4.4, so the engine links no physics library of
+; its own. See docs/physics.md for why the headless simulation keeps a separate
+; world rather than running here.
+3d/physics_engine="Jolt Physics"
+
 [rendering]
 
 renderer/rendering_method="forward_plus"
