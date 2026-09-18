@@ -135,26 +135,30 @@ for 600 ticks at 60 a second.
 
 ### Known sources
 
-Confirmed by the detector, to fix in round 5:
+Confirmed by the detector and fixed:
 
-1. `Game::start` starts the Start Game Enabled quests in the order
-   `LoadOrder::winners_of` yields them, and that walks the load order's
-   `HashMap` (`crates/esm/src/load_order.rs`, "in no particular order" by its
-   own doc line). Two runs start the 423 quests in different orders, so alias
+1. `Game::start` started the Start Game Enabled quests in the order
+   `LoadOrder::winners_of` yielded them, and that walked the load order's
+   `HashMap`. Two runs started the 423 quests in different orders, so alias
    object ids, `OnInit` thread order, timers, the log and the native call
-   counts all differ from the first tick. Sorting the ids before starting,
-   which the sorted gated test does from the outside, removes every
-   divergence over 600 ticks. The fix belongs in `winners_of` (a sorted
-   result) or in `start` (sort before starting), and the ignored test
-   `the_installed_game_hashes_the_same_over_six_hundred_ticks` is the
-   acceptance check.
+   counts all differed from the first tick. Fixed on the `world-split`
+   branch: the load order keeps every winner in id order (owning file
+   position, then object) in a list built by the first walk and dropped
+   when a file is added, and `winners`, `winners_of` and `overridden` all
+   read it. The one-time sort is traced as `esm.sort_winners`. The gated
+   test `the_installed_game_hashes_the_same_over_six_hundred_ticks` runs
+   un-ignored and passes. The `CellIndex` build that reads `winners` got
+   faster, the sorted list walks records in file order: `soe-bench
+   cell-index WhiterunBanneredMare` median 0.275 s before, 0.059 s after
+   (five runs, the first run pays the sort and the median excludes it), and
+   the Whiterun 3 by 3 block, whose exterior resolve walks `winners_of`, moved
+   from 13 ms to 15 ms on 24 threads, within noise.
+2. `LoadOrder::winners` and `LoadOrder::overridden` walked the same map.
+   Closed by the same change, every walk is id ordered now.
 
 Candidates the detector has not caught yet, kept here because the same
 pattern is in the code and a longer or wider scenario can reach them:
 
-2. `LoadOrder::winners` and `LoadOrder::overridden` walk the same map.
-   `CellIndex::build` reads `winners`, so any consumer that keeps the first
-   of two equal candidates in iteration order is order dependent.
 3. The world keeps one shared xorshift RNG (`World::random_u64`). Any new
    caller shifts every later draw, so a replay recorded before a native
    gained a random call will not match after. A stream per system or per
