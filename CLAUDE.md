@@ -46,56 +46,19 @@ editor), `docs/style.md` (Rust coding baseline), `docs/validation.md`
 
 ## Creation Engine knowledge, under `../engine-refs/`
 
-Open the corpus before writing a parser or a native, not after.
+Open the corpus before writing a parser or a native, not after. Sixty
+repositories and fetched page sets live there, and three times on 2026-09-18 a
+fork went looking outside for something already cloned. **Load the `soe-corpus`
+skill**, which says which source answers which question and carries the licence
+rules for porting from each.
 
-- `TES5Edit/Core/wbDefinitionsTES5.pas`: record and subrecord layouts, the
-  authority for every field.
-- `uesp-modfileformat/*.wikitext`: the same layouts in prose, per record type.
-- `ck-wiki/*.wikitext`: Papyrus native semantics per function, 402 pages
-  fetched through the Wayback Machine (the live site is behind Cloudflare),
-  289 of them reconstructed from HTML (`HTML_FALLBACK.txt`), 60 missing
-  (`FAILED.txt`), resume with `ck-wiki/crawl_ck_wiki.py`.
-- `uesp-skyrim-mod/*.wikitext`: engine quirks and modding conventions.
-- `wrye-bash/Mopy/bash/brec` and `wrye-bash/Mopy/bash/game/skyrimse`: a
-  second record-definition source, plus `wrye-bash.wiki` for bash tags.
-- `Mutagen/docs`: winning-override semantics, the Big Cheat Sheet.
-- `CommonLibSSE-NG/include/RE` (and `CommonLibSSE/include/RE`): the runtime
-  object model SKSE plugins see.
-- `openmw/components/esm4`, `Champollion`, `skymp`: reader and VM reference.
-- `libloot/docs`: load order rules and masterlist syntax.
-- `TES5Edit.github.io`: the xEdit documentation site source.
-- `FallrimTools`: ReSaver's save file (ESS) parser and cleaner in Java, a
-  second implementation for the save format and orphaned script instance
-  handling.
-- `Keyword-Item-Distributor`: KID's `_KID.ini` config syntax and keyword
-  distribution logic, SPID's sibling tool.
-- `OpenAnimationReplacer`: OAR's condition system and config format for
-  conditional animation replacement, the successor to DAR.
-- `dargh`: a documented reimplementation of Dynamic Animation Replacer,
-  DAR's condition and priority logic before OAR replaced it.
-- `fuzmanager`: the FUZ container layout, lip data plus XWM voice audio
-  packed together for Skyrim and Fallout 4.
-- `Skyrim-NX-Toolkit`: the Switch port's FUZ variant, an Opus payload in
-  place of xWMA, a shipped precedent for the engine's own audio codec
-  choice.
-- `serde-hkx`: 680 generated Havok class definitions in Rust, 204 of them
-  `hkb` behavior classes with field offsets per pointer width. The layouts the
-  behavior interpreter still lacks. One maintainer, so extract rather than
-  depend.
-- `Caprica`: a complete Papyrus source compiler under MIT, the stage our
-  `papyrus` crate has never had. It adds to our reader, writer and VM, it
-  replaces none of them.
-- `Spell-Perk-Item-Distributor`: the `_DISTR.ini` field order, written as a
-  comment on line 3 of `SPID/src/Defs.h`, plus the record type names and the
-  level, trait and count grammars in `LookupConfigs.h`. MIT.
-- `BaseObjectSwapper`: the `_SWAP.ini` section walk in `Manager.cpp` and the
-  swap field order in `SwapData.cpp`. Note the repository name has no hyphens.
+The four that answer most questions: `TES5Edit/Core/wbDefinitionsTES5.pas` for
+record and subrecord layouts, `uesp-modfileformat/*.wikitext` for the same in
+prose, `ck-wiki/*.wikitext` for Papyrus native semantics, and `Mutagen/docs`
+for winning-override rules.
 
-Licence care when porting from the corpus: the core crates are
-GPL-3.0-or-later so reading or porting from a GPL tool is fine there, but no
-GPL derived code may reach the MIT shim crates. `serde-hkx`, `Caprica`,
-`dargh` and `Skyrim-NX-Toolkit` are permissive. `Keyword-Item-Distributor`,
-`OpenAnimationReplacer` and `fuzmanager` are GPL.
+Licence care: the core crates are GPL-3.0-or-later so reading or porting from a
+GPL tool is fine there, but no GPL derived code may reach the MIT shim crates.
 
 ## Working rules
 
