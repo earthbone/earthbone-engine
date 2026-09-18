@@ -17,6 +17,10 @@ fn data_dir() -> Option<PathBuf> {
     std::env::var_os("SKYRIM_DATA").map(PathBuf::from)
 }
 
+// Both callers need a decoder as well as the tool, so the helper follows them
+// behind the same pair of features. Without them the default build sees it as
+// dead code.
+#[cfg(all(feature = "rhubarb", feature = "xwma-ffmpeg"))]
 fn voice_archive() -> Option<soe_bsa::Archive> {
     let dir = data_dir()?;
     let path = dir.join("Skyrim - Voices_en0.bsa");
@@ -93,7 +97,9 @@ fn the_vanilla_races_carry_the_phoneme_mapping_a_face_is_driven_from() {
 
 /// The `rhubarb` binary, from `SOE_RHUBARB`, then the copy under `tools/`,
 /// then the path.
-#[cfg(feature = "rhubarb")]
+// Same as `voice_archive`: every caller needs a decoder too, so a build with
+// only the tool feature on would see this as dead code.
+#[cfg(all(feature = "rhubarb", feature = "xwma-ffmpeg"))]
 fn rhubarb() -> Option<soe_audio::rhubarb::Rhubarb> {
     use soe_audio::rhubarb::Rhubarb;
 
