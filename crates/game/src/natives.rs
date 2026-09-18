@@ -174,6 +174,8 @@ pub fn register(vm: &mut Vm, world: &Shared) -> Registered {
     actor_base(vm, world);
     cell(vm, world);
     message_scene_sound_spell(vm, world);
+    dlc(vm, world);
+    fragments_and_effects(vm, world);
     let stubs = stubs(vm);
     let natives = NATIVE_COUNT + stubs - (vm.natives.duplicates.len() - before);
     Registered { natives, stubs }
@@ -181,7 +183,7 @@ pub fn register(vm: &mut Vm, world: &Shared) -> Registered {
 
 /// Hand-kept count of the non-stub natives registered below. The test in
 /// this module checks it against the registry.
-pub const NATIVE_COUNT: usize = 296;
+pub const NATIVE_COUNT: usize = 347;
 
 fn declare_parents(vm: &mut Vm) {
     for (class, parent) in [
@@ -245,6 +247,8 @@ fn declare_parents(vm: &mut Vm) {
         ("Projectile", "Form"),
         ("Hazard", "Form"),
         ("EffectShader", "Form"),
+        ("VisualEffect", "Form"),
+        ("ShaderParticleGeometry", "Form"),
         ("EncounterZone", "Form"),
         ("Topic", "Form"),
         ("TopicInfo", "Form"),
@@ -958,13 +962,7 @@ fn actor(vm: &mut Vm, w: &Shared) {
         .is_some_and(|a| a.dead)));
     method!(vm, w, "Actor", "Kill", |world, call, me| {
         let killer = world.form_arg(&call.arg(0));
-        if let Some(a) = world.actor(me) {
-            if !a.essential {
-                a.dead = true;
-                a.killer = killer;
-                a.values.insert("health".into(), 0.0);
-            }
-        }
+        world.kill_actor(me, killer);
         none()
     });
     method!(vm, w, "Actor", "GetKiller", |world, call, me| {
@@ -2345,6 +2343,538 @@ fn message_scene_sound_spell(vm: &mut Vm, w: &Shared) {
     });
 }
 
+/// What Dawnguard, HearthFires and Dragonborn added to the base classes.
+/// Ordered by how often the DLC scripts call each one. Semantics from the
+/// class pages: none of these has a page of its own in the corpus.
+fn dlc(vm: &mut Vm, w: &Shared) {
+    // "Set a variable on all of an actor's sub graphs." The behavior graph
+    // reads these, the engine keeps them per actor under a lowercase name.
+    method!(
+        vm,
+        w,
+        "Actor",
+        "SetSubGraphFloatVariable",
+        |world, call, me| {
+            let name = text(&call.arg(0)).to_ascii_lowercase();
+            let value = call.arg(1).as_float();
+            if let Some(a) = world.actor(me) {
+                a.graph_floats.insert(name, value);
+            }
+            none()
+        }
+    );
+    // "Sends the event passed to the actor's sub graphs", which is the same
+    // delivery an animation event takes, so listeners hear it as one.
+    method!(
+        vm,
+        w,
+        "Actor",
+        "PlaySubGraphAnimation",
+        |world, call, me| {
+            let name = text(&call.arg(0));
+            world.animation_event(me, &name, alloc!(call));
+            none()
+        }
+    );
+    // "Sets this actor's current critical stage (applying any related
+    // effects)." The effects are the death animations, which do not exist.
+    method!(vm, w, "Actor", "SetCriticalStage", |world, call, me| {
+        let stage = call.arg(0).as_int();
+        if let Some(a) = world.actor(me) {
+            a.critical_stage = stage;
+        }
+        none()
+    });
+    // "Sets the actor's race", read back by the existing GetRace.
+    method!(vm, w, "Actor", "SetRace", |world, call, me| {
+        let race = world.form_arg(&call.arg(0));
+        if let Some(a) = world.actor(me) {
+            a.race = race;
+        }
+        none()
+    });
+    // "Forces this actor to equip thes spell, in the specified source."
+    // The source is the hand, which the engine does not model yet.
+    method!(vm, w, "Actor", "EquipSpell", |world, call, me| {
+        if let Some(spell) = world.form_arg(&call.arg(0)) {
+            if let Some(a) = world.actor(me) {
+                a.equipped.insert(spell);
+            }
+        }
+        none()
+    });
+    method!(vm, w, "Actor", "UnequipSpell", |world, call, me| {
+        if let Some(spell) = world.form_arg(&call.arg(0)) {
+            if let Some(a) = world.actor(me) {
+                a.equipped.remove(&spell);
+            }
+        }
+        none()
+    });
+    // "Removes the specified shout from this actor", true when it had it.
+    method!(vm, w, "Actor", "RemoveShout", |world, call, me| {
+        let Some(shout) = world.form_arg(&call.arg(0)) else {
+            return b(false);
+        };
+        let Some(a) = world.actor(me) else {
+            return b(false);
+        };
+        if a.equipped_shout == Some(shout) {
+            a.equipped_shout = None;
+        }
+        b(a.shouts.remove(&shout))
+    });
+    // "Adds the specified shout to this actor", true when it is new.
+    method!(vm, w, "Actor", "AddShout", |world, call, me| {
+        let Some(shout) = world.form_arg(&call.arg(0)) else {
+            return b(false);
+        };
+        b(world.actor(me).is_some_and(|a| a.shouts.insert(shout)))
+    });
+    // "Forces this actor to equip this shout."
+    method!(vm, w, "Actor", "EquipShout", |world, call, me| {
+        let Some(shout) = world.form_arg(&call.arg(0)) else {
+            return none();
+        };
+        if let Some(a) = world.actor(me) {
+            a.shouts.insert(shout);
+            a.equipped_shout = Some(shout);
+        }
+        none()
+    });
+    method!(vm, w, "Actor", "UnequipShout", |world, call, me| {
+        let shout = world.form_arg(&call.arg(0));
+        if let Some(a) = world.actor(me) {
+            if a.equipped_shout == shout {
+                a.equipped_shout = None;
+            }
+        }
+        none()
+    });
+    // "Obtains the currently equipped shout on this actor."
+    method!(vm, w, "Actor", "GetEquippedShout", |world, call, me| {
+        let shout = world.actor(me).and_then(|a| a.equipped_shout);
+        form_value(world, call, shout)
+    });
+    // "Flags this actor as whether they are allowed to fly or not (lands
+    // them if they are flying and not allowed to)." There is no flight to
+    // land, so the flag is the whole of it. The Ex form adds the crash and
+    // search permissions, which need the same flight the flag waits on.
+    for name in ["SetAllowFlying", "SetAllowFlyingEx"] {
+        method!(vm, w, "Actor", name, |world, call, me| {
+            let allowed = call.arg(0).as_bool();
+            if let Some(a) = world.actor(me) {
+                a.allow_flying = allowed;
+            }
+            none()
+        });
+    }
+    method!(vm, w, "Actor", "IsAllowedToFly", |world, call, me| b(world
+        .actor(me)
+        .is_some_and(|a| a.allow_flying)));
+    // "Can this actor fly here?" Allowed to fly, and out under the sky.
+    method!(vm, w, "Actor", "CanFlyHere", |world, call, me| {
+        if !world.actor(me).is_some_and(|a| a.allow_flying) {
+            return b(false);
+        }
+        let cell = world.reference(me).and_then(|r| r.cell);
+        b(cell.is_some_and(|c| !world.cell_is_interior(c)))
+    });
+    // "Dispel a spell from this actor", true when the actor had it.
+    method!(vm, w, "Actor", "DispelSpell", |world, call, me| {
+        let Some(spell) = world.form_arg(&call.arg(0)) else {
+            return b(false);
+        };
+        let Some(a) = world.actor(me) else {
+            return b(false);
+        };
+        a.equipped.remove(&spell);
+        b(a.spells.remove(&spell))
+    });
+    // "Dispel all spell from this actor."
+    method!(vm, w, "Actor", "DispelAllSpells", |world, call, me| {
+        if let Some(a) = world.actor(me) {
+            a.spells.clear();
+        }
+        none()
+    });
+    // "Enables or disables this actor's AI." Stored inverted so an actor
+    // nobody touched still thinks.
+    method!(vm, w, "Actor", "EnableAI", |world, call, me| {
+        let enable = call.arg(0).as_bool();
+        if let Some(a) = world.actor(me) {
+            a.ai_disabled = !enable;
+        }
+        none()
+    });
+    // "Attaches an ash pile to this actor using the passed-in form (or
+    // leveled item list) as a base", the Dragonborn disintegration.
+    method!(vm, w, "Actor", "AttachAshPile", |world, call, me| {
+        let base = world.form_arg(&call.arg(0));
+        if let Some(a) = world.actor(me) {
+            a.ash_pile = base;
+        }
+        none()
+    });
+    // "Sets or clears the no bleedout recovery flag on this actor."
+    method!(
+        vm,
+        w,
+        "Actor",
+        "SetNoBleedoutRecovery",
+        |world, call, me| {
+            let flag = call.arg(0).as_bool();
+            if let Some(a) = world.actor(me) {
+                a.no_bleedout_recovery = flag;
+            }
+            none()
+        }
+    );
+    method!(
+        vm,
+        w,
+        "Actor",
+        "GetNoBleedoutRecovery",
+        |world, call, me| b(world.actor(me).is_some_and(|a| a.no_bleedout_recovery))
+    );
+    // "Removes the actor from a Deferred Kill state." While the state is
+    // on, a kill is held back, which is what the pair is for.
+    method!(vm, w, "Actor", "StartDeferredKill", |world, call, me| {
+        if let Some(a) = world.actor(me) {
+            a.deferred_kill = true;
+        }
+        none()
+    });
+    method!(vm, w, "Actor", "EndDeferredKill", |world, call, me| {
+        if let Some(a) = world.actor(me) {
+            a.deferred_kill = false;
+        }
+        none()
+    });
+    // "Kills this actor without a kill event with the killer being the
+    // guilty party." The engine raises no kill event from Kill either, so
+    // the two differ only in the event the VM has yet to send.
+    method!(vm, w, "Actor", "KillSilent", |world, call, me| {
+        let killer = world.form_arg(&call.arg(0));
+        world.kill_actor(me, killer);
+        none()
+    });
+    // "Tells anyone who cares that the vampirism state of this actor has
+    // changed", which is OnVampirismStateChanged to the actor's scripts.
+    method!(
+        vm,
+        w,
+        "Actor",
+        "SendVampirismStateChanged",
+        |world, call, me| {
+            let is_vampire = call.arg(0).as_bool();
+            if let Some(a) = world.actor(me) {
+                a.vampire = is_vampire;
+            }
+            world.form_event(
+                me,
+                "OnVampirismStateChanged",
+                vec![Value::Bool(is_vampire)],
+                alloc!(call),
+            );
+            none()
+        }
+    );
+    // "Tells anyone who cares that the lycanthropy state of this actor has
+    // changed."
+    method!(
+        vm,
+        w,
+        "Actor",
+        "SendLycanthropyStateChanged",
+        |world, call, me| {
+            let is_werewolf = call.arg(0).as_bool();
+            if let Some(a) = world.actor(me) {
+                a.werewolf = is_werewolf;
+            }
+            world.form_event(
+                me,
+                "OnLycanthropyStateChanged",
+                vec![Value::Bool(is_werewolf)],
+                alloc!(call),
+            );
+            none()
+        }
+    );
+    // "Forces a new eye texture on the actor", the Dawnguard vampire eyes.
+    method!(vm, w, "Actor", "SetEyeTexture", |world, call, me| {
+        let texture = world.form_arg(&call.arg(0));
+        if let Some(a) = world.actor(me) {
+            a.eye_texture = texture;
+        }
+        none()
+    });
+    // Whether any equipped item carries the keyword.
+    method!(vm, w, "Actor", "WornHasKeyword", |world, call, me| {
+        let Some(keyword) = world.form_arg(&call.arg(0)) else {
+            return b(false);
+        };
+        let worn: Vec<GlobalFormId> = world
+            .actor(me)
+            .map(|a| a.equipped.iter().copied().collect())
+            .unwrap_or_default();
+        b(worn.into_iter().any(|i| world.has_keyword(i, keyword)))
+    });
+    method!(
+        vm,
+        w,
+        "Actor",
+        "IsPlayersLastRiddenHorse",
+        |world, call, me| b(world.last_ridden_horse == Some(me))
+    );
+    // "Adds the given number of perk points to the player. Clamped at 255."
+    global!(vm, w, "Game", "AddPerkPoints", |world, call| {
+        let added = call.arg(0).as_int();
+        world.perk_points = world.perk_points.saturating_add(added).clamp(0, 255);
+        none()
+    });
+
+    // "Sets the value of a variable on the reference's animation graph."
+    // The graph holds one value per name, so the three typed pairs read and
+    // write one store each and a name belongs to the type that set it.
+    method!(
+        vm,
+        w,
+        "ObjectReference",
+        "SetAnimationVariableFloat",
+        |world, call, me| {
+            let name = text(&call.arg(0)).to_ascii_lowercase();
+            let value = call.arg(1).as_float();
+            if let Some(r) = world.reference(me) {
+                r.anim_floats.insert(name, value);
+            }
+            none()
+        }
+    );
+    method!(
+        vm,
+        w,
+        "ObjectReference",
+        "SetAnimationVariableInt",
+        |world, call, me| {
+            let name = text(&call.arg(0)).to_ascii_lowercase();
+            let value = call.arg(1).as_int();
+            if let Some(r) = world.reference(me) {
+                r.anim_ints.insert(name, value);
+            }
+            none()
+        }
+    );
+    method!(
+        vm,
+        w,
+        "ObjectReference",
+        "SetAnimationVariableBool",
+        |world, call, me| {
+            let name = text(&call.arg(0)).to_ascii_lowercase();
+            let value = call.arg(1).as_bool();
+            if let Some(r) = world.reference(me) {
+                r.anim_bools.insert(name, value);
+            }
+            none()
+        }
+    );
+    // "Fetches the value of a variable on the reference's animation graph."
+    // A name the graph never saw reads as zero, the quiet value.
+    method!(
+        vm,
+        w,
+        "ObjectReference",
+        "GetAnimationVariableFloat",
+        |world, call, me| {
+            let name = text(&call.arg(0)).to_ascii_lowercase();
+            f(world
+                .reference(me)
+                .and_then(|r| r.anim_floats.get(&name).copied())
+                .unwrap_or(0.0))
+        }
+    );
+    method!(
+        vm,
+        w,
+        "ObjectReference",
+        "GetAnimationVariableInt",
+        |world, call, me| {
+            let name = text(&call.arg(0)).to_ascii_lowercase();
+            i(world
+                .reference(me)
+                .and_then(|r| r.anim_ints.get(&name).copied())
+                .unwrap_or(0))
+        }
+    );
+    method!(
+        vm,
+        w,
+        "ObjectReference",
+        "GetAnimationVariableBool",
+        |world, call, me| {
+            let name = text(&call.arg(0)).to_ascii_lowercase();
+            b(world
+                .reference(me)
+                .and_then(|r| r.anim_bools.get(&name).copied())
+                .unwrap_or(false))
+        }
+    );
+    // SetAlpha "(Float afTargetAlpha, Bool abFade)". Without a fade to run
+    // over frames the target is reached at once.
+    method!(vm, w, "Actor", "SetAlpha", |world, call, me| {
+        let alpha = call.arg(0).as_float();
+        if let Some(r) = world.reference(me) {
+            r.alpha = alpha;
+        }
+        none()
+    });
+    // PlayIdle sends an idle to the actor's graph, the same delivery an
+    // animation event takes, named after the idle's editor id.
+    method!(vm, w, "Actor", "PlayIdle", |world, call, me| {
+        let Some(idle) = world.form_arg(&call.arg(0)) else {
+            return b(false);
+        };
+        let name = world.editor_id(idle).unwrap_or_default();
+        world.animation_event(me, &name, alloc!(call));
+        b(true)
+    });
+    // "Returns the nth linked ref of this object", the keyword filtered
+    // list GetLinkedRef reads the head of.
+    method!(
+        vm,
+        w,
+        "ObjectReference",
+        "GetNthLinkedRef",
+        |world, call, me| {
+            let index = call.arg(0).as_int().max(0) as usize;
+            let keyword = world.form_arg(&call.arg(1));
+            let linked = world.reference(me).and_then(|r| {
+                r.linked
+                    .iter()
+                    .filter(|(k, _)| keyword.is_none() || *k == keyword)
+                    .nth(index)
+                    .map(|(_, l)| *l)
+            });
+            form_value(world, call, linked)
+        }
+    );
+    // "Places an actor at this reference", PlaceAtMe with the actor flag
+    // the leveled actor lists want.
+    method!(
+        vm,
+        w,
+        "ObjectReference",
+        "PlaceActorAtMe",
+        |world, call, me| {
+            let Some(base) = world.form_arg(&call.arg(0)) else {
+                return none();
+            };
+            let disabled = call.args.get(2).is_some_and(Value::as_bool);
+            let placed = world.place_at(base, me, disabled);
+            form_value(world, call, Some(placed))
+        }
+    );
+}
+
+/// The quest-owned fragment classes and `ActiveMagicEffect`. Both groups
+/// are what the DLC scripts reach for most after the base classes.
+fn fragments_and_effects(vm: &mut Vm, w: &Shared) {
+    // GetOwningQuest on a quest-owned fragment script. A scene names its
+    // parent quest in PNAM, a package its owner quest in QNAM. A topic info
+    // takes its quest from the DIAL above it, which the record alone does
+    // not reach, so that one answers None until the dialogue view lands.
+    for class in ["Scene", "Package"] {
+        method!(vm, w, class, "GetOwningQuest", |world, call, me| {
+            let quest = world.owning_quest(me);
+            form_value(world, call, quest)
+        });
+    }
+    method!(vm, w, "TopicInfo", "GetOwningQuest", |world, call, _me| {
+        form_value(world, call, None)
+    });
+
+    // An ActiveMagicEffect is not a Form, so the registration natives the
+    // registry holds on Form are out of its reach. They key off the calling
+    // object rather than a form, so the same behaviour registers here.
+    for (name, repeat, game_time) in [
+        ("RegisterForSingleUpdate", false, false),
+        ("RegisterForUpdate", true, false),
+        ("RegisterForSingleUpdateGameTime", false, true),
+        ("RegisterForUpdateGameTime", true, true),
+    ] {
+        let w = w.clone();
+        vm.natives.register_method(
+            "ActiveMagicEffect",
+            name,
+            Box::new(move |call| {
+                if let Some(obj) = call.self_object {
+                    w.borrow_mut().register_update(
+                        obj,
+                        f64::from(call.arg(0).as_float()),
+                        repeat,
+                        game_time,
+                    );
+                }
+                none()
+            }),
+        );
+    }
+    for (name, game_time) in [
+        ("UnregisterForUpdate", false),
+        ("UnregisterForUpdateGameTime", true),
+    ] {
+        let w = w.clone();
+        vm.natives.register_method(
+            "ActiveMagicEffect",
+            name,
+            Box::new(move |call| {
+                if let Some(obj) = call.self_object {
+                    w.borrow_mut().unregister_update(obj, game_time);
+                }
+                none()
+            }),
+        );
+    }
+    self_method!(
+        vm,
+        w,
+        "ActiveMagicEffect",
+        "RegisterForAnimationEvent",
+        |world, call, me| {
+            let Some(sender) = world.form_arg(&call.arg(0)) else {
+                return b(false);
+            };
+            let event = text(&call.arg(1));
+            let l = AnimationListener {
+                listener: me,
+                sender,
+                event,
+            };
+            if !world.animation_listeners.contains(&l) {
+                world.animation_listeners.push(l);
+            }
+            b(true)
+        }
+    );
+    self_method!(
+        vm,
+        w,
+        "ActiveMagicEffect",
+        "UnregisterForAnimationEvent",
+        |world, call, me| {
+            let sender = world.form_arg(&call.arg(0));
+            let event = text(&call.arg(1));
+            world.animation_listeners.retain(|l| {
+                !(l.listener == me
+                    && Some(l.sender) == sender
+                    && l.event.eq_ignore_ascii_case(&event))
+            });
+            none()
+        }
+    );
+}
+
 /// Natives whose systems the engine does not have yet. They return the
 /// value the game gives in the quiet case so vanilla scripts run past them.
 fn stubs(vm: &mut Vm) -> usize {
@@ -2373,6 +2903,11 @@ fn stubs(vm: &mut Vm) -> usize {
         ("Scene", "IsActionComplete", false),
         ("Keyword", "SendStoryEventAndWait", false),
         ("Game", "IsPlayerSungazing", false),
+        // No flight, no active magic effect list, no ragdoll yet.
+        ("Actor", "IsFlying", false),
+        ("Actor", "HasMagicEffect", false),
+        ("Actor", "HasMagicEffectWithKeyword", false),
+        ("ObjectReference", "IsFurnitureMarkerInUse", false),
         ("Utility", "IsInMenuMode", false),
         ("Debug", "OpenUserLog", true),
     ];
@@ -2445,6 +2980,20 @@ fn stubs(vm: &mut Vm) -> usize {
         ("Faction", "ModReaction"),
         ("Keyword", "SendStoryEvent"),
         ("ActorBase", "GetGiftFilter"),
+        // No active magic effect model, so the effect's own getters and
+        // Dispel answer quietly.
+        ("ActiveMagicEffect", "GetBaseObject"),
+        ("ActiveMagicEffect", "GetTargetActor"),
+        ("ActiveMagicEffect", "GetCasterActor"),
+        ("ActiveMagicEffect", "Dispel"),
+        ("ActiveMagicEffect", "AddInventoryEventFilter"),
+        ("ActiveMagicEffect", "RemoveInventoryEventFilter"),
+        ("ActiveMagicEffect", "RemoveAllInventoryEventFilters"),
+        ("ObjectReference", "WaitForAnimationEvent"),
+        ("ObjectReference", "InterruptCast"),
+        ("Actor", "PlayIdleWithTarget"),
+        ("Spell", "Preload"),
+        ("Spell", "Unload"),
         ("Message", "ResetHelpMessage"),
         ("Actor", "Dismount"),
         ("Actor", "Trespass"),
@@ -2452,6 +3001,37 @@ fn stubs(vm: &mut Vm) -> usize {
         ("Actor", "RemoveAllSpells"),
         ("Actor", "StartCannibal"),
         ("Actor", "StartVampireFeed"),
+        // The arrow 3d, the ragdoll and the cart tether are renderer and
+        // physics work, the DLC scripts only ask for them.
+        ("Actor", "ClearExtraArrows"),
+        ("ObjectReference", "ForceAddRagdollToWorld"),
+        ("ObjectReference", "ForceRemoveRagdollFromWorld"),
+        ("ObjectReference", "TetherToHorse"),
+        // The shader, effect and music systems the DLC scripts lean on
+        // hardest. Nothing renders or sounds yet, so each one is quiet.
+        ("EffectShader", "Play"),
+        ("EffectShader", "Stop"),
+        ("VisualEffect", "Play"),
+        ("VisualEffect", "Stop"),
+        ("ImageSpaceModifier", "Apply"),
+        ("ImageSpaceModifier", "ApplyCrossFade"),
+        ("ImageSpaceModifier", "Remove"),
+        ("ImageSpaceModifier", "PopTo"),
+        ("ShaderParticleGeometry", "Apply"),
+        ("ShaderParticleGeometry", "Remove"),
+        ("MusicType", "Add"),
+        ("MusicType", "Remove"),
+        ("Topic", "Add"),
+        ("Weather", "SetActive"),
+        ("Weapon", "Fire"),
+        ("Scroll", "Cast"),
+        ("Actor", "DoCombatSpellApply"),
+        ("ObjectReference", "CreateDetectionEvent"),
+        ("ObjectReference", "TranslateTo"),
+        ("ObjectReference", "SplineTranslateTo"),
+        ("ObjectReference", "StopTranslation"),
+        ("ObjectReference", "Reset"),
+        ("Actor", "MoveToPackageLocation"),
         ("Actor", "WillIntimidateSucceed"),
         ("Cell", "Reset"),
     ];
@@ -2460,8 +3040,35 @@ fn stubs(vm: &mut Vm) -> usize {
             .register_method(class, name, Box::new(|_| none()));
         n += 1;
     }
+    // No warmth system (the survival plugin is not loaded) and no sun to
+    // take a position from.
+    let floats: &[(&str, &str, f32)] = &[
+        ("Actor", "GetWarmthRating", 0.0),
+        ("Game", "GetSunPositionX", 0.0),
+        ("Game", "GetSunPositionY", 0.0),
+        ("Game", "GetSunPositionZ", 0.0),
+    ];
+    for (class, name, value) in floats {
+        let global = *class == "Game";
+        let v = *value;
+        let native: soe_papyrus::NativeFn = Box::new(move |_| f(v));
+        if global {
+            vm.natives.register_global(class, name, native);
+        } else {
+            vm.natives.register_method(class, name, native);
+        }
+        n += 1;
+    }
     let globals_none: &[(&str, &str)] = &[
         ("Game", "ShakeCamera"),
+        // Werewolf crime, jail time and sun gazing are crime and weather
+        // systems the engine has not written yet.
+        ("Game", "SendWereWolfTransformation"),
+        ("Game", "ServeTime"),
+        ("Game", "ClearPrison"),
+        ("Game", "SetSunGazeImageSpaceModifier"),
+        ("ImageSpaceModifier", "RemoveCrossFade"),
+        ("Message", "ResetHelpMessage"),
         ("Game", "ShakeController"),
         ("Game", "FadeOutGame"),
         ("Game", "RequestSave"),

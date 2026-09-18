@@ -23,7 +23,10 @@ use crate::clock::GameClock;
 pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// Version 2 added the package driver state to every actor and the natives
 /// round state (perks, flags, leveled lists, locations, factions, cells).
-pub const SAVE_VERSION: u16 = 2;
+/// Version 3 added the DLC state: vampirism and lycanthropy, flying, the
+/// deferred kill, eye texture, critical stage, bleedout, shouts, the
+/// behavior graph floats and the player's perk points.
+pub const SAVE_VERSION: u16 = 3;
 
 impl World {
     /// Serialize the run-time state: the VM object handles, references,
@@ -258,6 +261,7 @@ impl World {
             body.i32(*a);
         }
         write_opt_form_id(&mut body, self.last_ridden_horse);
+        body.i32(self.perk_points);
         write_form_set(&mut body, &self.scenes);
         body.len(self.sound_instances.len());
         for (id, (sound, source, volume)) in &self.sound_instances {
@@ -639,6 +643,7 @@ impl World {
             achievements.push(r.i32()?);
         }
         let last_ridden_horse = read_opt_form_id(&mut r)?;
+        let perk_points = r.i32()?;
         let scenes = read_form_set(&mut r)?;
         let n = r.len()?;
         let mut sound_instances = BTreeMap::new();
@@ -678,6 +683,7 @@ impl World {
         self.words_unlocked = words_unlocked;
         self.achievements = achievements;
         self.last_ridden_horse = last_ridden_horse;
+        self.perk_points = perk_points;
         self.scenes = scenes;
         self.sound_instances = sound_instances;
         self.next_sound = next_sound;
@@ -827,6 +833,22 @@ fn write_ref_state(w: &mut Writer, s: &RefState) {
     w.bool(s.fast_travel);
     w.bool(s.destroyed);
     w.bool(s.ignore_friendly_hits);
+    w.len(s.anim_floats.len());
+    for (k, v) in &s.anim_floats {
+        w.str(k);
+        w.f32(*v);
+    }
+    w.len(s.anim_ints.len());
+    for (k, v) in &s.anim_ints {
+        w.str(k);
+        w.i32(*v);
+    }
+    w.len(s.anim_bools.len());
+    for (k, v) in &s.anim_bools {
+        w.str(k);
+        w.bool(*v);
+    }
+    w.f32(s.alpha);
 }
 
 fn read_ref_state(r: &mut Reader<'_>) -> Result<RefState, VmError> {
@@ -872,6 +894,25 @@ fn read_ref_state(r: &mut Reader<'_>) -> Result<RefState, VmError> {
     let fast_travel = r.bool()?;
     let destroyed = r.bool()?;
     let ignore_friendly_hits = r.bool()?;
+    let mut anim_floats = BTreeMap::new();
+    let n = r.len()?;
+    for _ in 0..n {
+        let k = r.str()?;
+        anim_floats.insert(k, r.f32()?);
+    }
+    let mut anim_ints = BTreeMap::new();
+    let n = r.len()?;
+    for _ in 0..n {
+        let k = r.str()?;
+        anim_ints.insert(k, r.i32()?);
+    }
+    let mut anim_bools = BTreeMap::new();
+    let n = r.len()?;
+    for _ in 0..n {
+        let k = r.str()?;
+        anim_bools.insert(k, r.bool()?);
+    }
+    let alpha = r.f32()?;
     Ok(RefState {
         base,
         cell,
@@ -895,6 +936,10 @@ fn read_ref_state(r: &mut Reader<'_>) -> Result<RefState, VmError> {
         fast_travel,
         destroyed,
         ignore_friendly_hits,
+        anim_floats,
+        anim_ints,
+        anim_bools,
+        alpha,
     })
 }
 
@@ -963,6 +1008,26 @@ fn write_actor_state(w: &mut Writer, a: &ActorState) {
     ] {
         write_opt_form_id(w, id);
     }
+    w.len(a.graph_floats.len());
+    for (k, v) in &a.graph_floats {
+        w.str(k);
+        w.f32(*v);
+    }
+    for flag in [
+        a.allow_flying,
+        a.deferred_kill,
+        a.vampire,
+        a.werewolf,
+        a.no_bleedout_recovery,
+        a.ai_disabled,
+    ] {
+        w.bool(flag);
+    }
+    w.i32(a.critical_stage);
+    write_opt_form_id(w, a.eye_texture);
+    write_opt_form_id(w, a.ash_pile);
+    write_form_set(w, &a.shouts);
+    write_opt_form_id(w, a.equipped_shout);
 }
 
 fn write_form_set(w: &mut Writer, set: &BTreeSet<GlobalFormId>) {
@@ -1054,6 +1119,22 @@ fn read_actor_state(r: &mut Reader<'_>) -> Result<ActorState, VmError> {
     a.outfit = read_opt_form_id(r)?;
     a.sleep_outfit = read_opt_form_id(r)?;
     a.killer = read_opt_form_id(r)?;
+    let n = r.len()?;
+    for _ in 0..n {
+        let k = r.str()?;
+        a.graph_floats.insert(k, r.f32()?);
+    }
+    a.allow_flying = r.bool()?;
+    a.deferred_kill = r.bool()?;
+    a.vampire = r.bool()?;
+    a.werewolf = r.bool()?;
+    a.no_bleedout_recovery = r.bool()?;
+    a.ai_disabled = r.bool()?;
+    a.critical_stage = r.i32()?;
+    a.eye_texture = read_opt_form_id(r)?;
+    a.ash_pile = read_opt_form_id(r)?;
+    a.shouts = read_form_set(r)?;
+    a.equipped_shout = read_opt_form_id(r)?;
     Ok(a)
 }
 

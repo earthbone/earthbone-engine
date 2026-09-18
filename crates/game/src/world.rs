@@ -94,6 +94,14 @@ pub struct RefState {
     pub fast_travel: bool,
     pub destroyed: bool,
     pub ignore_friendly_hits: bool,
+    /// Animation graph variables set through `SetAnimationVariable*`, keyed
+    /// by lowercase name. The graph has one value per name, the three
+    /// typed pairs read and write the same store.
+    pub anim_floats: BTreeMap<String, f32>,
+    pub anim_ints: BTreeMap<String, i32>,
+    pub anim_bools: BTreeMap<String, bool>,
+    /// `SetAlpha`, the fade the Dawnguard and Dragonborn scripts use.
+    pub alpha: f32,
 }
 
 impl RefState {
@@ -121,6 +129,10 @@ impl RefState {
             fast_travel: false,
             destroyed: false,
             ignore_friendly_hits: false,
+            anim_floats: BTreeMap::new(),
+            anim_ints: BTreeMap::new(),
+            anim_bools: BTreeMap::new(),
+            alpha: 1.0,
         }
     }
 }
@@ -161,6 +173,29 @@ pub struct ActorState {
     pub outfit: Option<GlobalFormId>,
     pub sleep_outfit: Option<GlobalFormId>,
     pub killer: Option<GlobalFormId>,
+    /// Behavior graph floats set through `SetSubGraphFloatVariable`, keyed
+    /// by lowercase name.
+    pub graph_floats: BTreeMap<String, f32>,
+    /// `SetAllowFlying`, the Dawnguard dragon riding flag.
+    pub allow_flying: bool,
+    /// Between `StartDeferredKill` and `EndDeferredKill` death waits.
+    pub deferred_kill: bool,
+    /// The last state `SendVampirismStateChanged` announced for this actor.
+    pub vampire: bool,
+    /// The last state `SendLycanthropyStateChanged` announced.
+    pub werewolf: bool,
+    /// `SetEyeTexture`, the Dawnguard vampire eyes.
+    pub eye_texture: Option<GlobalFormId>,
+    /// `SetCriticalStage`, the death-by-critical stages.
+    pub critical_stage: i32,
+    /// `SetNoBleedoutRecovery`: this actor stays down once it bleeds out.
+    pub no_bleedout_recovery: bool,
+    /// `EnableAI(false)`. Stored inverted so a default actor thinks.
+    pub ai_disabled: bool,
+    /// The base form `AttachAshPile` left on this actor.
+    pub ash_pile: Option<GlobalFormId>,
+    pub shouts: BTreeSet<GlobalFormId>,
+    pub equipped_shout: Option<GlobalFormId>,
 }
 
 /// One `LVLO` entry of a leveled list.
@@ -351,6 +386,8 @@ pub struct World {
     pub words_unlocked: BTreeSet<GlobalFormId>,
     pub achievements: Vec<i32>,
     pub last_ridden_horse: Option<GlobalFormId>,
+    /// `Game.AddPerkPoints`, the Dragonborn black book reward.
+    pub perk_points: i32,
     /// Scenes that are playing.
     pub scenes: BTreeSet<GlobalFormId>,
     /// Sound instances by the id `Sound.Play` handed out: the sound, the
@@ -423,6 +460,7 @@ impl World {
             words_unlocked: BTreeSet::new(),
             achievements: Vec::new(),
             last_ridden_horse: None,
+            perk_points: 0,
             scenes: BTreeSet::new(),
             sound_instances: BTreeMap::new(),
             next_sound: 0,
@@ -509,6 +547,8 @@ pub fn class_for_tag(tag: &[u8; 4]) -> &'static str {
         b"PROJ" => "Projectile",
         b"HAZD" => "Hazard",
         b"EFSH" => "EffectShader",
+        b"RFCT" => "VisualEffect",
+        b"SPGD" => "ShaderParticleGeometry",
         b"ECZN" => "EncounterZone",
         b"DIAL" => "Topic",
         b"INFO" => "TopicInfo",

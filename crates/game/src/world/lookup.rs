@@ -128,6 +128,24 @@ impl World {
         Some(self.order.resolve(rref.file, raw))
     }
 
+    /// The quest a fragment-carrying form belongs to: a scene's `PNAM`
+    /// parent quest, a package's `QNAM` owner quest. A topic info's quest
+    /// sits on the `DIAL` above it, which the record view cannot reach from
+    /// the info alone, so that one is None here.
+    pub fn owning_quest(&self, id: GlobalFormId) -> Option<GlobalFormId> {
+        let rref = self.order.winner_ref(id)?;
+        let rec = self.order.record(rref);
+        let tag = match *rec.tag.as_bytes() {
+            [b'S', b'C', b'E', b'N'] => T(b"PNAM"),
+            [b'P', b'A', b'C', b'K'] => T(b"QNAM"),
+            _ => return None,
+        };
+        let raw = rec
+            .find(tag)
+            .and_then(|d| (d.len() >= 4).then(|| u32::from_le_bytes([d[0], d[1], d[2], d[3]])))?;
+        (raw != 0).then(|| self.order.resolve(rref.file, raw))
+    }
+
     pub fn keywords(&self, id: GlobalFormId) -> Vec<GlobalFormId> {
         let Some(rref) = self.order.winner_ref(id) else {
             return Vec::new();
