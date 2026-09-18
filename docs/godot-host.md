@@ -560,36 +560,64 @@ Headless, the graph starts in `MT_Idle.HKX` and the walk event moves it to
 `godot/skinned_test.gd` asserts that transition, `godot/skinned_capture.gd`
 saves `docs/images/skinned-{idle,walk}.png`.
 
-### Two defects found, one open
+### Two defects found, both closed
 
-**Bone indices, worked around.** A `NiSkinPartition` splits a shape into body
-parts, and a packed vertex's bone indices address the **partition's** short
-bone list rather than the skin instance's. The `nif` crate's legacy
-`NiTriShape` path maps them through `Partition::bones` and says so in its doc
-comment. The `BSTriShape` path that Special Edition uses copies them straight
-off the vertex. `actor::partition_bone_indices` corrects that here because
-another fork owns `crates/nif`, and it should move there. On this body the
-correction changes nothing visible, so the partitions' bone lists happen to be
-identity, which is luck rather than a reason to leave the reader as it is.
+**Bone indices.** A `NiSkinPartition` splits a shape into body parts, and a
+packed vertex's bone indices address the **partition's** short bone list rather
+than the skin instance's. The `nif` crate's legacy `NiTriShape` path maps them
+through `Partition::bones`, the `BSTriShape` path Special Edition uses copied
+them raw. `actor::partition_bone_indices` corrects it here by reading the
+partition blocks directly. The reader itself was fixed on master afterwards,
+measured over 400 actor meshes where 564 of 846 partitions carry a reordering
+bone list, so the two now agree and this copy could be dropped in favour of
+`mesh.bone_indices`.
 
-**The bind pose does not cancel, and this is open.** Skinning a character with
-the skeleton's own reference pose should give the identity for every bone, so
-the body renders exactly as it is authored. It does not: the worst bone is off
-by 1.72 m, and the error is zero at the pelvis and grows through its
-descendants (spine 0.15 m, thighs 0.34 m, spine1 0.37 m).
+### The bind pose, and why it hid at the pelvis
 
-Composing `Skin::transform`, the shape's offset from the skeleton root, drives
-that number down to 0.37 m and makes the pelvis exact. A capture of that
-version is **visibly much worse**, a shredded fan rather than a body, so the
-vertices are already in the skin's space and that offset does not belong.
-The number and the picture disagree, the picture wins, and the code does not
-apply it.
+The character rendered with a correct torso, hips and legs and with the arms
+flattened into blades. The error was zero at the pelvis and grew through every
+bone below it, which was read at the time as two bind poses disagreeing.
 
-What renders today is a correct torso, hips and legs with the arms flattened
-into blades and the head deformed. Whatever is wrong is in the bind pose
-relationship between the `hkx` skeleton and the `NIF` inverse binds, not in the
-interpreter, whose poses match the clip sampler to 3.8e-6, and not in the bone
-matching, which is 29 of 29. The next step is to compare the `NIF` skeleton
-node hierarchy in `skeleton.nif` against the `hkx` reference pose bone by bone,
-since those are the two bind poses that must agree and only one of them is
-being read.
+It was one transposed rotation. `nif.xml` declares `Matrix33` as nine floats in
+OpenGL column major order, `m11 m21 m31 m12 ...`, and `crates/nif` reads it
+that way, so `Mat33::rows` holds the matrix as written and `Affine::from_nif`
+applies it as `M * v`. That is right for a scene graph node and the streamed
+cells prove it every time they draw. It is wrong for a bind transform, and
+`Affine::from_nif_skin` transposes those.
+
+`nifly`, the C++ library under PyNifly, which imports and exports Skyrim
+characters with working skinning, does the same thing by a different route: it
+reads the nine floats straight into memory, so its `Matrix3` is the transpose
+of ours, and its `ApplyTransform` computes what we would write as
+`transpose(M) * v`. Transposing here reproduces `nifly` rather than departing
+from it. Its `Skin.hpp` also names the two fields plainly, `boneTransform` is
+`transformSkinToBone` and `skinTransform` is `transformGlobalToSkin`, which
+settles the composition: bone world times skin to bone carries a vertex from
+skin space to model space, and the global offset is not part of it. GPL-3.0,
+read and credited, and nothing derived from it may reach the MIT shim crates.
+
+Why it hid: the pelvis bind rotation is the identity, and an identity matrix is
+its own transpose, so that one bone cancelled correctly while every descendant
+inherited the error. That also explains the earlier attempt that composed
+`Skin::transform` without the transpose. It made the pelvis exact and the
+number smaller while the capture got worse, because the pelvis was the only
+bone the missing transpose had ever spared.
+
+The composition is now `pose * transpose(inverseBind)`, with the shape offset
+left out. Three facts pin it in `tests/bind_pose.rs`, gated on the installed
+game:
+
+| Check | Result |
+|---|---|
+| Bones agreeing on one transform at the reference pose | within 0.000002 |
+| What they agree on, against the shape offset inverted | matches |
+| Skinned height range, a body with no head, hands or feet | 0.162 m to 1.645 m |
+| An upper arm's stored bind against the pose rotation | equal to 0.000001, against its transpose 0.82 |
+
+The last row is the cause stated as a measurement: the rotation in the bind
+slot is the bone's own pose rotation, so reading it straight applies the
+rotation twice instead of cancelling it.
+
+`tests/real_skinning.rs` asserts the first of those on every frame path, and
+the captures in `docs/images/skinned-{idle,walk}.png` are a body standing and
+walking. Materials are still unwired, so they are unlit grey.

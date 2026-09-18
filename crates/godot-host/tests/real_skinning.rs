@@ -132,7 +132,10 @@ fn a_vanilla_body_skins_to_the_animated_skeleton() {
             .iter()
             .map(|a| (0..3).map(|i| a.origin[i].abs()).fold(0.0f32, f32::max))
             .fold(0.0f32, f32::max);
-        println!("  bind pose: worst skinning offset {worst:.4} m, should be near zero");
+        // Not an error term. This is the skin to model offset the vertices
+        // still need, the same for every bone, so it is the shape's own
+        // transform read back. What matters is the spread below it.
+        println!("  bind pose: common skin to model offset {worst:.4} m");
         println!(
             "  shape node transform: {:?}",
             assets.surfaces[0].node_offset
@@ -150,13 +153,31 @@ fn a_vanilla_body_skins_to_the_animated_skeleton() {
             println!("    {name:<26} residual {d:.4} m");
         }
 
-        // This residual is reported, not asserted, and the reason is worth
-        // keeping. A bind pose ought to cancel to zero, and it does not.
-        // Composing the skin's offset from the root does drive the number
-        // down, from 1.72 m to 0.37 m, and yet a capture of that version is
-        // visibly worse, so the number and the picture disagree and the
-        // picture wins. Until something explains both, no bound here would
-        // mean anything. See docs/godot-host.md.
+        // Asserted now rather than reported, but not against the identity.
+        // A Special Edition shape stores its vertices in skin space, so at the
+        // reference pose every bone must produce the *same* transform, the one
+        // that carries skin space into model space. Bones disagreeing is the
+        // real fault signature: it read 1.72 m of spread until 2026-09-18,
+        // when reading `NiSkinData`'s transposed rotations fixed it.
+        let first = bind_skins[0];
+        let spread = bind_skins
+            .iter()
+            .map(|a| {
+                let o = (0..3)
+                    .map(|i| (a.origin[i] - first.origin[i]).abs())
+                    .fold(0.0f32, f32::max);
+                let b = (0..3)
+                    .flat_map(|r| (0..3).map(move |c| (r, c)))
+                    .map(|(r, c)| (a.basis[r][c] - first.basis[r][c]).abs())
+                    .fold(0.0f32, f32::max);
+                o.max(b)
+            })
+            .fold(0.0f32, f32::max);
+        println!("  bind pose: bones disagree by at most {spread:.6}");
+        assert!(
+            spread < 1e-3,
+            "at the reference pose every bone must give the same transform, spread is {spread}"
+        );
     }
 
     // Scale is the cheapest way a bone collapses a limb to a sliver, so

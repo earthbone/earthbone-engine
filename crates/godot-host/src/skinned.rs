@@ -11,8 +11,15 @@
 //!
 //! So this module does three things: match the mesh's bone list onto the
 //! skeleton's by name, combine the animated model-space pose with the mesh's
-//! inverse bind to get one skinning transform per mesh bone, and convert that
-//! into Godot's axes and metres.
+//! bind transform to get one skinning transform per mesh bone, and convert
+//! that into Godot's axes and metres.
+//!
+//! One trap is worth knowing before reading the arithmetic. A bind transform
+//! has to be transposed where a scene graph node's transform does not, which
+//! is what [`Affine::from_nif_skin`] is for and why it exists beside
+//! [`Affine::from_nif`]. Leaving it out flattens every limb while sparing the
+//! pelvis, whose bind rotation is the identity and so is its own transpose.
+//! The reasoning, and how it lines up with `nifly`, is on `from_nif_skin`.
 //!
 //! Everything here is plain arithmetic with no Godot types, so it is testable
 //! without an engine. [`crate::godot_layer`] turns the result into
@@ -93,6 +100,41 @@ impl Affine {
         Affine {
             basis,
             origin: [t.translation.x, t.translation.y, t.translation.z],
+        }
+    }
+
+    /// A bind transform out of `NiSkinData`, with its basis transposed.
+    ///
+    /// This matches `nifly`, the C++ library under PyNifly, which imports and
+    /// exports Skyrim characters with working skinning. Two conventions have
+    /// to be lined up to see why, and they cancel.
+    ///
+    /// `nif.xml` declares `Matrix33` as nine floats in OpenGL column major
+    /// order, `m11 m21 m31 m12 ...`, and `crates/nif` reads it that way, so
+    /// `Mat33::rows` is the matrix as written and [`Affine::from_nif`] applies
+    /// it as `M * v`. That is right for a scene graph node, which the streamed
+    /// cells prove every time they draw. `nifly` instead reads the same nine
+    /// floats straight into memory, so its `Matrix3` holds the transpose of
+    /// ours, and its `ApplyTransform` computes what we would write as
+    /// `transpose(M) * v`. Applying the transpose here is therefore doing what
+    /// `nifly` does, not departing from it.
+    ///
+    /// Leaving it out is the bind pose defect, and it hides well: the pelvis
+    /// bind rotation is the identity, which is its own transpose, so the error
+    /// is zero there and grows through every bone below it. See
+    /// `docs/godot-host.md`.
+    #[must_use]
+    pub fn from_nif_skin(t: &NifTransform) -> Affine {
+        let a = Affine::from_nif(t);
+        let mut basis = [[0.0f32; 3]; 3];
+        for (r, row) in basis.iter_mut().enumerate() {
+            for (c, cell) in row.iter_mut().enumerate() {
+                *cell = a.basis[c][r];
+            }
+        }
+        Affine {
+            basis,
+            origin: a.origin,
         }
     }
 
@@ -272,13 +314,23 @@ impl std::error::Error for SkinError {}
 /// gets the identity, which leaves the vertices weighted to it at their bind
 /// position rather than collapsing them to the origin.
 ///
-/// [`Skin::transform`], the shape's offset from the skeleton root, is
-/// deliberately **not** applied. A Special Edition skinned shape keeps its
-/// vertices in the skin's own space already, so composing that offset in
-/// shifts every bone by the character's standing height and shreds the mesh,
-/// which a capture shows at once. It is taken here only to report, since a
-/// shape whose vertices really were shape local would need it. See
-/// `docs/godot-host.md` for the measurement that settled this.
+/// The transform is `pose * inverseBind`, with the bind read through
+/// [`Affine::from_nif_skin`] because `NiSkinData` stores its rotations
+/// transposed relative to a scene graph node. That transpose is the whole fix
+/// for the flattened limbs, and leaving it out is invisible at the pelvis
+/// because an identity rotation is its own transpose.
+///
+/// [`Skin::transform`] is **not** composed on the end, and `nifly` says why in
+/// as many words: a bone's transform there is named `transformSkinToBone`, and
+/// the shape's own is `transformGlobalToSkin`. Vertices arrive in skin space,
+/// so bone world times skin to bone already carries them to model space, and
+/// the global offset is not part of it. At the reference pose every bone then
+/// produces the same constant, that offset's inverse, which is the property
+/// `tests/real_skinning.rs` asserts. Composing the offset in as well cancels
+/// it and buries the character 1.7 m under the floor, measured in
+/// `tests/bind_pose.rs` rather than argued. An earlier attempt did compose it,
+/// without the transpose, and reported a smaller error while rendering worse,
+/// because the pelvis is the one bone a missing transpose does not spoil.
 ///
 /// # Errors
 ///
@@ -310,7 +362,7 @@ pub fn skinning_transforms_into(
                 pose: model_pose.len(),
             });
         };
-        let full = Affine::from_qs(model).then(&Affine::from_nif(&mesh_bone.inverse_bind));
+        let full = Affine::from_qs(model).then(&Affine::from_nif_skin(&mesh_bone.inverse_bind));
         out.push(full.to_godot());
     }
     Ok(())
@@ -533,6 +585,100 @@ mod tests {
             (out[0].origin[1] - want).abs() < 1e-6,
             "{:?} wanted y {want}",
             out[0].origin
+        );
+    }
+
+    /// A rotation about Z by `turns` of a quarter, as a `NIF` transform, so a
+    /// test can tell a basis from its own transpose.
+    fn rotated_nif(radians: f32) -> NifTransform {
+        let (s, c) = radians.sin_cos();
+        NifTransform {
+            rotation: Mat33 {
+                rows: [[c, -s, 0.0], [s, c, 0.0], [0.0, 0.0, 1.0]],
+            },
+            translation: Vec3 {
+                x: 0.0,
+                y: 0.0,
+                z: 0.0,
+            },
+            scale: 1.0,
+        }
+    }
+
+    #[test]
+    fn a_skin_transform_is_read_transposed_where_a_node_transform_is_not() {
+        // The whole bind pose defect in one assertion: the same bytes read two
+        // ways give bases that are transposes of each other.
+        let t = rotated_nif(0.7);
+        let node = Affine::from_nif(&t);
+        let skin = Affine::from_nif_skin(&t);
+        for r in 0..3 {
+            for c in 0..3 {
+                assert!(
+                    (node.basis[r][c] - skin.basis[c][r]).abs() < 1e-6,
+                    "row {r} column {c}: {:?} against {:?}",
+                    node.basis,
+                    skin.basis
+                );
+            }
+        }
+        // A pure translation is its own transpose, which is why the pelvis hid
+        // this for as long as it did.
+        let flat = translated_nif(1.0, 2.0, 3.0);
+        assert_eq!(
+            Affine::from_nif(&flat).basis,
+            Affine::from_nif_skin(&flat).basis
+        );
+    }
+
+    #[test]
+    fn a_rotated_bind_cancels_only_because_the_bind_is_transposed() {
+        // A bone rotated about Z, with the mesh storing the inverse of that
+        // rotation in NiSkinData's own convention. The skinning transform must
+        // come back the identity, and would not if the basis were read as a
+        // node transform.
+        let angle = 0.7f32;
+        let skel = skeleton(&["A"]);
+        // What the file stores is the forward rotation, because writing the
+        // inverse for `v * M` is writing the transpose of the inverse, and for
+        // a rotation that is the rotation itself. Reading it back transposed
+        // turns it into the inverse this multiplication needs.
+        let bones = [mesh_bone("A", rotated_nif(angle))];
+        let map = BoneMap::build(&bones, &skel);
+        let (s, c) = (angle / 2.0).sin_cos();
+        let model = [QsTransform {
+            rotation: [0.0, 0.0, s, c],
+            ..QsTransform::IDENTITY
+        }];
+        let skin = skin_of(&bones, NifTransform::IDENTITY);
+        let out = skinning_transforms(&map, &skin, &model).unwrap();
+        for r in 0..3 {
+            for c2 in 0..3 {
+                let want = if r == c2 { 1.0 } else { 0.0 };
+                assert!(
+                    (out[0].basis[r][c2] - want).abs() < 1e-5,
+                    "basis {:?} is not the identity",
+                    out[0].basis
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn the_shapes_own_offset_is_left_for_the_vertices_to_carry() {
+        // The shape's offset must not reach the skinning transform. A bone at
+        // its bind position gives the identity here whatever the offset says,
+        // because the vertices are already expressed relative to it.
+        let skel = skeleton(&["A"]);
+        let bones = [mesh_bone("A", NifTransform::IDENTITY)];
+        let map = BoneMap::build(&bones, &skel);
+        let offset = skin_of(&bones, translated_nif(0.0, 0.0, -120.0));
+        let none = skin_of(&bones, NifTransform::IDENTITY);
+        let with = skinning_transforms(&map, &offset, &[QsTransform::IDENTITY]).unwrap();
+        let without = skinning_transforms(&map, &none, &[QsTransform::IDENTITY]).unwrap();
+        assert_eq!(
+            with[0], without[0],
+            "the shape offset must not move a bone's skinning transform"
         );
     }
 
