@@ -85,6 +85,9 @@ Open the corpus before writing a parser or a native, not after.
   to it wherever an author has a choice (Ogg and Opus next to xWMA, WASM next to
   PEX). No Godot patches, the extension works on stock Godot at the 4.4 API
   floor and is tested on current stable.
+- The DLC are in scope (user, 2026-09-18): Dawnguard, HearthFires and
+  Dragonborn sit in every gated load order, their scripts count in the
+  native ordering and their natives are engine work, never a leftover.
 - Code forks at most three at a time. Progress is read from branch commits and
   the master gate, never from an agent's own report.
 

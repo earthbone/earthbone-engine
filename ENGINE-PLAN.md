@@ -285,3 +285,13 @@ PEX) so new mods need no proprietary tool.
 | Mod data formats | `mod-data-formats` | SPID, KID and BOS ini files and OAR folders parse and apply on the synthetic fixtures and on one real mod of each kind. |
 | Audio | `audio` | FUZ split, LIP parse, xWMA decode, Ogg Vorbis and Opus playback under SNDR and SOUN descriptors, a voice line plays with its lip data. |
 | UI round | `ui` | Round 6, scoped when round 5 closes. |
+
+Scope note (2026-09-18, user): the DLC are in scope. Dawnguard, HearthFires and Dragonborn are
+part of the load order every gated run uses, their scripts count in the native ordering, and a
+native they declare (`Actor.SendVampirismStateChanged` is the first) is engine work like any base
+game native, not a leftover to list. Creation Club plugins load as ordinary plugins through the
+profile, their natives are added on the same call-count order when they appear.
+
+| Item | Branch | Done check |
+|---|---|---|
+| DLC natives | `natives-dlc` | Every native declared by a DLC script (`Actor.SendVampirismStateChanged`, the `DLC1` and `DLC2` extensions to `Actor`, `Game`, `ObjectReference`, `Race`, `Werewolf` and `Vampire` events) is registered with a scenario, the first real `start` has zero unresolved calls, and a Dawnguard flow (`DLC1VampireTurn` through the state change) runs on the harness. Starts after `world-split` merges. |
