@@ -114,7 +114,7 @@ assembler for emitting a stream that is not representable. Until then the
 nightly tier fails on this target, which is the correct state for a known
 defect.
 
-**What it cannot catch.** `fuzz-vm-run` builds one function on one script with
+**What this entry cannot catch.** `fuzz-vm-run` builds one function on one script with
 no properties, no states and no object graph, so it never reaches inheritance,
 property dispatch, latent calls or the scheduler, which is where the
 interesting VM state lives. Neither target models natives, so everything
@@ -122,3 +122,49 @@ behind `CallStatic` and `CallMethod` is a stub to them. The budgets that stop a
 hang also stop a slow leak from ever showing. Neither target says anything
 about whether a script computes the right answer, only that it does not take
 the process down.
+
+## 3. `save`, the vanilla loader on bytes nobody wrote
+
+Tier 2, nightly. `fuzz/fuzz_targets/fuzz_save.rs`.
+
+**Added.** A fuzz target over `Save::parse`, asserting two things: parsing any
+byte string does not panic, and a save that parses writes back to exactly the
+bytes it came from. The second half matters more than the first. The reader
+already round trips all sixty real saves byte for byte, but those are files the
+game itself wrote. A save in the wild comes from a crash, an older build, a
+different mod list or a hand edit, and a reader that silently drops a field
+would look correct right up until someone saves over their game with a
+shortened file.
+
+**What it found.** Nothing. 99,273,231 executions in 361 seconds, 445 edges
+covered, no crash and no round trip difference. That is a real result rather
+than an absence of one: the loader was written against the UESP pages and
+ReSaver over two days, and it holds up against a hundred million hostile
+inputs.
+
+**What it cannot catch.** It only reaches what `Save::parse` parses. The
+Papyrus tail past the reference table is still handed back raw, so nothing here
+exercises it. It says nothing about whether a parsed save means the right
+thing, which is what the quest stage progression test over the 41 save sequence
+covers, and nothing about the engine's own `SOEV`, `SOEW` and `SOEG` streams,
+which live in crates a different fork owns.
+
+## Not reached: commits 4 and 5
+
+Two of the five planned commits are not here, and neither is blocked on
+anything subtle.
+
+**4, fault injection with the `fail` crate.** Not started. The plan pairs
+failpoints on the archive read path with failpoints on the save write path, but
+the save write path lives in `crates/game`, which another fork owns this round,
+so only the archive half was reachable and the pair is more useful landed
+together. The archive half is unblocked whenever `crates/bsa` and `crates/game`
+are free at the same time.
+
+**5, mutation score.** `cargo-mutants` is not installed on this machine
+(`cargo mutants` reports "no such command"). The directive said to skip rather
+than install it globally, so it is skipped. Nothing else about the commit is
+blocked: the four files the plan scopes it to (`vm.rs`, `value.rs`,
+`load_order.rs`, `cell_index.rs`) are all still the right targets, and the two
+VM limits added in entry 2 give it more to chew on than it would have had
+before.

@@ -32,6 +32,9 @@ path = "../crates/dds"
 [dependencies.soe-papyrus]
 path = "../crates/papyrus"
 
+[dependencies.soe-save]
+path = "../crates/save"
+
 [[bin]]
 name = "fuzz-esm"
 path = "fuzz_targets/fuzz_esm.rs"
@@ -87,6 +90,13 @@ bench = false
 [[bin]]
 name = "fuzz-vm-run"
 path = "fuzz_targets/fuzz_vm_run.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz-save"
+path = "fuzz_targets/fuzz_save.rs"
 test = false
 doc = false
 bench = false

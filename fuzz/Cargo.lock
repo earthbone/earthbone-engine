@@ -276,6 +276,7 @@ dependencies = [
  "soe-havok",
  "soe-nif",
  "soe-papyrus",
+ "soe-save",
 ]
 
 [[package]]
@@ -294,6 +295,17 @@ name = "soe-papyrus"
 version = "0.1.0"
 dependencies = [
  "soe-trace",
+]
+
+[[package]]
+name = "soe-save"
+version = "0.1.0"
+dependencies = [
+ "encoding_rs",
+ "flate2",
+ "lz4_flex",
+ "soe-trace",
+ "thiserror",
 ]
 
 [[package]]
