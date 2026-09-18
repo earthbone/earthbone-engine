@@ -210,3 +210,27 @@ frame times are reported as p50, p99, p99.9 and worst hitch, never as an average
 
 Order: the test plan audit first, then determinism as soon as the packages and natives-2 branches
 merge (it touches `world.rs` and the clock), the rest as forks in any order.
+
+Added 2026-09-18, after the rendering brief (`../research/rendering-performance.md`) and the
+behavior and packages merges:
+
+| Item | Branch | Done check |
+|---|---|---|
+| Compressed texture upload | `gpu-textures` | DDS payloads go to Godot as block-compressed bytes with their mip chain (`FORMAT_DXT1`, `DXT5`, `RGTC`, `BPTC`), the dds crate decode stays as fallback, a session-long texture cache on the data source, stream time recorded before and after. First item of the brief, it is 97 percent of a stream. |
+| MultiMesh buckets | `multimesh` | Repeated statics and grass per cell in `MultiMesh` buckets filled on worker threads, p99 frame time recorded. |
+| Runtime LOD and BTO | `lod` | LOD index arrays on batched surfaces, a BTO reader for Bethesda's precomputed terrain and object LOD, shown through visibility ranges. |
+| Occluders | `occluders` | One `ArrayOccluder3D` per cell from the largest opaque statics, kept only if p99 improves. |
+| Behavior interpreter 2 | `behavior-2` | Behavior references through `hkbSymbolIdMap`, modifiers, conditions, priority arbitration, transition effects, bone masks, extracted motion. The standing idle plays under the vanilla graph. |
+| Procedure trees | `packages-2` | PACK procedure trees (sequence, random, simultaneous), the 18 remaining procedures, package fragments, interrupt and combat flags. |
+| hkx rename | `hkx-rename` | The `havok` crate becomes `hkx`, the name says the format it reads, not a library it links. |
+| Papyrus log import | `papyrus-log` | A vanilla `Papyrus.0.log` parses into scenario expectations, a differential run against the VM reports every divergence. |
+| Script coverage | `script-coverage` | A harness run records which vanilla script functions executed, reported as a percentage per quest and per script. |
+| Papyrus compiler | `psc` | `.psc` source compiles to PEX with the assembler, scenarios can be written in Papyrus, output matches the Creation Kit compiler on the vanilla sources that ship. |
+| Record inspector | `inspector` | An xEdit style record tree over the esm crate inside the Godot editor, the first slice of the round 4 editor backend. |
+| Mod corpus bot | `mod-corpus` | Nightly load of the top mods fetched by the mod manager, reporting parser failures, unresolved natives and missing assets. |
+| Frame capture harness | `capture-harness` | Headless captures per cell compared with stored images under an SSIM tolerance, a rendering regression fails a test. |
+
+Not patching Godot: GPU occlusion, mesh shaders, virtual geometry and virtual texturing all need
+a fork, none is needed at Skyrim's asset counts, and a patch brings back the per-release rebase
+cost the single-precision decision avoided. Track proposal 13406 (draw-list access in
+`CompositorEffect`) only.
