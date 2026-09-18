@@ -11,8 +11,13 @@
 //! the reference for that rule. Door links are not edges: they say which
 //! triangle a door reference stands on, for the AI to open it, and are
 //! reported but not walked.
+//!
+//! A `NAVM` whose winning record is deleted, which the shipped masters carry
+//! and xEdit's cleaning removes, is not added. Every edge link a neighbour
+//! aims at it becomes a border and is counted as repaired, apart from the
+//! unresolved count that names links to navmeshes nobody loaded.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use soe_esm::records::navm::{Geometry, NavMesh};
 use soe_esm::{tag, LoadOrder, Record};
@@ -45,7 +50,11 @@ pub struct Stats {
     /// triangle exists.
     pub resolved_links: usize,
     pub unresolved_links: usize,
+    /// Links whose target navmesh is deleted, cut to a border.
+    pub repaired_links: usize,
     pub door_links: usize,
+    /// Navmeshes whose winning record is deleted, left out of the graph.
+    pub deleted_meshes: usize,
 }
 
 /// Collects navmeshes under any key, resolves their links, and hands back
@@ -58,12 +67,21 @@ pub struct Builder {
     index_of: HashMap<u64, u32>,
     /// (source node, edge, target key, target triangle)
     pending: Vec<(NodeId, usize, u64, i16)>,
+    deleted: HashSet<u64>,
     stats: Stats,
 }
 
 impl Builder {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Record that the navmesh under `key` is deleted. Links to it are cut
+    /// and counted as repaired when the graph is built.
+    pub fn mark_deleted(&mut self, key: u64) {
+        if self.deleted.insert(key) {
+            self.stats.deleted_meshes += 1;
+        }
     }
 
     /// Add one navmesh. `resolve` maps the raw FormID an edge link names in
@@ -124,6 +142,10 @@ impl Builder {
     pub fn build(mut self) -> (NavGraph, Stats) {
         let pending = std::mem::take(&mut self.pending);
         for (from, edge, key, tri) in pending {
+            if self.deleted.contains(&key) {
+                self.stats.repaired_links += 1;
+                continue;
+            }
             let target = self
                 .index_of
                 .get(&key)
@@ -158,6 +180,10 @@ pub fn from_load_order(order: &LoadOrder, keep: impl Fn(&Record) -> bool) -> (Na
     winners.sort_by_key(|(id, _)| *id);
     for (id, rref) in winners {
         let rec = order.record(rref);
+        if rec.is_deleted() {
+            b.mark_deleted(key_of(id));
+            continue;
+        }
         let Ok(navm) = NavMesh::from_record(rec) else {
             continue;
         };
@@ -267,6 +293,23 @@ mod tests {
         let (g, stats) = b.build();
         assert_eq!(stats.unresolved_links, 1);
         assert_eq!(stats.resolved_links, 0);
+        assert_eq!(g.triangle(NodeId::new(0, 0)).neighbors[1], None);
+    }
+
+    #[test]
+    fn a_link_to_a_deleted_navmesh_is_cut_and_counted_as_repaired() {
+        let mut b = Builder::new();
+        b.add(0x10, &square(0.0, Some((0x20, 1))), |raw| {
+            Some(u64::from(raw))
+        });
+        b.mark_deleted(0x20);
+        b.mark_deleted(0x20);
+        let (g, stats) = b.build();
+        assert_eq!(stats.deleted_meshes, 1);
+        assert_eq!(stats.repaired_links, 1);
+        assert_eq!(stats.unresolved_links, 0);
+        assert_eq!(stats.resolved_links, 0);
+        assert_eq!(g.meshes().len(), 1);
         assert_eq!(g.triangle(NodeId::new(0, 0)).neighbors[1], None);
     }
 

@@ -142,3 +142,73 @@ it, see `docs/performance.md` for what that changed.
 Every id filed under the Bannered Mare resolves back to that cell through its
 winning record's placement. The 690 `REFR` count matches what the linear scan in
 `DataSource` found before the index, so the two agree on the vanilla data.
+
+## Dirty plugins (2026-09-18, branch `dirty-records`)
+
+xEdit's Quick Auto Clean repairs three things in a plugin: an override that
+repeats its master byte for byte (it wins over every plugin between the two),
+a deleted placed object (the vanilla engine crashes when a script or a linked
+reference still names it, so the cleaner undeletes it, sets the initially
+disabled flag and moves it to z minus 30000, `wbUDRSetZValue` in
+`wbInterface.pas`), and a deleted navmesh (same crash through the edge links).
+Bethesda's own Update, Dawnguard, HearthFires and Dragonborn masters carry all
+three. The engine takes the cleaned meaning from the file as shipped, so nobody
+cleans anything:
+
+- `CellIndex` keeps a placed object whose winner is deleted under its last known
+  cell in `deleted_references`, apart from the `references` slice a loader
+  draws. It resolves through the load order like any form, and the game's
+  `World::load_ref` starts it disabled (the one line in `crates/game` this
+  branch touched). The hot lookup is unchanged.
+- A deleted `NAVM` winner is left out of the index and the navmesh crate cuts
+  the links that pointed at it, see `docs/navmesh.md`.
+- An identical override is ordinary data, the load order already applied it as
+  the winner.
+- `LoadOrder::dirty_report` counts all three per file (`DirtyReport`,
+  `PluginDirt`), and `soe-bench dirty` prints it. Identical means the record
+  flags apart from the compressed bit and the subrecord list equal those of the
+  record in the highest of the file's own masters that carries the id. xEdit
+  compares element by element under its conflict rules and skips fields it
+  marks as ignorable, so its count sits at or above this one.
+
+`tests/dirty.rs` runs a master, a dirty patch and a third plugin that links to
+the deleted reference through `XLKR`: the link resolves, the index files the
+reference apart, the navmesh is gone, and the counts per plugin match.
+
+### Live run (2026-09-18)
+
+`tests/real_files.rs::the_shipped_masters_are_dirty_and_the_report_says_where`
+over the five masters as installed. The LOOT column is the masterlist's
+v1.7.9900.0 row, the one whose deleted counts fit these files. The installed
+CRC32 values (Update.esm 0x2207CF03, Dawnguard 0x6CEC879A, HearthFires
+0x1EABC985, Dragonborn 0xE4A4F6EA) match no row in the masterlist, so the build
+is close to that row and not the file LOOT hashed.
+
+| File | Identical, engine | LOOT ITM | Deleted refs, engine | LOOT UDR | Deleted navmeshes, engine | LOOT nav |
+|---|---|---|---|---|---|---|
+| Skyrim.esm | 0 | no row | 0 | no row | 0 | no row |
+| Update.esm | 366 | 476 | 93 | 93 | 6 | 6 |
+| Dawnguard.esm | 418 | 853 | 90 | 82 | 59 | 59 |
+| HearthFires.esm | 224 | 256 | 11 | 11 | 5 | 5 |
+| Dragonborn.esm | 39 | 142 | 8 | 8 | 1 | 1 |
+
+The deleted counts match LOOT outright for three files of four, and the
+Dawnguard difference is accounted for: of its 90 deleted placed records, 82 are
+Skyrim.esm forms and 8 are Update.esm forms, and LOOT's 82 is the first group
+alone. The engine counts a deleted placed object whichever master owns it. The
+90 are 80 `REFR` and 10 `ACHR`, none of them with an empty body.
+
+The identical counts sit below LOOT's throughout, which is the expected
+direction. Byte equality over the subrecord list is stricter than xEdit's
+element comparison, which decodes each field and skips the ones it marks
+ignorable, so xEdit calls records identical that this rule keeps apart. The
+report never treats the gap as a defect in a plugin, it only says what the file
+holds.
+
+Report time 0.007 s over 1,178,642 records. Deleted placed objects the index
+kept apart: 202, which is the sum of the four files' deleted references, each
+resolving to a winner carrying the flag and absent from the drawn list. Cell
+index build 0.154 s and one `references` lookup 9 ns, against 0.285 s and 10 ns
+recorded before this branch on the same data. The build gained a push per
+deleted winner and a sort per cell, the lookup path is untouched, so treat both
+figures as run to run variance rather than a speedup.

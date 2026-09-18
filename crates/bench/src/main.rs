@@ -17,6 +17,7 @@
 //! SKYRIM_DATA=<Data> soe-bench exterior WhiterunOrigin
 //! SKYRIM_DATA=<Data> soe-bench scripts
 //! SKYRIM_DATA=<Data> soe-bench navmesh
+//! SKYRIM_DATA=<Data> soe-bench dirty
 //! SKYRIM_DATA=<Data> soe-bench save
 //! SKYRIM_DATA=<Data> soe-bench overhead WhiterunBanneredMare
 //! SKYRIM_DATA=<Data> soe-bench trace cell WhiterunBanneredMare
@@ -44,7 +45,7 @@ const MASTERS: [&str; 5] = [
     "Dragonborn.esm",
 ];
 
-const USAGE: &str = "usage: soe-bench [--runs N] [--out DIR] <load-order|archives|cell <editor id>|cell-index <editor id>|exterior <editor id>|scripts|navmesh|save|overhead <editor id>|trace <subcommand ...>|all>";
+const USAGE: &str = "usage: soe-bench [--runs N] [--out DIR] <load-order|archives|cell <editor id>|cell-index <editor id>|exterior <editor id>|scripts|navmesh|dirty|save|overhead <editor id>|trace <subcommand ...>|all>";
 
 struct Options {
     runs: usize,
@@ -112,6 +113,7 @@ fn dispatch(opts: &Options, args: &[String]) -> Result<(), String> {
         Some("exterior") => exterior(opts, arg(1)?),
         Some("scripts") => scripts(opts),
         Some("navmesh") => navmesh(opts),
+        Some("dirty") => dirty(opts),
         Some("save") => save(opts),
         Some("overhead") => overhead(opts, arg(1)?),
         Some("trace") => {
@@ -142,6 +144,7 @@ fn dispatch(opts: &Options, args: &[String]) -> Result<(), String> {
             .and_then(|()| exterior(opts, "WhiterunOrigin"))
             .and_then(|()| scripts(opts))
             .and_then(|()| navmesh(opts))
+            .and_then(|()| dirty(opts))
             .and_then(|()| save(opts))
             .and_then(|()| overhead(opts, "WhiterunBanneredMare")),
         _ => Err(USAGE.to_string()),
@@ -541,6 +544,43 @@ fn scripts(opts: &Options) -> Result<(), String> {
         per_second(used, loop_median),
         "instructions/s",
     );
+    Ok(())
+}
+
+/// What xEdit's cleaning would touch in each master, counted by the esm
+/// crate, one line per file and per kind.
+fn dirty(opts: &Options) -> Result<(), String> {
+    let order = read_order_threads(&opts.data, opts.threads)?;
+    let (median, report_) = timed("dirty_report", opts.runs, || Ok(order.dirty_report()))?;
+    let records: usize = order.files().iter().map(|f| f.plugin.records.len()).sum();
+    report(
+        "dirty_records_per_s",
+        per_second(records, median),
+        "records/s",
+    );
+    for p in &report_.plugins {
+        let stem = p.name.trim_end_matches(".esm").trim_end_matches(".esp");
+        report_count(
+            &format!("dirty_{stem}_itm"),
+            p.identical_to_master,
+            "records",
+        );
+        report_count(
+            &format!("dirty_{stem}_deleted_references"),
+            p.deleted_references,
+            "records",
+        );
+        report_count(
+            &format!("dirty_{stem}_deleted_navmeshes"),
+            p.deleted_navmeshes,
+            "records",
+        );
+        report_count(
+            &format!("dirty_{stem}_deleted_other"),
+            p.deleted_other,
+            "records",
+        );
+    }
     Ok(())
 }
 

@@ -78,7 +78,10 @@ impl World {
             }
             _ => return None,
         };
-        st.enabled = rec.flags & flags::INITIALLY_DISABLED == 0;
+        // A deleted winner starts disabled, the way xEdit's undelete and
+        // disable cleaning would have left it, so whatever still names it
+        // resolves instead of crashing the way the vanilla engine does.
+        st.enabled = rec.flags & flags::INITIALLY_DISABLED == 0 && !rec.is_deleted();
         st.cell = rec.placement.cell.map(|c| self.order.resolve(file, c));
         if let Some(base) = st.base {
             st.inventory = self.base_inventory(base);
