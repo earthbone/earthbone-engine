@@ -141,6 +141,108 @@ What does not: phoneme weights over time. Cracking that is its own reverse engin
 the honest next step is to generate LIP files from the Creation Kit with known inputs and diff them
 rather than to keep staring at shipped bytes.
 
+That gap turned out not to block the feature. See the next section: the mouth shapes are derived
+from the audio instead, which covers vanilla lines and mod lines alike, and a decoded LIP block
+would feed the same consumer if the format is ever cracked.
+
+## Mouth shapes without the Creation Kit
+
+Decoding LIP was never the goal, a face that moves was. Deriving the shapes from the audio reaches
+that goal and reaches further than vanilla does, so this is the route the crate takes.
+
+The case for it is not convenience. A mod that adds voice lines has to run them through the
+Creation Kit and its `Data/Sound/Voice/Processing/FonixData.cdf` speech database to get a LIP
+block, and that path is broken often enough on Special Edition that the community ships a mod
+purely to repair the database file. Generating from audio removes the editor from the loop: a line
+with no LIP block animates exactly like a vanilla one. Nothing in `viseme.rs` treats a vanilla line
+as a special case, which is what makes that true rather than aspirational.
+
+### The tool
+
+Rhubarb Lip Sync (MIT, `DanielSWolf/rhubarb-lip-sync`, v1.14.0, Linux build published) listens to a
+recording and reports which of nine mouth positions to hold at each moment, optionally constrained
+by the line's written text. Its licence notes that the data it produces belongs to whoever ran it,
+so a generated track carries no encumbrance at all.
+
+It sits behind the `VisemeSource` trait and the `rhubarb` feature, off by default, exactly where
+ffmpeg sits for the WMA bitstream and for the same reasons. The binary lives in `../tools/rhubarb/`
+next to the Godot binary, never committed. Tests find it through `SOE_RHUBARB`, then that
+directory, then the path.
+
+Dependency cost, only when the feature is on: five crates, `serde_json`, `serde_core`, `itoa`,
+`memchr` and `zmij`, for reading what the tool prints. The default build adds none of them, and
+the viseme types and the race mapping work with no tool present.
+
+### Shapes onto phonemes
+
+Rhubarb emits mouth positions and a race maps morph targets per phoneme, so one sound from each
+shape stands for its group. Every choice is taken from Rhubarb's own description of the shape in
+its `README.adoc`, and every name below appears in the `PHWT` phoneme list.
+
+| Shape | Rhubarb's description | Phoneme |
+|---|---|---|
+| A | closed mouth, P B M | `M` |
+| B | clenched teeth, most consonants and EE | `K` |
+| C | open, EH as in men, AE as in bat | `EH` |
+| D | wide open, AA as in father | `AA` |
+| E | slightly rounded, AO as in off, ER as in bird | `AO` |
+| F | puckered, UW as in you, OW as in show, W as in way | `UW` |
+| G | upper teeth on lower lip, F and V | `F` |
+| H | tongue raised, long L | `L` |
+| X | rest position | `SIL` |
+
+The weights themselves stay on the `RACE` record, which is what makes a dragon's face differ from a
+Nord's with none of that knowledge in this crate.
+
+### The race mapping is sparse, which was a surprise
+
+`RACE` carries the mapping in two subrecords: `PHTN` names the morph targets and `PHWT` gives, for
+each of the 43 FaceFX phonemes in a fixed order, one weight per target. `crates/esm` reads both.
+
+Over Skyrim.esm, only 6 of 99 races carry a complete mapping:
+
+| Races | Targets |
+|---|---|
+| `DragonRace`, `AlduinRace`, `UndeadDragonRace`, `HagravenRace` | 8, the `Lip` prefixed set |
+| `WerewolfBeastRace`, `dunMiddenEmptyRace` | 16, the humanoid set |
+
+Every playable race carries none, `NordRace` included. So reading only the actor's own race leaves
+almost every face in the game still, and a consumer needs a fallback. The humanoid table does exist
+in the file, just not on the races that need it, which is why `mapping_race(actor, donor)` resolves
+through a donor rather than inventing weights. Which donor is the caller's policy, not this
+crate's. A gated test pins both halves of this finding, so if a future file changes it the test
+says so.
+
+### Measured, and what the numbers mean
+
+Over 8 real voice lines from the English archive, decoded through ffmpeg and run through Rhubarb:
+
+| Measurement | Value |
+|---|---|
+| Tracks produced | 8 of 8 |
+| Audio covered | 16.30 s |
+| Wall clock | 19.67 s, 2.46 s per line |
+| Speed | 0.83 times realtime |
+
+Slower than realtime is the number that decides how this is used. Generating shapes is an asset
+step, not a playback step: a track is derived once and cached beside the line, the same way the
+Creation Kit writes a LIP block once. Doing the whole English archive this way is hours of work,
+not milliseconds, and the tool takes a `--threads` option for it.
+
+Shape distribution over those lines, 38 cues: `X` 42.1 percent, `B` 26.3, `C` 10.5, `D` 7.9,
+`F` 7.9, `E` 5.3. Rest dominating is what speech with pauses looks like.
+
+The case vanilla cannot do, as a gated test: a real line is re-encoded to Ogg Vorbis, which drops
+the FUZ container and its LIP block, decoded through `lewton`, and run through the same pipeline. A
+2.32 second mod line produced 5 cues and moved a real race's morph targets across 140 sampled
+frames. No Creation Kit, no `FonixData.cdf`, no LIP block anywhere in the chain.
+
+### Why this is not wasted if LIP is cracked
+
+A generated track and a decoded LIP block are the same `VisemeTrack`, and `morph_weights` never
+learns which it got. Cracking the format later adds a second `VisemeSource` and changes nothing
+downstream.
+
 ## Measured against the installed game
 
 `Skyrim - Voices_en0.bsa`, 2026-09-18, gated on `SKYRIM_DATA`:
@@ -168,7 +270,14 @@ its encoder delay being dropped from the header's pre-skip.
 
 ## Not done
 
-- Phoneme decoding, above.
+- Phoneme decoding, above. The mouth moves without it.
+- Caching a generated track beside its line. At 0.83 times realtime this has to be an asset step
+  with a cache, and nothing here writes one yet.
+- Choosing the donor race for an actor whose own race carries no mapping. `mapping_race` takes the
+  donor as an argument on purpose, and picking it belongs to whatever drives a face.
+- Feeding the line's written text to the recogniser. `VisemeSource::visemes` takes it and the
+  Rhubarb implementation passes it through, but nothing resolves a line's `INFO` text yet, so every
+  measurement above ran without it and would sharpen with it.
 - `SNDR`, `SOUN`, `SNCT` and `SOPM` record views. `SoundSource` resolves a data path through the
   load order and tries the `fuz`, `xwm` and `wav` extensions the way the game does, which is the
   useful half, but a descriptor form id does not resolve to a path yet. That wants the record views
