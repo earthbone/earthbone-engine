@@ -347,3 +347,29 @@ Two scope calls on the survey, 2026-09-18 (user):
   discarding engine code that already does its job. Where an outside project and our code overlap
   and ours passes its tests, ours stays, and the outside project is cited in the doc as the second
   opinion that confirmed it. Only a genuine gap gets filled from outside.
+
+### Lip sync, 2026-09-18: three routes, and why the first one is not wasted
+
+The audio crate splits LIP out of every FUZ and leaves it as bytes, because no open tool decodes it
+and the branch was told not to invent a track. What the format is, established since: LIP is FaceFX,
+a closed facial animation package by OC3 Entertainment. The Creation Kit generates it from a wav
+plus the line's text using the speech recognition database in
+`Data/Sound/Voice/Processing/FonixData.cdf`. That path is fragile enough in Special Edition that the
+community ships a mod to repair it, and `Nukem9/FaceFXWrapper` exists to drive the generator from a
+command line (C++, 2021, no licence file, so readable and not copyable, and it wraps a closed
+component so it cannot ship in the engine).
+
+Whatever produces the data, the consumer is the same: a weight per mouth shape over time, mapped
+through the Phoneme Mapping on the actor's `RACE` record onto morph targets. So the three routes
+converge, and building the consumer first costs nothing.
+
+| Route | What it is | Verdict |
+|---|---|---|
+| Generate, do not decode | Derive visemes from the audio we already decode, with Rhubarb Lip Sync (MIT, a command line tool, 9 shape set, TSV, XML or JSON out) invoked out of process behind a trait, the same seam ffmpeg sits behind. Optionally feed it the line's text from `INFO` for better alignment. | Do this first. It works for vanilla lines and, more importantly, for mod lines that ship no LIP at all, which today forces an author through the Creation Kit and its broken FonixData. Replacing that workaround with a native system is the project's own rule. |
+| Crack the format | Use a generator we control. Feed FaceFXWrapper known inputs (silence, a single phoneme, a counted sentence) and diff the outputs, which is how a format is cracked when the generator is in hand. The probe already narrows it: over 74,070 blocks the version word is always 1 and the second header word is 13 in 73,118 and 9 in 952, which smells like a track or phoneme count. | Worth doing opportunistically, for fidelity to the vanilla performance and to read what mods ship. Not on the critical path. |
+| Read the wrapper | `FaceFXWrapper` source may reveal the structure through the API calls it makes. | Cheap, do it as the first step of the route above. |
+
+| Item | Branch | Done check |
+|---|---|---|
+| Viseme pipeline | `visemes` | Audio to mouth shape weights over time through an out of process tool behind a trait, the `RACE` Phoneme Mapping read, weights applied to morph targets, a vanilla line and a mod line with no LIP both animate. LIP stays bytes. |
+| LIP decode | `lip-decode` | The block decodes into the same weight track the viseme pipeline feeds, checked against generated files with known inputs. Opportunistic, after `visemes`. |
