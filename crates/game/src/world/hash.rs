@@ -164,6 +164,22 @@ fn ref_state(h: &mut StateHasher, s: &RefState) {
     h.bool(s.fast_travel);
     h.bool(s.destroyed);
     h.bool(s.ignore_friendly_hits);
+    h.len(s.anim_floats.len());
+    for (k, v) in &s.anim_floats {
+        h.str(k);
+        h.f32(*v);
+    }
+    h.len(s.anim_ints.len());
+    for (k, v) in &s.anim_ints {
+        h.str(k);
+        h.i32(*v);
+    }
+    h.len(s.anim_bools.len());
+    for (k, v) in &s.anim_bools {
+        h.str(k);
+        h.bool(*v);
+    }
+    h.f32(s.alpha);
 }
 
 fn form_set(h: &mut StateHasher, set: &BTreeSet<GlobalFormId>) {
@@ -761,6 +777,16 @@ mod tests {
         moves("ignore_friendly_hits", refs, |w| {
             reference(w).ignore_friendly_hits = true;
         });
+        moves("anim_floats", refs, |w| {
+            reference(w).anim_floats.insert("speed".into(), 1.0);
+        });
+        moves("anim_ints", refs, |w| {
+            reference(w).anim_ints.insert("stage".into(), 1);
+        });
+        moves("anim_bools", refs, |w| {
+            reference(w).anim_bools.insert("open".into(), true);
+        });
+        moves("alpha", refs, |w| reference(w).alpha = 0.5);
     }
 
     #[test]

@@ -50,6 +50,11 @@ const VAMPIRE_ARMOR: u32 = 0xA0E;
 const PLAIN_ARMOR: u32 = 0xA0F;
 const INSIDE: u32 = 0xA10;
 const OUTSIDE: u32 = 0xA11;
+const FEED_IDLE: u32 = 0xA12;
+const LINK_KEYWORD: u32 = 0xA13;
+const BLOOD_SHADER: u32 = 0xA14;
+const CHANGE_EFFECT: u32 = 0xA15;
+const SOUL_CAIRN_MUSIC: u32 = 0xA16;
 
 fn le(v: u32) -> [u8; 4] {
     v.to_le_bytes()
@@ -82,6 +87,13 @@ fn cell(p: &mut Plugin, id: u32, edid: &str, interior: bool, refs: Vec<Record>) 
     sub.entries.push(Entry::Record(rec));
     sub.entries.push(Entry::Group(children));
     sub
+}
+
+/// An `XLKR` pair, the keyword then the reference it links to.
+fn xlkr(keyword: u32, reference: u32) -> Vec<u8> {
+    let mut d = le(keyword).to_vec();
+    d.extend_from_slice(&le(reference));
+    d
 }
 
 fn actor_ref(id: u32, edid: &str, base: u32) -> Record {
@@ -122,6 +134,11 @@ fn test_plugin() -> Plugin {
             .sub(T(b"KWDA"), le(VAMPIRE_KEYWORD)),
     );
     p.push_top(Record::new(T(b"ARMO"), PLAIN_ARMOR).zsub(EDID, "FarmClothes"));
+    p.push_top(Record::new(T(b"IDLE"), FEED_IDLE).zsub(EDID, "IdleVampireFeed"));
+    p.push_top(Record::new(T(b"KYWD"), LINK_KEYWORD).zsub(EDID, "LinkCoffin"));
+    p.push_top(Record::new(T(b"EFSH"), BLOOD_SHADER).zsub(EDID, "BloodShader"));
+    p.push_top(Record::new(T(b"RFCT"), CHANGE_EFFECT).zsub(EDID, "VampireChangeFX"));
+    p.push_top(Record::new(T(b"MUSC"), SOUL_CAIRN_MUSIC).zsub(EDID, "SoulCairnMusic"));
 
     let watcher = Vmad {
         scripts: vec![ScriptEntry::new("VampireWatchScript")],
@@ -135,7 +152,10 @@ fn test_plugin() -> Plugin {
         vec![
             actor_ref(PLAYER, "PlayerRef", PLAYER_BASE),
             actor_ref(VAMPIRE, "VampireRef", VAMPIRE_BASE)
-                .sub(T(b"VMAD"), watcher.write(T(b"ACHR"))),
+                .sub(T(b"VMAD"), watcher.write(T(b"ACHR")))
+                .sub(T(b"XLKR"), xlkr(0, PLAYER))
+                .sub(T(b"XLKR"), xlkr(LINK_KEYWORD, HORSE))
+                .sub(T(b"XLKR"), xlkr(LINK_KEYWORD, DRAGON)),
         ],
     );
     let outside = cell(
@@ -784,6 +804,236 @@ fn the_systems_without_an_engine_answer_quietly() {
     let player = obj(&mut g, "PlayerRef");
     call(&mut g, &player, "ForceAddRagdollToWorld", &[]);
     call(&mut g, &player, "ForceRemoveRagdollFromWorld", &[]);
+    assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
+// ----- the animation graph on a reference -----
+
+/// SetAnimationVariableFloat, Int and Bool "set the value of a variable on
+/// the reference's animation graph", and the Get pair "fetches" it back. A
+/// name the graph never saw reads as the quiet value.
+#[test]
+fn animation_variables_round_trip_per_type() {
+    let mut g = game();
+    let dragon = obj(&mut g, "DragonRef");
+    assert_eq!(
+        call(
+            &mut g,
+            &dragon,
+            "GetAnimationVariableFloat",
+            &[Value::string("Speed")]
+        ),
+        Value::Float(0.0)
+    );
+    assert_eq!(
+        call(
+            &mut g,
+            &dragon,
+            "GetAnimationVariableInt",
+            &[Value::string("Stage")]
+        ),
+        Value::Int(0)
+    );
+    assert_eq!(
+        call(
+            &mut g,
+            &dragon,
+            "GetAnimationVariableBool",
+            &[Value::string("IsRiding")]
+        ),
+        Value::Bool(false)
+    );
+
+    call(
+        &mut g,
+        &dragon,
+        "SetAnimationVariableFloat",
+        &[Value::string("Speed"), Value::Float(2.5)],
+    );
+    call(
+        &mut g,
+        &dragon,
+        "SetAnimationVariableInt",
+        &[Value::string("Stage"), Value::Int(4)],
+    );
+    call(
+        &mut g,
+        &dragon,
+        "SetAnimationVariableBool",
+        &[Value::string("IsRiding"), Value::Bool(true)],
+    );
+    assert_eq!(
+        call(
+            &mut g,
+            &dragon,
+            "GetAnimationVariableFloat",
+            &[Value::string("Speed")]
+        ),
+        Value::Float(2.5)
+    );
+    assert_eq!(
+        call(
+            &mut g,
+            &dragon,
+            "GetAnimationVariableInt",
+            &[Value::string("Stage")]
+        ),
+        Value::Int(4)
+    );
+    assert_eq!(
+        call(
+            &mut g,
+            &dragon,
+            "GetAnimationVariableBool",
+            &[Value::string("IsRiding")]
+        ),
+        Value::Bool(true)
+    );
+    // The name is not case sensitive, the graph holds one entry per name.
+    assert_eq!(
+        call(
+            &mut g,
+            &dragon,
+            "GetAnimationVariableFloat",
+            &[Value::string("speed")]
+        ),
+        Value::Float(2.5)
+    );
+    assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
+/// SetAlpha "(Float afTargetAlpha, Bool abFade)". Without frames to fade
+/// over, the target is reached at once. PlayIdle sends the idle to the
+/// actor's graph, which the engine delivers as an animation event named
+/// after the idle.
+#[test]
+fn alpha_and_idles_reach_the_reference() {
+    let mut g = game();
+    let vampire = obj(&mut g, "VampireRef");
+    let idle = obj(&mut g, "IdleVampireFeed");
+    let id = form(&g, "VampireRef");
+    assert_eq!(g.world_mut().reference(id).unwrap().alpha, 1.0);
+    call(
+        &mut g,
+        &vampire,
+        "SetAlpha",
+        &[Value::Float(0.25), Value::Bool(true)],
+    );
+    assert_eq!(g.world_mut().reference(id).unwrap().alpha, 0.25);
+
+    assert_eq!(
+        call(&mut g, &vampire, "PlayIdle", &[idle]),
+        Value::Bool(true)
+    );
+    assert!(
+        g.world_mut()
+            .animation_events
+            .iter()
+            .any(|(src, name)| *src == id && name == "IdleVampireFeed"),
+        "the idle was not delivered"
+    );
+    assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
+/// GetNthLinkedRef walks the XLKR list GetLinkedRef reads the head of, with
+/// the same keyword filter. Past the end it is None.
+#[test]
+fn linked_refs_are_read_by_index_and_keyword() {
+    let mut g = game();
+    let vampire = obj(&mut g, "VampireRef");
+    let horse = obj(&mut g, "HorseRef");
+    let dragon = obj(&mut g, "DragonRef");
+    let player = obj(&mut g, "PlayerRef");
+    let keyword = obj(&mut g, "LinkCoffin");
+    assert_eq!(
+        call(
+            &mut g,
+            &vampire,
+            "GetNthLinkedRef",
+            &[Value::Int(0), Value::None]
+        ),
+        player
+    );
+    assert_eq!(
+        call(
+            &mut g,
+            &vampire,
+            "GetNthLinkedRef",
+            &[Value::Int(1), Value::None]
+        ),
+        horse
+    );
+    assert_eq!(
+        call(
+            &mut g,
+            &vampire,
+            "GetNthLinkedRef",
+            &[Value::Int(0), keyword.clone()]
+        ),
+        horse
+    );
+    assert_eq!(
+        call(
+            &mut g,
+            &vampire,
+            "GetNthLinkedRef",
+            &[Value::Int(1), keyword.clone()]
+        ),
+        dragon
+    );
+    assert_eq!(
+        call(
+            &mut g,
+            &vampire,
+            "GetNthLinkedRef",
+            &[Value::Int(2), keyword]
+        ),
+        Value::None
+    );
+    assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
+/// PlaceActorAtMe places one actor at the reference, PlaceAtMe with the
+/// actor the leveled actor lists want.
+#[test]
+fn place_actor_at_me_makes_one_actor() {
+    let mut g = game();
+    let vampire = obj(&mut g, "VampireRef");
+    let base = obj(&mut g, "DragonBase");
+    let placed = call(&mut g, &vampire, "PlaceActorAtMe", &[base, Value::Int(1)]);
+    assert!(matches!(placed, Value::Object(_)), "{placed:?}");
+    assert_eq!(call(&mut g, &placed, "IsEnabled", &[]), Value::Bool(true));
+    assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
+/// The shader, effect and music calls the DLC scripts make most often are
+/// registered and quiet, so a vanilla flow runs past them rather than
+/// stopping on an unresolved call.
+#[test]
+fn the_effect_systems_take_their_calls_quietly() {
+    let mut g = game();
+    let shader = obj(&mut g, "BloodShader");
+    let effect = obj(&mut g, "VampireChangeFX");
+    let music = obj(&mut g, "SoulCairnMusic");
+    let vampire = obj(&mut g, "VampireRef");
+    call(
+        &mut g,
+        &shader,
+        "Play",
+        &[vampire.clone(), Value::Float(2.0)],
+    );
+    call(&mut g, &shader, "Stop", &[vampire.clone()]);
+    call(
+        &mut g,
+        &effect,
+        "Play",
+        &[vampire.clone(), Value::Float(2.0)],
+    );
+    call(&mut g, &effect, "Stop", &[vampire.clone()]);
+    call(&mut g, &music, "Add", &[]);
+    call(&mut g, &music, "Remove", &[]);
+    call(&mut g, &vampire, "Reset", &[]);
+    call(&mut g, &vampire, "StopTranslation", &[]);
     assert!(errors(&g).is_empty(), "{:?}", errors(&g));
 }
 

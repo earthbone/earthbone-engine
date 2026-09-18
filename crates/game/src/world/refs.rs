@@ -73,6 +73,24 @@ impl World {
                     .and_then(le_u32)
                     .filter(|l| *l != 0)
                     .map(|l| self.order.resolve(file, l));
+                // An actor reference carries XLKR the same way a REFR does,
+                // which is how the DLC scripts find a coffin or a cart.
+                st.linked = rec
+                    .all(T(b"XLKR"))
+                    .filter_map(|d| {
+                        let reference = match d.len() {
+                            4 => le_u32(d)?,
+                            8.. => le_u32(&d[4..])?,
+                            _ => return None,
+                        };
+                        let keyword = (d.len() >= 8)
+                            .then(|| le_u32(d))
+                            .flatten()
+                            .filter(|k| *k != 0)
+                            .map(|k| self.order.resolve(file, k));
+                        Some((keyword, self.order.resolve(file, reference)))
+                    })
+                    .collect();
                 st.is_actor = true;
                 st
             }

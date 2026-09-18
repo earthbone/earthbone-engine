@@ -94,6 +94,14 @@ pub struct RefState {
     pub fast_travel: bool,
     pub destroyed: bool,
     pub ignore_friendly_hits: bool,
+    /// Animation graph variables set through `SetAnimationVariable*`, keyed
+    /// by lowercase name. The graph has one value per name, the three
+    /// typed pairs read and write the same store.
+    pub anim_floats: BTreeMap<String, f32>,
+    pub anim_ints: BTreeMap<String, i32>,
+    pub anim_bools: BTreeMap<String, bool>,
+    /// `SetAlpha`, the fade the Dawnguard and Dragonborn scripts use.
+    pub alpha: f32,
 }
 
 impl RefState {
@@ -121,6 +129,10 @@ impl RefState {
             fast_travel: false,
             destroyed: false,
             ignore_friendly_hits: false,
+            anim_floats: BTreeMap::new(),
+            anim_ints: BTreeMap::new(),
+            anim_bools: BTreeMap::new(),
+            alpha: 1.0,
         }
     }
 }
@@ -535,6 +547,8 @@ pub fn class_for_tag(tag: &[u8; 4]) -> &'static str {
         b"PROJ" => "Projectile",
         b"HAZD" => "Hazard",
         b"EFSH" => "EffectShader",
+        b"RFCT" => "VisualEffect",
+        b"SPGD" => "ShaderParticleGeometry",
         b"ECZN" => "EncounterZone",
         b"DIAL" => "Topic",
         b"INFO" => "TopicInfo",

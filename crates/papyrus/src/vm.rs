@@ -380,17 +380,59 @@ impl Vm {
         out
     }
 
-    /// The declared natives no registration covers, methods and globals
-    /// looked up on the declaring class.
+    /// The classes a method lookup walks: the declaring one, the parents its
+    /// loaded script names, then the parents declared through
+    /// [`NativeRegistry::declare_parent`]. Dispatch walks the same list, so a
+    /// script redeclaring a parent's native still finds the registration.
+    #[must_use]
+    pub fn native_chain(&self, class: &str) -> Vec<String> {
+        let mut out: Vec<String> = Vec::new();
+        let mut next = Some(class.to_ascii_lowercase());
+        while let Some(n) = next.take() {
+            if out.contains(&n) || out.len() > 64 {
+                break;
+            }
+            next = self
+                .script(&n)
+                .and_then(|s| s.parent.clone())
+                .map(|p| p.to_ascii_lowercase())
+                .or_else(|| self.natives.parents.get(&n).cloned());
+            out.push(n);
+        }
+        out
+    }
+
+    /// Whether the scheduler answers this one itself, so no registration is
+    /// wanted: the three `Utility` waits, and `GotoState` and `GetState` on
+    /// every script object.
+    fn is_builtin_native(class: &str, name: &str, global: bool) -> bool {
+        let name = name.to_ascii_lowercase();
+        if global {
+            class.eq_ignore_ascii_case("utility")
+                && matches!(name.as_str(), "wait" | "waitmenumode" | "waitgametime")
+        } else {
+            matches!(name.as_str(), "gotostate" | "getstate")
+        }
+    }
+
+    /// The declared natives nothing covers. A method is looked up along its
+    /// class chain the way dispatch does, a global only on the class named
+    /// in the call, and the scheduler's own functions never count.
     #[must_use]
     pub fn unregistered_natives(&self) -> Vec<(String, String, bool)> {
         self.declared_natives()
             .into_iter()
             .filter(|(class, name, global)| {
+                if Self::is_builtin_native(class, name, *global) {
+                    return false;
+                }
                 if *global {
                     !self.natives.has_global(class, name)
                 } else {
-                    !self.natives.has_method(class, name)
+                    !self
+                        .native_chain(class)
+                        .iter()
+                        .any(|c| self.natives.has_method(c, name))
                 }
             })
             .collect()

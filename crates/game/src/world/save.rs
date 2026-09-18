@@ -833,6 +833,22 @@ fn write_ref_state(w: &mut Writer, s: &RefState) {
     w.bool(s.fast_travel);
     w.bool(s.destroyed);
     w.bool(s.ignore_friendly_hits);
+    w.len(s.anim_floats.len());
+    for (k, v) in &s.anim_floats {
+        w.str(k);
+        w.f32(*v);
+    }
+    w.len(s.anim_ints.len());
+    for (k, v) in &s.anim_ints {
+        w.str(k);
+        w.i32(*v);
+    }
+    w.len(s.anim_bools.len());
+    for (k, v) in &s.anim_bools {
+        w.str(k);
+        w.bool(*v);
+    }
+    w.f32(s.alpha);
 }
 
 fn read_ref_state(r: &mut Reader<'_>) -> Result<RefState, VmError> {
@@ -878,6 +894,25 @@ fn read_ref_state(r: &mut Reader<'_>) -> Result<RefState, VmError> {
     let fast_travel = r.bool()?;
     let destroyed = r.bool()?;
     let ignore_friendly_hits = r.bool()?;
+    let mut anim_floats = BTreeMap::new();
+    let n = r.len()?;
+    for _ in 0..n {
+        let k = r.str()?;
+        anim_floats.insert(k, r.f32()?);
+    }
+    let mut anim_ints = BTreeMap::new();
+    let n = r.len()?;
+    for _ in 0..n {
+        let k = r.str()?;
+        anim_ints.insert(k, r.i32()?);
+    }
+    let mut anim_bools = BTreeMap::new();
+    let n = r.len()?;
+    for _ in 0..n {
+        let k = r.str()?;
+        anim_bools.insert(k, r.bool()?);
+    }
+    let alpha = r.f32()?;
     Ok(RefState {
         base,
         cell,
@@ -901,6 +936,10 @@ fn read_ref_state(r: &mut Reader<'_>) -> Result<RefState, VmError> {
         fast_travel,
         destroyed,
         ignore_friendly_hits,
+        anim_floats,
+        anim_ints,
+        anim_bools,
+        alpha,
     })
 }
 

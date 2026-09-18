@@ -186,7 +186,31 @@ fn the_installed_game_binds_its_vanilla_scripts() {
         })
         .collect();
     missing.sort_by(|a, b| b.0.cmp(&a.0).then(a.2.cmp(&b.2)).then(a.3.cmp(&b.3)));
-    let declared = game.vm.declared_natives().len();
+    let all_declared = game.vm.declared_natives();
+    let declared = all_declared.len();
+    // A script named for a DLC declaring a native of its own, which is the
+    // tightest reading of a DLC native. The DLC additions to the base
+    // classes sit in the base class scripts instead and show up above.
+    let dlc_declared: Vec<&(String, String, bool)> = all_declared
+        .iter()
+        .filter(|(class, _, _)| {
+            let c = class.to_ascii_lowercase();
+            c.starts_with("dlc1") || c.starts_with("dlc2") || c.starts_with("byoh")
+        })
+        .collect();
+    eprintln!(
+        "natives declared by a DLC-named script: {}",
+        dlc_declared.len()
+    );
+    for (class, name, global) in &dlc_declared {
+        let kind = if *global { "global" } else { "method" };
+        let covered = if game.vm.natives.has_method(class, name) {
+            "registered"
+        } else {
+            "unregistered"
+        };
+        eprintln!("  {class}.{name} ({kind}, {covered})");
+    }
     eprintln!(
         "declared natives: {declared}, unregistered: {} ({} with a call site, {} called from a DLC script)",
         missing.len(),

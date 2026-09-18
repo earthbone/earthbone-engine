@@ -182,7 +182,7 @@ pub fn register(vm: &mut Vm, world: &Shared) -> Registered {
 
 /// Hand-kept count of the non-stub natives registered below. The test in
 /// this module checks it against the registry.
-pub const NATIVE_COUNT: usize = 326;
+pub const NATIVE_COUNT: usize = 336;
 
 fn declare_parents(vm: &mut Vm) {
     for (class, parent) in [
@@ -246,6 +246,8 @@ fn declare_parents(vm: &mut Vm) {
         ("Projectile", "Form"),
         ("Hazard", "Form"),
         ("EffectShader", "Form"),
+        ("VisualEffect", "Form"),
+        ("ShaderParticleGeometry", "Form"),
         ("EncounterZone", "Form"),
         ("Topic", "Form"),
         ("TopicInfo", "Form"),
@@ -2630,6 +2632,148 @@ fn dlc(vm: &mut Vm, w: &Shared) {
         world.perk_points = world.perk_points.saturating_add(added).clamp(0, 255);
         none()
     });
+
+    // "Sets the value of a variable on the reference's animation graph."
+    // The graph holds one value per name, so the three typed pairs read and
+    // write one store each and a name belongs to the type that set it.
+    method!(
+        vm,
+        w,
+        "ObjectReference",
+        "SetAnimationVariableFloat",
+        |world, call, me| {
+            let name = text(&call.arg(0)).to_ascii_lowercase();
+            let value = call.arg(1).as_float();
+            if let Some(r) = world.reference(me) {
+                r.anim_floats.insert(name, value);
+            }
+            none()
+        }
+    );
+    method!(
+        vm,
+        w,
+        "ObjectReference",
+        "SetAnimationVariableInt",
+        |world, call, me| {
+            let name = text(&call.arg(0)).to_ascii_lowercase();
+            let value = call.arg(1).as_int();
+            if let Some(r) = world.reference(me) {
+                r.anim_ints.insert(name, value);
+            }
+            none()
+        }
+    );
+    method!(
+        vm,
+        w,
+        "ObjectReference",
+        "SetAnimationVariableBool",
+        |world, call, me| {
+            let name = text(&call.arg(0)).to_ascii_lowercase();
+            let value = call.arg(1).as_bool();
+            if let Some(r) = world.reference(me) {
+                r.anim_bools.insert(name, value);
+            }
+            none()
+        }
+    );
+    // "Fetches the value of a variable on the reference's animation graph."
+    // A name the graph never saw reads as zero, the quiet value.
+    method!(
+        vm,
+        w,
+        "ObjectReference",
+        "GetAnimationVariableFloat",
+        |world, call, me| {
+            let name = text(&call.arg(0)).to_ascii_lowercase();
+            f(world
+                .reference(me)
+                .and_then(|r| r.anim_floats.get(&name).copied())
+                .unwrap_or(0.0))
+        }
+    );
+    method!(
+        vm,
+        w,
+        "ObjectReference",
+        "GetAnimationVariableInt",
+        |world, call, me| {
+            let name = text(&call.arg(0)).to_ascii_lowercase();
+            i(world
+                .reference(me)
+                .and_then(|r| r.anim_ints.get(&name).copied())
+                .unwrap_or(0))
+        }
+    );
+    method!(
+        vm,
+        w,
+        "ObjectReference",
+        "GetAnimationVariableBool",
+        |world, call, me| {
+            let name = text(&call.arg(0)).to_ascii_lowercase();
+            b(world
+                .reference(me)
+                .and_then(|r| r.anim_bools.get(&name).copied())
+                .unwrap_or(false))
+        }
+    );
+    // SetAlpha "(Float afTargetAlpha, Bool abFade)". Without a fade to run
+    // over frames the target is reached at once.
+    method!(vm, w, "Actor", "SetAlpha", |world, call, me| {
+        let alpha = call.arg(0).as_float();
+        if let Some(r) = world.reference(me) {
+            r.alpha = alpha;
+        }
+        none()
+    });
+    // PlayIdle sends an idle to the actor's graph, the same delivery an
+    // animation event takes, named after the idle's editor id.
+    method!(vm, w, "Actor", "PlayIdle", |world, call, me| {
+        let Some(idle) = world.form_arg(&call.arg(0)) else {
+            return b(false);
+        };
+        let name = world.editor_id(idle).unwrap_or_default();
+        world.animation_event(me, &name, alloc!(call));
+        b(true)
+    });
+    // "Returns the nth linked ref of this object", the keyword filtered
+    // list GetLinkedRef reads the head of.
+    method!(
+        vm,
+        w,
+        "ObjectReference",
+        "GetNthLinkedRef",
+        |world, call, me| {
+            let index = call.arg(0).as_int().max(0) as usize;
+            let keyword = world.form_arg(&call.arg(1));
+            let linked = world.reference(me).and_then(|r| {
+                r.linked
+                    .iter()
+                    .filter(|(k, _)| keyword.is_none() || *k == keyword)
+                    .nth(index)
+                    .map(|(_, l)| *l)
+            });
+            form_value(world, call, linked)
+        }
+    );
+    // "Places an actor at this reference", PlaceAtMe with the actor flag
+    // the leveled actor lists want.
+    method!(
+        vm,
+        w,
+        "ObjectReference",
+        "PlaceActorAtMe",
+        |world, call, me| {
+            let Some(base) = world.form_arg(&call.arg(0)) else {
+                return none();
+            };
+            let disabled = call.args.get(2).is_some_and(Value::as_bool);
+            let placed = world.place_at(base, me, disabled);
+            form_value(world, call, Some(placed))
+        }
+    );
 }
 
 /// Natives whose systems the engine does not have yet. They return the
@@ -2750,6 +2894,31 @@ fn stubs(vm: &mut Vm) -> usize {
         ("ObjectReference", "ForceAddRagdollToWorld"),
         ("ObjectReference", "ForceRemoveRagdollFromWorld"),
         ("ObjectReference", "TetherToHorse"),
+        // The shader, effect and music systems the DLC scripts lean on
+        // hardest. Nothing renders or sounds yet, so each one is quiet.
+        ("EffectShader", "Play"),
+        ("EffectShader", "Stop"),
+        ("VisualEffect", "Play"),
+        ("VisualEffect", "Stop"),
+        ("ImageSpaceModifier", "Apply"),
+        ("ImageSpaceModifier", "ApplyCrossFade"),
+        ("ImageSpaceModifier", "Remove"),
+        ("ImageSpaceModifier", "PopTo"),
+        ("ShaderParticleGeometry", "Apply"),
+        ("ShaderParticleGeometry", "Remove"),
+        ("MusicType", "Add"),
+        ("MusicType", "Remove"),
+        ("Topic", "Add"),
+        ("Weather", "SetActive"),
+        ("Weapon", "Fire"),
+        ("Scroll", "Cast"),
+        ("Actor", "DoCombatSpellApply"),
+        ("ObjectReference", "CreateDetectionEvent"),
+        ("ObjectReference", "TranslateTo"),
+        ("ObjectReference", "SplineTranslateTo"),
+        ("ObjectReference", "StopTranslation"),
+        ("ObjectReference", "Reset"),
+        ("Actor", "MoveToPackageLocation"),
         ("Actor", "WillIntimidateSucceed"),
         ("Cell", "Reset"),
     ];
@@ -2785,6 +2954,8 @@ fn stubs(vm: &mut Vm) -> usize {
         ("Game", "ServeTime"),
         ("Game", "ClearPrison"),
         ("Game", "SetSunGazeImageSpaceModifier"),
+        ("ImageSpaceModifier", "RemoveCrossFade"),
+        ("Message", "ResetHelpMessage"),
         ("Game", "ShakeController"),
         ("Game", "FadeOutGame"),
         ("Game", "RequestSave"),
