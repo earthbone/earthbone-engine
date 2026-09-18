@@ -21,10 +21,20 @@ opus = ["dep:ogg", "dep:opus-decoder"]
 # docs/audio.md, "The WMA bitstream", for why no in-process decoder is used
 # yet.
 xwma-ffmpeg = []
+# Mouth shapes from audio by running the `rhubarb` binary. Off by default for
+# the same reason as ffmpeg: an engine build should not need a program to be
+# installed, and the viseme types and the race mapping are useful with no
+# tool present at all. Carries the JSON reader, so the default build does not
+# pay for it.
+rhubarb = ["dep:serde_json"]
 
 [dependencies]
 thiserror = "2"
 soe-bsa = { path = "../bsa" }
+# The race record carries the phoneme to morph target mapping a viseme track
+# is played through, so the consumer can be tested here rather than only in
+# whatever renders a face.
+soe-esm = { path = "../esm" }
 # Zero transitive dependencies, so reading the WAV a Creation Kit or a mod
 # tool writes costs one crate and no decoder of our own.
 hound = "3"
@@ -33,6 +43,9 @@ lewton = { version = "0.10", optional = true }
 # the Ogg page reader instead of two.
 ogg = { version = "0.8", optional = true }
 opus-decoder = { version = "0.1", optional = true }
+# Only for reading what the rhubarb binary prints. Three crates, and only
+# when that feature is on.
+serde_json = { version = "1", optional = true }
 
 [dev-dependencies]
 soe-bsa = { path = "../bsa" }

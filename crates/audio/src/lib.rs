@@ -29,11 +29,14 @@ pub mod lip;
 pub mod pcm;
 pub mod riff;
 pub mod source;
+pub mod viseme;
 pub mod wma;
 pub mod xwma;
 
 #[cfg(feature = "opus")]
 pub mod opus;
+#[cfg(feature = "rhubarb")]
+pub mod rhubarb;
 #[cfg(feature = "vorbis")]
 pub mod vorbis;
 
@@ -42,5 +45,6 @@ pub use fuz::{AudioKind, Fuz};
 pub use lip::Lip;
 pub use pcm::Pcm;
 pub use source::{sniff, Container, Sound, SoundSource};
+pub use viseme::{mapping_race, morph_weights, MouthCue, Shape, VisemeSource, VisemeTrack};
 pub use wma::WmaDecoder;
 pub use xwma::Xwma;

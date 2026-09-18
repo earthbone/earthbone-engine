@@ -72,5 +72,6 @@ pub const WRLD: Tag = Tag::new(b"WRLD");
 pub const LAND: Tag = Tag::new(b"LAND");
 pub const NAVM: Tag = Tag::new(b"NAVM");
 pub const STAT: Tag = Tag::new(b"STAT");
+pub const RACE: Tag = Tag::new(b"RACE");
 pub const EDID: Tag = Tag::new(b"EDID");
 pub const FULL: Tag = Tag::new(b"FULL");
