@@ -518,3 +518,78 @@ and the worst hitch over five seconds at 2.2 ms. Godot's renderer is not the lim
 scale. What the numbers do not cover: the Tamriel plains around the city with their LOD,
 grass, trees and water, and a moving focus with cells loading and unloading under it. Those
 are the next benchmark, on the cell index and the BTO and BTR readers.
+
+## Skinned characters (2026-09-18, branch `skinning`)
+
+The animation stack was finished and invisible: `crates/havok` reads skeletons,
+clips and behavior graphs, and since `behavior-2` it walks the vanilla
+`mt_behavior.hkx` and plays the standing idle at full weight. Nothing reached a
+screen. This connects the two.
+
+Three pieces, none of which touch Godot except the last:
+
+- `soe_havok::pose::to_model_space_into` composes the interpreter's local pose
+  with its parent chain into a caller's buffer, so a frame allocates nothing.
+  The allocating walk it mirrors, `Skeleton::to_model_space`, already existed
+  and is not duplicated.
+- `crate::skinned` matches a shape's own bone list onto the skeleton by name,
+  combines the model pose with the shape's inverse bind, and converts the
+  result into Godot's axes and metres. The conversion is conjugation by the
+  axis map, which is a homomorphism, so transforms compose first and convert
+  once per bone.
+- `crate::godot_actor::SkinnedActorNode` uploads that. One `RenderingServer`
+  skeleton **per shape**, not per character: a shape's vertex bone indices
+  address its own bone list, so two shapes naming different bones would read
+  each other's transforms.
+
+### Measured on the installed game
+
+`malebody_1.nif` with the vanilla human skeleton and `mt_behavior.hkx`:
+
+| | |
+|---|---|
+| Skinned shapes, vertices, triangles | 2, 1,802, 2,948 |
+| Skeleton bones | 99 |
+| Bones the body names, matched | 29, all 29, none by case |
+| Graph nodes, clips loaded, missing | 2,223, 787, 1 |
+| Pose plus skin, per frame | 8.2 us |
+| Walk frames where the skin moved | 180 of 180 |
+
+Headless, the graph starts in `MT_Idle.HKX` and the walk event moves it to
+`MT_WalkForwardSlow`, so the interpreter, the clips and the upload all run.
+`godot/skinned_test.gd` asserts that transition, `godot/skinned_capture.gd`
+saves `docs/images/skinned-{idle,walk}.png`.
+
+### Two defects found, one open
+
+**Bone indices, worked around.** A `NiSkinPartition` splits a shape into body
+parts, and a packed vertex's bone indices address the **partition's** short
+bone list rather than the skin instance's. The `nif` crate's legacy
+`NiTriShape` path maps them through `Partition::bones` and says so in its doc
+comment. The `BSTriShape` path that Special Edition uses copies them straight
+off the vertex. `actor::partition_bone_indices` corrects that here because
+another fork owns `crates/nif`, and it should move there. On this body the
+correction changes nothing visible, so the partitions' bone lists happen to be
+identity, which is luck rather than a reason to leave the reader as it is.
+
+**The bind pose does not cancel, and this is open.** Skinning a character with
+the skeleton's own reference pose should give the identity for every bone, so
+the body renders exactly as it is authored. It does not: the worst bone is off
+by 1.72 m, and the error is zero at the pelvis and grows through its
+descendants (spine 0.15 m, thighs 0.34 m, spine1 0.37 m).
+
+Composing `Skin::transform`, the shape's offset from the skeleton root, drives
+that number down to 0.37 m and makes the pelvis exact. A capture of that
+version is **visibly much worse**, a shredded fan rather than a body, so the
+vertices are already in the skin's space and that offset does not belong.
+The number and the picture disagree, the picture wins, and the code does not
+apply it.
+
+What renders today is a correct torso, hips and legs with the arms flattened
+into blades and the head deformed. Whatever is wrong is in the bind pose
+relationship between the `hkx` skeleton and the `NIF` inverse binds, not in the
+interpreter, whose poses match the clip sampler to 3.8e-6, and not in the bone
+matching, which is 29 of 29. The next step is to compare the `NIF` skeleton
+node hierarchy in `skeleton.nif` against the `hkx` reference pose bone by bone,
+since those are the two bind poses that must agree and only one of them is
+being read.

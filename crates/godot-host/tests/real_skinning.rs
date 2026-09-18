@@ -117,6 +117,58 @@ fn a_vanilla_body_skins_to_the_animated_skeleton() {
         "every bone the body names should exist in the skeleton, missing {unmatched:?}"
     );
 
+    // Before animating: does the bind pose alone skin to something sane? If
+    // this is wrong the mesh, the skeleton or the inverse bind is at fault. If
+    // it is right, anything wrong later is the animation's doing.
+    {
+        let mut bind = Vec::new();
+        to_model_space_into(&assets.skeleton, &assets.skeleton.reference_pose, &mut bind)
+            .expect("the reference pose lifts");
+        let surface = &assets.surfaces[0];
+        let mut bind_skins = Vec::new();
+        skinning_transforms_into(&surface.map, &surface.skin, &bind, &mut bind_skins)
+            .expect("the bind pose skins");
+        let worst = bind_skins
+            .iter()
+            .map(|a| (0..3).map(|i| a.origin[i].abs()).fold(0.0f32, f32::max))
+            .fold(0.0f32, f32::max);
+        println!("  bind pose: worst skinning offset {worst:.4} m, should be near zero");
+        println!(
+            "  shape node transform: {:?}",
+            assets.surfaces[0].node_offset
+        );
+        let mut residual: Vec<(f32, &str)> = bind_skins
+            .iter()
+            .zip(&surface.skin.bones)
+            .map(|(a, b)| {
+                let d = (0..3).map(|i| a.origin[i].abs()).fold(0.0f32, f32::max);
+                (d, b.name.as_str())
+            })
+            .collect();
+        residual.sort_by(|a, b| b.0.total_cmp(&a.0));
+        for (d, name) in residual.iter().take(6) {
+            println!("    {name:<26} residual {d:.4} m");
+        }
+
+        // This residual is reported, not asserted, and the reason is worth
+        // keeping. A bind pose ought to cancel to zero, and it does not.
+        // Composing the skin's offset from the root does drive the number
+        // down, from 1.72 m to 0.37 m, and yet a capture of that version is
+        // visibly worse, so the number and the picture disagree and the
+        // picture wins. Until something explains both, no bound here would
+        // mean anything. See docs/godot-host.md.
+    }
+
+    // Scale is the cheapest way a bone collapses a limb to a sliver, so
+    // report its range across the whole skeleton rather than trust it.
+    let scale_range = |pose: &[QsTransform]| {
+        pose.iter()
+            .flat_map(|t| t.scale[..3].iter().copied())
+            .fold((f32::MAX, f32::MIN), |(lo, hi), s| (lo.min(s), hi.max(s)))
+    };
+    let (rlo, rhi) = scale_range(&assets.skeleton.reference_pose);
+    println!("  reference pose scale range {rlo:.3} to {rhi:.3}");
+
     // Drive the graph the way the game does, then skin every frame.
     let mut vm = Interpreter::new(
         &assets.graph,
@@ -133,9 +185,10 @@ fn a_vanilla_body_skins_to_the_animated_skeleton() {
         vm.update(dt);
     }
     to_model_space_into(&assets.skeleton, vm.pose(), &mut model).expect("idle pose lifts");
-    skinning_transforms_into(&surface.map, &surface.skin.bones, &model, &mut skins)
-        .expect("idle skins");
+    skinning_transforms_into(&surface.map, &surface.skin, &model, &mut skins).expect("idle skins");
     let idle_first = skins.clone();
+    let (ilo, ihi) = scale_range(vm.pose());
+    println!("  idle pose scale range {ilo:.3} to {ihi:.3}");
     assert!(
         skins.iter().all(finite),
         "an idle skinning matrix is not finite"
@@ -155,7 +208,7 @@ fn a_vanilla_body_skins_to_the_animated_skeleton() {
     for _ in 0..180 {
         vm.update(dt);
         to_model_space_into(&assets.skeleton, vm.pose(), &mut model).expect("walk pose lifts");
-        skinning_transforms_into(&surface.map, &surface.skin.bones, &model, &mut skins)
+        skinning_transforms_into(&surface.map, &surface.skin, &model, &mut skins)
             .expect("walk skins");
         assert!(skins.iter().all(finite), "a skinning matrix is not finite");
         // A frame counts as moved when any bone's origin differs from where

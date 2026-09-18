@@ -75,6 +75,15 @@ pub struct ActorSurface {
     pub skin: Skin,
     /// That list resolved against the skeleton.
     pub map: BoneMap,
+    /// The shape node's own accumulated transform in the `NIF`. A skinned
+    /// shape normally sits at identity because its vertices are already in
+    /// skin space, so anything else here is worth knowing about.
+    pub node_offset: [f32; 3],
+    /// Body part partitions the shape is split into.
+    pub partitions: usize,
+    /// Whether the partition-local bone index correction applied, see
+    /// [`partition_bone_indices`].
+    pub remapped: bool,
 }
 
 /// A character's skeleton, graph, clips and skinned shapes.
@@ -228,16 +237,31 @@ impl ActorAssets {
             if mesh.bone_weights.is_empty() {
                 continue;
             }
-            let arrays = surface_of(mesh).map_err(|source| ActorError::Surface {
+            let mut arrays = surface_of(mesh).map_err(|source| ActorError::Surface {
                 path: mesh_path.to_string(),
                 source,
             })?;
+            let partitions = partition_count(&file, mesh);
+            let remapped = match partition_bone_indices(&file, mesh) {
+                Some(fixed) => {
+                    arrays.bones = fixed;
+                    true
+                }
+                None => false,
+            };
             let map = BoneMap::build(&skin.bones, skeleton);
             out.push(ActorSurface {
                 name: mesh.name.clone(),
                 arrays,
                 skin,
                 map,
+                node_offset: [
+                    mesh.transform.translation.x,
+                    mesh.transform.translation.y,
+                    mesh.transform.translation.z,
+                ],
+                partitions,
+                remapped,
             });
         }
         if out.is_empty() {
@@ -255,6 +279,102 @@ impl ActorAssets {
         let matched = self.surfaces.iter().map(|s| s.map.matched()).sum();
         (total, matched)
     }
+}
+
+/// How many body part partitions a shape is split into, 0 when it has none.
+fn partition_count(file: &soe_nif::NifFile, mesh: &soe_nif::mesh::Mesh) -> usize {
+    use soe_nif::blocks::Block;
+
+    let Some(Block::BsTriShape(shape)) = file.blocks.get(mesh.block) else {
+        return 0;
+    };
+    let Some(Block::SkinInstance(si)) = file.get(shape.skin) else {
+        return 0;
+    };
+    match file.get(si.partition) {
+        Some(Block::SkinPartition(p)) => p.partitions.len(),
+        _ => 0,
+    }
+}
+
+/// Per-vertex bone indices resolved against the shape's own bone list, flat,
+/// four per vertex, for a Special Edition skinned shape.
+///
+/// This works around a defect in `crates/nif`, reported rather than fixed here
+/// because another fork owns that crate. A `NiSkinPartition` splits a shape
+/// into body parts, and a packed vertex's four bone indices address the
+/// **partition's** short bone list, not the skin instance's. The reader's
+/// legacy `NiTriShape` path maps them through `Partition::bones` and says so in
+/// its doc comment, but the `BSTriShape` path that Special Edition uses copies
+/// them straight off the vertex. The result renders: vertices in the first
+/// partition land on plausible bones and every later body part, arms and head
+/// among them, is weighted to whatever bone happens to sit at that index.
+///
+/// `None` when the shape is not laid out that way, leaving the reader's
+/// indices alone.
+fn partition_bone_indices(file: &soe_nif::NifFile, mesh: &soe_nif::mesh::Mesh) -> Option<Vec<i32>> {
+    use soe_nif::blocks::Block;
+
+    let Some(Block::BsTriShape(shape)) = file.blocks.get(mesh.block) else {
+        return None;
+    };
+    let Some(Block::SkinInstance(si)) = file.get(shape.skin) else {
+        return None;
+    };
+    let Some(Block::SkinPartition(part_block)) = file.get(si.partition) else {
+        return None;
+    };
+    if part_block.vertices.is_empty() || part_block.partitions.is_empty() {
+        return None;
+    }
+    let vertices = mesh.positions.len();
+    let mut out = vec![0i32; vertices * 4];
+    let mut seen = vec![false; vertices];
+    let mut claim = |at: usize, part: &soe_nif::blocks::Partition| {
+        if at >= vertices || seen[at] {
+            return;
+        }
+        let Some(vertex) = part_block.vertices.get(at) else {
+            return;
+        };
+        seen[at] = true;
+        for k in 0..4 {
+            let local = vertex.bone_indices[k] as usize;
+            let bone = part.bones.get(local).copied().unwrap_or(0);
+            out[at * 4 + k] = i32::from(bone);
+        }
+    };
+    for part in &part_block.partitions {
+        // Which vertices a partition owns is said two ways, and Special
+        // Edition shapes use either. `vertex_map` lists them directly. With a
+        // shared vertex buffer that map can be empty, and then the only
+        // record is the partition's own triangles in shape vertex indices.
+        if part.vertex_map.is_empty() {
+            for tri in &part.triangles_copy {
+                for &v in tri {
+                    claim(v as usize, part);
+                }
+            }
+        } else {
+            for &global in &part.vertex_map {
+                claim(global as usize, part);
+            }
+        }
+    }
+    // A vertex no partition claimed keeps whatever the reader gave it, which
+    // is the status quo rather than a new wrong answer.
+    let unclaimed = seen.iter().filter(|v| !**v).count();
+    if unclaimed == vertices {
+        return None;
+    }
+    for (at, claimed) in seen.iter().enumerate() {
+        if !claimed {
+            for k in 0..4 {
+                out[at * 4 + k] = i32::from(mesh.bone_indices[at][k]);
+            }
+        }
+    }
+    Some(out)
 }
 
 /// One `NIF` shape as a Godot-ready surface, skin data included.

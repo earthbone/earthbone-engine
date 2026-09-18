@@ -28,7 +28,7 @@
 
 use soe_havok::skeleton::Skeleton;
 use soe_havok::QsTransform;
-use soe_nif::mesh::Bone as MeshBone;
+use soe_nif::mesh::{Bone as MeshBone, Skin};
 use soe_nif::types::Transform as NifTransform;
 
 use crate::units::METRES_PER_UNIT;
@@ -272,25 +272,33 @@ impl std::error::Error for SkinError {}
 /// gets the identity, which leaves the vertices weighted to it at their bind
 /// position rather than collapsing them to the origin.
 ///
+/// [`Skin::transform`], the shape's offset from the skeleton root, is
+/// deliberately **not** applied. A Special Edition skinned shape keeps its
+/// vertices in the skin's own space already, so composing that offset in
+/// shifts every bone by the character's standing height and shreds the mesh,
+/// which a capture shows at once. It is taken here only to report, since a
+/// shape whose vertices really were shape local would need it. See
+/// `docs/godot-host.md` for the measurement that settled this.
+///
 /// # Errors
 ///
-/// [`SkinError`] when the map does not match the mesh's bone list, or when a
+/// [`SkinError`] when the map does not match the skin's bone list, or when a
 /// mapped index is outside the pose.
 pub fn skinning_transforms_into(
     map: &BoneMap,
-    mesh_bones: &[MeshBone],
+    skin: &Skin,
     model_pose: &[QsTransform],
     out: &mut Vec<Affine>,
 ) -> Result<(), SkinError> {
-    if map.len() != mesh_bones.len() {
+    if map.len() != skin.bones.len() {
         return Err(SkinError::MapLength {
             map: map.len(),
-            bones: mesh_bones.len(),
+            bones: skin.bones.len(),
         });
     }
     out.clear();
-    out.reserve(mesh_bones.len());
-    for (bone, (slot, mesh_bone)) in map.skeleton_index.iter().zip(mesh_bones).enumerate() {
+    out.reserve(skin.bones.len());
+    for (bone, (slot, mesh_bone)) in map.skeleton_index.iter().zip(&skin.bones).enumerate() {
         let Some(at) = *slot else {
             out.push(Affine::IDENTITY);
             continue;
@@ -302,9 +310,8 @@ pub fn skinning_transforms_into(
                 pose: model_pose.len(),
             });
         };
-        // Bind space vertex into bone space, then the bone into model space.
-        let skin = Affine::from_qs(model).then(&Affine::from_nif(&mesh_bone.inverse_bind));
-        out.push(skin.to_godot());
+        let full = Affine::from_qs(model).then(&Affine::from_nif(&mesh_bone.inverse_bind));
+        out.push(full.to_godot());
     }
     Ok(())
 }
@@ -316,11 +323,11 @@ pub fn skinning_transforms_into(
 /// As [`skinning_transforms_into`].
 pub fn skinning_transforms(
     map: &BoneMap,
-    mesh_bones: &[MeshBone],
+    skin: &Skin,
     model_pose: &[QsTransform],
 ) -> Result<Vec<Affine>, SkinError> {
     let mut out = Vec::new();
-    skinning_transforms_into(map, mesh_bones, model_pose, &mut out)?;
+    skinning_transforms_into(map, skin, model_pose, &mut out)?;
     Ok(out)
 }
 
@@ -355,6 +362,16 @@ mod tests {
             node: soe_nif::types::BlockRef::NONE,
             inverse_bind,
             bound: soe_nif::types::Bound::default(),
+        }
+    }
+
+    fn skin_of(bones: &[MeshBone], offset: NifTransform) -> Skin {
+        Skin {
+            skeleton_root: soe_nif::types::BlockRef::NONE,
+            skeleton_root_name: "NPC Root [Root]".into(),
+            transform: offset,
+            bones: bones.to_vec(),
+            body_parts: Vec::new(),
         }
     }
 
@@ -473,7 +490,8 @@ mod tests {
         let skel = skeleton(&["A"]);
         let bones = [mesh_bone("B", translated_nif(99.0, 0.0, 0.0))];
         let map = BoneMap::build(&bones, &skel);
-        let out = skinning_transforms(&map, &bones, &[QsTransform::IDENTITY]).unwrap();
+        let skin = skin_of(&bones, NifTransform::IDENTITY);
+        let out = skinning_transforms(&map, &skin, &[QsTransform::IDENTITY]).unwrap();
         assert_eq!(out[0], Affine::IDENTITY);
     }
 
@@ -489,7 +507,8 @@ mod tests {
             translation: [70.0, 0.0, 0.0, 0.0],
             ..QsTransform::IDENTITY
         }];
-        let out = skinning_transforms(&map, &bones, &model).unwrap();
+        let skin = skin_of(&bones, NifTransform::IDENTITY);
+        let out = skinning_transforms(&map, &skin, &model).unwrap();
         for i in 0..3 {
             assert!(out[0].origin[i].abs() < 1e-4, "{:?}", out[0].origin);
         }
@@ -506,7 +525,8 @@ mod tests {
             translation: [0.0, 0.0, 70.0, 0.0],
             ..QsTransform::IDENTITY
         }];
-        let out = skinning_transforms(&map, &bones, &model).unwrap();
+        let skin = skin_of(&bones, NifTransform::IDENTITY);
+        let out = skinning_transforms(&map, &skin, &model).unwrap();
         // Skyrim Z up is Godot Y up, and 70 units is 70 * METRES_PER_UNIT.
         let want = 70.0 * METRES_PER_UNIT;
         assert!(
@@ -521,7 +541,8 @@ mod tests {
         let skel = skeleton(&["A"]);
         let bones = [mesh_bone("A", NifTransform::IDENTITY)];
         let map = BoneMap::build(&bones, &skel);
-        let err = skinning_transforms(&map, &[], &[QsTransform::IDENTITY]).unwrap_err();
+        let empty = skin_of(&[], NifTransform::IDENTITY);
+        let err = skinning_transforms(&map, &empty, &[QsTransform::IDENTITY]).unwrap_err();
         assert_eq!(err, SkinError::MapLength { map: 1, bones: 0 });
     }
 
@@ -530,7 +551,8 @@ mod tests {
         let skel = skeleton(&["A", "B"]);
         let bones = [mesh_bone("B", NifTransform::IDENTITY)];
         let map = BoneMap::build(&bones, &skel);
-        let err = skinning_transforms(&map, &bones, &[QsTransform::IDENTITY]).unwrap_err();
+        let skin = skin_of(&bones, NifTransform::IDENTITY);
+        let err = skinning_transforms(&map, &skin, &[QsTransform::IDENTITY]).unwrap_err();
         assert_eq!(
             err,
             SkinError::PoseIndex {
