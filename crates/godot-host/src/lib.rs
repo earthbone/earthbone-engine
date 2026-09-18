@@ -30,6 +30,8 @@ pub mod godot_actor;
 pub mod godot_layer;
 #[cfg(feature = "godot")]
 pub mod godot_physics;
+#[cfg(feature = "godot")]
+pub mod godot_player;
 
 #[cfg(feature = "godot")]
 mod entry {

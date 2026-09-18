@@ -65,6 +65,73 @@ pub mod vk {
     pub const GRAVE: u32 = 0xc0;
 }
 
+/// Godot's `Key` values for the keys that are not plain ASCII.
+///
+/// Godot numbers printable keys by their ASCII codepoint and everything else
+/// from `1 << 22`. Windows numbers its virtual keys differently above the
+/// letters, so the two tables agree on `A` to `Z`, `0` to `9` and space, and
+/// disagree on every modifier and named key. Values read from
+/// `engine-refs/godot-docs/classes/class_@globalscope.rst`.
+pub mod godot_key {
+    pub const SPECIAL: i64 = 1 << 22;
+    pub const ESCAPE: i64 = SPECIAL + 1;
+    pub const TAB: i64 = SPECIAL + 2;
+    pub const BACKSPACE: i64 = SPECIAL + 4;
+    pub const ENTER: i64 = SPECIAL + 5;
+    pub const LEFT: i64 = SPECIAL + 15;
+    pub const UP: i64 = SPECIAL + 16;
+    pub const RIGHT: i64 = SPECIAL + 17;
+    pub const DOWN: i64 = SPECIAL + 18;
+    pub const PAGEUP: i64 = SPECIAL + 19;
+    pub const PAGEDOWN: i64 = SPECIAL + 20;
+    pub const SHIFT: i64 = SPECIAL + 21;
+    pub const CTRL: i64 = SPECIAL + 22;
+    pub const ALT: i64 = SPECIAL + 24;
+    /// The backtick and tilde key, which Windows calls `VK_OEM_3`.
+    pub const QUOTELEFT: i64 = 96;
+    /// `F1`, with `F2` to `F12` following one after another.
+    pub const F1: i64 = SPECIAL + 28;
+}
+
+/// Translate a control map's Windows virtual key code into Godot's `Key`.
+///
+/// `None` for a code with no Godot equivalent, which the caller should treat
+/// as an unbindable entry rather than substituting something.
+#[must_use]
+pub fn godot_key_for(vk: u32) -> Option<i64> {
+    use godot_key as g;
+    // Letters, digits and space share the ASCII codepoint in both tables.
+    let shared = matches!(vk, 0x30..=0x39 | 0x41..=0x5a | 0x20);
+    if shared {
+        return Some(i64::from(vk));
+    }
+    Some(match vk {
+        vk::BACK => g::BACKSPACE,
+        vk::TAB => g::TAB,
+        vk::RETURN => g::ENTER,
+        vk::SHIFT => g::SHIFT,
+        vk::CONTROL => g::CTRL,
+        vk::ALT => g::ALT,
+        vk::ESCAPE => g::ESCAPE,
+        vk::GRAVE => g::QUOTELEFT,
+        0x25 => g::LEFT,
+        0x26 => g::UP,
+        0x27 => g::RIGHT,
+        0x28 => g::DOWN,
+        0x21 => g::PAGEUP,
+        0x22 => g::PAGEDOWN,
+        // Left and right modifiers collapse onto the plain modifier, since
+        // Godot's `Key` has no separate side and the control map uses the
+        // sided codes only to offer an alternative chord.
+        0xa0 | 0xa1 => g::SHIFT,
+        0xa2 | 0xa3 => g::CTRL,
+        0xa4 | 0xa5 => g::ALT,
+        // F1 to F12 are contiguous in both tables, from different bases.
+        0x70..=0x7b => g::F1 + i64::from(vk - 0x70),
+        _ => return None,
+    })
+}
+
 /// Several keys that must be held together, as `0x10+0x09` in the file.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Chord(pub Vec<u32>);
@@ -849,6 +916,70 @@ PreviousFocus\t0x10+0x09,0xa1+0x09\t0xff\t0x0100\t0\t0\t0\t0x10
         };
         let v = drive(&mut d, diagonal).direction;
         assert!(((v.x * v.x + v.y * v.y).sqrt() - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn letters_and_space_need_no_translation() {
+        for (vk_code, want) in [(vk::W, 87), (vk::A, 65), (vk::S, 83), (vk::SPACE, 32)] {
+            assert_eq!(godot_key_for(vk_code), Some(want), "vk {vk_code:#x}");
+        }
+    }
+
+    #[test]
+    fn modifiers_do_need_translation() {
+        // The bug this guards against is passing 0x11 straight through, which
+        // Godot reads as a control character rather than as Ctrl.
+        assert_eq!(godot_key_for(vk::CONTROL), Some(godot_key::CTRL));
+        assert_eq!(godot_key_for(vk::SHIFT), Some(godot_key::SHIFT));
+        assert_eq!(godot_key_for(vk::ALT), Some(godot_key::ALT));
+        assert_ne!(godot_key_for(vk::CONTROL), Some(i64::from(vk::CONTROL)));
+    }
+
+    #[test]
+    fn sided_modifiers_collapse_onto_the_plain_one() {
+        for sided in [0xa0, 0xa1] {
+            assert_eq!(godot_key_for(sided), Some(godot_key::SHIFT));
+        }
+        for sided in [0xa2, 0xa3] {
+            assert_eq!(godot_key_for(sided), Some(godot_key::CTRL));
+        }
+    }
+
+    #[test]
+    fn the_function_keys_line_up_across_both_tables() {
+        assert_eq!(godot_key_for(0x70), Some(4_194_332));
+        assert_eq!(godot_key_for(0x71), Some(4_194_333));
+        assert_eq!(godot_key_for(0x7b), Some(4_194_343));
+    }
+
+    #[test]
+    fn the_arrows_and_the_console_key_translate() {
+        assert_eq!(godot_key_for(0x25), Some(godot_key::LEFT));
+        assert_eq!(godot_key_for(0x26), Some(godot_key::UP));
+        assert_eq!(godot_key_for(0x27), Some(godot_key::RIGHT));
+        assert_eq!(godot_key_for(0x28), Some(godot_key::DOWN));
+        assert_eq!(godot_key_for(vk::GRAVE), Some(godot_key::QUOTELEFT));
+    }
+
+    #[test]
+    fn an_unknown_code_translates_to_nothing_rather_than_something_wrong() {
+        assert_eq!(godot_key_for(0xfe), None);
+        assert_eq!(godot_key_for(UNMAPPED), None);
+    }
+
+    #[test]
+    fn every_default_binding_reaches_a_real_godot_key() {
+        let b = Bindings::default();
+        for a in Action::all() {
+            for chord in &b.get(a).expect("a default").0 {
+                for key in &chord.0 {
+                    assert!(
+                        godot_key_for(*key).is_some(),
+                        "{a:?} binds {key:#x}, which does not translate"
+                    );
+                }
+            }
+        }
     }
 
     #[test]

@@ -315,6 +315,54 @@ impl CameraRig {
     }
 }
 
+impl Eye {
+    /// The camera's basis in Godot space, as the three columns Godot wants:
+    /// right, up, and back.
+    ///
+    /// Built from explicit columns rather than from Euler angles, because the
+    /// order and sign conventions between Skyrim's yaw and Godot's rotations
+    /// are exactly the kind of thing that compiles either way and renders
+    /// wrong. A column basis can be checked against a known facing, and the
+    /// tests do.
+    ///
+    /// Godot's camera looks down its own `-Z`, so the back column is the
+    /// negated look direction. The pitch clamp keeps the look direction off
+    /// the world up axis, so the cross products never degenerate.
+    #[must_use]
+    pub fn basis_columns(&self) -> [[f32; 3]; 3] {
+        let look = look_vector(self.yaw, self.pitch);
+        let back = normalise(crate::units::direction_to_godot([
+            -look.0, -look.1, -look.2,
+        ]));
+        let world_up = [0.0, 1.0, 0.0];
+        let right = normalise(cross(world_up, back));
+        let up = cross(back, right);
+        [right, up, back]
+    }
+}
+
+fn look_vector(yaw: f32, pitch: f32) -> (f32, f32, f32) {
+    let (cp, sp) = (pitch.cos(), pitch.sin());
+    (yaw.sin() * cp, yaw.cos() * cp, sp)
+}
+
+fn cross(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
+    [
+        a[1] * b[2] - a[2] * b[1],
+        a[2] * b[0] - a[0] * b[2],
+        a[0] * b[1] - a[1] * b[0],
+    ]
+}
+
+fn normalise(v: [f32; 3]) -> [f32; 3] {
+    let len = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
+    if len > 1e-6 {
+        [v[0] / len, v[1] / len, v[2] / len]
+    } else {
+        v
+    }
+}
+
 /// Fold an angle into `-pi..pi`, so yaw never grows without bound across a
 /// long session and two rigs compare equal at the same facing.
 #[must_use]
@@ -595,6 +643,79 @@ mod tests {
         let rig = CameraRig::new(settings).with_mode(CameraMode::Third);
         let eye = rig.eye(feet(), HEIGHT, None);
         assert!(eye.position.x < 0.0, "{}", eye.position.x);
+    }
+
+    fn close(a: [f32; 3], b: [f32; 3], what: &str) {
+        for i in 0..3 {
+            assert!(
+                (a[i] - b[i]).abs() < 1e-5,
+                "{what}: {a:?} is not {b:?} at {i}"
+            );
+        }
+    }
+
+    #[test]
+    fn facing_north_looks_down_godot_negative_z() {
+        // Skyrim north is Godot -Z, and a Godot camera looks down its own -Z,
+        // so the back column is +Z and the basis is the identity.
+        let rig = CameraRig::default();
+        let [right, up, back] = rig.eye(feet(), HEIGHT, None).basis_columns();
+        close(right, [1.0, 0.0, 0.0], "right");
+        close(up, [0.0, 1.0, 0.0], "up");
+        close(back, [0.0, 0.0, 1.0], "back");
+    }
+
+    #[test]
+    fn facing_east_turns_the_basis_a_quarter_turn() {
+        let mut rig = CameraRig::default();
+        rig.set_facing(std::f32::consts::FRAC_PI_2, 0.0);
+        let [right, up, back] = rig.eye(feet(), HEIGHT, None).basis_columns();
+        // East is Godot +X, so the camera looks along +X and its back is -X.
+        close(back, [-1.0, 0.0, 0.0], "back");
+        close(right, [0.0, 0.0, 1.0], "right");
+        close(up, [0.0, 1.0, 0.0], "up");
+    }
+
+    #[test]
+    fn looking_up_tilts_the_back_column_down() {
+        let mut rig = CameraRig::default();
+        rig.set_facing(0.0, 0.5);
+        let [_, up, back] = rig.eye(feet(), HEIGHT, None).basis_columns();
+        // Looking up means the camera's back points down and behind.
+        assert!(back[1] < 0.0, "back did not tilt down: {back:?}");
+        assert!(back[2] > 0.0, "back stopped pointing behind: {back:?}");
+        assert!(up[1] > 0.0, "up flipped: {up:?}");
+    }
+
+    #[test]
+    fn the_basis_stays_orthonormal_across_the_whole_range() {
+        let dot = |a: [f32; 3], b: [f32; 3]| a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+        for yaw_deg in [-180.0_f32, -91.0, 0.0, 47.0, 179.0] {
+            for pitch_deg in [-89.0_f32, -45.0, 0.0, 45.0, 89.0] {
+                let mut rig = CameraRig::default();
+                rig.set_facing(yaw_deg.to_radians(), pitch_deg.to_radians());
+                let [x, y, z] = rig.eye(feet(), HEIGHT, None).basis_columns();
+                let what = format!("yaw {yaw_deg} pitch {pitch_deg}");
+                for (v, name) in [(x, "x"), (y, "y"), (z, "z")] {
+                    assert!((dot(v, v) - 1.0).abs() < 1e-4, "{what}: {name} not unit");
+                }
+                assert!(dot(x, y).abs() < 1e-4, "{what}: x and y not perpendicular");
+                assert!(dot(y, z).abs() < 1e-4, "{what}: y and z not perpendicular");
+                assert!(dot(x, z).abs() < 1e-4, "{what}: x and z not perpendicular");
+                // Right-handed: x cross y must be z, not -z.
+                close(cross(x, y), z, &format!("{what}: handedness"));
+            }
+        }
+    }
+
+    #[test]
+    fn the_back_column_is_the_negated_look_direction() {
+        let mut rig = CameraRig::default();
+        rig.set_facing(1.1, -0.4);
+        let eye = rig.eye(feet(), HEIGHT, None);
+        let look = rig.look_direction();
+        let want = crate::units::direction_to_godot([-look.x, -look.y, -look.z]);
+        close(eye.basis_columns()[2], normalise(want), "back");
     }
 
     #[test]
