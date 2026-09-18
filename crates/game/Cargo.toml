@@ -17,6 +17,10 @@ soe-bsa = { path = "../bsa" }
 soe-navmesh = { path = "../navmesh" }
 soe-moddata = { path = "../moddata" }
 soe-profile = { path = "../profile" }
+# Movement speeds, so the package driver and the character controller cannot
+# disagree about how fast an actor walks. `physics` depends on `trace` and
+# `nif` only, so there is no cycle.
+soe-physics = { path = "../physics" }
 
 [lints]
 workspace = true

@@ -1296,6 +1296,7 @@ dependencies = [
  "soe-moddata",
  "soe-navmesh",
  "soe-papyrus",
+ "soe-physics",
  "soe-profile",
  "soe-trace",
 ]

@@ -33,12 +33,15 @@ use crate::package::{
 };
 use crate::world::{Alloc, Handle, Pending, World};
 
-/// Units per real second, the default movement type's walk, jog, run and
-/// fast walk speeds. Race movement data is not read yet.
-pub const WALK_SPEED: f32 = 110.0;
-pub const JOG_SPEED: f32 = 180.0;
-pub const RUN_SPEED: f32 = 375.0;
-pub const FAST_WALK_SPEED: f32 = 160.0;
+/// Units per real second, the default movement type's walk, jog, run and fast
+/// walk speeds. Race movement data is not read yet.
+///
+/// These live in `soe_physics` because the character controller is the lower
+/// crate and cannot depend on the runtime that drives it. They are re-exported
+/// here so the package driver and the controller cannot drift apart, which
+/// they had begun to do: both crates declared their own copies until
+/// 2026-09-18.
+pub use soe_physics::{FAST_WALK_SPEED, JOG_SPEED, RUN_SPEED, WALK_SPEED};
 
 /// Closer than this to a waypoint counts as reaching it.
 const ARRIVAL_DISTANCE: f32 = 4.0;
