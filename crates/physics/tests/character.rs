@@ -67,6 +67,56 @@ fn ramp(degrees: f32, run: f32) -> Collider {
     )
 }
 
+/// A flat ceiling at `z`, spanning x from `x0` to `x1` and wide in y, so a
+/// capsule can walk out from under it.
+fn ceiling(z: f32, x0: f32, x1: f32) -> Collider {
+    let w = 400.0;
+    mesh(
+        "ceiling",
+        vec![
+            Vec3::new(x0, -w, z),
+            Vec3::new(x1, -w, z),
+            Vec3::new(x1, w, z),
+            Vec3::new(x0, w, z),
+        ],
+        vec![[0, 1, 2], [0, 2, 3]],
+    )
+}
+
+/// A flight of steps climbing along +x from the origin, each `rise` tall and
+/// `run` deep. Both the tread and the riser are present, so a capsule that
+/// cannot climb is stopped by the riser rather than passing through it.
+fn stairs(count: usize, rise: f32, run: f32) -> Collider {
+    let w = 400.0;
+    let mut vertices = Vec::new();
+    let mut triangles = Vec::new();
+    let mut quad = |a: Vec3, b: Vec3, c: Vec3, d: Vec3| {
+        let base = u32::try_from(vertices.len()).expect("fixture stays small");
+        vertices.extend_from_slice(&[a, b, c, d]);
+        triangles.push([base, base + 1, base + 2]);
+        triangles.push([base, base + 2, base + 3]);
+    };
+    for i in 0..count {
+        let (x0, x1) = (i as f32 * run, (i + 1) as f32 * run);
+        let (z0, z1) = (i as f32 * rise, (i + 1) as f32 * rise);
+        // The riser, a vertical face at the front of the step.
+        quad(
+            Vec3::new(x0, -w, z0),
+            Vec3::new(x0, w, z0),
+            Vec3::new(x0, w, z1),
+            Vec3::new(x0, -w, z1),
+        );
+        // The tread, the flat top walked on.
+        quad(
+            Vec3::new(x0, -w, z1),
+            Vec3::new(x1, -w, z1),
+            Vec3::new(x1, w, z1),
+            Vec3::new(x0, w, z1),
+        );
+    }
+    mesh("stairs", vertices, triangles)
+}
+
 /// A vertical wall across the x axis at `x`.
 fn wall(x: f32) -> Collider {
     let (w, h) = (400.0, 400.0);
@@ -226,6 +276,281 @@ fn a_capsule_stops_against_a_wall_instead_of_passing_through_it() {
     for p in &track {
         assert!(p.x < 300.0, "crossed the wall plane at {p:?}");
     }
+}
+
+#[test]
+fn a_capsule_climbs_a_stair_riser_shorter_than_its_step_height() {
+    let settings = CharacterSettings::default();
+    let rise = 24.0;
+    assert!(
+        rise < settings.step_height,
+        "this test wants a riser the capsule can clear, {rise} against {}",
+        settings.step_height
+    );
+
+    let mut world = SimpleWorld::new();
+    world.add_static(&floor(0.0, 900.0));
+    world.add_static(&stairs(8, rise, 48.0));
+    let id = world.create_character(settings, Vec3::new(-200.0, 0.0, 40.0));
+    run(&mut world, id, 60, "settle");
+    let start = world.character(id).unwrap().position;
+    world.walk(id, Vec3::new(1.0, 0.0, 0.0), soe_physics::WALK_SPEED);
+
+    let track = run(&mut world, id, 300, "stairs");
+
+    let end = world.character(id).unwrap();
+    assert!(end.on_ground, "lost the stairs while climbing: {end:?}");
+    assert!(
+        end.position.z > start.z + 3.0 * rise,
+        "climbed fewer than three steps, {} to {}",
+        start.z,
+        end.position.z
+    );
+    assert!(
+        end.position.x > 3.0 * 48.0,
+        "did not advance along the flight, x {}",
+        end.position.x
+    );
+    // Climbing, not floating. The step up lifts before the capsule is over
+    // the next tread, so the bar is the tread a radius ahead of the feet.
+    let tread_at = |x: f32| -> f32 {
+        if x <= 0.0 {
+            0.0
+        } else {
+            ((x / 48.0).floor() + 1.0).min(8.0) * rise
+        }
+    };
+    for p in &track {
+        let bar = tread_at(p.x + settings.radius);
+        assert!(
+            p.z <= bar + 2.0,
+            "rose above the step ahead at {p:?}, which tops out at {bar}"
+        );
+    }
+}
+
+#[test]
+fn a_riser_taller_than_the_step_height_stops_the_capsule() {
+    let settings = CharacterSettings::default();
+    let rise = 72.0;
+    assert!(
+        rise > settings.step_height,
+        "this test wants an unclimbable riser"
+    );
+
+    let mut world = SimpleWorld::new();
+    world.add_static(&floor(0.0, 900.0));
+    world.add_static(&stairs(4, rise, 96.0));
+    let id = world.create_character(settings, Vec3::new(-200.0, 0.0, 40.0));
+    run(&mut world, id, 60, "settle");
+    world.walk(id, Vec3::new(1.0, 0.0, 0.0), soe_physics::RUN_SPEED);
+
+    run(&mut world, id, 180, "blocked");
+
+    let end = world.character(id).unwrap();
+    assert!(
+        end.position.z < rise,
+        "cleared a riser taller than the step height, z {}",
+        end.position.z
+    );
+    assert!(
+        end.position.x < settings.radius + 1.0,
+        "passed through the first riser to x {}",
+        end.position.x
+    );
+}
+
+#[test]
+fn a_capsule_steps_over_a_door_threshold() {
+    let mut world = SimpleWorld::new();
+    world.add_static(&floor(0.0, 900.0));
+    // One shallow step, which is the shape of a threshold under a door.
+    world.add_static(&stairs(1, 12.0, 24.0));
+    let id = world.create_character(CharacterSettings::default(), Vec3::new(-200.0, 0.0, 40.0));
+    run(&mut world, id, 60, "settle");
+    world.walk(id, Vec3::new(1.0, 0.0, 0.0), soe_physics::WALK_SPEED);
+
+    run(&mut world, id, 180, "threshold");
+
+    let end = world.character(id).unwrap();
+    assert!(
+        end.position.x > 24.0,
+        "stopped at the threshold instead of crossing it, x {}",
+        end.position.x
+    );
+    assert!(
+        end.on_ground,
+        "left the ground crossing a threshold: {end:?}"
+    );
+}
+
+#[test]
+fn walking_off_a_riser_follows_the_floor_down_instead_of_launching() {
+    let mut world = SimpleWorld::new();
+    // A raised slab that ends at x 0, with the ground one step below it.
+    world.add_static(&floor(0.0, 900.0));
+    world.add_static(&mesh(
+        "slab",
+        vec![
+            Vec3::new(-600.0, -400.0, 30.0),
+            Vec3::new(0.0, -400.0, 30.0),
+            Vec3::new(0.0, 400.0, 30.0),
+            Vec3::new(-600.0, 400.0, 30.0),
+        ],
+        vec![[0, 1, 2], [0, 2, 3]],
+    ));
+    let id = world.create_character(CharacterSettings::default(), Vec3::new(-300.0, 0.0, 80.0));
+    run(&mut world, id, 60, "settle");
+    assert!((world.character(id).unwrap().position.z - 30.0).abs() < 1.0);
+    world.walk(id, Vec3::new(1.0, 0.0, 0.0), soe_physics::WALK_SPEED);
+
+    let track = run(&mut world, id, 240, "stepdown");
+
+    let end = world.character(id).unwrap();
+    assert!(
+        end.position.x > 0.0,
+        "never left the slab, x {}",
+        end.position.x
+    );
+    assert!(end.on_ground, "did not settle after the drop: {end:?}");
+    assert!(
+        end.position.z.abs() < 1.0,
+        "should be on the lower floor, z {}",
+        end.position.z
+    );
+    // A 30 unit drop is inside the step height, so it is a step, not a fall.
+    let airborne = track.windows(2).filter(|w| w[1].z < w[0].z - 2.0).count();
+    assert!(
+        airborne <= 2,
+        "fell instead of stepping down, {airborne} frames of real descent"
+    );
+}
+
+#[test]
+fn a_capsule_cannot_stand_up_under_a_ceiling_too_low_for_it() {
+    let settings = CharacterSettings::default();
+    let mut world = SimpleWorld::new();
+    world.add_static(&floor(0.0, 900.0));
+    // Low enough for the crouched capsule and not the standing one.
+    let z = 110.0;
+    assert!(
+        settings.crouch_height < z && z < settings.height,
+        "the ceiling must sit between the two heights"
+    );
+    world.add_static(&ceiling(z, -600.0, 0.0));
+
+    // Crouch before the first step, so the capsule never spawns inside the
+    // ceiling and get pushed out on the wrong side of it.
+    let id = world.create_character(settings, Vec3::new(-300.0, 0.0, 5.0));
+    assert!(world.set_crouch(id, true), "crouching is always allowed");
+    assert!(world.character(id).unwrap().crouching);
+    run(&mut world, id, 60, "crouched");
+    assert!(
+        world.character(id).unwrap().position.z.abs() < 1.0,
+        "should have settled on the floor under the ceiling, not on top of it"
+    );
+
+    assert!(
+        world.set_crouch(id, false),
+        "standing up under the ceiling must be refused, so it stays crouched"
+    );
+    assert!(
+        world.character(id).unwrap().crouching,
+        "refused, so it is still crouching"
+    );
+
+    // Walk out from under it, then it fits.
+    world.walk(id, Vec3::new(1.0, 0.0, 0.0), soe_physics::WALK_SPEED);
+    run(&mut world, id, 240, "out");
+    world.walk(id, Vec3::ZERO, 0.0);
+    let out = world.character(id).unwrap().position;
+    assert!(out.x > 100.0, "did not clear the ceiling, x {}", out.x);
+    assert!(
+        !world.set_crouch(id, false),
+        "clear of the ceiling, standing up must be allowed"
+    );
+    assert!(!world.character(id).unwrap().crouching);
+}
+
+#[test]
+fn a_jump_leaves_the_ground_reaches_its_height_and_lands() {
+    let settings = CharacterSettings::default();
+    let mut world = SimpleWorld::new();
+    world.add_static(&floor(0.0, 900.0));
+    let id = world.create_character(settings, Vec3::new(0.0, 0.0, 40.0));
+    run(&mut world, id, 60, "settle");
+    let ground = world.character(id).unwrap().position.z;
+
+    assert!(world.try_jump(id), "standing, so the jump is taken");
+    assert!(
+        !world.try_jump(id),
+        "already airborne, so a second jump is refused"
+    );
+
+    let track = run(&mut world, id, 120, "jump");
+    let peak = track.iter().fold(f32::MIN, |m, p| m.max(p.z)) - ground;
+    eprintln!(
+        "jump peak {peak:.1} units, aiming at {}",
+        settings.jump_height
+    );
+    assert!(
+        (settings.jump_height * 0.8..settings.jump_height * 1.2).contains(&peak),
+        "peak {peak} is not near the configured {}",
+        settings.jump_height
+    );
+
+    let end = world.character(id).unwrap();
+    assert!(end.on_ground, "never came back down: {end:?}");
+    assert!(
+        (end.position.z - ground).abs() < 1.0,
+        "landed at {}",
+        end.position.z
+    );
+}
+
+#[test]
+fn walk_turns_a_direction_and_a_speed_into_movement() {
+    let mut world = SimpleWorld::new();
+    world.add_static(&floor(0.0, 2000.0));
+    let id = world.create_character(CharacterSettings::default(), Vec3::new(0.0, 0.0, 40.0));
+    run(&mut world, id, 60, "settle");
+
+    // An unnormalised diagonal must still move at the speed asked for.
+    world.walk(id, Vec3::new(3.0, 3.0, 9.0), soe_physics::JOG_SPEED);
+    let before = world.character(id).unwrap().position;
+    run(&mut world, id, 60, "jog");
+    let after = world.character(id).unwrap().position;
+    let travelled = ((after.x - before.x).powi(2) + (after.y - before.y).powi(2)).sqrt();
+    eprintln!("jogged {travelled:.1} units in one second");
+    assert!(
+        (travelled - soe_physics::JOG_SPEED).abs() < 5.0,
+        "one second at jog speed should cover about {}, covered {travelled}",
+        soe_physics::JOG_SPEED
+    );
+    assert!(
+        (after.x - before.x - (after.y - before.y)).abs() < 1.0,
+        "a 45 degree direction should move equally in x and y"
+    );
+
+    // A zero direction stops rather than coasting.
+    world.walk(id, Vec3::ZERO, soe_physics::RUN_SPEED);
+    let held = world.character(id).unwrap().position;
+    run(&mut world, id, 30, "stop");
+    let rest = world.character(id).unwrap().position;
+    assert!(
+        ((rest.x - held.x).powi(2) + (rest.y - held.y).powi(2)).sqrt() < 1.0,
+        "kept moving after being told to stop, {held:?} to {rest:?}"
+    );
+}
+
+#[test]
+fn the_speed_constants_are_the_games_own() {
+    // The package driver in soe-game walks actors at these, so they must not
+    // drift apart. That crate reads them from here.
+    assert_eq!(soe_physics::WALK_SPEED, 110.0);
+    assert_eq!(soe_physics::FAST_WALK_SPEED, 160.0);
+    assert_eq!(soe_physics::JOG_SPEED, 180.0);
+    assert_eq!(soe_physics::RUN_SPEED, 375.0);
 }
 
 #[test]

@@ -1364,6 +1364,7 @@ name = "soe-physics"
 version = "0.1.0"
 dependencies = [
  "soe-bsa",
+ "soe-esm",
  "soe-nif",
  "soe-trace",
 ]

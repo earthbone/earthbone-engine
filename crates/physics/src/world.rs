@@ -1,14 +1,22 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! The collision world. [`PhysicsWorld`] is the seam a real engine (Jolt,
-//! through its C bindings) fills in later. [`SimpleWorld`] is the plain
-//! Rust implementation that exists today: statics only, a capsule
-//! character controller resolved by closest-point pushes, and rays.
+//! The collision world. [`PhysicsWorld`] is the seam, and [`SimpleWorld`] is
+//! the plain Rust implementation the headless engine steps: statics, rays,
+//! and a capsule character resolved by closest-point pushes.
+//!
+//! The character takes a direction and a speed, never input and never an
+//! actor, so the same controller carries the player and an NPC walking a
+//! package. On top of the push loop it has the three things that separate
+//! walking from sliding around a box: a step height, so a stair riser or a
+//! door threshold is climbed rather than run into, a downward snap of the
+//! same size, so walking off a riser follows the floor instead of launching,
+//! and a slope limit, so a face steeper than [`CharacterSettings::max_slope_cos`]
+//! is never ground and the capsule slides down it.
 //!
 //! What it does not do: rigid body simulation, constraints, ragdolls,
-//! continuous collision, or friction. Those are exactly the parts Jolt
-//! brings, and the trait is shaped so they slot in without changing how
-//! shapes are produced or how the game layer moves a character.
+//! continuous collision, or friction. The rendered path drives Godot's
+//! bundled Jolt for those, and the trait is shaped so neither side changes
+//! how shapes are produced or how the game layer moves a character.
 
 use std::collections::HashMap;
 
@@ -24,14 +32,36 @@ pub struct BodyId(pub u32);
 /// the Havok scale. Skyrim's `fGravity` setting is close to this.
 pub const GRAVITY: f32 = 9.81 * crate::bhk::UNITS_PER_METER;
 
+/// The default movement type's speeds, in game units per real second. The
+/// package driver in `soe-game` walks actors at these, and they live here
+/// because physics is the lower crate: a controller cannot depend on the
+/// runtime that drives it. Race movement data is not read yet, so every
+/// actor moves at the default type's rates.
+pub const WALK_SPEED: f32 = 110.0;
+pub const FAST_WALK_SPEED: f32 = 160.0;
+pub const JOG_SPEED: f32 = 180.0;
+pub const RUN_SPEED: f32 = 375.0;
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct CharacterSettings {
     pub radius: f32,
-    /// Total height including both caps.
+    /// Total standing height including both caps.
     pub height: f32,
+    /// Total height while crouching. Standing up is refused when the taller
+    /// capsule would not fit.
+    pub crouch_height: f32,
     /// Contact normals with a Z above this count as ground.
     pub max_slope_cos: f32,
     pub gravity: f32,
+    /// How far the feet may rise in one step to clear a stair riser or a
+    /// door threshold. A blocked horizontal move retries from this height.
+    pub step_height: f32,
+    /// How high a standing jump carries the feet, which fixes the launch
+    /// speed at `sqrt(2 * gravity * jump_height)`.
+    pub jump_height: f32,
+    /// The fastest the capsule falls. Capped again per step by the radius
+    /// over the timestep, so a long frame cannot tunnel a thin floor.
+    pub terminal_velocity: f32,
 }
 
 impl Default for CharacterSettings {
@@ -40,9 +70,29 @@ impl Default for CharacterSettings {
         CharacterSettings {
             radius: 32.0,
             height: 128.0,
+            crouch_height: 72.0,
             max_slope_cos: 0.7,
             gravity: GRAVITY,
+            step_height: 36.0,
+            jump_height: 76.0,
+            terminal_velocity: 1920.0,
         }
+    }
+}
+
+impl CharacterSettings {
+    /// The launch speed that reaches [`Self::jump_height`] under this
+    /// gravity.
+    #[must_use]
+    pub fn jump_speed(&self) -> f32 {
+        (2.0 * self.gravity * self.jump_height.max(0.0)).sqrt()
+    }
+
+    /// The steepest surface the capsule can stand on, in degrees. Reported
+    /// rather than stored, since the contact test wants the cosine.
+    #[must_use]
+    pub fn max_slope_degrees(&self) -> f32 {
+        self.max_slope_cos.clamp(-1.0, 1.0).acos().to_degrees()
     }
 }
 
@@ -55,16 +105,34 @@ pub struct Character {
     pub on_ground: bool,
     /// What the game layer wants this frame, applied horizontally.
     pub desired_velocity: Vec3,
+    /// Set through [`PhysicsWorld::set_crouch`], which refuses to clear it
+    /// under a ceiling too low for the standing capsule.
+    pub crouching: bool,
 }
 
 impl Character {
+    /// Standing or crouching height, whichever applies now.
+    #[must_use]
+    pub fn height(&self) -> f32 {
+        if self.crouching {
+            self.settings.crouch_height
+        } else {
+            self.settings.height
+        }
+    }
+
     /// The capsule's axis from the lower cap centre to the upper.
     pub fn axis(&self) -> (Vec3, Vec3) {
-        let r = self.settings.radius;
-        let h = (self.settings.height - 2.0 * r).max(0.0);
-        let a = self.position + Vec3::Z * r;
-        (a, a + Vec3::Z * h)
+        axis_at(self.position, self.settings.radius, self.height())
     }
+}
+
+/// The capsule axis for feet at `position`, split out so the controller can
+/// ask about a capsule it has not committed to yet.
+fn axis_at(position: Vec3, radius: f32, height: f32) -> (Vec3, Vec3) {
+    let h = (height - 2.0 * radius).max(0.0);
+    let a = position + Vec3::Z * radius;
+    (a, a + Vec3::Z * h)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -86,8 +154,29 @@ pub trait PhysicsWorld {
     fn character(&self, id: BodyId) -> Option<&Character>;
     /// Set the horizontal velocity the character tries to keep this step.
     fn move_character(&mut self, id: BodyId, desired: Vec3);
+    /// Launch the character upward if it is standing. Answers whether it
+    /// left the ground, so a caller can play the animation or not.
+    fn try_jump(&mut self, id: BodyId) -> bool;
+    /// Crouch or stand. Standing up under a ceiling too low for the full
+    /// capsule is refused, and the answer is the state that now holds.
+    fn set_crouch(&mut self, id: BodyId, crouching: bool) -> bool;
     fn step(&mut self, dt: f32);
     fn raycast(&self, from: Vec3, to: Vec3) -> Option<RayHit>;
+
+    /// Walk along a horizontal direction at a speed. The direction is
+    /// normalised and its Z dropped, so a caller passes where it wants to go
+    /// and one of the speed constants, and nothing about input or actors
+    /// reaches this crate. A zero direction stops.
+    fn walk(&mut self, id: BodyId, direction: Vec3, speed: f32) {
+        let flat = Vec3::new(direction.x, direction.y, 0.0);
+        let len = flat.length();
+        let desired = if len > 1e-6 {
+            flat * (speed / len)
+        } else {
+            Vec3::ZERO
+        };
+        self.move_character(id, desired);
+    }
 }
 
 /// A world-space primitive. Boxes and hulls become triangles on the way
@@ -187,24 +276,22 @@ impl SimpleWorld {
         out
     }
 
-    fn step_character(&mut self, id: BodyId, dt: f32) {
-        let Some(mut ch) = self.characters.get(&id).copied() else {
-            return;
-        };
-        let s = ch.settings;
-        ch.velocity.x = ch.desired_velocity.x;
-        ch.velocity.y = ch.desired_velocity.y;
-        ch.velocity.z -= s.gravity * dt;
-        // Cap the fall so a long step cannot tunnel through a floor thinner
-        // than the capsule.
-        let max_drop = s.radius / dt.max(1e-6);
-        if ch.velocity.z < -max_drop {
-            ch.velocity.z = -max_drop;
-        }
-        ch.position = ch.position + ch.velocity * dt;
-        ch.on_ground = false;
+    /// Pushes a capsule out of everything it overlaps, reporting where it
+    /// ended, what the contacts left of its velocity, and whether any contact
+    /// was flat enough to stand on. Pure, so the controller can try a move it
+    /// has not committed to.
+    fn resolve(
+        &self,
+        position: Vec3,
+        velocity: Vec3,
+        s: &CharacterSettings,
+        height: f32,
+    ) -> (Vec3, Vec3, bool) {
+        let mut position = position;
+        let mut velocity = velocity;
+        let mut on_ground = false;
         for _ in 0..6 {
-            let (a, b) = ch.axis();
+            let (a, b) = axis_at(position, s.radius, height);
             let query = Aabb::of_points([a, b]).grow(s.radius + 1.0);
             let mut moved = false;
             for (si, pi) in self.candidates(&query) {
@@ -223,13 +310,13 @@ impl SimpleWorld {
                     prim_normal_toward(&self.statics[si].prims[pi], on_seg)
                 };
                 let push = s.radius - dist;
-                ch.position = ch.position + normal * push;
-                let vn = ch.velocity.dot(normal);
+                position = position + normal * push;
+                let vn = velocity.dot(normal);
                 if vn < 0.0 {
-                    ch.velocity = ch.velocity - normal * vn;
+                    velocity = velocity - normal * vn;
                 }
                 if normal.z >= s.max_slope_cos {
-                    ch.on_ground = true;
+                    on_ground = true;
                 }
                 moved = true;
                 // The axis moved, so re-query before touching more.
@@ -239,11 +326,129 @@ impl SimpleWorld {
                 break;
             }
         }
+        (position, velocity, on_ground)
+    }
+
+    /// Whether a capsule of this height at this position is inside anything
+    /// that blocks characters. This is what refuses a stand up under a
+    /// ceiling the full capsule does not fit beneath.
+    fn overlaps(&self, position: Vec3, radius: f32, height: f32) -> bool {
+        let (a, b) = axis_at(position, radius, height);
+        let query = Aabb::of_points([a, b]).grow(radius + 1.0);
+        for (si, pi) in self.candidates(&query) {
+            if !self.statics[si].layer.blocks_characters() {
+                continue;
+            }
+            let (on_prim, on_seg) = closest_prim_segment(&self.statics[si].prims[pi], a, b);
+            if (on_seg - on_prim).length() < radius - 1e-3 {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Lifts by the step height, repeats the horizontal move from there, then
+    /// settles back down. This is how a stair riser and a door threshold get
+    /// cleared, and it answers `None` when the lift does not fit, the move is
+    /// still blocked, or nothing standable is underneath.
+    fn step_up(
+        &self,
+        start: Vec3,
+        wanted: Vec3,
+        s: &CharacterSettings,
+        height: f32,
+    ) -> Option<Vec3> {
+        let lifted = start + Vec3::Z * s.step_height;
+        if self.overlaps(lifted, s.radius, height) {
+            return None;
+        }
+        let (moved, _, _) = self.resolve(lifted + wanted, Vec3::ZERO, s, height);
+        if flat_distance(moved, lifted) < 1e-3 {
+            return None;
+        }
+        // Settle no further than the lift, so this never gains height it did
+        // not actually step onto.
+        let down = moved - Vec3::Z * s.step_height;
+        let (landed, _, ground) = self.resolve(down, Vec3::new(0.0, 0.0, -1.0), s, height);
+        if ground {
+            Some(landed)
+        } else {
+            None
+        }
+    }
+
+    /// Follows a floor down by at most one step height, so walking off a
+    /// riser reads as a step rather than as a fall.
+    fn snap_down(&self, from: Vec3, s: &CharacterSettings, height: f32) -> Option<Vec3> {
+        let target = from - Vec3::Z * s.step_height;
+        let (landed, _, ground) = self.resolve(target, Vec3::new(0.0, 0.0, -1.0), s, height);
+        if ground && landed.z <= from.z + 1e-3 {
+            Some(landed)
+        } else {
+            None
+        }
+    }
+
+    fn step_character(&mut self, id: BodyId, dt: f32) {
+        let Some(mut ch) = self.characters.get(&id).copied() else {
+            return;
+        };
+        let s = ch.settings;
+        let height = ch.height();
+        let was_ground = ch.on_ground;
+
+        ch.velocity.x = ch.desired_velocity.x;
+        ch.velocity.y = ch.desired_velocity.y;
+        ch.velocity.z -= s.gravity * dt;
+        // Terminal velocity, and a second cap from the radius over the step so
+        // a long frame cannot tunnel a floor thinner than the capsule.
+        let max_drop = s.terminal_velocity.min(s.radius / dt.max(1e-6));
+        if ch.velocity.z < -max_drop {
+            ch.velocity.z = -max_drop;
+        }
+
+        let start = ch.position;
+        let wanted = Vec3::new(ch.velocity.x, ch.velocity.y, 0.0) * dt;
+        let (mut pos, mut vel, mut ground) =
+            self.resolve(start + ch.velocity * dt, ch.velocity, &s, height);
+
+        // Retry a blocked walk from one step height up. Only from the ground,
+        // so this cannot be used to climb in mid air.
+        if was_ground && wanted.length() > 1e-4 {
+            let progressed = flat_distance(pos, start);
+            if progressed + 1e-3 < wanted.length() {
+                if let Some(stepped) = self.step_up(start, wanted, &s, height) {
+                    if flat_distance(stepped, start) > progressed + 1e-3 {
+                        pos = stepped;
+                        vel = Vec3::new(vel.x, vel.y, 0.0);
+                        ground = true;
+                    }
+                }
+            }
+        }
+
+        // Walking off a riser should follow the floor down rather than launch.
+        if was_ground && !ground && vel.z <= 0.0 {
+            if let Some(snapped) = self.snap_down(pos, &s, height) {
+                pos = snapped;
+                vel.z = 0.0;
+                ground = true;
+            }
+        }
+
+        ch.position = pos;
+        ch.velocity = vel;
+        ch.on_ground = ground;
         if ch.on_ground && ch.velocity.z < 0.0 {
             ch.velocity.z = 0.0;
         }
         self.characters.insert(id, ch);
     }
+}
+
+/// Horizontal distance, which is what decides whether a walk made progress.
+fn flat_distance(a: Vec3, b: Vec3) -> f32 {
+    Vec3::new(a.x - b.x, a.y - b.y, 0.0).length()
 }
 
 impl PhysicsWorld for SimpleWorld {
@@ -288,6 +493,7 @@ impl PhysicsWorld for SimpleWorld {
                 velocity: Vec3::ZERO,
                 on_ground: false,
                 desired_velocity: Vec3::ZERO,
+                crouching: false,
             },
         );
         id
@@ -301,6 +507,36 @@ impl PhysicsWorld for SimpleWorld {
         if let Some(c) = self.characters.get_mut(&id) {
             c.desired_velocity = desired;
         }
+    }
+
+    fn try_jump(&mut self, id: BodyId) -> bool {
+        let Some(c) = self.characters.get_mut(&id) else {
+            return false;
+        };
+        if !c.on_ground {
+            return false;
+        }
+        c.velocity.z = c.settings.jump_speed();
+        c.on_ground = false;
+        true
+    }
+
+    fn set_crouch(&mut self, id: BodyId, crouching: bool) -> bool {
+        let Some(ch) = self.characters.get(&id).copied() else {
+            return false;
+        };
+        if crouching == ch.crouching {
+            return ch.crouching;
+        }
+        // Standing up needs room for the taller capsule, and the ceiling is
+        // the only thing that can refuse it.
+        if !crouching && self.overlaps(ch.position, ch.settings.radius, ch.settings.height) {
+            return true;
+        }
+        if let Some(c) = self.characters.get_mut(&id) {
+            c.crouching = crouching;
+        }
+        crouching
     }
 
     fn step(&mut self, dt: f32) {

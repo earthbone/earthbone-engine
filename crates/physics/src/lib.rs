@@ -33,7 +33,10 @@ pub mod world;
 pub use bhk::{Layer, MotionType, UNITS_PER_METER};
 pub use math::{Aabb, Iso, Mat3, Quat, Vec3};
 pub use shape::{collect, collect_blocks, Collected, Collider, Shape};
-pub use world::{BodyId, Character, CharacterSettings, PhysicsWorld, SimpleWorld};
+pub use world::{
+    BodyId, Character, CharacterSettings, PhysicsWorld, SimpleWorld, FAST_WALK_SPEED, GRAVITY,
+    JOG_SPEED, RUN_SPEED, WALK_SPEED,
+};
 
 #[derive(Debug)]
 pub enum Error {
