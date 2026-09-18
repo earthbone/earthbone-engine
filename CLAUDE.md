@@ -39,7 +39,7 @@ meaning. Core crates are GPL-3.0-or-later, the SKSE shim crates are MIT.
 | `audio` | FUZ, LIP and xWMA containers, Vorbis and Opus decode | `docs/audio.md` |
 | `moddata` | SPID, KID and Base Object Swapper ini files, OAR folders | `docs/moddata.md` |
 
-Other docs: `docs/design-system.md` (what of the Creation Engine's design the
+Other docs: `docs/status.md` (per subsystem detail), `docs/design-system.md` (what of the Creation Engine's design the
 engine preserves), `docs/editor.md` (Creation Kit replacement on the Godot
 editor), `docs/style.md` (Rust coding baseline), `docs/validation.md`
 (conformance harness against vanilla behaviour).
@@ -118,47 +118,33 @@ GPL tool is fine there, but no GPL derived code may reach the MIT shim crates.
 - Code forks at most three at a time. Progress is read from branch commits and
   the master gate, never from an agent's own report.
 
-## Status (2026-09-18, master 2984fb0)
+## Status (2026-09-18, master 15dd049)
 
-Rounds 1, 2 and 3 are merged. Round 5 (hardening and tooling) is running,
-round 4 (tooling) and round 6 (UI) are written with done checks in
-`ENGINE-PLAN.md`. Workspace gate green: 426 tests in 59 suites, none ignored,
-clippy and fmt clean, gated tests run against the installed game.
+Rounds 1, 2 and 3 are merged, and so is most of round 6: physics on Jolt, the
+character controller, door transitions and skinning. `input` and `playback`
+are the two round 6 items still in flight. Round 7 (streamed transitions,
+portal doorways) is written with done checks in `ENGINE-PLAN.md`. Workspace
+gate green: 711 tests in 85 suites, none ignored, clippy clean at both ends of
+the feature range, fmt and both linters clean, gated tests run against the
+installed game.
 
-What the engine does today, per subsystem:
+What the engine does today, per subsystem, is in `docs/status.md`.
 
-- **Records.** `esm` reads the load order with winning-override semantics, a
-  `CellIndex` maps cells and the worldspace grid to their placed objects
-  (build 0.15 s over 872k placed objects, lookup 9 ns), and `dirty.rs`
-  reports identical-to-master overrides, deleted references and deleted
-  navmeshes per plugin. Dirty plugins need no cleaning: a deleted reference
-  resolves and starts disabled, a deleted navmesh drops with edge repair.
-- **Scripts.** 347 natives with state plus 189 stubs, the VM walks base
-  classes on dispatch, and the first real `start` on the installed game runs
-  423 quests through 1,388 native calls with **zero** unresolved calls, which
-  the gated test now asserts. The five masters declare 686 natives in all and
-  the gated report lists what the registry still lacks, with call-site counts.
-  No script named for a DLC declares a native of its own: every DLC native is
-  an addition to a base class, so DLC coverage is measured by call sites, not
-  by script name. `SOEV`, `SOEW` (version 3) and `SOEG` save and load.
-- **Actors.** `NPC_` base stats, `PACK` packages with sandbox, travel and
-  sleep on the navmesh graph (4,635 of 5,961 vanilla packages resolve), and a
-  havok behavior interpreter that walks the vanilla `mt_behavior.hkx` with
-  poses within 3.8e-6 of the clip sampler.
-- **Rendering.** The Godot host batches surfaces per material as
-  `RenderingServer` instances, uploads block-compressed DDS untouched from a
-  session cache, and streams interior and exterior cells with terrain. The
-  Whiterun 3 by 3 block draws at p99 0.519 ms, a cell streams in 4 ms. Godot
-  stays, unpatched, tested on 4.4.1 and 4.7.2 with the api-4-4 floor.
-- **Determinism.** A per-tick state hash over world, VM and clock with a part
-  per subsystem, `SOE_HASH_DUMP`, and gated 600-tick runs that hash equal
-  twice. `LoadOrder::winners` walks a sorted list so nothing depends on hash
-  map order.
+Read `ENGINE-PLAN.md` for what is next and why. Branches `input`, `playback`
+and `no-load-screen` are in flight. `portal-cells` is held until
+`no-load-screen` lands, because it builds on the split that item establishes
+between streaming a cell and attaching it. The remaining near items are mod
+data formats (SPID, KID, BOS, OAR) and the second passes on the behavior
+interpreter and packages.
 
-Read `ENGINE-PLAN.md` for what is next and why. The near items are
-`TEST_PLAN.md` phase 2 (waiting on the user's go), mod data formats (SPID,
-KID, BOS, OAR), and the second passes on the behavior interpreter and
-packages. Branch `audio` is in flight.
+Adversarial testing has reached phase 3. Two findings worth carrying: an
+archive record states its unpacked size and neither decompressor checked it,
+so a record declaring 4,119 bytes whose stream held 23 returned 23 bytes and
+success, and every reader downstream would have worked on a truncated buffer
+believing it whole. And Papyrus has no overloading, so a compiled script
+carrying two functions of one name in one state is not representable. The
+reader was right and the assembler was wrong, which 14,026 shipped scripts
+confirm with zero offenders.
 
 A number falling can be a fix. Reading `XLKR` on actor references closed a
 real gap, the `ACHR` reader had ignored linked references, and the first
