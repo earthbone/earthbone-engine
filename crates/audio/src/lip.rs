@@ -47,8 +47,17 @@ pub const HAS_GESTURES: u32 = 4;
 /// The target count is stored rather than assumed.
 pub const VARIABLE_TARGETS: u32 = 8;
 
-/// Mouth targets Skyrim animates, against 43 for Fallout 4.
-pub const TARGETS: usize = 16;
+/// Mouth targets Skyrim animates when a block carries gestures, against 43 for
+/// Fallout 4. A gesture free block carries [`TARGETS_NO_GESTURES`].
+pub const TARGETS: u16 = 16;
+
+/// Mouth targets a creature voice animates. The eight a creature loses are the
+/// gesture targets.
+pub const TARGETS_NO_GESTURES: u16 = 8;
+
+/// How far into a block [`Lip::targets`] looks for the marker. The widest
+/// preamble measured puts it at 19.
+const MARKER_SEARCH_END: usize = 32;
 
 /// The two flag combinations the English voice archive writes.
 pub const KNOWN_FLAGS: [u32; 2] = [
@@ -132,12 +141,41 @@ impl<'a> Lip<'a> {
     pub fn matches_vanilla_shape(&self) -> bool {
         self.version == VERSION && KNOWN_FLAGS.contains(&self.flags)
     }
+
+    /// How many targets the curve data drives, 16 with gestures and 8 without.
+    ///
+    /// The preamble between the header and this field is not a fixed width, so
+    /// the read anchors on a marker instead: the first `i32` in the range -32
+    /// to -1, which sits at offset 16 in 65,815 shipped blocks, at 17 in 4,955
+    /// and at 19 in 102. The count is the `u16` four bytes past it, and it
+    /// agreed with [`Lip::has_gestures`] in all 70,872 blocks where the marker
+    /// was found.
+    ///
+    /// `None` when no marker appears, which is 3,198 of the 74,070 shipped
+    /// blocks. Those are not covered by this reading and nothing here guesses
+    /// at them. See `../research/lip-format.md`.
+    #[must_use]
+    pub fn targets(&self) -> Option<u16> {
+        // The header is three words, so the body is what the search walks.
+        let end = MARKER_SEARCH_END.saturating_sub(HEADER_LEN);
+        let limit = end.min(self.body.len());
+        for at in 0..limit {
+            let word = u32_at(self.body, at)? as i32;
+            if (-32..0).contains(&word) {
+                let lo = at + 4;
+                let bytes = self.body.get(lo..lo + 2)?;
+                return Some(u16::from_le_bytes([bytes[0], bytes[1]]));
+            }
+        }
+        None
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        Lip, COMPRESSED, HAS_GESTURES, HEADER_LEN, KNOWN_FLAGS, VARIABLE_TARGETS, VERSION,
+        Lip, COMPRESSED, HAS_GESTURES, HEADER_LEN, KNOWN_FLAGS, TARGETS, TARGETS_NO_GESTURES,
+        VARIABLE_TARGETS, VERSION,
     };
     use crate::error::Error;
 
@@ -192,6 +230,48 @@ mod tests {
         assert_eq!(KNOWN_FLAGS, [9, 13]);
         assert_eq!(COMPRESSED | VARIABLE_TARGETS, 9);
         assert_eq!(COMPRESSED | HAS_GESTURES | VARIABLE_TARGETS, 13);
+    }
+
+    fn with_marker(flags: u32, marker_at: usize, targets: u16) -> Vec<u8> {
+        let mut body = vec![0u8; marker_at];
+        body.extend_from_slice(&(-3i32).to_le_bytes());
+        body.extend_from_slice(&targets.to_le_bytes());
+        body.extend_from_slice(&[0xaa; 16]);
+        block(VERSION, 1, flags, &body)
+    }
+
+    #[test]
+    fn the_target_count_is_read_four_bytes_past_the_marker() {
+        // Absolute offset 16 is the common case, which is body offset 4.
+        let bytes = with_marker(13, 4, TARGETS);
+        assert_eq!(Lip::parse(&bytes).unwrap().targets(), Some(TARGETS));
+    }
+
+    #[test]
+    fn a_creature_block_reports_eight_targets() {
+        let bytes = with_marker(9, 4, TARGETS_NO_GESTURES);
+        let lip = Lip::parse(&bytes).unwrap();
+        assert!(!lip.has_gestures());
+        assert_eq!(lip.targets(), Some(TARGETS_NO_GESTURES));
+    }
+
+    #[test]
+    fn the_marker_is_found_at_every_width_the_archive_uses() {
+        // Absolute 16, 17 and 19, so body offsets 4, 5 and 7.
+        for at in [4, 5, 7] {
+            let bytes = with_marker(13, at, TARGETS);
+            assert_eq!(
+                Lip::parse(&bytes).unwrap().targets(),
+                Some(TARGETS),
+                "marker at body offset {at}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_block_with_no_marker_reports_nothing_rather_than_guessing() {
+        let bytes = block(VERSION, 1, 13, &[0x11; 40]);
+        assert_eq!(Lip::parse(&bytes).unwrap().targets(), None);
     }
 
     #[test]

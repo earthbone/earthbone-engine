@@ -142,8 +142,28 @@ and gesture blocks repeat values in pairs the way a key with equal tangents woul
 middle byte as a time delta is plausible and unproven: correlating its per block sum against audio
 length scores 0.9096 where the plain value count scores 0.9222, so the test does not discriminate.
 
-Ruled out: general purpose compression of any kind, `Size` as a byte count, a string table, a fixed
-stride record list, and the six word header this crate used to read.
+The target count is confirmed too, and the crate reads it. The preamble between the header and it
+is not a fixed width, so `Lip::targets` anchors on a marker instead, the first `i32` in the range
+minus 32 to minus 1, and reads the `u16` four bytes past it. Across the English archive that found
+70,872 blocks, and in every one the count agreed with the gesture flag: 16 targets with gestures,
+8 without. The gated test asserts that agreement rather than printing it. The other 3,198 blocks
+carry no marker, so `targets` answers `None` there and nothing guesses.
+
+So the eight targets a creature voice loses are the gesture targets, and `VariableTargets` is a
+flag with real variation behind it rather than a constant.
+
+Ruled out, each with a number behind it in `../research/lip-format.md`: general purpose compression
+of any kind, `Size` as a byte count, a string table, a fixed stride record list, the six word header
+this crate used to read, the float count as a viseme count (it follows duration times target count,
+which is why a 13.2 second dragon line carries a third the floats of an 8.3 second human line), the
+control byte sum as a time axis (it lands within 0.007 s of a real cue, but evenly spaced ticks at
+the same density do as well or better in seven cases of ten), a uniform seven byte key record, and
+`Size` as targets times keys.
+
+A decoder is still not writable. Three pieces are missing: the variable width grammar of the
+preamble, the mapping from curves to targets, and a time axis. The shipped files have given up what
+they can, and correlation over them demonstrably cannot separate time from value encoding. The
+Creation Kit route is the one that will.
 
 Two routes remain, and they are recorded in `../ENGINE-PLAN.md`. Generating a viseme track from the
 audio with Rhubarb and testing candidate readings of the same line's body against its real times is
