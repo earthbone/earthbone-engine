@@ -621,3 +621,74 @@ rotation twice instead of cancelling it.
 `tests/real_skinning.rs` asserts the first of those on every frame path, and
 the captures in `docs/images/skinned-{idle,walk}.png` are a body standing and
 walking. Materials are still unwired, so they are unlit grey.
+
+## Sound out (2026-09-18, branch `playback`)
+
+`audio.rs` is the conversion and the slot rules with no engine dependency,
+`godot_audio.rs` is the `SoundBank` node. Same split as `skinned.rs` beside
+`godot_actor.rs`.
+
+### Godot's mixer, not a second one
+
+The plan row offered `cpal` or `rodio`. Neither is taken. gdext already links
+Godot's audio stack, and the user's ruling on physics was that where the engine
+ships a subsystem we use it rather than linking our own. A device crate beside
+it would mean two mixers, two device backends and two places for a format to be
+wrong, for no capability Godot lacks.
+
+This is the one host module that does **not** bypass the scene tree. The cell
+streamer and the skinned actor talk to `RenderingServer` by RID, but positional
+audio in Godot is a property of `AudioStreamPlayer3D` and `AudioServer` has no
+RID call that places a sound in space. Nodes are the only route to the
+attenuation the done check asks for.
+
+`AudioStreamWav` carries the samples, not `AudioStreamGenerator`. A generator
+exists for audio that has not been produced yet, pushed a block at a time from a
+callback. Every sound here is fully decoded before it plays, so a generator
+would add a ring buffer and a way to underrun and nothing else.
+
+### What the conversion has to do
+
+`soe_audio::Pcm` is interleaved 32 bit float. `AudioStreamWav` reads 8 bit, 16
+bit, IMA ADPCM or QOA and has no float format, so `to_i16_bytes` clamps and
+scales to 16 bit. Clamping rather than letting a sample wrap: a decoder that
+overshoots by a hair would otherwise produce a click of the opposite sign.
+
+`to_mono` folds multi-channel down before a sound is placed, because a stereo
+buffer keeps its own left and right image and fights the position the 3D player
+is giving it.
+
+`VoicePool` holds 16 slots. A voice line may take the oldest effect when the
+pool is full, an effect may never take a voice line, and a sound never evicts
+its own kind. So a crowded room drops footsteps rather than cutting dialogue.
+
+### Measured on the installed game
+
+`tests/real_audio.rs`, gated on `SKYRIM_DATA`. Footsteps are `.wav` and need no
+decoder beyond `hound`, so they play in the default build. Voice lines are xWMA
+inside a FUZ and need the `xwma-ffmpeg` feature.
+
+| Check | Result |
+|---|---|
+| Footstep conversion, 200 files | 200 carried signal, 0 silent, 0 failed to read |
+| Footstep sample rates seen | 22050, 32000, 44100 |
+| Voice lines sampled | 57 of 60 carried signal |
+| Loudest sampled line | `maleelfhaughty/voicepowers_shout01b`, peak 0.85, 339 byte LIP |
+
+The voice test surveys rather than taking the first path alphabetically, and
+the reason is worth keeping. That path is
+`crdogvoice/creaturedialoguedog__0005b2f0_1.fuz`, which decodes to peak 0.0015.
+Creature dialogue entries are routinely silent placeholders, so asserting on the
+first one measured Bethesda's content rather than this crate's conversion. The
+survey is what separates the two: if the decoder were broken, most of the 60
+would be silent, and 57 are not.
+
+### Untested
+
+The last step, a speaker. These tests prove the chain up to the exact bytes
+`AudioStreamWav` is handed, which is where a conversion bug lives. Whether a
+device makes noise needs a windowed Godot run with a `SoundBank` in the tree,
+`open_data` pointed at the install, and `play_effect` called with a footstep
+path. Nothing yet drives `SoundBank` from the game loop, so footsteps are not
+wired to the character controller and voice lines are not wired to dialogue.
+Only English voices are indexed, `Skyrim - Voices_en0.bsa` by name.

@@ -41,6 +41,14 @@ fn sound_vfs() -> Option<Vfs> {
     Some(vfs)
 }
 
+/// Extension match that ignores case, since an archive may spell one either
+/// way and a case-sensitive compare would silently miss half a folder.
+fn has_ext(name: &str, ext: &str) -> bool {
+    std::path::Path::new(name)
+        .extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case(ext))
+}
+
 /// The first file in the VFS whose path contains every fragment given.
 fn find_one(vfs: &Vfs, fragments: &[&str]) -> Option<String> {
     let mut hits: Vec<&str> = vfs
@@ -116,7 +124,7 @@ fn a_real_voice_line_becomes_bytes_godot_can_play() {
     // Bethesda's content rather than this crate's conversion.
     let mut names: Vec<&str> = vfs
         .paths()
-        .filter(|n| n.contains("sound/voice/skyrim.esm/") && n.ends_with(".fuz"))
+        .filter(|n| n.contains("sound/voice/skyrim.esm/") && has_ext(n, "fuz"))
         .collect();
     names.sort_unstable();
     let stride = (names.len() / 60).max(1);
@@ -181,7 +189,7 @@ fn the_conversion_holds_across_many_real_footsteps() {
 
     let mut names: Vec<&str> = vfs
         .paths()
-        .filter(|n| n.contains("sound/fx/fst/") && n.ends_with(".wav"))
+        .filter(|n| n.contains("sound/fx/fst/") && has_ext(n, "wav"))
         .collect();
     names.sort_unstable();
     names.truncate(200);
