@@ -94,8 +94,8 @@ pub fn recompress(src: &[u8], target: Target) -> Result<Vec<u8>> {
     if base.depth > 1 {
         return Err(Error::Encode("volume textures are not supported".into()));
     }
-    let image =
-        RgbaImage::from_raw(base.width, base.height, base.rgba).expect("decoded size matches");
+    let image = RgbaImage::from_raw(base.width, base.height, base.rgba)
+        .ok_or_else(|| Error::Encode("decoded pixels do not fill the surface".into()))?;
     let image = if image.width() != target.width || image.height() != target.height {
         imageops::resize(
             &image,

@@ -34,7 +34,9 @@ meaning. Core crates are GPL-3.0-or-later, the SKSE shim crates are MIT.
 | `profile` | plugins.txt, INI layering, MO2 profile layout | `docs/profile.md` |
 | `commonlib-shim` | CommonLib header scope, MIT Rust skeleton | `docs/shim.md` |
 | `godot-host` | GDExtension: cell streaming, mesh and terrain builders | `docs/godot-host.md` |
-| `game` | Runtime form table, Papyrus object model, natives, clock | `docs/game.md` |
+| `game` | Runtime form table, Papyrus object model, natives, clock, debug commands | `docs/game.md` |
+| `save` | Vanilla `.ess` reader, change forms, quest stages, Papyrus block | `docs/save.md` |
+| `audio` | FUZ, LIP and xWMA containers, Vorbis and Opus decode | `docs/audio.md` |
 
 Other docs: `docs/design-system.md` (what of the Creation Engine's design the
 engine preserves), `docs/editor.md` (Creation Kit replacement on the Godot
@@ -97,7 +99,9 @@ GPL derived code may reach the MIT shim crates. `serde-hkx`, `Caprica`,
 - Edit tool for source edits. The auto-mode classifier blocks large scripted
   edits.
 - Gate before commit: `cargo check --workspace`, clippy clean on the touched
-  crate, `cargo test -p <crate>`.
+  crate, `cargo test -p <crate>`. Clippy the workspace with `--all-features`
+  too, since code behind an off-by-default feature escapes the normal run and
+  rots: that is how the `dds` encode path drifted until 2026-09-18.
 - Real-file tests are gated on
   `SKYRIM_DATA=/run/host/media/pengolodh/Data/SteamLibrary/steamapps/common/Skyrim Special Edition/Data`
   and skip cleanly when unset. Synthetic fixtures are written by the tests.

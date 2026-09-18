@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 //! BC7 against an independent decoder on blocks the Intel encoder produces
 //! from noise, which exercises every mode, partition and rotation the

@@ -23,6 +23,11 @@ cargo fmt --all --check
 step "cargo clippy --workspace --lib --bins -- -D warnings"
 cargo clippy --workspace --lib --bins -- -D warnings
 
+# Code behind an off-by-default feature never compiles in the run above, so it
+# rots unseen. The dds encode path drifted that way until 2026-09-18.
+step "cargo clippy --workspace --all-features --all-targets -- -D warnings"
+cargo clippy --workspace --all-features --all-targets -- -D warnings
+
 step "comment-lint crates docs"
 if command -v comment-lint >/dev/null 2>&1; then
   comment-lint crates docs
