@@ -60,12 +60,13 @@ fn the_installed_game_binds_its_vanilla_scripts() {
     let bind_started = Instant::now();
     let report = game.bind();
     eprintln!(
-        "bind: {} forms with scripts, {} scripts attached, {} scripts missing, {} properties set, {} properties missing, {} quests started, in {:.1}s",
+        "bind: {} forms with scripts, {} scripts attached, {} scripts missing, {} properties set, {} properties missing, {} properties read-only, {} quests started, in {:.1}s",
         report.forms_with_scripts,
         report.scripts_attached,
         report.scripts_missing.len(),
         report.properties_set,
         report.properties_missing.len(),
+        report.properties_read_only.len(),
         report.quests_started,
         bind_started.elapsed().as_secs_f32(),
     );
@@ -77,6 +78,7 @@ fn the_installed_game_binds_its_vanilla_scripts() {
     for (script, prop) in report.properties_missing.iter().take(20) {
         eprintln!("  {script}.{prop}");
     }
+<<<<<<< HEAD
 
     let start_started = Instant::now();
     let started = game.start();
@@ -115,6 +117,12 @@ fn the_installed_game_binds_its_vanilla_scripts() {
         !calls.is_empty(),
         "no native reached the game crate during start"
     );
+=======
+    eprintln!("first 20 read-only properties:");
+    for (script, prop) in report.properties_read_only.iter().take(20) {
+        eprintln!("  {script}.{prop}");
+    }
+>>>>>>> vm-props
     assert!(
         report.forms_with_scripts > 0,
         "no VMAD-carrying forms found"

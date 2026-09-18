@@ -112,6 +112,21 @@ attached script that handles the event, resolved through the current state.
 `GotoState` and `GetState` are built in, and a state change delivers
 `OnEndState` and `OnBeginState`.
 
+**Properties from outside a thread.** `set_property` and `get_property` are
+how a host fills and reads a property without a running script, the way the
+game crate applies a form's `VMAD` values. An auto property writes or reads
+its backing variable directly. A full property (a compiled `Get`/`Set` pair)
+spawns a call to the `setter` or `getter` and runs it to completion instead,
+through `run_property_call`, the same spawn-and-drive-`run` loop
+`set_property` already used for its setter, bounded to 64 passes of
+`SETTER_BUDGET` instructions each. A call still runnable after that budget is
+logged and abandoned, and `get_property` reads it back as `None`. A script
+error during the call is logged like any other and the call yields `None`, it
+never surfaces as a `VmError`. A read-only full property, a getter and no
+setter, is reported as `VmError::ReadOnlyProperty` rather than run, so a
+caller can count a property that is real but unwritable apart from one that
+is missing outright.
+
 **Errors.** Script errors follow the game: they are logged with the script,
 function and source line and the thread continues with `None`. Calling a
 method on `None`, indexing outside an array, dividing by zero and unknown

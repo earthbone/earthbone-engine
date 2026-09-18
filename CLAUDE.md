@@ -101,10 +101,8 @@ Open the corpus before writing a parser or a native, not after.
   next hundred natives, a cell-to-reference index and surface batching (the two
   hot spots the trace found), and the unnamed-native dispatch bug on quest
   start (branch `vm-callname`).
-- Branch `vm-props` (worktree `../soe-props`) holds an unmerged second
-  implementation of full-property setters with `get_property` and a
-  read-only variant. Master got the same fix from another session on
-  2026-09-17, so merge only the extra pieces or drop the branch.
+- `Vm::get_property` runs compiled getters and read-only properties are
+  counted apart in `BindReport` (branch `vm-props`, merged 2026-09-18).
 - Untested live: a real Proton launch, natives against the CK wiki pages.
 - Language decision (2026-09-14): runtime crates stay Rust. Go only for a
   tooling component where it eases maintenance, behind a protobuf seam.
