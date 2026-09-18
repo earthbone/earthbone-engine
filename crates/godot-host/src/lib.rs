@@ -26,6 +26,8 @@ pub mod units;
 #[cfg(feature = "godot")]
 pub mod godot_actor;
 #[cfg(feature = "godot")]
+pub mod godot_audio;
+#[cfg(feature = "godot")]
 pub mod godot_layer;
 #[cfg(feature = "godot")]
 pub mod godot_physics;
