@@ -14,6 +14,7 @@
 
 pub mod actor;
 pub mod batch;
+pub mod camera;
 pub mod collision;
 pub mod data_source;
 pub mod mesh;
