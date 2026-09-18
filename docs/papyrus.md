@@ -94,6 +94,19 @@ the way the game applies `VMAD` values to such properties. A setter that
 waits or calls a latent native is logged and left running. `get_property`
 reads auto variables only.
 
+**Name operands.** The compiler writes the function name of `CallMethod` and
+`CallParent`, the class and function of `CallStatic`, and the property of
+`PropGet` and `PropSet` as identifier operands, the same operand type it uses
+for variables. `exec` reads every operand as a value up front, and until
+2026-09-18 that turned each of those names into a variable lookup that
+resolved to `None`. Every vanilla call then dispatched as `None()`, walked the
+class chain, and never reached a native, while the assembler tests passed
+because they wrote those names as string operands. `exec` now takes the text
+of an identifier or string operand for the name slots without a lookup. The
+first `start` of the installed game reached 63 natives through 1,095 calls
+after the fix and none before it. `NativeRegistry::calls` counts calls per
+`class.function` so a host can see which natives real scripts hit.
+
 **States and events.** `send_event(object, name, args)` starts one thread per
 attached script that handles the event, resolved through the current state.
 `GotoState` and `GetState` are built in, and a state change delivers

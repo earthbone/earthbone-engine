@@ -202,6 +202,46 @@ as `TG06QuestScript.TG05KarliahInvisibilitySpell`,
 the script source dropped the property, which the real engine cannot fill
 either. They are vanilla data, not an engine gap.
 
+## Live run (2026-09-18): the first start
+
+The gated test now calls `start` after `bind`. Before the identifier-operand
+fix in the VM (see `docs/papyrus.md`, name operands) no native reached the
+game crate. After it, on the installed game in release: 423 quests started,
+63 distinct natives reached through 1,095 calls, 300 calls to functions the
+engine does not implement, 432 log lines, in well under a second.
+
+The twenty most called natives during start, by `class.function`:
+
+| Calls | Native |
+|---|---|
+| 93 | GlobalVariable.GetValue |
+| 86 | Game.GetPlayer |
+| 77 | Debug.OpenUserLog |
+| 77 | Game.GetForm |
+| 60 | Quest.IsStageDone |
+| 56 | ObjectReference.GetLinkedRef |
+| 42 | Quest.SetObjectiveDisplayed |
+| 36 | ObjectReference.IsDisabled |
+| 34 | Form.HasKeyword |
+| 34 | FormList.AddForm |
+| 28 | Actor.AddToFaction |
+| 28 | Actor.GetFactionRank |
+| 28 | ObjectReference.GetCurrentLocation |
+| 26 | Actor.RemoveSpell |
+| 22 | ObjectReference.AddItem |
+| 22 | ObjectReference.Disable |
+| 22 | Quest.IsRunning |
+| 19 | Alias.GetReference |
+| 19 | ObjectReference.Enable |
+| 18 | Alias.GetActorRef |
+
+The 300 unresolved calls name the next natives to write and one dispatch
+gap: `LeveledItem.AddForm` and the other leveled list functions do not exist
+yet, and `Alias.RegisterForUpdate` fails although `Form.RegisterForUpdate` is
+registered, because the loaded `Alias.pex` declares the native on `Alias` and
+`call_method` stops at the declaring script instead of walking up to the
+registry's `Form` entry. Both are queued for the natives round.
+
 ## Save and load
 
 `World::save_state(&self) -> Vec<u8>` and `World::load_state(&mut self,

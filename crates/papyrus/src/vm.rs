@@ -162,6 +162,9 @@ pub struct NativeRegistry {
     /// `(class, function, global)` for every registration that lost to an
     /// earlier one. First registered wins.
     pub duplicates: Vec<(String, String, bool)>,
+    /// Calls that reached a registered native, keyed `class.function` in
+    /// lowercase, so a host can see which natives real scripts hit.
+    pub calls: HashMap<String, u64>,
 }
 
 impl NativeRegistry {
@@ -977,6 +980,11 @@ impl Vm {
         let Some(f) = table.get_mut(&key) else {
             return false;
         };
+        *self
+            .natives
+            .calls
+            .entry(format!("{}.{}", key.0, key.1))
+            .or_insert(0) += 1;
         let mut call = NativeCall {
             self_object,
             args,
@@ -1120,6 +1128,15 @@ impl Vm {
                 .and_then(|a| a.as_ident())
                 .map(|s| s.to_string())
         };
+        // A function, class or property name is the operand's own text. The
+        // compiler writes it as an identifier operand, and reading it as a
+        // variable would resolve to None.
+        let name_at = |i: usize| -> String {
+            match args.get(i) {
+                Some(Operand::Identifier(s) | Operand::Str(s)) => s.clone(),
+                _ => vals.get(i).map(Value::to_string).unwrap_or_default(),
+            }
+        };
         let set = |vm: &mut Vm, i: usize, v: Value| {
             if let Some(name) = args.get(i).and_then(|a| a.as_ident()) {
                 let frame = vm.threads[t].frames.last_mut().unwrap();
@@ -1215,7 +1232,7 @@ impl Vm {
                 }
             }
             CallMethod => {
-                let name = vals[0].to_string();
+                let name = name_at(0);
                 let dest = dest_name(2);
                 let call_args = vals[3..].to_vec();
                 match vals[1].as_object() {
@@ -1230,7 +1247,7 @@ impl Vm {
                 }
             }
             CallParent => {
-                let name = vals[0].to_string();
+                let name = name_at(0);
                 let dest = dest_name(1);
                 let call_args = vals[2..].to_vec();
                 let (obj, script) = {
@@ -1251,8 +1268,8 @@ impl Vm {
                 }
             }
             CallStatic => {
-                let class = vals[0].to_string();
-                let name = vals[1].to_string();
+                let class = name_at(0);
+                let name = name_at(1);
                 let dest = dest_name(2);
                 let call_args = vals[3..].to_vec();
                 self.call_static(t, &class, &name, call_args, dest);
@@ -1263,7 +1280,7 @@ impl Vm {
                 set(self, 0, Value::string(&s));
             }
             PropGet => {
-                let prop = vals[0].to_string();
+                let prop = name_at(0);
                 let dest = dest_name(2);
                 match vals[1].as_object() {
                     None => {
@@ -1274,7 +1291,7 @@ impl Vm {
                 }
             }
             PropSet => {
-                let prop = vals[0].to_string();
+                let prop = name_at(0);
                 match vals[1].as_object() {
                     None => self.err(t, &format!("cannot set property {prop} of a None object")),
                     Some(obj) => self.prop_set(t, obj, &prop, vals[2].clone()),

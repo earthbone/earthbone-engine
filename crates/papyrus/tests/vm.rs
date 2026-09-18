@@ -806,3 +806,88 @@ fn real_scripts_from_the_game_load_when_present() {
     assert!(failed.is_empty());
     assert!(vm.has_script("Actor") && vm.has_script("ObjectReference") && vm.has_script("Form"));
 }
+
+/// The compiler writes function, class and property names as identifier
+/// operands, not string operands. Reading them as variables resolved every
+/// vanilla call to `None`, which is how 423 quest starts ran without a native
+/// reaching the host. This test uses the exact operand shape the compiler
+/// emits.
+#[test]
+fn call_and_property_names_are_identifier_operands_not_variables() {
+    let base = ScriptBuilder::new("Base", "")
+        .function(
+            FunctionBuilder::new("Name", "String")
+                .ins(Return, vec![s("base")])
+                .build(),
+        )
+        .bytes();
+    let widget = ScriptBuilder::new("Widget", "Base")
+        .auto_property("Speed", "Float", f(1.0))
+        .function(
+            FunctionBuilder::new("Twice", "Int")
+                .param("x", "Int")
+                .local("r", "Int")
+                .ins(IMul, vec![ident("r"), ident("x"), i(2)])
+                .ins(Return, vec![ident("r")])
+                .build(),
+        )
+        .function(
+            FunctionBuilder::new("Name", "String")
+                .local("out", "String")
+                .ins(CallParent, vec![ident("Name"), ident("out")])
+                .ins(StrCat, vec![ident("out"), ident("out"), s("+widget")])
+                .ins(Return, vec![ident("out")])
+                .build(),
+        )
+        .function(
+            FunctionBuilder::new("Run", "Int")
+                .local("r", "Int")
+                .local("sp", "Float")
+                .local("n", "String")
+                .ins(
+                    CallMethod,
+                    vec![ident("Twice"), ident("self"), ident("r"), i(21)],
+                )
+                .ins(PropGet, vec![ident("Speed"), ident("self"), ident("sp")])
+                .ins(PropSet, vec![ident("Speed"), ident("self"), f(2.5)])
+                .ins(
+                    CallStatic,
+                    vec![
+                        ident("Host"),
+                        ident("Ping"),
+                        ident("::nonevar"),
+                        ident("sp"),
+                    ],
+                )
+                .ins(CallMethod, vec![ident("Name"), ident("self"), ident("n")])
+                .ins(
+                    CallStatic,
+                    vec![ident("Host"), ident("Ping"), ident("::nonevar"), ident("n")],
+                )
+                .ins(Return, vec![ident("r")])
+                .build(),
+        )
+        .bytes();
+    let mut vm = vm_with(vec![base, widget]);
+    let seen: Rc<RefCell<Vec<String>>> = Rc::new(RefCell::new(Vec::new()));
+    let sink = seen.clone();
+    vm.natives.register_global(
+        "Host",
+        "Ping",
+        Box::new(move |call| {
+            sink.borrow_mut().push(call.arg(0).to_string());
+            NativeReturn::Value(Value::None)
+        }),
+    );
+    let obj = vm.create_object("w");
+    vm.attach(obj, "Widget").unwrap();
+    let tid = vm.call(obj, "Run", &[]).unwrap();
+    assert_eq!(run_to_result(&mut vm, tid), Value::Int(42));
+    assert_eq!(
+        vm.get_property(obj, "Widget", "Speed"),
+        Some(Value::Float(2.5))
+    );
+    assert_eq!(seen.borrow().as_slice(), ["1.000000", "base+widget"]);
+    assert_eq!(vm.natives.calls.get("host.ping"), Some(&2));
+    assert!(vm.log.entries.is_empty(), "{:?}", vm.log.messages());
+}
