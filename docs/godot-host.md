@@ -15,7 +15,10 @@ With `--no-default-features` the `godot` dependency is gone and what remains is 
 | `terrain` | no | LAND heights to Terrain3D regions |
 | `data_source` | no | a real `Data` folder through `esm`, `bsa`, `nif` and `dds` to loaded cells and exterior blocks |
 | `batch` | no | a cell's surfaces merged per material set, with the side table back to each reference |
+| `camera` | no | first and third person placement in Skyrim units, the basis Godot wants |
+| `input` | no | the vanilla `controlmap.txt`, key bindings, and a frame of input into movement intent |
 | `godot_layer` | yes | the `CellStreamer` node, `RenderingServer` instances, `array_mesh_from`, `heightmap_image_from` |
+| `godot_player` | yes | the `PlayerNode`: devices in, physics character and camera out |
 
 The Godot layer decides nothing. That is what keeps the tests engine-free, and it is the
 seam a VulkanSceneGraph or other host would reuse: everything above the layer is plain data.
@@ -621,3 +624,72 @@ rotation twice instead of cancelling it.
 `tests/real_skinning.rs` asserts the first of those on every frame path, and
 the captures in `docs/images/skinned-{idle,walk}.png` are a body standing and
 walking. Materials are still unwired, so they are unlit grey.
+
+## Input and camera (2026-09-18, branch `input`)
+
+`camera` and `input` carry the rules and have no Godot dependency, so both test headless.
+`godot_player` reads devices, steps the physics world and writes one camera transform.
+
+### The binding file is Bethesda's
+
+`interface/controlmap.txt` ships inside `Skyrim - Interface.bsa` and documents its own
+format in its header: a user event name, then the keyboard, mouse and gamepad ids that fire
+it, three remappable flags, and an optional grouping flag. Blank lines separate input
+contexts. Reading that format is what makes a mod's control map rebind this engine the way
+it rebinds the real one, so `input::ControlMap` parses it rather than inventing a config
+file of our own. It takes all 135 mappings across 18 contexts of the shipped file, including
+the chord syntax (`0x10+0x09`), the alternative syntax (`a,b`), the optional flag field, and
+event names that contain spaces, which is why the line is split on tabs and not whitespace.
+
+Two facts about that file were measured, not assumed, and `tests/controlmap.rs` asserts both
+against the installed game so a wrong belief fails there instead of reaching the host.
+
+| Question | Answer | How it was settled |
+|---|---|---|
+| Which key table does the keyboard column use? | Windows virtual keys | `F1` to `F12` are `0x70` to `0x7b`, contiguous there and scattered in DirectInput's table. `Enter` `0x0d`, `Backspace` `0x08`, the arrows `0x25` to `0x28` agree. |
+| Does it carry the keyboard defaults? | No | `Forward` and the strafes are absent from the file outright. `Activate`, `Jump`, `Sneak`, `Sprint`, `Ready Weapon` and `Toggle POV` all sit at `0xff`, unmapped, with only a gamepad id. |
+
+So the retail engine holds its keyboard defaults internally and the file is the remapping
+surface over them. `Bindings::vanilla_keyboard` is therefore **this engine's table**, the way
+`CameraSettings::default` is, and both say so in their module docs. A control map that does
+bind a key wins over the default, which the tests check in both directions, and applying the
+shipped file changes nothing at all.
+
+### The camera basis
+
+Skyrim's yaw is zero facing north and grows clockwise from above, so forward is
+`(sin yaw, cos yaw, 0)`. Godot's camera looks down its own `-Z` and `units` already maps
+Skyrim's north onto `-Z`.
+
+`Eye::basis_columns` returns the three columns Godot wants, built from cross products rather
+than from `Basis::from_euler`. The reason is narrow: a wrong Euler order or a missing sign
+compiles cleanly and renders wrong, and it would sit behind the `godot` feature where no test
+reaches it. As columns it is plain arithmetic in `camera`, and the tests check a known facing
+in both directions, orthonormality, and right-handedness across the whole yaw and pitch
+range. The pitch clamp at 89 degrees is what keeps the cross products from degenerating, and
+a test asserts the clamp stays under 90 rather than trusting the constant.
+
+### What drives what
+
+Movement takes the flat forward only, so looking up never slows a walk. Speed comes from
+`soe_physics`, no second copy: sneak gives `WALK_SPEED`, sprint `RUN_SPEED`, and the walk key
+inverts whatever always-run is set to, so it reads `JOG_SPEED` or `FAST_WALK_SPEED` either
+way round. Sneak and always-run are toggles held in `Driver`, not held keys. A sneaking
+character cannot jump.
+
+The character is `soe_physics::SimpleWorld`, not a Godot body, for the reason `docs/physics.md`
+gives: the simulation's authority stays in the engine so a headless run and a rendered one
+cannot drift. The third person boom raycasts against that same world and pulls in short of
+whatever it hits, keeping `collision_padding` clear, so the camera cannot end up inside a
+wall. Activating casts from the eye along the full look direction, pitch included.
+
+### Untested here
+
+No Godot binary has run this. Everything below the `godot` feature is covered, and
+`PlayerNode` itself (the `InputMap` registration, the mouse capture, the camera RID) is
+compiled and clippy-clean at both ends of the feature range but never executed. A multi-key
+chord registers only its last key as an `InputMap` event, since one `InputEventKey` cannot
+express a chord, and the node's own polling path is what would honour the full chord. No
+default binding is a chord, so this only affects a control map that introduces one. The mouse
+and gamepad columns are parsed and kept but nothing reads them yet, and gamepad support is
+the obvious next item given the shipped file is almost entirely gamepad bindings.
