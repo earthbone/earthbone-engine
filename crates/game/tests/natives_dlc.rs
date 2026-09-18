@@ -21,6 +21,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use soe_esm::{plugin::flags, Entry, FileHeader, Group, GroupKind, LoadOrder, Plugin, Record, Tag};
 use soe_game::harness::{self, Scenario};
+use soe_game::quest;
 use soe_game::vmad::{ScriptEntry, Vmad};
 use soe_game::Game;
 use soe_papyrus::asm::{b, i, ident, s, FunctionBuilder, ScriptBuilder};
@@ -55,6 +56,9 @@ const LINK_KEYWORD: u32 = 0xA13;
 const BLOOD_SHADER: u32 = 0xA14;
 const CHANGE_EFFECT: u32 = 0xA15;
 const SOUL_CAIRN_MUSIC: u32 = 0xA16;
+const TURN_QUEST: u32 = 0xA17;
+const FEED_SCENE: u32 = 0xA18;
+const HUNT_PACKAGE: u32 = 0xA19;
 
 fn le(v: u32) -> [u8; 4] {
     v.to_le_bytes()
@@ -139,6 +143,23 @@ fn test_plugin() -> Plugin {
     p.push_top(Record::new(T(b"EFSH"), BLOOD_SHADER).zsub(EDID, "BloodShader"));
     p.push_top(Record::new(T(b"RFCT"), CHANGE_EFFECT).zsub(EDID, "VampireChangeFX"));
     p.push_top(Record::new(T(b"MUSC"), SOUL_CAIRN_MUSIC).zsub(EDID, "SoulCairnMusic"));
+    // A quest with a scene and a package that name it as their owner, the
+    // shape every quest fragment script asks GetOwningQuest about.
+    p.push_top(
+        quest::build_record(TURN_QUEST, "VampireTurnQuest", 0)
+            .sub(T(b"DNAM"), le(0))
+            .zsub(T(b"ALID"), ""),
+    );
+    p.push_top(
+        Record::new(T(b"SCEN"), FEED_SCENE)
+            .zsub(EDID, "FeedScene")
+            .sub(T(b"PNAM"), le(TURN_QUEST)),
+    );
+    p.push_top(
+        Record::new(T(b"PACK"), HUNT_PACKAGE)
+            .zsub(EDID, "HuntPackage")
+            .sub(T(b"QNAM"), le(TURN_QUEST)),
+    );
 
     let watcher = Vmad {
         scripts: vec![ScriptEntry::new("VampireWatchScript")],
@@ -231,7 +252,10 @@ fn scripts() -> Vec<Vec<u8>> {
                 .build(),
         )
         .bytes();
-    vec![watch]
+    let effect = ScriptBuilder::new("DrainEffectScript", "ActiveMagicEffect")
+        .function(event_tracing("OnUpdate", &[], "effect update"))
+        .bytes();
+    vec![watch, effect]
 }
 
 fn game() -> Game {
@@ -1034,6 +1058,54 @@ fn the_effect_systems_take_their_calls_quietly() {
     call(&mut g, &music, "Remove", &[]);
     call(&mut g, &vampire, "Reset", &[]);
     call(&mut g, &vampire, "StopTranslation", &[]);
+    assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
+// ----- quest-owned fragments and active magic effects -----
+
+/// GetOwningQuest on a quest-owned fragment script. A scene names its parent
+/// quest in PNAM and a package its owner quest in QNAM, which is what the
+/// 1,815 DLC call sites are asking for. A topic info takes its quest from
+/// the DIAL above it and answers None until the dialogue view lands.
+#[test]
+fn fragment_scripts_find_their_owning_quest() {
+    let mut g = game();
+    let scene = obj(&mut g, "FeedScene");
+    let package = obj(&mut g, "HuntPackage");
+    let want = obj(&mut g, "VampireTurnQuest");
+    assert_eq!(call(&mut g, &scene, "GetOwningQuest", &[]), want);
+    assert_eq!(call(&mut g, &package, "GetOwningQuest", &[]), want);
+    assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
+/// An ActiveMagicEffect is not a Form, so the registrations the registry
+/// holds on Form are out of its reach. They key off the calling object, so
+/// the effect gets its own and OnUpdate arrives on the effect's script.
+#[test]
+fn an_active_magic_effect_registers_for_its_own_update() {
+    let mut g = game();
+    g.start();
+    let id =
+        g.vm.create_object_of("DrainEffectScript", "ActiveMagicEffect");
+    g.vm.attach(id, "DrainEffectScript").unwrap();
+    let effect = Value::Object(id);
+    call(
+        &mut g,
+        &effect,
+        "RegisterForSingleUpdate",
+        &[Value::Float(1.0)],
+    );
+    assert!(
+        g.traces().iter().all(|t| t != "effect update"),
+        "the update arrived before the clock moved"
+    );
+    g.tick(2.0);
+    g.run_until_idle(64);
+    assert!(
+        g.traces().iter().any(|t| t == "effect update"),
+        "{:?}",
+        g.traces()
+    );
     assert!(errors(&g).is_empty(), "{:?}", errors(&g));
 }
 

@@ -70,7 +70,7 @@ native below is marked for review against its page once that happens.
 
 ## Conformance table
 
-Counts from `natives::register`: 336 natives with state behind them and 177
+Counts from `natives::register`: 347 natives with state behind them and 189
 quiet stubs (141 and 176 before the natives round of 2026-09-18, 294 and 137
 before the DLC round). A stub returns the value the game gives when nothing
 is going on (`IsBleedingOut` false, `ShakeCamera` nothing) so vanilla scripts
@@ -98,6 +98,9 @@ run past it.
 | Scene | Start, ForceStart, Stop, IsPlaying | IsActionComplete |
 | Sound | Play, StopInstance, SetInstanceVolume | |
 | Spell | Cast, RemoteCast | |
+| Scene, Package | GetOwningQuest | |
+| TopicInfo | | GetOwningQuest, None until the dialogue view lands |
+| ActiveMagicEffect | RegisterForUpdate, RegisterForSingleUpdate, RegisterForUpdateGameTime, RegisterForSingleUpdateGameTime, UnregisterForUpdate, UnregisterForUpdateGameTime, RegisterForAnimationEvent, UnregisterForAnimationEvent | GetBaseObject, GetTargetActor, GetCasterActor, Dispel, the inventory event filters |
 | EffectShader, VisualEffect | | Play, Stop |
 | ImageSpaceModifier | | Apply, ApplyCrossFade, Remove, RemoveCrossFade, PopTo |
 | ShaderParticleGeometry | | Apply, Remove |
@@ -536,14 +539,25 @@ get the reference the record names and take the shorter branch, which is why
 calls on `None` objects, which is the game's own behaviour for an alias or
 property that is empty at start.
 
-195 declared natives are still unregistered, 76 of them called from a DLC
-script, led by `GetOwningQuest` on `Package`, `Scene` and `TopicInfo` (1,815
-DLC call sites between them, each needing the owning quest of a fragment
-script), the `ActiveMagicEffect` registration set, and `Scroll.Cast`. Two
-earlier readings of that number were wrong and are worth keeping straight:
-the check now walks the class chain the way dispatch does, so a script
-redeclaring a parent's native no longer counts as missing, and the
-scheduler's own `Utility.Wait` family no longer counts either.
+A third pass took the two biggest remaining groups. `GetOwningQuest` on
+`Scene` and `Package` reads the record: a scene names its parent quest in
+`PNAM`, a package its owner quest in `QNAM`, which is what 1,815 DLC call
+sites were asking for. `TopicInfo.GetOwningQuest` answers None, because an
+info takes its quest from the `DIAL` above it and the record view cannot
+reach a parent group yet. The `ActiveMagicEffect` registration set went in
+next: an active effect is not a `Form`, so the registrations the registry
+holds on `Form` were out of its reach, and since they key off the calling
+object rather than a form the same behaviour registers cleanly on the effect
+class. Its own getters and `Dispel` are stubs until there is an active
+effect model.
+
+172 declared natives are still unregistered, 56 of them called from a DLC
+script, the largest single group being the rest of `ActiveMagicEffect` and
+the casting functions. Two earlier readings of that number were wrong and
+are worth keeping straight: the check now walks the class chain the way
+dispatch does, so a script redeclaring a parent's native no longer counts as
+missing, and the scheduler's own `Utility.Wait` family no longer counts
+either.
 
 ## Save and load
 

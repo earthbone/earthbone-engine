@@ -175,6 +175,7 @@ pub fn register(vm: &mut Vm, world: &Shared) -> Registered {
     cell(vm, world);
     message_scene_sound_spell(vm, world);
     dlc(vm, world);
+    fragments_and_effects(vm, world);
     let stubs = stubs(vm);
     let natives = NATIVE_COUNT + stubs - (vm.natives.duplicates.len() - before);
     Registered { natives, stubs }
@@ -182,7 +183,7 @@ pub fn register(vm: &mut Vm, world: &Shared) -> Registered {
 
 /// Hand-kept count of the non-stub natives registered below. The test in
 /// this module checks it against the registry.
-pub const NATIVE_COUNT: usize = 336;
+pub const NATIVE_COUNT: usize = 347;
 
 fn declare_parents(vm: &mut Vm) {
     for (class, parent) in [
@@ -2776,6 +2777,104 @@ fn dlc(vm: &mut Vm, w: &Shared) {
     );
 }
 
+/// The quest-owned fragment classes and `ActiveMagicEffect`. Both groups
+/// are what the DLC scripts reach for most after the base classes.
+fn fragments_and_effects(vm: &mut Vm, w: &Shared) {
+    // GetOwningQuest on a quest-owned fragment script. A scene names its
+    // parent quest in PNAM, a package its owner quest in QNAM. A topic info
+    // takes its quest from the DIAL above it, which the record alone does
+    // not reach, so that one answers None until the dialogue view lands.
+    for class in ["Scene", "Package"] {
+        method!(vm, w, class, "GetOwningQuest", |world, call, me| {
+            let quest = world.owning_quest(me);
+            form_value(world, call, quest)
+        });
+    }
+    method!(vm, w, "TopicInfo", "GetOwningQuest", |world, call, _me| {
+        form_value(world, call, None)
+    });
+
+    // An ActiveMagicEffect is not a Form, so the registration natives the
+    // registry holds on Form are out of its reach. They key off the calling
+    // object rather than a form, so the same behaviour registers here.
+    for (name, repeat, game_time) in [
+        ("RegisterForSingleUpdate", false, false),
+        ("RegisterForUpdate", true, false),
+        ("RegisterForSingleUpdateGameTime", false, true),
+        ("RegisterForUpdateGameTime", true, true),
+    ] {
+        let w = w.clone();
+        vm.natives.register_method(
+            "ActiveMagicEffect",
+            name,
+            Box::new(move |call| {
+                if let Some(obj) = call.self_object {
+                    w.borrow_mut().register_update(
+                        obj,
+                        f64::from(call.arg(0).as_float()),
+                        repeat,
+                        game_time,
+                    );
+                }
+                none()
+            }),
+        );
+    }
+    for (name, game_time) in [
+        ("UnregisterForUpdate", false),
+        ("UnregisterForUpdateGameTime", true),
+    ] {
+        let w = w.clone();
+        vm.natives.register_method(
+            "ActiveMagicEffect",
+            name,
+            Box::new(move |call| {
+                if let Some(obj) = call.self_object {
+                    w.borrow_mut().unregister_update(obj, game_time);
+                }
+                none()
+            }),
+        );
+    }
+    self_method!(
+        vm,
+        w,
+        "ActiveMagicEffect",
+        "RegisterForAnimationEvent",
+        |world, call, me| {
+            let Some(sender) = world.form_arg(&call.arg(0)) else {
+                return b(false);
+            };
+            let event = text(&call.arg(1));
+            let l = AnimationListener {
+                listener: me,
+                sender,
+                event,
+            };
+            if !world.animation_listeners.contains(&l) {
+                world.animation_listeners.push(l);
+            }
+            b(true)
+        }
+    );
+    self_method!(
+        vm,
+        w,
+        "ActiveMagicEffect",
+        "UnregisterForAnimationEvent",
+        |world, call, me| {
+            let sender = world.form_arg(&call.arg(0));
+            let event = text(&call.arg(1));
+            world.animation_listeners.retain(|l| {
+                !(l.listener == me
+                    && Some(l.sender) == sender
+                    && l.event.eq_ignore_ascii_case(&event))
+            });
+            none()
+        }
+    );
+}
+
 /// Natives whose systems the engine does not have yet. They return the
 /// value the game gives in the quiet case so vanilla scripts run past them.
 fn stubs(vm: &mut Vm) -> usize {
@@ -2881,6 +2980,20 @@ fn stubs(vm: &mut Vm) -> usize {
         ("Faction", "ModReaction"),
         ("Keyword", "SendStoryEvent"),
         ("ActorBase", "GetGiftFilter"),
+        // No active magic effect model, so the effect's own getters and
+        // Dispel answer quietly.
+        ("ActiveMagicEffect", "GetBaseObject"),
+        ("ActiveMagicEffect", "GetTargetActor"),
+        ("ActiveMagicEffect", "GetCasterActor"),
+        ("ActiveMagicEffect", "Dispel"),
+        ("ActiveMagicEffect", "AddInventoryEventFilter"),
+        ("ActiveMagicEffect", "RemoveInventoryEventFilter"),
+        ("ActiveMagicEffect", "RemoveAllInventoryEventFilters"),
+        ("ObjectReference", "WaitForAnimationEvent"),
+        ("ObjectReference", "InterruptCast"),
+        ("Actor", "PlayIdleWithTarget"),
+        ("Spell", "Preload"),
+        ("Spell", "Unload"),
         ("Message", "ResetHelpMessage"),
         ("Actor", "Dismount"),
         ("Actor", "Trespass"),
