@@ -83,9 +83,20 @@ format_push_string = "allow"
 used_underscore_binding = "allow"
 unused_self = "allow"
 
+# Shipping and gate profile. Line tables stay so samply, perf and Tracy get
+# stacks. No panic = "abort": gdext catches panics at the FFI boundary with
+# unwinding, abort would take the editor down with the extension.
 [profile.release]
 lto = "fat"
 codegen-units = 1
+debug = "line-tables-only"
+strip = false
+
+# Day-to-day benchmarking, same codegen apart from thin LTO for build speed.
+[profile.thin]
+inherits = "release"
+lto = "thin"
+codegen-units = 16
 
 [profile.bench]
 inherits = "release"

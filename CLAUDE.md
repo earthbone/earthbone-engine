@@ -80,6 +80,13 @@ Open the corpus before writing a parser or a native, not after.
   separators, no AI vocabulary. `docs/style.md` is the Rust baseline.
 - Natives are ordered by vanilla call count (`docs/papyrus.md`), semantics come
   from the CK wiki and play behaviour, never from the binary.
+- As little proprietary magic as possible while staying compatible: read every
+  vanilla format a mod can only express that way, and take the open format next
+  to it wherever an author has a choice (Ogg and Opus next to xWMA, WASM next to
+  PEX). No Godot patches, the extension works on stock Godot at the 4.4 API
+  floor and is tested on current stable.
+- Code forks at most three at a time. Progress is read from branch commits and
+  the master gate, never from an agent's own report.
 
 ## Status (2026-09-18)
 

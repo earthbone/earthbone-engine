@@ -234,3 +234,54 @@ Not patching Godot: GPU occlusion, mesh shaders, virtual geometry and virtual te
 a fork, none is needed at Skyrim's asset counts, and a patch brings back the per-release rebase
 cost the single-precision decision avoided. Track proposal 13406 (draw-list access in
 `CompositorEffect`) only.
+
+### Second review, 2026-09-18, decisions
+
+Design rule (user): as little proprietary magic as possible while staying compatible with the
+game. Where the vanilla format is the only way a mod can express something (ESM records, NIF,
+HKX, PEX, DDS, FUZ, xWMA), the engine reads it. Where a mod author has a choice, the engine also
+takes the open format (Ogg Vorbis and Opus next to xWMA, glTF next to NIF later, WASM next to
+PEX) so new mods need no proprietary tool.
+
+- Godot version: the repo pinned 4.4.1 on 2026-09-17 because that was the binary the extension
+  was first proven on, and the gdext `api-4-4` floor was chosen for built-in Jolt. Stable is
+  4.7.2 (2026-08-18). The extension keeps the 4.4 API floor and is tested on 4.7.2, the
+  rendering brief gets a section on what 4.5 to 4.7 changed in the renderer, and the binary in
+  `../tools/godot/` moves to 4.7.2 once the headless test passes on it.
+- Determinism detector now, fixes in round 5: a per-tick state hash and a test that runs the same
+  seed twice headless and compares every hash, additive to the world file. Known sources to
+  check first: `HashMap` iteration (32 uses in `world.rs`, 23 in the VM, 3 in `ai.rs`), which
+  is randomly seeded per process, so any world logic iterating one differs between runs
+  (fixed hasher, `BTreeMap` or `IndexMap` where order matters), and the single shared world RNG,
+  which makes replays brittle (derive a stream per system or per entity from the seed).
+- `world.rs` split: one 56 KB file that three branches needed serialises the forks. Splitting it
+  by concern (references, actors, quests, timers and RNG, save) is a round 5 item ahead of any
+  feature, done right after the current batch merges so no branch is in flight.
+- Fork cap: code forks at most three at a time, document forks unlimited. Progress is verified
+  by commits on the branch and the gate on master, never by an agent's own report.
+- Exterior benchmark threshold, fixed before the numbers arrive: the Whiterun exterior 3 by 3
+  block at 1600 by 900 on this machine passes at p99 frame time at or under 16.7 ms and worst
+  hitch under 33 ms with every static drawn, and a cell streams in under 250 ms on worker
+  threads. Fail on either and the next step is MultiMesh buckets and compressed textures, not a
+  host change. A host change is only on the table if the block cannot reach 33 ms p99 after
+  those.
+- The rendering brief's order is provisional until the batching fork's numbers land. Rank by the
+  measured span, not the literature.
+- UI gets its own round (round 6): a native Godot UI reading the same form table, an MCM
+  compatible config API for the `SKI_ConfigBase` script interface so MCM menus keep working,
+  and a SkyUI-shaped inventory and magic menu. Scaleform SWF is not executed.
+- Mod data formats are a separate compat surface from natives: SPID `_DISTR.ini`, KID
+  `_KID.ini`, Base Object Swapper `_SWAP.ini`, OAR and DAR animation folders, the shim does not
+  cover them. Round 5 item `mod-data-formats`: a crate that reads them into load-time patches on
+  the form table and the animation set, the native replacement for those plugins.
+- Audio: an `audio` crate decodes FUZ and xWMA for vanilla data and also plays Ogg Vorbis and
+  Opus files under the same sound descriptors, so new mods can skip the proprietary encoder.
+
+| Item | Branch | Done check |
+|---|---|---|
+| Determinism detector | `determinism-hash` | Per-tick state hash over the world, VM and clock, two headless runs of one seed compare equal on every tick or the test names the first diverging tick and subsystem. |
+| World split | `world-split` | `world.rs` becomes modules by concern with no behaviour change, every test green, no public API change outside the crate. |
+| Godot 4.7.2 | `godot-4-7` | The headless test and the Bannered Mare run pass on 4.7.2, the binary under `../tools/godot/` updated, differences noted in docs/godot-host.md. |
+| Mod data formats | `mod-data-formats` | SPID, KID and BOS ini files and OAR folders parse and apply on the synthetic fixtures and on one real mod of each kind. |
+| Audio | `audio` | FUZ split, LIP parse, xWMA decode, Ogg Vorbis and Opus playback under SNDR and SOUN descriptors, a voice line plays with its lip data. |
+| UI round | `ui` | Round 6, scoped when round 5 closes. |
