@@ -11,6 +11,7 @@
 pub mod cell;
 pub mod land;
 pub mod navm;
+pub mod race;
 pub mod refr;
 pub mod stat;
 pub mod wrld;
