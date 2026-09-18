@@ -432,6 +432,10 @@ impl World {
             form(h, *id);
             ref_state(h, s);
         });
+        // Which cell is resident belongs with the reference set rather than
+        // in a part of its own, because it describes that same set: a
+        // transition changes both together.
+        opt_form(&mut h, self.loaded_cell);
         let refs = h.finish();
 
         let mut h = StateHasher::new();

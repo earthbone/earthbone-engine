@@ -563,11 +563,11 @@ either.
 
 `World::save_state(&self) -> Vec<u8>` and `World::load_state(&mut self,
 bytes) -> Result<(), VmError>` write and read the run-time half of the form
-table, magic `SOEW`, version 3 (version 2 added the package driver state
+table, magic `SOEW`, version 4 (version 2 added the package driver state
 to every actor and the natives round state, version 3 the DLC state:
 vampirism and lycanthropy, flying, the deferred kill, eye texture, critical
 stage, bleedout, shouts, the behavior graph floats and the player's perk
-points. Older files are refused,
+points, version 4 the resident cell. Older files are refused,
 nothing shipped them), in the same `Writer`/`Reader` encoding as
 `soe_papyrus::vm::state`, an `ArrayPool` and `ArrayTable` of its own ahead of
 the body for the `Value` arguments a pending event or call is carrying.
@@ -630,3 +630,70 @@ notification fired, and the alias resolved to the lever.
   instances, timed at 0.2 seconds against the installed game (2026-09-17),
   not a performance concern.
 - No native has been checked against its CK wiki page yet, see above.
+
+## Cell transitions (2026-09-18, branch `transitions`)
+
+Walking through a load door. `crates/game/src/world/transition.rs`.
+
+A door is a placed reference whose base is a `DOOR`. What makes it a load
+door is `XTEL`, 32 bytes confirmed against both
+`TES5Edit/Core/wbDefinitionsTES5.pas` and `uesp-modfileformat/REFR.wikitext`:
+the destination reference, then a position and a rotation to arrive at, then
+a flag word. A door without it swings instead, and both kinds ship. The
+`Teleport` view in `crates/esm` already read all of it, so nothing new was
+parsed here.
+
+`World::activate` already moved the activator. What it lacked was the world
+changing around them, so references accumulated forever. Now a door the
+player activates calls `change_cell`, which unloads the cell being left and
+loads the one being entered. An actor walking through a door moves without
+dragging the world after it.
+
+### The unload rule
+
+Vanilla can drop a temporary reference because a save writes change forms for
+anything that moved. There is no save in the middle of a transition, so the
+rule here is stricter and needs no bookkeeping: **a reference is dropped only
+when rebuilding it from its record reproduces exactly the state it holds.**
+`RefState` derives `PartialEq`, so this is a comparison rather than a guess,
+and anything a script disabled, moved, unlocked or emptied fails it and stays
+resident. Unloading can therefore never lose a change.
+
+Four things are never dropped whatever the comparison says: the player, an
+actor (its state lives in a second map, so dropping half would split it), a
+dynamically placed reference (it has no record to rebuild from), and any
+persistent child of the cell.
+
+### Measured on the installed game
+
+`tests/real_transition.rs`, gated on `SKYRIM_DATA`, walks out of the Bannered
+Mare.
+
+| | |
+|---|---|
+| References built for the cell | 697 in 0.54 ms |
+| Load doors found in the cell | 2 |
+| The move itself | 0.50 ms |
+| References resident, before and after | 698, then 531 |
+
+**A load door is a persistent child**, which the first version of this test
+assumed the opposite of and failed on. It has to be persistent: the cell on
+the far side names it in its own teleport data, so it must resolve whether or
+not this cell is resident. The test now asserts that and says why.
+
+### Determinism
+
+Loading and unloading rewrites the reference set, so the resident cell is
+hashed alongside it, in the `world.refs` part rather than a part of its own
+because it describes that same set. `tests/determinism.rs` walks out and back
+twice from one seed and compares every tick, in one process and across two.
+The save carries the resident cell as well, so a loaded game knows what it is
+holding.
+
+### Not done
+
+The renderer half. Nothing tells the host to stream the new cell or drop the
+old one, which is the `godot-host` side of the same item. Exterior cells load
+as a single cell rather than a ring around the player, so walking out of a
+door into Whiterun loads the one cell the door lands in. No load screen, no
+fade, and no unloading by distance as the player walks.
