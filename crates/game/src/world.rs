@@ -37,6 +37,7 @@ use crate::clock::GameClock;
 use crate::quest::{zstring, Quest};
 
 mod actors;
+mod doorway;
 mod driver;
 mod events;
 mod forms;
@@ -50,7 +51,9 @@ mod save;
 mod timers;
 mod transition;
 
+pub use doorway::{Doorway, Side, Threshold, THRESHOLD_BAND, UNITS_PER_METRE};
 pub use save::{SAVE_MAGIC, SAVE_VERSION};
+pub use transition::CellTransition;
 
 /// Forms created at run time (`PlaceAtMe`, the fallback player) live in a
 /// file slot no plugin can own, the same `FF` prefix the game uses.
@@ -357,6 +360,23 @@ pub struct World {
     /// The cell whose temporary references are resident, set by a transition.
     /// See `crate::world::transition`.
     loaded_cell: Option<GlobalFormId>,
+    /// Cells whose references have been built and not yet dropped, which is
+    /// what decides `OnCellLoad`.
+    ///
+    /// Deliberately outside the determinism hash and the save. It is derived
+    /// state, so the same run of calls rebuilds it identically, and vanilla
+    /// does not persist its own cell cache either: the wiki says `OnCellLoad`
+    /// does not fire for the first cells after loading a save, which is the
+    /// behaviour an empty set gives.
+    streamed_cells: std::collections::HashSet<GlobalFormId>,
+    /// A cell whose detach events have fired and whose references are still
+    /// resident, waiting for [`World::settle_unload`].
+    ///
+    /// Dropping a cell is the expensive half of leaving it, because proving a
+    /// reference is unchanged means rebuilding it from its record. None of
+    /// that is observable, so it does not belong on the frame the player
+    /// crosses a threshold.
+    pending_unload: Option<GlobalFormId>,
     next_dynamic: u32,
     player: Option<GlobalFormId>,
     /// What `PC_LEVEL_MULT` actors scale against.
@@ -439,6 +459,8 @@ impl World {
             actor_bases: HashMap::new(),
             cells: HashMap::new(),
             loaded_cell: None,
+            streamed_cells: std::collections::HashSet::new(),
+            pending_unload: None,
             next_dynamic: 0x1000,
             player: None,
             player_level: 1,
