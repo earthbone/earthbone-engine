@@ -25,8 +25,11 @@ use crate::{Packfile, Result};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct NodeId(pub usize);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum VariableType {
+    /// A variable an appended sub-graph declared with no info of its own
+    /// reads as a bool, the narrowest word type.
+    #[default]
     Bool,
     Int8,
     Int16,
@@ -69,7 +72,7 @@ impl VariableType {
 /// index map, 4 event id, 5 variable index, 6 attribute index, 7 time),
 /// role flags (1 ragdoll, 2 normalized, 4 not variable, 8 hidden, 16
 /// output, 32 not character property) and a type.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct VariableInfo {
     pub role: i16,
     pub role_flags: i16,
@@ -92,6 +95,9 @@ impl VariableInfo {
             .collect()
     }
 }
+
+/// Flag slots a `BSIsActiveModifier` carries, from its layout.
+pub const IS_ACTIVE_SLOTS: usize = 5;
 
 /// `hkbEventInfo.flags`: 1 silent, 2 sync point.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -352,7 +358,7 @@ impl StateMachine {
 /// 3 ping pong. `flags`: 1 continue motion at end, 2 sync half cycle in
 /// ping pong, 4 mirror, 8 force dense pose, 16 do not convert annotations
 /// to triggers, 32 ignore motion.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct ClipGenerator {
     pub animation_name: String,
     pub triggers: Vec<ClipTrigger>,
@@ -444,8 +450,13 @@ pub enum NodeKind {
         enable: bool,
         modifiers: Vec<Option<NodeId>>,
     },
+    /// `hkbBehaviorReferenceGenerator`. The file serializes only the name,
+    /// its `behavior` pointer is `SERIALIZE_IGNORED`, so `resolved` stays
+    /// `None` until [`BehaviorGraph::link_reference`] splices the referenced
+    /// graph in. See `crate::link`.
     BehaviorReference {
         behavior_name: String,
+        resolved: Option<NodeId>,
     },
     BlendingTransition(BlendingTransitionEffect),
     GeneratorTransition(GeneratorTransitionEffect),
@@ -500,6 +511,15 @@ pub enum NodeKind {
         enable: bool,
         alarm_time_seconds: f32,
         alarm_event: EventProperty,
+    },
+    /// `BSIsActiveModifier`: five slots, each a flag the graph binds a
+    /// variable to and an invert bit. Skyrim uses it to turn parts of a
+    /// graph on from script, and its bindings are the bulk of what an
+    /// unmodelled modifier leaves unbound.
+    IsActiveModifier {
+        enable: bool,
+        is_active: [bool; IS_ACTIVE_SLOTS],
+        invert_active: [bool; IS_ACTIVE_SLOTS],
     },
     /// Any other `hkbModifier` subclass: only the enable flag is read.
     Modifier {
@@ -567,10 +587,13 @@ impl Node {
                 out.extend(*offset_clip_generator);
             }
             NodeKind::EventDrivenModifier { modifier, .. } => out.extend(*modifier),
+            // Only after linking. An unlinked reference has no child, which
+            // is why an unlinked graph leaves the state it guards silent.
+            NodeKind::BehaviorReference { resolved, .. } => out.extend(*resolved),
             NodeKind::Clip(_)
-            | NodeKind::BehaviorReference { .. }
             | NodeKind::BlendingTransition(_)
             | NodeKind::TimerModifier { .. }
+            | NodeKind::IsActiveModifier { .. }
             | NodeKind::Modifier { .. }
             | NodeKind::Unknown => {}
         }
@@ -622,7 +645,7 @@ impl BehaviorGraph {
             .nodes
             .iter()
             .filter_map(|n| match &n.kind {
-                NodeKind::BehaviorReference { behavior_name } => Some(behavior_name.clone()),
+                NodeKind::BehaviorReference { behavior_name, .. } => Some(behavior_name.clone()),
                 _ => None,
             })
             .collect();
@@ -857,6 +880,7 @@ impl<'a> Loader<'a> {
             }
             "hkbBehaviorReferenceGenerator" => NodeKind::BehaviorReference {
                 behavior_name: o.string_or_empty(72)?,
+                resolved: None,
             },
             "hkbBlendingTransitionEffect" => {
                 NodeKind::BlendingTransition(BlendingTransitionEffect {
@@ -950,6 +974,21 @@ impl<'a> Loader<'a> {
                 alarm_time_seconds: o.f32(80)?,
                 alarm_event: EventProperty::read(o, 88)?,
             },
+            // Five (flag, invert) pairs packed one byte each from 80.
+            "BSIsActiveModifier" => {
+                let mut is_active = [false; IS_ACTIVE_SLOTS];
+                let mut invert_active = [false; IS_ACTIVE_SLOTS];
+                for (i, (a, inv)) in is_active.iter_mut().zip(&mut invert_active).enumerate() {
+                    let at = 80 + 2 * u32::try_from(i).unwrap_or(0);
+                    *a = o.bool(at)?;
+                    *inv = o.bool(at + 1)?;
+                }
+                NodeKind::IsActiveModifier {
+                    enable: o.bool(72)?,
+                    is_active,
+                    invert_active,
+                }
+            }
             c if c.ends_with("Modifier") => NodeKind::Modifier {
                 enable: o.bool(72)?,
             },

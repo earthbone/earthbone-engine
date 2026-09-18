@@ -42,6 +42,21 @@ fn human_skeleton(archive: &Archive) -> Skeleton {
     c.skeletons.into_iter().next().expect("a skeleton")
 }
 
+/// The behavior a reference names, `Behaviors\IdleBehavior.hkx`, from the
+/// archive. Returns `None` when the archive has no such file, which
+/// `link_all` reports rather than treating as a failure.
+fn vanilla_behavior(archive: &Archive, name: &str) -> Option<BehaviorGraph> {
+    let path = format!("{CHARACTER}{}", name.replace('\\', "/"));
+    if !archive.contains(&path) {
+        return None;
+    }
+    let bytes = archive
+        .read(&path)
+        .unwrap_or_else(|e| panic!("{path}: {e}"));
+    let pf = Packfile::parse(&bytes).unwrap_or_else(|e| panic!("{path}: {e}"));
+    Some(BehaviorGraph::from_packfile(&pf).unwrap_or_else(|e| panic!("{path}: {e}")))
+}
+
 /// The clip a generator names, `Animations\mt_idle.hkx`, from the archive.
 fn vanilla_clip(archive: &Archive, name: &str) -> Option<Clip> {
     let path = format!("{CHARACTER}{}", name.replace('\\', "/"));
@@ -185,7 +200,30 @@ fn mt_behavior_runs_on_the_vanilla_clips() {
     let path = format!("{CHARACTER}behaviors/mt_behavior.hkx");
     let bytes = archive.read(&path).expect("mt_behavior reads");
     let pf = Packfile::parse(&bytes).expect("mt_behavior parses");
-    let g = BehaviorGraph::from_packfile(&pf).expect("mt_behavior loads");
+    let mut g = BehaviorGraph::from_packfile(&pf).expect("mt_behavior loads");
+
+    let before_nodes = g.nodes.len();
+    let before_events = g.data.event_names.len();
+    let before_variables = g.data.variable_names.len();
+    let report = g.link_all(8, |name| vanilla_behavior(&archive, name));
+    println!(
+        "  linked {:?}, missing {:?}, failed {:?}, {} rounds",
+        report.linked, report.missing, report.failed, report.rounds
+    );
+    println!(
+        "  nodes {before_nodes} to {}, events {before_events} to {}, variables \
+         {before_variables} to {}",
+        g.nodes.len(),
+        g.data.event_names.len(),
+        g.data.variable_names.len()
+    );
+    assert!(
+        report.failed.is_empty(),
+        "a referenced graph would not splice: {:?}",
+        report.failed
+    );
+    let g = g;
+
     let names = g.clip_animation_names();
     let mut lib = ClipLibrary::new();
     let mut missing = Vec::new();

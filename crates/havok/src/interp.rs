@@ -23,7 +23,7 @@ use crate::animation::SplineCompressedAnimation;
 use crate::behavior::{
     transition_flags, BehaviorGraph, BehaviorGraphData, BlenderGenerator, ClipGenerator, NodeId,
     NodeKind, StateMachine, TimeInterval, TransitionInfo, VariableBindingSet, VariableInfo,
-    VariableType,
+    VariableType, IS_ACTIVE_SLOTS,
 };
 use crate::skeleton::AnimationContainer;
 use crate::spline::Block;
@@ -276,6 +276,31 @@ enum Target {
     ChildWeight(usize),
     SelectedGeneratorIndex,
     Enable,
+    /// Which state the machine enters on activation.
+    StartStateId,
+    /// A transition effect's blend duration in seconds.
+    Duration,
+    /// Output: a `BSIsActiveModifier` slot writes whether it is active into
+    /// the variable, inverted when the slot's invert bit is set. Skyrim uses
+    /// it to let the rest of a graph, and script through the variable, see
+    /// that a branch is running.
+    IsActive {
+        slot: usize,
+        invert: bool,
+    },
+    /// Output: whether the state machine is active.
+    MachineIsActive,
+}
+
+impl Target {
+    /// Output bindings write node state into the variable after the update.
+    /// The rest read the variable into node state before it. The file does
+    /// not say which a binding is (`hasOutputBinding` is
+    /// `SERIALIZE_IGNORED`), so the member decides: these two are node state
+    /// with no setter behind them.
+    fn is_output(self) -> bool {
+        matches!(self, Target::IsActive { .. } | Target::MachineIsActive)
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -315,6 +340,10 @@ struct Runtime {
     child_weights: Vec<Option<f32>>,
     selected: Option<usize>,
     enabled: Option<bool>,
+    /// A bound `startStateId`, read when the machine activates.
+    start_state: Option<i32>,
+    /// A bound blend `duration`, on a transition effect.
+    duration: Option<f32>,
 }
 
 /// A generator's result for one frame: a local pose and how much of it
@@ -434,6 +463,24 @@ impl<'a> Interpreter<'a> {
                     Some(Target::SelectedGeneratorIndex)
                 }
                 ("enable", None, _) => Some(Target::Enable),
+                ("isActive", None, NodeKind::StateMachine(_)) => Some(Target::MachineIsActive),
+                ("startStateId", None, NodeKind::StateMachine(_)) => Some(Target::StartStateId),
+                ("duration", None, NodeKind::BlendingTransition(_)) => Some(Target::Duration),
+                ("fBlendParameter", None, NodeKind::CyclicBlendTransition { .. }) => {
+                    Some(Target::BlendParameter)
+                }
+                (path, None, NodeKind::IsActiveModifier { invert_active, .. })
+                    if path.starts_with("bIsActive") =>
+                {
+                    path["bIsActive".len()..]
+                        .parse::<usize>()
+                        .ok()
+                        .filter(|slot| *slot < IS_ACTIVE_SLOTS)
+                        .map(|slot| Target::IsActive {
+                            slot,
+                            invert: invert_active[slot],
+                        })
+                }
                 (path, _, _) if path.starts_with("children:") && path.ends_with("/weight") => path
                     ["children:".len()..path.len() - "/weight".len()]
                     .parse()
@@ -602,11 +649,36 @@ impl<'a> Interpreter<'a> {
                 }
             }
         }
+        self.apply_output_bindings();
         &self.output
+    }
+
+    /// Write every output binding's node state back into its variable.
+    ///
+    /// Runs after the update, so a variable reports the frame that just ran.
+    /// Character properties are read-only to the graph, so an output binding
+    /// on one is skipped.
+    fn apply_output_bindings(&mut self) {
+        for i in 0..self.bindings.len() {
+            let b = self.bindings[i];
+            if !b.target.is_output() || b.property {
+                continue;
+            }
+            let active = self.nodes[b.node.0].active;
+            let value = match b.target {
+                Target::IsActive { invert, .. } => active != invert,
+                Target::MachineIsActive => active,
+                _ => continue,
+            };
+            self.variables.set_word(b.variable, i32::from(value));
+        }
     }
 
     fn apply_bindings(&mut self) {
         for b in &self.bindings {
+            if b.target.is_output() {
+                continue;
+            }
             let table = if b.property {
                 &self.character_properties
             } else {
@@ -629,6 +701,10 @@ impl<'a> Interpreter<'a> {
                     rt.selected = usize::try_from(value as i32).ok();
                 }
                 Target::Enable => rt.enabled = Some(value != 0.0),
+                Target::StartStateId => rt.start_state = Some(value as i32),
+                Target::Duration => rt.duration = Some(value),
+                // Written by apply_output_bindings, skipped above.
+                Target::IsActive { .. } | Target::MachineIsActive => {}
             }
         }
     }
@@ -655,7 +731,7 @@ impl<'a> Interpreter<'a> {
                 rt.passes = 0;
             }
             NodeKind::StateMachine(sm) => {
-                let start = self.start_state(sm);
+                let start = self.start_state(id, sm);
                 self.nodes[id.0].current_state = None;
                 self.nodes[id.0].previous_state = None;
                 self.nodes[id.0].transition = None;
@@ -712,12 +788,17 @@ impl<'a> Interpreter<'a> {
                     self.activate(*g);
                 }
             }
+            NodeKind::BehaviorReference { resolved, .. } => {
+                if let Some(g) = resolved {
+                    self.activate(*g);
+                }
+            }
             NodeKind::ModifierList { .. }
-            | NodeKind::BehaviorReference { .. }
             | NodeKind::BlendingTransition(_)
             | NodeKind::GeneratorTransition(_)
             | NodeKind::EventDrivenModifier { .. }
             | NodeKind::TimerModifier { .. }
+            | NodeKind::IsActiveModifier { .. }
             | NodeKind::Modifier { .. }
             | NodeKind::Unknown => {}
         }
@@ -759,9 +840,14 @@ impl<'a> Interpreter<'a> {
     /// Mode 0 uses the start state, 1 reads the sync variable, 2 picks the
     /// most probable enabled state (a deterministic stand-in for random), 3
     /// has a chooser this crate does not decode and falls back to 0.
-    fn start_state(&self, sm: &StateMachine) -> Option<i32> {
+    fn start_state(&self, id: NodeId, sm: &StateMachine) -> Option<i32> {
         let by_id = |state: i32| sm.state(state).filter(|s| s.enable).map(|s| s.state_id);
         let first_enabled = || sm.states.iter().find(|s| s.enable).map(|s| s.state_id);
+        // A bound startStateId wins over the stored one in every mode, since
+        // that is the point of binding it.
+        if let Some(state) = self.nodes[id.0].start_state.and_then(by_id) {
+            return Some(state);
+        }
         match sm.start_state_mode {
             1 => usize::try_from(sm.sync_variable_index)
                 .ok()
@@ -919,7 +1005,13 @@ impl<'a> Interpreter<'a> {
         let effect = info
             .transition
             .and_then(|e| match &graph.node(e).kind {
-                NodeKind::BlendingTransition(b) => Some((b.duration, b.blend_curve)),
+                // A bound duration on the effect node overrides the stored
+                // one, which is how a graph makes a blend speed depend on a
+                // variable.
+                NodeKind::BlendingTransition(b) => {
+                    let d = self.nodes[e.0].duration.unwrap_or(b.duration);
+                    Some((d, b.blend_curve))
+                }
                 _ => None,
             })
             .filter(|(d, _)| *d > 0.0);
@@ -1023,22 +1115,35 @@ impl<'a> Interpreter<'a> {
                 Some(g) => self.generate(*g, dt),
                 None => self.reference_output(),
             },
-            NodeKind::BehaviorReference { behavior_name } => {
-                push_unique(
-                    &mut self.unsupported.behavior_references,
-                    behavior_name.clone(),
-                );
-                self.reference_output()
-            }
+            // A linked reference is a pass-through to the graph that was
+            // spliced under it. An unlinked one has nothing to play and is
+            // reported, which is what holds the vanilla standing idle silent
+            // until `IdleBehavior.hkx` is linked in.
+            NodeKind::BehaviorReference {
+                behavior_name,
+                resolved,
+            } => match resolved {
+                Some(g) => self.generate(*g, dt),
+                None => {
+                    push_unique(
+                        &mut self.unsupported.behavior_references,
+                        behavior_name.clone(),
+                    );
+                    self.reference_output()
+                }
+            },
             NodeKind::Unknown => {
                 push_unique(&mut self.unsupported.unknown_classes, node.class.clone());
                 self.reference_output()
             }
+            // Modifiers are not generators. Reaching one here means a
+            // generator slot held a modifier, so there is no pose to give.
             NodeKind::ModifierList { .. }
             | NodeKind::BlendingTransition(_)
             | NodeKind::GeneratorTransition(_)
             | NodeKind::EventDrivenModifier { .. }
             | NodeKind::TimerModifier { .. }
+            | NodeKind::IsActiveModifier { .. }
             | NodeKind::Modifier { .. } => self.reference_output(),
         }
     }
@@ -1432,6 +1537,90 @@ pub fn blend_outputs(from: &Output, to: &Output, alpha: f32) -> Output {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use crate::behavior::{Binding, Node, VariableBindingSet};
+
+    /// A graph of one `BSIsActiveModifier` with a binding on one slot, so the
+    /// output path can be driven without a packfile.
+    fn is_active_graph(invert: bool, bound_slot: usize) -> BehaviorGraph {
+        let mut invert_active = [false; IS_ACTIVE_SLOTS];
+        // `bound_slot` may be out of range on purpose, to check the binding
+        // is refused rather than clamped.
+        if let Some(slot) = invert_active.get_mut(bound_slot) {
+            *slot = invert;
+        }
+        BehaviorGraph {
+            name: "g".into(),
+            variable_mode: 0,
+            root: Some(NodeId(0)),
+            data: BehaviorGraphData {
+                variable_names: vec!["bRunning".into()],
+                variable_infos: vec![VariableInfo::default()],
+                ..Default::default()
+            },
+            nodes: vec![Node {
+                id: NodeId(0),
+                offset: 0,
+                class: "BSIsActiveModifier".into(),
+                name: "mod".into(),
+                user_data: 0,
+                bindings: Some(VariableBindingSet {
+                    bindings: vec![Binding {
+                        member_path: format!("bIsActive{bound_slot}"),
+                        variable_index: 0,
+                        bit_index: -1,
+                        binding_type: 0,
+                    }],
+                    index_of_binding_to_enable: -1,
+                }),
+                kind: NodeKind::IsActiveModifier {
+                    enable: true,
+                    is_active: [false; IS_ACTIVE_SLOTS],
+                    invert_active,
+                },
+            }],
+        }
+    }
+
+    #[test]
+    fn an_is_active_slot_writes_the_variable_when_the_node_runs() {
+        let g = is_active_graph(false, 0);
+        let lib = ClipLibrary::new();
+        let mut vm = Interpreter::new(&g, &lib, Vec::new());
+        assert!(
+            vm.unsupported().unbound.is_empty(),
+            "the slot must bind: {:?}",
+            vm.unsupported().unbound
+        );
+        assert_eq!(vm.variables.word(0), Some(0), "before the first update");
+        vm.update(1.0 / 60.0);
+        assert_eq!(
+            vm.variables.word(0),
+            Some(1),
+            "the root activates, so the modifier reports active"
+        );
+    }
+
+    #[test]
+    fn the_invert_bit_flips_what_the_slot_writes() {
+        let g = is_active_graph(true, 0);
+        let lib = ClipLibrary::new();
+        let mut vm = Interpreter::new(&g, &lib, Vec::new());
+        vm.update(1.0 / 60.0);
+        assert_eq!(
+            vm.variables.word(0),
+            Some(0),
+            "active with the invert bit set writes false"
+        );
+    }
+
+    #[test]
+    fn a_slot_past_the_five_the_class_carries_stays_unbound() {
+        let g = is_active_graph(false, 9);
+        let lib = ClipLibrary::new();
+        let vm = Interpreter::new(&g, &lib, Vec::new());
+        assert_eq!(vm.unsupported().unbound.len(), 1);
+    }
 
     #[test]
     fn parametric_weights_bracket_the_parameter() {
