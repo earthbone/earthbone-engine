@@ -1176,6 +1176,7 @@ dependencies = [
  "soe-bsa",
  "soe-dds",
  "soe-esm",
+ "soe-havok",
  "soe-nif",
  "soe-physics",
  "soe-trace",
