@@ -61,6 +61,33 @@ Open the corpus before writing a parser or a native, not after.
 - `openmw/components/esm4`, `Champollion`, `skymp`: reader and VM reference.
 - `libloot/docs`: load order rules and masterlist syntax.
 - `TES5Edit.github.io`: the xEdit documentation site source.
+- `FallrimTools`: ReSaver's save file (ESS) parser and cleaner in Java, a
+  second implementation for the save format and orphaned script instance
+  handling.
+- `Keyword-Item-Distributor`: KID's `_KID.ini` config syntax and keyword
+  distribution logic, SPID's sibling tool.
+- `OpenAnimationReplacer`: OAR's condition system and config format for
+  conditional animation replacement, the successor to DAR.
+- `dargh`: a documented reimplementation of Dynamic Animation Replacer,
+  DAR's condition and priority logic before OAR replaced it.
+- `fuzmanager`: the FUZ container layout, lip data plus XWM voice audio
+  packed together for Skyrim and Fallout 4.
+- `Skyrim-NX-Toolkit`: the Switch port's FUZ variant, an Opus payload in
+  place of xWMA, a shipped precedent for the engine's own audio codec
+  choice.
+- `serde-hkx`: 680 generated Havok class definitions in Rust, 204 of them
+  `hkb` behavior classes with field offsets per pointer width. The layouts the
+  behavior interpreter still lacks. One maintainer, so extract rather than
+  depend.
+- `Caprica`: a complete Papyrus source compiler under MIT, the stage our
+  `papyrus` crate has never had. It adds to our reader, writer and VM, it
+  replaces none of them.
+
+Licence care when porting from the corpus: the core crates are
+GPL-3.0-or-later so reading or porting from a GPL tool is fine there, but no
+GPL derived code may reach the MIT shim crates. `serde-hkx`, `Caprica`,
+`dargh` and `Skyrim-NX-Toolkit` are permissive. `Keyword-Item-Distributor`,
+`OpenAnimationReplacer` and `fuzmanager` are GPL.
 
 ## Working rules
 
