@@ -1162,9 +1162,11 @@ impl<'a> Interpreter<'a> {
             if t.elapsed >= t.duration {
                 self.nodes[id.0].transition = None;
                 self.finish_transition(id, t);
-            } else {
-                self.nodes[id.0].transition = Some(t);
+                // The last frame is the target itself, not a blend at one,
+                // so a quaternion the short arc negated comes back as sampled.
+                return to;
             }
+            self.nodes[id.0].transition = Some(t);
             return blend_outputs(&from, &to, alpha);
         }
         match current_generator {

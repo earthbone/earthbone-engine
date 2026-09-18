@@ -2,10 +2,11 @@
 
 Crate `crates/havok` reads the Havok 2010.2 packfiles Skyrim Special Edition
 ships: skeletons, spline-compressed animation clips, character and project
-descriptions, and behavior graphs. This document records what the crate
-reads, where each layout came from, and the design for the behavior-graph
-interpreter that the map's weeks 9 to 13 ask for. No Havok SDK code was
-consulted or is required. The sources are the class descriptions serde-hkx
+descriptions, and behavior graphs, and runs the behavior graphs through the
+interpreter in `interp.rs` (section 6). This document records what the crate
+reads, where each layout came from, the design for the interpreter that the
+map's weeks 9 to 13 ask for, and what the first implementation of it does.
+No Havok SDK code was consulted or is required. The sources are the class descriptions serde-hkx
 extracted from Skyrim's own files (`engine-refs/serde-hkx/assets/classes`),
 the reverse-engineered runtime layouts in activeragdoll's
 `include/RE/havok_behavior.h`, and HavokLib's spline decompressor for the
@@ -276,8 +277,115 @@ parse failures, every root a `hkRootLevelContainer`. 6126 spline animations turn
 up and all 6126 decoded, 466793 tracks sampled, 0 decode failures. No code change
 was needed.
 
-## 6. Not done and next
+## 6. Interpreter (2026-09-18)
 
+`interp::Interpreter` is one graph instance: a `BehaviorGraph`, a
+`ClipLibrary` (clips decoded once, keyed by the name the clip generator
+uses, case and slash insensitive), the skeleton's reference pose, and a
+run-time record per node. `update(dt)` runs the order the SDK headers
+publish: apply variable bindings, activate the root if it is not, deliver
+the queued external events outermost first, generate children before
+parents, then deliver the events nodes raised during the frame (bounded
+to eight rounds). The result is `Output { pose, weight }`, a local-space
+pose with one transform per bone and weight zero when nothing had a pose
+to give. `active_states`, `active_clips`, `take_changes` and
+`take_events` expose the observables the replay harness in 5.4 diffs.
+
+What each node does:
+
+- `hkbStateMachine`: enters the start state on activation (mode 0 the
+  start state, 1 the sync variable, 2 the most probable enabled state as a
+  deterministic stand-in for random, 3 falls back to 0 since choosers are
+  not decoded). An event matches the first transition in the current
+  state's list, then the wildcards, whose event id it carries, whose flags
+  are not disabled and whose target state is enabled. Conditions and
+  trigger intervals are accepted as satisfied, the arbitration gap the
+  references list. The return-to-previous-state event goes back one state.
+  A blending transition effect with a duration crossfades the old and new
+  generators with `blend_curve` (0 smooth, 1 linear, 2 linear to smooth, 3
+  smooth to linear) and keeps the old one active until it ends. Without
+  an effect the switch is a cut. Exit and enter notify events and the
+  state-change event are raised.
+- `hkbClipGenerator`: local time advances by `playbackSpeed` times `dt`.
+  Mode 0 stops at the end, 1 loops, 2 follows `userControlledTimeFraction`,
+  3 ping pongs. Triggers fire when the playhead crosses their time, end
+  relative ones measured from the clip's duration, acyclic ones only on
+  the first pass. The pose is the reference pose with every track written
+  into the bone the binding maps it to.
+- `hkbBlenderGenerator`: children are weighted by their `weight` field or
+  its binding and normalized. With the parametric flag each weight is a
+  position on the blend parameter's axis and the two neighbours of the
+  parameter share the blend linearly. With the sync flag every direct clip
+  child is parked at the master child's phase before it advances. Children
+  at weight zero deactivate unless the keep flag is set. Two transforms
+  blend by lerp of translation and scale and nlerp of rotation on the
+  short arc.
+- `hkbManualSelectorGenerator`: plays the selected child, switching when
+  the index changes.
+- `hkbModifierGenerator` and Skyrim's `BS*` wrappers (`BSiStateTagging`,
+  `BSBoneSwitch`, `BSOffsetAnimation`, `BSSynchronizedClip`,
+  `BSCyclicBlendTransition`) pass their child through. Modifiers do
+  nothing yet.
+- `hkbBehaviorReferenceGenerator` and unmodelled classes yield the
+  reference pose at weight zero and are listed in `Unsupported`.
+
+Bindings resolve at construction to typed setters: `playbackSpeed`,
+`userControlledTimeFraction`, `blendParameter`, `weight` on a blender
+child (also `children:N/weight`), `selectedGeneratorIndex`, `enable`. Any
+other member path is reported in `Unsupported::unbound`. Reals live in the
+word table as their bit pattern, which is how the file stores them.
+
+### Checked against the sampler (2026-09-18)
+
+`tests/interp.rs` drives a hand-built graph over two one-track ramp clips
+so every expected pose is a number: the idle clip's acyclic trigger raises
+the walk event, the 0.25 s linear blend lands halfway at the midpoint and
+ends on the walk, the wildcard cuts back to a restarted idle, a bound
+`Speed` doubles the walk's advance, a looping clip fires its end trigger
+on every wrap and its acyclic trigger once, both blender modes and the
+selector follow their bound variables, a missing clip is reported.
+
+`tests/real_files.rs` runs the same graph over the vanilla human skeleton
+(`character assets/skeleton.hkx`, 99 bones) and the clips `mt_behavior`
+names, `Animations\male\MT_Idle.HKX` (9.133 s, 99 tracks) and
+`Animations\male\MT_WalkForward.hkx` (1.133 s, 99 tracks), for 180 frames
+at 1/60 s and compares every frame's pose with the spline sampler at the
+interpreter's own clip times, the blend recomputed from a frame count. The
+worst difference over 180 frames was 3.8e-6 (tolerance 1e-4), the
+transition began at frame 18 when the trigger fired, 15 blend frames
+followed, the head sits at z 120.3 in model space, and one update costs
+2.8 us. One correction came out of it: the last frame of a blend returns
+the target's own output, since a blend at alpha one negates the
+quaternions the short arc flipped.
+
+The same test then loads the vanilla `behaviors/mt_behavior.hkx`, 1,595
+nodes, 931 events, 67 variables, 730 clips named of which 729 are in the
+archive (`IdleValericaWalkForward` is not), with 32 bindings resolved and
+92 unbound (`BSIsActiveModifier.bIsActiveN` and `hkbStateMachine.isActive`,
+modifier state this interpreter does not carry). Activation reaches
+`MT_Default_Behavior = MT_Standing_State` through `MT_Idle_TurnBehavior =
+MT_Idle_State` at weight zero, because the standing idle lives behind the
+`Behaviors\IdleBehavior.hkx` reference. Setting `Speed` to 1 and sending
+`moveStart` moves it to `MT_LocomotionType_Behavior = MT_Locomotion_State`
+with `MT_WalkForwardSlow` playing at weight one, no unknown classes and no
+missing clips on the path. An update costs 0.9 us idle and 8.2 us walking.
+
+## 7. Not done and next
+
+- Behavior references: `0_master` reaches `mt_behavior` and `mt_behavior`
+  reaches `IdleBehavior` through `hkbBehaviorReferenceGenerator`. The
+  interpreter needs a sub-graph per reference with its event and variable
+  ids mapped by name to the character's tables, the `hkbSymbolIdMap` of
+  5.1. That is what puts a pose under the vanilla standing idle.
+- Modifiers: `BSIsActiveModifier`, `hkbTimerModifier`,
+  `hkbEventDrivenModifier` and the rest pass through. Their bindings are
+  the bulk of the unbound list.
+- Transition details: trigger and initiate intervals, `hkbCondition`
+  expressions, priority arbitration, the `abut at end` flag,
+  `hkbGeneratorTransitionEffect`, `maxSimultaneousTransitions`.
+- Blender details: bone weight masks, `subtractLastChild`, the real
+  weight curve once a capture from the game exists (5.4).
+- Extracted motion and float tracks in the output.
 - 32-bit (Skyrim LE) layouts, wanted for Nemesis's LE cached behaviors.
 - `hkbCondition` and `hkbExpressionCondition` expressions on transitions.
 - Float tracks and extracted motion in clips, and the 16-bit and 24-bit
