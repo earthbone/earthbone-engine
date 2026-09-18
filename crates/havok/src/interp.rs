@@ -712,12 +712,17 @@ impl<'a> Interpreter<'a> {
                     self.activate(*g);
                 }
             }
+            NodeKind::BehaviorReference { resolved, .. } => {
+                if let Some(g) = resolved {
+                    self.activate(*g);
+                }
+            }
             NodeKind::ModifierList { .. }
-            | NodeKind::BehaviorReference { .. }
             | NodeKind::BlendingTransition(_)
             | NodeKind::GeneratorTransition(_)
             | NodeKind::EventDrivenModifier { .. }
             | NodeKind::TimerModifier { .. }
+            | NodeKind::IsActiveModifier { .. }
             | NodeKind::Modifier { .. }
             | NodeKind::Unknown => {}
         }
@@ -1023,22 +1028,35 @@ impl<'a> Interpreter<'a> {
                 Some(g) => self.generate(*g, dt),
                 None => self.reference_output(),
             },
-            NodeKind::BehaviorReference { behavior_name } => {
-                push_unique(
-                    &mut self.unsupported.behavior_references,
-                    behavior_name.clone(),
-                );
-                self.reference_output()
-            }
+            // A linked reference is a pass-through to the graph that was
+            // spliced under it. An unlinked one has nothing to play and is
+            // reported, which is what holds the vanilla standing idle silent
+            // until `IdleBehavior.hkx` is linked in.
+            NodeKind::BehaviorReference {
+                behavior_name,
+                resolved,
+            } => match resolved {
+                Some(g) => self.generate(*g, dt),
+                None => {
+                    push_unique(
+                        &mut self.unsupported.behavior_references,
+                        behavior_name.clone(),
+                    );
+                    self.reference_output()
+                }
+            },
             NodeKind::Unknown => {
                 push_unique(&mut self.unsupported.unknown_classes, node.class.clone());
                 self.reference_output()
             }
+            // Modifiers are not generators. Reaching one here means a
+            // generator slot held a modifier, so there is no pose to give.
             NodeKind::ModifierList { .. }
             | NodeKind::BlendingTransition(_)
             | NodeKind::GeneratorTransition(_)
             | NodeKind::EventDrivenModifier { .. }
             | NodeKind::TimerModifier { .. }
+            | NodeKind::IsActiveModifier { .. }
             | NodeKind::Modifier { .. } => self.reference_output(),
         }
     }

@@ -34,6 +34,7 @@ pub mod animation;
 pub mod behavior;
 pub mod character;
 pub mod interp;
+pub mod link;
 pub mod packfile;
 pub mod skeleton;
 pub mod spline;
