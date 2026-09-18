@@ -13,6 +13,11 @@ cargo-fuzz = true
 [dependencies]
 libfuzzer-sys = "0.4"
 arbitrary = { version = "1", features = ["derive"] }
+# The archive grammar target packs its own payloads, so it needs the same two
+# codecs `soe-bsa` unpacks with. Both are already in that crate's tree, so this
+# adds nothing new to the workspace.
+flate2 = "1"
+lz4_flex = "0.11"
 
 [dependencies.soe-esm]
 path = "../crates/esm"
@@ -97,6 +102,20 @@ bench = false
 [[bin]]
 name = "fuzz-save"
 path = "fuzz_targets/fuzz_save.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz-dds-grammar"
+path = "fuzz_targets/fuzz_dds_grammar.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz-bsa-grammar"
+path = "fuzz_targets/fuzz_bsa_grammar.rs"
 test = false
 doc = false
 bench = false

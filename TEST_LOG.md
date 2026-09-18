@@ -287,3 +287,59 @@ Nothing covers a `dds_info` rebuild path corruption. The bit-flip sweep stops
 at the first 96 bytes, so the payload itself is only covered by truncation. And
 a declared size that is wrong but self-consistent, a stream that really does
 decompress to the lie, is indistinguishable from a healthy file by design.
+
+## 8. `dds` and `bsa`, structure aware fuzz targets
+
+Tier 2, nightly. `fuzz/fuzz_targets/fuzz_dds_grammar.rs` and
+`fuzz/fuzz_targets/fuzz_bsa_grammar.rs`.
+
+**The gap both fill is the same one.** `fuzz-dds` calls `Dds::parse` and stops,
+and `fuzz-bsa` calls `index_archive_in` and stops. Random bytes almost never
+form a header or a table either one accepts, so in both crates the code behind a
+successful parse, the decoder and the record read path, had never been fuzzed at
+all. That is where the arithmetic lives: block counts, mip chains and surface
+sizes in one, offsets, packed sizes and declared lengths in the other.
+
+Each target builds a well formed container around fuzzer chosen fields, then
+runs the stage the byte target never reaches. The DDS one decodes every mip of
+every layer and asserts a decoded image is whole RGBA pixels and that the pixel
+count matches the dimensions reported beside it. The archive one indexes, reads
+every record, and asserts that a record declaring an unpacked length hands back
+exactly that many bytes, which is the invariant entry 7 found broken.
+
+**Runs, five minutes each, all clean.**
+
+| Target | Runs | Time |
+|---|---|---|
+| `fuzz-dds-grammar` | 19,979,275 | 301 s |
+| `fuzz-bsa-grammar` | 1,634,668 | 301 s |
+| `fuzz-pex-grammar` | 2,378,411 | 301 s |
+
+The third is the one entry 6 fixed. It fails on the old assembler and passes
+now, so the nightly tier is green across every target again.
+
+**How to run these here**, since phase 2 recorded that it could not. `cargo
+fuzz` needs a nightly `rustc`, and this machine has Homebrew's stable `rustc`
+first on `PATH`, so `rustup run nightly` and `RUSTUP_TOOLCHAIN` both fail:
+cargo-fuzz shells out to a `cargo` that resolves back to the Homebrew stable
+one. Putting the rustup shims first is what works:
+
+```
+env -C <repo> PATH=$HOME/.cargo/bin:/usr/bin:/bin RUSTUP_TOOLCHAIN=nightly \
+  cargo fuzz run fuzz-dds-grammar -- -max_total_time=300
+```
+
+**No mesh grammar target, and the reason.** A valid `NIF` is a block graph with
+a string table and version-dependent layouts, so a grammar that produces one is
+a large piece of work rather than a session's. A shallow version would mostly
+generate files the parser rejects, which is what `fuzz-nif` already covers with
+plain bytes. Left undone deliberately rather than done badly. The mesh reader
+did get a real defect fixed today by other means, the partition-local bone
+indices, found by rendering rather than by fuzzing.
+
+**What these cannot catch.** The DDS target never builds a legal payload on
+purpose, so it exercises truncation and bad geometry far more than correct
+decoding, and it asserts self consistency rather than correct pixels. The
+archive target only builds BSA with one folder, never BA2 and never the DX10
+texture rebuild path. Neither says anything about whether a file that decodes
+cleanly decodes *correctly*, which only the corpus tests against real data do.
