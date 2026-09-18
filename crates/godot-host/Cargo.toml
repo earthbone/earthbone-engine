@@ -64,6 +64,7 @@ soe-esm = { path = "../esm" }
 soe-bsa = { path = "../bsa" }
 soe-nif = { path = "../nif" }
 soe-dds = { path = "../dds" }
+soe-havok = { path = "../havok" }
 soe-physics = { path = "../physics" }
 soe-trace = { path = "../trace" }
 

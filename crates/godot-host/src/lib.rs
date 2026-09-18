@@ -12,14 +12,18 @@
 
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
+pub mod actor;
 pub mod batch;
 pub mod collision;
 pub mod data_source;
 pub mod mesh;
+pub mod skinned;
 pub mod streaming;
 pub mod terrain;
 pub mod units;
 
+#[cfg(feature = "godot")]
+pub mod godot_actor;
 #[cfg(feature = "godot")]
 pub mod godot_layer;
 #[cfg(feature = "godot")]

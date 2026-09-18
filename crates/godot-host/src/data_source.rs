@@ -991,7 +991,7 @@ pub(crate) fn placement_iso(refr: &Refr) -> soe_physics::Iso {
 /// `nif` crate's neutral mesh to godot-host's `MeshSource` shape. Bone
 /// indices widen from the file's u8 to the four-bone `u16` layout `mesh::MeshData`
 /// carries, since a skeleton can exceed 256 bones.
-fn mesh_data_from(shape: &NifMesh, combined: &NifTransform) -> MeshData {
+pub(crate) fn mesh_data_from(shape: &NifMesh, combined: &NifTransform) -> MeshData {
     let positions = shape
         .positions
         .iter()

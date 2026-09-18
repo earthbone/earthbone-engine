@@ -36,6 +36,7 @@ pub mod character;
 pub mod interp;
 pub mod link;
 pub mod packfile;
+pub mod pose;
 pub mod skeleton;
 pub mod spline;
 pub mod writer;
