@@ -78,7 +78,10 @@ fn the_installed_game_binds_its_vanilla_scripts() {
     for (script, prop) in report.properties_missing.iter().take(20) {
         eprintln!("  {script}.{prop}");
     }
-<<<<<<< HEAD
+    eprintln!("first 20 read-only properties:");
+    for (script, prop) in report.properties_read_only.iter().take(20) {
+        eprintln!("  {script}.{prop}");
+    }
 
     let start_started = Instant::now();
     let started = game.start();
@@ -117,12 +120,6 @@ fn the_installed_game_binds_its_vanilla_scripts() {
         !calls.is_empty(),
         "no native reached the game crate during start"
     );
-=======
-    eprintln!("first 20 read-only properties:");
-    for (script, prop) in report.properties_read_only.iter().take(20) {
-        eprintln!("  {script}.{prop}");
-    }
->>>>>>> vm-props
     assert!(
         report.forms_with_scripts > 0,
         "no VMAD-carrying forms found"
