@@ -133,3 +133,112 @@ fn the_base_masters_load_and_tamriel_resolves() {
         "every reference base must be in the form table"
     );
 }
+
+/// Builds the cell index over the installed masters, times it, and counts
+/// what it holds for the Bannered Mare and for the 3 by 3 exterior block
+/// around WhiterunOrigin. Run with `--nocapture` to see the numbers.
+#[test]
+fn the_cell_index_covers_whiterun() {
+    let Some(data) = std::env::var_os("SKYRIM_DATA").map(PathBuf::from) else {
+        eprintln!("SKYRIM_DATA not set, skipping the cell index test");
+        return;
+    };
+    let mut order = LoadOrder::new();
+    for name in MASTERS {
+        let path = data.join(name);
+        let bytes = std::fs::read(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+        let plugin = Plugin::parse(&bytes).unwrap_or_else(|e| panic!("{name}: {e}"));
+        order.add(name, plugin).unwrap();
+    }
+    let started = std::time::Instant::now();
+    order.build_cell_index();
+    let build = started.elapsed();
+    let index = order.cell_index().unwrap();
+    eprintln!(
+        "cell index: {} cells, {} placed objects, {} grid cells, {} worldspaces, built in {:.3}s",
+        index.cell_count(),
+        index.placed_count(),
+        index.grid_count(),
+        index.world_count(),
+        build.as_secs_f64()
+    );
+    assert!(index.cell_count() > 10_000);
+    assert!(index.placed_count() > 500_000);
+
+    let mare = index
+        .cell_by_editor_id("WhiterunBanneredMare")
+        .expect("WhiterunBanneredMare exists");
+    assert!(index.is_interior(mare));
+    let placed = index.references(mare);
+    let plain_references = placed
+        .iter()
+        .filter(|id| order.winner(**id).is_some_and(|r| r.tag == tag::REFR))
+        .count();
+    eprintln!(
+        "WhiterunBanneredMare {mare}: {} placed objects, {plain_references} REFR, {} persistent, {} navmeshes",
+        placed.len(),
+        index.persistent_references(mare).len(),
+        index.navmeshes(mare).len()
+    );
+    assert!(plain_references > 100);
+    for id in placed {
+        let winner = order.winner_ref(*id).expect("indexed ids have winners");
+        let rec = order.record(winner);
+        assert_eq!(
+            order.resolve(winner.file, rec.placement.cell.unwrap()),
+            mare,
+            "{id} is filed under the wrong cell"
+        );
+    }
+
+    let origin = index
+        .cell_by_editor_id("WhiterunOrigin")
+        .expect("WhiterunOrigin exists");
+    let grid = index.grid_of(origin).expect("WhiterunOrigin is exterior");
+    let world = order
+        .winner(grid.world)
+        .expect("the worldspace has a record");
+    eprintln!(
+        "WhiterunOrigin {origin}: worldspace {} ({:?}) at ({}, {})",
+        grid.world,
+        world.editor_id(),
+        grid.x,
+        grid.y
+    );
+    assert_eq!(world.tag, tag::WRLD);
+    let persistent_cell = index
+        .world_persistent_cell(grid.world)
+        .expect("the worldspace has a persistent cell");
+    eprintln!(
+        "worldspace persistent cell {persistent_cell}: {} placed objects",
+        index.references(persistent_cell).len()
+    );
+    let mut block_refs = 0;
+    for dy in -1..=1 {
+        for dx in -1..=1 {
+            let cell = index
+                .exterior_cell(grid.world, grid.x + dx, grid.y + dy)
+                .unwrap_or_else(|| panic!("no cell at ({}, {})", grid.x + dx, grid.y + dy));
+            let refs = index.references(cell).len();
+            block_refs += refs;
+            eprintln!(
+                "  ({}, {}) {cell}: {refs} placed objects, land {}, {} navmeshes",
+                grid.x + dx,
+                grid.y + dy,
+                index.land(cell).is_some(),
+                index.navmeshes(cell).len()
+            );
+        }
+    }
+    eprintln!("3 by 3 block around WhiterunOrigin: {block_refs} placed objects");
+    assert!(block_refs > 500);
+
+    let lookups = 100_000;
+    let started = std::time::Instant::now();
+    let mut total = 0usize;
+    for _ in 0..lookups {
+        total += index.references(mare).len();
+    }
+    let per_lookup = started.elapsed() / lookups;
+    eprintln!("lookup: {per_lookup:?} per call ({total} ids summed)");
+}

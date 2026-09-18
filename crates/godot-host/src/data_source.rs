@@ -3,10 +3,11 @@
 //! A real Skyrim SE `Data` folder as a source of cells and meshes: the
 //! `esm`, `bsa` and `nif` crates wired together and fed into `mesh::build_surface`.
 //!
-//! `DataSource::open` loads the five base masters through a `LoadOrder` and
-//! builds a `bsa::Vfs` from their associated archives plus the data folder as
-//! a loose overlay. `DataSource::stream_cell` resolves a cell by editor id,
-//! walks its winning `REFR` records, and for each one whose base is a `STAT`
+//! `DataSource::open` loads the five base masters through a `LoadOrder`,
+//! builds the `CellIndex` over them, and builds a `bsa::Vfs` from their
+//! associated archives plus the data folder as a loose overlay.
+//! `DataSource::stream_cell` resolves a cell by editor id through the index,
+//! walks the `REFR` ids the index files under it, and for each one whose base is a `STAT`
 //! with a model, reads the NIF through the `Vfs`, parses it, places every
 //! shape at the reference's own position and rotation, and runs it through
 //! the same `mesh::build_surface` the synthetic path already used. Nothing
@@ -27,10 +28,9 @@ use std::rc::Rc;
 
 use soe_bsa::{find_associated_archives, Vfs};
 use soe_dds::{Dds, Image as DdsImage};
-use soe_esm::records::cell::Cell;
 use soe_esm::records::refr::Refr;
 use soe_esm::records::stat::Static;
-use soe_esm::{tag, GlobalFormId, LoadOrder, Record};
+use soe_esm::{tag, CellIndex, GlobalFormId, LoadOrder};
 use soe_nif::{Mat33, Mesh as NifMesh, Transform as NifTransform, Vec3 as NifVec3};
 
 use crate::mesh::{
@@ -204,6 +204,7 @@ impl MaterialCache {
 /// view built from it.
 pub struct DataSource {
     order: LoadOrder,
+    index: CellIndex,
     vfs: Vfs,
     threads: usize,
 }
@@ -268,6 +269,7 @@ impl DataSource {
                     source,
                 })?;
         }
+        let index = CellIndex::build(&order);
         let mut vfs = Vfs::new();
         {
             let _archives = soe_trace::Span::new("host.index_archives", "host");
@@ -280,26 +282,24 @@ impl DataSource {
         }
         Ok(DataSource {
             order,
+            index,
             vfs,
             threads,
         })
+    }
+
+    /// The cell index built at open, for callers that walk cells by grid
+    /// position or need a cell's land and navmeshes.
+    #[must_use]
+    pub fn cell_index(&self) -> &CellIndex {
+        &self.index
     }
 
     /// The winning `CELL` record whose editor id matches, preferring an
     /// interior cell when both an interior and an exterior one share a name.
     #[must_use]
     pub fn resolve_cell(&self, editor_id: &str) -> Option<GlobalFormId> {
-        let mut fallback: Option<GlobalFormId> = None;
-        for (id, rec) in self.order.winners_of(tag::CELL) {
-            if rec.editor_id().as_deref() != Some(editor_id) {
-                continue;
-            }
-            if self.cell_is_interior(id, rec) {
-                return Some(id);
-            }
-            fallback.get_or_insert(id);
-        }
-        fallback
+        self.index.cell_by_editor_id(editor_id)
     }
 
     /// The first interior cell, by form id, whose reference count exceeds
@@ -308,41 +308,14 @@ impl DataSource {
     /// interior to load.
     #[must_use]
     pub fn first_populated_interior_cell(&self, min_refs: usize) -> Option<GlobalFormId> {
-        let mut counts: HashMap<GlobalFormId, usize> = HashMap::new();
-        for (id, _) in self.order.winners_of(tag::REFR) {
-            let Some(rref) = self.order.winner_ref(id) else {
-                continue;
-            };
-            let rec = self.order.record(rref);
-            let Ok(refr) = Refr::from_record(rec) else {
-                continue;
-            };
-            let Some(raw_cell) = refr.cell else {
-                continue;
-            };
-            let cell_id = self.order.resolve(rref.file, raw_cell);
-            *counts.entry(cell_id).or_insert(0) += 1;
-        }
-        let mut candidates: Vec<(GlobalFormId, usize)> =
-            counts.into_iter().filter(|&(_, n)| n > min_refs).collect();
-        candidates.sort_by_key(|&(id, _)| id);
-        candidates.into_iter().find_map(|(id, _)| {
-            let rec = self.order.winner(id)?;
-            if rec.tag != tag::CELL {
-                return None;
-            }
-            self.cell_is_interior(id, rec).then_some(id)
-        })
-    }
-
-    fn cell_is_interior(&self, id: GlobalFormId, rec: &Record) -> bool {
-        let Some(file_index) = self.order.winner_ref(id).map(|r| r.file) else {
-            return false;
-        };
-        let localized = self.order.file(file_index).plugin.header.is_localized();
-        Cell::from_record(rec, localized)
-            .map(|c| c.is_interior())
-            .unwrap_or(false)
+        let mut candidates: Vec<GlobalFormId> = self
+            .index
+            .cells()
+            .filter(|&(id, n)| n > min_refs && self.index.is_interior(id))
+            .map(|(id, _)| id)
+            .collect();
+        candidates.sort_unstable();
+        candidates.into_iter().next()
     }
 
     /// Resolves `editor_id` and streams it. See `stream_cell_id`.
@@ -353,8 +326,10 @@ impl DataSource {
         self.stream_cell_id(cell_id)
     }
 
-    /// Walks every winning `REFR` placed in `cell_id`, builds a `SurfaceArrays`
-    /// for each `STAT` reference with a model, and reports what it found.
+    /// Walks every `REFR` the index files under `cell_id`, builds a
+    /// `SurfaceArrays` for each `STAT` reference with a model, and reports
+    /// what it found. `CellStats::references` counts `REFR` only, actors and
+    /// projectiles the index also holds are skipped here.
     /// A reference whose mesh fails to read or parse is counted as failed and
     /// skipped, it does not stop the rest of the cell from loading.
     /// Worker threads for NIF parsing and mesh building. One means the
@@ -372,22 +347,23 @@ impl DataSource {
         let _span = soe_trace::Span::new("host.stream_cell", "host");
         let mut stats = CellStats::default();
         let work = {
-            let _scan = soe_trace::Span::new("host.scan_references", "host");
+            let _scan = soe_trace::Span::with_payload(
+                "host.scan_references",
+                "host",
+                self.index.references(cell_id).len() as u64,
+            );
             let mut work: Vec<(String, Refr)> = Vec::new();
-            for (id, _) in self.order.winners_of(tag::REFR) {
-                let Some(rref) = self.order.winner_ref(id) else {
+            for id in self.index.references(cell_id) {
+                let Some(rref) = self.order.winner_ref(*id) else {
                     continue;
                 };
                 let rec = self.order.record(rref);
+                if rec.tag != tag::REFR {
+                    continue;
+                }
                 let Ok(refr) = Refr::from_record(rec) else {
                     continue;
                 };
-                let Some(raw_cell) = refr.cell else {
-                    continue;
-                };
-                if self.order.resolve(rref.file, raw_cell) != cell_id {
-                    continue;
-                }
                 let _reference = soe_trace::Span::new("host.reference", "host");
                 stats.references += 1;
 

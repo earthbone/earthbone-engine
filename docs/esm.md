@@ -92,3 +92,53 @@ parser change was needed, every record type the checks touch read cleanly.
 - No fuzzing harness beyond the malformed-input unit tests. `cargo-fuzz` over
   `Plugin::parse` and `Geometry::parse` is the obvious next step.
 - The xDump diff is printed, not automated: xDump is a Windows binary.
+
+## Cell index (2026-09-18, branch `cell-index`)
+
+`CellIndex` answers "what is in this cell" and "which cell sits at this grid
+position" as hash lookups. `CellIndex::build` walks every winning record once,
+`LoadOrder::build_cell_index` keeps the result on the order and `add` drops it
+again, since a new file can move any placement.
+
+- `references(cell)`: the placed objects (`REFR`, `ACHR`, `PGRE`, `PHZD`, `PMIS`,
+  `PARW`, `PBEA`, `PFLA`, `PCON`, `PBAR`) whose winning record sits in the cell,
+  persistent ones first, each part sorted by id. `persistent_references` and
+  `temporary_references` are the two halves.
+- `land(cell)` and `navmeshes(cell)` from the temporary group.
+- `exterior_cell(world, x, y)` and `grid_of(cell)` from `XCLC` under the
+  worldspace's children group. `world_persistent_cell(world)` is the cell placed
+  directly under the `WRLD` group that holds the worldspace's persistent
+  references. The index keeps it apart, it does not spread those references over
+  the grid, so an exterior loader adds them itself.
+- `cell_by_editor_id`: interior wins over an exterior cell with the same editor
+  id, then the lowest id.
+- `is_interior(cell)` from the winning `DATA` flag.
+
+Override rules follow the form table. A placed object's cell is read from its
+winning record's placement, so a plugin that moves a reference into another
+cell moves it in the index, and a winner with the deleted flag is dropped.
+`tests/cell_index.rs` checks both on a synthetic master plus a patch, round
+tripped through bytes so the placements come from the parser, and that adding a
+file drops the cached index.
+
+`soe-godot-host`'s `DataSource` builds the index at open and streams a cell from
+it, see `docs/performance.md` for what that changed.
+
+### Live run (2026-09-18)
+
+`tests/real_files.rs::the_cell_index_covers_whiterun` over the five base masters:
+
+| Measurement | Value |
+|---|---|
+| Build time | 0.285 s (release, after the parse) |
+| Cells indexed | 73,723 |
+| Placed objects | 872,220 |
+| Grid cells | 72,917 in 47 worldspaces |
+| WhiterunBanneredMare | 697 placed objects, 690 `REFR`, 35 persistent, 1 navmesh |
+| WhiterunWorld persistent cell | 495 placed objects |
+| 3 by 3 block around WhiterunOrigin (4, -2) | 980 placed objects, 9 cells, land in 3 of them |
+| One `references` lookup | 10 ns |
+
+Every id filed under the Bannered Mare resolves back to that cell through its
+winning record's placement. The 690 `REFR` count matches what the linear scan in
+`DataSource` found before the index, so the two agree on the vanilla data.

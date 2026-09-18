@@ -17,6 +17,7 @@
 
 use std::collections::HashMap;
 
+use crate::cell_index::CellIndex;
 use crate::error::{Error, Result};
 use crate::plugin::{Plugin, Record};
 use crate::tag::Tag;
@@ -62,6 +63,9 @@ pub struct LoadOrder {
     table: HashMap<GlobalFormId, Vec<RecordRef>>,
     regular_slots: u8,
     light_slots: u16,
+    /// Built on request, dropped whenever a file is added since every
+    /// placement may change.
+    cell_index: Option<CellIndex>,
 }
 
 pub const MAX_REGULAR_SLOTS: u8 = 0xFE;
@@ -120,7 +124,21 @@ impl LoadOrder {
             });
         }
         self.files.push(file);
+        self.cell_index = None;
         Ok(file_index)
+    }
+
+    /// Build the cell index over the current order and keep it. The next
+    /// `add` drops it again.
+    pub fn build_cell_index(&mut self) -> &CellIndex {
+        let index = CellIndex::build(self);
+        self.cell_index.insert(index)
+    }
+
+    /// The index built by the last `build_cell_index`, if no file was added
+    /// since.
+    pub fn cell_index(&self) -> Option<&CellIndex> {
+        self.cell_index.as_ref()
     }
 
     pub fn files(&self) -> &[LoadedFile] {
@@ -179,6 +197,13 @@ impl LoadOrder {
 
     pub fn is_empty(&self) -> bool {
         self.table.is_empty()
+    }
+
+    /// Every id with its winning record reference, in no particular order.
+    pub fn winners(&self) -> impl Iterator<Item = (GlobalFormId, RecordRef)> + '_ {
+        self.table
+            .iter()
+            .filter_map(|(id, refs)| Some((*id, *refs.last()?)))
     }
 
     /// Winning records of one signature, in no particular order.

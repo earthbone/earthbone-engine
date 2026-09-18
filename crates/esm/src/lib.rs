@@ -12,6 +12,8 @@
 //!    the last file to carry a record wins.
 //! 3. `records`: typed views of CELL, REFR, WRLD, LAND, NAVM and STAT built
 //!    from a record on demand.
+//! 4. `cell_index`: cell to placed objects, land and navmeshes, and
+//!    worldspace grid to cell, built once from the winning placements.
 //!
 //! ```no_run
 //! use soe_esm::{LoadOrder, Plugin, records::cell::Cell, tag};
@@ -29,6 +31,7 @@
 
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
+pub mod cell_index;
 pub mod cursor;
 pub mod error;
 pub mod load_order;
@@ -36,6 +39,7 @@ pub mod plugin;
 pub mod records;
 pub mod tag;
 
+pub use cell_index::{CellIndex, GridCell};
 pub use error::{Error, Result};
 pub use load_order::{GlobalFormId, LoadOrder, LoadedFile, RecordRef, Slot};
 pub use plugin::{Entry, FileHeader, Group, GroupKind, Placement, Plugin, Record, Subrecord};
