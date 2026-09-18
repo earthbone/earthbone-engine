@@ -196,6 +196,9 @@ impl World {
     /// The detach events still fire here, in order, before anything is
     /// dropped. Only the dropping moves.
     pub fn attach_cell(&mut self, to: Option<GlobalFormId>, cold: bool) -> CellTransition {
+        // At most one cell is ever waiting. A caller that never settles pays
+        // for it on its next transition instead of leaking a cell per door.
+        self.settle_unload();
         let from = self.loaded_cell;
         let out = CellTransition {
             from,

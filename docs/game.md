@@ -697,3 +697,101 @@ old one, which is the `godot-host` side of the same item. Exterior cells load
 as a single cell rather than a ring around the player, so walking out of a
 door into Whiterun loads the one cell the door lands in. No load screen, no
 fade, and no unloading by distance as the player walks.
+
+### No loading screen: streaming and attaching are two different things
+
+`crates/game/src/world/doorway.rs`, and the split in `transition.rs`.
+
+The loading screen exists because building a cell and attaching it used to be
+one call. They are not the same kind of work. Building is slow and no script
+can observe it. Attaching is instant and is the entire script contract. Once
+they are separate the screen has nothing to cover.
+
+| | |
+|---|---|
+| `prefetch_cell` | Builds every reference the cell owns. Queues nothing, moves `loaded_cell` nowhere. |
+| `attach_cell` | Fires the full event sequence and attaches. Leaves the old cell resident. |
+| `settle_unload` | Drops the old cell, on whatever later frame suits. |
+| `arm_doorway` | Reads the far side of a door, notes whether it is cold, prefetches it. |
+| `commit_doorway` | Moves the player and attaches, once they cross. |
+
+`change_cell` still does all three in one call and behaves exactly as it did,
+so a script calling `Activate()` on a door gets the old synchronous move. The
+split is for the player walking through under the host's control.
+
+### The events, and where their order comes from
+
+These did not exist before. Order and audience are read from the Creation Kit
+wiki pages in `../engine-refs/ck-wiki/`, one page per event, not guessed:
+
+1. `OnCellDetach`, to every scripted reference of the cell being left.
+2. `OnUnload`, to the enabled ones.
+3. `OnCellAttach`, to every scripted reference of the cell entered. The page
+   states outright that this fires for disabled references and that it
+   reliably precedes `OnCellLoad`.
+4. `OnLoad`, to the enabled ones. Its page states it does **not** fire for
+   disabled references, which is the asymmetry with `OnCellAttach`.
+5. `OnCellLoad`, only when the destination was not already streamed.
+
+Only references that already carry a VM object are told, which is both what
+vanilla does and what stops a cell change allocating an object for each of a
+cell's several hundred references.
+
+The order between `OnCellDetach` and `OnUnload` is not stated on any page the
+corpus carries. This takes the symmetric reading, cell event before 3D event
+in both directions, and the test pins the choice rather than claiming it is
+vanilla.
+
+### The one flag that has to be carried, not recomputed
+
+`OnCellLoad` fires only for a cell that was not already in memory. Read that
+after a prefetch and the answer is always "in memory", so the event silently
+stops firing and a mod that waits on it hangs. `change_cell_with` takes the
+answer captured before the prefetch instead, and
+`tests/no_load_screen.rs` has a test that does it the wrong way round on
+purpose to keep the trap documented.
+
+Residency is tracked as a set of streamed cells rather than asked of the
+reference map. Those differ, and the difference was a real defect: any lookup
+that resolves a form builds that one reference, so an unrelated
+`object_of_form` marked the cell in memory and suppressed the event.
+
+### Measured on the installed game
+
+`tests/no_load_screen_live.rs`, gated on `SKYRIM_DATA`, release build. The
+budgets were written into the test before it was first run. A door animation
+is roughly half a second, and the crossing has to fit in a frame.
+
+| interior | refs | cold move | prefetch | commit | settle |
+|---|---|---|---|---|---|
+| WhiterunBanneredMare | 495 | 548 µs | 388 µs | **7.96 µs** | 420 µs |
+| WhiterunJorrvaskr | 495 | 549 µs | 422 µs | **8.12 µs** | 433 µs |
+| RiftenBeeandBarb | 280 | 406 µs | 310 µs | **5.25 µs** | 373 µs |
+| WhiterunDragonsreach | 495 | 762 µs | 492 µs | **9.25 µs** | 768 µs |
+| SolitudeBluePalace | 443 | 791 µs | 341 µs | **9.81 µs** | 1.17 ms |
+
+The prefetch was only half the job, and measuring said so. The first version
+of this left the unload on the crossing and the Bannered Mare still cost
+464 µs, because proving a reference unchanged means rebuilding it from its
+record and that is the expensive half of leaving a cell. Deferring the drop
+took the worst crossing from 1.22 ms to 9.81 µs.
+
+Whiterun's event list is 55 events and is identical whether the far side was
+streamed early or not, which is the compatibility claim stated as a test.
+
+### Not done here
+
+The host half. `crates/godot-host` has no door handling at all yet, so
+nothing drives `arm_doorway` from a key press or calls `settle_unload` on a
+later frame. That work needs the activate binding from the `input` item and
+would collide with it, so it is left rather than half done.
+
+Cold textures are the case that can still overrun the animation window, and
+they live in the host, so the fade fallback the plan asks for cannot be
+measured from here. The numbers above are the record and reference side
+alone.
+
+`unload_cell` re-parsing every reference to prove it pristine is the reason
+settling costs what it does. A dirty flag set at each mutation site would
+make it a walk instead of a rebuild, and would help every unload rather than
+only this path.
