@@ -70,23 +70,24 @@ native below is marked for review against its page once that happens.
 
 ## Conformance table
 
-Counts from `natives::register`: 294 natives with state behind them and 137
-quiet stubs (141 and 176 before the natives round of 2026-09-18). A stub
-returns the value the game gives when nothing is going on (`IsBleedingOut`
-false, `ShakeCamera` nothing) so vanilla scripts run past it.
+Counts from `natives::register`: 326 natives with state behind them and 153
+quiet stubs (141 and 176 before the natives round of 2026-09-18, 294 and 137
+before the DLC round). A stub returns the value the game gives when nothing
+is going on (`IsBleedingOut` false, `ShakeCamera` nothing) so vanilla scripts
+run past it.
 
 | Class | Implemented | Stubbed |
 |---|---|---|
 | Form | GetFormID, GetName, GetType, HasKeyword, GetKeywords, RegisterForSingleUpdate, RegisterForUpdate, RegisterForSingleUpdateGameTime, RegisterForUpdateGameTime, UnregisterForUpdate, UnregisterForUpdateGameTime, RegisterForSleep, UnregisterForSleep, RegisterForTrackedStatsEvent, UnregisterForTrackedStatsEvent, RegisterForAnimationEvent, UnregisterForAnimationEvent, RegisterForLOS, RegisterForSingleLOSGain, RegisterForSingleLOSLost, UnregisterForLOS | |
-| ObjectReference | Enable, EnableNoWait, Disable, DisableNoWait, IsEnabled, IsDisabled, Delete, IsDeleted, GetBaseObject, GetParentCell, GetWorldSpace, IsInInterior, GetPositionX/Y/Z, GetAngleX/Y/Z, SetPosition, SetAngle, MoveTo, GetDistance, Activate, BlockActivation, IsActivationBlocked, GetLinkedRef, GetItemCount, AddItem, RemoveItem, RemoveAllItems, GetScale, SetScale, GetDisplayName, SetDisplayName, PlayAnimation, GetOpenState, SetOpen, Lock, IsLocked, GetLockLevel, SetLockLevel, PlaceAtMe, AddToMap, EnableFastTravel, SetDestroyed, IgnoreFriendlyHits, IsIgnoringFriendlyHits, GetCurrentLocation, GetEditorLocation, IsInLocation, MoveToMyEditorLocation, GetActorOwner, GetFactionOwner, SetActorOwner, SetFactionOwner, AddInventoryEventFilter, RemoveInventoryEventFilter, RemoveAllInventoryEventFilters | Is3DLoaded, IsFurnitureInUse, GetCurrentScene, SetMotionType, ApplyHavokImpulse, PushActorAway and 6 more |
-| Actor | GetActorValue, GetBaseActorValue, SetActorValue, ModActorValue, DamageActorValue, RestoreActorValue, GetActorValuePercentage (and the AV short names), IsDead, Kill, GetKiller, Resurrect, IsInCombat, StartCombat, StopCombat, GetCombatTarget, GetActorBase, GetLeveledActorBase, IsEssential, IsPlayerTeammate, SetPlayerTeammate, IsGhost, SetGhost, IsProtected, GetLevel, GetRace, IsUnconscious, SetUnconscious, SetRestrained, IsDoingFavor, SetDoingFavor, AddSpell, RemoveSpell, HasSpell, EquipItem, UnequipItem, IsEquipped, IsInFaction, GetFactionRank, AddToFaction, RemoveFromFaction, SetFactionRank, AddPerk, RemovePerk, HasPerk, SetAlert, IsAlerted, StartSneaking, IsSneaking, DrawWeapon, SheatheWeapon, IsWeaponDrawn, IsArrested, ClearArrested, SetAttackActorOnSight, SetDontMove, SetAllowPCDialogue, SetRelationshipRank, GetRelationshipRank, GetHighestRelationshipRank, GetLowestRelationshipRank, GetCrimeFaction, SetCrimeFaction, SetOutfit | IsAlarmed, IsBleedingOut, GetCombatState, EvaluatePackage, GetEquippedWeapon, SetLookAt and 34 more |
+| ObjectReference | Enable, EnableNoWait, Disable, DisableNoWait, IsEnabled, IsDisabled, Delete, IsDeleted, GetBaseObject, GetParentCell, GetWorldSpace, IsInInterior, GetPositionX/Y/Z, GetAngleX/Y/Z, SetPosition, SetAngle, MoveTo, GetDistance, Activate, BlockActivation, IsActivationBlocked, GetLinkedRef, GetItemCount, AddItem, RemoveItem, RemoveAllItems, GetScale, SetScale, GetDisplayName, SetDisplayName, PlayAnimation, GetOpenState, SetOpen, Lock, IsLocked, GetLockLevel, SetLockLevel, PlaceAtMe, AddToMap, EnableFastTravel, SetDestroyed, IgnoreFriendlyHits, IsIgnoringFriendlyHits, GetCurrentLocation, GetEditorLocation, IsInLocation, MoveToMyEditorLocation, GetActorOwner, GetFactionOwner, SetActorOwner, SetFactionOwner, AddInventoryEventFilter, RemoveInventoryEventFilter, RemoveAllInventoryEventFilters | Is3DLoaded, IsFurnitureInUse, GetCurrentScene, SetMotionType, ApplyHavokImpulse, PushActorAway and 6 more, plus the DLC ragdoll and cart: ForceAddRagdollToWorld, ForceRemoveRagdollFromWorld, TetherToHorse, IsFurnitureMarkerInUse |
+| Actor | GetActorValue, GetBaseActorValue, SetActorValue, ModActorValue, DamageActorValue, RestoreActorValue, GetActorValuePercentage (and the AV short names), IsDead, Kill, GetKiller, Resurrect, IsInCombat, StartCombat, StopCombat, GetCombatTarget, GetActorBase, GetLeveledActorBase, IsEssential, IsPlayerTeammate, SetPlayerTeammate, IsGhost, SetGhost, IsProtected, GetLevel, GetRace, IsUnconscious, SetUnconscious, SetRestrained, IsDoingFavor, SetDoingFavor, AddSpell, RemoveSpell, HasSpell, EquipItem, UnequipItem, IsEquipped, IsInFaction, GetFactionRank, AddToFaction, RemoveFromFaction, SetFactionRank, AddPerk, RemovePerk, HasPerk, SetAlert, IsAlerted, StartSneaking, IsSneaking, DrawWeapon, SheatheWeapon, IsWeaponDrawn, IsArrested, ClearArrested, SetAttackActorOnSight, SetDontMove, SetAllowPCDialogue, SetRelationshipRank, GetRelationshipRank, GetHighestRelationshipRank, GetLowestRelationshipRank, GetCrimeFaction, SetCrimeFaction, SetOutfit, and from the DLC: SendVampirismStateChanged, SendLycanthropyStateChanged, SetAllowFlying, SetAllowFlyingEx, IsAllowedToFly, CanFlyHere, StartDeferredKill, EndDeferredKill, KillSilent, SetRace, SetEyeTexture, SetCriticalStage, AttachAshPile, SetNoBleedoutRecovery, GetNoBleedoutRecovery, EnableAI, AddShout, RemoveShout, EquipShout, UnequipShout, GetEquippedShout, EquipSpell, UnequipSpell, DispelSpell, DispelAllSpells, SetSubGraphFloatVariable, PlaySubGraphAnimation, WornHasKeyword, IsPlayersLastRiddenHorse | IsAlarmed, IsBleedingOut, GetCombatState, EvaluatePackage, GetEquippedWeapon, SetLookAt and 34 more, plus the DLC ones without a system: IsFlying, HasMagicEffect, HasMagicEffectWithKeyword, GetWarmthRating, ClearExtraArrows |
 | ActorBase | GetRace, GetClass, GetSex, GetDeadCount, IsEssential, IsProtected, IsInvulnerable, IsUnique, SetEssential, SetProtected, SetInvulnerable, SetOutfit | GetGiftFilter |
 | Quest | Start, Stop, Reset, IsRunning, IsCompleted, IsActive, SetActive, CompleteQuest, CompleteAllObjectives, FailAllObjectives, SetStage, SetCurrentStageID, GetStage, GetCurrentStageID, GetStageDone, IsStageDone, SetObjectiveDisplayed, SetObjectiveDisplayedNoWait, SetObjectiveCompleted, SetObjectiveFailed, IsObjectiveDisplayed, IsObjectiveCompleted, IsObjectiveFailed, ModObjectiveGlobal, UpdateCurrentInstanceGlobal, GetAlias, GetAliasById, GetAliasByName, GetID, GetPriority, GetQuest | IsStarting, IsStopping |
 | Alias, ReferenceAlias, LocationAlias | GetOwningQuest, GetID, GetName, GetReference, GetRef, GetActorReference, GetActorRef, ForceRefTo, ForceRefIfEmpty, Clear, GetLocation, ForceLocationTo, AddInventoryEventFilter, RemoveInventoryEventFilter, RemoveAllInventoryEventFilters | |
 | LeveledItem, LeveledActor, LeveledSpell | AddForm, Revert, GetNumForms, GetNthForm, GetNthLevel, GetNthCount, GetChanceNone, SetChanceNone (the last six are SKSE's, the state is there anyway) | |
 | Location | GetKeywordData, SetKeywordData, IsCleared, SetCleared, IsChild, HasCommonParent, IsSameLocation | IsLoaded, HasRefType, GetRefTypeAliveCount, GetRefTypeDeadCount |
 | Faction | SetAlly, SetEnemy, GetReaction, SetReaction, GetCrimeGold, GetCrimeGoldViolent, GetCrimeGoldNonViolent, SetCrimeGold, SetCrimeGoldViolent, ModCrimeGold, CanPayCrimeGold, PlayerPayCrimeGold, GetInfamy, GetInfamyViolent, GetInfamyNonViolent, IsPlayerExpelled, SetPlayerExpelled, SetPlayerEnemy, IsFactionInCrimeGroup | SendAssaultAlarm, SendPlayerToJail, ModReaction |
-| Game | GetPlayer, GetForm, GetFormEx, GetFormFromFile, EnablePlayerControls, DisablePlayerControls, GetGameSettingFloat/Int/String, SetGameSettingFloat/Int/Bool/String, GetRealHoursPassed, IncrementStat, QueryStat, IsFastTravelEnabled, EnableFastTravel, SetPlayerAIDriven, SetInChargen, SetBeastForm, TeachWord, UnlockWord, IsWordUnlocked, AddAchievement, GetPlayersLastRiddenHorse | ShakeCamera, FadeOutGame, RequestSave, ForceFirstPerson, ShowRaceMenu, AdvanceSkill and 16 more |
+| Game | GetPlayer, GetForm, GetFormEx, GetFormFromFile, EnablePlayerControls, DisablePlayerControls, GetGameSettingFloat/Int/String, SetGameSettingFloat/Int/Bool/String, GetRealHoursPassed, IncrementStat, QueryStat, IsFastTravelEnabled, EnableFastTravel, SetPlayerAIDriven, SetInChargen, SetBeastForm, TeachWord, UnlockWord, IsWordUnlocked, AddAchievement, GetPlayersLastRiddenHorse, AddPerkPoints | ShakeCamera, FadeOutGame, RequestSave, ForceFirstPerson, ShowRaceMenu, AdvanceSkill and 16 more, plus the DLC crime and sky functions: SendWereWolfTransformation, ServeTime, ClearPrison, SetSunGazeImageSpaceModifier, GetSunPositionX/Y/Z |
 | Debug | Trace, TraceUser, TraceConditional, TraceStack, Notification, MessageBox, SendAnimationEvent | OpenUserLog, CloseUserLog, QuitGame, CenterOnCell, SetGodMode and 14 more |
 | Utility | RandomInt, RandomFloat, GetCurrentGameTime, GetCurrentRealTime, GameTimeToString, SetINI\* and GetINI\* (eight) | IsInMenuMode, the frame rate and budget functions (eleven). `Wait`, `WaitMenuMode`, `WaitGameTime` are the VM's own |
 | GlobalVariable | GetValue, GetValueInt, SetValue, SetValueInt, Mod | |
@@ -454,9 +455,8 @@ flags, words, achievements and setting overrides. The `NPC_` view gained
 
 Against the installed game after the round: 423 quests started, 85 distinct
 natives reached through 1,517 calls, 1 unresolved call
-(`Actor.SendVampirismStateChanged`, a Dawnguard script function called on an
-actor whose script is not attached in that flow), 87 log lines, in 0.3
-seconds in a debug build. The most called natives are now
+(`Actor.SendVampirismStateChanged`, which the DLC round below registered),
+87 log lines, in 0.3 seconds in a debug build. The most called natives are
 `Location.SetKeywordData` 149, `Game.GetPlayer` 100,
 `GlobalVariable.GetValue` 93, `Debug.OpenUserLog` and `Game.GetForm` 77 each,
 `Quest.IsStageDone` 60, `ObjectReference.GetLinkedRef` 56,
@@ -467,12 +467,67 @@ objects (`cannot call RegisterForUpdate() on a None object` from
 `QF_MS14` and the caravan fragments), which is the game's own behaviour for
 an alias or property that is empty at start.
 
+## The DLC natives (2026-09-18)
+
+Dawnguard, HearthFires and Dragonborn sit in every gated load order, so what
+their scripts call is engine work. The gated `real_files` test now reads the
+native flag off every loaded `PEX` function and prints what the registry does
+not cover, with a static call-site count per name and the share of those
+sites that sit in a `DLC1`, `DLC2` or `BYOH` script:
+`Vm::declared_natives`, `Vm::unregistered_natives` and
+`Vm::call_sites_by_script` in the papyrus crate do the counting. On the
+installed game the five masters declare 686 natives, of which 299 had no
+registration and 163 were called from a DLC script.
+
+Thirty of them are now real, ordered by how often the DLC scripts reach
+them. The two state-change senders are the interesting pair:
+`SendVampirismStateChanged` and `SendLycanthropyStateChanged` "tell anyone
+who cares" by pushing `OnVampirismStateChanged` and
+`OnLycanthropyStateChanged` onto the pending queue for the scripts attached
+to that actor, the same delivery `OnActivate` takes. Around them sit the
+dragon riding flags (`SetAllowFlying`, `SetAllowFlyingEx`, `IsAllowedToFly`,
+and `CanFlyHere`, which wants the permission and an exterior cell), the
+deferred kill pair with `KillSilent`, shouts, the spell dispel and equip
+functions, `SetRace`, `SetEyeTexture`, `SetCriticalStage`, `AttachAshPile`,
+the bleedout and AI flags, `WornHasKeyword`, `IsPlayersLastRiddenHorse` and
+`Game.AddPerkPoints`. Sixteen more went in as quiet stubs because the system
+behind them does not exist yet: flight, active magic effects, the ragdoll,
+the survival warmth rating, werewolf crime, jail time and the sun.
+
+Decisions taken rather than read, since no wiki page states them:
+
+- The senders record the announced state on the actor (`vampire`,
+  `werewolf`). The game keeps it in quest variables instead, but a recorded
+  flag is what lets a scenario check that the call landed.
+- `Kill` now honours the deferred kill flag, so `StartDeferredKill` holds a
+  death that `EndDeferredKill` releases. Vanilla raises a kill event that
+  the VM does not send yet, which is the only thing separating `Kill` from
+  `KillSilent` here.
+- `PlaySubGraphAnimation` routes to the animation event path, so a script
+  registered for that event name hears it. The behavior graph has no sub
+  graph concept yet.
+- `CanFlyHere` reads the interior flag of the actor's cell. The real engine
+  also asks the navmesh and the weather.
+
+Against the installed game after the round: 423 quests started, 86 distinct
+natives reached through 1,560 calls, **zero unresolved calls**, 87 log lines,
+in 0.1 seconds in a release build. The gated test asserts the zero, so a new
+vanilla call that reaches nothing fails the run instead of printing a line.
+The remaining log lines are calls on `None` objects, which is the game's own
+behaviour for an alias or property that is empty at start. 253 declared
+natives are still unregistered, 127 of them called from a DLC script, led by
+`Package/Scene/TopicInfo.GetOwningQuest`, `ReferenceAlias.GetReference`,
+`Utility.Wait` and the effect shader pair.
+
 ## Save and load
 
 `World::save_state(&self) -> Vec<u8>` and `World::load_state(&mut self,
 bytes) -> Result<(), VmError>` write and read the run-time half of the form
-table, magic `SOEW`, version 2 (version 2 added the package driver state
-to every actor and the natives round state, version 1 files are refused,
+table, magic `SOEW`, version 3 (version 2 added the package driver state
+to every actor and the natives round state, version 3 the DLC state:
+vampirism and lycanthropy, flying, the deferred kill, eye texture, critical
+stage, bleedout, shouts, the behavior graph floats and the player's perk
+points. Older files are refused,
 nothing shipped them), in the same `Writer`/`Reader` encoding as
 `soe_papyrus::vm::state`, an `ArrayPool` and `ArrayTable` of its own ahead of
 the body for the `Value` arguments a pending event or call is carrying.

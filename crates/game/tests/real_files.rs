@@ -153,6 +153,55 @@ fn the_installed_game_binds_its_vanilla_scripts() {
     for (name, n) in &unresolved {
         eprintln!("  {n:6} {name}");
     }
+    for line in game.traces().iter().filter(|t| {
+        t.contains("no function") || t.contains("no global") || t.contains("no implementation")
+    }) {
+        eprintln!("  {line}");
+    }
+
+    // What the loaded scripts declare as native and the registry lacks,
+    // with the static call-site count per function name so the next round
+    // is ordered by demand. The count is by name alone, so a name shared
+    // between classes adds up.
+    let by_script = game.vm.call_sites_by_script();
+    let mut sites: std::collections::HashMap<String, (u64, u64)> = std::collections::HashMap::new();
+    for ((script, name), n) in &by_script {
+        let e = sites.entry(name.clone()).or_default();
+        e.0 += n;
+        // Dawnguard, Dragonborn and HearthFires script prefixes.
+        if script.starts_with("dlc1") || script.starts_with("dlc2") || script.starts_with("byoh") {
+            e.1 += n;
+        }
+    }
+    let mut missing: Vec<(u64, u64, String, String, bool)> = game
+        .vm
+        .unregistered_natives()
+        .into_iter()
+        .map(|(class, name, global)| {
+            let (n, dlc) = sites
+                .get(&name.to_ascii_lowercase())
+                .copied()
+                .unwrap_or((0, 0));
+            (n, dlc, class, name, global)
+        })
+        .collect();
+    missing.sort_by(|a, b| b.0.cmp(&a.0).then(a.2.cmp(&b.2)).then(a.3.cmp(&b.3)));
+    let declared = game.vm.declared_natives().len();
+    eprintln!(
+        "declared natives: {declared}, unregistered: {} ({} with a call site, {} called from a DLC script)",
+        missing.len(),
+        missing.iter().filter(|m| m.0 > 0).count(),
+        missing.iter().filter(|m| m.1 > 0).count()
+    );
+    eprintln!("unregistered natives, all sites then DLC sites:");
+    for (n, dlc, class, name, global) in &missing {
+        let kind = if *global { "global" } else { "method" };
+        eprintln!("  {n:6} {dlc:5} {class}.{name} ({kind})");
+    }
+    assert!(
+        unresolved.is_empty(),
+        "the first start left calls unresolved: {unresolved:?}"
+    );
     assert!(
         !calls.is_empty(),
         "no native reached the game crate during start"

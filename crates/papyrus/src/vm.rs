@@ -358,6 +358,84 @@ impl Vm {
         self.scripts.contains_key(&name.to_ascii_lowercase())
     }
 
+    /// Every function a loaded script declares as native, as `(class,
+    /// function, global)` in the script's own spelling, sorted. A host
+    /// compares this against its registry to see what the scripts expect.
+    #[must_use]
+    pub fn declared_natives(&self) -> Vec<(String, String, bool)> {
+        let mut out: Vec<(String, String, bool)> = self
+            .scripts
+            .values()
+            .flat_map(|s| {
+                s.object.states.iter().flat_map(|st| {
+                    st.functions
+                        .iter()
+                        .filter(|f| f.is_native())
+                        .map(|f| (s.name.clone(), f.name.clone(), f.is_global()))
+                })
+            })
+            .collect();
+        out.sort();
+        out.dedup();
+        out
+    }
+
+    /// The declared natives no registration covers, methods and globals
+    /// looked up on the declaring class.
+    #[must_use]
+    pub fn unregistered_natives(&self) -> Vec<(String, String, bool)> {
+        self.declared_natives()
+            .into_iter()
+            .filter(|(class, name, global)| {
+                if *global {
+                    !self.natives.has_global(class, name)
+                } else {
+                    !self.natives.has_method(class, name)
+                }
+            })
+            .collect()
+    }
+
+    /// Call sites per function name across every loaded script, counting
+    /// `CallMethod`, `CallStatic` and `CallParent` instructions by the name
+    /// operand. Keys are lowercase. A static count of what the scripts can
+    /// reach, not of what a run reached.
+    #[must_use]
+    pub fn call_sites(&self) -> HashMap<String, u64> {
+        let mut out: HashMap<String, u64> = HashMap::new();
+        for ((_, name), n) in self.call_sites_by_script() {
+            *out.entry(name).or_default() += n;
+        }
+        out
+    }
+
+    /// `call_sites` split by the calling script, keyed `(script, function)`
+    /// in lowercase, so a host can ask which scripts reach a function.
+    #[must_use]
+    pub fn call_sites_by_script(&self) -> HashMap<(String, String), u64> {
+        let mut out: HashMap<(String, String), u64> = HashMap::new();
+        for s in self.scripts.values() {
+            let script = s.name.to_ascii_lowercase();
+            let functions = s.object.states.iter().flat_map(|st| st.functions.iter());
+            let getters = s.object.properties.iter().filter_map(|p| p.getter.as_ref());
+            let setters = s.object.properties.iter().filter_map(|p| p.setter.as_ref());
+            for f in functions.chain(getters).chain(setters) {
+                for ins in &f.code {
+                    let name_index = match ins.op {
+                        Opcode::CallMethod | Opcode::CallParent => 0,
+                        Opcode::CallStatic => 1,
+                        _ => continue,
+                    };
+                    if let Some(crate::pex::Operand::Identifier(name)) = ins.args.get(name_index) {
+                        *out.entry((script.clone(), name.to_ascii_lowercase()))
+                            .or_default() += 1;
+                    }
+                }
+            }
+        }
+        out
+    }
+
     fn script(&self, name: &str) -> Option<Rc<LoadedScript>> {
         self.scripts.get(&name.to_ascii_lowercase()).cloned()
     }

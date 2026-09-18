@@ -10,6 +10,23 @@ use soe_papyrus::{ObjectId, Value};
 use super::{Alloc, Handle, Pending, World, T};
 
 impl World {
+    /// An event to the scripts on `form`, the way `OnActivate` reaches a
+    /// reference: `Actor.SendVampirismStateChanged` and its siblings use it.
+    pub fn form_event(
+        &mut self,
+        form: GlobalFormId,
+        name: &str,
+        args: Vec<Value>,
+        alloc: Alloc<'_>,
+    ) {
+        let object = self.object_of(Handle::Form(form), alloc);
+        self.pending.push(Pending::Event {
+            object,
+            name: name.into(),
+            args,
+        });
+    }
+
     /// `Game.IncrementStat`: the new value, and `OnTrackedStatsEvent` to
     /// every registered listener.
     pub fn increment_stat(&mut self, name: &str, amount: i32) -> i32 {

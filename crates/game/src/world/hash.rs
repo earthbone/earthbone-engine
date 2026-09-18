@@ -331,6 +331,26 @@ fn actor_state(h: &mut StateHasher, a: &ActorState) {
     ] {
         opt_form(h, id);
     }
+    h.len(a.graph_floats.len());
+    for (k, v) in &a.graph_floats {
+        h.str(k);
+        h.f32(*v);
+    }
+    for flag in [
+        a.allow_flying,
+        a.deferred_kill,
+        a.vampire,
+        a.werewolf,
+        a.no_bleedout_recovery,
+        a.ai_disabled,
+    ] {
+        h.bool(flag);
+    }
+    h.i32(a.critical_stage);
+    opt_form(h, a.eye_texture);
+    opt_form(h, a.ash_pile);
+    form_set(h, &a.shouts);
+    opt_form(h, a.equipped_shout);
 }
 
 fn quest_state(h: &mut StateHasher, q: &QuestState) {
@@ -583,6 +603,7 @@ impl World {
             h.i32(*a);
         }
         opt_form(&mut h, self.last_ridden_horse);
+        h.i32(self.perk_points);
         let flags = h.finish();
 
         let mut h = StateHasher::new();
@@ -773,6 +794,28 @@ mod tests {
             actor(w).sleep_outfit = Some(id(9));
         });
         moves("killer", actors, |w| actor(w).killer = Some(id(9)));
+        moves("graph_floats", actors, |w| {
+            actor(w).graph_floats.insert("speed".into(), 1.0);
+        });
+        moves("allow_flying", actors, |w| actor(w).allow_flying = true);
+        moves("deferred_kill", actors, |w| actor(w).deferred_kill = true);
+        moves("vampire", actors, |w| actor(w).vampire = true);
+        moves("werewolf", actors, |w| actor(w).werewolf = true);
+        moves("no_bleedout_recovery", actors, |w| {
+            actor(w).no_bleedout_recovery = true;
+        });
+        moves("ai_disabled", actors, |w| actor(w).ai_disabled = true);
+        moves("critical_stage", actors, |w| actor(w).critical_stage = 3);
+        moves("eye_texture", actors, |w| {
+            actor(w).eye_texture = Some(id(9));
+        });
+        moves("ash_pile", actors, |w| actor(w).ash_pile = Some(id(9)));
+        moves("shouts", actors, |w| {
+            actor(w).shouts.insert(id(9));
+        });
+        moves("equipped_shout", actors, |w| {
+            actor(w).equipped_shout = Some(id(9));
+        });
     }
 
     #[test]
@@ -876,6 +919,7 @@ mod tests {
         moves("last_ridden_horse", flags, |w| {
             w.last_ridden_horse = Some(id(9));
         });
+        moves("perk_points", flags, |w| w.perk_points = 2);
     }
 
     #[test]

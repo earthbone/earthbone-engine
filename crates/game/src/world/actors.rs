@@ -93,6 +93,22 @@ impl World {
         self.actors.get(&id)
     }
 
+    /// `Actor.Kill` and `Actor.KillSilent`: an essential actor never dies,
+    /// and one inside a deferred kill holds its death until
+    /// `EndDeferredKill`. True when the actor died here.
+    pub fn kill_actor(&mut self, id: GlobalFormId, killer: Option<GlobalFormId>) -> bool {
+        let Some(a) = self.actor(id) else {
+            return false;
+        };
+        if a.essential || a.deferred_kill {
+            return false;
+        }
+        a.dead = true;
+        a.killer = killer;
+        a.values.insert("health".into(), 0.0);
+        true
+    }
+
     pub fn actor_value(&mut self, id: GlobalFormId, name: &str) -> f32 {
         let key = name.to_ascii_lowercase();
         self.actor(id)
