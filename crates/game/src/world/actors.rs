@@ -6,7 +6,38 @@
 use soe_esm::GlobalFormId;
 
 use super::{ActorState, World};
+use crate::moddata::Distributed;
 use crate::npc::Npc;
+use soe_moddata::spid::RecordType;
+
+/// One distributed entry onto a freshly built actor. Item counts land on the
+/// reference's inventory rather than here, see `World::base_inventory`.
+fn apply_distributed(a: &mut ActorState, d: Distributed) {
+    match d.record_type {
+        RecordType::Spell | RecordType::LevSpell => {
+            a.spells.insert(d.what);
+        }
+        RecordType::Perk => {
+            a.perks.insert(d.what);
+        }
+        RecordType::Outfit => a.outfit = Some(d.what),
+        RecordType::SleepOutfit => a.sleep_outfit = Some(d.what),
+        RecordType::Faction => {
+            a.factions.entry(d.what).or_insert(0);
+        }
+        // Items reach the reference's inventory in `base_inventory`, not the
+        // actor state. A package would need a third source in the driver's
+        // stack and a save format change, and shouts, skins and bare forms
+        // have no actor state at all yet. Each is held in `mod_data` and
+        // counted, never silently dropped, and `docs/moddata.md` lists them.
+        RecordType::Item
+        | RecordType::Package
+        | RecordType::Shout
+        | RecordType::Skin
+        | RecordType::Keyword
+        | RecordType::Form => {}
+    }
+}
 
 impl World {
     /// The `NPC_` view of an actor base, with one level of `TPLT` applied.
@@ -81,6 +112,15 @@ impl World {
                     }
                     a.level = 1;
                     a.allow_pc_dialogue = true;
+                }
+            }
+            // Spell Perk Item Distributor hands things to a base, and an
+            // actor's state is built here on first use, so a reference that
+            // loads long after the distribution still receives what its base
+            // was given. See `crate::moddata`.
+            if let Some(base) = base {
+                for d in self.mod_data.for_base(base).to_vec() {
+                    apply_distributed(&mut a, d);
                 }
             }
             self.actors.insert(id, a);

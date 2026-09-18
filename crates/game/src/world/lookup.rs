@@ -184,19 +184,32 @@ impl World {
         out
     }
 
+    /// Every keyword a form carries: its own `KWDA` plus anything a Keyword
+    /// Item Distributor file attached, merged here rather than in a side table
+    /// so `HasKeyword` and every native read one list and cannot tell the two
+    /// apart. See `crate::moddata`.
     pub fn keywords(&self, id: GlobalFormId) -> Vec<GlobalFormId> {
-        let Some(rref) = self.order.winner_ref(id) else {
-            return Vec::new();
+        let mut out: Vec<GlobalFormId> = match self.order.winner_ref(id) {
+            Some(rref) => {
+                let rec = self.order.record(rref);
+                rec.find(T(b"KWDA")).map_or_else(Vec::new, |kwda| {
+                    kwda.as_chunks::<4>()
+                        .0
+                        .iter()
+                        .map(|c| self.order.resolve(rref.file, u32::from_le_bytes(*c)))
+                        .collect()
+                })
+            }
+            None => Vec::new(),
         };
-        let rec = self.order.record(rref);
-        let Some(kwda) = rec.find(T(b"KWDA")) else {
-            return Vec::new();
-        };
-        kwda.as_chunks::<4>()
-            .0
-            .iter()
-            .map(|c| self.order.resolve(rref.file, u32::from_le_bytes(*c)))
-            .collect()
+        if let Some(added) = self.mod_data.added_keywords.get(&id) {
+            for k in added {
+                if !out.contains(k) {
+                    out.push(*k);
+                }
+            }
+        }
+        out
     }
 
     pub fn has_keyword(&mut self, id: GlobalFormId, keyword: GlobalFormId) -> bool {

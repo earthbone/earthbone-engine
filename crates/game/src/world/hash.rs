@@ -49,11 +49,15 @@ pub struct WorldHash {
     pub flags: u64,
     /// Playing scenes, sound instances and recorded spell casts.
     pub scenes: u64,
+    /// What the mod data files attached, distributed and swapped. Distribution
+    /// rolls a chance from the world generator, so this part moving between
+    /// two runs of one seed is a real divergence and not noise.
+    pub mod_data: u64,
 }
 
 impl WorldHash {
     #[must_use]
-    pub fn parts(&self) -> [(&'static str, u64); 17] {
+    pub fn parts(&self) -> [(&'static str, u64); 18] {
         [
             ("world.clock", self.clock),
             ("world.rng", self.rng),
@@ -72,6 +76,7 @@ impl WorldHash {
             ("world.listeners", self.listeners),
             ("world.flags", self.flags),
             ("world.scenes", self.scenes),
+            ("world.mod_data", self.mod_data),
         ]
     }
 }
@@ -640,6 +645,36 @@ impl World {
         }
         let scenes = h.finish();
 
+        // These three are `BTreeMap`, already in key order, so they are walked
+        // directly rather than through the sorting helper the `HashMap` fields
+        // need.
+        let mut h = StateHasher::new();
+        h.len(self.mod_data.added_keywords.len());
+        for (id, kws) in &self.mod_data.added_keywords {
+            form(&mut h, *id);
+            h.len(kws.len());
+            for k in kws {
+                form(&mut h, *k);
+            }
+        }
+        h.len(self.mod_data.distributed.len());
+        for (id, list) in &self.mod_data.distributed {
+            form(&mut h, *id);
+            h.len(list.len());
+            for d in list {
+                h.str(d.record_type_name());
+                form(&mut h, d.what);
+                h.i32(d.count);
+                h.bool(d.on_death);
+            }
+        }
+        h.len(self.mod_data.base_swaps.len());
+        for (from, to) in &self.mod_data.base_swaps {
+            form(&mut h, *from);
+            form(&mut h, *to);
+        }
+        let mod_data = h.finish();
+
         WorldHash {
             clock,
             rng,
@@ -658,6 +693,7 @@ impl World {
             listeners,
             flags,
             scenes,
+            mod_data,
         }
     }
 }
