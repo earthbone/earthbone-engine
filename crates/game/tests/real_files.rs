@@ -77,6 +77,44 @@ fn the_installed_game_binds_its_vanilla_scripts() {
     for (script, prop) in report.properties_missing.iter().take(20) {
         eprintln!("  {script}.{prop}");
     }
+
+    let start_started = Instant::now();
+    let started = game.start();
+    let mut calls: Vec<(String, u64)> = game
+        .vm
+        .natives
+        .calls
+        .iter()
+        .map(|(k, v)| (k.clone(), *v))
+        .collect();
+    calls.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+    let total: u64 = calls.iter().map(|c| c.1).sum();
+    let errors = game
+        .traces()
+        .iter()
+        .filter(|t| t.contains("no function") || t.contains("no global"))
+        .count();
+    eprintln!(
+        "start: {} quests started, {} distinct natives reached, {} native calls, {} unresolved calls logged, {} log lines, in {:.1}s",
+        started.quests_started,
+        calls.len(),
+        total,
+        errors,
+        game.traces().len(),
+        start_started.elapsed().as_secs_f32(),
+    );
+    eprintln!("top 20 natives by call count:");
+    for (name, n) in calls.iter().take(20) {
+        eprintln!("  {n:6} {name}");
+    }
+    eprintln!("first 20 log lines:");
+    for line in game.traces().iter().take(20) {
+        eprintln!("  {line}");
+    }
+    assert!(
+        !calls.is_empty(),
+        "no native reached the game crate during start"
+    );
     assert!(
         report.forms_with_scripts > 0,
         "no VMAD-carrying forms found"
