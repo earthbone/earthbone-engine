@@ -1,0 +1,11 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+#
+# Empty on purpose. The one line that was here came from a deliberate
+# break of the oracle, run to prove the property fails when the answer is
+# wrong, so it recorded an ordinary passing case rather than a defect.
+# Real failures append themselves below and are meant to stay.

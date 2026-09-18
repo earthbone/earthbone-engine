@@ -20,7 +20,10 @@ fn main() {
     println!("nif: {:?}", soe_nif::parse(&nif).map(|_| ()));
 
     let havok = std::fs::read(base.join("fuzz-havok/seed_empty.bin")).unwrap();
-    println!("havok: {:?}", soe_havok::Packfile::parse(&havok).map(|_| ()));
+    println!(
+        "havok: {:?}",
+        soe_havok::Packfile::parse(&havok).map(|_| ())
+    );
 
     let dds = std::fs::read(base.join("fuzz-dds/seed_bc1.bin")).unwrap();
     println!("dds: {:?}", soe_dds::Dds::parse(&dds).map(|_| ()));

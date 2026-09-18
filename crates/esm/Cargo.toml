@@ -16,3 +16,6 @@ path = "src/lib.rs"
 soe-trace = { path = "../trace" }
 flate2 = "1.1"
 thiserror = "2.0"
+
+[dev-dependencies]
+proptest = "1.11"

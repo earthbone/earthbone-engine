@@ -98,11 +98,22 @@ impl Writer {
         for ins in &f.code {
             self.u8(ins.op as u8);
             let (fixed, var) = ins.op.arity();
-            for a in &ins.args[..fixed] {
+            // An instruction can arrive with fewer operands than its opcode
+            // takes, from a builder call that left one out or from a tool
+            // assembling code. This has no error channel to report that
+            // through, so the short operands are written as `None`, which is
+            // an operand this format already has. Slicing to `fixed` without
+            // the check panicked instead, which `fuzz-vm-run` found with a
+            // single `CallStatic` and no arguments at all.
+            let supplied = ins.args.len().min(fixed);
+            for a in &ins.args[..supplied] {
                 self.operand(a);
             }
+            for _ in supplied..fixed {
+                self.operand(&Operand::None);
+            }
             if var {
-                let rest = &ins.args[fixed..];
+                let rest = ins.args.get(fixed..).unwrap_or(&[]);
                 self.operand(&Operand::Int(rest.len() as i32));
                 for a in rest {
                     self.operand(a);
@@ -397,7 +408,21 @@ impl FunctionBuilder {
         });
         self
     }
+    /// Adds an instruction.
+    ///
+    /// An opcode that takes no variadic tail is given exactly its fixed
+    /// operands: anything past them is dropped here rather than carried in the
+    /// model, because the writer would not emit it either. Keeping it made the
+    /// two disagree, since the string table is collected from the whole model
+    /// while the code section only holds what was written, so a discarded
+    /// `Str` operand left an entry behind that a round trip then removed.
+    /// `fuzz-pex-grammar` found that as a reader and writer disagreement.
     pub fn ins(mut self, op: Opcode, args: Vec<Operand>) -> Self {
+        let (fixed, var) = op.arity();
+        let mut args = args;
+        if !var {
+            args.truncate(fixed);
+        }
         self.function.code.push(Instruction { op, args });
         self
     }
