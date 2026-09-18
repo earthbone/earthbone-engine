@@ -54,6 +54,11 @@ default = ["godot"]
 # logic with no engine dependency, which is what the tests and the benchmark
 # exercise.
 godot = ["dep:godot"]
+# Lets the host decode a vanilla voice line, which is xWMA inside a FUZ. Off
+# by default for the reason `soe-audio` states: it shells out to `ffmpeg` and
+# an engine build should not require a program to be installed. Without it
+# every other sound still plays and a voice line reports `Unsupported::Wma`.
+xwma-ffmpeg = ["soe-audio/xwma-ffmpeg"]
 
 [dependencies]
 # godot-rust gdext 0.5.5 (crates.io 2026-08-09, matches engine-refs/gdext).
@@ -63,6 +68,7 @@ thiserror = "2"
 soe-esm = { path = "../esm" }
 soe-bsa = { path = "../bsa" }
 soe-nif = { path = "../nif" }
+soe-audio = { path = "../audio" }
 soe-dds = { path = "../dds" }
 soe-havok = { path = "../havok" }
 soe-physics = { path = "../physics" }
