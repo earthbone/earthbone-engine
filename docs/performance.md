@@ -336,3 +336,23 @@ own temporary children only. WhiterunWorld's persistent cell holds another
 495 placed objects (doors, markers, the city's persistent statics) that the
 index keeps apart under `world_persistent_cell`, an exterior loader has to
 add those and filter them by position.
+
+## After the round 3 batch (2026-09-18, master 0874286 and later)
+
+The cell index and the batching branch merged the same day, measured together on master with
+`soe-bench --runs 3`, release profile with fat LTO and line tables, 24 threads.
+
+| Measurement | Before the batch | After |
+|---|---|---|
+| Bannered Mare stream, 24 threads, median | 0.400 s | 0.004 s |
+| Bannered Mare stream, 1 thread, min | 0.442 s | 0.012 s |
+| Whiterun 3 by 3 block, 24 threads, median | 4.06 s | 0.013 s |
+| Whiterun 3 by 3 block, 1 thread, median | 3.28 s | 0.022 s |
+
+The exterior block keeps its 957 references, 242 meshes and 285,187 triangles. Against the bar
+fixed before the numbers arrived (p99 at or under 16.7 ms, worst hitch under 33 ms, a cell under
+250 ms on workers): frame p99 0.519 ms and worst 1.698 ms on the batched 3 by 3 block, both pass,
+and the cell stream passes once the index and the compressed texture path are on the same tree.
+The 56 ms frame figure recorded earlier was `Performance.TIME_PROCESS`, which reads a constant 80
+to 113 ms on a scene the wall clock draws in 0.48 ms, so nodes were never the frame cost. The
+host question is settled for now: Godot at this scale is not the bottleneck.

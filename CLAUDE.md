@@ -128,9 +128,20 @@ Open the corpus before writing a parser or a native, not after.
   extension headless with the same Bannered Mare counts as 4.4.1, the binary
   sits next to the old one under `../tools/godot/`. Rendering decisions in
   `../research/rendering-performance.md`: compressed texture upload first,
-  no Godot patches. Open: `batching` and `determinism-hash` branches, then
-  the `world-split` refactor before any other code fork, see ENGINE-PLAN.md
-  rounds 5 and 6.
+  no Godot patches. `batching` merged the same day: surfaces batched per
+  material as `RenderingServer` instances (763 nodes to 48), compressed DDS
+  pass-through with a session texture cache (592 MB to 175 MB), exterior
+  streaming with terrain, the Whiterun 3 by 3 block at p99 0.519 ms and
+  worst 1.698 ms, the earlier 56 ms figure was a misread of
+  `Performance.TIME_PROCESS`. With the index on the same tree a cell streams
+  in 4 ms and the block in 13 ms, so the host question is settled for now.
+  `determinism-hash` merged: per-tick state hash with subsystem parts,
+  `SOE_HASH_DUMP`, two-run tests, one known source (`Game::start` orders
+  quests by `HashMap` iteration in `LoadOrder::winners_of`, the gated test
+  is ignored with that reason). The hash does not yet cover the natives-2
+  fields (perks, spell casts, leveled lists, settings). Next code fork, run
+  alone: `world-split`, which also extends the hash and fixes the quest
+  order, see ENGINE-PLAN.md rounds 5 and 6.
 - Untested live: a real Proton launch, natives against the CK wiki pages.
 - Language decision (2026-09-14): runtime crates stay Rust. Go only for a
   tooling component where it eases maintenance, behind a protobuf seam.
