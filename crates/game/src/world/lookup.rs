@@ -146,6 +146,16 @@ impl World {
         (raw != 0).then(|| self.order.resolve(rref.file, raw))
     }
 
+    /// Every placed object the cell index files under a cell, the live ones
+    /// then the deleted ones. Builds the index on first use, which is why
+    /// this needs `&mut self` where the rest of the lookups do not.
+    pub fn cell_references(&mut self, cell: GlobalFormId) -> Vec<GlobalFormId> {
+        let index = self.order.build_cell_index();
+        let mut out = index.references(cell).to_vec();
+        out.extend_from_slice(index.deleted_references(cell));
+        out
+    }
+
     pub fn keywords(&self, id: GlobalFormId) -> Vec<GlobalFormId> {
         let Some(rref) = self.order.winner_ref(id) else {
             return Vec::new();

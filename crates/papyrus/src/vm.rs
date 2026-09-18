@@ -583,6 +583,66 @@ impl Vm {
         })
     }
 
+    /// The most derived script of each instance attached to an object, in
+    /// attachment order. What a console's `ShowVars` lists before it prints
+    /// the variables of each.
+    pub fn scripts_on(&self, object: ObjectId) -> Vec<String> {
+        let Some(obj) = self.objects.get(&object) else {
+            return Vec::new();
+        };
+        obj.instances
+            .iter()
+            .filter_map(|i| self.instances.get(i.0))
+            .filter_map(|inst| inst.chain.first().map(|s| s.name.clone()))
+            .collect()
+    }
+
+    /// Every variable of one attached script with its value, sorted by name.
+    /// The names are the compiled ones, so an auto property reads as its
+    /// backing `::Name_var`.
+    pub fn vars_on(&self, object: ObjectId, script: &str) -> Vec<(String, Value)> {
+        let Some(id) = self.instance_on(object, script) else {
+            return Vec::new();
+        };
+        let mut out: Vec<(String, Value)> = self.instances[id.0]
+            .vars
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
+        out.sort_by(|a, b| a.0.cmp(&b.0));
+        out
+    }
+
+    /// The property names one attached script declares, sorted, walking the
+    /// whole inheritance chain.
+    pub fn properties_on(&self, object: ObjectId, script: &str) -> Vec<String> {
+        let Some(id) = self.instance_on(object, script) else {
+            return Vec::new();
+        };
+        let mut out: Vec<String> = self.instances[id.0]
+            .chain
+            .iter()
+            .flat_map(|s| s.object.properties.iter().map(|p| p.name.clone()))
+            .collect();
+        out.sort();
+        out.dedup();
+        out
+    }
+
+    /// Loaded scripts that define a function or event of this name, in any
+    /// state. Answers "who would hear this event" without sending it.
+    pub fn scripts_handling(&self, name: &str) -> Vec<String> {
+        let key = name.to_ascii_lowercase();
+        let mut out: Vec<String> = self
+            .scripts
+            .values()
+            .filter(|s| s.functions.keys().any(|(_, f)| *f == key))
+            .map(|s| s.name.clone())
+            .collect();
+        out.sort();
+        out
+    }
+
     /// Read a script variable, `::Name_var` for auto properties.
     pub fn get_var(&self, object: ObjectId, script: &str, var: &str) -> Option<Value> {
         let id = self.instance_on(object, script)?;
