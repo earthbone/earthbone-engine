@@ -98,11 +98,17 @@ A scenario that replays the same way twice can be bisected, recorded and
 compared across machines. The detector for that is a hash of the whole
 run-time state after every tick: `Game::state_hash` folds
 `World::state_hash` (`crates/game/src/world/hash.rs`) and `Vm::state_hash`
-(`crates/papyrus/src/vm/hash.rs`) into one `TickHash` with eighteen named
-parts, twelve for the world (clock, RNG, object ids, references, actors,
-quests, globals, form lists, pending queue, timers, output, AI counters) and
-six for the VM (objects, instances, threads, latents, log, native call
-counts). The hasher is FNV-1a over 64 bits with no per-process seed, maps are
+(`crates/papyrus/src/vm/hash.rs`) into one `TickHash` with twenty-three
+named parts, seventeen for the world (clock, RNG, object ids, references,
+actors, quests, globals, form lists, pending queue, timers, output, AI
+counters, and since the world split: the form tables built on first use
+(leveled lists, locations, factions, actor bases, cells), settings and the
+INI overlay, listener registrations, the player flags and tracked stats,
+scenes with sound instances and spell casts) and six for the VM (objects,
+instances, threads, latents, log, native call counts). A unit test in
+`world/hash.rs` mutates every field the natives round added and asserts that
+exactly its part moves, so a field a later change forgets to hash fails
+there rather than passing as silent agreement. The hasher is FNV-1a over 64 bits with no per-process seed, maps are
 visited in key order and floats go in as bit patterns, so the hash itself
 never reports `HashMap` iteration noise. `Game::record_hashes` turns the log
 on, `Game::hash_log` reads it, and `determinism::compare` names the first

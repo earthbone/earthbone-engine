@@ -28,7 +28,7 @@ pub struct TickHash {
 
 impl TickHash {
     fn new(tick: u64, world: &WorldHash, vm: &VmHash) -> TickHash {
-        let mut parts: Vec<(&'static str, u64)> = Vec::with_capacity(18);
+        let mut parts: Vec<(&'static str, u64)> = Vec::with_capacity(PART_NAMES.len());
         parts.extend(world.parts());
         parts.extend(vm.parts());
         let mut h = StateHasher::new();
@@ -66,7 +66,10 @@ impl TickHash {
     }
 }
 
-const PART_NAMES: [&str; 18] = [
+/// Every part name in log order, the world's then the VM's. The text form
+/// only accepts these, so a part added to either hash must be added here,
+/// the unit test below checks the world half against `WorldHash::parts`.
+const PART_NAMES: [&str; 23] = [
     "world.clock",
     "world.rng",
     "world.objects",
@@ -79,6 +82,11 @@ const PART_NAMES: [&str; 18] = [
     "world.timers",
     "world.output",
     "world.ai",
+    "world.forms",
+    "world.settings",
+    "world.listeners",
+    "world.flags",
+    "world.scenes",
     "vm.objects",
     "vm.instances",
     "vm.threads",
@@ -232,11 +240,20 @@ mod tests {
     }
 
     #[test]
+    fn the_part_names_match_the_world_hash() {
+        let world = crate::World::new(soe_esm::LoadOrder::new()).state_hash();
+        let names: Vec<&str> = world.parts().iter().map(|p| p.0).collect();
+        assert_eq!(names, &PART_NAMES[..names.len()]);
+        let rest = &PART_NAMES[names.len()..];
+        assert!(rest.iter().all(|n| n.starts_with("vm.")));
+    }
+
+    #[test]
     fn compare_names_the_first_tick_and_subsystem() {
-        let base = vec![1u64; 18];
+        let base = vec![1u64; PART_NAMES.len()];
         let mut changed = base.clone();
         changed[3] = 2;
-        changed[14] = 9;
+        changed[19] = 9;
         let left = vec![tick(0, &base), tick(1, &base), tick(2, &base)];
         let right = vec![tick(0, &base), tick(1, &changed), tick(2, &changed)];
         assert_eq!(
@@ -256,9 +273,9 @@ mod tests {
     #[test]
     fn the_text_form_round_trips() {
         let log = vec![
-            tick(0, &[0; 18]),
-            tick(1, &[u64::MAX; 18]),
-            tick(2, &[7; 18]),
+            tick(0, &[0; PART_NAMES.len()]),
+            tick(1, &[u64::MAX; PART_NAMES.len()]),
+            tick(2, &[7; PART_NAMES.len()]),
         ];
         let text = to_text(&log);
         assert_eq!(from_text(&text), log);
