@@ -91,72 +91,46 @@ Open the corpus before writing a parser or a native, not after.
 - Code forks at most three at a time. Progress is read from branch commits and
   the master gate, never from an agent's own report.
 
-## Status (2026-09-18)
+## Status (2026-09-18, master 2984fb0)
 
-- Rounds 1 and 2 merged. Round 3 merged so far: live validation (every gated
-  test ran on the installed game, numbers in each `docs/<crate>.md`), actor
-  base stats from `NPC_`, VM and world save and load (formats SOEV, SOEW,
-  SOEG), Godot 4.4.1 loading the extension headless (`tools/godot/`,
-  `godot/headless_test.gd`), parser fuzzing (`fuzz/`, `docs/fuzz.md`, five
-  crashes fixed), vanilla scripts loaded from the BSA (28,143 of 28,152
-  attachments bound), and a real cell streamed through esm, bsa and nif
-  (`WhiterunBanneredMare`, 318 statics, 124,924 triangles), materials and
-  textures on it (46 sets, 88 textures), full-property setters in the VM (97
-  stale vanilla properties left), and the performance harness (`soe-bench`,
-  `crates/trace`, `docs/performance.md`: Bannered Mare streams in 0.44 s of
-  which 0.36 s is the reference scan, Godot draws it at 56 ms per frame from
-  763 unbatched nodes, VM 12.7M instructions per second). Open in round 3:
-  the behavior interpreter (start from `../research/behavior-graph-references.md`,
-  the Project Anarchy headers are the semantics source), packages and AI, the
-  next hundred natives (start with the leveled-list natives and the
-  `Alias.RegisterForUpdate` chain walk that the first `start` left
-  unresolved, see docs/game.md), a cell-to-reference index and surface
-  batching (the two hot spots the trace found).
-- 2026-09-18: the VM had evaluated PEX call and property name operands as
-  variables, so every vanilla call dispatched as `None` until branch
-  `vm-callname` fixed it. The first real `start` reaches 63 natives in 1,095
-  calls. Any earlier claim that vanilla scripts "ran" meant they loaded and
-  bound, not that their calls dispatched.
-- `Vm::get_property` runs compiled getters and read-only properties are
-  counted apart in `BindReport` (branch `vm-props`, merged 2026-09-18).
-- Merged later on 2026-09-18: `cell-index` (esm `CellIndex`, reference scan
-  361 ms to 0.5 ms, the material path is now 97 percent of a stream),
-  `behavior` (havok interpreter, vanilla `mt_behavior.hkx` walks, pose within
-  3.8e-6 of the sampler, behavior references and modifiers still open),
-  `packages` (PACK view, sandbox, travel and sleep on the navmesh, 4,635 of
-  5,961 vanilla packages resolve), `natives-2` (296 natives, alias dispatch
-  walks base classes, the first real `start` has one unresolved call left),
-  `test-plan` (`TEST_PLAN.md`, phase 2 waits for the user). Save format
-  `SOEW` is version 2 with both branches' fields. Godot 4.7.2 loads the
-  extension headless with the same Bannered Mare counts as 4.4.1, the binary
-  sits next to the old one under `../tools/godot/`. Rendering decisions in
-  `../research/rendering-performance.md`: compressed texture upload first,
-  no Godot patches. `batching` merged the same day: surfaces batched per
-  material as `RenderingServer` instances (763 nodes to 48), compressed DDS
-  pass-through with a session texture cache (592 MB to 175 MB), exterior
-  streaming with terrain, the Whiterun 3 by 3 block at p99 0.519 ms and
-  worst 1.698 ms, the earlier 56 ms figure was a misread of
-  `Performance.TIME_PROCESS`. With the index on the same tree a cell streams
-  in 4 ms and the block in 13 ms, so the host question is settled for now.
-  `determinism-hash` merged: per-tick state hash with subsystem parts,
-  `SOE_HASH_DUMP`, two-run tests, one known source (`Game::start` orders
-  quests by `HashMap` iteration in `LoadOrder::winners_of`, the gated test
-  is ignored with that reason). The hash does not yet cover the natives-2
-  fields (perks, spell casts, leveled lists, settings). `world-split` merged
-  next: `world.rs` is a directory of `impl World` modules by concern (lookup,
-  objects, refs, actors, quests, forms, events, timers, rng, driver, save,
-  hash), the hash covers every field with a test per part, and
-  `LoadOrder::winners` walks a sorted list so `Game::start` is
-  deterministic and the 600-tick gated hash run passes. Workspace 419 tests,
-  none ignored. Running: `natives-dlc` (DLC natives, zero unresolved calls)
-  and `dirty-records` (deleted records handled natively, per-plugin dirty
-  report), see ENGINE-PLAN.md rounds 5 and 6.
-- Untested live: a real Proton launch, natives against the CK wiki pages.
-- Language decision (2026-09-14): runtime crates stay Rust. Go only for a
-  tooling component where it eases maintenance, behind a protobuf seam.
-  Licensing confirmed: GPL-3.0-or-later core, MIT shim.
-- Open risks (map section 12): no open behavior-graph interpreter exists,
-  about a thousand natives with unwritten semantics, EULA and reverse
-  engineering exposure, GPL sources in the reading list, a single-maintainer
-  CommonLib fork, closed LOD tools, no GFx UI runtime, unverified sources,
-  Godot open-world scale unproven, small team.
+Rounds 1, 2 and 3 are merged. Round 5 (hardening and tooling) is running,
+round 4 (tooling) and round 6 (UI) are written with done checks in
+`ENGINE-PLAN.md`. Workspace gate green: 426 tests in 59 suites, none ignored,
+clippy and fmt clean, gated tests run against the installed game.
+
+What the engine does today, per subsystem:
+
+- **Records.** `esm` reads the load order with winning-override semantics, a
+  `CellIndex` maps cells and the worldspace grid to their placed objects
+  (build 0.15 s over 872k placed objects, lookup 9 ns), and `dirty.rs`
+  reports identical-to-master overrides, deleted references and deleted
+  navmeshes per plugin. Dirty plugins need no cleaning: a deleted reference
+  resolves and starts disabled, a deleted navmesh drops with edge repair.
+- **Scripts.** 296 natives with state, the VM walks base classes on dispatch,
+  and the first real `start` on the installed game runs 423 quests through
+  1,517 native calls with one unresolved call left, a DLC native that branch
+  `natives-dlc` is registering. `SOEV`, `SOEW` (version 2) and `SOEG` save and
+  load.
+- **Actors.** `NPC_` base stats, `PACK` packages with sandbox, travel and
+  sleep on the navmesh graph (4,635 of 5,961 vanilla packages resolve), and a
+  havok behavior interpreter that walks the vanilla `mt_behavior.hkx` with
+  poses within 3.8e-6 of the clip sampler.
+- **Rendering.** The Godot host batches surfaces per material as
+  `RenderingServer` instances, uploads block-compressed DDS untouched from a
+  session cache, and streams interior and exterior cells with terrain. The
+  Whiterun 3 by 3 block draws at p99 0.519 ms, a cell streams in 4 ms. Godot
+  stays, unpatched, tested on 4.4.1 and 4.7.2 with the api-4-4 floor.
+- **Determinism.** A per-tick state hash over world, VM and clock with a part
+  per subsystem, `SOE_HASH_DUMP`, and gated 600-tick runs that hash equal
+  twice. `LoadOrder::winners` walks a sorted list so nothing depends on hash
+  map order.
+
+Read `ENGINE-PLAN.md` for what is next and why. The near items are the DLC
+natives, then `TEST_PLAN.md` phase 2 (waiting on the user's go), the audio
+crate, mod data formats (SPID, KID, BOS, OAR), and the second passes on the
+behavior interpreter and packages.
+
+Known gaps, none of them silent: no UI (Scaleform is not executed, a native
+layer with an MCM compatible config API is round 6), no combat, magic or
+dialogue, no LOD consumption, no terrain texture layers or water, no audio,
+no Proton launch attempted. Open risks are map section 12.
