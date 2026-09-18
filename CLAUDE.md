@@ -74,10 +74,14 @@ Open the corpus before writing a parser or a native, not after.
 - Real-file tests are gated on
   `SKYRIM_DATA=/run/host/media/pengolodh/Data/SteamLibrary/steamapps/common/Skyrim Special Edition/Data`
   and skip cleanly when unset. Synthetic fixtures are written by the tests.
-- Nineteen real Special Edition saves sit in `../engine-refs/saves/Clean Saves/`,
-  one per main quest stage from character creation to Sovngarde, supplied by the
-  user on 2026-09-18. They are user data: read them, never commit one, and never
-  copy one into this repository. Tests reach them through `SOE_TEST_SAVE`.
+- Sixty real Special Edition saves sit under `../engine-refs/saves/`, supplied by
+  the user on 2026-09-18. `Clean Saves/` holds nineteen main quest stages,
+  `Main Quest + Dawnguard(Vampire) + Dragonborn/` holds forty-one numbered 01 to
+  41 covering the main quest, the Dawnguard vampire path (23 and 24 bracket the
+  turn, 33 completes it) and Dragonborn. Ordered and named, so a quest state is
+  known before anything is parsed and consecutive saves can be diffed. They are
+  user data: read them, never commit one, never copy one into this repository.
+  Tests reach them through `SOE_TEST_SAVE`.
 - No git identity is configured: set `GIT_AUTHOR_NAME`, `GIT_AUTHOR_EMAIL`,
   `GIT_COMMITTER_NAME`, `GIT_COMMITTER_EMAIL` for every commit. No AI trailers.
 - Prose in comments, docs and commits: no em dashes, no semicolons as prose
