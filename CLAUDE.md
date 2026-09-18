@@ -37,6 +37,7 @@ meaning. Core crates are GPL-3.0-or-later, the SKSE shim crates are MIT.
 | `game` | Runtime form table, Papyrus object model, natives, clock, debug commands | `docs/game.md` |
 | `save` | Vanilla `.ess` reader, change forms, quest stages, Papyrus block | `docs/save.md` |
 | `audio` | FUZ, LIP and xWMA containers, Vorbis and Opus decode | `docs/audio.md` |
+| `moddata` | SPID, KID and Base Object Swapper ini files, OAR folders | `docs/moddata.md` |
 
 Other docs: `docs/design-system.md` (what of the Creation Engine's design the
 engine preserves), `docs/editor.md` (Creation Kit replacement on the Godot
@@ -84,6 +85,11 @@ Open the corpus before writing a parser or a native, not after.
 - `Caprica`: a complete Papyrus source compiler under MIT, the stage our
   `papyrus` crate has never had. It adds to our reader, writer and VM, it
   replaces none of them.
+- `Spell-Perk-Item-Distributor`: the `_DISTR.ini` field order, written as a
+  comment on line 3 of `SPID/src/Defs.h`, plus the record type names and the
+  level, trait and count grammars in `LookupConfigs.h`. MIT.
+- `BaseObjectSwapper`: the `_SWAP.ini` section walk in `Manager.cpp` and the
+  swap field order in `SwapData.cpp`. Note the repository name has no hyphens.
 
 Licence care when porting from the corpus: the core crates are
 GPL-3.0-or-later so reading or porting from a GPL tool is fine there, but no

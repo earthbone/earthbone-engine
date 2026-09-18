@@ -1,0 +1,21 @@
+[package]
+name = "soe-moddata"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-or-later"
+description = "Reads the configuration formats popular SKSE plugins invented, so mods that ship only data work with no plugin: SPID _DISTR.ini, KID _KID.ini, Base Object Swapper _SWAP.ini and Open Animation Replacer folders"
+
+[lints]
+workspace = true
+
+[lib]
+name = "soe_moddata"
+path = "src/lib.rs"
+
+[dependencies]
+soe-esm = { path = "../esm" }
+serde_json = "1"
+thiserror = "2"
+
+[dev-dependencies]
+tempfile = "3"

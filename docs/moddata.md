@@ -1,0 +1,158 @@
+# soe-moddata: the formats mods ship instead of code
+
+`crates/moddata` reads four configuration formats that popular SKSE plugins
+invented. A large share of modern mods carry no DLL and no script. They ship an
+ini file or a directory tree, and without the plugin that reads it the mod does
+nothing at all.
+
+That makes these formats a compatibility surface exactly like the native
+function list, and `commonlib-shim` does not cover it, because the thing to be
+compatible with here is not a function but a file. So the engine reads the
+formats itself and the mods work with no plugin present. This is the project
+rule applied once more: replace the workaround with a native system rather than
+reimplement the workaround.
+
+| Format | Plugin | What it does | Files |
+|---|---|---|---|
+| `_DISTR.ini` | Spell Perk Item Distributor | Hands spells, perks, items, shouts, packages, outfits and skins to actors by filter | `src/spid.rs` |
+| `_KID.ini` | Keyword Item Distributor | Attaches keywords to records by filter | `src/kid.rs` |
+| `_SWAP.ini` | Base Object Swapper | Swaps base objects on placed references, and overrides their properties | `src/bos.rs` |
+| directory tree | Open Animation Replacer | Picks animations by condition, and the older Dynamic Animation Replacer layout | `src/oar.rs` |
+
+## Parsing and resolving are separate
+
+A configuration is read with no game data in hand, so a file naming a plugin the
+user does not have still parses. Resolution is the second step: `resolve_spid`,
+`resolve_kid` and `resolve_bos` take a parsed file and a `soe_esm::LoadOrder`
+and produce `Patch` values, each one a form and the change to make to it. A rule
+whose form is absent drops out there, which is what the plugins report and skip.
+
+Nothing in this crate touches a running world. Applying a `Patch` belongs to the
+game crate and is a later item.
+
+## What was read, and what it gave
+
+Every format here was taken from its plugin's own source. Nothing was guessed
+from a wiki page and nothing was copied.
+
+- **Keyword Item Distributor**, `../engine-refs/Keyword-Item-Distributor/`.
+  `LookupConfigs.cpp` gives the field order and that every line uses the key
+  `Keyword` in the anonymous section. `EnumDefs.h` gives the nineteen item type
+  names including the two word ones. `BaseFilters.cpp` gives the whole filter
+  grammar and, more usefully, `DistributableFilterSet::Pass` gives the matching
+  rule, which is not what a reader would guess from the syntax. Its `LICENSE`
+  is GPL-3.0 even though its `README.md` says MIT, so the licence file is what
+  this crate treated as binding.
+- **Spell Perk Item Distributor**, `../engine-refs/Spell-Perk-Item-Distributor/`.
+  The field order is a comment on line 3 of `Defs.h`, which is the clearest
+  specification any of these formats has. `LookupConfigs.h` gives the record
+  type names, the `Final` and `Death` key prefixes, and the level, trait and
+  count grammars. MIT.
+- **Base Object Swapper**, `../engine-refs/BaseObjectSwapper/`. `Manager.cpp`
+  gives the section walk and the `SetAllowKeyOnly` call that makes a line's key
+  carry the whole payload. `SwapData.cpp` gives the field order on both sides of
+  a swap.
+- **Open Animation Replacer**, `../engine-refs/OpenAnimationReplacer/`.
+  `Parsing.cpp` gives the directory layout, that `priority` is required rather
+  than defaulted, and that `user.json` is read after `config.json`. GPL-3.0 with
+  modding and linking exceptions.
+- **dargh**, `../engine-refs/dargh/`, MIT, documents the older condition and
+  priority scheme that the legacy layout still uses.
+
+Licence care: this crate is GPL-3.0-or-later like the rest of the core, so
+reading the GPL sources above is fine here. Nothing derived from them may reach
+the MIT shim crates.
+
+## Two filter grammars, kept apart
+
+The two distributors look similar and are not. Flattening one onto the other
+would silently change which mods work, so both are modelled as their authors
+wrote them.
+
+Spell Perk Item Distributor sorts every token into one of four flat buckets by
+its leading character: `+` joins into `ALL`, `-` goes to `NOT`, `*` goes to
+`ANY` as a substring, and a bare token goes to `MATCH`. All four must agree.
+
+Keyword Item Distributor instead builds groups. A comma separated entry that
+contains `+` becomes one AND group, groups are OR'd against each other, and `-`
+and `*` apply per token inside a group. Its `ANY` bucket has a rule worth
+stating plainly, because the syntax does not suggest it: if the bucket holds any
+exact token then one exact token must hit, and if it holds any partial token
+then one partial token must hit, and both conditions apply at once. So
+`Guard, *Mag` needs an exact `Guard` **and** something containing `Mag`, not
+either one.
+
+## An ambiguity inherited from the plugins
+
+A bare token made only of hex digits reads as a form id, not an editor id,
+because `RawForm` tries a hex parse before falling back. A keyword genuinely
+named `Ace` or `Beef` is therefore a form id to all four plugins and to this
+crate. `0x` makes it explicit, and any non-hex letter makes it a name. This is
+pinned by a test rather than left to be rediscovered inside a mod that quietly
+stops working.
+
+## What is deliberately left as written
+
+Two fields keep their text instead of being modelled, because modelling them
+badly would be worse than handing the caller a string.
+
+- Keyword Item Distributor's traits field has a different grammar for every
+  item type. An armour trait and a weapon trait share no syntax, and `Traits.h`
+  dispatches to a different class per type.
+- Base Object Swapper's property field is its own small language of `pos`,
+  `rot`, `scale` and `flags` calls, with a location based `ChanceL` variant.
+
+Open Animation Replacer's conditions are structural for a different reason: the
+plugin lets other plugins register new condition types at runtime, so the set is
+open ended and no fixed list would stay correct. Each condition keeps its name,
+its negation, the plugin it needs and its raw parameters, which is enough to
+report what a mod asks for and to implement the common ones later.
+
+## Conflicts resolve by file name
+
+All three ini formats resolve a conflict the same way: the file whose name sorts
+last alphabetically wins. `discover` therefore returns files sorted by path, and
+a `Patch` carries the file and line it came from so a conflict can be reported
+rather than silently applied. Base Object Swapper documents this behaviour, and
+a third party tool exists only to override it, which is a fair sign that
+alphabetical order is a poor conflict rule. The engine keeps the behaviour
+because mods depend on it, and the source on every patch is what a better rule
+would be built from later.
+
+## Dependencies
+
+Six crates beyond the workspace: `serde_json` and its four (`serde_core`,
+`itoa`, `memchr`, `zmij`), plus `soe-esm` which is in-workspace and free.
+`serde_json` is there for Open Animation Replacer's `config.json` and nothing
+else. Writing a JSON reader by hand would have been the reimplementation the
+project rule forbids, and this is the ecosystem standard at four transitive
+crates.
+
+The ini dialect is ours, at about a hundred lines. No crate packages it: these
+files use multi-key sections, key-only lines and condition bearing section
+headers, and a standard ini crate models none of that.
+
+## Measured
+
+No mods are installed on this machine, so the gated real-file tests have nothing
+to read. Every fixture in the test suite is authored from the syntax examples in
+the sources above and is marked as authored rather than real. That is the one
+honest gap in this crate: the grammars are taken from the parsers that consume
+them, but no shipped mod has been run through them yet.
+
+| Test suite | Count | What it covers |
+|---|---|---|
+| `src/*` unit | 60 | Each grammar, each filter rule, the ini dialect, the form reference ambiguity |
+| `tests/resolve.rs` | 11 | Resolution against a synthetic load order, including absent forms |
+
+## Not done
+
+- No real mod has been parsed, see above.
+- Applying a `Patch` to a running world, which waits on the game crate.
+- Keyword Item Distributor's exclusive groups, which share the file under other
+  keys and are currently reported as skipped lines.
+- The two fields left as written, and Open Animation Replacer's `user.json`
+  override layer.
+- Chance is carried as a percentage but not rolled. Both distributors seed a
+  deterministic generator from the entry and the target so a given mod gives the
+  same result every run, and reproducing that seed is its own task.

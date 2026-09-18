@@ -10,6 +10,7 @@ members = [
     "crates/game",
     "crates/godot-host",
     "crates/havok",
+    "crates/moddata",
     "crates/navmesh",
     "crates/nif",
     "crates/papyrus",
