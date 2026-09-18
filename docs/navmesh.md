@@ -144,3 +144,36 @@ was needed.
   matches border vertices, which is the next piece for a Creation Kit
   replacement.
 - Tiled generation for anything bigger than a few cells, and the detail mesh.
+
+## Deleted navmeshes (2026-09-18, branch `dirty-records`)
+
+The shipped DLC masters delete navmeshes (LOOT counts 59 in Dawnguard.esm, 5 in
+HearthFires.esm, 1 in Dragonborn.esm, 3 in Update.esm for the 1.6.1170 build),
+and the vanilla engine crashes when a neighbour's edge link still points at
+one, which is why xEdit's cleaning removes them. The graph handles it in place:
+`from_load_order` skips a winner that carries the deleted flag and marks its key
+on the `Builder`, and at `build` every pending link to a marked key becomes a
+border. `Stats::deleted_meshes` and `Stats::repaired_links` count both, apart
+from `unresolved_links`, which keeps its meaning of a link to a navmesh nobody
+loaded. `edge_links` equals resolved plus unresolved plus repaired.
+
+`tests/dirty.rs` builds two linked squares and a patch that deletes one, checks
+the survivor keeps its other edges, the link count moves from resolved to
+repaired, the cell index files only the survivor, and the esm dirty report
+counts the deletion.
+
+### Live run (2026-09-18)
+
+Tamriel over the five masters: 13,011 meshes and 2,271,709 triangles as before,
+66 deleted navmeshes now named as deleted, and 0 links repaired. The edge link
+split is unchanged at 187,216 links, 187,193 resolved and 23 unresolved. Nothing
+under Tamriel aims an edge at a navmesh the DLC deleted, which is what the
+Creation Kit produces: deleting a navmesh re-finalizes its neighbours and
+rewrites their links in the same plugin.
+
+The 66 were already absent from the graph before this branch, because a deleted
+record is shipped without its `NVNM` block and the builder skipped it for having
+no geometry. What changed is that they are counted, their keys are known, and a
+link naming one is cut and reported instead of counted as unresolved. The five
+remaining deleted navmeshes of the 71 the dirty report counts sit in other
+worldspaces, outside this filter.

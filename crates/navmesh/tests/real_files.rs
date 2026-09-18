@@ -54,7 +54,11 @@ fn tamriel_stitches_into_one_graph_and_paths_cross_cells() {
     assert!(stats.meshes >= 13_000, "{} meshes", stats.meshes);
     assert_eq!(
         stats.edge_links,
-        stats.resolved_links + stats.unresolved_links
+        stats.resolved_links + stats.unresolved_links + stats.repaired_links
+    );
+    eprintln!(
+        "deleted navmeshes under Tamriel: {}, links to them cut: {}",
+        stats.deleted_meshes, stats.repaired_links
     );
     assert!(
         stats.resolved_links * 10 > stats.edge_links * 9,
