@@ -82,3 +82,10 @@ float_cmp = "allow"
 format_push_string = "allow"
 used_underscore_binding = "allow"
 unused_self = "allow"
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
+
+[profile.bench]
+inherits = "release"

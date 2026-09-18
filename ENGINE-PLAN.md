@@ -176,3 +176,37 @@ protobuf seam, never inside the runtime crates.
 Decisions (2026-09-14, user): the runtime stays Rust. Go is used for a tooling component only when
 it makes that component easier to maintain than Rust would, behind a protobuf seam, never inside
 the runtime crates. Licensing stands: GPL-3.0-or-later core, MIT shim.
+
+## Review of 2026-09-18 and round 5: hardening
+
+The user passed on an outside review. What it got right is folded in below, what the plan
+already covered is noted so nobody re-litigates it.
+
+Already covered, no change: the research map lists the Scaleform UI gap (section 12, mitigation is
+a native UI layer that reads SkyUI's config records, not its SWF), FaceGen, FUZ and XWM audio,
+navmesh and the closed LOD tools (consume DynDOLOD, BTO and BTR output, never generate LOD in year
+one). SKSE DLLs never load natively, the `commonlib-shim` crate is the plugin API and the popular
+SKSE Papyrus extensions are natives in `crates/game` like any other. `research/host-engine-options.md`
+already weighs OpenMW's paging, Godot's single-precision band and the double-precision build, the
+decision is single precision with a centred origin and cell-grid origin shifting only when a mod
+worldspace needs it. Headless simulation without Godot exists (`crates/game` harness, `soe-bench`),
+and `fuzz/` covers the six parsers. The `World` RNG is a seeded xorshift and the clock is virtual.
+
+Changes made on 2026-09-18 from the review: the release profile is `lto = "fat"` and
+`codegen-units = 1` (no `target-cpu=native` in shipped builds), the batching fork drives
+`RenderingServer` instances and `MultiMesh` buffers from Rust rather than one node per reference,
+frame times are reported as p50, p99, p99.9 and worst hitch, never as an average alone.
+
+| Item | Branch | Done check |
+|---|---|---|
+| Test plan audit | `test-plan` | `TEST_PLAN.md`: per crate its untrusted inputs, unsafe blocks, concurrency and FFI boundary, a table of component, failure modes, technique, tool, expected bug class, cost and priority ranked by risk times likelihood, and an explicit list of techniques not worth it and why. No tests written in this item. |
+| Determinism | `determinism` | One seed drives RNG, clock and job order. A state hash per tick, input record and replay, a test that replays a recorded quest run and matches every hash. Cross-thread work joins in a fixed order. |
+| Tiered suite | `test-tiers` | Tier 1 under five minutes on every commit (the current gate), tier 2 nightly (fuzzing, Miri, sanitizers, `cargo-mutants`), tier 3 weekly (soak, full corpus over the installed game and the top mods). Every failure prints its seed and a one-line repro. `TEST_LOG.md` records what each addition found and cannot catch. |
+| Generative tests | `proptest` | Property and metamorphic tests for the parsers (parse, write, parse round trips, load-order independence where the format promises it), differential tests against xEdit dumps, Champollion and OpenMW where a reference exists. Structure-aware fuzz targets through `arbitrary` for the six parsers, the save formats and PEX bytecode. |
+| Fault injection | `failpoints` | `fail` crate points on IO, truncated and corrupt files, missing masters, kill during save, memory caps, 1 fps and 1000 fps, script overload. Each scenario in the validation harness. |
+| Performance gates | `perf-gates` | Instruction-count gates in CI through `iai-callgrind` on the parsers and the VM, frame-time percentile gates on the benchmark scenes, a 24 hour soak for leaks, a thousand-actor stress, startup time. Allocator swap to mimalloc measured, per-frame arenas where the trace shows steady-state allocation. |
+| Console and crash reporter | `console` | In-game console over the harness commands, a crash report that carries the seed and the replay, the clean-room policy written in `docs/clean-room.md`. |
+| Supply chain | `deny` | `cargo-deny`, `cargo-audit`, `cargo-vet` in the gate, `cargo-geiger` report in docs. |
+
+Order: the test plan audit first, then determinism as soon as the packages and natives-2 branches
+merge (it touches `world.rs` and the clock), the rest as forks in any order.
