@@ -15,7 +15,10 @@ use super::{
 };
 
 impl World {
-    fn load_ref(&mut self, id: GlobalFormId) -> Option<RefState> {
+    /// Build a reference's state from its record, without inserting it.
+    /// `crate::world::transition` uses this to prove that unloading a
+    /// reference loses nothing, by rebuilding it and comparing.
+    pub(super) fn load_ref(&mut self, id: GlobalFormId) -> Option<RefState> {
         let rref = self.order.winner_ref(id)?;
         let rec = self.order.record(rref);
         let file = rref.file;
@@ -305,6 +308,9 @@ impl World {
         };
         if !blocked {
             match base.and_then(|b| self.tag_of(b)).map(|t| *t.as_bytes()) {
+                // A door with teleport data is a load door, the kind that
+                // fires a load screen in vanilla. A door without it simply
+                // swings, and both exist in the shipped files.
                 Some([b'D', b'O', b'O', b'R']) => {
                     if let Some((far_door, landing)) = teleport {
                         let far_cell = self.reference(far_door).and_then(|d| d.cell);
@@ -312,6 +318,12 @@ impl World {
                             r.position = landing.position;
                             r.rotation = landing.rotation;
                             r.cell = far_cell;
+                        }
+                        // Only the player's walk swaps what is resident. An
+                        // actor going through a door moves without dragging
+                        // the world after it.
+                        if activator == self.player() {
+                            self.change_cell(far_cell);
                         }
                     } else if let Some(r) = self.reference(target) {
                         r.opened = !r.opened;

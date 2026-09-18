@@ -48,6 +48,7 @@ mod refs;
 mod rng;
 mod save;
 mod timers;
+mod transition;
 
 pub use save::{SAVE_MAGIC, SAVE_VERSION};
 
@@ -353,6 +354,9 @@ pub struct World {
     factions: HashMap<GlobalFormId, FactionState>,
     actor_bases: HashMap<GlobalFormId, ActorBaseState>,
     cells: HashMap<GlobalFormId, CellState>,
+    /// The cell whose temporary references are resident, set by a transition.
+    /// See `crate::world::transition`.
+    loaded_cell: Option<GlobalFormId>,
     next_dynamic: u32,
     player: Option<GlobalFormId>,
     /// What `PC_LEVEL_MULT` actors scale against.
@@ -434,6 +438,7 @@ impl World {
             factions: HashMap::new(),
             actor_bases: HashMap::new(),
             cells: HashMap::new(),
+            loaded_cell: None,
             next_dynamic: 0x1000,
             player: None,
             player_level: 1,

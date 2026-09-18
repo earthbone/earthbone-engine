@@ -26,6 +26,10 @@ mod quest_flow;
 #[path = "packages.rs"]
 mod packages;
 
+#[allow(dead_code)]
+#[path = "transitions.rs"]
+mod transitions;
+
 const MASTERS: [&str; 5] = [
     "Skyrim.esm",
     "Update.esm",
@@ -65,6 +69,25 @@ fn run_travel() -> Vec<TickHash> {
     let quest = game.form("GuardQuest").unwrap();
     game.set_stage(quest, 10);
     packages::tick(&mut game, 3.6);
+    game.hash_log().to_vec()
+}
+
+/// Two cell changes: through the load door and back again. Loading and
+/// unloading rewrites the reference set, so a hash that missed it would let
+/// two runs disagree about what is resident without saying so.
+fn run_transition() -> Vec<TickHash> {
+    let mut game = transitions::game();
+    game.record_hashes();
+    let player = game.world_mut().player();
+    game.world_mut()
+        .load_cell(transitions::id(transitions::START_CELL));
+    game.tick(0.0);
+    assert!(game.activate(transitions::id(transitions::DOOR_OUT), player));
+    game.tick(0.0);
+    assert!(game.activate(transitions::id(transitions::DOOR_BACK), player));
+    for _ in 0..20 {
+        game.tick(0.1);
+    }
     game.hash_log().to_vec()
 }
 
@@ -128,6 +151,28 @@ fn travel_hash_child() {
         return;
     }
     dump_if_requested(&run_travel()).unwrap();
+}
+
+#[test]
+fn transition_hash_child() {
+    if std::env::var_os("SOE_HASH_DUMP").is_none() {
+        return;
+    }
+    dump_if_requested(&run_transition()).unwrap();
+}
+
+#[test]
+fn a_cell_transition_hashes_the_same_twice_in_one_process() {
+    let a = run_transition();
+    let b = run_transition();
+    assert_same("cell transition", &a, &b);
+}
+
+#[test]
+fn a_cell_transition_hashes_the_same_in_another_process() {
+    let here = run_transition();
+    let there = child_log("transition_hash_child");
+    assert_same("cell transition across processes", &here, &there);
 }
 
 #[test]

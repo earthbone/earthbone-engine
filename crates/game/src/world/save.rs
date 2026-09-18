@@ -26,7 +26,9 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// Version 3 added the DLC state: vampirism and lycanthropy, flying, the
 /// deferred kill, eye texture, critical stage, bleedout, shouts, the
 /// behavior graph floats and the player's perk points.
-pub const SAVE_VERSION: u16 = 3;
+/// Version 4 added the resident cell, so a loaded game knows which cell's
+/// temporary references it is holding. See `crate::world::transition`.
+pub const SAVE_VERSION: u16 = 4;
 
 impl World {
     /// Serialize the run-time state: the VM object handles, references,
@@ -86,6 +88,7 @@ impl World {
 
         body.u32(self.next_dynamic);
         write_opt_form_id(&mut body, self.player);
+        write_opt_form_id(&mut body, self.loaded_cell);
         body.u64(self.rng);
 
         body.f64(self.clock.real_seconds);
@@ -407,6 +410,7 @@ impl World {
 
         let next_dynamic = r.u32()?;
         let player = read_opt_form_id(&mut r)?;
+        let loaded_cell = read_opt_form_id(&mut r)?;
         let rng = r.u64()?;
 
         let real_seconds = r.f64()?;
@@ -698,6 +702,7 @@ impl World {
         self.form_lists = form_lists;
         self.next_dynamic = next_dynamic;
         self.player = player;
+        self.loaded_cell = loaded_cell;
         self.rng = rng;
         self.clock = GameClock {
             real_seconds,
