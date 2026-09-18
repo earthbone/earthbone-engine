@@ -333,3 +333,17 @@ the risk register softens, three flagged areas now have permissive options.
 Gaps the survey confirms as genuinely open, with nothing to reuse: FaceGen runtime TRI, EGM and EGT
 blending, LIP decoded into phoneme timing (every tool copies it as an opaque blob), LOD generation,
 a GFx capable Flash runtime, the `hkb` evaluation semantics, and ENB's hook protocol.
+
+Two scope calls on the survey, 2026-09-18 (user):
+
+- **ENB is out of scope.** ENB is a closed injector that hooks the game's Direct3D calls to add
+  post processing the original renderer lacks. This engine owns its renderer, so depth of field,
+  ambient occlusion, colour grading, bloom and the rest are ordinary features of the host, and an
+  ENB preset is configuration for something we provide natively rather than a compatibility
+  surface to reproduce. The risk register drops the ENB hook protocol. What stays in scope is the
+  need the presets express: the post processing stack has to be extensible and configurable from
+  a file a preset author can ship.
+- **Nothing that works is replaced.** Reuse means filling gaps and taking references, not
+  discarding engine code that already does its job. Where an outside project and our code overlap
+  and ours passes its tests, ours stays, and the outside project is cited in the doc as the second
+  opinion that confirmed it. Only a genuine gap gets filled from outside.
