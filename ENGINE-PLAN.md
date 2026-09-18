@@ -431,4 +431,54 @@ own rule that existing plugins keep their meaning.
 | Item | Branch | Done check |
 |---|---|---|
 | Streamed transitions | `no-load-screen` | The destination cell streams while the player approaches the door, the move is instant with no screen, cell events fire in the vanilla order, and the frame time across the move stays inside the exterior benchmark bar. Round 7. |
-| Seamless doorways | `portal-cells` | A prototype: one interior rendered at a transform behind its door, the player crossing without a teleport visible, with the light leak, double simulation and event ordering costs measured rather than argued. Prototype first, then decide. |
+| Seamless doorways | `portal-cells` | Read `godotwind/docs/systems/interior_transitions.md` first. A prototype: one interior rendered at a transform behind its door, the player crossing without a teleport visible, with the light leak, double simulation and event ordering costs measured rather than argued. Prototype first, then decide. |
+
+#### The three costs, and how each is paid, 2026-09-18
+
+The costs listed above are not open questions. `engine-refs/godotwind/` has built
+this feature in Godot already, for Morrowind, whose interiors sit in the same
+void as Skyrim's. Its `src/core/world/door_portal.gd` and
+`interior_pocket_manager.gd` run, and `docs/systems/interior_transitions.md`
+reports what broke. Read that before writing a line of `portal-cells`.
+
+Two of its findings change our design. First, the interior being far larger than
+the building that holds it never matters, because the door frame masks
+everything outside it, which is the trick Portal uses. That kills the objection
+this project would have hit first. Second, it renders both cells into one world
+with one environment and one depth buffer, and that single decision is what
+produced its two hardest bugs: `no_depth_test` breaks object sorting inside the
+portal, papered over with dimming, and issue 9 says the interior's own ambient
+never applies at all.
+
+We are not forced into either bug, because the host drives `RenderingServer` by
+resource id instead of building node trees. A second scenario is one call,
+`scenario_create`, it takes its own environment through
+`scenario_set_environment`, and a viewport bound to it with
+`viewport_set_scenario` carries its own depth buffer. So:
+
+- **Light and shadow leak.** The interior lives in its own scenario. The sun is
+  not excluded from it by a cull mask, it is simply not in that world. Interior
+  lights are only in that world. The leak cannot happen by construction. A cull
+  mask, which is where this project would have started, isolates analytic lights
+  only and leaves ambient, fog and sky shared, which is exactly why godotwind is
+  stuck on issue 9.
+- **Windows facing nothing.** Vanilla already paints interior windows with an
+  opaque lit glass texture rather than showing the void, and that painting keeps
+  working unchanged. Nothing to pay here. The real version of this worry was the
+  oversized interior shell, and the door frame answers it.
+- **Event ordering.** Separate streaming from attachment. A prefetched cell is
+  engine state and fires nothing. The vanilla event sequence fires atomically
+  when the player crosses the door plane, in vanilla order, and costs
+  microseconds because the data is already resident. For `no-load-screen` that
+  makes the ordering identical to vanilla rather than merely close, so the
+  compatibility risk goes to zero. Copy godotwind's boundary test, signed
+  distance to the door plane with 0.3 m of hysteresis.
+
+That leaves one genuine question for `portal-cells`, narrower than the original
+list: the far cell's actors. If they tick before the player crosses, their
+`OnLoad` and their packages run early, which no prefetch trick hides. Ship the
+frozen far cell as the default, where ordering stays identical and the doorway
+shows a still room, and put the live far cell behind a setting. Settle which one
+mods tolerate by replaying a save through a door on both paths and diffing the
+event log, which the determinism hash and the 60 saves in `engine-refs/saves/`
+already make possible.
