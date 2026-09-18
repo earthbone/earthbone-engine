@@ -244,3 +244,46 @@ one name, two variables of one name, or two states of one name are still
 buildable and would break the same way through a different path, since the
 reader matches those by name too. Nothing here checks a name against the parent
 object's names, which is the other half of what Caprica enforces.
+
+## 7. `bsa`, fault injection on the read path
+
+Tier 1, in `crates/bsa/src/archive.rs`'s test module because the synthetic
+archive builders are `pub(crate)`.
+
+**Deviation from the plan, and why.** The plan says failpoints with the `fail`
+crate. There is nowhere useful to put one. The only IO on this path is a single
+`std::fs::read` in `Archive::open`, and everything after it works on a `Vec<u8>`
+already in memory, so there is no partial read to interrupt and no slow disk to
+simulate. Corrupting the bytes reaches the same code deterministically, without
+adding a dependency or a global failpoint registry, which also suits the
+project's rule about dependency scope. No `fail` dependency was added. The save
+write path, the other half the plan pairs this with, is in `crates/game` which
+another fork holds, so it is still not done.
+
+**One real defect, and it was the silent kind.** An archive states how long a
+file is once unpacked, and the index peeks that value. Neither decompressor
+checked it: `expected_size` was passed in and used only to size the output
+buffer. So a record declaring 4,119 bytes whose stream held 23 returned 23
+bytes and `Ok`. Every caller, the mesh reader, the texture decoder, the script
+loader, would then work on a truncated buffer believing it complete. Minimal
+case in `a_decompressed_file_shorter_than_declared_is_refused`: build the
+one-file compressed archive, overwrite the four declared-size bytes at the
+record's offset, leave the stream untouched.
+
+Fixed with `check_size`, a new `Error::DecompressedSize`, and the rule that a
+declared length of zero is not checked, since an off-disk index leaves it zero
+by design and an empty file is not a mismatch. Verified not to be too strict
+against every shipped archive: **172,961 files across all of them still read**,
+which is the test that would have caught an overzealous rule.
+
+**Two sweeps, both already clean.** Every prefix of a valid archive, and one
+flipped bit at every position and every bit of the header and tables. Both
+index-or-refuse and read-or-refuse without a panic. They found nothing, which
+is worth keeping anyway: they cost 0.24 s and they are the tests that fail when
+someone adds an unchecked slice.
+
+**What it cannot catch.** Nothing here exercises BA2, only BSA v104 and v105.
+Nothing covers a `dds_info` rebuild path corruption. The bit-flip sweep stops
+at the first 96 bytes, so the payload itself is only covered by truncation. And
+a declared size that is wrong but self-consistent, a stream that really does
+decompress to the lie, is indistinguishable from a healthy file by design.
