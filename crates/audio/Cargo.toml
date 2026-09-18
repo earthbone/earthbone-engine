@@ -1,0 +1,38 @@
+[package]
+name = "soe-audio"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-or-later"
+description = "Skyrim voice and sound formats: FUZ containers, LIP tracks, the xWMA container, and open codecs beside them"
+
+[lints]
+workspace = true
+
+[features]
+default = ["vorbis", "opus"]
+# Ogg Vorbis through lewton, a pure Rust decoder. On by default because a mod
+# author may ship Vorbis instead of xWMA and the engine has to play it.
+vorbis = ["dep:lewton", "dep:ogg"]
+# Ogg Opus through opus-decoder, also pure Rust and also on by default.
+opus = ["dep:ogg", "dep:opus-decoder"]
+# Decodes the WMA bitstream inside an xWMA file by running the `ffmpeg`
+# binary. Off by default: the container parse and the packet table never need
+# it, and an engine build should not depend on a program being installed. See
+# docs/audio.md, "The WMA bitstream", for why no in-process decoder is used
+# yet.
+xwma-ffmpeg = []
+
+[dependencies]
+thiserror = "2"
+soe-bsa = { path = "../bsa" }
+# Zero transitive dependencies, so reading the WAV a Creation Kit or a mod
+# tool writes costs one crate and no decoder of our own.
+hound = "3"
+lewton = { version = "0.10", optional = true }
+# Pinned to the major lewton already uses, so the tree carries one copy of
+# the Ogg page reader instead of two.
+ogg = { version = "0.8", optional = true }
+opus-decoder = { version = "0.1", optional = true }
+
+[dev-dependencies]
+soe-bsa = { path = "../bsa" }

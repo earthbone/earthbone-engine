@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
+    "crates/audio",
     "crates/bench",
     "crates/bsa",
     "crates/commonlib-shim",
