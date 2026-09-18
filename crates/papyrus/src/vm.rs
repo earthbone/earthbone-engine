@@ -26,6 +26,30 @@ use std::rc::Rc;
 use crate::pex::{Function, Object, Opcode, Operand, Script};
 use crate::value::{ArrayRef, ElementKind, ObjectId, Value};
 
+/// The most elements `ArrayCreate` will allocate.
+///
+/// The size comes from the script, so without a ceiling a single instruction
+/// allocates whatever a mod asks for. `fuzz-vm-run` found this with one
+/// instruction that asked for 26.5 GB. Vanilla has the same hazard and handles
+/// it with a warning to the author rather than a limit: the Creation Kit wiki
+/// says of `Utility.CreateArray` that "it is possible to create arrays longer
+/// than 128 elements, and size is treated as an unsigned integer. Negative
+/// numbers will produce extremely large values, which can cause major issues."
+///
+/// A million is far above anything a script legitimately builds, since vanilla
+/// arrays are conventionally capped at 128, and far below a size that
+/// threatens the process. Scripts that want more should be using a form list.
+pub const MAX_ARRAY_LEN: usize = 1 << 20;
+
+/// The longest string `StrCat` will build.
+///
+/// Same hazard as [`MAX_ARRAY_LEN`] reached a different way. `StrCat dest,
+/// dest, dest` doubles its input, so a loop passes a gigabyte in about thirty
+/// iterations and the interpreter's step budget never binds. `fuzz-vm-run`
+/// found it that way. A megabyte is far past any message, name or log line a
+/// script legitimately builds.
+pub const MAX_STRING_LEN: usize = 1 << 20;
+
 pub mod hash;
 pub mod state;
 
@@ -1552,8 +1576,18 @@ impl Vm {
             }
             Return => self.return_from(t, vals[0].clone()),
             StrCat => {
-                let s = format!("{}{}", self.describe(&vals[1]), self.describe(&vals[2]));
-                set(self, 0, Value::string(&s));
+                let (left, right) = (self.describe(&vals[1]), self.describe(&vals[2]));
+                // Checked before building, because building it is the failure.
+                let len = left.len().saturating_add(right.len());
+                if len > MAX_STRING_LEN {
+                    self.err(
+                        t,
+                        &format!("string length {len} is over the limit of {MAX_STRING_LEN}"),
+                    );
+                } else {
+                    let joined = format!("{left}{right}");
+                    set(self, 0, Value::string(&joined));
+                }
             }
             PropGet => {
                 let prop = name_at(0);
@@ -1584,6 +1618,12 @@ impl Vm {
                 let len = vals[1].as_int();
                 if len < 0 {
                     self.err(t, "array size below zero");
+                    set(self, 0, Value::None);
+                } else if len as usize > MAX_ARRAY_LEN {
+                    self.err(
+                        t,
+                        &format!("array size {len} is over the limit of {MAX_ARRAY_LEN}"),
+                    );
                     set(self, 0, Value::None);
                 } else {
                     set(self, 0, Value::Array(ArrayRef::new(kind, len as usize)));

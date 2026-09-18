@@ -12,6 +12,7 @@ cargo-fuzz = true
 
 [dependencies]
 libfuzzer-sys = "0.4"
+arbitrary = { version = "1", features = ["derive"] }
 
 [dependencies.soe-esm]
 path = "../crates/esm"
@@ -69,6 +70,23 @@ bench = false
 [[bin]]
 name = "fuzz-pex"
 path = "fuzz_targets/fuzz_pex.rs"
+test = false
+doc = false
+bench = false
+
+# Structure aware, next to the byte targets rather than replacing them. The
+# byte targets reach the parser's error paths, these two reach the code behind
+# a script that actually loads.
+[[bin]]
+name = "fuzz-pex-grammar"
+path = "fuzz_targets/fuzz_pex_grammar.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz-vm-run"
+path = "fuzz_targets/fuzz_vm_run.rs"
 test = false
 doc = false
 bench = false
