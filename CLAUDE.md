@@ -106,11 +106,14 @@ What the engine does today, per subsystem:
   reports identical-to-master overrides, deleted references and deleted
   navmeshes per plugin. Dirty plugins need no cleaning: a deleted reference
   resolves and starts disabled, a deleted navmesh drops with edge repair.
-- **Scripts.** 296 natives with state, the VM walks base classes on dispatch,
-  and the first real `start` on the installed game runs 423 quests through
-  1,517 native calls with one unresolved call left, a DLC native that branch
-  `natives-dlc` is registering. `SOEV`, `SOEW` (version 2) and `SOEG` save and
-  load.
+- **Scripts.** 347 natives with state plus 189 stubs, the VM walks base
+  classes on dispatch, and the first real `start` on the installed game runs
+  423 quests through 1,388 native calls with **zero** unresolved calls, which
+  the gated test now asserts. The five masters declare 686 natives in all and
+  the gated report lists what the registry still lacks, with call-site counts.
+  No script named for a DLC declares a native of its own: every DLC native is
+  an addition to a base class, so DLC coverage is measured by call sites, not
+  by script name. `SOEV`, `SOEW` (version 3) and `SOEG` save and load.
 - **Actors.** `NPC_` base stats, `PACK` packages with sandbox, travel and
   sleep on the navmesh graph (4,635 of 5,961 vanilla packages resolve), and a
   havok behavior interpreter that walks the vanilla `mt_behavior.hkx` with
@@ -125,10 +128,17 @@ What the engine does today, per subsystem:
   twice. `LoadOrder::winners` walks a sorted list so nothing depends on hash
   map order.
 
-Read `ENGINE-PLAN.md` for what is next and why. The near items are the DLC
-natives, then `TEST_PLAN.md` phase 2 (waiting on the user's go), the audio
-crate, mod data formats (SPID, KID, BOS, OAR), and the second passes on the
-behavior interpreter and packages.
+Read `ENGINE-PLAN.md` for what is next and why. The near items are
+`TEST_PLAN.md` phase 2 (waiting on the user's go), mod data formats (SPID,
+KID, BOS, OAR), and the second passes on the behavior interpreter and
+packages. Branch `audio` is in flight.
+
+A number falling can be a fix. Reading `XLKR` on actor references closed a
+real gap, the `ACHR` reader had ignored linked references, and the first
+start's native calls fell from 1,560 to 1,388 because scripts that used to
+get `None` from `GetLinkedRef` now get the reference and take a shorter
+branch. Same quests, same log lines. Check the cause before reading a drop
+as a regression.
 
 Known gaps, none of them silent: no UI (Scaleform is not executed, a native
 layer with an MCM compatible config API is round 6), no combat, magic or
