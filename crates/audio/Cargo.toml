@@ -24,8 +24,14 @@ xwma-ffmpeg = []
 
 [dependencies]
 thiserror = "2"
+soe-bsa = { path = "../bsa" }
+# Zero transitive dependencies, so reading the WAV a Creation Kit or a mod
+# tool writes costs one crate and no decoder of our own.
+hound = "3"
 lewton = { version = "0.10", optional = true }
-ogg = { version = "0.9", optional = true }
+# Pinned to the major lewton already uses, so the tree carries one copy of
+# the Ogg page reader instead of two.
+ogg = { version = "0.8", optional = true }
 opus-decoder = { version = "0.1", optional = true }
 
 [dev-dependencies]

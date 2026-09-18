@@ -3,12 +3,43 @@
 //! The FUZ container, which is how every voice line ships: one LIP track and
 //! one xWMA stream packed together under a twelve byte header.
 //!
-//! No open specification exists. The layout below was derived from the files
-//! in `Skyrim - Voices_en0.bsa` and confirmed over all 75,408 of them by the
-//! gated test, see `docs/audio.md` for the counts and for the one field that
-//! is still inferred.
+//! No format specification is published, but the container is small and
+//! several open tools already read it. The layout here follows
+//! `convert_sound_zappa.py` from Lord-Akkrand's Skyrim-NX-Toolkit, the one
+//! source-available implementation found, and is confirmed against every
+//! file in `Skyrim - Voices_en0.bsa` by the gated test. That script is also
+//! where the payload sniff comes from: the audio half is not always xWMA, it
+//! can be a plain `WAVE`, so the form is read rather than assumed. See
+//! `docs/audio.md` for the credits and the counts.
 
 use crate::error::{Error, Result};
+
+/// The signature the Switch port writes ahead of an Opus payload, from
+/// `NXOPUS2FUZ` in Skyrim-NX-Toolkit. Four bytes, then the duration in
+/// milliseconds, the channel count, a header size of 0x14 and the payload
+/// size.
+pub const NX_OPUS_SIGNATURE: [u8; 4] = [0x0A, 0x8D, 0xD5, 0xFF];
+
+/// What the audio half of a FUZ turns out to be.
+///
+/// The PC game ships `Xwma`, the Creation Kit and several mod tools write
+/// `Wave`, and the Switch port ships `NxOpus`. That last one is the whole
+/// argument for this crate's design: the same container carrying an open
+/// codec beside a proprietary one is not our invention, the publisher
+/// already did it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AudioKind {
+    /// A RIFF of form `XWMA`, read by [`crate::xwma`].
+    Xwma,
+    /// A RIFF of form `WAVE`, uncompressed or ADPCM.
+    Wave,
+    /// The Switch port's Opus payload, behind [`NX_OPUS_SIGNATURE`].
+    NxOpus,
+    /// A RIFF whose form is none of those, kept so a caller can report it.
+    OtherRiff([u8; 4]),
+    /// Nothing recognised, or too short to tell.
+    Unknown,
+}
 
 /// The four magic bytes every FUZ file opens with.
 pub const MAGIC: [u8; 4] = *b"FUZE";
@@ -79,6 +110,26 @@ impl<'a> Fuz<'a> {
         !self.lip.is_empty()
     }
 
+    /// Reads the RIFF form of the audio half rather than assuming xWMA.
+    /// Follows the Skyrim-NX-Toolkit script, which sniffs the same four
+    /// bytes.
+    #[must_use]
+    pub fn audio_kind(&self) -> AudioKind {
+        if self.audio.len() >= 4 && self.audio[..4] == NX_OPUS_SIGNATURE {
+            return AudioKind::NxOpus;
+        }
+        if self.audio.len() < 12 || &self.audio[..4] != b"RIFF" {
+            return AudioKind::Unknown;
+        }
+        let mut form = [0u8; 4];
+        form.copy_from_slice(&self.audio[8..12]);
+        match &form {
+            b"XWMA" => AudioKind::Xwma,
+            b"WAVE" => AudioKind::Wave,
+            _ => AudioKind::OtherRiff(form),
+        }
+    }
+
     /// Packs the two payloads back into a FUZ file. The round trip is exact,
     /// which is what the tests check.
     #[must_use]
@@ -101,7 +152,44 @@ pub fn write(version: u32, lip: &[u8], audio: &[u8]) -> Vec<u8> {
 
 #[cfg(test)]
 mod tests {
-    use super::{write, Error, Fuz, HEADER_LEN, VERSION};
+    use super::{write, AudioKind, Error, Fuz, HEADER_LEN, VERSION};
+
+    fn riff(form: [u8; 4]) -> Vec<u8> {
+        let mut out = Vec::new();
+        out.extend_from_slice(b"RIFF");
+        out.extend_from_slice(&4u32.to_le_bytes());
+        out.extend_from_slice(&form);
+        out
+    }
+
+    #[test]
+    fn the_audio_half_is_sniffed_not_assumed() {
+        let xwma = write(VERSION, &[1], &riff(*b"XWMA"));
+        assert_eq!(Fuz::split(&xwma).unwrap().audio_kind(), AudioKind::Xwma);
+
+        let wave = write(VERSION, &[], &riff(*b"WAVE"));
+        assert_eq!(Fuz::split(&wave).unwrap().audio_kind(), AudioKind::Wave);
+
+        let other = write(VERSION, &[], &riff(*b"AVI "));
+        assert_eq!(
+            Fuz::split(&other).unwrap().audio_kind(),
+            AudioKind::OtherRiff(*b"AVI ")
+        );
+
+        let junk = write(VERSION, &[], b"not a riff");
+        assert_eq!(Fuz::split(&junk).unwrap().audio_kind(), AudioKind::Unknown);
+    }
+
+    #[test]
+    fn the_switch_ports_opus_payload_is_recognised_by_its_signature() {
+        let mut payload = super::NX_OPUS_SIGNATURE.to_vec();
+        payload.extend_from_slice(&2000u32.to_le_bytes());
+        payload.extend_from_slice(&1u32.to_le_bytes());
+        payload.extend_from_slice(&0x14u32.to_le_bytes());
+        payload.extend_from_slice(&8u32.to_le_bytes());
+        let bytes = write(VERSION, &[1, 2], &payload);
+        assert_eq!(Fuz::split(&bytes).unwrap().audio_kind(), AudioKind::NxOpus);
+    }
 
     #[test]
     fn a_fuz_round_trips_through_split_and_write() {
@@ -147,9 +235,6 @@ mod tests {
 
     #[test]
     fn a_short_file_is_truncation() {
-        assert!(matches!(
-            Fuz::split(b"FUZ"),
-            Err(Error::Truncated { .. })
-        ));
+        assert!(matches!(Fuz::split(b"FUZ"), Err(Error::Truncated { .. })));
     }
 }
