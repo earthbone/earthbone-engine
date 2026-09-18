@@ -24,6 +24,7 @@
 
 pub mod ai;
 pub mod clock;
+pub mod determinism;
 pub mod harness;
 pub mod natives;
 pub mod npc;
@@ -118,6 +119,8 @@ pub struct Game {
     bound: Option<BindReport>,
     /// Instructions per pump round before the loop yields.
     pub budget: usize,
+    /// One hash per tick once [`Game::record_hashes`] turned it on.
+    hash_log: Option<Vec<determinism::TickHash>>,
 }
 
 impl Game {
@@ -131,6 +134,7 @@ impl Game {
             registered,
             bound: None,
             budget: 100_000,
+            hash_log: None,
         }
     }
 
@@ -457,6 +461,7 @@ impl Game {
         }
         self.vm.advance(real_seconds);
         self.run_until_idle(64);
+        self.push_tick_hash();
     }
 
     /// Drain queued events and calls into the VM. Returns how many.

@@ -326,7 +326,7 @@ fn scripts() -> Vec<Vec<u8>> {
     vec![lever, timer, mq01, fragments]
 }
 
-fn game() -> Game {
+pub fn game() -> Game {
     let bytes = test_plugin().to_bytes();
     let mut order = LoadOrder::new();
     order
