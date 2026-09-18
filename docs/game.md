@@ -242,11 +242,125 @@ registered, because the loaded `Alias.pex` declares the native on `Alias` and
 `call_method` stops at the declaring script instead of walking up to the
 registry's `Form` entry. Both are queued for the natives round.
 
+## Packages
+
+`crates/game/src/package.rs` is the `PACK` view, `crates/game/src/ai.rs`
+the evaluation and the actor driver. Layout from `wbRecord(PACK` and
+`wbConditions` in `wbDefinitionsTES5.pas` and the UESP `PACK` page, the
+stack semantics from the Creation Kit wiki (`EvaluatePackage - Actor`).
+
+**The view.** A package is a template plus data. The template (`PKCU`
+names it) carries the procedure tree, `ANAM` branches with `PNAM`
+procedure names and `PKC2` input indexes, and the data input names
+(`UNAM`, `BNAM`). A package built on it carries values for those inputs in
+its public data: `ANAM` type, then `CNAM` (bool, int, float), `PLDT`
+(location kind, form, radius), `PTDA` (target), `PDTO` or `TPIC` (topic),
+paired with the trailing `UNAM` list in order. `PKDT` general flags and
+preferred speed, `PSDT` schedule, header `CTDA` conditions with `CIS1` and
+`CIS2` ignored, `QNAM` owner quest, `CNAM` combat style, `IDLA` idles and
+the three `POBA`, `POEA`, `POCA` actions are read. The same tag means
+different things per section, so the reader is a state machine like the
+`QUST` one. `Quest::Alias` now reads `ALPC`, the alias packages.
+
+**The stack.** `ai::candidates` lists the alias packages of every running
+quest that holds the actor in an alias, higher quest priority first, then
+the `PKID` list of the actor's base (through one level of `TPLT` when the
+template flags say so). `ai::select` walks it and the first package whose
+schedule and conditions hold wins. `Once Per Day` skips a package that ran
+to completion on the current game day. `ai::evaluate` switches the actor
+when the winner changed and queues `OnPackageEnd`, `OnPackageChange` and
+`OnPackageStart` for its scripts. `Actor.EvaluatePackage` calls it at
+once, `Actor.GetCurrentPackage` returns the running package, and the
+driver re-evaluates every actor once a real second and whenever it has no
+package. The natives table rows above still list both natives as stubbed,
+they moved to the implemented column with this section.
+
+**Schedules.** `hour` `-1` is any time. A window starts at `hour:minute`
+and lasts `duration` minutes, wrapping past midnight, a zero duration
+lasts until midnight. Day of week 0 is Sundas, the day the game starts on,
+7 to 10 are the Creation Kit's weekday groups. The date and month checks
+count 31 day months from the 17th, an approximation no vanilla package
+uses (every shipped `PSDT` says any for both).
+
+**Conditions.** `CTDA` is 32 bytes: comparison in the high three bits of
+the type byte and the OR, use aliases, use global, use pack data and swap
+flags in the low five, a float or a `GLOB` to compare against, the
+function index from xEdit's `wbConditionFunctions`, two parameters, the
+run-on target, a reference and a third parameter. Conditions combine with
+AND, an OR flag joins a condition with the next into a group that passes
+when any member does. Run on subject, reference and quest alias resolve,
+the other targets fail. The functions with an implementation: GetDistance,
+GetActorValue (by the actor value index), GetCurrentTime, GetInSameCell,
+GetDead, GetItemCount, GetSleeping, GetQuestRunning, GetStage,
+GetStageDone, GetInCell, GetIsRace, GetIsSex, GetInFaction, GetIsID,
+GetFactionRank, GetGlobalValue, GetRandomPercent, GetLevel,
+GetPlayerControlsDisabled, GetIsReference, GetIsCurrentPackage,
+GetDayOfWeek, IsSneaking (always false, no sneak state yet), IsInCombat,
+IsInInterior, GetQuestCompleted, HasKeyword, GetIsAliasRef,
+GetActorValuePercent. Any other function fails its condition and is
+counted in `World::ai.unsupported_functions` by index, so a live run
+prints what the next round should add.
+
+**Procedures.** The template tree is not walked as a tree. Most vanilla
+templates are a sequence of a `Travel` to the place and what happens
+there, so `ai::procedure_of` takes the strongest procedure it knows from
+the chain, `Sleep` over `Sandbox` over `Travel`, with the first location
+input that procedure reads (falling back to the first location input of
+the chain). The driver then walks to the place itself. `Travel` walks to
+the location and holds, marking the package complete on arrival.
+`Sandbox` picks an idle marker or a piece of furniture (beds excluded)
+within the radius of the location, walks there, dwells 0.1 to 0.4 game
+hours, and picks the next, or a random point in the radius when the cell
+has no markers. `Sleep` walks to the bed the location names, or the
+nearest furniture in that cell whose base carries a keyword with `bed` in
+its editor id, and holds with `sleeping` set. Every other procedure name
+is `Procedure::Unsupported` and the actor stands where it is. Location
+kinds near reference, in cell, near package start, near editor location,
+near linked reference, alias reference and near self resolve, alias
+location does not (no `LCTN` model yet).
+
+**Walking.** `ai::nav_graph` builds `soe_navmesh::vanilla` over every
+winning `NAVM` on first use and remembers which cell each mesh sits in.
+A route is `find_path_between` from the actor to the place, the actor
+follows the waypoints at 110 units per real second (walk), 160 (fast
+walk), 180 (jog) or 375 (run) when the package's preferred speed flag is
+set, values from the default movement type since race movement data is
+not read yet. Passing an edge midpoint into another mesh moves the actor
+into that mesh's cell, which is how a travel across a cell link changes
+`RefState::cell`. Off the graph the route is a straight line. The driver
+skips the player, the dead and the unconscious.
+
+**Live run (2026-09-18).** Every one of the 5,961 `PACK` records in
+`Skyrim.esm` parses (104 templates, 2,384 with conditions, 1,545 with a
+scheduled hour) in 7.9 s including the plugin parse. 4,635 packages
+resolve to a procedure the driver runs: 2,467 `Travel`, 1,841 `Sandbox`,
+327 `Sleep`. The rest by template procedure: Patrol 378, Sit 300,
+HoldPosition 141, Follow 128, UseIdleMarker 61, UseMagic 52, Orbit 47,
+Escort 45, Activate 40, ForceGreet 31, Shout 26, Guard 24, Hover 14, Flee
+13, Find 11, Wait 11, DialogueActivate 2, UseWeapon 2. The `Prisoner`
+base carries no `PKID` list at all, so the innkeeper `Hulda` stands in:
+her stack is `WhiterunInnkeeperPackage`, which resolves to `Sandbox` at
+every hour tried, and no condition function on the way was unsupported.
+The synthetic tests (`tests/packages.rs`) walk a guard across two
+navmeshed cells on a travel package once a quest stage unlocks it, sandbox
+to an idle marker, sleep on schedule and wake at 08:00, take an alias
+package over the base list, switch at once from a script's
+`EvaluatePackage`, and keep walking after a save and load.
+
+**Not done.** Procedure trees as trees (sequence, random, simultaneous,
+stacked branches with their own conditions), the other 18 procedures,
+package fragments (`VMAD` on `PACK`), the `On Begin`, `On End` and `On
+Change` idles and topics, once per day for packages that end without
+arriving, `Must Complete`, interrupt flags, combat overrides, door
+unlocking flags, race movement speeds, the `Package Data` and `Event Data`
+condition targets, and every condition function outside the list above.
+
 ## Save and load
 
 `World::save_state(&self) -> Vec<u8>` and `World::load_state(&mut self,
 bytes) -> Result<(), VmError>` write and read the run-time half of the form
-table, magic `SOEW`, version 1, in the same `Writer`/`Reader` encoding as
+table, magic `SOEW`, version 2 (version 2 added the package driver state
+to every actor), in the same `Writer`/`Reader` encoding as
 `soe_papyrus::vm::state`, an `ArrayPool` and `ArrayTable` of its own ahead of
 the body for the `Value` arguments a pending event or call is carrying.
 
@@ -289,8 +403,8 @@ notification fired, and the alias resolved to the lever.
 
 - Race records are not read, so race starting stats and the skill bonuses
   they carry are missing from actor values.
-- No packages, AI, combat, magic, dialogue, scenes, perks. Their natives are
-  stubs.
+- No combat, magic, dialogue, scenes, perks. Their natives are stubs.
+  Packages run three procedures, see the Packages section for the rest.
 - Quest aliases are filled only from `ALFR`. Conditions, `ALCO`, location and
   reference fill types are not evaluated.
 - `SetStage` does not display the log entry or play the quest sound.

@@ -1095,6 +1095,7 @@ version = "0.1.0"
 dependencies = [
  "soe-bsa",
  "soe-esm",
+ "soe-navmesh",
  "soe-papyrus",
  "soe-trace",
 ]

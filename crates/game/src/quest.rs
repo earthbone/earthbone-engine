@@ -73,6 +73,8 @@ pub struct Alias {
     pub location: bool,
     /// `ALFR`: the reference the alias holds from the start.
     pub forced_ref: Option<u32>,
+    /// `ALPC`: packages the alias puts on its actor, in order.
+    pub packages: Vec<u32>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -190,8 +192,18 @@ impl Quest {
                         flags: 0,
                         location: sub.tag == Tag::new(b"ALLS"),
                         forced_ref: None,
+                        packages: Vec::new(),
                     });
                     section = Section::Alias;
+                }
+                b"ALPC" => {
+                    if d.len() < 4 {
+                        return Err(short("ALPC"));
+                    }
+                    if let Some(a) = q.aliases.last_mut() {
+                        a.packages
+                            .push(u32::from_le_bytes([d[0], d[1], d[2], d[3]]));
+                    }
                 }
                 b"ALID" => {
                     if let Some(a) = q.aliases.last_mut() {
@@ -319,6 +331,28 @@ pub fn with_alias(rec: Record, id: u32, name: &str, forced_ref: Option<u32>) -> 
         Some(r) => rec.sub(Tag::new(b"ALFR"), r.to_le_bytes()),
         None => rec,
     };
+    rec.sub(Tag::new(b"ALED"), Vec::new())
+}
+
+/// An alias with packages. Same shape as [`with_alias`], the `ALPC` list
+/// sits before `ALED`.
+pub fn with_alias_packages(
+    rec: Record,
+    id: u32,
+    name: &str,
+    forced_ref: Option<u32>,
+    packages: &[u32],
+) -> Record {
+    let mut rec = rec
+        .sub(Tag::new(b"ALST"), id.to_le_bytes())
+        .zsub(Tag::new(b"ALID"), name)
+        .sub(Tag::new(b"FNAM"), 0u32.to_le_bytes());
+    if let Some(r) = forced_ref {
+        rec = rec.sub(Tag::new(b"ALFR"), r.to_le_bytes());
+    }
+    for p in packages {
+        rec = rec.sub(Tag::new(b"ALPC"), p.to_le_bytes());
+    }
     rec.sub(Tag::new(b"ALED"), Vec::new())
 }
 

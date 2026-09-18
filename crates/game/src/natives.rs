@@ -147,7 +147,7 @@ pub fn register(vm: &mut Vm, world: &Shared) -> Registered {
 
 /// Hand-kept count of the non-stub natives registered below. The test in
 /// this module checks it against the registry.
-pub const NATIVE_COUNT: usize = 141;
+pub const NATIVE_COUNT: usize = 143;
 
 fn declare_parents(vm: &mut Vm) {
     for (class, parent) in [
@@ -666,6 +666,14 @@ fn actor(vm: &mut Vm, w: &Shared) {
     method!(vm, w, "Actor", "IsInCombat", |world, call, me| b(world
         .actor(me)
         .is_some_and(|a| a.in_combat)));
+    method!(vm, w, "Actor", "EvaluatePackage", |world, call, me| {
+        world.evaluate_package(me, alloc!(call));
+        none()
+    });
+    method!(vm, w, "Actor", "GetCurrentPackage", |world, call, me| {
+        let package = world.current_package(me);
+        form_value(world, call, package)
+    });
     method!(vm, w, "Actor", "StartCombat", |world, call, me| {
         if let Some(a) = world.actor(me) {
             a.in_combat = true;
@@ -1341,7 +1349,6 @@ fn stubs(vm: &mut Vm) -> usize {
         ("ObjectReference", "DamageObject"),
         ("ObjectReference", "KnockAreaEffect"),
         ("ObjectReference", "PushActorAway"),
-        ("Actor", "EvaluatePackage"),
         ("Actor", "SetAlert"),
         ("Actor", "SetEssential"),
         ("Actor", "SetOutfit"),
@@ -1373,7 +1380,6 @@ fn stubs(vm: &mut Vm) -> usize {
         ("Actor", "GetEquippedWeapon"),
         ("Actor", "GetEquippedShield"),
         ("Actor", "GetEquippedSpell"),
-        ("Actor", "GetCurrentPackage"),
         ("Actor", "GetCrimeFaction"),
         ("Actor", "GetVoiceRecoveryTime"),
         ("Actor", "Dismount"),
