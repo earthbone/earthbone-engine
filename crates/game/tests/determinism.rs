@@ -178,12 +178,12 @@ fn run_real_start(data: &Path) -> Vec<TickHash> {
 }
 
 /// The first divergence the detector found (2026-09-18): `Game::start`
-/// starts quests in `LoadOrder::winners_of` order, which walks a `HashMap`,
-/// so two runs start the 423 quests in different orders and every
-/// subsystem differs from tick 0. Kept as the honest record of that state
-/// until the fix lands, see `docs/validation.md`, "Determinism".
+/// started quests in `LoadOrder::winners_of` order, which walked a
+/// `HashMap`, so two runs started the 423 quests in different orders and
+/// every subsystem differed from tick 0. `winners_of` now yields id order,
+/// see `docs/validation.md`, "Determinism", and this run is the acceptance
+/// check for that.
 #[test]
-#[ignore = "known: Game::start orders quests by HashMap iteration (LoadOrder::winners_of)"]
 fn the_installed_game_hashes_the_same_over_six_hundred_ticks() {
     let Some(data) = std::env::var_os("SKYRIM_DATA").map(PathBuf::from) else {
         eprintln!("SKYRIM_DATA not set, skipping the real-file test");

@@ -5,11 +5,16 @@
 //! tables directly. Maps go in by key order, floats by bit pattern, and
 //! the load order and the editor id table stay out, they are inputs.
 
+use std::collections::BTreeSet;
+
 use soe_esm::records::Transform;
 use soe_esm::GlobalFormId;
 use soe_papyrus::vm::hash::StateHasher;
 
-use super::{ActorState, Handle, Pending, QuestState, RefState, World};
+use super::{
+    ActorBaseState, ActorState, CellState, FactionState, Handle, LeveledList, LocationState,
+    Pending, QuestState, RefState, World,
+};
 use crate::ai::{AiState, Procedure};
 
 /// The world's state hash, one part per subsystem.
@@ -31,11 +36,24 @@ pub struct WorldHash {
     pub output: u64,
     /// The package driver's counters.
     pub ai: u64,
+    /// Leveled lists, locations, factions, actor bases and cells built from
+    /// records on first use, with what scripts changed on them.
+    pub forms: u64,
+    /// `SetGameSetting*` overrides and the INI overlay.
+    pub settings: u64,
+    /// Inventory filters, sleep, stats, animation and line-of-sight
+    /// registrations.
+    pub listeners: u64,
+    /// Tracked stats, the player flags, words of power, achievements, the
+    /// last ridden horse.
+    pub flags: u64,
+    /// Playing scenes, sound instances and recorded spell casts.
+    pub scenes: u64,
 }
 
 impl WorldHash {
     #[must_use]
-    pub fn parts(&self) -> [(&'static str, u64); 12] {
+    pub fn parts(&self) -> [(&'static str, u64); 17] {
         [
             ("world.clock", self.clock),
             ("world.rng", self.rng),
@@ -49,6 +67,11 @@ impl WorldHash {
             ("world.timers", self.timers),
             ("world.output", self.output),
             ("world.ai", self.ai),
+            ("world.forms", self.forms),
+            ("world.settings", self.settings),
+            ("world.listeners", self.listeners),
+            ("world.flags", self.flags),
+            ("world.scenes", self.scenes),
         ]
     }
 }
@@ -135,6 +158,71 @@ fn ref_state(h: &mut StateHasher, s: &RefState) {
         }
     }
     h.bool(s.is_actor);
+    opt_form(h, s.owner);
+    opt_form(h, s.location);
+    h.bool(s.on_map);
+    h.bool(s.fast_travel);
+    h.bool(s.destroyed);
+    h.bool(s.ignore_friendly_hits);
+}
+
+fn form_set(h: &mut StateHasher, set: &BTreeSet<GlobalFormId>) {
+    h.len(set.len());
+    for id in set {
+        form(h, *id);
+    }
+}
+
+fn leveled_list(h: &mut StateHasher, l: &LeveledList) {
+    h.u8(l.chance_none);
+    h.u8(l.flags);
+    h.u8(l.base_chance_none);
+    h.len(l.base_entries);
+    h.len(l.entries.len());
+    for e in &l.entries {
+        h.u16(e.level);
+        form(h, e.form);
+        h.u16(e.count);
+    }
+}
+
+fn location_state(h: &mut StateHasher, l: &LocationState) {
+    h.bool(l.cleared);
+    h.len(l.keyword_data.len());
+    for (k, v) in &l.keyword_data {
+        form(h, *k);
+        h.f32(*v);
+    }
+}
+
+fn faction_state(h: &mut StateHasher, f: &FactionState) {
+    h.len(f.reactions.len());
+    for (k, v) in &f.reactions {
+        form(h, *k);
+        h.i32(*v);
+    }
+    h.i32(f.crime_gold_violent);
+    h.i32(f.crime_gold_nonviolent);
+    h.i32(f.infamy_violent);
+    h.i32(f.infamy_nonviolent);
+    h.bool(f.player_expelled);
+    h.bool(f.player_enemy);
+    h.bool(f.tracks_crime);
+}
+
+fn actor_base_state(h: &mut StateHasher, a: &ActorBaseState) {
+    for flag in [a.essential, a.protected, a.invulnerable, a.unique, a.female] {
+        h.bool(flag);
+    }
+    for f in [a.race, a.class, a.outfit, a.sleep_outfit] {
+        opt_form(h, f);
+    }
+    h.i32(a.dead_count);
+}
+
+fn cell_state(h: &mut StateHasher, c: &CellState) {
+    opt_form(h, c.owner);
+    h.bool(c.public);
 }
 
 fn ai_state(h: &mut StateHasher, a: &AiState) {
@@ -216,6 +304,33 @@ fn actor_state(h: &mut StateHasher, a: &ActorState) {
         form(h, *e);
     }
     ai_state(h, &a.ai);
+    form_set(h, &a.perks);
+    for flag in [
+        a.alerted,
+        a.sneaking,
+        a.weapon_drawn,
+        a.restrained,
+        a.arrested,
+        a.attack_on_sight,
+        a.dont_move,
+        a.allow_pc_dialogue,
+    ] {
+        h.bool(flag);
+    }
+    h.len(a.relationships.len());
+    for (id, rank) in &a.relationships {
+        form(h, *id);
+        h.i32(*rank);
+    }
+    for id in [
+        a.combat_target,
+        a.crime_faction,
+        a.outfit,
+        a.sleep_outfit,
+        a.killer,
+    ] {
+        opt_form(h, id);
+    }
 }
 
 fn quest_state(h: &mut StateHasher, q: &QuestState) {
@@ -240,6 +355,11 @@ fn quest_state(h: &mut StateHasher, q: &QuestState) {
         h.u32(*k);
         opt_form(h, *v);
     });
+    h.len(q.instance_globals.len());
+    for (id, v) in &q.instance_globals {
+        form(h, *id);
+        h.f32(*v);
+    }
 }
 
 impl World {
@@ -376,6 +496,113 @@ impl World {
         }
         let ai = h.finish();
 
+        let mut h = StateHasher::new();
+        h.map(&self.leveled_lists, |h, id, l| {
+            form(h, *id);
+            leveled_list(h, l);
+        });
+        h.map(&self.locations, |h, id, l| {
+            form(h, *id);
+            location_state(h, l);
+        });
+        h.map(&self.factions, |h, id, f| {
+            form(h, *id);
+            faction_state(h, f);
+        });
+        h.map(&self.actor_bases, |h, id, a| {
+            form(h, *id);
+            actor_base_state(h, a);
+        });
+        h.map(&self.cells, |h, id, c| {
+            form(h, *id);
+            cell_state(h, c);
+        });
+        let forms = h.finish();
+
+        let mut h = StateHasher::new();
+        h.map(&self.settings, |h, k, v| {
+            h.str(k);
+            h.value(v);
+        });
+        h.map(&self.ini, |h, k, v| {
+            h.str(k);
+            h.str(v);
+        });
+        let settings = h.finish();
+
+        let mut h = StateHasher::new();
+        h.map(&self.inventory_filters, |h, o, list| {
+            h.u64(o.0);
+            h.len(list.len());
+            for f in list {
+                form(h, *f);
+            }
+        });
+        h.len(self.sleep_listeners.len());
+        for o in &self.sleep_listeners {
+            h.u64(o.0);
+        }
+        h.len(self.stats_listeners.len());
+        for o in &self.stats_listeners {
+            h.u64(o.0);
+        }
+        h.len(self.animation_listeners.len());
+        for l in &self.animation_listeners {
+            h.u64(l.listener.0);
+            form(&mut h, l.sender);
+            h.str(&l.event);
+        }
+        h.len(self.los_listeners.len());
+        for l in &self.los_listeners {
+            h.u64(l.listener.0);
+            form(&mut h, l.viewer);
+            form(&mut h, l.target);
+            h.bool(l.single);
+            h.bool(l.gain);
+        }
+        let listeners = h.finish();
+
+        let mut h = StateHasher::new();
+        h.len(self.stats.len());
+        for (k, v) in &self.stats {
+            h.str(k);
+            h.i32(*v);
+        }
+        for flag in [
+            self.fast_travel,
+            self.player_ai_driven,
+            self.in_chargen,
+            self.beast_form,
+        ] {
+            h.bool(flag);
+        }
+        form_set(&mut h, &self.words_taught);
+        form_set(&mut h, &self.words_unlocked);
+        h.len(self.achievements.len());
+        for a in &self.achievements {
+            h.i32(*a);
+        }
+        opt_form(&mut h, self.last_ridden_horse);
+        let flags = h.finish();
+
+        let mut h = StateHasher::new();
+        form_set(&mut h, &self.scenes);
+        h.len(self.sound_instances.len());
+        for (id, (sound, source, volume)) in &self.sound_instances {
+            h.i32(*id);
+            form(&mut h, *sound);
+            form(&mut h, *source);
+            h.f32(*volume);
+        }
+        h.i32(self.next_sound);
+        h.len(self.spell_casts.len());
+        for (spell, source, target) in &self.spell_casts {
+            form(&mut h, *spell);
+            form(&mut h, *source);
+            opt_form(&mut h, *target);
+        }
+        let scenes = h.finish();
+
         WorldHash {
             clock,
             rng,
@@ -389,6 +616,279 @@ impl World {
             timers,
             output,
             ai,
+            forms,
+            settings,
+            listeners,
+            flags,
+            scenes,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::{BTreeMap, BTreeSet, HashMap};
+
+    use soe_esm::{GlobalFormId, LoadOrder};
+    use soe_papyrus::{ObjectId, Value};
+
+    use super::super::{
+        ActorBaseState, ActorState, AnimationListener, CellState, FactionState, LeveledEntry,
+        LeveledList, LocationState, LosListener, QuestState, RefState, World,
+    };
+    use super::WorldHash;
+    use crate::quest::{build_record, Quest};
+
+    fn id(object: u32) -> GlobalFormId {
+        GlobalFormId { file: 0, object }
+    }
+
+    /// A world with one built reference, actor and quest, so a mutation on
+    /// any of their fields has something to land on.
+    fn seeded() -> World {
+        let mut w = World::new(LoadOrder::new());
+        let mut r = RefState::new(None);
+        r.is_actor = true;
+        w.refs.insert(id(1), r);
+        w.actors.insert(id(1), ActorState::default());
+        let def = Quest::from_record(&build_record(2, "SeedQuest", 0), false).expect("seed quest");
+        w.quests.insert(
+            id(2),
+            QuestState {
+                def,
+                running: false,
+                completed: false,
+                failed: false,
+                active: false,
+                current: 0,
+                highest: 0,
+                done: BTreeSet::new(),
+                objectives: BTreeMap::new(),
+                aliases: HashMap::new(),
+                instance_globals: BTreeMap::new(),
+            },
+        );
+        w
+    }
+
+    fn refs(h: &WorldHash) -> u64 {
+        h.refs
+    }
+
+    fn actors(h: &WorldHash) -> u64 {
+        h.actors
+    }
+
+    fn quests(h: &WorldHash) -> u64 {
+        h.quests
+    }
+
+    fn forms(h: &WorldHash) -> u64 {
+        h.forms
+    }
+
+    fn settings(h: &WorldHash) -> u64 {
+        h.settings
+    }
+
+    fn listeners(h: &WorldHash) -> u64 {
+        h.listeners
+    }
+
+    fn flags(h: &WorldHash) -> u64 {
+        h.flags
+    }
+
+    fn scenes(h: &WorldHash) -> u64 {
+        h.scenes
+    }
+
+    /// Applies `mutate` to a seeded world and asserts that exactly the
+    /// named part moved, so a field a future change forgets to hash shows
+    /// up here as a failing case rather than as silent noise later.
+    fn moves(name: &str, part: fn(&WorldHash) -> u64, mutate: impl FnOnce(&mut World)) {
+        let mut w = seeded();
+        let before = w.state_hash();
+        mutate(&mut w);
+        let after = w.state_hash();
+        assert_ne!(part(&before), part(&after), "{name} did not move its part");
+        let moved: Vec<&str> = before
+            .parts()
+            .iter()
+            .zip(after.parts())
+            .filter(|(b, a)| b.1 != a.1)
+            .map(|(b, _)| b.0)
+            .collect();
+        assert_eq!(moved.len(), 1, "{name} moved more than one part: {moved:?}");
+    }
+
+    fn actor(w: &mut World) -> &mut ActorState {
+        w.actors.get_mut(&id(1)).expect("seeded actor")
+    }
+
+    fn reference(w: &mut World) -> &mut RefState {
+        w.refs.get_mut(&id(1)).expect("seeded reference")
+    }
+
+    #[test]
+    fn every_reference_field_moves_the_refs_part() {
+        moves("owner", refs, |w| reference(w).owner = Some(id(9)));
+        moves("location", refs, |w| reference(w).location = Some(id(9)));
+        moves("on_map", refs, |w| reference(w).on_map = true);
+        moves("fast_travel", refs, |w| reference(w).fast_travel = true);
+        moves("destroyed", refs, |w| reference(w).destroyed = true);
+        moves("ignore_friendly_hits", refs, |w| {
+            reference(w).ignore_friendly_hits = true;
+        });
+    }
+
+    #[test]
+    fn every_actor_field_moves_the_actors_part() {
+        moves("perks", actors, |w| {
+            actor(w).perks.insert(id(9));
+        });
+        moves("alerted", actors, |w| actor(w).alerted = true);
+        moves("sneaking", actors, |w| actor(w).sneaking = true);
+        moves("weapon_drawn", actors, |w| actor(w).weapon_drawn = true);
+        moves("restrained", actors, |w| actor(w).restrained = true);
+        moves("arrested", actors, |w| actor(w).arrested = true);
+        moves("attack_on_sight", actors, |w| {
+            actor(w).attack_on_sight = true;
+        });
+        moves("dont_move", actors, |w| actor(w).dont_move = true);
+        moves("allow_pc_dialogue", actors, |w| {
+            actor(w).allow_pc_dialogue = true;
+        });
+        moves("relationships", actors, |w| {
+            actor(w).relationships.insert(id(9), 2);
+        });
+        moves("combat_target", actors, |w| {
+            actor(w).combat_target = Some(id(9));
+        });
+        moves("crime_faction", actors, |w| {
+            actor(w).crime_faction = Some(id(9));
+        });
+        moves("outfit", actors, |w| actor(w).outfit = Some(id(9)));
+        moves("sleep_outfit", actors, |w| {
+            actor(w).sleep_outfit = Some(id(9));
+        });
+        moves("killer", actors, |w| actor(w).killer = Some(id(9)));
+    }
+
+    #[test]
+    fn quest_instance_globals_move_the_quests_part() {
+        moves("instance_globals", quests, |w| {
+            w.quests
+                .get_mut(&id(2))
+                .expect("seeded quest")
+                .instance_globals
+                .insert(id(9), 1.5);
+        });
+    }
+
+    #[test]
+    fn every_form_table_moves_the_forms_part() {
+        moves("leveled_lists", forms, |w| {
+            w.leveled_lists.insert(
+                id(3),
+                LeveledList {
+                    chance_none: 10,
+                    flags: 0,
+                    entries: vec![LeveledEntry {
+                        level: 1,
+                        form: id(9),
+                        count: 1,
+                    }],
+                    base_entries: 1,
+                    base_chance_none: 10,
+                },
+            );
+        });
+        moves("locations", forms, |w| {
+            w.locations.insert(id(4), LocationState::default());
+        });
+        moves("factions", forms, |w| {
+            w.factions.insert(id(5), FactionState::default());
+        });
+        moves("actor_bases", forms, |w| {
+            w.actor_bases.insert(id(6), ActorBaseState::default());
+        });
+        moves("cells", forms, |w| {
+            w.cells.insert(id(7), CellState::default());
+        });
+    }
+
+    #[test]
+    fn settings_and_ini_move_the_settings_part() {
+        moves("settings", settings, |w| {
+            w.settings.insert("fjumpheight".into(), Value::Float(76.0));
+        });
+        moves("ini", settings, |w| {
+            w.ini.insert("bAlwaysActive".into(), "1".into());
+        });
+    }
+
+    #[test]
+    fn every_listener_list_moves_the_listeners_part() {
+        moves("inventory_filters", listeners, |w| {
+            w.inventory_filters.insert(ObjectId(1), vec![id(9)]);
+        });
+        moves("sleep_listeners", listeners, |w| {
+            w.sleep_listeners.push(ObjectId(1));
+        });
+        moves("stats_listeners", listeners, |w| {
+            w.stats_listeners.push(ObjectId(1));
+        });
+        moves("animation_listeners", listeners, |w| {
+            w.animation_listeners.push(AnimationListener {
+                listener: ObjectId(1),
+                sender: id(1),
+                event: "weaponSwing".into(),
+            });
+        });
+        moves("los_listeners", listeners, |w| {
+            w.los_listeners.push(LosListener {
+                listener: ObjectId(1),
+                viewer: id(1),
+                target: id(9),
+                single: true,
+                gain: true,
+            });
+        });
+    }
+
+    #[test]
+    fn every_player_flag_moves_the_flags_part() {
+        moves("stats", flags, |w| {
+            w.stats.insert("Locks Picked".into(), 1);
+        });
+        moves("fast_travel", flags, |w| w.fast_travel = false);
+        moves("player_ai_driven", flags, |w| w.player_ai_driven = true);
+        moves("in_chargen", flags, |w| w.in_chargen = true);
+        moves("beast_form", flags, |w| w.beast_form = true);
+        moves("words_taught", flags, |w| {
+            w.words_taught.insert(id(9));
+        });
+        moves("words_unlocked", flags, |w| {
+            w.words_unlocked.insert(id(9));
+        });
+        moves("achievements", flags, |w| w.achievements.push(3));
+        moves("last_ridden_horse", flags, |w| {
+            w.last_ridden_horse = Some(id(9));
+        });
+    }
+
+    #[test]
+    fn scenes_sounds_and_casts_move_the_scenes_part() {
+        moves("scenes", scenes, |w| {
+            w.scenes.insert(id(9));
+        });
+        moves("sound_instances", scenes, |w| {
+            w.sound_instances.insert(1, (id(8), id(1), 1.0));
+        });
+        moves("next_sound", scenes, |w| w.next_sound = 1);
+        moves("spell_casts", scenes, |w| {
+            w.spell_casts.push((id(8), id(1), None));
+        });
     }
 }

@@ -98,11 +98,17 @@ A scenario that replays the same way twice can be bisected, recorded and
 compared across machines. The detector for that is a hash of the whole
 run-time state after every tick: `Game::state_hash` folds
 `World::state_hash` (`crates/game/src/world/hash.rs`) and `Vm::state_hash`
-(`crates/papyrus/src/vm/hash.rs`) into one `TickHash` with eighteen named
-parts, twelve for the world (clock, RNG, object ids, references, actors,
-quests, globals, form lists, pending queue, timers, output, AI counters) and
-six for the VM (objects, instances, threads, latents, log, native call
-counts). The hasher is FNV-1a over 64 bits with no per-process seed, maps are
+(`crates/papyrus/src/vm/hash.rs`) into one `TickHash` with twenty-three
+named parts, seventeen for the world (clock, RNG, object ids, references,
+actors, quests, globals, form lists, pending queue, timers, output, AI
+counters, and since the world split: the form tables built on first use
+(leveled lists, locations, factions, actor bases, cells), settings and the
+INI overlay, listener registrations, the player flags and tracked stats,
+scenes with sound instances and spell casts) and six for the VM (objects,
+instances, threads, latents, log, native call counts). A unit test in
+`world/hash.rs` mutates every field the natives round added and asserts that
+exactly its part moves, so a field a later change forgets to hash fails
+there rather than passing as silent agreement. The hasher is FNV-1a over 64 bits with no per-process seed, maps are
 visited in key order and floats go in as bit patterns, so the hash itself
 never reports `HashMap` iteration noise. `Game::record_hashes` turns the log
 on, `Game::hash_log` reads it, and `determinism::compare` names the first
@@ -129,26 +135,30 @@ for 600 ticks at 60 a second.
 
 ### Known sources
 
-Confirmed by the detector, to fix in round 5:
+Confirmed by the detector and fixed:
 
-1. `Game::start` starts the Start Game Enabled quests in the order
-   `LoadOrder::winners_of` yields them, and that walks the load order's
-   `HashMap` (`crates/esm/src/load_order.rs`, "in no particular order" by its
-   own doc line). Two runs start the 423 quests in different orders, so alias
+1. `Game::start` started the Start Game Enabled quests in the order
+   `LoadOrder::winners_of` yielded them, and that walked the load order's
+   `HashMap`. Two runs started the 423 quests in different orders, so alias
    object ids, `OnInit` thread order, timers, the log and the native call
-   counts all differ from the first tick. Sorting the ids before starting,
-   which the sorted gated test does from the outside, removes every
-   divergence over 600 ticks. The fix belongs in `winners_of` (a sorted
-   result) or in `start` (sort before starting), and the ignored test
-   `the_installed_game_hashes_the_same_over_six_hundred_ticks` is the
-   acceptance check.
+   counts all differed from the first tick. Fixed on the `world-split`
+   branch: the load order keeps every winner in id order (owning file
+   position, then object) in a list built by the first walk and dropped
+   when a file is added, and `winners`, `winners_of` and `overridden` all
+   read it. The one-time sort is traced as `esm.sort_winners`. The gated
+   test `the_installed_game_hashes_the_same_over_six_hundred_ticks` runs
+   un-ignored and passes. The `CellIndex` build that reads `winners` got
+   faster, the sorted list walks records in file order: `soe-bench
+   cell-index WhiterunBanneredMare` median 0.275 s before, 0.059 s after
+   (five runs, the first run pays the sort and the median excludes it), and
+   the Whiterun 3 by 3 block, whose exterior resolve walks `winners_of`, moved
+   from 13 ms to 15 ms on 24 threads, within noise.
+2. `LoadOrder::winners` and `LoadOrder::overridden` walked the same map.
+   Closed by the same change, every walk is id ordered now.
 
 Candidates the detector has not caught yet, kept here because the same
 pattern is in the code and a longer or wider scenario can reach them:
 
-2. `LoadOrder::winners` and `LoadOrder::overridden` walk the same map.
-   `CellIndex::build` reads `winners`, so any consumer that keeps the first
-   of two equal candidates in iteration order is order dependent.
 3. The world keeps one shared xorshift RNG (`World::random_u64`). Any new
    caller shifts every later draw, so a replay recorded before a native
    gained a random call will not match after. A stream per system or per

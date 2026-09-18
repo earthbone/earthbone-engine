@@ -16,6 +16,7 @@
 //! itself never needs it.
 
 use std::collections::HashMap;
+use std::sync::OnceLock;
 
 use crate::cell_index::CellIndex;
 use crate::error::{Error, Result};
@@ -66,6 +67,11 @@ pub struct LoadOrder {
     /// Built on request, dropped whenever a file is added since every
     /// placement may change.
     cell_index: Option<CellIndex>,
+    /// Every winner in id order, built on the first walk and dropped when a
+    /// file is added. The table is a `HashMap`, so walking it directly gave
+    /// a different order per process and `Game::start` inherited it, see
+    /// `docs/validation.md`, "Determinism".
+    sorted: OnceLock<Vec<(GlobalFormId, RecordRef)>>,
 }
 
 pub const MAX_REGULAR_SLOTS: u8 = 0xFE;
@@ -125,6 +131,7 @@ impl LoadOrder {
         }
         self.files.push(file);
         self.cell_index = None;
+        self.sorted = OnceLock::new();
         Ok(file_index)
     }
 
@@ -199,28 +206,43 @@ impl LoadOrder {
         self.table.is_empty()
     }
 
-    /// Every id with its winning record reference, in no particular order.
-    pub fn winners(&self) -> impl Iterator<Item = (GlobalFormId, RecordRef)> + '_ {
-        self.table
-            .iter()
-            .filter_map(|(id, refs)| Some((*id, *refs.last()?)))
+    /// The winners in id order, owning file position first, then object.
+    /// One sort per load order, paid by the first walk.
+    fn sorted(&self) -> &[(GlobalFormId, RecordRef)] {
+        self.sorted.get_or_init(|| {
+            let _span =
+                soe_trace::Span::with_payload("esm.sort_winners", "esm", self.table.len() as u64);
+            let mut all: Vec<(GlobalFormId, RecordRef)> = self
+                .table
+                .iter()
+                .filter_map(|(id, refs)| Some((*id, *refs.last()?)))
+                .collect();
+            all.sort_unstable_by_key(|(id, _)| *id);
+            all
+        })
     }
 
-    /// Winning records of one signature, in no particular order.
+    /// Every id with its winning record reference, in id order: the owning
+    /// file's load order position first, then the object id.
+    pub fn winners(&self) -> impl Iterator<Item = (GlobalFormId, RecordRef)> + '_ {
+        self.sorted().iter().copied()
+    }
+
+    /// Winning records of one signature, in the same id order as
+    /// [`LoadOrder::winners`].
     pub fn winners_of(&self, tag: Tag) -> impl Iterator<Item = (GlobalFormId, &Record)> {
-        self.table.iter().filter_map(move |(id, refs)| {
-            let r = self.record(*refs.last()?);
+        self.sorted().iter().filter_map(move |(id, rref)| {
+            let r = self.record(*rref);
             (r.tag == tag).then_some((*id, r))
         })
     }
 
     /// Ids whose winning record does not come from the file that owns the
-    /// id, which is what "overridden" means in the conflict sense.
+    /// id, which is what "overridden" means in the conflict sense. Id order.
     pub fn overridden(&self) -> impl Iterator<Item = GlobalFormId> + '_ {
-        self.table.iter().filter_map(|(id, refs)| {
-            let last = refs.last()?;
-            (last.file != id.file as usize).then_some(*id)
-        })
+        self.sorted()
+            .iter()
+            .filter_map(|(id, last)| (last.file != id.file as usize).then_some(*id))
     }
 }
 
@@ -316,6 +338,11 @@ mod tests {
         let overridden: Vec<_> = lo.overridden().collect();
         assert_eq!(overridden.len(), 2);
         assert_eq!(lo.winners_of(tag::STAT).count(), 3);
+        let ids: Vec<GlobalFormId> = lo.winners().map(|(id, _)| id).collect();
+        assert!(ids.windows(2).all(|w| w[0] < w[1]));
+        let stats: Vec<GlobalFormId> = lo.winners_of(tag::STAT).map(|(id, _)| id).collect();
+        assert!(stats.windows(2).all(|w| w[0] < w[1]));
+        assert!(overridden.windows(2).all(|w| w[0] < w[1]));
     }
 
     #[test]

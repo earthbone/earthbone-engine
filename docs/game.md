@@ -12,7 +12,17 @@ week 6 to 9 gate.
   form lists. Base data comes from the winning record the first time a form is
   touched, so the table is a view over the load order and nothing is copied up
   front. Run-time forms (`PlaceAtMe`, the fallback player) live in file slot
-  `FF` like the game's own.
+  `FF` like the game's own. `world.rs` holds the state types, the `World`
+  struct and its constructor, the methods sit in one child module per
+  concern, each an `impl World`: `lookup` (editor ids, records, run-time
+  FormIDs, keywords, names, classes), `objects` (handle to VM object table),
+  `refs` (reference state, placement, the player, inventory, activation),
+  `actors` (the `NPC_` view, actor state and values), `quests` (stages,
+  objectives, aliases), `forms` (globals, form lists, leveled lists,
+  locations, factions, actor bases, cells, game settings), `events` (what
+  natives raise for listeners, scenes, sounds), `timers`, `rng`, `driver`
+  (what the package driver reads), `save` (the `SOEW` format) and `hash`
+  (the determinism hash).
 - `vmad`: the `VMAD` subrecord. Scripts, their filled properties, quest stage
   fragments and alias scripts. Round-trips through `write`.
 - `npc`: the `NPC_` view. `ACBS` configuration, `DNAM` stats and skills,
