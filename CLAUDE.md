@@ -96,14 +96,25 @@ GPL tool is fine there, but no GPL derived code may reach the MIT shim crates.
 - The DLC are in scope (user, 2026-09-18): Dawnguard, HearthFires and
   Dragonborn sit in every gated load order, their scripts count in the
   native ordering and their natives are engine work, never a leftover.
-- Do not reimplement what already has tooling (user, 2026-09-18). Look for who
-  solved it first, in `../engine-refs/`, on crates.io and in the open mod tool
-  ecosystem, and when you still write your own, name in the doc what you looked
-  at and why it did not fit. Dependency scope is bounded too: prefer a small
-  maintained crate, keep a heavy one (ffmpeg and its kind) behind a cargo
-  feature or a trait with the binary invoked out of process, run `cargo tree`
-  on anything new and report what it drags in. A credited vendored routine can
-  beat a dependency that pulls in eighty crates.
+- **Look locally first. This is the rule that gets broken most.** Before writing
+  any parser, format reader, layout or algorithm, search `../engine-refs/` and
+  load the `soe-corpus` skill. Sixty repositories are cloned there. On
+  2026-09-18 alone, five forks began deriving from bytes what was already
+  written down a directory away: the `hkb` class layouts (`serde-hkx`), the
+  save file's Papyrus section (`FallrimTools`), the voice container's codec
+  sniff (`Skyrim-NX-Toolkit`), the LIP header (`FaceFXWrapper`, which declares
+  it as a struct), and character skinning (`nifly`, which ships working Skyrim
+  characters). Two more went looking online for repositories already cloned.
+  Every one of those cost hours and produced a worse answer than reading would
+  have. Grep the corpus before the first line of a parser, not after the first
+  failure.
+- Do not reimplement what already has tooling (user, 2026-09-18). When you do
+  write your own, name in the doc what you read and why it did not fit.
+  Dependency scope is bounded too: prefer a small maintained crate, keep a
+  heavy one (ffmpeg and its kind) behind a cargo feature or a trait with the
+  binary invoked out of process, run `cargo tree` on anything new and report
+  what it drags in. A credited vendored routine can beat a dependency that
+  pulls in eighty crates.
 - Code forks at most three at a time. Progress is read from branch commits and
   the master gate, never from an agent's own report.
 
