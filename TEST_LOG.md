@@ -198,3 +198,49 @@ is wrong, so the nightly tier fails on that target until someone decides. Fault
 injection and mutation testing did not land, the first because the save write
 path sits in a crate another fork holds, the second because `cargo-mutants` is
 not installed and installing it globally was out of scope.
+
+# Phase 3
+
+Finishing what phase 2 left, under the same rules. Tier 1 is the commit gate
+with the data variables unset.
+
+## 6. `papyrus`, the open grammar defect, decided
+
+Tier 1, plus one tier 2 corpus check. `crates/papyrus/tests/asm_unique_names.rs`
+and `crates/papyrus/tests/real_unique_names.rs`.
+
+**The defect, precisely.** Phase 2 recorded it as an instruction count written
+as 2 and read back as 1. That was the right symptom read from the wrong field:
+it is the **debug function count**, a `u16` in the debug block, not the
+instruction count in a function body. The minimal case is two functions given
+the same name in one state, each carrying line numbers.
+
+**Which side was wrong: the assembler.** `ScriptBuilder::function_in` appended,
+so a caller could build two functions named `Go` in one state. The reader then
+attaches each debug entry to a function by name with `find`, which returns the
+first, so both entries landed on the first function and the second came back
+with no lines at all. Rewriting emitted one debug entry where the first wrote
+two, and the round trip differed.
+
+The reader is right and the file it was handed was not representable:
+
+- Papyrus has no overloading and a state defines each function once.
+- Caprica rejects it at compile time, `PapyrusObject.cpp:167`, "a function
+  named X was already defined in this object".
+- Every compiled script Bethesda ships agrees. 14,026 scripts parsed, 15,635
+  states, 54,620 functions, **zero** states defining a function twice.
+
+That last check is the one that could have overturned the fix rather than
+confirmed it, which is why it is a test and not a paragraph. If a counter
+example ever ships, it fails and the decision gets revisited.
+
+**The fix.** `function_in` replaces a same named function instead of appending,
+which keeps the builder total with no error channel to add, and matches what
+`FunctionBuilder::ins` already does when it drops operands the writer would not
+emit. `fuzz-pex-grammar` passes, so the nightly tier is green again.
+
+**What it cannot catch.** Only functions are deduplicated. Two properties of
+one name, two variables of one name, or two states of one name are still
+buildable and would break the same way through a different path, since the
+reader matches those by name too. Nothing here checks a name against the parent
+object's names, which is the other half of what Caprica enforces.
