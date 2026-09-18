@@ -262,6 +262,36 @@ impl Iso {
         Iso::from_parts(Mat3::IDENTITY, t)
     }
 
+    /// The placement a Bethesda reference record describes: a position, an
+    /// X, Y, Z Euler rotation in radians, and a uniform scale, exactly as
+    /// `REFR`'s `DATA` and `XSCL` carry them.
+    ///
+    /// The matrix order is the Creation Engine's, so a reference placed in
+    /// the editor lands where the editor showed it. It lives here because
+    /// both the renderer and the collision builder need the same answer, and
+    /// two copies of a rotation convention drift.
+    ///
+    /// A zero scale is read as one, which is what the engine does with a
+    /// record that omits `XSCL`.
+    #[must_use]
+    pub fn placement(position: [f32; 3], rotation_xyz: [f32; 3], scale: f32) -> Iso {
+        let [rx, ry, rz] = rotation_xyz;
+        let (sx, cx) = rx.sin_cos();
+        let (sy, cy) = ry.sin_cos();
+        let (sz, cz) = rz.sin_cos();
+        Iso {
+            rotation: Mat3 {
+                rows: [
+                    [cy * cz, cy * sz, -sy],
+                    [sx * sy * cz - cx * sz, sx * sy * sz + cx * cz, sx * cy],
+                    [cx * sy * cz + sx * sz, cx * sy * sz - sx * cz, cx * cy],
+                ],
+            },
+            translation: Vec3::new(position[0], position[1], position[2]),
+            scale: if scale == 0.0 { 1.0 } else { scale },
+        }
+    }
+
     pub fn apply(&self, v: Vec3) -> Vec3 {
         self.rotation.apply(v * self.scale) + self.translation
     }

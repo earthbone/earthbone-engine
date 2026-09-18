@@ -17,3 +17,6 @@ soe-nif = { path = "../nif" }
 
 [dev-dependencies]
 soe-bsa = { path = "../bsa" }
+# The gated cell walk needs a load order to find the Bannered Mare's
+# references. Tests only, and `esm` depends on nothing here, so no cycle.
+soe-esm = { path = "../esm" }

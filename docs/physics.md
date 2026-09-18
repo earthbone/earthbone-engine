@@ -165,8 +165,6 @@ code change was needed.
 - Rigid bodies, constraints and ragdolls in the headless world. Godot's side
   has them through Jolt already, `SimpleWorld` has statics, one capsule and
   rays, which is what the simulation needs so far.
-- Step height and crouch on the character, which belong to the `controller`
-  item of round 6 rather than here.
 - Godot's box, sphere, capsule and convex hull shapes where a collider's
   transform allows them, instead of the triangle soup the converter emits
   today. Correct as it stands, cheaper if narrowed.
@@ -237,3 +235,74 @@ place for and a static body never needs the cheaper representation. A sphere or
 capsule away from the origin becomes a box hull for the same reason, since the
 server places a shape at the body's origin and these bodies carry world space
 geometry. Those approximations are listed under "Not yet" below.
+
+## Walking, not just colliding (2026-09-18, branch `controller`)
+
+The capsule could fall, slide and stop against a wall. What it could not do was
+walk anywhere real: a stair riser and a door threshold both stopped it dead,
+because a push-out loop has no idea that a 24 unit lip is something you step
+over rather than something you lean on. Three additions close that, and they
+are what separate a character controller from a collision response.
+
+**A step height.** When a walk makes less horizontal progress than it asked
+for, the move is retried from `step_height` (36 units) higher, then settled
+back down no further than it was lifted. It only runs from the ground, so it
+cannot be used to climb in mid air, and it is refused when the lift itself does
+not fit or when nothing standable is underneath the new spot.
+
+**A downward snap of the same size.** Walking off a riser used to launch the
+capsule into a short fall. It now follows the floor down by at most one step
+height, so a 30 unit drop reads as a step rather than as a fall.
+
+**Crouch.** `set_crouch` swaps the capsule to `crouch_height` (72 units against
+128 standing), and standing up is refused while the taller capsule would not
+fit. It answers the state that now holds rather than a success flag, so a
+caller that is under a table learns it is still crouching.
+
+The interface is a direction and a speed. `PhysicsWorld::walk` normalises the
+direction, drops its Z and multiplies by one of the speed constants, so nothing
+about keyboards or actors reaches this crate and the same controller carries the
+player and an NPC on a package.
+
+`WALK_SPEED` 110, `FAST_WALK_SPEED` 160, `JOG_SPEED` 180 and `RUN_SPEED` 375
+units per real second now live here rather than in `soe-game`, because physics
+is the lower crate and a controller cannot depend on the runtime that drives
+it. `crates/game/src/ai.rs` still declares its own copies, and should import
+these instead. A test pins the four values so the two cannot drift apart
+silently while that is outstanding.
+
+`Iso::placement` moved here for the same reason. The reference placement, an
+X, Y, Z Euler rotation in radians with a uniform scale, was written out
+longhand inside the Godot host, and the collision builder needs the identical
+answer. Two copies of a rotation convention drift, so there is now one, and
+`crates/godot-host/src/data_source.rs` should call it.
+
+### Measured
+
+| Case | Result |
+|---|---|
+| A 24 unit stair riser, under the step height | Climbs eight steps, z 0 to 168, x -200 to 288, on ground throughout, never above the tread ahead of it |
+| A 72 unit riser, over the step height | Stops at x 33.0, the riser at 0 plus the 32 unit radius, and never rises a step |
+| A 12 unit door threshold | Crosses it and stays on the ground |
+| Walking off a 30 unit slab | Follows the floor down, at most two frames of real descent, lands at z 0 |
+| A ceiling at 110 units | Crouched fits, standing up is refused, and it is allowed again once clear of the ceiling |
+| A standing jump | Peak 74.6 units against the 76 configured, lands back on the floor, a second jump in mid air is refused |
+| One second at jog speed | 180.1 units, and a 45 degree direction moves equally in x and y |
+
+### The Bannered Mare, walked
+
+`tests/real_files.rs::a_capsule_walks_around_the_bannered_mare` builds the inn's
+collision from the shipped plugins and meshes, 281 references with collision
+and 11,182 primitives in 0.019 s, which matches what the Godot side loads.
+
+Finding the floor took two attempts worth recording. Rays cast down from above
+the cell hit the roof, so the first version stood the capsule on it and walked
+straight off the edge into a 1,290 unit fall. Rays now start 150 units above
+the lowest collision, which is inside the ground floor room, and the most
+popular hit height is the floor: 73 of 256 samples land at z 64, against 20 at
+z 72 and single digits everywhere else.
+
+From there, four legs of a second each: 102.5 units, 24.9, 101.6 and 109.9. The
+short one is a wall, which is what an inn is full of. The capsule stayed on the
+ground for 369 of 420 frames, never dropped below z 33 with the floor at 26,
+and no leg wedged it.
