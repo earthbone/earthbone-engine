@@ -107,6 +107,17 @@ first `start` of the installed game reached 63 natives through 1,095 calls
 after the fix and none before it. `NativeRegistry::calls` counts calls per
 `class.function` so a host can see which natives real scripts hit.
 
+**Redeclared natives.** `Alias.pex` declares `RegisterForUpdate` and its
+relatives as natives of its own, `ReferenceAlias.pex` declares `GetReference`,
+and a host registers each once, on `Form` and `Alias`. `call_method` used to
+stop at the declaring script: it found the native on `ReferenceAlias`, asked
+the registry for `ReferenceAlias.GetReference`, and logged "no
+implementation" (26 such calls in the first `start`, plus 8 alias update
+registrations). Since 2026-09-18 a native the declaring class does not
+implement is retried on every class above it, the script's parents and the
+registry-declared ones, in the order `class_names` gives. A native the
+registry knows on a parent resolves, an unknown one still logs once.
+
 **States and events.** `send_event(object, name, args)` starts one thread per
 attached script that handles the event, resolved through the current state.
 `GotoState` and `GetState` are built in, and a state change delivers

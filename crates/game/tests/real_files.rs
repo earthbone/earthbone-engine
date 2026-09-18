@@ -97,7 +97,9 @@ fn the_installed_game_binds_its_vanilla_scripts() {
     let errors = game
         .traces()
         .iter()
-        .filter(|t| t.contains("no function") || t.contains("no global"))
+        .filter(|t| {
+            t.contains("no function") || t.contains("no global") || t.contains("no implementation")
+        })
         .count();
     eprintln!(
         "start: {} quests started, {} distinct natives reached, {} native calls, {} unresolved calls logged, {} log lines, in {:.1}s",
@@ -115,6 +117,41 @@ fn the_installed_game_binds_its_vanilla_scripts() {
     eprintln!("first 20 log lines:");
     for line in game.traces().iter().take(20) {
         eprintln!("  {line}");
+    }
+    let mut unresolved: std::collections::BTreeMap<String, u64> = std::collections::BTreeMap::new();
+    for line in game.traces() {
+        // `[Class <edid>] has no function F() (script line n)`,
+        // `no global function Class.F() (...)`,
+        // `native Class.F() has no implementation (...)`.
+        let function = |rest: &str| rest.split("()").next().unwrap_or(rest).to_string();
+        let key = if let Some(rest) = line.split(" has no function ").nth(1) {
+            let object = line.split(" has no function ").next().unwrap_or("");
+            let class = object
+                .rsplit('[')
+                .next()
+                .and_then(|o| o.split(" <").next())
+                .unwrap_or(object);
+            format!("{class}.{}", function(rest))
+        } else if let Some(rest) = line.split("no global function ").nth(1) {
+            function(rest)
+        } else if let Some(rest) = line.split("native ").nth(1) {
+            if !rest.contains("has no implementation") {
+                continue;
+            }
+            function(rest)
+        } else {
+            continue;
+        };
+        *unresolved.entry(key).or_default() += 1;
+    }
+    let mut unresolved: Vec<(String, u64)> = unresolved.into_iter().collect();
+    unresolved.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+    eprintln!(
+        "unresolved calls by function ({} distinct):",
+        unresolved.len()
+    );
+    for (name, n) in &unresolved {
+        eprintln!("  {n:6} {name}");
     }
     assert!(
         !calls.is_empty(),

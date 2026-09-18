@@ -109,6 +109,13 @@ pub struct Npc {
     pub items: Vec<(u32, i32)>,
     pub keywords: Vec<u32>,
     pub packages: Vec<u32>,
+    /// `PRKR` perks, in record order.
+    pub perks: Vec<u32>,
+    /// `CRIF`, the faction crimes are reported to.
+    pub crime_faction: Option<u32>,
+    /// `DOFT` and `SOFT`, the default and sleep outfits.
+    pub outfit: Option<u32>,
+    pub sleep_outfit: Option<u32>,
 }
 
 impl Npc {
@@ -130,6 +137,10 @@ impl Npc {
             items: Vec::new(),
             keywords: Vec::new(),
             packages: Vec::new(),
+            perks: Vec::new(),
+            crime_faction: None,
+            outfit: None,
+            sleep_outfit: None,
         };
         for sub in &rec.subrecords {
             let d = sub.data.as_slice();
@@ -142,6 +153,10 @@ impl Npc {
                 b"CNAM" => n.class = Some(u32_at(d, 0, "CNAM")?),
                 b"SPLO" => n.spells.push(u32_at(d, 0, "SPLO")?),
                 b"PKID" => n.packages.push(u32_at(d, 0, "PKID")?),
+                b"PRKR" => n.perks.push(u32_at(d, 0, "PRKR")?),
+                b"CRIF" => n.crime_faction = Some(u32_at(d, 0, "CRIF")?).filter(|f| *f != 0),
+                b"DOFT" => n.outfit = Some(u32_at(d, 0, "DOFT")?).filter(|f| *f != 0),
+                b"SOFT" => n.sleep_outfit = Some(u32_at(d, 0, "SOFT")?).filter(|f| *f != 0),
                 b"SNAM" => n.factions.push((
                     u32_at(d, 0, "SNAM")?,
                     *d.get(4).ok_or_else(|| short("SNAM"))? as i8,

@@ -1338,7 +1338,7 @@ impl Vm {
                         );
                         set(self, 2, Value::None);
                     }
-                    Some(obj) => self.call_method(t, obj, &name, call_args, dest, None),
+                    Some(obj) => self.call_method(t, obj, &name, &call_args, dest, None),
                 }
             }
             CallParent => {
@@ -1354,7 +1354,7 @@ impl Vm {
                 };
                 match (obj, script) {
                     (Some(obj), Some(script)) => {
-                        self.call_method(t, obj, &name, call_args, dest, Some(script));
+                        self.call_method(t, obj, &name, &call_args, dest, Some(script));
                     }
                     _ => {
                         self.err(t, &format!("parent call to {name}() outside an object"));
@@ -1554,18 +1554,47 @@ impl Vm {
         t: usize,
         obj: ObjectId,
         name: &str,
-        args: Vec<Value>,
+        args: &[Value],
         dest: Option<String>,
         start_after: Option<String>,
     ) {
-        if start_after.is_none() && self.builtin_method(t, obj, name, &args, dest.clone()) {
+        if start_after.is_none() && self.builtin_method(t, obj, name, args, dest.clone()) {
             return;
         }
         if let Some((iid, script, f)) = self.find_method(obj, name, start_after.as_deref()) {
             if f.is_native() {
                 let class = script.name.clone();
-                if self.call_native(t, false, &class, name, Some(obj), args, dest.clone()) {
+                if self.call_native(
+                    t,
+                    false,
+                    &class,
+                    name,
+                    Some(obj),
+                    args.to_vec(),
+                    dest.clone(),
+                ) {
                     return;
+                }
+                // A script may redeclare a parent's native (`Alias.pex`
+                // declares `RegisterForUpdate`, the registry holds it on
+                // `Form`), so walk the classes above the declaring one.
+                let lclass = class.to_ascii_lowercase();
+                let mut classes = self.class_names(obj);
+                if let Some(pos) = classes.iter().position(|c| *c == lclass) {
+                    classes.drain(..=pos);
+                }
+                for parent in classes {
+                    if self.call_native(
+                        t,
+                        false,
+                        &parent,
+                        name,
+                        Some(obj),
+                        args.to_vec(),
+                        dest.clone(),
+                    ) {
+                        return;
+                    }
                 }
                 self.err(t, &format!("native {class}.{name}() has no implementation"));
                 if let Some(d) = dest {
@@ -1574,7 +1603,7 @@ impl Vm {
                 }
                 return;
             }
-            self.push_call(t, Some(iid), Some(obj), Some(script), f, &args, dest);
+            self.push_call(t, Some(iid), Some(obj), Some(script), f, args, dest);
             return;
         }
         // No script defines it: a native on a class the object derives from.
@@ -1592,7 +1621,7 @@ impl Vm {
                 &class,
                 name,
                 Some(obj),
-                args.clone(),
+                args.to_vec(),
                 dest.clone(),
             ) {
                 return;
