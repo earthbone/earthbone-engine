@@ -312,6 +312,14 @@ fn partition_count(file: &soe_nif::NifFile, mesh: &soe_nif::mesh::Mesh) -> usize
 ///
 /// `None` when the shape is not laid out that way, leaving the reader's
 /// indices alone.
+///
+/// This reads the partition blocks directly rather than `mesh.bone_indices`,
+/// which is why it was correct while the mesh reader was not. The reader was
+/// fixed on 2026-09-18, measured over 400 actor meshes where 564 of 846
+/// partitions carry a reordering bone list, so the two now agree and this
+/// could be dropped in favour of `mesh.bone_indices`. Check they match on the
+/// same meshes before removing it, since only this one has ever been looked at
+/// on screen.
 fn partition_bone_indices(file: &soe_nif::NifFile, mesh: &soe_nif::mesh::Mesh) -> Option<Vec<i32>> {
     use soe_nif::blocks::Block;
 

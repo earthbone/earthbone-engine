@@ -499,6 +499,31 @@ impl<'f> Walker<'f> {
         if attrs & attr::SKINNED != 0 && mesh.skin.is_some() {
             mesh.bone_weights = vertices.iter().map(|v| v.bone_weights).collect();
             mesh.bone_indices = vertices.iter().map(|v| v.bone_indices).collect();
+            // A bone index stored inside a partition addresses that
+            // partition's own short bone list, not the skin instance's, and
+            // `Mesh::bone_indices` is documented as the latter. The legacy
+            // path has always mapped them through `part.bones`, this one
+            // copied them raw until 2026-09-18.
+            // Only when the vertices came from the partition. A shape that
+            // keeps its own vertex array carries skin-instance indices
+            // already, and remapping those would corrupt them.
+            let from_partition = partition.filter(|_| t.vertices.is_empty());
+            if let Some(p) = from_partition {
+                for part in &p.partitions {
+                    if part.bones.is_empty() {
+                        continue;
+                    }
+                    for &global in &part.vertex_map {
+                        let Some(slot) = mesh.bone_indices.get_mut(global as usize) else {
+                            continue;
+                        };
+                        for b in slot.iter_mut() {
+                            let mapped = part.bones.get(*b as usize).copied().unwrap_or(0);
+                            *b = u8::try_from(mapped).unwrap_or(0);
+                        }
+                    }
+                }
+            }
         }
         Ok(mesh)
     }
