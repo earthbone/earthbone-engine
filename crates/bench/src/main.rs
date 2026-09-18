@@ -13,6 +13,7 @@
 //! SKYRIM_DATA=<Data> soe-bench [--runs N] [--out DIR] load-order
 //! SKYRIM_DATA=<Data> soe-bench archives
 //! SKYRIM_DATA=<Data> soe-bench cell WhiterunBanneredMare
+//! SKYRIM_DATA=<Data> soe-bench cell-index WhiterunBanneredMare
 //! SKYRIM_DATA=<Data> soe-bench exterior WhiterunOrigin
 //! SKYRIM_DATA=<Data> soe-bench scripts
 //! SKYRIM_DATA=<Data> soe-bench navmesh
@@ -26,7 +27,6 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
-use soe_esm::records::cell::Cell;
 use soe_esm::{tag, GlobalFormId, LoadOrder, Plugin};
 use soe_game::Game;
 use soe_godot_host::data_source::DataSource;
@@ -44,7 +44,7 @@ const MASTERS: [&str; 5] = [
     "Dragonborn.esm",
 ];
 
-const USAGE: &str = "usage: soe-bench [--runs N] [--out DIR] <load-order|archives|cell <editor id>|exterior <editor id>|scripts|navmesh|save|overhead <editor id>|trace <subcommand ...>|all>";
+const USAGE: &str = "usage: soe-bench [--runs N] [--out DIR] <load-order|archives|cell <editor id>|cell-index <editor id>|exterior <editor id>|scripts|navmesh|save|overhead <editor id>|trace <subcommand ...>|all>";
 
 struct Options {
     runs: usize,
@@ -108,6 +108,7 @@ fn dispatch(opts: &Options, args: &[String]) -> Result<(), String> {
         Some("load-order") => load_order(opts),
         Some("archives") => archives(opts),
         Some("cell") => cell(opts, arg(1)?),
+        Some("cell-index") => cell_index(opts, arg(1)?),
         Some("exterior") => exterior(opts, arg(1)?),
         Some("scripts") => scripts(opts),
         Some("navmesh") => navmesh(opts),
@@ -137,6 +138,7 @@ fn dispatch(opts: &Options, args: &[String]) -> Result<(), String> {
         Some("all") => load_order(opts)
             .and_then(|()| archives(opts))
             .and_then(|()| cell(opts, "WhiterunBanneredMare"))
+            .and_then(|()| cell_index(opts, "WhiterunBanneredMare"))
             .and_then(|()| exterior(opts, "WhiterunOrigin"))
             .and_then(|()| scripts(opts))
             .and_then(|()| navmesh(opts))
@@ -231,10 +233,6 @@ fn read_order_threads(data: &Path, threads: usize) -> Result<LoadOrder, String> 
             .map_err(|e| format!("{name}: {e}"))?;
     }
     Ok(order)
-}
-
-fn read_order(data: &Path) -> Result<LoadOrder, String> {
-    read_order_threads(data, 1)
 }
 
 struct XorShift(u64);
@@ -371,43 +369,68 @@ fn cell(opts: &Options, editor_id: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// The 3 by 3 block of exterior cells around the named cell, by grid
-/// position in the same worldspace. Cell ids come from a load order built
-/// the same way `DataSource::open` builds its own, so they match.
-fn exterior(opts: &Options, editor_id: &str) -> Result<(), String> {
-    let order = read_order(&opts.data)?;
-    let mut origin = None;
-    for (id, rec) in order.winners_of(tag::CELL) {
-        if rec.editor_id().as_deref() != Some(editor_id) {
-            continue;
-        }
-        let localized = order.file(id.file as usize).plugin.header.is_localized();
-        let view = Cell::from_record(rec, localized).map_err(|e| e.to_string())?;
-        if let (Some(grid), Some(world)) = (view.grid, rec.placement.world) {
-            origin = Some((grid.x, grid.y, world));
-        }
+/// The cell index over the vanilla masters: build time on top of a parsed
+/// order, what it holds, and the cost of one lookup.
+fn cell_index(opts: &Options, editor_id: &str) -> Result<(), String> {
+    let mut order = read_order_threads(&opts.data, opts.threads)?;
+    let (median, ()) = timed("cell_index_build", opts.runs, || {
+        order.build_cell_index();
+        Ok(())
+    })?;
+    let index = order
+        .cell_index()
+        .ok_or_else(|| "the index was not kept".to_string())?;
+    report_count("cell_index_cells", index.cell_count(), "cells");
+    report_count("cell_index_placed", index.placed_count(), "objects");
+    report_count("cell_index_grid_cells", index.grid_count(), "cells");
+    report_count("cell_index_worldspaces", index.world_count(), "worldspaces");
+    report(
+        "cell_index_objects_per_s",
+        per_second(index.placed_count(), median),
+        "objects/s",
+    );
+    let cell = index
+        .cell_by_editor_id(editor_id)
+        .ok_or_else(|| format!("{editor_id}: not in the index"))?;
+    report_count(
+        &format!("cell_index_{editor_id}_objects"),
+        index.references(cell).len(),
+        "objects",
+    );
+    let lookups = 1_000_000usize;
+    let started = Instant::now();
+    let mut total = 0usize;
+    for _ in 0..lookups {
+        total += index.references(cell).len();
     }
-    let Some((ox, oy, world)) = origin else {
-        return Err(format!("{editor_id}: no exterior cell with that editor id, exteriors need a cell in a worldspace with an XCLC grid"));
-    };
+    let elapsed = started.elapsed().as_secs_f64();
+    report("cell_index_lookup", elapsed * 1e9 / lookups as f64, "ns");
+    report_count("cell_index_lookup_ids_summed", total, "ids");
+    Ok(())
+}
+
+/// The 3 by 3 block of exterior cells around the named cell, by grid
+/// position in the same worldspace, through the index the data source
+/// built at open.
+fn exterior(opts: &Options, editor_id: &str) -> Result<(), String> {
+    let mut source = open_source(opts, opts.threads)?;
+    let index = source.cell_index();
+    let origin = index
+        .cell_by_editor_id(editor_id)
+        .ok_or_else(|| format!("{editor_id}: no cell with that editor id"))?;
+    let grid = index.grid_of(origin).ok_or_else(|| {
+        format!("{editor_id}: not an exterior cell, exteriors need a cell in a worldspace with an XCLC grid")
+    })?;
     let mut block: Vec<(i32, i32, GlobalFormId)> = Vec::new();
-    for (id, rec) in order.winners_of(tag::CELL) {
-        if rec.placement.world != Some(world) {
-            continue;
-        }
-        let localized = order.file(id.file as usize).plugin.header.is_localized();
-        let Ok(view) = Cell::from_record(rec, localized) else {
-            continue;
-        };
-        if let Some(grid) = view.grid {
-            if (grid.x - ox).abs() <= 1 && (grid.y - oy).abs() <= 1 {
-                block.push((grid.x, grid.y, id));
+    for dy in -1..=1 {
+        for dx in -1..=1 {
+            let (x, y) = (grid.x + dx, grid.y + dy);
+            if let Some(id) = index.exterior_cell(grid.world, x, y) {
+                block.push((x, y, id));
             }
         }
     }
-    block.sort_by_key(|&(x, y, _)| (y, x));
     report_count("exterior_cells_in_block", block.len(), "cells");
-    let mut source = open_source(opts, opts.threads)?;
     let stream_block = |source: &DataSource| -> Result<(usize, usize, usize, usize), String> {
         let mut totals = (0, 0, 0, 0);
         for (x, y, id) in &block {

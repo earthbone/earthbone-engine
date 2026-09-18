@@ -18,8 +18,9 @@ diffed line by line. Vanilla numbers are a separate problem, see the end.
 SKYRIM_DATA="<Data>" cargo run -p soe-bench --release -- [--runs N] [--out DIR] <subcommand>
 ```
 
-Subcommands: `load-order`, `archives`, `cell <editor id>`, `exterior <editor
-id>`, `scripts`, `navmesh`, `save`, `overhead <editor id>`, `trace <subcommand
+Subcommands: `load-order`, `archives`, `cell <editor id>`, `cell-index <editor
+id>`, `exterior <editor id>`, `scripts`, `navmesh`, `save`, `overhead <editor
+id>`, `trace <subcommand
 ...>` (writes `soe-bench-trace-<name>.json` for Perfetto or `chrome://tracing`
 and a `.txt` summary next to it), `all`. Each measurement prints as
 `name value unit`, timings as the median and the minimum of `--runs`
@@ -190,3 +191,59 @@ and how:
 
 Until a session captures those, the tables above are internal baselines for
 regression checks, not a comparison with the shipped game.
+
+## Run of 2026-09-18, branch `cell-index`
+
+The reference scan is gone. `DataSource::open` builds `soe_esm::CellIndex`
+once (the `esm.cell_index_build` span) and `stream_cell_id` walks the ids the
+index files under the cell instead of every `REFR` in the load order. Same
+machine, release build, `--runs 3`. New subcommand: `cell-index <editor id>`.
+
+| Measurement | Before (2026-09-17) | After | Note |
+|---|---|---|---|
+| Cell index build | | 0.309 s median, 0.273 s min | 872,220 placed objects, 2.8M objects/s, once per open |
+| One `references` lookup | | 9.9 ns | 1M lookups of the Bannered Mare |
+| `host.scan_references`, Bannered Mare | 361 ms per stream | 0.5 ms per stream | 697 ids walked instead of the whole table |
+| Stream WhiterunBanneredMare, 1 thread | 0.442 s | 0.320 s median, 0.306 s min | 391k triangles/s |
+| Stream WhiterunBanneredMare, 24 threads | 0.400 s | 0.301 s median | 416k triangles/s |
+| Stream the 3 by 3 block around WhiterunOrigin, 1 thread | 3.28 s | 4.06 s | 957 references, 285,187 triangles, see below |
+| `host.scan_references`, exterior block | nine scans | 2.0 ms over 18 streams | |
+
+The stream did not drop to the 9 ms of mesh work the earlier trace promised,
+and the exterior block got slower. Both have the same cause: the 2026-09-17
+numbers came from branch `perf` before the materials branch merged, and
+texture decode now fills the time the scan used to. From
+`trace cell WhiterunBanneredMare` (21,729 events over 3 plus 3 runs):
+
+| Span | Count | Total ms | Mean | Note |
+|---|---|---|---|---|
+| host.stream_cell | 6 | 2,005 | 334 ms | |
+| host.material | 4,578 | 1,954 | 427 us | 97 percent of stream: `Vfs::read` plus `Dds::decode`, 88 textures per stream |
+| esm.cell_index_build | 6 | 1,676 | 279 ms | once per open, not per stream |
+| bsa.vfs_read | 2,436 | 319 | 131 us | texture reads dominate, mesh reads were 15 us each |
+| host.build_all | 6 | 46 | 7.7 ms | the mesh work, unchanged |
+| host.scan_references | 6 | 3.0 | 0.5 ms | was 361 ms |
+
+And from `trace exterior WhiterunOrigin` (one run, 18 streams):
+
+| Span | Count | Total ms | Note |
+|---|---|---|---|
+| host.stream_cell | 18 | 9,219 | |
+| host.material | 1,586 | 9,166 | 99 percent, exterior textures are larger than interior ones |
+| bsa.vfs_read | 1,144 | 1,091 | |
+| host.build_all | 18 | 50 | |
+| host.scan_references | 18 | 2.0 | |
+
+So the next hot spot is texture decode, not the index and not the mesh path.
+`MaterialCache` lives for one `stream_cell_id` call, so every stream decodes
+its textures again, and the decode runs on the calling thread after the mesh
+workers join. A texture cache on `DataSource` that outlives the call, and
+decoding on the worker threads, are the two obvious moves, in that order.
+The thread speedup rows stay near 1.0x for the same reason: the timed work
+is now single-threaded texture decode.
+
+The exterior block's 957 references and 285,187 triangles are the cells'
+own temporary children only. WhiterunWorld's persistent cell holds another
+495 placed objects (doors, markers, the city's persistent statics) that the
+index keeps apart under `world_persistent_cell`, an exterior loader has to
+add those and filter them by position.
