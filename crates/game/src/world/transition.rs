@@ -176,8 +176,28 @@ impl World {
     /// same events in the same order, and the only difference is that this
     /// call has nothing left to build.
     pub fn change_cell_with(&mut self, to: Option<GlobalFormId>, cold: bool) -> CellTransition {
+        let mut out = self.attach_cell(to, cold);
+        let (dropped, kept) = self.settle_unload();
+        out.unloaded = dropped;
+        out.kept = kept;
+        out
+    }
+
+    /// Fire the whole event sequence and attach `to`, leaving the cell being
+    /// left resident for [`World::settle_unload`] to drop.
+    ///
+    /// This is the half a player waits for, and it is deliberately all of the
+    /// observable work and none of the expensive work. Dropping the old cell
+    /// means rebuilding each of its references from its record to prove the
+    /// reference is unchanged, which on a real interior costs more than
+    /// building the destination did. A script cannot see any of that, so it
+    /// does not belong on the frame the player crosses the threshold.
+    ///
+    /// The detach events still fire here, in order, before anything is
+    /// dropped. Only the dropping moves.
+    pub fn attach_cell(&mut self, to: Option<GlobalFormId>, cold: bool) -> CellTransition {
         let from = self.loaded_cell;
-        let mut out = CellTransition {
+        let out = CellTransition {
             from,
             to,
             ..CellTransition::default()
@@ -185,6 +205,7 @@ impl World {
         if from == to {
             return out;
         }
+        let mut out = out;
         if let Some(old) = from {
             // The cell detaches before its 3D goes, mirroring attach before
             // load on the way in. Both events are queued before anything is
@@ -193,9 +214,7 @@ impl World {
             let leaving = self.scripted_in_cell(old);
             self.queue_ref_event(&leaving, "OnCellDetach", false);
             self.queue_ref_event(&leaving, "OnUnload", true);
-            let (dropped, kept) = self.unload_cell(old);
-            out.unloaded = dropped;
-            out.kept = kept;
+            self.pending_unload = Some(old);
         }
         if let Some(new) = to {
             out.loaded = self.load_cell(new);
@@ -212,6 +231,24 @@ impl World {
             self.loaded_cell = None;
         }
         out
+    }
+
+    /// Drop whatever a deferred attach left behind. Returns the counts
+    /// dropped and kept, both zero when nothing is waiting.
+    ///
+    /// Safe to call on any frame and safe to call twice. Call it before
+    /// saving, so a save does not carry a cell the player has left.
+    pub fn settle_unload(&mut self) -> (usize, usize) {
+        match self.pending_unload.take() {
+            Some(old) => self.unload_cell(old),
+            None => (0, 0),
+        }
+    }
+
+    /// The cell waiting to be dropped, if any.
+    #[must_use]
+    pub fn pending_unload(&self) -> Option<GlobalFormId> {
+        self.pending_unload
     }
 
     /// The references a cell owns that carry a script, with the VM object

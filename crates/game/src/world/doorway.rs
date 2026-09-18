@@ -156,12 +156,16 @@ impl World {
         })
     }
 
-    /// The player crossed: attach the destination and detach what was
-    /// resident, in one go.
+    /// The player crossed: attach the destination and fire the whole event
+    /// sequence.
     ///
-    /// This is the whole of what a script sees, and after `arm_doorway` has
-    /// run there is nothing left to build, so it costs a walk of the cell's
-    /// reference list.
+    /// This is everything a script can see and nothing it cannot. After
+    /// `arm_doorway` there is nothing left to build, and the cell being left
+    /// keeps its references until [`World::settle_unload`] runs on a later
+    /// frame, so what remains here is a walk of two reference lists.
+    ///
+    /// `CellTransition::unloaded` and `kept` are therefore zero. Read them
+    /// from `settle_unload` instead.
     pub fn commit_doorway(&mut self, way: &Doorway) -> CellTransition {
         let player = self.player();
         if let Some(r) = self.reference(player) {
@@ -169,7 +173,7 @@ impl World {
             r.rotation = way.landing.rotation;
             r.cell = way.to;
         }
-        self.change_cell_with(way.to, way.cold)
+        self.attach_cell(way.to, way.cold)
     }
 }
 

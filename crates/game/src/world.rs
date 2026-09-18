@@ -369,6 +369,14 @@ pub struct World {
     /// does not fire for the first cells after loading a save, which is the
     /// behaviour an empty set gives.
     streamed_cells: std::collections::HashSet<GlobalFormId>,
+    /// A cell whose detach events have fired and whose references are still
+    /// resident, waiting for [`World::settle_unload`].
+    ///
+    /// Dropping a cell is the expensive half of leaving it, because proving a
+    /// reference is unchanged means rebuilding it from its record. None of
+    /// that is observable, so it does not belong on the frame the player
+    /// crosses a threshold.
+    pending_unload: Option<GlobalFormId>,
     next_dynamic: u32,
     player: Option<GlobalFormId>,
     /// What `PC_LEVEL_MULT` actors scale against.
@@ -452,6 +460,7 @@ impl World {
             cells: HashMap::new(),
             loaded_cell: None,
             streamed_cells: std::collections::HashSet::new(),
+            pending_unload: None,
             next_dynamic: 0x1000,
             player: None,
             player_level: 1,
