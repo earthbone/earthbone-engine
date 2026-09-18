@@ -142,9 +142,15 @@ Open the corpus before writing a parser or a native, not after.
   `SOE_HASH_DUMP`, two-run tests, one known source (`Game::start` orders
   quests by `HashMap` iteration in `LoadOrder::winners_of`, the gated test
   is ignored with that reason). The hash does not yet cover the natives-2
-  fields (perks, spell casts, leveled lists, settings). Next code fork, run
-  alone: `world-split`, which also extends the hash and fixes the quest
-  order, see ENGINE-PLAN.md rounds 5 and 6.
+  fields (perks, spell casts, leveled lists, settings). `world-split` merged
+  next: `world.rs` is a directory of `impl World` modules by concern (lookup,
+  objects, refs, actors, quests, forms, events, timers, rng, driver, save,
+  hash), the hash covers every field with a test per part, and
+  `LoadOrder::winners` walks a sorted list so `Game::start` is
+  deterministic and the 600-tick gated hash run passes. Workspace 419 tests,
+  none ignored. Running: `natives-dlc` (DLC natives, zero unresolved calls)
+  and `dirty-records` (deleted records handled natively, per-plugin dirty
+  report), see ENGINE-PLAN.md rounds 5 and 6.
 - Untested live: a real Proton launch, natives against the CK wiki pages.
 - Language decision (2026-09-14): runtime crates stay Rust. Go only for a
   tooling component where it eases maintenance, behind a protobuf seam.
