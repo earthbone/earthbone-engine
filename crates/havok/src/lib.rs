@@ -17,8 +17,9 @@
 //! - [`skeleton`], [`animation`], [`spline`]: `hkaSkeleton`,
 //!   `hkaAnimationBinding` and `hkaSplineCompressedAnimation`, with the spline
 //!   block decoder that turns quantized control points into poses.
-//! - [`behavior`]: the `hkb` behavior graph as a typed data model, ready for
-//!   an interpreter (see `docs/havok.md`).
+//! - [`behavior`]: the `hkb` behavior graph as a typed data model.
+//! - [`interp`]: the interpreter over that model, one instance per actor,
+//!   ticked per frame into a local pose (see `docs/havok.md`).
 //! - [`character`]: `hkbCharacterData` and `hkbProjectData`, the files that
 //!   tie a rig, a behavior and an animation set together.
 //! - [`writer`]: a packfile builder, used by the tests to make synthetic
@@ -32,6 +33,7 @@
 pub mod animation;
 pub mod behavior;
 pub mod character;
+pub mod interp;
 pub mod packfile;
 pub mod skeleton;
 pub mod spline;
