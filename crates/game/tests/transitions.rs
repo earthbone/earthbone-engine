@@ -160,6 +160,11 @@ pub fn id(object: u32) -> GlobalFormId {
 /// fixture: the cell to start in, the door to walk through, and the door back.
 pub const START_CELL: u32 = CELL_A;
 pub const DOOR_OUT: u32 = DOOR_A;
+// `no_load_screen.rs` pulls this file in with `#[path]`, so it compiles a
+// second time as a module there and only takes the two ids it needs. The
+// return door is used by this file's own tests, which is invisible from
+// inside that second build.
+#[allow(dead_code)]
 pub const DOOR_BACK: u32 = DOOR_B;
 
 fn resident(g: &Game, object: u32) -> bool {

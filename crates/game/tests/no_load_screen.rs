@@ -35,7 +35,7 @@ fn events(g: &Game) -> Vec<(ObjectId, String)> {
         .iter()
         .filter_map(|p| match p {
             Pending::Event { object, name, .. } => Some((*object, name.clone())),
-            _ => None,
+            Pending::Call { .. } => None,
         })
         .collect()
 }
@@ -58,7 +58,7 @@ fn staged() -> Game {
 
 #[test]
 fn a_prefetch_builds_the_cell_and_queues_nothing() {
-    let mut g = staged();
+    let g = staged();
     assert!(
         !g.world_mut().cell_is_resident(id(CELL_B)),
         "the destination starts cold"
@@ -90,10 +90,10 @@ fn a_prefetch_builds_the_cell_and_queues_nothing() {
 
 #[test]
 fn after_a_prefetch_the_move_has_nothing_left_to_build() {
-    let mut cold = staged();
+    let cold = staged();
     let built_cold = cold.world_mut().change_cell(Some(id(CELL_B))).loaded;
 
-    let mut warm = staged();
+    let warm = staged();
     let prefetched = warm.world_mut().prefetch_cell(id(CELL_B));
     let built_warm = warm
         .world_mut()
@@ -110,11 +110,11 @@ fn after_a_prefetch_the_move_has_nothing_left_to_build() {
 
 #[test]
 fn prefetching_does_not_change_one_event() {
-    let mut cold = staged();
+    let cold = staged();
     cold.world_mut().change_cell(Some(id(CELL_B)));
     let from_cold = events(&cold);
 
-    let mut warm = staged();
+    let warm = staged();
     // Capture coldness before the prefetch, which is the whole discipline.
     let was_cold = !warm.world_mut().cell_is_resident(id(CELL_B));
     warm.world_mut().prefetch_cell(id(CELL_B));
@@ -134,7 +134,7 @@ fn prefetching_does_not_change_one_event() {
 
 #[test]
 fn reading_residency_after_the_prefetch_is_the_trap_that_loses_on_cell_load() {
-    let mut g = staged();
+    let g = staged();
     g.world_mut().prefetch_cell(id(CELL_B));
 
     // What a careless implementation would do: ask now.
@@ -153,7 +153,7 @@ fn reading_residency_after_the_prefetch_is_the_trap_that_loses_on_cell_load() {
 
 #[test]
 fn on_cell_load_follows_whether_the_cell_is_still_streamed() {
-    let mut g = staged();
+    let g = staged();
     g.world_mut().change_cell(Some(id(CELL_B)));
     assert!(
         names(&g).contains(&"OnCellLoad".to_string()),
@@ -239,7 +239,7 @@ fn the_order_is_detach_then_unload_then_attach_then_load_then_cell_load() {
 
 #[test]
 fn arming_a_door_streams_the_far_side_and_tells_nobody() {
-    let mut g = staged();
+    let g = staged();
     let before = g.world_mut().player();
     let start = g.world().reference_ref(before).map(|r| r.position);
 
@@ -274,7 +274,7 @@ fn arming_a_door_streams_the_far_side_and_tells_nobody() {
 
 #[test]
 fn committing_a_door_moves_the_player_and_fires_the_sequence() {
-    let mut g = staged();
+    let g = staged();
     let way = g
         .world_mut()
         .arm_doorway(id(DOOR_OUT))
@@ -300,14 +300,14 @@ fn committing_a_door_moves_the_player_and_fires_the_sequence() {
 
 #[test]
 fn a_plain_door_is_not_a_doorway() {
-    let mut g = staged();
+    let g = staged();
     // The static in the destination has no teleport data.
     assert!(g.world_mut().arm_doorway(id(ROCK_B)).is_none());
 }
 
 #[test]
 fn the_crossing_test_is_the_thing_that_decides_when_events_fire() {
-    let mut g = staged();
+    let g = staged();
     let way = g
         .world_mut()
         .arm_doorway(id(DOOR_OUT))
