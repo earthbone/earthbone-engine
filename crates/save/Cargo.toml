@@ -1,0 +1,23 @@
+[package]
+name = "soe-save"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-or-later"
+description = "Reader for Skyrim Special Edition save games (.ess), including change forms, the global variable table and the Papyrus section"
+
+[lints]
+workspace = true
+
+[lib]
+name = "soe_save"
+path = "src/lib.rs"
+
+[dependencies]
+soe-trace = { path = "../trace" }
+encoding_rs = "0.8"
+flate2 = "1"
+lz4_flex = "0.11"
+thiserror = "2"
+
+[dev-dependencies]
+lz4_flex = "0.11"
