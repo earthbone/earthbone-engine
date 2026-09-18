@@ -15,8 +15,10 @@
 pub mod actor;
 pub mod audio;
 pub mod batch;
+pub mod camera;
 pub mod collision;
 pub mod data_source;
+pub mod input;
 pub mod mesh;
 pub mod skinned;
 pub mod streaming;
@@ -31,6 +33,8 @@ pub mod godot_audio;
 pub mod godot_layer;
 #[cfg(feature = "godot")]
 pub mod godot_physics;
+#[cfg(feature = "godot")]
+pub mod godot_player;
 
 #[cfg(feature = "godot")]
 mod entry {
