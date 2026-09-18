@@ -26,6 +26,7 @@ use std::rc::Rc;
 use crate::pex::{Function, Object, Opcode, Operand, Script};
 use crate::value::{ArrayRef, ElementKind, ObjectId, Value};
 
+pub mod hash;
 pub mod state;
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -91,3 +91,76 @@ The harness self-test builds the lever plugin, runs the scenario above with a
 synthetic captured log, and checks that one wrong expectation is reported by
 line number. Real captures go under `crates/game/tests/captures/` and are
 picked up by a test per directory once the first one exists.
+
+## Determinism
+
+A scenario that replays the same way twice can be bisected, recorded and
+compared across machines. The detector for that is a hash of the whole
+run-time state after every tick: `Game::state_hash` folds
+`World::state_hash` (`crates/game/src/world/hash.rs`) and `Vm::state_hash`
+(`crates/papyrus/src/vm/hash.rs`) into one `TickHash` with eighteen named
+parts, twelve for the world (clock, RNG, object ids, references, actors,
+quests, globals, form lists, pending queue, timers, output, AI counters) and
+six for the VM (objects, instances, threads, latents, log, native call
+counts). The hasher is FNV-1a over 64 bits with no per-process seed, maps are
+visited in key order and floats go in as bit patterns, so the hash itself
+never reports `HashMap` iteration noise. `Game::record_hashes` turns the log
+on, `Game::hash_log` reads it, and `determinism::compare` names the first
+tick and the parts that differ:
+
+```text
+installed game: runs diverge at tick 0 in world.objects, world.refs, ...
+```
+
+`crates/game/tests/determinism.rs` runs the quest flow and the travel package
+twice in one process and once more in a child process (the test binary
+spawns itself with `SOE_HASH_DUMP` set, the child writes its log as text,
+the parent compares), and the gated tests run the first real `start` twice
+for 600 ticks at 60 a second.
+
+### Findings (2026-09-18)
+
+| Run | Ticks | Result |
+|---|---|---|
+| Quest flow, twice in one process and across processes | 34 | agree |
+| Travel package, twice in one process and across processes | 36 | agree |
+| Installed game, `Game::start` then 600 ticks | 601 | diverge at tick 0 in object ids, references, quests, timers, output and every VM part but latents |
+| Installed game, quests started in form id order, then 600 ticks | 601 | agree |
+
+### Known sources
+
+Confirmed by the detector, to fix in round 5:
+
+1. `Game::start` starts the Start Game Enabled quests in the order
+   `LoadOrder::winners_of` yields them, and that walks the load order's
+   `HashMap` (`crates/esm/src/load_order.rs`, "in no particular order" by its
+   own doc line). Two runs start the 423 quests in different orders, so alias
+   object ids, `OnInit` thread order, timers, the log and the native call
+   counts all differ from the first tick. Sorting the ids before starting,
+   which the sorted gated test does from the outside, removes every
+   divergence over 600 ticks. The fix belongs in `winners_of` (a sorted
+   result) or in `start` (sort before starting), and the ignored test
+   `the_installed_game_hashes_the_same_over_six_hundred_ticks` is the
+   acceptance check.
+
+Candidates the detector has not caught yet, kept here because the same
+pattern is in the code and a longer or wider scenario can reach them:
+
+2. `LoadOrder::winners` and `LoadOrder::overridden` walk the same map.
+   `CellIndex::build` reads `winners`, so any consumer that keeps the first
+   of two equal candidates in iteration order is order dependent.
+3. The world keeps one shared xorshift RNG (`World::random_u64`). Any new
+   caller shifts every later draw, so a replay recorded before a native
+   gained a random call will not match after. A stream per system or per
+   actor, derived from the seed, is the round 5 shape.
+4. `NativeRegistry::calls` is a `HashMap` of counters. It is hashed in key
+   order here, and the live run summaries sort it before printing. Any new
+   reader that walks it unsorted prints a different order per run.
+5. The Godot host's threaded builders join in master order, which the
+   detector does not cover, the host is outside `Game`.
+
+What the detector cannot see: floating point differences between machines
+or compiler versions (the hash compares bit patterns, so a different build
+of the same code can hash differently and still behave the same), and
+anything the world does not store, such as a native that reads the wall
+clock and does not write the result into state.

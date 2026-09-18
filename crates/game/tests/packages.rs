@@ -321,7 +321,7 @@ fn guard_script() -> Vec<u8> {
         .bytes()
 }
 
-fn game_at_hour(hour: f64) -> Game {
+pub fn game_at_hour(hour: f64) -> Game {
     let bytes = test_plugin().to_bytes();
     let mut order = LoadOrder::new();
     order
@@ -335,7 +335,7 @@ fn game_at_hour(hour: f64) -> Game {
     game
 }
 
-fn tick(game: &mut Game, seconds: f64) {
+pub fn tick(game: &mut Game, seconds: f64) {
     let steps = (seconds / 0.1).round() as usize;
     for _ in 0..steps {
         game.tick(0.1);

@@ -23,6 +23,8 @@ use crate::clock::GameClock;
 use crate::npc::Npc;
 use crate::quest::{zstring, Quest};
 
+pub mod hash;
+
 /// Forms created at run time (`PlaceAtMe`, the fallback player) live in a
 /// file slot no plugin can own, the same `FF` prefix the game uses.
 pub const DYNAMIC_FILE: u16 = 0xFF;
