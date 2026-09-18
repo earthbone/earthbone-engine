@@ -22,10 +22,12 @@
 //! game.tick(1.0 / 60.0);
 //! ```
 
+pub mod ai;
 pub mod clock;
 pub mod harness;
 pub mod natives;
 pub mod npc;
+pub mod package;
 pub mod quest;
 pub mod save;
 pub mod vmad;
@@ -443,13 +445,15 @@ impl Game {
         self.world.borrow_mut().player()
     }
 
-    /// Advance real time: the clock, the VM scheduler, due update timers,
-    /// then run until the VM settles.
+    /// Advance real time: the clock, due update timers, the package driver,
+    /// the VM scheduler, then run until the VM settles.
     pub fn tick(&mut self, real_seconds: f64) {
         {
+            let vm = &mut self.vm;
             let mut w = self.world.borrow_mut();
             w.clock.advance(real_seconds);
             w.fire_timers();
+            w.ai_tick(real_seconds, &mut |n, c| vm.create_object_of(n, c));
         }
         self.vm.advance(real_seconds);
         self.run_until_idle(64);
