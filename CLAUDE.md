@@ -29,7 +29,7 @@ meaning. Core crates are GPL-3.0-or-later, the SKSE shim crates are MIT.
 | `papyrus` | PEX loader, assembler, VM with scheduler and latent calls | `docs/papyrus.md` |
 | `havok` | hkx packfiles, skeletons, spline clips, behavior graph model | `docs/havok.md` |
 | `dds` | DDS container, BC1 to BC7 decode, encode behind a feature | `docs/dds.md` |
-| `physics` | Jolt through C bindings, bhk shapes, character capsule | `docs/physics.md` |
+| `physics` | bhk shapes, a headless static world and capsule character. Godot's bundled Jolt drives the rendered path, the engine links no physics library | `docs/physics.md` |
 | `navmesh` | Vanilla NAVM graph plus Recast generation | `docs/navmesh.md` |
 | `profile` | plugins.txt, INI layering, MO2 profile layout | `docs/profile.md` |
 | `commonlib-shim` | CommonLib header scope, MIT Rust skeleton | `docs/shim.md` |

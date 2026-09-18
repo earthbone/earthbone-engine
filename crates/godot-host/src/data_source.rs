@@ -79,6 +79,8 @@ pub enum DataSourceError {
     Dds(#[from] soe_dds::Error),
     #[error("cell '{0}' was not found in the load order")]
     CellNotFound(String),
+    #[error("collision: {0}")]
+    Collision(String),
 }
 
 /// Counts from one `stream_cell` run, for the headless smoke test and the
@@ -557,6 +559,17 @@ impl DataSource {
     /// The cell index built at open, for callers that walk cells by grid
     /// position or need a cell's land and navmeshes.
     #[must_use]
+    /// The load order behind this source, for a sibling module that walks the
+    /// same references, such as [`crate::collision`].
+    pub(crate) fn order(&self) -> &LoadOrder {
+        &self.order
+    }
+
+    /// The archive and loose file view, same reason.
+    pub(crate) fn vfs(&self) -> &Vfs {
+        &self.vfs
+    }
+
     pub fn cell_index(&self) -> &CellIndex {
         &self.index
     }
@@ -955,6 +968,21 @@ fn placement_transform(refr: &Refr) -> NifTransform {
         rotation,
         translation: NifVec3::new(t.position[0], t.position[1], t.position[2]),
         scale: if refr.scale == 0.0 { 1.0 } else { refr.scale },
+    }
+}
+
+/// The same placement as [`placement_transform`], in the physics crate's
+/// transform type. Both matrices are row major and apply the same way, and
+/// both carry a uniform scale, so this is a field copy rather than a
+/// conversion. Kept next to its twin so the two cannot drift.
+pub(crate) fn placement_iso(refr: &Refr) -> soe_physics::Iso {
+    let t = placement_transform(refr);
+    soe_physics::Iso {
+        rotation: soe_physics::Mat3 {
+            rows: t.rotation.rows,
+        },
+        translation: soe_physics::Vec3::new(t.translation.x, t.translation.y, t.translation.z),
+        scale: t.scale,
     }
 }
 

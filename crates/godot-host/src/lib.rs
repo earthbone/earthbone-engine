@@ -13,6 +13,7 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
 pub mod batch;
+pub mod collision;
 pub mod data_source;
 pub mod mesh;
 pub mod streaming;
@@ -21,6 +22,8 @@ pub mod units;
 
 #[cfg(feature = "godot")]
 pub mod godot_layer;
+#[cfg(feature = "godot")]
+pub mod godot_physics;
 
 #[cfg(feature = "godot")]
 mod entry {

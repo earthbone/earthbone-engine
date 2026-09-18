@@ -11,10 +11,12 @@
 //!   [`Collider`] with a world transform and a [`Shape`], in game units.
 //! - `world` is the [`PhysicsWorld`] trait and [`SimpleWorld`], a static
 //!   collision world with a capsule character controller written in plain
-//!   Rust. Jolt was the plan, but its Rust binding (`joltc-sys`) builds the
-//!   C++ library through CMake, which this machine does not have, so the
-//!   world sits behind a trait and Jolt replaces `SimpleWorld` without
-//!   touching the two layers above.
+//!   Rust. This is the headless world, the one the simulation steps and the
+//!   determinism tests hash, and it needs no native library and no Godot.
+//!   The rendered path uses Godot's own physics server, which has bundled
+//!   Jolt since 4.4, so the engine links no physics library of its own. Both
+//!   consume the two layers above, see `docs/physics.md` for the split and
+//!   why the authority stays here rather than inside Godot.
 //!
 //! Units: the file's Havok metres become game units at the `shape` layer,
 //! using the same 69.99 factor Bethesda's exporter and OpenMW use. Axes are
