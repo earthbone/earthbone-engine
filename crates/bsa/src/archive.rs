@@ -186,6 +186,7 @@ impl std::fmt::Debug for Archive {
 
 impl Archive {
     pub fn open(path: &Path) -> Result<Self> {
+        let _span = soe_trace::Span::new("bsa.archive_open", "bsa");
         let data = std::fs::read(path)?;
         Self::from_bytes(path, data)
     }

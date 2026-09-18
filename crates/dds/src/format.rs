@@ -113,10 +113,17 @@ impl Masks {
 
     fn validate(self) -> Result<Masks> {
         let ok_bits = matches!(self.bits, 8 | 16 | 24 | 32);
+        // `bits` is the file's `rgb_bit_count` field, and the shift below
+        // runs before the `ok_bits` check that rejects it, so a value
+        // outside 8/16/24/32 (up to u32::MAX) must not reach a bare
+        // `1u32 << bits`: any shift of 32 or more panics. `checked_shl`
+        // turns that case into `None`, mapped to a harmless `u32::MAX`
+        // limit. `ok_bits` still fails on it further down, so the overall
+        // call still returns `Unsupported`.
         let limit = if self.bits == 32 {
             u32::MAX
         } else {
-            (1u32 << self.bits) - 1
+            1u32.checked_shl(self.bits).map_or(u32::MAX, |v| v - 1)
         };
         let fits = [self.r, self.g, self.b, self.a]
             .iter()
@@ -224,15 +231,26 @@ impl Format {
         }
     }
 
-    /// Bytes one slice of a level occupies at this size.
+    /// Bytes one slice of a level occupies at this size. `width` and
+    /// `height` come straight from the file header, so a plain multiply
+    /// here can overflow `usize` on a hostile file (fuzz find,
+    /// fuzz/artifacts/fuzz-dds/crash-1ebc502b360b3a4c38e1a6b05b2bac7b05629455).
+    /// Saturating keeps the result a `usize` the caller's
+    /// `checked_mul`/`checked_add` can still reject as `Error::TooLarge`,
+    /// instead of panicking here.
     pub fn slice_bytes(&self, width: u32, height: u32) -> usize {
         match self.block_size() {
-            Some(b) => (width as usize).div_ceil(4) * (height as usize).div_ceil(4) * b,
+            Some(b) => (width as usize)
+                .div_ceil(4)
+                .saturating_mul((height as usize).div_ceil(4))
+                .saturating_mul(b),
             None => {
                 let Format::Uncompressed(m) = self else {
                     unreachable!()
                 };
-                width as usize * height as usize * (m.bits as usize / 8)
+                (width as usize)
+                    .saturating_mul(height as usize)
+                    .saturating_mul(m.bits as usize / 8)
             }
         }
     }
@@ -468,11 +486,56 @@ mod tests {
         ));
     }
 
+    /// Fuzz find (fuzz/artifacts/fuzz-dds/crash-423907005bf0954c640ce6cd3d8131b6da3567f4):
+    /// `rgb_bit_count` is read straight from the file and reaches
+    /// `Masks::validate` before its `matches!(bits, 8 | 16 | 24 | 32)` check
+    /// runs. A count outside that set and at or above 32 shifted `1u32` by
+    /// 32 or more, which panics. `validate` now uses `checked_shl`, so an
+    /// out-of-range count is refused as `Unsupported::Masks` like any other
+    /// bad bit count, not a panic.
+    #[test]
+    fn a_huge_bit_count_is_refused_not_shifted_into_overflow() {
+        let huge = PixelFormat {
+            flags: pf::RGB,
+            four_cc: [0; 4],
+            rgb_bit_count: u32::MAX,
+            r_mask: 0xFF,
+            g_mask: 0,
+            b_mask: 0,
+            a_mask: 0,
+        };
+        assert!(matches!(
+            Format::from_header(&header(huge, None)),
+            Err(Error::Unsupported(Unsupported::Masks {
+                bits: u32::MAX,
+                ..
+            }))
+        ));
+    }
+
     #[test]
     fn level_sizes_round_up_to_blocks() {
         assert_eq!(Format::Bc1.slice_bytes(1, 1), 8);
         assert_eq!(Format::Bc7.slice_bytes(5, 4), 32);
         assert_eq!(Format::Bc3.slice_bytes(256, 256), 65536);
         assert_eq!(Format::Uncompressed(Masks::BGR8).slice_bytes(3, 2), 18);
+    }
+
+    /// Fuzz find (fuzz/artifacts/fuzz-dds/crash-1ebc502b360b3a4c38e1a6b05b2bac7b05629455):
+    /// `width` and `height` come straight from the file header, and
+    /// `slice_bytes` multiplied them by the bytes per pixel with a plain
+    /// `*`. Dimensions near `u32::MAX` overflow `usize` there, which
+    /// panics, before `Dds::parse`'s own `checked_mul`/`checked_add` ever
+    /// gets a chance to refuse the file as too large. `slice_bytes` now
+    /// saturates instead, for both the block and uncompressed branches, so
+    /// the overflow surfaces as a saturated `usize::MAX` the caller's
+    /// checked arithmetic turns into `Error::TooLarge`.
+    #[test]
+    fn huge_dimensions_saturate_instead_of_overflowing() {
+        assert_eq!(
+            Format::Uncompressed(Masks::RGBA8).slice_bytes(u32::MAX, u32::MAX),
+            usize::MAX
+        );
+        assert_eq!(Format::Bc7.slice_bytes(u32::MAX, u32::MAX), usize::MAX);
     }
 }

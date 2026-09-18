@@ -1,0 +1,15 @@
+[package]
+name = "soe-trace"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-or-later"
+description = "Scoped timing spans for the Skyrim open engine, exported as Chrome trace events and a per-name summary"
+
+[lib]
+name = "soe_trace"
+path = "src/lib.rs"
+
+[dependencies]
+
+[lints]
+workspace = true

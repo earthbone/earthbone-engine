@@ -6,3 +6,5 @@ target/
 *.hkx
 *.pex
 !crates/*/tests/fixtures/**
+fuzz/target/
+fuzz/artifacts/

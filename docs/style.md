@@ -181,3 +181,12 @@ The gate itself runs `cargo clippy --workspace --lib --bins -- -D warnings`, not
 `unwrap_used`/`expect_used`/`panic` exemption the library crates get from their
 `#![cfg_attr(test, ...)]` line, and `--lib --bins` sidesteps that without weakening the
 gate on production code, which is what those three lints exist to guard.
+
+## Go, when a tooling component is written in it
+
+No Go code exists in this workspace yet. When a round 4 tooling component is
+easier to maintain in Go, the baseline is Google's Go style guide
+(https://google.github.io/styleguide/go/best-practices.html) and Effective Go
+(https://go.dev/doc/effective_go), enforced by `gofmt`, `goimports`,
+`golangci-lint` with the personal go-projects configuration, and `comment-lint`
+on comment prose. The same house prose rules apply. Runtime crates stay Rust.

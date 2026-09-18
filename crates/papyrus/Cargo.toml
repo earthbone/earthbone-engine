@@ -9,6 +9,7 @@ description = "Papyrus PEX loader and virtual machine for the Skyrim open engine
 workspace = true
 
 [dependencies]
+soe-trace = { path = "../trace" }
 
 [dev-dependencies]
 soe-bsa = { path = "../bsa" }

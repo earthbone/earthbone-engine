@@ -1042,6 +1042,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "soe-bench"
+version = "0.1.0"
+dependencies = [
+ "soe-bsa",
+ "soe-esm",
+ "soe-game",
+ "soe-godot-host",
+ "soe-navmesh",
+ "soe-papyrus",
+ "soe-trace",
+]
+
+[[package]]
 name = "soe-bsa"
 version = "0.1.0"
 dependencies = [
@@ -1049,6 +1062,7 @@ dependencies = [
  "encoding_rs",
  "flate2",
  "lz4_flex",
+ "soe-trace",
  "tempfile",
  "thiserror 2.0.20",
 ]
@@ -1071,6 +1085,7 @@ name = "soe-esm"
 version = "0.1.0"
 dependencies = [
  "flate2",
+ "soe-trace",
  "thiserror 2.0.20",
 ]
 
@@ -1081,6 +1096,7 @@ dependencies = [
  "soe-bsa",
  "soe-esm",
  "soe-papyrus",
+ "soe-trace",
 ]
 
 [[package]]
@@ -1089,8 +1105,10 @@ version = "0.1.0"
 dependencies = [
  "godot",
  "soe-bsa",
+ "soe-dds",
  "soe-esm",
  "soe-nif",
+ "soe-trace",
  "thiserror 2.0.20",
 ]
 
@@ -1109,6 +1127,7 @@ dependencies = [
  "rerecast",
  "soe-esm",
  "soe-nif",
+ "soe-trace",
  "thiserror 2.0.20",
 ]
 
@@ -1117,6 +1136,7 @@ name = "soe-nif"
 version = "0.1.0"
 dependencies = [
  "soe-bsa",
+ "soe-trace",
 ]
 
 [[package]]
@@ -1124,6 +1144,7 @@ name = "soe-papyrus"
 version = "0.1.0"
 dependencies = [
  "soe-bsa",
+ "soe-trace",
 ]
 
 [[package]]
@@ -1132,6 +1153,7 @@ version = "0.1.0"
 dependencies = [
  "soe-bsa",
  "soe-nif",
+ "soe-trace",
 ]
 
 [[package]]
@@ -1142,6 +1164,10 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.20",
 ]
+
+[[package]]
+name = "soe-trace"
+version = "0.1.0"
 
 [[package]]
 name = "spin"

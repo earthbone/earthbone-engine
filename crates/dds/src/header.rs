@@ -11,6 +11,11 @@ pub const MAGIC: &[u8; 4] = b"DDS ";
 pub const HEADER_SIZE: usize = 124;
 pub const DX10_SIZE: usize = 20;
 
+/// Highest `array_size` `layer_count` honors. Skyrim SE never ships a
+/// texture array anywhere near this size, so the clamp only ever bites on a
+/// hostile file. See `Header::layer_count` for why the bound exists at all.
+pub const MAX_ARRAY_SIZE: u32 = 4096;
+
 pub mod flags {
     pub const CAPS: u32 = 0x1;
     pub const HEIGHT: u32 = 0x2;
@@ -185,9 +190,15 @@ impl Header {
     }
 
     /// Mip levels per face, at least one. A zero count means "no mips".
+    ///
+    /// Clamped to 32: `width` and `height` are `u32`, so no real chain ever
+    /// needs more halvings than that to reach 1x1, and `Dds::parse` shifts
+    /// each dimension right by the mip index. An unclamped, attacker
+    /// controlled count let that shift exceed 31 bits, which panics on
+    /// overflow (found by fuzz-dds, `mip_map_count` near `u32::MAX`).
     pub fn mip_count(&self) -> u32 {
         if self.flags & flags::MIPMAPCOUNT != 0 || self.caps & caps::MIPMAP != 0 {
-            self.mip_map_count.max(1)
+            self.mip_map_count.clamp(1, 32)
         } else {
             1
         }
@@ -211,8 +222,22 @@ impl Header {
     }
 
     /// Layers in the file: array size times faces.
+    ///
+    /// `array_size` is clamped to `MAX_ARRAY_SIZE`: it comes straight from
+    /// the DX10 extension, and `Dds::parse` allocates one `Level` per layer
+    /// per mip before any per-level size check runs. No real Skyrim SE
+    /// texture array holds more than a handful of layers, so an unclamped,
+    /// attacker controlled count near `u32::MAX` grew that `Vec` to
+    /// gigabytes and aborted the process on out-of-memory, well before the
+    /// checked arithmetic on any single level's width or height could
+    /// reject the file (found by fuzz-dds,
+    /// fuzz/artifacts/fuzz-dds/oom-b95d4d129f6dc8f49e040a4eb03b2a19025aee08).
     pub fn layer_count(&self) -> u32 {
-        let arrays = self.dx10.as_ref().map(|d| d.array_size.max(1)).unwrap_or(1);
+        let arrays = self
+            .dx10
+            .as_ref()
+            .map(|d| d.array_size.clamp(1, MAX_ARRAY_SIZE))
+            .unwrap_or(1);
         arrays * self.face_count()
     }
 

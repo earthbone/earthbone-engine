@@ -253,6 +253,7 @@ fn refs(s: &mut Stream<'_>) -> Result<Vec<BlockRef>> {
 
 /// Decode one `Block::Collision` payload by its type name.
 pub fn decode(type_name: &str, data: &[u8], header: &Header) -> Result<Bhk> {
+    let _span = soe_trace::Span::with_payload("physics.bhk_decode", "physics", data.len() as u64);
     check_version(header)?;
     let mut s = Stream::new(data);
     let s = &mut s;

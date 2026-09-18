@@ -447,6 +447,44 @@ fn set_property_and_get_property_run_the_compiled_setter_and_getter() {
 }
 
 #[test]
+fn the_host_sets_a_full_property_through_its_compiled_setter() {
+    // The trap scripts declare TriggerType with a hand-written Set that
+    // stores into a backing variable, and the CK fills it through VMAD.
+    let getter = FunctionBuilder::new("get", "Int")
+        .ins(Return, vec![ident("::stored")])
+        .build();
+    let setter = FunctionBuilder::new("set", "None")
+        .param("v", "Int")
+        .ins(Assign, vec![ident("::stored"), ident("v")])
+        .ins(IAdd, vec![ident("::sets"), ident("::sets"), i(1)])
+        .build();
+    let script = ScriptBuilder::new("Trap", "")
+        .variable("::stored", "Int", i(0))
+        .variable("::sets", "Int", i(0))
+        .property("TriggerType", "Int", Some(getter), Some(setter))
+        .bytes();
+    let mut vm = vm_with(vec![script]);
+    let obj = vm.create_object("Lever");
+    vm.attach(obj, "Trap").unwrap();
+    vm.set_property(obj, "Trap", "TriggerType", Value::Int(3))
+        .unwrap();
+    vm.set_property(obj, "Trap", "triggertype", Value::Int(7))
+        .unwrap();
+    assert_eq!(vm.get_var(obj, "Trap", "::stored"), Some(Value::Int(7)));
+    assert_eq!(vm.get_var(obj, "Trap", "::sets"), Some(Value::Int(2)));
+    // get_property now runs a full property's compiled getter too.
+    assert_eq!(
+        vm.get_property(obj, "Trap", "TriggerType"),
+        Some(Value::Int(7))
+    );
+    assert!(vm.idle(), "the setter thread finished synchronously");
+    assert!(vm.log.entries.is_empty(), "{:?}", vm.log.messages());
+    assert!(vm
+        .set_property(obj, "Trap", "Missing", Value::Int(1))
+        .is_err());
+}
+
+#[test]
 fn a_latent_native_suspends_the_thread_two_frames_deep_and_resumes() {
     let script = ScriptBuilder::new("Lat", "")
         .function(

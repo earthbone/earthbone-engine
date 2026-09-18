@@ -63,5 +63,7 @@ thiserror = "2"
 soe-esm = { path = "../esm" }
 soe-bsa = { path = "../bsa" }
 soe-nif = { path = "../nif" }
+soe-dds = { path = "../dds" }
+soe-trace = { path = "../trace" }
 
 [dev-dependencies]

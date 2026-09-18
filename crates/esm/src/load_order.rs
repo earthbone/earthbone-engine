@@ -75,6 +75,8 @@ impl LoadOrder {
     /// Add a file at the end of the order. Its masters must already be
     /// loaded, matched by name without regard to case.
     pub fn add(&mut self, name: &str, plugin: Plugin) -> Result<usize> {
+        let _span =
+            soe_trace::Span::with_payload("esm.load_order_add", "esm", plugin.records.len() as u64);
         let mut master_positions = Vec::with_capacity(plugin.header.masters.len());
         for m in &plugin.header.masters {
             let pos = self

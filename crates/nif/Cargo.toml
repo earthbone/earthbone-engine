@@ -15,3 +15,4 @@ workspace = true
 name = "soe_nif"
 
 [dependencies]
+soe-trace = { path = "../trace" }

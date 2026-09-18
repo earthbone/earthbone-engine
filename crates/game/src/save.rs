@@ -28,6 +28,7 @@ impl Game {
     /// Whatever [`soe_papyrus::Vm::save_state`] returns for a thread it
     /// cannot describe (a frame with no script).
     pub fn save_state(&self) -> Result<Vec<u8>, VmError> {
+        let _span = soe_trace::Span::new("game.save_state", "game");
         let world_bytes = self.world.borrow().save_state();
         let vm_bytes = self.vm.save_state()?;
         let mut out = Writer::new();
@@ -48,6 +49,7 @@ impl Game {
     /// A wrong magic or version, a truncated stream, or anything
     /// `World::load_state` or `Vm::load_state` reject.
     pub fn load_state(&mut self, bytes: &[u8]) -> Result<(), VmError> {
+        let _span = soe_trace::Span::with_payload("game.load_state", "game", bytes.len() as u64);
         let mut r = Reader::new(bytes);
         if r.take(4)? != MAGIC {
             return Err(VmError::State("not a game save file".into()));

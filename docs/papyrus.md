@@ -86,6 +86,14 @@ class and the parents the registry declared, so a quest form with no script
 still answers `SetStage`. This is how the game crate hands forms to scripts
 without preloading every form as a VM object.
 
+**Host property writes.** `set_property` writes an auto property's variable
+directly. A full property (a compiled `Get` and `Set` pair) has no variable
+of its own, so the host runs the `Set` function on a fresh thread with the
+value as its argument and drives that thread to completion before returning,
+the way the game applies `VMAD` values to such properties. A setter that
+waits or calls a latent native is logged and left running. `get_property`
+reads auto variables only.
+
 **States and events.** `send_event(object, name, args)` starts one thread per
 attached script that handles the event, resolved through the current state.
 `GotoState` and `GetState` are built in, and a state change delivers
@@ -95,11 +103,13 @@ attached script that handles the event, resolved through the current state.
 how a host fills and reads a property without a running script, the way the
 game crate applies a form's `VMAD` values. An auto property writes or reads
 its backing variable directly. A full property (a compiled `Get`/`Set` pair)
-runs the `setter` or `getter` to completion instead, through
-`run_call_to_completion`, a spawn-and-step loop outside the scheduler that
-uses the same frame-and-run machinery `Vm::call` hands to `run`. A script
-error during that call is logged like any other and the call yields `None`,
-it never surfaces as a `VmError`. A read-only full property, a getter and no
+spawns a call to the `setter` or `getter` and runs it to completion instead,
+through `run_property_call`, the same spawn-and-drive-`run` loop
+`set_property` already used for its setter, bounded to 64 passes of
+`SETTER_BUDGET` instructions each. A call still runnable after that budget is
+logged and abandoned, and `get_property` reads it back as `None`. A script
+error during the call is logged like any other and the call yields `None`, it
+never surfaces as a `VmError`. A read-only full property, a getter and no
 setter, is reported as `VmError::ReadOnlyProperty` rather than run, so a
 caller can count a property that is real but unwritable apart from one that
 is missing outright.
@@ -221,6 +231,14 @@ VM that carries `Actor`, `ObjectReference` and `Form`.
 
 ## Not done, and known gaps
 
+- Found by the trace on 2026-09-17 (`docs/performance.md`): during
+  `Game::start` over the vanilla scripts the VM reaches `call_native` 1,183
+  times with the function name `None` and walks the full class chain each
+  time, and no native by its real name appears at all. A method-call operand
+  decodes to `None` on the start path, most likely `CallParent` or a call on
+  a `None` object. Reproduce with `soe-bench trace scripts` and read the
+  `native` category in the summary. Not fixed on the `perf` branch, which
+  adds spans only.
 - Fallout 4 opcodes (`Is`, structs, the array mutators) parse but abort the
   thread with the line number when executed. Skyrim never emits them.
 - The lookup order inside a chain is per script, state then empty state. The

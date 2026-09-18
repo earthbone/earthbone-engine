@@ -5,6 +5,12 @@
 //! covers exactly the blocks the reader parses plus opaque junk blocks.
 
 #![allow(dead_code)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::manual_midpoint
+)]
 
 use soe_nif::stream::f32_to_half;
 use soe_nif::vertex::{attr, VertexDesc};

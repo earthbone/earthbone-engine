@@ -148,11 +148,16 @@ check holds. Order is by what unblocks the most.
 | Live validation | `live-validation` | Every `SKYRIM_DATA` gated test in every crate has run against the installed game, failures fixed or filed, and each `docs/<crate>.md` carries the numbers (records, archives, meshes, scripts, cells parsed, time taken). |
 | Actor base stats | `game-npc` | `NPC_` `ACBS` and `DNAM` feed actor values, level and flags, `CNTO` and `SPLO` seed inventory and spells, `RNAM` gives `GetRace`. Test on a synthetic NPC_ and on the Skyrim.esm Prisoner. |
 | VM save and load | `vm-save` | Script instances, variables, threads and the world's run-time state serialize to a file and load back, a quest mid-flow resumes and finishes. Own format first, ESS import is round 4. |
-| Godot headless load | `godot-headless` | A Godot 4 binary in `../tools/godot/`, the extension built as a cdylib and loaded by `godot --headless` on a test project, one cell streamed and its mesh count printed. |
+| Godot headless load | `godot-headless` (merged, real cell merged as `godot-real-cell`, host study in `../research/host-engine-options.md` says stay on Godot and gate on the Whiterun exterior benchmark, open-world support such as floating origin and cell-ring streaming is built in the host crate) | A Godot 4 binary in `../tools/godot/`, the extension built as a cdylib and loaded by `godot --headless` on a test project, one cell streamed and its mesh count printed. |
 | Behavior interpreter | `behavior` | The havok crate's graph model runs: state machines, blend nodes, clip generators, transitions on events, for one vanilla actor skeleton and its idle plus walk clips, pose output checked against the clip sampler. The single hard blocker of the map. |
 | Packages and AI | `packages` | `PACK` records read, sandbox, travel and sleep packages drive an actor through the navmesh graph on the clock, `EvaluatePackage` is real. |
 | Parser fuzzing | `fuzz` | `cargo fuzz` targets for esm, bsa, nif, hkx, dds and pex, one hour each without a panic, findings fixed. |
+| Performance harness | `perf` | `soe-bench` times every subsystem over the installed game, the trace crate records spans per phase and per native call and exports Chrome trace files, `docs/performance.md` carries the numbers, the thread scaling and the tracing overhead on this machine. Landed 2026-09-17. |
 | Natives by call count | `natives-2` | The next hundred natives from `docs/papyrus.md` with state behind them, each with a scenario, and the conformance table updated. |
+
+Round 3 status (2026-09-17): live validation, actor base stats, VM save and load, Godot headless
+load (extended to a real cell) and parser fuzzing are merged. Behavior interpreter, packages and AI,
+and natives-2 are not started.
 
 ## Round 4: tooling
 
@@ -166,6 +171,7 @@ protobuf seam, never inside the runtime crates.
 | CK wiki review | `engine-refs/ck-wiki/` filled, every native in `docs/game.md` checked against its page, differences fixed or listed. |
 | Editor backend | `docs/editor.md` becomes code: record editing over the esm crate with the Godot editor as the front end. |
 | Packaging | A profile plus load order becomes a runnable install without a mod manager in the loop. |
+| Scripting beyond Papyrus | Decided (2026-09-17, user): WebAssembly through wasmtime as the mod extension ABI, bound to the same native registry and form table Papyrus uses, with the component model for versioned interfaces. Rust natives stay the engine-level path. Lua only on author demand. GDScript for editor tooling and UI only. Done check: a Rust mod compiled to wasm subscribes to OnActivate and calls SetStage on the synthetic quest. |
 
 Decisions (2026-09-14, user): the runtime stays Rust. Go is used for a tooling component only when
 it makes that component easier to maintain than Rust would, behind a protobuf seam, never inside

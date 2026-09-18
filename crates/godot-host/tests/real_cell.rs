@@ -51,6 +51,24 @@ fn a_real_cell_streams_statics_from_the_installed_game() {
     println!("triangles: {}", loaded.stats.triangles);
     println!("wall time: {:.2}s", elapsed.as_secs_f64());
 
+    println!(
+        "distinct texture sets: {}",
+        loaded.stats.distinct_texture_sets
+    );
+    println!("textures decoded: {}", loaded.stats.textures_decoded);
+    println!("textures missing: {}", loaded.stats.textures_missing.len());
+    for path in loaded.stats.textures_missing.iter().take(10) {
+        println!("  missing: {path}");
+    }
+    println!(
+        "texture decode failures: {}",
+        loaded.stats.texture_decode_failures
+    );
+    println!(
+        "texture decode wall time: {:.2}s",
+        loaded.stats.texture_decode_time.as_secs_f64()
+    );
+
     assert!(loaded.stats.references > 0, "the cell has no references");
     assert!(
         loaded.stats.statics_with_model > 0,
@@ -63,5 +81,13 @@ fn a_real_cell_streams_statics_from_the_installed_game() {
     assert!(
         loaded.stats.triangles > 0,
         "meshes parsed but produced no triangles"
+    );
+    assert!(
+        loaded.stats.distinct_texture_sets > 0,
+        "no material named a texture, MaterialDesc is not reaching real content"
+    );
+    assert!(
+        loaded.stats.textures_decoded > 0,
+        "not one texture decoded, DataSource is not resolving textures through the Vfs"
     );
 }

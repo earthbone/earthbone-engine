@@ -12,6 +12,7 @@ workspace = true
 name = "soe_physics"
 
 [dependencies]
+soe-trace = { path = "../trace" }
 soe-nif = { path = "../nif" }
 
 [dev-dependencies]
