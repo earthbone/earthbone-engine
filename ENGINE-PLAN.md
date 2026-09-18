@@ -295,3 +295,16 @@ profile, their natives are added on the same call-count order when they appear.
 | Item | Branch | Done check |
 |---|---|---|
 | DLC natives | `natives-dlc` | Every native declared by a DLC script (`Actor.SendVampirismStateChanged`, the `DLC1` and `DLC2` extensions to `Actor`, `Game`, `ObjectReference`, `Race`, `Werewolf` and `Vampire` events) is registered with a scenario, the first real `start` has zero unresolved calls, and a Dawnguard flow (`DLC1VampireTurn` through the state change) runs on the harness. Starts after `world-split` merges. |
+
+Dirty plugins (2026-09-18): xEdit's Quick Auto Clean exists because the vanilla engine crashes on
+a deleted reference or navmesh that something else still points at, and because identical-to-master
+overrides silently undo a plugin in between. Bethesda's own Update, Dawnguard, HearthFires and
+Dragonborn masters carry all three. The engine takes the cleaned semantics natively so nobody has
+to clean anything: a deleted placed object stays resolvable and behaves as disabled at start, a
+deleted navmesh is dropped with its edge links repaired to the neighbours, an identical-to-master
+override is ordinary data (the load order already applies it as such). The gated runs load the
+uncleaned masters as shipped. The validation runner reports counts per plugin for authors.
+
+| Item | Branch | Done check |
+|---|---|---|
+| Deleted record semantics | `dirty-records` | A deleted `REFR` or `ACHR` winner resolves and is disabled at start (the cell index keeps it, flagged), a deleted `NAVM` drops with edge repair, the counts of identical-to-master overrides, deleted references and deleted navmeshes are reported per plugin, tested on the four uncleaned vanilla masters and on a synthetic dirty plugin. |
