@@ -1293,8 +1293,10 @@ version = "0.1.0"
 dependencies = [
  "soe-bsa",
  "soe-esm",
+ "soe-moddata",
  "soe-navmesh",
  "soe-papyrus",
+ "soe-profile",
  "soe-trace",
 ]
 

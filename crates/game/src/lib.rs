@@ -27,6 +27,7 @@ pub mod clock;
 pub mod debug;
 pub mod determinism;
 pub mod harness;
+pub mod moddata;
 pub mod natives;
 pub mod npc;
 pub mod package;
@@ -381,6 +382,23 @@ impl Game {
 
     /// Bind scripts, start every quest flagged Start Game Enabled, and run
     /// the VM until it settles.
+    /// Reads every mod data file under `roots` and applies it, lowest root
+    /// first the way a profile layers its directories. Call this before
+    /// [`Game::start`]: both distributors run once at load, before any script,
+    /// which is what the plugins do. See [`crate::moddata`].
+    pub fn apply_mod_data(&mut self, roots: &[std::path::PathBuf]) -> moddata::ModDataReport {
+        crate::moddata::apply(&mut self.world.borrow_mut(), roots)
+    }
+
+    /// The same, from a resolved profile, which already knows its data roots
+    /// in layering order.
+    pub fn apply_mod_data_from(
+        &mut self,
+        loadout: &soe_profile::Loadout,
+    ) -> moddata::ModDataReport {
+        self.apply_mod_data(&loadout.data_roots)
+    }
+
     pub fn start(&mut self) -> BindReport {
         let mut report = self.bind();
         let quests: Vec<GlobalFormId> = self

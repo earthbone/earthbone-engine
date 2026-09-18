@@ -101,14 +101,26 @@ impl World {
         // resolves instead of crashing the way the vanilla engine does.
         st.enabled = rec.flags & flags::INITIALLY_DISABLED == 0 && !rec.is_deleted();
         st.cell = rec.placement.cell.map(|c| self.order.resolve(file, c));
+        // Base Object Swapper replaces the base of a placed reference, and a
+        // reference is built here rather than at start, which is why the swap
+        // is held until now. See `crate::moddata`.
+        st.base = st.base.map(|b| self.mod_data.swap(b));
         if let Some(base) = st.base {
             st.inventory = self.base_inventory(base);
         }
         Some(st)
     }
 
+    /// A base's own `CNTO` list plus anything a distribution handed it as an
+    /// item, so a distributed item counts the same as a shipped one through
+    /// `GetItemCount`. See `crate::moddata`.
     fn base_inventory(&self, base: GlobalFormId) -> BTreeMap<GlobalFormId, i32> {
         let mut out = BTreeMap::new();
+        for d in self.mod_data.for_base(base) {
+            if d.record_type == soe_moddata::spid::RecordType::Item {
+                *out.entry(d.what).or_insert(0) += d.count;
+            }
+        }
         let Some(rref) = self.order.winner_ref(base) else {
             return out;
         };

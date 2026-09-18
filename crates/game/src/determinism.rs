@@ -69,7 +69,7 @@ impl TickHash {
 /// Every part name in log order, the world's then the VM's. The text form
 /// only accepts these, so a part added to either hash must be added here,
 /// the unit test below checks the world half against `WorldHash::parts`.
-const PART_NAMES: [&str; 23] = [
+const PART_NAMES: [&str; 24] = [
     "world.clock",
     "world.rng",
     "world.objects",
@@ -87,6 +87,7 @@ const PART_NAMES: [&str; 23] = [
     "world.listeners",
     "world.flags",
     "world.scenes",
+    "world.mod_data",
     "vm.objects",
     "vm.instances",
     "vm.threads",
@@ -250,10 +251,19 @@ mod tests {
 
     #[test]
     fn compare_names_the_first_tick_and_subsystem() {
+        // Looked up by name rather than by index: a part added to either hash
+        // shifts every index after it, and this test used to break on that
+        // instead of on the behaviour it checks.
+        let at = |name: &str| {
+            PART_NAMES
+                .iter()
+                .position(|n| *n == name)
+                .unwrap_or_else(|| panic!("{name} is not a part"))
+        };
         let base = vec![1u64; PART_NAMES.len()];
         let mut changed = base.clone();
-        changed[3] = 2;
-        changed[19] = 9;
+        changed[at("world.refs")] = 2;
+        changed[at("vm.threads")] = 9;
         let left = vec![tick(0, &base), tick(1, &base), tick(2, &base)];
         let right = vec![tick(0, &base), tick(1, &changed), tick(2, &changed)];
         assert_eq!(

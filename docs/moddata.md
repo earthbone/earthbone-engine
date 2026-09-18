@@ -156,3 +156,79 @@ them, but no shipped mod has been run through them yet.
 - Chance is carried as a percentage but not rolled. Both distributors seed a
   deterministic generator from the entry and the target so a given mod gives the
   same result every run, and reproducing that seed is its own task.
+
+## Applying, added 2026-09-18
+
+The "not done" line above said applying a `Patch` waits on the game crate. It
+no longer does. `crates/game/src/moddata.rs` is the other half, and
+`Game::apply_mod_data` takes the data roots a profile layers, reads every file
+under them, resolves it and applies it. `Game::apply_mod_data_from` takes a
+resolved `soe_profile::Loadout` instead, which already knows those roots in
+order.
+
+Call it before `Game::start`. Both distributors run once at load, before any
+script, which is what the plugins do.
+
+### Where each format lands, and why there
+
+| Format | Applied | Where |
+|---|---|---|
+| `_KID.ini` | At load | Merged into `World::keywords` itself |
+| `_DISTR.ini` | At load, keyed by base | Read when an actor's state is built |
+| `_SWAP.ini` | Held, applied per reference | Read when a reference is built |
+| OAR | Counted only | The animation system will read the trees |
+
+The keyword merge is the one worth stating plainly. A distributed keyword goes
+into the same list `World::keywords` returns for a record's own `KWDA`, so
+`HasKeyword` and every native that reads keywords cannot tell a distributed one
+from a shipped one. A side table this module alone consulted would have passed
+a weaker test and failed a real mod, which is why the lookup changed rather
+than gaining a neighbour.
+
+Distribution is keyed by `NPC_` base rather than applied to loaded actors,
+because an actor's state is built from its base on first use. A reference that
+loads an hour later still receives what its base was given.
+
+A swap is not a load time event at all. The reference it names may not exist
+yet, so the swap is held and `RefState`'s base is rewritten when the reference
+is built. `World::base_inventory` does the same for a distributed item, so
+`GetItemCount` counts it the way it counts a shipped one.
+
+### Chance, and what it costs
+
+`soe_moddata` carries a chance percentage and deliberately does not roll it.
+The roll happens here, from the world's seeded generator, so two runs of one
+seed distribute identically and the per-tick state hash still matches. There is
+now a `world.mod_data` part in that hash covering the attached keywords, the
+distributions and the swaps, and a test that applies the same three files twice
+and compares.
+
+It will **not** match the real plugin's choice. SPID and KID seed from the entry
+and the target so a given mod gives the same answer on every machine, and
+reproducing that seed is its own task. A mod leaning on chance therefore behaves
+plausibly rather than identically.
+
+### What is applied and what is only carried
+
+Spells, levelled spells, perks, outfits, sleep outfits and factions reach the
+actor. Items reach the inventory. Packages, shouts, skins and bare forms are
+resolved, held in `mod_data` and counted in the report, but nothing consumes
+them yet: a package needs a third source in the driver's stack and a save format
+change, and the other three have no actor state at all.
+
+A distribution carrying a level or trait filter is **skipped** and counted in
+`skipped_unsupported_filter`, never applied. Those filters are not evaluated
+yet, and applying such a rule to every actor would be worse than not applying
+it. A test pins that direction.
+
+### Measured
+
+The gated scan over the installed game reports zero of everything, because the
+install is vanilla and ships no mod using any of these formats. It starts
+reporting the moment one is installed, which remains the crate's one honest gap:
+every fixture is still authored.
+
+| Test suite | Count | What it covers |
+|---|---|---|
+| `crates/game/src/moddata.rs` unit | 3 | The item type to record tag map, swap fallthrough, empty distribution |
+| `crates/game/tests/moddata_apply.rs` | 9 | Each format through the game's own query paths, the skip direction, chance, determinism, and the gated scan |
