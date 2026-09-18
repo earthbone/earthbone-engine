@@ -98,9 +98,15 @@ Open the corpus before writing a parser or a native, not after.
   763 unbatched nodes, VM 12.7M instructions per second). Open in round 3:
   the behavior interpreter (start from `../research/behavior-graph-references.md`,
   the Project Anarchy headers are the semantics source), packages and AI, the
-  next hundred natives, a cell-to-reference index and surface batching (the two
-  hot spots the trace found), and the unnamed-native dispatch bug on quest
-  start (branch `vm-callname`).
+  next hundred natives (start with the leveled-list natives and the
+  `Alias.RegisterForUpdate` chain walk that the first `start` left
+  unresolved, see docs/game.md), a cell-to-reference index and surface
+  batching (the two hot spots the trace found).
+- 2026-09-18: the VM had evaluated PEX call and property name operands as
+  variables, so every vanilla call dispatched as `None` until branch
+  `vm-callname` fixed it. The first real `start` reaches 63 natives in 1,095
+  calls. Any earlier claim that vanilla scripts "ran" meant they loaded and
+  bound, not that their calls dispatched.
 - `Vm::get_property` runs compiled getters and read-only properties are
   counted apart in `BindReport` (branch `vm-props`, merged 2026-09-18).
 - Untested live: a real Proton launch, natives against the CK wiki pages.
