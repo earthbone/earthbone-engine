@@ -17,7 +17,9 @@ use std::fs;
 use std::path::Path;
 
 fn write_seed(target: &str, name: &str, bytes: &[u8]) {
-    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus").join(target);
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("corpus")
+        .join(target);
     fs::create_dir_all(&dir).expect("create corpus dir");
     fs::write(dir.join(name), bytes).expect("write seed");
 }
@@ -67,12 +69,12 @@ fn nif_seed() -> Vec<u8> {
     b.push(0);
     // max_filepath is skipped below bs_version 103.
     b.extend_from_slice(&0u16.to_le_bytes()); // block type count
-    // no block types, no per-block index or sizes (block_count is 0)
+                                              // no block types, no per-block index or sizes (block_count is 0)
     b.extend_from_slice(&0u32.to_le_bytes()); // string_count
     b.extend_from_slice(&0u32.to_le_bytes()); // max_string_length
-    // no strings
+                                              // no strings
     b.extend_from_slice(&0u32.to_le_bytes()); // group_count
-    // no groups
+                                              // no groups
     b.extend_from_slice(&0u32.to_le_bytes()); // footer: num_roots
     b
 }
@@ -93,18 +95,18 @@ fn havok_seed() -> Vec<u8> {
     // user_tag, file_version: leave 0.
     b[16] = 8; // pointer_size
     b[17] = 1; // little_endian
-    // padding_option, base_class: leave 0.
+               // padding_option, base_class: leave 0.
     b[20..24].copy_from_slice(&2i32.to_le_bytes()); // section_count
-                                                      // contents_section_index/offset and contents_class_name_section_*: leave 0.
-    // version_string bytes[40..56]: leave zeroed, read as an empty string.
-    // flags bytes[56..60]: leave 0.
-    // section_offset bytes[62..64]: leave 0, table starts at HEADER_SIZE.
+                                                    // contents_section_index/offset and contents_class_name_section_*: leave 0.
+                                                    // version_string bytes[40..56]: leave zeroed, read as an empty string.
+                                                    // flags bytes[56..60]: leave 0.
+                                                    // section_offset bytes[62..64]: leave 0, table starts at HEADER_SIZE.
 
     let data_start = (HEADER_SIZE + 2 * SECTION_HEADER_SIZE) as u32;
     let write_section = |b: &mut [u8], at: usize, tag: &[u8]| {
         b[at..at + tag.len()].copy_from_slice(tag);
         b[at + 20..at + 24].copy_from_slice(&data_start.to_le_bytes()); // absolute_data_start
-                                                                         // local/global/virtual fixups, exports, imports, end offsets: leave 0.
+                                                                        // local/global/virtual fixups, exports, imports, end offsets: leave 0.
     };
     write_section(&mut b, HEADER_SIZE, b"__classnames__");
     write_section(&mut b, HEADER_SIZE + SECTION_HEADER_SIZE, b"__data__");
