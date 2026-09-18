@@ -13,8 +13,9 @@ With `--no-default-features` the `godot` dependency is gone and what remains is 
 | `streaming` | no | which cells to load and unload around a focus, with budgets and hysteresis |
 | `mesh` | no | a decoded NIF shape to `ArrayMesh` surface arrays, with validation |
 | `terrain` | no | LAND heights to Terrain3D regions |
-| `data_source` | no | a real `Data` folder through `esm`, `bsa` and `nif` to loaded cells |
-| `godot_layer` | yes | the `CellStreamer` node, `array_mesh_from`, `heightmap_image_from` |
+| `data_source` | no | a real `Data` folder through `esm`, `bsa`, `nif` and `dds` to loaded cells and exterior blocks |
+| `batch` | no | a cell's surfaces merged per material set, with the side table back to each reference |
+| `godot_layer` | yes | the `CellStreamer` node, `RenderingServer` instances, `array_mesh_from`, `heightmap_image_from` |
 
 The Godot layer decides nothing. That is what keeps the tests engine-free, and it is the
 seam a VulkanSceneGraph or other host would reuse: everything above the layer is plain data.
@@ -314,3 +315,200 @@ feathers rather than an opaque quad. This confirms winding and UV orientation ar
 wrong winding would have culled these surfaces from the camera's side instead of showing their
 textures. A few surfaces still render flat white, references whose base form or model this
 round's static-only path does not cover, out of scope here.
+
+## Batching, RenderingServer instances, compressed textures, exteriors (2026-09-18)
+
+Branch `batching`. Four changes to the node-building side, one to the material path, and the
+exterior benchmark that `../research/host-engine-options.md` set as the gate for staying on
+Godot. Every number below is from `godot/bench.gd` on the machine in `docs/performance.md`,
+windowed, X11 display driver, vsync off, 1600 by 900, with the median and percentiles over at
+least five seconds and 600 frames.
+
+### What the 56 ms frame was
+
+`docs/performance.md` (2026-09-17) reported the Bannered Mare at 56 ms a frame and named the
+763 unbatched mesh nodes as the cause. That number came from `Performance.TIME_PROCESS`, which
+this run showed reading a constant 80 to 113 ms across every frame of a scene the wall clock
+puts at half a millisecond. `bench.gd` now times the wall clock between two `_process` calls
+and reads the viewport's own measured GPU and CPU render time, and the unbatched Bannered Mare
+is 0.48 ms a frame at about 2,000 frames a second. The nodes were never the frame's cost. They
+were still worth removing, since the batched scene halves the frame again, and the render CPU
+row shows what each change buys.
+
+### Batching: one mesh per material set
+
+`src/batch.rs` merges a cell's surfaces by `BatchKey`: lowercased diffuse and normal path,
+alpha mode, cull mode, and which vertex attributes are present, since a merged vertex buffer
+has one layout. Surfaces that agree are appended into one `SurfaceArrays` with their indices
+offset, bounds merged, first-seen order kept. Skinned surfaces never merge. Every source
+surface keeps its place as a `BatchMember` (first vertex and count, first triangle and count,
+source index), so `Batch::member_of_triangle` maps a triangle index back to the surface, and
+`LoadedSurface` now carries the `GlobalFormId` of the reference that placed it (or of the
+`LAND` record for terrain), which is what a raycast hit will resolve to a form through
+`CellStreamerNode::reference_at`. Batches are per cell, not per block, so Godot still culls per
+cell in an exterior.
+
+Merging into one `ArrayMesh` was chosen over a `MultiMesh` per repeated NIF. `mesh_data_from`
+has already baked each reference's placement into the vertices, so a `MultiMesh` would need
+that undone and re-applied per instance, and two placements of one NIF share its material and
+so land in the same batch anyway. A `MultiMesh` pays off where one heavy NIF is placed hundreds
+of times, the exterior rock and tree case, and is the next step once a trace shows it.
+
+The Bannered Mare goes from 763 surfaces to 48 batches (46 texture sets, the rest split by
+alpha mode), the largest batch holding 171 surfaces. The 3 by 3 Whiterun block goes from 802
+surfaces to 195 batches.
+
+### RenderingServer instances instead of nodes
+
+The review that came in with this branch asked for no node per reference at all. Streamed
+geometry now bypasses the scene tree: `add_instance` builds the `ArrayMesh` resource, calls
+`RenderingServer::instance_create2(mesh, scenario)` in the node's viewport scenario (the main
+loop's root viewport when the node is not yet inside the tree, which is where a `SceneTree`
+script's `_initialize` runs), sets the transform to identity and the material override, and
+keeps the RIDs and the mesh handle on the node. `exit_tree` and `clear` free them. There is no
+`Node3D` per cell, per reference or per batch, no per-node process or transform notification,
+and `scene_bounds` reports the merged bounds so a camera can frame the scene without walking
+children. `bench.gd` and `capture.gd` use it. The unbatched mode (one instance per surface)
+stays as the benchmark's baseline, on the `batch_surfaces` export.
+
+The `StandardMaterial3D` cache moved from a per-call local to the node, keyed by texture set,
+so a texture uploaded for one cell serves every later cell that names it. `last_stats`
+reports the materials a call created, not the cache size.
+
+### Compressed textures as they are
+
+The 2026-09-18 trace on `master` had `host.material` at 97 percent of a cell's stream time:
+every texture decoded from BC1, BC3, BC5 or BC7 to RGBA8 on the calling thread after the
+workers joined, once per `stream_cell_id` call. Three changes:
+
+- `TextureCache` is owned by `DataSource` and shared by every stream call and every worker
+  thread (a mutex around the map, atomics for the counters), so a texture is read once for the
+  source's lifetime and a second stream of any cell pays nothing for it.
+- The read runs on the worker threads, inside `load_static_surfaces`, right after the NIF's
+  surfaces are built.
+- A block-compressed DDS is not decoded at all. `load_texture` copies layer 0's mip chain out
+  of the file as `TextureData::Compressed` and `godot_layer::image_texture_from` hands it to
+  `Image::create_from_data` with `mipmaps = true` as `FORMAT_DXT1`, `DXT3`, `DXT5`, `RGTC_R`,
+  `RGTC_RG` or `BPTC_RGBA`. `godot/texture_check.gd` proves headless that 4 by 4 and 8 by 8
+  DXT1, DXT5, RGTC_RG and BPTC_RGBA images with and without chains round-trip through
+  `create_from_data` and `ImageTexture::create_from_image` with the format unchanged. The
+  vanilla files stop their chains at 2 by 2 or 4 by 4 and Godot refuses a chain that does not
+  reach 1 by 1 (`Expected Image data size ... got 16 bytes less`), so `load_texture` pads the
+  tail with copies of the last stored block. Uncompressed DDS, signed BC4 and BC5 and volumes
+  still decode their top mip to RGBA8 and get a generated mip chain, since without mips every
+  minified sample of a 2048 square texture misses the texture cache.
+
+Texture memory for the Bannered Mare: 592 MB as decoded RGBA8 without mips, 783 MB with
+generated mips, 175 MB as the files' own BC blocks with their chains. The Godot-side
+`stream_cell` (data path plus upload) went from 1.11 to 1.19 s with the decode to 0.50 to
+0.52 s without it. The Rust-side stream numbers are in `docs/performance.md`.
+
+### Exteriors: block, terrain, parent land
+
+`DataSource::resolve_exterior_block(editor_id, radius)` walks the winning `CELL` records
+once, finds the named cell's grid position and worldspace, and returns every cell of that
+worldspace within `radius` grid steps, sorted south to north then west to east (radius 2 is
+the game's `uGridsToLoad=5`). `stream_exterior` streams each cell through `stream_cell_id` and
+appends the cell's terrain as one more `LoadedSurface`: `land_for_cells` walks the `LAND`
+winners once for the whole block, and `terrain_surface` turns the 33 by 33 `VHGT` heights into
+32 by 32 quads in Skyrim units, `VNML` normals when present, wound counter-clockwise from above
+so `build_surface`'s flip lands them like a NIF's faces. `CellStreamerNode::stream_exterior`
+is the GDScript entry point and `last_stats` carries the block's totals, the worldspace's
+editor id and the cell list.
+
+`WhiterunOrigin` is grid (4, -2) of `WhiterunWorld`, whose `WNAM` parent is Tamriel with the
+`PNAM` "use land data" bit set (CommonLib's `kUseLandData`). Only three of the nine cells
+around the origin carry their own `LAND`, the city draws Tamriel's under the other six, so
+`resolve_exterior_block` also collects the parent's cells at the block's grid positions and
+`stream_exterior` takes the parent's `LAND` where the child has none. Nine of nine cells then
+have terrain. Whether the shipped engine draws the parent's land under a child cell that has
+its own is not settled here, the override wins.
+
+What the exterior still lacks, none of it needed for the block benchmark: the `LAND` quadrant
+layers (`LTEX` base plus alpha layers) need a splat material, so terrain draws in the
+untextured white material. Distant geometry is Bethesda's precomputed LOD (the `BTO` and `BTR`
+files under `meshes/terrain`, to be consumed, never generated), not loaded, so nothing beyond
+the requested ring exists. No water plane. `WhiterunWorld` lists grid (0, 0) twice among its
+winners, both streamed. Interior streaming by proximity is still unstarted.
+
+### Numbers
+
+Frame time is the wall clock between two `_process` calls, presentation included, at 1600 by
+900. GPU and CPU are `RenderingServer.viewport_get_measured_render_time_gpu` and `_cpu` for the
+root viewport. Static count means references whose base is a `STAT` with a model.
+
+| Scene | Cells | Refs | Triangles | Instances | Frame p50 | p99 | p99.9 | Worst | GPU p50 | CPU p50 | Texture MB |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| Bannered Mare, unbatched | 1 | 690 | 124,924 | 763 | 0.480 ms | 0.950 | 1.492 | 5.651 | 0.081 ms | 0.177 ms | 175 |
+| Bannered Mare, batched | 1 | 690 | 124,924 | 48 | 0.235 ms | 0.397 | 0.903 | 2.282 | 0.062 ms | 0.039 ms | 175 |
+| Whiterun 3 by 3, unbatched | 9 | 957 | 303,619 | 802 | 0.758 ms | 1.934 | 2.749 | 3.747 | 0.093 ms | 0.280 ms | 313 |
+| Whiterun 3 by 3, batched | 9 | 957 | 303,619 | 195 | 0.288 ms | 0.519 | 1.045 | 1.698 | 0.087 ms | 0.066 ms | 313 |
+| Whiterun 5 by 5, unbatched | 25 | 1,767 | 624,408 | 1,499 | 0.889 ms | 1.782 | 3.013 | 7.567 | 0.156 ms | 0.454 ms | 347 |
+| Whiterun 5 by 5, batched | 25 | 1,767 | 624,408 | 390 | 0.359 ms | 0.686 | 1.319 | 3.191 | 0.142 ms | 0.105 ms | 347 |
+| WhiterunWorld 9 by 9, batched | 59 | 2,465 | 825,587 | 563 | 0.440 ms | 0.935 | 1.576 | 2.246 | 0.171 ms | 0.147 ms | 409 |
+
+Draw calls equal instances in every row. The 3 by 3 block is cells (3,-3) to (5,-1), the 5 by
+5 block (2,-4) to (6,0), the 9 by 9 radius covers every cell `WhiterunWorld` has (59 of a
+possible 81, 57 with terrain). The camera sits above and behind the scene's bounds looking at
+its centre, so every instance is in the frustum and the GPU row is the whole scene. Streaming
+into Godot took 3.7 s for the 3 by 3 block, 9.5 s for the 5 by 5 and 30 s for the 59 cells,
+about 0.4 s a cell, almost all of it the reference scan that the `cell-index` branch on
+`master` has since replaced with a lookup, which this branch does not carry.
+
+Captures: `docs/images/bannered-mare-batched.png` (the interior from above, batched, textures
+intact), `docs/images/whiterun-exterior-3x3.png`, `docs/images/whiterun-exterior-5x5.png` (the
+city on its rock, Dragonsreach at the top, white terrain around it), and
+`docs/images/whiterun-world-9x9.png`.
+
+### Godot 4.4.1 against 4.7.2
+
+A Godot 4.7.2 binary sits next to the 4.4.1 one under `../tools/godot/`. The extension,
+built against gdext's `api-4-4`, loads on it unchanged (`Initialize godot-rust (API
+v4.4.stable.official, runtime v4.7.2.stable.official)`), and the 3 by 3 block was run on both,
+plus 4.7.2 on both rendering thread models (`--render-thread safe` and `separate`).
+
+| Binary, thread model | Batched | Instances | Frame p50 | p99 | p99.9 | Worst | GPU p50 | CPU p50 |
+|---|---|---|---|---|---|---|---|---|
+| 4.4.1, single-safe | no | 802 | 0.758 ms | 1.934 | 2.749 | 3.747 | 0.093 ms | 0.280 ms |
+| 4.7.2, single-safe | no | 802 | 0.517 ms | 1.193 | 1.675 | 22.399 | 0.091 ms | 0.196 ms |
+| 4.4.1, single-safe | yes | 195 | 0.288 ms | 0.519 | 1.045 | 1.698 | 0.087 ms | 0.066 ms |
+| 4.7.2, single-safe | yes | 195 | 0.276 ms | 0.498 | 1.071 | 1.677 | 0.084 ms | 0.063 ms |
+| 4.7.2, separate render thread | yes | 195 | 0.281 ms | 0.492 | 1.110 | 1.849 | 0.084 ms | 0.064 ms |
+
+Batched, the two binaries are within run-to-run noise of each other, and the separate render
+thread changes nothing at a third of a millisecond a frame, where there is no render work to
+overlap. Unbatched, 4.7.2 has the lower median (0.517 against 0.758 ms with 802 draw calls)
+and the one real hitch of the whole session, a 22.4 ms frame among 8,562, still under the
+33 ms bar. One run each, so the median gap is a lead, not a finding. 4.7.2 prints one `This function (finalize) can only be called from the
+render thread` error at exit in the separate model, after the last frame, which does not touch
+the numbers. Nothing here argues for or against either binary. The differences the rendering
+brief lists (occlusion in 4.5, MultiMesh visibility-range fade and the command queue lock in
+4.6, the environment buffer in 4.7) need a scene with occluders, a MultiMesh path and a moving
+camera to show, none of which this benchmark has yet.
+
+### Against the pass bar
+
+`ENGINE-PLAN.md` on `master` fixed the bar before these numbers existed: for the 3 by 3 block
+with every static drawn, p99 at or under 16.7 ms and the worst hitch under 33 ms, and a cell
+streamed in under 250 ms on the workers.
+
+| Criterion | Bar | Measured (4.4.1, batched, 3 by 3, 9 cells, 957 references, 303,619 triangles) | |
+|---|---|---|---|
+| Frame p99 | at or under 16.7 ms | 0.519 ms | pass |
+| Worst hitch | under 33 ms | 1.698 ms over 16,444 frames in 5 s | pass |
+| Cell stream on workers | under 250 ms | 3,655 ms for 9 cells, 406 ms per cell, of which 356 ms is the reference scan this branch still carries | fail on this branch |
+
+The unbatched 3 by 3 (802 instances) also passes the two frame criteria at 1.934 ms and
+3.747 ms. The stream criterion fails here because of the linear reference scan, which the
+`cell-index` branch on `master` replaced with a 0.5 ms lookup after this worktree branched.
+With that index the per-cell cost on this branch is the NIF parse, mesh build and texture copy
+on the workers (`host.build_all`, 17 ms mean for the Bannered Mare's 318 statics, 67 ms worst)
+plus the Godot upload, so the merged tree should pass it. That is a claim to measure on
+`master` after the merge, not a result.
+
+On the host question: the whole city worldspace, 825k triangles, draws in 0.17 ms of GPU time
+and 0.15 ms of render CPU at 1600 by 900 on this machine, with the frame wall clock at 0.44 ms
+and the worst hitch over five seconds at 2.2 ms. Godot's renderer is not the limit at this
+scale. What the numbers do not cover: the Tamriel plains around the city with their LOD,
+grass, trees and water, and a moving focus with cells loading and unloading under it. Those
+are the next benchmark, on the cell index and the BTO and BTR readers.

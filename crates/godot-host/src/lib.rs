@@ -12,6 +12,7 @@
 
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
+pub mod batch;
 pub mod data_source;
 pub mod mesh;
 pub mod streaming;

@@ -3,7 +3,7 @@ extends SceneTree
 ## Windowed capture script for the streamed Bannered Mare cell (docs/godot-host.md,
 ## "Real cell"). Loads SKYRIM_DATA through CellStreamerNode.load_data, streams
 ## WhiterunBanneredMare with stream_cell, adds a light and an environment, computes
-## the AABB of the built MeshInstance3D nodes, and saves three camera views as PNG
+## the AABB the streamer reports for its instances, and saves three camera views as PNG
 ## under docs/images/. build_surface (crates/godot-host/src/mesh.rs, see docs/godot-host.md
 ## "Mesh") already converts positions to metres, so the AABB and the 1.7 m eye height
 ## below are plain Godot metres, no further unit scaling needed.
@@ -52,7 +52,7 @@ func _initialize() -> void:
 		return
 
 	var built: int = streamer.call("stream_cell", CELL_NAME)
-	print("capture: cell = %s, mesh nodes built = %d" % [CELL_NAME, built])
+	print("capture: cell = %s, instances built = %d" % [CELL_NAME, built])
 	if built <= 0:
 		printerr("FAIL: stream_cell built no meshes for %s" % CELL_NAME)
 		quit(1)
@@ -76,7 +76,7 @@ func _initialize() -> void:
 	env_node.environment = env
 	scene_root.add_child(env_node)
 
-	var aabb := _mesh_aabb(streamer)
+	var aabb: AABB = streamer.call("scene_bounds")
 	print("capture: AABB position = %s, size = %s" % [aabb.position, aabb.size])
 	var center := aabb.get_center()
 
@@ -105,32 +105,6 @@ func _initialize() -> void:
 	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(OUT_DIR))
 
 	_apply_shot(cam, 0)
-
-func _mesh_aabb(node: Node) -> AABB:
-	var result := AABB()
-	var first := true
-	for child in node.get_children():
-		if child is MeshInstance3D:
-			var mi := child as MeshInstance3D
-			var local_aabb := mi.get_aabb()
-			var xform := mi.global_transform
-			var corners := [
-				xform * local_aabb.position,
-				xform * (local_aabb.position + Vector3(local_aabb.size.x, 0, 0)),
-				xform * (local_aabb.position + Vector3(0, local_aabb.size.y, 0)),
-				xform * (local_aabb.position + Vector3(0, 0, local_aabb.size.z)),
-				xform * (local_aabb.position + Vector3(local_aabb.size.x, local_aabb.size.y, 0)),
-				xform * (local_aabb.position + Vector3(local_aabb.size.x, 0, local_aabb.size.z)),
-				xform * (local_aabb.position + Vector3(0, local_aabb.size.y, local_aabb.size.z)),
-				xform * (local_aabb.position + local_aabb.size),
-			]
-			for c in corners:
-				if first:
-					result = AABB(c, Vector3.ZERO)
-					first = false
-				else:
-					result = result.expand(c)
-	return result
 
 func _apply_shot(cam: Camera3D, index: int) -> void:
 	var shot: Dictionary = shots[index]

@@ -59,7 +59,7 @@ func _run_real(skyrim_data: String) -> void:
 
 	var cell_name := "WhiterunBanneredMare"
 	var built: int = streamer.call("stream_cell", cell_name)
-	print("Godot headless load: cell = %s, mesh nodes built = %d" % [cell_name, built])
+	print("Godot headless load: cell = %s, instances built = %d" % [cell_name, built])
 	real_run_done = true
 	if built > 0:
 		print("RESULT: PASS")
