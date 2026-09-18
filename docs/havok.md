@@ -358,42 +358,107 @@ followed, the head sits at z 120.3 in model space, and one update costs
 the target's own output, since a blend at alpha one negates the
 quaternions the short arc flipped.
 
-The same test then loads the vanilla `behaviors/mt_behavior.hkx`, 1,595
-nodes, 931 events, 67 variables, 730 clips named of which 729 are in the
-archive (`IdleValericaWalkForward` is not), with 32 bindings resolved and
-92 unbound (`BSIsActiveModifier.bIsActiveN` and `hkbStateMachine.isActive`,
-modifier state this interpreter does not carry). Activation reaches
-`MT_Default_Behavior = MT_Standing_State` through `MT_Idle_TurnBehavior =
-MT_Idle_State` at weight zero, because the standing idle lives behind the
-`Behaviors\IdleBehavior.hkx` reference. Setting `Speed` to 1 and sending
-`moveStart` moves it to `MT_LocomotionType_Behavior = MT_Locomotion_State`
-with `MT_WalkForwardSlow` playing at weight one, no unknown classes and no
-missing clips on the path. An update costs 0.9 us idle and 8.2 us walking.
+The same test then loads the vanilla `behaviors/mt_behavior.hkx` and links
+every graph it references. That is the step that makes it animate: a
+reference serializes only a file name, so before linking the graph reaches
+`MT_Default_Behavior = MT_Standing_State` and stands there at **weight
+zero**, because the standing idle lives behind `Behaviors\IdleBehavior.hkx`.
+
+Linking pulls in four references over two rounds, `Shout_Behavior`,
+`SprintBehavior` twice and `IdleBehavior`, with none missing and none
+refused. The graph grows from 1,595 nodes, 931 events and 67 variables to
+2,223 nodes, 974 events and 87 variables, and from 730 clip names to 788 of
+which 787 are in the archive (`IdleValericaWalkForward` is still not).
+
+After linking, two seconds of idle gives **weight one** with `MT_Idle.HKX`
+playing, reached through the spliced states `Behavior00 = MT_Idle_State`,
+`MT_Idle_3rdPersonBehavior = InitialIdleState` and `Behavior02 =
+MT_Idle.HKX`. Setting `Speed` to 1 and sending `moveStart` still moves it to
+`MT_LocomotionType_Behavior = MT_Locomotion_State` with `MT_WalkForwardSlow`
+at weight one. Nothing on either path is an unknown class, a missing clip or
+an unresolved reference.
+
+Bindings went from 32 resolved and 92 unbound to **194 resolved and 5
+unbound**. The five left are classes with no evaluation yet, not paths the
+resolver cannot parse: `hkbBlenderGenerator.boneWeights`,
+`BSEventOnFalseToTrueModifier.bVariableToTest1`,
+`hkbRotateCharacterModifier.degreesPerSecond` and
+`hkbEventsFromRangeModifier.inputValue` twice.
+
+An update costs 9.9 us idle and 8.6 us walking. Idle rose from 0.9 us
+because it now samples a 99 bone clip every frame instead of returning the
+reference pose.
+
+### Ported layouts (2026-09-18)
+
+The classes came from `../engine-refs/serde-hkx/`, dual MIT and Apache, whose
+`assets/classes/*.json` carry every Havok class with its signature, size per
+pointer width and per member the ctype and both byte offsets. Read and
+extracted into this crate's own types, never depended on, since it is one
+maintainer and the layouts are what we need rather than the code.
+
+- `hkbBehaviorReferenceGenerator`: `behaviorName` at 72, and a `behavior`
+  pointer marked `SERIALIZE_IGNORED`, which is the proof that a file cannot
+  say what sits under a reference.
+- `hkbBehaviorGraph`: `eventIdMap`, `variableIdMap` and
+  `characterPropertyIdMap` are all `SERIALIZE_IGNORED` too, so the engine
+  builds them at load. This confirms 5.1 and corrects how section 7 phrased
+  it: `hkbSymbolIdMap` is a runtime structure with no serialized class to
+  port, so the map is built by name here exactly as 5.1 describes.
+  `hkbLinkedSymbolInfo` is the only symbol class in the file format and it
+  carries name lists alone.
+- `BSIsActiveModifier`: five `bIsActiveN` flags interleaved with five
+  `bInvertActiveN` from offset 80.
+- `hkbVariableBindingSetBinding`: `hasOutputBinding` on the set is
+  `SERIALIZE_IGNORED`, so a file never says whether a binding reads or
+  writes. The member decides, see below.
+
+### Linking, and why symbols map by name
+
+`link::BehaviorGraph::link_reference` splices a referenced graph in under its
+reference node, and `link_all` walks the chain with a round bound so a graph
+that reaches itself terminates. Symbols map by name because a name is the
+only thing two files share: a sub-graph event or variable the parent already
+knows keeps the parent's id, one the parent lacks is appended to the parent's
+tables. Then every id inside the sub-graph is rewritten, its node ids shift
+past the parent's, and the reference points at the sub-graph's root.
+
+Character property bindings are left alone, they index a separate table this
+map does not cover.
+
+### Input and output bindings
+
+The file does not mark a binding's direction, so the member does. Two members
+are node state with no setter behind them, so they are written back into
+their variable after the update rather than read from it before:
+`hkbStateMachine.isActive`, and `BSIsActiveModifier.bIsActiveN` which writes
+whether the modifier is active, inverted when that slot's invert bit is set.
+That is how a Skyrim graph lets script see that a branch is running. The rest
+read as before, now including `hkbStateMachine.startStateId` (which beats the
+stored start state in every mode), `hkbBlendingTransitionEffect.duration` and
+`BSCyclicBlendTransitionGenerator.fBlendParameter`.
 
 ## 7. Not done and next
 
-- Behavior references: `0_master` reaches `mt_behavior` and `mt_behavior`
-  reaches `IdleBehavior` through `hkbBehaviorReferenceGenerator`. The
-  interpreter needs a sub-graph per reference with its event and variable
-  ids mapped by name to the character's tables, the `hkbSymbolIdMap` of
-  5.1. That is what puts a pose under the vanilla standing idle.
-- Modifiers: `BSIsActiveModifier`, `hkbTimerModifier`,
-  `hkbEventDrivenModifier` and the rest pass through. Their bindings are
-  the bulk of the unbound list.
+- Modifier evaluation. `BSIsActiveModifier` reports its own activity and the
+  rest still pass through, so the five remaining unbound members are the
+  work: bone weight masks on a blender, `BSEventOnFalseToTrueModifier`,
+  `hkbRotateCharacterModifier` and `hkbEventsFromRangeModifier`. Their
+  layouts are in `serde-hkx` like the rest.
 - Transition details: trigger and initiate intervals, `hkbCondition`
   expressions, priority arbitration, the `abut at end` flag,
-  `hkbGeneratorTransitionEffect`, `maxSimultaneousTransitions`.
-- Blender details: bone weight masks, `subtractLastChild`, the real
-  weight curve once a capture from the game exists (5.4).
+  `hkbGeneratorTransitionEffect`, `maxSimultaneousTransitions`. Conditions
+  are still accepted as satisfied, which is the largest remaining guess.
+- Blender details: bone weight masks, `subtractLastChild`, the real weight
+  curve once a capture from the game exists (5.4).
 - Extracted motion and float tracks in the output.
 - 32-bit (Skyrim LE) layouts, wanted for Nemesis's LE cached behaviors.
-- `hkbCondition` and `hkbExpressionCondition` expressions on transitions.
-- Float tracks and extracted motion in clips, and the 16-bit and 24-bit
-  rotation packings, which Skyrim files have not been seen to use.
 - Ragdoll data (`hkaRagdollInstance`, `hkpRigidBody`) in `skeleton.hkx`,
   which the physics layer will want from the same file.
-- The remaining `BS*` and `hkb*` node classes, driven by the unknown-class
-  list the `0_master` test prints.
-- A packfile writer that round-trips real files, so Nemesis-style
-  patching can happen in Rust. The builder here writes valid files but
-  does not yet copy unmodelled objects through.
+- A packfile writer that round-trips real files, so Nemesis-style patching
+  can happen in Rust. The builder here writes valid files but does not yet
+  copy unmodelled objects through.
+- Linking currently loads a file per reference, so `SprintBehavior` is
+  spliced twice. That is correct, each reference is its own instance with its
+  own state, but a shared decode with per-instance run-time state would cost
+  less memory.
