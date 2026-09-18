@@ -430,7 +430,7 @@ own rule that existing plugins keep their meaning.
 
 | Item | Branch | Done check |
 |---|---|---|
-| Streamed transitions | `no-load-screen` | The destination cell streams while the player approaches the door, the move is instant with no screen, cell events fire in the vanilla order, and the frame time across the move stays inside the exterior benchmark bar. Round 7. |
+| Streamed transitions | `no-load-screen` | The destination cell streams during the door opening animation, the move is instant with no screen, cell events fire in the vanilla order, and the frame time across the move stays inside the exterior benchmark bar. Round 7. |
 | Seamless doorways | `portal-cells` | Read `godotwind/docs/systems/interior_transitions.md` first. A prototype: one interior rendered at a transform behind its door, the player crossing without a teleport visible, with the light leak, double simulation and event ordering costs measured rather than argued. Prototype first, then decide. |
 
 #### The three costs, and how each is paid, 2026-09-18
@@ -482,3 +482,49 @@ shows a still room, and put the live far cell behind a setting. Settle which one
 mods tolerate by replaying a save through a door on both paths and diffing the
 event log, which the determinism hash and the 60 saves in `engine-refs/saves/`
 already make possible.
+
+#### Two corrections, 2026-09-18
+
+**Light through the doorway is wanted, and two scenarios do not give it for
+free.** The section above is right that separate scenarios make a leak
+impossible and wrong to stop there, because it also makes the warm glow falling
+on the ground outside an open door impossible, and that glow is the whole point
+of opening the door. What a portal means in rendering is not that transport
+stops, it is that transport happens through the aperture and nowhere else. Two
+scenarios buy the second half of that, no transport at all, and the aperture
+term is then added back on purpose in both directions:
+
+- Outward, a light at the door plane in the exterior scenario, coloured from the
+  interior cell's own lighting template, which `LTMP` already gives us, scaled by
+  the aperture. Static, so it costs one light.
+- Inward, the same at the door plane in the interior scenario, coloured from the
+  current sky and sun. This one moves with the time of day and is the more
+  visible of the two, since a doorway is the brightest thing in a Skyrim
+  interior.
+
+This is strictly better than sharing one world, where transport reaches
+everywhere including through walls and there is no way to confine it to the
+opening.
+
+**The trigger is the door animation, not the approach.** Row 433 says the
+destination streams while the player walks toward the door. Activating the door
+is the better moment. A door plays an open animation of roughly half a second to
+a second, and a cell costs 0.54 ms of references and 4 ms of meshes, so the
+animation is three orders of magnitude more budget than the work needs. That
+removes all speculative prefetch of cells the player merely walks past, and it
+makes the window a known quantity instead of a guess about walking speed.
+
+Two distinct moments follow, and keeping them apart is what preserves vanilla
+behaviour:
+
+- Visual. The interior becomes visible as the door swings open.
+- Logical. Cell attach events fire when the player crosses the threshold, in the
+  vanilla order, exactly as the section above requires.
+
+Cold textures are the one case that can miss the window, since a first visit
+loads materials that no session cache holds yet. Measure the worst interior on a
+cold cache. Keep a short fade as the fallback for that case only, and treat it
+firing at all as a defect worth a bug. Warming interiors adjacent to the
+player's exterior cell during idle frames is a separate lever, free when the
+player is standing still, and only worth adding if the measurement says the
+animation window is not enough.
