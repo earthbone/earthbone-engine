@@ -166,6 +166,95 @@ events when the join returned before the thread-local destructor ran, so
 the global list stayed. With the switch off a span is one relaxed atomic
 load.
 
+## Run of 2026-09-18, branch `batching`
+
+Same machine, release build without the `lto = "fat"` and `codegen-units = 1`
+profile `master` gained the same day, so every before and after pair here
+was measured inside this worktree. The branch changes the Godot layer
+(batching, `RenderingServer` instances, compressed texture upload), the
+material path (a texture cache on `DataSource`, reads on the workers, no
+BCn decode) and adds exterior streaming with terrain. The design is in
+`docs/godot-host.md`, the section of the same date.
+
+### A correction to the 2026-09-17 frame numbers
+
+The 56 ms "process step" for the Bannered Mare above was
+`Performance.TIME_PROCESS`, which this run showed reading a constant 80 to
+113 ms across every frame of a scene that the wall clock draws in half a
+millisecond. It is not a per-frame number. `godot/bench.gd` now records the
+wall clock between two `_process` calls and the viewport's measured GPU and
+CPU render time, over at least five seconds and 600 frames, as p50, p99,
+p99.9 and worst. The 763 unbatched nodes were never the frame's cost.
+"Where the time goes" above stands, its Godot row does not.
+
+### Frame time, windowed, 1600 by 900, vsync off, X11 display driver
+
+| Scene | Instances | Frame p50 | p99 | p99.9 | Worst | GPU p50 | Render CPU p50 | Frames/s |
+|---|---|---|---|---|---|---|---|---|
+| Bannered Mare, one instance per surface | 763 | 0.480 ms | 0.950 | 1.492 | 5.651 | 0.081 ms | 0.177 ms | 1,996 |
+| Bannered Mare, batched per material | 48 | 0.235 ms | 0.397 | 0.903 | 2.282 | 0.062 ms | 0.039 ms | 4,004 |
+| Whiterun 3 by 3 (9 cells, 303,619 triangles), per surface | 802 | 0.758 ms | 1.934 | 2.749 | 3.747 | 0.093 ms | 0.280 ms | 1,098 |
+| Whiterun 3 by 3, batched | 195 | 0.288 ms | 0.519 | 1.045 | 1.698 | 0.087 ms | 0.066 ms | 3,284 |
+| Whiterun 5 by 5 (25 cells, 624,408 triangles), per surface | 1,499 | 0.889 ms | 1.782 | 3.013 | 7.567 | 0.156 ms | 0.454 ms | 1,058 |
+| Whiterun 5 by 5, batched | 390 | 0.359 ms | 0.686 | 1.319 | 3.191 | 0.142 ms | 0.105 ms | 2,713 |
+| WhiterunWorld, every cell (59, 825,587 triangles), batched | 563 | 0.440 ms | 0.935 | 1.576 | 2.246 | 0.171 ms | 0.147 ms | 2,090 |
+
+Draw calls equal instances. The frame wall clock is presentation bound at
+these sizes (Xwayland), the GPU and render CPU rows are the scene. Batching
+buys a 4x on render CPU and about 2x on the frame. The GPU row grows with
+triangles, 0.06 ms per 125k to 0.17 ms per 825k, and would need about five
+million triangles in view to reach one millisecond on this GPU. The
+`Performance.TIME_PROCESS` row is gone.
+
+Godot 4.7.2 on the same 3 by 3 block, batched: frame p50 0.276 ms, p99
+0.498, p99.9 1.071, worst 1.677, GPU 0.084 ms, render CPU 0.063 ms on the
+single-safe model, and 0.281, 0.492, 1.110, 1.849, 0.084, 0.064 on the
+separate render thread. Unbatched on 4.7.2: 0.517, 1.193, 1.675, 22.399,
+0.091, 0.196. Batched, the binaries are within noise of each other,
+unbatched 4.7.2 has the lower median and the session's one 22 ms hitch, see
+`docs/godot-host.md`.
+
+Against the bar `ENGINE-PLAN.md` set for the 3 by 3 block (p99 at or under
+16.7 ms, worst hitch under 33 ms, a cell streamed in under 250 ms on
+workers): the frame criteria pass at 0.519 ms and 1.698 ms batched (1.934
+and 3.747 unbatched), the stream criterion fails on this branch at 406 ms
+per cell, 356 of them the reference scan that `master`'s cell index
+replaces. Measure again after the merge.
+
+### Stream time, Rust side, `soe-bench cell WhiterunBanneredMare`
+
+| | 2026-09-17 (`perf`) | 2026-09-18 (`batching`) |
+|---|---|---|
+| Stream, 1 thread, median | 0.442 s | 0.402 s |
+| Stream, 24 threads, median | 0.400 s | 0.391 s |
+| `host.material` total over 6 streams | 1,954 ms (97 percent, `master` trace of 2026-09-18) | 46 ms (2 percent) |
+| `host.texture_decode`, cold reads | decoded every stream on the calling thread | 88 reads, 44.7 ms summed over the workers, once per source |
+| `host.scan_references` mean | 361 ms | 356 ms (the `cell-index` branch replaces it, not carried here) |
+
+The 1,954 ms row is the lead's trace of `master` after `cell-index` landed,
+where the material path was all that remained. Here a block-compressed
+texture is never decoded, its BC blocks and mip chain are copied out of the
+file and uploaded as they are, and the copy happens on the worker thread
+that parsed the NIF, into a cache the `DataSource` owns. So the first stream
+of a cell pays 45 ms of reads spread over the workers and a second stream of
+any cell that shares its textures pays nothing. On this branch the stream
+is the reference scan again. With the index from `master` on top of this
+branch, the Bannered Mare should stream in about 20 ms warm.
+
+Godot side, `stream_cell` in `bench.gd` (data path plus upload): 1.11 to
+1.19 s with the RGBA8 decode and a generated mip chain, 0.50 to 0.52 s with
+the compressed upload. Texture memory 592 MB (RGBA8, no mips), 783 MB (RGBA8
+with generated mips), 175 MB (the files' own blocks and chains).
+
+### Spans added
+
+`host.batch` (payload: surfaces in), `host.add_cell`, `host.upload_mesh`
+(payload: vertices), `host.upload_texture` (payload: pixels),
+`host.texture_decode` (a cache miss, read plus copy or decode),
+`host.scan_cells`, `host.scan_land`, `host.terrain_surface`,
+`host.stream_exterior`. `host.material` now wraps the cache lookup on the
+worker.
+
 ## Vanilla reference points
 
 We do not have vanilla numbers for any row above. Nothing here says the

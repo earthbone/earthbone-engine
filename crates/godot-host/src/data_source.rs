@@ -16,20 +16,27 @@
 //! diffuse and normal texture paths are Windows style and case insensitive,
 //! same as a NIF's mesh path, so they go through the same `Vfs::read`, which
 //! normalises separators and case before it looks the path up (loose files
-//! win over archives there, same as meshes). `Dds::parse` and `decode` turn
-//! the bytes into RGBA8, top mip only, and `DataSource::texture_cache` keeps
-//! one decode per lowercase path alive for the life of the `DataSource`, so a
-//! texture shared by many statics in a cell decodes once.
+//! win over archives there, same as meshes). A block-compressed file's
+//! payload and mip chain pass through untouched as `TextureData::Compressed`
+//! for Godot to upload as is, anything else decodes its top mip to RGBA8.
+//! The read runs on the same worker threads that parse the NIF, into a
+//! `TextureCache` the `DataSource` owns, so a texture shared by many statics
+//! across many cells is read once for the source's lifetime. The trace of
+//! 2026-09-18 had a per-call cache decoding every texture on the calling
+//! thread after the workers joined, at 97 percent of the stream time.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::rc::Rc;
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 
 use soe_bsa::{find_associated_archives, Vfs};
 use soe_dds::{Dds, Image as DdsImage};
 use soe_esm::records::cell::Cell;
+use soe_esm::records::land::Land;
 use soe_esm::records::refr::Refr;
 use soe_esm::records::stat::Static;
+use soe_esm::records::wrld::World;
 use soe_esm::{tag, GlobalFormId, LoadOrder, Record};
 use soe_nif::{Mat33, Mesh as NifMesh, Transform as NifTransform, Vec3 as NifVec3};
 
@@ -94,8 +101,11 @@ pub struct CellStats {
     pub textures_missing: Vec<String>,
     /// Texture paths that were found but failed to parse or decode as DDS.
     pub texture_decode_failures: usize,
-    /// Wall time spent inside `Vfs::read` and `Dds::decode` for every texture
-    /// actually read, cache hits excluded. Archive indexing and load order
+    /// Time spent inside `Vfs::read` and, for formats Godot cannot take,
+    /// `Dds::decode` for every texture actually read during this call, cache
+    /// hits excluded, summed across the worker threads, so it can exceed the
+    /// call's wall time and it includes time a worker spent waiting on the
+    /// archive behind another worker's read. Archive indexing and load order
     /// setup are outside this, they are counted once in the surrounding
     /// `stream_cell_id` wall time the caller times itself.
     pub texture_decode_time: std::time::Duration,
@@ -105,23 +115,27 @@ pub struct CellStats {
 /// for the Godot layer to upload. Kept apart from `SurfaceArrays`, which the
 /// synthetic streaming path also builds and has no `Vfs` to read textures
 /// from.
+#[derive(Clone)]
 pub struct LoadedSurface {
+    /// The `REFR` that placed this surface, or the `LAND` record for a
+    /// terrain surface, so a batched triangle can be traced back to a form.
+    pub reference: GlobalFormId,
     pub arrays: SurfaceArrays,
     pub textures: SurfaceTextures,
 }
 
-/// A surface's diffuse and normal textures, decoded to RGBA8 at the top mip.
-/// `None` means the material named no texture in that slot, or the read or
-/// decode failed, counted in `CellStats` either way. `Rc` because a texture
-/// shared by many statics in a cell is decoded once and cloned out of
-/// `MaterialCache` cheaply for every surface that uses it.
+/// A surface's diffuse and normal textures, ready to upload. `None` means
+/// the material named no texture in that slot, or the read or decode
+/// failed, counted in `CellStats` either way. `Arc` because a texture shared
+/// by many statics is read once on whichever worker thread reaches it first
+/// and cloned out of `TextureCache` cheaply for every surface that uses it.
 #[derive(Debug, Clone, Default)]
 pub struct SurfaceTextures {
-    pub diffuse: Option<Rc<DdsImage>>,
+    pub diffuse: Option<Arc<TextureData>>,
     /// Skyrim packs specular into this texture's alpha channel. The RGB
     /// channels alone are the normal map, alpha is not a transparency mask
-    /// here even though `DdsImage` carries one.
-    pub normal: Option<Rc<DdsImage>>,
+    /// here even though the decoded form carries one.
+    pub normal: Option<Arc<TextureData>>,
 }
 
 pub struct LoadedCell {
@@ -129,37 +143,254 @@ pub struct LoadedCell {
     pub surfaces: Vec<LoadedSurface>,
 }
 
-/// Reads a texture through `vfs` and decodes its top mip (layer 0, mip 0) to
-/// RGBA8. Windowed capture and the real-cell test only ever need the base
-/// level, a streamed mip chain is future work once distance-based texture
-/// budgets exist.
-fn load_texture(vfs: &Vfs, path: &str) -> Result<DdsImage, DataSourceError> {
+/// One exterior cell of a block, by grid position in its worldspace.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ExteriorCell {
+    pub x: i32,
+    pub y: i32,
+    pub id: GlobalFormId,
+}
+
+/// The exterior cells `DataSource::resolve_exterior_block` found around a
+/// named cell.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExteriorBlock {
+    pub world: GlobalFormId,
+    pub world_editor_id: Option<String>,
+    pub origin: (i32, i32),
+    pub radius: i32,
+    pub cells: Vec<ExteriorCell>,
+    /// The parent worldspace whose `LAND` fills cells without their own,
+    /// when the worldspace's `PNAM` says to use the parent's land data.
+    pub land_parent: Option<GlobalFormId>,
+    /// The parent's cells at the block's grid positions.
+    pub parent_cells: Vec<ExteriorCell>,
+}
+
+pub struct LoadedExterior {
+    pub block: ExteriorBlock,
+    /// In the block's order, each cell with its terrain appended as the
+    /// last surface when a `LAND` record exists for it.
+    pub cells: Vec<(ExteriorCell, LoadedCell)>,
+    pub land_cells: usize,
+}
+
+impl LoadedExterior {
+    pub fn references(&self) -> usize {
+        self.cells.iter().map(|(_, c)| c.stats.references).sum()
+    }
+
+    pub fn meshes_parsed(&self) -> usize {
+        self.cells.iter().map(|(_, c)| c.stats.meshes_parsed).sum()
+    }
+
+    pub fn meshes_failed(&self) -> usize {
+        self.cells.iter().map(|(_, c)| c.stats.meshes_failed).sum()
+    }
+
+    pub fn triangles(&self) -> usize {
+        self.cells.iter().map(|(_, c)| c.stats.triangles).sum()
+    }
+
+    pub fn surfaces(&self) -> usize {
+        self.cells.iter().map(|(_, c)| c.surfaces.len()).sum()
+    }
+}
+
+/// A cell's `LAND` heights as one surface in Skyrim units, 32 by 32 quads
+/// of two triangles, wound counter-clockwise seen from above so
+/// `build_surface`'s winding flip lands them the same way as a NIF's faces.
+/// `VNML` normals are used when present, generated otherwise. `None` when
+/// the record has no height block.
+fn terrain_surface(cell: &ExteriorCell, land: &Land) -> Result<Option<SurfaceArrays>, MeshError> {
+    use soe_esm::records::land::VERTS_PER_SIDE;
+    let Some(heights) = &land.heights else {
+        return Ok(None);
+    };
+    let step = crate::units::CELL_UNITS / (VERTS_PER_SIDE - 1) as f32;
+    let base_x = cell.x as f32 * crate::units::CELL_UNITS;
+    let base_y = cell.y as f32 * crate::units::CELL_UNITS;
+    let decoded = heights.decode();
+    let mut positions = Vec::with_capacity(decoded.len());
+    let mut uvs = Vec::with_capacity(decoded.len());
+    for (i, &h) in decoded.iter().enumerate() {
+        let row = i / VERTS_PER_SIDE;
+        let col = i % VERTS_PER_SIDE;
+        positions.push([base_x + col as f32 * step, base_y + row as f32 * step, h]);
+        uvs.push([
+            col as f32 / (VERTS_PER_SIDE - 1) as f32,
+            1.0 - row as f32 / (VERTS_PER_SIDE - 1) as f32,
+        ]);
+    }
+    let normals = land.normals.as_ref().map(|n| {
+        n.iter()
+            .map(|&[x, y, z]| {
+                [
+                    f32::from(x) / 127.0,
+                    f32::from(y) / 127.0,
+                    f32::from(z) / 127.0,
+                ]
+            })
+            .collect()
+    });
+    let side = VERTS_PER_SIDE as u32;
+    let mut indices = Vec::with_capacity((VERTS_PER_SIDE - 1) * (VERTS_PER_SIDE - 1) * 6);
+    for row in 0..side - 1 {
+        for col in 0..side - 1 {
+            let sw = row * side + col;
+            let se = sw + 1;
+            let nw = sw + side;
+            let ne = nw + 1;
+            indices.extend_from_slice(&[sw, se, ne, sw, ne, nw]);
+        }
+    }
+    let data = MeshData {
+        positions,
+        normals,
+        tangents: None,
+        uvs: Some(uvs),
+        indices,
+        bone_indices: None,
+        bone_weights: None,
+        material: MaterialDesc::default(),
+    };
+    build_surface(&data, MeshOptions::default()).map(Some)
+}
+
+/// A block compression Godot uploads as is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BlockFormat {
+    Bc1,
+    Bc2,
+    Bc3,
+    Bc4,
+    Bc5,
+    Bc7,
+}
+
+/// A texture as the Godot layer uploads it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TextureData {
+    /// The DDS payload of layer 0 as stored, every mip level back to back
+    /// and padded to a 1 by 1 tail, so the upload is a copy and the GPU
+    /// samples the file's own mip chain. `mip0_len` lets the layer fall
+    /// back to the base level alone if Godot still rejects the chain.
+    Compressed {
+        width: u32,
+        height: u32,
+        format: BlockFormat,
+        mips: u32,
+        mip0_len: usize,
+        bytes: Vec<u8>,
+    },
+    /// The top mip decoded to RGBA8, for formats Godot has no block type
+    /// for (uncompressed DDS, signed BC4 and BC5, volumes).
+    Rgba8(DdsImage),
+}
+
+impl TextureData {
+    pub fn width(&self) -> u32 {
+        match self {
+            TextureData::Compressed { width, .. } => *width,
+            TextureData::Rgba8(image) => image.width,
+        }
+    }
+
+    pub fn height(&self) -> u32 {
+        match self {
+            TextureData::Compressed { height, .. } => *height,
+            TextureData::Rgba8(image) => image.height,
+        }
+    }
+}
+
+/// Reads a texture through `vfs`. A block-compressed file is passed through
+/// with its mip chain and never decoded, which is what makes the material
+/// path cheap: the trace of 2026-09-18 had BCn decode at 97 percent of a
+/// cell's stream time. Anything else decodes its top mip to RGBA8.
+fn load_texture(vfs: &Vfs, path: &str) -> Result<TextureData, DataSourceError> {
     let bytes = vfs.read(path)?;
     let dds = Dds::parse(&bytes)?;
-    Ok(dds.decode(0, 0)?)
+    let format = match dds.format() {
+        soe_dds::Format::Bc1 => Some(BlockFormat::Bc1),
+        soe_dds::Format::Bc2 => Some(BlockFormat::Bc2),
+        soe_dds::Format::Bc3 => Some(BlockFormat::Bc3),
+        soe_dds::Format::Bc4 { signed: false } => Some(BlockFormat::Bc4),
+        soe_dds::Format::Bc5 { signed: false } => Some(BlockFormat::Bc5),
+        soe_dds::Format::Bc7 => Some(BlockFormat::Bc7),
+        _ => None,
+    };
+    let flat = dds.level(0, 0).map(|l| l.depth == 1).unwrap_or(false);
+    let Some(format) = format.filter(|_| flat) else {
+        return Ok(TextureData::Rgba8(dds.decode(0, 0)?));
+    };
+    let stored = dds.mip_count().max(1);
+    let mut payload = Vec::new();
+    for mip in 0..stored {
+        payload.extend_from_slice(dds.level_bytes(0, mip)?);
+    }
+    // Godot wants the chain to reach 1 by 1 and refuses a shorter one. The
+    // vanilla files stop at 2 by 2 or 4 by 4, so the missing levels, each
+    // a block or two of at most four pixels a side, repeat the last block
+    // the file holds.
+    let (width, height) = (dds.width(), dds.height());
+    let full = 32 - width.max(height).max(1).leading_zeros();
+    let block = match format {
+        BlockFormat::Bc1 | BlockFormat::Bc4 => 8,
+        _ => 16,
+    };
+    let last_block: Vec<u8> = payload[payload.len().saturating_sub(block)..].to_vec();
+    for mip in stored..full {
+        let blocks_wide = (width >> mip).max(1).div_ceil(4) as usize;
+        let blocks_high = (height >> mip).max(1).div_ceil(4) as usize;
+        for _ in 0..blocks_wide * blocks_high {
+            payload.extend_from_slice(&last_block);
+        }
+    }
+    Ok(TextureData::Compressed {
+        width,
+        height,
+        format,
+        mips: full.max(stored),
+        mip0_len: dds.level(0, 0)?.len,
+        bytes: payload,
+    })
 }
 
-/// Decodes and caches a cell's materials' textures, keyed by lowercase path
-/// so a texture shared by many references decodes once. Lives for one
-/// `stream_cell_id` call, not on `DataSource` itself, since it also tallies
-/// that run's texture stats.
+/// Decoded textures keyed by lowercase path, owned by the `DataSource` and
+/// shared by every stream call and every worker thread, so a texture used by
+/// forty statics across nine cells decodes once for the source's lifetime.
+/// The counters run since open. A stream call reads them before and after
+/// to fill its own `CellStats`, which is exact as long as stream calls on
+/// one source do not overlap, and they do not, a stream call holds `&self`
+/// for its whole duration on one thread.
 #[derive(Default)]
-struct MaterialCache {
-    textures: HashMap<String, Option<Rc<DdsImage>>>,
-    texture_sets: std::collections::HashSet<(Option<String>, Option<String>)>,
-    textures_missing: Vec<String>,
-    texture_decode_failures: usize,
-    textures_decoded: usize,
-    texture_decode_time: std::time::Duration,
+struct TextureCache {
+    /// One slot per lowercase path. The map lock is held only to find or
+    /// create the slot, the read itself runs under the slot's `OnceLock`, so
+    /// two workers reaching one texture at once share a single read instead
+    /// of both doing it (the first version raced and read 132 files for 88
+    /// textures).
+    textures: Mutex<HashMap<String, TextureSlot>>,
+    decoded: AtomicUsize,
+    failures: AtomicUsize,
+    decode_ns: AtomicU64,
+    missing: Mutex<Vec<String>>,
 }
 
-impl MaterialCache {
-    fn resolve(&mut self, vfs: &Vfs, material: &MaterialDesc) -> SurfaceTextures {
-        let set_key = (
-            material.diffuse.as_deref().map(str::to_lowercase),
-            material.normal.as_deref().map(str::to_lowercase),
-        );
-        self.texture_sets.insert(set_key);
+/// A texture read at most once, `None` after a miss or a failed read.
+type TextureSlot = Arc<OnceLock<Option<Arc<TextureData>>>>;
+
+#[derive(Clone, Copy)]
+struct TextureCounters {
+    decoded: usize,
+    failures: usize,
+    decode_ns: u64,
+    missing: usize,
+}
+
+impl TextureCache {
+    fn resolve(&self, vfs: &Vfs, material: &MaterialDesc) -> SurfaceTextures {
         SurfaceTextures {
             diffuse: material
                 .diffuse
@@ -172,31 +403,63 @@ impl MaterialCache {
         }
     }
 
-    fn get_or_decode(&mut self, vfs: &Vfs, path: &str) -> Option<Rc<DdsImage>> {
-        let key = path.to_lowercase();
-        if let Some(cached) = self.textures.get(&key) {
-            return cached.clone();
-        }
+    fn get_or_decode(&self, vfs: &Vfs, path: &str) -> Option<Arc<TextureData>> {
+        let slot = self
+            .textures
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .entry(path.to_lowercase())
+            .or_default()
+            .clone();
+        slot.get_or_init(|| self.read(vfs, path)).clone()
+    }
+
+    fn read(&self, vfs: &Vfs, path: &str) -> Option<Arc<TextureData>> {
+        let _span = soe_trace::Span::new("host.texture_decode", "host");
         let started = std::time::Instant::now();
         let result = load_texture(vfs, path);
-        self.texture_decode_time += started.elapsed();
-        let value = match result {
+        self.decode_ns
+            .fetch_add(started.elapsed().as_nanos() as u64, Ordering::Relaxed);
+        match result {
             Ok(image) => {
-                self.textures_decoded += 1;
-                Some(Rc::new(image))
+                self.decoded.fetch_add(1, Ordering::Relaxed);
+                Some(Arc::new(image))
             }
             Err(DataSourceError::Bsa(soe_bsa::Error::NotFound { .. })) => {
-                self.textures_missing.push(path.to_string());
+                self.missing
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .push(path.to_string());
                 None
             }
             Err(e) => {
                 eprintln!("stream_cell: texture {path}: {e}");
-                self.texture_decode_failures += 1;
+                self.failures.fetch_add(1, Ordering::Relaxed);
                 None
             }
-        };
-        self.textures.insert(key, value.clone());
-        value
+        }
+    }
+
+    fn counters(&self) -> TextureCounters {
+        TextureCounters {
+            decoded: self.decoded.load(Ordering::Relaxed),
+            failures: self.failures.load(Ordering::Relaxed),
+            decode_ns: self.decode_ns.load(Ordering::Relaxed),
+            missing: self
+                .missing
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .len(),
+        }
+    }
+
+    fn missing_since(&self, count: usize) -> Vec<String> {
+        self.missing
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(count..)
+            .map(<[String]>::to_vec)
+            .unwrap_or_default()
     }
 }
 
@@ -206,6 +469,7 @@ pub struct DataSource {
     order: LoadOrder,
     vfs: Vfs,
     threads: usize,
+    textures: TextureCache,
 }
 
 /// Parse the base masters, on `threads` workers when more than one, and hand
@@ -282,6 +546,7 @@ impl DataSource {
             order,
             vfs,
             threads,
+            textures: TextureCache::default(),
         })
     }
 
@@ -353,6 +618,176 @@ impl DataSource {
         self.stream_cell_id(cell_id)
     }
 
+    /// The square of exterior cells within `radius` grid steps of the cell
+    /// named `editor_id`, in that cell's worldspace, sorted south to north
+    /// then west to east. Radius 2 is the game's `uGridsToLoad=5`. One pass
+    /// over the winning `CELL` records, which is cheap next to the reference
+    /// scan since there are about fifty thousand cells against a million
+    /// references. Fails when the editor id names no exterior cell.
+    pub fn resolve_exterior_block(
+        &self,
+        editor_id: &str,
+        radius: i32,
+    ) -> Result<ExteriorBlock, DataSourceError> {
+        let _span = soe_trace::Span::new("host.scan_cells", "host");
+        let mut exteriors: Vec<(GlobalFormId, i32, i32, GlobalFormId)> = Vec::new();
+        let mut origin: Option<(GlobalFormId, i32, i32)> = None;
+        for (id, rec) in self.order.winners_of(tag::CELL) {
+            let Some(raw_world) = rec.placement.world else {
+                continue;
+            };
+            let Some(rref) = self.order.winner_ref(id) else {
+                continue;
+            };
+            let localized = self.order.file(rref.file).plugin.header.is_localized();
+            let Ok(view) = Cell::from_record(rec, localized) else {
+                continue;
+            };
+            let Some(grid) = view.grid else {
+                continue;
+            };
+            let world = self.order.resolve(rref.file, raw_world);
+            exteriors.push((world, grid.x, grid.y, id));
+            if view.editor_id.as_deref() == Some(editor_id) {
+                origin = Some((world, grid.x, grid.y));
+            }
+        }
+        let Some((world, ox, oy)) = origin else {
+            return Err(DataSourceError::CellNotFound(format!(
+                "{editor_id} (no exterior cell with a grid position has that editor id)"
+            )));
+        };
+        let in_range = |x: i32, y: i32| (x - ox).abs() <= radius && (y - oy).abs() <= radius;
+        let mut cells: Vec<ExteriorCell> = exteriors
+            .iter()
+            .filter(|&&(w, x, y, _)| w == world && in_range(x, y))
+            .map(|&(_, x, y, id)| ExteriorCell { x, y, id })
+            .collect();
+        cells.sort_by_key(|c| (c.y, c.x));
+        let land_parent = self.land_parent_of(world);
+        let mut parent_cells: Vec<ExteriorCell> = land_parent
+            .map(|parent| {
+                exteriors
+                    .iter()
+                    .filter(|&&(w, x, y, _)| w == parent && in_range(x, y))
+                    .map(|&(_, x, y, id)| ExteriorCell { x, y, id })
+                    .collect()
+            })
+            .unwrap_or_default();
+        parent_cells.sort_by_key(|c| (c.y, c.x));
+        Ok(ExteriorBlock {
+            world,
+            world_editor_id: self.order.winner(world).and_then(Record::editor_id),
+            origin: (ox, oy),
+            radius,
+            cells,
+            land_parent,
+            parent_cells,
+        })
+    }
+
+    /// The worldspace this one takes its terrain from: its `WNAM` parent
+    /// when the `PNAM` "use land data" bit is set (CommonLib's
+    /// `kUseLandData`). `WhiterunWorld` carries its own `LAND` for three of
+    /// the nine cells around its origin and draws Tamriel's under the rest,
+    /// which is what that bit means in practice.
+    fn land_parent_of(&self, world: GlobalFormId) -> Option<GlobalFormId> {
+        let rref = self.order.winner_ref(world)?;
+        let rec = self.order.record(rref);
+        let localized = self.order.file(rref.file).plugin.header.is_localized();
+        let view = World::from_record(rec, localized).ok()?;
+        let uses_parent_land = view.parent_flags.is_some_and(|f| f & 0x0001 != 0);
+        let parent = view.parent.filter(|_| uses_parent_land)?;
+        Some(self.order.resolve(rref.file, parent))
+    }
+
+    /// The winning `LAND` record of each cell in `cells`, one pass over the
+    /// `LAND` winners. A cell without one (the worldspace's border, a city
+    /// worldspace's unused squares) is simply absent from the result.
+    fn land_for_cells(
+        &self,
+        cells: &[ExteriorCell],
+    ) -> HashMap<GlobalFormId, (GlobalFormId, Land)> {
+        let _span = soe_trace::Span::new("host.scan_land", "host");
+        let wanted: std::collections::HashSet<GlobalFormId> = cells.iter().map(|c| c.id).collect();
+        let mut out = HashMap::new();
+        for (id, rec) in self.order.winners_of(tag::LAND) {
+            let Some(raw_cell) = rec.placement.cell else {
+                continue;
+            };
+            let Some(rref) = self.order.winner_ref(id) else {
+                continue;
+            };
+            let cell_id = self.order.resolve(rref.file, raw_cell);
+            if !wanted.contains(&cell_id) {
+                continue;
+            }
+            match Land::from_record(rec) {
+                Ok(land) => {
+                    out.insert(cell_id, (id, land));
+                }
+                Err(e) => eprintln!("stream_exterior: LAND {id}: {e}"),
+            }
+        }
+        out
+    }
+
+    /// Streams every cell of the block around `editor_id` and appends each
+    /// cell's terrain as one more surface, so the Godot layer treats land like
+    /// any other geometry. A cell without its own `LAND` takes the parent
+    /// worldspace's at the same grid position when the worldspace inherits
+    /// land data. Terrain carries no texture yet: the LAND quadrant layers
+    /// (`LTEX` base plus alpha layers) need a splat material the host does
+    /// not have, so it draws in the untextured material.
+    pub fn stream_exterior(
+        &self,
+        editor_id: &str,
+        radius: i32,
+    ) -> Result<LoadedExterior, DataSourceError> {
+        let _span = soe_trace::Span::new("host.stream_exterior", "host");
+        let block = self.resolve_exterior_block(editor_id, radius)?;
+        let mut wanted = block.cells.clone();
+        wanted.extend_from_slice(&block.parent_cells);
+        let land = self.land_for_cells(&wanted);
+        let parent_at = |x: i32, y: i32| {
+            block
+                .parent_cells
+                .iter()
+                .find(|c| c.x == x && c.y == y)
+                .map(|c| c.id)
+        };
+        let mut cells = Vec::with_capacity(block.cells.len());
+        let mut land_cells = 0;
+        for cell in &block.cells {
+            let mut loaded = self.stream_cell_id(cell.id)?;
+            let own_or_parent = land
+                .get(&cell.id)
+                .or_else(|| parent_at(cell.x, cell.y).and_then(|id| land.get(&id)));
+            if let Some((land_id, land)) = own_or_parent {
+                let _terrain = soe_trace::Span::new("host.terrain_surface", "host");
+                match terrain_surface(cell, land) {
+                    Ok(Some(arrays)) => {
+                        land_cells += 1;
+                        loaded.stats.triangles += arrays.triangle_count();
+                        loaded.surfaces.push(LoadedSurface {
+                            reference: *land_id,
+                            arrays,
+                            textures: SurfaceTextures::default(),
+                        });
+                    }
+                    Ok(None) => {}
+                    Err(e) => eprintln!("stream_exterior: LAND {land_id}: {e}"),
+                }
+            }
+            cells.push((*cell, loaded));
+        }
+        Ok(LoadedExterior {
+            block,
+            cells,
+            land_cells,
+        })
+    }
+
     /// Walks every winning `REFR` placed in `cell_id`, builds a `SurfaceArrays`
     /// for each `STAT` reference with a model, and reports what it found.
     /// A reference whose mesh fails to read or parse is counted as failed and
@@ -373,7 +808,7 @@ impl DataSource {
         let mut stats = CellStats::default();
         let work = {
             let _scan = soe_trace::Span::new("host.scan_references", "host");
-            let mut work: Vec<(String, Refr)> = Vec::new();
+            let mut work: Vec<(String, Refr, GlobalFormId)> = Vec::new();
             for (id, _) in self.order.winners_of(tag::REFR) {
                 let Some(rref) = self.order.winner_ref(id) else {
                     continue;
@@ -405,25 +840,31 @@ impl DataSource {
                     continue;
                 };
                 stats.statics_with_model += 1;
-                work.push((model, refr));
+                work.push((model, refr, id));
             }
             work
         };
 
+        let before = self.textures.counters();
         let results = self.build_all(&work);
+        let after = self.textures.counters();
         let mut surfaces = Vec::new();
-        // Workers only build geometry. Textures resolve here, after the join,
-        // because the cache hands out `Rc` images and tallies per-cell stats.
-        let mut materials = MaterialCache::default();
-        for (model, result) in work.iter().map(|(m, _)| m).zip(results) {
+        let mut texture_sets: HashSet<(Option<String>, Option<String>)> = HashSet::new();
+        for ((model, _, reference), result) in work.iter().zip(results) {
             match result {
                 Ok(built) => {
                     stats.meshes_parsed += 1;
-                    for arrays in built {
-                        let _resolve = soe_trace::Span::new("host.material", "host");
+                    for (arrays, textures) in built {
                         stats.triangles += arrays.triangle_count();
-                        let textures = materials.resolve(&self.vfs, &arrays.material);
-                        surfaces.push(LoadedSurface { arrays, textures });
+                        texture_sets.insert((
+                            arrays.material.diffuse.as_deref().map(str::to_lowercase),
+                            arrays.material.normal.as_deref().map(str::to_lowercase),
+                        ));
+                        surfaces.push(LoadedSurface {
+                            reference: *reference,
+                            arrays,
+                            textures,
+                        });
                     }
                 }
                 Err(e) => {
@@ -432,31 +873,29 @@ impl DataSource {
                 }
             }
         }
-        stats.distinct_texture_sets = materials.texture_sets.len();
-        stats.textures_decoded = materials.textures_decoded;
-        stats.textures_missing = materials.textures_missing;
-        stats.texture_decode_failures = materials.texture_decode_failures;
-        stats.texture_decode_time = materials.texture_decode_time;
+        stats.distinct_texture_sets = texture_sets.len();
+        stats.textures_decoded = after.decoded - before.decoded;
+        stats.textures_missing = self.textures.missing_since(before.missing);
+        stats.texture_decode_failures = after.failures - before.failures;
+        stats.texture_decode_time =
+            std::time::Duration::from_nanos(after.decode_ns - before.decode_ns);
         Ok(LoadedCell { stats, surfaces })
     }
 
     /// Parse and build every model, in order, on `threads` workers over
-    /// chunks of the work list. The archive view is shared read-only.
-    fn build_all(
-        &self,
-        work: &[(String, Refr)],
-    ) -> Vec<Result<Vec<SurfaceArrays>, DataSourceError>> {
+    /// chunks of the work list, textures included. The archive view and the
+    /// texture cache are shared read-only and under a mutex respectively.
+    fn build_all(&self, work: &[(String, Refr, GlobalFormId)]) -> Vec<BuiltStatic> {
         let _span = soe_trace::Span::with_payload("host.build_all", "host", work.len() as u64);
         let threads = self.threads.min(work.len().max(1));
         if threads <= 1 {
             return work
                 .iter()
-                .map(|(model, refr)| self.load_static_surfaces(model, refr))
+                .map(|(model, refr, _)| self.load_static_surfaces(model, refr))
                 .collect();
         }
         let chunk = work.len().div_ceil(threads);
-        let mut results: Vec<Result<Vec<SurfaceArrays>, DataSourceError>> =
-            Vec::with_capacity(work.len());
+        let mut results: Vec<BuiltStatic> = Vec::with_capacity(work.len());
         std::thread::scope(|scope| {
             let handles: Vec<_> = work
                 .chunks(chunk)
@@ -469,7 +908,7 @@ impl DataSource {
                         );
                         items
                             .iter()
-                            .map(|(model, refr)| self.load_static_surfaces(model, refr))
+                            .map(|(model, refr, _)| self.load_static_surfaces(model, refr))
                             .collect::<Vec<_>>()
                     })
                 })
@@ -486,11 +925,7 @@ impl DataSource {
         results
     }
 
-    fn load_static_surfaces(
-        &self,
-        model: &str,
-        refr: &Refr,
-    ) -> Result<Vec<SurfaceArrays>, DataSourceError> {
+    fn load_static_surfaces(&self, model: &str, refr: &Refr) -> BuiltStatic {
         let _span = soe_trace::Span::new("host.static", "host");
         let path = format!("meshes/{model}");
         let bytes = self.vfs.read(&path)?;
@@ -499,14 +934,24 @@ impl DataSource {
         let refr_transform = placement_transform(refr);
         let mut out = Vec::with_capacity(meshes.len());
         for shape in &meshes {
-            let _surface = soe_trace::Span::new("host.build_surface", "host");
-            let combined = refr_transform.then(&shape.transform);
-            let data = mesh_data_from(shape, &combined);
-            out.push(build_surface(&data, MeshOptions::default())?);
+            let arrays = {
+                let _surface = soe_trace::Span::new("host.build_surface", "host");
+                let combined = refr_transform.then(&shape.transform);
+                let data = mesh_data_from(shape, &combined);
+                build_surface(&data, MeshOptions::default())?
+            };
+            let textures = {
+                let _material = soe_trace::Span::new("host.material", "host");
+                self.textures.resolve(&self.vfs, &arrays.material)
+            };
+            out.push((arrays, textures));
         }
         Ok(out)
     }
 }
+
+/// One static's surfaces with their textures, or why it failed.
+type BuiltStatic = Result<Vec<(SurfaceArrays, SurfaceTextures)>, DataSourceError>;
 
 /// Builds the reference's own placement transform from its `DATA` position
 /// and Euler rotation. The rotation matrix matches
