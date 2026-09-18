@@ -12,10 +12,34 @@
 //! The player, actors and dynamically placed references are never dropped.
 //! An actor's state lives in a second map, a dynamic reference has no record
 //! to rebuild from, and the player is the thing doing the walking.
+//!
+//! # Streaming and attaching are two different things
+//!
+//! Building a cell's references is slow and unobservable. Attaching a cell is
+//! instant and is the entire script contract. Keeping them apart is what
+//! removes the loading screen without changing what a mod sees: a prefetch
+//! does the slow half early and queues nothing, then the attach fires the
+//! whole vanilla event sequence in one go, in vanilla order, with nothing
+//! left to build.
+//!
+//! One flag has to be carried across that gap rather than recomputed.
+//! `OnCellLoad` fires only when the destination was not already in memory,
+//! so reading residency after a prefetch would always say "in memory" and
+//! the event would stop firing. [`World::change_cell_with`] takes the answer
+//! captured before the prefetch instead.
+//!
+//! Event order and audience come from the Creation Kit wiki pages for each
+//! event, under `../engine-refs/ck-wiki/`. `OnCellAttach` is documented as
+//! reliably before `OnCellLoad` and as firing for disabled references, while
+//! `OnLoad` is documented as not firing for them. The order between
+//! `OnCellDetach` and `OnUnload` is not stated anywhere the corpus carries,
+//! so this takes the symmetric reading, cell event first in both directions,
+//! and the tests pin the choice rather than claim it is vanilla.
 
 use soe_esm::GlobalFormId;
+use soe_papyrus::ObjectId;
 
-use super::{World, DYNAMIC_FILE};
+use super::{Handle, Pending, World, DYNAMIC_FILE};
 
 /// What one cell change moved.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -44,6 +68,20 @@ impl World {
     /// than on first use. Returns how many were built here, so a reference
     /// already resident is not counted twice.
     pub fn load_cell(&mut self, cell: GlobalFormId) -> usize {
+        let built = self.prefetch_cell(cell);
+        self.loaded_cell = Some(cell);
+        built
+    }
+
+    /// Build every reference a cell owns without attaching the cell.
+    ///
+    /// This is the half of a transition that costs time, and it is engine
+    /// state only: `loaded_cell` does not move, nothing is queued for the VM,
+    /// and no script can tell it happened. A later `change_cell` onto the same
+    /// cell then finds everything resident and does the attach in the time it
+    /// takes to walk a list, which is what lets a door open with no loading
+    /// screen. Returns how many references this call built.
+    pub fn prefetch_cell(&mut self, cell: GlobalFormId) -> usize {
         let ids = self.cell_reference_ids(cell);
         let mut built = 0;
         for id in ids {
@@ -54,8 +92,18 @@ impl World {
                 built += 1;
             }
         }
-        self.loaded_cell = Some(cell);
         built
+    }
+
+    /// Whether any reference the cell owns is already built.
+    ///
+    /// This is what decides `OnCellLoad`, which the Creation Kit wiki says
+    /// fires only on entering a cell that is not already in memory, and which
+    /// it warns is unpredictable for exactly that reason. Read it before a
+    /// prefetch, never after, or prefetching would silently stop the event.
+    pub fn cell_is_resident(&mut self, cell: GlobalFormId) -> bool {
+        let ids = self.cell_reference_ids(cell);
+        ids.iter().any(|id| self.refs.contains_key(id))
     }
 
     /// Drop what `cell` owns and nothing else. Returns the count dropped and
@@ -99,7 +147,25 @@ impl World {
 
     /// Unload the resident cell and load `to`. The clock is untouched, so
     /// time keeps running across the move the way it does in vanilla.
+    ///
+    /// Reads whether the destination is cold now, so a direct call behaves
+    /// the way it always did. A move that prefetched first must use
+    /// [`World::change_cell_with`] and pass the coldness it captured before
+    /// the prefetch ran.
     pub fn change_cell(&mut self, to: Option<GlobalFormId>) -> CellTransition {
+        let cold = to.is_some_and(|c| !self.cell_is_resident(c));
+        self.change_cell_with(to, cold)
+    }
+
+    /// The move itself, with the `OnCellLoad` decision supplied rather than
+    /// read.
+    ///
+    /// Splitting that one flag out is what makes prefetching invisible to a
+    /// script. Everything else here is already independent of when the
+    /// references were built, so a prefetched move and a cold move queue the
+    /// same events in the same order, and the only difference is that this
+    /// call has nothing left to build.
+    pub fn change_cell_with(&mut self, to: Option<GlobalFormId>, cold: bool) -> CellTransition {
         let from = self.loaded_cell;
         let mut out = CellTransition {
             from,
@@ -110,16 +176,67 @@ impl World {
             return out;
         }
         if let Some(old) = from {
+            // The cell detaches before its 3D goes, mirroring attach before
+            // load on the way in. Both events are queued before anything is
+            // dropped, so a script still sees the state it is being told
+            // about.
+            let leaving = self.scripted_in_cell(old);
+            self.queue_ref_event(&leaving, "OnCellDetach", false);
+            self.queue_ref_event(&leaving, "OnUnload", true);
             let (dropped, kept) = self.unload_cell(old);
             out.unloaded = dropped;
             out.kept = kept;
         }
         if let Some(new) = to {
             out.loaded = self.load_cell(new);
+            let arriving = self.scripted_in_cell(new);
+            // `OnCellAttach` before `OnCellLoad` is the one ordering the wiki
+            // states outright, and attach reaches disabled references while
+            // the two 3D events do not.
+            self.queue_ref_event(&arriving, "OnCellAttach", false);
+            self.queue_ref_event(&arriving, "OnLoad", true);
+            if cold {
+                self.queue_ref_event(&arriving, "OnCellLoad", false);
+            }
         } else {
             self.loaded_cell = None;
         }
         out
+    }
+
+    /// The references a cell owns that carry a script, with the VM object
+    /// each one already has.
+    ///
+    /// A reference with no script never got an object, and vanilla sends it
+    /// no event either, so this lookup is also the thing that stops a cell
+    /// change from allocating an object per reference. Whiterun's Bannered
+    /// Mare has hundreds of references and a handful of scripts.
+    fn scripted_in_cell(&mut self, cell: GlobalFormId) -> Vec<(GlobalFormId, ObjectId)> {
+        let ids = self.cell_reference_ids(cell);
+        ids.into_iter()
+            .filter_map(|id| self.objects.get(&Handle::Form(id)).map(|o| (id, *o)))
+            .collect()
+    }
+
+    /// Queue one event to each target. `enabled_only` carries the wiki's rule
+    /// that the 3D events skip a disabled reference, which has no 3D to load
+    /// or unload, while the cell events do not.
+    fn queue_ref_event(
+        &mut self,
+        targets: &[(GlobalFormId, ObjectId)],
+        name: &str,
+        enabled_only: bool,
+    ) {
+        for (id, object) in targets {
+            if enabled_only && !self.refs.get(id).is_some_and(|r| r.enabled) {
+                continue;
+            }
+            self.pending.push(Pending::Event {
+                object: *object,
+                name: name.into(),
+                args: Vec::new(),
+            });
+        }
     }
 
     /// How many references are resident, across every cell.

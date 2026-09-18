@@ -37,6 +37,7 @@ use crate::clock::GameClock;
 use crate::quest::{zstring, Quest};
 
 mod actors;
+mod doorway;
 mod driver;
 mod events;
 mod forms;
@@ -50,7 +51,9 @@ mod save;
 mod timers;
 mod transition;
 
+pub use doorway::{Doorway, Side, Threshold, THRESHOLD_BAND, UNITS_PER_METRE};
 pub use save::{SAVE_MAGIC, SAVE_VERSION};
+pub use transition::CellTransition;
 
 /// Forms created at run time (`PlaceAtMe`, the fallback player) live in a
 /// file slot no plugin can own, the same `FF` prefix the game uses.
