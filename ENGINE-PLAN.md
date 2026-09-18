@@ -394,3 +394,41 @@ Order: `jolt` and `skinning` first since they are independent, then `controller`
 then `playback` and `transitions`. Round 7 takes the exterior (distant land from BTO, sky, water,
 a moving focus), round 8 the quest loop (dialogue runtime, menus, inventory), which is where the
 UI work in the earlier round 6 note now sits.
+
+### Loading screens, 2026-09-18
+
+The question: can doors stop being loading screens, the way a modern open world has no
+interruption. Three different things hide under that, with very different answers.
+
+**Removing the loading screen. Yes, and it should be the default.** A loading screen exists
+because 2011 hardware could not hold two cells at once. The measurements say we can: a cell's
+references build in 0.54 ms, its meshes stream in 4 ms on worker threads, the whole Whiterun 3 by
+3 exterior block in 13 ms, and the transition itself costs 0.50 ms. So the interior behind a door
+can be streamed while the player is still walking toward it, and the move becomes instant. No
+compatibility risk worth the name: the player is still in exactly one cell, the door still fires,
+cell load and unload events still happen, `GetInCell` still answers what it always did. This is
+the plain win and it belongs in round 7.
+
+**Walking through the doorway and seeing the room beyond it. Possible here, and worth a
+prototype.** Vanilla cannot do it because an interior is a separate cell at arbitrary coordinates,
+nowhere near the building it belongs to. This engine can, because the host already instances
+geometry through `RenderingServer` at any transform it likes, and the simulation addresses a
+reference by cell and position rather than by world geometry. So the interior can be rendered at a
+transform that puts it behind the door frame while the game logic keeps the interior's own
+coordinates, and crossing the threshold swaps which cell the player belongs to without moving the
+picture. What it costs, honestly: physics and actor updates in two cells at once, light and shadow
+leaking between two rooms that were never lit together, windows in an interior that face nothing,
+and the order that cell events fire changing under scripts that assume the vanilla order. That
+last one is the real compatibility question and it needs measuring against real mods, not
+reasoning.
+
+**Putting interiors inside the exterior geometrically. No.** That is what Open Cities does for a
+handful of cities, by rebuilding them as exterior worldspace by hand. Doing it generally would
+move every interior's coordinates, invalidate its navmesh, and break every script and package that
+names a position. It is a content change, not an engine change, and it would break the project's
+own rule that existing plugins keep their meaning.
+
+| Item | Branch | Done check |
+|---|---|---|
+| Streamed transitions | `no-load-screen` | The destination cell streams while the player approaches the door, the move is instant with no screen, cell events fire in the vanilla order, and the frame time across the move stays inside the exterior benchmark bar. Round 7. |
+| Seamless doorways | `portal-cells` | A prototype: one interior rendered at a transform behind its door, the player crossing without a teleport visible, with the light leak, double simulation and event ordering costs measured rather than argued. Prototype first, then decide. |
