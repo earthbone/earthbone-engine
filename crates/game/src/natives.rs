@@ -17,7 +17,7 @@ use soe_esm::GlobalFormId;
 use soe_papyrus::{NativeCall, NativeReturn, ObjectId, Value, Vm};
 
 use crate::clock::GameClock;
-use crate::world::{Handle, World};
+use crate::world::{reaction, AnimationListener, Handle, LeveledEntry, LosListener, World};
 
 pub type Shared = Rc<RefCell<World>>;
 
@@ -88,11 +88,39 @@ macro_rules! method {
     }};
 }
 
-macro_rules! alias_method {
-    ($vm:expr, $w:expr, $name:expr, |$world:ident, $call:ident, $quest:ident, $alias:ident| $body:expr) => {{
+/// A native on the raw self object, for registrations that aliases and
+/// forms share (`RegisterForUpdate` and its relatives).
+macro_rules! self_method {
+    ($vm:expr, $w:expr, $class:expr, $name:expr, |$world:ident, $call:ident, $me:ident| $body:expr) => {{
         let w = $w.clone();
         $vm.natives.register_method(
-            "Alias",
+            $class,
+            $name,
+            Box::new(move |$call| {
+                let mut guard = w.borrow_mut();
+                let $world: &mut World = &mut guard;
+                let Some($me) = $call.self_object else {
+                    return none();
+                };
+                $body
+            }),
+        );
+    }};
+}
+
+macro_rules! alias_method {
+    ($vm:expr, $w:expr, $name:expr, |$world:ident, $call:ident, $quest:ident, $alias:ident| $body:expr) => {
+        alias_method_on!($vm, $w, "Alias", $name, |$world, $call, $quest, $alias| {
+            $body
+        })
+    };
+}
+
+macro_rules! alias_method_on {
+    ($vm:expr, $w:expr, $class:expr, $name:expr, |$world:ident, $call:ident, $quest:ident, $alias:ident| $body:expr) => {{
+        let w = $w.clone();
+        $vm.natives.register_method(
+            $class,
             $name,
             Box::new(move |$call| {
                 let mut guard = w.borrow_mut();
@@ -140,6 +168,12 @@ pub fn register(vm: &mut Vm, world: &Shared) -> Registered {
     debug(vm, world);
     utility(vm, world);
     globals_and_lists(vm, world);
+    leveled(vm, world);
+    location(vm, world);
+    faction(vm, world);
+    actor_base(vm, world);
+    cell(vm, world);
+    message_scene_sound_spell(vm, world);
     let stubs = stubs(vm);
     let natives = NATIVE_COUNT + stubs - (vm.natives.duplicates.len() - before);
     Registered { natives, stubs }
@@ -147,7 +181,7 @@ pub fn register(vm: &mut Vm, world: &Shared) -> Registered {
 
 /// Hand-kept count of the non-stub natives registered below. The test in
 /// this module checks it against the registry.
-pub const NATIVE_COUNT: usize = 141;
+pub const NATIVE_COUNT: usize = 294;
 
 fn declare_parents(vm: &mut Vm) {
     for (class, parent) in [
@@ -193,10 +227,34 @@ fn declare_parents(vm: &mut Vm) {
         ("Ammo", "Form"),
         ("LeveledItem", "Form"),
         ("LeveledActor", "Form"),
+        ("LeveledSpell", "Form"),
         ("ImageSpaceModifier", "Form"),
         ("Weather", "Form"),
         ("TextureSet", "Form"),
         ("Outfit", "Form"),
+        ("Class", "Form"),
+        ("CombatStyle", "Form"),
+        ("VoiceType", "Form"),
+        ("MusicType", "Form"),
+        ("SoulGem", "MiscObject"),
+        ("Scroll", "Form"),
+        ("Apparatus", "Form"),
+        ("Flora", "Activator"),
+        ("TalkingActivator", "Activator"),
+        ("Explosion", "Form"),
+        ("Projectile", "Form"),
+        ("Hazard", "Form"),
+        ("EffectShader", "Form"),
+        ("EncounterZone", "Form"),
+        ("Topic", "Form"),
+        ("TopicInfo", "Form"),
+        ("Art", "Form"),
+        ("ImpactDataSet", "Form"),
+        ("HeadPart", "Form"),
+        ("ColorForm", "Form"),
+        ("AssociationType", "Form"),
+        ("LocationRefType", "Keyword"),
+        ("ConstructibleObject", "Form"),
     ] {
         vm.natives.declare_parent(class, parent);
     }
@@ -266,6 +324,107 @@ fn form(vm: &mut Vm, w: &Shared) {
             }),
         );
     }
+    self_method!(vm, w, "Form", "RegisterForSleep", |world, call, me| {
+        if !world.sleep_listeners.contains(&me) {
+            world.sleep_listeners.push(me);
+        }
+        none()
+    });
+    self_method!(vm, w, "Form", "UnregisterForSleep", |world, call, me| {
+        world.sleep_listeners.retain(|o| *o != me);
+        none()
+    });
+    self_method!(
+        vm,
+        w,
+        "Form",
+        "RegisterForTrackedStatsEvent",
+        |world, call, me| {
+            if !world.stats_listeners.contains(&me) {
+                world.stats_listeners.push(me);
+            }
+            none()
+        }
+    );
+    self_method!(
+        vm,
+        w,
+        "Form",
+        "UnregisterForTrackedStatsEvent",
+        |world, call, me| {
+            world.stats_listeners.retain(|o| *o != me);
+            none()
+        }
+    );
+    self_method!(
+        vm,
+        w,
+        "Form",
+        "RegisterForAnimationEvent",
+        |world, call, me| {
+            let Some(sender) = world.form_arg(&call.arg(0)) else {
+                return b(false);
+            };
+            let event = text(&call.arg(1));
+            let l = AnimationListener {
+                listener: me,
+                sender,
+                event,
+            };
+            if !world.animation_listeners.contains(&l) {
+                world.animation_listeners.push(l);
+            }
+            b(true)
+        }
+    );
+    self_method!(
+        vm,
+        w,
+        "Form",
+        "UnregisterForAnimationEvent",
+        |world, call, me| {
+            let sender = world.form_arg(&call.arg(0));
+            let event = text(&call.arg(1));
+            world.animation_listeners.retain(|l| {
+                !(l.listener == me
+                    && Some(l.sender) == sender
+                    && l.event.eq_ignore_ascii_case(&event))
+            });
+            none()
+        }
+    );
+    for (name, single, gain) in [
+        ("RegisterForLOS", false, false),
+        ("RegisterForSingleLOSGain", true, true),
+        ("RegisterForSingleLOSLost", true, false),
+    ] {
+        self_method!(vm, w, "Form", name, |world, call, me| {
+            let (Some(viewer), Some(target)) =
+                (world.form_arg(&call.arg(0)), world.form_arg(&call.arg(1)))
+            else {
+                return none();
+            };
+            let l = LosListener {
+                listener: me,
+                viewer,
+                target,
+                single,
+                gain,
+            };
+            if !world.los_listeners.contains(&l) {
+                world.los_listeners.push(l);
+            }
+            none()
+        });
+    }
+    self_method!(vm, w, "Form", "UnregisterForLOS", |world, call, me| {
+        let viewer = world.form_arg(&call.arg(0));
+        let target = world.form_arg(&call.arg(1));
+        world.los_listeners.retain(|l| {
+            !(l.listener == me && Some(l.viewer) == viewer && Some(l.target) == target)
+        });
+        none()
+    });
 }
 
 fn object_reference(vm: &mut Vm, w: &Shared) {
@@ -536,7 +695,7 @@ fn object_reference(vm: &mut Vm, w: &Shared) {
         "PlayAnimation",
         |world, call, me| {
             let event = text(&call.arg(0));
-            world.animation_events.push((me, event));
+            world.animation_event(me, &event, alloc!(call));
             b(true)
         }
     );
@@ -601,6 +760,157 @@ fn object_reference(vm: &mut Vm, w: &Shared) {
         }
         form_value(world, call, last)
     });
+    method!(vm, w, "ObjectReference", "AddToMap", |world, call, me| {
+        let fast_travel = call.arg(0).as_bool();
+        if let Some(r) = world.reference(me) {
+            r.on_map = true;
+            r.fast_travel = fast_travel;
+        }
+        none()
+    });
+    method!(
+        vm,
+        w,
+        "ObjectReference",
+        "EnableFastTravel",
+        |world, call, me| {
+            let on = call.args.first().is_none_or(Value::as_bool);
+            if let Some(r) = world.reference(me) {
+                r.fast_travel = on;
+            }
+            none()
+        }
+    );
+    method!(
+        vm,
+        w,
+        "ObjectReference",
+        "SetDestroyed",
+        |world, call, me| {
+            let on = call.args.first().is_none_or(Value::as_bool);
+            if let Some(r) = world.reference(me) {
+                r.destroyed = on;
+            }
+            none()
+        }
+    );
+    method!(
+        vm,
+        w,
+        "ObjectReference",
+        "IgnoreFriendlyHits",
+        |world, call, me| {
+            let on = call.args.first().is_none_or(Value::as_bool);
+            if let Some(r) = world.reference(me) {
+                r.ignore_friendly_hits = on;
+            }
+            none()
+        }
+    );
+    method!(
+        vm,
+        w,
+        "ObjectReference",
+        "IsIgnoringFriendlyHits",
+        |world, call, me| b(world.reference(me).is_some_and(|r| r.ignore_friendly_hits))
+    );
+    method!(
+        vm,
+        w,
+        "ObjectReference",
+        "GetCurrentLocation",
+        |world, call, me| {
+            let loc = world.current_location(me);
+            form_value(world, call, loc)
+        }
+    );
+    method!(
+        vm,
+        w,
+        "ObjectReference",
+        "GetEditorLocation",
+        |world, call, me| {
+            let loc = world.editor_location(me);
+            form_value(world, call, loc)
+        }
+    );
+    method!(
+        vm,
+        w,
+        "ObjectReference",
+        "IsInLocation",
+        |world, call, me| {
+            let Some(wanted) = world.form_arg(&call.arg(0)) else {
+                return b(false);
+            };
+            let Some(current) = world.current_location(me) else {
+                return b(false);
+            };
+            b(current == wanted || world.location_is_child(wanted, current))
+        }
+    );
+    method!(
+        vm,
+        w,
+        "ObjectReference",
+        "MoveToMyEditorLocation",
+        |world, call, me| b(world.move_to_editor_location(me))
+    );
+    for (name, tag) in [("GetActorOwner", *b"NPC_"), ("GetFactionOwner", *b"FACT")] {
+        method!(vm, w, "ObjectReference", name, |world, call, me| {
+            let owner = world
+                .reference(me)
+                .and_then(|r| r.owner)
+                .filter(|o| world.tag_of(*o).is_some_and(|t| *t.as_bytes() == tag));
+            form_value(world, call, owner)
+        });
+    }
+    for name in ["SetActorOwner", "SetFactionOwner"] {
+        method!(vm, w, "ObjectReference", name, |world, call, me| {
+            let owner = world.form_arg(&call.arg(0));
+            if let Some(r) = world.reference(me) {
+                r.owner = owner;
+            }
+            none()
+        });
+    }
+    for class in ["ObjectReference", "ReferenceAlias"] {
+        self_method!(
+            vm,
+            w,
+            class,
+            "AddInventoryEventFilter",
+            |world, call, me| {
+                if let Some(filter) = world.form_arg(&call.arg(0)) {
+                    world.inventory_filters.entry(me).or_default().push(filter);
+                }
+                none()
+            }
+        );
+        self_method!(
+            vm,
+            w,
+            class,
+            "RemoveInventoryEventFilter",
+            |world, call, me| {
+                let filter = world.form_arg(&call.arg(0));
+                if let Some(list) = world.inventory_filters.get_mut(&me) {
+                    list.retain(|f| Some(*f) != filter);
+                }
+                none()
+            }
+        );
+        self_method!(
+            vm,
+            w,
+            class,
+            "RemoveAllInventoryEventFilters",
+            |world, call, me| {
+                world.inventory_filters.remove(&me);
+                none()
+            }
+        );
+    }
 }
 
 fn actor(vm: &mut Vm, w: &Shared) {
@@ -647,13 +957,19 @@ fn actor(vm: &mut Vm, w: &Shared) {
         .actor(me)
         .is_some_and(|a| a.dead)));
     method!(vm, w, "Actor", "Kill", |world, call, me| {
+        let killer = world.form_arg(&call.arg(0));
         if let Some(a) = world.actor(me) {
             if !a.essential {
                 a.dead = true;
+                a.killer = killer;
                 a.values.insert("health".into(), 0.0);
             }
         }
         none()
+    });
+    method!(vm, w, "Actor", "GetKiller", |world, call, me| {
+        let killer = world.actor(me).filter(|a| a.dead).and_then(|a| a.killer);
+        form_value(world, call, killer)
     });
     method!(vm, w, "Actor", "Resurrect", |world, call, me| {
         if let Some(a) = world.actor(me) {
@@ -667,16 +983,26 @@ fn actor(vm: &mut Vm, w: &Shared) {
         .actor(me)
         .is_some_and(|a| a.in_combat)));
     method!(vm, w, "Actor", "StartCombat", |world, call, me| {
+        let target = world.form_arg(&call.arg(0));
         if let Some(a) = world.actor(me) {
             a.in_combat = true;
+            a.combat_target = target;
         }
         none()
     });
     method!(vm, w, "Actor", "StopCombat", |world, call, me| {
         if let Some(a) = world.actor(me) {
             a.in_combat = false;
+            a.combat_target = None;
         }
         none()
+    });
+    method!(vm, w, "Actor", "GetCombatTarget", |world, call, me| {
+        let target = world
+            .actor(me)
+            .filter(|a| a.in_combat)
+            .and_then(|a| a.combat_target);
+        form_value(world, call, target)
     });
     for name in ["GetActorBase", "GetLeveledActorBase"] {
         method!(vm, w, "Actor", name, |world, call, me| {
@@ -724,6 +1050,162 @@ fn actor(vm: &mut Vm, w: &Shared) {
         let on = call.args.first().is_none_or(Value::as_bool);
         if let Some(a) = world.actor(me) {
             a.unconscious = on;
+            if on {
+                a.restrained = false;
+            }
+        }
+        none()
+    });
+    // Restrained and unconscious exclude each other (the SetRestrained page).
+    method!(vm, w, "Actor", "SetRestrained", |world, call, me| {
+        let on = call.args.first().is_none_or(Value::as_bool);
+        if let Some(a) = world.actor(me) {
+            a.restrained = on;
+            if on {
+                a.unconscious = false;
+            }
+        }
+        none()
+    });
+    for (name, field) in [
+        ("SetAlert", 0),
+        ("SetAttackActorOnSight", 1),
+        ("SetDontMove", 2),
+        ("SetAllowPCDialogue", 3),
+    ] {
+        method!(vm, w, "Actor", name, |world, call, me| {
+            let on = call.args.first().is_none_or(Value::as_bool);
+            if let Some(a) = world.actor(me) {
+                match field {
+                    0 => a.alerted = on,
+                    1 => a.attack_on_sight = on,
+                    2 => a.dont_move = on,
+                    _ => a.allow_pc_dialogue = on,
+                }
+            }
+            none()
+        });
+    }
+    method!(vm, w, "Actor", "IsAlerted", |world, call, me| b(world
+        .actor(me)
+        .is_some_and(|a| a.alerted)));
+    // StartSneaking toggles (the page's note), IsSneaking reads it.
+    method!(vm, w, "Actor", "StartSneaking", |world, call, me| {
+        if let Some(a) = world.actor(me) {
+            a.sneaking = !a.sneaking;
+        }
+        none()
+    });
+    method!(vm, w, "Actor", "IsSneaking", |world, call, me| b(world
+        .actor(me)
+        .is_some_and(|a| a.sneaking)));
+    for (name, drawn) in [("DrawWeapon", true), ("SheatheWeapon", false)] {
+        method!(vm, w, "Actor", name, |world, call, me| {
+            if let Some(a) = world.actor(me) {
+                a.weapon_drawn = drawn;
+            }
+            none()
+        });
+    }
+    method!(vm, w, "Actor", "IsWeaponDrawn", |world, call, me| b(world
+        .actor(me)
+        .is_some_and(|a| a.weapon_drawn)));
+    method!(vm, w, "Actor", "IsArrested", |world, call, me| b(world
+        .actor(me)
+        .is_some_and(|a| a.arrested)));
+    method!(vm, w, "Actor", "ClearArrested", |world, call, me| {
+        if let Some(a) = world.actor(me) {
+            a.arrested = false;
+        }
+        none()
+    });
+    method!(vm, w, "Actor", "AddPerk", |world, call, me| {
+        if let Some(perk) = world.form_arg(&call.arg(0)) {
+            if let Some(a) = world.actor(me) {
+                a.perks.insert(perk);
+            }
+        }
+        none()
+    });
+    method!(vm, w, "Actor", "RemovePerk", |world, call, me| {
+        if let Some(perk) = world.form_arg(&call.arg(0)) {
+            if let Some(a) = world.actor(me) {
+                a.perks.remove(&perk);
+            }
+        }
+        none()
+    });
+    method!(vm, w, "Actor", "HasPerk", |world, call, me| {
+        let Some(perk) = world.form_arg(&call.arg(0)) else {
+            return b(false);
+        };
+        b(world.actor(me).is_some_and(|a| a.perks.contains(&perk)))
+    });
+    method!(vm, w, "Actor", "SetRelationshipRank", |world, call, me| {
+        let rank = call.arg(1).as_int().clamp(-4, 4);
+        if let Some(other) = world.form_arg(&call.arg(0)) {
+            if let Some(a) = world.actor(me) {
+                a.relationships.insert(other, rank);
+            }
+            if let Some(o) = world.actor(other) {
+                o.relationships.insert(me, rank);
+            }
+        }
+        none()
+    });
+    method!(vm, w, "Actor", "GetRelationshipRank", |world, call, me| {
+        let Some(other) = world.form_arg(&call.arg(0)) else {
+            return i(0);
+        };
+        i(world
+            .actor(me)
+            .and_then(|a| a.relationships.get(&other).copied())
+            .unwrap_or(0))
+    });
+    method!(
+        vm,
+        w,
+        "Actor",
+        "GetHighestRelationshipRank",
+        |world, call, me| i(world
+            .actor(me)
+            .and_then(|a| a.relationships.values().max().copied())
+            .unwrap_or(0))
+    );
+    method!(
+        vm,
+        w,
+        "Actor",
+        "GetLowestRelationshipRank",
+        |world, call, me| i(world
+            .actor(me)
+            .and_then(|a| a.relationships.values().min().copied())
+            .unwrap_or(0))
+    );
+    method!(vm, w, "Actor", "GetCrimeFaction", |world, call, me| {
+        let faction = world.actor(me).and_then(|a| a.crime_faction);
+        form_value(world, call, faction)
+    });
+    // Setting a crime faction also joins it (the SetCrimeFaction page).
+    method!(vm, w, "Actor", "SetCrimeFaction", |world, call, me| {
+        let faction = world.form_arg(&call.arg(0));
+        if let Some(a) = world.actor(me) {
+            a.crime_faction = faction;
+            if let Some(f) = faction {
+                a.factions.entry(f).or_insert(0);
+            }
+        }
+        none()
+    });
+    method!(vm, w, "Actor", "SetOutfit", |world, call, me| {
+        let outfit = world.form_arg(&call.arg(0));
+        let sleep = call.arg(1).as_bool();
+        if let Some(a) = world.actor(me) {
+            if sleep {
+                a.sleep_outfit = outfit;
+            } else {
+                a.outfit = outfit;
+            }
         }
         none()
     });
@@ -916,12 +1398,8 @@ fn quest(vm: &mut Vm, w: &Shared) {
                 .is_ok_and(|st| world.quest_state(me).is_some_and(|q| q.done.contains(&st))))
         });
     }
-    method!(
-        vm,
-        w,
-        "Quest",
-        "SetObjectiveDisplayed",
-        |world, call, me| {
+    for name in ["SetObjectiveDisplayed", "SetObjectiveDisplayedNoWait"] {
+        method!(vm, w, "Quest", name, |world, call, me| {
             let on = call.args.get(1).is_none_or(Value::as_bool);
             if let Ok(idx) = u16::try_from(call.arg(0).as_int()) {
                 if let Some(o) = world.objective(me, idx) {
@@ -929,6 +1407,63 @@ fn quest(vm: &mut Vm, w: &Shared) {
                 }
             }
             none()
+        });
+    }
+    // ModObjectiveGlobal(afModValue, aModGlobal, aiObjectiveID = -1,
+    // afTargetValue = -1.0, abCountingUp = true, abCompleteObjective = true,
+    // abRedisplayObjective = true): mod the global, and when an objective
+    // is named, redisplay it and complete (or fail) it once the target is
+    // reached. Returns whether it was reached.
+    method!(vm, w, "Quest", "ModObjectiveGlobal", |world, call, me| {
+        let Some(global) = world.form_arg(&call.arg(1)) else {
+            return b(false);
+        };
+        let value = world.global_value(global) + call.arg(0).as_float();
+        world.set_global(global, value);
+        let objective = call.args.get(2).map_or(-1, Value::as_int);
+        let target = call.args.get(3).map_or(-1.0, Value::as_float);
+        let counting_up = call.args.get(4).is_none_or(Value::as_bool);
+        let complete = call.args.get(5).is_none_or(Value::as_bool);
+        let redisplay = call.args.get(6).is_none_or(Value::as_bool);
+        let reached = target >= 0.0
+            && if counting_up {
+                value >= target
+            } else {
+                value <= target
+            };
+        if let Ok(idx) = u16::try_from(objective) {
+            if let Some(o) = world.objective(me, idx) {
+                if redisplay {
+                    o.displayed = true;
+                }
+                if reached {
+                    if complete {
+                        o.completed = true;
+                    } else {
+                        o.failed = true;
+                    }
+                }
+            }
+        }
+        b(reached)
+    });
+    method!(
+        vm,
+        w,
+        "Quest",
+        "UpdateCurrentInstanceGlobal",
+        |world, call, me| {
+            let Some(global) = world.form_arg(&call.arg(0)) else {
+                return b(false);
+            };
+            let value = world.global_value(global);
+            match world.quest_state(me) {
+                Some(q) => {
+                    q.instance_globals.insert(global, value);
+                    b(true)
+                }
+                None => b(false),
+            }
         }
     );
     method!(
@@ -1049,6 +1584,28 @@ fn alias(vm: &mut Vm, w: &Shared) {
         world.force_alias(quest, alias, None);
         none()
     });
+    // A location alias holds a form the same way a reference alias does.
+    alias_method_on!(
+        vm,
+        w,
+        "LocationAlias",
+        "GetLocation",
+        |world, call, quest, alias| {
+            let l = world.alias_ref(quest, alias);
+            form_value(world, call, l)
+        }
+    );
+    alias_method_on!(
+        vm,
+        w,
+        "LocationAlias",
+        "ForceLocationTo",
+        |world, call, quest, alias| {
+            let target = world.form_arg(&call.arg(0));
+            world.force_alias(quest, alias, target);
+            none()
+        }
+    );
 }
 
 fn game(vm: &mut Vm, w: &Shared) {
@@ -1092,6 +1649,78 @@ fn game(vm: &mut Vm, w: &Shared) {
     global!(vm, w, "Game", "GetRealHoursPassed", |world, _call| f(
         (world.clock.real_seconds / 3600.0) as f32
     ));
+    global!(vm, w, "Game", "IncrementStat", |world, call| {
+        let amount = call.args.get(1).map_or(1, Value::as_int);
+        world.increment_stat(&text(&call.arg(0)), amount);
+        none()
+    });
+    global!(vm, w, "Game", "QueryStat", |world, call| i(world
+        .stats
+        .get(&text(&call.arg(0)))
+        .copied()
+        .unwrap_or(0)));
+    global!(vm, w, "Game", "IsFastTravelEnabled", |world, _call| b(
+        world.fast_travel
+    ));
+    global!(vm, w, "Game", "EnableFastTravel", |world, call| {
+        world.fast_travel = call.args.first().is_none_or(Value::as_bool);
+        none()
+    });
+    global!(vm, w, "Game", "SetPlayerAIDriven", |world, call| {
+        world.player_ai_driven = call.args.first().is_none_or(Value::as_bool);
+        none()
+    });
+    global!(vm, w, "Game", "SetInChargen", |world, call| {
+        world.in_chargen = call.args.first().is_none_or(Value::as_bool);
+        none()
+    });
+    global!(vm, w, "Game", "SetBeastForm", |world, call| {
+        world.beast_form = call.args.first().is_none_or(Value::as_bool);
+        none()
+    });
+    global!(vm, w, "Game", "TeachWord", |world, call| {
+        if let Some(word) = world.form_arg(&call.arg(0)) {
+            world.words_taught.insert(word);
+        }
+        none()
+    });
+    global!(vm, w, "Game", "UnlockWord", |world, call| {
+        if let Some(word) = world.form_arg(&call.arg(0)) {
+            world.words_taught.insert(word);
+            world.words_unlocked.insert(word);
+        }
+        none()
+    });
+    global!(vm, w, "Game", "IsWordUnlocked", |world, call| b(world
+        .form_arg(&call.arg(0))
+        .is_some_and(|w| world.words_unlocked.contains(&w))));
+    global!(vm, w, "Game", "AddAchievement", |world, call| {
+        world.achievements.push(call.arg(0).as_int());
+        none()
+    });
+    global!(vm, w, "Game", "GetPlayersLastRiddenHorse", |world, call| {
+        let horse = world.last_ridden_horse;
+        form_value(world, call, horse)
+    });
+    for (name, kind) in [
+        ("SetGameSettingFloat", 0),
+        ("SetGameSettingInt", 1),
+        ("SetGameSettingBool", 2),
+        ("SetGameSettingString", 3),
+    ] {
+        global!(vm, w, "Game", name, |world, call| {
+            let v = match kind {
+                0 => Value::Float(call.arg(1).as_float()),
+                1 => Value::Int(call.arg(1).as_int()),
+                2 => Value::Bool(call.arg(1).as_bool()),
+                _ => Value::string(&text(&call.arg(1))),
+            };
+            world
+                .settings
+                .insert(text(&call.arg(0)).to_ascii_lowercase(), v);
+            none()
+        });
+    }
 }
 
 fn debug(vm: &mut Vm, w: &Shared) {
@@ -1117,7 +1746,7 @@ fn debug(vm: &mut Vm, w: &Shared) {
     global!(vm, w, "Debug", "SendAnimationEvent", |world, call| {
         match world.form_arg(&call.arg(0)) {
             Some(target) => {
-                world.animation_events.push((target, text(&call.arg(1))));
+                world.animation_event(target, &text(&call.arg(1)), alloc!(call));
                 b(true)
             }
             None => b(false),
@@ -1253,6 +1882,461 @@ fn globals_and_lists(vm: &mut Vm, w: &Shared) {
     });
 }
 
+/// `LeveledItem`, `LeveledActor` and `LeveledSpell` share one shape. The
+/// SKSE getters are included since scripts in the wild call them and the
+/// state is there anyway.
+fn leveled(vm: &mut Vm, w: &Shared) {
+    for class in ["LeveledItem", "LeveledActor", "LeveledSpell"] {
+        // AddForm(apForm, aiLevel, aiCount): a spell list has no count.
+        method!(vm, w, class, "AddForm", |world, call, me| {
+            let Some(form) = world.form_arg(&call.arg(0)) else {
+                return none();
+            };
+            let level = u16::try_from(call.arg(1).as_int()).unwrap_or(0);
+            let count = if class == "LeveledSpell" {
+                1
+            } else {
+                u16::try_from(call.args.get(2).map_or(1, Value::as_int)).unwrap_or(1)
+            };
+            if let Some(l) = world.leveled_list(me) {
+                l.entries.push(LeveledEntry { level, form, count });
+            }
+            none()
+        });
+        method!(vm, w, class, "Revert", |world, call, me| {
+            if let Some(l) = world.leveled_list(me) {
+                l.entries.truncate(l.base_entries);
+                l.chance_none = l.base_chance_none;
+            }
+            none()
+        });
+        method!(vm, w, class, "GetNumForms", |world, call, me| i(world
+            .leveled_list(me)
+            .map_or(0, |l| l.entries.len() as i32)));
+        method!(vm, w, class, "GetNthForm", |world, call, me| {
+            let idx = usize::try_from(call.arg(0).as_int()).ok();
+            let form = idx.and_then(|k| {
+                world
+                    .leveled_list(me)
+                    .and_then(|l| l.entries.get(k).map(|e| e.form))
+            });
+            form_value(world, call, form)
+        });
+        method!(vm, w, class, "GetNthLevel", |world, call, me| {
+            let idx = usize::try_from(call.arg(0).as_int()).ok();
+            i(idx
+                .and_then(|k| {
+                    world
+                        .leveled_list(me)
+                        .and_then(|l| l.entries.get(k).map(|e| e.level))
+                })
+                .map_or(0, i32::from))
+        });
+        method!(vm, w, class, "GetNthCount", |world, call, me| {
+            let idx = usize::try_from(call.arg(0).as_int()).ok();
+            i(idx
+                .and_then(|k| {
+                    world
+                        .leveled_list(me)
+                        .and_then(|l| l.entries.get(k).map(|e| e.count))
+                })
+                .map_or(0, i32::from))
+        });
+        method!(vm, w, class, "GetChanceNone", |world, call, me| i(world
+            .leveled_list(me)
+            .map_or(0, |l| i32::from(l.chance_none))));
+        method!(vm, w, class, "SetChanceNone", |world, call, me| {
+            let chance = u8::try_from(call.arg(0).as_int().clamp(0, 100)).unwrap_or(0);
+            if let Some(l) = world.leveled_list(me) {
+                l.chance_none = chance;
+            }
+            none()
+        });
+    }
+}
+
+fn location(vm: &mut Vm, w: &Shared) {
+    method!(vm, w, "Location", "GetKeywordData", |world, call, me| {
+        let kw = world.form_arg(&call.arg(0));
+        f(kw.and_then(|k| {
+            world
+                .location(me)
+                .and_then(|l| l.keyword_data.get(&k).copied())
+        })
+        .unwrap_or(0.0))
+    });
+    method!(vm, w, "Location", "SetKeywordData", |world, call, me| {
+        let value = call.arg(1).as_float();
+        if let Some(kw) = world.form_arg(&call.arg(0)) {
+            if let Some(l) = world.location(me) {
+                l.keyword_data.insert(kw, value);
+            }
+        }
+        none()
+    });
+    method!(vm, w, "Location", "IsCleared", |world, call, me| b(world
+        .location(me)
+        .is_some_and(|l| l.cleared)));
+    method!(vm, w, "Location", "SetCleared", |world, call, me| {
+        let on = call.args.first().is_none_or(Value::as_bool);
+        if let Some(l) = world.location(me) {
+            l.cleared = on;
+        }
+        none()
+    });
+    method!(vm, w, "Location", "IsChild", |world, call, me| b(world
+        .form_arg(&call.arg(0))
+        .is_some_and(|other| world.location_is_child(me, other))));
+    method!(vm, w, "Location", "HasCommonParent", |world, call, me| {
+        let Some(other) = world.form_arg(&call.arg(0)) else {
+            return b(false);
+        };
+        let filter = world.form_arg(&call.arg(1));
+        b(world.locations_share_parent(me, other, filter))
+    });
+    // IsSameLocation(akOther, akFilter = None): the same location, or with
+    // a filter keyword, two locations under one parent that carries it.
+    method!(vm, w, "Location", "IsSameLocation", |world, call, me| {
+        let Some(other) = world.form_arg(&call.arg(0)) else {
+            return b(false);
+        };
+        if other == me {
+            return b(true);
+        }
+        let filter = world.form_arg(&call.arg(1));
+        b(filter.is_some() && world.locations_share_parent(me, other, filter))
+    });
+}
+
+fn faction(vm: &mut Vm, w: &Shared) {
+    // SetAlly(akOther, abSelfIsFriend = false, abOtherIsFriend = false)
+    // and SetEnemy(akOther, abSelfIsNeutral = false, abOtherIsNeutral =
+    // false) write both directions of the relation.
+    for (name, on, off) in [
+        ("SetAlly", reaction::FRIEND, reaction::ALLY),
+        ("SetEnemy", reaction::NEUTRAL, reaction::ENEMY),
+    ] {
+        method!(vm, w, "Faction", name, |world, call, me| {
+            let Some(other) = world.form_arg(&call.arg(0)) else {
+                return none();
+            };
+            let mine = if call.arg(1).as_bool() { on } else { off };
+            let theirs = if call.arg(2).as_bool() { on } else { off };
+            if let Some(f) = world.faction(me) {
+                f.reactions.insert(other, mine);
+            }
+            if let Some(f) = world.faction(other) {
+                f.reactions.insert(me, theirs);
+            }
+            none()
+        });
+    }
+    method!(vm, w, "Faction", "GetReaction", |world, call, me| {
+        let Some(other) = world.form_arg(&call.arg(0)) else {
+            return i(reaction::NEUTRAL);
+        };
+        i(world
+            .faction(me)
+            .and_then(|f| f.reactions.get(&other).copied())
+            .unwrap_or(reaction::NEUTRAL))
+    });
+    method!(vm, w, "Faction", "SetReaction", |world, call, me| {
+        let value = call.arg(1).as_int();
+        if let Some(other) = world.form_arg(&call.arg(0)) {
+            if let Some(f) = world.faction(me) {
+                f.reactions.insert(other, value);
+            }
+        }
+        none()
+    });
+    method!(vm, w, "Faction", "GetCrimeGold", |world, call, me| i(world
+        .faction(me)
+        .map_or(0, |f| f.crime_gold_violent + f.crime_gold_nonviolent)));
+    method!(
+        vm,
+        w,
+        "Faction",
+        "GetCrimeGoldViolent",
+        |world, call, me| i(world.faction(me).map_or(0, |f| f.crime_gold_violent))
+    );
+    method!(
+        vm,
+        w,
+        "Faction",
+        "GetCrimeGoldNonViolent",
+        |world, call, me| i(world.faction(me).map_or(0, |f| f.crime_gold_nonviolent))
+    );
+    method!(vm, w, "Faction", "SetCrimeGold", |world, call, me| {
+        let v = call.arg(0).as_int().max(0);
+        if let Some(f) = world.faction(me) {
+            f.crime_gold_nonviolent = v;
+        }
+        none()
+    });
+    method!(
+        vm,
+        w,
+        "Faction",
+        "SetCrimeGoldViolent",
+        |world, call, me| {
+            let v = call.arg(0).as_int().max(0);
+            if let Some(f) = world.faction(me) {
+                f.crime_gold_violent = v;
+            }
+            none()
+        }
+    );
+    // ModCrimeGold(aiAmount, abViolent = false) also grows the infamy of
+    // the same kind, the bounty that was ever earned.
+    method!(vm, w, "Faction", "ModCrimeGold", |world, call, me| {
+        let amount = call.arg(0).as_int();
+        let violent = call.arg(1).as_bool();
+        if let Some(f) = world.faction(me) {
+            if violent {
+                f.crime_gold_violent = (f.crime_gold_violent + amount).max(0);
+                f.infamy_violent += amount.max(0);
+            } else {
+                f.crime_gold_nonviolent = (f.crime_gold_nonviolent + amount).max(0);
+                f.infamy_nonviolent += amount.max(0);
+            }
+        }
+        none()
+    });
+    method!(vm, w, "Faction", "GetInfamy", |world, call, me| i(world
+        .faction(me)
+        .map_or(0, |f| f.infamy_violent + f.infamy_nonviolent)));
+    method!(vm, w, "Faction", "GetInfamyViolent", |world, call, me| i(
+        world.faction(me).map_or(0, |f| f.infamy_violent)
+    ));
+    method!(
+        vm,
+        w,
+        "Faction",
+        "GetInfamyNonViolent",
+        |world, call, me| i(world.faction(me).map_or(0, |f| f.infamy_nonviolent))
+    );
+    method!(vm, w, "Faction", "CanPayCrimeGold", |world, call, me| {
+        let owed = world
+            .faction(me)
+            .map_or(0, |f| f.crime_gold_violent + f.crime_gold_nonviolent);
+        let player = world.player();
+        let gold = world
+            .form("Gold001")
+            .map_or(0, |g| world.item_count(player, g));
+        b(gold >= owed)
+    });
+    // PlayerPayCrimeGold(abRemoveStolenItems = true, abGoToJail = true):
+    // the bounty leaves the player's purse and the faction's ledger.
+    method!(vm, w, "Faction", "PlayerPayCrimeGold", |world, call, me| {
+        let owed = world
+            .faction(me)
+            .map_or(0, |f| f.crime_gold_violent + f.crime_gold_nonviolent);
+        let player = world.player();
+        if let Some(g) = world.form("Gold001") {
+            if owed > 0 {
+                world.remove_item(player, g, owed, None);
+            }
+        }
+        if let Some(f) = world.faction(me) {
+            f.crime_gold_violent = 0;
+            f.crime_gold_nonviolent = 0;
+        }
+        none()
+    });
+    method!(vm, w, "Faction", "IsPlayerExpelled", |world, call, me| b(
+        world.faction(me).is_some_and(|f| f.player_expelled)
+    ));
+    method!(vm, w, "Faction", "SetPlayerExpelled", |world, call, me| {
+        let on = call.args.first().is_none_or(Value::as_bool);
+        if let Some(f) = world.faction(me) {
+            f.player_expelled = on;
+        }
+        none()
+    });
+    method!(vm, w, "Faction", "SetPlayerEnemy", |world, call, me| {
+        let on = call.args.first().is_none_or(Value::as_bool);
+        if let Some(f) = world.faction(me) {
+            f.player_enemy = on;
+        }
+        none()
+    });
+    method!(
+        vm,
+        w,
+        "Faction",
+        "IsFactionInCrimeGroup",
+        |world, call, me| b(world.faction(me).is_some_and(|f| f.tracks_crime))
+    );
+}
+
+fn actor_base(vm: &mut Vm, w: &Shared) {
+    method!(vm, w, "ActorBase", "GetRace", |world, call, me| {
+        let race = world.actor_base(me).and_then(|a| a.race);
+        form_value(world, call, race)
+    });
+    method!(vm, w, "ActorBase", "GetClass", |world, call, me| {
+        let class = world.actor_base(me).and_then(|a| a.class);
+        form_value(world, call, class)
+    });
+    method!(vm, w, "ActorBase", "GetSex", |world, call, me| i(world
+        .actor_base(me)
+        .map_or(-1, |a| i32::from(a.female))));
+    method!(vm, w, "ActorBase", "GetDeadCount", |world, call, me| i(
+        world.actor_base(me).map_or(0, |a| a.dead_count)
+    ));
+    for (name, field) in [
+        ("IsEssential", 0),
+        ("IsProtected", 1),
+        ("IsInvulnerable", 2),
+        ("IsUnique", 3),
+    ] {
+        method!(vm, w, "ActorBase", name, |world, call, me| b(world
+            .actor_base(me)
+            .is_some_and(|a| match field {
+                0 => a.essential,
+                1 => a.protected,
+                2 => a.invulnerable,
+                _ => a.unique,
+            })));
+    }
+    for (name, field) in [
+        ("SetEssential", 0),
+        ("SetProtected", 1),
+        ("SetInvulnerable", 2),
+    ] {
+        method!(vm, w, "ActorBase", name, |world, call, me| {
+            let on = call.args.first().is_none_or(Value::as_bool);
+            if let Some(a) = world.actor_base(me) {
+                match field {
+                    0 => a.essential = on,
+                    1 => a.protected = on,
+                    _ => a.invulnerable = on,
+                }
+            }
+            none()
+        });
+    }
+    method!(vm, w, "ActorBase", "SetOutfit", |world, call, me| {
+        let outfit = world.form_arg(&call.arg(0));
+        let sleep = call.arg(1).as_bool();
+        if let Some(a) = world.actor_base(me) {
+            if sleep {
+                a.sleep_outfit = outfit;
+            } else {
+                a.outfit = outfit;
+            }
+        }
+        none()
+    });
+}
+
+fn cell(vm: &mut Vm, w: &Shared) {
+    for (name, tag) in [("GetActorOwner", *b"NPC_"), ("GetFactionOwner", *b"FACT")] {
+        method!(vm, w, "Cell", name, |world, call, me| {
+            let owner = world
+                .cell_state(me)
+                .and_then(|c| c.owner)
+                .filter(|o| world.tag_of(*o).is_some_and(|t| *t.as_bytes() == tag));
+            form_value(world, call, owner)
+        });
+    }
+    for name in ["SetActorOwner", "SetFactionOwner"] {
+        method!(vm, w, "Cell", name, |world, call, me| {
+            let owner = world.form_arg(&call.arg(0));
+            if let Some(c) = world.cell_state(me) {
+                c.owner = owner;
+            }
+            none()
+        });
+    }
+    method!(vm, w, "Cell", "SetPublic", |world, call, me| {
+        let on = call.args.first().is_none_or(Value::as_bool);
+        if let Some(c) = world.cell_state(me) {
+            c.public = on;
+        }
+        none()
+    });
+}
+
+fn message_scene_sound_spell(vm: &mut Vm, w: &Shared) {
+    // Show: a message box when the DNAM flag says so, a notification
+    // otherwise. The button index is 0 since nobody clicks here.
+    method!(vm, w, "Message", "Show", |world, call, me| {
+        let body = world
+            .description_of(me)
+            .or_else(|| world.name_of(me))
+            .unwrap_or_default();
+        let boxed = world
+            .record(me)
+            .and_then(|r| r.find(soe_esm::Tag::new(b"DNAM")))
+            .and_then(|d| d.first().copied())
+            .is_some_and(|f| f & 1 != 0);
+        if boxed {
+            world.message_boxes.push(body);
+        } else {
+            world.notifications.push(body);
+        }
+        i(0)
+    });
+    method!(vm, w, "Message", "ShowAsHelpMessage", |world, call, me| {
+        let body = world
+            .description_of(me)
+            .or_else(|| world.name_of(me))
+            .unwrap_or_default();
+        world.notifications.push(body);
+        none()
+    });
+    for name in ["Start", "ForceStart"] {
+        method!(vm, w, "Scene", name, |world, call, me| {
+            world.start_scene(me, alloc!(call));
+            none()
+        });
+    }
+    method!(vm, w, "Scene", "Stop", |world, call, me| {
+        world.stop_scene(me, alloc!(call));
+        none()
+    });
+    method!(vm, w, "Scene", "IsPlaying", |world, call, me| b(world
+        .scenes
+        .contains(&me)));
+    method!(vm, w, "Sound", "Play", |world, call, me| {
+        let Some(source) = world.form_arg(&call.arg(0)) else {
+            return i(0);
+        };
+        i(world.play_sound(me, source))
+    });
+    global!(vm, w, "Sound", "StopInstance", |world, call| {
+        world.sound_instances.remove(&call.arg(0).as_int());
+        none()
+    });
+    global!(vm, w, "Sound", "SetInstanceVolume", |world, call| {
+        let volume = call.arg(1).as_float().clamp(0.0, 1.0);
+        if let Some(inst) = world.sound_instances.get_mut(&call.arg(0).as_int()) {
+            inst.2 = volume;
+        }
+        none()
+    });
+    // Cast(akSource, akTarget = None) and RemoteCast(akSource,
+    // akBlameActor, akTarget = None): recorded in order, no magic system
+    // applies the effects yet.
+    method!(vm, w, "Spell", "Cast", |world, call, me| {
+        let Some(source) = world.form_arg(&call.arg(0)) else {
+            return none();
+        };
+        let target = world.form_arg(&call.arg(1));
+        world.spell_casts.push((me, source, target));
+        none()
+    });
+    method!(vm, w, "Spell", "RemoteCast", |world, call, me| {
+        let Some(source) = world.form_arg(&call.arg(0)) else {
+            return none();
+        };
+        let target = world.form_arg(&call.arg(2));
+        world.spell_casts.push((me, source, target));
+        none()
+    });
+}
+
 /// Natives whose systems the engine does not have yet. They return the
 /// value the game gives in the quiet case so vanilla scripts run past them.
 fn stubs(vm: &mut Vm) -> usize {
@@ -1260,16 +2344,10 @@ fn stubs(vm: &mut Vm) -> usize {
     let bools: &[(&str, &str, bool)] = &[
         ("ObjectReference", "Is3DLoaded", true),
         ("ObjectReference", "IsFurnitureInUse", false),
-        ("ObjectReference", "IsInLocation", false),
-        ("ObjectReference", "IsIgnoringFriendlyHits", false),
-        ("Actor", "IsAlerted", false),
         ("Actor", "IsAlarmed", false),
-        ("Actor", "IsArrested", false),
         ("Actor", "IsBleedingOut", false),
-        ("Actor", "IsSneaking", false),
         ("Actor", "IsRunning", false),
         ("Actor", "IsSprinting", false),
-        ("Actor", "IsWeaponDrawn", false),
         ("Actor", "IsHostileToActor", false),
         ("Actor", "IsChild", false),
         ("Actor", "IsCommandedActor", false),
@@ -1281,11 +2359,11 @@ fn stubs(vm: &mut Vm) -> usize {
         ("Actor", "PathToReference", true),
         ("Quest", "IsStarting", false),
         ("Quest", "IsStopping", false),
-        ("Quest", "UpdateCurrentInstanceGlobal", true),
-        ("Quest", "ModObjectiveGlobal", true),
         ("Cell", "IsAttached", true),
-        ("Game", "IsFastTravelEnabled", true),
-        ("Game", "IsWordUnlocked", false),
+        ("Location", "IsLoaded", false),
+        ("Location", "HasRefType", false),
+        ("Scene", "IsActionComplete", false),
+        ("Keyword", "SendStoryEventAndWait", false),
         ("Game", "IsPlayerSungazing", false),
         ("Utility", "IsInMenuMode", false),
         ("Debug", "OpenUserLog", true),
@@ -1308,9 +2386,8 @@ fn stubs(vm: &mut Vm) -> usize {
         ("Actor", "GetSleepState", 0),
         ("Actor", "GetSitState", 0),
         ("Actor", "GetFlyingState", 0),
-        ("Actor", "GetRelationshipRank", 0),
-        ("Game", "QueryStat", 0),
-        ("Game", "GetPlayersLastRiddenHorse", 0),
+        ("Location", "GetRefTypeAliveCount", 0),
+        ("Location", "GetRefTypeDeadCount", 0),
     ];
     for (class, name, value) in ints {
         let global = *class == "Game";
@@ -1324,72 +2401,52 @@ fn stubs(vm: &mut Vm) -> usize {
         n += 1;
     }
     let methods_none: &[(&str, &str)] = &[
-        ("ObjectReference", "GetCurrentLocation"),
-        ("ObjectReference", "GetEditorLocation"),
-        ("ObjectReference", "GetActorOwner"),
-        ("ObjectReference", "GetFactionOwner"),
         ("ObjectReference", "GetCurrentScene"),
         ("ObjectReference", "PlayAnimationAndWait"),
         ("ObjectReference", "PlayGamebryoAnimation"),
         ("ObjectReference", "SetMotionType"),
         ("ObjectReference", "ApplyHavokImpulse"),
-        ("ObjectReference", "SetActorOwner"),
-        ("ObjectReference", "SetFactionOwner"),
         ("ObjectReference", "SetNoFavorAllowed"),
-        ("ObjectReference", "EnableFastTravel"),
         ("ObjectReference", "ClearDestruction"),
         ("ObjectReference", "DamageObject"),
         ("ObjectReference", "KnockAreaEffect"),
         ("ObjectReference", "PushActorAway"),
         ("Actor", "EvaluatePackage"),
-        ("Actor", "SetAlert"),
         ("Actor", "SetEssential"),
-        ("Actor", "SetOutfit"),
-        ("Actor", "SetRestrained"),
         ("Actor", "SetVehicle"),
         ("Actor", "SetLookAt"),
         ("Actor", "ClearLookAt"),
         ("Actor", "SetHeadTracking"),
         ("Actor", "SetExpressionOverride"),
         ("Actor", "ClearExpressionOverride"),
-        ("Actor", "SetDontMove"),
-        ("Actor", "SetAllowPCDialogue"),
-        ("Actor", "SetAttackActorOnSight"),
-        ("Actor", "SetCrimeFaction"),
-        ("Actor", "SetRelationshipRank"),
         ("Actor", "ShowGiftMenu"),
         ("Actor", "ShowBarterMenu"),
         ("Actor", "OpenInventory"),
         ("Actor", "SendTrespassAlarm"),
         ("Actor", "StopCombatAlarm"),
-        ("Actor", "ClearArrested"),
         ("Actor", "ClearForcedMovement"),
         ("Actor", "ClearKeepOffsetFromActor"),
         ("Actor", "KeepOffsetFromActor"),
         ("Actor", "SetForcedLandingMarker"),
-        ("Actor", "GetCombatTarget"),
         ("Actor", "GetDialogueTarget"),
-        ("Actor", "GetKiller"),
         ("Actor", "GetEquippedWeapon"),
         ("Actor", "GetEquippedShield"),
         ("Actor", "GetEquippedSpell"),
         ("Actor", "GetCurrentPackage"),
-        ("Actor", "GetCrimeFaction"),
         ("Actor", "GetVoiceRecoveryTime"),
+        ("Faction", "SendAssaultAlarm"),
+        ("Faction", "SendPlayerToJail"),
+        ("Faction", "ModReaction"),
+        ("Keyword", "SendStoryEvent"),
+        ("ActorBase", "GetGiftFilter"),
+        ("Message", "ResetHelpMessage"),
         ("Actor", "Dismount"),
-        ("Actor", "DrawWeapon"),
-        ("Actor", "SheatheWeapon"),
-        ("Actor", "StartSneaking"),
         ("Actor", "Trespass"),
         ("Actor", "UnequipAll"),
         ("Actor", "RemoveAllSpells"),
         ("Actor", "StartCannibal"),
         ("Actor", "StartVampireFeed"),
         ("Actor", "WillIntimidateSucceed"),
-        ("Quest", "SetObjectiveDisplayedNoWait"),
-        ("Cell", "SetPublic"),
-        ("Cell", "SetActorOwner"),
-        ("Cell", "SetFactionOwner"),
         ("Cell", "Reset"),
     ];
     for (class, name) in methods_none {
@@ -1400,36 +2457,24 @@ fn stubs(vm: &mut Vm) -> usize {
     let globals_none: &[(&str, &str)] = &[
         ("Game", "ShakeCamera"),
         ("Game", "ShakeController"),
-        ("Game", "AddAchievement"),
         ("Game", "FadeOutGame"),
         ("Game", "RequestSave"),
         ("Game", "RequestAutoSave"),
         ("Game", "ForceFirstPerson"),
         ("Game", "ForceThirdPerson"),
-        ("Game", "SetPlayerAIDriven"),
-        ("Game", "SetInChargen"),
-        ("Game", "IncrementStat"),
-        ("Game", "EnableFastTravel"),
         ("Game", "SetHudCartMode"),
         ("Game", "ShowRaceMenu"),
         ("Game", "TriggerScreenBlood"),
         ("Game", "PlayBink"),
-        ("Game", "TeachWord"),
-        ("Game", "UnlockWord"),
         ("Game", "AdvanceSkill"),
         ("Game", "PrecacheCharGen"),
         ("Game", "PrecacheCharGenClear"),
         ("Game", "ShowTrainingMenu"),
         ("Game", "ShowFirstPersonGeometry"),
         ("Game", "SetCameraTarget"),
-        ("Game", "SetBeastForm"),
         ("Game", "QuitToMainMenu"),
         ("Game", "SetSittingRotation"),
         ("Game", "StartTitleSequence"),
-        ("Game", "SetGameSettingFloat"),
-        ("Game", "SetGameSettingInt"),
-        ("Game", "SetGameSettingBool"),
-        ("Game", "SetGameSettingString"),
         ("Game", "GetCurrentCrosshairRef"),
         ("Game", "GetPlayerGrabbedRef"),
         ("Game", "FindClosestActor"),

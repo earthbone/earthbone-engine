@@ -60,24 +60,33 @@ native below is marked for review against its page once that happens.
 
 ## Conformance table
 
-Counts from `natives::register`: 141 natives with state behind them and 176
-quiet stubs. A stub returns the value the game gives when nothing is going on
-(`IsSneaking` false, `ShakeCamera` nothing) so vanilla scripts run past it.
+Counts from `natives::register`: 294 natives with state behind them and 137
+quiet stubs (141 and 176 before the natives round of 2026-09-18). A stub
+returns the value the game gives when nothing is going on (`IsBleedingOut`
+false, `ShakeCamera` nothing) so vanilla scripts run past it.
 
 | Class | Implemented | Stubbed |
 |---|---|---|
-| Form | GetFormID, GetName, GetType, HasKeyword, GetKeywords, RegisterForSingleUpdate, RegisterForUpdate, RegisterForSingleUpdateGameTime, RegisterForUpdateGameTime, UnregisterForUpdate, UnregisterForUpdateGameTime | |
-| ObjectReference | Enable, EnableNoWait, Disable, DisableNoWait, IsEnabled, IsDisabled, Delete, IsDeleted, GetBaseObject, GetParentCell, GetWorldSpace, IsInInterior, GetPositionX/Y/Z, GetAngleX/Y/Z, SetPosition, SetAngle, MoveTo, GetDistance, Activate, BlockActivation, IsActivationBlocked, GetLinkedRef, GetItemCount, AddItem, RemoveItem, RemoveAllItems, GetScale, SetScale, GetDisplayName, SetDisplayName, PlayAnimation, GetOpenState, SetOpen, Lock, IsLocked, GetLockLevel, SetLockLevel, PlaceAtMe | Is3DLoaded, IsFurnitureInUse, IsInLocation, GetCurrentLocation, GetActorOwner, SetMotionType, ApplyHavokImpulse and 14 more |
-| Actor | GetActorValue, GetBaseActorValue, SetActorValue, ModActorValue, DamageActorValue, RestoreActorValue, GetActorValuePercentage (and the AV short names), IsDead, Kill, Resurrect, IsInCombat, StartCombat, StopCombat, GetActorBase, GetLeveledActorBase, IsEssential, IsPlayerTeammate, SetPlayerTeammate, IsGhost, SetGhost, IsProtected, GetLevel, GetRace, IsUnconscious, SetUnconscious, IsDoingFavor, SetDoingFavor, AddSpell, RemoveSpell, HasSpell, EquipItem, UnequipItem, IsEquipped, IsInFaction, GetFactionRank, AddToFaction, RemoveFromFaction, SetFactionRank | IsAlerted, IsSneaking, IsWeaponDrawn, GetCombatState, EvaluatePackage, SetAlert, GetEquippedWeapon and 50 more |
-| Quest | Start, Stop, Reset, IsRunning, IsCompleted, IsActive, SetActive, CompleteQuest, CompleteAllObjectives, FailAllObjectives, SetStage, SetCurrentStageID, GetStage, GetCurrentStageID, GetStageDone, IsStageDone, SetObjectiveDisplayed, SetObjectiveCompleted, SetObjectiveFailed, IsObjectiveDisplayed, IsObjectiveCompleted, IsObjectiveFailed, GetAlias, GetAliasById, GetAliasByName, GetID, GetPriority, GetQuest | IsStarting, IsStopping, UpdateCurrentInstanceGlobal, ModObjectiveGlobal, SetObjectiveDisplayedNoWait |
-| Alias, ReferenceAlias | GetOwningQuest, GetID, GetName, GetReference, GetRef, GetActorReference, GetActorRef, ForceRefTo, ForceRefIfEmpty, Clear | |
-| Game | GetPlayer, GetForm, GetFormEx, GetFormFromFile, EnablePlayerControls, DisablePlayerControls, GetGameSettingFloat/Int/String, GetRealHoursPassed | ShakeCamera, AddAchievement, FadeOutGame, RequestSave, ForceFirstPerson, IsFastTravelEnabled and 36 more |
+| Form | GetFormID, GetName, GetType, HasKeyword, GetKeywords, RegisterForSingleUpdate, RegisterForUpdate, RegisterForSingleUpdateGameTime, RegisterForUpdateGameTime, UnregisterForUpdate, UnregisterForUpdateGameTime, RegisterForSleep, UnregisterForSleep, RegisterForTrackedStatsEvent, UnregisterForTrackedStatsEvent, RegisterForAnimationEvent, UnregisterForAnimationEvent, RegisterForLOS, RegisterForSingleLOSGain, RegisterForSingleLOSLost, UnregisterForLOS | |
+| ObjectReference | Enable, EnableNoWait, Disable, DisableNoWait, IsEnabled, IsDisabled, Delete, IsDeleted, GetBaseObject, GetParentCell, GetWorldSpace, IsInInterior, GetPositionX/Y/Z, GetAngleX/Y/Z, SetPosition, SetAngle, MoveTo, GetDistance, Activate, BlockActivation, IsActivationBlocked, GetLinkedRef, GetItemCount, AddItem, RemoveItem, RemoveAllItems, GetScale, SetScale, GetDisplayName, SetDisplayName, PlayAnimation, GetOpenState, SetOpen, Lock, IsLocked, GetLockLevel, SetLockLevel, PlaceAtMe, AddToMap, EnableFastTravel, SetDestroyed, IgnoreFriendlyHits, IsIgnoringFriendlyHits, GetCurrentLocation, GetEditorLocation, IsInLocation, MoveToMyEditorLocation, GetActorOwner, GetFactionOwner, SetActorOwner, SetFactionOwner, AddInventoryEventFilter, RemoveInventoryEventFilter, RemoveAllInventoryEventFilters | Is3DLoaded, IsFurnitureInUse, GetCurrentScene, SetMotionType, ApplyHavokImpulse, PushActorAway and 6 more |
+| Actor | GetActorValue, GetBaseActorValue, SetActorValue, ModActorValue, DamageActorValue, RestoreActorValue, GetActorValuePercentage (and the AV short names), IsDead, Kill, GetKiller, Resurrect, IsInCombat, StartCombat, StopCombat, GetCombatTarget, GetActorBase, GetLeveledActorBase, IsEssential, IsPlayerTeammate, SetPlayerTeammate, IsGhost, SetGhost, IsProtected, GetLevel, GetRace, IsUnconscious, SetUnconscious, SetRestrained, IsDoingFavor, SetDoingFavor, AddSpell, RemoveSpell, HasSpell, EquipItem, UnequipItem, IsEquipped, IsInFaction, GetFactionRank, AddToFaction, RemoveFromFaction, SetFactionRank, AddPerk, RemovePerk, HasPerk, SetAlert, IsAlerted, StartSneaking, IsSneaking, DrawWeapon, SheatheWeapon, IsWeaponDrawn, IsArrested, ClearArrested, SetAttackActorOnSight, SetDontMove, SetAllowPCDialogue, SetRelationshipRank, GetRelationshipRank, GetHighestRelationshipRank, GetLowestRelationshipRank, GetCrimeFaction, SetCrimeFaction, SetOutfit | IsAlarmed, IsBleedingOut, GetCombatState, EvaluatePackage, GetEquippedWeapon, SetLookAt and 34 more |
+| ActorBase | GetRace, GetClass, GetSex, GetDeadCount, IsEssential, IsProtected, IsInvulnerable, IsUnique, SetEssential, SetProtected, SetInvulnerable, SetOutfit | GetGiftFilter |
+| Quest | Start, Stop, Reset, IsRunning, IsCompleted, IsActive, SetActive, CompleteQuest, CompleteAllObjectives, FailAllObjectives, SetStage, SetCurrentStageID, GetStage, GetCurrentStageID, GetStageDone, IsStageDone, SetObjectiveDisplayed, SetObjectiveDisplayedNoWait, SetObjectiveCompleted, SetObjectiveFailed, IsObjectiveDisplayed, IsObjectiveCompleted, IsObjectiveFailed, ModObjectiveGlobal, UpdateCurrentInstanceGlobal, GetAlias, GetAliasById, GetAliasByName, GetID, GetPriority, GetQuest | IsStarting, IsStopping |
+| Alias, ReferenceAlias, LocationAlias | GetOwningQuest, GetID, GetName, GetReference, GetRef, GetActorReference, GetActorRef, ForceRefTo, ForceRefIfEmpty, Clear, GetLocation, ForceLocationTo, AddInventoryEventFilter, RemoveInventoryEventFilter, RemoveAllInventoryEventFilters | |
+| LeveledItem, LeveledActor, LeveledSpell | AddForm, Revert, GetNumForms, GetNthForm, GetNthLevel, GetNthCount, GetChanceNone, SetChanceNone (the last six are SKSE's, the state is there anyway) | |
+| Location | GetKeywordData, SetKeywordData, IsCleared, SetCleared, IsChild, HasCommonParent, IsSameLocation | IsLoaded, HasRefType, GetRefTypeAliveCount, GetRefTypeDeadCount |
+| Faction | SetAlly, SetEnemy, GetReaction, SetReaction, GetCrimeGold, GetCrimeGoldViolent, GetCrimeGoldNonViolent, SetCrimeGold, SetCrimeGoldViolent, ModCrimeGold, CanPayCrimeGold, PlayerPayCrimeGold, GetInfamy, GetInfamyViolent, GetInfamyNonViolent, IsPlayerExpelled, SetPlayerExpelled, SetPlayerEnemy, IsFactionInCrimeGroup | SendAssaultAlarm, SendPlayerToJail, ModReaction |
+| Game | GetPlayer, GetForm, GetFormEx, GetFormFromFile, EnablePlayerControls, DisablePlayerControls, GetGameSettingFloat/Int/String, SetGameSettingFloat/Int/Bool/String, GetRealHoursPassed, IncrementStat, QueryStat, IsFastTravelEnabled, EnableFastTravel, SetPlayerAIDriven, SetInChargen, SetBeastForm, TeachWord, UnlockWord, IsWordUnlocked, AddAchievement, GetPlayersLastRiddenHorse | ShakeCamera, FadeOutGame, RequestSave, ForceFirstPerson, ShowRaceMenu, AdvanceSkill and 16 more |
 | Debug | Trace, TraceUser, TraceConditional, TraceStack, Notification, MessageBox, SendAnimationEvent | OpenUserLog, CloseUserLog, QuitGame, CenterOnCell, SetGodMode and 14 more |
 | Utility | RandomInt, RandomFloat, GetCurrentGameTime, GetCurrentRealTime, GameTimeToString, SetINI\* and GetINI\* (eight) | IsInMenuMode, the frame rate and budget functions (eleven). `Wait`, `WaitMenuMode`, `WaitGameTime` are the VM's own |
 | GlobalVariable | GetValue, GetValueInt, SetValue, SetValueInt, Mod | |
-| Keyword | GetString | |
-| Cell | IsInterior | IsAttached, SetPublic, SetActorOwner, SetFactionOwner, Reset |
+| Keyword | GetString | SendStoryEvent, SendStoryEventAndWait |
+| Cell | IsInterior, GetActorOwner, GetFactionOwner, SetActorOwner, SetFactionOwner, SetPublic | IsAttached, Reset |
 | FormList | GetSize, GetAt, HasForm, Find, AddForm | |
+| Message | Show, ShowAsHelpMessage | ResetHelpMessage |
+| Scene | Start, ForceStart, Stop, IsPlaying | IsActionComplete |
+| Sound | Play, StopInstance, SetInstanceVolume | |
+| Spell | Cast, RemoteCast | |
 
 Semantics worth stating because they were decided here, not read:
 
@@ -103,6 +112,42 @@ Semantics worth stating because they were decided here, not read:
 - Update timers run on real seconds, the game-time variants on game hours.
 - `Game.GetForm` accepts the runtime id under the current load order, light
   plugins included. `GetFormFromFile` takes the low 24 bits and a file name.
+- A leveled list is its `LVLO` entries in record order plus what `AddForm`
+  appended. `Revert` truncates back to the record's entries and chance.
+  Nothing rolls a list yet, that is the inventory and spawn work.
+- Location keyword data is run-time only and starts at zero, the record has
+  no field for it. `IsChild` walks `PNAM` upward from the candidate,
+  `HasCommonParent` intersects the two ancestor chains and applies the filter
+  keyword to the shared ancestor, `IsSameLocation` is identity or a filtered
+  shared parent.
+- Faction reactions start from `XNAM` and are written in both directions by
+  `SetAlly` and `SetEnemy` (friend and neutral through the two flags).
+  `ModCrimeGold` adds to the violent or non-violent bounty and to the infamy
+  of that kind, `PlayerPayCrimeGold` removes the bounty from the player's
+  `Gold001` and clears it. Jail and the assault alarm are stubs.
+- Perks, the crime faction and the outfits are seeded from `PRKR`, `CRIF`,
+  `DOFT` and `SOFT`. `SetCrimeFaction` also joins the faction, per its page.
+  `StartSneaking` toggles, per its page. `SetRestrained` and
+  `SetUnconscious` clear each other. `Kill(akKiller)` records the killer for
+  `GetKiller`, `StartCombat(target)` the target for `GetCombatTarget`.
+- `GetCurrentLocation` is the reference's `XLCN`, else its cell's.
+  `GetEditorLocation` reads the same from the record and ignores `MoveTo`.
+  Ownership is one `XOWN` slot on the reference or cell, `GetActorOwner` and
+  `GetFactionOwner` answer by the owner's record type.
+- The listener registrations (`RegisterForSleep`, `RegisterForTrackedStatsEvent`,
+  `RegisterForAnimationEvent`, `RegisterForLOS` and the single variants) keep
+  lists of VM objects. `Game.IncrementStat` fires `OnTrackedStatsEvent`,
+  `PlayAnimation` and `Debug.SendAnimationEvent` fire `OnAnimationEvent` to
+  listeners on that sender and name, `World::sleep_start`, `sleep_stop` and
+  `line_of_sight` are the host's hooks for the other two.
+- `Message.Show` puts a `DNAM` message-box message in the box queue and any
+  other in the notification queue, and returns button 0. `Scene.Start` and
+  `Stop` deliver `OnBegin` and `OnEnd` to the scene's scripts. `Sound.Play`
+  hands out instance ids. `Spell.Cast` records the cast, no effect applies.
+- `SetGameSetting*` writes an overlay `GetGameSetting*` reads first.
+- A quest start delivers `OnInit` to its alias objects too, the ones a
+  script is attached to, since the alias kind (`ALST` or `ALLS`) now decides
+  the class (`ReferenceAlias` or `LocationAlias`) of the VM object.
 
 ## Tests
 
@@ -121,7 +166,17 @@ Semantics worth stating because they were decided here, not read:
 - `tests/real_files.rs`: `the_installed_game_binds_its_vanilla_scripts`, gated
   on `SKYRIM_DATA`, calls `Game::load_scripts_from_data` before `bind` so the
   `BindReport` reflects the vanilla scripts read out of the install's archives
-  and loose files, not the record data alone. See "Live run" below.
+  and loose files, not the record data alone. See "Live run" below. It also
+  prints the unresolved calls of `start` grouped by `Class.Function`, the
+  list the next natives round starts from.
+- `tests/natives_2.rs`: one scenario per native group of the natives round,
+  each driven through a probe script assembled per call (`CallMethod` on the
+  target, the same path a vanilla script takes) against a synthetic master
+  with leveled lists, a location tree, two factions, an actor base with
+  perks, a message pair, a scene, a sound and a quest with a location alias
+  and a scripted reference alias. The doc comment of each test quotes the
+  wiki page behaviour it asserts. The last test saves and loads the new
+  state.
 
 ```bash
 cargo test -p soe-game
@@ -242,11 +297,60 @@ registered, because the loaded `Alias.pex` declares the native on `Alias` and
 `call_method` stops at the declaring script instead of walking up to the
 registry's `Form` entry. Both are queued for the natives round.
 
+## Natives round two (2026-09-18)
+
+The round started from what the first `start` could not dispatch. Grouped by
+function the 344 unresolved calls (300 "no function" plus 44 "no
+implementation", which the earlier count had left out) were
+`Location.SetKeywordData` 149, `LeveledItem.AddForm` and the other two lists
+55, `Faction.SetAlly` and `SetEnemy` 43, `ReferenceAlias.GetReference` 26,
+`Location.GetKeywordData` 14, `Alias.RegisterForUpdate` 8, `Actor.AddPerk` 8,
+`ObjectReference.AddToMap` 6, `Keyword.SendStoryEvent` 4, `Scene.Start` 3,
+and a tail of one to two calls each (`Message.Show`,
+`ActorBase.SetInvulnerable`, `ObjectReference.SetDestroyed`,
+`LocationAlias.GetLocation` and `ForceLocationTo`, `Form.RegisterForSleep`,
+`RegisterForTrackedStatsEvent`, `ReferenceAlias.AddInventoryEventFilter`).
+
+Two dispatch fixes came first. `call_method` now retries a native its
+declaring class does not implement on every class above it (see
+`docs/papyrus.md`, redeclared natives), which resolved the 34 alias calls
+without a new registration. And a VM object for a quest alias takes its
+class from the alias kind, `LocationAlias` for `ALLS` and `ReferenceAlias`
+for `ALST`, with `start_quest` delivering `OnInit` to the alias objects that
+carry a script, the way the game does.
+
+Then 153 natives with state behind them, listed in the conformance table
+above: the three leveled list classes, `Location`, `Faction`, `ActorBase`,
+perks and fourteen actor flags and relations, location and ownership on
+references and cells, the map marker and destroyed flags, inventory event
+filters, the sleep, tracked stats, animation and line-of-sight
+registrations on `Form` with the events they deliver, the objective global
+natives on `Quest`, `Message`, `Scene`, `Sound`, `Spell`, and the `Game`
+flags, words, achievements and setting overrides. The `NPC_` view gained
+`PRKR`, `CRIF`, `DOFT` and `SOFT`, references and cells read `XOWN` and
+`XLCN`. The world save format is version 2 (`SOEW`) and carries all of it.
+
+Against the installed game after the round: 423 quests started, 85 distinct
+natives reached through 1,517 calls, 1 unresolved call
+(`Actor.SendVampirismStateChanged`, a Dawnguard script function called on an
+actor whose script is not attached in that flow), 87 log lines, in 0.3
+seconds in a debug build. The most called natives are now
+`Location.SetKeywordData` 149, `Game.GetPlayer` 100,
+`GlobalVariable.GetValue` 93, `Debug.OpenUserLog` and `Game.GetForm` 77 each,
+`Quest.IsStageDone` 60, `ObjectReference.GetLinkedRef` 56,
+`LeveledItem.AddForm` 54, `Alias.GetReference` 45,
+`ObjectReference.GetCurrentLocation` and `Quest.SetObjectiveDisplayed` 42
+each, `Faction.SetAlly` 37. The remaining log lines are calls on `None`
+objects (`cannot call RegisterForUpdate() on a None object` from
+`QF_MS14` and the caravan fragments), which is the game's own behaviour for
+an alias or property that is empty at start.
+
 ## Save and load
 
 `World::save_state(&self) -> Vec<u8>` and `World::load_state(&mut self,
 bytes) -> Result<(), VmError>` write and read the run-time half of the form
-table, magic `SOEW`, version 1, in the same `Writer`/`Reader` encoding as
+table, magic `SOEW`, version 2 since the natives round (version 1 files are
+refused, nothing shipped them), in the same `Writer`/`Reader` encoding as
 `soe_papyrus::vm::state`, an `ArrayPool` and `ArrayTable` of its own ahead of
 the body for the `Value` arguments a pending event or call is carrying.
 
@@ -289,8 +393,14 @@ notification fired, and the alias resolved to the lever.
 
 - Race records are not read, so race starting stats and the skill bonuses
   they carry are missing from actor values.
-- No packages, AI, combat, magic, dialogue, scenes, perks. Their natives are
-  stubs.
+- No packages, AI, combat, magic, dialogue. Their natives are stubs. Scenes
+  play as a flag with `OnBegin` and `OnEnd`, no phases or actions. Perks are
+  a set on the actor, no entry point applies. Leveled lists are never rolled.
+  Spell casts are recorded, no effect applies. Crime has bounty and infamy
+  ledgers, no jail or arrest.
+- Faction relations from `XNAM`, location keyword data, perks and the actor
+  flags were tested on the synthetic master and reached by the vanilla
+  scripts at start, not checked against the game's runtime values.
 - Quest aliases are filled only from `ALFR`. Conditions, `ALCO`, location and
   reference fill types are not evaluated.
 - `SetStage` does not display the log entry or play the quest sound.

@@ -1,0 +1,1673 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::cloned_ref_to_slice_refs
+)]
+
+//! Scenarios for the natives round: leveled lists, locations, factions,
+//! actor bases, perks and the actor flags, cells, messages, scenes,
+//! sounds, spells, the listener registrations on `Form`, the `Game` state
+//! natives, and the dispatch walk that lets `Alias.pex` redeclare a
+//! `Form` native. Every native is driven through a probe script assembled
+//! per call, so the path under test is the same `CallMethod` a vanilla
+//! script takes. The behaviour each test asserts is the one the Creation
+//! Kit wiki page states, quoted in the test's doc comment.
+
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+use soe_esm::{plugin::flags, Entry, FileHeader, Group, GroupKind, LoadOrder, Plugin, Record, Tag};
+use soe_game::quest::{self, stage_flags};
+use soe_game::vmad::{AliasScripts, ObjectRef, ScriptEntry, Vmad};
+use soe_game::{Game, Handle};
+use soe_papyrus::asm::{f, i, ident, s, FunctionBuilder, ScriptBuilder};
+use soe_papyrus::pex::Function;
+use soe_papyrus::Opcode::*;
+use soe_papyrus::Value;
+
+const T: fn(&[u8; 4]) -> Tag = Tag::new;
+const EDID: Tag = Tag::new(b"EDID");
+
+const HOLD_KEYWORD: u32 = 0x900;
+const HOLD_LOC: u32 = 0x901;
+const TOWN_LOC: u32 = 0x902;
+const INN_LOC: u32 = 0x903;
+const OTHER_TOWN_LOC: u32 = 0x904;
+const INN_CELL: u32 = 0x905;
+const PLAYER_BASE: u32 = 0x906;
+const PERK: u32 = 0x907;
+const GUARDS: u32 = 0x908;
+const MARKER: u32 = 0x909;
+const MARKER_BASE: u32 = 0x90A;
+const GUARD: u32 = 0x90B;
+const GUARD_BASE: u32 = 0x90C;
+const OUTFIT: u32 = 0x90D;
+const THIEVES: u32 = 0x90E;
+const RAGS: u32 = 0x90F;
+const LOOT_LIST: u32 = 0x910;
+const GOLD: u32 = 0x911;
+const SWORD: u32 = 0x912;
+const ENEMY_LIST: u32 = 0x913;
+const SPELL_LIST: u32 = 0x914;
+const FLAMES: u32 = 0x915;
+const BOX_MESSAGE: u32 = 0x916;
+const NOTE_MESSAGE: u32 = 0x917;
+const SCENE: u32 = 0x918;
+const SOUND: u32 = 0x919;
+const COUNTER: u32 = 0x91A;
+const QUEST: u32 = 0x91B;
+const WORD: u32 = 0x91C;
+const OTHER_CELL: u32 = 0x91D;
+const PLAYER: u32 = 0x14;
+
+fn le(v: u32) -> [u8; 4] {
+    v.to_le_bytes()
+}
+
+fn lvlo(level: u16, form: u32, count: u16) -> Vec<u8> {
+    let mut d = level.to_le_bytes().to_vec();
+    d.extend_from_slice(&[0, 0]);
+    d.extend_from_slice(&le(form));
+    d.extend_from_slice(&count.to_le_bytes());
+    d.extend_from_slice(&[0, 0]);
+    d
+}
+
+fn xnam(faction: u32, combat: i32) -> Vec<u8> {
+    let mut d = le(faction).to_vec();
+    d.extend_from_slice(&0i32.to_le_bytes());
+    d.extend_from_slice(&combat.to_le_bytes());
+    d
+}
+
+fn acbs(flags: u32) -> Vec<u8> {
+    let mut d = le(flags).to_vec();
+    d.extend_from_slice(&[0; 6]);
+    d.extend_from_slice(&1u16.to_le_bytes());
+    d.extend_from_slice(&[0; 12]);
+    d
+}
+
+fn prkr(perk: u32) -> Vec<u8> {
+    let mut d = le(perk).to_vec();
+    d.extend_from_slice(&[1, 0, 0, 0]);
+    d
+}
+
+fn location(id: u32, edid: &str, parent: Option<u32>) -> Record {
+    let r = Record::new(T(b"LCTN"), id).zsub(EDID, edid);
+    match parent {
+        Some(p) => r.sub(T(b"PNAM"), le(p)),
+        None => r,
+    }
+}
+
+fn interior(p: &mut Plugin, cell: Record, refs: Vec<Record>) -> Group {
+    let id = cell.form_id;
+    let cell = p.push_record(cell);
+    let mut temp = Group::new(GroupKind::CellTemporary(id));
+    for r in refs {
+        let idx = p.push_record(r);
+        temp.entries.push(Entry::Record(idx));
+    }
+    let mut children = Group::new(GroupKind::CellChildren(id));
+    children.entries.push(Entry::Group(temp));
+    let mut sub = Group::new(GroupKind::InteriorSubBlock(0));
+    sub.entries.push(Entry::Record(cell));
+    sub.entries.push(Entry::Group(children));
+    sub
+}
+
+fn test_plugin() -> Plugin {
+    let mut p = Plugin::new(FileHeader {
+        flags: flags::MASTER,
+        author: "soe".into(),
+        ..Default::default()
+    });
+    p.push_top(Record::new(T(b"KYWD"), HOLD_KEYWORD).zsub(EDID, "LocTypeHold"));
+    p.push_top(location(HOLD_LOC, "HoldLoc", None).sub(T(b"KWDA"), le(HOLD_KEYWORD)));
+    p.push_top(location(TOWN_LOC, "TownLoc", Some(HOLD_LOC)));
+    p.push_top(location(INN_LOC, "InnLoc", Some(TOWN_LOC)));
+    p.push_top(location(OTHER_TOWN_LOC, "OtherTownLoc", Some(HOLD_LOC)));
+    p.push_top(Record::new(T(b"PERK"), PERK).zsub(EDID, "TestPerk"));
+    p.push_top(
+        Record::new(T(b"FACT"), GUARDS)
+            .zsub(EDID, "GuardsFaction")
+            .sub(T(b"XNAM"), xnam(THIEVES, 2))
+            .sub(T(b"DATA"), le(0x40)),
+    );
+    p.push_top(
+        Record::new(T(b"FACT"), THIEVES)
+            .zsub(EDID, "ThievesFaction")
+            .sub(T(b"DATA"), le(0)),
+    );
+    p.push_top(Record::new(T(b"OTFT"), OUTFIT).zsub(EDID, "GuardOutfit"));
+    p.push_top(Record::new(T(b"OTFT"), RAGS).zsub(EDID, "Rags"));
+    p.push_top(
+        Record::new(T(b"NPC_"), PLAYER_BASE)
+            .zsub(EDID, "PlayerBase")
+            .sub(T(b"ACBS"), acbs(0)),
+    );
+    p.push_top(
+        Record::new(T(b"NPC_"), GUARD_BASE)
+            .zsub(EDID, "GuardBase")
+            .zsub(T(b"FULL"), "Guard")
+            .sub(
+                T(b"ACBS"),
+                acbs(
+                    soe_game::npc::flags::ESSENTIAL
+                        | soe_game::npc::flags::FEMALE
+                        | soe_game::npc::flags::UNIQUE,
+                ),
+            )
+            .sub(T(b"PRKR"), prkr(PERK))
+            .sub(T(b"CRIF"), le(GUARDS))
+            .sub(T(b"DOFT"), le(OUTFIT)),
+    );
+    p.push_top(Record::new(T(b"STAT"), MARKER_BASE).zsub(EDID, "MapMarker"));
+    p.push_top(
+        Record::new(T(b"MISC"), GOLD)
+            .zsub(EDID, "Gold001")
+            .zsub(T(b"FULL"), "Gold"),
+    );
+    p.push_top(Record::new(T(b"WEAP"), SWORD).zsub(EDID, "IronSword"));
+    p.push_top(Record::new(T(b"SPEL"), FLAMES).zsub(EDID, "Flames"));
+    p.push_top(
+        Record::new(T(b"LVLI"), LOOT_LIST)
+            .zsub(EDID, "LootList")
+            .sub(T(b"LVLD"), [25u8])
+            .sub(T(b"LVLF"), [0u8])
+            .sub(T(b"LLCT"), [2u8])
+            .sub(T(b"LVLO"), lvlo(1, GOLD, 5))
+            .sub(T(b"LVLO"), lvlo(10, SWORD, 1)),
+    );
+    p.push_top(
+        Record::new(T(b"LVLN"), ENEMY_LIST)
+            .zsub(EDID, "EnemyList")
+            .sub(T(b"LVLD"), [0u8])
+            .sub(T(b"LVLO"), lvlo(5, GUARD_BASE, 1)),
+    );
+    p.push_top(
+        Record::new(T(b"LVSP"), SPELL_LIST)
+            .zsub(EDID, "SpellList")
+            .sub(T(b"LVLD"), [0u8])
+            .sub(T(b"LVLO"), lvlo(1, FLAMES, 1)),
+    );
+    p.push_top(
+        Record::new(T(b"MESG"), BOX_MESSAGE)
+            .zsub(EDID, "BoxMessage")
+            .zsub(T(b"DESC"), "Hello box")
+            .sub(T(b"DNAM"), le(1)),
+    );
+    p.push_top(
+        Record::new(T(b"MESG"), NOTE_MESSAGE)
+            .zsub(EDID, "NoteMessage")
+            .zsub(T(b"DESC"), "Hello note")
+            .sub(T(b"DNAM"), le(0)),
+    );
+    p.push_top(
+        Record::new(T(b"SCEN"), SCENE).zsub(EDID, "TestScene").sub(
+            T(b"VMAD"),
+            Vmad {
+                scripts: vec![ScriptEntry::new("SceneScript")],
+                ..Default::default()
+            }
+            .write(T(b"SCEN")),
+        ),
+    );
+    p.push_top(Record::new(T(b"SNDR"), SOUND).zsub(EDID, "TestSound"));
+    p.push_top(Record::new(T(b"WOOP"), WORD).zsub(EDID, "WordFus"));
+    p.push_top(
+        Record::new(T(b"GLOB"), COUNTER)
+            .zsub(EDID, "Counter")
+            .sub(T(b"FNAM"), *b"f")
+            .sub(T(b"FLTV"), 0f32.to_le_bytes()),
+    );
+    let quest_vmad = Vmad {
+        aliases: vec![AliasScripts {
+            object: ObjectRef {
+                form_id: QUEST,
+                alias: 1,
+            },
+            scripts: vec![ScriptEntry::new("WatcherScript")],
+        }],
+        ..Default::default()
+    };
+    let q = quest::build_record(QUEST, "LocQuest", quest::flags::START_GAME_ENABLED)
+        .sub(T(b"VMAD"), quest_vmad.write(T(b"QUST")));
+    let q = quest::with_stage(q, 0, stage_flags::START_UP, 0, "");
+    let q = quest::with_objective(q, 10, "Count to three");
+    // A location alias starts with ALLS where a reference alias has ALST.
+    let q = q
+        .sub(T(b"ALLS"), le(0))
+        .zsub(T(b"ALID"), "Place")
+        .sub(T(b"FNAM"), le(0))
+        .sub(T(b"ALED"), Vec::new());
+    let q = quest::with_alias(q, 1, "Watcher", Some(GUARD));
+    p.push_top(q);
+
+    let zero = vec![0u8; 24];
+    let inn = interior(
+        &mut p,
+        Record::new(T(b"CELL"), INN_CELL)
+            .zsub(EDID, "InnCell")
+            .sub(T(b"DATA"), [1u8, 0])
+            .sub(T(b"XLCN"), le(INN_LOC))
+            .sub(T(b"XOWN"), le(GUARDS)),
+        vec![
+            Record::new(T(b"ACHR"), PLAYER)
+                .zsub(EDID, "PlayerRef")
+                .sub(T(b"NAME"), le(PLAYER_BASE))
+                .sub(T(b"DATA"), zero.clone()),
+            Record::new(T(b"ACHR"), GUARD)
+                .zsub(EDID, "GuardRef")
+                .sub(T(b"NAME"), le(GUARD_BASE))
+                .sub(T(b"DATA"), zero.clone()),
+            Record::new(T(b"REFR"), MARKER)
+                .zsub(EDID, "MarkerRef")
+                .sub(
+                    T(b"VMAD"),
+                    Vmad {
+                        scripts: vec![ScriptEntry::new("ListenerScript")],
+                        ..Default::default()
+                    }
+                    .write(T(b"REFR")),
+                )
+                .sub(T(b"NAME"), le(MARKER_BASE))
+                .sub(T(b"XOWN"), le(PLAYER_BASE))
+                .sub(T(b"DATA"), zero.clone()),
+        ],
+    );
+    let other = interior(
+        &mut p,
+        Record::new(T(b"CELL"), OTHER_CELL)
+            .zsub(EDID, "OtherCell")
+            .sub(T(b"DATA"), [1u8, 0])
+            .sub(T(b"XLCN"), le(OTHER_TOWN_LOC)),
+        Vec::new(),
+    );
+    let mut block = Group::new(GroupKind::InteriorBlock(0));
+    block.entries.push(Entry::Group(inn));
+    block.entries.push(Entry::Group(other));
+    let mut top = Group::new(GroupKind::Top(T(b"CELL")));
+    top.entries.push(Entry::Group(block));
+    p.groups.push(top);
+    p
+}
+
+/// An event handler that traces a fixed message, or the parameter named
+/// by `Err(index)`.
+fn event_tracing(name: &str, params: &[(&str, &str)], message: Result<&str, usize>) -> Function {
+    let mut f = FunctionBuilder::new(name, "None");
+    for (p, t) in params {
+        f = f.param(p, t);
+    }
+    let arg = match message {
+        Ok(m) => s(m),
+        Err(index) => ident(params[index].0),
+    };
+    f.ins(
+        CallStatic,
+        vec![s("Debug"), s("Trace"), ident("::nonevar"), arg, i(0)],
+    )
+    .build()
+}
+
+/// The synthetic stand-ins for `Alias.pex` and `ReferenceAlias.pex`: each
+/// redeclares a `Form` native the way the vanilla files do, so a call from
+/// a script extending them has to walk past the declaring class.
+fn scripts() -> Vec<Vec<u8>> {
+    let alias = ScriptBuilder::new("Alias", "Form")
+        .function(
+            FunctionBuilder::new("RegisterForSingleUpdate", "None")
+                .param("afInterval", "Float")
+                .native()
+                .build(),
+        )
+        .bytes();
+    let reference_alias = ScriptBuilder::new("ReferenceAlias", "Alias")
+        .function(
+            FunctionBuilder::new("GetReference", "ObjectReference")
+                .native()
+                .build(),
+        )
+        .bytes();
+    let watcher = ScriptBuilder::new("WatcherScript", "ReferenceAlias")
+        .function(
+            FunctionBuilder::new("OnInit", "None")
+                .local("r", "ObjectReference")
+                .ins(
+                    CallMethod,
+                    vec![s("GetReference"), ident("self"), ident("r")],
+                )
+                .ins(
+                    CallStatic,
+                    vec![s("Debug"), s("Trace"), ident("::nonevar"), ident("r"), i(0)],
+                )
+                .ins(
+                    CallMethod,
+                    vec![
+                        s("RegisterForSingleUpdate"),
+                        ident("self"),
+                        ident("::nonevar"),
+                        f(1.0),
+                    ],
+                )
+                .build(),
+        )
+        .function(event_tracing("OnUpdate", &[], Ok("watcher update")))
+        .bytes();
+    let listener = ScriptBuilder::new("ListenerScript", "ObjectReference")
+        .function(event_tracing(
+            "OnAnimationEvent",
+            &[("akSource", "ObjectReference"), ("asEventName", "String")],
+            Err(1),
+        ))
+        .function(event_tracing(
+            "OnTrackedStatsEvent",
+            &[("asStat", "String"), ("aiValue", "Int")],
+            Err(0),
+        ))
+        .function(event_tracing(
+            "OnSleepStart",
+            &[("afStart", "Float"), ("afEnd", "Float")],
+            Ok("sleep start"),
+        ))
+        .function(event_tracing(
+            "OnSleepStop",
+            &[("abInterrupted", "Bool")],
+            Ok("sleep stop"),
+        ))
+        .function(event_tracing(
+            "OnGainLOS",
+            &[("akViewer", "Actor"), ("akTarget", "ObjectReference")],
+            Ok("los gained"),
+        ))
+        .bytes();
+    let scene = ScriptBuilder::new("SceneScript", "Scene")
+        .function(event_tracing("OnBegin", &[], Ok("scene begin")))
+        .function(event_tracing("OnEnd", &[], Ok("scene end")))
+        .bytes();
+    vec![alias, reference_alias, watcher, listener, scene]
+}
+
+fn game() -> Game {
+    let bytes = test_plugin().to_bytes();
+    let plugin = Plugin::parse(&bytes).unwrap();
+    let mut order = LoadOrder::new();
+    order.add("Natives.esm", plugin).unwrap();
+    let mut game = Game::new(order);
+    for s in scripts() {
+        game.load_script(&s).unwrap();
+    }
+    game
+}
+
+static PROBES: AtomicUsize = AtomicUsize::new(0);
+
+fn type_of(v: &Value) -> &'static str {
+    match v {
+        Value::Int(_) => "Int",
+        Value::Float(_) => "Float",
+        Value::Bool(_) => "Bool",
+        Value::Str(_) => "String",
+        _ => "Form",
+    }
+}
+
+/// Call `name` on `target` through a one-off script, the way a vanilla
+/// script's `CallMethod` would, and hand back the result.
+fn call(game: &mut Game, target: &Value, name: &str, args: &[Value]) -> Value {
+    let n = PROBES.fetch_add(1, Ordering::SeqCst);
+    let script = format!("Probe{n}");
+    let mut fun = FunctionBuilder::new("Run", "Var")
+        .global()
+        .param("t", "Form")
+        .local("r", "Var");
+    let mut operands = vec![s(name), ident("t"), ident("r")];
+    for (k, a) in args.iter().enumerate() {
+        let pname = format!("a{k}");
+        fun = fun.param(&pname, type_of(a));
+        operands.push(ident(&pname));
+    }
+    let fun = fun
+        .ins(CallMethod, operands)
+        .ins(Return, vec![ident("r")])
+        .build();
+    let bytes = ScriptBuilder::new(&script, "Form").function(fun).bytes();
+    game.load_script(&bytes).unwrap();
+    let mut all = vec![target.clone()];
+    all.extend_from_slice(args);
+    let thread = game.vm.call_global(&script, "Run", &all).unwrap();
+    game.run_until_idle(64);
+    game.vm.thread_result(thread).unwrap_or(Value::None)
+}
+
+/// Call a global `Class.Name(args)` the same way.
+fn call_global(game: &mut Game, class: &str, name: &str, args: &[Value]) -> Value {
+    let n = PROBES.fetch_add(1, Ordering::SeqCst);
+    let script = format!("Probe{n}");
+    let mut fun = FunctionBuilder::new("Run", "Var")
+        .global()
+        .local("r", "Var");
+    let mut operands = vec![s(class), s(name), ident("r")];
+    for (k, a) in args.iter().enumerate() {
+        let pname = format!("a{k}");
+        fun = fun.param(&pname, type_of(a));
+        operands.push(ident(&pname));
+    }
+    let fun = fun
+        .ins(CallStatic, operands)
+        .ins(Return, vec![ident("r")])
+        .build();
+    let bytes = ScriptBuilder::new(&script, "Form").function(fun).bytes();
+    game.load_script(&bytes).unwrap();
+    let thread = game.vm.call_global(&script, "Run", args).unwrap();
+    game.run_until_idle(64);
+    game.vm.thread_result(thread).unwrap_or(Value::None)
+}
+
+fn obj(game: &mut Game, edid: &str) -> Value {
+    let id = game.form(edid).unwrap_or_else(|| panic!("no form {edid}"));
+    Value::Object(game.object_of_form(id))
+}
+
+fn is(game: &mut Game, v: &Value, edid: &str) -> bool {
+    let id = game.form(edid).unwrap();
+    v.as_object() == Some(game.object_of_form(id))
+}
+
+fn errors(game: &Game) -> Vec<String> {
+    game.traces()
+        .into_iter()
+        .filter(|t| t.contains("no function") || t.contains("no global") || t.contains("error"))
+        .collect()
+}
+
+// ----- leveled lists -----
+
+/// AddForm "Adds a form to this leveled list", GetNumForms and the Nth
+/// getters read entries in order, Revert "reverts the list back to its
+/// original state" and drops what AddForm added.
+#[test]
+fn a_leveled_item_list_takes_forms_and_reverts() {
+    let mut g = game();
+    let list = obj(&mut g, "LootList");
+    assert_eq!(call(&mut g, &list, "GetNumForms", &[]), Value::Int(2));
+    assert_eq!(call(&mut g, &list, "GetChanceNone", &[]), Value::Int(25));
+    assert_eq!(
+        call(&mut g, &list, "GetNthLevel", &[Value::Int(1)]),
+        Value::Int(10)
+    );
+    assert_eq!(
+        call(&mut g, &list, "GetNthCount", &[Value::Int(0)]),
+        Value::Int(5)
+    );
+    let first = call(&mut g, &list, "GetNthForm", &[Value::Int(0)]);
+    assert!(is(&mut g, &first, "Gold001"));
+    let flames = obj(&mut g, "Flames");
+    call(
+        &mut g,
+        &list,
+        "AddForm",
+        &[flames, Value::Int(20), Value::Int(3)],
+    );
+    assert_eq!(call(&mut g, &list, "GetNumForms", &[]), Value::Int(3));
+    assert_eq!(
+        call(&mut g, &list, "GetNthLevel", &[Value::Int(2)]),
+        Value::Int(20)
+    );
+    assert_eq!(
+        call(&mut g, &list, "GetNthCount", &[Value::Int(2)]),
+        Value::Int(3)
+    );
+    call(&mut g, &list, "SetChanceNone", &[Value::Int(50)]);
+    assert_eq!(call(&mut g, &list, "GetChanceNone", &[]), Value::Int(50));
+    call(&mut g, &list, "Revert", &[]);
+    assert_eq!(call(&mut g, &list, "GetNumForms", &[]), Value::Int(2));
+    assert_eq!(call(&mut g, &list, "GetChanceNone", &[]), Value::Int(25));
+    assert_eq!(
+        call(&mut g, &list, "GetNthForm", &[Value::Int(5)]),
+        Value::None
+    );
+    assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
+/// LeveledActor.AddForm takes an actor base with level and count,
+/// LeveledSpell.AddForm takes a spell and a level only.
+#[test]
+fn leveled_actor_and_spell_lists_share_the_shape() {
+    let mut g = game();
+    let enemies = obj(&mut g, "EnemyList");
+    let base = obj(&mut g, "GuardBase");
+    call(
+        &mut g,
+        &enemies,
+        "AddForm",
+        &[base, Value::Int(12), Value::Int(2)],
+    );
+    assert_eq!(call(&mut g, &enemies, "GetNumForms", &[]), Value::Int(2));
+    assert_eq!(
+        call(&mut g, &enemies, "GetNthLevel", &[Value::Int(0)]),
+        Value::Int(5)
+    );
+    let spells = obj(&mut g, "SpellList");
+    let flames = obj(&mut g, "Flames");
+    call(&mut g, &spells, "AddForm", &[flames, Value::Int(30)]);
+    assert_eq!(call(&mut g, &spells, "GetNumForms", &[]), Value::Int(2));
+    assert_eq!(
+        call(&mut g, &spells, "GetNthCount", &[Value::Int(1)]),
+        Value::Int(1)
+    );
+    call(&mut g, &spells, "Revert", &[]);
+    assert_eq!(call(&mut g, &spells, "GetNumForms", &[]), Value::Int(1));
+    assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
+// ----- locations -----
+
+/// SetKeywordData stores a float per keyword on the location and
+/// GetKeywordData reads it back, zero when never set.
+#[test]
+fn location_keyword_data_round_trips() {
+    let mut g = game();
+    let hold = obj(&mut g, "HoldLoc");
+    let kw = obj(&mut g, "LocTypeHold");
+    assert_eq!(
+        call(&mut g, &hold, "GetKeywordData", &[kw.clone()]),
+        Value::Float(0.0)
+    );
+    call(
+        &mut g,
+        &hold,
+        "SetKeywordData",
+        &[kw.clone(), Value::Float(3.5)],
+    );
+    assert_eq!(
+        call(&mut g, &hold, "GetKeywordData", &[kw]),
+        Value::Float(3.5)
+    );
+    assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
+/// IsChild "whether the passed in location is a child of this one",
+/// HasCommonParent finds a shared ancestor, optionally one carrying the
+/// filter keyword, IsSameLocation is identity or a filtered shared
+/// parent, SetCleared and IsCleared are a flag.
+#[test]
+fn locations_know_their_parents() {
+    let mut g = game();
+    let hold = obj(&mut g, "HoldLoc");
+    let town = obj(&mut g, "TownLoc");
+    let inn = obj(&mut g, "InnLoc");
+    let other = obj(&mut g, "OtherTownLoc");
+    let kw = obj(&mut g, "LocTypeHold");
+    assert_eq!(
+        call(&mut g, &hold, "IsChild", &[inn.clone()]),
+        Value::Bool(true)
+    );
+    assert_eq!(
+        call(&mut g, &town, "IsChild", &[inn.clone()]),
+        Value::Bool(true)
+    );
+    assert_eq!(
+        call(&mut g, &inn, "IsChild", &[hold.clone()]),
+        Value::Bool(false)
+    );
+    assert_eq!(
+        call(&mut g, &inn, "IsChild", &[inn.clone()]),
+        Value::Bool(false)
+    );
+    assert_eq!(
+        call(
+            &mut g,
+            &inn,
+            "HasCommonParent",
+            &[other.clone(), Value::None]
+        ),
+        Value::Bool(true)
+    );
+    assert_eq!(
+        call(
+            &mut g,
+            &inn,
+            "HasCommonParent",
+            &[other.clone(), kw.clone()]
+        ),
+        Value::Bool(true)
+    );
+    assert_eq!(
+        call(&mut g, &inn, "HasCommonParent", &[hold.clone(), kw.clone()]),
+        Value::Bool(false)
+    );
+    assert_eq!(
+        call(&mut g, &inn, "IsSameLocation", &[inn.clone(), Value::None]),
+        Value::Bool(true)
+    );
+    assert_eq!(
+        call(
+            &mut g,
+            &inn,
+            "IsSameLocation",
+            &[other.clone(), Value::None]
+        ),
+        Value::Bool(false)
+    );
+    assert_eq!(
+        call(&mut g, &inn, "IsSameLocation", &[other, kw]),
+        Value::Bool(true)
+    );
+    assert_eq!(call(&mut g, &inn, "IsCleared", &[]), Value::Bool(false));
+    call(&mut g, &inn, "SetCleared", &[]);
+    assert_eq!(call(&mut g, &inn, "IsCleared", &[]), Value::Bool(true));
+    assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
+/// GetCurrentLocation is the cell's location, GetEditorLocation "obtains
+/// this reference's editor Location" and does not follow a MoveTo,
+/// IsInLocation "checks to see if this object is in the specified
+/// location, or in a child of the specified location".
+#[test]
+fn references_report_their_location() {
+    let mut g = game();
+    let guard = obj(&mut g, "GuardRef");
+    let loc = call(&mut g, &guard, "GetCurrentLocation", &[]);
+    assert!(is(&mut g, &loc, "InnLoc"));
+    let inn = obj(&mut g, "InnLoc");
+    let hold = obj(&mut g, "HoldLoc");
+    let other = obj(&mut g, "OtherTownLoc");
+    assert_eq!(
+        call(&mut g, &guard, "IsInLocation", &[inn]),
+        Value::Bool(true)
+    );
+    assert_eq!(
+        call(&mut g, &guard, "IsInLocation", &[hold]),
+        Value::Bool(true)
+    );
+    assert_eq!(
+        call(&mut g, &guard, "IsInLocation", &[other.clone()]),
+        Value::Bool(false)
+    );
+    let guard_id = g.form("GuardRef").unwrap();
+    let other_cell = g.form("OtherCell").unwrap();
+    g.world_mut().reference(guard_id).unwrap().cell = Some(other_cell);
+    let now = call(&mut g, &guard, "GetCurrentLocation", &[]);
+    assert!(is(&mut g, &now, "OtherTownLoc"));
+    let editor = call(&mut g, &guard, "GetEditorLocation", &[]);
+    assert!(is(&mut g, &editor, "InnLoc"));
+    assert_eq!(
+        call(&mut g, &guard, "MoveToMyEditorLocation", &[]),
+        Value::Bool(true)
+    );
+    let back = call(&mut g, &guard, "GetCurrentLocation", &[]);
+    assert!(is(&mut g, &back, "InnLoc"));
+    assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
+/// GetLocation on a location alias, ForceLocationTo fills it, Clear
+/// (declared on Alias) empties it.
+#[test]
+fn a_location_alias_holds_a_location() {
+    let mut g = game();
+    g.start();
+    let quest = g.form("LocQuest").unwrap();
+    let alias = Value::Object(g.object_of(Handle::Alias { quest, id: 0 }));
+    assert_eq!(call(&mut g, &alias, "GetLocation", &[]), Value::None);
+    let inn = obj(&mut g, "InnLoc");
+    call(&mut g, &alias, "ForceLocationTo", &[inn]);
+    let got = call(&mut g, &alias, "GetLocation", &[]);
+    assert!(is(&mut g, &got, "InnLoc"));
+    call(&mut g, &alias, "Clear", &[]);
+    assert_eq!(call(&mut g, &alias, "GetLocation", &[]), Value::None);
+    assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
+// ----- factions -----
+
+/// GetReaction reads the record's XNAM (2 is ally), SetEnemy "sets the
+/// two factions as enemies (or neutral)" in both directions, SetAlly
+/// "sets the two factions as allies (or friends)".
+#[test]
+fn faction_relations_write_both_directions() {
+    let mut g = game();
+    let guards = obj(&mut g, "GuardsFaction");
+    let thieves = obj(&mut g, "ThievesFaction");
+    assert_eq!(
+        call(&mut g, &guards, "GetReaction", &[thieves.clone()]),
+        Value::Int(2)
+    );
+    assert_eq!(
+        call(&mut g, &thieves, "GetReaction", &[guards.clone()]),
+        Value::Int(0)
+    );
+    call(
+        &mut g,
+        &guards,
+        "SetEnemy",
+        &[thieves.clone(), Value::Bool(false), Value::Bool(true)],
+    );
+    assert_eq!(
+        call(&mut g, &guards, "GetReaction", &[thieves.clone()]),
+        Value::Int(1)
+    );
+    assert_eq!(
+        call(&mut g, &thieves, "GetReaction", &[guards.clone()]),
+        Value::Int(0)
+    );
+    call(
+        &mut g,
+        &guards,
+        "SetAlly",
+        &[thieves.clone(), Value::Bool(true), Value::Bool(false)],
+    );
+    assert_eq!(
+        call(&mut g, &guards, "GetReaction", &[thieves.clone()]),
+        Value::Int(3)
+    );
+    assert_eq!(
+        call(&mut g, &thieves, "GetReaction", &[guards.clone()]),
+        Value::Int(2)
+    );
+    call(
+        &mut g,
+        &guards,
+        "SetReaction",
+        &[thieves.clone(), Value::Int(1)],
+    );
+    assert_eq!(
+        call(&mut g, &guards, "GetReaction", &[thieves]),
+        Value::Int(1)
+    );
+    assert_eq!(
+        call(&mut g, &guards, "IsFactionInCrimeGroup", &[]),
+        Value::Bool(true)
+    );
+    let thieves = obj(&mut g, "ThievesFaction");
+    assert_eq!(
+        call(&mut g, &thieves, "IsFactionInCrimeGroup", &[]),
+        Value::Bool(false)
+    );
+    assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
+/// ModCrimeGold adds to the violent or non-violent bounty and to the
+/// infamy of that kind, GetCrimeGold is both, CanPayCrimeGold checks the
+/// player's gold, PlayerPayCrimeGold takes it and clears the bounty,
+/// expelled and player enemy are flags.
+#[test]
+fn faction_crime_gold_is_paid_from_the_player_purse() {
+    let mut g = game();
+    let guards = obj(&mut g, "GuardsFaction");
+    call(
+        &mut g,
+        &guards,
+        "ModCrimeGold",
+        &[Value::Int(40), Value::Bool(false)],
+    );
+    call(
+        &mut g,
+        &guards,
+        "ModCrimeGold",
+        &[Value::Int(100), Value::Bool(true)],
+    );
+    assert_eq!(call(&mut g, &guards, "GetCrimeGold", &[]), Value::Int(140));
+    assert_eq!(
+        call(&mut g, &guards, "GetCrimeGoldViolent", &[]),
+        Value::Int(100)
+    );
+    assert_eq!(
+        call(&mut g, &guards, "GetCrimeGoldNonViolent", &[]),
+        Value::Int(40)
+    );
+    assert_eq!(call(&mut g, &guards, "GetInfamy", &[]), Value::Int(140));
+    assert_eq!(
+        call(&mut g, &guards, "GetInfamyViolent", &[]),
+        Value::Int(100)
+    );
+    assert_eq!(
+        call(&mut g, &guards, "CanPayCrimeGold", &[]),
+        Value::Bool(false)
+    );
+    let player = g.player();
+    let gold = g.form("Gold001").unwrap();
+    g.world_mut().add_item(player, gold, 200);
+    assert_eq!(
+        call(&mut g, &guards, "CanPayCrimeGold", &[]),
+        Value::Bool(true)
+    );
+    call(
+        &mut g,
+        &guards,
+        "PlayerPayCrimeGold",
+        &[Value::Bool(true), Value::Bool(true)],
+    );
+    assert_eq!(g.world_mut().item_count(player, gold), 60);
+    assert_eq!(call(&mut g, &guards, "GetCrimeGold", &[]), Value::Int(0));
+    assert_eq!(
+        call(&mut g, &guards, "GetInfamyNonViolent", &[]),
+        Value::Int(40)
+    );
+    call(&mut g, &guards, "SetCrimeGold", &[Value::Int(7)]);
+    call(&mut g, &guards, "SetCrimeGoldViolent", &[Value::Int(3)]);
+    assert_eq!(call(&mut g, &guards, "GetCrimeGold", &[]), Value::Int(10));
+    assert_eq!(
+        call(&mut g, &guards, "IsPlayerExpelled", &[]),
+        Value::Bool(false)
+    );
+    call(&mut g, &guards, "SetPlayerExpelled", &[]);
+    assert_eq!(
+        call(&mut g, &guards, "IsPlayerExpelled", &[]),
+        Value::Bool(true)
+    );
+    call(&mut g, &guards, "SetPlayerEnemy", &[Value::Bool(true)]);
+    let id = g.form("GuardsFaction").unwrap();
+    assert!(g.world_mut().faction(id).unwrap().player_enemy);
+    assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
+// ----- actors and actor bases -----
+
+/// AddPerk "adds the specified Perk to this actor", HasPerk and
+/// RemovePerk, seeded from the base's PRKR list.
+#[test]
+fn perks_come_from_the_base_and_scripts_change_them() {
+    let mut g = game();
+    let guard = obj(&mut g, "GuardRef");
+    let perk = obj(&mut g, "TestPerk");
+    assert_eq!(
+        call(&mut g, &guard, "HasPerk", &[perk.clone()]),
+        Value::Bool(true)
+    );
+    call(&mut g, &guard, "RemovePerk", &[perk.clone()]);
+    assert_eq!(
+        call(&mut g, &guard, "HasPerk", &[perk.clone()]),
+        Value::Bool(false)
+    );
+    call(&mut g, &guard, "AddPerk", &[perk.clone()]);
+    assert_eq!(call(&mut g, &guard, "HasPerk", &[perk]), Value::Bool(true));
+    assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
+/// SetAlert and IsAlerted, StartSneaking toggles ("if the actor was
+/// already sneaking, cancels sneaking"), DrawWeapon and SheatheWeapon
+/// drive IsWeaponDrawn, SetRestrained and SetUnconscious exclude each
+/// other, ClearArrested clears the flag.
+#[test]
+fn actor_flags_round_trip() {
+    let mut g = game();
+    let guard = obj(&mut g, "GuardRef");
+    assert_eq!(call(&mut g, &guard, "IsAlerted", &[]), Value::Bool(false));
+    call(&mut g, &guard, "SetAlert", &[]);
+    assert_eq!(call(&mut g, &guard, "IsAlerted", &[]), Value::Bool(true));
+    call(&mut g, &guard, "SetAlert", &[Value::Bool(false)]);
+    assert_eq!(call(&mut g, &guard, "IsAlerted", &[]), Value::Bool(false));
+    call(&mut g, &guard, "StartSneaking", &[]);
+    assert_eq!(call(&mut g, &guard, "IsSneaking", &[]), Value::Bool(true));
+    call(&mut g, &guard, "StartSneaking", &[]);
+    assert_eq!(call(&mut g, &guard, "IsSneaking", &[]), Value::Bool(false));
+    call(&mut g, &guard, "DrawWeapon", &[]);
+    assert_eq!(
+        call(&mut g, &guard, "IsWeaponDrawn", &[]),
+        Value::Bool(true)
+    );
+    call(&mut g, &guard, "SheatheWeapon", &[]);
+    assert_eq!(
+        call(&mut g, &guard, "IsWeaponDrawn", &[]),
+        Value::Bool(false)
+    );
+    call(&mut g, &guard, "SetUnconscious", &[]);
+    call(&mut g, &guard, "SetRestrained", &[]);
+    assert_eq!(
+        call(&mut g, &guard, "IsUnconscious", &[]),
+        Value::Bool(false)
+    );
+    let id = g.form("GuardRef").unwrap();
+    assert!(g.world_mut().actor(id).unwrap().restrained);
+    call(&mut g, &guard, "SetUnconscious", &[]);
+    assert!(!g.world_mut().actor(id).unwrap().restrained);
+    g.world_mut().actor(id).unwrap().arrested = true;
+    assert_eq!(call(&mut g, &guard, "IsArrested", &[]), Value::Bool(true));
+    call(&mut g, &guard, "ClearArrested", &[]);
+    assert_eq!(call(&mut g, &guard, "IsArrested", &[]), Value::Bool(false));
+    call(&mut g, &guard, "SetAttackActorOnSight", &[]);
+    call(&mut g, &guard, "SetDontMove", &[]);
+    call(&mut g, &guard, "SetAllowPCDialogue", &[Value::Bool(false)]);
+    let a = g.world_mut().actor(id).unwrap().clone();
+    assert!(a.attack_on_sight && a.dont_move && !a.allow_pc_dialogue);
+    assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
+/// SetRelationshipRank "sets the relationship rank between this actor
+/// and another" (4 lover to -4 archnemesis), GetRelationshipRank reads
+/// it from either side, the highest and lowest scan every other actor.
+#[test]
+fn relationship_ranks_are_symmetric() {
+    let mut g = game();
+    let guard = obj(&mut g, "GuardRef");
+    let player = obj(&mut g, "PlayerRef");
+    assert_eq!(
+        call(&mut g, &guard, "GetRelationshipRank", &[player.clone()]),
+        Value::Int(0)
+    );
+    call(
+        &mut g,
+        &guard,
+        "SetRelationshipRank",
+        &[player.clone(), Value::Int(-4)],
+    );
+    assert_eq!(
+        call(&mut g, &guard, "GetRelationshipRank", &[player.clone()]),
+        Value::Int(-4)
+    );
+    assert_eq!(
+        call(&mut g, &player, "GetRelationshipRank", &[guard.clone()]),
+        Value::Int(-4)
+    );
+    call(
+        &mut g,
+        &player,
+        "SetRelationshipRank",
+        &[guard.clone(), Value::Int(9)],
+    );
+    assert_eq!(
+        call(&mut g, &guard, "GetRelationshipRank", &[player]),
+        Value::Int(4)
+    );
+    assert_eq!(
+        call(&mut g, &guard, "GetHighestRelationshipRank", &[]),
+        Value::Int(4)
+    );
+    assert_eq!(
+        call(&mut g, &guard, "GetLowestRelationshipRank", &[]),
+        Value::Int(4)
+    );
+    assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
+/// StartCombat records the target GetCombatTarget returns, StopCombat
+/// clears it, Kill(akKiller) records who GetKiller answers, and
+/// GetKiller "if this actor isn't dead, returns None".
+#[test]
+fn combat_targets_and_killers_are_remembered() {
+    let mut g = game();
+    let guard = obj(&mut g, "GuardRef");
+    let player = obj(&mut g, "PlayerRef");
+    assert_eq!(call(&mut g, &guard, "GetCombatTarget", &[]), Value::None);
+    call(&mut g, &guard, "StartCombat", &[player.clone()]);
+    let target = call(&mut g, &guard, "GetCombatTarget", &[]);
+    assert!(is(&mut g, &target, "PlayerRef"));
+    call(&mut g, &guard, "StopCombat", &[]);
+    assert_eq!(call(&mut g, &guard, "GetCombatTarget", &[]), Value::None);
+    assert_eq!(call(&mut g, &player, "GetKiller", &[]), Value::None);
+    call(&mut g, &player, "Kill", &[guard.clone()]);
+    let killer = call(&mut g, &player, "GetKiller", &[]);
+    assert!(is(&mut g, &killer, "GuardRef"));
+    call(&mut g, &guard, "Kill", &[player]);
+    assert_eq!(
+        call(&mut g, &guard, "GetKiller", &[]),
+        Value::None,
+        "essential actors do not die"
+    );
+    assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
+/// GetCrimeFaction reads CRIF, SetCrimeFaction "if the actor does not
+/// currently belong to the crime faction, it will be added to that
+/// faction", SetOutfit changes the default or the sleep outfit.
+#[test]
+fn crime_faction_and_outfit_follow_the_pages() {
+    let mut g = game();
+    let guard = obj(&mut g, "GuardRef");
+    let crime = call(&mut g, &guard, "GetCrimeFaction", &[]);
+    assert!(is(&mut g, &crime, "GuardsFaction"));
+    let thieves = obj(&mut g, "ThievesFaction");
+    assert_eq!(
+        call(&mut g, &guard, "IsInFaction", &[thieves.clone()]),
+        Value::Bool(false)
+    );
+    call(&mut g, &guard, "SetCrimeFaction", &[thieves.clone()]);
+    assert_eq!(
+        call(&mut g, &guard, "IsInFaction", &[thieves]),
+        Value::Bool(true)
+    );
+    call(&mut g, &guard, "SetCrimeFaction", &[Value::None]);
+    assert_eq!(call(&mut g, &guard, "GetCrimeFaction", &[]), Value::None);
+    let rags = obj(&mut g, "Rags");
+    call(
+        &mut g,
+        &guard,
+        "SetOutfit",
+        &[rags.clone(), Value::Bool(true)],
+    );
+    let id = g.form("GuardRef").unwrap();
+    let rags_id = g.form("Rags").unwrap();
+    let outfit_id = g.form("GuardOutfit").unwrap();
+    let a = g.world_mut().actor(id).unwrap().clone();
+    assert_eq!(a.sleep_outfit, Some(rags_id));
+    assert_eq!(a.outfit, Some(outfit_id));
+    call(&mut g, &guard, "SetOutfit", &[rags, Value::Bool(false)]);
+    assert_eq!(g.world_mut().actor(id).unwrap().outfit, Some(rags_id));
+    assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
+/// ActorBase reads its ACBS flags (IsEssential, IsUnique, GetSex 1 for
+/// female), the setters flip them, GetRace and GetClass read RNAM and
+/// CNAM, GetDeadCount starts at zero.
+#[test]
+fn actor_base_flags_and_setters() {
+    let mut g = game();
+    let base = obj(&mut g, "GuardBase");
+    assert_eq!(call(&mut g, &base, "IsEssential", &[]), Value::Bool(true));
+    assert_eq!(call(&mut g, &base, "IsUnique", &[]), Value::Bool(true));
+    assert_eq!(call(&mut g, &base, "IsProtected", &[]), Value::Bool(false));
+    assert_eq!(
+        call(&mut g, &base, "IsInvulnerable", &[]),
+        Value::Bool(false)
+    );
+    assert_eq!(call(&mut g, &base, "GetSex", &[]), Value::Int(1));
+    assert_eq!(call(&mut g, &base, "GetDeadCount", &[]), Value::Int(0));
+    assert_eq!(call(&mut g, &base, "GetRace", &[]), Value::None);
+    assert_eq!(call(&mut g, &base, "GetClass", &[]), Value::None);
+    call(&mut g, &base, "SetEssential", &[Value::Bool(false)]);
+    call(&mut g, &base, "SetProtected", &[Value::Bool(true)]);
+    call(&mut g, &base, "SetInvulnerable", &[Value::Bool(true)]);
+    assert_eq!(call(&mut g, &base, "IsEssential", &[]), Value::Bool(false));
+    assert_eq!(call(&mut g, &base, "IsProtected", &[]), Value::Bool(true));
+    assert_eq!(
+        call(&mut g, &base, "IsInvulnerable", &[]),
+        Value::Bool(true)
+    );
+    let rags = obj(&mut g, "Rags");
+    call(&mut g, &base, "SetOutfit", &[rags, Value::Bool(false)]);
+    let id = g.form("GuardBase").unwrap();
+    let rags_id = g.form("Rags").unwrap();
+    assert_eq!(g.world_mut().actor_base(id).unwrap().outfit, Some(rags_id));
+    let player_base = obj(&mut g, "PlayerBase");
+    assert_eq!(call(&mut g, &player_base, "GetSex", &[]), Value::Int(0));
+    assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
+// ----- references, cells, ownership -----
+
+/// GetActorOwner "gets the ActorBase that owns this object", None when
+/// the owner is a faction and the other way round, SetActorOwner(None)
+/// clears ownership. The same four on a Cell read the cell's XOWN.
+#[test]
+fn ownership_is_typed_by_the_owner_record() {
+    let mut g = game();
+    let marker = obj(&mut g, "MarkerRef");
+    let owner = call(&mut g, &marker, "GetActorOwner", &[]);
+    assert!(is(&mut g, &owner, "PlayerBase"));
+    assert_eq!(call(&mut g, &marker, "GetFactionOwner", &[]), Value::None);
+    let guards = obj(&mut g, "GuardsFaction");
+    call(&mut g, &marker, "SetFactionOwner", &[guards]);
+    assert_eq!(call(&mut g, &marker, "GetActorOwner", &[]), Value::None);
+    let owner = call(&mut g, &marker, "GetFactionOwner", &[]);
+    assert!(is(&mut g, &owner, "GuardsFaction"));
+    call(&mut g, &marker, "SetActorOwner", &[Value::None]);
+    assert_eq!(call(&mut g, &marker, "GetFactionOwner", &[]), Value::None);
+    let cell = obj(&mut g, "InnCell");
+    let owner = call(&mut g, &cell, "GetFactionOwner", &[]);
+    assert!(is(&mut g, &owner, "GuardsFaction"));
+    assert_eq!(call(&mut g, &cell, "GetActorOwner", &[]), Value::None);
+    let base = obj(&mut g, "GuardBase");
+    call(&mut g, &cell, "SetActorOwner", &[base]);
+    let owner = call(&mut g, &cell, "GetActorOwner", &[]);
+    assert!(is(&mut g, &owner, "GuardBase"));
+    call(&mut g, &cell, "SetPublic", &[]);
+    let id = g.form("InnCell").unwrap();
+    assert!(g.world_mut().cell_state(id).unwrap().public);
+    assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
+/// AddToMap "adds this reference (which must be a map marker) to the
+/// player's map, optionally making it available for fast-travel",
+/// EnableFastTravel flips that, SetDestroyed sets the destroyed flag,
+/// IgnoreFriendlyHits drives IsIgnoringFriendlyHits.
+#[test]
+fn map_markers_and_reference_flags() {
+    let mut g = game();
+    let marker = obj(&mut g, "MarkerRef");
+    let id = g.form("MarkerRef").unwrap();
+    call(&mut g, &marker, "AddToMap", &[Value::Bool(false)]);
+    let r = g.world_mut().reference(id).unwrap().clone();
+    assert!(r.on_map && !r.fast_travel);
+    call(&mut g, &marker, "EnableFastTravel", &[]);
+    assert!(g.world_mut().reference(id).unwrap().fast_travel);
+    call(&mut g, &marker, "SetDestroyed", &[]);
+    assert!(g.world_mut().reference(id).unwrap().destroyed);
+    call(&mut g, &marker, "SetDestroyed", &[Value::Bool(false)]);
+    assert!(!g.world_mut().reference(id).unwrap().destroyed);
+    assert_eq!(
+        call(&mut g, &marker, "IsIgnoringFriendlyHits", &[]),
+        Value::Bool(false)
+    );
+    call(&mut g, &marker, "IgnoreFriendlyHits", &[]);
+    assert_eq!(
+        call(&mut g, &marker, "IsIgnoringFriendlyHits", &[]),
+        Value::Bool(true)
+    );
+    assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
+/// AddInventoryEventFilter filters "stack with any previous filters",
+/// RemoveInventoryEventFilter drops one, RemoveAllInventoryEventFilters
+/// the lot, on a reference and on a reference alias alike.
+#[test]
+fn inventory_event_filters_stack() {
+    let mut g = game();
+    g.start();
+    let marker = obj(&mut g, "MarkerRef");
+    let gold = obj(&mut g, "Gold001");
+    let sword = obj(&mut g, "IronSword");
+    call(&mut g, &marker, "AddInventoryEventFilter", &[gold.clone()]);
+    call(&mut g, &marker, "AddInventoryEventFilter", &[sword.clone()]);
+    let object = marker.as_object().unwrap();
+    assert_eq!(g.world().inventory_filters[&object].len(), 2);
+    call(
+        &mut g,
+        &marker,
+        "RemoveInventoryEventFilter",
+        &[gold.clone()],
+    );
+    assert_eq!(g.world().inventory_filters[&object].len(), 1);
+    call(&mut g, &marker, "RemoveAllInventoryEventFilters", &[]);
+    assert!(!g.world().inventory_filters.contains_key(&object));
+    let quest = g.form("LocQuest").unwrap();
+    let alias = Value::Object(g.object_of(Handle::Alias { quest, id: 1 }));
+    call(&mut g, &alias, "AddInventoryEventFilter", &[gold]);
+    let object = alias.as_object().unwrap();
+    assert_eq!(g.world().inventory_filters[&object].len(), 1);
+    assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
+// ----- listeners on Form -----
+
+/// RegisterForAnimationEvent "registers this form to receive the specified
+/// animation event from the specified object", so PlayAnimation on the
+/// sender reaches OnAnimationEvent(akSource, asEventName) on the
+/// listener, and UnregisterForAnimationEvent stops it.
+#[test]
+fn animation_events_reach_registered_listeners() {
+    let mut g = game();
+    g.start();
+    let marker = obj(&mut g, "MarkerRef");
+    let guard = obj(&mut g, "GuardRef");
+    call(&mut g, &guard, "PlayAnimation", &[Value::string("IdleHit")]);
+    assert!(!g.traces().iter().any(|t| t == "IdleHit"));
+    assert_eq!(
+        call(
+            &mut g,
+            &marker,
+            "RegisterForAnimationEvent",
+            &[guard.clone(), Value::string("IdleHit")]
+        ),
+        Value::Bool(true)
+    );
+    call(&mut g, &guard, "PlayAnimation", &[Value::string("IdleHit")]);
+    assert!(
+        g.traces().iter().any(|t| t == "IdleHit"),
+        "{:?}",
+        g.traces()
+    );
+    call(
+        &mut g,
+        &guard,
+        "PlayAnimation",
+        &[Value::string("IdleOther")],
+    );
+    assert!(!g.traces().iter().any(|t| t == "IdleOther"));
+    call(
+        &mut g,
+        &marker,
+        "UnregisterForAnimationEvent",
+        &[guard.clone(), Value::string("IdleHit")],
+    );
+    call(&mut g, &guard, "PlayAnimation", &[Value::string("IdleHit")]);
+    assert_eq!(g.traces().iter().filter(|t| *t == "IdleHit").count(), 1);
+    assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
+/// RegisterForTrackedStatsEvent makes Game.IncrementStat deliver
+/// OnTrackedStatsEvent(asStat, aiStatValue) with the updated value,
+/// QueryStat reads it, UnregisterForTrackedStatsEvent stops the events.
+#[test]
+fn tracked_stats_fire_events() {
+    let mut g = game();
+    g.start();
+    let marker = obj(&mut g, "MarkerRef");
+    call_global(
+        &mut g,
+        "Game",
+        "IncrementStat",
+        &[Value::string("Barters"), Value::Int(1)],
+    );
+    assert_eq!(
+        call_global(&mut g, "Game", "QueryStat", &[Value::string("Barters")]),
+        Value::Int(1)
+    );
+    assert!(!g.traces().iter().any(|t| t == "Barters"));
+    call(&mut g, &marker, "RegisterForTrackedStatsEvent", &[]);
+    call_global(
+        &mut g,
+        "Game",
+        "IncrementStat",
+        &[Value::string("Barters"), Value::Int(2)],
+    );
+    assert_eq!(
+        call_global(&mut g, "Game", "QueryStat", &[Value::string("Barters")]),
+        Value::Int(3)
+    );
+    assert!(
+        g.traces().iter().any(|t| t == "Barters"),
+        "{:?}",
+        g.traces()
+    );
+    call(&mut g, &marker, "UnregisterForTrackedStatsEvent", &[]);
+    call_global(
+        &mut g,
+        "Game",
+        "IncrementStat",
+        &[Value::string("Barters"), Value::Int(1)],
+    );
+    assert_eq!(g.traces().iter().filter(|t| *t == "Barters").count(), 1);
+    assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
+/// RegisterForSleep delivers OnSleepStart and OnSleepStop when the player
+/// sleeps and wakes, UnregisterForSleep stops them.
+#[test]
+fn sleep_events_reach_registered_listeners() {
+    let mut g = game();
+    g.start();
+    let marker = obj(&mut g, "MarkerRef");
+    g.world_mut().sleep_start(0.0, 0.5);
+    g.run_until_idle(8);
+    assert!(!g.traces().iter().any(|t| t == "sleep start"));
+    call(&mut g, &marker, "RegisterForSleep", &[]);
+    g.world_mut().sleep_start(0.0, 0.5);
+    g.world_mut().sleep_stop(false);
+    g.run_until_idle(8);
+    assert!(g.traces().iter().any(|t| t == "sleep start"));
+    assert!(g.traces().iter().any(|t| t == "sleep stop"));
+    call(&mut g, &marker, "UnregisterForSleep", &[]);
+    g.world_mut().sleep_start(1.0, 1.5);
+    g.run_until_idle(8);
+    assert_eq!(g.traces().iter().filter(|t| *t == "sleep start").count(), 1);
+    assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
+/// RegisterForLOS delivers OnGainLOS for the viewer and target pair,
+/// RegisterForSingleLOSGain once, UnregisterForLOS drops the pair.
+#[test]
+fn line_of_sight_events_reach_registered_listeners() {
+    let mut g = game();
+    g.start();
+    let marker = obj(&mut g, "MarkerRef");
+    let player = obj(&mut g, "PlayerRef");
+    let guard = obj(&mut g, "GuardRef");
+    let (p, gd) = (g.form("PlayerRef").unwrap(), g.form("GuardRef").unwrap());
+    call(
+        &mut g,
+        &marker,
+        "RegisterForSingleLOSGain",
+        &[player.clone(), guard.clone()],
+    );
+    g.world_mut()
+        .line_of_sight(p, gd, true, &mut |_, _| unreachable!());
+    g.run_until_idle(8);
+    g.world_mut()
+        .line_of_sight(p, gd, true, &mut |_, _| unreachable!());
+    g.run_until_idle(8);
+    assert_eq!(g.traces().iter().filter(|t| *t == "los gained").count(), 1);
+    call(
+        &mut g,
+        &marker,
+        "RegisterForLOS",
+        &[player.clone(), guard.clone()],
+    );
+    g.world_mut()
+        .line_of_sight(p, gd, true, &mut |_, _| unreachable!());
+    g.world_mut()
+        .line_of_sight(p, gd, true, &mut |_, _| unreachable!());
+    g.run_until_idle(8);
+    assert_eq!(g.traces().iter().filter(|t| *t == "los gained").count(), 3);
+    call(&mut g, &marker, "UnregisterForLOS", &[player, guard]);
+    g.world_mut()
+        .line_of_sight(p, gd, true, &mut |_, _| unreachable!());
+    g.run_until_idle(8);
+    assert_eq!(g.traces().iter().filter(|t| *t == "los gained").count(), 3);
+    assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
+// ----- the dispatch walk -----
+
+/// A script extending `ReferenceAlias` calls `GetReference` (declared
+/// native on `ReferenceAlias.pex`, registered on `Alias`) and
+/// `RegisterForSingleUpdate` (declared on `Alias.pex`, registered on
+/// `Form`): both resolve by walking past the declaring class, the first
+/// `start` on the installed game had left them unresolved.
+#[test]
+fn a_redeclared_native_resolves_on_the_parent_class() {
+    let mut g = game();
+    g.start();
+    assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+    let guard = g.form("GuardRef").unwrap();
+    let wanted = Value::Object(g.object_of_form(guard)).to_string();
+    assert!(
+        g.traces().contains(&wanted),
+        "GetReference through the alias chain: {:?}",
+        g.traces()
+    );
+    g.tick(2.0);
+    assert!(
+        g.traces().iter().any(|t| t == "watcher update"),
+        "{:?}",
+        g.traces()
+    );
+    assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
+// ----- quest, message, scene, sound, spell, game state -----
+
+/// ModObjectiveGlobal "mods a global variable in a threadsafe way",
+/// redisplays the objective and completes it once the target is reached,
+/// returning whether it was. UpdateCurrentInstanceGlobal snapshots the
+/// global. SetObjectiveDisplayedNoWait is SetObjectiveDisplayed.
+#[test]
+fn objective_globals_count_to_a_target() {
+    let mut g = game();
+    g.start();
+    let quest = obj(&mut g, "LocQuest");
+    let counter = obj(&mut g, "Counter");
+    let args = |v: f32| {
+        vec![
+            Value::Float(v),
+            counter.clone(),
+            Value::Int(10),
+            Value::Float(3.0),
+            Value::Bool(true),
+            Value::Bool(true),
+            Value::Bool(true),
+        ]
+    };
+    assert_eq!(
+        call(&mut g, &quest, "ModObjectiveGlobal", &args(1.0)),
+        Value::Bool(false)
+    );
+    assert_eq!(
+        call(&mut g, &quest, "IsObjectiveDisplayed", &[Value::Int(10)]),
+        Value::Bool(true)
+    );
+    assert_eq!(
+        call(&mut g, &quest, "IsObjectiveCompleted", &[Value::Int(10)]),
+        Value::Bool(false)
+    );
+    assert_eq!(
+        call(&mut g, &quest, "ModObjectiveGlobal", &args(2.0)),
+        Value::Bool(true)
+    );
+    assert_eq!(
+        call(&mut g, &quest, "IsObjectiveCompleted", &[Value::Int(10)]),
+        Value::Bool(true)
+    );
+    assert_eq!(call(&mut g, &counter, "GetValue", &[]), Value::Float(3.0));
+    assert_eq!(
+        call(&mut g, &quest, "UpdateCurrentInstanceGlobal", &[counter]),
+        Value::Bool(true)
+    );
+    let (qid, cid) = (g.form("LocQuest").unwrap(), g.form("Counter").unwrap());
+    assert_eq!(g.world().quest(qid).unwrap().instance_globals[&cid], 3.0);
+    call(
+        &mut g,
+        &quest,
+        "SetObjectiveDisplayedNoWait",
+        &[Value::Int(10), Value::Bool(false)],
+    );
+    assert_eq!(
+        call(&mut g, &quest, "IsObjectiveDisplayed", &[Value::Int(10)]),
+        Value::Bool(false)
+    );
+    assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
+/// Message.Show puts a message-box flagged message in the box queue and
+/// any other in the notification queue, returning the button index (0),
+/// ShowAsHelpMessage is a notification.
+#[test]
+fn messages_show_by_their_flag() {
+    let mut g = game();
+    let boxed = obj(&mut g, "BoxMessage");
+    let note = obj(&mut g, "NoteMessage");
+    assert_eq!(call(&mut g, &boxed, "Show", &[]), Value::Int(0));
+    assert_eq!(call(&mut g, &note, "Show", &[]), Value::Int(0));
+    call(
+        &mut g,
+        &note,
+        "ShowAsHelpMessage",
+        &[
+            Value::string("Help"),
+            Value::Float(1.0),
+            Value::Float(1.0),
+            Value::Int(1),
+        ],
+    );
+    assert_eq!(g.world().message_boxes, vec!["Hello box".to_string()]);
+    assert_eq!(
+        g.world().notifications,
+        vec!["Hello note".to_string(), "Hello note".to_string()]
+    );
+    assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
+/// Scene.Start marks it playing and delivers OnBegin to the scene's
+/// scripts, Stop delivers OnEnd, IsPlaying reads the flag.
+#[test]
+fn scenes_begin_and_end() {
+    let mut g = game();
+    g.start();
+    let scene = obj(&mut g, "TestScene");
+    assert_eq!(call(&mut g, &scene, "IsPlaying", &[]), Value::Bool(false));
+    call(&mut g, &scene, "Start", &[]);
+    assert_eq!(call(&mut g, &scene, "IsPlaying", &[]), Value::Bool(true));
+    assert!(
+        g.traces().iter().any(|t| t == "scene begin"),
+        "{:?}",
+        g.traces()
+    );
+    call(&mut g, &scene, "ForceStart", &[]);
+    assert_eq!(g.traces().iter().filter(|t| *t == "scene begin").count(), 1);
+    call(&mut g, &scene, "Stop", &[]);
+    assert_eq!(call(&mut g, &scene, "IsPlaying", &[]), Value::Bool(false));
+    assert!(g.traces().iter().any(|t| t == "scene end"));
+    assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
+/// Sound.Play "plays the sound at the specified object's location" and
+/// returns an instance id, SetInstanceVolume and StopInstance take it.
+/// Spell.Cast records the cast with its source and target.
+#[test]
+fn sounds_and_spells_are_recorded() {
+    let mut g = game();
+    let sound = obj(&mut g, "TestSound");
+    let guard = obj(&mut g, "GuardRef");
+    let player = obj(&mut g, "PlayerRef");
+    let first = call(&mut g, &sound, "Play", &[guard.clone()]);
+    let second = call(&mut g, &sound, "Play", &[guard.clone()]);
+    assert_eq!(first, Value::Int(1));
+    assert_eq!(second, Value::Int(2));
+    call_global(
+        &mut g,
+        "Sound",
+        "SetInstanceVolume",
+        &[Value::Int(2), Value::Float(0.25)],
+    );
+    assert_eq!(g.world().sound_instances[&2].2, 0.25);
+    call_global(&mut g, "Sound", "StopInstance", &[Value::Int(1)]);
+    assert!(!g.world().sound_instances.contains_key(&1));
+    let flames = obj(&mut g, "Flames");
+    call(&mut g, &flames, "Cast", &[guard.clone(), player.clone()]);
+    call(&mut g, &flames, "RemoteCast", &[guard, player, Value::None]);
+    let (f, gd, p) = (
+        g.form("Flames").unwrap(),
+        g.form("GuardRef").unwrap(),
+        g.form("PlayerRef").unwrap(),
+    );
+    assert_eq!(g.world().spell_casts, vec![(f, gd, Some(p)), (f, gd, None)]);
+    assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
+/// The Game flags: fast travel, AI driven, chargen, beast form, words
+/// (TeachWord then UnlockWord drive IsWordUnlocked), achievements, the
+/// last ridden horse, and SetGameSetting* overriding GetGameSetting*.
+#[test]
+fn game_state_natives_round_trip() {
+    let mut g = game();
+    assert_eq!(
+        call_global(&mut g, "Game", "IsFastTravelEnabled", &[]),
+        Value::Bool(true)
+    );
+    call_global(&mut g, "Game", "EnableFastTravel", &[Value::Bool(false)]);
+    assert_eq!(
+        call_global(&mut g, "Game", "IsFastTravelEnabled", &[]),
+        Value::Bool(false)
+    );
+    call_global(&mut g, "Game", "SetPlayerAIDriven", &[]);
+    call_global(
+        &mut g,
+        "Game",
+        "SetInChargen",
+        &[Value::Bool(true), Value::Bool(true), Value::Bool(false)],
+    );
+    call_global(&mut g, "Game", "SetBeastForm", &[Value::Bool(true)]);
+    assert!(g.world().player_ai_driven && g.world().in_chargen && g.world().beast_form);
+    let word = obj(&mut g, "WordFus");
+    assert_eq!(
+        call_global(&mut g, "Game", "IsWordUnlocked", &[word.clone()]),
+        Value::Bool(false)
+    );
+    call_global(&mut g, "Game", "TeachWord", &[word.clone()]);
+    assert_eq!(
+        call_global(&mut g, "Game", "IsWordUnlocked", &[word.clone()]),
+        Value::Bool(false)
+    );
+    call_global(&mut g, "Game", "UnlockWord", &[word.clone()]);
+    assert_eq!(
+        call_global(&mut g, "Game", "IsWordUnlocked", &[word]),
+        Value::Bool(true)
+    );
+    call_global(&mut g, "Game", "AddAchievement", &[Value::Int(7)]);
+    assert_eq!(g.world().achievements, vec![7]);
+    assert_eq!(
+        call_global(&mut g, "Game", "GetPlayersLastRiddenHorse", &[]),
+        Value::None
+    );
+    call_global(
+        &mut g,
+        "Game",
+        "SetGameSettingFloat",
+        &[Value::string("fJumpHeightMin"), Value::Float(90.0)],
+    );
+    call_global(
+        &mut g,
+        "Game",
+        "SetGameSettingInt",
+        &[Value::string("iHoursToRespawnCell"), Value::Int(5)],
+    );
+    call_global(
+        &mut g,
+        "Game",
+        "SetGameSettingBool",
+        &[Value::string("bTest"), Value::Bool(true)],
+    );
+    call_global(
+        &mut g,
+        "Game",
+        "SetGameSettingString",
+        &[Value::string("sTest"), Value::string("x")],
+    );
+    assert_eq!(
+        call_global(
+            &mut g,
+            "Game",
+            "GetGameSettingFloat",
+            &[Value::string("fJumpHeightMin")]
+        ),
+        Value::Float(90.0)
+    );
+    assert_eq!(
+        call_global(
+            &mut g,
+            "Game",
+            "GetGameSettingInt",
+            &[Value::string("iHoursToRespawnCell")]
+        ),
+        Value::Int(5)
+    );
+    assert_eq!(
+        call_global(
+            &mut g,
+            "Game",
+            "GetGameSettingString",
+            &[Value::string("sTest")]
+        ),
+        Value::string("x")
+    );
+    assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
+/// Everything above survives a save and load: the leveled list addition,
+/// the faction bounty, the perk, the location flag and the listeners.
+#[test]
+fn the_new_state_survives_save_and_load() {
+    let mut g = game();
+    g.start();
+    let list = obj(&mut g, "LootList");
+    let flames = obj(&mut g, "Flames");
+    call(
+        &mut g,
+        &list,
+        "AddForm",
+        &[flames, Value::Int(20), Value::Int(3)],
+    );
+    let guards = obj(&mut g, "GuardsFaction");
+    call(
+        &mut g,
+        &guards,
+        "ModCrimeGold",
+        &[Value::Int(40), Value::Bool(false)],
+    );
+    let inn = obj(&mut g, "InnLoc");
+    call(&mut g, &inn, "SetCleared", &[]);
+    let marker = obj(&mut g, "MarkerRef");
+    call(&mut g, &marker, "RegisterForSleep", &[]);
+    call_global(
+        &mut g,
+        "Game",
+        "IncrementStat",
+        &[Value::string("Barters"), Value::Int(4)],
+    );
+    let bytes = g.save_state().unwrap();
+
+    let mut h = game();
+    h.load_state(&bytes).unwrap();
+    let list = obj(&mut h, "LootList");
+    assert_eq!(call(&mut h, &list, "GetNumForms", &[]), Value::Int(3));
+    let guards = obj(&mut h, "GuardsFaction");
+    assert_eq!(call(&mut h, &guards, "GetCrimeGold", &[]), Value::Int(40));
+    let inn = obj(&mut h, "InnLoc");
+    assert_eq!(call(&mut h, &inn, "IsCleared", &[]), Value::Bool(true));
+    assert_eq!(
+        call_global(&mut h, "Game", "QueryStat", &[Value::string("Barters")]),
+        Value::Int(4)
+    );
+    h.world_mut().sleep_start(0.0, 0.5);
+    h.run_until_idle(8);
+    assert!(
+        h.traces().iter().any(|t| t == "sleep start"),
+        "{:?}",
+        h.traces()
+    );
+    assert!(errors(&h).is_empty(), "{:?}", errors(&h));
+}

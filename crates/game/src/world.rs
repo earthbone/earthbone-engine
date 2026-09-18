@@ -57,6 +57,15 @@ pub struct RefState {
     /// A door's far side: the other door and where to land.
     pub teleport: Option<(GlobalFormId, Transform)>,
     pub is_actor: bool,
+    /// `XOWN`: an `NPC_` or a `FACT`.
+    pub owner: Option<GlobalFormId>,
+    /// `XLCN`, the reference's own location when the record names one.
+    pub location: Option<GlobalFormId>,
+    /// A map marker shown on the player's map (`AddToMap`).
+    pub on_map: bool,
+    pub fast_travel: bool,
+    pub destroyed: bool,
+    pub ignore_friendly_hits: bool,
 }
 
 impl RefState {
@@ -78,6 +87,12 @@ impl RefState {
             linked: Vec::new(),
             teleport: None,
             is_actor: false,
+            owner: None,
+            location: None,
+            on_map: false,
+            fast_travel: false,
+            destroyed: false,
+            ignore_friendly_hits: false,
         }
     }
 }
@@ -100,6 +115,110 @@ pub struct ActorState {
     pub factions: HashMap<GlobalFormId, i32>,
     pub spells: BTreeSet<GlobalFormId>,
     pub equipped: BTreeSet<GlobalFormId>,
+    pub perks: BTreeSet<GlobalFormId>,
+    pub alerted: bool,
+    pub sneaking: bool,
+    pub weapon_drawn: bool,
+    pub restrained: bool,
+    pub arrested: bool,
+    pub attack_on_sight: bool,
+    pub dont_move: bool,
+    pub allow_pc_dialogue: bool,
+    /// Relationship rank per other actor, `SetRelationshipRank` values.
+    pub relationships: BTreeMap<GlobalFormId, i32>,
+    pub combat_target: Option<GlobalFormId>,
+    pub crime_faction: Option<GlobalFormId>,
+    pub outfit: Option<GlobalFormId>,
+    pub sleep_outfit: Option<GlobalFormId>,
+    pub killer: Option<GlobalFormId>,
+}
+
+/// One `LVLO` entry of a leveled list.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LeveledEntry {
+    pub level: u16,
+    pub form: GlobalFormId,
+    pub count: u16,
+}
+
+/// An `LVLI`, `LVLN` or `LVSP` record plus what scripts added to it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LeveledList {
+    pub chance_none: u8,
+    pub flags: u8,
+    pub entries: Vec<LeveledEntry>,
+    /// How many entries and which chance the record shipped, what
+    /// `Revert` restores.
+    pub base_entries: usize,
+    pub base_chance_none: u8,
+}
+
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct LocationState {
+    pub cleared: bool,
+    pub keyword_data: BTreeMap<GlobalFormId, f32>,
+}
+
+/// Faction reaction codes, the `XNAM` combat values and what
+/// `GetReaction` returns.
+pub mod reaction {
+    pub const NEUTRAL: i32 = 0;
+    pub const ENEMY: i32 = 1;
+    pub const ALLY: i32 = 2;
+    pub const FRIEND: i32 = 3;
+}
+
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct FactionState {
+    pub reactions: BTreeMap<GlobalFormId, i32>,
+    pub crime_gold_violent: i32,
+    pub crime_gold_nonviolent: i32,
+    pub infamy_violent: i32,
+    pub infamy_nonviolent: i32,
+    pub player_expelled: bool,
+    pub player_enemy: bool,
+    /// The `Track Crime` flag in `DATA`.
+    pub tracks_crime: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct ActorBaseState {
+    pub essential: bool,
+    pub protected: bool,
+    pub invulnerable: bool,
+    pub unique: bool,
+    pub female: bool,
+    pub race: Option<GlobalFormId>,
+    pub class: Option<GlobalFormId>,
+    pub outfit: Option<GlobalFormId>,
+    pub sleep_outfit: Option<GlobalFormId>,
+    pub dead_count: i32,
+}
+
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct CellState {
+    pub owner: Option<GlobalFormId>,
+    pub public: bool,
+}
+
+/// A `RegisterForAnimationEvent` registration: the listener, the sender
+/// and the event name it wants.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AnimationListener {
+    pub listener: ObjectId,
+    pub sender: GlobalFormId,
+    pub event: String,
+}
+
+/// A line-of-sight registration. `single` is a one-shot gain or lost
+/// registration, `gain` says which of the two.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LosListener {
+    pub listener: ObjectId,
+    pub viewer: GlobalFormId,
+    pub target: GlobalFormId,
+    pub single: bool,
+    pub gain: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -123,6 +242,8 @@ pub struct QuestState {
     pub done: BTreeSet<u16>,
     pub objectives: BTreeMap<u16, ObjectiveState>,
     pub aliases: HashMap<u32, Option<GlobalFormId>>,
+    /// `UpdateCurrentInstanceGlobal` snapshots, per global.
+    pub instance_globals: BTreeMap<GlobalFormId, f32>,
 }
 
 /// Work a native asked the VM to do.
@@ -162,6 +283,11 @@ pub struct World {
     quests: HashMap<GlobalFormId, QuestState>,
     globals: HashMap<GlobalFormId, f32>,
     form_lists: HashMap<GlobalFormId, Vec<GlobalFormId>>,
+    leveled_lists: HashMap<GlobalFormId, LeveledList>,
+    locations: HashMap<GlobalFormId, LocationState>,
+    factions: HashMap<GlobalFormId, FactionState>,
+    actor_bases: HashMap<GlobalFormId, ActorBaseState>,
+    cells: HashMap<GlobalFormId, CellState>,
     next_dynamic: u32,
     player: Option<GlobalFormId>,
     /// What `PC_LEVEL_MULT` actors scale against.
@@ -175,6 +301,32 @@ pub struct World {
     pub animation_events: Vec<(GlobalFormId, String)>,
     pub player_controls: bool,
     pub ini: HashMap<String, String>,
+    /// `SetGameSetting*` overrides, consulted before the `GMST` record.
+    pub settings: HashMap<String, Value>,
+    /// Inventory event filters per listening object.
+    pub inventory_filters: HashMap<ObjectId, Vec<GlobalFormId>>,
+    pub sleep_listeners: Vec<ObjectId>,
+    pub stats_listeners: Vec<ObjectId>,
+    pub animation_listeners: Vec<AnimationListener>,
+    pub los_listeners: Vec<LosListener>,
+    /// Tracked stats by name, `IncrementStat` and `QueryStat`.
+    pub stats: BTreeMap<String, i32>,
+    pub fast_travel: bool,
+    pub player_ai_driven: bool,
+    pub in_chargen: bool,
+    pub beast_form: bool,
+    pub words_taught: BTreeSet<GlobalFormId>,
+    pub words_unlocked: BTreeSet<GlobalFormId>,
+    pub achievements: Vec<i32>,
+    pub last_ridden_horse: Option<GlobalFormId>,
+    /// Scenes that are playing.
+    pub scenes: BTreeSet<GlobalFormId>,
+    /// Sound instances by the id `Sound.Play` handed out: the sound, the
+    /// source and the volume.
+    pub sound_instances: BTreeMap<i32, (GlobalFormId, GlobalFormId, f32)>,
+    next_sound: i32,
+    /// `(spell, source, target)` per `Spell.Cast`, in order.
+    pub spell_casts: Vec<(GlobalFormId, GlobalFormId, Option<GlobalFormId>)>,
 }
 
 impl World {
@@ -206,6 +358,11 @@ impl World {
             quests: HashMap::new(),
             globals: HashMap::new(),
             form_lists: HashMap::new(),
+            leveled_lists: HashMap::new(),
+            locations: HashMap::new(),
+            factions: HashMap::new(),
+            actor_bases: HashMap::new(),
+            cells: HashMap::new(),
             next_dynamic: 0x1000,
             player: None,
             player_level: 1,
@@ -218,6 +375,25 @@ impl World {
             animation_events: Vec::new(),
             player_controls: true,
             ini: HashMap::new(),
+            settings: HashMap::new(),
+            inventory_filters: HashMap::new(),
+            sleep_listeners: Vec::new(),
+            stats_listeners: Vec::new(),
+            animation_listeners: Vec::new(),
+            los_listeners: Vec::new(),
+            stats: BTreeMap::new(),
+            fast_travel: true,
+            player_ai_driven: false,
+            in_chargen: false,
+            beast_form: false,
+            words_taught: BTreeSet::new(),
+            words_unlocked: BTreeSet::new(),
+            achievements: Vec::new(),
+            last_ridden_horse: None,
+            scenes: BTreeSet::new(),
+            sound_instances: BTreeMap::new(),
+            next_sound: 0,
+            spell_casts: Vec::new(),
         }
     }
 
@@ -357,7 +533,18 @@ impl World {
     /// The Papyrus class a form answers to when no script is attached.
     pub fn class_of(&self, handle: Handle) -> &'static str {
         match handle {
-            Handle::Alias { .. } => "ReferenceAlias",
+            Handle::Alias { quest, id } => {
+                let location = self
+                    .quests
+                    .get(&quest)
+                    .and_then(|q| q.def.alias(id))
+                    .is_some_and(|a| a.location);
+                if location {
+                    "LocationAlias"
+                } else {
+                    "ReferenceAlias"
+                }
+            }
             Handle::Form(id) => match self.tag_of(id).map(|t| *t.as_bytes()) {
                 Some(t) => class_for_tag(&t),
                 None => "Form",
@@ -394,6 +581,10 @@ impl World {
     pub fn object_of(&mut self, handle: Handle, alloc: Alloc<'_>) -> ObjectId {
         if let Some(id) = self.objects.get(&handle) {
             return *id;
+        }
+        if let Handle::Alias { quest, .. } = handle {
+            // The alias kind decides the class, so the definition is needed.
+            self.quest_state(quest);
         }
         let name = match handle {
             Handle::Form(id) => self
@@ -450,6 +641,14 @@ impl World {
                 st.teleport = r
                     .teleport
                     .map(|t| (self.order.resolve(file, t.door), t.destination));
+                st.owner = r
+                    .owner
+                    .filter(|o| *o != 0)
+                    .map(|o| self.order.resolve(file, o));
+                st.location = r
+                    .location
+                    .filter(|l| *l != 0)
+                    .map(|l| self.order.resolve(file, l));
                 st
             }
             b"ACHR" => {
@@ -466,6 +665,16 @@ impl World {
                 if let Some(s) = rec.find(T(b"XSCL")).filter(|d| d.len() >= 4) {
                     st.scale = le_f32(s);
                 }
+                st.owner = rec
+                    .find(T(b"XOWN"))
+                    .and_then(le_u32)
+                    .filter(|o| *o != 0)
+                    .map(|o| self.order.resolve(file, o));
+                st.location = rec
+                    .find(T(b"XLCN"))
+                    .and_then(le_u32)
+                    .filter(|l| *l != 0)
+                    .map(|l| self.order.resolve(file, l));
                 st.is_actor = true;
                 st
             }
@@ -610,8 +819,17 @@ impl World {
                     a.essential = npc.is_essential();
                     a.protected = npc.is_protected();
                     a.ghost = npc.config.flags & crate::npc::flags::GHOST != 0;
+                    a.allow_pc_dialogue = true;
                     if let Some(file) = base_file {
                         a.race = npc.race.map(|r| self.order.resolve(file, r));
+                        a.perks = npc
+                            .perks
+                            .iter()
+                            .map(|p| self.order.resolve(file, *p))
+                            .collect();
+                        a.crime_faction = npc.crime_faction.map(|f| self.order.resolve(file, f));
+                        a.outfit = npc.outfit.map(|o| self.order.resolve(file, o));
+                        a.sleep_outfit = npc.sleep_outfit.map(|o| self.order.resolve(file, o));
                         a.spells = npc
                             .spells
                             .iter()
@@ -630,6 +848,7 @@ impl World {
                         a.base_values.insert(name.into(), v);
                     }
                     a.level = 1;
+                    a.allow_pc_dialogue = true;
                 }
             }
             self.actors.insert(id, a);
@@ -807,6 +1026,7 @@ impl World {
                     done: BTreeSet::new(),
                     objectives: BTreeMap::new(),
                     aliases,
+                    instance_globals: BTreeMap::new(),
                 },
             );
         }
@@ -829,12 +1049,27 @@ impl World {
         q.running = true;
         q.active = true;
         let startup = q.def.startup_stage();
+        let alias_ids: Vec<u32> = q.def.aliases.iter().map(|a| a.id).collect();
         let object = self.object_of(Handle::Form(id), alloc);
         self.pending.push(Pending::Event {
             object,
             name: "OnInit".into(),
             args: Vec::new(),
         });
+        // Alias scripts get their OnInit when the quest starts. Only an
+        // alias something is attached to has an object by now.
+        for alias in alias_ids {
+            if let Some(object) = self.object_id(Handle::Alias {
+                quest: id,
+                id: alias,
+            }) {
+                self.pending.push(Pending::Event {
+                    object,
+                    name: "OnInit".into(),
+                    args: Vec::new(),
+                });
+            }
+        }
         if let Some(stage) = startup {
             self.set_stage(id, stage, alloc);
         }
@@ -981,8 +1216,370 @@ impl World {
         self.form_lists.get_mut(&id)
     }
 
-    /// A `GMST` by editor id: the first letter of the id gives the type.
+    /// An `LVLI`, `LVLN` or `LVSP` record: `LVLD` chance none, `LVLF`
+    /// flags and the `LVLO` entries (level `u16`, two unused bytes, the
+    /// form, count `u16`, per `wbLeveledListEntry`).
+    pub fn leveled_list(&mut self, id: GlobalFormId) -> Option<&mut LeveledList> {
+        if !self.leveled_lists.contains_key(&id) {
+            let rref = self.order.winner_ref(id)?;
+            let rec = self.order.record(rref);
+            if !matches!(rec.tag.as_bytes(), b"LVLI" | b"LVLN" | b"LVSP") {
+                return None;
+            }
+            let chance_none = rec.find(T(b"LVLD")).and_then(|d| d.first().copied());
+            let flags = rec.find(T(b"LVLF")).and_then(|d| d.first().copied());
+            let entries: Vec<LeveledEntry> = rec
+                .all(T(b"LVLO"))
+                .filter(|d| d.len() >= 8)
+                .map(|d| LeveledEntry {
+                    level: u16::from_le_bytes([d[0], d[1]]),
+                    form: self.order.resolve(rref.file, le_u32(&d[4..]).unwrap_or(0)),
+                    count: if d.len() >= 10 {
+                        u16::from_le_bytes([d[8], d[9]])
+                    } else {
+                        1
+                    },
+                })
+                .collect();
+            let chance_none = chance_none.unwrap_or(0);
+            self.leveled_lists.insert(
+                id,
+                LeveledList {
+                    chance_none,
+                    flags: flags.unwrap_or(0),
+                    base_entries: entries.len(),
+                    entries,
+                    base_chance_none: chance_none,
+                },
+            );
+        }
+        self.leveled_lists.get_mut(&id)
+    }
+
+    pub fn location(&mut self, id: GlobalFormId) -> Option<&mut LocationState> {
+        if !self.locations.contains_key(&id) {
+            if self.tag_of(id) != Some(T(b"LCTN")) {
+                return None;
+            }
+            self.locations.insert(id, LocationState::default());
+        }
+        self.locations.get_mut(&id)
+    }
+
+    /// `PNAM` of an `LCTN`.
+    pub fn location_parent(&self, id: GlobalFormId) -> Option<GlobalFormId> {
+        let rref = self.order.winner_ref(id)?;
+        let rec = self.order.record(rref);
+        if rec.tag != T(b"LCTN") {
+            return None;
+        }
+        rec.find(T(b"PNAM"))
+            .and_then(le_u32)
+            .filter(|p| *p != 0)
+            .map(|p| self.order.resolve(rref.file, p))
+    }
+
+    /// The parent chain of a location, nearest first, the location itself
+    /// excluded. Stops on a cycle.
+    pub fn location_ancestors(&self, id: GlobalFormId) -> Vec<GlobalFormId> {
+        let mut out = Vec::new();
+        let mut next = self.location_parent(id);
+        while let Some(p) = next {
+            if p == id || out.contains(&p) {
+                break;
+            }
+            out.push(p);
+            next = self.location_parent(p);
+        }
+        out
+    }
+
+    /// `Location.IsChild`: whether `child` sits anywhere below `parent`.
+    pub fn location_is_child(&self, parent: GlobalFormId, child: GlobalFormId) -> bool {
+        self.location_ancestors(child).contains(&parent)
+    }
+
+    /// `Location.HasCommonParent`: a shared ancestor, restricted to those
+    /// carrying `filter` when given.
+    pub fn locations_share_parent(
+        &self,
+        a: GlobalFormId,
+        b: GlobalFormId,
+        filter: Option<GlobalFormId>,
+    ) -> bool {
+        let mine = self.location_ancestors(a);
+        self.location_ancestors(b)
+            .iter()
+            .any(|p| mine.contains(p) && filter.is_none_or(|k| self.keywords(*p).contains(&k)))
+    }
+
+    /// Where a reference is: its own `XLCN`, else its cell's.
+    pub fn current_location(&mut self, id: GlobalFormId) -> Option<GlobalFormId> {
+        let (own, cell) = self.reference(id).map(|r| (r.location, r.cell))?;
+        if own.is_some() {
+            return own;
+        }
+        let cell = cell?;
+        let rref = self.order.winner_ref(cell)?;
+        self.order
+            .record(rref)
+            .find(T(b"XLCN"))
+            .and_then(le_u32)
+            .filter(|l| *l != 0)
+            .map(|l| self.order.resolve(rref.file, l))
+    }
+
+    /// Where the record placed a reference: its `XLCN`, else the `XLCN` of
+    /// the cell it was placed in. Unaffected by `MoveTo`.
+    pub fn editor_location(&self, id: GlobalFormId) -> Option<GlobalFormId> {
+        let rref = self.order.winner_ref(id)?;
+        let rec = self.order.record(rref);
+        if let Some(l) = rec.find(T(b"XLCN")).and_then(le_u32).filter(|l| *l != 0) {
+            return Some(self.order.resolve(rref.file, l));
+        }
+        let cell = self.order.resolve(rref.file, rec.placement.cell?);
+        let cref = self.order.winner_ref(cell)?;
+        self.order
+            .record(cref)
+            .find(T(b"XLCN"))
+            .and_then(le_u32)
+            .filter(|l| *l != 0)
+            .map(|l| self.order.resolve(cref.file, l))
+    }
+
+    /// `MoveToMyEditorLocation`: back to the record's cell and transform.
+    /// A dynamic reference has no record and stays put.
+    pub fn move_to_editor_location(&mut self, id: GlobalFormId) -> bool {
+        let Some(fresh) = self.load_ref(id) else {
+            return false;
+        };
+        match self.reference(id) {
+            Some(r) => {
+                r.position = fresh.position;
+                r.rotation = fresh.rotation;
+                r.cell = fresh.cell;
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// A `FACT` record: `XNAM` relations and the crime tracking flag.
+    pub fn faction(&mut self, id: GlobalFormId) -> Option<&mut FactionState> {
+        if !self.factions.contains_key(&id) {
+            let rref = self.order.winner_ref(id)?;
+            let rec = self.order.record(rref);
+            if rec.tag != T(b"FACT") {
+                return None;
+            }
+            let mut st = FactionState::default();
+            for x in rec.all(T(b"XNAM")).filter(|d| d.len() >= 12) {
+                let other = self.order.resolve(rref.file, le_u32(x).unwrap_or(0));
+                let combat = i32::from_le_bytes([x[8], x[9], x[10], x[11]]);
+                st.reactions.insert(other, combat);
+            }
+            st.tracks_crime = rec
+                .find(T(b"DATA"))
+                .and_then(le_u32)
+                .is_some_and(|f| f & 0x40 != 0);
+            self.factions.insert(id, st);
+        }
+        self.factions.get_mut(&id)
+    }
+
+    pub fn actor_base(&mut self, id: GlobalFormId) -> Option<&mut ActorBaseState> {
+        if !self.actor_bases.contains_key(&id) {
+            let npc = self.npc(id)?;
+            let file = self.order.winner_ref(id)?.file;
+            let f = npc.config.flags;
+            let st = ActorBaseState {
+                essential: npc.is_essential(),
+                protected: npc.is_protected(),
+                invulnerable: f & crate::npc::flags::INVULNERABLE != 0,
+                unique: f & crate::npc::flags::UNIQUE != 0,
+                female: npc.is_female(),
+                race: npc.race.map(|r| self.order.resolve(file, r)),
+                class: npc.class.map(|c| self.order.resolve(file, c)),
+                outfit: npc.outfit.map(|o| self.order.resolve(file, o)),
+                sleep_outfit: npc.sleep_outfit.map(|o| self.order.resolve(file, o)),
+                dead_count: 0,
+            };
+            self.actor_bases.insert(id, st);
+        }
+        self.actor_bases.get_mut(&id)
+    }
+
+    pub fn cell_state(&mut self, id: GlobalFormId) -> Option<&mut CellState> {
+        if !self.cells.contains_key(&id) {
+            let rref = self.order.winner_ref(id)?;
+            let rec = self.order.record(rref);
+            if rec.tag != T(b"CELL") {
+                return None;
+            }
+            let owner = rec
+                .find(T(b"XOWN"))
+                .and_then(le_u32)
+                .filter(|o| *o != 0)
+                .map(|o| self.order.resolve(rref.file, o));
+            self.cells.insert(
+                id,
+                CellState {
+                    owner,
+                    public: false,
+                },
+            );
+        }
+        self.cells.get_mut(&id)
+    }
+
+    // ----- events natives raise for registered listeners -----
+
+    /// `Game.IncrementStat`: the new value, and `OnTrackedStatsEvent` to
+    /// every registered listener.
+    pub fn increment_stat(&mut self, name: &str, amount: i32) -> i32 {
+        let v = self.stats.entry(name.to_string()).or_insert(0);
+        *v += amount;
+        let value = *v;
+        for object in self.stats_listeners.clone() {
+            self.pending.push(Pending::Event {
+                object,
+                name: "OnTrackedStatsEvent".into(),
+                args: vec![Value::string(name), Value::Int(value)],
+            });
+        }
+        value
+    }
+
+    /// The player lies down: `OnSleepStart(start, end)` in game days to
+    /// every sleep listener.
+    pub fn sleep_start(&mut self, start: f32, end: f32) {
+        self.sleep_event("OnSleepStart", &[Value::Float(start), Value::Float(end)]);
+    }
+
+    /// The player wakes: `OnSleepStop(interrupted)` to every sleep listener.
+    pub fn sleep_stop(&mut self, interrupted: bool) {
+        self.sleep_event("OnSleepStop", &[Value::Bool(interrupted)]);
+    }
+
+    fn sleep_event(&mut self, name: &str, args: &[Value]) {
+        for object in self.sleep_listeners.clone() {
+            self.pending.push(Pending::Event {
+                object,
+                name: name.into(),
+                args: args.to_vec(),
+            });
+        }
+    }
+
+    /// An animation event fired on `source`: recorded, and delivered as
+    /// `OnAnimationEvent(source, name)` to whoever registered for it.
+    pub fn animation_event(&mut self, source: GlobalFormId, name: &str, alloc: Alloc<'_>) {
+        self.animation_events.push((source, name.to_string()));
+        let listeners: Vec<ObjectId> = self
+            .animation_listeners
+            .iter()
+            .filter(|l| l.sender == source && l.event.eq_ignore_ascii_case(name))
+            .map(|l| l.listener)
+            .collect();
+        if listeners.is_empty() {
+            return;
+        }
+        let src = self.form_value(Some(source), alloc);
+        for object in listeners {
+            self.pending.push(Pending::Event {
+                object,
+                name: "OnAnimationEvent".into(),
+                args: vec![src.clone(), Value::string(name)],
+            });
+        }
+    }
+
+    /// A viewer gains or loses sight of a target: `OnGainLOS` or
+    /// `OnLostLOS` to the matching registrations, single ones consumed.
+    pub fn line_of_sight(
+        &mut self,
+        viewer: GlobalFormId,
+        target: GlobalFormId,
+        gained: bool,
+        alloc: Alloc<'_>,
+    ) {
+        let hits: Vec<ObjectId> = self
+            .los_listeners
+            .iter()
+            .filter(|l| l.viewer == viewer && l.target == target && (!l.single || l.gain == gained))
+            .map(|l| l.listener)
+            .collect();
+        self.los_listeners.retain(|l| {
+            !(l.viewer == viewer && l.target == target && l.single && l.gain == gained)
+        });
+        if hits.is_empty() {
+            return;
+        }
+        let v = self.form_value(Some(viewer), alloc);
+        let t = self.form_value(Some(target), alloc);
+        let name = if gained { "OnGainLOS" } else { "OnLostLOS" };
+        for object in hits {
+            self.pending.push(Pending::Event {
+                object,
+                name: name.into(),
+                args: vec![v.clone(), t.clone()],
+            });
+        }
+    }
+
+    /// `Scene.Start`: playing, and `OnBegin` to the scene's scripts.
+    pub fn start_scene(&mut self, id: GlobalFormId, alloc: Alloc<'_>) -> bool {
+        if self.tag_of(id) != Some(T(b"SCEN")) || !self.scenes.insert(id) {
+            return false;
+        }
+        let object = self.object_of(Handle::Form(id), alloc);
+        self.pending.push(Pending::Event {
+            object,
+            name: "OnBegin".into(),
+            args: Vec::new(),
+        });
+        true
+    }
+
+    /// `Scene.Stop`: not playing, and `OnEnd` to the scene's scripts.
+    pub fn stop_scene(&mut self, id: GlobalFormId, alloc: Alloc<'_>) -> bool {
+        if !self.scenes.remove(&id) {
+            return false;
+        }
+        let object = self.object_of(Handle::Form(id), alloc);
+        self.pending.push(Pending::Event {
+            object,
+            name: "OnEnd".into(),
+            args: Vec::new(),
+        });
+        true
+    }
+
+    /// `Sound.Play`: a fresh instance id, never zero.
+    pub fn play_sound(&mut self, sound: GlobalFormId, source: GlobalFormId) -> i32 {
+        self.next_sound += 1;
+        self.sound_instances
+            .insert(self.next_sound, (sound, source, 1.0));
+        self.next_sound
+    }
+
+    /// The `DESC` of a form as text, `<string N>` when localized.
+    pub fn description_of(&self, id: GlobalFormId) -> Option<String> {
+        let rref = self.order.winner_ref(id)?;
+        let rec = self.order.record(rref);
+        let localized = self.order.file(rref.file).plugin.header.is_localized();
+        match text(rec.find(T(b"DESC"))?, localized) {
+            Text::Plain(s) => Some(s),
+            Text::Localized(n) => Some(format!("<string {n}>")),
+        }
+    }
+
+    /// A `GMST` by editor id, a `SetGameSetting*` override first. The
+    /// first letter of the id gives the type.
     pub fn game_setting(&self, name: &str) -> Option<Value> {
+        if let Some(v) = self.settings.get(&name.to_ascii_lowercase()) {
+            return Some(v.clone());
+        }
         let id = self.form(name)?;
         let rec = self.record(id).filter(|r| r.tag == T(b"GMST"))?;
         let data = rec.find(T(b"DATA"))?;
@@ -1206,6 +1803,129 @@ impl World {
             body.str(v);
         }
 
+        // Version 2: the state the natives round added.
+        body.len(self.leveled_lists.len());
+        for (id, l) in &self.leveled_lists {
+            write_form_id(&mut body, *id);
+            body.u8(l.chance_none);
+            body.u8(l.flags);
+            body.u8(l.base_chance_none);
+            body.len(l.base_entries);
+            body.len(l.entries.len());
+            for e in &l.entries {
+                body.u16(e.level);
+                write_form_id(&mut body, e.form);
+                body.u16(e.count);
+            }
+        }
+        body.len(self.locations.len());
+        for (id, l) in &self.locations {
+            write_form_id(&mut body, *id);
+            body.bool(l.cleared);
+            body.len(l.keyword_data.len());
+            for (k, v) in &l.keyword_data {
+                write_form_id(&mut body, *k);
+                body.f32(*v);
+            }
+        }
+        body.len(self.factions.len());
+        for (id, f) in &self.factions {
+            write_form_id(&mut body, *id);
+            body.len(f.reactions.len());
+            for (k, v) in &f.reactions {
+                write_form_id(&mut body, *k);
+                body.i32(*v);
+            }
+            body.i32(f.crime_gold_violent);
+            body.i32(f.crime_gold_nonviolent);
+            body.i32(f.infamy_violent);
+            body.i32(f.infamy_nonviolent);
+            body.bool(f.player_expelled);
+            body.bool(f.player_enemy);
+            body.bool(f.tracks_crime);
+        }
+        body.len(self.actor_bases.len());
+        for (id, a) in &self.actor_bases {
+            write_form_id(&mut body, *id);
+            for flag in [a.essential, a.protected, a.invulnerable, a.unique, a.female] {
+                body.bool(flag);
+            }
+            for f in [a.race, a.class, a.outfit, a.sleep_outfit] {
+                write_opt_form_id(&mut body, f);
+            }
+            body.i32(a.dead_count);
+        }
+        body.len(self.cells.len());
+        for (id, c) in &self.cells {
+            write_form_id(&mut body, *id);
+            write_opt_form_id(&mut body, c.owner);
+            body.bool(c.public);
+        }
+        body.len(self.settings.len());
+        for (k, v) in &self.settings {
+            body.str(k);
+            pool.write_value(&mut body, v);
+        }
+        body.len(self.inventory_filters.len());
+        for (o, list) in &self.inventory_filters {
+            body.u64(o.0);
+            body.len(list.len());
+            for f in list {
+                write_form_id(&mut body, *f);
+            }
+        }
+        write_object_list(&mut body, &self.sleep_listeners);
+        write_object_list(&mut body, &self.stats_listeners);
+        body.len(self.animation_listeners.len());
+        for l in &self.animation_listeners {
+            body.u64(l.listener.0);
+            write_form_id(&mut body, l.sender);
+            body.str(&l.event);
+        }
+        body.len(self.los_listeners.len());
+        for l in &self.los_listeners {
+            body.u64(l.listener.0);
+            write_form_id(&mut body, l.viewer);
+            write_form_id(&mut body, l.target);
+            body.bool(l.single);
+            body.bool(l.gain);
+        }
+        body.len(self.stats.len());
+        for (k, v) in &self.stats {
+            body.str(k);
+            body.i32(*v);
+        }
+        for flag in [
+            self.fast_travel,
+            self.player_ai_driven,
+            self.in_chargen,
+            self.beast_form,
+        ] {
+            body.bool(flag);
+        }
+        write_form_set(&mut body, &self.words_taught);
+        write_form_set(&mut body, &self.words_unlocked);
+        body.len(self.achievements.len());
+        for a in &self.achievements {
+            body.i32(*a);
+        }
+        write_opt_form_id(&mut body, self.last_ridden_horse);
+        write_form_set(&mut body, &self.scenes);
+        body.len(self.sound_instances.len());
+        for (id, (sound, source, volume)) in &self.sound_instances {
+            body.i32(*id);
+            write_form_id(&mut body, *sound);
+            write_form_id(&mut body, *source);
+            body.f32(*volume);
+        }
+        body.i32(self.next_sound);
+        body.len(self.spell_casts.len());
+        for (spell, source, target) in &self.spell_casts {
+            write_form_id(&mut body, *spell);
+            write_form_id(&mut body, *source);
+            write_opt_form_id(&mut body, *target);
+        }
+
         let mut out = Writer::new();
         out.out.extend_from_slice(SAVE_MAGIC);
         out.u16(SAVE_VERSION);
@@ -1285,6 +2005,12 @@ impl World {
                 let alias = r.u32()?;
                 aliases.insert(alias, read_opt_form_id(&mut r)?);
             }
+            let k = r.len()?;
+            let mut instance_globals = BTreeMap::new();
+            for _ in 0..k {
+                let id = read_form_id(&mut r)?;
+                instance_globals.insert(id, r.f32()?);
+            }
             let Some(def) = self.quest_state(id).map(|q| q.def.clone()) else {
                 return Err(VmError::State(format!(
                     "quest {id} is not in the load order"
@@ -1303,6 +2029,7 @@ impl World {
                     done,
                     objectives,
                     aliases,
+                    instance_globals,
                 },
             );
         }
@@ -1403,7 +2130,210 @@ impl World {
             let k = r.str()?;
             ini.insert(k, r.str()?);
         }
+
+        let n = r.len()?;
+        let mut leveled_lists = HashMap::with_capacity(n);
+        for _ in 0..n {
+            let id = read_form_id(&mut r)?;
+            let chance_none = r.u8()?;
+            let flags = r.u8()?;
+            let base_chance_none = r.u8()?;
+            let base_entries = r.len()?;
+            let k = r.len()?;
+            let mut entries = Vec::with_capacity(k);
+            for _ in 0..k {
+                entries.push(LeveledEntry {
+                    level: r.u16()?,
+                    form: read_form_id(&mut r)?,
+                    count: r.u16()?,
+                });
+            }
+            leveled_lists.insert(
+                id,
+                LeveledList {
+                    chance_none,
+                    flags,
+                    entries,
+                    base_entries,
+                    base_chance_none,
+                },
+            );
+        }
+        let n = r.len()?;
+        let mut locations = HashMap::with_capacity(n);
+        for _ in 0..n {
+            let id = read_form_id(&mut r)?;
+            let cleared = r.bool()?;
+            let k = r.len()?;
+            let mut keyword_data = BTreeMap::new();
+            for _ in 0..k {
+                let kw = read_form_id(&mut r)?;
+                keyword_data.insert(kw, r.f32()?);
+            }
+            locations.insert(
+                id,
+                LocationState {
+                    cleared,
+                    keyword_data,
+                },
+            );
+        }
+        let n = r.len()?;
+        let mut factions = HashMap::with_capacity(n);
+        for _ in 0..n {
+            let id = read_form_id(&mut r)?;
+            let k = r.len()?;
+            let mut reactions = BTreeMap::new();
+            for _ in 0..k {
+                let other = read_form_id(&mut r)?;
+                reactions.insert(other, r.i32()?);
+            }
+            factions.insert(
+                id,
+                FactionState {
+                    reactions,
+                    crime_gold_violent: r.i32()?,
+                    crime_gold_nonviolent: r.i32()?,
+                    infamy_violent: r.i32()?,
+                    infamy_nonviolent: r.i32()?,
+                    player_expelled: r.bool()?,
+                    player_enemy: r.bool()?,
+                    tracks_crime: r.bool()?,
+                },
+            );
+        }
+        let n = r.len()?;
+        let mut actor_bases = HashMap::with_capacity(n);
+        for _ in 0..n {
+            let id = read_form_id(&mut r)?;
+            actor_bases.insert(
+                id,
+                ActorBaseState {
+                    essential: r.bool()?,
+                    protected: r.bool()?,
+                    invulnerable: r.bool()?,
+                    unique: r.bool()?,
+                    female: r.bool()?,
+                    race: read_opt_form_id(&mut r)?,
+                    class: read_opt_form_id(&mut r)?,
+                    outfit: read_opt_form_id(&mut r)?,
+                    sleep_outfit: read_opt_form_id(&mut r)?,
+                    dead_count: r.i32()?,
+                },
+            );
+        }
+        let n = r.len()?;
+        let mut cells = HashMap::with_capacity(n);
+        for _ in 0..n {
+            let id = read_form_id(&mut r)?;
+            cells.insert(
+                id,
+                CellState {
+                    owner: read_opt_form_id(&mut r)?,
+                    public: r.bool()?,
+                },
+            );
+        }
+        let n = r.len()?;
+        let mut settings = HashMap::with_capacity(n);
+        for _ in 0..n {
+            let k = r.str()?;
+            settings.insert(k, table.read_value(&mut r)?);
+        }
+        let n = r.len()?;
+        let mut inventory_filters = HashMap::with_capacity(n);
+        for _ in 0..n {
+            let o = ObjectId(r.u64()?);
+            let k = r.len()?;
+            let mut list = Vec::with_capacity(k);
+            for _ in 0..k {
+                list.push(read_form_id(&mut r)?);
+            }
+            inventory_filters.insert(o, list);
+        }
+        let sleep_listeners = read_object_list(&mut r)?;
+        let stats_listeners = read_object_list(&mut r)?;
+        let n = r.len()?;
+        let mut animation_listeners = Vec::with_capacity(n);
+        for _ in 0..n {
+            animation_listeners.push(AnimationListener {
+                listener: ObjectId(r.u64()?),
+                sender: read_form_id(&mut r)?,
+                event: r.str()?,
+            });
+        }
+        let n = r.len()?;
+        let mut los_listeners = Vec::with_capacity(n);
+        for _ in 0..n {
+            los_listeners.push(LosListener {
+                listener: ObjectId(r.u64()?),
+                viewer: read_form_id(&mut r)?,
+                target: read_form_id(&mut r)?,
+                single: r.bool()?,
+                gain: r.bool()?,
+            });
+        }
+        let n = r.len()?;
+        let mut stats = BTreeMap::new();
+        for _ in 0..n {
+            let k = r.str()?;
+            stats.insert(k, r.i32()?);
+        }
+        let fast_travel = r.bool()?;
+        let player_ai_driven = r.bool()?;
+        let in_chargen = r.bool()?;
+        let beast_form = r.bool()?;
+        let words_taught = read_form_set(&mut r)?;
+        let words_unlocked = read_form_set(&mut r)?;
+        let n = r.len()?;
+        let mut achievements = Vec::with_capacity(n);
+        for _ in 0..n {
+            achievements.push(r.i32()?);
+        }
+        let last_ridden_horse = read_opt_form_id(&mut r)?;
+        let scenes = read_form_set(&mut r)?;
+        let n = r.len()?;
+        let mut sound_instances = BTreeMap::new();
+        for _ in 0..n {
+            let id = r.i32()?;
+            let sound = read_form_id(&mut r)?;
+            let source = read_form_id(&mut r)?;
+            sound_instances.insert(id, (sound, source, r.f32()?));
+        }
+        let next_sound = r.i32()?;
+        let n = r.len()?;
+        let mut spell_casts = Vec::with_capacity(n);
+        for _ in 0..n {
+            let spell = read_form_id(&mut r)?;
+            let source = read_form_id(&mut r)?;
+            spell_casts.push((spell, source, read_opt_form_id(&mut r)?));
+        }
         r.expect_end()?;
+
+        self.leveled_lists = leveled_lists;
+        self.locations = locations;
+        self.factions = factions;
+        self.actor_bases = actor_bases;
+        self.cells = cells;
+        self.settings = settings;
+        self.inventory_filters = inventory_filters;
+        self.sleep_listeners = sleep_listeners;
+        self.stats_listeners = stats_listeners;
+        self.animation_listeners = animation_listeners;
+        self.los_listeners = los_listeners;
+        self.stats = stats;
+        self.fast_travel = fast_travel;
+        self.player_ai_driven = player_ai_driven;
+        self.in_chargen = in_chargen;
+        self.beast_form = beast_form;
+        self.words_taught = words_taught;
+        self.words_unlocked = words_unlocked;
+        self.achievements = achievements;
+        self.last_ridden_horse = last_ridden_horse;
+        self.scenes = scenes;
+        self.sound_instances = sound_instances;
+        self.next_sound = next_sound;
+        self.spell_casts = spell_casts;
 
         self.objects = objects;
         self.handles = handles;
@@ -1435,7 +2365,7 @@ impl World {
 /// block inside the whole-game save `Game::save_state` writes, self-describing
 /// on its own so a truncated or foreign blob is caught here too.
 pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
-pub const SAVE_VERSION: u16 = 1;
+pub const SAVE_VERSION: u16 = 2;
 
 fn write_form_id(w: &mut Writer, id: GlobalFormId) {
     w.u16(id.file);
@@ -1549,6 +2479,12 @@ fn write_ref_state(w: &mut Writer, s: &RefState) {
         None => w.bool(false),
     }
     w.bool(s.is_actor);
+    write_opt_form_id(w, s.owner);
+    write_opt_form_id(w, s.location);
+    w.bool(s.on_map);
+    w.bool(s.fast_travel);
+    w.bool(s.destroyed);
+    w.bool(s.ignore_friendly_hits);
 }
 
 fn read_ref_state(r: &mut Reader<'_>) -> Result<RefState, VmError> {
@@ -1588,6 +2524,12 @@ fn read_ref_state(r: &mut Reader<'_>) -> Result<RefState, VmError> {
         None
     };
     let is_actor = r.bool()?;
+    let owner = read_opt_form_id(r)?;
+    let location = read_opt_form_id(r)?;
+    let on_map = r.bool()?;
+    let fast_travel = r.bool()?;
+    let destroyed = r.bool()?;
+    let ignore_friendly_hits = r.bool()?;
     Ok(RefState {
         base,
         cell,
@@ -1605,6 +2547,12 @@ fn read_ref_state(r: &mut Reader<'_>) -> Result<RefState, VmError> {
         linked,
         teleport,
         is_actor,
+        owner,
+        location,
+        on_map,
+        fast_travel,
+        destroyed,
+        ignore_friendly_hits,
     })
 }
 
@@ -1645,6 +2593,65 @@ fn write_actor_state(w: &mut Writer, a: &ActorState) {
     if let Some(race) = a.race {
         write_form_id(w, race);
     }
+    write_form_set(w, &a.perks);
+    for flag in [
+        a.alerted,
+        a.sneaking,
+        a.weapon_drawn,
+        a.restrained,
+        a.arrested,
+        a.attack_on_sight,
+        a.dont_move,
+        a.allow_pc_dialogue,
+    ] {
+        w.bool(flag);
+    }
+    w.len(a.relationships.len());
+    for (id, rank) in &a.relationships {
+        write_form_id(w, *id);
+        w.i32(*rank);
+    }
+    for id in [
+        a.combat_target,
+        a.crime_faction,
+        a.outfit,
+        a.sleep_outfit,
+        a.killer,
+    ] {
+        write_opt_form_id(w, id);
+    }
+}
+
+fn write_form_set(w: &mut Writer, set: &BTreeSet<GlobalFormId>) {
+    w.len(set.len());
+    for id in set {
+        write_form_id(w, *id);
+    }
+}
+
+fn read_form_set(r: &mut Reader<'_>) -> Result<BTreeSet<GlobalFormId>, VmError> {
+    let n = r.len()?;
+    let mut out = BTreeSet::new();
+    for _ in 0..n {
+        out.insert(read_form_id(r)?);
+    }
+    Ok(out)
+}
+
+fn write_object_list(w: &mut Writer, list: &[ObjectId]) {
+    w.len(list.len());
+    for o in list {
+        w.u64(o.0);
+    }
+}
+
+fn read_object_list(r: &mut Reader<'_>) -> Result<Vec<ObjectId>, VmError> {
+    let n = r.len()?;
+    let mut out = Vec::with_capacity(n);
+    for _ in 0..n {
+        out.push(ObjectId(r.u64()?));
+    }
+    Ok(out)
 }
 
 fn read_actor_state(r: &mut Reader<'_>) -> Result<ActorState, VmError> {
@@ -1684,6 +2691,25 @@ fn read_actor_state(r: &mut Reader<'_>) -> Result<ActorState, VmError> {
     if r.bool()? {
         a.race = Some(read_form_id(r)?);
     }
+    a.perks = read_form_set(r)?;
+    a.alerted = r.bool()?;
+    a.sneaking = r.bool()?;
+    a.weapon_drawn = r.bool()?;
+    a.restrained = r.bool()?;
+    a.arrested = r.bool()?;
+    a.attack_on_sight = r.bool()?;
+    a.dont_move = r.bool()?;
+    a.allow_pc_dialogue = r.bool()?;
+    let n = r.len()?;
+    for _ in 0..n {
+        let id = read_form_id(r)?;
+        a.relationships.insert(id, r.i32()?);
+    }
+    a.combat_target = read_opt_form_id(r)?;
+    a.crime_faction = read_opt_form_id(r)?;
+    a.outfit = read_opt_form_id(r)?;
+    a.sleep_outfit = read_opt_form_id(r)?;
+    a.killer = read_opt_form_id(r)?;
     Ok(a)
 }
 
@@ -1721,6 +2747,11 @@ fn write_quest_mutable(w: &mut Writer, q: &QuestState) {
     for (id, target) in &q.aliases {
         w.u32(*id);
         write_opt_form_id(w, *target);
+    }
+    w.len(q.instance_globals.len());
+    for (id, v) in &q.instance_globals {
+        write_form_id(w, *id);
+        w.f32(*v);
     }
 }
 
@@ -1784,10 +2815,34 @@ pub fn class_for_tag(tag: &[u8; 4]) -> &'static str {
         b"AMMO" => "Ammo",
         b"LVLI" => "LeveledItem",
         b"LVLN" => "LeveledActor",
+        b"LVSP" => "LeveledSpell",
         b"IMAD" => "ImageSpaceModifier",
         b"WTHR" => "Weather",
         b"TXST" => "TextureSet",
         b"OTFT" => "Outfit",
+        b"CLAS" => "Class",
+        b"CSTY" => "CombatStyle",
+        b"VTYP" => "VoiceType",
+        b"MUSC" => "MusicType",
+        b"SLGM" => "SoulGem",
+        b"SCRL" => "Scroll",
+        b"APPA" => "Apparatus",
+        b"FLOR" => "Flora",
+        b"TACT" => "TalkingActivator",
+        b"EXPL" => "Explosion",
+        b"PROJ" => "Projectile",
+        b"HAZD" => "Hazard",
+        b"EFSH" => "EffectShader",
+        b"ECZN" => "EncounterZone",
+        b"DIAL" => "Topic",
+        b"INFO" => "TopicInfo",
+        b"ARTO" => "Art",
+        b"IPDS" => "ImpactDataSet",
+        b"HDPT" => "HeadPart",
+        b"CLFM" => "ColorForm",
+        b"ASTP" => "AssociationType",
+        b"LCRT" => "LocationRefType",
+        b"COBJ" => "ConstructibleObject",
         _ => "Form",
     }
 }
