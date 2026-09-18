@@ -15,6 +15,7 @@
 //! tick <seconds>
 //! event <form> <EventName>
 //! stage <quest> <n>
+//! debug <command line>            see `crate::debug`
 //! expect stage <quest> <op> <n>
 //! expect stage-done <quest> <n> [true|false]
 //! expect objective <quest> <n> displayed|completed|failed [true|false]
@@ -126,10 +127,22 @@ pub enum Check {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Step {
-    Activate { target: String, activator: String },
+    Activate {
+        target: String,
+        activator: String,
+    },
     Tick(f64),
-    Event { form: String, name: String },
-    Stage { quest: String, stage: u16 },
+    Event {
+        form: String,
+        name: String,
+    },
+    Stage {
+        quest: String,
+        stage: u16,
+    },
+    /// A [`crate::debug`] command line, which is how a scenario reaches a
+    /// state the gameplay path does not produce on its own.
+    Debug(String),
     Expect(Check),
 }
 
@@ -221,6 +234,13 @@ fn parse_step(body: &str) -> Result<Step, String> {
             quest: arg(1)?.to_string(),
             stage: stage_index(arg(2)?)?,
         },
+        "debug" => {
+            let rest = body["debug".len()..].trim();
+            if rest.is_empty() {
+                return Err("expected `debug <command line>`".into());
+            }
+            Step::Debug(rest.to_string())
+        }
         "expect" => Step::Expect(match arg(1)? {
             "stage" => Check::Stage {
                 quest: arg(2)?.to_string(),
@@ -308,6 +328,9 @@ fn resolve(game: &mut Game, name: &str) -> Result<GlobalFormId, String> {
 /// land in the report.
 pub fn run(game: &mut Game, scenario: &Scenario) -> Report {
     let mut report = Report::default();
+    // One console for the whole scenario, so a `prid` in one step selects
+    // the target the next step works on, the way it does in the game.
+    let mut console = crate::debug::Console::new();
     for (line, step) in &scenario.steps {
         report.steps += 1;
         let outcome = match step {
@@ -334,6 +357,7 @@ pub fn run(game: &mut Game, scenario: &Scenario) -> Report {
                     Err(format!("{quest} has no stage {stage}"))
                 }
             }),
+            Step::Debug(command) => console.run(game, command).map(|_| ()),
             Step::Expect(check) => {
                 report.checks += 1;
                 evaluate(game, check)
@@ -544,9 +568,15 @@ mod tests {
             expect notification "Lever pulled"
             expect trace "MQ01 init"
             expect traces-match captures/lever.log
+            debug player.setav health 50
         "#;
         let s = Scenario::parse(text).unwrap();
-        assert_eq!(s.steps.len(), 17);
+        assert_eq!(s.steps.len(), 18);
+        assert_eq!(
+            s.steps[17].1,
+            Step::Debug("player.setav health 50".to_string())
+        );
+        assert!(Scenario::parse("debug").is_err());
         assert_eq!(
             s.steps[1].1,
             Step::Activate {

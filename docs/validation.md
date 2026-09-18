@@ -174,3 +174,80 @@ or compiler versions (the hash compares bit patterns, so a different build
 of the same code can hash differently and still behave the same), and
 anything the world does not store, such as a native that reads the wall
 clock and does not write the result into state.
+
+## Debug commands (2026-09-18, branch `debug-commands`)
+
+Some behaviour cannot be checked against the installed game because the state
+it needs is unreachable from a cold `Game::start`, which runs the quests
+flagged Start Game Enabled and stops. The Dawnguard vampire turn is the
+example: it needs dialogue and a player actor that start never produces, so
+its check had to build a synthetic plugin. Skyrim answers the same problem
+with its console, and `crates/game/src/debug.rs` is that command layer
+without a UI. A scenario reaches it through the `debug` step, a Rust test
+through `Console::run`.
+
+Every command is an ordinary operation on `World` and the VM. The ones that
+run a Papyrus function assemble a one-function probe script and execute a
+real `CallMethod`, because `Vm::call` finds only functions a loaded script
+defines and natives are dispatched by the interpreter's own opcode handler.
+So the instruction under test is the one a vanilla script compiles to, and no
+command reaches a state the engine could not reach on its own.
+
+### Moved from synthetic to live
+
+`crates/game/tests/debug_live.rs`, gated on `SKYRIM_DATA`.
+
+| Check | Was | Is now |
+|---|---|---|
+| Vampirism state change | A synthetic actor with a watcher script | `player.setvampire` on the installed game, plus the werewolf sender |
+| A quest advancing through its stages | A synthetic quest with six stages | A dormant vanilla quest found in the load order, `startquest` then every stage it defines (`dunEldergleamT03`, 6 of 6 set) |
+| Package evaluation | A synthetic NPC with a travel package | `pridbase Hulda` then `evp`, which resolves package `0:018959` |
+
+`Hulda` names an actor base, not a placed reference, and a vanilla `ACHR`
+usually carries no editor id of its own. `pridbase` walks from the base to
+the reference that places it, which is what makes an actor selectable by
+name at all.
+
+### What is still synthetic, and why
+
+The event delivery half of the vampirism check. Three loaded scripts define
+`OnVampirismStateChanged` (`ActiveMagicEffect`, `Actor`, `ReferenceAlias`)
+and all three are base classes declaring the signature, not subscribers. No
+bound actor reference carries a script that handles it, so on a cold start
+the event has nowhere to land and `player.setvampire true` adds no log line.
+The live test proves the native runs and changes state over vanilla records.
+That the event reaches a listening script stays proved by the synthetic
+scenario in `natives_dlc.rs`, which attaches one. Both halves are needed and
+neither replaces the other.
+
+### A claim to check against a real save, not verified behaviour
+
+The user's saves under `engine-refs/saves/` cover the Dawnguard vampire path,
+and 23 and 24 bracket the moment the player becomes a vampire lord. Once
+`crates/save` can read them, diff the list below against what actually
+changed between those two saves. Everything here is what the engine does
+today, stated so the gap can be found, not a claim that it matches.
+
+`setvampire true` on a target does exactly this and nothing else:
+
+- Runs `Actor.SendVampirismStateChanged(true)` through a real `CallMethod`.
+- The native sets one field, `ActorState.vampire`.
+- The native fires one event, `OnVampirismStateChanged(abIsVampire)`, to the
+  scripts attached to that actor.
+
+It does not touch race, spells, perks, keywords, actor values, eye texture,
+the sun damage effect, the vampire feed state, any faction, or any global.
+In vanilla none of those is the native's job either: the native announces,
+and the Dawnguard quest scripts do the rest. So the honest reading of a diff
+against saves 23 and 24 is a question about those scripts, not about this
+command. What to look for:
+
+1. Which of the changes between 23 and 24 the vanilla scripts make, and
+   whether those scripts run here when the event is delivered.
+2. Which changes the real engine makes outside Papyrus, since anything in
+   that group needs engine work rather than a script.
+3. Whether `ActorState.vampire` corresponds to anything the save records, or
+   whether vanilla keeps the state only in a quest variable and a race.
+
+Until that diff exists, treat `setvampire` as "the announcement fires and one
+flag moves", which is what the tests assert, and nothing more.
