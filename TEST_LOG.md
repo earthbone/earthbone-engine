@@ -168,3 +168,33 @@ blocked: the four files the plan scopes it to (`vm.rs`, `value.rs`,
 `load_order.rs`, `cell_index.rs`) are all still the right targets, and the two
 VM limits added in entry 2 give it more to chew on than it would have had
 before.
+
+## 2026-09-18, the lead, after merging `test-phase2`
+
+The tiering problem the branch raised is fixed in `tools/lint.sh` rather than
+left as a note. The gate's test step now runs with `SKYRIM_DATA`,
+`SOE_TEST_SAVE` and `SOE_TEST_SAVES` unset, which is what tier 1 was always
+meant to be.
+
+| Run | Tests | Time |
+|---|---|---|
+| Tier 1, the commit gate, debug, nothing gated | 636 in 79 suites | 12 s |
+| Tier 2, release with the game and the save corpus | 650 in 79 suites | 161 s |
+
+So tier 1 costs 12 seconds against a five minute budget, and the 692 seconds
+the branch measured was entirely the gated work, which now sits in tier 2 where
+it belongs. Run tier 2 before a merge, not before a commit.
+
+The gate also checks formatting in the `fuzz/` workspace, which is a second
+cargo workspace that every other command walks past. That is why its seed
+helpers went unformatted. Clippy and tests there still need the nightly
+toolchain `cargo-fuzz` wants, so the gate checks what a stable toolchain can and
+says so when it cannot.
+
+Still open from the branch, and correctly so: `fuzz-pex-grammar` finds an
+instruction count written as 2 and read back as 1, which means the reader drops
+an instruction from a stream the assembler emits. The fix depends on which side
+is wrong, so the nightly tier fails on that target until someone decides. Fault
+injection and mutation testing did not land, the first because the save write
+path sits in a crate another fork holds, the second because `cargo-mutants` is
+not installed and installing it globally was out of scope.

@@ -60,7 +60,22 @@ else
   echo "markdownlint-cli2 not installed, skipping"
 fi
 
-step "cargo test --workspace"
-cargo test --workspace
+# The fuzz targets are their own cargo workspace, so every command above walks
+# past them. Their seed helpers went unformatted until 2026-09-18 for exactly
+# that reason. Building them needs the nightly toolchain cargo-fuzz wants, so
+# this checks what a stable toolchain can and says so when it cannot.
+step "fuzz workspace formatting"
+if [ -f fuzz/Cargo.toml ]; then
+  cargo fmt --manifest-path fuzz/Cargo.toml --all --check
+else
+  echo "no fuzz workspace, skipping"
+fi
+
+# Tier 1 is this run: no SKYRIM_DATA, no save corpus, under five minutes. The
+# gated runs against the installed game and the 60 save corpus are tier 2 and
+# take about twelve minutes in debug, so they are not in the commit gate. Run
+# them with SKYRIM_DATA and SOE_TEST_SAVES set, in release, before a merge.
+step "cargo test --workspace (tier 1, gated tests skipped)"
+env -u SKYRIM_DATA -u SOE_TEST_SAVE -u SOE_TEST_SAVES cargo test --workspace
 
 echo "==> lint gate passed"
