@@ -308,3 +308,28 @@ uncleaned masters as shipped. The validation runner reports counts per plugin fo
 | Item | Branch | Done check |
 |---|---|---|
 | Deleted record semantics | `dirty-records` | A deleted `REFR` or `ACHR` winner resolves and is disabled at start (the cell index keeps it, flagged), a deleted `NAVM` drops with edge repair, the counts of identical-to-master overrides, deleted references and deleted navmeshes are reported per plugin, tested on the four uncleaned vanilla masters and on a synthetic dirty plugin. |
+
+## Tooling survey, 2026-09-18, and the items it corrects
+
+`../research/open-source-tooling.md` surveys what the open mod tool ecosystem already solves, per
+subsystem, after the user's rule that nothing gets reimplemented when tooling exists. Its leading
+finding is about us, not about the ecosystem: `../engine-refs/` already held about 50 repositories,
+and several of them answer questions this engine had since solved by hand. Read that document and
+the corpus before opening any plan item below.
+
+Four items change. The done checks stand, the route to them does not.
+
+| Item | Was | Now |
+|---|---|---|
+| `behavior-2` | Derive the unimplemented `hkb` classes from the Project Anarchy headers | `serde-hkx` is already cloned, MIT or Apache-2.0, last commit 2026-08-11, and carries 680 generated Havok class definitions of which 204 are `hkb`, each with the C++ name, signature hash, size per pointer width, and per field the ctype, both byte offsets, type size and serialization flags. Every class branch `behavior` left out is in there, `hkbBehaviorReferenceGenerator` and the modifiers included. The layouts become a port. The evaluation semantics stay ours, so the map's behavior risk narrows to semantics rather than disappearing. |
+| `psc` | Write a Papyrus source compiler | `Caprica` is already cloned and is a complete open Papyrus compiler under MIT. Use or port it, do not write a second one. |
+| `lod` | Build a reader for the BTO and BTR LOD formats | BTO and BTR are NIF files under different extensions, so consumption is two extensions on the existing `nif` reader plus the LOD specific blocks. Generation stays closed with no open alternative. |
+| `nif` block definitions | Hand written per block | `nifxml` is already cloned and declares the block layouts, so the readers could be generated from it instead of maintained by hand. |
+
+Also corrected: SkyUI carries no licence file at all and its last commit is 2015, so it is readable
+and not copyable, which is firmer than the map's "licence unconfirmed". Licence fragmentation in
+the risk register softens, three flagged areas now have permissive options.
+
+Gaps the survey confirms as genuinely open, with nothing to reuse: FaceGen runtime TRI, EGM and EGT
+blending, LIP decoded into phoneme timing (every tool copies it as an opaque blob), LOD generation,
+a GFx capable Flash runtime, the `hkb` evaluation semantics, and ENB's hook protocol.
