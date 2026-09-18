@@ -28,6 +28,14 @@ cargo clippy --workspace --lib --bins -- -D warnings
 step "cargo clippy --workspace --all-features --all-targets -- -D warnings"
 cargo clippy --workspace --all-features --all-targets -- -D warnings
 
+# Both ends of the feature range, because a helper gated on one feature while
+# its callers need two reads as dead code in between. That is how the viseme
+# test helpers slipped through on 2026-09-18: the fork ran only --all-features.
+# This does not cover every combination, so a crate with more than two features
+# wants cargo hack rather than another line here.
+step "cargo clippy --workspace --no-default-features --all-targets -- -D warnings"
+cargo clippy --workspace --no-default-features --all-targets -- -D warnings
+
 step "comment-lint crates docs"
 if command -v comment-lint >/dev/null 2>&1; then
   comment-lint crates docs
