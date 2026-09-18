@@ -3,21 +3,26 @@
 //! The LIP track, the mouth animation that rides along with a voice line
 //! inside a [`crate::fuz`] container.
 //!
-//! What is confirmed against the shipped files is the outer framing: a
-//! version word of 1 in every one of the 74,070 blocks in the English voice
-//! archive, and a second word that takes exactly two values there, 13 in
-//! 73,118 blocks and 9 in 952. Two values and nothing else looks like a
-//! track or curve count rather than a constant, but that is a reading of a
-//! histogram and not a decode, so the reader reports the number and draws no
-//! conclusion from it. What is **not** confirmed is how the body encodes
-//! phonemes and their weights, so this module refuses to invent a track.
-//! [`Lip::parse`] gives the framing and hands the body back as bytes, and
-//! `docs/audio.md` records the probes that ruled the obvious encodings out.
+//! LIP is FaceFX, a closed facial animation package, and the Creation Kit
+//! writes it from a wav plus the line's text. The header is no longer a
+//! guess: `FaceFXWrapper` declares it as three 32 bit fields, version, size
+//! and flags, with a static assertion pinning the struct to 12 bytes, and
+//! every one of the 74,070 blocks in the shipped English voice archive agrees
+//! (`../research/lip-format.md`). An earlier reading here used a 24 byte
+//! header, which put the body slice twelve bytes late.
 //!
-//! This is the one piece of the audio work that is still open. A caller can
-//! already tell whether a line has mouth data, how long the block is and what
-//! its header says, which is enough to carry it through the pipeline intact
-//! and enough to drive a fallback mouth animation from the audio envelope.
+//! The flags are named rather than counted. Vanilla writes two values, 13 and
+//! 9, which differ in [`HAS_GESTURES`] alone, and the 952 blocks without it
+//! are creature voices. `size` is larger than the block in every shipped file,
+//! median ratio 3.62, so it measures the animation expanded rather than the
+//! bytes on disk.
+//!
+//! The body is still handed back undecoded, but it is not opaque and, despite
+//! the [`COMPRESSED`] flag, it is not byte compressed: little endian floats
+//! sit at byte boundaries in ascending runs that plateau at 1.0 and fall away,
+//! which is an animation curve. The reader refuses to invent a track from
+//! that until a decode is confirmed, so a caller gets the framing, the flags
+//! and the bytes.
 
 use crate::error::{Error, Result};
 use crate::riff::u32_at;
@@ -25,28 +30,42 @@ use crate::riff::u32_at;
 /// The only version the shipped files carry.
 pub const VERSION: u32 = 1;
 
-/// The version word plus the five words after it, all of which the files fill
-/// in before the curve body starts.
-pub const HEADER_WORDS: usize = 6;
+/// Version, size and flags, three 32 bit fields.
+pub const HEADER_LEN: usize = 12;
 
-/// The header in bytes.
-pub const HEADER_LEN: usize = HEADER_WORDS * 4;
+/// The body is stored in FaceFX's own packed form. It does not mean a
+/// general purpose compressor was applied.
+pub const COMPRESSED: u32 = 1;
 
-/// Word 2 of the header. Its meaning is not established, so the reader
-/// records it rather than acting on it.
-pub const CONSTANT_WORD_INDEX: usize = 2;
+/// Byte order of the body. No shipped file sets it.
+pub const BIG_ENDIAN: u32 = 2;
 
-/// The only two values word 2 takes across the English voice archive.
-pub const KNOWN_WORD_2: [u32; 2] = [9, 13];
+/// The block carries gesture curves as well as mouth targets. Vanilla creature
+/// voices are the files that lack it.
+pub const HAS_GESTURES: u32 = 4;
 
-/// A LIP block: its header words, and its body still encoded.
+/// The target count is stored rather than assumed.
+pub const VARIABLE_TARGETS: u32 = 8;
+
+/// Mouth targets Skyrim animates, against 43 for Fallout 4.
+pub const TARGETS: usize = 16;
+
+/// The two flag combinations the English voice archive writes.
+pub const KNOWN_FLAGS: [u32; 2] = [
+    COMPRESSED | VARIABLE_TARGETS,
+    COMPRESSED | HAS_GESTURES | VARIABLE_TARGETS,
+];
+
+/// A LIP block: its header, and its body still encoded.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Lip<'a> {
+    /// Always 1 in shipped files.
     pub version: u32,
-    /// The six header words verbatim, index 0 being the version. Only index
-    /// 0 and index 2 have known values, see the module docs.
-    pub words: [u32; HEADER_WORDS],
-    /// Everything after the header, the float curve data, undecoded.
+    /// The animation's size expanded, not the length of `body`.
+    pub size: u32,
+    /// The flag word, read through the accessors below.
+    pub flags: u32,
+    /// Everything after the header, the curve data, undecoded.
     pub body: &'a [u8],
 }
 
@@ -65,46 +84,66 @@ impl<'a> Lip<'a> {
                 have: bytes.len(),
             });
         }
-        let mut words = [0u32; HEADER_WORDS];
-        for (i, w) in words.iter_mut().enumerate() {
-            *w = u32_at(bytes, i * 4).unwrap_or_default();
-        }
-        if words[0] != VERSION {
+        let version = u32_at(bytes, 0).unwrap_or_default();
+        if version != VERSION {
             return Err(Error::Malformed {
                 what: "LIP header",
-                why: format!("version word is {}, expected {VERSION}", words[0]),
+                why: format!("version word is {version}, expected {VERSION}"),
             });
         }
         Ok(Self {
-            version: words[0],
-            words,
+            version,
+            size: u32_at(bytes, 4).unwrap_or_default(),
+            flags: u32_at(bytes, 8).unwrap_or_default(),
             body: &bytes[HEADER_LEN..],
         })
     }
 
-    /// Header word 2, so a caller can see whether a file departs from the two
-    /// values the shipped archive uses.
+    /// True when the body is in FaceFX's packed form, which every shipped
+    /// file is.
     #[must_use]
-    pub fn constant_word(&self) -> u32 {
-        self.words[CONSTANT_WORD_INDEX]
+    pub fn compressed(&self) -> bool {
+        self.flags & COMPRESSED != 0
     }
 
-    /// True when word 2 is one of the two values vanilla writes. A block that
-    /// fails this still parses, it is just outside what has been measured.
+    /// True when the body is big endian. No shipped file sets this.
+    #[must_use]
+    pub fn big_endian(&self) -> bool {
+        self.flags & BIG_ENDIAN != 0
+    }
+
+    /// True when gesture curves follow the mouth targets. Vanilla creature
+    /// voices are the files where this is false.
+    #[must_use]
+    pub fn has_gestures(&self) -> bool {
+        self.flags & HAS_GESTURES != 0
+    }
+
+    /// True when the target count is stored in the body rather than assumed.
+    #[must_use]
+    pub fn variable_targets(&self) -> bool {
+        self.flags & VARIABLE_TARGETS != 0
+    }
+
+    /// True when the flags are one of the two combinations vanilla writes. A
+    /// block that fails this still parses, it is just outside what has been
+    /// measured.
     #[must_use]
     pub fn matches_vanilla_shape(&self) -> bool {
-        self.version == VERSION && KNOWN_WORD_2.contains(&self.constant_word())
+        self.version == VERSION && KNOWN_FLAGS.contains(&self.flags)
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{Lip, HEADER_LEN, KNOWN_WORD_2, VERSION};
+    use super::{
+        Lip, COMPRESSED, HAS_GESTURES, HEADER_LEN, KNOWN_FLAGS, VARIABLE_TARGETS, VERSION,
+    };
     use crate::error::Error;
 
-    fn block(words: [u32; 6], body: &[u8]) -> Vec<u8> {
+    fn block(version: u32, size: u32, flags: u32, body: &[u8]) -> Vec<u8> {
         let mut out = Vec::new();
-        for w in words {
+        for w in [version, size, flags] {
             out.extend_from_slice(&w.to_le_bytes());
         }
         out.extend_from_slice(body);
@@ -112,39 +151,60 @@ mod tests {
     }
 
     #[test]
-    fn the_header_words_and_body_come_back_whole() {
-        let bytes = block(
-            [VERSION, 22468, 13, 196663, 0xffff_fff5, 196624],
-            &[7, 7, 7],
-        );
+    fn the_header_fields_and_body_come_back_whole() {
+        let bytes = block(VERSION, 22468, 13, &[7, 7, 7]);
         let lip = Lip::parse(&bytes).unwrap();
         assert_eq!(lip.version, VERSION);
-        assert_eq!(lip.constant_word(), 13);
-        assert_eq!(lip.words[1], 22468);
+        assert_eq!(lip.size, 22468);
+        assert_eq!(lip.flags, 13);
         assert_eq!(lip.body, &[7, 7, 7]);
         assert_eq!(bytes.len(), HEADER_LEN + 3);
         assert!(lip.matches_vanilla_shape());
     }
 
     #[test]
-    fn a_block_that_departs_from_the_vanilla_shape_is_flagged_not_refused() {
-        let bytes = block([VERSION, 1, 99, 0, 0, 0], &[]);
+    fn the_body_starts_at_twelve_bytes_not_twenty_four() {
+        let body: Vec<u8> = (0u8..32).collect();
+        let bytes = block(VERSION, 1, 13, &body);
         let lip = Lip::parse(&bytes).unwrap();
-        assert!(!lip.matches_vanilla_shape());
-        assert_eq!(lip.constant_word(), 99);
+        assert_eq!(lip.body[0], 0, "body must start right after three words");
+        assert_eq!(lip.body.len(), body.len());
     }
 
     #[test]
-    fn both_values_the_archive_writes_count_as_the_vanilla_shape() {
-        for word in KNOWN_WORD_2 {
-            let bytes = block([VERSION, 1, word, 0, 0, 0], &[]);
-            assert!(Lip::parse(&bytes).unwrap().matches_vanilla_shape());
-        }
+    fn the_two_vanilla_flag_words_decode_to_their_names() {
+        let gestures = block(VERSION, 1, 13, &[]);
+        let with = Lip::parse(&gestures).unwrap();
+        assert!(with.compressed() && with.has_gestures() && with.variable_targets());
+        assert!(!with.big_endian());
+
+        let creature = block(VERSION, 1, 9, &[]);
+        let without = Lip::parse(&creature).unwrap();
+        assert!(without.compressed() && without.variable_targets());
+        assert!(
+            !without.has_gestures(),
+            "9 is the creature voice case, gestures absent"
+        );
+    }
+
+    #[test]
+    fn the_known_flag_words_are_the_two_the_archive_writes() {
+        assert_eq!(KNOWN_FLAGS, [9, 13]);
+        assert_eq!(COMPRESSED | VARIABLE_TARGETS, 9);
+        assert_eq!(COMPRESSED | HAS_GESTURES | VARIABLE_TARGETS, 13);
+    }
+
+    #[test]
+    fn a_block_that_departs_from_the_vanilla_shape_is_flagged_not_refused() {
+        let bytes = block(VERSION, 1, 99, &[]);
+        let lip = Lip::parse(&bytes).unwrap();
+        assert!(!lip.matches_vanilla_shape());
+        assert_eq!(lip.flags, 99);
     }
 
     #[test]
     fn a_bad_version_is_refused_with_the_number() {
-        let bytes = block([4, 0, 13, 0, 0, 0], &[]);
+        let bytes = block(4, 0, 13, &[]);
         match Lip::parse(&bytes) {
             Err(Error::Malformed { why, .. }) => assert!(why.contains('4'), "{why}"),
             other => panic!("expected Malformed, got {other:?}"),

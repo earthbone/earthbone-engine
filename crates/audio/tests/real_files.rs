@@ -55,7 +55,11 @@ fn every_voice_file_splits_and_its_audio_half_parses() {
         if fuz.has_lip() {
             with_lip += 1;
             let lip = Lip::parse(fuz.lip).unwrap_or_else(|e| panic!("{name} lip: {e}"));
-            *lip_words.entry(lip.constant_word()).or_default() += 1;
+            *lip_words.entry(lip.flags).or_default() += 1;
+            assert!(
+                lip.compressed() && lip.variable_targets(),
+                "{name}: every shipped block is packed with a stored target count"
+            );
         } else {
             empty_lip += 1;
         }

@@ -35,7 +35,7 @@ so. Where something is ours, it is because nothing packaged existed.
 | RIFF WAVE | `hound` | Zero transitive dependencies, and the Creation Kit writes WAV. Cheaper than a reader of our own. | 1 |
 | WMA bitstream | ffmpeg, out of process, behind a feature | See below. | 0 |
 | FUZ container | ours, following Skyrim-NX-Toolkit | No crate exists. See the credits. | 0 |
-| LIP framing | ours, and deliberately incomplete | No crate and no specification exists. | 0 |
+| LIP framing | ours, header from `FaceFXWrapper`'s declaration, body still undecoded | No crate exists. The header is read from the wrapper's own struct, never copied from it, that repository carries no licence. | 0 |
 | xWMA container | ours, ffmpeg's `xwma` demuxer as the reference for `dpds` | No crate exists, and the container is about 120 lines. | 0 |
 
 Six crates in total, `lewton`, `byteorder`, `tinyvec`, `ogg`, `opus-decoder` and `hound`, plus
@@ -113,33 +113,43 @@ cumulative decoded bytes after each packet, so the last entry over the frame siz
 rate gives the exact duration without decoding a byte. `data` is the bitstream. `Xwma::to_bytes`
 rebuilds a standalone file, which is what the decoder seam hands over.
 
-### LIP, an open gap across the whole ecosystem
+### LIP, the header solved and the body still open
 
-This is the one part of the crate that does not do its job, and it is not for want of looking.
-The tooling survey checked every open FUZ tool and found the same thing in all of them: none
-decodes LIP into phoneme timing, each copies the block through untouched. So this crate splits it
-out, frames what is certain, hands the rest back as bytes, and records the gap here rather than
-shipping a track that would be invented.
+Later on 2026-09-18 the `lip-decode` analysis cracked the header outright, so what follows replaces
+an earlier section that had guessed at it. `../research/lip-format.md` carries the full work.
 
-Confirmed over the 74,070 LIP blocks in the English voice archive: the version word is 1 in every
-one of them, and header word 2 takes exactly two values, 13 in 73,118 blocks and 9 in 952. Two
-values and no others reads like a track or curve count, but that is a histogram, not a decode.
+`FaceFXWrapper` declares the header in `FFXW32/LipSynchAnim.h` as three 32 bit fields with a static
+assertion pinning the struct to 12 bytes, and all 74,070 blocks in the English voice archive agree:
 
-Ruled out by probing the shipped files:
+| Offset | Field | What it holds |
+|---|---|---|
+| 0 | `Version` | 1 in every shipped file |
+| 4 | `Size` | the animation expanded, never the bytes on disk. Larger than the block in every case, median ratio 3.62 |
+| 8 | `Flags` | `Compressed` 1, `BigEndian` 2, `HasGestures` 4, `VariableTargets` 8 |
 
-- There is no string table. A FaceFX style named-node serialisation would carry node names, and a
-  scan for printable runs finds only float bytes.
-- The body is not a fixed stride record list. Walking it as 7-byte records (a `u16` tag, an `f32`
-  and a pad) leaves a remainder on most files and produces floats spanning 1e18, which is noise.
-- Header word 1 is not a duration. Against real audio lengths from the packet table, the ratio
-  ranges from 4,051 to 10,144, so it is not a timebase.
-- It is not a simple byte count of the body either, the ratio runs from 3.2 to 4.8.
+That settles the open question from the first probe. The two values, 13 and 9, differ in
+`HasGestures` alone, and the 952 blocks without it are creature voices, Paarthurnax among the
+first. The same header also gives the mouth target count: 16 for Skyrim against 43 for Fallout 4.
 
-What works today: a caller can tell whether a line has mouth data, frame the header, carry the
-block through the pipeline unchanged, and drive a fallback mouth animation from the audio envelope.
-What does not: phoneme weights over time. Cracking that is its own reverse engineering item, and
-the honest next step is to generate LIP files from the Creation Kit with known inputs and diff them
-rather than to keep staring at shipped bytes.
+This crate had read a 24 byte header, so three body words were misread as header and the body slice
+started twelve bytes late. Fixed, with a test pinning the body to offset 12.
+
+The body is still handed back undecoded, but it is no longer opaque, and despite the `Compressed`
+flag it is not byte compressed. Plain little endian floats sit at byte boundaries in ascending runs
+that plateau at exactly 1.0 and fall away, which is an animation curve. Between values sits a
+recurring three byte group whose middle byte is usually a multiple of 4 with a decaying frequency,
+and gesture blocks repeat values in pairs the way a key with equal tangents would. Reading that
+middle byte as a time delta is plausible and unproven: correlating its per block sum against audio
+length scores 0.9096 where the plain value count scores 0.9222, so the test does not discriminate.
+
+Ruled out: general purpose compression of any kind, `Size` as a byte count, a string table, a fixed
+stride record list, and the six word header this crate used to read.
+
+Two routes remain, and they are recorded in `../ENGINE-PLAN.md`. Generating a viseme track from the
+audio with Rhubarb and testing candidate readings of the same line's body against its real times is
+the cheap one. Installing the Creation Kit under Proton and feeding `FaceFXWrapper` controlled
+inputs is the decisive one. Neither is needed for mouths to move, since the `visemes` item generates
+a track from audio and feeds the same consumer.
 
 ## Measured against the installed game
 
