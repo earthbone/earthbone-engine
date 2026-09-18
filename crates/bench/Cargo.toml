@@ -1,0 +1,22 @@
+[package]
+name = "soe-bench"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-or-later"
+description = "Performance harness for the Skyrim open engine: load order, archives, cell streaming, scripts, navmesh and save timings over the installed game"
+
+[[bin]]
+name = "soe-bench"
+path = "src/main.rs"
+
+[dependencies]
+soe-esm = { path = "../esm" }
+soe-bsa = { path = "../bsa" }
+soe-game = { path = "../game" }
+soe-papyrus = { path = "../papyrus" }
+soe-navmesh = { path = "../navmesh" }
+soe-trace = { path = "../trace" }
+soe-godot-host = { path = "../godot-host", default-features = false }
+
+[lints]
+workspace = true

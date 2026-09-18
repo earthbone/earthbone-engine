@@ -81,18 +81,30 @@ Open the corpus before writing a parser or a native, not after.
 - Natives are ordered by vanilla call count (`docs/papyrus.md`), semantics come
   from the CK wiki and play behaviour, never from the binary.
 
-## Status (2026-09-14)
+## Status (2026-09-18)
 
 - Rounds 1 and 2 merged. Round 3 merged so far: live validation (every gated
   test ran on the installed game, numbers in each `docs/<crate>.md`), actor
   base stats from `NPC_`, VM and world save and load (formats SOEV, SOEW,
   SOEG), Godot 4.4.1 loading the extension headless (`tools/godot/`,
-  `godot/headless_test.gd`). Open in round 3: parser fuzzing (branch `fuzz`),
-  the behavior interpreter, packages and AI, the next hundred natives.
-- Known gaps from the live run: the game crate binds 0 of 28,152 vanilla
-  scripts because they ship inside `Skyrim - Misc.bsa` and `bind` reads loose
-  files only (mirror the papyrus test's BSA path), and `godot-host` does not
-  link esm, bsa or nif yet so it streams synthetic cells.
+  `godot/headless_test.gd`), parser fuzzing (`fuzz/`, `docs/fuzz.md`, five
+  crashes fixed), vanilla scripts loaded from the BSA (28,143 of 28,152
+  attachments bound), and a real cell streamed through esm, bsa and nif
+  (`WhiterunBanneredMare`, 318 statics, 124,924 triangles), materials and
+  textures on it (46 sets, 88 textures), full-property setters in the VM (97
+  stale vanilla properties left), and the performance harness (`soe-bench`,
+  `crates/trace`, `docs/performance.md`: Bannered Mare streams in 0.44 s of
+  which 0.36 s is the reference scan, Godot draws it at 56 ms per frame from
+  763 unbatched nodes, VM 12.7M instructions per second). Open in round 3:
+  the behavior interpreter (start from `../research/behavior-graph-references.md`,
+  the Project Anarchy headers are the semantics source), packages and AI, the
+  next hundred natives, a cell-to-reference index and surface batching (the two
+  hot spots the trace found), and the unnamed-native dispatch bug on quest
+  start (branch `vm-callname`).
+- Branch `vm-props` (worktree `../soe-props`) holds an unmerged second
+  implementation of full-property setters with `get_property` and a
+  read-only variant. Master got the same fix from another session on
+  2026-09-17, so merge only the extra pieces or drop the branch.
 - Untested live: a real Proton launch, natives against the CK wiki pages.
 - Language decision (2026-09-14): runtime crates stay Rust. Go only for a
   tooling component where it eases maintenance, behind a protobuf seam.

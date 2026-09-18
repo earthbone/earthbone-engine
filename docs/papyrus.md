@@ -216,6 +216,14 @@ VM that carries `Actor`, `ObjectReference` and `Form`.
 
 ## Not done, and known gaps
 
+- Found by the trace on 2026-09-17 (`docs/performance.md`): during
+  `Game::start` over the vanilla scripts the VM reaches `call_native` 1,183
+  times with the function name `None` and walks the full class chain each
+  time, and no native by its real name appears at all. A method-call operand
+  decodes to `None` on the start path, most likely `CallParent` or a call on
+  a `None` object. Reproduce with `soe-bench trace scripts` and read the
+  `native` category in the summary. Not fixed on the `perf` branch, which
+  adds spans only.
 - Fallout 4 opcodes (`Is`, structs, the array mutators) parse but abort the
   thread with the line number when executed. Skyrim never emits them.
 - The lookup order inside a chain is per script, state then empty state. The

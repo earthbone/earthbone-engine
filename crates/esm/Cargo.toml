@@ -13,5 +13,6 @@ name = "soe_esm"
 path = "src/lib.rs"
 
 [dependencies]
+soe-trace = { path = "../trace" }
 flate2 = "1.1"
 thiserror = "2.0"
