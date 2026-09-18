@@ -789,6 +789,10 @@ impl DataSource {
                 self.index.references(cell_id).len() as u64,
             );
             let mut work: Vec<(String, Refr, GlobalFormId)> = Vec::new();
+            // A placed object whose winner is deleted is not in this slice,
+            // the index files it under `deleted_references` instead. It stays
+            // resolvable through the load order and the game starts it
+            // disabled, so there is nothing here to draw.
             for id in self.index.references(cell_id).iter().copied() {
                 let Some(rref) = self.order.winner_ref(id) else {
                     continue;

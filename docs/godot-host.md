@@ -48,6 +48,12 @@ The streamer assumes a requested load lands. A load that fails has to be reporte
 the streamer tracking load state itself, puts engine state into the decision logic and was
 what made every mod manager VFS in the notes hard to test.
 
+`stream_cell_id` walks the cell index, which keeps a placed object whose winning
+record carries the deleted flag out of the drawn list and files it under
+`deleted_references` instead (`docs/esm.md`, "Dirty plugins"). A deleted
+reference still resolves through the load order and the game starts it disabled,
+so the host never draws one and never has to test for it.
+
 Budget design for the Whiterun gate: the `StreamPlan` is the unit the host schedules. The
 intended loop is one `update` per frame, loads handed to a worker pool that decodes NIF and
 builds `SurfaceArrays` off the main thread, and only `array_mesh_from` plus scene insertion

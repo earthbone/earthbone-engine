@@ -12,9 +12,15 @@
 //!
 //! Override rules follow the form table. The cell a placed object belongs
 //! to is read from its winning record's placement, so a plugin that moves a
-//! reference into another cell moves it here too, and a winner carrying the
-//! deleted flag is left out. Cells are keyed by resolved id, exterior cells
-//! also by resolved worldspace id plus grid position.
+//! reference into another cell moves it here too. A placed object whose
+//! winner carries the deleted flag is kept under its last known cell in a
+//! separate list, `deleted_references`, so a script or a linked reference
+//! that still names it resolves and the game starts it disabled, which is
+//! what xEdit's undelete-and-disable cleaning would have produced. The hot
+//! `references` slice never lists it. A deleted `LAND` or `NAVM` winner is
+//! left out, the navmesh crate repairs the edge links that pointed at it.
+//! Cells are keyed by resolved id, exterior cells also by resolved
+//! worldspace id plus grid position.
 //!
 //! A worldspace's persistent references live in one cell placed directly
 //! under the `WRLD` children group rather than in any grid cell. The index
@@ -55,6 +61,9 @@ struct CellEntry {
     /// sorted by id so a walk over a cell is deterministic.
     placed: Vec<GlobalFormId>,
     persistent: usize,
+    /// Placed objects whose winner is deleted, sorted by id. Kept apart so
+    /// `placed` stays what a loader draws.
+    deleted: Vec<GlobalFormId>,
     land: Option<GlobalFormId>,
     navmeshes: Vec<GlobalFormId>,
     interior: bool,
@@ -68,6 +77,7 @@ pub struct CellIndex {
     world_cells: HashMap<GlobalFormId, GlobalFormId>,
     by_editor_id: HashMap<String, GlobalFormId>,
     placed: usize,
+    deleted: usize,
 }
 
 impl CellIndex {
@@ -81,6 +91,12 @@ impl CellIndex {
         for (id, rref) in order.winners() {
             let rec = order.record(rref);
             if rec.is_deleted() {
+                if PLACED_TAGS.contains(&rec.tag) {
+                    if let Some(raw_cell) = rec.placement.cell {
+                        let cell = order.resolve(rref.file, raw_cell);
+                        index.cells.entry(cell).or_default().deleted.push(id);
+                    }
+                }
                 continue;
             }
             if rec.tag == tag::CELL {
@@ -116,7 +132,9 @@ impl CellIndex {
         }
         for entry in index.cells.values_mut() {
             entry.navmeshes.sort_unstable();
+            entry.deleted.sort_unstable();
             index.placed += entry.placed.len();
+            index.deleted += entry.deleted.len();
         }
         span.set_payload(index.placed as u64);
         index
@@ -180,6 +198,14 @@ impl CellIndex {
             .map_or(&[], |e| &e.placed[e.persistent..])
     }
 
+    /// Placed objects filed under `cell` whose winning record is deleted.
+    /// They resolve through the load order and start disabled, they are
+    /// never drawn, so they are not in `references`.
+    #[must_use]
+    pub fn deleted_references(&self, cell: GlobalFormId) -> &[GlobalFormId] {
+        self.cells.get(&cell).map_or(&[], |e| e.deleted.as_slice())
+    }
+
     #[must_use]
     pub fn land(&self, cell: GlobalFormId) -> Option<GlobalFormId> {
         self.cells.get(&cell).and_then(|e| e.land)
@@ -239,6 +265,12 @@ impl CellIndex {
     #[must_use]
     pub fn placed_count(&self) -> usize {
         self.placed
+    }
+
+    /// Placed objects across every cell whose winner is deleted.
+    #[must_use]
+    pub fn deleted_count(&self) -> usize {
+        self.deleted
     }
 
     #[must_use]

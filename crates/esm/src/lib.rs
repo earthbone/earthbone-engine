@@ -14,6 +14,7 @@
 //!    from a record on demand.
 //! 4. `cell_index`: cell to placed objects, land and navmeshes, and
 //!    worldspace grid to cell, built once from the winning placements.
+//! 5. `dirty`: per plugin, what xEdit's cleaning would touch, counted.
 //!
 //! ```no_run
 //! use soe_esm::{LoadOrder, Plugin, records::cell::Cell, tag};
@@ -33,6 +34,7 @@
 
 pub mod cell_index;
 pub mod cursor;
+pub mod dirty;
 pub mod error;
 pub mod load_order;
 pub mod plugin;
@@ -40,6 +42,7 @@ pub mod records;
 pub mod tag;
 
 pub use cell_index::{CellIndex, GridCell};
+pub use dirty::{DirtyReport, PluginDirt};
 pub use error::{Error, Result};
 pub use load_order::{GlobalFormId, LoadOrder, LoadedFile, RecordRef, Slot};
 pub use plugin::{Entry, FileHeader, Group, GroupKind, Placement, Plugin, Record, Subrecord};

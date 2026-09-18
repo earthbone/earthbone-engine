@@ -241,4 +241,72 @@ fn the_cell_index_covers_whiterun() {
     }
     let per_lookup = started.elapsed() / lookups;
     eprintln!("lookup: {per_lookup:?} per call ({total} ids summed)");
+    eprintln!(
+        "deleted placed objects kept apart: {} across the load order",
+        index.deleted_count()
+    );
+}
+
+/// What xEdit's cleaning would touch in the shipped masters, counted per
+/// file, next to LOOT's masterlist notes for the nearest build. The DLC
+/// masters are dirty as shipped and Skyrim.esm has nothing to override, so
+/// the report must show both.
+#[test]
+fn the_shipped_masters_are_dirty_and_the_report_says_where() {
+    let Some(data) = std::env::var_os("SKYRIM_DATA").map(PathBuf::from) else {
+        eprintln!("SKYRIM_DATA not set, skipping the dirty report test");
+        return;
+    };
+    let mut order = LoadOrder::new();
+    for name in MASTERS {
+        let path = data.join(name);
+        let bytes = std::fs::read(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+        let plugin = Plugin::parse(&bytes).unwrap_or_else(|e| panic!("{name}: {e}"));
+        order.add(name, plugin).unwrap();
+    }
+    let started = std::time::Instant::now();
+    let report = order.dirty_report();
+    let took = started.elapsed();
+    eprintln!(
+        "dirty report over {} files in {:.3}s",
+        report.plugins.len(),
+        took.as_secs_f64()
+    );
+    for p in &report.plugins {
+        eprintln!(
+            "  {}: {} identical to master, {} deleted references, {} deleted navmeshes, {} other deleted",
+            p.name, p.identical_to_master, p.deleted_references, p.deleted_navmeshes, p.deleted_other
+        );
+    }
+    let skyrim = report.plugin("Skyrim.esm").unwrap();
+    assert_eq!(
+        skyrim.identical_to_master, 0,
+        "nothing to override in the first master"
+    );
+    for name in &MASTERS[1..] {
+        let p = report.plugin(name).unwrap();
+        assert!(
+            p.identical_to_master > 0,
+            "{name} ships identical overrides"
+        );
+        assert!(p.deleted_references > 0, "{name} ships deleted references");
+    }
+    assert!(report.plugin("Dawnguard.esm").unwrap().deleted_navmeshes > 0);
+
+    // Every deleted placed object the index kept apart resolves to a winner
+    // that carries the flag, and none of them is in the drawn list.
+    order.build_cell_index();
+    let index = order.cell_index().unwrap();
+    let mut checked = 0;
+    for (cell, _) in index.cells().collect::<Vec<_>>() {
+        for id in index.deleted_references(cell) {
+            let winner = order.winner(*id).expect("kept ids have winners");
+            assert!(winner.is_deleted());
+            assert!(!index.references(cell).contains(id));
+            checked += 1;
+        }
+    }
+    eprintln!("{checked} deleted placed objects checked against the index");
+    assert_eq!(checked, index.deleted_count());
+    assert_eq!(checked, report.deleted_references());
 }
