@@ -92,24 +92,34 @@ impl World {
                 built += 1;
             }
         }
+        self.streamed_cells.insert(cell);
         built
     }
 
-    /// Whether any reference the cell owns is already built.
+    /// Whether the cell's 3D is in memory, which is what decides
+    /// `OnCellLoad`.
     ///
-    /// This is what decides `OnCellLoad`, which the Creation Kit wiki says
-    /// fires only on entering a cell that is not already in memory, and which
-    /// it warns is unpredictable for exactly that reason. Read it before a
-    /// prefetch, never after, or prefetching would silently stop the event.
-    pub fn cell_is_resident(&mut self, cell: GlobalFormId) -> bool {
-        let ids = self.cell_reference_ids(cell);
-        ids.iter().any(|id| self.refs.contains_key(id))
+    /// The wiki says the event fires only on entering a cell not already in
+    /// memory, and warns it is unpredictable for exactly that reason. Read it
+    /// before a prefetch, never after, or prefetching would silently stop the
+    /// event.
+    ///
+    /// This asks whether the cell was streamed, not whether any of its
+    /// references happen to exist. Those differ: any lookup that resolves a
+    /// form builds that one reference, and one reference is not a loaded
+    /// cell. Answering from resident references made an unrelated
+    /// `object_of_form` suppress `OnCellLoad`, which the tests in
+    /// `no_load_screen.rs` caught.
+    pub fn cell_is_resident(&self, cell: GlobalFormId) -> bool {
+        self.streamed_cells.contains(&cell)
     }
 
     /// Drop what `cell` owns and nothing else. Returns the count dropped and
     /// the count kept because dropping would have lost something.
     pub fn unload_cell(&mut self, cell: GlobalFormId) -> (usize, usize) {
         let player = self.player();
+        // The 3D goes here, so the next entry owes `OnCellLoad` again.
+        self.streamed_cells.remove(&cell);
         let ids = self.cell_temporary_ids(cell);
         let (mut dropped, mut kept) = (0, 0);
         for id in ids {

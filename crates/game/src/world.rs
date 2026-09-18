@@ -360,6 +360,15 @@ pub struct World {
     /// The cell whose temporary references are resident, set by a transition.
     /// See `crate::world::transition`.
     loaded_cell: Option<GlobalFormId>,
+    /// Cells whose references have been built and not yet dropped, which is
+    /// what decides `OnCellLoad`.
+    ///
+    /// Deliberately outside the determinism hash and the save. It is derived
+    /// state, so the same run of calls rebuilds it identically, and vanilla
+    /// does not persist its own cell cache either: the wiki says `OnCellLoad`
+    /// does not fire for the first cells after loading a save, which is the
+    /// behaviour an empty set gives.
+    streamed_cells: std::collections::HashSet<GlobalFormId>,
     next_dynamic: u32,
     player: Option<GlobalFormId>,
     /// What `PC_LEVEL_MULT` actors scale against.
@@ -442,6 +451,7 @@ impl World {
             actor_bases: HashMap::new(),
             cells: HashMap::new(),
             loaded_cell: None,
+            streamed_cells: std::collections::HashSet::new(),
             next_dynamic: 0x1000,
             player: None,
             player_level: 1,
