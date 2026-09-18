@@ -146,6 +146,34 @@ impl World {
         (raw != 0).then(|| self.order.resolve(rref.file, raw))
     }
 
+    /// Placed references of a base object, up to `limit`, actors first. An
+    /// editor id in the game names the base (`Hulda` is an `NPC_`), while
+    /// everything that acts on an actor at run time needs the `ACHR` that
+    /// places it, and that record usually carries no editor id of its own.
+    /// This walks the winning records rather than the run-time table, so it
+    /// finds a reference nothing has touched yet, and it reads `NAME`
+    /// directly instead of building state for every candidate.
+    pub fn references_of_base(&self, base: GlobalFormId, limit: usize) -> Vec<GlobalFormId> {
+        let mut out = Vec::new();
+        if limit == 0 {
+            return out;
+        }
+        for tag in [T(b"ACHR"), T(b"REFR")] {
+            for (id, rec) in self.order.winners_of(tag) {
+                let Some(raw) = rec.find(T(b"NAME")).and_then(le_u32) else {
+                    continue;
+                };
+                if self.resolve_from(id, raw) == Some(base) {
+                    out.push(id);
+                    if out.len() >= limit {
+                        return out;
+                    }
+                }
+            }
+        }
+        out
+    }
+
     /// Every placed object the cell index files under a cell, the live ones
     /// then the deleted ones. Builds the index on first use, which is why
     /// this needs `&mut self` where the rest of the lookups do not.

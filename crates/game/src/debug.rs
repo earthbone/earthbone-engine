@@ -125,6 +125,16 @@ const COMMANDS: &[Entry] = &[
         what: "placed objects in a cell",
     },
     Entry {
+        name: "findref",
+        args: "<base> [count]",
+        what: "placed references of a base object",
+    },
+    Entry {
+        name: "pridbase",
+        args: "<base>",
+        what: "select the first placed reference of a base",
+    },
+    Entry {
         name: "setstage",
         args: "<quest> <n>",
         what: "set a quest stage and run its fragment",
@@ -341,6 +351,8 @@ const COMMANDS: &[Entry] = &[
 #[derive(Debug, Clone, Default)]
 pub struct Console {
     selected: Option<GlobalFormId>,
+    /// Probe scripts assembled so far, so each gets its own script name.
+    probes: usize,
 }
 
 impl Console {
@@ -454,6 +466,27 @@ impl Console {
                 let edid = world.editor_id(id).unwrap_or_default();
                 let runtime = world.runtime_id(id);
                 Ok(Outcome::Text(format!("{id} {edid} {runtime:08X}")))
+            }
+            "findref" | "pridbase" => {
+                let named = arg(0)?.to_string();
+                let base = resolve(game, &named)?;
+                let limit = if name == "pridbase" {
+                    1
+                } else {
+                    args.get(1).map_or(Ok(8.0), |c| number(c))? as usize
+                };
+                let found = game.world().references_of_base(base, limit.max(1));
+                let first = found
+                    .first()
+                    .copied()
+                    .ok_or_else(|| format!("nothing places {named}"))?;
+                if name == "pridbase" {
+                    self.selected = Some(first);
+                    return Ok(Outcome::Form(first));
+                }
+                Ok(Outcome::List(
+                    found.iter().map(ToString::to_string).collect(),
+                ))
             }
             "listrefs" => {
                 let cell = resolve(game, arg(0)?)?;
@@ -736,7 +769,8 @@ impl Console {
                 } else {
                     "SendLycanthropyStateChanged"
                 };
-                call_on(game, actor, function, &[Value::Bool(on)])?;
+                self.probes += 1;
+                call_on(game, self.probes, actor, function, &[Value::Bool(on)])?;
                 Ok(Outcome::Done)
             }
 
@@ -745,8 +779,9 @@ impl Console {
                 let id = self.target_of(game, target)?;
                 let function = arg(0)?.to_string();
                 let values = literal_args(game, &args[1..]);
-                call_on(game, id, &function, &values)?;
-                Ok(Outcome::Done)
+                self.probes += 1;
+                let result = call_on(game, self.probes, id, &function, &values)?;
+                Ok(Outcome::Text(format!("{result:?}")))
             }
             "sendevent" => {
                 let id = self.target_of(game, target)?;
@@ -877,21 +912,65 @@ fn literal_args(game: &mut Game, words: &[&str]) -> Vec<Value> {
     out
 }
 
-/// Call a function on a form's object through the VM's own dispatch, then
-/// settle. This is the path a script takes, natives included, so a command
-/// built on it forces nothing the engine could not do itself.
+/// The Papyrus type name a value is declared as in a probe script.
+fn type_of(value: &Value) -> &'static str {
+    match value {
+        Value::Bool(_) => "Bool",
+        Value::Int(_) => "Int",
+        Value::Float(_) => "Float",
+        Value::Str(_) => "String",
+        _ => "Form",
+    }
+}
+
+/// Call a function on a form's object the way a script calls it.
+///
+/// `Vm::call` reaches only functions a loaded script defines: natives are
+/// dispatched by the interpreter's own `CallMethod` handler, which needs a
+/// running thread, so a host that called `Vm::call` would miss every native
+/// and `setvampire` would fail on an actor with no script of its own. So the
+/// command assembles a one-function probe script that performs a real
+/// `CallMethod` and runs that. The instruction under test is then the same
+/// one a vanilla script compiles to, which is the point of the layer: no
+/// path exists here that a script could not take. `crates/game/tests`
+/// drives its native scenarios the same way.
 fn call_on(
     game: &mut Game,
+    probe: usize,
     id: GlobalFormId,
     function: &str,
     args: &[Value],
-) -> Result<(), String> {
+) -> Result<Value, String> {
+    use soe_papyrus::asm::{ident, s, FunctionBuilder, ScriptBuilder};
+    use soe_papyrus::Opcode::{CallMethod, Return};
+
     let object = game.object_of(Handle::Form(id));
-    game.vm
-        .call(object, function, args)
+    let name = format!("SoeDebugProbe{probe}");
+    let mut fun = FunctionBuilder::new("Run", "Var")
+        .global()
+        .param("t", "Form")
+        .local("r", "Var");
+    let mut operands = vec![s(function), ident("t"), ident("r")];
+    for (k, a) in args.iter().enumerate() {
+        let param = format!("a{k}");
+        fun = fun.param(&param, type_of(a));
+        operands.push(ident(&param));
+    }
+    let fun = fun
+        .ins(CallMethod, operands)
+        .ins(Return, vec![ident("r")])
+        .build();
+    let bytes = ScriptBuilder::new(&name, "Form").function(fun).bytes();
+    game.load_script(&bytes)
+        .map_err(|e| format!("{function}: building the probe: {e}"))?;
+    let mut all = vec![Value::Object(object)];
+    all.extend_from_slice(args);
+    let thread = game
+        .vm
+        .call_global(&name, "Run", &all)
         .map_err(|e| format!("{function}: {e}"))?;
     game.run_until_idle(64);
-    Ok(())
+    Ok(game.vm.thread_result(thread).unwrap_or(Value::None))
 }
 
 #[cfg(test)]
