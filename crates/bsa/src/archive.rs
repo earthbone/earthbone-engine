@@ -369,6 +369,23 @@ fn write_out(output_dir: &Path, rel: &str, bytes: &[u8]) -> Result<()> {
     Ok(())
 }
 
+/// The record's declared unpacked length against what came out.
+///
+/// Checked only when the archive states a length. An off-disk index leaves it
+/// zero, since the value lives out in the payload and only a read needs it,
+/// and a genuinely empty file is not a mismatch to report either.
+fn check_size(codec: &'static str, name: &str, want: u32, got: usize) -> Result<()> {
+    if want > 0 && got != want as usize {
+        return Err(Error::DecompressedSize {
+            codec,
+            name: name.to_string(),
+            want,
+            got,
+        });
+    }
+    Ok(())
+}
+
 fn decompress_lz4_frame(data: &[u8], expected_size: u32, name: &str) -> Result<Vec<u8>> {
     let mut decoder = lz4_flex::frame::FrameDecoder::new(data);
     let mut output = Vec::with_capacity(expected_size as usize);
@@ -379,6 +396,7 @@ fn decompress_lz4_frame(data: &[u8], expected_size: u32, name: &str) -> Result<V
             name: name.to_string(),
             source,
         })?;
+    check_size("lz4", name, expected_size, output.len())?;
     Ok(output)
 }
 
@@ -392,6 +410,7 @@ fn decompress_zlib(data: &[u8], expected_size: u32, name: &str) -> Result<Vec<u8
             name: name.to_string(),
             source,
         })?;
+    check_size("zlib", name, expected_size, output.len())?;
     Ok(output)
 }
 
@@ -1278,6 +1297,109 @@ mod tests {
         assert!(disk.records[0].compressed);
         assert_eq!(mem.records[0].uncompressed_size, unc);
         assert_eq!(disk.records[0].uncompressed_size, 0);
+    }
+
+    // ----- fault injection on the read path -----
+    //
+    // The plan asks for failpoints here. There is nowhere useful to put one:
+    // the only IO is a single `std::fs::read` in `Archive::open`, and every
+    // other step works on a `Vec<u8>` already in memory, so there is no
+    // partial read to interrupt. Corrupting the bytes reaches the same code
+    // with no dependency added, and reaches it deterministically rather than
+    // through a global failpoint registry. The save write path, the other half
+    // the plan pairs this with, is in a crate another fork holds.
+
+    /// A declared uncompressed size larger than the stream really holds.
+    ///
+    /// The four bytes at the record's offset say how long the file is once
+    /// decompressed, and the index peeks them. Nothing checked them against
+    /// what came out, so a corrupt archive handed every caller a short buffer
+    /// and called it success. A mesh, a texture or a script read that way is
+    /// silently truncated, which is worse than an error.
+    #[test]
+    fn a_decompressed_file_shorter_than_declared_is_refused() {
+        let payload = b"hello world, compressed";
+        let (mut bytes, unc) = compressed_bsa(payload);
+        assert_eq!(unc as usize, payload.len());
+
+        let path = Path::new("c.bsa");
+        let index = index_archive_in(&bytes, path).unwrap();
+        let at = index.records[0].offset as usize - 4;
+
+        // Claim the file is far longer than it is, leaving the stream alone.
+        let lie = (payload.len() as u32 + 4096).to_le_bytes();
+        bytes[at..at + 4].copy_from_slice(&lie);
+
+        let archive = Archive::from_bytes(path, bytes).unwrap();
+        match archive.read("meshes/a.nif") {
+            Err(Error::DecompressedSize {
+                codec, want, got, ..
+            }) => {
+                assert_eq!(codec, "zlib");
+                assert_eq!(want as usize, payload.len() + 4096);
+                assert_eq!(got, payload.len());
+            }
+            Err(other) => panic!("expected a size mismatch, got {other:?}"),
+            Ok(out) => panic!(
+                "a file declaring {} bytes came back with {} and no error",
+                payload.len() + 4096,
+                out.len()
+            ),
+        }
+    }
+
+    /// The same check must not fire on a file that is simply empty, and must
+    /// not fire on a healthy read.
+    #[test]
+    fn an_honest_declared_size_still_reads() {
+        for payload in [b"".as_slice(), b"x".as_slice(), b"a longer payload here"] {
+            let (bytes, _) = compressed_bsa(payload);
+            let archive = Archive::from_bytes(Path::new("c.bsa"), bytes).unwrap();
+            assert_eq!(archive.read("meshes/a.nif").unwrap(), payload);
+        }
+    }
+
+    /// Every prefix of a valid archive. A truncated file must be reported, at
+    /// index time or at read time, and must never panic.
+    #[test]
+    fn every_truncation_of_an_archive_is_reported_not_fatal() {
+        let (full, _) = compressed_bsa(b"a payload long enough to span blocks");
+        let path = Path::new("t.bsa");
+        for cut in 0..full.len() {
+            let part = full[..cut].to_vec();
+            // Repro for a failure here:
+            //   cargo test -p soe-bsa every_truncation_of_an_archive_is_reported_not_fatal
+            let Ok(archive) = Archive::from_bytes(path, part) else {
+                continue;
+            };
+            for i in 0..archive.index.records.len() {
+                let _ = archive.read_record(i);
+            }
+        }
+    }
+
+    /// One flipped bit at every position in the header and tables. The archive
+    /// may refuse to index, may index and fail to read, or may read something
+    /// wrong, and any of those is fine. A panic is not.
+    #[test]
+    fn a_single_flipped_bit_anywhere_in_the_index_is_survivable() {
+        let (full, _) = compressed_bsa(b"a payload long enough to span blocks");
+        let path = Path::new("b.bsa");
+        let header_and_tables = full.len().min(96);
+        for at in 0..header_and_tables {
+            for bit in 0..8u32 {
+                let mut bytes = full.clone();
+                bytes[at] ^= 1 << bit;
+                // Repro:
+                //   cargo test -p soe-bsa a_single_flipped_bit_anywhere_in_the_index_is_survivable
+                let Ok(archive) = Archive::from_bytes(path, bytes) else {
+                    continue;
+                };
+                for i in 0..archive.index.records.len() {
+                    let _ = archive.read_record(i);
+                }
+            }
+        }
     }
 
     #[test]

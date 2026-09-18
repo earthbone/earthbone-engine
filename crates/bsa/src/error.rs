@@ -31,6 +31,19 @@ pub enum Error {
         name: String,
         source: std::io::Error,
     },
+
+    /// Decompression succeeded and produced the wrong number of bytes. The
+    /// archive says how long a file is once unpacked, so a mismatch means the
+    /// record and the stream disagree. Reported rather than returned short,
+    /// because a truncated mesh, texture or script that nothing complains
+    /// about is worse than a failed read.
+    #[error("{codec} decompressed {name} to {got} bytes, the record declares {want}")]
+    DecompressedSize {
+        codec: &'static str,
+        name: String,
+        want: u32,
+        got: usize,
+    },
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

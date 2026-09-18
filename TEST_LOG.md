@@ -198,3 +198,148 @@ is wrong, so the nightly tier fails on that target until someone decides. Fault
 injection and mutation testing did not land, the first because the save write
 path sits in a crate another fork holds, the second because `cargo-mutants` is
 not installed and installing it globally was out of scope.
+
+# Phase 3
+
+Finishing what phase 2 left, under the same rules. Tier 1 is the commit gate
+with the data variables unset.
+
+## 6. `papyrus`, the open grammar defect, decided
+
+Tier 1, plus one tier 2 corpus check. `crates/papyrus/tests/asm_unique_names.rs`
+and `crates/papyrus/tests/real_unique_names.rs`.
+
+**The defect, precisely.** Phase 2 recorded it as an instruction count written
+as 2 and read back as 1. That was the right symptom read from the wrong field:
+it is the **debug function count**, a `u16` in the debug block, not the
+instruction count in a function body. The minimal case is two functions given
+the same name in one state, each carrying line numbers.
+
+**Which side was wrong: the assembler.** `ScriptBuilder::function_in` appended,
+so a caller could build two functions named `Go` in one state. The reader then
+attaches each debug entry to a function by name with `find`, which returns the
+first, so both entries landed on the first function and the second came back
+with no lines at all. Rewriting emitted one debug entry where the first wrote
+two, and the round trip differed.
+
+The reader is right and the file it was handed was not representable:
+
+- Papyrus has no overloading and a state defines each function once.
+- Caprica rejects it at compile time, `PapyrusObject.cpp:167`, "a function
+  named X was already defined in this object".
+- Every compiled script Bethesda ships agrees. 14,026 scripts parsed, 15,635
+  states, 54,620 functions, **zero** states defining a function twice.
+
+That last check is the one that could have overturned the fix rather than
+confirmed it, which is why it is a test and not a paragraph. If a counter
+example ever ships, it fails and the decision gets revisited.
+
+**The fix.** `function_in` replaces a same named function instead of appending,
+which keeps the builder total with no error channel to add, and matches what
+`FunctionBuilder::ins` already does when it drops operands the writer would not
+emit. `fuzz-pex-grammar` passes, so the nightly tier is green again.
+
+**What it cannot catch.** Only functions are deduplicated. Two properties of
+one name, two variables of one name, or two states of one name are still
+buildable and would break the same way through a different path, since the
+reader matches those by name too. Nothing here checks a name against the parent
+object's names, which is the other half of what Caprica enforces.
+
+## 7. `bsa`, fault injection on the read path
+
+Tier 1, in `crates/bsa/src/archive.rs`'s test module because the synthetic
+archive builders are `pub(crate)`.
+
+**Deviation from the plan, and why.** The plan says failpoints with the `fail`
+crate. There is nowhere useful to put one. The only IO on this path is a single
+`std::fs::read` in `Archive::open`, and everything after it works on a `Vec<u8>`
+already in memory, so there is no partial read to interrupt and no slow disk to
+simulate. Corrupting the bytes reaches the same code deterministically, without
+adding a dependency or a global failpoint registry, which also suits the
+project's rule about dependency scope. No `fail` dependency was added. The save
+write path, the other half the plan pairs this with, is in `crates/game` which
+another fork holds, so it is still not done.
+
+**One real defect, and it was the silent kind.** An archive states how long a
+file is once unpacked, and the index peeks that value. Neither decompressor
+checked it: `expected_size` was passed in and used only to size the output
+buffer. So a record declaring 4,119 bytes whose stream held 23 returned 23
+bytes and `Ok`. Every caller, the mesh reader, the texture decoder, the script
+loader, would then work on a truncated buffer believing it complete. Minimal
+case in `a_decompressed_file_shorter_than_declared_is_refused`: build the
+one-file compressed archive, overwrite the four declared-size bytes at the
+record's offset, leave the stream untouched.
+
+Fixed with `check_size`, a new `Error::DecompressedSize`, and the rule that a
+declared length of zero is not checked, since an off-disk index leaves it zero
+by design and an empty file is not a mismatch. Verified not to be too strict
+against every shipped archive: **172,961 files across all of them still read**,
+which is the test that would have caught an overzealous rule.
+
+**Two sweeps, both already clean.** Every prefix of a valid archive, and one
+flipped bit at every position and every bit of the header and tables. Both
+index-or-refuse and read-or-refuse without a panic. They found nothing, which
+is worth keeping anyway: they cost 0.24 s and they are the tests that fail when
+someone adds an unchecked slice.
+
+**What it cannot catch.** Nothing here exercises BA2, only BSA v104 and v105.
+Nothing covers a `dds_info` rebuild path corruption. The bit-flip sweep stops
+at the first 96 bytes, so the payload itself is only covered by truncation. And
+a declared size that is wrong but self-consistent, a stream that really does
+decompress to the lie, is indistinguishable from a healthy file by design.
+
+## 8. `dds` and `bsa`, structure aware fuzz targets
+
+Tier 2, nightly. `fuzz/fuzz_targets/fuzz_dds_grammar.rs` and
+`fuzz/fuzz_targets/fuzz_bsa_grammar.rs`.
+
+**The gap both fill is the same one.** `fuzz-dds` calls `Dds::parse` and stops,
+and `fuzz-bsa` calls `index_archive_in` and stops. Random bytes almost never
+form a header or a table either one accepts, so in both crates the code behind a
+successful parse, the decoder and the record read path, had never been fuzzed at
+all. That is where the arithmetic lives: block counts, mip chains and surface
+sizes in one, offsets, packed sizes and declared lengths in the other.
+
+Each target builds a well formed container around fuzzer chosen fields, then
+runs the stage the byte target never reaches. The DDS one decodes every mip of
+every layer and asserts a decoded image is whole RGBA pixels and that the pixel
+count matches the dimensions reported beside it. The archive one indexes, reads
+every record, and asserts that a record declaring an unpacked length hands back
+exactly that many bytes, which is the invariant entry 7 found broken.
+
+**Runs, five minutes each, all clean.**
+
+| Target | Runs | Time |
+|---|---|---|
+| `fuzz-dds-grammar` | 19,979,275 | 301 s |
+| `fuzz-bsa-grammar` | 1,634,668 | 301 s |
+| `fuzz-pex-grammar` | 2,378,411 | 301 s |
+
+The third is the one entry 6 fixed. It fails on the old assembler and passes
+now, so the nightly tier is green across every target again.
+
+**How to run these here**, since phase 2 recorded that it could not. `cargo
+fuzz` needs a nightly `rustc`, and this machine has Homebrew's stable `rustc`
+first on `PATH`, so `rustup run nightly` and `RUSTUP_TOOLCHAIN` both fail:
+cargo-fuzz shells out to a `cargo` that resolves back to the Homebrew stable
+one. Putting the rustup shims first is what works:
+
+```
+env -C <repo> PATH=$HOME/.cargo/bin:/usr/bin:/bin RUSTUP_TOOLCHAIN=nightly \
+  cargo fuzz run fuzz-dds-grammar -- -max_total_time=300
+```
+
+**No mesh grammar target, and the reason.** A valid `NIF` is a block graph with
+a string table and version-dependent layouts, so a grammar that produces one is
+a large piece of work rather than a session's. A shallow version would mostly
+generate files the parser rejects, which is what `fuzz-nif` already covers with
+plain bytes. Left undone deliberately rather than done badly. The mesh reader
+did get a real defect fixed today by other means, the partition-local bone
+indices, found by rendering rather than by fuzzing.
+
+**What these cannot catch.** The DDS target never builds a legal payload on
+purpose, so it exercises truncation and bad geometry far more than correct
+decoding, and it asserts self consistency rather than correct pixels. The
+archive target only builds BSA with one folder, never BA2 and never the DX10
+texture rebuild path. Neither says anything about whether a file that decodes
+cleanly decodes *correctly*, which only the corpus tests against real data do.

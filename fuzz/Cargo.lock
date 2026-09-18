@@ -269,7 +269,9 @@ name = "soe-fuzz"
 version = "0.0.0"
 dependencies = [
  "arbitrary",
+ "flate2",
  "libfuzzer-sys",
+ "lz4_flex",
  "soe-bsa",
  "soe-dds",
  "soe-esm",

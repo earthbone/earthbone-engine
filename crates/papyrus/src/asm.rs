@@ -540,6 +540,22 @@ impl ScriptBuilder {
         self.function_in("", f)
     }
 
+    /// Adds a function to a state, replacing any function of the same name
+    /// already there.
+    ///
+    /// Papyrus has no overloading and a state defines each function once, so
+    /// two same named functions in one state is a script no compiler emits.
+    /// Caprica rejects it outright, "a function named X was already defined in
+    /// this object". Appending built one anyway, and it was not merely odd but
+    /// unrepresentable: the reader attaches a debug entry to a function by
+    /// name and takes the first match, so the second function came back with
+    /// no line numbers and a rewrite emitted one debug entry where the first
+    /// emitted two. `fuzz-pex-grammar` found that as a reader and writer
+    /// disagreement, and the reader is the side that is right.
+    ///
+    /// Replacing keeps this total, with no error channel to add, and matches
+    /// the stance [`FunctionBuilder::ins`] already takes when it drops
+    /// operands the writer would not emit.
     pub fn function_in(mut self, state: &str, f: Function) -> Self {
         if let Some(s) = self
             .object
@@ -547,7 +563,15 @@ impl ScriptBuilder {
             .iter_mut()
             .find(|s| s.name.eq_ignore_ascii_case(state))
         {
-            s.functions.push(f);
+            if let Some(at) = s
+                .functions
+                .iter()
+                .position(|e| e.name.eq_ignore_ascii_case(&f.name))
+            {
+                s.functions[at] = f;
+            } else {
+                s.functions.push(f);
+            }
         } else {
             self.object.states.push(State {
                 name: state.to_string(),
