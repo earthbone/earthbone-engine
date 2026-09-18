@@ -373,3 +373,24 @@ converge, and building the consumer first costs nothing.
 |---|---|---|
 | Viseme pipeline | `visemes` | Audio to mouth shape weights over time through an out of process tool behind a trait, the `RACE` Phoneme Mapping read, weights applied to morph targets, a vanilla line and a mod line with no LIP both animate. LIP stays bytes. |
 | LIP decode | `lip-decode` | The block decodes into the same weight track the viseme pipeline feeds, checked against generated files with known inputs. Opportunistic, after `visemes`. |
+
+## Round 6: something to walk around in (2026-09-18)
+
+Every round so far built readers and simulation. Nothing drives. This round exists because the
+nearest useful milestone is not "playable", it is one interior cell a person can move through,
+and reaching it forces the seams every later system needs: input, camera, collision, animation on
+screen, and sound coming out. Everything under it already works.
+
+| Item | Branch | Done check |
+|---|---|---|
+| Physics for real | `jolt` | Jolt linked through its C bindings behind the trait `crates/physics` already exposes, the pure Rust `SimpleWorld` kept as the headless fallback so tests and CI need no native library. A capsule falls, lands and slides on the Bannered Mare collision. |
+| Character controller | `controller` | A capsule with the game's movement speeds (walk 110, fast walk 160, jog 180, run 375 units per second), gravity, step height, slope limit and crouch, driven by a direction vector rather than by input directly, so the same controller serves the player and an actor on a package. |
+| Input and camera | `input` | First and third person cameras with the vanilla offsets, mouse look, movement, jump, sneak, activate, bound through Godot's input map from a config file a user can edit. The player reference from `Game::debug` becomes the thing it drives. |
+| Animation on screen | `skinning` | The `havok` interpreter's pose output applied to a skinned mesh in Godot: skeleton built from the `NIF` and the `hkx` skeleton, bone mapping, the idle and walk clips playing on a real character in a real cell. |
+| Sound out | `playback` | `cpal` or `rodio` in the host, the `audio` crate's `Pcm` reaching a device, a footstep and a voice line audible, positioned in 3D. |
+| Doors and transitions | `transitions` | An activated door moves the player between cells through its teleport data, the old cell unloads and the new one streams, the clock keeps running. |
+
+Order: `jolt` and `skinning` first since they are independent, then `controller`, then `input`,
+then `playback` and `transitions`. Round 7 takes the exterior (distant land from BTO, sky, water,
+a moving focus), round 8 the quest loop (dialogue runtime, menus, inventory), which is where the
+UI work in the earlier round 6 note now sits.
