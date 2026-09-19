@@ -45,7 +45,8 @@ meaning. Core crates are GPL-3.0-or-later, the SKSE shim crates are MIT.
 Other docs: `docs/status.md` (per subsystem detail), `docs/design-system.md` (what of the Creation Engine's design the
 engine preserves), `docs/editor.md` (Creation Kit replacement on the Godot
 editor), `docs/style.md` (Rust coding baseline), `docs/validation.md`
-(conformance harness against vanilla behaviour).
+(conformance harness against vanilla behaviour), and `docs/reference-audit.md`
+(exact source contracts, fixes, reference inventory and pending gameplay work).
 
 ## Creation Engine knowledge, under `../engine-refs/`
 
@@ -157,6 +158,25 @@ exists at `godot/walkthrough.gd`. Portal doorways remain a prototype
 proposal. Mod-data parsing/application and behavior-2 have merged, while
 OAR animation consumption and packages-2 remain incomplete.
 
+## Reference-correction checkpoint, 2026-09-19
+
+Based on master `75cfb55`, with the reference fixes in this change. The full
+gate reports 835 test passes and every lint tool ran. The runtime registers
+345 stateful natives and 191 stubs. Waits have distinct gameplay, menu and
+game-hour clocks, persisted in SOEV version 2 with version 1 reading retained.
+Quest getters agree on the highest stage. Dispel calls preserve learned and
+equipped spells pending active effects. SPID deterministic fractional rules
+are reported as unsupported, with their percentage and marker preserved.
+
+The host keeps alpha and culling in material identity while sharing uploads,
+and sends transformed native collision shapes to Jolt. The installed-game
+startup check and Bannered Mare contact tests pass. Detailed evidence and
+limits are in `docs/reference-audit.md` and `docs/physics.md`.
+
+`docs/status.md` carries subsystem detail. `ENGINE-PLAN.md` and the reference
+map now scope missing gameplay work and original-runtime probes. Those future
+systems are pending, not delivered by the reference fixes.
+
 Adversarial testing has reached phase 3. The archive decompression-size
 mismatch and the PEX assembler's acceptance of duplicate function names
 were fixed. Evidence, limits and repros remain in `TEST_LOG.md`.
@@ -171,7 +191,8 @@ as a regression.
 Known gaps: no player UI or MCM layer, no complete combat, magic or dialogue,
 no LOD consumption, no terrain texture layers or water. The CommonLib shim
 is a Rust skeleton without generated C++ headers or a compiled plugin.
-The editor remains a design. The gameplay layer needs explicit scope beyond
-the plan's future quest-loop paragraph. No Proton launch has been reported.
+The editor remains a design. The reference audit scopes pending gameplay
+work, with combat, crafting and progression still requiring separate items.
+No Proton launch has been reported.
 Audio exists with the integration limits above. Open risks are in map section
 12, read together with the later decisions in `ENGINE-PLAN.md`.

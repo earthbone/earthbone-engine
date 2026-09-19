@@ -3,7 +3,7 @@
 
 //! `soe-bench`: timings over the installed game, one line per measurement as
 //! `name value unit` so two runs can be diffed. Every subcommand repeats its
-//! work `--runs N` times (default 3) and reports the median and the minimum.
+//! work `--runs N` times (default 3) and reports median, minimum, p99 and maximum.
 //! Phases that have a threaded path report the one-thread and the
 //! all-threads wall time side by side. `trace <subcommand>` records every
 //! span (`soe-trace`) and writes a Chrome trace file plus a text summary.
@@ -24,6 +24,10 @@
 //! SKYRIM_DATA=<Data> soe-bench all
 //! ```
 
+mod gates;
+
+use gates::Gates;
+use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::{Duration, Instant};
@@ -45,9 +49,10 @@ const MASTERS: [&str; 5] = [
     "Dragonborn.esm",
 ];
 
-const USAGE: &str = "usage: soe-bench [--runs N] [--out DIR] <load-order|archives|cell <editor id>|cell-index <editor id>|exterior <editor id>|scripts|navmesh|dirty|save|overhead <editor id>|trace <subcommand ...>|all>";
+const USAGE: &str = "usage: soe-bench [--runs N] [--out DIR] [--max-seconds metric=value] <load-order|archives|cell <editor id>|cell-index <editor id>|exterior <editor id>|scripts|navmesh|dirty|save|overhead <editor id>|trace <subcommand ...>|all>";
 
 struct Options {
+    gates: RefCell<Gates>,
     runs: usize,
     data: PathBuf,
     out: PathBuf,
@@ -57,6 +62,7 @@ struct Options {
 fn main() -> ExitCode {
     let mut args: Vec<String> = std::env::args().skip(1).collect();
     let mut runs = 3;
+    let mut gates = Gates::default();
     let mut out = PathBuf::from(".");
     loop {
         match args.first().map(String::as_str) {
@@ -70,6 +76,13 @@ fn main() -> ExitCode {
                     return ExitCode::FAILURE;
                 }
             },
+            Some("--max-seconds") if args.len() >= 2 => {
+                if let Err(error) = gates.add(&args[1]) {
+                    eprintln!("{error}");
+                    return ExitCode::FAILURE;
+                }
+                args.drain(..2);
+            }
             Some("--out") if args.len() >= 2 => {
                 out = PathBuf::from(&args[1]);
                 args.drain(..2);
@@ -83,13 +96,14 @@ fn main() -> ExitCode {
     };
     let threads = std::thread::available_parallelism().map_or(1, std::num::NonZero::get);
     let opts = Options {
+        gates: RefCell::new(gates),
         runs,
         data,
         out,
         threads,
     };
     report_count("machine_threads", threads, "threads");
-    let result = dispatch(&opts, &args);
+    let result = dispatch(&opts, &args).and_then(|()| opts.gates.borrow().finish());
     match result {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
@@ -170,9 +184,20 @@ fn summary(samples: &[Duration]) -> (f64, f64) {
     (median, min)
 }
 
-/// Run `f` `runs` times, report median and min under `name`, hand back the
+/// Nearest-rank p99 and maximum. With fewer than 100 samples p99 is the max.
+fn tail_summary(samples: &[Duration]) -> (f64, f64) {
+    let mut sorted: Vec<_> = samples.iter().map(Duration::as_secs_f64).collect();
+    sorted.sort_by(f64::total_cmp);
+    (
+        sorted[sorted.len() - sorted.len() / 100 - 1],
+        sorted[sorted.len() - 1],
+    )
+}
+
+/// Run `f` `runs` times, report durations under `name`, hand back the
 /// median and the last result.
 fn timed<T>(
+    opts: &Options,
     name: &str,
     runs: usize,
     mut f: impl FnMut() -> Result<T, String>,
@@ -180,6 +205,9 @@ fn timed<T>(
     let mut samples = Vec::with_capacity(runs);
     let mut last = None;
     for _ in 0..runs {
+        // A result may own every archive. Release it before the next sample
+        // to avoid retaining two complete data sources during construction.
+        drop(last.take());
         let started = Instant::now();
         let value = f()?;
         samples.push(started.elapsed());
@@ -188,6 +216,15 @@ fn timed<T>(
     let (median, min) = summary(&samples);
     report(&format!("{name}_median"), median, "s");
     report(&format!("{name}_min"), min, "s");
+    let (p99, max) = tail_summary(&samples);
+    for (suffix, value) in [("median", median), ("min", min), ("p99", p99), ("max", max)] {
+        let metric = format!("{name}_{suffix}");
+        if matches!(suffix, "p99" | "max") {
+            report(&metric, value, "s");
+        }
+        opts.gates.borrow_mut().observe(&metric, value)?;
+    }
+    report_count(&format!("{name}_samples"), samples.len(), "samples");
     let value = last.ok_or_else(|| "no runs".to_string())?;
     Ok((median, value))
 }
@@ -257,11 +294,11 @@ impl XorShift {
 // ----- subcommands -----
 
 fn load_order(opts: &Options) -> Result<(), String> {
-    let (median_1, order) = timed("load_order_1_thread", opts.runs, || {
+    let (median_1, order) = timed(opts, "load_order_1_thread", opts.runs, || {
         read_order_threads(&opts.data, 1)
     })?;
     let name = format!("load_order_{}_threads", opts.threads);
-    let (median_n, _) = timed(&name, opts.runs, || {
+    let (median_n, _) = timed(opts, &name, opts.runs, || {
         read_order_threads(&opts.data, opts.threads)
     })?;
     report_count("load_order_forms", order.len(), "forms");
@@ -291,7 +328,7 @@ fn archives(opts: &Options) -> Result<(), String> {
         .filter(|p| p.extension().is_some_and(|x| x.eq_ignore_ascii_case("bsa")))
         .collect();
     paths.sort();
-    let (index_median, vfs) = timed("archives_index", opts.runs, || {
+    let (index_median, vfs) = timed(opts, "archives_index", opts.runs, || {
         let mut vfs = soe_bsa::Vfs::new();
         for p in &paths {
             vfs.add_archive_path(p)
@@ -310,7 +347,7 @@ fn archives(opts: &Options) -> Result<(), String> {
     let all: Vec<&str> = vfs.paths().collect();
     let mut rng = XorShift(0x9E37_79B9_7F4A_7C15);
     let sample: Vec<&str> = (0..1000).map(|_| all[rng.below(all.len())]).collect();
-    let (read_median, bytes) = timed("archives_read_1000", opts.runs, || {
+    let (read_median, bytes) = timed(opts, "archives_read_1000", opts.runs, || {
         let mut total = 0usize;
         for p in &sample {
             total += vfs.read(p).map_err(|e| format!("{p}: {e}"))?.len();
@@ -331,22 +368,31 @@ fn open_source(opts: &Options, threads: usize) -> Result<DataSource, String> {
 }
 
 fn cell(opts: &Options, editor_id: &str) -> Result<(), String> {
-    let (_, _) = timed("cell_open_data_1_thread", opts.runs, || {
+    let (_, _) = timed(opts, "cell_open_data_1_thread", opts.runs, || {
         open_source(opts, 1)
     })?;
     let (_, mut source) = timed(
+        opts,
         &format!("cell_open_data_{}_threads", opts.threads),
         opts.runs,
         || open_source(opts, opts.threads),
     )?;
     source.set_threads(1);
+    let _ = timed(
+        opts,
+        &format!("cell_stream_{editor_id}_cold_1_thread"),
+        1,
+        || source.stream_cell(editor_id).map_err(|e| e.to_string()),
+    )?;
     let (median_1, _) = timed(
+        opts,
         &format!("cell_stream_{editor_id}_1_thread"),
         opts.runs,
         || source.stream_cell(editor_id).map_err(|e| e.to_string()),
     )?;
     source.set_threads(opts.threads);
     let (median_n, loaded) = timed(
+        opts,
         &format!("cell_stream_{editor_id}_{}_threads", opts.threads),
         opts.runs,
         || source.stream_cell(editor_id).map_err(|e| e.to_string()),
@@ -376,7 +422,7 @@ fn cell(opts: &Options, editor_id: &str) -> Result<(), String> {
 /// order, what it holds, and the cost of one lookup.
 fn cell_index(opts: &Options, editor_id: &str) -> Result<(), String> {
     let mut order = read_order_threads(&opts.data, opts.threads)?;
-    let (median, ()) = timed("cell_index_build", opts.runs, || {
+    let (median, ()) = timed(opts, "cell_index_build", opts.runs, || {
         order.build_cell_index();
         Ok(())
     })?;
@@ -449,12 +495,14 @@ fn exterior(opts: &Options, editor_id: &str) -> Result<(), String> {
     };
     source.set_threads(1);
     let (median_1, _) = timed(
+        opts,
         &format!("exterior_stream_3x3_{editor_id}_1_thread"),
         opts.runs,
         || stream_block(&source),
     )?;
     source.set_threads(opts.threads);
     let (median_n, totals) = timed(
+        opts,
         &format!("exterior_stream_3x3_{editor_id}_{}_threads", opts.threads),
         opts.runs,
         || stream_block(&source),
@@ -507,7 +555,7 @@ fn hot_loop_script() -> soe_papyrus::Script {
 fn scripts(opts: &Options) -> Result<(), String> {
     let order = read_order_threads(&opts.data, opts.threads)?;
     let mut game = Game::new(order);
-    let (_, load) = timed("scripts_load_from_bsa", opts.runs, || {
+    let (_, load) = timed(opts, "scripts_load_from_bsa", opts.runs, || {
         let mut fresh = Game::new(read_order_threads(&opts.data, opts.threads)?);
         let report = fresh.load_scripts_from_data(&opts.data);
         game = fresh;
@@ -515,10 +563,10 @@ fn scripts(opts: &Options) -> Result<(), String> {
     })?;
     report_count("scripts_loaded", load.scripts_loaded, "scripts");
     report_count("scripts_failed", load.scripts_failed.len(), "scripts");
-    let (_, bind) = timed("scripts_bind", 1, || Ok(game.bind()))?;
+    let (_, bind) = timed(opts, "scripts_bind", 1, || Ok(game.bind()))?;
     report_count("scripts_attached", bind.scripts_attached, "instances");
     report_count("scripts_properties_set", bind.properties_set, "properties");
-    let (_, started) = timed("scripts_start", 1, || Ok(game.start()))?;
+    let (_, started) = timed(opts, "scripts_start", 1, || Ok(game.start()))?;
     report_count("scripts_quests_started", started.quests_started, "quests");
     report_count(
         "scripts_live_threads_after_start",
@@ -528,7 +576,7 @@ fn scripts(opts: &Options) -> Result<(), String> {
 
     game.vm.load(hot_loop_script());
     let iterations = 200_000;
-    let (loop_median, used) = timed("vm_hot_loop", opts.runs, || {
+    let (loop_median, used) = timed(opts, "vm_hot_loop", opts.runs, || {
         game.vm
             .call_global("SoeBench", "Loop", &[Value::Int(iterations)])
             .map_err(|e| e.to_string())?;
@@ -551,7 +599,7 @@ fn scripts(opts: &Options) -> Result<(), String> {
 /// crate, one line per file and per kind.
 fn dirty(opts: &Options) -> Result<(), String> {
     let order = read_order_threads(&opts.data, opts.threads)?;
-    let (median, report_) = timed("dirty_report", opts.runs, || Ok(order.dirty_report()))?;
+    let (median, report_) = timed(opts, "dirty_report", opts.runs, || Ok(order.dirty_report()))?;
     let records: usize = order.files().iter().map(|f| f.plugin.records.len()).sum();
     report(
         "dirty_records_per_s",
@@ -592,7 +640,7 @@ fn navmesh(opts: &Options) -> Result<(), String> {
         .map(|(id, _)| id)
         .ok_or_else(|| "Tamriel not found".to_string())?;
     let tamriel_raw = order.record(order.overrides(tamriel)[0]).form_id;
-    let (build_median, (graph, stats)) = timed("navmesh_build_tamriel", opts.runs, || {
+    let (build_median, (graph, stats)) = timed(opts, "navmesh_build_tamriel", opts.runs, || {
         Ok(vanilla::from_load_order(&order, |r| {
             r.placement.world == Some(tamriel_raw)
         }))
@@ -619,7 +667,7 @@ fn navmesh(opts: &Options) -> Result<(), String> {
             )
         })
         .collect();
-    let (local_median, local_found) = timed("navmesh_1000_local_queries", opts.runs, || {
+    let (local_median, local_found) = timed(opts, "navmesh_1000_local_queries", opts.runs, || {
         Ok(local
             .iter()
             .filter(|(a, b)| graph.find_path(*a, *b).is_some())
@@ -631,6 +679,20 @@ fn navmesh(opts: &Options) -> Result<(), String> {
         per_second(local.len(), local_median),
         "queries/s",
     );
+    let (_, _) = timed(opts, "navmesh_point_index_first_query", 1, || {
+        Ok(graph.nearest(graph.centroid(local[0].0)))
+    })?;
+    let (_, located) = timed(opts, "navmesh_1000_point_queries", opts.runs, || {
+        Ok(local
+            .iter()
+            .filter(|(a, _)| {
+                let point = graph.centroid(*a);
+                graph.locate(point).is_some() && graph.nearest(point).is_some()
+            })
+            .count())
+    })?;
+    report_count("navmesh_point_queries_found", located, "points");
+
     // Random queries across the whole province: half the pairs are not
     // connected and the search exhausts its component before giving up.
     let count = 100;
@@ -644,7 +706,7 @@ fn navmesh(opts: &Options) -> Result<(), String> {
             (pick(&mut rng), pick(&mut rng))
         })
         .collect();
-    let (global_median, global_found) = timed("navmesh_100_province_queries", 1, || {
+    let (global_median, global_found) = timed(opts, "navmesh_100_province_queries", 1, || {
         Ok(global
             .iter()
             .filter(|(a, b)| graph.find_path(*a, *b).is_some())
@@ -663,13 +725,13 @@ fn save(opts: &Options) -> Result<(), String> {
     let mut game = Game::new(read_order_threads(&opts.data, opts.threads)?);
     game.load_scripts_from_data(&opts.data);
     game.bind();
-    let (_, bytes) = timed("save_state", opts.runs, || {
+    let (_, bytes) = timed(opts, "save_state", opts.runs, || {
         game.save_state().map_err(|e| e.to_string())
     })?;
     report("save_size_mb", bytes.len() as f64 / 1e6, "MB");
     let mut fresh = Game::new(read_order_threads(&opts.data, opts.threads)?);
     fresh.load_scripts_from_data(&opts.data);
-    let (_, ()) = timed("load_state", opts.runs, || {
+    let (_, ()) = timed(opts, "load_state", opts.runs, || {
         fresh.load_state(&bytes).map_err(|e| e.to_string())
     })?;
     Ok(())
@@ -682,15 +744,19 @@ fn overhead(opts: &Options, editor_id: &str) -> Result<(), String> {
     let source = open_source(opts, opts.threads)?;
     Trace::disable();
     let (off, _) = timed(
+        opts,
         &format!("overhead_{editor_id}_trace_off"),
         opts.runs,
         || source.stream_cell(editor_id).map_err(|e| e.to_string()),
     )?;
     Trace::clear();
     Trace::enable();
-    let (on, _) = timed(&format!("overhead_{editor_id}_trace_on"), opts.runs, || {
-        source.stream_cell(editor_id).map_err(|e| e.to_string())
-    })?;
+    let (on, _) = timed(
+        opts,
+        &format!("overhead_{editor_id}_trace_on"),
+        opts.runs,
+        || source.stream_cell(editor_id).map_err(|e| e.to_string()),
+    )?;
     let events = Trace::events().len();
     Trace::clear();
     if !was_enabled {
@@ -740,5 +806,48 @@ mod tests {
         let (median, min) = summary(&s);
         assert!((median - 0.020).abs() < 1e-9);
         assert!((min - 0.010).abs() < 1e-9);
+    }
+}
+
+#[cfg(test)]
+mod timing_tests {
+    use super::{tail_summary, timed, Gates, Options};
+    use std::cell::{Cell, RefCell};
+    use std::path::PathBuf;
+    use std::time::Duration;
+
+    #[test]
+    fn nearest_rank_uses_measured_samples_without_interpolation() {
+        assert_eq!(tail_summary(&[Duration::from_secs(7)]), (7.0, 7.0));
+        let samples: Vec<_> = (1..=100).rev().map(Duration::from_secs).collect();
+        assert_eq!(tail_summary(&samples), (99.0, 100.0));
+        assert_eq!(tail_summary(&samples[..3]), (100.0, 100.0));
+    }
+
+    #[test]
+    fn samples_release_the_previous_result_before_starting_the_next() {
+        struct Live<'a>(&'a Cell<usize>);
+        impl Drop for Live<'_> {
+            fn drop(&mut self) {
+                self.0.set(self.0.get() - 1);
+            }
+        }
+        let live = Cell::new(0);
+        let options = Options {
+            gates: RefCell::new(Gates::default()),
+            runs: 3,
+            data: PathBuf::default(),
+            out: PathBuf::default(),
+            threads: 1,
+        };
+        let (_, last) = timed(&options, "drop_test", 3, || {
+            assert_eq!(live.get(), 0);
+            live.set(1);
+            Ok(Live(&live))
+        })
+        .unwrap();
+        assert_eq!(live.get(), 1);
+        drop(last);
+        assert_eq!(live.get(), 0);
     }
 }

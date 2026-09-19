@@ -1,8 +1,8 @@
 # Skyrim open engine: handoff
 
-Updated 2026-09-19 against `master` at `75cfb55`. This replaces the September
-14 handoff. Its instructions to start the game crate and install Godot were
-superseded by subsequent merges.
+Updated 2026-09-19 for integration of player-host commit `8485d48` with
+`master` at `6d990e7`. This replaces the September 14 handoff. Its
+instructions to start the game crate and install Godot were superseded.
 
 ## Read first
 
@@ -37,11 +37,10 @@ The most recent feature merges are:
 | no-load-screen | `35a5dd7` | Simulation prefetch/attach split and deferred unload |
 | input | `75cfb55` | Control maps, input driver, cameras and Godot PlayerNode |
 
-Those branches are no longer in flight. At the start of this review there
-were no unmerged local branches or extra registered worktrees. The main tree
-had untracked `.serena/memories/`, which this task leaves alone. The
-documentation update uses its own `docs-status-intent` branch and sibling
-worktree. Check Git again before taking ownership of any tree.
+Those branches are no longer in flight. Reference fixes `0c84bbe` and audit
+improvements `3f336e3` were reconciled on master at `6d990e7`. Player-host
+work is integrated in the `host-player-run` worktree. Other registered
+worktrees remain owned by their sessions. Check Git before taking ownership.
 
 ## What to pick up next
 
@@ -60,10 +59,9 @@ sequence, deferred unload on a later frame, and audible footsteps. Measure
 cold material loading before promising a crossing without a fallback fade.
 See the final sections of `docs/godot-host.md` and `docs/game.md`.
 
-The broader gameplay layer still needs a concrete plan: combat, magic,
-dialogue, menus and inventory interaction, crafting and progression, quest
-conditions and alias filling. The existing future quest-loop paragraph is
-not a complete breakdown. The CommonLib shim is a skeleton, and the Creation
+The reference audit now supplies source paths and acceptance checks for
+pending gameplay work. Combat, crafting and progression still need separate
+record-backed scopes. The CommonLib shim is a skeleton, and the Creation
 Kit replacement is a design. Do not count either as delivered compatibility.
 
 `portal-cells` remains a prototype proposal. The simulation transition split
@@ -72,10 +70,17 @@ Reuse the local godotwind findings before beginning portal work.
 
 ## Verification and safe continuation
 
-This handoff is based on source and history inspection, not a new engine run.
-The previous handover recorded 750 passing tier 1 tests before the input
-merge. A new full gate is needed before asserting that the current commit is
-green. Historical live-game and save-corpus results remain in the crate docs.
+The player-host gate recorded 821 passes before integration. Its separate
+Godot input/camera and real-cell movement tests passed. A rendered capture
+succeeded, but the user reported rug flicker, missing beds, broken kitchen
+flooring and slow loading. The renderer still filters out non-STAT bases,
+and the player and renderer open separate data sources. Visual correctness
+is not established. The combined gate passed with 852 test passes, and the
+rebuilt Godot 4.7.2 player test passed with 281 bodies and the same 90-unit
+movement result. The initial combined run skipped Taplo and Markdownlint.
+Taplo 0.10.0 and Markdownlint CLI2 0.23.2 are now installed through Homebrew,
+and both standalone checks pass.
+Historical live-game and save-corpus results remain in the crate docs.
 Never substitute a skipped gated test for a real-data run.
 
 Run `rtk proxy ./tools/lint.sh` from the engine worktree before a commit.

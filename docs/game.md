@@ -63,14 +63,15 @@ extender in the PAPER mould) and returns the functions it lost. First
 registration wins, the registry never replaces silently. This is the answer to
 the map's third open seam.
 
-**Semantics.** From the Creation Kit wiki's function pages and play
-behaviour. The wiki is behind a Cloudflare challenge for plain fetches, so
-`engine-refs/ck-wiki/` is empty until a browser session fills it, and every
-native below is marked for review against its page once that happens.
+**Semantics.** Consult the local Creation Kit function pages and shipped PSC
+wrappers before implementing natives. `engine-refs/ck-wiki/` contains 402
+wikitext pages as of 2026-09-19. When an individual page is absent, class pages
+and `engine-refs/skse64/scripts/vanilla` can establish the contract.
+[The reference audit](reference-audit.md) records missed contracts and gaps.
 
 ## Conformance table
 
-Counts from `natives::register`: 347 natives with state behind them and 189
+Counts from `natives::register`: 345 natives with state behind them and 191
 quiet stubs (141 and 176 before the natives round of 2026-09-18, 294 and 137
 before the DLC round). A stub returns the value the game gives when nothing
 is going on (`IsBleedingOut` false, `ShakeCamera` nothing) so vanilla scripts
@@ -80,7 +81,7 @@ run past it.
 |---|---|---|
 | Form | GetFormID, GetName, GetType, HasKeyword, GetKeywords, RegisterForSingleUpdate, RegisterForUpdate, RegisterForSingleUpdateGameTime, RegisterForUpdateGameTime, UnregisterForUpdate, UnregisterForUpdateGameTime, RegisterForSleep, UnregisterForSleep, RegisterForTrackedStatsEvent, UnregisterForTrackedStatsEvent, RegisterForAnimationEvent, UnregisterForAnimationEvent, RegisterForLOS, RegisterForSingleLOSGain, RegisterForSingleLOSLost, UnregisterForLOS | |
 | ObjectReference | Enable, EnableNoWait, Disable, DisableNoWait, IsEnabled, IsDisabled, Delete, IsDeleted, GetBaseObject, GetParentCell, GetWorldSpace, IsInInterior, GetPositionX/Y/Z, GetAngleX/Y/Z, SetPosition, SetAngle, MoveTo, GetDistance, Activate, BlockActivation, IsActivationBlocked, GetLinkedRef, GetItemCount, AddItem, RemoveItem, RemoveAllItems, GetScale, SetScale, GetDisplayName, SetDisplayName, PlayAnimation, GetOpenState, SetOpen, Lock, IsLocked, GetLockLevel, SetLockLevel, PlaceAtMe, AddToMap, EnableFastTravel, SetDestroyed, IgnoreFriendlyHits, IsIgnoringFriendlyHits, GetCurrentLocation, GetEditorLocation, IsInLocation, MoveToMyEditorLocation, GetActorOwner, GetFactionOwner, SetActorOwner, SetFactionOwner, AddInventoryEventFilter, RemoveInventoryEventFilter, RemoveAllInventoryEventFilters, SetAnimationVariableFloat/Int/Bool, GetAnimationVariableFloat/Int/Bool, GetNthLinkedRef, PlaceActorAtMe | Is3DLoaded, IsFurnitureInUse, GetCurrentScene, SetMotionType, ApplyHavokImpulse, PushActorAway and 6 more, plus the DLC ragdoll, cart and translation: ForceAddRagdollToWorld, ForceRemoveRagdollFromWorld, TetherToHorse, IsFurnitureMarkerInUse, Reset, TranslateTo, SplineTranslateTo, StopTranslation, CreateDetectionEvent |
-| Actor | GetActorValue, GetBaseActorValue, SetActorValue, ModActorValue, DamageActorValue, RestoreActorValue, GetActorValuePercentage (and the AV short names), IsDead, Kill, GetKiller, Resurrect, IsInCombat, StartCombat, StopCombat, GetCombatTarget, GetActorBase, GetLeveledActorBase, IsEssential, IsPlayerTeammate, SetPlayerTeammate, IsGhost, SetGhost, IsProtected, GetLevel, GetRace, IsUnconscious, SetUnconscious, SetRestrained, IsDoingFavor, SetDoingFavor, AddSpell, RemoveSpell, HasSpell, EquipItem, UnequipItem, IsEquipped, IsInFaction, GetFactionRank, AddToFaction, RemoveFromFaction, SetFactionRank, AddPerk, RemovePerk, HasPerk, SetAlert, IsAlerted, StartSneaking, IsSneaking, DrawWeapon, SheatheWeapon, IsWeaponDrawn, IsArrested, ClearArrested, SetAttackActorOnSight, SetDontMove, SetAllowPCDialogue, SetRelationshipRank, GetRelationshipRank, GetHighestRelationshipRank, GetLowestRelationshipRank, GetCrimeFaction, SetCrimeFaction, SetOutfit, and from the DLC: SendVampirismStateChanged, SendLycanthropyStateChanged, SetAllowFlying, SetAllowFlyingEx, IsAllowedToFly, CanFlyHere, StartDeferredKill, EndDeferredKill, KillSilent, SetRace, SetEyeTexture, SetCriticalStage, AttachAshPile, SetNoBleedoutRecovery, GetNoBleedoutRecovery, EnableAI, AddShout, RemoveShout, EquipShout, UnequipShout, GetEquippedShout, EquipSpell, UnequipSpell, DispelSpell, DispelAllSpells, SetSubGraphFloatVariable, PlaySubGraphAnimation, WornHasKeyword, IsPlayersLastRiddenHorse, SetAlpha, PlayIdle | IsAlarmed, IsBleedingOut, GetCombatState, EvaluatePackage, GetEquippedWeapon, SetLookAt and 34 more, plus the DLC ones without a system: IsFlying, HasMagicEffect, HasMagicEffectWithKeyword, GetWarmthRating, ClearExtraArrows, DoCombatSpellApply, MoveToPackageLocation |
+| Actor | GetActorValue, GetBaseActorValue, SetActorValue, ModActorValue, DamageActorValue, RestoreActorValue, GetActorValuePercentage (and the AV short names), IsDead, Kill, GetKiller, Resurrect, IsInCombat, StartCombat, StopCombat, GetCombatTarget, GetActorBase, GetLeveledActorBase, IsEssential, IsPlayerTeammate, SetPlayerTeammate, IsGhost, SetGhost, IsProtected, GetLevel, GetRace, IsUnconscious, SetUnconscious, SetRestrained, IsDoingFavor, SetDoingFavor, AddSpell, RemoveSpell, HasSpell, EquipItem, UnequipItem, IsEquipped, IsInFaction, GetFactionRank, AddToFaction, RemoveFromFaction, SetFactionRank, AddPerk, RemovePerk, HasPerk, SetAlert, IsAlerted, StartSneaking, IsSneaking, DrawWeapon, SheatheWeapon, IsWeaponDrawn, IsArrested, ClearArrested, SetAttackActorOnSight, SetDontMove, SetAllowPCDialogue, SetRelationshipRank, GetRelationshipRank, GetHighestRelationshipRank, GetLowestRelationshipRank, GetCrimeFaction, SetCrimeFaction, SetOutfit, and from the DLC: SendVampirismStateChanged, SendLycanthropyStateChanged, SetAllowFlying, SetAllowFlyingEx, IsAllowedToFly, CanFlyHere, StartDeferredKill, EndDeferredKill, KillSilent, SetRace, SetEyeTexture, SetCriticalStage, AttachAshPile, SetNoBleedoutRecovery, GetNoBleedoutRecovery, EnableAI, AddShout, RemoveShout, EquipShout, UnequipShout, GetEquippedShout, EquipSpell, UnequipSpell, SetSubGraphFloatVariable, PlaySubGraphAnimation, WornHasKeyword, IsPlayersLastRiddenHorse, SetAlpha, PlayIdle | IsAlarmed, IsBleedingOut, GetCombatState, EvaluatePackage, GetEquippedWeapon, SetLookAt and 34 more, plus the DLC ones without a system: IsFlying, HasMagicEffect, HasMagicEffectWithKeyword, DispelSpell, DispelAllSpells, GetWarmthRating, ClearExtraArrows, DoCombatSpellApply, MoveToPackageLocation |
 | ActorBase | GetRace, GetClass, GetSex, GetDeadCount, IsEssential, IsProtected, IsInvulnerable, IsUnique, SetEssential, SetProtected, SetInvulnerable, SetOutfit | GetGiftFilter |
 | Quest | Start, Stop, Reset, IsRunning, IsCompleted, IsActive, SetActive, CompleteQuest, CompleteAllObjectives, FailAllObjectives, SetStage, SetCurrentStageID, GetStage, GetCurrentStageID, GetStageDone, IsStageDone, SetObjectiveDisplayed, SetObjectiveDisplayedNoWait, SetObjectiveCompleted, SetObjectiveFailed, IsObjectiveDisplayed, IsObjectiveCompleted, IsObjectiveFailed, ModObjectiveGlobal, UpdateCurrentInstanceGlobal, GetAlias, GetAliasById, GetAliasByName, GetID, GetPriority, GetQuest | IsStarting, IsStopping |
 | Alias, ReferenceAlias, LocationAlias | GetOwningQuest, GetID, GetName, GetReference, GetRef, GetActorReference, GetActorRef, ForceRefTo, ForceRefIfEmpty, Clear, GetLocation, ForceLocationTo, AddInventoryEventFilter, RemoveInventoryEventFilter, RemoveAllInventoryEventFilters | |
@@ -107,7 +108,7 @@ run past it.
 | MusicType, Topic | | Add, Remove |
 | Weather, Weapon, Scroll | | SetActive, Fire, Cast |
 
-Semantics worth stating because they were decided here, not read:
+Current behavior and compatibility limits:
 
 - `SetStage` on a quest that is not running starts it (`OnInit`, then the
   stage), records the stage in the done set, updates the current and highest
@@ -118,7 +119,17 @@ Semantics worth stating because they were decided here, not read:
   with `XTEL` moves the activator to the far door's cell and landing
   transform, a container marks itself opened, then `OnActivate` goes to the
   target's scripts with the activator. `Activate(x, true)` skips the event.
-- `GetStage` is the highest stage set, `GetCurrentStageID` the last one.
+- `GetStage` and `GetCurrentStageID` both return the highest stage set since
+  reset. The shipped `Quest.psc` implements the first by calling the second.
+  Internal `QuestState.current` still records the last stage set.
+- `DispelSpell` and `DispelAllSpells` are stubs pending active effects. They
+  preserve known and equipped spells. `DispelSpell` returns false because
+  no effect was removed. The CK function pages require effect removal, and
+  `DispelAllSpells` excludes abilities, diseases, worn or constant
+  enchantments and addictions. Cast recording is not an effect lifecycle.
+- `tick_menu_mode(dt, true)` pauses world time and ordinary waits while
+  `WaitMenuMode` continues. `tick(dt)` remains the unpaused entry point.
+  The UI must supply the pause state when menus are implemented.
 - Inventories start from the base record's `CNTO` list.
 - Actor values come from the base `NPC_`: `DNAM` health, magicka, stamina
   and the 18 skills plus the `ACBS` offsets, with the `TPLT` template applied
@@ -428,6 +439,7 @@ Change` idles and topics, once per day for packages that end without
 arriving, `Must Complete`, interrupt flags, combat overrides, door
 unlocking flags, race movement speeds, the `Package Data` and `Event Data`
 condition targets, and every condition function outside the list above.
+
 ## Natives round two (2026-09-18)
 
 The round started from what the first `start` could not dispatch. Grouped by
@@ -756,7 +768,7 @@ reference map. Those differ, and the difference was a real defect: any lookup
 that resolves a form builds that one reference, so an unrelated
 `object_of_form` marked the cell in memory and suppressed the event.
 
-### Measured on the installed game
+### Door transitions measured on the installed game
 
 `tests/no_load_screen_live.rs`, gated on `SKYRIM_DATA`, release build. The
 budgets were written into the test before it was first run. A door animation

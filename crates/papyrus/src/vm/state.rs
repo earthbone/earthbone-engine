@@ -28,7 +28,7 @@ use super::{
 };
 
 pub const MAGIC: &[u8; 4] = b"SOEV";
-pub const VERSION: u16 = 1;
+pub const VERSION: u16 = 2;
 
 /// Little-endian byte writer.
 #[derive(Default)]
@@ -394,7 +394,9 @@ fn write_vars(
     types: &HashMap<String, String>,
 ) {
     w.len(vars.len());
-    for (name, value) in vars {
+    let mut entries: Vec<_> = vars.iter().collect();
+    entries.sort_by_key(|(name, _)| *name);
+    for (name, value) in entries {
         w.str(name);
         w.opt_str(types.get(name).map(String::as_str));
         pool.write_value(w, value);
@@ -432,6 +434,14 @@ fn write_state(w: &mut Writer, s: &ThreadState) {
             w.u64(id.0);
         }
         ThreadState::Done => w.u8(3),
+        ThreadState::SleepingMenu(until) => {
+            w.u8(4);
+            w.f64(*until);
+        }
+        ThreadState::SleepingGame(until) => {
+            w.u8(5);
+            w.f64(*until);
+        }
     }
 }
 
@@ -441,6 +451,8 @@ fn read_state(r: &mut Reader<'_>) -> Result<ThreadState, VmError> {
         1 => ThreadState::Sleeping(r.f64()?),
         2 => ThreadState::Latent(LatentId(r.u64()?)),
         3 => ThreadState::Done,
+        4 => ThreadState::SleepingMenu(r.f64()?),
+        5 => ThreadState::SleepingGame(r.f64()?),
         other => return Err(bad(&format!("unknown thread state {other}"))),
     })
 }
@@ -492,7 +504,9 @@ impl Vm {
 
         body.u64(self.next_object);
         body.len(self.objects.len());
-        for (id, o) in &self.objects {
+        let mut objects: Vec<_> = self.objects.iter().collect();
+        objects.sort_by_key(|(id, _)| id.0);
+        for (id, o) in objects {
             body.u64(id.0);
             body.str(&o.name);
             body.opt_str(o.class.as_deref());
@@ -558,11 +572,15 @@ impl Vm {
 
         body.u64(self.latent_counter);
         body.len(self.latent_waiters.len());
-        for (l, t) in &self.latent_waiters {
+        let mut waiters: Vec<_> = self.latent_waiters.iter().collect();
+        waiters.sort_by_key(|(id, _)| id.0);
+        for (l, t) in waiters {
             body.u64(l.0);
             body.u64(t.0);
         }
         body.f64(self.time);
+        body.f64(self.menu_time);
+        body.f64(self.game_hours);
         body.len(self.log.entries.len());
         for e in &self.log.entries {
             body.f64(e.time);
@@ -590,7 +608,7 @@ impl Vm {
             return Err(bad("not a VM state file"));
         }
         let version = r.u16()?;
-        if version != VERSION {
+        if version != 1 && version != VERSION {
             return Err(bad(&format!(
                 "state version {version}, this VM reads {VERSION}"
             )));
@@ -676,7 +694,16 @@ impl Vm {
                         FnKey::Getter(p) | FnKey::Setter(p) => p.clone(),
                     },
                 })?;
-                let instance = r.opt_u64()?.map(|i| InstanceId(i as usize));
+                let instance = r
+                    .opt_u64()?
+                    .map(|i| {
+                        usize::try_from(i)
+                            .ok()
+                            .filter(|index| *index < instances.len())
+                            .map(InstanceId)
+                            .ok_or_else(|| bad("frame refers to an instance past the table"))
+                    })
+                    .transpose()?;
                 let self_object = r.opt_u64()?.map(ObjectId);
                 let pc = r.u64()? as usize;
                 let (locals, local_types) = read_vars(&table, &mut r)?;
@@ -708,6 +735,11 @@ impl Vm {
             latent_waiters.insert(LatentId(r.u64()?), ThreadId(r.u64()?));
         }
         let time = r.f64()?;
+        let (menu_time, game_hours) = if version >= 2 {
+            (r.f64()?, r.f64()?)
+        } else {
+            (time, time * 20.0 / 3600.0)
+        };
         let n = r.len()?;
         let mut entries = Vec::with_capacity(n);
         for _ in 0..n {
@@ -726,6 +758,8 @@ impl Vm {
         self.latent_counter = latent_counter;
         self.latent_waiters = latent_waiters;
         self.time = time;
+        self.menu_time = menu_time;
+        self.game_hours = game_hours;
         self.log.entries = entries;
         Ok(())
     }
@@ -734,6 +768,45 @@ impl Vm {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn serialized_waiters_do_not_depend_on_hashmap_insertion_order() {
+        let mut first = Vm::new();
+        let mut second = Vm::new();
+        for id in 1..=16 {
+            first.latent_waiters.insert(LatentId(id), ThreadId(id));
+        }
+        for id in (1..=16).rev() {
+            second.latent_waiters.insert(LatentId(id), ThreadId(id));
+        }
+        assert_eq!(first.save_state().unwrap(), second.save_state().unwrap());
+    }
+
+    #[test]
+    fn invalid_frame_instance_is_rejected_without_replacing_live_state() {
+        use crate::asm::{i, FunctionBuilder, ScriptBuilder};
+        use crate::pex::Opcode;
+        let bytes = ScriptBuilder::new("Probe", "")
+            .function(
+                FunctionBuilder::new("Run", "Int")
+                    .ins(Opcode::Return, vec![i(1)])
+                    .build(),
+            )
+            .bytes();
+        let mut vm = Vm::new();
+        vm.load_bytes(&bytes).unwrap();
+        let object = vm.create_object("probe");
+        vm.attach(object, "Probe").unwrap();
+        vm.call(object, "Run", &[]).unwrap();
+        let valid = vm.save_state().unwrap();
+        vm.threads[0].frames[0].instance = Some(InstanceId(usize::MAX));
+        let invalid = vm.save_state().unwrap();
+        vm.load_state(&valid).unwrap();
+        assert!(matches!(vm.load_state(&invalid), Err(VmError::State(_))));
+        assert_eq!(vm.save_state().unwrap(), valid);
+        vm.run(100);
+        assert!(vm.idle());
+    }
 
     #[test]
     fn values_round_trip_and_shared_arrays_stay_shared() {
@@ -832,6 +905,22 @@ mod tests {
         assert_eq!(fresh.thread_result(tid), Some(Value::Int(111)));
         assert_eq!(fresh.get_var(obj, "Sleepy", "::n"), Some(Value::Int(111)));
         assert!(matches!(fresh.thread_state(tid), Some(ThreadState::Done)));
+    }
+
+    #[test]
+    fn version_one_clock_loads_with_legacy_defaults() {
+        let mut vm = Vm::new();
+        vm.advance(180.0);
+        let mut bytes = vm.save_state().unwrap();
+        // Empty log: its four-byte count follows the three version 2 clocks.
+        let end = bytes.len() - 4;
+        bytes.drain(end - 16..end);
+        bytes[4..6].copy_from_slice(&1u16.to_le_bytes());
+        let mut loaded = Vm::new();
+        loaded.load_state(&bytes).unwrap();
+        assert_eq!(loaded.time, 180.0);
+        assert_eq!(loaded.menu_time, 180.0);
+        assert_eq!(loaded.game_hours, 1.0);
     }
 
     #[test]

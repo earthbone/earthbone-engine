@@ -356,3 +356,71 @@ and the cell stream passes once the index and the compressed texture path are on
 The 56 ms frame figure recorded earlier was `Performance.TIME_PROCESS`, which reads a constant 80
 to 113 ms on a scene the wall clock draws in 0.48 ms, so nodes were never the frame cost. The
 host question is settled for now: Godot at this scale is not the bottleneck.
+
+## Explicit timing gates (2026-09-19)
+
+Each timed phase now reports median, minimum, nearest-rank p99, maximum and sample
+count. The p99 of fewer than 100 samples is the maximum, not evidence about a
+population tail. Most phases use `--runs`, but the province navigation cohort
+still runs once. Its samples describe the complete 100-query cohort, not
+individual query latencies.
+
+Repeat `--max-seconds metric=value` before the subcommand to set explicit upper
+bounds, for example:
+
+```text
+SKYRIM_DATA="<Data>" soe-bench --runs 100 --max-seconds cell_stream_WhiterunBanneredMare_1_thread_p99=0.05 cell WhiterunBanneredMare
+```
+
+Use the exact printed metric name. Invalid, duplicate and unmeasured names fail
+the command, as do exceeded limits. Choose machine-specific limits before the
+first measured run. No measured number in this report automatically becomes a
+threshold.
+
+Navigation also reports lazy point-index construction separately from repeated
+1,000-point lookup cohorts. Allocation counting is not included. A process-local
+allocation harness is needed to separate engine allocations from concurrent
+tests and Godot's allocations.
+
+The cell benchmark reports its cold texture-cache stream separately, then
+compares warm-cache one-worker and multi-worker streams. Each timing sample
+drops the previous result before starting its timer, so startup measurements
+do not retain two complete archive sets. A unit test checks the drop order.
+
+### Audit measurements, 2026-09-19
+
+Baseline `75cfb55` and the audit branch used the same installed five-master load
+order and Cargo `thin` profile. Before and after processes ran sequentially.
+Other project work was active on the machine, and startup timings varied.
+These are observations, not portable thresholds.
+
+| Workload | Baseline | Audit branch |
+|---|---:|---:|
+| 100 fixed province path queries | 27.934 s | 6.135 s |
+| Paths found in that cohort | 40 | 40 |
+| 1,000 local path queries, median of 3 | 0.013 s | 0.010 s |
+| Local paths found | 1,000 | 1,000 |
+| 24-worker startup, separate process pair 1 | 9.168 s | 3.776 s |
+| 24-worker startup, separate process pair 2 | 9.352 s | 6.991 s |
+| 24-worker startup, separate process pair 3 | 5.769 s | 3.449 s |
+
+The province cohort is 4.55 times faster in this comparison, with the same
+reachability count. It calls `find_path` directly, so the gain is from component
+rejection and stale-queue handling, not the point index. The new point-query
+cohort found 1,000 of 1,000 points in 0.008 s after a separately measured
+0.016 s lazy index build. There is no matching old-harness point-query timing.
+
+The startup samples have medians of 9.168 s before and 3.776 s after, but the
+one-worker control samples also varied widely. All paired threaded samples
+improved, which supports retaining bounded parallel archive opening. A repeat
+on an idle machine is needed for a stable regression threshold.
+
+Every cell run retained 690 references, 318 parsed meshes, zero failed meshes,
+124,924 triangles and 763 surfaces. Streaming numbers from the old harness are
+not compared because its first one-worker stream had a cold texture cache and
+its multi-worker stream had a warm cache.
+
+Persistent worker pools, lazy archive payload storage and allocation-count
+gates remain unimplemented. They need separate measurements of worker startup,
+first-use latency and peak memory. The failed repeated startup run that retained
+two full archive sets is not included in the table.

@@ -15,6 +15,12 @@
 
 use std::cmp::Ordering;
 use std::collections::{BinaryHeap, HashMap};
+use std::sync::OnceLock;
+
+#[cfg(test)]
+mod query_tests;
+mod spatial;
+use spatial::SpatialIndex;
 
 /// A triangle in the graph: which mesh, and which triangle in it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -122,11 +128,14 @@ pub struct Path {
 #[derive(Debug, Clone, Default)]
 pub struct NavGraph {
     meshes: Vec<Mesh>,
+    spatial: OnceLock<SpatialIndex>,
+    components: OnceLock<Vec<usize>>,
 }
 
 #[derive(Clone, Copy, PartialEq)]
 struct Open {
     f: f32,
+    g: f32,
     node: NodeId,
 }
 
@@ -140,6 +149,7 @@ impl Ord for Open {
             .partial_cmp(&self.f)
             .unwrap_or(Ordering::Equal)
             .then_with(|| other.node.cmp(&self.node))
+            .then_with(|| other.g.total_cmp(&self.g))
     }
 }
 
@@ -169,6 +179,8 @@ impl NavGraph {
             max: [0.0; 3],
         };
         mesh.recompute_bounds();
+        self.spatial.take();
+        self.components.take();
         self.meshes.push(mesh);
         (self.meshes.len() - 1) as u32
     }
@@ -209,6 +221,7 @@ impl NavGraph {
     /// Make `b` the neighbour of `a` across `edge`. One direction only, the
     /// other mesh carries its own link back.
     pub fn link(&mut self, a: NodeId, edge: usize, b: NodeId) {
+        self.components.take();
         self.meshes[a.mesh as usize].triangles[a.triangle as usize].neighbors[edge] = Some(b);
     }
 
@@ -240,36 +253,104 @@ impl NavGraph {
     /// the one whose surface is nearest in Z. Meshes whose bounds exclude
     /// the point are skipped, so this is cheap on a world-sized graph.
     pub fn locate(&self, point: [f32; 3]) -> Option<NodeId> {
+        if !point.iter().all(|p| p.is_finite()) {
+            return None;
+        }
         let mut best: Option<(f32, NodeId)> = None;
-        for (mi, mesh) in self.meshes.iter().enumerate() {
-            let (min, max) = mesh.bounds();
-            if point[0] < min[0] || point[0] > max[0] || point[1] < min[1] || point[1] > max[1] {
-                continue;
-            }
-            for ti in 0..mesh.triangles.len() {
-                if let Some(z) = mesh.height_at(ti as u32, point[0], point[1]) {
-                    let dz = (z - point[2]).abs();
-                    if best.is_none_or(|(d, _)| dz < d) {
-                        best = Some((dz, NodeId::new(mi as u32, ti as u32)));
+        self.spatial
+            .get_or_init(|| SpatialIndex::build(&self.meshes))
+            .visit_xy(point, |mi| {
+                let mesh = &self.meshes[mi];
+                if point[0] < mesh.min[0]
+                    || point[0] > mesh.max[0]
+                    || point[1] < mesh.min[1]
+                    || point[1] > mesh.max[1]
+                {
+                    return;
+                }
+                for ti in 0..mesh.triangles.len() {
+                    if let Some(z) = mesh.height_at(ti as u32, point[0], point[1]) {
+                        let candidate = ((z - point[2]).abs(), NodeId::new(mi as u32, ti as u32));
+                        if best.is_none_or(|old| candidate < old) {
+                            best = Some(candidate);
+                        }
                     }
                 }
-            }
-        }
+            });
         best.map(|(_, n)| n)
     }
 
     /// The triangle whose centroid is nearest, for points just off the mesh.
     pub fn nearest(&self, point: [f32; 3]) -> Option<NodeId> {
+        if !point.iter().all(|p| p.is_finite()) {
+            return None;
+        }
         let mut best: Option<(f32, NodeId)> = None;
-        for (mi, mesh) in self.meshes.iter().enumerate() {
-            for ti in 0..mesh.triangles.len() {
-                let d = distance(mesh.centroid(ti as u32), point);
-                if best.is_none_or(|(bd, _)| d < bd) {
-                    best = Some((d, NodeId::new(mi as u32, ti as u32)));
+        self.spatial
+            .get_or_init(|| SpatialIndex::build(&self.meshes))
+            .visit_nearest(point, |mi, radius| {
+                let mesh = &self.meshes[mi];
+                for ti in 0..mesh.triangles.len() {
+                    let candidate = (
+                        distance(mesh.centroid(ti as u32), point),
+                        NodeId::new(mi as u32, ti as u32),
+                    );
+                    if best.is_none_or(|old| candidate < old) {
+                        *radius = candidate.0;
+                        best = Some(candidate);
+                    }
+                }
+            });
+        best.map(|(_, n)| n)
+    }
+
+    /// Weak mesh components only reject impossible routes. A component can
+    /// still contain directed links or disconnected triangles, so A* remains
+    /// the authority for reachability within it.
+    fn components(&self) -> &[usize] {
+        self.components.get_or_init(|| {
+            fn root(parents: &mut [usize], mut node: usize) -> usize {
+                while parents[node] != node {
+                    parents[node] = parents[parents[node]];
+                    node = parents[node];
+                }
+                node
+            }
+            let mut parents: Vec<_> = (0..self.meshes.len()).collect();
+            let mut ranks = vec![0u8; parents.len()];
+            for (mi, mesh) in self.meshes.iter().enumerate() {
+                for tri in &mesh.triangles {
+                    for next in tri.neighbors.iter().flatten() {
+                        let other = next.mesh as usize;
+                        if other == mi
+                            || self
+                                .meshes
+                                .get(other)
+                                .and_then(|m| m.triangles.get(next.triangle as usize))
+                                .is_none()
+                        {
+                            continue;
+                        }
+                        let mut a = root(&mut parents, mi);
+                        let mut b = root(&mut parents, other);
+                        if a == b {
+                            continue;
+                        }
+                        if ranks[a] < ranks[b] {
+                            std::mem::swap(&mut a, &mut b);
+                        }
+                        parents[b] = a;
+                        if ranks[a] == ranks[b] {
+                            ranks[a] += 1;
+                        }
+                    }
                 }
             }
-        }
-        best.map(|(_, n)| n)
+            for mi in 0..parents.len() {
+                parents[mi] = root(&mut parents, mi);
+            }
+            parents
+        })
     }
 
     /// A* over triangle adjacency, centroid distance as cost and as the
@@ -277,7 +358,22 @@ impl NavGraph {
     /// the walked route).
     pub fn find_path(&self, from: NodeId, to: NodeId) -> Option<Path> {
         let _span = soe_trace::Span::new("navmesh.find_path", "navmesh");
-        if self.triangle(from).blocked || self.triangle(to).blocked {
+        let start = self
+            .meshes
+            .get(from.mesh as usize)?
+            .triangles
+            .get(from.triangle as usize)?;
+        let end = self
+            .meshes
+            .get(to.mesh as usize)?
+            .triangles
+            .get(to.triangle as usize)?;
+        if start.blocked || end.blocked {
+            return None;
+        }
+        if from.mesh != to.mesh
+            && self.components()[from.mesh as usize] != self.components()[to.mesh as usize]
+        {
             return None;
         }
         let goal = self.centroid(to);
@@ -288,8 +384,15 @@ impl NavGraph {
         open.push(Open {
             f: distance(self.centroid(from), goal),
             node: from,
+            g: 0.0,
         });
-        while let Some(Open { node, .. }) = open.pop() {
+        while let Some(Open {
+            node, g: queued, ..
+        }) = open.pop()
+        {
+            if queued > g[&node] {
+                continue;
+            }
             if node == to {
                 return Some(self.assemble(from, to, &came, g[&to]));
             }
@@ -314,6 +417,7 @@ impl NavGraph {
                     open.push(Open {
                         f: tentative + distance(m.centroid(next.triangle), goal),
                         node: next,
+                        g: tentative,
                     });
                 }
             }

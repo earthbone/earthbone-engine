@@ -100,7 +100,7 @@ purpose. If you change a working rule, change both.
 Run `./tools/lint.sh` from the repository root before every commit. It is the
 only definition of done that counts. In order, it runs:
 
-```
+```text
 cargo fmt --all --check
 cargo clippy --workspace --lib --bins -- -D warnings
 cargo clippy --workspace --all-features --all-targets -- -D warnings
@@ -119,15 +119,16 @@ encode path drifted until someone noticed. Tests are checked only by the
 `--all-targets` runs, and on 2026-09-18 thirteen clippy errors reached `master`
 because an agent ran a gate without them.
 
-The pre-input handover recorded 750 tier 1 tests in about twelve seconds
-against a five minute budget. That is historical evidence, not a fresh run
-on `75cfb55`. Tier 1 must stay under the budget. Optional lint tools may be
-skipped by the script when absent, so report those skips as well as exit status.
+The reference-correction gate reports 835 test passes, including gated tests
+that return early without their data variables. Tier 1 must stay under the
+five minute budget.
+Optional lint tools may be skipped when absent. Report those skips as well
+as exit status. The combined branch requires its own gate run.
 
 Tests that need the installed game are gated on an environment variable and
 skip cleanly when it is unset:
 
-```
+```text
 SKYRIM_DATA="/run/host/media/pengolodh/Data/SteamLibrary/steamapps/common/Skyrim Special Edition/Data"
 ```
 
@@ -151,7 +152,7 @@ awaiting approval. Commit approved steps and keep other writers isolated.
 Prefix every shell command with `rtk`. Use Serena and language servers for
 symbols, direct reads and RTK searches for named files and literal text.
 
-```
+```text
 git worktree add ../soe-<item> -b <item> master
 ```
 
@@ -238,9 +239,10 @@ unverified. The proposed next milestone is a verified Bannered Mare
 walkthrough, with movement, camera, interaction, a door crossing and footsteps.
 
 Combat, magic, dialogue, crafting, progression and player UI still need
-implementation and explicit done checks. The plan mentions a future quest
-loop, but does not decompose the full gameplay layer. Records and a VM are
-necessary foundations, not evidence that the game layer is complete.
+implementation. The reference audit supplies source paths and acceptance
+checks for the game layer. Combat, crafting and progression still need
+separate record-backed scopes. Records and a VM are necessary foundations,
+not evidence that the game layer is complete.
 The CommonLib shim is a skeleton, and the editor is a design.
 
 Do not reuse the old 23-of-47 open-item count as a current completion metric.
@@ -251,6 +253,12 @@ upload in batching, while other merged branches retain integration gaps.
 
 The abbreviated fork skill gate remains stale. Use `tools/lint.sh`, including
 all feature-range and target checks, instead of that abbreviated list.
+
+The reference fixes in `0c84bbe`, reconciled with the audit improvements at
+`6d990e7`, add distinct wait clock domains, safe dispel stubs and explicit
+unsupported deterministic SPID rules. The registry reports 345 stateful
+natives and 191 stubs. `docs/reference-audit.md` now supplies source paths
+and acceptance checks for pending gameplay work.
 
 ## Traps
 

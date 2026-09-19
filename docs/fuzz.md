@@ -43,14 +43,27 @@ PATH="$HOME/.cargo/bin:$PATH" "$HOME/.cargo/bin/cargo" +nightly fuzz run \
 | `fuzz-havok` | `soe-havok` | `Packfile::parse` |
 | `fuzz-dds` | `soe-dds` | `Dds::parse` |
 | `fuzz-pex` | `soe-papyrus` | `pex::parse` |
+| `fuzz-pex-grammar` | `soe-papyrus` | Generated PEX round trips |
+| `fuzz-vm-run` | `soe-papyrus` | Generated bounded VM execution |
+| `fuzz-save` | `soe-save` | Save parse and decompressed-body round trip |
+| `fuzz-dds-grammar` | `soe-dds` | Generated DDS decode |
+| `fuzz-bsa-grammar` | `soe-bsa` | Generated archive round trips |
+| `fuzz-audio` | `soe-audio` | FUZ, LIP, RIFF and xWMA containers |
+| `fuzz-profile` | `soe-profile` | INI, plugins.txt and loadorder.txt |
+| `fuzz-moddata` | `soe-moddata` | SPID, KID and Base Object Swapper text |
+| `fuzz-vm-state` | `soe-papyrus` | SOEV load followed by bounded execution |
 
-Each target is a thin `libfuzzer_sys::fuzz_target!` wrapper in
-`fuzz/fuzz_targets/`, nothing more than the call above with the result
-discarded. The interesting work is entirely inside the format crates.
+Targets in `fuzz/fuzz_targets/` exercise parser error paths, round trips and
+bounded execution. The save target compares the uncompressed header and body,
+not compressor output, which can differ without losing data. The VM-state
+target preloads a probe script, allowing mutated valid frames to execute.
+Profile round trips cover named INI sections and representable plugin names,
+while arbitrary malformed text still exercises the parsers.
 
 ## Seeds and corpus
 
-`fuzz/src/bin/gen_seeds.rs` writes one minimal, valid fixture per target into
+`fuzz/src/bin/gen_seeds.rs` writes minimal valid fixtures for the six original
+byte targets and the four new targets into
 `fuzz/corpus/<target>/`, built with the same crate the target under test
 uses (the DDS seed comes from `Header::to_bytes`, the PEX seed from
 `soe_papyrus::asm::ScriptBuilder`, and so on), so the fuzzer starts from a
@@ -59,6 +72,11 @@ file libFuzzer's mutator can meaningfully evolve rather than raw noise.
 its target's entry point, as a fast sanity check independent of the fuzzer
 itself. Run either with `cargo run --manifest-path fuzz/Cargo.toml --bin
 gen_seeds` or `check_seeds`.
+
+The checker exits with failure for rejected binary seeds. The two permissive
+text parsers cannot reject input, so their seeds are checked as nonempty UTF-8.
+Grammar targets generate their own structure. The save target uses the external
+save corpus, which must never be copied into this repository.
 
 `fuzz/.gitignore` excludes `corpus`, `artifacts`, `target` and `coverage`, so
 none of that is committed. A libFuzzer session can grow its corpus into
@@ -129,3 +147,15 @@ fails `cargo test` immediately rather than waiting for the fuzzer to find it
 again. `fuzz/artifacts/` itself is gitignored and local only, so the embedded
 bytes in each regression test are the lasting record of the finds, not the
 artifact files.
+
+## Audit harness verification (2026-09-19)
+
+All targets build on stable Rust with the locked dependencies. The four new
+targets each completed 10,000 bounded mutation inputs, after correcting an
+overstrict INI assertion about empty unnamed sections. The seed generator and
+checker passed. The save target also passed all 60 external saves as fixed
+inputs, preserving their headers and decompressed bodies without copying them.
+
+These smoke runs have no coverage instrumentation or sanitizer support. They
+are not replacements for the nightly cargo-fuzz runs described above. No
+nightly toolchain or cargo-fuzz executable was installed on the test machine.

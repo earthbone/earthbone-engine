@@ -183,7 +183,7 @@ pub fn register(vm: &mut Vm, world: &Shared) -> Registered {
 
 /// Hand-kept count of the non-stub natives registered below. The test in
 /// this module checks it against the registry.
-pub const NATIVE_COUNT: usize = 347;
+pub const NATIVE_COUNT: usize = 345;
 
 fn declare_parents(vm: &mut Vm) {
     for (class, parent) in [
@@ -1395,7 +1395,7 @@ fn quest(vm: &mut Vm, w: &Shared) {
         .quest_state(me)
         .map_or(0, |q| i32::from(q.highest))));
     method!(vm, w, "Quest", "GetCurrentStageID", |world, call, me| i(
-        world.quest_state(me).map_or(0, |q| i32::from(q.current))
+        world.quest_state(me).map_or(0, |q| i32::from(q.highest))
     ));
     for name in ["GetStageDone", "IsStageDone"] {
         method!(vm, w, "Quest", name, |world, call, me| {
@@ -2480,24 +2480,6 @@ fn dlc(vm: &mut Vm, w: &Shared) {
         let cell = world.reference(me).and_then(|r| r.cell);
         b(cell.is_some_and(|c| !world.cell_is_interior(c)))
     });
-    // "Dispel a spell from this actor", true when the actor had it.
-    method!(vm, w, "Actor", "DispelSpell", |world, call, me| {
-        let Some(spell) = world.form_arg(&call.arg(0)) else {
-            return b(false);
-        };
-        let Some(a) = world.actor(me) else {
-            return b(false);
-        };
-        a.equipped.remove(&spell);
-        b(a.spells.remove(&spell))
-    });
-    // "Dispel all spell from this actor."
-    method!(vm, w, "Actor", "DispelAllSpells", |world, call, me| {
-        if let Some(a) = world.actor(me) {
-            a.spells.clear();
-        }
-        none()
-    });
     // "Enables or disables this actor's AI." Stored inverted so an actor
     // nobody touched still thinks.
     method!(vm, w, "Actor", "EnableAI", |world, call, me| {
@@ -2906,6 +2888,8 @@ fn stubs(vm: &mut Vm) -> usize {
         // No flight, no active magic effect list, no ragdoll yet.
         ("Actor", "IsFlying", false),
         ("Actor", "HasMagicEffect", false),
+        // CK DispelSpell removes active effects, never known or equipped spells.
+        ("Actor", "DispelSpell", false),
         ("Actor", "HasMagicEffectWithKeyword", false),
         ("ObjectReference", "IsFurnitureMarkerInUse", false),
         ("Utility", "IsInMenuMode", false),
@@ -2986,6 +2970,7 @@ fn stubs(vm: &mut Vm) -> usize {
         ("ActiveMagicEffect", "GetTargetActor"),
         ("ActiveMagicEffect", "GetCasterActor"),
         ("ActiveMagicEffect", "Dispel"),
+        ("Actor", "DispelAllSpells"),
         ("ActiveMagicEffect", "AddInventoryEventFilter"),
         ("ActiveMagicEffect", "RemoveInventoryEventFilter"),
         ("ActiveMagicEffect", "RemoveAllInventoryEventFilters"),

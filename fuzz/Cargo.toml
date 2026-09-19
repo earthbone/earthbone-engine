@@ -18,6 +18,9 @@ arbitrary = { version = "1", features = ["derive"] }
 # adds nothing new to the workspace.
 flate2 = "1"
 lz4_flex = "0.11"
+soe-audio = { path = "../crates/audio", default-features = false }
+soe-profile = { path = "../crates/profile" }
+soe-moddata = { path = "../crates/moddata" }
 
 [dependencies.soe-esm]
 path = "../crates/esm"
@@ -116,6 +119,34 @@ bench = false
 [[bin]]
 name = "fuzz-bsa-grammar"
 path = "fuzz_targets/fuzz_bsa_grammar.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz-audio"
+path = "fuzz_targets/fuzz_audio.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz-profile"
+path = "fuzz_targets/fuzz_profile.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz-moddata"
+path = "fuzz_targets/fuzz_moddata.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz-vm-state"
+path = "fuzz_targets/fuzz_vm_state.rs"
 test = false
 doc = false
 bench = false

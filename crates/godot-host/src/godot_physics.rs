@@ -20,7 +20,7 @@ use godot::prelude::*;
 
 use soe_physics::{Collider, Iso, Shape, Vec3};
 
-use crate::units::SkyrimPos;
+use crate::units::{SkyrimPos, METRES_PER_UNIT};
 
 /// What went into the space, so a caller can report it the way the cell
 /// streamer reports its surfaces.
@@ -62,9 +62,8 @@ impl CellBodies {
 
 /// Adds every static collider to `space` as an immovable body.
 ///
-/// Transforms are baked into the geometry by the shape layer already, so each
-/// body sits at the origin and carries world space vertices. That matches what
-/// the mesh path does and keeps the two from disagreeing about placement.
+/// Native primitives carry a per-shape transform. Meshes and convex point
+/// clouds carry world-space coordinates. Bodies remain at the origin.
 pub fn add_statics(space: Rid, colliders: &[Collider]) -> CellBodies {
     let _span = soe_trace::Span::new("host.godot_physics", "host");
     let mut server = PhysicsServer3D::singleton();
@@ -81,6 +80,7 @@ pub fn add_statics(space: Rid, colliders: &[Collider]) -> CellBodies {
         server.body_set_mode(body, godot::classes::physics_server_3d::BodyMode::STATIC);
         server.body_set_space(body, space);
         for prim in prims {
+            let mut transform = Transform3D::IDENTITY;
             let shape = match prim {
                 GodotPrim::Trimesh(faces) => {
                     out.stats.triangles += faces.len() / 3;
@@ -92,12 +92,33 @@ pub fn add_statics(space: Rid, colliders: &[Collider]) -> CellBodies {
                     server.shape_set_data(rid, &data.to_variant());
                     rid
                 }
-                GodotPrim::Sphere(radius) => {
+                GodotPrim::Box {
+                    half_extents,
+                    placement,
+                } => {
+                    transform = placement;
+                    let rid = server.box_shape_create();
+                    server.shape_set_data(rid, &half_extents.to_variant());
+                    rid
+                }
+                GodotPrim::Convex(points) => {
+                    let rid = server.convex_polygon_shape_create();
+                    let packed: PackedVector3Array = points.into_iter().collect();
+                    server.shape_set_data(rid, &packed.to_variant());
+                    rid
+                }
+                GodotPrim::Sphere { radius, centre } => {
+                    transform.origin = centre;
                     let rid = server.sphere_shape_create();
                     server.shape_set_data(rid, &radius.to_variant());
                     rid
                 }
-                GodotPrim::Capsule { height, radius } => {
+                GodotPrim::Capsule {
+                    height,
+                    radius,
+                    placement,
+                } => {
+                    transform = placement;
                     let rid = server.capsule_shape_create();
                     let mut data: Dictionary<Variant, Variant> = Dictionary::new();
                     data.set("height", height);
@@ -106,7 +127,10 @@ pub fn add_statics(space: Rid, colliders: &[Collider]) -> CellBodies {
                     rid
                 }
             };
-            server.body_add_shape(body, shape);
+            server
+                .body_add_shape_ex(body, shape)
+                .transform(transform)
+                .done();
             out.shapes.push(shape);
             out.stats.shapes += 1;
         }
@@ -116,70 +140,80 @@ pub fn add_statics(space: Rid, colliders: &[Collider]) -> CellBodies {
     out
 }
 
-/// A Godot shape the converter can build.
+/// Primitive dimensions are in metres, following PhysicsServer3D's shape data.
+#[derive(Debug)]
 enum GodotPrim {
-    /// World space triangle corners, three per face.
     Trimesh(Vec<Vector3>),
-    Sphere(f32),
-    /// Godot's capsule stands on its local Y axis, height is the total
-    /// including both caps.
+    Convex(Vec<Vector3>),
+    Box {
+        half_extents: Vector3,
+        placement: Transform3D,
+    },
+    Sphere {
+        radius: f32,
+        centre: Vector3,
+    },
     Capsule {
         height: f32,
         radius: f32,
+        placement: Transform3D,
     },
 }
 
-/// Turns one collision shape into Godot shapes, world space, transform baked.
-///
-/// Boxes and hulls become triangle soup rather than Godot boxes and hulls,
-/// because their transform can carry a rotation Godot's box shape has no place
-/// for, and a static body never needs the cheaper representation.
+/// Use native shapes and body_add_shape's local transform. See
+/// engine-refs/godot-docs/classes/class_physicsserver3d.rst.
 fn flatten(shape: &Shape, t: &Iso, out: &mut Vec<GodotPrim>) {
     match shape {
         Shape::Box { half_extents } => {
-            let h = *half_extents;
-            let corners: Vec<Vec3> = (0..8)
-                .map(|i| {
-                    t.apply(Vec3::new(
-                        if i & 1 == 0 { -h.x } else { h.x },
-                        if i & 2 == 0 { -h.y } else { h.y },
-                        if i & 4 == 0 { -h.z } else { h.z },
-                    ))
-                })
-                .collect();
-            push_hull(&corners, out);
+            let scale = t.scale.abs() * METRES_PER_UNIT;
+            let direction = |v| godot_point(t.rotation.apply(v)) / METRES_PER_UNIT;
+            out.push(GodotPrim::Box {
+                half_extents: Vector3::new(half_extents.x, half_extents.y, half_extents.z) * scale,
+                placement: Transform3D::new(
+                    Basis::from_cols(
+                        direction(Vec3::new(1.0, 0.0, 0.0)),
+                        direction(Vec3::new(0.0, 1.0, 0.0)),
+                        direction(Vec3::Z),
+                    ),
+                    godot_point(t.translation),
+                ),
+            });
         }
         Shape::ConvexHull { points } => {
-            let pts: Vec<Vec3> = points.iter().map(|p| t.apply(*p)).collect();
-            push_hull(&pts, out);
-        }
-        Shape::Sphere { radius } => {
-            // The server places the shape, and a sphere's centre is the body's
-            // origin, so a translated sphere needs its own body. Bake it as a
-            // one triangle-free primitive at the transform instead: the caller
-            // sets no per shape transform, so approximate with a hull.
-            let c = t.apply(Vec3::ZERO);
-            if c.length() < 1e-3 {
-                out.push(GodotPrim::Sphere(radius * t.scale));
-            } else {
-                push_sphere_hull(c, radius * t.scale, out);
+            if !points.is_empty() {
+                out.push(GodotPrim::Convex(
+                    points.iter().map(|p| godot_point(t.apply(*p))).collect(),
+                ));
             }
         }
+        Shape::Sphere { radius } => {
+            out.push(GodotPrim::Sphere {
+                radius: radius * t.scale.abs() * METRES_PER_UNIT,
+                centre: godot_point(t.translation),
+            });
+        }
         Shape::Capsule { a, b, radius } => {
-            let (a, b) = (t.apply(*a), t.apply(*b));
+            let (a, b) = (godot_point(t.apply(*a)), godot_point(t.apply(*b)));
             let axis = b - a;
             let length = axis.length();
-            let r = radius * t.scale;
-            // Only an upright capsule at the origin maps to Godot's, anything
-            // else becomes geometry so the placement survives.
-            if a.x.abs() < 1e-3 && a.y.abs() < 1e-3 && axis.x.abs() < 1e-3 && axis.y.abs() < 1e-3 {
-                out.push(GodotPrim::Capsule {
-                    height: length + 2.0 * r,
-                    radius: r,
-                });
+            let radius = radius * t.scale.abs() * METRES_PER_UNIT;
+            let centre = (a + b) * 0.5;
+            if length < 1e-6 {
+                out.push(GodotPrim::Sphere { radius, centre });
             } else {
-                push_sphere_hull(a, r, out);
-                push_sphere_hull(b, r, out);
+                let y = axis / length;
+                let helper = if y.dot(Vector3::RIGHT).abs() < 0.9 {
+                    Vector3::RIGHT
+                } else {
+                    Vector3::BACK
+                };
+                let z = helper.cross(y).normalized();
+                let x = y.cross(z);
+                out.push(GodotPrim::Capsule {
+                    height: length + 2.0 * radius,
+                    radius,
+                    placement: Transform3D::new(Basis::from_cols(x, y, z), centre),
+                });
             }
         }
         Shape::TriangleMesh {
@@ -211,37 +245,85 @@ fn flatten(shape: &Shape, t: &Iso, out: &mut Vec<GodotPrim>) {
     }
 }
 
-/// A point cloud's convex faces as triangle soup.
-fn push_hull(points: &[Vec3], out: &mut Vec<GodotPrim>) {
-    let mut faces = Vec::new();
-    for tri in soe_physics::hull::triangles(points) {
-        for i in tri {
-            faces.push(godot_point(points[i as usize]));
-        }
-    }
-    if !faces.is_empty() {
-        out.push(GodotPrim::Trimesh(faces));
-    }
-}
-
-/// An axis aligned box standing in for a sphere the server cannot place. Six
-/// quads is enough for static collision a character brushes past.
-fn push_sphere_hull(centre: Vec3, radius: f32, out: &mut Vec<GodotPrim>) {
-    let corners: Vec<Vec3> = (0..8)
-        .map(|i| {
-            centre
-                + Vec3::new(
-                    if i & 1 == 0 { -radius } else { radius },
-                    if i & 2 == 0 { -radius } else { radius },
-                    if i & 4 == 0 { -radius } else { radius },
-                )
-        })
-        .collect();
-    push_hull(&corners, out);
-}
-
 /// One game unit point in Godot world space, metres and Godot's axes.
 fn godot_point(v: Vec3) -> Vector3 {
     let g = SkyrimPos::new(v.x, v.y, v.z).to_godot();
     Vector3::new(g.x, g.y, g.z)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn close(a: Vector3, b: Vector3) {
+        assert!((a - b).length() < 1e-5, "{a:?} != {b:?}");
+    }
+
+    #[test]
+    fn translated_sphere_keeps_radius_and_metres() {
+        let t = Iso {
+            translation: Vec3::new(10.0, 20.0, 30.0),
+            scale: 2.0,
+            ..Iso::IDENTITY
+        };
+        let mut out = Vec::new();
+        flatten(&Shape::Sphere { radius: 7.0 }, &t, &mut out);
+        let GodotPrim::Sphere { radius, centre } = out[0] else {
+            panic!("native sphere expected")
+        };
+        close(centre, godot_point(t.translation));
+        assert!((radius - 14.0 * METRES_PER_UNIT).abs() < 1e-6);
+    }
+
+    #[test]
+    fn capsules_keep_both_endpoints_and_the_cylinder() {
+        for (a, b) in [
+            (Vec3::new(0.0, 0.0, 10.0), Vec3::new(0.0, 0.0, 50.0)),
+            (Vec3::new(20.0, 30.0, 40.0), Vec3::new(70.0, 80.0, 90.0)),
+            (Vec3::new(0.0, 0.0, 50.0), Vec3::new(0.0, 0.0, 10.0)),
+        ] {
+            let t = Iso::placement([10.0, 20.0, 30.0], [0.2, 0.3, 0.4], 1.5);
+            let mut out = Vec::new();
+            flatten(&Shape::Capsule { a, b, radius: 5.0 }, &t, &mut out);
+            assert_eq!(out.len(), 1);
+            let GodotPrim::Capsule {
+                height,
+                radius,
+                placement,
+            } = out[0]
+            else {
+                panic!("native capsule expected")
+            };
+            let half_axis = (height - 2.0 * radius) * 0.5;
+            close(
+                placement * Vector3::new(0.0, -half_axis, 0.0),
+                godot_point(t.apply(a)),
+            );
+            close(
+                placement * Vector3::new(0.0, half_axis, 0.0),
+                godot_point(t.apply(b)),
+            );
+        }
+    }
+
+    #[test]
+    fn compound_box_transform_preserves_rotated_corners() {
+        let child = Iso::placement([10.0, 20.0, 30.0], [0.1, 0.4, 0.2], 2.0);
+        let parent = Iso::placement([50.0, 40.0, 30.0], [0.3, 0.2, 0.1], 1.5);
+        let h = Vec3::new(2.0, 3.0, 4.0);
+        let shape = Shape::Compound(vec![(child, Shape::Box { half_extents: h })]);
+        let mut out = Vec::new();
+        flatten(&shape, &parent, &mut out);
+        let GodotPrim::Box {
+            half_extents,
+            placement,
+        } = out[0]
+        else {
+            panic!("native box expected")
+        };
+        close(
+            placement * half_extents,
+            godot_point(parent.then(&child).apply(h)),
+        );
+    }
 }

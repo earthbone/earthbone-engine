@@ -19,3 +19,6 @@ soe-nif = { path = "../nif" }
 rerecast = { version = "0.4.0", default-features = false, features = ["std"] }
 glam = "0.32"
 thiserror = "2.0"
+
+[dev-dependencies]
+proptest = "1.11"

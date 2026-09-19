@@ -12,4 +12,5 @@ workspace = true
 soe-trace = { path = "../trace" }
 
 [dev-dependencies]
+proptest = "1.11"
 soe-bsa = { path = "../bsa" }

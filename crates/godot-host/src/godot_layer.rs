@@ -18,8 +18,7 @@ use godot::classes::base_material_3d::{CullMode, Feature, TextureParam, Transpar
 use godot::classes::image::Format;
 use godot::classes::mesh::{ArrayType, PrimitiveType};
 use godot::classes::{
-    ArrayMesh, Engine, INode3D, Image, ImageTexture, Node3D, RenderingServer, SceneTree,
-    StandardMaterial3D, Viewport,
+    ArrayMesh, INode3D, Image, ImageTexture, Node3D, RenderingServer, StandardMaterial3D,
 };
 use godot::prelude::*;
 use soe_esm::GlobalFormId;
@@ -460,21 +459,7 @@ impl CellStreamerNode {
     /// `SceneTree` script's `_initialize` adds nodes before the tree marks
     /// them inside it, and the benchmark streams from there.
     fn scenario(&self) -> Option<Rid> {
-        let own = self
-            .base()
-            .get_viewport()
-            .and_then(|viewport| viewport.find_world_3d());
-        let world = own.or_else(|| {
-            let tree = Engine::singleton()
-                .get_main_loop()?
-                .try_cast::<SceneTree>()
-                .ok()?;
-            tree.get_root()?.upcast::<Viewport>().find_world_3d()
-        });
-        if world.is_none() {
-            godot_error!("CellStreamerNode: no World3D to draw into");
-        }
-        world.map(|w| w.get_scenario())
+        crate::godot_world::scenario(&self.base(), "CellStreamerNode")
     }
 
     /// Draws one loaded cell's geometry as instances, batched or not.
@@ -559,37 +544,49 @@ impl CellStreamerNode {
     }
 }
 
-type MaterialMap = std::collections::HashMap<TextureSetKey, Gd<StandardMaterial3D>>;
-
-/// A distinct texture set: the material's diffuse and normal paths,
-/// lowercased. Two materials that name the same textures share one
-/// `StandardMaterial3D` rather than each getting their own `ImageTexture`
-/// upload.
-type TextureSetKey = (Option<String>, Option<String>);
-
-fn texture_set_key(material: &MaterialDesc) -> TextureSetKey {
-    (
-        material.diffuse.as_deref().map(str::to_lowercase),
-        material.normal.as_deref().map(str::to_lowercase),
-    )
+#[derive(Default)]
+struct MaterialMap {
+    materials: std::collections::HashMap<crate::mesh::MaterialKey, Gd<StandardMaterial3D>>,
+    textures: std::collections::HashMap<String, Gd<ImageTexture>>,
 }
 
-/// Looks up or builds the `StandardMaterial3D` for `surface`'s texture set,
-/// cloning the cached `Gd` handle (cheap, Godot objects are reference
-/// counted) rather than re-uploading the same textures for every reference
-/// that shares them.
+impl MaterialMap {
+    fn new() -> Self {
+        Self::default()
+    }
+    fn len(&self) -> usize {
+        self.materials.len()
+    }
+}
+
 fn material_for(
     cache: &mut MaterialMap,
     desc: &MaterialDesc,
     textures: &SurfaceTextures,
 ) -> Gd<StandardMaterial3D> {
-    let key = texture_set_key(desc);
-    if let Some(existing) = cache.get(&key) {
+    let key = crate::mesh::MaterialKey::from(desc);
+    if let Some(existing) = cache.materials.get(&key) {
         return existing.clone();
     }
-    let material = standard_material_from(desc, textures);
-    cache.insert(key, material.clone());
+    let material = material_with_textures(desc, textures, &mut cache.textures);
+    cache.materials.insert(key, material.clone());
     material
+}
+
+fn cached_texture(
+    cache: &mut std::collections::HashMap<String, Gd<ImageTexture>>,
+    path: Option<&str>,
+    data: &TextureData,
+) -> Option<Gd<ImageTexture>> {
+    let key = path.map(str::to_lowercase);
+    if let Some(existing) = key.as_ref().and_then(|key| cache.get(key)) {
+        return Some(existing.clone());
+    }
+    let texture = image_texture_from(data)?;
+    if let Some(key) = key {
+        cache.insert(key, texture.clone());
+    }
+    Some(texture)
 }
 
 /// Builds a `StandardMaterial3D` from a NIF material description and its
@@ -603,15 +600,23 @@ pub fn standard_material_from(
     material: &MaterialDesc,
     textures: &SurfaceTextures,
 ) -> Gd<StandardMaterial3D> {
+    material_with_textures(material, textures, &mut std::collections::HashMap::new())
+}
+
+fn material_with_textures(
+    material: &MaterialDesc,
+    textures: &SurfaceTextures,
+    cache: &mut std::collections::HashMap<String, Gd<ImageTexture>>,
+) -> Gd<StandardMaterial3D> {
     let mut mat = StandardMaterial3D::new_gd();
 
     if let Some(diffuse) = &textures.diffuse {
-        if let Some(tex) = image_texture_from(diffuse) {
+        if let Some(tex) = cached_texture(cache, material.diffuse.as_deref(), diffuse) {
             mat.set_texture(TextureParam::ALBEDO, &tex);
         }
     }
     if let Some(normal) = &textures.normal {
-        if let Some(tex) = image_texture_from(normal) {
+        if let Some(tex) = cached_texture(cache, material.normal.as_deref(), normal) {
             mat.set_feature(Feature::NORMAL_MAPPING, true);
             mat.set_texture(TextureParam::NORMAL, &tex);
         }

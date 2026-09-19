@@ -24,8 +24,9 @@ The Godot layer decides nothing. That is what keeps the tests engine-free, and i
 seam a VulkanSceneGraph or other host would reuse: everything above the layer is plain data.
 
 `godot/` holds a project stub and `soe.gdextension` pointing at `target/`, so `cargo build`
-plus opening `godot/` in a 4.4 or later editor loads the extension. No Godot binary is on the
-development machine, so that step has not been run.
+plus opening `godot/` in a 4.4 or later editor loads the extension. The initial
+round had no Godot binary. Later sections record actual host runs, and the
+2026-09-19 reference checks use the installed Godot 4.7.2 Flatpak.
 
 ## Units and axes
 
@@ -165,7 +166,7 @@ not scoped to this branch).
 
 Run and result (`SKYRIM_DATA` set to the vanilla install, 2026-09-14):
 
-```
+```text
 $ godot --headless --path godot --script headless_test.gd
 Initialize godot-rust (API v4.4.stable.official, runtime v4.4.1.stable.official, safeguards balanced)
 SKYRIM_DATA=/run/host/media/pengolodh/Data/SteamLibrary/steamapps/common/Skyrim Special Edition/Data
@@ -216,7 +217,7 @@ for every surface returned, adds each as a child of the node, and returns how ma
 
 `crates/godot-host/tests/real_cell.rs` is the gated Rust test, run without a Godot binary:
 
-```
+```text
 $ SKYRIM_DATA="/path/to/Skyrim Special Edition/Data" cargo test -p soe-godot-host --release --test real_cell -- --nocapture
 cell: 0:01605E
 references: 690
@@ -239,7 +240,7 @@ thread, development machine.
 result alone, no frame wait needed since the call is synchronous. Unset, it falls back to the
 original synthetic run from the previous section unchanged. Run against the same install:
 
-```
+```text
 $ SKYRIM_DATA="/path/to/Skyrim Special Edition/Data" godot --headless --path godot --script headless_test.gd
 Initialize godot-rust (API v4.4.stable.official, runtime v4.4.1.stable.official, safeguards balanced)
 SKYRIM_DATA=/run/host/media/pengolodh/Data/SteamLibrary/steamapps/common/Skyrim Special Edition/Data
@@ -279,9 +280,9 @@ missing paths, and decode failures, folded into `CellStats`.
 
 `godot_layer.rs` turns a decoded `Image` into a Godot `ImageTexture` with
 `Image::create_from_data` (`FORMAT_RGBA8`) and `ImageTexture::create_from_image`.
-`CellStreamerNode::stream_cell` keys a `StandardMaterial3D` cache on the surface's diffuse and
-normal path pair, so surfaces sharing a texture set share one material instead of building a
-duplicate per mesh. The diffuse image becomes `TextureParam::ALBEDO`, and when a normal map is
+`CellStreamerNode::stream_cell` keys a `StandardMaterial3D` cache on diffuse and normal
+paths, alpha mode, cutout threshold and double-sidedness. Identical material states share
+one material, and a separate path cache shares texture uploads across variants. The diffuse image becomes `TextureParam::ALBEDO`, and when a normal map is
 present it becomes `TextureParam::NORMAL` with `Feature::NORMAL_MAPPING` turned on. Skyrim's
 BC7 or BC5 normal maps carry a specular mask in the alpha channel, not opacity, and Godot's
 `normal_texture` only ever reads RGB for the surface normal, so that alpha channel is inert
@@ -292,7 +293,7 @@ here rather than fed into anything, until a specular term is added. Alpha mode c
 
 `crates/godot-host/tests/real_cell.rs` reports the new stats alongside the existing ones:
 
-```
+```text
 $ SKYRIM_DATA="/path/to/Skyrim Special Edition/Data" cargo test -p soe-godot-host --release --test real_cell -- --nocapture
 cell: 0:01605E
 references: 690
@@ -380,7 +381,8 @@ and `scene_bounds` reports the merged bounds so a camera can frame the scene wit
 children. `bench.gd` and `capture.gd` use it. The unbatched mode (one instance per surface)
 stays as the benchmark's baseline, on the `batch_surfaces` export.
 
-The `StandardMaterial3D` cache moved from a per-call local to the node, keyed by texture set,
+The `StandardMaterial3D` cache moved from a per-call local to the node. It now includes
+alpha and culling state in its key, with a separate path-keyed texture upload cache,
 so a texture uploaded for one cell serves every later cell that names it. `last_stats`
 reports the materials a call created, not the cache size.
 
@@ -795,11 +797,13 @@ These are automated checks, not a manual play session. The launcher uses
 WASD, mouse look, Space, Ctrl and F, with Escape to exit. For a rendered
 smoke capture, set `SOE_CAPTURE_PATH` to a writable PNG path and use
 `--max-fps 60`. It disables mouse capture and exits after saving frame 120.
-The windowed smoke attempt reached Vulkan on the RTX 5070 Ti but was
-terminated with SIGTERM before producing a capture. The cause was not
-established. Rendered player-camera verification remains open. Non-US keyboard
-layouts, side-specific modifiers and short chord taps between ticks are also
-not validated by these runs.
+An initial windowed smoke attempt ended with SIGTERM. A later run saved a
+player-camera capture and exited successfully on the RTX 5070 Ti. The user
+then tested movement interactively and reported rug flicker, missing beds,
+broken kitchen flooring and slow startup. The capture proves textured
+geometry is drawn, not visual correctness. These defects remain open pending
+a comparison with the merged reference fixes. Non-US keyboard layouts,
+side-specific modifiers and short chord taps between ticks remain unvalidated.
 The local Godot Input documentation supplied the distinction between held
 actions, just-pressed edges and injected input events used by the test.
 
@@ -810,3 +814,54 @@ and a writable temporary `XDG_DATA_HOME` for the comment-lint database.
 The full gate passed with 821 tests and all three clippy passes. Taplo and
 markdownlint-cli2 were absent and skipped. Live PC-map and Godot runs above
 were separate from the gate, whose game-data environment variables are unset.
+
+Integration with master at `6d990e7` passed the combined gate with 852 test
+passes. The release extension was rebuilt, and Godot 4.7.2 repeated the
+installed-data player test successfully with 281 collision bodies and about
+90 units of movement. This confirms the automated movement check survives
+the reference/audit integration, not that the reported visual defects are fixed.
+
+## Ordered workers and data-source split (2026-09-19)
+
+The data source now uses one bounded scoped worker helper for master parsing,
+archive opening and mesh construction. Results are joined in input order.
+Archives still enter the VFS in load order, preserving last-archive precedence.
+Every worker is joined even if another worker panics. A failed batch returns
+`DataSourceError::WorkerPanicked`, rather than shortening the mesh result list
+and potentially attaching later geometry to the wrong reference.
+
+Texture keys use `soe_bsa::normalize`, matching the VFS's case and separator
+rules. Per-key `OnceLock` entries share successful and failed loads across
+workers, and missing-texture reports are sorted. Tests cover concurrent aliases,
+negative caching, worker limits, panic handling and archive override order.
+The small archive fixture is reduced from the bsa crate's test-private
+`archive::testdata::sse_bsa`, because that helper is not exported to dependents.
+
+Texture handling and exterior streaming now live in `data_source/textures.rs`
+and `data_source/exterior.rs`. Existing public texture paths are re-exported.
+The actor and cell renderers share their Godot world-scenario lookup through
+`godot_world.rs`. No new Godot node exception was introduced.
+
+The gated Bannered Mare test compares reference order, geometry arrays and
+texture payloads at one, two and eight workers after warming the cache.
+Per-stream counters are exact only for non-overlapping stream calls, since
+concurrent callers share counters. Persistent workers and deferred archive
+payload reads remain separate measurement tasks.
+
+Exterior grid selection uses unsigned absolute differences, avoiding signed
+overflow at extreme CELL coordinates. Negative radii still select no cells.
+Boundary and negative-radius cases have a unit test.
+
+## Reference corrections, 2026-09-19
+
+`godotwind/src/core/nif/nif_material_info.gd::get_cache_key` is the comparison
+for material identity. The host now preserves every field consumed by
+`standard_material_from`, including different cutout thresholds. Uploads
+remain shared by texture path. The engine-free material-key test inserts
+opaque, cutout and blended variants with both culling modes in both orders.
+Glow, environment and other shader features remain unwired.
+
+`godot_physics` uses `PhysicsServer3D.body_add_shape`'s transform argument.
+Native boxes, spheres, capsules and convex hulls replace the former box-hull
+approximations. See [physics](physics.md) for geometry tests and measurement
+limits, and [the reference map](reference-audit.md) for future work.

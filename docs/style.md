@@ -176,17 +176,16 @@ a handful of hits. Anything with 5 or fewer was fixed by hand instead where the 
 was ours to touch. Re-run the same command after a refactor to see whether an allow can
 be tightened back to `warn` or removed.
 
-The gate itself runs `cargo clippy --workspace --lib --bins -- -D warnings`, not
-`--all-targets`. Integration tests and doctests would otherwise need the same
-`unwrap_used`/`expect_used`/`panic` exemption the library crates get from their
-`#![cfg_attr(test, ...)]` line, and `--lib --bins` sidesteps that without weakening the
-gate on production code, which is what those three lints exist to guard.
+The gate runs three clippy passes with warnings denied: workspace libraries
+and binaries, all features and all targets, then no default features and all
+targets. Use `tools/lint.sh` as the current definition of these checks.
+The JSON command above is for diagnostics, not a replacement for the gate.
 
 ## Go, when a tooling component is written in it
 
 No Go code exists in this workspace yet. When a round 4 tooling component is
-easier to maintain in Go, the baseline is Google's Go style guide
-(https://google.github.io/styleguide/go/best-practices.html) and Effective Go
-(https://go.dev/doc/effective_go), enforced by `gofmt`, `goimports`,
+easier to maintain in Go, the baseline is
+[Google's Go style guide](https://google.github.io/styleguide/go/best-practices.html)
+and [Effective Go](https://go.dev/doc/effective_go), enforced by `gofmt`, `goimports`,
 `golangci-lint` with the personal go-projects configuration, and `comment-lint`
 on comment prose. The same house prose rules apply. Runtime crates stay Rust.

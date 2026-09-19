@@ -19,9 +19,9 @@ The proposed next milestone is an integrated Bannered Mare walkthrough.
 The `host-player-run` follow-up now verifies PlayerNode input/camera in Godot
 and movement on real-cell collision. Activation still needs to reach game references
 and doorway operations, and SoundBank needs game-loop triggers and audible
-verification. Portal doorways remain a prototype proposal. The quest-loop
-paragraph needs a detailed gameplay breakdown before it can cover combat,
-magic, dialogue, crafting, progression and the player UI.
+verification. Portal doorways remain a prototype proposal. The reference-backed
+game-layer section below supplies pending scopes beyond the older quest-loop
+paragraph. Combat, crafting and progression still need separate items.
 
 Do not derive a completion percentage from the round tables. Merged branches
 do not establish that every done check passed. Recorded test counts and live
@@ -51,19 +51,16 @@ work and is open to change while nothing has been published.
 
 Crate prefix `soe-`. Every parser crate exposes plain data structs with no rendering or physics
 dependency, and every crate has malformed-input tests (no parser in the briefs was ever fuzzed).
-At the plan's start on 2026-09-06, no Skyrim data files were installed. Tests use synthetic files written by the
-test suite from the spec, and real-file tests are gated on `SKYRIM_DATA=<path to Data/>` so they
-skip cleanly when unset. Skyrim SE is being installed on 2026-09-06 into the Steam library under
-`/run/host/media/pengolodh/Data` (find it with `find /run/host/media/pengolodh/Data -maxdepth 7
--iname Skyrim.esm`), so a fork whose crate is ready before it finishes reports the gated test as
-written but not run, and one that finds the files runs it and reports the numbers. Godot was also absent at that time, so the host crate had to build with
-cargo alone.
+The original 2026-09-06 plan used synthetic fixtures while Skyrim SE was being installed.
+The game data and Godot are now available. Real-file tests remain gated on `SKYRIM_DATA`
+and save-corpus variables so the normal gate does not depend on proprietary data.
+The Godot host still builds and tests its engine-free logic with cargo alone.
 
-Rules for every fork: Edit tool for source edits, `cargo check --workspace`, clippy clean on the
-touched crate, `cargo test -p <crate>`, house style (no em dashes, no semicolons in prose, no AI
-trailers). Each fork works in its own git worktree of this repo (`git worktree add ../soe-<crate>
--b <crate> master`), touches only `crates/<crate>/` plus `docs/<crate>.md`, commits on its
-branch, and reports branch, commit, test count, and what is untested.
+Rules for every fork: follow `AGENTS.md`, isolate edits in a worktree, and run the full
+`tools/lint.sh` gate before a commit. Its three clippy passes cover normal, all-feature and
+no-default-feature builds, including all targets in the latter two. The earlier abbreviated
+fork gate is superseded. Keep the work scoped to its crates and docs, show the diff for approval
+before committing, and report branch, commits, validation, references and remaining gaps.
 
 ## Round 1 (2026-09-06, forks): weeks 1 to 13 of the map's first 90 days, in parallel
 
@@ -360,16 +357,19 @@ Four items change. The done checks stand, the route to them does not.
 |---|---|---|
 | `behavior-2` | Derive the unimplemented `hkb` classes from the Project Anarchy headers | `serde-hkx` is already cloned, MIT or Apache-2.0, last commit 2026-08-11, and carries 680 generated Havok class definitions of which 204 are `hkb`, each with the C++ name, signature hash, size per pointer width, and per field the ctype, both byte offsets, type size and serialization flags. Every class branch `behavior` left out is in there, `hkbBehaviorReferenceGenerator` and the modifiers included. The layouts become a port. The evaluation semantics stay ours, so the map's behavior risk narrows to semantics rather than disappearing. |
 | `psc` | Write a Papyrus source compiler | `Caprica` is already cloned and is a complete open Papyrus compiler under MIT. Use or port it, do not write a second one. |
-| `lod` | Build a reader for the BTO and BTR LOD formats | BTO and BTR are NIF files under different extensions, so consumption is two extensions on the existing `nif` reader plus the LOD specific blocks. Generation stays closed with no open alternative. |
+| `lod` | Build a reader for the BTO and BTR LOD formats | BTO and BTR are NIF files under different extensions, so consumption is two extensions on the existing `nif` reader plus the LOD specific blocks. Terrain generation has source in tes4skyrim `asset_convert/lod/terrain_lod.py` and `terrain_nif.py`. Object generation there still invokes LODGenx64. |
 | `nif` block definitions | Hand written per block | `nifxml` is already cloned and declares the block layouts, so the readers could be generated from it instead of maintained by hand. |
 
 Also corrected: SkyUI carries no licence file at all and its last commit is 2015, so it is readable
 and not copyable, which is firmer than the map's "licence unconfirmed". Licence fragmentation in
 the risk register softens, three flagged areas now have permissive options.
 
-Gaps the survey confirms as genuinely open, with nothing to reuse: FaceGen runtime TRI, EGM and EGT
-blending, LIP decoded into phoneme timing (every tool copies it as an opaque blob), LOD generation,
-a GFx capable Flash runtime, the `hkb` evaluation semantics, and ENB's hook protocol.
+The 2026-09-19 reference audit narrows two gaps. TRI deltas and morph names have
+implementations in tes4skyrim and PyNifly, while head construction, tint composition and
+full FaceGen runtime semantics still need work. Terrain LOD generation also has source,
+while object generation and runtime streaming remain separate work. LIP curve decoding,
+a GFx capable Flash runtime and `hkb` evaluation semantics remain unresolved here.
+See [the reference map and acceptance checks](docs/reference-audit.md).
 
 Two scope calls on the survey, 2026-09-18 (user):
 
@@ -565,3 +565,14 @@ firing at all as a defect worth a bug. Warming interiors adjacent to the
 player's exterior cell during idle frames is a separate lever, free when the
 player is standing still, and only worth adding if the measurement says the
 animation window is not enough.
+
+## Reference-backed game-layer work, 2026-09-19
+
+[The reference map](docs/reference-audit.md) gives exact source paths and
+acceptance checks for the gameplay work missing from the substrate rounds.
+The next scoped items are `magic-effects`, `dialogue-contracts`,
+`gameplay-records`, `behavior-semantics`, `face-morphs`, `lod-runtime`,
+`distributor-lifecycle` and `save-restore`. Combat, crafting and progression
+must become separate record-backed items when `gameplay-records` is scoped.
+The map also specifies original-runtime probes and a provenance-bearing mod
+corpus. These items are pending. The reference fixes do not implement them.

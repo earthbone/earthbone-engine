@@ -471,14 +471,23 @@ impl Game {
     /// Advance real time: the clock, due update timers, the package driver,
     /// the VM scheduler, then run until the VM settles.
     pub fn tick(&mut self, real_seconds: f64) {
-        {
+        self.tick_menu_mode(real_seconds, false);
+    }
+
+    /// Tick with the host's menu pause state. Real-time menu waits continue
+    /// while world simulation, ordinary waits and game-time waits pause.
+    pub fn tick_menu_mode(&mut self, real_seconds: f64, menu_mode: bool) {
+        let mut game_hours = 0.0;
+        if !menu_mode {
             let vm = &mut self.vm;
             let mut w = self.world.borrow_mut();
+            let before = w.clock.game_days;
             w.clock.advance(real_seconds);
+            game_hours = (w.clock.game_days - before) * 24.0;
             w.fire_timers();
             w.ai_tick(real_seconds, &mut |n, c| vm.create_object_of(n, c));
         }
-        self.vm.advance(real_seconds);
+        self.vm.advance_clocks(real_seconds, game_hours, menu_mode);
         self.run_until_idle(64);
         self.push_tick_hash();
     }

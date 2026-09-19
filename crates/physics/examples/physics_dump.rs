@@ -2,7 +2,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 //! Print the colliders of one mesh, either a loose file or a path inside
-//! an archive: `dump <file.nif>` or `dump <archive.bsa> <path/in/archive>`.
+//! an archive: `physics_dump <file.nif>` or
+//! `physics_dump <archive.bsa> <path/in/archive>`.
 //! With `--raw`, also the trailing bytes of every rigid body, for layout
 //! checks against nif.xml.
 

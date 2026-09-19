@@ -62,10 +62,9 @@ as required by the test. Record when these ran and when they skipped.
 
 ## Current stopping point
 
-The latest feature merges are `playback` (`5b1a9ed`), `no-load-screen`
-(`35a5dd7`) and `input` (`75cfb55`). They are no longer in flight.
-No unmerged local branch or extra worktree existed before this documentation
-task created its own review branch.
+The player-host step `8485d48` is being integrated with reference and audit
+work on master at `6d990e7`. Earlier playback, transition and input branches
+are no longer in flight. Recheck worktree ownership before starting work.
 
 The next recommended integration milestone is a verified Bannered Mare
 walkthrough: movement and camera, interaction mapped to a reference, a door
@@ -73,7 +72,27 @@ crossing with correct events and deferred unload, and audible footsteps.
 This is proposed work, not a claim that the milestone is complete.
 
 Combat, magic, dialogue, inventory/menu interaction, crafting, progression,
-quest conditions and aliases still need explicit implementation scope and
-done checks. The plan mentions a future quest loop but does not yet decompose
-the full gameplay layer. Finishing the listed engine tasks alone does not
-finish Skyrim. Portal doorways remain an unimplemented prototype proposal.
+quest conditions and aliases remain incomplete. The reference audit supplies
+pending acceptance checks, with combat, crafting and progression still needing
+separate scopes. Finishing the substrate alone does not finish Skyrim.
+Portal doorways remain an unimplemented prototype proposal.
+
+## Reference and audit integration
+
+`0c84bbe` corrects native and material contracts. `3f336e3` adds bounded
+ordered workers, navigation and test-harness improvements. `6d990e7`
+reconciles those branches. The reference-only gate recorded 835 passes,
+with gated tests allowed to return early when their inputs were absent.
+That is historical evidence, not the combined player-host gate.
+
+The registry now reports 345 stateful natives and 191 stubs. SOEV version 2
+retains version 1 reading and distinct wait clocks. SOEW is version 4.
+Dispel stubs preserve learned and equipped spells. Deterministic fractional
+SPID rules are reported as unsupported. Material keys preserve alpha and
+culling while texture uploads stay shared. See [reference-audit.md](reference-audit.md)
+for exact sources and pending gameplay acceptance checks.
+
+The audit adds ordered worker results and shared texture caching. The
+STAT-only renderer still omits furniture, and the player and renderer still
+open separate data sources. These remain integration defects, not completed
+walkthrough behavior.
