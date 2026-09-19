@@ -2,8 +2,9 @@
 
 Reads Skyrim SE plugin files (`.esm`, `.esp`, `.esl`) into a group tree of records,
 resolves FormIDs across a load order, and answers "which record wins" for any form.
-Typed views exist for the six record types the first milestone needs, everything else
-is kept as raw subrecords and written back unchanged.
+Typed views cover the initial world records, race phonemes and scoped dialogue,
+magic and crafting fields. Other data stays in raw subrecords and is written
+back unchanged.
 
 ## What the file format is
 
@@ -49,7 +50,8 @@ produces that 32-bit form for save files and scripts. The table itself never nee
 
 ## Typed views
 
-`records::{cell, refr, wrld, land, navm, stat}` each expose `from_record`. Views copy
+`records::{cell, refr, wrld, land, navm, stat, race}` and `records::gameplay`
+expose `from_record`. Views copy
 the named fields and leave the record intact, so an unknown subrecord is never lost.
 FormIDs inside views are raw, as written in the file, so a view can be built without a
 load order and resolved later.
@@ -86,7 +88,8 @@ parser change was needed, every record type the checks touch read cleanly.
 
 ## Not done yet
 
-- Only six typed views. Everything else is raw subrecords.
+- Typed gameplay views do not evaluate conditions or implement game systems.
+  Their coverage and remaining raw fields are listed below.
 - No writer beyond the round trip: no FormID renumbering, no master list editing.
 - `XCLL` lighting and `XPRM` primitives are kept as bytes.
 - No fuzzing harness beyond the malformed-input unit tests. `cargo-fuzz` over
@@ -212,3 +215,82 @@ index build 0.154 s and one `references` lookup 9 ns, against 0.285 s and 10 ns
 recorded before this branch on the same data. The build gained a push per
 deleted winner and a sort per cell, the lookup path is untouched, so treat both
 figures as run to run variance rather than a speedup.
+
+## Scoped gameplay views (2026-09-19, branch `gameplay-views`)
+
+`records::gameplay` exposes five record views. They read a record on demand
+and do not create another form database. They introduce no dependencies.
+
+| View | Decoded fields |
+|---|---|
+| `DialogueTopic`, DIAL | Text, priority, branch, owning quest, category, repeat flag, effective subtype representation and declared INFO count |
+| `DialogueInfo`, INFO | Legacy DATA or modern ENAM flags/reset time, previous-topic and INFO links, shared INFO, follow-up topics, favor level, prompt, speaker, walk-away topic, output override, ordered response emotion/number/sound/text/idle fields, conditions and raw VMAD |
+| `Spell`, SPEL | Name, description, equip type, all 36 SPIT bytes, ordered EFID/EFIT groups and each group's conditions |
+| `MagicEffect`, MGEF | Name, description, keywords, counter effects, conditions and the DATA subset below |
+| `Recipe`, COBJ | Declared ingredient count, ordered signed ingredient quantities, per-ingredient COED owner/union/condition, conditions, optional output object/count and workbench keyword |
+
+The MGEF DATA subset is flags, base cost, associated item, magic skill,
+resistance, declared counter-effect count, minimum skill, area, casting time,
+taper curve and duration, secondary actor-value weight, archetype, both actor
+values, cast type, delivery, skill usage multiplier, equip ability and perk.
+Taper weight, projectile/explosion links, dual-cast scale, AI score/delay and
+visual/audio fields remain in the source record. This is not a full MGEF API.
+
+`Condition` preserves CTDA flags, comparison number or GLOB FormID, function,
+raw parameter unions, run-on fields and following CIS1/CIS2 strings. Conditions
+remain in file order and are attached to their record or individual spell
+effect. No function table, condition evaluator or eligibility decision is
+provided. Unknown numeric enum values and flags are retained.
+
+Sources read before implementation:
+
+- `../engine-refs/TES5Edit/Core/wbDefinitionsTES5.pas`, definitions for DIAL,
+  INFO, SPEL, MGEF, COBJ, `wbConditions`, `wbEFIT`, `wbCNTONoReach` and
+  `wbCOED`. These specify layouts, condition unions and repeated groups.
+- `../engine-refs/uesp-modfileformat/{DIAL,INFO,MGEF,COBJ}.wikitext`, which
+  document DIAL parse order, INFO reset-time formats, MGEF offsets and optional
+  COBJ output objects. These clarify details where xEdit's editing schema and
+  the installed records differ.
+
+These tools provide schema descriptions rather than a Rust view library, so
+local readers use the existing `Fields` bounds checks. No source code was
+copied. DIAL retains the last DATA numeric subtype or SNAM signature encountered.
+It does not convert signatures through a version-dependent subtype table. INFO
+TPIC is the previous topic, not its owner. The enclosing plugin group identifies
+ownership, and this view does not build that index. VMAD fragments remain raw.
+
+Callers must select a winning record with `LoadOrder::winner_ref`, obtain its
+localized flag from that winning file, and resolve every raw link using the
+winner's file index. The owning FormID's file index can differ from the file
+that supplied its override. Callers must also handle deleted winners and
+missing linked forms. A missing COBJ output is `None`, not a fabricated item.
+A view is a snapshot and must be read again after the source record changes.
+
+`tests/gameplay_views.rs` covers effect/response grouping, subtype parse order,
+both reset-time formats, signed quantities, ownership unions, condition strings,
+malformed sizes and orphaned/duplicate groups, localized overrides for all four
+text-bearing views, missing forms and recipe overrides with reordered masters.
+Unknown subrecords remain in the source record.
+
+The gated `tests/real_gameplay_views.rs` survey loads five installed masters,
+decodes every non-deleted winner of these types, and requires every non-null
+spell effect, topic quest and recipe output/ingredient link to resolve:
+
+| Measurement | Result |
+|---|---|
+| DIAL / INFO winners | 19,557 / 40,678 |
+| SPEL / MGEF / COBJ winners | 1,354 / 1,573 / 1,385 |
+| Conditions / responses | 79,710 / 44,030 |
+| Spell effects / ingredients | 2,264 / 2,616 |
+| Checked links | 25,815, all resolved |
+| Recipes with absent output object | 7 |
+
+The seven incomplete recipes include unused steel-plate shields and gilded-elven
+armor recipes. UESP marks CNAM optional, while xEdit marks it required. The view
+retains absence and does not claim these definitions can craft an item. Counts
+are measurements of this install, not limits imposed on another load order.
+
+No dialogue selection or playback, spell casting, active-effect lifecycle,
+crafting consumption, UI or progression is implemented by these readers. DLBR,
+SCEN, fragment decoding, full MGEF fields and function-specific condition
+semantics still need their own scopes.

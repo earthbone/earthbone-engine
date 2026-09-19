@@ -100,3 +100,24 @@ source, and startup opens it on a CPU worker. Placed-model transforms, rug
 decal ordering and thin-floor snapping have follow-up fixes. These changes
 improve the movement walkthrough. Activation, door crossing and footsteps
 still require game-loop integration.
+
+## Mechanical follow-ups validated on 2026-09-19
+
+The unattended follow-up batch integrated these isolated, audited steps:
+
+| Step | Evidence and boundary |
+|---|---|
+| Host startup, `5953010` | Shared data source, CPU loading, model transforms, container models, decal depth and thin-floor handling. Godot 4.4.1/4.7.2 checks and the 4.7.2 GPU decal regression passed. Live collision checks used 361 bodies. This remains a movement demonstration. |
+| Navmesh funnel, `8d7641c` | Portal-based paths retain triangle ownership for AI. A 100-route installed-data survey found 99 shorter paths, including 50 cross-mesh routes. A* still selects its corridor using centroid costs. |
+| Device bindings, `85bdd10` | Mouse/gamepad bindings, axes, chords, short presses, focus and disconnect handling. Injected event checks passed on both Godot versions. Physical controller feel remains untested. |
+| Animation crate rename, `f4a45ec` | `havok` became `hkx`, with imports, fuzz targets and docs updated. The live survey read 7,699 packfiles and decoded all 6,126 animations. This renamed the crate, not the format. |
+| Script coverage, `1636bb6` | Optional executed-function reporting by script and quest. Startup observed 323 of 54,023 loaded function bodies across 14,026 scripts and 2,274 quest records. Coverage is not gameplay completion. |
+| ESS values, `b0ed3fe` | 60 saves yielded 15,900,669 Papyrus value slots and 19,194 arrays. Typed payloads re-encoded to exactly 211,771,719 original bytes. Stack bodies and suspended calls remain raw, with no vanilla VM restoration. |
+| Gameplay views, `gameplay-views` | Read-only DIAL, INFO, SPEL, MGEF and COBJ fields and conditions. All 64,547 non-deleted winners in five masters decoded and 25,815 checked links resolved. Seven recipes have no output object. No dialogue, magic or crafting execution was added. |
+
+Each step ran `tools/lint.sh` before commit, with the installed-data checks
+reported in the subsystem documents. These are new measurements, separate
+from the historical baseline above. The Bannered Mare gameplay walkthrough
+still requires host activation/doorway wiring and footsteps. Record views,
+function coverage and deeper save inspection do not close those integration
+items or the larger gameplay scopes.

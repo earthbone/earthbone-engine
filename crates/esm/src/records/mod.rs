@@ -9,6 +9,7 @@
 //! built without a load order. Resolve them with `LoadOrder::resolve`.
 
 pub mod cell;
+pub mod gameplay;
 pub mod land;
 pub mod navm;
 pub mod race;
