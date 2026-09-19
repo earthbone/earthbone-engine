@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-//! The vanilla `interface/controlmap.txt`, read out of the shipped archive.
+//! The vanilla PC control map, read out of the shipped archive.
 //!
 //! These are the facts the parser was written against, asserted against the
 //! real file rather than against a fixture, so a wrong belief about the
@@ -10,7 +10,7 @@
 //! Gated on `SKYRIM_DATA`.
 
 use soe_bsa::Archive;
-use soe_godot_host::input::{Action, Bindings, ControlMap};
+use soe_godot_host::input::{Action, Binding, Bindings, ControlMap};
 use std::path::PathBuf;
 
 fn controlmap() -> Option<String> {
@@ -21,12 +21,9 @@ fn controlmap() -> Option<String> {
         return None;
     }
     let archive = Archive::open(&path).expect("the interface archive opens");
-    let name = archive
-        .files()
-        .iter()
-        .find(|n| n.to_ascii_lowercase().ends_with("controlmap.txt"))
-        .cloned()?;
-    let bytes = archive.read(&name).expect("controlmap reads");
+    let bytes = archive
+        .read("interface/controls/pc/controlmap.txt")
+        .expect("the PC control map reads");
     Some(String::from_utf8_lossy(&bytes).into_owned())
 }
 
@@ -80,91 +77,71 @@ fn the_shipped_control_map_parses() {
 }
 
 #[test]
-fn the_keyboard_column_holds_windows_virtual_key_codes() {
-    let Some(text) = controlmap() else {
-        eprintln!("skipping: SKYRIM_DATA is not set");
-        return;
-    };
+fn the_pc_keyboard_column_holds_directinput_scan_codes() {
+    let Some(text) = controlmap() else { return };
     let map = ControlMap::parse(&text);
-
-    // F1 through F12 are contiguous from 0x70 in the virtual key table and
-    // nowhere near contiguous in DirectInput's. The debug overlay context
-    // binds them by name, so the file says which table it uses.
     for (name, want) in [
-        ("F1", 0x70_u32),
-        ("F2", 0x71),
-        ("F3", 0x72),
-        ("F7", 0x76),
-        ("F12", 0x7b),
-        ("Backspace", 0x08),
-        ("Enter", 0x0d),
+        ("F1", 0x3b_u32),
+        ("F2", 0x3c),
+        ("F3", 0x3d),
+        ("F7", 0x41),
+        ("F12", 0x58),
+        ("Backspace", 0x0e),
+        ("Enter", 0x1c),
     ] {
-        let m = map.find(name).unwrap_or_else(|| panic!("{name} missing"));
-        let got = &m.keyboard.0;
-        assert_eq!(got.len(), 1, "{name} had {} chords", got.len());
-        assert_eq!(got[0].0, vec![want], "{name} was not the virtual key code");
-    }
-}
-
-#[test]
-fn the_shipped_file_leaves_the_gameplay_keyboard_unmapped() {
-    let Some(text) = controlmap() else {
-        eprintln!("skipping: SKYRIM_DATA is not set");
-        return;
-    };
-    let map = ControlMap::parse(&text);
-
-    // This is why the engine carries its own keyboard defaults. Every
-    // gameplay action is either absent from the file or bound on the gamepad
-    // only, so applying the shipped map must change nothing.
-    for action in Action::all() {
-        match map.find(action.event_name()) {
-            None => eprintln!("{:<20} absent from the file", action.event_name()),
-            Some(m) => {
-                eprintln!(
-                    "{:<20} keyboard {}",
-                    action.event_name(),
-                    if m.keyboard.is_unmapped() {
-                        "unmapped".to_string()
-                    } else {
-                        format!("{:?}", m.keyboard)
-                    }
-                );
-                assert!(
-                    m.keyboard.is_unmapped(),
-                    "{} is bound on the keyboard after all, so the engine's \
-                     default table is now wrong for it",
-                    action.event_name()
-                );
-            }
-        }
-    }
-
-    let mut bindings = Bindings::default();
-    let before = bindings.clone();
-    bindings.apply_control_map(&map);
-    assert_eq!(
-        bindings, before,
-        "the shipped map disturbed the keyboard defaults"
-    );
-}
-
-#[test]
-fn no_movement_event_exists_in_the_shipped_file() {
-    let Some(text) = controlmap() else {
-        eprintln!("skipping: SKYRIM_DATA is not set");
-        return;
-    };
-    let map = ControlMap::parse(&text);
-    for absent in ["Forward", "Strafe Left", "Strafe Right"] {
-        assert!(
-            map.find(absent).is_none(),
-            "{absent} exists after all, the engine should read it rather than \
-             carry a default"
+        let mapping = map.find(name).unwrap_or_else(|| panic!("{name} missing"));
+        assert_eq!(
+            mapping.keyboard,
+            Binding::key(want),
+            "{name}: wrong PC key table"
         );
     }
-    // "Move" does exist, as the gamepad's analog stick.
-    let move_event = map.find("Move").expect("Move is in the file");
-    assert!(move_event.keyboard.is_unmapped());
-    assert!(!move_event.gamepad.is_unmapped());
+}
+
+#[test]
+fn the_pc_gameplay_bindings_reach_the_input_driver() {
+    let Some(text) = controlmap() else { return };
+    let map = ControlMap::parse(&text);
+    let gameplay = map.gameplay().expect("gameplay context");
+    let mut bindings = Bindings::default();
+    bindings.apply_control_map(&map);
+    for (action, code) in [
+        (Action::Forward, 0x11),
+        (Action::Back, 0x1f),
+        (Action::StrafeLeft, 0x1e),
+        (Action::StrafeRight, 0x20),
+        (Action::Activate, 0x12),
+        (Action::Jump, 0x39),
+        (Action::Sneak, 0x1d),
+        (Action::Sprint, 0x38),
+        (Action::Walk, 0x2a),
+        (Action::ToggleAlwaysRun, 0x3a),
+        (Action::TogglePov, 0x21),
+        (Action::ReadyWeapon, 0x13),
+    ] {
+        let name = action.event_name();
+        let mapping = gameplay
+            .find(name)
+            .unwrap_or_else(|| panic!("{name} missing"));
+        assert_eq!(
+            mapping.keyboard,
+            Binding::key(code),
+            "{name}: unexpected shipped PC binding"
+        );
+        assert_eq!(
+            bindings.get(action),
+            Some(&mapping.keyboard),
+            "{name}: overlay was not applied"
+        );
+    }
+}
+
+#[test]
+fn menu_bindings_do_not_supply_missing_gameplay_actions() {
+    let map = ControlMap::parse(
+        "// Main Gameplay\nJump\t0x39\t0xff\t0xff\t1\t1\t1\n\n// Menu\nActivate\t0x14\t0xff\t0xff\t1\t1\t1",
+    );
+    let mut bindings = Bindings::default();
+    bindings.apply_control_map(&map);
+    assert_eq!(bindings.get(Action::Activate), Some(&Binding::key(0x12)));
 }

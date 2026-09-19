@@ -8,29 +8,21 @@
 //!
 //! ## The binding file is Bethesda's, not ours
 //!
-//! `interface/controlmap.txt` ships inside `Skyrim - Interface.bsa` and
+//! `interface/controls/pc/controlmap.txt` ships inside `Skyrim - Interface.bsa` and
 //! documents itself in its own header: one user event per line, then the
 //! keyboard, mouse and gamepad ids that fire it, three remappable flags and
 //! an optional grouping flag. Blank lines start a new input context. Reading
 //! that format means a mod that ships a `controlmap.txt` rebinds this engine
 //! the way it rebinds the real one, which is the whole point of the project.
 //!
-//! Two things the shipped file settles, both measured rather than assumed
-//! (`tests/controlmap.rs`):
+//! The PC file uses DirectInput scan codes, including W at 0x11 and F1 at
+//! 0x3b, and supplies the gameplay keyboard bindings. Sources are the exact
+//! `interface/controls/pc/controlmap.txt` entry and CommonLibSSE-NG's
+//! `include/RE/B/BSKeyboardDevice.h`. Console maps in the same archive use
+//! different conventions, so selecting a file by suffix is incorrect.
 //!
-//! - The keyboard column holds **Windows virtual key codes**, not DirectInput
-//!   scan codes. `F1` is `0x70`, `Enter` `0x0d`, the arrows `0x25` to `0x28`.
-//! - It carries **no keyboard movement at all**. There is no `Forward` or
-//!   `Strafe Left` event in the file, and `Activate`, `Jump`, `Sneak` and
-//!   `Toggle POV` all sit at `0xff`, unmapped, with only a gamepad id. The
-//!   retail engine holds the keyboard defaults internally and the file is the
-//!   remapping surface over them.
-//!
-//! So [`Bindings::vanilla_keyboard`] is this engine's table, not Bethesda's,
-//! for the same reason the camera offsets are. It matches the layout players
-//! expect, the file overrides it wherever the file says anything, and a user
-//! editing `controlmap.txt` gets the last word. Do not read those constants
-//! as recovered data.
+//! Defaults permit operation without game data. A PC control map overrides
+//! them in the gameplay context.
 
 use std::collections::BTreeMap;
 
@@ -41,36 +33,35 @@ use crate::camera::CameraRig;
 /// The id a control map uses for "this device does not fire this event".
 pub const UNMAPPED: u32 = 0xff;
 
-/// Windows virtual key codes for the keys the default layout uses. Named so
-/// the table below reads as a keyboard rather than as magic numbers.
-pub mod vk {
-    pub const BACK: u32 = 0x08;
-    pub const TAB: u32 = 0x09;
-    pub const RETURN: u32 = 0x0d;
-    pub const SHIFT: u32 = 0x10;
-    pub const CONTROL: u32 = 0x11;
-    pub const ALT: u32 = 0x12;
-    pub const ESCAPE: u32 = 0x1b;
-    pub const SPACE: u32 = 0x20;
-    pub const A: u32 = 0x41;
-    pub const C: u32 = 0x43;
-    pub const D: u32 = 0x44;
-    pub const E: u32 = 0x45;
-    pub const F: u32 = 0x46;
-    pub const M: u32 = 0x4d;
-    pub const R: u32 = 0x52;
-    pub const S: u32 = 0x53;
-    pub const T: u32 = 0x54;
-    pub const W: u32 = 0x57;
-    pub const GRAVE: u32 = 0xc0;
+/// DirectInput scan codes from CommonLibSSE-NG's BSKeyboardDevice::Keys.
+pub mod scan {
+    pub const BACK: u32 = 0x0e;
+    pub const TAB: u32 = 0x0f;
+    pub const RETURN: u32 = 0x1c;
+    pub const SHIFT: u32 = 0x2a;
+    pub const CONTROL: u32 = 0x1d;
+    pub const ALT: u32 = 0x38;
+    pub const ESCAPE: u32 = 0x01;
+    pub const SPACE: u32 = 0x39;
+    pub const CAPS_LOCK: u32 = 0x3a;
+    pub const A: u32 = 0x1e;
+    pub const C: u32 = 0x2e;
+    pub const D: u32 = 0x20;
+    pub const E: u32 = 0x12;
+    pub const F: u32 = 0x21;
+    pub const M: u32 = 0x32;
+    pub const R: u32 = 0x13;
+    pub const S: u32 = 0x1f;
+    pub const T: u32 = 0x14;
+    pub const W: u32 = 0x11;
+    pub const GRAVE: u32 = 0x29;
 }
 
 /// Godot's `Key` values for the keys that are not plain ASCII.
 ///
 /// Godot numbers printable keys by their ASCII codepoint and everything else
-/// from `1 << 22`. Windows numbers its virtual keys differently above the
-/// letters, so the two tables agree on `A` to `Z`, `0` to `9` and space, and
-/// disagree on every modifier and named key. Values read from
+/// from `1 << 22`. DirectInput uses scan codes even for
+/// printable keys, so translation is required for both letters and modifiers. Values read from
 /// `engine-refs/godot-docs/classes/class_@globalscope.rst`.
 pub mod godot_key {
     pub const SPECIAL: i64 = 1 << 22;
@@ -93,41 +84,48 @@ pub mod godot_key {
     pub const F1: i64 = SPECIAL + 28;
 }
 
-/// Translate a control map's Windows virtual key code into Godot's `Key`.
+/// Translate a PC control map's DirectInput scan code into Godot's Key.
 ///
-/// `None` for a code with no Godot equivalent, which the caller should treat
-/// as an unbindable entry rather than substituting something.
+/// Unknown codes return None. Sources: CommonLibSSE-NG BSKeyboardDevice::Keys
+/// and the local Godot @GlobalScope key enum.
 #[must_use]
-pub fn godot_key_for(vk: u32) -> Option<i64> {
+pub fn godot_key_for(code: u32) -> Option<i64> {
     use godot_key as g;
-    // Letters, digits and space share the ASCII codepoint in both tables.
-    let shared = matches!(vk, 0x30..=0x39 | 0x41..=0x5a | 0x20);
-    if shared {
-        return Some(i64::from(vk));
-    }
-    Some(match vk {
-        vk::BACK => g::BACKSPACE,
-        vk::TAB => g::TAB,
-        vk::RETURN => g::ENTER,
-        vk::SHIFT => g::SHIFT,
-        vk::CONTROL => g::CTRL,
-        vk::ALT => g::ALT,
-        vk::ESCAPE => g::ESCAPE,
-        vk::GRAVE => g::QUOTELEFT,
-        0x25 => g::LEFT,
-        0x26 => g::UP,
-        0x27 => g::RIGHT,
-        0x28 => g::DOWN,
-        0x21 => g::PAGEUP,
-        0x22 => g::PAGEDOWN,
-        // Left and right modifiers collapse onto the plain modifier, since
-        // Godot's `Key` has no separate side and the control map uses the
-        // sided codes only to offer an alternative chord.
-        0xa0 | 0xa1 => g::SHIFT,
-        0xa2 | 0xa3 => g::CTRL,
-        0xa4 | 0xa5 => g::ALT,
-        // F1 to F12 are contiguous in both tables, from different bases.
-        0x70..=0x7b => g::F1 + i64::from(vk - 0x70),
+    Some(match code {
+        0x02..=0x0a => i64::from(b'1') + i64::from(code - 0x02),
+        0x0b => i64::from(b'0'),
+        0x10..=0x19 => i64::from(*b"QWERTYUIOP".get((code - 0x10) as usize)?),
+        0x1e..=0x26 => i64::from(*b"ASDFGHJKL".get((code - 0x1e) as usize)?),
+        0x2c..=0x32 => i64::from(*b"ZXCVBNM".get((code - 0x2c) as usize)?),
+        0x0c => i64::from(b'-'),
+        0x0d => i64::from(b'='),
+        0x1a => i64::from(b'['),
+        0x1b => i64::from(b']'),
+        0x27 => i64::from(b';'),
+        0x28 => i64::from(b'\''),
+        0x2b => i64::from(b'\\'),
+        0x33 => i64::from(b','),
+        0x34 => i64::from(b'.'),
+        0x35 => i64::from(b'/'),
+        scan::SPACE => i64::from(b' '),
+        scan::BACK => g::BACKSPACE,
+        scan::TAB => g::TAB,
+        scan::RETURN => g::ENTER,
+        scan::SHIFT | 0x36 => g::SHIFT,
+        scan::CONTROL | 0x9d => g::CTRL,
+        scan::ALT | 0xb8 => g::ALT,
+        scan::ESCAPE => g::ESCAPE,
+        scan::GRAVE => g::QUOTELEFT,
+        scan::CAPS_LOCK => g::SPECIAL + 25,
+        0xcb => g::LEFT,
+        0xc8 => g::UP,
+        0xcd => g::RIGHT,
+        0xd0 => g::DOWN,
+        0xc9 => g::PAGEUP,
+        0xd1 => g::PAGEDOWN,
+        0x3b..=0x44 => g::F1 + i64::from(code - 0x3b),
+        0x57 => g::F1 + 10,
+        0x58 => g::F1 + 11,
         _ => return None,
     })
 }
@@ -368,9 +366,8 @@ pub enum Action {
 }
 
 impl Action {
-    /// The vanilla user event name, where the file has one. `Forward` and the
-    /// other three movement directions have no vanilla event, so they carry
-    /// the names the retail remapping UI shows.
+    /// The vanilla user event name, where the file has one. The PC map
+    /// names the hold-to-walk action Run.
     #[must_use]
     pub fn event_name(self) -> &'static str {
         match self {
@@ -381,7 +378,7 @@ impl Action {
             Action::Jump => "Jump",
             Action::Sneak => "Sneak",
             Action::Sprint => "Sprint",
-            Action::Walk => "Walk",
+            Action::Walk => "Run",
             Action::ToggleAlwaysRun => "Toggle Always Run",
             Action::Activate => "Activate",
             Action::TogglePov => "Toggle POV",
@@ -427,18 +424,18 @@ impl Bindings {
     #[must_use]
     pub fn vanilla_keyboard() -> Self {
         let pairs = [
-            (Action::Forward, vk::W),
-            (Action::Back, vk::S),
-            (Action::StrafeLeft, vk::A),
-            (Action::StrafeRight, vk::D),
-            (Action::Jump, vk::SPACE),
-            (Action::Sneak, vk::CONTROL),
-            (Action::Sprint, vk::ALT),
-            (Action::Walk, vk::SHIFT),
-            (Action::ToggleAlwaysRun, vk::C),
-            (Action::Activate, vk::E),
-            (Action::TogglePov, vk::F),
-            (Action::ReadyWeapon, vk::R),
+            (Action::Forward, scan::W),
+            (Action::Back, scan::S),
+            (Action::StrafeLeft, scan::A),
+            (Action::StrafeRight, scan::D),
+            (Action::Jump, scan::SPACE),
+            (Action::Sneak, scan::CONTROL),
+            (Action::Sprint, scan::ALT),
+            (Action::Walk, scan::SHIFT),
+            (Action::ToggleAlwaysRun, scan::CAPS_LOCK),
+            (Action::Activate, scan::E),
+            (Action::TogglePov, scan::F),
+            (Action::ReadyWeapon, scan::R),
         ];
         Bindings {
             keyboard: pairs
@@ -449,11 +446,10 @@ impl Bindings {
     }
 
     /// Override any action the control map binds on the keyboard. An event
-    /// the file leaves at `0xff` keeps the default, which is what makes the
-    /// shipped file usable: it unmaps almost every gameplay key.
+    /// the file leaves at `0xff` keeps the default, so partial overlays need only name the actions they change.
     pub fn apply_control_map(&mut self, map: &ControlMap) {
         for action in Action::all() {
-            if let Some(m) = map.find(action.event_name()) {
+            if let Some(m) = map.gameplay().and_then(|c| c.find(action.event_name())) {
                 if !m.keyboard.is_unmapped() {
                     self.keyboard.insert(action, m.keyboard.clone());
                 }
@@ -612,7 +608,7 @@ impl Driver {
 mod tests {
     use super::*;
 
-    const SHIPPED_SAMPLE: &str = "\
+    const CONSOLE_SAMPLE: &str = "\
 // 1st field: User event name.  DO NOT ALTER!  This field is used to ID events in the code
 //
 // Main Gameplay
@@ -630,7 +626,7 @@ PreviousFocus\t0x10+0x09,0xa1+0x09\t0xff\t0x0100\t0\t0\t0\t0x10
 ";
 
     fn map() -> ControlMap {
-        ControlMap::parse(SHIPPED_SAMPLE)
+        ControlMap::parse(CONSOLE_SAMPLE)
     }
 
     #[test]
@@ -743,10 +739,8 @@ PreviousFocus\t0x10+0x09,0xa1+0x09\t0xff\t0x0100\t0\t0\t0\t0x10
     }
 
     #[test]
-    fn the_shipped_map_does_not_disturb_the_keyboard_defaults() {
-        // Every gameplay key in the shipped file is 0xff, so applying it must
-        // leave the defaults alone. This is the behaviour that makes the real
-        // file usable at all.
+    fn unmapped_console_actions_do_not_disturb_keyboard_defaults() {
+        // The console fixture leaves gameplay keyboard fields unmapped.
         let mut b = Bindings::default();
         let before = b.clone();
         b.apply_control_map(&map());
@@ -756,10 +750,10 @@ PreviousFocus\t0x10+0x09,0xa1+0x09\t0xff\t0x0100\t0\t0\t0\t0x10
     #[test]
     fn a_control_map_that_binds_a_key_overrides_the_default() {
         let mut b = Bindings::default();
-        assert_eq!(b.get(Action::Activate), Some(&Binding::key(vk::E)));
-        let custom = ControlMap::parse("Activate\t0x54\t0xff\t0xff\t1\t1\t1\t0x804");
+        assert_eq!(b.get(Action::Activate), Some(&Binding::key(scan::E)));
+        let custom = ControlMap::parse("Activate\t0x14\t0xff\t0xff\t1\t1\t1\t0x804");
         b.apply_control_map(&custom);
-        assert_eq!(b.get(Action::Activate), Some(&Binding::key(vk::T)));
+        assert_eq!(b.get(Action::Activate), Some(&Binding::key(scan::T)));
     }
 
     fn keys(down: &[u32]) -> impl Fn(u32) -> bool + '_ {
@@ -769,7 +763,7 @@ PreviousFocus\t0x10+0x09,0xa1+0x09\t0xff\t0x0100\t0\t0\t0\t0x10
     #[test]
     fn holding_w_asks_to_go_forward() {
         let b = Bindings::default();
-        let s = InputState::gather(&b, &keys(&[vk::W]), &keys(&[]), 0.0, 0.0);
+        let s = InputState::gather(&b, &keys(&[scan::W]), &keys(&[]), 0.0, 0.0);
         assert_eq!(s.move_y, 1.0);
         assert_eq!(s.move_x, 0.0);
         assert!(s.is_moving());
@@ -778,7 +772,7 @@ PreviousFocus\t0x10+0x09,0xa1+0x09\t0xff\t0x0100\t0\t0\t0\t0x10
     #[test]
     fn opposite_keys_cancel() {
         let b = Bindings::default();
-        let s = InputState::gather(&b, &keys(&[vk::W, vk::S]), &keys(&[]), 0.0, 0.0);
+        let s = InputState::gather(&b, &keys(&[scan::W, scan::S]), &keys(&[]), 0.0, 0.0);
         assert_eq!(s.move_y, 0.0);
         assert!(!s.is_moving());
     }
@@ -786,7 +780,7 @@ PreviousFocus\t0x10+0x09,0xa1+0x09\t0xff\t0x0100\t0\t0\t0\t0x10
     #[test]
     fn a_press_is_an_edge_not_a_hold() {
         let b = Bindings::default();
-        let held = keys(&[vk::SPACE]);
+        let held = keys(&[scan::SPACE]);
         let fresh = InputState::gather(&b, &held, &keys(&[]), 0.0, 0.0);
         assert!(fresh.jump_pressed);
         let continued = InputState::gather(&b, &held, &held, 0.0, 0.0);
@@ -919,46 +913,51 @@ PreviousFocus\t0x10+0x09,0xa1+0x09\t0xff\t0x0100\t0\t0\t0\t0x10
     }
 
     #[test]
-    fn letters_and_space_need_no_translation() {
-        for (vk_code, want) in [(vk::W, 87), (vk::A, 65), (vk::S, 83), (vk::SPACE, 32)] {
-            assert_eq!(godot_key_for(vk_code), Some(want), "vk {vk_code:#x}");
+    fn letter_and_space_scan_codes_translate_to_godot_keys() {
+        for (code, want) in [
+            (scan::W, 87),
+            (scan::A, 65),
+            (scan::S, 83),
+            (scan::SPACE, 32),
+        ] {
+            assert_eq!(godot_key_for(code), Some(want), "scan code {code:#x}");
         }
     }
 
     #[test]
     fn modifiers_do_need_translation() {
-        // The bug this guards against is passing 0x11 straight through, which
+        // The bug this guards against is passing 0x1d straight through, which
         // Godot reads as a control character rather than as Ctrl.
-        assert_eq!(godot_key_for(vk::CONTROL), Some(godot_key::CTRL));
-        assert_eq!(godot_key_for(vk::SHIFT), Some(godot_key::SHIFT));
-        assert_eq!(godot_key_for(vk::ALT), Some(godot_key::ALT));
-        assert_ne!(godot_key_for(vk::CONTROL), Some(i64::from(vk::CONTROL)));
+        assert_eq!(godot_key_for(scan::CONTROL), Some(godot_key::CTRL));
+        assert_eq!(godot_key_for(scan::SHIFT), Some(godot_key::SHIFT));
+        assert_eq!(godot_key_for(scan::ALT), Some(godot_key::ALT));
+        assert_ne!(godot_key_for(scan::CONTROL), Some(i64::from(scan::CONTROL)));
     }
 
     #[test]
     fn sided_modifiers_collapse_onto_the_plain_one() {
-        for sided in [0xa0, 0xa1] {
+        for sided in [0x2a, 0x36] {
             assert_eq!(godot_key_for(sided), Some(godot_key::SHIFT));
         }
-        for sided in [0xa2, 0xa3] {
+        for sided in [0x1d, 0x9d] {
             assert_eq!(godot_key_for(sided), Some(godot_key::CTRL));
         }
     }
 
     #[test]
     fn the_function_keys_line_up_across_both_tables() {
-        assert_eq!(godot_key_for(0x70), Some(4_194_332));
-        assert_eq!(godot_key_for(0x71), Some(4_194_333));
-        assert_eq!(godot_key_for(0x7b), Some(4_194_343));
+        assert_eq!(godot_key_for(0x3b), Some(4_194_332));
+        assert_eq!(godot_key_for(0x3c), Some(4_194_333));
+        assert_eq!(godot_key_for(0x58), Some(4_194_343));
     }
 
     #[test]
     fn the_arrows_and_the_console_key_translate() {
-        assert_eq!(godot_key_for(0x25), Some(godot_key::LEFT));
-        assert_eq!(godot_key_for(0x26), Some(godot_key::UP));
-        assert_eq!(godot_key_for(0x27), Some(godot_key::RIGHT));
-        assert_eq!(godot_key_for(0x28), Some(godot_key::DOWN));
-        assert_eq!(godot_key_for(vk::GRAVE), Some(godot_key::QUOTELEFT));
+        assert_eq!(godot_key_for(0xcb), Some(godot_key::LEFT));
+        assert_eq!(godot_key_for(0xc8), Some(godot_key::UP));
+        assert_eq!(godot_key_for(0xcd), Some(godot_key::RIGHT));
+        assert_eq!(godot_key_for(0xd0), Some(godot_key::DOWN));
+        assert_eq!(godot_key_for(scan::GRAVE), Some(godot_key::QUOTELEFT));
     }
 
     #[test]

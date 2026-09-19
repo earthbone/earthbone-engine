@@ -142,11 +142,12 @@ One plan item, one git worktree, one branch, one report.
 For GPT agents, explain each action before taking it, including edits,
 checks and commits (user instruction, 2026-09-19).
 
-One writer per checkout. Preserve unrelated changes. The user's instruction
-of 2026-09-19 authorizes the agent to review and commit each completed step.
-Show a short diff summary, review it, run the gate and commit. Do not leave
-staged changes at handoff. This supersedes the earlier per-commit approval
-pause. Review before merging and keep changes isolated from other writers.
+One writer per checkout. Preserve unrelated changes. The agent reviews each
+completed step and runs the gate. Before any commit or merge, show a short
+diff summary naming the files, changes and reasons, then wait for explicit
+user approval of that summary. The latest global instructions require this
+approval even when the agent is the reviewer. Leave changes unstaged while
+awaiting approval. Commit approved steps and keep other writers isolated.
 Prefix every shell command with `rtk`. Use Serena and language servers for
 symbols, direct reads and RTK searches for named files and literal text.
 
@@ -228,7 +229,10 @@ in flight. The full gate was not rerun for this documentation review.
 
 The first job after input merged is still host integration. PlayerNode's
 activate path records a ray hit but does not drive a game reference or the
-doorway lifecycle. PlayerNode has compiled but has not been run in Godot.
+doorway lifecycle. The `host-player-run` follow-up now runs PlayerNode's
+input/camera checks on Godot 4.4.1 and 4.7.2 and real-cell movement on 4.7.2.
+It fixes the PC control-map lookup and scan-code translation, late rebindings,
+chords and toggle edges, and supplies a movement-only walkthrough launcher.
 SoundBank is not connected to footsteps or dialogue, and speaker output is
 unverified. The proposed next milestone is a verified Bannered Mare
 walkthrough, with movement, camera, interaction, a door crossing and footsteps.

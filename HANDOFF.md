@@ -46,8 +46,10 @@ worktree. Check Git again before taking ownership of any tree.
 ## What to pick up next
 
 The nearest proposed milestone is a verified Bannered Mare walkthrough.
-Input code has compiled, but the report says PlayerNode has never run in
-Godot. Its activate path only records whether a ray hit. It does not identify
+The `host-player-run` follow-up now verifies input and camera in Godot 4.4.1
+and 4.7.2, and real-cell movement on 4.7.2. It fixes PC control-map selection,
+scan-code translation and rebindings, and adds `godot/walkthrough.gd` as a
+movement-only launcher. Its activate path only records whether a ray hit. It does not identify
 and activate a game reference or connect the doorway lifecycle. SoundBank
 receives audio buffers, but nothing in the game loop drives footsteps or
 dialogue, and speaker output is unverified.
@@ -91,8 +93,9 @@ environment before running anything that depends on them.
 
 One writer per checkout. Create a worktree for a bounded implementation task.
 Use RTK for shell commands and Serena for symbol navigation. Consult the local
-reference corpus first. The user authorized agent review and commits for each
-completed step on 2026-09-19. Show the files changed, what changed and why,
-review the diff, run the gate and commit. Do not leave staged changes at
-handoff. Review before merging. Keep the full gate and the prose rules in
+reference corpus first. The agent reviews each completed step and runs the
+gate. Before any commit or merge, show the files changed, what changed and
+why, then wait for explicit user approval of that summary, as the latest
+global instructions require. Leave changes unstaged while awaiting approval
+and commit approved steps. Keep the full gate and the prose rules in
 `AGENTS.md` and `CLAUDE.md` aligned. No AI attribution trailers.

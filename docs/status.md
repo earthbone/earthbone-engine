@@ -14,6 +14,13 @@ An integrated, verified walkthrough is still pending, and Skyrim gameplay
 is incomplete. See [intent.md](intent.md) for the goal and compatibility
 boundaries, and `ENGINE-PLAN.md` for the historical plan and remaining work.
 
+The `host-player-run` follow-up adds a movement-only walkthrough and executes
+PlayerNode in Godot. Input/camera checks pass on 4.4.1 and 4.7.2. A live-data
+4.7.2 run settles the player on 281 Bannered Mare collision bodies and walks
+about 90 units in half a second. The exact PC control map and its DirectInput
+codes replace an incorrect console-map-based interpretation. See the host
+doc for the test commands and remaining integration limits.
+
 ## Implemented foundations and their limits
 
 | Subsystem | Evidence at the reviewed commit | Remaining boundary |
@@ -22,7 +29,7 @@ boundaries, and `ENGINE-PLAN.md` for the historical plan and remaining work.
 | Scripts and quests | Papyrus VM, scheduler, state serialization and native registry. The recorded five-master startup runs 423 quests through 1,388 native calls with zero unresolved calls. | The registry includes stubs. Startup coverage does not prove quest completion, combat, dialogue or magic. |
 | Actors and AI | NPC base state, navmesh, sandbox/travel/sleep packages, behavior interpreter and its second pass. Recorded package resolution: 4,635 of 5,961 vanilla packages. | Remaining procedure trees and procedures, package fragments, interruptions and combat behavior are unfinished. |
 | Rendering | Batched RenderingServer instances, compressed texture upload and session cache, interior/exterior streaming, terrain geometry, skinned characters with bind-pose and partition-index fixes. | LOD consumption, terrain texture layers, water and further exterior work remain. Rendering demonstrations are not the complete game loop. |
-| Physics and input | Headless collision/controller, a Godot Jolt path, first/third-person camera and keyboard/mouse player node. Vanilla control-map parsing has live-data evidence. | The new PlayerNode uses SimpleWorld. Its Godot execution was not tested in the input report. Gamepad columns are parsed but unused. |
+| Physics and input | Headless collision/controller, a Godot Jolt path, first/third-person camera and keyboard/mouse player node. PC control-map parsing and PlayerNode execution now have live-data evidence on host-player-run. | PlayerNode uses SimpleWorld. Gamepad and mouse-button mappings are parsed but unused. The movement launcher has no gameplay VM, door activation or footsteps. |
 | Doors | Simulation activation, cell transitions, prefetch/attach split, doorway commit and deferred unload are merged. | The host activate action only records a ray hit. It does not drive arm_doorway, commit_doorway or later unload settlement. Cold-texture fallback is unmeasured. |
 | Audio | FUZ/xWMA and open audio decoding, viseme generation, host SoundBank and conversion into Godot audio buffers. | Speaker output was unverified. The game loop does not drive footsteps or dialogue playback. Original LIP decoding remains incomplete. |
 | Saves | Engine-owned world/VM save-load paths and a vanilla ESS reader, with real-save corpus results in save.md. | Reading a vanilla save is not an end-to-end resume of its gameplay and VM state. |

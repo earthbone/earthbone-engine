@@ -703,28 +703,31 @@ Only English voices are indexed, `Skyrim - Voices_en0.bsa` by name.
 
 ### The binding file is Bethesda's
 
-`interface/controlmap.txt` ships inside `Skyrim - Interface.bsa` and documents its own
+`interface/controls/pc/controlmap.txt` ships inside `Skyrim - Interface.bsa` and documents its own
 format in its header: a user event name, then the keyboard, mouse and gamepad ids that fire
 it, three remappable flags, and an optional grouping flag. Blank lines separate input
 contexts. Reading that format is what makes a mod's control map rebind this engine the way
 it rebinds the real one, so `input::ControlMap` parses it rather than inventing a config
-file of our own. It takes all 135 mappings across 18 contexts of the shipped file, including
-the chord syntax (`0x10+0x09`), the alternative syntax (`a,b`), the optional flag field, and
+file of our own. It takes all 169 mappings across 18 contexts of the PC file, including
+the chord syntax (`0x2a+0x0f`), the alternative syntax (`a,b`), the optional flag field, and
 event names that contain spaces, which is why the line is split on tabs and not whitespace.
 
-Two facts about that file were measured, not assumed, and `tests/controlmap.rs` asserts both
-against the installed game so a wrong belief fails there instead of reaching the host.
+The September 18 tests selected the first archive entry ending in
+`controlmap.txt`. The archive also contains console maps, so the reported 135
+mappings, virtual-key encoding and absence of keyboard movement described the
+wrong platform. Running PlayerNode on September 19 exposed the bad lookup.
+The tests now read the exact PC path and establish these facts:
 
 | Question | Answer | How it was settled |
 |---|---|---|
-| Which key table does the keyboard column use? | Windows virtual keys | `F1` to `F12` are `0x70` to `0x7b`, contiguous there and scattered in DirectInput's table. `Enter` `0x0d`, `Backspace` `0x08`, the arrows `0x25` to `0x28` agree. |
-| Does it carry the keyboard defaults? | No | `Forward` and the strafes are absent from the file outright. `Activate`, `Jump`, `Sneak`, `Sprint`, `Ready Weapon` and `Toggle POV` all sit at `0xff`, unmapped, with only a gamepad id. |
+| Which key table does the keyboard column use? | DirectInput scan codes | W is `0x11`, F1 is `0x3b`, F12 is `0x58`, Enter is `0x1c`. CommonLibSSE-NG's `include/RE/B/BSKeyboardDevice.h` agrees. |
+| Does it carry the keyboard defaults? | Yes | The gameplay context binds movement, activation, jump, sneak, sprint, Run, Toggle Always Run, Ready Weapon and Toggle POV. |
 
-So the retail engine holds its keyboard defaults internally and the file is the remapping
-surface over them. `Bindings::vanilla_keyboard` is therefore **this engine's table**, the way
-`CameraSettings::default` is, and both say so in their module docs. A control map that does
-bind a key wins over the default, which the tests check in both directions, and applying the
-shipped file changes nothing at all.
+`Bindings::vanilla_keyboard` provides a fallback when data is absent. The PC
+map overrides it through the same VFS as other assets, so loose replacers win.
+Only its gameplay context supplies gameplay actions. The hold-to-walk action
+is named `Run` in that file, and Toggle Always Run uses Caps Lock. Camera
+offsets remain this engine's choices, as `camera` documents separately.
 
 ### The camera basis
 
@@ -756,11 +759,54 @@ wall. Activating casts from the eye along the full look direction, pitch include
 
 ### Untested here
 
-No Godot binary has run this. Everything below the `godot` feature is covered, and
-`PlayerNode` itself (the `InputMap` registration, the mouse capture, the camera RID) is
-compiled and clippy-clean at both ends of the feature range but never executed. A multi-key
-chord registers only its last key as an `InputMap` event, since one `InputEventKey` cannot
-express a chord, and the node's own polling path is what would honour the full chord. No
-default binding is a chord, so this only affects a control map that introduces one. The mouse
-and gamepad columns are parsed and kept but nothing reads them yet, and gamepad support is
-the obvious next item given the shipped file is almost entirely gamepad bindings.
+The initial input branch had never executed PlayerNode in Godot. The
+`host-player-run` follow-up adds `godot/player_test.gd` for that boundary and
+`godot/walkthrough.gd` for interactive movement. InputMap is refreshed after a
+late control-map load. Rebinding releases old held actions, full chords are
+checked, and toggle edges are consumed once while single-key taps between
+ticks are retained. PlayerNode releases mouse capture on exit.
+
+The mouse and gamepad binding columns are still parsed but unused. Mouse
+motion drives look. Right/left modifier scan codes map to Godot's shared
+modifier keys, so side-specific chords are not distinguished. The walkthrough
+is a movement prototype. It does not activate game references, cross doors,
+play footsteps or run the gameplay VM.
+
+### Running the player (2026-09-19)
+
+Build the release extension, import the project once, then run either script:
+
+```sh
+rtk proxy cargo build -p soe-godot-host --release
+rtk proxy ../tools/godot/Godot_v4.7.2-stable_linux.x86_64 --headless --path godot --import
+rtk proxy ../tools/godot/Godot_v4.7.2-stable_linux.x86_64 --headless --path godot --script player_test.gd
+rtk proxy ../tools/godot/Godot_v4.7.2-stable_linux.x86_64 --path godot --script walkthrough.gd
+```
+
+Set `SKYRIM_DATA` to the installed Data directory for the walkthrough and the
+real-cell portion of the test. The test without data still executes PlayerNode,
+its camera setup, mouse-look events, rebindings, chords, short taps and action
+edges inside Godot. It passed on 4.4.1 and 4.7.2. With data on 4.7.2 it built
+281 collision bodies, settled the player near `(-45.3, -16.3, 321.2)` and
+moved about 90 Skyrim units north in 30 steps at 60 Hz. The exact-PC-map tests
+also passed against the installed archive, alongside 126 host unit tests.
+
+These are automated checks, not a manual play session. The launcher uses
+WASD, mouse look, Space, Ctrl and F, with Escape to exit. For a rendered
+smoke capture, set `SOE_CAPTURE_PATH` to a writable PNG path and use
+`--max-fps 60`. It disables mouse capture and exits after saving frame 120.
+The windowed smoke attempt reached Vulkan on the RTX 5070 Ti but was
+terminated with SIGTERM before producing a capture. The cause was not
+established. Rendered player-camera verification remains open. Non-US keyboard
+layouts, side-specific modifiers and short chord taps between ticks are also
+not validated by these runs.
+The local Godot Input documentation supplied the distinction between held
+actions, just-pressed edges and injected input events used by the test.
+
+In a restricted environment, give Godot writable `XDG_CONFIG_HOME`,
+`XDG_DATA_HOME` and `XDG_CACHE_HOME` directories. A windowed run also needs
+access to the desktop display. The Rust gate here used `CCACHE_DISABLE=1`
+and a writable temporary `XDG_DATA_HOME` for the comment-lint database.
+The full gate passed with 821 tests and all three clippy passes. Taplo and
+markdownlint-cli2 were absent and skipped. Live PC-map and Godot runs above
+were separate from the gate, whose game-data environment variables are unset.

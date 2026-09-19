@@ -67,11 +67,12 @@ GPL tool is fine there, but no GPL derived code may reach the MIT shim crates.
 
 - For GPT agents, explain each action before taking it, including edits,
   checks and commits (user instruction, 2026-09-19).
-- One writer per checkout. Preserve unrelated changes. The user authorized
-  agent review and commits for each completed step on 2026-09-19. Show a diff
-  summary, review it, run the gate and commit without another approval pause.
-  Do not leave staged changes at handoff. Review before merging and keep
-  changes isolated from other writers.
+- One writer per checkout. Preserve unrelated changes. The agent reviews each
+  completed step and runs the gate. Before any commit or merge, show a diff
+  summary naming the files, changes and reasons, then wait for explicit user
+  approval of that summary, as the latest global instructions require.
+  Leave changes unstaged while awaiting approval. Commit approved steps and
+  keep changes isolated from other writers.
 - Prefix every shell command with `rtk`. Use Serena and language servers for
   symbols, direct reads and RTK searches for named files and literal text.
 - One crate per fork, in a worktree: `git worktree add ../soe-<crate> -b <crate> master`.
@@ -143,11 +144,16 @@ stopping point and proposed next work. This update reviewed source and Git
 history, not a new engine run. The previous handover's 750-test tier 1 result
 predates the input merge. Do not report it as a fresh gate on `75cfb55`.
 
-Input's PlayerNode compiles but has not been executed in Godot. Activation
+Follow-up on branch `host-player-run`: PlayerNode's input/camera script now
+passes in Godot 4.4.1 and 4.7.2, with real Bannered Mare collision/movement
+checked on 4.7.2. The PC control map uses DirectInput scan codes and includes
+movement bindings. Earlier tests had selected a console map by suffix.
+Late rebindings, chord handling and action edges are corrected. Activation
 only records a ray hit and does not drive the game/doorway lifecycle. Audio
 buffers reach host playback code, but footsteps and dialogue are not driven
 by the game loop and speaker output is unverified. These are the seams for
-the proposed Bannered Mare walkthrough. Portal doorways remain a prototype
+the proposed full Bannered Mare walkthrough. A movement-only launcher now
+exists at `godot/walkthrough.gd`. Portal doorways remain a prototype
 proposal. Mod-data parsing/application and behavior-2 have merged, while
 OAR animation consumption and packages-2 remain incomplete.
 

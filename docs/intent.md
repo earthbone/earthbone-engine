@@ -153,12 +153,13 @@ for named files and literal text, and prefix shell commands with `rtk`.
 Consult relevant docs before building. Preserve unrelated user changes.
 For GPT agents, explain each action before taking it, including edits,
 checks and commits, as the user requested on 2026-09-19.
-The user's later instruction on 2026-09-19 assigns review to the agent and
-authorizes committing every completed step. Show a diff summary, review it,
-run the gate and commit without another approval pause. Do not leave staged
-changes at handoff. Review before merging and avoid another writer's tree.
-This supersedes the earlier per-commit approval requirement. No AI attribution
-trailers. Follow the prose and Rust rules in [style.md](style.md).
+The agent reviews every completed step and runs the gate. Before any commit
+or merge, show a diff summary naming the files, changes and reasons, then
+wait for explicit user approval of that summary. The latest global
+instructions require this approval even when the agent is the reviewer.
+Leave changes unstaged while awaiting approval and commit approved steps.
+Avoid another writer's tree. No AI attribution trailers. Follow the prose
+and Rust rules in [style.md](style.md).
 
 ## Source precedence
 

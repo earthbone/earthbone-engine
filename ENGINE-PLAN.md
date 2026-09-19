@@ -16,7 +16,8 @@ also landed through batching, so an item is not open just because its proposed
 branch name never appeared.
 
 The proposed next milestone is an integrated Bannered Mare walkthrough.
-PlayerNode still needs a Godot run, activation needs to reach game references
+The `host-player-run` follow-up now verifies PlayerNode input/camera in Godot
+and movement on real-cell collision. Activation still needs to reach game references
 and doorway operations, and SoundBank needs game-loop triggers and audible
 verification. Portal doorways remain a prototype proposal. The quest-loop
 paragraph needs a detailed gameplay breakdown before it can cover combat,
@@ -27,11 +28,12 @@ do not establish that every done check passed. Recorded test counts and live
 measurements predate this review, which did not rerun the engine gate.
 
 Current workflow: one writer per tree, a separate task worktree, RTK-prefixed
-shell commands, local references before implementation. The user authorized
-agent review and commits for each completed step on 2026-09-19. Show a diff
-summary, review it and run the full `tools/lint.sh` gate before committing.
-Do not leave staged changes at handoff. Review before merging. These rules
-supersede earlier approval pauses and abbreviated gates.
+shell commands, local references before implementation. The agent reviews
+each completed step and runs the full `tools/lint.sh` gate. Before any commit
+or merge, show a diff summary naming the files, changes and reasons, then
+wait for explicit user approval of that summary. The latest global
+instructions require this approval even when the agent is the reviewer.
+Leave changes unstaged while awaiting approval and commit approved steps.
 
 ## Original scope and foundation plan
 

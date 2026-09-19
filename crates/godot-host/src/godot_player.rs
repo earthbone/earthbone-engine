@@ -18,6 +18,7 @@
 //! rather than a `Camera3D` node for the reason the rest of the crate avoids
 //! nodes.
 
+use std::collections::BTreeSet;
 use std::path::Path;
 
 use godot::classes::{
@@ -66,6 +67,7 @@ pub struct PlayerNode {
     /// Whether the activate ray hit something on the last step, reported to
     /// GDScript so a prompt can be drawn without a second raycast.
     last_activate_hit: bool,
+    held_actions: BTreeSet<Action>,
 }
 
 #[godot_api]
@@ -84,6 +86,7 @@ impl INode3D for PlayerNode {
             camera: None,
             pending_look: (0.0, 0.0),
             last_activate_hit: false,
+            held_actions: BTreeSet::new(),
         }
     }
 
@@ -110,6 +113,9 @@ impl INode3D for PlayerNode {
     }
 
     fn exit_tree(&mut self) {
+        if self.capture_mouse {
+            Input::singleton().set_mouse_mode(godot::classes::input::MouseMode::VISIBLE);
+        }
         if let Some(rid) = self.camera.take() {
             RenderingServer::singleton().free_rid(rid);
         }
@@ -127,6 +133,9 @@ impl PlayerNode {
         match DataSource::open(Path::new(&path.to_string())) {
             Ok(source) => {
                 self.load_control_map(&source);
+                if self.base().is_node_ready() {
+                    self.register_actions();
+                }
                 self.data_source = Some(source);
                 true
             }
@@ -135,6 +144,19 @@ impl PlayerNode {
                 self.data_source = None;
                 false
             }
+        }
+    }
+
+    /// Replace the keyboard bindings with defaults plus a control-map overlay.
+    /// Refreshes InputMap even when called after the node entered the tree.
+    #[allow(clippy::needless_pass_by_value)]
+    #[func]
+    pub fn apply_control_map(&mut self, text: GString) {
+        self.bindings = Bindings::default();
+        self.bindings
+            .apply_control_map(&ControlMap::parse(&text.to_string()));
+        if self.base().is_node_ready() {
+            self.register_actions();
         }
     }
 
@@ -268,12 +290,11 @@ impl PlayerNode {
             .map_or(CharacterSettings::default().height, |c| c.height())
     }
 
-    /// Read `interface/controlmap.txt` out of the game's archives and let it
-    /// override the defaults. A missing file is not an error, the shipped one
-    /// binds no gameplay key anyway.
+    /// Read the PC control map through the archive and loose-file overlay.
+    /// A missing map uses fallback bindings and reports the missing input.
     fn load_control_map(&mut self, source: &DataSource) {
         let mut bindings = Bindings::default();
-        match source.vfs().read("interface/controlmap.txt") {
+        match source.vfs().read("interface/controls/pc/controlmap.txt") {
             Ok(bytes) => {
                 let text = String::from_utf8_lossy(&bytes);
                 bindings.apply_control_map(&ControlMap::parse(&text));
@@ -293,10 +314,21 @@ impl PlayerNode {
     /// path is what honours the full chord. None of the default bindings is a
     /// chord, so this affects only a control map that introduces one.
     fn register_actions(&mut self) {
+        let mut input = Input::singleton();
+        self.held_actions = Action::all()
+            .iter()
+            .copied()
+            .filter(|a| {
+                let name = StringName::from(a.event_name());
+                InputMap::singleton().has_action(&name)
+                    && (input.is_action_pressed(&name) || input.is_action_just_pressed(&name))
+            })
+            .collect();
         let mut map = InputMap::singleton();
         for action in Action::all() {
             let name = StringName::from(action.event_name());
             if map.has_action(&name) {
+                input.action_release(&name);
                 map.erase_action(&name);
             }
             map.add_action(&name);
@@ -319,16 +351,43 @@ impl PlayerNode {
         }
     }
 
-    /// Poll the actions registered above. Godot owns the edge detection, so
-    /// the `InputState` probes are not needed on this path.
-    fn gather(&self) -> InputState {
+    /// Gate multi-key bindings on every key, then detect their action edge.
+    /// InputMap alone represents only the last key of an arbitrary chord.
+    fn gather(&mut self) -> InputState {
         let input = Input::singleton();
-        let held = |a: Action| input.is_action_pressed(&StringName::from(a.event_name()));
-        let pressed = |a: Action| input.is_action_just_pressed(&StringName::from(a.event_name()));
+        let held_now: BTreeSet<Action> = Action::all()
+            .iter()
+            .copied()
+            .filter(|&a| {
+                let Some(binding) = self.bindings.get(a) else {
+                    return false;
+                };
+                if binding.0.iter().any(|c| c.0.len() > 1) {
+                    binding.held(&|vk| {
+                        godot_key_for(vk)
+                            .is_some_and(|k| input.is_key_pressed(Key::from_ord(k as i32)))
+                    })
+                } else {
+                    input.is_action_pressed(&StringName::from(a.event_name()))
+                }
+            })
+            .collect();
+        let mut observed = held_now.clone();
+        for action in Action::all() {
+            let has_chord = self
+                .bindings
+                .get(action)
+                .is_some_and(|b| b.0.iter().any(|c| c.0.len() > 1));
+            if !has_chord && input.is_action_just_pressed(&StringName::from(action.event_name())) {
+                observed.insert(action);
+            }
+        }
+        let held = |a: Action| held_now.contains(&a);
+        let pressed = |a: Action| observed.contains(&a) && !self.held_actions.contains(&a);
         let axis = |neg: Action, pos: Action| {
             f32::from(u8::from(held(pos))) - f32::from(u8::from(held(neg)))
         };
-        InputState {
+        let state = InputState {
             move_x: axis(Action::StrafeLeft, Action::StrafeRight),
             move_y: axis(Action::Back, Action::Forward),
             look_dx: 0.0,
@@ -341,7 +400,9 @@ impl PlayerNode {
             activate_pressed: pressed(Action::Activate),
             toggle_pov_pressed: pressed(Action::TogglePov),
             toggle_always_run_pressed: pressed(Action::ToggleAlwaysRun),
-        }
+        };
+        self.held_actions = observed;
+        state
     }
 
     /// Cast from the eye along the look direction, the way activating works.
