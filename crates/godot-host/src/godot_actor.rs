@@ -16,7 +16,7 @@
 
 use std::path::Path;
 
-use godot::classes::{ArrayMesh, Engine, INode3D, Node3D, RenderingServer, SceneTree, Viewport};
+use godot::classes::{ArrayMesh, INode3D, Node3D, RenderingServer};
 use godot::prelude::*;
 use soe_bsa::Vfs;
 use soe_havok::interp::Interpreter;
@@ -297,21 +297,7 @@ impl SkinnedActorNode {
     /// node's own viewport first, then the tree's root, because a `--script`
     /// run has no scene and the node's viewport can be empty.
     fn scenario(&self) -> Option<Rid> {
-        let own = self
-            .base()
-            .get_viewport()
-            .and_then(|viewport| viewport.find_world_3d());
-        let world = own.or_else(|| {
-            let tree = Engine::singleton()
-                .get_main_loop()?
-                .try_cast::<SceneTree>()
-                .ok()?;
-            tree.get_root()?.upcast::<Viewport>().find_world_3d()
-        });
-        if world.is_none() {
-            godot_error!("SkinnedActorNode: no World3D to draw into");
-        }
-        world.map(|w| w.get_scenario())
+        crate::godot_world::scenario(&self.base(), "SkinnedActorNode")
     }
 
     fn free_rids(&mut self) {

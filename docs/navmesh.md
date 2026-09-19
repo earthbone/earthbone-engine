@@ -177,3 +177,27 @@ no geometry. What changed is that they are counted, their keys are known, and a
 link naming one is cut and reported instead of counted as unresolved. The five
 remaining deleted navmeshes of the 71 the dirty report counts sit in other
 worldspaces, outside this filter.
+
+## Query indexing and oracle tests (2026-09-19)
+
+The graph lazily builds a median-split tree over mesh bounds. The layout follows
+the bounding volume tree in the local Recast/Detour sources,
+`DetourNavMeshBuilder.cpp` and `DetourNavMeshQuery.cpp`. Detour's quantized tile
+polygons do not match this engine's triangle and centroid API, so the index
+retains floating-point bounds and the existing query semantics. Bounds include
+rounded centroids. Adding a mesh invalidates the index. Equal distances still
+choose the first mesh and triangle, regardless of traversal order.
+
+A second lazy cache groups weakly connected meshes. Different groups cannot
+have a route. Sharing a group does not imply reachability, since links can be
+directed and triangles within a mesh can be disconnected. The cache includes
+blocked triangles, making rejection conservative across block-state changes.
+Adding meshes or links invalidates it. A* skips stale heap entries and rejects
+out-of-range endpoints.
+
+`graph/query_tests.rs` compares indexed point selection with exhaustive search
+and A* with an independent Dijkstra oracle over generated directed, blocked
+graphs. Each property runs 192 cases. A fixed test requires both point searches
+to prune at least 90 percent of 1,024 separated meshes. Tie handling and cache
+invalidation have explicit tests. This is a mesh-level index, not a triangle
+index or hierarchical pathfinder. See `docs/performance.md` for measurements.

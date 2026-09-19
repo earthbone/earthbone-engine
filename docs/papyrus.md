@@ -277,3 +277,30 @@ VM that carries `Actor`, `ObjectReference` and `Form`.
 - Object display in `as String` and string concatenation uses the object's
   first script name and the host-given name. The game prints the form id as
   well, which the VM does not know.
+
+## VM maintenance and generated continuation tests (2026-09-19)
+
+The VM keeps its public API and single-threaded execution contract.
+`vm/execution.rs` owns instruction execution and casts, `dispatch.rs` owns
+method and native calls, `properties.rs` owns property access, and
+`scheduler.rs` owns thread lifecycle and scheduling. The parent retains the
+shared data types and VM construction. This is a source split, not a new
+scheduler or a change to native-call ordering.
+
+`tests/prop_state.rs` generates 128 scripts per run, varies PEX byte order,
+integer instructions, wait calls and the instruction at which state is saved.
+It checks PEX model and byte round trips, then resumes in a fresh VM and compares
+state and results against uninterrupted execution and an independent integer
+sum. The test uses the workspace's existing proptest dependency.
+
+State loading now rejects a frame instance index outside the instance table
+before replacing live state. A regression test corrupts a saved frame and checks
+both rejection and preservation of the original state. The new
+`fuzz-vm-state` target loads a known probe script before parsing saved bytes so
+valid frame mutations can reach execution. Neither test establishes the behavior
+of every possible serialized state or every Papyrus opcode.
+
+Object, variable and latent-waiter maps are serialized in sorted key order,
+including before array-pool interning. Generated continuation cases use one to
+five objects and multiple variables, and require byte-identical state after
+loading into a fresh VM. A waiter-map test covers reversed insertion order.

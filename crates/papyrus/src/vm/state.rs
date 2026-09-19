@@ -394,7 +394,9 @@ fn write_vars(
     types: &HashMap<String, String>,
 ) {
     w.len(vars.len());
-    for (name, value) in vars {
+    let mut entries: Vec<_> = vars.iter().collect();
+    entries.sort_by_key(|(name, _)| *name);
+    for (name, value) in entries {
         w.str(name);
         w.opt_str(types.get(name).map(String::as_str));
         pool.write_value(w, value);
@@ -492,7 +494,9 @@ impl Vm {
 
         body.u64(self.next_object);
         body.len(self.objects.len());
-        for (id, o) in &self.objects {
+        let mut objects: Vec<_> = self.objects.iter().collect();
+        objects.sort_by_key(|(id, _)| id.0);
+        for (id, o) in objects {
             body.u64(id.0);
             body.str(&o.name);
             body.opt_str(o.class.as_deref());
@@ -558,7 +562,9 @@ impl Vm {
 
         body.u64(self.latent_counter);
         body.len(self.latent_waiters.len());
-        for (l, t) in &self.latent_waiters {
+        let mut waiters: Vec<_> = self.latent_waiters.iter().collect();
+        waiters.sort_by_key(|(id, _)| id.0);
+        for (l, t) in waiters {
             body.u64(l.0);
             body.u64(t.0);
         }
@@ -676,7 +682,16 @@ impl Vm {
                         FnKey::Getter(p) | FnKey::Setter(p) => p.clone(),
                     },
                 })?;
-                let instance = r.opt_u64()?.map(|i| InstanceId(i as usize));
+                let instance = r
+                    .opt_u64()?
+                    .map(|i| {
+                        usize::try_from(i)
+                            .ok()
+                            .filter(|index| *index < instances.len())
+                            .map(InstanceId)
+                            .ok_or_else(|| bad("frame refers to an instance past the table"))
+                    })
+                    .transpose()?;
                 let self_object = r.opt_u64()?.map(ObjectId);
                 let pc = r.u64()? as usize;
                 let (locals, local_types) = read_vars(&table, &mut r)?;
@@ -734,6 +749,45 @@ impl Vm {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn serialized_waiters_do_not_depend_on_hashmap_insertion_order() {
+        let mut first = Vm::new();
+        let mut second = Vm::new();
+        for id in 1..=16 {
+            first.latent_waiters.insert(LatentId(id), ThreadId(id));
+        }
+        for id in (1..=16).rev() {
+            second.latent_waiters.insert(LatentId(id), ThreadId(id));
+        }
+        assert_eq!(first.save_state().unwrap(), second.save_state().unwrap());
+    }
+
+    #[test]
+    fn invalid_frame_instance_is_rejected_without_replacing_live_state() {
+        use crate::asm::{i, FunctionBuilder, ScriptBuilder};
+        use crate::pex::Opcode;
+        let bytes = ScriptBuilder::new("Probe", "")
+            .function(
+                FunctionBuilder::new("Run", "Int")
+                    .ins(Opcode::Return, vec![i(1)])
+                    .build(),
+            )
+            .bytes();
+        let mut vm = Vm::new();
+        vm.load_bytes(&bytes).unwrap();
+        let object = vm.create_object("probe");
+        vm.attach(object, "Probe").unwrap();
+        vm.call(object, "Run", &[]).unwrap();
+        let valid = vm.save_state().unwrap();
+        vm.threads[0].frames[0].instance = Some(InstanceId(usize::MAX));
+        let invalid = vm.save_state().unwrap();
+        vm.load_state(&valid).unwrap();
+        assert!(matches!(vm.load_state(&invalid), Err(VmError::State(_))));
+        assert_eq!(vm.save_state().unwrap(), valid);
+        vm.run(100);
+        assert!(vm.idle());
+    }
 
     #[test]
     fn values_round_trip_and_shared_arrays_stay_shared() {

@@ -764,3 +764,34 @@ express a chord, and the node's own polling path is what would honour the full c
 default binding is a chord, so this only affects a control map that introduces one. The mouse
 and gamepad columns are parsed and kept but nothing reads them yet, and gamepad support is
 the obvious next item given the shipped file is almost entirely gamepad bindings.
+
+## Ordered workers and data-source split (2026-09-19)
+
+The data source now uses one bounded scoped worker helper for master parsing,
+archive opening and mesh construction. Results are joined in input order.
+Archives still enter the VFS in load order, preserving last-archive precedence.
+Every worker is joined even if another worker panics. A failed batch returns
+`DataSourceError::WorkerPanicked`, rather than shortening the mesh result list
+and potentially attaching later geometry to the wrong reference.
+
+Texture keys use `soe_bsa::normalize`, matching the VFS's case and separator
+rules. Per-key `OnceLock` entries share successful and failed loads across
+workers, and missing-texture reports are sorted. Tests cover concurrent aliases,
+negative caching, worker limits, panic handling and archive override order.
+The small archive fixture is reduced from the bsa crate's test-private
+`archive::testdata::sse_bsa`, because that helper is not exported to dependents.
+
+Texture handling and exterior streaming now live in `data_source/textures.rs`
+and `data_source/exterior.rs`. Existing public texture paths are re-exported.
+The actor and cell renderers share their Godot world-scenario lookup through
+`godot_world.rs`. No new Godot node exception was introduced.
+
+The gated Bannered Mare test compares reference order, geometry arrays and
+texture payloads at one, two and eight workers after warming the cache.
+Per-stream counters are exact only for non-overlapping stream calls, since
+concurrent callers share counters. Persistent workers and deferred archive
+payload reads remain separate measurement tasks.
+
+Exterior grid selection uses unsigned absolute differences, avoiding signed
+overflow at extreme CELL coordinates. Negative radii still select no cells.
+Boundary and negative-radius cases have a unit test.

@@ -155,5 +155,21 @@ fn main() {
     write_seed("fuzz-havok", "seed_empty.bin", &havok_seed());
     write_seed("fuzz-dds", "seed_bc1.bin", &dds_seed());
     write_seed("fuzz-pex", "seed_default.bin", &pex_seed());
+    write_seed(
+        "fuzz-audio",
+        "seed_empty.bin",
+        &soe_audio::fuz::write(1, &[], &[]),
+    );
+    write_seed(
+        "fuzz-profile",
+        "seed_default.bin",
+        b"[General]\nbEnable=1\n*Skyrim.esm\nDisabled.esp\n",
+    );
+    write_seed(
+        "fuzz-moddata",
+        "seed_default.bin",
+        b"Keyword = ActorTypeNPC|ActorTypeNPC\n",
+    );
+    write_seed("fuzz-vm-state", "seed_default.bin", &soe_fuzz::state_seed());
     println!("seeds written");
 }

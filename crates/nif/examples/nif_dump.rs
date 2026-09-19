@@ -5,7 +5,7 @@
 //! only files that yield no meshes.
 //!
 //! ```text
-//! cargo run -p soe-nif --example dump -- meshes/clutter/bucket01.nif
+//! cargo run -p soe-nif --example nif_dump -- meshes/clutter/bucket01.nif
 //! ```
 
 fn main() {

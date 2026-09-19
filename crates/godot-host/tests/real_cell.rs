@@ -25,7 +25,7 @@ fn a_real_cell_streams_statics_from_the_installed_game() {
     };
 
     let started = std::time::Instant::now();
-    let source = DataSource::open(&data).unwrap_or_else(|e| panic!("DataSource::open: {e}"));
+    let mut source = DataSource::open(&data).unwrap_or_else(|e| panic!("DataSource::open: {e}"));
 
     let wanted = "WhiterunBanneredMare";
     let cell_id = match source.resolve_cell(wanted) {
@@ -90,4 +90,26 @@ fn a_real_cell_streams_statics_from_the_installed_game() {
         loaded.stats.textures_decoded > 0,
         "not one texture decoded, DataSource is not resolving textures through the Vfs"
     );
+
+    for workers in [1, 2, 8] {
+        source.set_threads(workers);
+        let again = source.stream_cell_id(cell_id).expect("cell streams again");
+        assert_eq!(again.stats.references, loaded.stats.references);
+        assert_eq!(again.stats.meshes_failed, loaded.stats.meshes_failed);
+        assert_eq!(again.stats.triangles, loaded.stats.triangles);
+        assert_eq!(again.surfaces.len(), loaded.surfaces.len());
+        assert_eq!(again.stats.textures_decoded, 0, "warm cache needs no reads");
+        for (a, b) in again.surfaces.iter().zip(&loaded.surfaces) {
+            assert_eq!(
+                a.reference, b.reference,
+                "worker count {workers} changed ownership"
+            );
+            assert_eq!(
+                a.arrays, b.arrays,
+                "worker count {workers} changed mesh data"
+            );
+            assert_eq!(a.textures.diffuse, b.textures.diffuse);
+            assert_eq!(a.textures.normal, b.textures.normal);
+        }
+    }
 }

@@ -1339,6 +1339,7 @@ name = "soe-navmesh"
 version = "0.1.0"
 dependencies = [
  "glam",
+ "proptest",
  "rerecast",
  "soe-esm",
  "soe-nif",
@@ -1358,6 +1359,7 @@ dependencies = [
 name = "soe-papyrus"
 version = "0.1.0"
 dependencies = [
+ "proptest",
  "soe-bsa",
  "soe-trace",
 ]

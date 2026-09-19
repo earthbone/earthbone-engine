@@ -98,10 +98,10 @@ BSA extractor (150 spread across Meshes0, 150 across Meshes1, 20 from the
 Fish Creation Club archive): 320 parsed with every block ending where the
 header says, 313 yielded meshes, 541,750 triangles. The seven with no meshes
 are particle effects, the camera rig and a collision-only placeholder, which
-is correct. `examples/dump.rs` prints this per file:
+is correct. `examples/nif_dump.rs` prints this per file:
 
 ```text
-cargo run -p soe-nif --example dump -- --quiet meshes/**/*.nif
+cargo run -p soe-nif --example nif_dump -- --quiet meshes/**/*.nif
 ```
 
 ## Live run (2026-09-14)

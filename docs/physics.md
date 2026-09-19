@@ -145,7 +145,7 @@ meshes), one cylinder, one plane. 52 files the nif crate cannot parse
 extent above 200,000 units. The same test then drops a capsule onto
 `farmhouse01.nif` and requires it to come to rest on the building.
 
-`examples/dump.rs` prints the colliders of one mesh, from a file or an
+`examples/physics_dump.rs` prints the colliders of one mesh, from a file or an
 archive path, with `--raw` for the trailing bytes of each rigid body.
 
 ## Live run (2026-09-14)
