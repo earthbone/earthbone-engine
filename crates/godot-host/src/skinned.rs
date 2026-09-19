@@ -33,8 +33,8 @@
 //! are composed before or after converting. They are composed first here, so
 //! the conversion runs once per bone rather than once per link in the chain.
 
-use soe_havok::skeleton::Skeleton;
-use soe_havok::QsTransform;
+use soe_hkx::skeleton::Skeleton;
+use soe_hkx::QsTransform;
 use soe_nif::mesh::{Bone as MeshBone, Skin};
 use soe_nif::types::Transform as NifTransform;
 
@@ -310,7 +310,7 @@ impl std::error::Error for SkinError {}
 /// One skinning transform per mesh bone, in Godot's axes and metres.
 ///
 /// `model_pose` is the animated pose already lifted into model space by
-/// [`soe_havok::pose::to_model_space`]. A mesh bone the skeleton does not name
+/// [`soe_hkx::pose::to_model_space`]. A mesh bone the skeleton does not name
 /// gets the identity, which leaves the vertices weighted to it at their bind
 /// position rather than collapsing them to the origin.
 ///
@@ -386,7 +386,7 @@ pub fn skinning_transforms(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use soe_havok::skeleton::Bone as SkeletonBone;
+    use soe_hkx::skeleton::Bone as SkeletonBone;
     use soe_nif::types::{Mat33, Vec3};
 
     fn skeleton(names: &[&str]) -> Skeleton {

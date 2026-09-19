@@ -346,7 +346,7 @@ dependencies = [
  "soe-bsa",
  "soe-dds",
  "soe-esm",
- "soe-havok",
+ "soe-hkx",
  "soe-moddata",
  "soe-nif",
  "soe-papyrus",
@@ -355,7 +355,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "soe-havok"
+name = "soe-hkx"
 version = "0.1.0"
 
 [[package]]

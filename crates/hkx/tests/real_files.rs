@@ -15,11 +15,11 @@ use std::time::Instant;
 
 use common::{graph, Root};
 use soe_bsa::Archive;
-use soe_havok::animation::SplineCompressedAnimation;
-use soe_havok::behavior::BehaviorGraph;
-use soe_havok::interp::{blend_transform, Clip, ClipLibrary, Interpreter};
-use soe_havok::skeleton::{AnimationContainer, Skeleton};
-use soe_havok::{Packfile, QsTransform};
+use soe_hkx::animation::SplineCompressedAnimation;
+use soe_hkx::behavior::BehaviorGraph;
+use soe_hkx::interp::{blend_transform, Clip, ClipLibrary, Interpreter};
+use soe_hkx::skeleton::{AnimationContainer, Skeleton};
+use soe_hkx::{Packfile, QsTransform};
 
 const CHARACTER: &str = "meshes/actors/character/";
 
@@ -188,7 +188,7 @@ fn vanilla_idle_and_walk_match_the_sampler() {
 
 /// The vanilla `mt_behavior.hkx` with every clip it names that the archive
 /// holds: activate, tick, report what ran and what the interpreter could
-/// not evaluate. The numbers go to `docs/havok.md`.
+/// not evaluate. The numbers go to `docs/hkx.md`.
 #[test]
 fn mt_behavior_runs_on_the_vanilla_clips() {
     let Some(archive) = animations_archive() else {

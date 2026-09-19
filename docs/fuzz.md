@@ -40,7 +40,7 @@ PATH="$HOME/.cargo/bin:$PATH" "$HOME/.cargo/bin/cargo" +nightly fuzz run \
 | `fuzz-esm` | `soe-esm` | `Plugin::parse` |
 | `fuzz-bsa` | `soe-bsa` | `index_archive_in` |
 | `fuzz-nif` | `soe-nif` | `parse` |
-| `fuzz-havok` | `soe-havok` | `Packfile::parse` |
+| `fuzz-hkx` | `soe-hkx` | `Packfile::parse` |
 | `fuzz-dds` | `soe-dds` | `Dds::parse` |
 | `fuzz-pex` | `soe-papyrus` | `pex::parse` |
 | `fuzz-pex-grammar` | `soe-papyrus` | Generated PEX round trips |
@@ -99,7 +99,7 @@ target's final libFuzzer status line.
 | `fuzz-esm` | 1,346,481 | 2,400 | 0 this run (1 fixed previously, see below) |
 | `fuzz-bsa` | 29,544,753 | 52,664 | 0 |
 | `fuzz-nif` | 59,942,027 | 106,848 | 0 |
-| `fuzz-havok` | 81,805,174 | 145,820 | 0 |
+| `fuzz-hkx` | 81,805,174 | 145,820 | 0 |
 | `fuzz-dds` | 1,320,298 | 2,353 | 0 this run (4 fixed previously, see below) |
 | `fuzz-pex` | 9,617,780 | 17,143 | 0 |
 

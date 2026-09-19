@@ -9,7 +9,7 @@ members = [
     "crates/esm",
     "crates/game",
     "crates/godot-host",
-    "crates/havok",
+    "crates/hkx",
     "crates/moddata",
     "crates/navmesh",
     "crates/nif",

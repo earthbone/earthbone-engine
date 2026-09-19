@@ -1,6 +1,13 @@
-# soe-havok: Skyrim SE animation files and the behavior runtime design
+# soe-hkx: Skyrim SE animation files and the behavior runtime design
 
-Crate `crates/havok` reads the Havok 2010.2 packfiles Skyrim Special Edition
+The `hkx-rename` step renamed the former `soe-havok` package and `crates/havok`
+directory to `soe-hkx` and `crates/hkx`. Consumers import `soe_hkx` and the
+fuzz target is `fuzz-hkx`. The parser, writer and interpreter are unchanged.
+Existing local fuzz inputs can be moved from `fuzz/corpus/fuzz-havok` to
+`fuzz/corpus/fuzz-hkx` before using the renamed target. The name describes the
+format this crate reads. It does not link the Havok SDK.
+
+Crate `crates/hkx` reads the Havok 2010.2 packfiles Skyrim Special Edition
 ships: skeletons, spline-compressed animation clips, character and project
 descriptions, and behavior graphs, and runs the behavior graphs through the
 interpreter in `interp.rs` (section 6). This document records what the crate

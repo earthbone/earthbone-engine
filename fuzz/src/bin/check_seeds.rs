@@ -10,7 +10,7 @@ fn main() {
     soe_bsa::index_archive_in(&read("fuzz-bsa", "seed_empty.bin"), Path::new("seed.bsa"))
         .expect("bsa seed");
     soe_nif::parse(&read("fuzz-nif", "seed_empty.bin")).expect("nif seed");
-    soe_havok::Packfile::parse(&read("fuzz-havok", "seed_empty.bin")).expect("havok seed");
+    soe_hkx::Packfile::parse(&read("fuzz-hkx", "seed_empty.bin")).expect("hkx seed");
     soe_dds::Dds::parse(&read("fuzz-dds", "seed_bc1.bin")).expect("dds seed");
     soe_papyrus::pex::parse(&read("fuzz-pex", "seed_default.bin")).expect("pex seed");
     soe_audio::Fuz::split(&read("fuzz-audio", "seed_empty.bin")).expect("audio seed");

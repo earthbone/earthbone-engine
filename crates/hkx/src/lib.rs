@@ -19,7 +19,7 @@
 //!   block decoder that turns quantized control points into poses.
 //! - [`behavior`]: the `hkb` behavior graph as a typed data model.
 //! - [`interp`]: the interpreter over that model, one instance per actor,
-//!   ticked per frame into a local pose (see `docs/havok.md`).
+//!   ticked per frame into a local pose (see `docs/hkx.md`).
 //! - [`character`]: `hkbCharacterData` and `hkbProjectData`, the files that
 //!   tie a rig, a behavior and an animation set together.
 //! - [`writer`]: a packfile builder, used by the tests to make synthetic

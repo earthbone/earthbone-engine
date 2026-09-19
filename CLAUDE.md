@@ -30,7 +30,7 @@ meaning. Core crates are GPL-3.0-or-later, the SKSE shim crates are MIT.
 | `bsa` | BSA and BA2 archives plus a loose-file overlay by load order | `docs/bsa.md` |
 | `nif` | Skyrim SE meshes into a renderer-neutral struct | `docs/nif.md` |
 | `papyrus` | PEX loader, assembler, VM with scheduler and latent calls | `docs/papyrus.md` |
-| `havok` | hkx packfiles, skeletons, spline clips, behavior graph model | `docs/havok.md` |
+| `hkx` | hkx packfiles, skeletons, spline clips, behavior graph model | `docs/hkx.md` |
 | `dds` | DDS container, BC1 to BC7 decode, encode behind a feature | `docs/dds.md` |
 | `physics` | bhk shapes, a headless static world and capsule character. Godot's bundled Jolt drives the rendered path, the engine links no physics library | `docs/physics.md` |
 | `navmesh` | Vanilla NAVM graph plus Recast generation | `docs/navmesh.md` |

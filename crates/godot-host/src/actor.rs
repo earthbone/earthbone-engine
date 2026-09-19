@@ -12,10 +12,10 @@
 //! test. [`crate::godot_actor`] turns the result into `RenderingServer` calls.
 
 use soe_bsa::Vfs;
-use soe_havok::behavior::BehaviorGraph;
-use soe_havok::interp::{Clip, ClipLibrary};
-use soe_havok::skeleton::{AnimationContainer, Skeleton};
-use soe_havok::Packfile;
+use soe_hkx::behavior::BehaviorGraph;
+use soe_hkx::interp::{Clip, ClipLibrary};
+use soe_hkx::skeleton::{AnimationContainer, Skeleton};
+use soe_hkx::Packfile;
 use soe_nif::mesh::Skin;
 use soe_nif::types::Transform as NifTransform;
 
@@ -46,7 +46,7 @@ pub enum ActorError {
     Havok {
         path: String,
         #[source]
-        source: soe_havok::Error,
+        source: soe_hkx::Error,
     },
     #[error("parsing {path}: {source}")]
     Nif {
@@ -171,8 +171,8 @@ impl ActorAssets {
             source,
         })?;
         // A referenced behavior may itself reference another, so the walk
-        // repeats. Eight rounds is what the gated havok test uses and the
-        // vanilla graph settles in two. See docs/havok.md.
+        // repeats. Eight rounds is what the gated hkx test uses and the
+        // vanilla graph settles in two. See docs/hkx.md.
         graph.link_all(8, |name| {
             let sub_path = character_path(name);
             let bytes = vfs.read(&sub_path).ok()?;

@@ -9,11 +9,11 @@
 mod common;
 
 use common::{graph, Root};
-use soe_havok::animation::SplineCompressedAnimation;
-use soe_havok::behavior::{BehaviorGraph, NodeId, NodeKind};
-use soe_havok::interp::{Clip, ClipLibrary, Event, Interpreter};
-use soe_havok::spline::encode;
-use soe_havok::{Packfile, QsTransform};
+use soe_hkx::animation::SplineCompressedAnimation;
+use soe_hkx::behavior::{BehaviorGraph, NodeId, NodeKind};
+use soe_hkx::interp::{Clip, ClipLibrary, Event, Interpreter};
+use soe_hkx::spline::encode;
+use soe_hkx::{Packfile, QsTransform};
 
 const FRAMES: usize = 31;
 const DT: f32 = 0.125;

@@ -19,9 +19,9 @@ use std::path::Path;
 use godot::classes::{ArrayMesh, INode3D, Node3D, RenderingServer};
 use godot::prelude::*;
 use soe_bsa::Vfs;
-use soe_havok::interp::Interpreter;
-use soe_havok::pose::to_model_space_into;
-use soe_havok::QsTransform;
+use soe_hkx::interp::Interpreter;
+use soe_hkx::pose::to_model_space_into;
+use soe_hkx::QsTransform;
 
 use crate::actor::{ActorAssets, HUMAN_SKELETON};
 use crate::godot_layer::array_mesh_from;

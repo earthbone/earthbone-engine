@@ -27,7 +27,7 @@ use std::path::PathBuf;
 use soe_bsa::Vfs;
 use soe_godot_host::actor::ActorAssets;
 use soe_godot_host::skinned::{skinning_transforms_into, Affine};
-use soe_havok::pose::to_model_space_into;
+use soe_hkx::pose::to_model_space_into;
 
 const BODY: &str = "meshes/actors/character/character assets/malebody_1.nif";
 

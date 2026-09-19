@@ -4,11 +4,11 @@
 //! A synthetic `skeleton.hkx`-shaped file with one skeleton, one spline
 //! animation and one binding, written with the builder and read back.
 
-use soe_havok::animation::Animation;
-use soe_havok::skeleton::{AnimationContainer, BlendHint};
-use soe_havok::spline::encode;
-use soe_havok::writer::PackfileBuilder;
-use soe_havok::{Packfile, QsTransform};
+use soe_hkx::animation::Animation;
+use soe_hkx::skeleton::{AnimationContainer, BlendHint};
+use soe_hkx::spline::encode;
+use soe_hkx::writer::PackfileBuilder;
+use soe_hkx::{Packfile, QsTransform};
 
 fn pad4(v: &mut Vec<u8>) {
     while !v.len().is_multiple_of(4) {

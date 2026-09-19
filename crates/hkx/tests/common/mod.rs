@@ -6,8 +6,8 @@
 //! (int, 0), two clip generators named `IdleClip` and `WalkClip`, and a
 //! root of the caller's choice over them.
 
-use soe_havok::behavior::transition_flags;
-use soe_havok::writer::PackfileBuilder;
+use soe_hkx::behavior::transition_flags;
+use soe_hkx::writer::PackfileBuilder;
 
 pub enum Root {
     /// A state machine `Locomotion` with states `Idle` and `Walk`, a 0.25 s

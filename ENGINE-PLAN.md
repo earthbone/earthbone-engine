@@ -98,14 +98,14 @@ before committing, and report branch, commits, validation, references and remain
   the test crate that emits PEX, tests for every opcode family, a latent-call test where a
   thread suspends and resumes, and a mock native set that runs a script calling
   `Debug.Notification` and a property getter.
-- **havok** (`crates/havok`, branch `havok`). Reader for Skyrim SE hkx packfiles (Havok 2010.2,
+- **hkx** (`crates/hkx`, original branch `havok`). Reader for Skyrim SE hkx packfiles (Havok 2010.2,
   the 64-bit SE layout) covering hkaSkeleton, hkaAnimationBinding, hkaSplineCompressedAnimation
   with its decoder, and the hkb behavior classes as a typed data model (hkbBehaviorGraph,
   hkbStateMachine, states, transitions, events, variables, hkbClipGenerator, blender
   generators, modifiers) drawn from the activeragdoll `havok_behavior.h` class layouts
   (<https://github.com/adamhynek/activeragdoll>, fetch it into `engine-refs/activeragdoll`) and
   `engine-refs/serde-hkx`, `engine-refs/HavokLib`, `engine-refs/Skyrim-Behavior-Editor-`.
-  Then `docs/havok.md`: the behavior-graph interpreter design with the event and variable model
+  Then `docs/hkx.md`: the behavior-graph interpreter design with the event and variable model
   and how a replay harness would drive it. Done: a synthetic packfile round trip for the
   skeleton and a clip, spline decode against a hand-computed curve, a behavior graph parsed
   into the model from a fixture serde-hkx or the editor repo ships, and the design document.
@@ -183,7 +183,7 @@ check holds. Order is by what unblocks the most.
 | Actor base stats | `game-npc` | `NPC_` `ACBS` and `DNAM` feed actor values, level and flags, `CNTO` and `SPLO` seed inventory and spells, `RNAM` gives `GetRace`. Test on a synthetic NPC_ and on the Skyrim.esm Prisoner. |
 | VM save and load | `vm-save` | Script instances, variables, threads and the world's run-time state serialize to a file and load back, a quest mid-flow resumes and finishes. Own format first, ESS import is round 4. |
 | Godot headless load | `godot-headless` (merged, real cell merged as `godot-real-cell`, host study in `../research/host-engine-options.md` says stay on Godot and gate on the Whiterun exterior benchmark, open-world support such as floating origin and cell-ring streaming is built in the host crate) | A Godot 4 binary in `../tools/godot/`, the extension built as a cdylib and loaded by `godot --headless` on a test project, one cell streamed and its mesh count printed. |
-| Behavior interpreter | `behavior` | The havok crate's graph model runs: state machines, blend nodes, clip generators, transitions on events, for one vanilla actor skeleton and its idle plus walk clips, pose output checked against the clip sampler. The single hard blocker of the map. |
+| Behavior interpreter | `behavior` | The hkx crate's graph model runs: state machines, blend nodes, clip generators, transitions on events, for one vanilla actor skeleton and its idle plus walk clips, pose output checked against the clip sampler. The single hard blocker of the map. |
 | Packages and AI | `packages` | `PACK` records read, sandbox, travel and sleep packages drive an actor through the navmesh graph on the clock, `EvaluatePackage` is real. |
 | Parser fuzzing | `fuzz` | `cargo fuzz` targets for esm, bsa, nif, hkx, dds and pex, one hour each without a panic, findings fixed. |
 | Performance harness | `perf` | `soe-bench` times every subsystem over the installed game, the trace crate records spans per phase and per native call and exports Chrome trace files, `docs/performance.md` carries the numbers, the thread scaling and the tracing overhead on this machine. Landed 2026-09-17. |
@@ -256,7 +256,7 @@ behavior and packages merges:
 | Occluders | `occluders` | One `ArrayOccluder3D` per cell from the largest opaque statics, kept only if p99 improves. |
 | Behavior interpreter 2 | `behavior-2` | Behavior references through `hkbSymbolIdMap`, modifiers, conditions, priority arbitration, transition effects, bone masks, extracted motion. The standing idle plays under the vanilla graph. |
 | Procedure trees | `packages-2` | PACK procedure trees (sequence, random, simultaneous), the 18 remaining procedures, package fragments, interrupt and combat flags. |
-| hkx rename | `hkx-rename` | The `havok` crate becomes `hkx`, the name says the format it reads, not a library it links. |
+| hkx rename | `hkx-rename` | Completed on `hkx-rename`: package `soe-hkx`, crate directory `crates/hkx`, imports `soe_hkx`, docs and fuzz target use the format name. No Havok SDK dependency. |
 | Papyrus log import | `papyrus-log` | A vanilla `Papyrus.0.log` parses into scenario expectations, a differential run against the VM reports every divergence. |
 | Script coverage | `script-coverage` | A harness run records which vanilla script functions executed, reported as a percentage per quest and per script. |
 | Papyrus compiler | `psc` | `.psc` source compiles to PEX with the assembler, scenarios can be written in Papyrus, output matches the Creation Kit compiler on the vanilla sources that ship. |
@@ -423,7 +423,7 @@ screen, and sound coming out. Everything under it already works.
 | Physics for real | `jolt` | Godot's bundled Jolt used through the host physics server, with the pure Rust `SimpleWorld` kept for headless simulation and tests. This supersedes the original separate C-binding proposal. A capsule falls, lands and slides on the Bannered Mare collision. |
 | Character controller | `controller` | A capsule with the game's movement speeds (walk 110, fast walk 160, jog 180, run 375 units per second), gravity, step height, slope limit and crouch, driven by a direction vector rather than by input directly, so the same controller serves the player and an actor on a package. |
 | Input and camera | `input` | First and third person cameras with the vanilla offsets, mouse look, movement, jump, sneak, activate, bound through Godot's input map from a config file a user can edit. The player reference from `Game::debug` becomes the thing it drives. |
-| Animation on screen | `skinning` | The `havok` interpreter's pose output applied to a skinned mesh in Godot: skeleton built from the `NIF` and the `hkx` skeleton, bone mapping, the idle and walk clips playing on a real character in a real cell. |
+| Animation on screen | `skinning` | The `hkx` interpreter's pose output applied to a skinned mesh in Godot: skeleton built from the `NIF` and the `hkx` skeleton, bone mapping, the idle and walk clips playing on a real character in a real cell. |
 | Sound out | `playback` | Godot's audio facilities in the host, the `audio` crate's `Pcm` reaching a device, a footstep and a voice line audible, positioned in 3D. This supersedes the original cpal/rodio proposal. |
 | Doors and transitions | `transitions` | An activated door moves the player between cells through its teleport data, the old cell unloads and the new one streams, the clock keeps running. |
 

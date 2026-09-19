@@ -533,14 +533,14 @@ are the next benchmark, on the cell index and the BTO and BTR readers.
 
 ## Skinned characters (2026-09-18, branch `skinning`)
 
-The animation stack was finished and invisible: `crates/havok` reads skeletons,
+The animation stack was finished and invisible: `crates/hkx` reads skeletons,
 clips and behavior graphs, and since `behavior-2` it walks the vanilla
 `mt_behavior.hkx` and plays the standing idle at full weight. Nothing reached a
 screen. This connects the two.
 
 Three pieces, none of which touch Godot except the last:
 
-- `soe_havok::pose::to_model_space_into` composes the interpreter's local pose
+- `soe_hkx::pose::to_model_space_into` composes the interpreter's local pose
   with its parent chain into a caller's buffer, so a frame allocates nothing.
   The allocating walk it mirrors, `Skeleton::to_model_space`, already existed
   and is not duplicated.

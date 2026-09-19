@@ -8,7 +8,7 @@
 //! recursively with children before their parent, then handle the events
 //! nodes raised during the frame. What the headers do not publish (the
 //! blender weight formula, transition arbitration, binding timing) is
-//! filled with the plainest rule that fits and named in `docs/havok.md`
+//! filled with the plainest rule that fits and named in `docs/hkx.md`
 //! so a capture from the real engine can correct it.
 //!
 //! Only generators produce poses. Modifiers pass through, transition

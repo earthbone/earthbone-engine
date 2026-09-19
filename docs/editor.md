@@ -122,7 +122,7 @@ other loaded plugins depend on.
 | Navmesh: triangle editing, generation, cover, finalize | 3D gizmo and a dock | `soe-navmesh` (round 2) and the `NavMesh` view |
 | Quest and dialogue: stages, aliases, scenes, topics, responses | main screen tab with a graph (`GraphEdit`) for branches and a table for responses | `soe-esm` QUST, DIAL, INFO, SCEN views (round 3) |
 | Papyrus: source editing, compile, fragments | Godot's script editor with an LSP client to `papyrus-language-server` | `soe-papyrus` for the compiled output, Caprica or the open compiler for compilation |
-| Behaviour graphs: state machines, clips, events, variables | main screen tab with `GraphEdit` | `soe-havok` data model |
+| Behaviour graphs: state machines, clips, events, variables | main screen tab with `GraphEdit` | `soe-hkx` data model |
 | Conflicts: who wins each record across the load order | dock, the same override chain view filtered to conflicts | `soe-esm` |
 | Log and diagnostics | the output dock | every crate's typed errors |
 
@@ -144,7 +144,7 @@ game-facing side.
   specular in alpha for Skyrim SE, and so on), with mips generated. The engine reads DDS,
   the author never sees one.
 - **Animation.** Godot's animation player edits clips imported from glTF. Export to hkx clip
-  data goes through `soe-havok`'s writer once it exists. Behaviour graphs are edited as data
+  data goes through `soe-hkx`'s writer once it exists. Behaviour graphs are edited as data
   in the graph tab and written as hkx, and the runtime reads them as data, so the merge that
   Nemesis and Pandora perform after installation becomes a load-time merge in the engine
   (see `design-system.md`).
@@ -254,10 +254,10 @@ year or more or blocked.
 8. **Papyrus integration** (S). The language server in Godot's script editor, compile on
    save through an open compiler, fragment scripts attached to stages and responses, and
    property binding from the inspector.
-9. **Behaviour graph editor** (L). `GraphEdit` over `soe-havok`'s model with the seventy
+9. **Behaviour graph editor** (L). `GraphEdit` over `soe-hkx`'s model with the seventy
    classes the Skyrim Behavior Editor exposes, clip and event tables, and the load-time
    merge that replaces Nemesis and Pandora. Blocked on the behaviour runtime design
-   (`docs/havok.md`) for what a merged graph must preserve.
+   (`docs/hkx.md`) for what a merged graph must preserve.
 10. **FaceGen and NPC editing** (L). Head part assembly, morphs, tint layers to DDS, the
     NPC dialog, and export in the paths the game expects. Needs morph support in the mesh
     pipeline.

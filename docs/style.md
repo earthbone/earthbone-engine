@@ -3,7 +3,7 @@
 The baseline for this workspace is the Apollo GraphQL team's
 [Rust Best Practices](https://github.com/apollographql/rust-best-practices) handbook,
 condensed below to the parts that apply to a workspace of parser and runtime library
-crates (`esm`, `bsa`, `nif`, `papyrus`, `havok`, `dds`, `physics`, `navmesh`, `profile`,
+crates (`esm`, `bsa`, `nif`, `papyrus`, `hkx`, `dds`, `physics`, `navmesh`, `profile`,
 `commonlib-shim`, `godot-host`, `game`) with no async runtime and no web surface. The
 "house rules" section adds constraints specific to reverse-engineered file formats and
 a Godot-hosted runtime.

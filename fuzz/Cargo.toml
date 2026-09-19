@@ -31,8 +31,8 @@ path = "../crates/bsa"
 [dependencies.soe-nif]
 path = "../crates/nif"
 
-[dependencies.soe-havok]
-path = "../crates/havok"
+[dependencies.soe-hkx]
+path = "../crates/hkx"
 
 [dependencies.soe-dds]
 path = "../crates/dds"
@@ -65,8 +65,8 @@ doc = false
 bench = false
 
 [[bin]]
-name = "fuzz-havok"
-path = "fuzz_targets/fuzz_havok.rs"
+name = "fuzz-hkx"
+path = "fuzz_targets/fuzz_hkx.rs"
 test = false
 doc = false
 bench = false

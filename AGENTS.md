@@ -76,7 +76,7 @@ mod manager sharing the house style at `../linux-mod-organizer/`.
 | `bsa` | BSA and BA2 archives plus a loose-file overlay by load order |
 | `nif` | Skyrim SE meshes into a renderer-neutral struct |
 | `papyrus` | PEX loader, assembler, VM with scheduler and latent calls |
-| `havok` | hkx packfiles, skeletons, spline clips, behavior graph model |
+| `hkx` | hkx packfiles, skeletons, spline clips, behavior graph model |
 | `dds` | DDS container, BC1 to BC7 decode, encode behind a feature |
 | `physics` | bhk shapes, headless static world, capsule character |
 | `navmesh` | Vanilla NAVM graph plus Recast generation |

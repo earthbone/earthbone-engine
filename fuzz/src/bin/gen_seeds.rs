@@ -7,10 +7,10 @@
 //! reachable here. Where a crate exposes an equivalent builder outside
 //! `#[cfg(test)]` (dds's `Header::to_bytes`, papyrus's `asm::ScriptBuilder`,
 //! esm's `FileHeader::to_record` through `Plugin::new`), this binary uses it.
-//! For bsa, havok and nif, no such non-test builder exists, so the bytes
+//! For bsa, hkx and nif, no such non-test builder exists, so the bytes
 //! below are hand assembled straight from the format read by each parser
 //! (cited by source line in the comments), kept minimal on purpose: BSA and
-//! havok files whose record and section counts are zero, and an empty NIF
+//! hkx files whose record and section counts are zero, and an empty NIF
 //! block list. See docs/fuzz.md for the corpus rationale.
 
 use std::fs;
@@ -79,8 +79,8 @@ fn nif_seed() -> Vec<u8> {
     b
 }
 
-fn havok_seed() -> Vec<u8> {
-    // crates/havok/src/packfile.rs Packfile::parse: a 64-byte header (two
+fn hkx_seed() -> Vec<u8> {
+    // crates/hkx/src/packfile.rs Packfile::parse: a 64-byte header (two
     // magics, pointer_size 8, little_endian, a 20-byte section_count and
     // section-table geometry, an empty version string, section_offset 0 so
     // the table starts right at byte 64) followed by two 48-byte section
@@ -90,8 +90,8 @@ fn havok_seed() -> Vec<u8> {
     const HEADER_SIZE: usize = 64;
     const SECTION_HEADER_SIZE: usize = 48;
     let mut b = vec![0u8; HEADER_SIZE + 2 * SECTION_HEADER_SIZE];
-    b[0..4].copy_from_slice(&soe_havok::packfile::MAGIC0.to_le_bytes());
-    b[4..8].copy_from_slice(&soe_havok::packfile::MAGIC1.to_le_bytes());
+    b[0..4].copy_from_slice(&soe_hkx::packfile::MAGIC0.to_le_bytes());
+    b[4..8].copy_from_slice(&soe_hkx::packfile::MAGIC1.to_le_bytes());
     // user_tag, file_version: leave 0.
     b[16] = 8; // pointer_size
     b[17] = 1; // little_endian
@@ -152,7 +152,7 @@ fn main() {
     write_seed("fuzz-esm", "seed_default.bin", &esm_seed());
     write_seed("fuzz-bsa", "seed_empty.bin", &bsa_seed());
     write_seed("fuzz-nif", "seed_empty.bin", &nif_seed());
-    write_seed("fuzz-havok", "seed_empty.bin", &havok_seed());
+    write_seed("fuzz-hkx", "seed_empty.bin", &hkx_seed());
     write_seed("fuzz-dds", "seed_bc1.bin", &dds_seed());
     write_seed("fuzz-pex", "seed_default.bin", &pex_seed());
     write_seed(

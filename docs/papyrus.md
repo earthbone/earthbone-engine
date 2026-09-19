@@ -258,7 +258,7 @@ install, it only looked for a loose `Data/Scripts` folder, but the vanilla scrip
 ship packed inside `Skyrim - Misc.bsa` and this install has never had them
 extracted. The test now opens that archive with `soe_bsa::Archive` when no
 `SOE_PEX_DIR` override and no loose folder are set, the same fix already used for
-the havok and nif gated tests, and reads every `.pex` straight out of it. `soe-bsa`
+the hkx and nif gated tests, and reads every `.pex` straight out of it. `soe-bsa`
 was added as a dev dependency for this. The live run then parsed 14026 scripts with
 54620 functions and 0 failures, found 686 native declarations across 44 classes, 131
 distinct static call targets and 2615 distinct method call names, all loaded into a
