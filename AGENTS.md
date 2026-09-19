@@ -4,6 +4,11 @@ Handover for an agent with no prior context on this repository. Read this
 first, in full. It is short on purpose. Everything it points at is real and
 worth opening before you write code.
 
+Read `docs/intent.md` for the full governing intent and `docs/status.md` for
+the status reconciled against `75cfb55` on 2026-09-19. The intent combines
+the user's original goals with later decisions, including the compatibility
+boundary, modernization and editor scope. It is not a feature-completion list.
+
 ## What this is
 
 `skyrim-open-engine` is an open-source reimplementation of the Skyrim Special
@@ -21,13 +26,12 @@ One design rule holds everywhere and explains most of the code:
 When a change would be easier if some system kept its own parallel copy of game
 state, that is the rule telling you no. Read the form.
 
-Godot is the host, used unpatched, through a GDExtension. The host drives
-`RenderingServer` and `PhysicsServer3D` by resource id rather than building
-node trees, because per-node overhead is the thing that would sink an open
-world at this scale. There is exactly one deliberate exception, the audio
-module, because Godot has no server-level API for positional sound and
-`AudioStreamPlayer3D` is the only route to attenuation. If you find yourself
-adding a second exception, say so loudly in your report rather than quietly.
+Godot is the host, used unpatched, through a GDExtension. Bulk rendering and
+host physics use server resource IDs rather than a node per placed reference.
+Positional audio uses `AudioStreamPlayer3D`, since Godot has no equivalent
+server-level path. The host also has control nodes such as PlayerNode. Those
+do not change the bulk-world rule. Report any new per-reference node path and
+its measured cost.
 
 Licensing matters and is not uniform. The core crates are GPL-3.0-or-later, so
 reading and porting from a GPL tool is fine there. The `commonlib-shim` crates
@@ -115,8 +119,10 @@ encode path drifted until someone noticed. Tests are checked only by the
 `--all-targets` runs, and on 2026-09-18 thirteen clippy errors reached `master`
 because an agent ran a gate without them.
 
-Tier 1 is currently 750 tests and takes about twelve seconds against a five
-minute budget. It must stay under that budget.
+The pre-input handover recorded 750 tier 1 tests in about twelve seconds
+against a five minute budget. That is historical evidence, not a fresh run
+on `75cfb55`. Tier 1 must stay under the budget. Optional lint tools may be
+skipped by the script when absent, so report those skips as well as exit status.
 
 Tests that need the installed game are gated on an environment variable and
 skip cleanly when it is unset:
@@ -133,13 +139,24 @@ one, never copy one into this repository.
 
 One plan item, one git worktree, one branch, one report.
 
+For GPT agents, explain each action before taking it, including edits,
+checks and commits (user instruction, 2026-09-19).
+
+One writer per checkout. Preserve unrelated changes. The user's instruction
+of 2026-09-19 authorizes the agent to review and commit each completed step.
+Show a short diff summary, review it, run the gate and commit. Do not leave
+staged changes at handoff. This supersedes the earlier per-commit approval
+pause. Review before merging and keep changes isolated from other writers.
+Prefix every shell command with `rtk`. Use Serena and language servers for
+symbols, direct reads and RTK searches for named files and literal text.
+
 ```
 git worktree add ../soe-<item> -b <item> master
 ```
 
 Touch only the crates the item names, plus their docs. If the item genuinely
 needs a line in another crate, keep it minimal and say so in the report. Commit
-incrementally, one commit per milestone, because a long-running agent that
+reviewed milestones incrementally, because a long-running agent that
 loses its session loses everything uncommitted. Run the gate before the final
 commit. Do not merge your own branch and do not remove your worktree, the lead
 does both.
@@ -202,33 +219,34 @@ one. That is why physics runs on Godot's bundled Jolt and audio goes through
 
 ## Where the project stands
 
-`master` is green at 750 tier 1 tests. Merged and working: the plugin reader
-and form table, archives, meshes including skinned characters, the Papyrus VM
-with 296 natives, behavior graphs, AI packages, navmesh, cell streaming,
-physics on Jolt, a character controller, door transitions without a loading
-screen, audio output, and a vanilla save reader. The DLC are in scope and sit
-in every gated load order.
+Reviewed on 2026-09-19 against `master` at `75cfb55`. Foundations include the
+form table and parsers, Papyrus and startup quest execution, behavior graphs,
+basic AI packages, navmesh, rendering and skinning, physics/controller paths,
+audio support, mod-data application, engine saves and a vanilla ESS reader.
+The latest merges are `playback`, `no-load-screen` and `input`. None remains
+in flight. The full gate was not rerun for this documentation review.
 
-Twenty-three of the plan's forty-seven items are open. They group as testing
-and quality (ten items, including `determinism` record and replay, `proptest`,
-`failpoints`, `perf-gates`, `mod-corpus`), rendering and performance (six,
-including `gpu-textures`, `multimesh`, `occluders`, `lod`), tooling and editor
-(four, including a record inspector and a Papyrus compiler), and gameplay
-(three: `packages-2`, `ui`, `console`).
+The first job after input merged is still host integration. PlayerNode's
+activate path records a ray hit but does not drive a game reference or the
+doorway lifecycle. PlayerNode has compiled but has not been run in Godot.
+SoundBank is not connected to footsteps or dialogue, and speaker output is
+unverified. The proposed next milestone is a verified Bannered Mare
+walkthrough, with movement, camera, interaction, a door crossing and footsteps.
 
-**The most important thing a newcomer should know about that list is what is
-not on it.** The plan has no item for combat, dialogue, magic, crafting or
-levelling. It is thorough about the engine substrate and silent about the game
-layer that sits on top. Much of that layer is data the substrate already reads,
-combat runs on behavior graphs and game settings, dialogue is DIAL and INFO
-records driving the VM, crafting is COBJ records, so the work is wiring rather
-than invention. It is still the bulk of the distance to something playable and
-it has not been scoped.
+Combat, magic, dialogue, crafting, progression and player UI still need
+implementation and explicit done checks. The plan mentions a future quest
+loop, but does not decompose the full gameplay layer. Records and a VM are
+necessary foundations, not evidence that the game layer is complete.
+The CommonLib shim is a skeleton, and the editor is a design.
 
-Two gaps are known and unplanned. `crates/godot-host` has no door handling, so
-nothing drives `arm_doorway` from a key press, which is the first job once the
-`input` branch merges. And the fork workflow's abbreviated gate omits
-`--all-features`, which is what let those thirteen clippy errors through.
+Do not reuse the old 23-of-47 open-item count as a current completion metric.
+Some listed work landed under other branches, including compressed texture
+upload in batching, while other merged branches retain integration gaps.
+`docs/status.md` gives the evidence and limits per subsystem.
+`ENGINE-PLAN.md` preserves the original done checks and later decisions.
+
+The abbreviated fork skill gate remains stale. Use `tools/lint.sh`, including
+all feature-range and target checks, instead of that abbreviated list.
 
 ## Traps
 

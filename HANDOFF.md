@@ -1,101 +1,98 @@
 # Skyrim open engine: handoff
 
-Written 2026-09-14. This is the state of the engine track for whoever picks it up next, human
-or agent. The plan it executes is `ENGINE-PLAN.md`, the research behind the plan is
-`../research/skyrim-open-engine-map.md` with verified briefs under `../research/engine-map/`,
-and the reference checkouts are under `../engine-refs/`. Read the plan's preamble and the
-map's sections 1, 3, 10 and 12 before touching code. The design rule from the map holds
-everywhere: the engine is a record database with an interpreter on top, every system consumes
-forms keyed by resolved FormID.
+Updated 2026-09-19 against `master` at `75cfb55`. This replaces the September
+14 handoff. Its instructions to start the game crate and install Godot were
+superseded by subsequent merges.
 
-## Where the repository stands
+## Read first
 
-Local git only, no remote, branch `master` at `1615481`. Commits need an explicit identity:
+Read `AGENTS.md`, `CLAUDE.md`, [governing intent](docs/intent.md) and
+[current status](docs/status.md). The intent preserves the user's goal and
+later decisions. The status separates implemented systems from integration
+and validation still needed. `ENGINE-PLAN.md` retains the historical rounds.
+Read the relevant crate doc before changing its code.
 
-```
-set -x GIT_AUTHOR_NAME pengolodh
-set -x GIT_AUTHOR_EMAIL lysander.deloore@gmail.com
-set -x GIT_COMMITTER_NAME $GIT_AUTHOR_NAME
-set -x GIT_COMMITTER_EMAIL $GIT_AUTHOR_EMAIL
-```
+The engine is a Rust reimplementation of Skyrim SE using stock Godot as host.
+Every subsystem consumes forms keyed by resolved FormID. Preserve the meaning
+of existing content and mods while modernizing runtime and authoring tools.
+The DLC are in scope. The GPL core and MIT shim remain separate.
 
-Round 1 of the plan is merged in full: `esm`, `bsa`, `nif`, `papyrus`, `havok`, `godot-host`.
-Round 2 is merged for six of its seven items: `dds`, `physics`, `navmesh`, `commonlib-shim`,
-`profile`, and the `editor` design document. Each crate has a matching `docs/<crate>.md`.
+## Repository and merged work
 
-The one unstarted item is **game** (`crates/game`, branch `game`). The worktree `../soe-game`
-exists on that branch, but the branch sits at the old papyrus merge (`899308b`), eight commits
-behind master, with no commits of its own and no `crates/game` directory. Fast-forward it before
-doing anything:
+The parent workspace is not a Git repository. The engine's main checkout is
+`skyrim-open-engine/` on `master`, with no remote configured at this review.
+Reference code and documentation are in `../engine-refs/`, research in
+`../research/`, and host/tool binaries in `../tools/`.
 
-```
-cd ../soe-game
-git merge --ff-only master
-```
+Rounds 1 and 2 have first implementations, and the round 3 foundation
+branches have merged. Later merges include the save reader, audio and viseme
+work, behavior second pass, mod-data parsing/application, determinism hashes,
+Jolt host path, character controller, skinning and bind-pose correction.
 
-## Test state on 2026-09-14
+The most recent feature merges are:
 
-The whole workspace was run with the real game unlocked:
+| Branch | Merge | What it adds |
+|---|---|---|
+| playback | `5b1a9ed` | Host audio support and real-data conversion tests |
+| no-load-screen | `35a5dd7` | Simulation prefetch/attach split and deferred unload |
+| input | `75cfb55` | Control maps, input driver, cameras and Godot PlayerNode |
 
-```
-set -x SKYRIM_DATA '/run/host/media/pengolodh/Data/SteamLibrary/steamapps/common/Skyrim Special Edition/Data'
-cargo test --workspace
-```
+Those branches are no longer in flight. At the start of this review there
+were no unmerged local branches or extra registered worktrees. The main tree
+had untracked `.serena/memories/`, which this task leaves alone. The
+documentation update uses its own `docs-status-intent` branch and sibling
+worktree. Check Git again before taking ownership of any tree.
 
-Result: 270 tests passed, 0 failed, 0 ignored. The gated real-file tests ran this time and
-passed, among them every real NIF parsing to meshes, the real compiled scripts loading, and the
-BSA texture extraction. Earlier fork reports that said "gated test written but not run" are
-superseded by this run. Skyrim SE on this machine was updated by Steam on 2026-09-05 (build
-24914197), so any hard-coded record counts from an older dump may drift.
+## What to pick up next
 
-Rules that still apply to every change, from the plan: `cargo check --workspace`, clippy clean
-on the touched crate, `cargo test -p <crate>`, malformed-input tests for every parser, no
-rendering or physics dependency inside a parser crate, house style in prose (no em dashes, no
-semicolons in prose, no AI trailers), one worktree per fork, touch only `crates/<crate>/` plus
-`docs/<crate>.md`.
+The nearest proposed milestone is a verified Bannered Mare walkthrough.
+Input code has compiled, but the report says PlayerNode has never run in
+Godot. Its activate path only records whether a ray hit. It does not identify
+and activate a game reference or connect the doorway lifecycle. SoundBank
+receives audio buffers, but nothing in the game loop drives footsteps or
+dialogue, and speaker output is unverified.
 
-## What the game crate has to do
+Run and connect these existing pieces before claiming an interactive demo.
+Verify the camera and movement in a real cell, activation and the door event
+sequence, deferred unload on a later frame, and audible footsteps. Measure
+cold material loading before promising a crossing without a fallback fade.
+See the final sections of `docs/godot-host.md` and `docs/game.md`.
 
-From the round-2 entry in `ENGINE-PLAN.md`, restated with what the merged crates now provide:
+The broader gameplay layer still needs a concrete plan: combat, magic,
+dialogue, menus and inventory interaction, crafting and progression, quest
+conditions and alias filling. The existing future quest-loop paragraph is
+not a complete breakdown. The CommonLib shim is a skeleton, and the Creation
+Kit replacement is a design. Do not count either as delivered compatibility.
 
-- Load a load order through `soe-esm` into resolved forms. `soe-profile` already reads
-  `plugins.txt`, `loadorder.txt`, the INIs and an MO2 profile layout, so the crate should take a
-  resolved loadout from it rather than reading those files again.
-- Define the object model Papyrus sees: Form, ObjectReference, Actor, Cell, Quest, with the base
-  fields every native reads. Keep these as views over the form table keyed by FormID, not as
-  engine-private copies.
-- Register the first hundred natives by vanilla call count into the `soe-papyrus` native
-  registry (Debug, Utility, Game, Form, ObjectReference activation and enable state, Quest stages
-  and objectives, Actor inventory and values). The registry trait, its collision rule and the
-  scheduler with latent calls are in `crates/papyrus`, see `docs/papyrus.md` for the host side.
-- A game clock that drives the VM scheduler. `soe-physics` already steps a Jolt world from a
-  clock, so one clock should feed both.
-- Done criterion: a synthetic plugin with a quest script that advances stages on activation runs
-  end to end under test, with the real-file variant gated on `SKYRIM_DATA`.
+`portal-cells` remains a prototype proposal. The simulation transition split
+it depends on has merged, but visible doors still need host integration.
+Reuse the local godotwind findings before beginning portal work.
 
-## After the game crate
+## Verification and safe continuation
 
-No round 3 is written. The plan's own deferred list and the critic pass in
-`../research/engine-map/critic.md` point at these, in the order they unblock each other:
+This handoff is based on source and history inspection, not a new engine run.
+The previous handover recorded 750 passing tier 1 tests before the input
+merge. A new full gate is needed before asserting that the current commit is
+green. Historical live-game and save-corpus results remain in the crate docs.
+Never substitute a skipped gated test for a real-data run.
 
-1. The behavior-graph interpreter that `docs/havok.md` designs, with the replay harness it
-   describes. This is the blocker the map calls out for animation, and nothing else on the
-   list needs it yet, so it can run in parallel with the game crate.
-2. The CommonLib shim from skeleton to something a plugin can link: `docs/shim.md` groups the
-   349 types by whether the engine has the concept. Start with the group the engine already has
-   once the game crate exists, since the object model is what most of those types are.
-3. Streaming and rendering on the Godot host: `CellStreamer` exists but has never had a Godot
-   binary to run in. No Godot is installed on this machine, so the host crate is checked by
-   cargo alone. Installing one is the first step of that item.
-4. Back-porting the BSA embedded-name fix has already landed in LMO (`726ef00`), so that item
-   from the manager plan is closed.
+Run `rtk proxy ./tools/lint.sh` from the engine worktree before a commit.
+It includes formatting, three clippy passes, prose checks, TOML and Markdown
+checks, fuzz workspace formatting and tier 1 tests. Optional tools that are
+missing are reported as skipped by the script. Check its output as well as
+its exit status. Live-game and save-corpus tests are separate.
 
-## Environment notes
+The recorded data path is
+`/run/host/media/pengolodh/Data/SteamLibrary/steamapps/common/Skyrim Special Edition/Data`.
+Use `SKYRIM_DATA` for game tests and the save-test variables documented by the
+selected tests. The 60 user saves under `../engine-refs/saves/` must remain
+outside the repository. Recheck tool and data availability in the current
+environment before running anything that depends on them.
 
-- Cargo and clippy run under rustc 1.98 here. Homebrew's cargo links `libbz2.so.1.0`, which is
-  only a concern for the mod manager binary, not for the engine crates.
-- `.rag/` under the workspace root indexes the engine references and this repository. Rebuild
-  it after a round merges, the last build predates round 2.
-- The mod manager track lives in `../linux-mod-organizer` on its local `master`, ahead of the
-  Codeberg upstream, and must not be pushed there without asking. Its state is in
-  `../BUILD-PLAN.md`.
+One writer per checkout. Create a worktree for a bounded implementation task.
+Use RTK for shell commands and Serena for symbol navigation. Consult the local
+reference corpus first. The user authorized agent review and commits for each
+completed step on 2026-09-19. Show the files changed, what changed and why,
+review the diff, run the gate and commit. Do not leave staged changes at
+handoff. Review before merging. Keep the full gate and the prose rules in
+`AGENTS.md` and `CLAUDE.md` aligned. No AI attribution trailers.

@@ -9,6 +9,9 @@ meaning. Core crates are GPL-3.0-or-later, the SKSE shim crates are MIT.
 
 ## Where the intent lives
 
+- `docs/intent.md`: the full governing intent, restated on 2026-09-19 from
+  the user's recorded goals and later decisions. Read it before planning work.
+  It distinguishes commitments and design choices from shipped features.
 - `ENGINE-PLAN.md`: rounds, per-crate done criteria, fork rules.
 - `../research/skyrim-open-engine-map.md`: read sections 1 (verdict), 3 (form
   table and API boundary), 4 (VM and natives), 10 (first 90 days), 12 (risks).
@@ -62,15 +65,25 @@ GPL tool is fine there, but no GPL derived code may reach the MIT shim crates.
 
 ## Working rules
 
+- For GPT agents, explain each action before taking it, including edits,
+  checks and commits (user instruction, 2026-09-19).
+- One writer per checkout. Preserve unrelated changes. The user authorized
+  agent review and commits for each completed step on 2026-09-19. Show a diff
+  summary, review it, run the gate and commit without another approval pause.
+  Do not leave staged changes at handoff. Review before merging and keep
+  changes isolated from other writers.
+- Prefix every shell command with `rtk`. Use Serena and language servers for
+  symbols, direct reads and RTK searches for named files and literal text.
 - One crate per fork, in a worktree: `git worktree add ../soe-<crate> -b <crate> master`.
   Touch only `crates/<crate>/` and `docs/<crate>.md`, commit on the branch,
   report branch, commit, test count and what is untested.
 - Edit tool for source edits. The auto-mode classifier blocks large scripted
   edits.
-- Gate before commit: `cargo check --workspace`, clippy clean on the touched
-  crate, `cargo test -p <crate>`. Clippy the workspace with `--all-features`
-  too, since code behind an off-by-default feature escapes the normal run and
-  rots: that is how the `dds` encode path drifted until 2026-09-18.
+- Gate before commit: `rtk proxy ./tools/lint.sh` from the worktree root.
+  It runs formatting, three clippy passes (production, all features/all
+  targets, no default features/all targets), prose and config checks, fuzz
+  formatting and tier 1 tests. Crate-only checks and the abbreviated fork
+  skill commands are not substitutes. Report optional checks the script skips.
 - Real-file tests are gated on
   `SKYRIM_DATA=/run/host/media/pengolodh/Data/SteamLibrary/steamapps/common/Skyrim Special Edition/Data`
   and skip cleanly when unset. Synthetic fixtures are written by the tests.
@@ -118,33 +131,29 @@ GPL tool is fine there, but no GPL derived code may reach the MIT shim crates.
 - Code forks at most three at a time. Progress is read from branch commits and
   the master gate, never from an agent's own report.
 
-## Status (2026-09-18, master 15dd049)
+## Status (reconciled 2026-09-19, master 75cfb55)
 
-Rounds 1, 2 and 3 are merged, and so is most of round 6: physics on Jolt, the
-character controller, door transitions and skinning. `input` and `playback`
-are the two round 6 items still in flight. Round 7 (streamed transitions,
-portal doorways) is written with done checks in `ENGINE-PLAN.md`. Workspace
-gate green: 711 tests in 85 suites, none ignored, clippy clean at both ends of
-the feature range, fmt and both linters clean, gated tests run against the
-installed game.
+Rounds 1, 2 and 3 have merged foundations. The round 6 branches are merged,
+including `playback` at `5b1a9ed` and `input` at `75cfb55`. The round 7
+simulation transition split, `no-load-screen`, merged at `35a5dd7`.
+Merged does not mean the interactive walkthrough is verified.
 
-What the engine does today, per subsystem, is in `docs/status.md`.
+`docs/status.md` is the current subsystem summary. `HANDOFF.md` names the
+stopping point and proposed next work. This update reviewed source and Git
+history, not a new engine run. The previous handover's 750-test tier 1 result
+predates the input merge. Do not report it as a fresh gate on `75cfb55`.
 
-Read `ENGINE-PLAN.md` for what is next and why. Branches `input`, `playback`
-and `no-load-screen` are in flight. `portal-cells` is held until
-`no-load-screen` lands, because it builds on the split that item establishes
-between streaming a cell and attaching it. The remaining near items are mod
-data formats (SPID, KID, BOS, OAR) and the second passes on the behavior
-interpreter and packages.
+Input's PlayerNode compiles but has not been executed in Godot. Activation
+only records a ray hit and does not drive the game/doorway lifecycle. Audio
+buffers reach host playback code, but footsteps and dialogue are not driven
+by the game loop and speaker output is unverified. These are the seams for
+the proposed Bannered Mare walkthrough. Portal doorways remain a prototype
+proposal. Mod-data parsing/application and behavior-2 have merged, while
+OAR animation consumption and packages-2 remain incomplete.
 
-Adversarial testing has reached phase 3. Two findings worth carrying: an
-archive record states its unpacked size and neither decompressor checked it,
-so a record declaring 4,119 bytes whose stream held 23 returned 23 bytes and
-success, and every reader downstream would have worked on a truncated buffer
-believing it whole. And Papyrus has no overloading, so a compiled script
-carrying two functions of one name in one state is not representable. The
-reader was right and the assembler was wrong, which 14,026 shipped scripts
-confirm with zero offenders.
+Adversarial testing has reached phase 3. The archive decompression-size
+mismatch and the PEX assembler's acceptance of duplicate function names
+were fixed. Evidence, limits and repros remain in `TEST_LOG.md`.
 
 A number falling can be a fix. Reading `XLKR` on actor references closed a
 real gap, the `ACHR` reader had ignored linked references, and the first
@@ -153,7 +162,10 @@ get `None` from `GetLinkedRef` now get the reference and take a shorter
 branch. Same quests, same log lines. Check the cause before reading a drop
 as a regression.
 
-Known gaps, none of them silent: no UI (Scaleform is not executed, a native
-layer with an MCM compatible config API is round 6), no combat, magic or
-dialogue, no LOD consumption, no terrain texture layers or water, no audio,
-no Proton launch attempted. Open risks are map section 12.
+Known gaps: no player UI or MCM layer, no complete combat, magic or dialogue,
+no LOD consumption, no terrain texture layers or water. The CommonLib shim
+is a Rust skeleton without generated C++ headers or a compiled plugin.
+The editor remains a design. The gameplay layer needs explicit scope beyond
+the plan's future quest-loop paragraph. No Proton launch has been reported.
+Audio exists with the integration limits above. Open risks are in map section
+12, read together with the later decisions in `ENGINE-PLAN.md`.

@@ -1,5 +1,40 @@
 # Skyrim open engine: build plan
 
+## Current reading guide (2026-09-19, master 75cfb55)
+
+This document preserves dated plans and decisions. Read `docs/intent.md` for
+the governing intent, `docs/status.md` for implemented behavior and remaining
+limits, and `HANDOFF.md` for the stopping point. Older environment notes and
+branch status below are historical, not instructions to restart finished work.
+
+The foundation branches for rounds 1, 2 and 3 have merged. Later merged work
+includes behavior-2, save reading, audio/visemes, mod-data parsing/application,
+physics/controller, skinning, playback, streamed simulation transitions and
+input. `input` is `75cfb55`, `no-load-screen` is `35a5dd7`, and `playback`
+is `5b1a9ed`. None is still in flight. Compressed texture upload and caching
+also landed through batching, so an item is not open just because its proposed
+branch name never appeared.
+
+The proposed next milestone is an integrated Bannered Mare walkthrough.
+PlayerNode still needs a Godot run, activation needs to reach game references
+and doorway operations, and SoundBank needs game-loop triggers and audible
+verification. Portal doorways remain a prototype proposal. The quest-loop
+paragraph needs a detailed gameplay breakdown before it can cover combat,
+magic, dialogue, crafting, progression and the player UI.
+
+Do not derive a completion percentage from the round tables. Merged branches
+do not establish that every done check passed. Recorded test counts and live
+measurements predate this review, which did not rerun the engine gate.
+
+Current workflow: one writer per tree, a separate task worktree, RTK-prefixed
+shell commands, local references before implementation. The user authorized
+agent review and commits for each completed step on 2026-09-19. Show a diff
+summary, review it and run the full `tools/lint.sh` gate before committing.
+Do not leave staged changes at handoff. Review before merging. These rules
+supersede earlier approval pauses and abbreviated gates.
+
+## Original scope and foundation plan
+
 The research behind this plan is `../research/skyrim-open-engine-map.md` (read sections 1, 3, 10
 and 12 before any work) and the verified briefs under `../research/engine-map/verified/`. The
 reference checkouts are under `../engine-refs/`. The design rule from section 3 of the map holds
@@ -14,12 +49,12 @@ work and is open to change while nothing has been published.
 
 Crate prefix `soe-`. Every parser crate exposes plain data structs with no rendering or physics
 dependency, and every crate has malformed-input tests (no parser in the briefs was ever fuzzed).
-No Skyrim data files exist on the development machine: tests use synthetic files written by the
+At the plan's start on 2026-09-06, no Skyrim data files were installed. Tests use synthetic files written by the
 test suite from the spec, and real-file tests are gated on `SKYRIM_DATA=<path to Data/>` so they
 skip cleanly when unset. Skyrim SE is being installed on 2026-09-06 into the Steam library under
 `/run/host/media/pengolodh/Data` (find it with `find /run/host/media/pengolodh/Data -maxdepth 7
 -iname Skyrim.esm`), so a fork whose crate is ready before it finishes reports the gated test as
-written but not run, and one that finds the files runs it and reports the numbers. No Godot binary is installed either, so the host crate must build with
+written but not run, and one that finds the files runs it and reports the numbers. Godot was also absent at that time, so the host crate had to build with
 cargo alone.
 
 Rules for every fork: Edit tool for source edits, `cargo check --workspace`, clippy clean on the
@@ -155,7 +190,7 @@ check holds. Order is by what unblocks the most.
 | Performance harness | `perf` | `soe-bench` times every subsystem over the installed game, the trace crate records spans per phase and per native call and exports Chrome trace files, `docs/performance.md` carries the numbers, the thread scaling and the tracing overhead on this machine. Landed 2026-09-17. |
 | Natives by call count | `natives-2` | The next hundred natives from `docs/papyrus.md` with state behind them, each with a scenario, and the conformance table updated. |
 
-Round 3 status (2026-09-17): live validation, actor base stats, VM save and load, Godot headless
+Historical round 3 status (2026-09-17, superseded by the current reading guide): live validation, actor base stats, VM save and load, Godot headless
 load (extended to a real cell) and parser fuzzing are merged. Behavior interpreter, packages and AI,
 and natives-2 are not started.
 
@@ -383,11 +418,11 @@ screen, and sound coming out. Everything under it already works.
 
 | Item | Branch | Done check |
 |---|---|---|
-| Physics for real | `jolt` | Jolt linked through its C bindings behind the trait `crates/physics` already exposes, the pure Rust `SimpleWorld` kept as the headless fallback so tests and CI need no native library. A capsule falls, lands and slides on the Bannered Mare collision. |
+| Physics for real | `jolt` | Godot's bundled Jolt used through the host physics server, with the pure Rust `SimpleWorld` kept for headless simulation and tests. This supersedes the original separate C-binding proposal. A capsule falls, lands and slides on the Bannered Mare collision. |
 | Character controller | `controller` | A capsule with the game's movement speeds (walk 110, fast walk 160, jog 180, run 375 units per second), gravity, step height, slope limit and crouch, driven by a direction vector rather than by input directly, so the same controller serves the player and an actor on a package. |
 | Input and camera | `input` | First and third person cameras with the vanilla offsets, mouse look, movement, jump, sneak, activate, bound through Godot's input map from a config file a user can edit. The player reference from `Game::debug` becomes the thing it drives. |
 | Animation on screen | `skinning` | The `havok` interpreter's pose output applied to a skinned mesh in Godot: skeleton built from the `NIF` and the `hkx` skeleton, bone mapping, the idle and walk clips playing on a real character in a real cell. |
-| Sound out | `playback` | `cpal` or `rodio` in the host, the `audio` crate's `Pcm` reaching a device, a footstep and a voice line audible, positioned in 3D. |
+| Sound out | `playback` | Godot's audio facilities in the host, the `audio` crate's `Pcm` reaching a device, a footstep and a voice line audible, positioned in 3D. This supersedes the original cpal/rodio proposal. |
 | Doors and transitions | `transitions` | An activated door moves the player between cells through its teleport data, the old cell unloads and the new one streams, the clock keeps running. |
 
 Order: `jolt` and `skinning` first since they are independent, then `controller`, then `input`,
