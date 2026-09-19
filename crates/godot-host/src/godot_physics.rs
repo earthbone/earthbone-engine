@@ -326,4 +326,42 @@ mod tests {
             godot_point(parent.then(&child).apply(h)),
         );
     }
+
+    #[test]
+    fn distant_mesh_vertices_keep_placement_within_three_millimetres() {
+        let vertices = vec![
+            Vec3::new(-10.25, -20.5, 0.125),
+            Vec3::new(30.75, -20.5, 0.125),
+            Vec3::new(30.75, 40.25, 0.125),
+        ];
+        let shape = Shape::TriangleMesh {
+            vertices: vertices.clone(),
+            triangles: vec![[0, 1, 2]],
+        };
+        for cell in [0.0, -256.0, -128.0, -65.0, -64.0, 64.0, 65.0, 128.0, 256.0] {
+            for y in [0.0, cell, -cell] {
+                let offset = Vec3::new(cell * 4096.0, y * 4096.0, 128.0);
+                let mut out = Vec::new();
+                flatten(&shape, &Iso::translation(offset), &mut out);
+                let GodotPrim::Trimesh(faces) = &out[0] else {
+                    panic!("triangle mesh expected")
+                };
+                assert_eq!(faces.len(), 3);
+                for (point, vertex) in faces.iter().zip(&vertices) {
+                    let expected = [
+                        (f64::from(offset.x) + f64::from(vertex.x)) * 0.0142875,
+                        (f64::from(offset.z) + f64::from(vertex.z)) * 0.0142875,
+                        -(f64::from(offset.y) + f64::from(vertex.y)) * 0.0142875,
+                    ];
+                    for (actual, expected) in [point.x, point.y, point.z].into_iter().zip(expected)
+                    {
+                        assert!(
+                            (f64::from(actual) - expected).abs() <= 0.003,
+                            "vertex drift at {offset:?}: {actual} versus {expected}"
+                        );
+                    }
+                }
+            }
+        }
+    }
 }

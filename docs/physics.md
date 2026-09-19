@@ -109,6 +109,68 @@ continuous collision, keyframed movers. Those are Jolt's.
 
 ## Tests
 
+### Large world boundary survey (2026-09-19)
+
+Branch `large-world-physics` checks the former Skyrim physics boundary with
+synthetic geometry. Sources are the local Godot documentation at
+`engine-refs/godot-docs/tutorials/physics/large_world_coordinates.rst` and
+`engine-refs/godot-docs/classes/class_physicsserver3d.rst`. The former explains
+precision loss with distance and the double-precision and origin-shifting
+options. The latter supplies the server body, motion-test and ray-query APIs.
+These tests exercise our existing solvers, with no new solver or dependency.
+
+`crates/physics/tests/large_world.rs` surveys 33 placements: the origin and
+the eight axis and diagonal directions at 64, 65, 128 and 256 exterior cells.
+Each cell is 4096 game units. Positive and negative directions are included,
+and movement crosses the selected cell boundaries. The tolerances were fixed
+before the first run: one game unit for floor and wall contact and ray hit
+positions, five game units for displacement over one second of jogging.
+
+- 198 falls and walks cover four cardinal and two diagonal movement directions.
+- 132 wall approaches must remain outside the wall on every frame and reach it.
+- 132 rays must identify the expected wall, including when facing away from the
+  world origin. A second ray after removal must miss the removed wall.
+
+Both Rust tests passed. These are controller and collision-query checks, not
+tests of the complete object activation or cell-streaming lifecycle.
+
+`godot/large_world_physics_test.gd` runs without game files or the extension.
+It creates world-space triangle meshes on static bodies at the origin, matching
+the host's mesh placement convention. At the same 33 placements it drops spheres
+onto floors, checks that they stop, casts 132 wall rays and performs 132 sphere
+sweeps toward walls. Its contact, ray and sweep tolerance is 0.03 metres,
+chosen before the first run. Godot 4.4.1 and 4.7.2 with Jolt both passed:
+
+| Maximum error | Metres |
+|---|---|
+| Resting sphere centre against floor plus radius | 0.0200001 |
+| Ray hit position | 0.00000191 |
+| Sweep travel against wall minus radius | 0.0010254 |
+
+The host's `distant_mesh_vertices_keep_placement_within_three_millimetres`
+unit test separately checks the Rust triangle conversion against double-precision
+expected positions at signed offsets through 256 cells. The Godot script does
+not invoke that conversion, so these are separate checks of the adapter and
+backend, not an end-to-end asset test.
+
+Run the survey with:
+
+```sh
+cargo test -p soe-physics --test large_world -- --nocapture
+cargo test -p soe-godot-host distant_mesh_vertices
+godot --headless --path godot --script large_world_physics_test.gd
+```
+
+This establishes sampled physics behavior beyond 64 cells, through 256 cells
+on each horizontal axis, about 15 km from the origin per axis. It does not
+establish unlimited world size, rendering precision, ragdolls, constraints,
+every collision shape, long-duration motion, or a large mod worldspace loading
+and streaming correctly. Absolute positions remain `f32`. Streaming does not
+rebase them. No origin shifting was added, and the existing plan's single
+precision choice remains a maintenance tradeoff whose limits need measurement.
+
+### Shape and controller tests
+
 `tests/synthetic.rs` writes bhk blocks byte by byte from nif.xml (the
 rigid body writer produces the same 250 bytes the shipped files have),
 places them under nodes the way `soe_nif` parses them, and checks:
