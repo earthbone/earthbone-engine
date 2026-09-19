@@ -73,8 +73,11 @@ Two layouts exist and both are normalised to the per-vertex form above.
   used.
 - SSE BSTriShape: the shape's own data size is zero and the vertex buffer,
   weights included, lives in the `NiSkinPartition` global buffer. Bone
-  indices there are global into the skin instance, which matches how
-  OpenMW's loader treats them.
+  indices must be mapped through each owning partition's bone list into
+  the skin instance. The earlier claim that these indices were global was
+  corrected by the actor-mesh survey recorded in `docs/status.md`: 564 of
+  846 partitions across 400 meshes reorder the bone list. Use the
+  `NiSkinPartition` bone tables declared in `nifxml/nif.xml`.
 
 ## Tests
 

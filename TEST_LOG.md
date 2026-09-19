@@ -199,7 +199,7 @@ injection and mutation testing did not land, the first because the save write
 path sits in a crate another fork holds, the second because `cargo-mutants` is
 not installed and installing it globally was out of scope.
 
-# Phase 3
+## Phase 3
 
 Finishing what phase 2 left, under the same rules. Tier 1 is the commit gate
 with the data variables unset.
@@ -324,7 +324,7 @@ first on `PATH`, so `rustup run nightly` and `RUSTUP_TOOLCHAIN` both fail:
 cargo-fuzz shells out to a `cargo` that resolves back to the Homebrew stable
 one. Putting the rustup shims first is what works:
 
-```
+```text
 env -C <repo> PATH=$HOME/.cargo/bin:/usr/bin:/bin RUSTUP_TOOLCHAIN=nightly \
   cargo fuzz run fuzz-dds-grammar -- -max_total_time=300
 ```

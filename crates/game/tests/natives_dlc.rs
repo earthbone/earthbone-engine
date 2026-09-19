@@ -146,9 +146,21 @@ fn test_plugin() -> Plugin {
     // A quest with a scene and a package that name it as their owner, the
     // shape every quest fragment script asks GetOwningQuest about.
     p.push_top(
-        quest::build_record(TURN_QUEST, "VampireTurnQuest", 0)
-            .sub(T(b"DNAM"), le(0))
-            .zsub(T(b"ALID"), ""),
+        quest::with_stage(
+            quest::with_stage(
+                quest::build_record(TURN_QUEST, "VampireTurnQuest", 0),
+                10,
+                0,
+                0,
+                "ten",
+            ),
+            20,
+            0,
+            0,
+            "twenty",
+        )
+        .sub(T(b"DNAM"), le(0))
+        .zsub(T(b"ALID"), ""),
     );
     p.push_top(
         Record::new(T(b"SCEN"), FEED_SCENE)
@@ -567,20 +579,14 @@ fn shouts_are_added_equipped_and_removed() {
 
 // ----- spells, race, eyes, ash -----
 
-/// DispelSpell "Dispel a spell from this actor", DispelAllSpells "Dispel all
-/// spell from this actor", EquipSpell "Forces this actor to equip thes spell,
-/// in the specified source" and UnequipSpell take it back out.
+/// CK DispelSpell removes active effects. Knowing or equipping a spell
+/// does not create an active effect, so dispelling preserves both states.
 #[test]
-fn spells_are_dispelled_and_equipped() {
+fn dispelling_never_removes_known_or_equipped_spells() {
     let mut g = game();
     let vampire = obj(&mut g, "VampireRef");
     let drain = obj(&mut g, "DrainLife");
     call(&mut g, &vampire, "AddSpell", &[drain.clone()]);
-    assert_eq!(
-        call(&mut g, &vampire, "HasSpell", &[drain.clone()]),
-        Value::Bool(true)
-    );
-
     call(
         &mut g,
         &vampire,
@@ -588,9 +594,22 @@ fn spells_are_dispelled_and_equipped() {
         &[drain.clone(), Value::Int(1)],
     );
     assert_eq!(
-        call(&mut g, &vampire, "IsEquipped", &[drain.clone()]),
-        Value::Bool(true)
+        call(&mut g, &vampire, "DispelSpell", &[drain.clone()]),
+        Value::Bool(false)
     );
+    for all in [false, true] {
+        if all {
+            call(&mut g, &vampire, "DispelAllSpells", &[]);
+        }
+        assert_eq!(
+            call(&mut g, &vampire, "HasSpell", &[drain.clone()]),
+            Value::Bool(true)
+        );
+        assert_eq!(
+            call(&mut g, &vampire, "IsEquipped", &[drain.clone()]),
+            Value::Bool(true)
+        );
+    }
     call(
         &mut g,
         &vampire,
@@ -601,17 +620,7 @@ fn spells_are_dispelled_and_equipped() {
         call(&mut g, &vampire, "IsEquipped", &[drain.clone()]),
         Value::Bool(false)
     );
-
-    assert_eq!(
-        call(&mut g, &vampire, "DispelSpell", &[drain.clone()]),
-        Value::Bool(true)
-    );
-    assert_eq!(
-        call(&mut g, &vampire, "DispelSpell", &[drain.clone()]),
-        Value::Bool(false)
-    );
-    call(&mut g, &vampire, "AddSpell", &[drain.clone()]);
-    call(&mut g, &vampire, "DispelAllSpells", &[]);
+    call(&mut g, &vampire, "RemoveSpell", &[drain.clone()]);
     assert_eq!(
         call(&mut g, &vampire, "HasSpell", &[drain]),
         Value::Bool(false)
@@ -1140,4 +1149,58 @@ fn the_dlc_state_survives_a_save_and_load() {
     assert_eq!(a.critical_stage, 2);
     assert_eq!(a.shouts.len(), 1);
     assert_eq!(fresh.world().perk_points, 4);
+}
+
+#[test]
+fn quest_getters_agree_after_lower_stage_and_reset() {
+    let mut g = game();
+    let quest = obj(&mut g, "VampireTurnQuest");
+    for stage in [20, 10] {
+        assert_eq!(
+            call(&mut g, &quest, "SetStage", &[Value::Int(stage)]),
+            Value::Bool(true)
+        );
+        for getter in ["GetStage", "GetCurrentStageID"] {
+            assert_eq!(call(&mut g, &quest, getter, &[]), Value::Int(20));
+        }
+    }
+    call(&mut g, &quest, "Reset", &[]);
+    for getter in ["GetStage", "GetCurrentStageID"] {
+        assert_eq!(call(&mut g, &quest, getter, &[]), Value::Int(0));
+    }
+}
+
+#[test]
+fn game_tick_supplies_timescale_and_menu_pause_to_waits() {
+    let mut g = game();
+    let script = ScriptBuilder::new("GameClockProbe", "")
+        .function(
+            FunctionBuilder::new("Run", "Int")
+                .global()
+                .ins(
+                    CallStatic,
+                    vec![
+                        s("Utility"),
+                        s("WaitGameTime"),
+                        ident("::nonevar"),
+                        soe_papyrus::asm::f(1.0),
+                    ],
+                )
+                .ins(Return, vec![i(7)])
+                .build(),
+        )
+        .bytes();
+    g.load_script(&script).unwrap();
+    let thread = g.vm.call_global("GameClockProbe", "Run", &[]).unwrap();
+    g.run_until_idle(64);
+    g.tick_menu_mode(1000.0, true);
+    assert_eq!(g.world().clock.real_seconds, 0.0);
+    assert_eq!(g.vm.thread_result(thread), None);
+    g.tick(90.0);
+    assert_eq!(g.vm.thread_result(thread), None);
+    g.world_mut().clock.timescale = 40.0;
+    g.tick(44.0);
+    assert_eq!(g.vm.thread_result(thread), None);
+    g.tick(1.1);
+    assert_eq!(g.vm.thread_result(thread), Some(Value::Int(7)));
 }

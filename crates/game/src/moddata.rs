@@ -27,20 +27,18 @@
 //!
 //! # Order
 //!
-//! Distribution happens once at game start, after the load order is built and
-//! before any script runs, which is what the plugins do. A swap is not a start
-//! time event, see above.
+//! This implementation distributes once at game start, before scripts run.
+//! SPID's per-actor event lifecycle remains unimplemented. A swap is applied
+//! when the reference is built, see above.
 //!
 //! # Chance
 //!
-//! Both distributors carry a percentage, and `soe_moddata` deliberately does
-//! not roll it. The roll here comes from the world's seeded generator, so two
-//! runs of one seed distribute identically and the per-tick state hash still
-//! matches. It will **not** match the real plugin's choice: SPID and KID seed
-//! from the entry and the target so a given mod gives the same answer on every
-//! machine, and reproducing that seed is its own task. A mod that leans on
-//! chance therefore behaves plausibly rather than identically, and
-//! `docs/moddata.md` says so.
+//! Ordinary SPID chances use the world's seeded generator per matching NPC
+//! base. SPID's trailing `!` requests a deterministic per-actor choice, whose
+//! seed and actor lifecycle are not implemented. Fractional deterministic
+//! rules are counted as unsupported. Zero and 100 percent remain exact.
+//! KID's deterministic target seed is also not reproduced yet. See
+//! `docs/moddata.md` for these compatibility limits.
 
 use crate::world::World;
 use soe_esm::{GlobalFormId, Tag};
@@ -122,6 +120,8 @@ pub struct ModDataReport {
     /// Rules carrying a level or trait filter, which are not evaluated yet, so
     /// the rule is skipped rather than applied to the wrong actors.
     pub skipped_unsupported_filter: usize,
+    /// Deterministic fractional chances need per-actor distribution support.
+    pub skipped_unsupported_chance: usize,
     /// Lines the parser could not read, reported by the parser itself.
     pub unreadable_lines: usize,
 }
@@ -292,8 +292,8 @@ fn apply_spid(world: &mut World, path: &Path, report: &mut ModDataReport) {
             report.skipped_unsupported_filter += 1;
             continue;
         }
-        if !roll(world, d.chance) {
-            report.skipped_by_chance += 1;
+        if d.deterministic_chance && d.chance > 0.0 && d.chance < 100.0 {
+            report.skipped_unsupported_chance += 1;
             continue;
         }
         let count = match d.index_or_count {
@@ -306,6 +306,10 @@ fn apply_spid(world: &mut World, path: &Path, report: &mut ModDataReport) {
                 continue;
             }
             if !d.forms.matches(world.order(), &subject) {
+                continue;
+            }
+            if !roll(world, d.chance) {
+                report.skipped_by_chance += 1;
                 continue;
             }
             world

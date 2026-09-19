@@ -263,7 +263,12 @@ impl Vm {
             if let Some(d) = dest {
                 Self::store(&mut self.instances, frame, &d, Value::None);
             }
-            thread.state = ThreadState::Sleeping(self.time + secs.max(0.0) as f64);
+            let duration = f64::from(secs.max(0.0));
+            thread.state = match lname.as_str() {
+                "waitmenumode" => ThreadState::SleepingMenu(self.menu_time + duration),
+                "waitgametime" => ThreadState::SleepingGame(self.game_hours + duration),
+                _ => ThreadState::Sleeping(self.time + duration),
+            };
             return true;
         }
         false

@@ -28,7 +28,7 @@ use super::{
 };
 
 pub const MAGIC: &[u8; 4] = b"SOEV";
-pub const VERSION: u16 = 1;
+pub const VERSION: u16 = 2;
 
 /// Little-endian byte writer.
 #[derive(Default)]
@@ -434,6 +434,14 @@ fn write_state(w: &mut Writer, s: &ThreadState) {
             w.u64(id.0);
         }
         ThreadState::Done => w.u8(3),
+        ThreadState::SleepingMenu(until) => {
+            w.u8(4);
+            w.f64(*until);
+        }
+        ThreadState::SleepingGame(until) => {
+            w.u8(5);
+            w.f64(*until);
+        }
     }
 }
 
@@ -443,6 +451,8 @@ fn read_state(r: &mut Reader<'_>) -> Result<ThreadState, VmError> {
         1 => ThreadState::Sleeping(r.f64()?),
         2 => ThreadState::Latent(LatentId(r.u64()?)),
         3 => ThreadState::Done,
+        4 => ThreadState::SleepingMenu(r.f64()?),
+        5 => ThreadState::SleepingGame(r.f64()?),
         other => return Err(bad(&format!("unknown thread state {other}"))),
     })
 }
@@ -569,6 +579,8 @@ impl Vm {
             body.u64(t.0);
         }
         body.f64(self.time);
+        body.f64(self.menu_time);
+        body.f64(self.game_hours);
         body.len(self.log.entries.len());
         for e in &self.log.entries {
             body.f64(e.time);
@@ -596,7 +608,7 @@ impl Vm {
             return Err(bad("not a VM state file"));
         }
         let version = r.u16()?;
-        if version != VERSION {
+        if version != 1 && version != VERSION {
             return Err(bad(&format!(
                 "state version {version}, this VM reads {VERSION}"
             )));
@@ -723,6 +735,11 @@ impl Vm {
             latent_waiters.insert(LatentId(r.u64()?), ThreadId(r.u64()?));
         }
         let time = r.f64()?;
+        let (menu_time, game_hours) = if version >= 2 {
+            (r.f64()?, r.f64()?)
+        } else {
+            (time, time * 20.0 / 3600.0)
+        };
         let n = r.len()?;
         let mut entries = Vec::with_capacity(n);
         for _ in 0..n {
@@ -741,6 +758,8 @@ impl Vm {
         self.latent_counter = latent_counter;
         self.latent_waiters = latent_waiters;
         self.time = time;
+        self.menu_time = menu_time;
+        self.game_hours = game_hours;
         self.log.entries = entries;
         Ok(())
     }
@@ -886,6 +905,22 @@ mod tests {
         assert_eq!(fresh.thread_result(tid), Some(Value::Int(111)));
         assert_eq!(fresh.get_var(obj, "Sleepy", "::n"), Some(Value::Int(111)));
         assert!(matches!(fresh.thread_state(tid), Some(ThreadState::Done)));
+    }
+
+    #[test]
+    fn version_one_clock_loads_with_legacy_defaults() {
+        let mut vm = Vm::new();
+        vm.advance(180.0);
+        let mut bytes = vm.save_state().unwrap();
+        // Empty log: its four-byte count follows the three version 2 clocks.
+        let end = bytes.len() - 4;
+        bytes.drain(end - 16..end);
+        bytes[4..6].copy_from_slice(&1u16.to_le_bytes());
+        let mut loaded = Vm::new();
+        loaded.load_state(&bytes).unwrap();
+        assert_eq!(loaded.time, 180.0);
+        assert_eq!(loaded.menu_time, 180.0);
+        assert_eq!(loaded.game_hours, 1.0);
     }
 
     #[test]

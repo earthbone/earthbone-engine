@@ -949,3 +949,52 @@ fn call_and_property_names_are_identifier_operands_not_variables() {
     assert_eq!(vm.natives.calls.get("host.ping"), Some(&2));
     assert!(vm.log.entries.is_empty(), "{:?}", vm.log.messages());
 }
+
+// Utility.psc distinguishes real seconds, menu time and game hours.
+#[test]
+fn utility_wait_domains_survive_save_and_timescale_changes() {
+    let mut builder = ScriptBuilder::new("Clocks", "");
+    for name in ["Wait", "WaitMenuMode", "WaitGameTime"] {
+        builder = builder.function(
+            FunctionBuilder::new(name, "Int")
+                .ins(
+                    CallStatic,
+                    vec![s("Utility"), s(name), ident("::nonevar"), f(1.0)],
+                )
+                .ins(Return, vec![i(7)])
+                .build(),
+        );
+    }
+    let bytes = builder.bytes();
+    let mut vm = vm_with(vec![bytes.clone()]);
+    let real = vm.call_global("Clocks", "Wait", &[]).unwrap();
+    let menu = vm.call_global("Clocks", "WaitMenuMode", &[]).unwrap();
+    let game = vm.call_global("Clocks", "WaitGameTime", &[]).unwrap();
+    vm.run_until_idle(1000);
+    vm.advance_clocks(0.4, 0.0, true);
+    let saved = vm.save_state().unwrap();
+    let mut restored = vm_with(vec![bytes.clone()]);
+    restored.load_state(&saved).unwrap();
+    assert_eq!(restored.state_hash().threads, vm.state_hash().threads);
+    vm = restored;
+    vm.advance_clocks(1.6, 9.0, true);
+    vm.run_until_idle(1000);
+    assert_eq!(vm.thread_result(menu), Some(Value::Int(7)));
+    assert_eq!(vm.thread_result(real), None);
+    assert_eq!(vm.thread_result(game), None);
+    vm.advance(90.0);
+    vm.run_until_idle(1000);
+    assert_eq!(vm.thread_result(real), Some(Value::Int(7)));
+    assert_eq!(vm.thread_result(game), None);
+    let saved = vm.save_state().unwrap();
+    let hash = vm.state_hash();
+    let mut fresh = vm_with(vec![bytes]);
+    fresh.load_state(&saved).unwrap();
+    assert_eq!(fresh.state_hash().threads, hash.threads);
+    // The second half-hour takes 45 seconds after timescale doubles.
+    fresh.advance_clocks(44.0, 44.0 * 40.0 / 3600.0, false);
+    fresh.run_until_idle(1000);
+    assert_eq!(fresh.thread_result(game), None);
+    fresh.advance_clocks(1.1, 1.1 * 40.0 / 3600.0, false);
+    assert_eq!(run_to_result(&mut fresh, game), Value::Int(7));
+}

@@ -63,6 +63,8 @@ pub enum Change {
         what: GlobalFormId,
         count: spid::IndexOrCount,
         on_death: bool,
+        /// Preserve SPID's trailing `!` through resolution.
+        deterministic_chance: bool,
     },
     /// Replace a base object, from Base Object Swapper.
     SwapBase { to: GlobalFormId },
@@ -171,6 +173,7 @@ pub fn resolve_spid(file: &spid::DistrFile, order: &LoadOrder) -> Vec<Patch> {
                     what,
                     count: d.index_or_count,
                     on_death: d.on_death,
+                    deterministic_chance: d.deterministic_chance,
                 },
                 chance: d.chance,
                 source: file.path.clone(),

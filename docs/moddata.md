@@ -28,7 +28,7 @@ and produce `Patch` values, each one a form and the change to make to it. A rule
 whose form is absent drops out there, which is what the plugins report and skip.
 
 Nothing in this crate touches a running world. Applying a `Patch` belongs to the
-game crate and is a later item.
+game crate, implemented in `crates/game/src/moddata.rs` with limits below.
 
 ## What was read, and what it gave
 
@@ -148,26 +148,22 @@ them, but no shipped mod has been run through them yet.
 ## Not done
 
 - No real mod has been parsed, see above.
-- Applying a `Patch` to a running world, which waits on the game crate.
 - Keyword Item Distributor's exclusive groups, which share the file under other
   keys and are currently reported as skipped lines.
 - The two fields left as written, and Open Animation Replacer's `user.json`
   override layer.
-- Chance is carried as a percentage but not rolled. Both distributors seed a
-  deterministic generator from the entry and the target so a given mod gives the
-  same result every run, and reproducing that seed is its own task.
+- Exact chance selection and actor lifecycle compatibility, detailed below.
 
 ## Applying, added 2026-09-18
 
-The "not done" line above said applying a `Patch` waits on the game crate. It
-no longer does. `crates/game/src/moddata.rs` is the other half, and
+`crates/game/src/moddata.rs` applies supported rules, and
 `Game::apply_mod_data` takes the data roots a profile layers, reads every file
 under them, resolves it and applies it. `Game::apply_mod_data_from` takes a
 resolved `soe_profile::Loadout` instead, which already knows those roots in
 order.
 
-Call it before `Game::start`. Both distributors run once at load, before any
-script, which is what the plugins do.
+Call it before `Game::start`. This engine applies distributions once at load.
+That is a current limitation, not a claim of matching SPID's actor lifecycle.
 
 ### Where each format lands, and why there
 
@@ -196,17 +192,24 @@ is built. `World::base_inventory` does the same for a distributed item, so
 
 ### Chance, and what it costs
 
-`soe_moddata` carries a chance percentage and deliberately does not roll it.
-The roll happens here, from the world's seeded generator, so two runs of one
-seed distribute identically and the per-tick state hash still matches. There is
-now a `world.mod_data` part in that hash covering the attached keywords, the
-distributions and the swaps, and a test that applies the same three files twice
-and compares.
+`soe_moddata` parses SPID's percent and trailing `!` separately. Missing or
+`NONE` chance means 100 percent. Invalid, non-finite or out-of-range values
+are reported as unreadable lines instead of becoming guaranteed rules.
+Tests cover `0!`, `50!`, `100!`, ordinary percentages and malformed values.
 
-It will **not** match the real plugin's choice. SPID and KID seed from the entry
-and the target so a given mod gives the same answer on every machine, and
-reproducing that seed is its own task. A mod leaning on chance therefore behaves
-plausibly rather than identically.
+Ordinary SPID chance rolls occur per matching NPC base using the world's
+seeded generator. Deterministic `0!` and `100!` work without a random choice.
+Fractional deterministic rules are skipped and counted in
+`skipped_unsupported_chance`. Their per-actor seed and lifecycle are not
+implemented. References are SPID `SPID/src/LookupConfigs.h`, `Defs.h` and
+`LookupFilters.cpp`, especially `ChanceComponentParser` and the deterministic
+branch combining line seed, player ID and actor FormID.
+
+KID uses a different deterministic seed in `src/Data/BaseFilters.cpp`, based
+on keyword editor ID and target form. Our KID application still rolls once
+per rule with the world RNG. Neither distributor should be described as
+matching upstream chance selection. The `world.mod_data` hash covers the
+resulting keywords, distributions and swaps for engine replay.
 
 ### What is applied and what is only carried
 
@@ -214,7 +217,7 @@ Spells, levelled spells, perks, outfits, sleep outfits and factions reach the
 actor. Items reach the inventory. Packages, shouts, skins and bare forms are
 resolved, held in `mod_data` and counted in the report, but nothing consumes
 them yet: a package needs a third source in the driver's stack and a save format
-change, and the other three have no actor state at all.
+change, and the other three are not yet connected to distribution.
 
 A distribution carrying a level or trait filter is **skipped** and counted in
 `skipped_unsupported_filter`, never applied. Those filters are not evaluated

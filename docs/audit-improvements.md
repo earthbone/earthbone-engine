@@ -1,8 +1,9 @@
 # Audit improvements
 
-Branch `audit-improvements`, based on `75cfb55`. This is one review item
-covering the recommendations from the code audit. Changes stay uncommitted
-until the user approves a concrete diff summary.
+Branch `audit-improvements`, initially based on `75cfb55`. Audit commit
+`3f336e3` follows the approved reference-fix commit `0c84bbe`. The reference
+commit was fast-forwarded into `master` before reconciling the audit branch.
+This is one review item covering the recommendations from the code audit.
 
 ## Scope and order
 
@@ -82,12 +83,13 @@ Implemented in this isolated worktree:
   Samples release their previous result before measuring the next. Cold and
   warm cell streams are measured separately.
 
-The VM parent module is now 862 lines instead of 1,988. The data-source parent
-is 590 lines, with textures, exterior work and workers in focused modules.
+At the audit commit, the VM parent module was 862 lines instead of 1,988. The
+data-source parent was 590 lines, with textures, exterior work and workers in
+focused modules.
 Public entry points are preserved, apart from the new typed worker-error variant
 and renamed command-line examples.
 
-### Verification
+### Audit commit verification
 
 The full repository gate exited successfully with 844 reported test successes
 and zero failures. Installed-data tests skip in that tier 1 run.
@@ -142,7 +144,33 @@ Lazy archive payloads, persistent workers and allocation counting are deferred
 pending measurements. No Godot visual or interactive runtime test was performed.
 The Godot-specific helper compiled under the all-features gate.
 
-The independent `reference-fixes` worktree overlaps the VM, VM state and Godot
-files. Its wait-clock changes must be retained in the extracted scheduler and
-dispatch modules during integration. That worktree was inspected read-only,
-never edited. No commits or merges are made before approval of the diff summary.
+At the audit checkpoint, the independent `reference-fixes` worktree overlapped
+the VM, VM state and Godot files and was inspected read-only. After the user
+confirmed its handoff and approved both diff summaries, the reference fixes
+were committed first and the audit changes second. Both original commits are
+preserved.
+
+## Reconciliation
+
+The reference branch's three-clock wait behavior now lives in the audit's
+`vm/scheduler.rs` and `vm/dispatch.rs` modules. Its clock fields, version 2 state
+encoding, version 1 compatibility and hashing coexist with the audit's stable
+map serialization and frame-index validation. Both host-documentation sections
+are retained. Godot material caching, primitive shape handling and game native
+corrections remain intact. No additional gameplay semantics were introduced.
+
+The combined Papyrus/game test run passed 253 tests, including all wait-domain,
+legacy-state and generated continuation regressions. The three all-feature
+Godot primitive-geometry tests also passed. Fuzz targets rebuilt with locked
+dependencies and their regenerated seeds passed validation. VM-state and
+mod-configuration targets each passed 10,000 additional mutation smoke inputs,
+with the same stable-build limitations recorded above.
+
+The combined full gate passed with 855 reported test successes. All gate tools
+ran, including Taplo and markdownlint from the reference workstream's temporary
+installation. No lint step was skipped. Installed-game script binding and the
+real-cell test also passed on the combined code. Bannered Mare retained 690
+references, 318 parsed meshes, 124,924 triangles and 88 decoded textures, with
+no failed meshes or missing textures. Geometry and texture data matched at
+one, two and eight workers. The combined branch has not been rerun in an
+interactive Godot session.

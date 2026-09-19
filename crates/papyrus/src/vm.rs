@@ -112,6 +112,10 @@ pub enum ThreadState {
     Runnable,
     /// Sleeping until the VM clock reaches the time.
     Sleeping(f64),
+    /// Real seconds including time spent in menus.
+    SleepingMenu(f64),
+    /// Accumulated game hours, independent of changes to timescale.
+    SleepingGame(f64),
     /// Waiting for a native to finish.
     Latent(LatentId),
     Done,
@@ -324,6 +328,8 @@ pub struct Vm {
     pub natives: NativeRegistry,
     pub log: Log,
     time: f64,
+    menu_time: f64,
+    game_hours: f64,
 }
 
 impl Vm {

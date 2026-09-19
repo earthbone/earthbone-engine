@@ -30,13 +30,34 @@ pub struct MaterialDesc {
     pub double_sided: bool,
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub enum AlphaMode {
     #[default]
     Opaque,
     /// Alpha test against a threshold in 0 to 255.
     Cutout(u8),
     Blend,
+}
+
+/// Every feature consumed by the host's standard material builder.
+/// Texture upload identity is separate from alpha and culling state.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct MaterialKey {
+    pub diffuse: Option<String>,
+    pub normal: Option<String>,
+    alpha: AlphaMode,
+    double_sided: bool,
+}
+
+impl From<&MaterialDesc> for MaterialKey {
+    fn from(material: &MaterialDesc) -> Self {
+        Self {
+            diffuse: material.diffuse.as_deref().map(str::to_lowercase),
+            normal: material.normal.as_deref().map(str::to_lowercase),
+            alpha: material.alpha,
+            double_sided: material.double_sided,
+        }
+    }
 }
 
 /// What a NIF shape provides. Slices are per vertex except `indices`, which
@@ -459,5 +480,49 @@ mod tests {
             build_surface(&m, MeshOptions::default()).err(),
             Some(MeshError::HalfSkinned)
         );
+    }
+}
+
+#[cfg(test)]
+mod material_key_tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    #[test]
+    fn shared_textures_keep_distinct_alpha_and_culling_in_both_orders() {
+        let variants: Vec<_> = [
+            AlphaMode::Opaque,
+            AlphaMode::Cutout(64),
+            AlphaMode::Cutout(128),
+            AlphaMode::Blend,
+        ]
+        .into_iter()
+        .flat_map(|alpha| {
+            [false, true].map(|double_sided| MaterialDesc {
+                diffuse: Some("Textures\\Leaf.dds".into()),
+                normal: Some("Textures\\Leaf_n.dds".into()),
+                alpha,
+                double_sided,
+                ..Default::default()
+            })
+        })
+        .collect();
+        for reverse in [false, true] {
+            let mut order = variants.clone();
+            if reverse {
+                order.reverse();
+            }
+            let mut cache = HashMap::new();
+            for desc in &order {
+                cache.insert(MaterialKey::from(desc), desc.clone());
+            }
+            assert_eq!(cache.len(), variants.len());
+            for desc in &variants {
+                assert_eq!(cache.get(&MaterialKey::from(desc)), Some(desc));
+                let mut lower = desc.clone();
+                lower.diffuse = lower.diffuse.map(|s| s.to_lowercase());
+                assert_eq!(MaterialKey::from(desc), MaterialKey::from(&lower));
+            }
+        }
     }
 }

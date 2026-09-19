@@ -56,9 +56,14 @@ scheduler, which is the gap the map named.
 
 **Scheduler.** `run(budget)` executes runnable threads round-robin in slices of
 64 instructions until the budget is spent or nothing is runnable. `advance(dt)`
-moves the VM clock and wakes sleepers. `Utility.Wait`, `WaitMenuMode` and
-`WaitGameTime` are the scheduler's own and put the thread to sleep for the
-requested seconds of VM time. A native returns `Value`, `Wait(seconds)` or
+advances real seconds without menus at the default timescale of 20. Hosts
+use `advance_clocks(real_seconds, game_hours, menu_mode)` to supply actual
+elapsed game time. `Utility.Wait` counts seconds outside menus,
+`WaitMenuMode` counts seconds including menus, and `WaitGameTime` counts
+game hours. The latter uses accumulated game time so timescale changes
+while sleeping affect the deadline correctly. Sources are the shipped
+`skse64/scripts/vanilla/Utility.psc` and CK `Utility_Script.wikitext`.
+A native returns `Value`, `Wait(seconds)` or
 `Latent(id)`. A latent thread sleeps until the host calls `resolve_latent(id,
 value)`, and the value lands in the variable the call site named.
 
@@ -190,7 +195,7 @@ written by a small `Writer` and `Reader`, the same shape as `crates/game/src/vma
 same way the VM itself never owns PEX bytes across a save, only the objects
 and threads built from them.
 
-Magic `SOEV`, a `u16` version (1), then an array pool, then the VM body.
+Magic `SOEV`, a `u16` version (2), then an array pool, then the VM body.
 Everything a script variable can hold round trips: objects by id, strings,
 ints, floats, bools, and arrays. An array is a shared reference
 (`Rc<RefCell<Vec<Value>>>`), so it is pooled once by first-seen order and
@@ -204,12 +209,17 @@ where `save_state` found it: every object (id, name, class, instance ids),
 every instance (its script chain by name, resolved back to `Rc<LoadedScript>`
 through the freshly loaded scripts, its state name, its variables with their
 declared types), every thread (its state, including a sleeping thread's
-remaining VM seconds and a latent thread's pending id, and its full frame
-stack, each frame naming its script, its function by a state-plus-name or
+clock domain and absolute deadline and a latent thread's pending id, and its
+full frame stack, each frame naming its script, its function by a state-plus-name or
 getter or setter key, the instruction pointer, locals with their types, and
-where the return value goes), the latent and object id counters, the VM
-clock, and the trace log. A frame with no script (a native's own call frame)
+where the return value goes), the latent and object id counters, the VM's
+three clocks, and the trace log. A frame with no script (a native's own call frame)
 cannot be saved, `save_state` reports it rather than losing it silently.
+
+Version 1 states still load. Their single clock initializes the real and
+menu clocks and implies game hours at timescale 20. A version 1 save cannot
+recover which old `Sleeping` states originated from the other wait calls.
+Version 2 preserves all three domains and includes them in the state hash.
 
 A thread saved mid-`Utility.Wait` is a saved `Sleeping(seconds)` state on a
 frame sitting inside the wait, nothing about the scheduler is special-cased,
@@ -231,8 +241,9 @@ cargo test -p soe-papyrus
 ```
 
 The real-file test needs the shipped scripts. They are inside
-`Skyrim - Misc.bsa`, so until the bsa crate can read archives, extract them
-first (LMO's `bsa::extract_archive` does it) and point the test at the folder:
+`Skyrim - Misc.bsa`. The standalone VM corpus test takes an extracted
+folder through `SOE_PEX_DIR`. Game integration tests load archives through
+`soe-bsa` with `SKYRIM_DATA`:
 
 ```bash
 SOE_PEX_DIR=/path/to/extracted cargo test -p soe-papyrus --test vm real_scripts -- --nocapture
@@ -255,23 +266,16 @@ VM that carries `Actor`, `ObjectReference` and `Form`.
 
 ## Not done, and known gaps
 
-- Found by the trace on 2026-09-17 (`docs/performance.md`): during
-  `Game::start` over the vanilla scripts the VM reaches `call_native` 1,183
-  times with the function name `None` and walks the full class chain each
-  time, and no native by its real name appears at all. A method-call operand
-  decodes to `None` on the start path, most likely `CallParent` or a call on
-  a `None` object. Reproduce with `soe-bench trace scripts` and read the
-  `native` category in the summary. Not fixed on the `perf` branch, which
-  adds spans only.
 - Fallout 4 opcodes (`Is`, structs, the array mutators) parse but abort the
   thread with the line number when executed. Skyrim never emits them.
 - The lookup order inside a chain is per script, state then empty state. The
   original engine's exact precedence when a parent defines a state function
   and the child defines only the empty-state one is not documented and was
   not tested against the game.
-- No vanilla script has been executed end to end against natives, only loaded.
-  The mock native set covers `Debug.Notification`, a property getter, a method
-  reached through the chain, a latent call and `Utility.Wait`.
+- Vanilla startup and selected quest paths have run against natives, as
+  recorded in `docs/game.md` and `docs/status.md`. Those checks do not prove
+  all native semantics. Original-runtime comparisons remain needed for
+  undocumented scheduling and inheritance behavior.
 - `String` ordering comparisons use lowercase byte order. The compiler does
   not emit them for strings, so this only matters for hand-built bytecode.
 - Object display in `as String` and string concatenation uses the object's

@@ -96,7 +96,7 @@ purpose. If you change a working rule, change both.
 Run `./tools/lint.sh` from the repository root before every commit. It is the
 only definition of done that counts. In order, it runs:
 
-```
+```text
 cargo fmt --all --check
 cargo clippy --workspace --lib --bins -- -D warnings
 cargo clippy --workspace --all-features --all-targets -- -D warnings
@@ -115,13 +115,14 @@ encode path drifted until someone noticed. Tests are checked only by the
 `--all-targets` runs, and on 2026-09-18 thirteen clippy errors reached `master`
 because an agent ran a gate without them.
 
-Tier 1 is currently 750 tests and takes about twelve seconds against a five
-minute budget. It must stay under that budget.
+The reference-correction gate reports 835 test passes, including gated tests
+that return early without their data variables. Tier 1 must stay under the
+five minute budget.
 
 Tests that need the installed game are gated on an environment variable and
 skip cleanly when it is unset:
 
-```
+```text
 SKYRIM_DATA="/run/host/media/pengolodh/Data/SteamLibrary/steamapps/common/Skyrim Special Edition/Data"
 ```
 
@@ -133,7 +134,7 @@ one, never copy one into this repository.
 
 One plan item, one git worktree, one branch, one report.
 
-```
+```text
 git worktree add ../soe-<item> -b <item> master
 ```
 
@@ -202,33 +203,33 @@ one. That is why physics runs on Godot's bundled Jolt and audio goes through
 
 ## Where the project stands
 
-`master` is green at 750 tier 1 tests. Merged and working: the plugin reader
+The reference-correction checkpoint reports 835 tier 1 test passes.
+Existing systems include: the plugin reader
 and form table, archives, meshes including skinned characters, the Papyrus VM
-with 296 natives, behavior graphs, AI packages, navmesh, cell streaming,
+with 345 stateful natives and 191 stubs, behavior graphs, AI packages, navmesh,
+cell streaming,
 physics on Jolt, a character controller, door transitions without a loading
 screen, audio output, and a vanilla save reader. The DLC are in scope and sit
 in every gated load order.
 
-Twenty-three of the plan's forty-seven items are open. They group as testing
+The earlier substrate snapshot had twenty-three of forty-seven items open,
+grouped as testing
 and quality (ten items, including `determinism` record and replay, `proptest`,
 `failpoints`, `perf-gates`, `mod-corpus`), rendering and performance (six,
 including `gpu-textures`, `multimesh`, `occluders`, `lod`), tooling and editor
 (four, including a record inspector and a Papyrus compiler), and gameplay
 (three: `packages-2`, `ui`, `console`).
 
-**The most important thing a newcomer should know about that list is what is
-not on it.** The plan has no item for combat, dialogue, magic, crafting or
-levelling. It is thorough about the engine substrate and silent about the game
-layer that sits on top. Much of that layer is data the substrate already reads,
-combat runs on behavior graphs and game settings, dialogue is DIAL and INFO
-records driving the VM, crafting is COBJ records, so the work is wiring rather
-than invention. It is still the bulk of the distance to something playable and
-it has not been scoped.
+The substrate list did not scope combat, dialogue, magic, crafting or levelling.
+`docs/reference-audit.md` now gives source paths and acceptance checks for the
+missing game layer, and `ENGINE-PLAN.md` links those pending items. Active
+effects, full dialogue and distributor lifecycles remain unimplemented. The
+reference fix prevents dispel calls from deleting learned spells and reports
+unsupported deterministic SPID rules rather than applying them unconditionally.
 
-Two gaps are known and unplanned. `crates/godot-host` has no door handling, so
-nothing drives `arm_doorway` from a key press, which is the first job once the
-`input` branch merges. And the fork workflow's abbreviated gate omits
-`--all-features`, which is what let those thirteen clippy errors through.
+Host door activation is outside this reference fix. The abbreviated fork gate
+in the older plan and CLAUDE.md has been reconciled with `tools/lint.sh`,
+including all-feature and no-default-feature all-target checks.
 
 ## Traps
 

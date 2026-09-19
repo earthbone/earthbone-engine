@@ -247,6 +247,14 @@ impl Vm {
                     h.u64(id.0);
                 }
                 ThreadState::Done => h.u8(3),
+                ThreadState::SleepingMenu(until) => {
+                    h.u8(4);
+                    h.f64(*until);
+                }
+                ThreadState::SleepingGame(until) => {
+                    h.u8(5);
+                    h.f64(*until);
+                }
             }
             h.value(&t.result);
             h.opt_str(t.pending_dest.as_deref());
@@ -266,6 +274,8 @@ impl Vm {
         }
         h.u64(self.next_thread);
         h.f64(self.time);
+        h.f64(self.menu_time);
+        h.f64(self.game_hours);
         let threads = h.finish();
 
         let mut h = StateHasher::new();

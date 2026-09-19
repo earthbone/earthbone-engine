@@ -12,7 +12,7 @@ forms keyed by resolved FormID.
 
 Local git only, no remote, branch `master` at `1615481`. Commits need an explicit identity:
 
-```
+```text
 set -x GIT_AUTHOR_NAME pengolodh
 set -x GIT_AUTHOR_EMAIL lysander.deloore@gmail.com
 set -x GIT_COMMITTER_NAME $GIT_AUTHOR_NAME
@@ -28,7 +28,7 @@ exists on that branch, but the branch sits at the old papyrus merge (`899308b`),
 behind master, with no commits of its own and no `crates/game` directory. Fast-forward it before
 doing anything:
 
-```
+```text
 cd ../soe-game
 git merge --ff-only master
 ```
@@ -37,7 +37,7 @@ git merge --ff-only master
 
 The whole workspace was run with the real game unlocked:
 
-```
+```text
 set -x SKYRIM_DATA '/run/host/media/pengolodh/Data/SteamLibrary/steamapps/common/Skyrim Special Edition/Data'
 cargo test --workspace
 ```

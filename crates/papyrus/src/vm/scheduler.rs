@@ -65,14 +65,29 @@ impl Vm {
         true
     }
 
-    /// Move the clock and wake sleepers whose time has come.
+    /// Advance without a menu at Skyrim's default timescale of 20.
     pub fn advance(&mut self, seconds: f64) {
-        self.time += seconds;
+        self.advance_clocks(seconds, seconds.max(0.0) * 20.0 / 3600.0, false);
+    }
+
+    /// Advance each wait domain. The host supplies elapsed game hours and
+    /// whether gameplay is paused by a menu. Menu waits always see real time.
+    pub fn advance_clocks(&mut self, real_seconds: f64, game_hours: f64, menu_mode: bool) {
+        let seconds = real_seconds.max(0.0);
+        self.menu_time += seconds;
+        if !menu_mode {
+            self.time += seconds;
+            self.game_hours += game_hours.max(0.0);
+        }
         for t in &mut self.threads {
-            if let ThreadState::Sleeping(until) = t.state {
-                if until <= self.time {
-                    t.state = ThreadState::Runnable;
-                }
+            let ready = match t.state {
+                ThreadState::Sleeping(until) => until <= self.time,
+                ThreadState::SleepingMenu(until) => until <= self.menu_time,
+                ThreadState::SleepingGame(until) => until <= self.game_hours,
+                _ => false,
+            };
+            if ready {
+                t.state = ThreadState::Runnable;
             }
         }
     }

@@ -304,7 +304,7 @@ pub struct QuestState {
     pub completed: bool,
     pub failed: bool,
     pub active: bool,
-    /// The last stage set, what `GetCurrentStageID` returns.
+    /// The last stage set. Both public stage getters return `highest`.
     pub current: u16,
     /// The highest stage set, what `GetStage` returns.
     pub highest: u16,
