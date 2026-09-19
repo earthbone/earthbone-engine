@@ -29,6 +29,61 @@ use soe_physics::Vec3;
 
 use crate::units::SkyrimPos;
 
+/// Two fixed-step poses for a render-frame camera. Mouse rotation stays live.
+/// Follows Godot's advanced physics interpolation guide for manual cameras.
+#[derive(Debug, Clone, Copy)]
+pub struct CameraMotion {
+    previous: (Vec3, f32),
+    current: (Vec3, f32),
+}
+
+impl CameraMotion {
+    /// Reset both poses on entry or teleport so the old cell is never blended.
+    pub fn new(feet: Vec3, height: f32) -> Self {
+        Self {
+            previous: (feet, height),
+            current: (feet, height),
+        }
+    }
+
+    pub fn step(&mut self, feet: Vec3, height: f32) {
+        self.previous = self.current;
+        self.current = (feet, height);
+    }
+
+    pub fn sample(&self, fraction: f32) -> (Vec3, f32) {
+        let t = fraction.clamp(0.0, 1.0);
+        (
+            self.previous.0 + (self.current.0 - self.previous.0) * t,
+            self.previous.1 + (self.current.1 - self.previous.1) * t,
+        )
+    }
+}
+
+#[cfg(test)]
+mod motion_tests {
+    use super::*;
+
+    #[test]
+    fn interpolates_position_and_crouch_without_extrapolation() {
+        let mut motion = CameraMotion::new(Vec3::ZERO, 128.0);
+        motion.step(Vec3::new(8.0, 4.0, 2.0), 72.0);
+        assert_eq!(motion.sample(0.5), (Vec3::new(4.0, 2.0, 1.0), 100.0));
+        assert_eq!(motion.sample(-1.0), (Vec3::ZERO, 128.0));
+        assert_eq!(motion.sample(2.0), (Vec3::new(8.0, 4.0, 2.0), 72.0));
+    }
+
+    #[test]
+    fn new_pose_resets_history_and_steps_roll_forward() {
+        let feet = Vec3::new(1000.0, 2000.0, 3000.0);
+        let mut motion = CameraMotion::new(feet, 128.0);
+        assert_eq!(motion.sample(0.0), (feet, 128.0));
+        motion.step(feet + Vec3::Z, 128.0);
+        motion.step(feet + Vec3::Z * 2.0, 128.0);
+        assert_eq!(motion.sample(0.0), (feet + Vec3::Z, 128.0));
+    }
+}
+
 /// A camera placement in Skyrim space: where the eye is and how it is turned.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Eye {

@@ -6,9 +6,15 @@ extends SceneTree
 var player: Node3D
 var frames := 0
 var loaded := false
+var loading_label: Label
+var startup_msec := 0
+var loading_phase := "Opening game data"
 
 func _initialize() -> void:
 	call_deferred("_start")
+
+func _finalize() -> void:
+	print("WALKTHROUGH stopped: ready=", loaded)
 
 func _start() -> void:
 	var data := OS.get_environment("SKYRIM_DATA")
@@ -20,10 +26,28 @@ func _start() -> void:
 	get_root().add_child(scene)
 	var streamer: Node3D = ClassDB.instantiate("CellStreamerNode")
 	scene.add_child(streamer)
-	if not streamer.call("load_data", data) or streamer.call("stream_cell", "WhiterunBanneredMare") <= 0:
+	loading_label = Label.new()
+	loading_label.position = Vector2(24, 24)
+	get_root().add_child(loading_label)
+	startup_msec = Time.get_ticks_msec()
+	if not streamer.call("begin_load_data", data):
+		printerr("Could not start data loading")
+		quit(1)
+		return
+	var state: int = streamer.call("poll_load_data")
+	while state == 0:
+		await process_frame
+		state = streamer.call("poll_load_data")
+	print("STARTUP data ms=", Time.get_ticks_msec() - startup_msec)
+	loading_phase = "Building the Bannered Mare"
+	await process_frame
+	await process_frame
+	var phase_msec := Time.get_ticks_msec()
+	if state < 0 or streamer.call("stream_cell", "WhiterunBanneredMare") <= 0:
 		printerr("Could not render the Bannered Mare")
 		quit(1)
 		return
+	print("STARTUP render ms=", Time.get_ticks_msec() - phase_msec)
 	var lighting := WorldEnvironment.new()
 	var environment := Environment.new()
 	environment.background_mode = Environment.BG_COLOR
@@ -39,14 +63,21 @@ func _start() -> void:
 	player = ClassDB.instantiate("PlayerNode")
 	player.set("capture_mouse", OS.get_environment("SOE_CAPTURE_PATH").is_empty())
 	scene.add_child(player)
-	if not player.call("load_data", data) or player.call("enter_cell", "WhiterunBanneredMare", 0.0, 0.0, 500.0) <= 0:
+	phase_msec = Time.get_ticks_msec()
+	if not player.call("use_streamer_data", streamer) or player.call("enter_cell", "WhiterunBanneredMare", 0.0, 0.0, 500.0) <= 0:
 		printerr("Could not enter the Bannered Mare")
 		quit(1)
 		return
+	print("STARTUP player ms=", Time.get_ticks_msec() - phase_msec)
+	print("STARTUP ready ms=", Time.get_ticks_msec() - startup_msec)
+	loading_label.queue_free()
+	loading_label = null
 	print("WASD move, mouse look, Space jump, Ctrl sneak, F camera, Esc exit")
 	loaded = true
 
 func _process(_delta: float) -> bool:
+	if is_instance_valid(loading_label):
+		loading_label.text = "%s... %.1f s\nEsc exits" % [loading_phase, (Time.get_ticks_msec() - startup_msec) / 1000.0]
 	if loaded:
 		frames += 1
 		var capture := OS.get_environment("SOE_CAPTURE_PATH")

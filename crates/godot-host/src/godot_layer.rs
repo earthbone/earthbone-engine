@@ -13,12 +13,15 @@
 //! two hundred nodes. The node keeps the RIDs and frees them on `exit_tree`.
 
 use std::path::Path;
+use std::sync::Arc;
+use std::thread::JoinHandle;
 
 use godot::classes::base_material_3d::{CullMode, Feature, TextureParam, Transparency};
 use godot::classes::image::Format;
 use godot::classes::mesh::{ArrayType, PrimitiveType};
 use godot::classes::{
-    ArrayMesh, INode3D, Image, ImageTexture, Node3D, RenderingServer, StandardMaterial3D,
+    ArrayMesh, INode3D, Image, ImageTexture, Material, Node3D, RenderingServer, Shader,
+    ShaderMaterial, StandardMaterial3D,
 };
 use godot::prelude::*;
 use soe_esm::GlobalFormId;
@@ -61,7 +64,8 @@ pub struct CellStreamerNode {
     streamer: Option<CellStreamer>,
     /// Set by `load_data`. `stream_cell` needs this before it can read a
     /// real cell, the synthetic streaming above never touches it.
-    data_source: Option<DataSource>,
+    data_source: Option<Arc<DataSource>>,
+    data_load: Option<JoinHandle<Result<DataSource, crate::data_source::DataSourceError>>>,
     /// One entry per `RenderingServer` instance `stream_cell` or
     /// `stream_exterior` created, in creation order. The scene tree never
     /// sees them: a batch is a mesh RID and an instance RID in this node's
@@ -89,6 +93,16 @@ struct Instance {
     table: BatchTable,
 }
 
+impl Drop for CellStreamerNode {
+    fn drop(&mut self) {
+        // The worker executes extension code. Join before the node and library
+        // can unload, including an Escape exit during loading.
+        if let Some(worker) = self.data_load.take() {
+            let _ = worker.join();
+        }
+    }
+}
+
 /// The side table for one instance: which form owns each triangle range.
 struct BatchTable {
     members: Vec<(GlobalFormId, BatchMember)>,
@@ -114,6 +128,7 @@ struct StreamTotals {
     references: usize,
     statics: usize,
     furniture: usize,
+    containers: usize,
     meshes_parsed: usize,
     meshes_failed: usize,
     triangles: usize,
@@ -131,6 +146,7 @@ impl StreamTotals {
         self.references += loaded.stats.references;
         self.statics += loaded.stats.statics_with_model;
         self.furniture += loaded.stats.furniture_with_model;
+        self.containers += loaded.stats.containers_with_model;
         self.meshes_parsed += loaded.stats.meshes_parsed;
         self.meshes_failed += loaded.stats.meshes_failed;
         self.triangles += loaded.stats.triangles;
@@ -143,6 +159,7 @@ impl StreamTotals {
         d.set("references", self.references as i64);
         d.set("statics", self.statics as i64);
         d.set("furniture", self.furniture as i64);
+        d.set("containers", self.containers as i64);
         d.set("meshes_parsed", self.meshes_parsed as i64);
         d.set("meshes_failed", self.meshes_failed as i64);
         d.set("triangles", self.triangles as i64);
@@ -171,6 +188,7 @@ impl INode3D for CellStreamerNode {
             batch_surfaces: true,
             streamer: None,
             data_source: None,
+            data_load: None,
             instances: Vec::new(),
             materials: MaterialMap::new(),
             bounds: None,
@@ -205,6 +223,12 @@ impl INode3D for CellStreamerNode {
         for c in plan.unload {
             self.signals().cell_unload_requested().emit(c.x, c.y);
         }
+    }
+}
+
+impl CellStreamerNode {
+    pub(crate) fn shared_source(&self) -> Option<Arc<DataSource>> {
+        self.data_source.clone()
     }
 }
 
@@ -266,15 +290,72 @@ impl CellStreamerNode {
     #[allow(clippy::needless_pass_by_value)]
     #[func]
     pub fn load_data(&mut self, path: GString) -> bool {
+        if self.data_load.is_some() {
+            godot_error!("CellStreamerNode::load_data: a background load is pending");
+            return false;
+        }
         match DataSource::open(Path::new(&path.to_string())) {
             Ok(source) => {
-                self.data_source = Some(source);
+                self.data_source = Some(Arc::new(source));
                 true
             }
             Err(e) => {
                 godot_error!("CellStreamerNode::load_data: {e}");
                 self.data_source = None;
                 false
+            }
+        }
+    }
+
+    /// Start CPU-only data loading. Poll from the main thread before streaming.
+    /// A second request is rejected until the first result has been collected.
+    #[allow(clippy::needless_pass_by_value)]
+    #[func]
+    pub fn begin_load_data(&mut self, path: GString) -> bool {
+        if self.data_load.is_some() {
+            return false;
+        }
+        let path = std::path::PathBuf::from(path.to_string());
+        match std::thread::Builder::new()
+            .name("soe-data-load".into())
+            .spawn(move || DataSource::open(&path))
+        {
+            Ok(worker) => {
+                self.data_source = None;
+                self.data_load = Some(worker);
+                true
+            }
+            Err(e) => {
+                godot_error!("CellStreamerNode::begin_load_data: {e}");
+                false
+            }
+        }
+    }
+
+    /// Zero while loading, one when ready, minus one on failure or no request.
+    #[func]
+    pub fn poll_load_data(&mut self) -> i32 {
+        let Some(worker) = self.data_load.as_ref() else {
+            return if self.data_source.is_some() { 1 } else { -1 };
+        };
+        if !worker.is_finished() {
+            return 0;
+        }
+        let Some(worker) = self.data_load.take() else {
+            return -1;
+        };
+        match worker.join() {
+            Ok(Ok(source)) => {
+                self.data_source = Some(Arc::new(source));
+                1
+            }
+            Ok(Err(e)) => {
+                godot_error!("CellStreamerNode::poll_load_data: {e}");
+                -1
+            }
+            Err(_) => {
+                godot_error!("CellStreamerNode::poll_load_data: worker panicked");
+                -1
             }
         }
     }
@@ -517,7 +598,7 @@ impl CellStreamerNode {
     fn add_instance(
         &mut self,
         arrays: &SurfaceArrays,
-        material: &Gd<StandardMaterial3D>,
+        material: &Gd<Material>,
         scenario: Rid,
         table: BatchTable,
     ) {
@@ -549,7 +630,7 @@ impl CellStreamerNode {
 
 #[derive(Default)]
 struct MaterialMap {
-    materials: std::collections::HashMap<crate::mesh::MaterialKey, Gd<StandardMaterial3D>>,
+    materials: std::collections::HashMap<crate::mesh::MaterialKey, Gd<Material>>,
     textures: std::collections::HashMap<String, Gd<ImageTexture>>,
 }
 
@@ -566,14 +647,84 @@ fn material_for(
     cache: &mut MaterialMap,
     desc: &MaterialDesc,
     textures: &SurfaceTextures,
-) -> Gd<StandardMaterial3D> {
+) -> Gd<Material> {
     let key = crate::mesh::MaterialKey::from(desc);
     if let Some(existing) = cache.materials.get(&key) {
         return existing.clone();
     }
-    let material = material_with_textures(desc, textures, &mut cache.textures);
+    let material: Gd<Material> = if desc.decal_depth().is_some() {
+        decal_material(desc, textures, &mut cache.textures).upcast()
+    } else {
+        material_with_textures(desc, textures, &mut cache.textures).upcast()
+    };
     cache.materials.insert(key, material.clone());
     material
+}
+
+/// Mesh decals use the same textures and lighting inputs as the standard path.
+/// OpenMW's handleDecal is the offset reference. Godot 4.4+ uses reverse Z, so
+/// positive depth bias brings the fragment forward without moving its vertices.
+fn decal_material(
+    desc: &MaterialDesc,
+    textures: &SurfaceTextures,
+    cache: &mut std::collections::HashMap<String, Gd<ImageTexture>>,
+) -> Gd<ShaderMaterial> {
+    let mut shader = Shader::new_gd();
+    shader.set_code(&decal_shader(desc));
+    let mut material = ShaderMaterial::new_gd();
+    material.set_shader(&shader);
+    material.set_render_priority(1);
+    if let Some(data) = &textures.diffuse {
+        if let Some(texture) = cached_texture(cache, desc.diffuse.as_deref(), data) {
+            material.set_shader_parameter("albedo_texture", &texture.to_variant());
+        }
+    }
+    if let Some(data) = &textures.normal {
+        if let Some(texture) = cached_texture(cache, desc.normal.as_deref(), data) {
+            material.set_shader_parameter("normal_texture", &texture.to_variant());
+            material.set_shader_parameter("has_normal", &true.to_variant());
+        }
+    }
+    material
+}
+
+fn decal_shader(desc: &MaterialDesc) -> String {
+    let (test, write) = desc.decal_depth().unwrap_or((true, false));
+    let depth = if write {
+        "depth_draw_always"
+    } else {
+        "depth_draw_never"
+    };
+    let cull = if desc.double_sided {
+        "cull_disabled"
+    } else {
+        "cull_back"
+    };
+    let test = if test { "" } else { ", depth_test_disabled" };
+    let alpha = match desc.alpha {
+        AlphaMode::Opaque => "ALPHA = 1.0;".into(),
+        AlphaMode::Blend => "ALPHA = color.a;".into(),
+        AlphaMode::Cutout(t) => format!(
+            "if (color.a < {}) {{ discard; }} ALPHA = 1.0;",
+            f32::from(t) / 255.0
+        ),
+    };
+    format!(
+        "shader_type spatial;
+render_mode {depth}, {cull}{test};
+uniform sampler2D albedo_texture : source_color, hint_default_white, filter_linear_mipmap_anisotropic, repeat_enable;
+uniform sampler2D normal_texture : hint_normal, filter_linear_mipmap_anisotropic, repeat_enable;
+uniform bool has_normal = false;
+void fragment() {{
+    vec4 color = texture(albedo_texture, UV);
+    ALBEDO = color.rgb;
+    ROUGHNESS = 1.0;
+    if (has_normal) {{ NORMAL_MAP = texture(normal_texture, UV).rgb; }}
+    {alpha}
+    float slope = max(abs(dFdx(FRAGCOORD.z)), abs(dFdy(FRAGCOORD.z)));
+    DEPTH = min(1.0, FRAGCOORD.z + 0.65 * slope + 0.0000001);
+}}"
+    )
 }
 
 fn cached_texture(
@@ -765,4 +916,44 @@ pub fn heightmap_image_from(region: &RegionHeightmap) -> Option<Gd<Image>> {
         Format::RF,
         &bytes,
     )
+}
+
+#[cfg(test)]
+mod decal_tests {
+    use super::*;
+    use soe_nif::blocks::{flags1, flags2};
+
+    #[test]
+    fn export_decal_shaders_for_rendered_regression() {
+        let Some(directory) = std::env::var_os("SOE_SHADER_FIXTURES") else {
+            return;
+        };
+        let directory = std::path::Path::new(&directory);
+        std::fs::create_dir_all(directory).unwrap();
+        for (name, alpha) in [
+            ("opaque", AlphaMode::Opaque),
+            ("cutout", AlphaMode::Cutout(128)),
+            ("blend", AlphaMode::Blend),
+        ] {
+            for test in [false, true] {
+                for write in [false, true] {
+                    let material = MaterialDesc {
+                        alpha,
+                        shader_flags_1: flags1::DECAL | if test { flags1::ZBUFFER_TEST } else { 0 },
+                        shader_flags_2: if write { flags2::ZBUFFER_WRITE } else { 0 },
+                        ..MaterialDesc::default()
+                    };
+                    std::fs::write(
+                        directory.join(format!(
+                            "{name}-{}-{}.gdshader",
+                            u8::from(test),
+                            u8::from(write)
+                        )),
+                        decal_shader(&material),
+                    )
+                    .unwrap();
+                }
+            }
+        }
+    }
 }

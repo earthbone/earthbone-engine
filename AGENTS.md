@@ -143,6 +143,14 @@ One plan item, one git worktree, one branch, one report.
 For GPT agents, explain each action before taking it, including edits,
 checks and commits (user instruction, 2026-09-19).
 
+For an interactive walkthrough, retain the launch tool's process session ID
+and poll that session to detect closure and collect its exit status. Confirm
+exit before replacing the loaded extension. A normal shutdown also prints
+`WALKTHROUGH stopped`, but the process result is authoritative, including on
+crashes. Leave user test windows open without a timeout. Do not rely on broad
+process-name searches or ask the user about closure when the tracked session
+already reports it.
+
 One writer per checkout. Preserve unrelated changes. The agent reviews each
 completed step and runs the gate. Before any commit or merge, show a short
 diff summary naming the files, changes and reasons, then wait for explicit

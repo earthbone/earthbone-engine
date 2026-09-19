@@ -20,16 +20,17 @@
 
 use std::collections::BTreeSet;
 use std::path::Path;
+use std::sync::Arc;
 
 use godot::classes::{
-    INode3D, Input, InputEventKey, InputEventMouseMotion, InputMap, Node3D, RenderingServer,
-    Viewport,
+    Engine, INode3D, Input, InputEventKey, InputEventMouseMotion, InputMap, Node3D,
+    RenderingServer, Viewport,
 };
 use godot::global::Key;
 use godot::prelude::*;
 use soe_physics::{BodyId, CharacterSettings, PhysicsWorld, SimpleWorld, Vec3};
 
-use crate::camera::{CameraMode, CameraRig, Eye};
+use crate::camera::{CameraMode, CameraMotion, CameraRig, Eye};
 use crate::data_source::DataSource;
 use crate::input::{godot_key_for, Action, Bindings, ControlMap, Driver, InputState};
 
@@ -55,13 +56,14 @@ pub struct PlayerNode {
     #[export]
     auto_step: bool,
     rig: CameraRig,
+    motion: CameraMotion,
     bindings: Bindings,
     driver: Driver,
     world: Option<SimpleWorld>,
     character: Option<BodyId>,
-    data_source: Option<DataSource>,
+    data_source: Option<Arc<DataSource>>,
     camera: Option<Rid>,
-    /// Mouse motion accumulated since the last physics step, so a frame that
+    /// Mouse motion accumulated since the last camera or physics update, so a frame that
     /// delivers two motion events turns twice as far rather than once.
     pending_look: (f32, f32),
     /// Whether the activate ray hit something on the last step, reported to
@@ -78,6 +80,7 @@ impl INode3D for PlayerNode {
             capture_mouse: true,
             auto_step: true,
             rig: CameraRig::default(),
+            motion: CameraMotion::new(Vec3::ZERO, CharacterSettings::default().height),
             bindings: Bindings::default(),
             driver: Driver::new(),
             world: None,
@@ -112,6 +115,16 @@ impl INode3D for PlayerNode {
         }
     }
 
+    fn process(&mut self, _delta: f64) {
+        if self.auto_step {
+            let (dx, dy) = std::mem::take(&mut self.pending_look);
+            self.rig.look(dx, dy);
+            let fraction = Engine::singleton().get_physics_interpolation_fraction() as f32;
+            let (feet, height) = self.motion.sample(fraction);
+            self.place_camera(feet, height);
+        }
+    }
+
     fn exit_tree(&mut self) {
         if self.capture_mouse {
             Input::singleton().set_mouse_mode(godot::classes::input::MouseMode::VISIBLE);
@@ -136,7 +149,7 @@ impl PlayerNode {
                 if self.base().is_node_ready() {
                     self.register_actions();
                 }
-                self.data_source = Some(source);
+                self.data_source = Some(Arc::new(source));
                 true
             }
             Err(e) => {
@@ -145,6 +158,25 @@ impl PlayerNode {
                 false
             }
         }
+    }
+
+    /// Share the streamer's current load order and VFS without reopening data.
+    /// The source remains alive if the streamer leaves the tree or reloads.
+    #[allow(clippy::needless_pass_by_value)]
+    #[func]
+    pub fn use_streamer_data(
+        &mut self,
+        streamer: Gd<crate::godot_layer::CellStreamerNode>,
+    ) -> bool {
+        let Some(source) = streamer.bind().shared_source() else {
+            return false;
+        };
+        self.load_control_map(&source);
+        if self.base().is_node_ready() {
+            self.register_actions();
+        }
+        self.data_source = Some(source);
+        true
     }
 
     /// Replace the keyboard bindings with defaults plus a control-map overlay.
@@ -186,6 +218,7 @@ impl PlayerNode {
         let id = world.create_character(CharacterSettings::default(), Vec3::new(x, y, z));
         self.character = Some(id);
         self.world = Some(world);
+        self.motion = CameraMotion::new(self.feet(), self.capsule_height());
         self.update_camera();
         bodies as i32
     }
@@ -220,7 +253,10 @@ impl PlayerNode {
             false
         };
 
-        self.update_camera();
+        self.motion.step(self.feet(), self.capsule_height());
+        if !self.auto_step {
+            self.update_camera();
+        }
     }
 
     /// The character's feet in Skyrim units, as `(x, y, z)`.
@@ -438,11 +474,13 @@ impl PlayerNode {
 
     /// Place the camera where the rig says, converting into Godot's space.
     fn update_camera(&mut self) {
+        self.place_camera(self.feet(), self.capsule_height());
+    }
+
+    fn place_camera(&mut self, feet: Vec3, height: f32) {
         let Some(camera) = self.camera else {
             return;
         };
-        let feet = self.feet();
-        let height = self.capsule_height();
 
         // In third person the boom is pulled in by whatever it would pass
         // through, so the camera never ends up inside a wall.

@@ -368,25 +368,38 @@ impl SimpleWorld {
         }
         // Settle no further than the lift, so this never gains height it did
         // not actually step onto.
-        let down = moved - Vec3::Z * s.step_height;
-        let (landed, _, ground) = self.resolve(down, Vec3::new(0.0, 0.0, -1.0), s, height);
-        if ground {
-            Some(landed)
-        } else {
-            None
-        }
+        self.snap_down(moved, s, height)
     }
 
     /// Follows a floor down by at most one step height, so walking off a
     /// riser reads as a step rather than as a fall.
     fn snap_down(&self, from: Vec3, s: &CharacterSettings, height: f32) -> Option<Vec3> {
-        let target = from - Vec3::Z * s.step_height;
-        let (landed, _, ground) = self.resolve(target, Vec3::new(0.0, 0.0, -1.0), s, height);
-        if ground && landed.z <= from.z + 1e-3 {
-            Some(landed)
-        } else {
-            None
+        // OpenMW's Stepper traces down to the first supporting contact. This
+        // endpoint solver approximates that trace in radius-bounded increments.
+        // Limit the distance as well as the work for unusually small capsules,
+        // so hitting the work cap cannot turn this back into one large drop.
+        if s.step_height <= 0.0 || s.radius <= 0.0 {
+            return None;
         }
+        let increment = s.radius * 0.25;
+        let distance = s.step_height.min(increment * 256.0);
+        let steps = (distance / increment).ceil().clamp(1.0, 256.0) as usize;
+        let drop = distance / steps as f32;
+        let mut pos = from;
+        for _ in 0..steps {
+            let target = pos - Vec3::Z * drop;
+            let (landed, _, ground) = self.resolve(target, -Vec3::Z, s, height);
+            if ground {
+                return (landed.z <= from.z + 1e-3).then_some(landed);
+            }
+            // Allow sliding down a rounded edge, but not an upward correction
+            // off an underside while looking for ground below this position.
+            if landed.z > pos.z + 1e-3 {
+                return None;
+            }
+            pos = landed;
+        }
+        None
     }
 
     fn step_character(&mut self, id: BodyId, dt: f32) {
@@ -935,6 +948,39 @@ fn ray_cylinder(from: Vec3, to: Vec3, c0: Vec3, c1: Vec3, r: f32) -> Option<f32>
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn downward_snap_stops_at_first_surface() {
+        let mut world = SimpleWorld::new();
+        for z in [0.0, -24.0] {
+            world.add_static(&Collider {
+                node: soe_nif::BlockRef(0),
+                node_name: "thin floor".into(),
+                layer: Layer::STATIC,
+                motion: crate::MotionType::Fixed,
+                mass: 0.0,
+                transform: Iso::IDENTITY,
+                shape: Shape::TriangleMesh {
+                    vertices: vec![
+                        Vec3::new(-500.0, -500.0, z),
+                        Vec3::new(500.0, -500.0, z),
+                        Vec3::new(0.0, 500.0, z),
+                    ],
+                    triangles: vec![if z == 0.0 { [0, 2, 1] } else { [0, 1, 2] }],
+                },
+            });
+        }
+        world.rebuild();
+        let settings = CharacterSettings::default();
+        for height in [settings.height, settings.crouch_height] {
+            for lift in [0.1, 1.0, 4.0, 12.0, 24.0, 35.0] {
+                let landed = world
+                    .snap_down(Vec3::new(0.0, 0.0, lift), &settings, height)
+                    .expect("floor within snap distance");
+                assert!(landed.z.abs() < 0.01, "snap from {lift} at capsule height {height} passed the first floor: {landed:?}");
+            }
+        }
+    }
 
     #[test]
     fn closest_point_on_triangle_interior_edge_and_vertex() {

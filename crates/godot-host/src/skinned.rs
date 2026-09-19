@@ -14,8 +14,8 @@
 //! bind transform to get one skinning transform per mesh bone, and convert
 //! that into Godot's axes and metres.
 //!
-//! One trap is worth knowing before reading the arithmetic. A bind transform
-//! has to be transposed where a scene graph node's transform does not, which
+//! One trap is worth knowing before reading the arithmetic. A raw bind transform
+//! needs its rotation transposed before row-dot-vector application, which
 //! is what [`Affine::from_nif_skin`] is for and why it exists beside
 //! [`Affine::from_nif`]. Leaving it out flattens every limb while sparing the
 //! pelvis, whose bind rotation is the identity and so is its own transpose.
@@ -112,8 +112,8 @@ impl Affine {
     /// `nif.xml` declares `Matrix33` as nine floats in OpenGL column major
     /// order, `m11 m21 m31 m12 ...`, and `crates/nif` reads it that way, so
     /// `Mat33::rows` is the matrix as written and [`Affine::from_nif`] applies
-    /// it as `M * v`. That is right for a scene graph node, which the streamed
-    /// cells prove every time they draw. `nifly` instead reads the same nine
+    /// it as `M * v`. The placed-model adapter separately converts local scene
+    /// rotations before composition. `nifly` instead reads the same nine
     /// floats straight into memory, so its `Matrix3` holds the transpose of
     /// ours, and its `ApplyTransform` computes what we would write as
     /// `transpose(M) * v`. Applying the transpose here is therefore doing what
@@ -315,8 +315,8 @@ impl std::error::Error for SkinError {}
 /// position rather than collapsing them to the origin.
 ///
 /// The transform is `pose * inverseBind`, with the bind read through
-/// [`Affine::from_nif_skin`] because `NiSkinData` stores its rotations
-/// transposed relative to a scene graph node. That transpose is the whole fix
+/// [`Affine::from_nif_skin`] to convert the raw reader's matrix convention.
+/// That transpose is the whole fix
 /// for the flattened limbs, and leaving it out is invisible at the pelvis
 /// because an identity rotation is its own transpose.
 ///

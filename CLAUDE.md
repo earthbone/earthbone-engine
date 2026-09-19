@@ -68,6 +68,12 @@ GPL tool is fine there, but no GPL derived code may reach the MIT shim crates.
 
 - For GPT agents, explain each action before taking it, including edits,
   checks and commits (user instruction, 2026-09-19).
+- For interactive walkthroughs, retain the launch tool's process session ID
+  and poll it for closure and exit status before replacing the extension.
+  Normal shutdown prints `WALKTHROUGH stopped`, but the process result is
+  authoritative, including on crashes. Leave user test windows open without
+  a timeout. Do not use broad process-name searches or ask about closure
+  when the tracked session already reports it.
 - One writer per checkout. Preserve unrelated changes. The agent reviews each
   completed step and runs the gate. Before any commit or merge, show a diff
   summary naming the files, changes and reasons, then wait for explicit user

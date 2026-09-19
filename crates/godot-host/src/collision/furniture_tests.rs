@@ -8,6 +8,40 @@ use std::collections::BTreeSet;
 use std::path::PathBuf;
 
 #[test]
+fn placed_floor_discards_export_root_but_preserves_children() {
+    let Some(data) = std::env::var_os("SKYRIM_DATA").map(PathBuf::from) else {
+        eprintln!("SKYRIM_DATA unset, skipping floor placement integration");
+        return;
+    };
+    let source = DataSource::open(&data).expect("open data");
+    let bytes = source
+        .vfs()
+        .read("meshes/architecture/whiterun/wrinteriors/wrintfloordirtstr01.nif")
+        .expect("floor asset");
+    let raw = soe_nif::parse(&bytes).expect("parse floor");
+    let placed = crate::data_source::placed_model(&bytes).expect("place floor");
+    let soe_nif::blocks::Block::Node(root) = &raw.blocks[0] else {
+        panic!("expected node root");
+    };
+    assert!(
+        root.av.transform.rotation.rows[0][1].abs() > 0.9,
+        "fixture no longer has its quarter-turn export root"
+    );
+    let soe_nif::blocks::Block::Node(root) = &placed.blocks[0] else {
+        panic!("expected placed node root");
+    };
+    assert_eq!(root.av.transform, soe_nif::Transform::IDENTITY);
+    assert_eq!(
+        raw.blocks[1..],
+        placed.blocks[1..],
+        "placement altered child or collision blocks"
+    );
+    for mesh in placed.meshes().expect("floor surfaces") {
+        assert_eq!(mesh.transform, soe_nif::Transform::IDENTITY);
+    }
+}
+
+#[test]
 fn bannered_mare_furniture_is_drawn_and_beds_have_collision() {
     let Some(data) = std::env::var_os("SKYRIM_DATA").map(PathBuf::from) else {
         eprintln!("SKYRIM_DATA unset, skipping furniture integration");
@@ -21,7 +55,9 @@ fn bannered_mare_furniture_is_drawn_and_beds_have_collision() {
     let (_, collision_stats) = source.cell_colliders(cell).expect("cell collision builds");
     assert_eq!(
         collision_stats.references,
-        loaded.stats.statics_with_model + loaded.stats.furniture_with_model,
+        loaded.stats.statics_with_model
+            + loaded.stats.furniture_with_model
+            + loaded.stats.containers_with_model,
         "rendering and collision select different model-bearing references"
     );
     let drawn: BTreeSet<_> = loaded.surfaces.iter().map(|s| s.reference).collect();

@@ -34,6 +34,7 @@ pub struct BatchKey {
     /// `AlphaMode` flattened to a kind byte and a cutout threshold.
     pub alpha: (u8, u8),
     pub double_sided: bool,
+    pub decal_depth: Option<(bool, bool)>,
     pub has_normals: bool,
     pub has_tangents: bool,
     pub has_uvs: bool,
@@ -51,6 +52,7 @@ impl BatchKey {
                 AlphaMode::Blend => (2, 0),
             },
             double_sided: m.double_sided,
+            decal_depth: m.decal_depth(),
             has_normals: !surface.normals.is_empty(),
             has_tangents: !surface.tangents.is_empty(),
             has_uvs: !surface.uvs.is_empty(),
@@ -264,5 +266,22 @@ mod tests {
         let b = a.clone();
         let (batches, _) = batch_surfaces(&[a, b]);
         assert_eq!(batches.len(), 2);
+    }
+
+    #[test]
+    fn decals_and_depth_variants_do_not_merge_with_their_base() {
+        use soe_nif::blocks::{flags1, flags2};
+        let plain = quad(0.0, "t.dds");
+        let mut surfaces = vec![plain.clone()];
+        for test in [0, flags1::ZBUFFER_TEST] {
+            for write in [0, flags2::ZBUFFER_WRITE] {
+                let mut decal = plain.clone();
+                decal.arrays.material.shader_flags_1 = flags1::DECAL | test;
+                decal.arrays.material.shader_flags_2 = write;
+                surfaces.push(decal);
+            }
+        }
+        let (batches, _) = batch_surfaces(&surfaces);
+        assert_eq!(batches.len(), 5);
     }
 }

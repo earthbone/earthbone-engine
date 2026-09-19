@@ -30,6 +30,17 @@ pub struct MaterialDesc {
     pub double_sided: bool,
 }
 
+impl MaterialDesc {
+    /// Decals need a depth offset, with their authored depth test/write flags.
+    pub fn decal_depth(&self) -> Option<(bool, bool)> {
+        use soe_nif::blocks::{flags1, flags2};
+        (self.shader_flags_1 & flags1::DECAL != 0).then_some((
+            self.shader_flags_1 & flags1::ZBUFFER_TEST != 0,
+            self.shader_flags_2 & flags2::ZBUFFER_WRITE != 0,
+        ))
+    }
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub enum AlphaMode {
     #[default]
@@ -47,6 +58,7 @@ pub struct MaterialKey {
     pub normal: Option<String>,
     alpha: AlphaMode,
     double_sided: bool,
+    decal_depth: Option<(bool, bool)>,
 }
 
 impl From<&MaterialDesc> for MaterialKey {
@@ -56,6 +68,7 @@ impl From<&MaterialDesc> for MaterialKey {
             normal: material.normal.as_deref().map(str::to_lowercase),
             alpha: material.alpha,
             double_sided: material.double_sided,
+            decal_depth: material.decal_depth(),
         }
     }
 }
@@ -487,6 +500,25 @@ mod tests {
 mod material_key_tests {
     use super::*;
     use std::collections::HashMap;
+
+    #[test]
+    fn decals_keep_depth_state_separate_from_plain_materials() {
+        use soe_nif::blocks::{flags1, flags2};
+        let plain = MaterialDesc::default();
+        let mut keys = std::collections::HashSet::from([MaterialKey::from(&plain)]);
+        for test in [0, flags1::ZBUFFER_TEST] {
+            for write in [0, flags2::ZBUFFER_WRITE] {
+                let decal = MaterialDesc {
+                    shader_flags_1: flags1::DECAL | test,
+                    shader_flags_2: write,
+                    ..plain.clone()
+                };
+                assert_eq!(decal.decal_depth(), Some((test != 0, write != 0)));
+                assert!(keys.insert(MaterialKey::from(&decal)));
+            }
+        }
+        assert_eq!(keys.len(), 5);
+    }
 
     #[test]
     fn shared_textures_keep_distinct_alpha_and_culling_in_both_orders() {

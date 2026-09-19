@@ -96,6 +96,7 @@ pub struct CellStats {
     pub references: usize,
     pub statics_with_model: usize,
     pub furniture_with_model: usize,
+    pub containers_with_model: usize,
     pub meshes_parsed: usize,
     pub meshes_failed: usize,
     pub triangles: usize,
@@ -345,7 +346,7 @@ impl DataSource {
     }
 
     /// Walks every `REFR` the index files under `cell_id`, builds a
-    /// `SurfaceArrays` for each STAT or furniture reference with a model, and reports
+    /// `SurfaceArrays` for each static, furniture or container model, and reports
     /// what it found. `CellStats::references` counts `REFR` only, actors and
     /// projectiles the index also holds are skipped here.
     /// A reference whose mesh fails to read or parse is counted as failed and
@@ -387,8 +388,10 @@ impl DataSource {
                 };
                 if base_rec.tag == tag::STAT {
                     stats.statics_with_model += 1;
-                } else {
+                } else if base_rec.tag == soe_esm::Tag::new(b"FURN") {
                     stats.furniture_with_model += 1;
+                } else {
+                    stats.containers_with_model += 1;
                 }
                 work.push((model, refr, id));
             }
@@ -449,7 +452,7 @@ impl DataSource {
         let _span = soe_trace::Span::new("host.static", "host");
         let path = format!("meshes/{model}");
         let bytes = self.vfs.read(&path)?;
-        let file = soe_nif::parse(&bytes)?;
+        let file = placed_model(&bytes)?;
         let meshes = file.meshes()?;
         let refr_transform = placement_transform(refr);
         let mut out = Vec::with_capacity(meshes.len());
@@ -472,6 +475,36 @@ impl DataSource {
 
 /// One static's surfaces with their textures, or why it failed.
 type BuiltStatic = Result<Vec<(SurfaceArrays, SurfaceTextures)>, DataSourceError>;
+
+/// A placed model replaces its single root node's export transform with REFR
+/// placement. OpenMW's NiNode::read applies
+/// this rule to block-zero roots except Bip01. Keep it at the host boundary so
+/// raw NIF inspection and actor bind transforms retain the original data.
+pub(crate) fn placed_model(bytes: &[u8]) -> Result<soe_nif::NifFile, DataSourceError> {
+    use soe_nif::blocks::Block;
+    let mut file = soe_nif::parse(bytes)?;
+    // nifly reads Matrix3 directly into rows and applies row-dot-vector.
+    // Our raw reader follows nif.xml's column naming, so transpose each local
+    // scene rotation before composition. Translation and scale stay authored.
+    for block in &mut file.blocks {
+        let av = match block {
+            Block::Node(node) => &mut node.av,
+            Block::TriShape(shape) => &mut shape.av,
+            Block::BsTriShape(shape) => &mut shape.av,
+            _ => continue,
+        };
+        let rows = av.transform.rotation.rows;
+        av.transform.rotation.rows = std::array::from_fn(|r| std::array::from_fn(|c| rows[c][r]));
+    }
+    if file.roots.as_slice() == [soe_nif::BlockRef(0)] {
+        if let Some(soe_nif::blocks::Block::Node(node)) = file.blocks.first_mut() {
+            if !node.av.name().eq_ignore_ascii_case("bip01") {
+                node.av.transform = NifTransform::IDENTITY;
+            }
+        }
+    }
+    Ok(file)
+}
 
 /// Builds the reference's own placement transform from its `DATA` position
 /// and Euler rotation. The rotation matrix matches
@@ -588,3 +621,6 @@ fn material_desc_from(shape: &NifMesh) -> MaterialDesc {
         double_sided: m.double_sided,
     }
 }
+
+#[cfg(test)]
+mod placement_tests;

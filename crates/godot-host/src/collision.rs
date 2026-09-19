@@ -21,13 +21,15 @@ use soe_physics::{Collider, PhysicsWorld, SimpleWorld};
 
 #[cfg(test)]
 mod furniture_tests;
+#[cfg(test)]
+mod scene_tests;
 
 /// What building a cell's collision found. Counts are per reference, not per
 /// base model, so a mesh placed twenty times counts twenty times, which is
 /// what the world actually holds.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct CollisionStats {
-    /// Placed statics and furniture with a model, the same set the renderer draws.
+    /// Placed statics, furniture and containers, the same set the renderer draws.
     pub references: usize,
     /// References whose model carried at least one collider.
     pub with_collision: usize,
@@ -138,7 +140,7 @@ impl DataSource {
     fn colliders_of(&self, model: &str, refr: &Refr) -> Result<RefColliders, DataSourceError> {
         let _span = soe_trace::Span::new("host.collider", "host");
         let bytes = self.vfs().read(&format!("meshes/{model}"))?;
-        let file = soe_nif::parse(&bytes)?;
+        let file = crate::data_source::placed_model(&bytes)?;
         let collected =
             soe_physics::collect(&file).map_err(|e| DataSourceError::Collision(e.to_string()))?;
         let placement = placement_iso(refr);

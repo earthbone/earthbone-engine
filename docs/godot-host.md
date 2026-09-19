@@ -593,9 +593,10 @@ bone below it, which was read at the time as two bind poses disagreeing.
 It was one transposed rotation. `nif.xml` declares `Matrix33` as nine floats in
 OpenGL column major order, `m11 m21 m31 m12 ...`, and `crates/nif` reads it
 that way, so `Mat33::rows` holds the matrix as written and `Affine::from_nif`
-applies it as `M * v`. That is right for a scene graph node and the streamed
-cells prove it every time they draw. It is wrong for a bind transform, and
-`Affine::from_nif_skin` transposes those.
+applies it as `M * v`. `Affine::from_nif_skin` transposes the raw bind
+transforms. The earlier claim that scene-node rotations needed no transpose
+was disproved by the washbasin regression below. Placed scene transforms now
+receive the same convention conversion before parent-child composition.
 
 `nifly`, the C++ library under PyNifly, which imports and exports Skyrim
 characters with working skinning, does the same thing by a different route: it
@@ -921,4 +922,184 @@ sandbox socket errors. Subsequent game-mode tests and captures exited normally.
 
 Sitting, sleeping, activation, other non-STAT/FURN object types, runtime
 enable-state integration, rug flicker and kitchen-floor defects remain open.
-The player and renderer still open separate data sources at startup.
+The startup follow-up below replaces the separate player and renderer loads.
+
+## Placed floors, rug decals and startup (2026-09-19)
+
+The kitchen-floor gaps were misplaced model geometry. Several Whiterun floor
+NIFs carry a quarter-turn export transform on their root node. The host applied
+that transform in addition to the REFR placement. OpenMW's
+`components/nif/node.cpp::NiNode::read` documents discarding the block-zero root
+transform to prevent incorrect orientation. The host now applies that rule to
+single-root placed STAT/FURN models, excluding Bip01 roots. Both rendering and
+collision use the same prepared NIF. Collision payloads stay unchanged. The
+washbasin follow-up below additionally converts local scene rotation matrices.
+The raw NIF reader and actor skinning path are untouched.
+
+A gated test reads `WRIntFloorDirtStr01.nif`, checks its authored quarter turn,
+then verifies that placement resets only the root. Fixed-camera captures from
+Skyrim `(-1040, -384, 190)` toward `(-1320, -384, 55)` show the formerly misplaced
+stone borders aligned with the room perimeter and the black floor gaps filled.
+This does not establish every placed model's correctness or settle other NIF
+matrix-convention questions.
+
+Whiterun rug detail meshes carry the NIF decal flag and disable depth writes.
+The host previously ignored these flags. Decals now use a mesh shader with a
+slope-scaled reverse-Z offset, following OpenMW's
+`components/nifosg/nifloader.cpp::handleDecal`. The shader preserves the host's
+diffuse, normal, alpha and culling inputs and applies the decal's depth test and
+write flags. Geometry is not raised or moved. Material and batch keys include
+decal depth state, with tests keeping four depth variants separate from a plain
+material sharing the same textures. The offset is a Godot adaptation, not a
+claim of bit-identical Skyrim rasterization. Shader compilation and captures
+were checked on Godot 4.7.2 Forward+.
+
+Startup previously opened the same five masters and archives twice. A headless
+baseline measured 2.827 seconds for renderer data, 4.168 seconds for player data,
+111 ms for streaming and 22 ms for collision. These are single-run warm-machine
+observations, not cold-cache benchmarks. `PlayerNode::use_streamer_data` now
+shares an immutable `Arc<DataSource>` explicitly with the renderer, including its
+VFS and texture cache. Standalone `load_data` remains available. No global cache
+or parallel record database was introduced.
+
+`CellStreamerNode::begin_load_data` opens data on a CPU worker and
+`poll_load_data` collects completion on the main thread. The walkthrough shows
+the current phase and elapsed time while loading. Mesh creation and GPU uploads
+remain synchronous on the main thread, as the local Godot thread-safe API guide
+recommends. Dropping the streamer joins an outstanding worker before extension
+unload, so exiting during a load can wait for that CPU operation to finish.
+
+`godot/startup_test.gd` checks failure, retry, rejection of overlapping requests,
+frame progress during loading, PC bindings and source lifetime after the streamer
+is freed. With installed data it passed while processing 263 frames during a
+4.393-second load. The real-data host tests passed 146 tests, and the player test
+still passed with 310 collision bodies. The full gate passed with 865 test passes
+and every configured linter, including Taplo and Markdownlint. Installed-data and
+windowed checks ran separately from that gate. The updated windowed launcher
+reached ready in 3.325 seconds: 2.960 seconds opening data, 304 ms rendering and
+27 ms setting up the player. The remaining time includes yielded frames and
+scene setup. This is time from the script's loading phase, not process launch.
+
+Captures and measurement logs remain outside the repository. White editor-marker
+geometry and incomplete material features are still visible. Still captures
+alone do not establish that rug flicker is absent during movement. The user
+subsequently walked the room and confirmed that the rugs no longer flicker.
+These checks
+do not turn the movement prototype into a complete gameplay walkthrough.
+
+## Floating candle supports and camera jumps (2026-09-19)
+
+Several candles were drawn without their supporting furniture. Nightstands,
+drawers and wardrobes use CONT bases, not FURN. The shared model selector now
+accepts CONT MODL paths, following `engine-refs/uesp-modfileformat/CONT.wikitext`.
+Rendering and collision still consume the same winning records and prepared
+meshes. Container geometry does not implement inventory access, opening
+animations or loose-object simulation. Container counts are reported separately
+in `CellStats::containers_with_model` and `last_stats["containers"]`.
+
+The installed test requires every model-bearing container in the Bannered Mare
+to appear in the surface output and checks static collision on its nightstands,
+drawers, wardrobes and end tables. No candle positions or game assets are edited.
+The inspected horn chandeliers already include their chain and rope surfaces.
+The user's subsequent screenshots identified the remaining floating objects
+as washbasin stands, covered below, not those chandeliers. The user confirmed
+that the other floating objects now have their supporting chests and closets.
+
+The controller's full-height downward snap could pass through a thin floor.
+The bounded descent described in `docs/physics.md` removes the large jumps on
+the upstairs and kitchen probe routes. Before the change, their largest
+single-tick vertical changes were 28.824 and 21.675 units. Afterward the same
+300-tick routes at 60 Hz reached 5.289 and 4.813 units. Regression limits are
+eight units for these routes. The main-room route permits a full 36-unit step
+because it crosses furniture edges, and measured a 19.786-unit descent before
+the local-rotation correction below and 30.741 units afterward.
+These routes do not prove every possible path through the room is smooth.
+
+`PlayerNode` previously updated its RenderingServer camera only on physics
+ticks. It now retains two feet/height poses and interpolates them each render
+frame, following the local Godot guide
+`tutorials/physics/interpolation/advanced_physics_interpolation.rst`. Mouse
+rotation is consumed without interpolation. Cell entry resets pose history,
+and manually driven `advance` calls retain immediate camera updates. Third
+person still checks its boom against collision from the displayed pose.
+Unit tests cover intermediate position, crouch height, fraction clamping and
+history reset. This is interpolation, not an added stair-height easing system.
+
+### Inverted washbasin stands
+
+The two screenshots identify `Furniture/Noble/NobleWashBasin01.nif`, references
+`0:0C903D` and `0:0CA022`. Its mesh children have quarter-turn rotations.
+The raw NIF reader expands Matrix33 according to nif.xml's column naming, but
+the placed-model path applied those matrices without the transpose used by
+`nifly`. Unlike identity or half-turn matrices, these rotations expose the
+error: the stand was inverted and its lowest vertex floated 34.279 units above
+the reference origin.
+
+Sources are `engine-refs/nifly/src/Objects.cpp::NiAVObject::Sync`, the direct
+byte synchronization in `include/BasicTypes.hpp::NiStreamReversible::Sync`,
+and row-dot-vector multiplication in `include/Object3d.hpp::Matrix3`.
+`placed_model` now transposes each local NiNode, NiTriShape and BSTriShape
+rotation before scene composition. Translation, scale, vertex data, collision
+payloads and REFR placement are unchanged. Rendering and collision consume the
+same adapted model. Keeping this at the placement boundary avoids changing the
+raw NIF API or applying a second conversion to the existing actor-bind path.
+
+`washbasin_feet_reach_the_authored_origin` fails before the correction at
+34.279 units and passes afterward with a one-unit floor-contact tolerance.
+The installed furniture, floor, container-support and walking-route tests
+also pass. Fixed-camera captures of both references on Godot 4.7.2 show the
+stands upright with their feet on the floor. The player runtime test passes
+with 361 collision bodies. The user then walked the rebuilt room, reported
+that everything seemed correct and closed the window. This is acceptance of
+the reported movement-room defects, not proof that every asset or gameplay
+system is complete. The tracked launch session confirmed exit code 0.
+
+### Walkthrough process ownership
+
+Keep the process session ID returned by the launch tool and poll that exact
+session for exit. Do not substitute a process-name search, since it can inspect
+a different namespace or find another user's run. Rebuild the extension only
+after the tracked process has exited. `walkthrough.gd::_finalize` prints
+`WALKTHROUGH stopped` on normal shutdown, including exit during loading.
+The process exit code remains the authority if a crash prevents that callback.
+The local Godot `MainLoop._finalize` documentation defines the shutdown hook.
+
+## Host integration audit follow-up
+
+The audit found that opaque decal variants could remain in the opaque render
+pass and be overwritten by the surface underneath. Every decal variant now
+writes alpha, keeping cutout discard and authored blend alpha, so Godot draws
+it after opaque geometry. This follows the local Godot spatial-shader and
+Material documentation. Transparent materials do not contribute to shadow
+casting or screen-depth textures, including decals retaining depth writes.
+
+The shader generator can export its exact production variants for a rendered
+regression. Set `SOE_SHADER_FIXTURES` to a temporary directory, run
+`cargo test -p soe-godot-host --lib export_decal_shaders`, then run Godot with
+`--path godot --script decal_test.gd` and the same variable. A real renderer is
+required. The test checks twelve alpha/depth variants in both creation orders
+over an opaque floor, with a foreground occluder and cutout holes. Godot 4.7.2
+Forward+ passes on the RTX 5070 Ti. The previous shader text fails the opaque
+depth-writing case with a blue floor pixel where the decal should be visible.
+
+Synthetic NIF tests now exercise child rotation/translation composition and
+the Bip01 and multiple-root exceptions using the NIF crate's fixture writer.
+The startup runtime test also frees a streamer before collecting its worker,
+exercising join-on-drop. These additions came from an independent read-only
+audit. The audit found no further demonstrated correctness blocker.
+
+Validation of the combined host snapshot: the full gate passes with 879 Rust
+tests and 11 Python runner tests, with no missing lint tools. The serial
+installed-data host library run passes all 155 tests. Godot 4.7.2 startup
+passes with 396 responsive frames during a 2.733-second data load, then checks
+source lifetime and worker shutdown. Player checks pass on 4.4.1 without game
+data and on 4.7.2 with 361 collision bodies. The Jolt check on 4.7.2 builds
+361 bodies and 365 shapes with zero conversion failures and settles at
+y 8.295 after 87 frames. These are separate from the gate's skipped data paths.
+
+An initial parallel installed-data run ended with SIGTERM. The serial rerun
+completed. A startup run retaining the first world while loading a second
+also ended with SIGTERM. The shutdown test now frees the first world before
+starting its second load. An initial import/runtime attempt could not find the
+shared target directory's extension. The test setup now points to the rebuilt
+library, and startup exits with failure if the extension classes are missing.

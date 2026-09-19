@@ -379,3 +379,22 @@ From there, four legs of a second each: 102.5 units, 24.9, 101.6 and 109.9. The
 short one is a wall, which is what an inn is full of. The capsule stayed on the
 ground for 369 of 420 frames, never dropped below z 33 with the floor at 26,
 and no leg wedged it.
+
+### Thin-floor snapping (2026-09-19)
+
+The player follow-up exposed discontinuous vertical movement. The step-down
+search resolved only the endpoint of a full 36-unit drop. That could put the
+capsule axis through a thin triangle before resolving contact, where winding
+could select its underside. OpenMW's `apps/openmw/mwphysics/stepper.cpp` instead
+traces down to the first supporting surface.
+
+`SimpleWorld` now approximates that downward search with increments no larger
+than a quarter of the capsule radius, stopping at the first standable contact.
+Step-up settling uses the same search. The 256-iteration work limit also limits
+search distance for unusually small capsules. This is not a full swept-capsule
+solver, and horizontal collision is unchanged.
+
+The regression places oppositely wound thin floors 24 units apart and checks
+standing and crouching capsules at six starting heights. Existing stair,
+slope, ceiling and large-world tests still apply. Installed Bannered Mare
+routes and render-camera interpolation are covered in `docs/godot-host.md`.

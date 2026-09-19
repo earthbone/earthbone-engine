@@ -62,9 +62,11 @@ as required by the test. Record when these ran and when they skipped.
 
 ## Current stopping point
 
-The player-host step `8485d48` is being integrated with reference and audit
-work on master at `6d990e7`. Earlier playback, transition and input branches
-are no longer in flight. Recheck worktree ownership before starting work.
+The player-host step `8485d48` and reference/audit work are integrated. The
+host startup follow-up shares loaded data, includes container models, corrects
+placed-model transforms and decal ordering, and tests camera/floor handling.
+Earlier playback, transition and input branches are no longer in flight.
+Recheck worktree ownership before starting work.
 
 The next recommended integration milestone is a verified Bannered Mare
 walkthrough: movement and camera, interaction mapped to a reference, a door
@@ -92,7 +94,9 @@ SPID rules are reported as unsupported. Material keys preserve alpha and
 culling while texture uploads stay shared. See [reference-audit.md](reference-audit.md)
 for exact sources and pending gameplay acceptance checks.
 
-The audit adds ordered worker results and shared texture caching. The
-STAT-only renderer still omits furniture, and the player and renderer still
-open separate data sources. These remain integration defects, not completed
-walkthrough behavior.
+The audit adds ordered worker results and shared texture caching. The renderer
+now includes furniture and containers. The player shares the renderer's data
+source, and startup opens it on a CPU worker. Placed-model transforms, rug
+decal ordering and thin-floor snapping have follow-up fixes. These changes
+improve the movement walkthrough. Activation, door crossing and footsteps
+still require game-loop integration.
