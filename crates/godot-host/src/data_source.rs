@@ -7,7 +7,7 @@
 //! builds the `CellIndex` over them, and builds a `bsa::Vfs` from their
 //! associated archives plus the data folder as a loose overlay.
 //! `DataSource::stream_cell` resolves a cell by editor id through the index,
-//! walks the `REFR` ids the index files under it, and for each one whose base is a `STAT`
+//! walks the `REFR` ids the index files under it, and for each STAT or furniture base
 //! with a model, reads the NIF through the `Vfs`, parses it, places every
 //! shape at the reference's own position and rotation, and runs it through
 //! the same `mesh::build_surface` the synthetic path already used. Nothing
@@ -32,7 +32,6 @@ use std::sync::Arc;
 
 use soe_bsa::{find_associated_archives, Archive, Vfs};
 use soe_esm::records::refr::Refr;
-use soe_esm::records::stat::Static;
 use soe_esm::{tag, CellIndex, GlobalFormId, LoadOrder};
 use soe_nif::{Mat33, Mesh as NifMesh, Transform as NifTransform, Vec3 as NifVec3};
 
@@ -41,9 +40,11 @@ use crate::mesh::{
 };
 
 mod exterior;
+mod models;
 mod textures;
 mod workers;
 
+pub(crate) use models::model_for;
 use textures::TextureCache;
 pub use textures::{BlockFormat, TextureData};
 use workers::ordered_map;
@@ -94,6 +95,7 @@ pub enum DataSourceError {
 pub struct CellStats {
     pub references: usize,
     pub statics_with_model: usize,
+    pub furniture_with_model: usize,
     pub meshes_parsed: usize,
     pub meshes_failed: usize,
     pub triangles: usize,
@@ -343,7 +345,7 @@ impl DataSource {
     }
 
     /// Walks every `REFR` the index files under `cell_id`, builds a
-    /// `SurfaceArrays` for each `STAT` reference with a model, and reports
+    /// `SurfaceArrays` for each STAT or furniture reference with a model, and reports
     /// what it found. `CellStats::references` counts `REFR` only, actors and
     /// projectiles the index also holds are skipped here.
     /// A reference whose mesh fails to read or parse is counted as failed and
@@ -380,16 +382,14 @@ impl DataSource {
                 let Some(base_rec) = self.order.winner(base_id) else {
                     continue;
                 };
-                if base_rec.tag != tag::STAT {
+                let Some(model) = model_for(base_rec) else {
                     continue;
+                };
+                if base_rec.tag == tag::STAT {
+                    stats.statics_with_model += 1;
+                } else {
+                    stats.furniture_with_model += 1;
                 }
-                let Ok(stat) = Static::from_record(base_rec) else {
-                    continue;
-                };
-                let Some(model) = stat.model.filter(|m| !m.is_empty()) else {
-                    continue;
-                };
-                stats.statics_with_model += 1;
                 work.push((model, refr, id));
             }
             work

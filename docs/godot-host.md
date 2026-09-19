@@ -865,3 +865,39 @@ Glow, environment and other shader features remain unwired.
 Native boxes, spheres, capsules and convex hulls replace the former box-hull
 approximations. See [physics](physics.md) for geometry tests and measurement
 limits, and [the reference map](reference-audit.md) for future work.
+
+## Furniture omitted from the walkthrough (2026-09-19)
+
+The player walkthrough exposed missing beds. Both rendering and collision
+accepted only STAT bases. The shared model selector now also reads FURN
+MODL paths, excluding furniture marked as editor markers. Sources are
+`engine-refs/uesp-modfileformat/FURN.wikitext` and xEdit's
+`wbRecord(FURN)`/`wbGenericModel` in `Core/wbDefinitionsTES5.pas`.
+The existing ESM string decoder is reused. No new dependency or parallel
+record store was added.
+
+The installed-data regression in `collision/furniture_tests.rs` failed
+before the selector change with all 29 Bannered Mare furniture references
+absent from render output. It now passes with zero omitted, including four
+beds whose NIFs contain supported static collision. It also checks that the
+render and collision paths select the same number of model-bearing references.
+This is geometry/collision evidence, not proof of final pixels or activation.
+The test prints the bed FormIDs, model paths and placements for reproduction.
+
+`CellStats::furniture_with_model` and the host's `last_stats["furniture"]`
+report furniture separately from statics. Synthetic tests cover both model
+types, furniture editor markers, empty paths, malformed STAT data and
+unsupported base types.
+
+The full gate passes with 856 test passes, including Taplo 0.10.0 and
+Markdownlint CLI2 0.23.2 installed through Homebrew. The rebuilt Godot 4.7.2
+player test passes with 310 collision bodies, up from 281. Its movement
+endpoint changes because furniture now participates in collision. A fixed
+camera at Skyrim `(-80, 140, 410)`, aimed at `(-80, 240, 360)`, shows the
+noble double bed in a rendered capture. Captures stay outside the repository.
+The editor import loaded the extension but aborted during shutdown after
+sandbox socket errors. Subsequent game-mode tests and captures exited normally.
+
+Sitting, sleeping, activation, other non-STAT/FURN object types, runtime
+enable-state integration, rug flicker and kitchen-floor defects remain open.
+The player and renderer still open separate data sources at startup.

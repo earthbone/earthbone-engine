@@ -14,18 +14,20 @@
 //! carries the reasoning: the authoritative simulation stays in our process
 //! so the per tick state hash can see it and a headless run can reproduce it.
 
-use crate::data_source::{placement_iso, DataSource, DataSourceError};
+use crate::data_source::{model_for, placement_iso, DataSource, DataSourceError};
 use soe_esm::records::refr::Refr;
-use soe_esm::records::stat::Static;
 use soe_esm::{tag, GlobalFormId};
 use soe_physics::{Collider, PhysicsWorld, SimpleWorld};
+
+#[cfg(test)]
+mod furniture_tests;
 
 /// What building a cell's collision found. Counts are per reference, not per
 /// base model, so a mesh placed twenty times counts twenty times, which is
 /// what the world actually holds.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct CollisionStats {
-    /// Placed `STAT` references with a model, the same set the renderer draws.
+    /// Placed statics and furniture with a model, the same set the renderer draws.
     pub references: usize,
     /// References whose model carried at least one collider.
     pub with_collision: usize,
@@ -109,13 +111,7 @@ impl DataSource {
             let Some(base_rec) = self.order().winner(base_id) else {
                 continue;
             };
-            if base_rec.tag != tag::STAT {
-                continue;
-            }
-            let Ok(stat) = Static::from_record(base_rec) else {
-                continue;
-            };
-            let Some(model) = stat.model.filter(|m| !m.is_empty()) else {
+            let Some(model) = model_for(base_rec) else {
                 continue;
             };
             stats.references += 1;

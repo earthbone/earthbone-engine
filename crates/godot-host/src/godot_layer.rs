@@ -113,6 +113,7 @@ struct StreamTotals {
     cells: usize,
     references: usize,
     statics: usize,
+    furniture: usize,
     meshes_parsed: usize,
     meshes_failed: usize,
     triangles: usize,
@@ -129,6 +130,7 @@ impl StreamTotals {
         self.cells += 1;
         self.references += loaded.stats.references;
         self.statics += loaded.stats.statics_with_model;
+        self.furniture += loaded.stats.furniture_with_model;
         self.meshes_parsed += loaded.stats.meshes_parsed;
         self.meshes_failed += loaded.stats.meshes_failed;
         self.triangles += loaded.stats.triangles;
@@ -140,6 +142,7 @@ impl StreamTotals {
         d.set("cells", self.cells as i64);
         d.set("references", self.references as i64);
         d.set("statics", self.statics as i64);
+        d.set("furniture", self.furniture as i64);
         d.set("meshes_parsed", self.meshes_parsed as i64);
         d.set("meshes_failed", self.meshes_failed as i64);
         d.set("triangles", self.triangles as i64);

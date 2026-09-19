@@ -46,6 +46,10 @@ fn a_real_cell_streams_statics_from_the_installed_game() {
     println!("cell: {cell_id}");
     println!("references: {}", loaded.stats.references);
     println!("statics with a model: {}", loaded.stats.statics_with_model);
+    println!(
+        "furniture with a model: {}",
+        loaded.stats.furniture_with_model
+    );
     println!("meshes parsed: {}", loaded.stats.meshes_parsed);
     println!("meshes failed: {}", loaded.stats.meshes_failed);
     println!("triangles: {}", loaded.stats.triangles);
@@ -95,6 +99,10 @@ fn a_real_cell_streams_statics_from_the_installed_game() {
         source.set_threads(workers);
         let again = source.stream_cell_id(cell_id).expect("cell streams again");
         assert_eq!(again.stats.references, loaded.stats.references);
+        assert_eq!(
+            again.stats.furniture_with_model,
+            loaded.stats.furniture_with_model
+        );
         assert_eq!(again.stats.meshes_failed, loaded.stats.meshes_failed);
         assert_eq!(again.stats.triangles, loaded.stats.triangles);
         assert_eq!(again.surfaces.len(), loaded.surfaces.len());
