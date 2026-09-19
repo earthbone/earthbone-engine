@@ -175,3 +175,21 @@ fn a_patch_carries_where_it_came_from() {
     // The comment occupies line 1, so the rule is on line 2.
     assert_eq!(patches[0].line, 2);
 }
+
+#[test]
+fn resolution_preserves_deterministic_chance_instead_of_erasing_it() {
+    let file = DistrFile::from_ini(&Ini::parse(
+        "t_DISTR.ini",
+        "Spell = MySpell|NONE|NONE|NONE|NONE|1|50!",
+    ));
+    let patches = resolve_spid(&file, &order());
+    assert_eq!(patches.len(), 1);
+    assert_eq!(patches[0].chance, 50.0);
+    assert!(matches!(
+        patches[0].change,
+        Change::Distribute {
+            deterministic_chance: true,
+            ..
+        }
+    ));
+}

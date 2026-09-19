@@ -122,6 +122,8 @@ pub struct Distribution {
     pub index_or_count: IndexOrCount,
     /// Percent, 0 to 100.
     pub chance: f32,
+    /// SPID marks a stable per-actor chance with a trailing `!`.
+    pub deterministic_chance: bool,
     /// 1 based line in its file, for reporting a conflict.
     pub line: usize,
 }
@@ -131,7 +133,7 @@ pub struct Distribution {
 pub struct DistrFile {
     pub path: std::path::PathBuf,
     pub distributions: Vec<Distribution>,
-    /// Lines whose key was not a record type, kept so a report can name them.
+    /// Unrecognized keys and lines with an invalid chance, for diagnostics.
     pub unknown_keys: Vec<(String, usize)>,
 }
 
@@ -155,13 +157,13 @@ impl DistrFile {
         for entry in ini.anonymous() {
             match parse_key(&entry.key) {
                 Some((record_type, final_, on_death)) => {
-                    distributions.push(parse_line(
-                        record_type,
-                        final_,
-                        on_death,
-                        &entry.value,
-                        entry.line,
-                    ));
+                    if let Some(distribution) =
+                        parse_line(record_type, final_, on_death, &entry.value, entry.line)
+                    {
+                        distributions.push(distribution);
+                    } else {
+                        unknown_keys.push((entry.key.clone(), entry.line));
+                    }
                 }
                 None => unknown_keys.push((entry.key.clone(), entry.line)),
             }
@@ -203,10 +205,11 @@ fn parse_line(
     on_death: bool,
     value: &str,
     line: usize,
-) -> Distribution {
+) -> Option<Distribution> {
     let fields: Vec<String> = value.split('|').map(|s| s.trim().to_string()).collect();
     let is_package = record_type == RecordType::Package;
-    Distribution {
+    let (chance, deterministic_chance) = parse_chance(field(&fields, 6))?;
+    Some(Distribution {
         record_type,
         final_,
         on_death,
@@ -216,9 +219,10 @@ fn parse_line(
         levels: parse_levels(field(&fields, 3)),
         traits: parse_traits(field(&fields, 4)),
         index_or_count: parse_index_or_count(field(&fields, 5), is_package),
-        chance: parse_chance(field(&fields, 6)),
+        chance,
+        deterministic_chance,
         line,
-    }
+    })
 }
 
 fn parse_levels(text: &str) -> LevelFilters {
@@ -320,12 +324,14 @@ fn parse_index_or_count(text: &str, is_package: bool) -> IndexOrCount {
     IndexOrCount::Count(Range::exact(text.parse().unwrap_or(1)))
 }
 
-fn parse_chance(text: &str) -> f32 {
-    if is_valid_entry(text) {
-        text.parse().unwrap_or(100.0)
-    } else {
-        100.0
+fn parse_chance(text: &str) -> Option<(f32, bool)> {
+    if !is_valid_entry(text) {
+        return Some((100.0, false));
     }
+    let deterministic = text.ends_with('!');
+    let number = text.strip_suffix('!').unwrap_or(text);
+    let chance: f32 = number.parse().ok()?;
+    (chance.is_finite() && (0.0..=100.0).contains(&chance)).then_some((chance, deterministic))
 }
 
 #[cfg(test)]
@@ -440,6 +446,34 @@ mod tests {
             "Skin",
         ] {
             assert!(parse_key(name).is_some(), "{name} should be a record type");
+        }
+    }
+}
+
+#[cfg(test)]
+mod chance_tests {
+    use super::DistrFile;
+    use crate::ini::Ini;
+
+    #[test]
+    fn deterministic_chances_keep_the_percentage_and_invalid_lines_are_reported() {
+        for (text, chance, deterministic) in [
+            ("0!", 0.0, true),
+            ("50!", 50.0, true),
+            ("100!", 100.0, true),
+            ("50", 50.0, false),
+            ("NONE", 100.0, false),
+        ] {
+            let line = format!("Spell = SpellName|NONE|NONE|NONE|NONE|1|{text}");
+            let file = DistrFile::from_ini(&Ini::parse("test_DISTR.ini", &line));
+            assert_eq!(file.distributions[0].chance, chance);
+            assert_eq!(file.distributions[0].deterministic_chance, deterministic);
+        }
+        for text in ["!", "NaN", "inf", "-1", "101", "typo", "50!!"] {
+            let line = format!("Spell = SpellName|NONE|NONE|NONE|NONE|1|{text}");
+            let file = DistrFile::from_ini(&Ini::parse("test_DISTR.ini", &line));
+            assert!(file.distributions.is_empty(), "{text}");
+            assert_eq!(file.unknown_keys.len(), 1);
         }
     }
 }

@@ -159,14 +159,14 @@ Confirmed by the detector and fixed:
 Candidates the detector has not caught yet, kept here because the same
 pattern is in the code and a longer or wider scenario can reach them:
 
-3. The world keeps one shared xorshift RNG (`World::random_u64`). Any new
+1. The world keeps one shared xorshift RNG (`World::random_u64`). Any new
    caller shifts every later draw, so a replay recorded before a native
    gained a random call will not match after. A stream per system or per
    actor, derived from the seed, is the round 5 shape.
-4. `NativeRegistry::calls` is a `HashMap` of counters. It is hashed in key
+2. `NativeRegistry::calls` is a `HashMap` of counters. It is hashed in key
    order here, and the live run summaries sort it before printing. Any new
    reader that walks it unsorted prints a different order per run.
-5. The Godot host's threaded builders join in master order, which the
+3. The Godot host's threaded builders join in master order, which the
    detector does not cover, the host is outside `Game`.
 
 What the detector cannot see: floating point differences between machines

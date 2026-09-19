@@ -4,8 +4,10 @@ What the engine does today. `CLAUDE.md` carries the short version and the
 always-relevant working rules, this file carries the detail. Update both when
 a batch of branches merges.
 
-As of 2026-09-18, master 15dd049.
-
+Reference-correction checkpoint, 2026-09-19, based on master `75cfb55`.
+The full gate reports 835 test passes. Earlier measurements below retain their
+original scope. See [the reference audit](reference-audit.md) for source
+contracts, regression tests and work still pending.
 
 - **Records.** `esm` reads the load order with winning-override semantics, a
   `CellIndex` maps cells and the worldspace grid to their placed objects
@@ -13,14 +15,16 @@ As of 2026-09-18, master 15dd049.
   reports identical-to-master overrides, deleted references and deleted
   navmeshes per plugin. Dirty plugins need no cleaning: a deleted reference
   resolves and starts disabled, a deleted navmesh drops with edge repair.
-- **Scripts.** 347 natives with state plus 189 stubs, the VM walks base
+- **Scripts.** 345 natives with state plus 191 stubs, the VM walks base
   classes on dispatch, and the first real `start` on the installed game runs
   423 quests through 1,388 native calls with **zero** unresolved calls, which
   the gated test now asserts. The five masters declare 686 natives in all and
   the gated report lists what the registry still lacks, with call-site counts.
   No script named for a DLC declares a native of its own: every DLC native is
   an addition to a base class, so DLC coverage is measured by call sites, not
-  by script name. `SOEV`, `SOEW` (version 3) and `SOEG` save and load.
+  by script name. `SOEV` version 2 (also reading version 1), `SOEW` version 4 and `SOEG`
+  save and load. Waits use distinct clock domains. Dispel calls are stubs
+  that preserve known and equipped spells until active effects exist.
 - **Actors.** `NPC_` base stats, `PACK` packages with sandbox, travel and
   sleep on the navmesh graph (4,635 of 5,961 vanilla packages resolve), and a
   havok behavior interpreter that walks the vanilla `mt_behavior.hkx` with

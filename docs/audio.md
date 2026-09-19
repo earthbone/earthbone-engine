@@ -1,8 +1,8 @@
 # soe-audio: voice and sound
 
 `crates/audio` reads what vanilla ships and decodes what a mod author may ship instead, into one
-`Pcm` buffer of interleaved floats. It does not play anything. Playback belongs to a device crate
-in the host, `cpal` or `rodio`, not to a device layer of our own.
+`Pcm` buffer of interleaved floats. It does not play anything. Playback belongs to the Godot
+host through `AudioServer` and `AudioStreamPlayer3D` for positional attenuation. The engine does not link a second device backend.
 
 The crate follows the engine rule twice over. Vanilla formats are read because a mod can only
 express them that way. Ogg Vorbis and Ogg Opus decode beside them because there an author has a
@@ -108,7 +108,7 @@ Twelve bytes of header, then two payloads.
 
 ### xWMA
 
-A RIFF of form `XWMA` with three chunks. `fmt ` is a `WAVEFORMATEX`. `dpds` is the packet table,
+A RIFF of form `XWMA` with three chunks. `fmt` (with a trailing space) is a `WAVEFORMATEX`. `dpds` is the packet table,
 cumulative decoded bytes after each packet, so the last entry over the frame size and the sample
 rate gives the exact duration without decoding a byte. `data` is the bitstream. `Xwma::to_bytes`
 rebuilds a standalone file, which is what the decoder seam hands over.

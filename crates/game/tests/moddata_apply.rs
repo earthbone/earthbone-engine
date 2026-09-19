@@ -294,3 +294,26 @@ fn the_installed_game_is_scanned_for_real_mod_data() {
         eprintln!("  none: this install ships no mod using these formats");
     }
 }
+
+#[test]
+fn deterministic_spid_chances_never_silently_become_guaranteed() {
+    for (chance, applied, unsupported) in [("0!", 0, 0), ("50!", 0, 1), ("100!", 1, 0)] {
+        let dir = Dir::new(&format!("spid-chance-{chance}"));
+        dir.write(
+            "Test_DISTR.ini",
+            &format!("Spell = MySpell|NONE|NONE|NONE|NONE|1|{chance}\n"),
+        );
+        let mut g = game();
+        let report = g.apply_mod_data(&dir.roots());
+        assert_eq!(report.distributions_applied, applied);
+        assert_eq!(report.skipped_unsupported_chance, unsupported);
+        assert_eq!(
+            g.world_mut()
+                .actor(id(GUARD_REF))
+                .unwrap()
+                .spells
+                .contains(&id(SPELL)),
+            applied == 1
+        );
+    }
+}

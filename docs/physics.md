@@ -165,9 +165,6 @@ code change was needed.
 - Rigid bodies, constraints and ragdolls in the headless world. Godot's side
   has them through Jolt already, `SimpleWorld` has statics, one capsule and
   rays, which is what the simulation needs so far.
-- Godot's box, sphere, capsule and convex hull shapes where a collider's
-  transform allows them, instead of the triangle soup the converter emits
-  today. Correct as it stands, cheaper if narrowed.
 - The convex shell radius (0.05 m on most shapes) is not added to boxes
   and hulls, so their surfaces sit 3.5 units inside where Havok puts them.
 - `bhkNiTriStripsShape`, `bhkCylinderShape`, `bhkPlaneShape`, phantoms,
@@ -229,12 +226,26 @@ must be.
 | 4.4.1 | 281 | 285 | 11,182 | y 12.0 | y 8.295 | 87 |
 | 4.7.2 | 281 | 285 | 11,182 | y 12.0 | y 8.295 | 87 |
 
-Boxes and convex hulls become triangle soup rather than Godot's box and hull
-shapes, because a collider's transform can carry a rotation those shapes have no
-place for and a static body never needs the cheaper representation. A sphere or
-capsule away from the origin becomes a box hull for the same reason, since the
-server places a shape at the body's origin and these bodies carry world space
-geometry. Those approximations are listed under "Not yet" below.
+Those measurements describe the older triangle conversion. As of the
+reference fix, boxes, spheres, capsules and convex hulls use Godot's native
+shape types. `PhysicsServer3D.body_add_shape` accepts a local transform,
+so translated spheres and rotated capsules do not need approximations.
+Primitive dimensions and origins are converted from game units to metres.
+Capsules retain the midpoint, endpoint axis and cylindrical section.
+Compounds compose the parent and child transforms before conversion.
+
+Source: `engine-refs/godot-docs/classes/class_physicsserver3d.rst`,
+`body_add_shape` and `shape_set_data`. Rust regression tests cover sphere
+translation and radius, capsule endpoints in both directions, and rotated
+compound boxes. The old body/triangle counts above are historical. New
+contact and performance measurements must not be inferred from them.
+
+The updated `godot/physics_test.gd` run on 2026-09-19, Godot 4.7.2 Flatpak
+with Jolt, passed: 281 bodies, 285 shapes, 9,782 triangles, zero failed or
+skipped colliders. The probe fell from y 12.0 to y 8.295 and settled after
+87 frames. This establishes the real-cell contact smoke test, not a
+performance comparison or a survey of every shape. Both release-mode
+`real_collision` Rust tests also passed against the installed game.
 
 ## Walking, not just colliding (2026-09-18, branch `controller`)
 

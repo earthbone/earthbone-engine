@@ -42,7 +42,8 @@ meaning. Core crates are GPL-3.0-or-later, the SKSE shim crates are MIT.
 Other docs: `docs/status.md` (per subsystem detail), `docs/design-system.md` (what of the Creation Engine's design the
 engine preserves), `docs/editor.md` (Creation Kit replacement on the Godot
 editor), `docs/style.md` (Rust coding baseline), `docs/validation.md`
-(conformance harness against vanilla behaviour).
+(conformance harness against vanilla behaviour), and `docs/reference-audit.md`
+(exact source contracts, fixes, reference inventory and pending gameplay work).
 
 ## Creation Engine knowledge, under `../engine-refs/`
 
@@ -67,10 +68,13 @@ GPL tool is fine there, but no GPL derived code may reach the MIT shim crates.
   report branch, commit, test count and what is untested.
 - Edit tool for source edits. The auto-mode classifier blocks large scripted
   edits.
-- Gate before commit: `cargo check --workspace`, clippy clean on the touched
-  crate, `cargo test -p <crate>`. Clippy the workspace with `--all-features`
-  too, since code behind an off-by-default feature escapes the normal run and
-  rots: that is how the `dds` encode path drifted until 2026-09-18.
+- Run `./tools/lint.sh` before every commit. It includes formatting, three
+  workspace clippy passes (normal, all features/all targets, no default
+  features/all targets), comment and prose checks, Taplo, markdownlint, fuzz
+  formatting and workspace tests. See `AGENTS.md` for the full gate.
+- Show a short diff summary and wait for explicit approval before committing
+  or merging. Keep all writes in your own worktree and leave other active
+  worktrees alone.
 - Real-file tests are gated on
   `SKYRIM_DATA=/run/host/media/pengolodh/Data/SteamLibrary/steamapps/common/Skyrim Special Edition/Data`
   and skip cleanly when unset. Synthetic fixtures are written by the tests.
@@ -118,24 +122,24 @@ GPL tool is fine there, but no GPL derived code may reach the MIT shim crates.
 - Code forks at most three at a time. Progress is read from branch commits and
   the master gate, never from an agent's own report.
 
-## Status (2026-09-18, master 15dd049)
+## Reference-correction checkpoint, 2026-09-19
 
-Rounds 1, 2 and 3 are merged, and so is most of round 6: physics on Jolt, the
-character controller, door transitions and skinning. `input` and `playback`
-are the two round 6 items still in flight. Round 7 (streamed transitions,
-portal doorways) is written with done checks in `ENGINE-PLAN.md`. Workspace
-gate green: 711 tests in 85 suites, none ignored, clippy clean at both ends of
-the feature range, fmt and both linters clean, gated tests run against the
-installed game.
+Based on master `75cfb55`, with the reference fixes in this change. The full
+gate reports 835 test passes and every lint tool ran. The runtime registers
+345 stateful natives and 191 stubs. Waits have distinct gameplay, menu and
+game-hour clocks, persisted in SOEV version 2 with version 1 reading retained.
+Quest getters agree on the highest stage. Dispel calls preserve learned and
+equipped spells pending active effects. SPID deterministic fractional rules
+are reported as unsupported, with their percentage and marker preserved.
 
-What the engine does today, per subsystem, is in `docs/status.md`.
+The host keeps alpha and culling in material identity while sharing uploads,
+and sends transformed native collision shapes to Jolt. The installed-game
+startup check and Bannered Mare contact tests pass. Detailed evidence and
+limits are in `docs/reference-audit.md` and `docs/physics.md`.
 
-Read `ENGINE-PLAN.md` for what is next and why. Branches `input`, `playback`
-and `no-load-screen` are in flight. `portal-cells` is held until
-`no-load-screen` lands, because it builds on the split that item establishes
-between streaming a cell and attaching it. The remaining near items are mod
-data formats (SPID, KID, BOS, OAR) and the second passes on the behavior
-interpreter and packages.
+`docs/status.md` carries subsystem detail. `ENGINE-PLAN.md` and the reference
+map now scope missing gameplay work and original-runtime probes. Those future
+systems are pending, not delivered by the reference fixes.
 
 Adversarial testing has reached phase 3. Two findings worth carrying: an
 archive record states its unpacked size and neither decompressor checked it,
@@ -155,5 +159,5 @@ as a regression.
 
 Known gaps, none of them silent: no UI (Scaleform is not executed, a native
 layer with an MCM compatible config API is round 6), no combat, magic or
-dialogue, no LOD consumption, no terrain texture layers or water, no audio,
+dialogue, no LOD consumption, no terrain texture layers or water,
 no Proton launch attempted. Open risks are map section 12.

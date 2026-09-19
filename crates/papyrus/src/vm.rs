@@ -107,6 +107,10 @@ pub enum ThreadState {
     Runnable,
     /// Sleeping until the VM clock reaches the time.
     Sleeping(f64),
+    /// Real seconds including time spent in menus.
+    SleepingMenu(f64),
+    /// Accumulated game hours, independent of changes to timescale.
+    SleepingGame(f64),
     /// Waiting for a native to finish.
     Latent(LatentId),
     Done,
@@ -319,6 +323,8 @@ pub struct Vm {
     pub natives: NativeRegistry,
     pub log: Log,
     time: f64,
+    menu_time: f64,
+    game_hours: f64,
 }
 
 impl Vm {
@@ -1071,14 +1077,29 @@ impl Vm {
         true
     }
 
-    /// Move the clock and wake sleepers whose time has come.
+    /// Advance without a menu at Skyrim's default timescale of 20.
     pub fn advance(&mut self, seconds: f64) {
-        self.time += seconds;
+        self.advance_clocks(seconds, seconds.max(0.0) * 20.0 / 3600.0, false);
+    }
+
+    /// Advance each wait domain. The host supplies elapsed game hours and
+    /// whether gameplay is paused by a menu. Menu waits always see real time.
+    pub fn advance_clocks(&mut self, real_seconds: f64, game_hours: f64, menu_mode: bool) {
+        let seconds = real_seconds.max(0.0);
+        self.menu_time += seconds;
+        if !menu_mode {
+            self.time += seconds;
+            self.game_hours += game_hours.max(0.0);
+        }
         for t in &mut self.threads {
-            if let ThreadState::Sleeping(until) = t.state {
-                if until <= self.time {
-                    t.state = ThreadState::Runnable;
-                }
+            let ready = match t.state {
+                ThreadState::Sleeping(until) => until <= self.time,
+                ThreadState::SleepingMenu(until) => until <= self.menu_time,
+                ThreadState::SleepingGame(until) => until <= self.game_hours,
+                _ => false,
+            };
+            if ready {
+                t.state = ThreadState::Runnable;
             }
         }
     }
@@ -1338,7 +1359,12 @@ impl Vm {
             if let Some(d) = dest {
                 Self::store(&mut self.instances, frame, &d, Value::None);
             }
-            thread.state = ThreadState::Sleeping(self.time + secs.max(0.0) as f64);
+            let duration = f64::from(secs.max(0.0));
+            thread.state = match lname.as_str() {
+                "waitmenumode" => ThreadState::SleepingMenu(self.menu_time + duration),
+                "waitgametime" => ThreadState::SleepingGame(self.game_hours + duration),
+                _ => ThreadState::Sleeping(self.time + duration),
+            };
             return true;
         }
         false
