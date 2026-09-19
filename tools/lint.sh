@@ -75,6 +75,9 @@ fi
 # gated runs against the installed game and the 60 save corpus are tier 2 and
 # take about twelve minutes in debug, so they are not in the commit gate. Run
 # them with SKYRIM_DATA and SOE_TEST_SAVES set, in release, before a merge.
+step "performance runner contracts"
+python3 -m unittest discover -s tools/tests
+
 step "cargo test --workspace (tier 1, gated tests skipped)"
 env -u SKYRIM_DATA -u SOE_TEST_SAVE -u SOE_TEST_SAVES cargo test --workspace
 

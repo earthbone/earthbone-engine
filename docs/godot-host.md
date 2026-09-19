@@ -865,3 +865,17 @@ Glow, environment and other shader features remain unwired.
 Native boxes, spheres, capsules and convex hulls replace the former box-hull
 approximations. See [physics](physics.md) for geometry tests and measurement
 limits, and [the reference map](reference-audit.md) for future work.
+
+## Capacity checks
+
+`godot/bench.gd` now fails when its frame p99 exceeds 16.7 ms or its worst
+frame exceeds 33 ms. Environment overrides must be finite and positive.
+Headless runs fail because they cannot establish rendering performance.
+`godot/bench_metrics_test.gd` checks metric arithmetic headlessly.
+
+`godot/stress.gd` isolates geometry and unique-texture capacity with server
+RIDs and no per-instance nodes. `tools/performance.py` runs fresh-process
+ladders, repeats and refines breaches, and retains measurement logs. A soak
+repeatedly clears and rebuilds in one process. See
+[performance-limits.md](performance-limits.md) for commands, budgets, actual
+coverage, and the distinction between these renderer probes and gameplay.

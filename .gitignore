@@ -1,4 +1,4 @@
-target/
+/target
 *.esm
 *.esp
 *.bsa
@@ -8,3 +8,5 @@ target/
 !crates/*/tests/fixtures/**
 fuzz/target/
 fuzz/artifacts/
+performance-results/
+__pycache__/

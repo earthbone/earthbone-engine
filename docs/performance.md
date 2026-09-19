@@ -5,6 +5,10 @@ The harness is `crates/bench` (binary `soe-bench`) plus `crates/trace`
 from one machine and one commit, so a later run on the same machine can be
 diffed line by line. Vanilla numbers are a separate problem, see the end.
 
+Capacity sweeps, enforced frame budgets and sustained workload checks are
+documented in [performance-limits.md](performance-limits.md). Historical
+measurements below remain tied to their recorded revisions.
+
 ## Machine
 
 - AMD Ryzen 9 7900X, 12 cores, 24 threads, up to 5.7 GHz
@@ -27,7 +31,6 @@ and a `.txt` summary next to it), `all`. Each measurement prints as
 (default 3). The Godot frame benchmark:
 
 ```text
-SKYRIM_DATA="<Data>" godot --headless --path godot --script bench.gd
 SKYRIM_DATA="<Data>" godot --path godot --script bench.gd
 ```
 

@@ -275,3 +275,12 @@ cannot catch).
 The determinism hash follows as commit six once the `packages` and
 `natives-2` branches are on master, since both edit `world.rs` and the hash
 must cover the fields they add.
+
+## Performance limits follow-up, 2026-09-19
+
+The old blockers for actor stress no longer apply to the travel-package path.
+`docs/performance-limits.md` describes the implemented thousand-actor check,
+CPU workload sweeps, frame gates, synthetic CI job and sustained workload
+runner. This does not complete the instruction-count gates, mod-loadout
+surveys or integrated gameplay stress listed above. A supported 24-hour
+runner is not evidence that a 24-hour workload has passed.

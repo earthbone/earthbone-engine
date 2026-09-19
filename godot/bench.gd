@@ -3,11 +3,10 @@ extends SceneTree
 ## Frame-time benchmark. Streams a cell (or an exterior block) through the
 ## real data path, then runs at least 600 frames and five seconds and prints
 ## percentiles (p50, p99, p99.9, worst) of the wall frame time, the
-## viewport's measured GPU and CPU render time, and the render setup time.
-## Headless runs have no renderer, so only the frame time means anything
-## there.
+## viewport's measured GPU and CPU render time.
+## Requires a windowed renderer. Headless invocations fail without claiming
+## rendering performance. Defaults: p99 <= 16.7 ms and worst <= 33 ms.
 ##
-##   SKYRIM_DATA=<Data> godot --headless --path godot --script bench.gd
 ##   SKYRIM_DATA=<Data> godot --path godot --script bench.gd
 ##
 ## Frame time is the wall clock between two _process calls. The
@@ -17,23 +16,24 @@ extends SceneTree
 ## came to call the Bannered Mare a 56 ms frame on 2026-09-17.
 ##
 ## Knobs, all environment variables:
+##   SOE_BENCH_P99_MS / SOE_BENCH_WORST_MS positive frame budgets
+##   SOE_BENCH_SECONDS  measurement duration, default 5
+##   SOE_BENCH_SOAK     1 to restream after each measured window
 ##   SOE_BENCH_CELL      editor id, default WhiterunBanneredMare
 ##   SOE_BENCH_RADIUS    set to stream the exterior block of that radius
 ##                       around SOE_BENCH_CELL instead of one interior
 ##   SOE_BENCH_BATCH     0 for one instance per surface, default 1
 ##   SOE_BENCH_CAPTURE   PNG path, windowed only, saved after the warm-up
 
-const FRAMES := 600
-const SECONDS := 5
+const Metrics := preload("res://bench_metrics.gd")
+var metrics := Metrics.new()
+var bench_cell := ""
+var bench_radius := ""
+var bench_extra: Dictionary = {}
 const WARM_UP := 10
 
 var frame := 0
-var frame_ms: Array[float] = []
 var last_tick := 0
-var measure_start := 0
-var render_setup_ms: Array[float] = []
-var gpu_ms: Array[float] = []
-var render_cpu_ms: Array[float] = []
 var streamed := false
 var done := false
 var scene_holder: Node3D
@@ -42,6 +42,12 @@ var capture_path := ""
 
 
 func _initialize() -> void:
+	metrics.fixed_viewport(get_root())
+	var error := metrics.configure()
+	if not error.is_empty() or DisplayServer.get_name() == "headless":
+		printerr("RESULT: ERROR: windowed renderer required. " + error)
+		quit(1)
+		return
 	var skyrim_data := OS.get_environment("SKYRIM_DATA")
 	if skyrim_data.is_empty():
 		printerr("RESULT: FAIL: SKYRIM_DATA is not set")
@@ -55,9 +61,19 @@ func _initialize() -> void:
 	if cell.is_empty():
 		cell = "WhiterunBanneredMare"
 	var radius_text := OS.get_environment("SOE_BENCH_RADIUS")
+	if not radius_text.is_empty() and (not radius_text.is_valid_int() or int(radius_text) < 0 or int(radius_text) > 128):
+		printerr("RESULT: ERROR: radius must be 0 to 128")
+		quit(1)
+		return
+	bench_cell = cell
+	bench_radius = radius_text
 	var batch := OS.get_environment("SOE_BENCH_BATCH") != "0"
 	capture_path = OS.get_environment("SOE_BENCH_CAPTURE")
 
+	call_deferred("_setup_scene", skyrim_data, cell, radius_text, batch)
+
+
+func _setup_scene(skyrim_data: String, cell: String, radius_text: String, batch: bool) -> void:
 	var scene_root := Node3D.new()
 	get_root().add_child(scene_root)
 	var streamer := ClassDB.instantiate("CellStreamerNode") as Node3D
@@ -93,8 +109,15 @@ func _initialize() -> void:
 		quit(1)
 		return
 	var stats: Dictionary = streamer.call("last_stats")
+	if stats["meshes_failed"] > 0:
+		printerr("RESULT: ERROR: some scene meshes failed to load")
+		quit(1)
+		return
 	for key in ["cells", "references", "statics", "meshes_parsed", "meshes_failed", "triangles", "surfaces", "materials", "largest_batch", "land_cells"]:
 		print("godot_%s %d count" % [key, stats[key]])
+	bench_extra = stats.duplicate()
+	bench_extra["load"] = int(radius_text) if not radius_text.is_empty() else 1
+	bench_extra["setup_ms"] = (finished - started) / 1000.0
 	print("godot_world %s worldspace" % stats["world"])
 	print("godot_cell_list %s cells" % stats["cell_list"])
 	print("godot_headless %s bool" % str(DisplayServer.get_name() == "headless"))
@@ -137,22 +160,6 @@ func _setup_camera() -> void:
 	print("godot_scene_extent %.1f m" % merged.size.length())
 
 
-func _percentile(sorted: Array[float], fraction: float) -> float:
-	if sorted.is_empty():
-		return 0.0
-	var index := int(floor(fraction * (sorted.size() - 1)))
-	return sorted[clampi(index, 0, sorted.size() - 1)]
-
-
-func _report(name: String, values: Array[float]) -> void:
-	var sorted := values.duplicate()
-	sorted.sort()
-	print("godot_%s_p50 %.3f ms" % [name, _percentile(sorted, 0.5)])
-	print("godot_%s_p99 %.3f ms" % [name, _percentile(sorted, 0.99)])
-	print("godot_%s_p999 %.3f ms" % [name, _percentile(sorted, 0.999)])
-	print("godot_%s_worst %.3f ms" % [name, _percentile(sorted, 1.0)])
-
-
 func _capture() -> void:
 	if capture_path.is_empty() or DisplayServer.get_name() == "headless":
 		return
@@ -173,39 +180,38 @@ func _process(_delta: float) -> bool:
 	if frame <= WARM_UP:
 		last_tick = now
 		return false
-	# Wall time between two _process calls: the whole frame, presentation
-	# included. Performance.TIME_PROCESS is sampled once a second, so it
-	# cannot give percentiles.
-	frame_ms.append((now - last_tick) / 1000.0)
+	var rid := get_root().get_viewport_rid()
+	metrics.observe((now - last_tick) / 1000.0, RenderingServer.viewport_get_measured_render_time_gpu(rid), RenderingServer.viewport_get_measured_render_time_cpu(rid))
 	last_tick = now
-	if measure_start == 0:
-		measure_start = now
-	render_setup_ms.append(RenderingServer.get_frame_setup_time_cpu() * 1000.0)
-	if DisplayServer.get_name() != "headless":
-		var rid := get_root().get_viewport_rid()
-		gpu_ms.append(RenderingServer.viewport_get_measured_render_time_gpu(rid))
-		render_cpu_ms.append(RenderingServer.viewport_get_measured_render_time_cpu(rid))
-	# At least FRAMES frames and at least SECONDS of wall time, so a scene
-	# that draws in a fraction of a millisecond still gets a sample long
-	# enough for the p99.9 and the worst hitch to mean something.
-	if frame < FRAMES + WARM_UP or now - measure_start < SECONDS * 1_000_000:
+	if not metrics.ready():
 		return false
-	done = true
-	print("godot_frames %d frames" % frame_ms.size())
-	print("godot_measured_wall %.3f s" % ((now - measure_start) / 1_000_000.0))
-	print("godot_frame_mean %.3f ms" % ((now - measure_start) / 1000.0 / frame_ms.size()))
-	_report("frame", frame_ms)
-	_report("render_setup_cpu", render_setup_ms)
-	_report("viewport_gpu", gpu_ms)
-	_report("viewport_cpu", render_cpu_ms)
-	print("godot_fps %.0f fps" % Performance.get_monitor(Performance.TIME_FPS))
-	print("godot_objects_drawn %d objects" % int(Performance.get_monitor(Performance.RENDER_TOTAL_OBJECTS_IN_FRAME)))
-	print("godot_primitives_drawn %d primitives" % int(Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME)))
-	print("godot_draw_calls %d calls" % int(Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME)))
-	print("godot_memory_static %.1f MB" % (Performance.get_monitor(Performance.MEMORY_STATIC) / 1_048_576.0))
-	print("godot_video_memory %.1f MB" % (Performance.get_monitor(Performance.RENDER_VIDEO_MEM_USED) / 1_048_576.0))
-	print("godot_texture_memory %.1f MB" % (Performance.get_monitor(Performance.RENDER_TEXTURE_MEM_USED) / 1_048_576.0))
-	print("godot_buffer_memory %.1f MB" % (Performance.get_monitor(Performance.RENDER_BUFFER_MEM_USED) / 1_048_576.0))
-	print("RESULT: PASS")
-	quit(0)
-	return true
+	var reporting_started := Time.get_ticks_usec()
+	var row := metrics.report(bench_extra)
+	for key in ["p50_ms", "p99_ms", "p999_ms", "worst_ms"]:
+		print("godot_frame_%s %.3f ms" % [key.trim_suffix("_ms"), row[key]])
+	if not metrics.rendered_work(row):
+		printerr("RESULT: ERROR: scene produced no rendered geometry")
+		done = true
+		quit(1)
+	elif not metrics.within_budget(row):
+		printerr("RESULT: FAIL: frame budget exceeded")
+		done = true
+		quit(2)
+	elif not metrics.soak or metrics.expired():
+		print("RESULT: PASS")
+		done = true
+		quit(0)
+	else:
+		metrics.next_window()
+		last_tick += Time.get_ticks_usec() - reporting_started
+		streamer_node.call("clear")
+		var built: int
+		if bench_radius.is_empty():
+			built = streamer_node.call("stream_cell", bench_cell)
+		else:
+			built = streamer_node.call("stream_exterior", bench_cell, int(bench_radius))
+		if built <= 0 or streamer_node.call("instance_count") != built:
+			printerr("RESULT: ERROR: restream failed or retained old instances")
+			done = true
+			quit(1)
+	return done

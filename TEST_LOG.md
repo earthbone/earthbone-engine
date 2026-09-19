@@ -343,3 +343,37 @@ decoding, and it asserts self consistency rather than correct pixels. The
 archive target only builds BSA with one folder, never BA2 and never the DX10
 texture rebuild path. Neither says anything about whether a file that decodes
 cleanly decodes *correctly*, which only the corpus tests against real data do.
+
+## Performance limits, 2026-09-19
+
+Branch `performance-limits`, based on `977ab4b`. Adds record-backed moving
+actor, script-arrival, connected-navigation, retained-streaming and mixed CPU
+workloads. The process runner repeats loads, refines a budget breach, preserves
+logs and rejects noisy or invalid measurements. Godot frame budgets now fail
+with exit code 2. Synthetic geometry and unique-texture probes use server RIDs.
+The synthetic CI job runs optimized mixed and thousand-actor checks.
+
+The new runner tests reject fast ticks with backlog, missing/invalid metrics,
+child crashes, timeouts, script errors, empty rendering and interrupted soaks.
+Rust checks verify actor movement, connected paths, script completion and
+bounded streaming residency. Godot arithmetic tests ran on 4.4.1 and 4.7.2.
+
+The first windowed probe exposed an initialization defect in the probe itself:
+Godot continued after a script error, rendered nothing and exited successfully.
+Scene construction now waits for the tree, rendered-work counters must be
+positive, and the runner rejects engine/script errors regardless of exit code.
+That invalid run is excluded from performance results.
+
+The script sweep found a repeated budget boundary at 2,816 passing calls per
+tick and 2,944 failing calls per tick with a 100,000-instruction slice. Mixed
+work passed at 256 and failed at 384, with inconsistent repeats at 320. The
+report preserves that uncertainty. Geometry stayed within budget through
+65,536 instances. Texture repeats at 64 disagreed after a 44.93 ms worst frame.
+A 60-second script soak then found 243 MiB RSS growth with no backlog.
+The real exterior startup exceeded a preset 8 GiB RSS ceiling before frame
+measurement. See `docs/performance-limits.md` for the executed-run table and
+limitations.
+
+These probes cannot establish combat, crowd collision, animation or complete
+modded gameplay capacity. GPU acceptance requires a windowed machine. Long
+soaks are implemented but no 24-hour run is claimed. No new dependencies.
