@@ -67,6 +67,9 @@ fn every_save_in_the_corpus_parses() {
     let mut failures = Vec::new();
     let mut total_change_forms = 0usize;
     let mut total_stages = 0usize;
+    let mut total_values = 0usize;
+    let mut total_arrays = 0usize;
+    let mut total_value_bytes = 0usize;
 
     println!(
         "{:<48} {:>5} {:>7} {:>8} {:>7} {:>7} {:>9}",
@@ -97,12 +100,48 @@ fn every_save_in_the_corpus_parses() {
             }
         };
         let papyrus = match save.papyrus() {
-            Some(Ok(block)) => block.block_len,
+            Some(Ok(block)) => {
+                assert_eq!(block.instances.len(), block.instance_data.len());
+                assert_eq!(block.references.len(), block.reference_data.len());
+                assert_eq!(block.arrays.len(), block.array_data.len());
+                let raw = &save
+                    .table_3
+                    .iter()
+                    .find(|data| data.kind == 1001)
+                    .unwrap()
+                    .data;
+                let rewritten = block.value_data_bytes().expect("typed values encode");
+                assert_eq!(
+                    rewritten,
+                    raw[block.data_start..block.decoded_len],
+                    "{}: typed Papyrus values changed",
+                    name_of(path)
+                );
+                let values = block
+                    .instance_data
+                    .iter()
+                    .chain(&block.reference_data)
+                    .map(|data| data.variables.len())
+                    .sum::<usize>()
+                    + block
+                        .array_data
+                        .iter()
+                        .map(|data| data.variables.len())
+                        .sum::<usize>();
+                assert!(values > 0, "{}: no Papyrus values decoded", name_of(path));
+                total_values += values;
+                total_arrays += block.arrays.len();
+                total_value_bytes += rewritten.len();
+                block.block_len
+            }
             Some(Err(error)) => {
                 failures.push(format!("{}: papyrus: {error}", name_of(path)));
                 0
             }
-            None => 0,
+            None => {
+                failures.push(format!("{}: no Papyrus block", name_of(path)));
+                0
+            }
         };
 
         total_change_forms += save.change_forms.len();
@@ -124,6 +163,7 @@ fn every_save_in_the_corpus_parses() {
         "\n{} saves, {total_change_forms} change forms, {total_stages} quest stage entries",
         saves.len()
     );
+    println!("{total_values} Papyrus values, {total_arrays} arrays, {total_value_bytes} typed payload bytes round tripped");
 
     assert!(
         failures.is_empty(),

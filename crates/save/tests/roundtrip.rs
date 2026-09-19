@@ -74,12 +74,16 @@ fn build(compression: Compression) -> Vec<u8> {
     };
     form.write(&mut change_forms);
 
-    // Table three carries a minimal Papyrus block: version, no strings, no
-    // scripts, no instances.
+    // Table three carries a Papyrus prefix through the second pass: version,
+    // empty strings, scripts, instances, references, arrays and active scripts.
     let mut papyrus_block = Vec::new();
     papyrus_block.extend_from_slice(&2u16.to_le_bytes());
     papyrus_block.extend_from_slice(&0u32.to_le_bytes());
     papyrus_block.extend_from_slice(&0u32.to_le_bytes());
+    papyrus_block.extend_from_slice(&0u32.to_le_bytes());
+    papyrus_block.extend_from_slice(&0u32.to_le_bytes());
+    papyrus_block.extend_from_slice(&0u32.to_le_bytes());
+    papyrus_block.extend_from_slice(&0u32.to_le_bytes()); // runtime ID
     papyrus_block.extend_from_slice(&0u32.to_le_bytes());
     let mut table_3 = Vec::new();
     table_3.extend_from_slice(&1001u32.to_le_bytes());
@@ -264,6 +268,11 @@ fn a_papyrus_block_is_found_and_read() {
     assert_eq!(papyrus.vm_version, 2);
     assert!(papyrus.strings.is_empty());
     assert!(papyrus.instances.is_empty());
+    assert!(papyrus.references.is_empty());
+    assert!(papyrus.arrays.is_empty());
+    assert!(papyrus.active_scripts.is_empty());
+    assert!(papyrus.value_data_bytes().unwrap().is_empty());
+    assert_eq!(papyrus.decoded_len, papyrus.block_len);
 }
 
 #[test]

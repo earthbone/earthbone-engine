@@ -21,7 +21,12 @@ open implementation, so both were read first.
   sit inside `headerSize`, that Special Edition is told from Legendary by the
   header `version` alone, that the third global data table count is short by
   one, and that Special Edition widens Papyrus string counts and element ids.
-  No code was copied, it was read as a second opinion on layout.
+  The Papyrus second pass follows `papyrus/Papyrus.java`,
+  `DefinedElement.java`, `ScriptInstance.java`, `Reference.java`,
+  `ArrayInfo.java`, `ActiveScript.java`, `Variable.java` and `Type.java`.
+  These supply table order, optional fields, ID widths and value tags. The
+  Java reader is not a Rust library, so this crate implements the documented
+  layouts locally. No source code was copied.
 - The npm `@save-ward/save-parser-skyrim` was not used. It states that it does
   not support Special Edition, which is the only edition this crate targets.
 
@@ -65,23 +70,29 @@ when they were wrong and neither announces itself.
 - Every change form header, and the `QUST` payload far enough to read quest
   stages and their done flags.
 - Type 1001, the Papyrus block: the string table, the script definitions with
-  their member descriptors, and the script instances that bind a script to a
-  form.
+  their member descriptors, script instances that bind scripts to forms,
+  reference and array headers, runtime ID and active-script headers. The
+  second pass decodes instance and reference variables and array elements.
+
+Papyrus values include null, object and struct references, strings, integers,
+floats, booleans, nested variants and array references. String indices are
+checked, counts are bounded by remaining bytes, and variant nesting is limited
+to 128 levels. Each second-pass ID must occur exactly once in its header table.
+Payloads retain file order, which can differ from header order. Null and boolean
+payloads and float bit patterns survive re-encoding. Unresolved object and
+array references remain IDs, since a dangling reference is readable save data.
 
 ## What is left raw
 
 Change form payloads other than `QUST` stay as bytes, decoded on demand. The
-Papyrus block is decoded through the script instances and the rest is kept
-whole: the reference table, the arrays, the active scripts, and the per
-instance variable data.
+Papyrus block is decoded through array elements. Active-script bodies, stack
+frames, function messages, suspended stacks and the remaining tables stay raw.
+Only active-script headers precede instance variables. Stack bodies follow
+the decoded second-pass values, so they do not block reading those values.
 
-Those variables are the natural next step and the reason they are not here is
-structural rather than effort. The file stores instance variables in a second
-pass placed after the active scripts, not next to their instance, so reaching
-them means walking the active script and stack frame structures first. That is
-its own piece of work, and the script instances alone already answer which
-script is attached to which object, which is what `BindReport` answers on our
-side.
+This is inspection, not VM restoration. Values are not applied to the running
+engine, inherited member descriptors are not joined to variable slots, and
+neither stack execution nor pending calls can be resumed from a vanilla save.
 
 ## Round trip
 
@@ -89,6 +100,11 @@ Everything not decoded is kept as raw bytes, so the body can be written back
 exactly. `Save::split` gives the decompressed body and `Save::body_bytes` gives
 the body this reader would write, and the two are compared byte for byte over
 the whole corpus.
+
+That raw-body check alone cannot validate decoded Papyrus values. The corpus
+also re-encodes the typed second pass with `Papyrus::value_data_bytes` and
+compares it with the original slice from `data_start` to `decoded_len`. This
+method is a diagnostic encoder for the decoded values, not a save editor.
 
 The file as a whole is deliberately not compared. Rebuilding it re-runs the
 compressor and nothing promises an encoder reproduces the game's exact output,
@@ -107,7 +123,7 @@ to name what it found. A form the mapping does not cover becomes a comment
 carrying its FormID rather than being dropped, so the output accounts for
 everything in the save.
 
-## Live run (2026-09-18)
+## Live run (2026-09-19)
 
 Sixty real Special Edition saves, supplied by the user and held outside this
 repository under `../engine-refs/saves/`. Saves are user data: none is
@@ -123,6 +139,10 @@ Dragonborn.
 |---|---|
 | Saves parsed | 60 of 60 |
 | Bodies round tripped byte for byte | 60 of 60 |
+| Typed Papyrus value payloads round tripped byte for byte | 60 of 60 |
+| Papyrus value slots decoded, including array elements | 15,900,669 |
+| Papyrus arrays decoded | 19,194 |
+| Typed second-pass bytes re-encoded | 211,771,719 |
 | Change forms read | 1,344,172 |
 | Quest stage entries read | 92,077 |
 | Globals per save | 933, the same in every save |
