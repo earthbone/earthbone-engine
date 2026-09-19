@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! The node that turns a keyboard and a mouse into a character walking
+//! The node that turns input devices into a character walking
 //! around a cell.
 //!
 //! Thin on purpose, the same way `godot_layer` is. Every rule lives in
@@ -18,20 +18,21 @@
 //! rather than a `Camera3D` node for the reason the rest of the crate avoids
 //! nodes.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::sync::Arc;
 
 use godot::classes::{
-    Engine, INode3D, Input, InputEventKey, InputEventMouseMotion, InputMap, Node3D,
-    RenderingServer, Viewport,
+    Engine, INode3D, Input, InputEventJoypadButton, InputEventJoypadMotion, InputEventKey,
+    InputEventMouseButton, InputEventMouseMotion, InputMap, Node3D, RenderingServer, Viewport,
 };
-use godot::global::Key;
+use godot::global::{JoyAxis, JoyButton, Key, MouseButton};
 use godot::prelude::*;
 use soe_physics::{BodyId, CharacterSettings, PhysicsWorld, SimpleWorld, Vec3};
 
 use crate::camera::{CameraMode, CameraMotion, CameraRig, Eye};
 use crate::data_source::DataSource;
+use crate::input::devices::{godot_mouse_for, godot_pad_for, Devices, PadControl};
 use crate::input::{godot_key_for, Action, Bindings, ControlMap, Driver, InputState};
 
 /// How far ahead of the eye an activate ray reaches, in Skyrim units. The
@@ -55,6 +56,9 @@ pub struct PlayerNode {
     /// `advance` by hand with a fixed step.
     #[export]
     auto_step: bool,
+    /// Stick look rate in mouse units per second, before camera sensitivity.
+    #[export]
+    gamepad_look_speed: f32,
     rig: CameraRig,
     motion: CameraMotion,
     bindings: Bindings,
@@ -69,7 +73,10 @@ pub struct PlayerNode {
     /// Whether the activate ray hit something on the last step, reported to
     /// GDScript so a prompt can be drawn without a second raycast.
     last_activate_hit: bool,
+    action_latches: BTreeMap<Action, u64>,
     held_actions: BTreeSet<Action>,
+    devices: Devices,
+    input_focused: bool,
 }
 
 #[godot_api]
@@ -79,6 +86,7 @@ impl INode3D for PlayerNode {
             base,
             capture_mouse: true,
             auto_step: true,
+            gamepad_look_speed: 800.0,
             rig: CameraRig::default(),
             motion: CameraMotion::new(Vec3::ZERO, CharacterSettings::default().height),
             bindings: Bindings::default(),
@@ -89,11 +97,22 @@ impl INode3D for PlayerNode {
             camera: None,
             pending_look: (0.0, 0.0),
             last_activate_hit: false,
+            action_latches: BTreeMap::new(),
             held_actions: BTreeSet::new(),
+            devices: Devices::default(),
+            input_focused: true,
         }
     }
 
     fn ready(&mut self) {
+        if let Some(mut window) = self.base().get_window() {
+            window.connect("focus_exited", &self.base().callable("input_focus_lost"));
+            window.connect("focus_entered", &self.base().callable("input_focus_gained"));
+        }
+        Input::singleton().connect(
+            "joy_connection_changed",
+            &self.base().callable("joy_connection_changed"),
+        );
         self.register_actions();
         self.create_camera();
         if self.capture_mouse {
@@ -102,10 +121,46 @@ impl INode3D for PlayerNode {
     }
 
     fn unhandled_input(&mut self, event: Gd<godot::classes::InputEvent>) {
+        if !self.input_focused {
+            return;
+        }
         if let Ok(motion) = event.try_cast::<InputEventMouseMotion>() {
             let rel = motion.get_relative();
             self.pending_look.0 += rel.x;
             self.pending_look.1 += rel.y;
+        }
+    }
+
+    fn input(&mut self, event: Gd<godot::classes::InputEvent>) {
+        if !self.input_focused {
+            return;
+        }
+        if let Ok(key) = event.clone().try_cast::<InputEventKey>() {
+            self.devices.key(
+                i64::from(key.get_keycode().ord()),
+                key.is_pressed(),
+                &self.bindings,
+            );
+        } else if let Ok(button) = event.clone().try_cast::<InputEventMouseButton>() {
+            self.devices.mouse_button(
+                button.get_button_index().ord(),
+                button.is_pressed(),
+                &self.bindings,
+            );
+        } else if let Ok(button) = event.clone().try_cast::<InputEventJoypadButton>() {
+            self.devices.pad_button(
+                button.get_device(),
+                button.get_button_index().ord(),
+                button.is_pressed(),
+                &self.bindings,
+            );
+        } else if let Ok(axis) = event.try_cast::<InputEventJoypadMotion>() {
+            self.devices.pad_axis(
+                axis.get_device(),
+                axis.get_axis().ord(),
+                axis.get_axis_value(),
+                &self.bindings,
+            );
         }
     }
 
@@ -115,8 +170,9 @@ impl INode3D for PlayerNode {
         }
     }
 
-    fn process(&mut self, _delta: f64) {
+    fn process(&mut self, delta: f64) {
         if self.auto_step {
+            self.look_stick(delta);
             let (dx, dy) = std::mem::take(&mut self.pending_look);
             self.rig.look(dx, dy);
             let fraction = Engine::singleton().get_physics_interpolation_fraction() as f32;
@@ -137,6 +193,36 @@ impl INode3D for PlayerNode {
 
 #[godot_api]
 impl PlayerNode {
+    #[func]
+    fn input_focus_lost(&mut self) {
+        self.input_focused = false;
+        self.devices = Devices::default();
+        self.pending_look = (0.0, 0.0);
+        self.action_latches.clear();
+        self.held_actions.clear();
+        let mut input = Input::singleton();
+        for action in Action::all() {
+            input.action_release(action.event_name());
+        }
+    }
+
+    #[func]
+    fn input_focus_gained(&mut self) {
+        self.input_focus_lost();
+        self.input_focused = true;
+        // Godot can retain just-pressed flags until the frame ends.
+        let until = Engine::singleton().get_process_frames() + 1;
+        self.action_latches = Action::all().into_iter().map(|a| (a, until)).collect();
+    }
+
+    /// Clear a disconnected pad's buttons and axes before the next step.
+    #[func]
+    fn joy_connection_changed(&mut self, device: i32, connected: bool) {
+        if !connected {
+            self.devices.disconnect(device, &self.bindings);
+        }
+    }
+
     /// Open the game data this node reads cells from. Mirrors
     /// `CellStreamerNode::load_data`, and the two can point at the same
     /// install independently.
@@ -179,7 +265,7 @@ impl PlayerNode {
         true
     }
 
-    /// Replace the keyboard bindings with defaults plus a control-map overlay.
+    /// Replace device bindings with defaults plus a control-map overlay.
     /// Refreshes InputMap even when called after the node entered the tree.
     #[allow(clippy::needless_pass_by_value)]
     #[func]
@@ -227,6 +313,9 @@ impl PlayerNode {
     /// instead of relying on frame timing.
     #[func]
     pub fn advance(&mut self, delta: f64) {
+        if !self.auto_step {
+            self.look_stick(delta);
+        }
         let (dx, dy) = std::mem::take(&mut self.pending_look);
         self.rig.look(dx, dy);
 
@@ -311,6 +400,12 @@ impl PlayerNode {
 }
 
 impl PlayerNode {
+    fn look_stick(&mut self, delta: f64) {
+        let (x, y) = self.devices.look(&self.bindings);
+        let scale = self.gamepad_look_speed * delta as f32;
+        self.rig.look(x * scale, y * scale);
+    }
+
     fn character(&self) -> Option<&soe_physics::Character> {
         let world = self.world.as_ref()?;
         world.character(self.character?)
@@ -350,6 +445,7 @@ impl PlayerNode {
     /// path is what honours the full chord. None of the default bindings is a
     /// chord, so this affects only a control map that introduces one.
     fn register_actions(&mut self) {
+        self.devices.rebind(&self.bindings);
         let mut input = Input::singleton();
         self.held_actions = Action::all()
             .iter()
@@ -360,6 +456,11 @@ impl PlayerNode {
                     && (input.is_action_pressed(&name) || input.is_action_just_pressed(&name))
             })
             .collect();
+        self.held_actions
+            .extend(Action::all().into_iter().filter(|a| self.devices.held(*a)));
+        let until = Engine::singleton().get_process_frames() + 1;
+        self.action_latches
+            .extend(self.held_actions.iter().map(|a| (*a, until)));
         let mut map = InputMap::singleton();
         for action in Action::all() {
             let name = StringName::from(action.event_name());
@@ -384,48 +485,84 @@ impl PlayerNode {
                 event.set_keycode(Key::from_ord(code as i32));
                 map.action_add_event(&name, &event);
             }
+            if let Some(binding) = self.bindings.mouse(action) {
+                for chord in &binding.0 {
+                    if let Some(index) = chord.0.last().and_then(|code| godot_mouse_for(*code)) {
+                        let mut event = InputEventMouseButton::new_gd();
+                        event.set_button_index(MouseButton::from_ord(index));
+                        map.action_add_event(&name, &event);
+                    }
+                }
+            }
+            if let Some(binding) = self.bindings.gamepad(action) {
+                for chord in &binding.0 {
+                    match chord.0.last().and_then(|code| godot_pad_for(*code)) {
+                        Some(PadControl::Button(index)) => {
+                            let mut event = InputEventJoypadButton::new_gd();
+                            event.set_device(-1);
+                            event.set_button_index(JoyButton::from_ord(index));
+                            map.action_add_event(&name, &event);
+                        }
+                        Some(PadControl::Trigger(index)) => {
+                            let mut event = InputEventJoypadMotion::new_gd();
+                            event.set_device(-1);
+                            event.set_axis(JoyAxis::from_ord(index));
+                            event.set_axis_value(1.0);
+                            map.action_add_event(&name, &event);
+                        }
+                        None => {}
+                    }
+                }
+            }
         }
     }
 
-    /// Gate multi-key bindings on every key, then detect their action edge.
-    /// InputMap alone represents only the last key of an arbitrary chord.
+    /// Read full chords from device state and consume each press once.
     fn gather(&mut self) -> InputState {
+        if !self.input_focused {
+            return InputState::default();
+        }
         let input = Input::singleton();
         let held_now: BTreeSet<Action> = Action::all()
-            .iter()
-            .copied()
+            .into_iter()
             .filter(|&a| {
-                let Some(binding) = self.bindings.get(a) else {
-                    return false;
-                };
-                if binding.0.iter().any(|c| c.0.len() > 1) {
-                    binding.held(&|vk| {
-                        godot_key_for(vk)
-                            .is_some_and(|k| input.is_key_pressed(Key::from_ord(k as i32)))
-                    })
-                } else {
-                    input.is_action_pressed(&StringName::from(a.event_name()))
-                }
+                self.devices.held(a)
+                    || if self.bindings.uses_action_state(a) {
+                        input.is_action_pressed(&StringName::from(a.event_name()))
+                    } else {
+                        false
+                    }
             })
             .collect();
-        let mut observed = held_now.clone();
+        let frame = Engine::singleton().get_process_frames();
+        self.action_latches.retain(|_, until| frame <= *until);
+        let mut pressed_now = self.devices.take_pressed();
         for action in Action::all() {
-            let has_chord = self
-                .bindings
-                .get(action)
-                .is_some_and(|b| b.0.iter().any(|c| c.0.len() > 1));
-            if !has_chord && input.is_action_just_pressed(&StringName::from(action.event_name())) {
-                observed.insert(action);
+            if self.bindings.uses_action_state(action) {
+                let name = StringName::from(action.event_name());
+                let rising = held_now.contains(&action) && !self.held_actions.contains(&action);
+                let short_tap = input.is_action_just_pressed(&name)
+                    && !self.action_latches.contains_key(&action);
+                if rising || short_tap {
+                    pressed_now.insert(action);
+                }
             }
         }
+        self.action_latches.extend(
+            pressed_now
+                .iter()
+                .filter(|a| self.bindings.uses_action_state(**a))
+                .map(|a| (*a, frame + 1)),
+        );
         let held = |a: Action| held_now.contains(&a);
-        let pressed = |a: Action| observed.contains(&a) && !self.held_actions.contains(&a);
+        let pressed = |a: Action| pressed_now.contains(&a);
         let axis = |neg: Action, pos: Action| {
             f32::from(u8::from(held(pos))) - f32::from(u8::from(held(neg)))
         };
+        let stick = self.devices.movement(&self.bindings);
         let state = InputState {
-            move_x: axis(Action::StrafeLeft, Action::StrafeRight),
-            move_y: axis(Action::Back, Action::Forward),
+            move_x: axis(Action::StrafeLeft, Action::StrafeRight) + stick.0,
+            move_y: axis(Action::Back, Action::Forward) + stick.1,
             look_dx: 0.0,
             look_dy: 0.0,
             sprint: held(Action::Sprint),
@@ -437,7 +574,7 @@ impl PlayerNode {
             toggle_pov_pressed: pressed(Action::TogglePov),
             toggle_always_run_pressed: pressed(Action::ToggleAlwaysRun),
         };
-        self.held_actions = observed;
+        self.held_actions = held_now;
         state
     }
 

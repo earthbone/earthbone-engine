@@ -30,6 +30,8 @@ use soe_physics::{Vec3, FAST_WALK_SPEED, JOG_SPEED, RUN_SPEED, WALK_SPEED};
 
 use crate::camera::CameraRig;
 
+pub mod devices;
+
 /// The id a control map uses for "this device does not fire this event".
 pub const UNMAPPED: u32 = 0xff;
 
@@ -405,11 +407,14 @@ impl Action {
     }
 }
 
-/// What each action is bound to on the keyboard, after the control map has
-/// had its say over the defaults.
+/// Gameplay device bindings after applying the control map.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Bindings {
     keyboard: BTreeMap<Action, Binding>,
+    mouse: BTreeMap<Action, Binding>,
+    gamepad: BTreeMap<Action, Binding>,
+    movement: Binding,
+    look: Binding,
 }
 
 impl Default for Bindings {
@@ -442,6 +447,10 @@ impl Bindings {
                 .into_iter()
                 .map(|(a, k)| (a, Binding::key(k)))
                 .collect(),
+            mouse: BTreeMap::new(),
+            gamepad: BTreeMap::new(),
+            movement: Binding::unmapped(),
+            look: Binding::unmapped(),
         }
     }
 
@@ -453,6 +462,16 @@ impl Bindings {
                 if !m.keyboard.is_unmapped() {
                     self.keyboard.insert(action, m.keyboard.clone());
                 }
+                self.mouse.insert(action, m.mouse.clone());
+                self.gamepad.insert(action, m.gamepad.clone());
+            }
+        }
+        if let Some(context) = map.gameplay() {
+            if let Some(m) = context.find("Move") {
+                self.movement = m.gamepad.clone();
+            }
+            if let Some(m) = context.find("Look") {
+                self.look = m.gamepad.clone();
             }
         }
     }
@@ -460,6 +479,26 @@ impl Bindings {
     #[must_use]
     pub fn get(&self, action: Action) -> Option<&Binding> {
         self.keyboard.get(&action)
+    }
+
+    #[must_use]
+    pub fn mouse(&self, action: Action) -> Option<&Binding> {
+        self.mouse.get(&action)
+    }
+
+    #[must_use]
+    pub fn gamepad(&self, action: Action) -> Option<&Binding> {
+        self.gamepad.get(&action)
+    }
+
+    /// InputMap can represent simple keyboard actions without extra gating.
+    #[must_use]
+    pub fn uses_action_state(&self, action: Action) -> bool {
+        self.mouse(action).is_none_or(Binding::is_unmapped)
+            && self.gamepad(action).is_none_or(Binding::is_unmapped)
+            && !self
+                .get(action)
+                .is_some_and(|b| b.0.iter().any(|c| c.0.len() > 1))
     }
 
     /// Whether the action's keys are down under the caller's key probe.
@@ -537,7 +576,7 @@ impl InputState {
 pub struct Intent {
     /// Flat, normalised, in Skyrim units. Zero means stand still.
     pub direction: Vec3,
-    /// One of the game's movement speeds, in units per second.
+    /// A game movement speed scaled by stick strength, in units per second.
     pub speed: f32,
     pub jump: bool,
     /// The crouch state that should hold now, not an edge.
@@ -595,7 +634,7 @@ impl Driver {
 
         Intent {
             direction,
-            speed,
+            speed: speed * input.move_x.hypot(input.move_y).min(1.0),
             // A sneaking character cannot jump, which is vanilla.
             jump: input.jump_pressed && !self.sneaking,
             crouch: self.sneaking,
@@ -744,7 +783,7 @@ PreviousFocus\t0x10+0x09,0xa1+0x09\t0xff\t0x0100\t0\t0\t0\t0x10
         let mut b = Bindings::default();
         let before = b.clone();
         b.apply_control_map(&map());
-        assert_eq!(b, before);
+        assert_eq!(b.keyboard, before.keyboard);
     }
 
     #[test]

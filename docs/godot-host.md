@@ -776,11 +776,59 @@ late control-map load. Rebinding releases old held actions, full chords are
 checked, and toggle edges are consumed once while single-key taps between
 ticks are retained. PlayerNode releases mouse capture on exit.
 
-The mouse and gamepad binding columns are still parsed but unused. Mouse
-motion drives look. Right/left modifier scan codes map to Godot's shared
+The `device-bindings` follow-up consumes the mouse and gamepad columns.
+Mouse motion drives look. Right/left modifier scan codes map to Godot's shared
 modifier keys, so side-specific chords are not distinguished. The walkthrough
 is a movement prototype. It does not activate game references, cross doors,
 play footsteps or run the gameplay VM.
+
+### Mouse and gamepad bindings
+
+`input::devices` translates the codes declared in CommonLibSSE-NG's
+`BSWin32MouseDevice.h` and `BSWin32GamepadDevice.h`, cross-checked against
+SKSE's `InputMap.cpp`, into the indices documented by Godot's `@GlobalScope`.
+Godot exposes the left, right, middle and two side mouse buttons and vertical
+wheel pulses. Bethesda mouse codes 5 to 7 have no Godot counterpart and remain
+unsupported. Gamepad buttons use Bethesda's masks, with codes `0x9` and `0xa`
+for the triggers. Stick codes `0xb` and `0xc` bind the `Move` and `Look` events.
+These use the gameplay context and VFS overlay already used by keyboard input.
+
+Each controller keeps its own state. A chord cannot combine buttons from two
+controllers. Keyboard, mouse and pad bindings contribute to one action, so
+pressing a second device while the action is held does not toggle it again.
+Received short taps survive until the next simulation tick. Rebinding clears
+pending presses and seeds held state without creating another press. Unplugging
+a controller clears its buttons and axes while preserving presses already
+received. Losing window focus clears all input, and focus restoration waits
+for fresh events.
+
+Sticks use a radial dead zone of 0.2 and rescale the remaining range to one.
+Movement speed follows stick magnitude and diagonal input never exceeds the
+selected movement speed. The strongest controller vector wins, with device
+ID order breaking ties. Triggers fire above 0.5. Stick look uses elapsed time
+and the exported `gamepad_look_speed`, initially 800 mouse units per second
+before the camera's sensitivity. These are engine defaults, not measured
+vanilla response curves.
+
+InputMap publishes keyboard, mouse and pad button/trigger events. A chord
+publishes its final button for inspection, while PlayerNode checks the whole
+chord from received events. Synthetic `Input.action_press` remains available
+for simple keyboard-only actions. Device-bound actions and chords require
+input events. Godot 4.4 can report a synthetic action's just-pressed flag one
+process frame after its held state. A latch consumes that delayed flag once.
+Synthetic taps wholly between samples during that latch may coalesce. Physical
+presses use the event queue and bypass the latch.
+
+`godot/device_test.gd` checks mouse chords and wheel pulses, pad chords and
+alternatives, short taps, mixed-device holds, trigger rebinding, disconnection,
+focus restoration, stick direction and frame-rate independence, and automatic
+physics/process input. Rust tests also check analog movement strength,
+dead-zone boundaries, invalid axes and controller ownership. Physical device
+drivers, vibration, hardware feel and non-US keyboard layouts remain untested.
+
+The device and existing player scripts passed on Godot 4.4.1 and 4.7.2.
+The 4.7.2 player run also loaded the installed PC control map, built 361
+Bannered Mare collision bodies and moved the player after settling.
 
 ### Running the player (2026-09-19)
 
@@ -811,7 +859,7 @@ then tested movement interactively and reported rug flicker, missing beds,
 broken kitchen flooring and slow startup. The capture proves textured
 geometry is drawn, not visual correctness. These defects remain open pending
 a comparison with the merged reference fixes. Non-US keyboard layouts,
-side-specific modifiers and short chord taps between ticks remain unvalidated.
+side-specific modifiers remain unvalidated.
 The local Godot Input documentation supplied the distinction between held
 actions, just-pressed edges and injected input events used by the test.
 
