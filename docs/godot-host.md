@@ -1,5 +1,12 @@
 # godot-host: streaming, mesh and terrain for the Godot 4 host
 
+The [large world physics survey](physics.md#large-world-boundary-survey-2026-09-19)
+records the signed cell offsets, tolerances and Jolt measurements for the
+`large-world-physics` branch. Its Rust mesh conversion test and Godot server
+script cover sampled positions through 256 cells per horizontal axis. Rendering,
+origin shifting and a full mod-worldspace streaming test remain outside that
+survey.
+
 Crate `soe-godot-host` (`crates/godot-host`). A GDExtension in Rust on godot-rust gdext
 0.5.5 (crates.io 2026-08-09, the same version as `engine-refs/gdext`), API floor Godot 4.4
 because Jolt became the built-in physics there. The crate builds and tests with cargo alone.
