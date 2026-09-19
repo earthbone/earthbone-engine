@@ -7,16 +7,17 @@
 //! vanilla navmeshes of adjacent cells join, and the graph does not care
 //! which mesh a node belongs to once the links are in.
 //!
-//! Paths come back as the triangles crossed and as a polyline through the
-//! midpoints of the crossed edges. A segment from a triangle's centroid to
-//! the midpoint of one of its edges stays inside that triangle, so the
-//! polyline never leaves the walkable surface. It is not the shortest
-//! polyline, that needs string pulling, which is noted as future work.
+//! Paths retain the A* triangle corridor. Detour-style string pulling selects
+//! XY corners, then intersects every crossed portal to retain terrain height
+//! and waypoint ownership. Non-geometric graph links remain explicit segments.
 
 use std::cmp::Ordering;
 use std::collections::{BinaryHeap, HashMap};
 use std::sync::OnceLock;
 
+mod funnel;
+#[cfg(test)]
+mod funnel_tests;
 #[cfg(test)]
 mod query_tests;
 mod spatial;
@@ -119,8 +120,10 @@ impl Mesh {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Path {
     pub nodes: Vec<NodeId>,
-    /// Start point, the midpoint of every crossed edge, end point.
+    /// Start, portal crossings along the pulled route, and end.
     pub points: Vec<[f32; 3]>,
+    /// Triangle entered at each point, parallel to `points`.
+    pub point_nodes: Vec<NodeId>,
     /// Sum of centroid to centroid distances, the cost A* minimised.
     pub cost: f32,
 }
@@ -357,6 +360,15 @@ impl NavGraph {
     /// heuristic (which is admissible, a straight line is never longer than
     /// the walked route).
     pub fn find_path(&self, from: NodeId, to: NodeId) -> Option<Path> {
+        self.find_path_impl(from, to, None)
+    }
+
+    fn find_path_impl(
+        &self,
+        from: NodeId,
+        to: NodeId,
+        endpoints: Option<([f32; 3], [f32; 3])>,
+    ) -> Option<Path> {
         let _span = soe_trace::Span::new("navmesh.find_path", "navmesh");
         let start = self
             .meshes
@@ -394,7 +406,7 @@ impl NavGraph {
                 continue;
             }
             if node == to {
-                return Some(self.assemble(from, to, &came, g[&to]));
+                return Some(self.assemble(from, to, &came, g[&to], endpoints));
             }
             let here = g[&node];
             let c = self.centroid(node);
@@ -426,17 +438,12 @@ impl NavGraph {
     }
 
     /// Path between two world points, each located on the graph first.
+    /// Exact endpoints are retained. Off-mesh fallback approach/departure
+    /// segments are not guaranteed to lie on the walkable surface.
     pub fn find_path_between(&self, from: [f32; 3], to: [f32; 3]) -> Option<Path> {
         let a = self.locate(from).or_else(|| self.nearest(from))?;
         let b = self.locate(to).or_else(|| self.nearest(to))?;
-        let mut path = self.find_path(a, b)?;
-        if let Some(first) = path.points.first_mut() {
-            *first = from;
-        }
-        if let Some(last) = path.points.last_mut() {
-            *last = to;
-        }
-        Some(path)
+        self.find_path_impl(a, b, Some((from, to)))
     }
 
     fn assemble(
@@ -445,27 +452,22 @@ impl NavGraph {
         to: NodeId,
         came: &HashMap<NodeId, (NodeId, usize)>,
         cost: f32,
+        endpoints: Option<([f32; 3], [f32; 3])>,
     ) -> Path {
         let mut nodes = vec![to];
-        let mut edges = Vec::new();
         let mut cur = to;
         while cur != from {
-            let (prev, edge) = came[&cur];
-            edges.push((prev, edge));
+            let (prev, _) = came[&cur];
             nodes.push(prev);
             cur = prev;
         }
         nodes.reverse();
-        edges.reverse();
-        let mut points = Vec::with_capacity(edges.len() + 2);
-        points.push(self.centroid(from));
-        for (node, edge) in edges {
-            points.push(self.meshes[node.mesh as usize].edge_midpoint(node.triangle, edge));
-        }
-        points.push(self.centroid(to));
+        let (start, end) = endpoints.unwrap_or_else(|| (self.centroid(from), self.centroid(to)));
+        let (points, point_nodes) = self.pull_path(&nodes, start, end);
         Path {
             nodes,
             points,
+            point_nodes,
             cost,
         }
     }

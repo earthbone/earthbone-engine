@@ -17,7 +17,7 @@ array, and the link names another navmesh by FormID plus a triangle in it.
 Otherwise the value is the index of the adjacent triangle in the same navmesh, or
 `-1` for a border. Door links say which triangle a door reference stands on and
 are counted, not walked. Triangles with the deleted flag (0x8) stay in the graph
-so links through them still resolve, and A* skips them.
+so links through them still resolve, and `A*` skips them.
 
 `vanilla::Builder` takes navmeshes under any key (a raw FormID for one file, a
 packed `GlobalFormId` for a load order) with a closure that maps the raw FormID an
@@ -28,17 +28,34 @@ a patch that overrides one navmesh still links to the vanilla ones beside it.
 
 ## The graph
 
-`NavGraph::find_path` is A* over triangle adjacency with centroid distance as the
+`NavGraph::find_path` is `A*` over triangle adjacency with centroid distance as the
 cost and the heuristic. `find_path_between` locates two world points first
 (`locate`: the triangle whose XY contains the point and whose surface is nearest
 in Z, meshes pruned by their bounds, with `nearest` as a fallback for points just
-off the mesh). A `Path` carries the triangles crossed and a polyline: the start
-point, the midpoint of every crossed edge, the end point. A segment from a
-triangle's centroid to the midpoint of one of its own edges cannot leave the
-triangle, so the polyline stays on the walkable surface. It is not the shortest
-walk, that needs string pulling (the funnel algorithm), which is the next step
-and the reason the cost of a path across a flat cell is four times the straight
-line in the test output. `reachable` floods from a node for connectivity checks.
+off the mesh). A `Path` carries the selected triangles, the search cost, and a pulled polyline.
+`cost` stays the sum of centroid distances used by `A*`. It is not the polyline
+length. The funnel selects shortest XY corners within each contiguous corridor,
+then intersects every portal to retain triangle-plane height changes. Each point
+has a `point_nodes` owner, so cell changes do not depend on waypoint counts.
+`reachable` floods from a node for connectivity checks.
+
+The algorithm is adapted from local recastnavigation's
+`Detour/Source/DetourNavMeshQuery.cpp`, `findStraightPath` and `appendPortals`
+with all crossings. This Rust adaptation retains the source notice in
+`crates/navmesh/LICENSE-Detour.txt`. Detour's full query requires its own mesh
+representation. Keeping a small adaptation preserves native NAVM triangles,
+resolved links and the existing graph rather than introducing another navmesh.
+No dependency was added.
+
+Portal winding comes from the departing triangle. Cross-mesh portals use the
+shared span of collinear edges, with a 0.01-unit position/height tolerance.
+The graph also permits arbitrary directed links without shared geometry. Those
+split smoothing into separate corridors with explicit departure and arrival
+points. Such gap segments are not claimed to lie on the walkable surface.
+Exact requested endpoints stay unchanged. If `nearest` selects an off-mesh
+endpoint, its approach or departure segment has the same limitation. Degenerate
+funnel/intersection cases retain portal midpoints for that corridor. String
+pulling minimizes XY travel, not geodesic distance over a sloped surface.
 
 ## The generation half
 
@@ -80,7 +97,7 @@ Creation Kit used to be the only source of.
 
 ## Tests
 
-- Unit tests in each module: adjacency from shared edges, A* on a strip, a
+- Unit tests in each module: adjacency from shared edges, `A*` on a strip, a
   blocked triangle cutting it, locate and nearest, links joining two meshes, a
   dangling link ignored, in-mesh edges and cross-mesh links resolving from
   synthetic `NVNM` geometry, unresolved and malformed links counted as borders,
@@ -133,9 +150,8 @@ was needed.
 
 ## Not done yet
 
-- String pulling. Paths are correct, not short.
 - No path costs from triangle flags (water, preferred, no large creatures).
-  `flags` names them, A* ignores them.
+  `flags` names them, `A*` ignores them.
 - No dynamic obstacles or door state, the graph is static.
 - Generation reads render meshes, not `bhk` collision, until `soe-nif` decodes
   those. Interiors are not tested against real data, only Tamriel's exteriors.
@@ -192,12 +208,38 @@ A second lazy cache groups weakly connected meshes. Different groups cannot
 have a route. Sharing a group does not imply reachability, since links can be
 directed and triangles within a mesh can be disconnected. The cache includes
 blocked triangles, making rejection conservative across block-state changes.
-Adding meshes or links invalidates it. A* skips stale heap entries and rejects
+Adding meshes or links invalidates it. `A*` skips stale heap entries and rejects
 out-of-range endpoints.
 
 `graph/query_tests.rs` compares indexed point selection with exhaustive search
-and A* with an independent Dijkstra oracle over generated directed, blocked
+and `A*` with an independent Dijkstra oracle over generated directed, blocked
 graphs. Each property runs 192 cases. A fixed test requires both point searches
 to prune at least 90 percent of 1,024 separated meshes. Tie handling and cache
 invalidation have explicit tests. This is a mesh-level index, not a triangle
 index or hierarchical pathfinder. See `docs/performance.md` for measurements.
+
+## String pulling validation
+
+Synthetic checks fix tolerances before execution. A flat four-tile route must
+have length 3.8 within 0.0001 units and beat its midpoint route by one percent.
+A bent corridor must reach its analytic corner distance in either winding.
+Sampling each segment verifies triangle containment and ridge height. Partial
+seams, one-way links, explicit gaps, coincident endpoints, off-mesh endpoints
+and a zero-width portal have separate checks. The existing Dijkstra oracle
+still checks `A*` costs independently of smoothing.
+
+The game driver consumes waypoint ownership directly. Its regression checks
+cell assignment at two seams and at the departure of a gap. Existing package
+travel, save/load and generated obstacle tests remain part of the gate.
+
+The installed-data survey samples up to 100 connected non-gap routes. It
+requires at least 50, checks three interior samples of each segment against
+its owner triangle, permits at most 0.25 units of numerical length difference,
+and requires at least half the routes to shorten in XY. Those thresholds were
+written before the first corpus run. Game assets remain external.
+
+The first live survey passed on all 100 routes, with 99 shorter in XY.
+All 50 cross-mesh queries still succeeded. It loaded 13,011 meshes and
+2,271,709 triangles, with the same 187,193 resolved links and 23 unresolved
+links as the prior baseline. The largest mesh's 59-triangle route retains its
+5,205 centroid-distance cost. No frame-time improvement is claimed.

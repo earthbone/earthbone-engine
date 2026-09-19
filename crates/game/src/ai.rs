@@ -969,11 +969,11 @@ fn plan(
         return (vec![to], vec![to_cell]);
     };
     if let Some(path) = graph.find_path_between(from, to) {
-        let cells: Vec<Option<GlobalFormId>> = (1..path.points.len())
-            .map(|j| {
-                let node = path.nodes[j.min(path.nodes.len() - 1)];
-                nav_cells.get(node.mesh as usize).copied().flatten()
-            })
+        let cells: Vec<Option<GlobalFormId>> = path
+            .point_nodes
+            .iter()
+            .skip(1)
+            .map(|node| nav_cells.get(node.mesh as usize).copied().flatten())
             .collect();
         return (path.points[1..].to_vec(), cells);
     }
@@ -1234,6 +1234,57 @@ pub fn read_state(r: &mut Reader<'_>) -> Result<AiState, VmError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn planned_cells_follow_portal_ownership_including_gap_departures() {
+        for gap in [false, true] {
+            let mut graph = NavGraph::new();
+            for i in 0..3 {
+                let x = (i * 100 + if gap && i == 2 { 100 } else { 0 }) as f32;
+                graph.add_mesh_with_adjacency(
+                    vec![
+                        [x, 0.0, 0.0],
+                        [x + 100.0, 0.0, 0.0],
+                        [x + 100.0, 100.0, 0.0],
+                        [x, 100.0, 0.0],
+                    ],
+                    &[[0, 1, 2], [0, 2, 3]],
+                );
+                if i > 0 {
+                    graph.link(
+                        soe_navmesh::NodeId::new(i - 1, 0),
+                        1,
+                        soe_navmesh::NodeId::new(i, 1),
+                    );
+                }
+            }
+            let cells: Vec<_> = (0..3)
+                .map(|i| {
+                    Some(GlobalFormId {
+                        file: 0,
+                        object: 100 + i,
+                    })
+                })
+                .collect();
+            let mut world = World::new(soe_esm::LoadOrder::new());
+            world.ai.nav = Some(graph);
+            world.ai.nav_cells = cells.clone();
+            let end = [if gap { 390.0 } else { 290.0 }, 25.0, 0.0];
+            let (points, owners) = plan(&mut world, [10.0, 25.0, 0.0], end, cells[2]);
+            assert_eq!(points.len(), owners.len());
+            let first = points
+                .iter()
+                .position(|p| (p[0] - 100.0).abs() < 0.01)
+                .unwrap();
+            assert_eq!(owners[first], cells[1]);
+            let second = points
+                .iter()
+                .position(|p| (p[0] - 200.0).abs() < 0.01)
+                .unwrap();
+            assert_eq!(owners[second], cells[if gap { 1 } else { 2 }]);
+            assert_eq!(owners.last(), Some(&cells[2]));
+        }
+    }
 
     fn at_hour(hour: f64) -> GameClock {
         GameClock {

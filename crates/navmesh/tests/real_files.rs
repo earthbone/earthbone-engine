@@ -119,6 +119,74 @@ fn tamriel_stitches_into_one_graph_and_paths_cross_cells() {
     assert!(checked > 0, "no cross-mesh link found in the first meshes");
     assert_eq!(crossed, checked);
 
+    let mut sampled = 0;
+    let mut shortened = 0;
+    for (mi, mesh) in graph.meshes().iter().enumerate() {
+        if mesh.triangles.len() < 4 {
+            continue;
+        }
+        let Some(path) = graph.find_path(
+            NodeId::new(mi as u32, 0),
+            NodeId::new(mi as u32, mesh.triangles.len() as u32 - 1),
+        ) else {
+            continue;
+        };
+        if path.points.len() != path.nodes.len() + 1 {
+            continue;
+        }
+        let mut old = vec![path.points[0]];
+        for pair in path.nodes.windows(2) {
+            let mesh = graph.mesh(pair[0].mesh);
+            let triangle = &mesh.triangles[pair[0].triangle as usize];
+            let edge = triangle
+                .neighbors
+                .iter()
+                .position(|n| *n == Some(pair[1]))
+                .unwrap();
+            old.push(mesh.edge_midpoint(pair[0].triangle, edge));
+        }
+        old.push(*path.points.last().unwrap());
+        let xy_length = |points: &[[f32; 3]]| -> f64 {
+            points
+                .windows(2)
+                .map(|p| {
+                    (f64::from(p[0][0]) - f64::from(p[1][0]))
+                        .hypot(f64::from(p[0][1]) - f64::from(p[1][1]))
+                })
+                .sum()
+        };
+        let (before, after) = (xy_length(&old), xy_length(&path.points));
+        assert!(
+            after <= before + 0.25,
+            "route {mi} lengthened from {before} to {after}"
+        );
+        assert_eq!(path.points.len(), path.point_nodes.len());
+        for (pair, node) in path.points.windows(2).zip(&path.point_nodes) {
+            let mesh = graph.mesh(node.mesh);
+            let triangle = mesh.triangles[node.triangle as usize]
+                .vertices
+                .map(|v| mesh.vertices[v as usize]);
+            for t in [0.25, 0.5, 0.75] {
+                let point = std::array::from_fn(|i| pair[0][i] * (1.0 - t) + pair[1][i] * t);
+                assert!(
+                    on_triangle(point, triangle),
+                    "route {mi}, {node:?}, leaves surface at {point:?}"
+                );
+            }
+        }
+        sampled += 1;
+        shortened += usize::from(after + 0.01 < before);
+        if sampled == 100 {
+            break;
+        }
+    }
+    assert!(sampled >= 50, "only {sampled} connected non-gap routes");
+    assert!(
+        shortened * 2 >= sampled,
+        "only {shortened} of {sampled} routes shortened"
+    );
+    eprintln!("funnel survey: {sampled} surface-checked routes, {shortened} shortened in XY");
+
     // Reachability from the first triangle of the largest mesh: the region
     // should span many navmeshes, which is what stitching is for.
     let reach = graph.reachable(NodeId::new(largest as u32, 0));
@@ -142,4 +210,20 @@ fn tamriel_stitches_into_one_graph_and_paths_cross_cells() {
         .map(|n| n.geometry.map(|g| g.door_links.len()).unwrap_or(0))
         .sum();
     assert_eq!(doors, stats.door_links);
+}
+
+fn on_triangle(point: [f32; 3], triangle: [[f32; 3]; 3]) -> bool {
+    let [a, b, c] = triangle.map(|p| p.map(f64::from));
+    let p = point.map(f64::from);
+    let determinant = (b[1] - c[1]) * (a[0] - c[0]) + (c[0] - b[0]) * (a[1] - c[1]);
+    if determinant.abs() < 1e-12 {
+        return false;
+    }
+    let u = ((b[1] - c[1]) * (p[0] - c[0]) + (c[0] - b[0]) * (p[1] - c[1])) / determinant;
+    let v = ((c[1] - a[1]) * (p[0] - c[0]) + (a[0] - c[0]) * (p[1] - c[1])) / determinant;
+    let w = 1.0 - u - v;
+    u >= -0.001
+        && v >= -0.001
+        && w >= -0.001
+        && (p[2] - u * a[2] - v * b[2] - w * c[2]).abs() < 0.25
 }

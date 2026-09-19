@@ -410,9 +410,10 @@ A route is `find_path_between` from the actor to the place, the actor
 follows the waypoints at 110 units per real second (walk), 160 (fast
 walk), 180 (jog) or 375 (run) when the package's preferred speed flag is
 set, values from the default movement type since race movement data is
-not read yet. Passing an edge midpoint into another mesh moves the actor
-into that mesh's cell, which is how a travel across a cell link changes
-`RefState::cell`. Off the graph the route is a straight line. The driver
+not read yet. Each pulled waypoint carries its triangle owner. Reaching a portal into another
+mesh moves the actor into that mesh's cell, which is how travel across a cell
+link changes `RefState::cell`. Explicit gap departures retain the source cell
+until the arrival waypoint. Off the graph the route is a straight line. The driver
 skips the player, the dead and the unconscious.
 
 **Live run (2026-09-18).** Every one of the 5,961 `PACK` records in
