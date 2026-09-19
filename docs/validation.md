@@ -251,3 +251,40 @@ command. What to look for:
 
 Until that diff exists, treat `setvampire` as "the announcement fires and one
 flag moves", which is what the tests assert, and nothing more.
+
+## Script and quest coverage
+
+After loading scripts, call `game.vm.start_coverage()`, then start the game
+and run the scenario. `harness::run` includes `Report::coverage` when recording
+is enabled. `Game::coverage_report` can also snapshot the current interval.
+Its `to_text` method writes sorted per-script and per-quest percentages plus
+executed function identities. The structured report also carries every
+unexecuted body.
+
+Per-script coverage uses all loaded non-native bodies. Per-quest coverage
+uses the winning QUST record's active VMAD attachments and alias attachments,
+including inherited definitions, with duplicate body identities counted once.
+Deleted script attachments are excluded. A hit counts for that quest only if
+its self object is the quest or one of its aliases. Shared scripts executed
+on another quest do not count. Unowned global functions remain in per-script
+coverage. External reference scripts and transitive helper calls are not
+assigned to a quest just because that quest triggered them.
+
+Missing PEX files and invalid VMAD records are reported explicitly. The
+percentage describes known loaded bodies, so missing attachments make the
+scope incomplete. A zero denominator displays `n/a`, never 100 percent.
+Function entry is not proof of quest completion or behavioral compatibility.
+
+The installed-game test enables coverage before binding and startup, then
+runs a 0.1 second tick through the scenario harness. To save its report:
+
+```sh
+rtk proxy env SKYRIM_DATA="/path/to/Skyrim Special Edition/Data" SOE_COVERAGE_REPORT=/tmp/coverage.txt cargo test -p soe-game --release --test real_files -- --nocapture
+```
+
+The first five-master survey recorded 323 of 54,023 non-native bodies across
+14,026 loaded scripts and reported all 2,274 winning quests. These are startup
+coverage results, not completion targets. Synthetic tests prove shared-script
+isolation, alias and inherited-body attribution, deleted-attachment filtering,
+missing scripts and malformed VMAD diagnostics. The VM tests verify that
+coverage does not change save bytes or simulation hashes.

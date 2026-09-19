@@ -258,7 +258,7 @@ behavior and packages merges:
 | Procedure trees | `packages-2` | PACK procedure trees (sequence, random, simultaneous), the 18 remaining procedures, package fragments, interrupt and combat flags. |
 | hkx rename | `hkx-rename` | Completed on `hkx-rename`: package `soe-hkx`, crate directory `crates/hkx`, imports `soe_hkx`, docs and fuzz target use the format name. No Havok SDK dependency. |
 | Papyrus log import | `papyrus-log` | A vanilla `Papyrus.0.log` parses into scenario expectations, a differential run against the VM reports every divergence. |
-| Script coverage | `script-coverage` | A harness run records which vanilla script functions executed, reported as a percentage per quest and per script. |
+| Script coverage | `script-coverage` | Completed on `script-coverage`: optional VM function recording, per-script and per-quest harness reports, with installed startup survey and attribution tests. Function coverage is not quest completion. |
 | Papyrus compiler | `psc` | `.psc` source compiles to PEX with the assembler, scenarios can be written in Papyrus, output matches the Creation Kit compiler on the vanilla sources that ship. |
 | Record inspector | `inspector` | An xEdit style record tree over the esm crate inside the Godot editor, the first slice of the round 4 editor backend. |
 | Mod corpus bot | `mod-corpus` | Nightly load of the top mods fetched by the mod manager, reporting parser failures, unresolved natives and missing assets. |

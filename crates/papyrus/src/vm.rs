@@ -55,6 +55,7 @@ mod execution;
 mod properties;
 mod scheduler;
 
+pub mod coverage;
 pub mod hash;
 pub mod state;
 
@@ -289,6 +290,8 @@ pub struct GameObject {
 }
 
 struct Frame {
+    /// Transient coverage state, omitted from saves and state hashes.
+    coverage_recorded: bool,
     instance: Option<InstanceId>,
     self_object: Option<ObjectId>,
     /// The script that defines the running function, for `CallParent`.
@@ -317,6 +320,7 @@ const SETTER_BUDGET: usize = 4096;
 
 #[derive(Default)]
 pub struct Vm {
+    coverage: Option<coverage::Tracker>,
     scripts: HashMap<String, Rc<LoadedScript>>,
     objects: HashMap<ObjectId, GameObject>,
     next_object: u64,
@@ -344,6 +348,8 @@ impl Vm {
     // ----- loading -----
 
     pub fn load(&mut self, script: Script) {
+        // A new script set needs a fresh coverage denominator.
+        self.coverage = None;
         for object in script.objects {
             let mut functions = HashMap::new();
             for st in &object.states {
@@ -735,6 +741,7 @@ impl Vm {
             locals.insert(key, default_for_type(&l.type_name));
         }
         Frame {
+            coverage_recorded: false,
             instance,
             self_object,
             script,

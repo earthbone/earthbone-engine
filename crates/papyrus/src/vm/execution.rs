@@ -11,10 +11,13 @@ impl Vm {
     pub(super) fn step_thread(&mut self, t: usize, slice: usize) -> usize {
         let mut n = 0;
         while n < slice && self.threads[t].state == ThreadState::Runnable {
-            let Some(frame) = self.threads[t].frames.last() else {
+            let Some(frame) = self.threads[t].frames.last_mut() else {
                 self.threads[t].state = ThreadState::Done;
                 break;
             };
+            if let Some(coverage) = &mut self.coverage {
+                coverage.record(frame, &self.scripts);
+            }
             if frame.pc >= frame.function.code.len() {
                 // Falling off the end returns None.
                 self.return_from(t, Value::None);

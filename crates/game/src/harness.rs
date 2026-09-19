@@ -157,6 +157,8 @@ pub struct Report {
     pub checks: usize,
     /// `line: what failed` per failed check.
     pub failures: Vec<String>,
+    /// Present when the caller enabled VM coverage before this run.
+    pub coverage: Option<crate::coverage::Coverage>,
 }
 
 impl Report {
@@ -367,6 +369,7 @@ pub fn run(game: &mut Game, scenario: &Scenario) -> Report {
             report.failures.push(format!("line {line}: {e}"));
         }
     }
+    report.coverage = game.coverage_report();
     report
 }
 

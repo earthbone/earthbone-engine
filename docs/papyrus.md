@@ -308,3 +308,40 @@ Object, variable and latent-waiter maps are serialized in sorted key order,
 including before array-pool interning. Generated continuation cases use one to
 five objects and multiple variables, and require byte-identical state after
 loading into a fresh VM. A waiter-map test covers reversed insertion order.
+
+## Function coverage
+
+`Vm::start_coverage` begins an optional diagnostic interval after scripts load.
+The scheduler records a body when it visits that frame, including an empty
+body that returns by falling off its end. Merely loading a PEX or scheduling
+a call does not count. `coverage_report` snapshots the interval and
+`stop_coverage` returns its final report and disables recording.
+
+The denominator is every loaded non-native method and explicit property
+accessor. Method identity includes its defining script, state and name.
+Getters and setters have separate identities. This reuses the saved-frame
+identity resolver already described above, rather than a source-language
+coverage tool that cannot observe these VM frames. The local reference search
+found C++ coverage wrappers, which do not measure PEX execution. Native calls
+remain in the separate native registry counters. Auto properties have no
+compiled accessor body to count. Zero bodies reports no percentage.
+
+Hits retain the self object when present, so a host can attribute the same
+script body independently to different quest instances. Global calls have no
+self object. Reports sort script and function identities. Counts measure
+whether a body executed, not branch coverage or successful completion. Several
+calls to the same body still count once. A frame resumed partway through a
+function counts if it executes during the interval.
+
+Coverage is outside saved state and simulation hashes. Restoring VM state
+starts a fresh interval if recording is enabled. Loading more scripts stops
+recording, since it changes the denominator. Restart after loading. Frames
+and instances retaining an older definition cannot credit the replacement
+body. Recording resolves function identity once per entered frame. Reporting
+walks the loaded definitions, so enable it for harness runs rather than assume
+it has no cost.
+
+`tests/coverage.rs` checks states, inheritance, accessors, uncalled and native
+bodies, queued calls, global waits and resume, stable saves/hashes, and stale
+instances after script replacement. Quest grouping is in `soe-game` and is
+documented in `validation.md`.

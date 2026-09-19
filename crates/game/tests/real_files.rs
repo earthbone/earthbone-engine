@@ -57,6 +57,7 @@ fn the_installed_game_binds_its_vanilla_scripts() {
         eprintln!("  failed: {path}: {err}");
     }
 
+    game.vm.start_coverage();
     let bind_started = Instant::now();
     let report = game.bind();
     eprintln!(
@@ -238,4 +239,32 @@ fn the_installed_game_binds_its_vanilla_scripts() {
         scripts.scripts_loaded > 0,
         "no scripts loaded from the data view"
     );
+    let scenario = soe_game::harness::Scenario::parse("tick 0.1").unwrap();
+    let harness = soe_game::harness::run(&mut game, &scenario);
+    assert!(harness.passed());
+    let coverage = harness.coverage.unwrap();
+    let total = coverage.scripts.functions.len();
+    let executed = coverage
+        .scripts
+        .functions
+        .iter()
+        .filter(|f| !f.objects.is_empty())
+        .count();
+    // The installed vanilla corpus contains tens of thousands of bodies and
+    // startup executes hundreds. These are survey floors, not completion goals.
+    assert!(total > 10_000);
+    assert!(executed > 100 && executed < total);
+    assert!(coverage.quests.iter().any(|q| q.summary.executed > 0));
+    assert!(coverage
+        .quests
+        .iter()
+        .all(|q| q.summary.executed <= q.summary.total));
+    eprintln!(
+        "coverage: {executed}/{total} bodies, {} scripts, {} quests",
+        coverage.scripts.scripts.len(),
+        coverage.quests.len()
+    );
+    if let Some(path) = std::env::var_os("SOE_COVERAGE_REPORT") {
+        std::fs::write(path, coverage.to_text()).unwrap();
+    }
 }

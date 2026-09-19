@@ -24,6 +24,7 @@
 
 pub mod ai;
 pub mod clock;
+pub mod coverage;
 pub mod debug;
 pub mod determinism;
 pub mod harness;

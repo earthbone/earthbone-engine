@@ -22,6 +22,8 @@ use std::rc::Rc;
 use crate::pex::Function;
 use crate::value::{ArrayRef, ElementKind, ObjectId, Value};
 
+use super::coverage::{key_of, FunctionKind as FnKey};
+
 use super::{
     Frame, GameObject, InstanceId, LatentId, LoadedScript, LogEntry, Thread, ThreadId, ThreadState,
     Vm, VmError,
@@ -457,29 +459,6 @@ fn read_state(r: &mut Reader<'_>) -> Result<ThreadState, VmError> {
     })
 }
 
-/// Where a frame's function lives in its script.
-enum FnKey {
-    Method { state: String, name: String },
-    Getter(String),
-    Setter(String),
-}
-
-fn key_of(script: &LoadedScript, f: &Rc<Function>) -> Option<FnKey> {
-    if let Some(((state, name), _)) = script.functions.iter().find(|(_, g)| Rc::ptr_eq(g, f)) {
-        return Some(FnKey::Method {
-            state: state.clone(),
-            name: name.clone(),
-        });
-    }
-    if let Some((p, _)) = script.getters.iter().find(|(_, g)| Rc::ptr_eq(g, f)) {
-        return Some(FnKey::Getter(p.clone()));
-    }
-    if let Some((p, _)) = script.setters.iter().find(|(_, g)| Rc::ptr_eq(g, f)) {
-        return Some(FnKey::Setter(p.clone()));
-    }
-    None
-}
-
 fn find_fn(script: &LoadedScript, key: &FnKey) -> Option<Rc<Function>> {
     match key {
         FnKey::Method { state, name } => script
@@ -709,6 +688,7 @@ impl Vm {
                 let (locals, local_types) = read_vars(&table, &mut r)?;
                 let ret_dest = r.opt_str()?;
                 frames.push(Frame {
+                    coverage_recorded: false,
                     instance,
                     self_object,
                     script: Some(script),
@@ -761,6 +741,9 @@ impl Vm {
         self.menu_time = menu_time;
         self.game_hours = game_hours;
         self.log.entries = entries;
+        if self.coverage.is_some() {
+            self.start_coverage();
+        }
         Ok(())
     }
 }
