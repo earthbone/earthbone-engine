@@ -839,12 +839,9 @@ impl World {
                     "active effect without object or actor".into(),
                 ));
             }
-            let spell = self
-                .spell(effect.spell)
+            let entry = self
+                .magic_item_effect(effect.spell, effect.effect_index)
                 .map_err(|e| VmError::State(e.to_string()))?;
-            let Some(entry) = spell.effects.get(effect.effect_index as usize) else {
-                return Err(VmError::State("active effect without spell entry".into()));
-            };
             if self.resolve_from(effect.spell, entry.base_effect) != Some(effect.effect) {
                 return Err(VmError::State("active effect definition mismatch".into()));
             }

@@ -252,7 +252,7 @@ figures as run to run variance rather than a speedup.
 
 ## Scoped gameplay views (2026-09-19, branch `gameplay-views`)
 
-`records::gameplay` exposes five record views. They read a record on demand
+`records::gameplay` exposes six record views. They read a record on demand
 and do not create another form database. They introduce no dependencies.
 
 | View | Decoded fields |
@@ -260,6 +260,7 @@ and do not create another form database. They introduce no dependencies.
 | `DialogueTopic`, DIAL | Text, priority, branch, owning quest, category, repeat flag, effective subtype representation and declared INFO count |
 | `DialogueInfo`, INFO | Legacy DATA or modern ENAM flags/reset time, previous-topic and INFO links, shared INFO, follow-up topics, favor level, prompt, speaker, walk-away topic, output override, ordered response emotion/number/sound/text/idle fields, conditions and raw VMAD |
 | `Spell`, SPEL | Name, description, equip type, all 36 SPIT bytes, ordered EFID/EFIT groups and each group's conditions |
+| `Ingestible`, ALCH | Name, description, ENIT value, flags, addiction, addiction chance and consume sound, plus ordered EFID/EFIT groups and each group's conditions |
 | `MagicEffect`, MGEF | Name, description, keywords, counter effects, conditions and the DATA subset below |
 | `Recipe`, COBJ | Declared ingredient count, ordered signed ingredient quantities, per-ingredient COED owner/union/condition, conditions, optional output object/count and workbench keyword |
 

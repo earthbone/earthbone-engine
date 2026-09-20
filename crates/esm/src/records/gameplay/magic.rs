@@ -48,6 +48,91 @@ pub struct Spell {
     pub effects: Vec<Effect>,
 }
 
+/// ALCH ENIT fields needed to distinguish ingestible kinds.
+#[derive(Debug, Clone, PartialEq)]
+pub struct IngestibleData {
+    pub value: i32,
+    pub flags: u32,
+    pub addiction: u32,
+    pub addiction_chance: f32,
+    pub consume_sound: u32,
+}
+
+/// ALCH metadata and ordered effect definitions.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Ingestible {
+    pub form_id: u32,
+    pub editor_id: Option<String>,
+    pub name: Option<Text>,
+    pub description: Option<Text>,
+    pub data: IngestibleData,
+    pub effects: Vec<Effect>,
+}
+
+impl Ingestible {
+    /// Read this view without changing the source record.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for the wrong record type, malformed field lengths or
+    /// missing required fields and malformed repeated groups.
+    pub fn from_record(rec: &Record, localized: bool) -> Result<Self> {
+        check_tag(rec, *b"ALCH")?;
+        let mut f = required(rec, *b"ENIT", 20)?;
+        let data = IngestibleData {
+            value: f.i32()?,
+            flags: f.u32()?,
+            addiction: f.u32()?,
+            addiction_chance: f.f32()?,
+            consume_sound: f.u32()?,
+        };
+        let mut effects = Vec::new();
+        let mut pending: Option<(u32, Option<EffectData>, Vec<Condition>)> = None;
+        for sub in &rec.subrecords {
+            match sub.tag.as_bytes() {
+                b"EFID" => {
+                    if let Some(previous) = pending.take() {
+                        effects.push(finish_effect(previous, Tag::new(b"ALCH"))?);
+                    }
+                    pending = Some((fields(rec, sub.tag, &sub.data, 4)?.u32()?, None, Vec::new()));
+                }
+                b"EFIT" => {
+                    let current = pending
+                        .as_mut()
+                        .ok_or_else(|| Error::Invalid("EFIT without EFID".into()))?;
+                    if current.1.is_some() {
+                        return Err(Error::Invalid("repeated EFIT".into()));
+                    }
+                    let mut f = fields(rec, sub.tag, &sub.data, 12)?;
+                    current.1 = Some(EffectData {
+                        magnitude: f.f32()?,
+                        area: f.u32()?,
+                        duration: f.u32()?,
+                    });
+                }
+                b"CTDA" | b"CIS1" | b"CIS2" => {
+                    let current = pending.as_mut().ok_or_else(|| {
+                        Error::Invalid("ingestible condition without EFID".into())
+                    })?;
+                    Condition::push(rec, sub, &mut current.2)?;
+                }
+                _ => {}
+            }
+        }
+        if let Some(last) = pending {
+            effects.push(finish_effect(last, Tag::new(b"ALCH"))?);
+        }
+        Ok(Self {
+            form_id: rec.form_id,
+            editor_id: rec.editor_id(),
+            name: text(rec, *b"FULL", localized)?,
+            description: text(rec, *b"DESC", localized)?,
+            data,
+            effects,
+        })
+    }
+}
+
 impl Spell {
     /// Read this view without changing the source record.
     ///
@@ -75,7 +160,7 @@ impl Spell {
             match sub.tag.as_bytes() {
                 b"EFID" => {
                     if let Some(previous) = pending.take() {
-                        effects.push(finish_effect(previous)?);
+                        effects.push(finish_effect(previous, Tag::new(b"SPEL"))?);
                     }
                     pending = Some((fields(rec, sub.tag, &sub.data, 4)?.u32()?, None, Vec::new()));
                 }
@@ -103,7 +188,7 @@ impl Spell {
             }
         }
         if let Some(last) = pending {
-            effects.push(finish_effect(last)?);
+            effects.push(finish_effect(last, Tag::new(b"SPEL"))?);
         }
         Ok(Self {
             form_id: rec.form_id,
@@ -119,11 +204,12 @@ impl Spell {
 
 fn finish_effect(
     (base_effect, data, conditions): (u32, Option<EffectData>, Vec<Condition>),
+    record: Tag,
 ) -> Result<Effect> {
     Ok(Effect {
         base_effect,
         data: data.ok_or(Error::MissingSubrecord {
-            record: Tag::new(b"SPEL"),
+            record,
             tag: Tag::new(b"EFIT"),
         })?,
         conditions,

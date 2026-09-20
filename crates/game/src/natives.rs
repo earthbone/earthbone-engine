@@ -1290,7 +1290,18 @@ fn actor(vm: &mut Vm, w: &Shared) {
     });
     method!(vm, w, "Actor", "EquipItem", |world, call, me| {
         if let Some(item) = world.form_arg(&call.arg(0)) {
-            if let Err(error) = world.equip_item(me, item) {
+            if world.item_count(me, item) == 0 {
+                world.add_item(me, item, 1);
+            }
+            if world
+                .tag_of(item)
+                .is_some_and(|tag| tag.as_bytes() == b"ALCH")
+            {
+                if let Err(error) = world.drink_ingestible(item, me, alloc!(call)) {
+                    call.log
+                        .push(call.time, format!("Actor.EquipItem: {error}"));
+                }
+            } else if let Err(error) = world.equip_item(me, item) {
                 call.log
                     .push(call.time, format!("Actor.EquipItem: {error}"));
             }
