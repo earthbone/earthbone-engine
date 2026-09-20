@@ -12,10 +12,10 @@
 //! vanilla one. That is the point of this module, and it is why nothing here
 //! treats a vanilla line as a special case.
 //!
-//! The split is deliberate. A [`VisemeSource`] produces a [`VisemeTrack`],
-//! and [`morph_weights`] turns a track's shapes into weights on the morph
-//! targets a [`Race`] names. Neither half knows about the other's tool, so a
-//! track decoded from a real LIP block later feeds the same consumer.
+//! A [`VisemeSource`] produces a [`VisemeTrack`], and [`morph_weights`] turns
+//! its shapes into weights on the morph targets a [`Race`] names. Native LIP
+//! files already store target weights, exposed by [`crate::LipWeightTrack`]
+//! without converting them into the nine Rhubarb shapes.
 
 use soe_esm::records::race::Race;
 
@@ -133,8 +133,8 @@ pub struct MouthCue {
 
 /// A whole line's worth of mouth shapes.
 ///
-/// The same type carries a track derived from audio and, later, one decoded
-/// from a vanilla LIP block, so the consumer below never learns which it got.
+/// This carries generated Rhubarb cues. Native LIP samples use
+/// [`crate::LipWeightTrack`] to preserve their stored target weights.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct VisemeTrack {
     /// Seconds, as the producer reported it.
@@ -190,8 +190,8 @@ impl VisemeTrack {
 
 /// Anything that can turn a decoded line into mouth shapes.
 ///
-/// The engine holds one of these rather than calling a tool, so the tool can
-/// change, or a decoded LIP block can replace it, without touching a caller.
+/// The engine holds one of these rather than calling a particular tool.
+/// Native LIP decoding instead uses [`crate::Lip::decode`].
 pub trait VisemeSource {
     /// `dialog` is the line's written text when it is known. The recognizer
     /// uses it to constrain what it is listening for, so passing it sharpens

@@ -35,7 +35,7 @@ so. Where something is ours, it is because nothing packaged existed.
 | RIFF WAVE | `hound` | Zero transitive dependencies, and the Creation Kit writes WAV. Cheaper than a reader of our own. | 1 |
 | WMA bitstream | ffmpeg, out of process, behind a feature | See below. | 0 |
 | FUZ container | ours, following Skyrim-NX-Toolkit | No crate exists. See the credits. | 0 |
-| LIP framing | ours, header from `FaceFXWrapper`'s declaration, body still undecoded | No crate exists. The header is read from the wrapper's own struct, never copied from it, that repository carries no licence. | 0 |
+| LIP body | ours, zero-run expansion and frame-major weights | Header from `FaceFXWrapper`. Body layout verified against all 74,070 installed English tracks. No dependency added. | 0 |
 | xWMA container | ours, ffmpeg's `xwma` demuxer as the reference for `dpds` | No crate exists, and the container is about 120 lines. | 0 |
 
 Six crates in total, `lewton`, `byteorder`, `tinyvec`, `ogg`, `opus-decoder` and `hound`, plus
@@ -81,13 +81,19 @@ Out of process, behind a feature that is off by default, is the trade:
   and it is not needed to run the PC game, so `AudioKind::NxOpus` reports it and stops there.
 - **xWMA**: ffmpeg's `libavformat/xwma.c` is the reference for the `dpds` table, and Microsoft's
   `xWMAEncode` is what writes it.
-- **LIP**: nothing open decodes it. The tooling survey in
-  `../research/open-source-tooling.md` checked every candidate and found that each one copies the
-  block as an opaque blob, so this crate does the same rather than spend a branch reverse
-  engineering it. `CKPE.SkyrimSE.Patch.LipGen.cpp` in
-  `engine-refs/Creation-Kit-Platform-Extended` patches the Creation Kit's lip generation, which
-  confirms the track is produced by an external FaceFX tool against `FonixData.cdf` rather than
-  by a documented format.
+- **LIP header**: `../engine-refs/FaceFXWrapper/FFXW32/LipSynchAnim.h` declares
+  version, size and flags. `LipSynchAnim.cpp` supplies the compression switch and
+  default Skyrim target count. The local checkout now includes its MIT license.
+  `../engine-refs/Creation-Kit-Platform-Extended/CKPE.SkyrimSE/Src/Patches/CKPE.SkyrimSE.Patch.LipGen.cpp`
+  confirms the external generator path, but does not document body encoding.
+- **LIP body**: this implementation comes from byte observations in the user's
+  installed archive, with the full acceptance test below. The reviewed
+  [OpenFaceFX research codec](https://github.com/OpenFaceFX/OpenFaceFX/blob/7333dc2ffa844e8b3efdecdcfdc813162aea673a/tools/lip_codec_research.py)
+  and its exporter at commit `7333dc2` are MIT. They suggested a frame-major
+  stream, but cannot serve as a decoder here: they misidentify the flags word
+  as a curve count, hardcode compressed offsets and do not expand zero runs
+  spanning metadata or float bytes. No code was copied from them. The decoder
+  uses the header declaration and corpus-verified zero-run grammar instead.
 
 ## The containers
 
@@ -113,72 +119,87 @@ cumulative decoded bytes after each packet, so the last entry over the frame siz
 rate gives the exact duration without decoding a byte. `data` is the bitstream. `Xwma::to_bytes`
 rebuilds a standalone file, which is what the decoder seam hands over.
 
-### LIP, the header solved and the body still open
+### LIP body decoding, AUD-01
 
-Later on 2026-09-18 the `lip-decode` analysis cracked the header outright, so what follows replaces
-an earlier section that had guessed at it. `../research/lip-format.md` carries the full work.
+`Lip::parse` retains the borrowed header and encoded body. `Lip::decode` returns
+`LipWeightTrack`, preserving the signed first frame, target count and every
+stored float. `frame_at` uses native integer frame indices. `frames` exposes
+mouth targets and the additional gesture channels separately in stored order.
 
-`FaceFXWrapper` declares the header in `FFXW32/LipSynchAnim.h` as three 32 bit fields with a static
-assertion pinning the struct to 12 bytes, and all 74,070 blocks in the English voice archive agree:
+The outer header is twelve bytes, all little endian:
 
-| Offset | Field | What it holds |
+| Offset | Type | Meaning |
 |---|---|---|
-| 0 | `Version` | 1 in every shipped file |
-| 4 | `Size` | the animation expanded, never the bytes on disk. Larger than the block in every case, median ratio 3.62 |
-| 8 | `Flags` | `Compressed` 1, `BigEndian` 2, `HasGestures` 4, `VariableTargets` 8 |
+| 0 | `u32` | Version, 1 |
+| 4 | `u32` | Expanded body byte length plus 16 |
+| 8 | `u32` | Flags: compressed 1, big endian 2, gestures 4, variable targets 8 |
 
-That settles the open question from the first probe. The two values, 13 and 9, differ in
-`HasGestures` alone, and the 952 blocks without it are creature voices, Paarthurnax among the
-first. The same header also gives the mouth target count: 16 for Skyrim against 43 for Fallout 4.
+With compression set, every nonzero byte is a literal. A zero byte introduces
+an unsigned little-endian 16-bit count of zero bytes. Runs can span metadata,
+float boundaries and entire silent frames. A run count of zero is rejected.
+Readable floats in the packed stream do not rule out byte compression. The
+2026-09-18 claim in `../research/lip-format.md` that they did was incorrect.
 
-This crate had read a 24 byte header, so three body words were misread as header and the body slice
-started twelve bytes late. Fixed, with a test pinning the body to offset 12.
+After expansion, the body has a fixed layout:
 
-The body is still handed back undecoded, but it is no longer opaque, and despite the `Compressed`
-flag it is not byte compressed. Plain little endian floats sit at byte boundaries in ascending runs
-that plateau at exactly 1.0 and fall away, which is an animation curve. Between values sits a
-recurring three byte group whose middle byte is usually a multiple of 4 with a decaying frequency,
-and gesture blocks repeat values in pairs the way a key with equal tangents would. Reading that
-middle byte as a time delta is plausible and unproven: correlating its per block sum against audio
-length scores 0.9096 where the plain value count scores 0.9222, so the test does not discriminate.
+| Offset | Type | Meaning |
+|---|---|---|
+| 0 | `u32` | Frame count |
+| 4 | `i32` | First native frame index |
+| 8 | `u32` | Mouth target count |
+| 12 | `f32` array | Frame-major weights, target channels first |
 
-The target count is confirmed too, and the crate reads it. The preamble between the header and it
-is not a fixed width, so `Lip::targets` anchors on a marker instead, the first `i32` in the range
-minus 32 to minus 1, and reads the `u16` four bytes past it. Across the English archive that found
-70,872 blocks, and in every one the count agreed with the gesture flag: 16 targets with gestures,
-8 without. The gated test asserts that agreement rather than printing it. The other 3,198 blocks
-carry no marker, so `targets` answers `None` there and nothing guesses.
+The stride is the target count plus seventeen channels when the gesture flag
+is set. The seventeen channels retain their order and values without names.
+The expanded body length must equal `12 + 4 * frame_count * stride`, and the
+outer size must equal that length plus 16. These formulas held for every
+installed English LIP. They are observed layout rules, not a published body
+specification. The decoder rejects non-finite weights, truncated runs, trailing
+bytes, inconsistent dimensions and expansion beyond 64 MiB. It validates the
+stream before allocating the weight array and preserves finite values without
+clamping, including negative zero, negative gestures and values above one.
 
-So the eight targets a creature voice loses are the gesture targets, and `VariableTargets` is a
-flag with real variation behind it rather than a constant.
+The old negative-marker scan was reading the first frame index. Its varying
+position resulted from compressed zero bytes in the frame count. Decoding the
+metadata now reads target counts in all 74,070 tracks, including the 3,198
+that the marker scan missed. Eight versus sixteen describes mouth targets,
+not a loss of eight gesture channels. The gesture flag adds seventeen channels
+independently.
 
-Ruled out, each with a number behind it in `../research/lip-format.md`: general purpose compression
-of any kind, `Size` as a byte count, a string table, a fixed stride record list, the six word header
-this crate used to read, the float count as a viseme count (it follows duration times target count,
-which is why a 13.2 second dragon line carries a third the floats of an 8.3 second human line), the
-control byte sum as a time axis (it lands within 0.007 s of a real cue, but evenly spaced ticks at
-the same density do as well or better in seven cases of ten), a uniform seven byte key record, and
-`Size` as targets times keys.
+`aud_01_known_lip_files_decode_to_authored_weight_tracks` checks a known matrix
+against separately hand-written raw and compressed bytes, including pre-roll
+and exact float bit patterns. Other fixtures cover gesture values, multi-run
+silence, every truncated prefix, oversized dimensions and unsupported flags.
+The ordinary gate needs no proprietary asset or generator. The Creation Kit
+and `FonixData.cdf` are absent, so these are authored format fixtures, not a
+claim that controlled speech was generated with the Creation Kit.
 
-A decoder is still not writable. Three pieces are missing: the variable width grammar of the
-preamble, the mapping from curves to targets, and a time axis. The shipped files have given up what
-they can, and correlation over them demonstrably cannot separate time from value encoding. The
-Creation Kit route is the one that will.
+The installed-data acceptance test is
+`installed_lip_bodies_decode_every_frame_and_target`, gated by `SKYRIM_DATA`.
+It reads the archive through the existing BSA index and streams one FUZ at a
+time. It requires all 74,070 nonempty LIP blocks to decode, 73,118 with sixteen
+mouth and seventeen additional channels, and 952 with eight mouth channels
+and no gestures. It also requires the 1,338 empty LIP payloads to stay empty.
+No game asset is copied into the repository.
 
-Two routes remain, and they are recorded in `../ENGINE-PLAN.md`. Generating a viseme track from the
-audio with Rhubarb and testing candidate readings of the same line's body against its real times is
-the cheap one. Installing the Creation Kit under Proton and feeding `FaceFXWrapper` controlled
-inputs is the decisive one. Neither is needed for mouths to move, since the `visemes` item generates
-a track from audio and feeds the same consumer.
+The 2026-09-20 installed-data run passed in 25.47 seconds: all 74,070 tracks,
+9,566,160 frames and 311,857,205 finite samples decoded. The 1,338 empty blocks
+were counted separately. The probe also observed gesture weights below zero
+and above one, so the decoder preserves their values without clamping.
 
-That gap turned out not to block the feature. See the next section: the mouth shapes are derived
-from the audio instead, which covers vanilla lines and mod lines alike, and a decoded LIP block
-would feed the same consumer if the format is ever cracked.
+This decoder supports version 1 little-endian variable-target bodies, with
+compressed and uncompressed fixtures. Only compressed files were observed in
+the installed corpus. Fixed-target and big-endian variants return a named
+unsupported error. Seconds-per-frame, interpolation and named morph binding
+are consumer contracts outside this body decoder. The existing `ANM-13` and
+`DLG-20` backlog items cover facial binding and playback. A native weight track
+is not a Rhubarb `VisemeTrack`, and no weights are converted into approximate
+mouth shapes.
 
 ## Mouth shapes without the Creation Kit
 
-Decoding LIP was never the goal, a face that moves was. Deriving the shapes from the audio reaches
-that goal and reaches further than vanilla does, so this is the route the crate takes.
+Audio-derived shapes remain available for lines without a LIP block. Native
+LIP weight tracks preserve the animation already authored for existing lines.
 
 The case for it is not convenience. A mod that adds voice lines has to run them through the
 Creation Kit and its `Data/Sound/Voice/Processing/FonixData.cdf` speech database to get a LIP
@@ -267,11 +288,12 @@ the FUZ container and its LIP block, decoded through `lewton`, and run through t
 2.32 second mod line produced 5 cues and moved a real race's morph targets across 140 sampled
 frames. No Creation Kit, no `FonixData.cdf`, no LIP block anywhere in the chain.
 
-### Why this is not wasted if LIP is cracked
+### Native and generated tracks
 
-A generated track and a decoded LIP block are the same `VisemeTrack`, and `morph_weights` never
-learns which it got. Cracking the format later adds a second `VisemeSource` and changes nothing
-downstream.
+A generated `VisemeTrack` contains discrete mouth cues. A decoded
+`LipWeightTrack` contains native float samples. Consumers can use either
+source, but binding a native track must preserve its target order and timing
+instead of reducing it to the recognizer's shape vocabulary.
 
 ## Measured against the installed game
 
@@ -300,7 +322,7 @@ its encoder delay being dropped from the header's pre-skip.
 
 ## Not done
 
-- Phoneme decoding, above. The mouth moves without it.
+- Native LIP timing and named morph binding in the playback consumer, tracked by `ANM-13` and `DLG-20`.
 - Caching a generated track beside its line. At 0.83 times realtime this has to be an asset step
   with a cache, and nothing here writes one yet.
 - Choosing the donor race for an actor whose own race carries no mapping. `mapping_race` takes the

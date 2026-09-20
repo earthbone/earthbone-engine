@@ -367,3 +367,17 @@ warnings or skipped optional tools. All 42 installed-data save-restoration
 tests pass. The actor inventory survey now restores 114,769 inventories and
 excludes 53 unsupported records, compared with 126 before this increment.
 The separate strict decoder test remains failing on the 81 named states.
+
+## LIP body decoder, AUD-01 on lip-decode
+
+The audio crate now decodes native frame-indexed LIP weight tracks, including
+zero-run compression, stored target counts and additional gesture channels.
+The installed English archive test passes all 74,070 nonempty tracks, totaling
+9,566,160 frames and 311,857,205 samples. Another 1,338 payloads are empty.
+Hand-authored raw and compressed fixtures verify exact sample weights and
+malformed-input rejection. See [audio.md](audio.md#lip-body-decoding-aud-01).
+
+This updates the older table's statement that the original LIP body was
+undecoded. Playback seconds, interpolation and named facial morph binding
+belong to ANM-13 and DLG-20 and are not implemented by this decoder.
+Fixed-target and big-endian variants remain explicitly unsupported.

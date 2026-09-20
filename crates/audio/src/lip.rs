@@ -1,30 +1,17 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! The LIP track, the mouth animation that rides along with a voice line
-//! inside a [`crate::fuz`] container.
+//! Skyrim LIP framing and native frame-indexed weight tracks.
 //!
-//! LIP is FaceFX, a closed facial animation package, and the Creation Kit
-//! writes it from a wav plus the line's text. The header is no longer a
-//! guess: `FaceFXWrapper` declares it as three 32 bit fields, version, size
-//! and flags, with a static assertion pinning the struct to 12 bytes, and
-//! every one of the 74,070 blocks in the shipped English voice archive agrees
-//! (`../research/lip-format.md`). An earlier reading here used a 24 byte
-//! header, which put the body slice twelve bytes late.
+//! The 12-byte header follows `FaceFXWrapper/FFXW32/LipSynchAnim.h`.
+//! The body layout comes from the installed voice archive survey documented
+//! in `docs/audio.md`: zero-run compression, three metadata words, then
+//! frame-major float weights. Every one of 74,070 blocks expands to the
+//! declared size minus 16 and matches its frame/channel dimensions.
 //!
-//! The flags are named rather than counted. Vanilla writes two values, 13 and
-//! 9, which differ in [`HAS_GESTURES`] alone, and the 952 blocks without it
-//! are creature voices. `size` is larger than the block in every shipped file,
-//! median ratio 3.62, so it measures the animation expanded rather than the
-//! bytes on disk.
-//!
-//! The body is still handed back undecoded, but it is not opaque and, despite
-//! the [`COMPRESSED`] flag, it is not byte compressed: little endian floats
-//! sit at byte boundaries in ascending runs that plateau at 1.0 and fall away,
-//! which is an animation curve. The reader refuses to invent a track from
-//! that until a decode is confirmed, so a caller gets the framing, the flags
-//! and the bytes.
+//! Frame indices and target order stay as stored. The decoder does not
+//! assign seconds, morph names or Rhubarb shapes to those samples.
 
-use crate::error::{Error, Result};
+use crate::error::{Error, Result, Unsupported};
 use crate::riff::u32_at;
 
 /// The only version the shipped files carry.
@@ -33,8 +20,8 @@ pub const VERSION: u32 = 1;
 /// Version, size and flags, three 32 bit fields.
 pub const HEADER_LEN: usize = 12;
 
-/// The body is stored in FaceFX's own packed form. It does not mean a
-/// general purpose compressor was applied.
+/// Zero bytes in the body are stored as a zero marker followed by a
+/// little-endian 16-bit run length. Nonzero bytes are literals.
 pub const COMPRESSED: u32 = 1;
 
 /// Byte order of the body. No shipped file sets it.
@@ -47,17 +34,22 @@ pub const HAS_GESTURES: u32 = 4;
 /// The target count is stored rather than assumed.
 pub const VARIABLE_TARGETS: u32 = 8;
 
-/// Mouth targets Skyrim animates when a block carries gestures, against 43 for
-/// Fallout 4. A gesture free block carries [`TARGETS_NO_GESTURES`].
+/// The mouth target count observed in humanoid Skyrim tracks.
 pub const TARGETS: u16 = 16;
 
-/// Mouth targets a creature voice animates. The eight a creature loses are the
-/// gesture targets.
+/// The mouth target count observed in creature Skyrim tracks.
 pub const TARGETS_NO_GESTURES: u16 = 8;
 
-/// How far into a block [`Lip::targets`] looks for the marker. The widest
-/// preamble measured puts it at 19.
-const MARKER_SEARCH_END: usize = 32;
+/// Additional channels per frame when [`HAS_GESTURES`] is set. Their stored
+/// order is preserved without assigning names to them.
+pub const GESTURE_CHANNELS: usize = 17;
+
+/// Maximum expanded body accepted by [`Lip::decode`], including metadata.
+/// Limits allocations from untrusted counts and compressed zero runs.
+pub const MAX_DECODED_BYTES: usize = 64 * 1024 * 1024;
+
+const BODY_HEADER_LEN: usize = 12;
+const SIZE_BIAS: usize = 16;
 
 /// The two flag combinations the English voice archive writes.
 pub const KNOWN_FLAGS: [u32; 2] = [
@@ -65,16 +57,16 @@ pub const KNOWN_FLAGS: [u32; 2] = [
     COMPRESSED | HAS_GESTURES | VARIABLE_TARGETS,
 ];
 
-/// A LIP block: its header, and its body still encoded.
+/// A borrowed LIP header and encoded body. Call [`Lip::decode`] for weights.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Lip<'a> {
     /// Always 1 in shipped files.
     pub version: u32,
-    /// The animation's size expanded, not the length of `body`.
+    /// Expanded body length plus 16, as observed in Skyrim version 1 tracks.
     pub size: u32,
     /// The flag word, read through the accessors below.
     pub flags: u32,
-    /// Everything after the header, the curve data, undecoded.
+    /// Everything after the header, including encoded frame metadata.
     pub body: &'a [u8],
 }
 
@@ -142,40 +134,282 @@ impl<'a> Lip<'a> {
         self.version == VERSION && KNOWN_FLAGS.contains(&self.flags)
     }
 
-    /// How many targets the curve data drives, 16 with gestures and 8 without.
+    /// The stored mouth target count, read from decoded body metadata.
     ///
-    /// The preamble between the header and this field is not a fixed width, so
-    /// the read anchors on a marker instead: the first `i32` in the range -32
-    /// to -1, which sits at offset 16 in 65,815 shipped blocks, at 17 in 4,955
-    /// and at 19 in 102. The count is the `u16` four bytes past it, and it
-    /// agreed with [`Lip::has_gestures`] in all 70,872 blocks where the marker
-    /// was found.
-    ///
-    /// `None` when no marker appears, which is 3,198 of the 74,070 shipped
-    /// blocks. Those are not covered by this reading and nothing here guesses
-    /// at them. See `../research/lip-format.md`.
+    /// Returns `None` for unsupported flags, malformed metadata or a count
+    /// that cannot fit the historical 16-bit return type. Use [`Lip::decode`]
+    /// to validate the complete body and obtain a typed error.
     #[must_use]
     pub fn targets(&self) -> Option<u16> {
-        // The header is three words, so the body is what the search walks.
-        let end = MARKER_SEARCH_END.saturating_sub(HEADER_LEN);
-        let limit = end.min(self.body.len());
-        for at in 0..limit {
-            let word = u32_at(self.body, at)? as i32;
-            if (-32..0).contains(&word) {
-                let lo = at + 4;
-                let bytes = self.body.get(lo..lo + 2)?;
-                return Some(u16::from_le_bytes([bytes[0], bytes[1]]));
+        let (_, metadata) = self.reader().ok()?;
+        u16::try_from(metadata.targets).ok()
+    }
+
+    /// Decode all stored weights on their native integer frame grid.
+    ///
+    /// Supports version 1 little-endian bodies with [`VARIABLE_TARGETS`],
+    /// with or without zero-run compression and gesture channels. Weights
+    /// are finite floats preserved without clamping or renormalization.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Unsupported`] for other flags, [`Error::Truncated`]
+    /// for missing bytes, or [`Error::Malformed`] for inconsistent sizes,
+    /// zero-length runs, non-finite weights or an expansion larger than
+    /// [`MAX_DECODED_BYTES`].
+    pub fn decode(&self) -> Result<LipWeightTrack> {
+        let (mut reader, metadata) = self.reader()?;
+        let mut weights = Vec::new();
+        weights
+            .try_reserve_exact(metadata.samples)
+            .map_err(|error| malformed(format!("cannot allocate weight samples: {error}")))?;
+        for _ in 0..metadata.samples {
+            let weight = f32::from_bits(reader.word()?);
+            if !weight.is_finite() {
+                return Err(malformed("non-finite weight"));
+            }
+            weights.push(weight);
+        }
+        reader.finish()?;
+        Ok(LipWeightTrack {
+            first_frame: metadata.first_frame,
+            targets: metadata.targets,
+            gestures: metadata.gestures,
+            frame_count: metadata.frame_count,
+            weights,
+        })
+    }
+
+    fn reader(&self) -> Result<(BodyReader<'a>, Metadata)> {
+        if self.version != VERSION {
+            return Err(malformed(format!("unsupported version {}", self.version)));
+        }
+        if self.flags & !(COMPRESSED | HAS_GESTURES | VARIABLE_TARGETS) != 0
+            || !self.variable_targets()
+        {
+            return Err(Error::Unsupported(Unsupported::LipFlags(self.flags)));
+        }
+        let expanded = (self.size as usize)
+            .checked_sub(SIZE_BIAS)
+            .ok_or_else(|| malformed("declared size is smaller than the body size bias"))?;
+        if !(BODY_HEADER_LEN..=MAX_DECODED_BYTES).contains(&expanded) {
+            return Err(malformed(format!(
+                "expanded body size {expanded} is out of bounds"
+            )));
+        }
+        let mut reader = BodyReader::new(self.body, self.compressed(), expanded);
+        let frame_count = reader.word()?;
+        let first_frame = reader.word()? as i32;
+        let targets = reader.word()? as usize;
+        if targets == 0 {
+            return Err(malformed("zero mouth targets"));
+        }
+        let gestures = if self.has_gestures() {
+            GESTURE_CHANNELS
+        } else {
+            0
+        };
+        let samples = targets
+            .checked_add(gestures)
+            .and_then(|stride| stride.checked_mul(frame_count as usize))
+            .ok_or_else(|| malformed("frame dimensions overflow"))?;
+        let expected = samples
+            .checked_mul(4)
+            .and_then(|bytes| bytes.checked_add(BODY_HEADER_LEN))
+            .ok_or_else(|| malformed("expanded body size overflows"))?;
+        if expected != expanded {
+            return Err(malformed(format!(
+                "frame dimensions require {expected} bytes, declared {expanded}"
+            )));
+        }
+        // CONTEXT: Validate expansion before allocating from the declared size.
+        let mut validation = reader.clone();
+        validation.finish()?;
+        Ok((
+            reader,
+            Metadata {
+                frame_count,
+                first_frame,
+                targets,
+                gestures,
+                samples,
+            },
+        ))
+    }
+}
+
+/// Weights decoded from a LIP body, retaining its native frame indices.
+/// Named morph binding and conversion from playback seconds belong to the
+/// consumer. Neither can be inferred from this byte stream alone.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LipWeightTrack {
+    first_frame: i32,
+    targets: usize,
+    gestures: usize,
+    frame_count: u32,
+    weights: Vec<f32>,
+}
+
+/// One stored frame, with mouth and additional gesture channels separated.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct LipFrame<'a> {
+    /// Weights in the file's mouth target order.
+    pub targets: &'a [f32],
+    /// Additional channels in file order, empty when gestures are absent.
+    /// These can be negative or greater than one.
+    pub gestures: &'a [f32],
+}
+
+impl LipWeightTrack {
+    /// Signed native index of the first stored frame, including any pre-roll.
+    #[must_use]
+    pub fn first_frame(&self) -> i32 {
+        self.first_frame
+    }
+
+    /// Number of frames stored in the body.
+    #[must_use]
+    pub fn frame_count(&self) -> u32 {
+        self.frame_count
+    }
+
+    /// Number of mouth target weights in each frame.
+    #[must_use]
+    pub fn target_count(&self) -> usize {
+        self.targets
+    }
+
+    /// Number of additional gesture channels in each frame.
+    #[must_use]
+    pub fn gesture_count(&self) -> usize {
+        self.gestures
+    }
+
+    /// Stored frames in order, starting at [`Self::first_frame`].
+    pub fn frames(&self) -> impl ExactSizeIterator<Item = LipFrame<'_>> {
+        self.weights
+            .chunks_exact(self.targets + self.gestures)
+            .map(|weights| {
+                let (targets, gestures) = weights.split_at(self.targets);
+                LipFrame { targets, gestures }
+            })
+    }
+
+    /// Stored weights at a native frame index. Returns `None` outside the
+    /// track, without inventing an interpolation or a rest pose.
+    #[must_use]
+    pub fn frame_at(&self, native_frame: i64) -> Option<LipFrame<'_>> {
+        let offset = native_frame.checked_sub(i64::from(self.first_frame))?;
+        let index = usize::try_from(offset).ok()?;
+        self.frames().nth(index)
+    }
+}
+
+struct Metadata {
+    frame_count: u32,
+    first_frame: i32,
+    targets: usize,
+    gestures: usize,
+    samples: usize,
+}
+
+#[derive(Clone)]
+struct BodyReader<'a> {
+    bytes: &'a [u8],
+    compressed: bool,
+    at: usize,
+    produced: usize,
+    zeros: usize,
+    expanded: usize,
+}
+
+impl<'a> BodyReader<'a> {
+    fn new(bytes: &'a [u8], compressed: bool, expanded: usize) -> Self {
+        Self {
+            bytes,
+            compressed,
+            at: 0,
+            produced: 0,
+            zeros: 0,
+            expanded,
+        }
+    }
+
+    fn word(&mut self) -> Result<u32> {
+        let mut word = [0; 4];
+        for byte in &mut word {
+            *byte = self.byte()?;
+        }
+        Ok(u32::from_le_bytes(word))
+    }
+
+    fn byte(&mut self) -> Result<u8> {
+        if self.produced == self.expanded {
+            return Err(malformed("body exceeds its declared expanded size"));
+        }
+        if self.zeros != 0 {
+            self.zeros -= 1;
+            self.produced += 1;
+            return Ok(0);
+        }
+        let byte = *self.bytes.get(self.at).ok_or(Error::Truncated {
+            what: "LIP body",
+            needed: self.at + 1,
+            have: self.bytes.len(),
+        })?;
+        self.at += 1;
+        if self.compressed && byte == 0 {
+            let count = self
+                .bytes
+                .get(self.at..self.at + 2)
+                .ok_or(Error::Truncated {
+                    what: "LIP zero run",
+                    needed: self.at + 2,
+                    have: self.bytes.len(),
+                })?;
+            self.at += 2;
+            let zeros = u16::from_le_bytes([count[0], count[1]]) as usize;
+            if zeros == 0 {
+                return Err(malformed("zero-length zero run"));
+            }
+            if zeros > self.expanded - self.produced {
+                return Err(malformed("zero run exceeds the declared expanded size"));
+            }
+            self.zeros = zeros - 1;
+            self.produced += 1;
+            return Ok(0);
+        }
+        self.produced += 1;
+        Ok(byte)
+    }
+
+    fn finish(&mut self) -> Result<()> {
+        while self.produced < self.expanded {
+            if self.zeros != 0 {
+                self.produced += self.zeros;
+                self.zeros = 0;
+            } else {
+                self.byte()?;
             }
         }
-        None
+        if self.zeros != 0 || self.at != self.bytes.len() {
+            return Err(malformed("trailing bytes after the declared expanded body"));
+        }
+        Ok(())
+    }
+}
+
+fn malformed(why: impl Into<String>) -> Error {
+    Error::Malformed {
+        what: "LIP body",
+        why: why.into(),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        Lip, COMPRESSED, HAS_GESTURES, HEADER_LEN, KNOWN_FLAGS, TARGETS, TARGETS_NO_GESTURES,
-        VARIABLE_TARGETS, VERSION,
+        Lip, COMPRESSED, HAS_GESTURES, HEADER_LEN, KNOWN_FLAGS, VARIABLE_TARGETS, VERSION,
     };
     use crate::error::Error;
 
@@ -230,48 +464,6 @@ mod tests {
         assert_eq!(KNOWN_FLAGS, [9, 13]);
         assert_eq!(COMPRESSED | VARIABLE_TARGETS, 9);
         assert_eq!(COMPRESSED | HAS_GESTURES | VARIABLE_TARGETS, 13);
-    }
-
-    fn with_marker(flags: u32, marker_at: usize, targets: u16) -> Vec<u8> {
-        let mut body = vec![0u8; marker_at];
-        body.extend_from_slice(&(-3i32).to_le_bytes());
-        body.extend_from_slice(&targets.to_le_bytes());
-        body.extend_from_slice(&[0xaa; 16]);
-        block(VERSION, 1, flags, &body)
-    }
-
-    #[test]
-    fn the_target_count_is_read_four_bytes_past_the_marker() {
-        // Absolute offset 16 is the common case, which is body offset 4.
-        let bytes = with_marker(13, 4, TARGETS);
-        assert_eq!(Lip::parse(&bytes).unwrap().targets(), Some(TARGETS));
-    }
-
-    #[test]
-    fn a_creature_block_reports_eight_targets() {
-        let bytes = with_marker(9, 4, TARGETS_NO_GESTURES);
-        let lip = Lip::parse(&bytes).unwrap();
-        assert!(!lip.has_gestures());
-        assert_eq!(lip.targets(), Some(TARGETS_NO_GESTURES));
-    }
-
-    #[test]
-    fn the_marker_is_found_at_every_width_the_archive_uses() {
-        // Absolute 16, 17 and 19, so body offsets 4, 5 and 7.
-        for at in [4, 5, 7] {
-            let bytes = with_marker(13, at, TARGETS);
-            assert_eq!(
-                Lip::parse(&bytes).unwrap().targets(),
-                Some(TARGETS),
-                "marker at body offset {at}"
-            );
-        }
-    }
-
-    #[test]
-    fn a_block_with_no_marker_reports_nothing_rather_than_guessing() {
-        let bytes = block(VERSION, 1, 13, &[0x11; 40]);
-        assert_eq!(Lip::parse(&bytes).unwrap().targets(), None);
     }
 
     #[test]

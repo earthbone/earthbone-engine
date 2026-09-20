@@ -4,7 +4,7 @@
 //! loop, and the open codecs a mod author may ship instead.
 //!
 //! The engine has to read what vanilla ships, so this crate splits [`fuz`]
-//! containers, frames [`lip`] mouth tracks and reads the [`xwma`] container.
+//! containers, decodes [`lip`] weight tracks and reads the [`xwma`] container.
 //! It also decodes Ogg Vorbis and Ogg Opus into the same [`Pcm`] buffer, so a
 //! mod can carry an open format and need no encoder anybody has to buy. That
 //! split follows the engine's design rule: read every vanilla format a mod
@@ -15,7 +15,7 @@
 //! `opus-decoder`, WAV is `hound`, and the WMA bitstream is ffmpeg behind the
 //! [`wma::WmaDecoder`] trait and an off-by-default feature. What is written
 //! here is the container work nobody has packaged: the FUZ split, the LIP
-//! framing and the xWMA reader, each credited in `docs/audio.md` to whatever
+//! body and the xWMA reader, each credited in `docs/audio.md` to whatever
 //! open implementation it follows.
 //!
 //! Nothing here plays audio. Decoding to [`Pcm`] is where this crate stops,
@@ -42,7 +42,7 @@ pub mod vorbis;
 
 pub use error::{Error, Result, Unsupported};
 pub use fuz::{AudioKind, Fuz};
-pub use lip::Lip;
+pub use lip::{Lip, LipFrame, LipWeightTrack};
 pub use pcm::Pcm;
 pub use source::{sniff, Container, Sound, SoundSource};
 pub use viseme::{mapping_race, morph_weights, MouthCue, Shape, VisemeSource, VisemeTrack};
