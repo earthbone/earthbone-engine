@@ -178,6 +178,33 @@ fn saved_actor_keeps_its_selected_spells_after_list_changes() {
 }
 
 #[test]
+fn legacy_saved_list_placeholders_expand_once_and_preserve_granted_spells() {
+    let fixture = || vec![list(ROOT, 0, 0, &[(1, MID, 1), (1, HIGH, 1)])];
+    let mut legacy = world(fixture(), &[ROOT]);
+    legacy.actor(id(ACTOR)).unwrap().spells = ids(&[ROOT, LOW]);
+    let saved = legacy.save_state();
+    let mut expected = world(fixture(), &[ROOT]);
+    expected.load_state(&saved).unwrap();
+    let mut selected = expected.select_leveled_spells(id(ROOT), 10).unwrap();
+    selected.insert(id(LOW));
+    let expected_rng = expected.random_u64();
+    let mut restored = world(fixture(), &[ROOT]);
+    restored.load_state(&saved).unwrap();
+    assert!(restored
+        .actor_ref(id(ACTOR))
+        .unwrap()
+        .spells
+        .contains(&id(ROOT)));
+    assert_eq!(restored.actor(id(ACTOR)).unwrap().spells, selected);
+    assert_eq!(restored.actor(id(ACTOR)).unwrap().spells, selected);
+    let saved = restored.save_state();
+    let mut continued = world(fixture(), &[ROOT]);
+    continued.load_state(&saved).unwrap();
+    assert_eq!(continued.actor(id(ACTOR)).unwrap().spells, selected);
+    assert_eq!(continued.random_u64(), expected_rng);
+}
+
+#[test]
 fn chance_none_is_saved_without_repeating_initialization() {
     let fixture = || vec![list(ROOT, 0, 100, &[(1, LOW, 1)])];
     let mut original = world(fixture(), &[ROOT]);

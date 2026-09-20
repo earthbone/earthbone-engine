@@ -1435,8 +1435,11 @@ leveled-list state, including script additions and chance-none edits. An
 initialized actor retains its resulting spells, including an empty result,
 through the existing save format and hash. Later list edits affect newly
 initialized actors. No second spell-selection table or save version was added.
-Previously saved actor spell sets are restored as recorded, so old unresolved
-LVSP placeholders are not retroactively rerolled during load.
+Previously saved concrete spells remain unchanged. Older engine saves can
+contain unresolved LVSP placeholders. The next actor access expands those
+placeholders once while retaining already granted concrete spells. The result
+then uses the same saved spell set, without repeating selection on later reads
+or another save/load cycle.
 
 `World::select_leveled_spells` exposes typed selection errors. Invalid sizes,
 entry counts, spell links, flag bits, zero quantities, out-of-range chance-none,
@@ -1456,10 +1459,11 @@ skymp supplies the recursive count-selection pattern, but its missing
 highest-level restriction and chance-global shortcut are not reused. These
 references do not provide a reusable Rust consumer. No dependency was added.
 
-Ten synthetic tests cover actor-level filtering, nested counts, duplicate
+Eleven synthetic tests cover actor-level filtering, nested counts, duplicate
 weighting, Use All Spells, saved selections and empty outcomes, winning links,
 template inheritance, traversal bounds, malformed inputs and RNG rollback
-after earlier successful draws. The five-master survey executes all 33 winning
+after earlier successful draws, plus older saved placeholders. The five-master
+survey executes all 33 winning
 LVSP lists at levels 1, 10 and 50, with 171 concrete spell results over 99
 selections. The survey checks record execution, not comparison against a
 running original game. Live actor leveling and later spell reevaluation retain
