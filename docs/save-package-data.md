@@ -142,3 +142,59 @@ Reading the procedure name, treating memory offsets as a file schema, searching
 for a plausible next extra, or copying an opaque body cannot supply that
 evidence. Executable disassembly is outside the method in [intent.md](intent.md).
 Runtime package restoration remains the separate SAV-13 contract.
+
+## SAV-21 Stacked source audit, 2026-09-20
+
+SAV-21 is blocked on the serialized Stacked payload after its name. The
+sources checked below identify runtime types but provide no saved field
+widths, field order, child-state framing or entry termination. This audit
+changes no decoder, encoder or acceptance criterion.
+
+Paths below are relative to the external `engine-refs` directory.
+
+| Source checked | Evidence and limit |
+|---|---|
+| `uesp-savefile/Extra_data.wikitext`, type 108 | Documents the kind byte and 255 terminator. The nonempty payload is explicitly unfinished. |
+| `TES5Edit/Core/wbDefinitionsTES5Saves.pas`, `PackageData` | Names the extra type without defining its nonempty payload. |
+| `FallrimTools/src/main/java/resaver/ess/ChangeFormExtraDataData.java` | No case 108. Cases 106 and 111 are adjacent, and unsupported types reach the default error. |
+| `CommonLibSSE-NG-alandtse/include/RE/Offsets_RTTI.h` | Names `BGSProcedureTreeStackedExecState` and its `BGSTypedItem` specialization over `BGSProcedureTreeOneChildExecState`. Type identity and inheritance do not establish a saved schema. |
+| `CommonLibSSE-NG-alandtse/include/RE/I/IProcedureTreeExecState.h` and `RE/C/CustomActorPackageData.h` | Declare unknown virtual methods and runtime storage. They contain no Stacked serialization implementation. |
+| `skse64/skse64/GameRTTI.h` | Declares the Stacked and StackedExecState runtime type identifiers, without fields or a reader. |
+
+The original CommonLibSSE-NG fork contains the same Stacked type names in its
+RTTI table. Neither inspected fork has a Stacked class or saved-state reader
+body. The public [libSkyrim RTTI header](https://github.com/himika/libSkyrim/blob/master/Skyrim/include/Skyrim/RTTI.h)
+also registers the two types without defining a payload. No third-party code
+or dependency was added. No game executable was inspected or disassembled.
+
+The Stacked-specific local snapshots have these SHA-256 digests:
+
+```text
+CommonLibSSE-NG-alandtse/include/RE/Offsets_RTTI.h
+5fd9d32567ec089ba153504edacda263de8f51bf631952312e17f7d46c611bce
+skse64/skse64/GameRTTI.h
+1e4b6fd36d42d84f1d6c58957d17c01df6a5ac6176b8062f7325748f4e10aaee
+```
+
+On branch `task-sav-21`, based on `4e03b82`, the repeated
+`cargo test -p soe-save --test reference_contents -- --nocapture` with
+`SOE_TEST_SAVES` set to all 60 external saves passed six synthetic checks.
+The strict corpus check failed with exit 101 on exactly nine Stacked and
+72 Sequence entries. Six Stacked entries begin at decompressed change-form
+offset 59 and three at offset 60. These are entry starts, not their ends.
+The accepted sections re-encoded 1,154,445 reference-content sections,
+174,623 inventories, 865,513 entries and 844,557 stacks exactly. No save was
+copied or changed.
+
+Unblocking SAV-21 requires a published layout, a public reader or writer, or
+controlled runtime observations that establish every field after the Stacked
+name, the nested-state framing and the following extra-data boundary. The
+resulting typed encoder must reproduce all nine observed entries and preserve
+that boundary. Copying an opaque continuation or choosing a plausible next
+extra does not establish the required layout.
+
+SAV-12 owns Sequence decoding and SAV-22 owns the unresolved-variant manifest.
+Neither supplies the missing Stacked schema, and this audit establishes no
+prerequisite code dependency between the two decoders. SAV-13's package
+restoration still requires both. The zero-failure corpus acceptance criterion
+remains unchanged.
