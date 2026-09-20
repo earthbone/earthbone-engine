@@ -724,6 +724,19 @@ fn extended_actor_value_effect_survives_game_save_load_without_reapplying() {
 }
 
 #[test]
+fn mag_68_unnamed_archetypes_reject_without_changes() {
+    for archetype in [13, 14] {
+        let mut game = fixture(0, archetype, 20.0, 5);
+        let before = game.save_state().unwrap();
+        assert!(matches!(
+            cast(&mut game, SPELL, OTHER),
+            Err(MagicError::Unsupported("effect archetype"))
+        ));
+        assert_eq!(game.save_state().unwrap(), before);
+    }
+}
+
+#[test]
 fn unsupported_second_effect_does_not_partially_apply_the_spell() {
     let good = effect(2, 0, 24, false);
     let mut bad = effect(0, 35, 24, false);
