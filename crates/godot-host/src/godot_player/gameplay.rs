@@ -86,9 +86,38 @@ impl PlayerNode {
             self.menu.tick(game, delta);
             self.image_space.sync(&game.world());
         }
-        if !self.sync_game_pose() {
+        if self.sync_game_pose() {
+            self.prefetch_nearby_interior(delta);
+        } else {
             self.auto_step = false;
             godot_error!("PlayerNode: gameplay stopped because destination resources failed");
+        }
+    }
+
+    fn prefetch_nearby_interior(&mut self, delta: f64) {
+        use crate::interior_prefetch::{APPROACH_RADIUS, SELECTION_INTERVAL};
+        self.interior_prefetch.poll();
+        self.interior_prefetch_elapsed += delta.max(0.0);
+        if self.interior_prefetch_elapsed < SELECTION_INTERVAL {
+            return;
+        }
+        self.interior_prefetch_elapsed = 0.0;
+        let (Some(game), Some(cell), Some(source)) =
+            (&self.game, self.loaded_cell, &self.data_source)
+        else {
+            return;
+        };
+        let feet = self.feet();
+        let destination = game.world().nearby_interior_destination(
+            cell,
+            [feet.x, feet.y, feet.z],
+            APPROACH_RADIUS,
+        );
+        if let Some(destination) = destination {
+            self.interior_prefetch
+                .request(std::sync::Arc::clone(source), destination.cell);
+        } else {
+            self.interior_prefetch.invalidate();
         }
     }
 
@@ -141,13 +170,16 @@ impl PlayerNode {
                 return false;
             };
             let worldspace = source.exterior_world(cell);
-            let location = match source.load_location(cell, position, 1) {
-                Ok(location) => location,
-                Err(error) => {
-                    godot_error!("PlayerNode: {error}");
-                    return false;
-                }
-            };
+            let prepared = self.interior_prefetch.take(cell);
+            self.interior_prefetch.invalidate();
+            let location =
+                match prepared.map_or_else(|| source.load_location(cell, position, 1), Ok) {
+                    Ok(location) => location,
+                    Err(error) => {
+                        godot_error!("PlayerNode: {error}");
+                        return false;
+                    }
+                };
             let Some(mut query_collision) = self.prepare_query_collision(&location.collision)
             else {
                 return false;

@@ -235,7 +235,7 @@ impl LoadedExterior {
 /// view built from it.
 pub struct DataSource {
     order: std::sync::Arc<LoadOrder>,
-    vfs: Vfs,
+    vfs: std::sync::Arc<Vfs>,
     threads: usize,
     textures: TextureCache,
 }
@@ -264,6 +264,20 @@ fn parse_masters(data_dir: &Path, threads: usize) -> Result<Vec<soe_esm::Plugin>
 impl DataSource {
     /// Loads a vanilla game's resolved profile from its `Data` directory.
     /// The game's default INI supplies the locale when no user INI is given.
+    /// Share archive handles and records, with a private speculative texture cache.
+    /// One worker prepares the destination without occupying all available CPUs.
+    pub(crate) fn speculative_view(&self) -> Self {
+        Self {
+            order: std::sync::Arc::clone(&self.order),
+            vfs: std::sync::Arc::clone(&self.vfs),
+            threads: 1,
+            textures: TextureCache::default(),
+        }
+    }
+
+    /// Loads the base masters and their associated archives from `data_dir`,
+    /// then adds `data_dir` itself as a loose overlay so a texture or mesh
+    /// replacer placed there beats the archives, matching the shipped engine.
     /// Parsing and mesh building use the machine's parallelism.
     pub fn open(data_dir: &Path) -> Result<Self, DataSourceError> {
         let game_dir = data_dir
@@ -340,7 +354,7 @@ impl DataSource {
         }
         Ok(DataSource {
             order: std::sync::Arc::new(order),
-            vfs,
+            vfs: std::sync::Arc::new(vfs),
             threads,
             textures: TextureCache::default(),
         })

@@ -2882,3 +2882,22 @@ Sources read locally:
 round trips, invalid-save rollback, private-base isolation and unchanged carried
 inventory. `natives_2` calls all four methods through Papyrus bytecode. The host's
 `real_skinning` tests exercise the same refresh preparation used by its node.
+
+## Nearby authored interior destinations, HST-07
+
+`World::nearby_interior_destination` reads resident source doors in the
+caller's logical cell, filters disabled and deleted references, and follows
+their winning-record XTEL links to interior cells. It compares source positions
+only after cell identity matches. The nearest source wins, with FormID as the
+deterministic tie breaker. Invalid radius and non-finite coordinates select
+nothing. This read does not construct references, choose actor templates,
+change residency, move the player or queue events.
+
+The policy follows local OpenMW `scene.cpp` teleport-door preload scheduling.
+The existing reference loader supplies owner-relative link resolution without
+a second record parser. The host prepares immutable CPU resources using the
+selected cell, leaving `arm_doorway` and the cold-cell event decision until
+activation. Synthetic checks cover overlapping coordinates in unrelated
+interiors, disabled/deleted doors, invalid input, unchanged reference counts
+and preserved cold residency. Host resource reuse and budget scope are
+recorded in [godot-host.md](godot-host.md#nearby-interior-prefetch-hst-07).

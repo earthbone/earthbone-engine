@@ -131,7 +131,69 @@ pub struct Doorway {
     pub threshold: Threshold,
 }
 
+/// A nearby source door and its authored interior destination.
+#[derive(Debug, Clone, Copy)]
+pub struct InteriorDestination {
+    pub door: GlobalFormId,
+    pub cell: GlobalFormId,
+    pub landing: Transform,
+}
+
 impl World {
+    /// Select the nearest enabled load door in the player's current cell.
+    /// Distances only compare source coordinates within that cell. Destination
+    /// coordinates are used for loading, never for proximity selection.
+    /// Follows OpenMW's scene.cpp teleport-door preload selection.
+    pub fn nearby_interior_destination(
+        &self,
+        cell: GlobalFormId,
+        position: [f32; 3],
+        radius: f32,
+    ) -> Option<InteriorDestination> {
+        if !radius.is_finite() || radius < 0.0 || position.iter().any(|v| !v.is_finite()) {
+            return None;
+        }
+        let index = self.order.cell_index()?;
+        self.refs
+            .iter()
+            .filter_map(|(&id, reference)| {
+                if reference.cell != Some(cell) || !reference.enabled || reference.deleted {
+                    return None;
+                }
+                if self.tag_of(reference.base?) != Some(super::T(b"DOOR")) {
+                    return None;
+                }
+                let (far, landing) = reference.teleport?;
+                let distance: f32 = reference
+                    .position
+                    .iter()
+                    .zip(position)
+                    .map(|(a, b)| (a - b).powi(2))
+                    .sum();
+                if !distance.is_finite() || distance > radius * radius {
+                    return None;
+                }
+                let to = match self.refs.get(&far) {
+                    Some(destination) => destination.cell,
+                    None => self.load_ref_record(far)?.cell,
+                }?;
+                if to == cell || !index.is_interior(to) {
+                    return None;
+                }
+                Some((
+                    distance,
+                    id,
+                    InteriorDestination {
+                        door: id,
+                        cell: to,
+                        landing,
+                    },
+                ))
+            })
+            .min_by(|a, b| a.0.total_cmp(&b.0).then_with(|| a.1.cmp(&b.1)))
+            .map(|(_, _, destination)| destination)
+    }
+
     /// Activating a load door: work out where it goes, note whether the
     /// destination is cold, and build it.
     ///
