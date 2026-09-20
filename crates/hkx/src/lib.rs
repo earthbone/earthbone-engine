@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! Havok 2010.2 packfile reader for Skyrim Special Edition.
+//! Havok 2010.2 packfile reader for Skyrim LE and Special Edition.
 //!
 //! Skyrim SE ships its skeletons, animations, ragdolls and behavior graphs as
 //! Havok `hkx` packfiles in the `hk_2010.2.0-r1` binary layout with 64-bit
-//! pointers. This crate reads that layout without any Havok SDK: the field
+//! pointers. Skyrim LE uses the same version with 32-bit pointers. This crate
+//! reads both layouts without any Havok SDK: the field
 //! offsets come from the class descriptions serde-hkx extracted from the
 //! files themselves and from the reverse-engineered runtime layouts in
 //! activeragdoll's `havok_behavior.h`.
@@ -76,8 +77,7 @@ pub enum Error {
     },
     /// Only little-endian files are read. Skyrim on PC never wrote big-endian.
     BigEndian,
-    /// The layouts in this crate are for 64-bit pointers. Skyrim LE files
-    /// are 32-bit and need the other layout table.
+    /// The pointer width is unsupported by the requested reader.
     PointerSize(u8),
     /// A fixup points outside the section it names.
     BadFixup {
@@ -116,10 +116,7 @@ impl fmt::Display for Error {
                 "truncated {what}: need {need} bytes at {at}, have {have}"
             ),
             Error::BigEndian => write!(f, "big-endian packfiles are not supported"),
-            Error::PointerSize(n) => write!(
-                f,
-                "{n}-byte pointers: only the 64-bit Skyrim SE layout is supported"
-            ),
+            Error::PointerSize(n) => write!(f, "{n}-byte pointers are unsupported by this reader"),
             Error::BadFixup { kind, src, dst } => {
                 write!(
                     f,

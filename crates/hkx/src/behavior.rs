@@ -13,7 +13,7 @@
 //! by [`NodeId`], with the classes an interpreter needs decoded field by
 //! field and everything else kept as [`NodeKind::Unknown`] with its class
 //! name, so a graph never fails to load because of a node type this crate
-//! has not modelled yet. Offsets are the 64-bit `hk_2010.2.0-r1` layout,
+//! has not modelled yet. Paired offsets cover the x86 and x64 `hk_2010.2.0-r1` layouts,
 //! cross-checked against activeragdoll's runtime layouts where the two
 //! overlap (`hkbNode`, `hkbStateMachine`, `hkbBlendingTransitionEffect`).
 
@@ -118,10 +118,10 @@ impl VariableValueSet {
     pub fn from_obj(o: Obj<'_>) -> Result<VariableValueSet> {
         o.expect_class("hkbVariableValueSet")?;
         Ok(VariableValueSet {
-            word_values: o.array_i32(16)?,
-            quad_values: o.array_vec4(32)?,
+            word_values: o.array_i32(o.layout_offset(8, 16))?,
+            quad_values: o.array_vec4(o.layout_offset(20, 32))?,
             variant_values: o
-                .array_ptrs(48)?
+                .array_ptrs(o.layout_offset(32, 48))?
                 .into_iter()
                 .map(|p| p.map(|p| p.base))
                 .collect(),
@@ -155,25 +155,28 @@ impl BehaviorGraphData {
     pub fn from_obj(o: Obj<'_>) -> Result<BehaviorGraphData> {
         o.expect_class("hkbBehaviorGraphData")?;
         let mut d = BehaviorGraphData {
-            attribute_defaults: o.array_f32(16)?,
-            variable_infos: VariableInfo::array(o, 32)?,
-            character_property_infos: VariableInfo::array(o, 48)?,
+            attribute_defaults: o.array_f32(o.layout_offset(8, 16))?,
+            variable_infos: VariableInfo::array(o, o.layout_offset(20, 32))?,
+            character_property_infos: VariableInfo::array(o, o.layout_offset(32, 48))?,
             event_infos: o
-                .array_u32(64)?
+                .array_u32(o.layout_offset(44, 64))?
                 .into_iter()
                 .map(|flags| EventInfo { flags })
                 .collect(),
-            word_min_variable_values: o.array_i32(80)?,
-            word_max_variable_values: o.array_i32(96)?,
-            variable_initial_values: o.ptr(112)?.map(VariableValueSet::from_obj).transpose()?,
+            word_min_variable_values: o.array_i32(o.layout_offset(56, 80))?,
+            word_max_variable_values: o.array_i32(o.layout_offset(68, 96))?,
+            variable_initial_values: o
+                .ptr(o.layout_offset(80, 112))?
+                .map(VariableValueSet::from_obj)
+                .transpose()?,
             ..Default::default()
         };
-        if let Some(s) = o.ptr(120)? {
+        if let Some(s) = o.ptr(o.layout_offset(84, 120))? {
             s.expect_class("hkbBehaviorGraphStringData")?;
-            d.event_names = s.array_strings(16)?;
-            d.attribute_names = s.array_strings(32)?;
-            d.variable_names = s.array_strings(48)?;
-            d.character_property_names = s.array_strings(64)?;
+            d.event_names = s.array_strings(s.layout_offset(8, 16))?;
+            d.attribute_names = s.array_strings(s.layout_offset(20, 32))?;
+            d.variable_names = s.array_strings(s.layout_offset(32, 48))?;
+            d.character_property_names = s.array_strings(s.layout_offset(44, 64))?;
         }
         Ok(d)
     }
@@ -216,18 +219,18 @@ impl VariableBindingSet {
         o.expect_class("hkbVariableBindingSet")?;
         Ok(VariableBindingSet {
             bindings: o
-                .array_structs(16, 40)?
+                .array_structs(o.layout_offset(8, 16), o.layout_offset(32, 40))?
                 .into_iter()
                 .map(|b| {
                     Ok(Binding {
                         member_path: b.string_or_empty(0)?,
-                        variable_index: b.i32(28)?,
-                        bit_index: b.i8(32)?,
-                        binding_type: b.i8(33)?,
+                        variable_index: b.i32(b.layout_offset(20, 28))?,
+                        bit_index: b.i8(b.layout_offset(24, 32))?,
+                        binding_type: b.i8(b.layout_offset(25, 33))?,
                     })
                 })
                 .collect::<Result<Vec<_>>>()?,
-            index_of_binding_to_enable: o.i32(32)?,
+            index_of_binding_to_enable: o.i32(o.layout_offset(20, 32))?,
         })
     }
 }
@@ -243,7 +246,7 @@ impl EventProperty {
     fn read(o: Obj<'_>, off: u32) -> Result<EventProperty> {
         Ok(EventProperty {
             id: o.i32(off)?,
-            has_payload: o.ptr(off + 8)?.is_some(),
+            has_payload: o.ptr(off + o.layout_offset(4, 8))?.is_some(),
         })
     }
 
@@ -252,7 +255,7 @@ impl EventProperty {
             return Ok(Vec::new());
         };
         o.expect_class("hkbStateMachineEventPropertyArray")?;
-        o.array_structs(16, 16)?
+        o.array_structs(o.layout_offset(8, 16), o.layout_offset(8, 16))?
             .into_iter()
             .map(|e| EventProperty::read(e, 0))
             .collect()
@@ -658,7 +661,7 @@ impl BehaviorGraph {
     /// rootGenerator 128, data 136.
     pub fn from_obj(o: Obj<'_>) -> Result<BehaviorGraph> {
         o.expect_class("hkbBehaviorGraph")?;
-        let data = match o.ptr(136)? {
+        let data = match o.ptr(o.layout_offset(80, 136))? {
             Some(d) => BehaviorGraphData::from_obj(d)?,
             None => BehaviorGraphData::default(),
         };
@@ -667,11 +670,11 @@ impl BehaviorGraph {
             by_offset: HashMap::new(),
             pending: Vec::new(),
         };
-        let root = o.ptr(128)?.map(|r| loader.node_id(r));
+        let root = o.ptr(o.layout_offset(76, 128))?.map(|r| loader.node_id(r));
         loader.drain()?;
         Ok(BehaviorGraph {
-            name: o.string_or_empty(56)?,
-            variable_mode: o.i8(72)?,
+            name: o.string_or_empty(o.layout_offset(32, 56))?,
+            variable_mode: o.i8(o.layout_offset(40, 72))?,
             root,
             data,
             nodes: loader.nodes,
@@ -679,7 +682,6 @@ impl BehaviorGraph {
     }
 
     pub fn from_packfile(pf: &Packfile) -> Result<BehaviorGraph> {
-        pf.require_64bit()?;
         Self::from_obj(root_variant_of(pf, "hkbBehaviorGraph")?)
     }
 }
@@ -732,115 +734,124 @@ impl<'a> Loader<'a> {
         };
         arr.expect_class("hkbStateMachineTransitionInfoArray")?;
         let mut out = Vec::new();
-        for t in arr.array_structs(16, 72)? {
+        for t in arr.array_structs(arr.layout_offset(8, 16), arr.layout_offset(60, 72))? {
             let transition = self.opt_id(t.ptr(32)?);
             out.push(TransitionInfo {
                 trigger_interval: TimeInterval::read(t, 0)?,
                 initiate_interval: TimeInterval::read(t, 16)?,
                 transition,
-                has_condition: t.ptr(40)?.is_some(),
-                event_id: t.i32(48)?,
-                to_state_id: t.i32(52)?,
-                from_nested_state_id: t.i32(56)?,
-                to_nested_state_id: t.i32(60)?,
-                priority: t.i16(64)?,
-                flags: t.u16(66)?,
+                has_condition: t.ptr(t.layout_offset(36, 40))?.is_some(),
+                event_id: t.i32(t.layout_offset(40, 48))?,
+                to_state_id: t.i32(t.layout_offset(44, 52))?,
+                from_nested_state_id: t.i32(t.layout_offset(48, 56))?,
+                to_nested_state_id: t.i32(t.layout_offset(52, 60))?,
+                priority: t.i16(t.layout_offset(56, 64))?,
+                flags: t.u16(t.layout_offset(58, 66))?,
             });
         }
         Ok(out)
     }
 
     fn bindings(o: Obj<'a>) -> Result<Option<VariableBindingSet>> {
-        o.ptr(16)?.map(VariableBindingSet::from_obj).transpose()
+        o.ptr(o.layout_offset(8, 16))?
+            .map(VariableBindingSet::from_obj)
+            .transpose()
     }
 
     fn state_machine(&mut self, o: Obj<'a>) -> Result<StateMachine> {
         let mut states = Vec::new();
-        for s in o.array_ptrs(144)?.into_iter().flatten() {
+        for s in o
+            .array_ptrs(o.layout_offset(92, 144))?
+            .into_iter()
+            .flatten()
+        {
             s.expect_class("hkbStateMachineStateInfo")?;
-            let generator = self.opt_id(s.ptr(88)?);
-            let transitions = self.transitions(s.ptr(80)?)?;
+            let generator = self.opt_id(s.ptr(s.layout_offset(52, 88))?);
+            let transitions = self.transitions(s.ptr(s.layout_offset(48, 80))?)?;
             states.push(StateInfo {
-                name: s.string_or_empty(96)?,
-                state_id: s.i32(104)?,
-                probability: s.f32(108)?,
-                enable: s.bool(112)?,
+                name: s.string_or_empty(s.layout_offset(56, 96))?,
+                state_id: s.i32(s.layout_offset(60, 104))?,
+                probability: s.f32(s.layout_offset(64, 108))?,
+                enable: s.bool(s.layout_offset(68, 112))?,
                 generator,
-                enter_notify_events: EventProperty::array_from(s.ptr(64)?)?,
-                exit_notify_events: EventProperty::array_from(s.ptr(72)?)?,
+                enter_notify_events: EventProperty::array_from(s.ptr(s.layout_offset(40, 64))?)?,
+                exit_notify_events: EventProperty::array_from(s.ptr(s.layout_offset(44, 72))?)?,
                 transitions,
                 bindings: Self::bindings(s)?,
             });
         }
-        let wildcard_transitions = self.transitions(o.ptr(160)?)?;
+        let wildcard_transitions = self.transitions(o.ptr(o.layout_offset(104, 160))?)?;
         Ok(StateMachine {
-            event_to_send_when_state_or_transition_changes: EventProperty::read(o, 72)?,
-            start_state_id: o.i32(104)?,
-            return_to_previous_state_event_id: o.i32(108)?,
-            random_transition_event_id: o.i32(112)?,
-            transition_to_next_higher_state_event_id: o.i32(116)?,
-            transition_to_next_lower_state_event_id: o.i32(120)?,
-            sync_variable_index: o.i32(124)?,
-            wrap_around_state_id: o.bool(132)?,
-            max_simultaneous_transitions: o.i8(133)?,
-            start_state_mode: o.u8(134)?,
-            self_transition_mode: o.u8(135)?,
+            event_to_send_when_state_or_transition_changes: EventProperty::read(
+                o,
+                o.layout_offset(40, 72),
+            )?,
+            start_state_id: o.i32(o.layout_offset(56, 104))?,
+            return_to_previous_state_event_id: o.i32(o.layout_offset(60, 108))?,
+            random_transition_event_id: o.i32(o.layout_offset(64, 112))?,
+            transition_to_next_higher_state_event_id: o.i32(o.layout_offset(68, 116))?,
+            transition_to_next_lower_state_event_id: o.i32(o.layout_offset(72, 120))?,
+            sync_variable_index: o.i32(o.layout_offset(76, 124))?,
+            wrap_around_state_id: o.bool(o.layout_offset(84, 132))?,
+            max_simultaneous_transitions: o.i8(o.layout_offset(85, 133))?,
+            start_state_mode: o.u8(o.layout_offset(86, 134))?,
+            self_transition_mode: o.u8(o.layout_offset(87, 135))?,
             states,
             wildcard_transitions,
-            has_start_state_chooser: o.ptr(96)?.is_some(),
+            has_start_state_chooser: o.ptr(o.layout_offset(52, 96))?.is_some(),
         })
     }
 
     fn clip(o: Obj<'a>) -> Result<ClipGenerator> {
         let mut triggers = Vec::new();
-        if let Some(arr) = o.ptr(80)? {
+        if let Some(arr) = o.ptr(o.layout_offset(44, 80))? {
             arr.expect_class("hkbClipTriggerArray")?;
-            for t in arr.array_structs(16, 32)? {
+            for t in arr.array_structs(arr.layout_offset(8, 16), arr.layout_offset(16, 32))? {
                 triggers.push(ClipTrigger {
                     local_time: t.f32(0)?,
-                    event: EventProperty::read(t, 8)?,
-                    relative_to_end_of_clip: t.bool(24)?,
-                    acyclic: t.bool(25)?,
-                    is_annotation: t.bool(26)?,
+                    event: EventProperty::read(t, t.layout_offset(4, 8))?,
+                    relative_to_end_of_clip: t.bool(t.layout_offset(12, 24))?,
+                    acyclic: t.bool(t.layout_offset(13, 25))?,
+                    is_annotation: t.bool(t.layout_offset(14, 26))?,
                 });
             }
         }
         Ok(ClipGenerator {
-            animation_name: o.string_or_empty(72)?,
+            animation_name: o.string_or_empty(o.layout_offset(40, 72))?,
             triggers,
-            crop_start_amount_local_time: o.f32(88)?,
-            crop_end_amount_local_time: o.f32(92)?,
-            start_time: o.f32(96)?,
-            playback_speed: o.f32(100)?,
-            enforced_duration: o.f32(104)?,
-            user_controlled_time_fraction: o.f32(108)?,
-            animation_binding_index: o.i16(112)?,
-            mode: o.i8(114)?,
-            flags: o.i8(115)?,
+            crop_start_amount_local_time: o.f32(o.layout_offset(48, 88))?,
+            crop_end_amount_local_time: o.f32(o.layout_offset(52, 92))?,
+            start_time: o.f32(o.layout_offset(56, 96))?,
+            playback_speed: o.f32(o.layout_offset(60, 100))?,
+            enforced_duration: o.f32(o.layout_offset(64, 104))?,
+            user_controlled_time_fraction: o.f32(o.layout_offset(68, 108))?,
+            animation_binding_index: o.i16(o.layout_offset(72, 112))?,
+            mode: o.i8(o.layout_offset(74, 114))?,
+            flags: o.i8(o.layout_offset(75, 115))?,
         })
     }
 
     fn blender(&mut self, o: Obj<'a>) -> Result<BlenderGenerator> {
         let mut children = Vec::new();
-        for c in o.array_ptrs(96)?.into_iter().flatten() {
+        for c in o.array_ptrs(o.layout_offset(64, 96))?.into_iter().flatten() {
             c.expect_class("hkbBlenderGeneratorChild")?;
-            let generator = self.opt_id(c.ptr(48)?);
+            let generator = self.opt_id(c.ptr(c.layout_offset(32, 48))?);
             children.push(BlenderChild {
                 generator,
-                has_bone_weights: c.ptr(56)?.is_some(),
-                weight: c.f32(64)?,
-                world_from_model_weight: c.f32(68)?,
+                has_bone_weights: c.ptr(c.layout_offset(36, 56))?.is_some(),
+                weight: c.f32(c.layout_offset(40, 64))?,
+                world_from_model_weight: c.f32(c.layout_offset(44, 68))?,
                 bindings: Self::bindings(c)?,
             });
         }
         Ok(BlenderGenerator {
-            reference_pose_weight_threshold: o.f32(72)?,
-            blend_parameter: o.f32(76)?,
-            min_cyclic_blend_parameter: o.f32(80)?,
-            max_cyclic_blend_parameter: o.f32(84)?,
-            index_of_sync_master_child: o.i16(88)?,
-            flags: o.i16(90)?,
-            subtract_last_child: o.bool(92)?,
+            reference_pose_weight_threshold: o.f32(o.layout_offset(40, 72))?,
+            blend_parameter: o.f32(o.layout_offset(44, 76))?,
+            min_cyclic_blend_parameter: o.f32(o.layout_offset(48, 80))?,
+            max_cyclic_blend_parameter: o.f32(o.layout_offset(52, 84))?,
+            index_of_sync_master_child: o.i16(o.layout_offset(56, 88))?,
+            flags: o.i16(o.layout_offset(58, 90))?,
+            subtract_last_child: o.bool(o.layout_offset(60, 92))?,
             children,
         })
     }
@@ -854,143 +865,143 @@ impl<'a> Loader<'a> {
                 NodeKind::Blender(self.blender(o)?)
             }
             "hkbManualSelectorGenerator" => {
-                let ptrs = o.array_ptrs(72)?;
+                let ptrs = o.array_ptrs(o.layout_offset(40, 72))?;
                 let generators = ptrs.into_iter().map(|p| self.opt_id(p)).collect();
                 NodeKind::ManualSelector {
                     generators,
-                    selected_generator_index: o.i8(88)?,
-                    current_generator_index: o.i8(89)?,
+                    selected_generator_index: o.i8(o.layout_offset(52, 88))?,
+                    current_generator_index: o.i8(o.layout_offset(53, 89))?,
                 }
             }
             "hkbModifierGenerator" => {
-                let modifier = self.opt_id(o.ptr(72)?);
-                let generator = self.opt_id(o.ptr(80)?);
+                let modifier = self.opt_id(o.ptr(o.layout_offset(40, 72))?);
+                let generator = self.opt_id(o.ptr(o.layout_offset(44, 80))?);
                 NodeKind::ModifierGenerator {
                     modifier,
                     generator,
                 }
             }
             "hkbModifierList" => {
-                let ptrs = o.array_ptrs(80)?;
+                let ptrs = o.array_ptrs(o.layout_offset(44, 80))?;
                 let modifiers = ptrs.into_iter().map(|p| self.opt_id(p)).collect();
                 NodeKind::ModifierList {
-                    enable: o.bool(72)?,
+                    enable: o.bool(o.layout_offset(40, 72))?,
                     modifiers,
                 }
             }
             "hkbBehaviorReferenceGenerator" => NodeKind::BehaviorReference {
-                behavior_name: o.string_or_empty(72)?,
+                behavior_name: o.string_or_empty(o.layout_offset(40, 72))?,
                 resolved: None,
             },
             "hkbBlendingTransitionEffect" => {
                 NodeKind::BlendingTransition(BlendingTransitionEffect {
-                    self_transition_mode: o.i8(72)?,
-                    event_mode: o.i8(73)?,
-                    duration: o.f32(80)?,
-                    to_generator_start_time_fraction: o.f32(84)?,
-                    flags: o.u16(88)?,
-                    end_mode: o.i8(90)?,
-                    blend_curve: o.i8(91)?,
+                    self_transition_mode: o.i8(o.layout_offset(40, 72))?,
+                    event_mode: o.i8(o.layout_offset(41, 73))?,
+                    duration: o.f32(o.layout_offset(44, 80))?,
+                    to_generator_start_time_fraction: o.f32(o.layout_offset(48, 84))?,
+                    flags: o.u16(o.layout_offset(52, 88))?,
+                    end_mode: o.i8(o.layout_offset(54, 90))?,
+                    blend_curve: o.i8(o.layout_offset(55, 91))?,
                 })
             }
             "hkbGeneratorTransitionEffect" => {
-                let transition_generator = self.opt_id(o.ptr(80)?);
+                let transition_generator = self.opt_id(o.ptr(o.layout_offset(44, 80))?);
                 NodeKind::GeneratorTransition(GeneratorTransitionEffect {
-                    self_transition_mode: o.i8(72)?,
-                    event_mode: o.i8(73)?,
+                    self_transition_mode: o.i8(o.layout_offset(40, 72))?,
+                    event_mode: o.i8(o.layout_offset(41, 73))?,
                     transition_generator,
-                    blend_in_duration: o.f32(88)?,
-                    blend_out_duration: o.f32(92)?,
-                    sync_to_generator_start_time: o.bool(96)?,
+                    blend_in_duration: o.f32(o.layout_offset(48, 88))?,
+                    blend_out_duration: o.f32(o.layout_offset(52, 92))?,
+                    sync_to_generator_start_time: o.bool(o.layout_offset(56, 96))?,
                 })
             }
             "BSiStateTaggingGenerator" => {
-                let default_generator = self.opt_id(o.ptr(80)?);
+                let default_generator = self.opt_id(o.ptr(o.layout_offset(48, 80))?);
                 NodeKind::IStateTagging {
                     default_generator,
-                    state_to_set_as: o.i32(88)?,
-                    priority: o.i32(92)?,
+                    state_to_set_as: o.i32(o.layout_offset(52, 88))?,
+                    priority: o.i32(o.layout_offset(56, 92))?,
                 }
             }
             "BSSynchronizedClipGenerator" => {
-                let clip_generator = self.opt_id(o.ptr(80)?);
+                let clip_generator = self.opt_id(o.ptr(o.layout_offset(48, 80))?);
                 NodeKind::SynchronizedClip {
                     clip_generator,
-                    sync_anim_prefix: o.string_or_empty(88)?,
-                    sync_clip_ignore_mark_placement: o.bool(96)?,
-                    get_to_mark_time: o.f32(100)?,
-                    mark_error_threshold: o.f32(104)?,
-                    lead_character: o.bool(108)?,
-                    reorient_support_char: o.bool(109)?,
-                    apply_motion_from_root: o.bool(110)?,
-                    animation_binding_index: o.i16(296)?,
+                    sync_anim_prefix: o.string_or_empty(o.layout_offset(52, 88))?,
+                    sync_clip_ignore_mark_placement: o.bool(o.layout_offset(56, 96))?,
+                    get_to_mark_time: o.f32(o.layout_offset(60, 100))?,
+                    mark_error_threshold: o.f32(o.layout_offset(64, 104))?,
+                    lead_character: o.bool(o.layout_offset(68, 108))?,
+                    reorient_support_char: o.bool(o.layout_offset(69, 109))?,
+                    apply_motion_from_root: o.bool(o.layout_offset(70, 110))?,
+                    animation_binding_index: o.i16(o.layout_offset(236, 296))?,
                 }
             }
             "BSCyclicBlendTransitionGenerator" => {
-                let blender_generator = self.opt_id(o.ptr(80)?);
+                let blender_generator = self.opt_id(o.ptr(o.layout_offset(48, 80))?);
                 NodeKind::CyclicBlendTransition {
                     blender_generator,
-                    event_to_freeze_blend_value: EventProperty::read(o, 88)?,
-                    event_to_cross_blend: EventProperty::read(o, 104)?,
-                    blend_parameter: o.f32(120)?,
-                    transition_duration: o.f32(124)?,
-                    blend_curve: o.i8(128)?,
+                    event_to_freeze_blend_value: EventProperty::read(o, o.layout_offset(52, 88))?,
+                    event_to_cross_blend: EventProperty::read(o, o.layout_offset(60, 104))?,
+                    blend_parameter: o.f32(o.layout_offset(68, 120))?,
+                    transition_duration: o.f32(o.layout_offset(72, 124))?,
+                    blend_curve: o.i8(o.layout_offset(76, 128))?,
                 }
             }
             "BSOffsetAnimationGenerator" => {
-                let default_generator = self.opt_id(o.ptr(80)?);
-                let offset_clip_generator = self.opt_id(o.ptr(96)?);
+                let default_generator = self.opt_id(o.ptr(o.layout_offset(48, 80))?);
+                let offset_clip_generator = self.opt_id(o.ptr(o.layout_offset(64, 96))?);
                 NodeKind::OffsetAnimation {
                     default_generator,
                     offset_clip_generator,
-                    offset_variable: o.f32(104)?,
-                    offset_range_start: o.f32(108)?,
-                    offset_range_end: o.f32(112)?,
+                    offset_variable: o.f32(o.layout_offset(68, 104))?,
+                    offset_range_start: o.f32(o.layout_offset(72, 108))?,
+                    offset_range_end: o.f32(o.layout_offset(76, 112))?,
                 }
             }
             "BSBoneSwitchGenerator" => {
-                let default_generator = self.opt_id(o.ptr(80)?);
+                let default_generator = self.opt_id(o.ptr(o.layout_offset(48, 80))?);
                 NodeKind::BoneSwitch {
                     default_generator,
                     children: o
-                        .array_ptrs(88)?
+                        .array_ptrs(o.layout_offset(52, 88))?
                         .into_iter()
                         .map(|p| p.map(|p| p.base))
                         .collect(),
                 }
             }
             "hkbEventDrivenModifier" => {
-                let modifier = self.opt_id(o.ptr(80)?);
+                let modifier = self.opt_id(o.ptr(o.layout_offset(44, 80))?);
                 NodeKind::EventDrivenModifier {
-                    enable: o.bool(72)?,
+                    enable: o.bool(o.layout_offset(40, 72))?,
                     modifier,
-                    activate_event_id: o.i32(88)?,
-                    deactivate_event_id: o.i32(92)?,
-                    active_by_default: o.bool(96)?,
+                    activate_event_id: o.i32(o.layout_offset(48, 88))?,
+                    deactivate_event_id: o.i32(o.layout_offset(52, 92))?,
+                    active_by_default: o.bool(o.layout_offset(56, 96))?,
                 }
             }
             "hkbTimerModifier" => NodeKind::TimerModifier {
-                enable: o.bool(72)?,
-                alarm_time_seconds: o.f32(80)?,
-                alarm_event: EventProperty::read(o, 88)?,
+                enable: o.bool(o.layout_offset(40, 72))?,
+                alarm_time_seconds: o.f32(o.layout_offset(44, 80))?,
+                alarm_event: EventProperty::read(o, o.layout_offset(48, 88))?,
             },
             // Five (flag, invert) pairs packed one byte each from 80.
             "BSIsActiveModifier" => {
                 let mut is_active = [false; IS_ACTIVE_SLOTS];
                 let mut invert_active = [false; IS_ACTIVE_SLOTS];
                 for (i, (a, inv)) in is_active.iter_mut().zip(&mut invert_active).enumerate() {
-                    let at = 80 + 2 * u32::try_from(i).unwrap_or(0);
+                    let at = o.layout_offset(44, 80) + 2 * u32::try_from(i).unwrap_or(0);
                     *a = o.bool(at)?;
                     *inv = o.bool(at + 1)?;
                 }
                 NodeKind::IsActiveModifier {
-                    enable: o.bool(72)?,
+                    enable: o.bool(o.layout_offset(40, 72))?,
                     is_active,
                     invert_active,
                 }
             }
             c if c.ends_with("Modifier") => NodeKind::Modifier {
-                enable: o.bool(72)?,
+                enable: o.bool(o.layout_offset(40, 72))?,
             },
             _ => NodeKind::Unknown,
         };
@@ -998,8 +1009,8 @@ impl<'a> Loader<'a> {
             id,
             offset: o.base,
             class,
-            name: o.string_or_empty(56)?,
-            user_data: o.u64(48)?,
+            name: o.string_or_empty(o.layout_offset(32, 56))?,
+            user_data: o.ulong(o.layout_offset(28, 48))?,
             bindings: Self::bindings(o)?,
             kind,
         })

@@ -38,8 +38,8 @@ impl Animation {
             )),
             Some(other) => Ok(Animation::Unsupported {
                 class: other.to_string(),
-                animation_type: o.i32(16)?,
-                duration: o.f32(20)?,
+                animation_type: o.i32(o.layout_offset(8, 16))?,
+                duration: o.f32(o.layout_offset(12, 20))?,
             }),
             None => Err(Error::WrongClass {
                 expected: "hkaAnimation",
@@ -95,18 +95,18 @@ impl SplineCompressedAnimation {
     pub fn from_obj(o: Obj<'_>) -> Result<SplineCompressedAnimation> {
         o.expect_class("hkaSplineCompressedAnimation")?;
         let annotation_tracks = o
-            .array_structs(40, 24)?
+            .array_structs(o.layout_offset(28, 40), o.layout_offset(16, 24))?
             .into_iter()
             .map(|t| {
                 Ok(AnnotationTrack {
                     track_name: t.string_or_empty(0)?,
                     annotations: t
-                        .array_structs(8, 16)?
+                        .array_structs(t.layout_offset(4, 8), t.layout_offset(8, 16))?
                         .into_iter()
                         .map(|a| {
                             Ok(Annotation {
                                 time: a.f32(0)?,
-                                text: a.string_or_empty(8)?,
+                                text: a.string_or_empty(a.layout_offset(4, 8))?,
                             })
                         })
                         .collect::<Result<Vec<_>>>()?,
@@ -114,24 +114,30 @@ impl SplineCompressedAnimation {
             })
             .collect::<Result<Vec<_>>>()?;
         let anim = SplineCompressedAnimation {
-            duration: o.f32(20)?,
-            num_transform_tracks: non_negative(o.i32(24)?, "numberOfTransformTracks")?,
-            num_float_tracks: non_negative(o.i32(28)?, "numberOfFloatTracks")?,
+            duration: o.f32(o.layout_offset(12, 20))?,
+            num_transform_tracks: non_negative(
+                o.i32(o.layout_offset(16, 24))?,
+                "numberOfTransformTracks",
+            )?,
+            num_float_tracks: non_negative(o.i32(o.layout_offset(20, 28))?, "numberOfFloatTracks")?,
             annotation_tracks,
-            num_frames: non_negative(o.i32(56)?, "numFrames")?,
-            num_blocks: non_negative(o.i32(60)?, "numBlocks")?,
-            max_frames_per_block: non_negative(o.i32(64)?, "maxFramesPerBlock")?,
-            mask_and_quantization_size: o.i32(68)?,
-            block_duration: o.f32(72)?,
-            block_inverse_duration: o.f32(76)?,
-            frame_duration: o.f32(80)?,
-            block_offsets: o.array_u32(88)?,
-            float_block_offsets: o.array_u32(104)?,
-            transform_offsets: o.array_u32(120)?,
-            float_offsets: o.array_u32(136)?,
-            data: o.array_u8(152)?,
-            endian: o.i32(168)?,
-            has_extracted_motion: o.ptr(32)?.is_some(),
+            num_frames: non_negative(o.i32(o.layout_offset(40, 56))?, "numFrames")?,
+            num_blocks: non_negative(o.i32(o.layout_offset(44, 60))?, "numBlocks")?,
+            max_frames_per_block: non_negative(
+                o.i32(o.layout_offset(48, 64))?,
+                "maxFramesPerBlock",
+            )?,
+            mask_and_quantization_size: o.i32(o.layout_offset(52, 68))?,
+            block_duration: o.f32(o.layout_offset(56, 72))?,
+            block_inverse_duration: o.f32(o.layout_offset(60, 76))?,
+            frame_duration: o.f32(o.layout_offset(64, 80))?,
+            block_offsets: o.array_u32(o.layout_offset(68, 88))?,
+            float_block_offsets: o.array_u32(o.layout_offset(80, 104))?,
+            transform_offsets: o.array_u32(o.layout_offset(92, 120))?,
+            float_offsets: o.array_u32(o.layout_offset(104, 136))?,
+            data: o.array_u8(o.layout_offset(116, 152))?,
+            endian: o.i32(o.layout_offset(128, 168))?,
+            has_extracted_motion: o.ptr(o.layout_offset(24, 32))?.is_some(),
         };
         if anim.block_offsets.len() != anim.num_blocks {
             return Err(Error::BadSpline(format!(

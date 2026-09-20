@@ -40,66 +40,70 @@ fn block() -> Vec<u8> {
     b
 }
 
-fn build() -> Vec<u8> {
-    let mut b = PackfileBuilder::new();
-    let root = b.object("hkRootLevelContainer", 16);
-    let container = b.object("hkaAnimationContainer", 96);
-    let variant = b.array_structs(root, 0, 24, 1);
+fn build(le: bool) -> Vec<u8> {
+    let off = |x86, x64| if le { x86 } else { x64 };
+    let mut b = if le {
+        PackfileBuilder::new_32bit()
+    } else {
+        PackfileBuilder::new()
+    };
+    let root = b.object("hkRootLevelContainer", off(12, 16) as usize);
+    let container = b.object("hkaAnimationContainer", off(68, 96) as usize);
+    let variant = b.array_structs(root, 0, off(12, 24) as usize, 1);
     b.string(variant, 0, "Merged Animation Container");
-    b.string(variant, 8, "hkaAnimationContainer");
-    b.ptr(variant, 16, container);
+    b.string(variant, off(4, 8), "hkaAnimationContainer");
+    b.ptr(variant, off(8, 16), container);
 
-    let skeleton = b.object("hkaSkeleton", 120);
-    b.string(skeleton, 16, "NPC Root [Root]");
-    b.array_i16(skeleton, 24, &[-1, 0]);
-    let bones = b.array_structs(skeleton, 40, 16, 2);
+    let skeleton = b.object("hkaSkeleton", off(84, 120) as usize);
+    b.string(skeleton, off(8, 16), "NPC Root [Root]");
+    b.array_i16(skeleton, off(12, 24), &[-1, 0]);
+    let bones = b.array_structs(skeleton, off(24, 40), off(8, 16) as usize, 2);
     b.string(bones, 0, "NPC Root [Root]");
-    b.string(bones + 16, 0, "NPC Pelvis [Pelv]");
-    b.set_bool(bones + 16, 8, true);
+    b.string(bones + off(8, 16), 0, "NPC Pelvis [Pelv]");
+    b.set_bool(bones + off(8, 16), off(4, 8), true);
     let pelvis = QsTransform {
         translation: [0.0, 0.0, 60.0, 0.0],
         ..QsTransform::IDENTITY
     };
-    b.array_qs_transform(skeleton, 56, &[QsTransform::IDENTITY, pelvis]);
-    b.array_strings(skeleton, 88, &["Weapon_Left", "Weapon_Right"]);
-    b.array_ptrs(container, 16, &[skeleton]);
+    b.array_qs_transform(skeleton, off(36, 56), &[QsTransform::IDENTITY, pelvis]);
+    b.array_strings(skeleton, off(60, 88), &["Weapon_Left", "Weapon_Right"]);
+    b.array_ptrs(container, off(8, 16), &[skeleton]);
 
-    let anim = b.object("hkaSplineCompressedAnimation", 176);
-    b.set_i32(anim, 16, 5);
-    b.set_f32(anim, 20, 2.0 / 30.0);
-    b.set_i32(anim, 24, 1);
-    b.set_i32(anim, 28, 0);
-    b.set_i32(anim, 56, 3);
-    b.set_i32(anim, 60, 1);
-    b.set_i32(anim, 64, 256);
-    b.set_i32(anim, 68, 4);
-    b.set_f32(anim, 72, 256.0 / 30.0);
-    b.set_f32(anim, 76, 30.0 / 256.0);
-    b.set_f32(anim, 80, 1.0 / 30.0);
-    b.array_u32(anim, 88, &[0]);
-    b.array_u32(anim, 104, &[0]);
-    b.array_u32(anim, 120, &[4]);
+    let anim = b.object("hkaSplineCompressedAnimation", off(132, 176) as usize);
+    b.set_i32(anim, off(8, 16), 5);
+    b.set_f32(anim, off(12, 20), 2.0 / 30.0);
+    b.set_i32(anim, off(16, 24), 1);
+    b.set_i32(anim, off(20, 28), 0);
+    b.set_i32(anim, off(40, 56), 3);
+    b.set_i32(anim, off(44, 60), 1);
+    b.set_i32(anim, off(48, 64), 256);
+    b.set_i32(anim, off(52, 68), 4);
+    b.set_f32(anim, off(56, 72), 256.0 / 30.0);
+    b.set_f32(anim, off(60, 76), 30.0 / 256.0);
+    b.set_f32(anim, off(64, 80), 1.0 / 30.0);
+    b.array_u32(anim, off(68, 88), &[0]);
+    b.array_u32(anim, off(80, 104), &[0]);
+    b.array_u32(anim, off(92, 120), &[4]);
     let data = block();
-    b.array_bytes(anim, 152, &data, data.len());
-    let tracks = b.array_structs(anim, 40, 24, 1);
+    b.array_bytes(anim, off(116, 152), &data, data.len());
+    let tracks = b.array_structs(anim, off(28, 40), off(16, 24) as usize, 1);
     b.string(tracks, 0, "NPC Pelvis [Pelv]");
-    let ann = b.array_structs(tracks, 8, 16, 1);
+    let ann = b.array_structs(tracks, off(4, 8), off(8, 16) as usize, 1);
     b.set_f32(ann, 0, 0.05);
-    b.string(ann, 8, "FootLeft");
-    b.array_ptrs(container, 32, &[anim]);
+    b.string(ann, off(4, 8), "FootLeft");
+    b.array_ptrs(container, off(20, 32), &[anim]);
 
-    let binding = b.object("hkaAnimationBinding", 72);
-    b.string(binding, 16, "NPC Root [Root]");
-    b.ptr(binding, 24, anim);
-    b.array_i16(binding, 32, &[1]);
-    b.set_i8(binding, 64, 1);
-    b.array_ptrs(container, 48, &[binding]);
+    let binding = b.object("hkaAnimationBinding", off(44, 72) as usize);
+    b.string(binding, off(8, 16), "NPC Root [Root]");
+    b.ptr(binding, off(12, 24), anim);
+    b.array_i16(binding, off(16, 32), &[1]);
+    b.set_i8(binding, off(40, 64), 1);
+    b.array_ptrs(container, off(32, 48), &[binding]);
     b.finish()
 }
 
-#[test]
-fn a_skeleton_and_a_clip_survive_the_round_trip() {
-    let bytes = build();
+fn check_round_trip(le: bool) {
+    let bytes = build(le);
     let pf = Packfile::parse(&bytes).unwrap();
     let c = AnimationContainer::from_packfile(&pf).unwrap();
 
@@ -145,4 +149,28 @@ fn a_skeleton_and_a_clip_survive_the_round_trip() {
     let model = sk.to_model_space(&pose).unwrap();
     assert!((model[1].translation[0] - 10.0).abs() < 0.01);
     assert_eq!(c.spline_animations().count(), 1);
+}
+
+#[test]
+fn se_skeleton_and_clip_round_trip() {
+    check_round_trip(false);
+}
+
+#[test]
+fn le_skeleton_and_clip_round_trip() {
+    check_round_trip(true);
+}
+
+#[test]
+fn both_layouts_decode_the_same_animation_model() {
+    let le = Packfile::parse(&build(true)).unwrap();
+    let se = Packfile::parse(&build(false)).unwrap();
+    let mut left = AnimationContainer::from_packfile(&le).unwrap();
+    let mut right = AnimationContainer::from_packfile(&se).unwrap();
+    for model in [&mut left, &mut right] {
+        for binding in &mut model.bindings {
+            binding.animation_offset = binding.animation_offset.map(|_| 0);
+        }
+    }
+    assert_eq!(left, right);
 }

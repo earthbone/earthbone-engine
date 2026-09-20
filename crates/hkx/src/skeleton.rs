@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 //! `hkaSkeleton`, `hkaAnimationBinding` and the `hkaAnimationContainer` that
-//! carries them. Offsets are the 64-bit `hk_2010.2.0-r1` layout.
+//! carries them. Paired offsets select the x86 or x64 `hk_2010.2.0-r1` layout.
 
 use crate::animation::{Animation, SplineCompressedAnimation};
 use crate::packfile::{root_variant_of, Obj};
@@ -32,22 +32,22 @@ impl Skeleton {
     pub fn from_obj(o: Obj<'_>) -> Result<Skeleton> {
         o.expect_class("hkaSkeleton")?;
         let bones = o
-            .array_structs(40, 16)?
+            .array_structs(o.layout_offset(24, 40), o.layout_offset(8, 16))?
             .into_iter()
             .map(|b| {
                 Ok(Bone {
                     name: b.string_or_empty(0)?,
-                    lock_translation: b.bool(8)?,
+                    lock_translation: b.bool(b.layout_offset(4, 8))?,
                 })
             })
             .collect::<Result<Vec<_>>>()?;
         let skeleton = Skeleton {
-            name: o.string_or_empty(16)?,
-            parent_indices: o.array_i16(24)?,
+            name: o.string_or_empty(o.layout_offset(8, 16))?,
+            parent_indices: o.array_i16(o.layout_offset(12, 24))?,
             bones,
-            reference_pose: o.array_qs_transform(56)?,
-            reference_floats: o.array_f32(72)?,
-            float_slots: o.array_strings(88)?,
+            reference_pose: o.array_qs_transform(o.layout_offset(36, 56))?,
+            reference_floats: o.array_f32(o.layout_offset(48, 72))?,
+            float_slots: o.array_strings(o.layout_offset(60, 88))?,
         };
         if skeleton.parent_indices.len() != skeleton.bones.len()
             || skeleton.reference_pose.len() != skeleton.bones.len()
@@ -171,15 +171,15 @@ impl AnimationBinding {
     /// blendHint 64.
     pub fn from_obj(o: Obj<'_>, animation_offsets: &[u32]) -> Result<AnimationBinding> {
         o.expect_class("hkaAnimationBinding")?;
-        let animation_offset = o.ptr(24)?.map(|a| a.base);
+        let animation_offset = o.ptr(o.layout_offset(12, 24))?.map(|a| a.base);
         Ok(AnimationBinding {
-            original_skeleton_name: o.string_or_empty(16)?,
+            original_skeleton_name: o.string_or_empty(o.layout_offset(8, 16))?,
             animation: animation_offset
                 .and_then(|off| animation_offsets.iter().position(|&a| a == off)),
             animation_offset,
-            transform_track_to_bone_indices: o.array_i16(32)?,
-            float_track_to_float_slot_indices: o.array_i16(48)?,
-            blend_hint: match o.i8(64)? {
+            transform_track_to_bone_indices: o.array_i16(o.layout_offset(16, 32))?,
+            float_track_to_float_slot_indices: o.array_i16(o.layout_offset(28, 48))?,
+            blend_hint: match o.i8(o.layout_offset(40, 64))? {
                 0 => BlendHint::Normal,
                 1 => BlendHint::Additive,
                 n => BlendHint::Other(n),
@@ -201,19 +201,23 @@ impl AnimationContainer {
     pub fn from_obj(o: Obj<'_>) -> Result<AnimationContainer> {
         o.expect_class("hkaAnimationContainer")?;
         let skeletons = o
-            .array_ptrs(16)?
+            .array_ptrs(o.layout_offset(8, 16))?
             .into_iter()
             .flatten()
             .map(Skeleton::from_obj)
             .collect::<Result<Vec<_>>>()?;
-        let anim_objs: Vec<Obj<'_>> = o.array_ptrs(32)?.into_iter().flatten().collect();
+        let anim_objs: Vec<Obj<'_>> = o
+            .array_ptrs(o.layout_offset(20, 32))?
+            .into_iter()
+            .flatten()
+            .collect();
         let animation_offsets: Vec<u32> = anim_objs.iter().map(|a| a.base).collect();
         let animations = anim_objs
             .into_iter()
             .map(Animation::from_obj)
             .collect::<Result<Vec<_>>>()?;
         let bindings = o
-            .array_ptrs(48)?
+            .array_ptrs(o.layout_offset(32, 48))?
             .into_iter()
             .flatten()
             .map(|b| AnimationBinding::from_obj(b, &animation_offsets))
@@ -228,7 +232,6 @@ impl AnimationContainer {
     /// The container a file's root names, the usual entry point for
     /// `skeleton.hkx` and animation files.
     pub fn from_packfile(pf: &Packfile) -> Result<AnimationContainer> {
-        pf.require_64bit()?;
         Self::from_obj(root_variant_of(pf, "hkaAnimationContainer")?)
     }
 

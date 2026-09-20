@@ -35,9 +35,10 @@ objects at their in-memory offsets, followed by three fixup tables. Local
 fixups resolve array contents and strings, global fixups resolve object
 pointers, virtual fixups name each object's class. Every read is bounds
 checked and returns `Error` on malformed input. The reader takes the file's
-pointer size from the header and refuses 32-bit files with
-`Error::PointerSize`, since the field offsets below are the 64-bit ones and
-Skyrim LE needs a second table.
+pointer size from the header. Typed readers select explicit x86/x64 field
+pairs through `Obj::layout_offset`, including embedded struct strides and
+`hkUlong` width. The existing skeleton, animation, binding, behavior,
+character and project models read both Skyrim LE and SE files.
 
 Checked against real files on 2026-09-06 with the gated tests in
 `tests/real_files.rs` (fixtures extracted from `Skyrim - Animations.bsa`
@@ -459,7 +460,6 @@ stored start state in every mode), `hkbBlendingTransitionEffect.duration` and
 - Blender details: bone weight masks, `subtractLastChild`, the real weight
   curve once a capture from the game exists (5.4).
 - Extracted motion and float tracks in the output.
-- 32-bit (Skyrim LE) layouts, wanted for Nemesis's LE cached behaviors.
 - Ragdoll data (`hkaRagdollInstance`, `hkpRigidBody`) in `skeleton.hkx`,
   which the physics layer will want from the same file.
 - A packfile writer that round-trips real files, so Nemesis-style patching
@@ -469,3 +469,40 @@ stored start state in every mode), `hkbBlendingTransitionEffect.duration` and
   spliced twice. That is correct, each reference is its own instance with its
   own state, but a shared decode with per-instance run-time state would cost
   less memory.
+
+## Skyrim LE layout validation (ANM-07)
+
+The x86 offsets and element sizes come from `offset_x86` and `size_x86` in
+`engine-refs/serde-hkx/assets/classes/*.json`, including inherited members.
+HavokLib's `source/format_old.cpp` selects four-byte or eight-byte pointer
+fixups from the header. Its `source/packfile/hka_skeleton.cpp` likewise
+selects architecture-specific member offsets and bone strides. The existing
+Rust reader already resolves those fixups, so it uses these declarations
+without importing another parser or a Havok SDK dependency.
+
+The tables above retain their SE offsets. At read time the paired LE offsets
+also account for vector alignment, which cannot be inferred by halving an
+SE offset. For example, `hkbProjectData.worldUpWS` stays at 16 in both
+layouts, while `hkaSkeleton.bones` moves from 40 to 24 and each `hkaBone`
+shrinks from 16 to 8 bytes. `hkbNode.userData` reads four bytes on LE.
+Raw `Obj` byte accessors continue to accept file byte offsets.
+
+`tests/le_files.rs::nemesis_le_and_se_have_the_same_typed_models` recursively
+compares all 37 paired Nemesis cache files. Set `SOE_NEMESIS_CACHE` to
+`engine-refs/Project-New-Reign---Nemesis-Main/test environment/cached_behaviors`.
+The fixed acceptance threshold is 35 behavior pairs and two character pairs.
+The survey compares 10,958 graph nodes per architecture, bindings, transitions,
+events, variable tables and character metadata. Only physical file addresses
+are normalized. Raw pointer values retain nullness and target class checks.
+It validates the fields in the current model, not unmodelled object payloads.
+
+`tests/round_trip.rs` compares LE and SE skeleton, spline and binding models
+and samples the same translated and rotated pose in both layouts. Synthetic
+LE tests also check aligned project vectors, every project string table,
+32-bit user data, consecutive trigger and binding records, payload fixups,
+and rejection of negative or oversized array counts. The packfile builder's
+`new_32bit` constructor writes the matching pointer width and array headers.
+
+The existing unsupported-class and animation-codec boundaries apply equally
+to LE and SE. This change does not add interpreters for classes that the
+behavior model preserves as unknown nodes.
