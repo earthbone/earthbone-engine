@@ -2,7 +2,9 @@
 
 Reviewed against `4e03b82` on 2026-09-20 in `dlg-crf-prg-dependencies`.
 `BACKLOG.csv` remains the task and status registry. This document records
-dependency decisions, not a second completion list. The audit changes no
+dependency decisions, not a second completion list. Completed feature rows
+record evidence from their named branches and do not imply integration into
+master. The audit changes no
 gameplay behavior and establishes no original-runtime equivalence.
 
 An edge names an unfinished capability needed by the consuming row. Shared
@@ -31,6 +33,7 @@ to be available in the audited baseline.
 | PRG-09 | PRG-15 | Skill initialization needs verified manual and automatic calculation rules. DNAM caches can already include racial bonuses. |
 | PRG-12 | PRG-06, PRG-13, DLG-10 | Arrest needs bounty state, an executable jail outcome and the choice interface. Jail service can be checked before the guard conversation. |
 | PRG-13 | PRG-06, CRF-04, PRG-01 | Jail uses faction bounty, transfers selected confiscated stacks and applies skill-progress penalties without losing instance metadata. |
+| PRG-16 | PRG-02 | Non-default PERK purchase DATA extends the ordinary purchase API. Trait, Level, Hidden and Num Ranks semantics need source verification before the explicit rejection can be removed. |
 
 DLG-16's read-first sources now name CLAS trainer data and CommonLib's
 `skillTrainingsThisLevel`. FACT vendor fields alone do not define a trainer.
@@ -99,12 +102,14 @@ them. Serena confirmed the alias lookup and mutation definitions.
 
 ## Validation
 
-CSV validation checks all 541 rows. It checks unique IDs, required fields,
+The initial CSV validation checked all 541 rows. The completion update adds
+PRG-16, bringing the registry to 542 rows and the selected scope to 45.
+CSV validation checks the complete registry. It checks unique IDs, required fields,
 title/source/crate bounds, canonical quoting, valid status/evidence/date
 fields, retained original IDs, existing non-dropped prerequisites and cycle
-freedom across the whole graph. All checks pass. The selected scope now has
-44 rows, including Story Manager and live NPC skill calculation. Nineteen existing rows
-change, including two completed implementations and one active implementation claim.
+freedom across the whole graph. The original audit changed nineteen existing
+rows, including two completed implementations and one active claim. Later
+completion updates preserve those dependency decisions.
 
 These edges describe implementation requirements. They do not claim that
 the named external AI, format, UI or animation work is complete. The full
@@ -125,7 +130,8 @@ A second survey found nine manual level-one sources whose arrays also match
 manual DNAM values. xEdit and CommonLib expose skill values and offsets without
 a manual-mode distinction. The local NPC format documentation qualifies the
 health, magicka and stamina calculation, but does not settle skill semantics.
-The proposed manual-only addition therefore remains unapproved.
+The proposed manual-only addition was rejected and retained only in a backup
+stash. PRG-09 is blocked on PRG-15, rather than left as active work.
 
 PRG-15 owns source-grounded skill calculation for manual and automatic modes,
 including offsets, class weights, resolved level, winning race bonuses,
