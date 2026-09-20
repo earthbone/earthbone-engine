@@ -26,6 +26,7 @@ use soe_navmesh::NavGraph;
 use soe_papyrus::vm::state::{Reader, Writer};
 use soe_papyrus::VmError;
 
+use crate::actor_values::actor_value_name;
 use crate::clock::GameClock;
 use crate::package::{
     condition, flags, speed, CompValue, Condition, DataValue, Location, LocationData, Package,
@@ -131,40 +132,6 @@ pub struct Candidate {
     pub package: GlobalFormId,
     pub alias: Option<(GlobalFormId, u32)>,
 }
-
-/// Actor value names by the index a `GetActorValue` condition carries.
-const ACTOR_VALUES: [&str; 30] = [
-    "aggression",
-    "confidence",
-    "energy",
-    "morality",
-    "mood",
-    "assistance",
-    "onehanded",
-    "twohanded",
-    "marksman",
-    "block",
-    "smithing",
-    "heavyarmor",
-    "lightarmor",
-    "pickpocket",
-    "lockpicking",
-    "sneak",
-    "alchemy",
-    "speechcraft",
-    "alteration",
-    "conjuration",
-    "destruction",
-    "illusion",
-    "restoration",
-    "enchanting",
-    "health",
-    "magicka",
-    "stamina",
-    "healrate",
-    "magickarate",
-    "staminarate",
-];
 
 // ----- views -----
 
@@ -479,7 +446,7 @@ fn function_value(
             world.distance(subject, r)
         }
         14 => {
-            let name = ACTOR_VALUES.get(c.param1 as usize)?;
+            let name = actor_value_name(i32::try_from(c.param1).ok()?)?;
             world.actor_value(subject, name)
         }
         18 => world.clock.game_hours().rem_euclid(24.0) as f32,
@@ -589,7 +556,7 @@ fn function_value(
             bool_f(world.alias_ref(q, c.param1) == Some(subject))
         }
         640 => {
-            let name = ACTOR_VALUES.get(c.param1 as usize)?;
+            let name = actor_value_name(i32::try_from(c.param1).ok()?)?;
             let base = world.base_actor_value(subject, name);
             if base > 0.0 {
                 world.actor_value(subject, name) / base

@@ -379,6 +379,35 @@ fn save_load_keeps_pending_bindings_and_does_not_reapply_modifiers() {
 }
 
 #[test]
+fn extended_actor_value_effect_survives_game_save_load_without_reapplying() {
+    let mut original = game(plugin(
+        effect(2, 0, 53, false),
+        vec![spell(SPELL, 0, false, 20.0, 5)],
+    ));
+    cast(&mut original, SPELL, OTHER).unwrap();
+    assert_eq!(
+        original.world_mut().actor_value(id(OTHER), "paralysis"),
+        20.0
+    );
+
+    let bytes = original.save_state().unwrap();
+    let mut restored = game(plugin(
+        effect(2, 0, 53, false),
+        vec![spell(SPELL, 0, false, 20.0, 5)],
+    ));
+    restored.load_state(&bytes).unwrap();
+    assert_eq!(
+        restored.world_mut().actor_value(id(OTHER), "paralysis"),
+        20.0
+    );
+    restored.tick(5.0);
+    assert_eq!(
+        restored.world_mut().actor_value(id(OTHER), "paralysis"),
+        0.0
+    );
+}
+
+#[test]
 fn unsupported_second_effect_does_not_partially_apply_the_spell() {
     let good = effect(2, 0, 24, false);
     let mut bad = effect(0, 35, 24, false);
