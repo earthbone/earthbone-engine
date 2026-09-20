@@ -78,7 +78,7 @@ impl PlayerNode {
             self.activate_game_reference(target);
         }
         if let Some(game) = &mut self.game {
-            game.tick(delta);
+            self.menu.tick(game, delta);
         }
         if !self.sync_game_pose() {
             self.auto_step = false;

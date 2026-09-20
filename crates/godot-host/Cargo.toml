@@ -77,4 +77,5 @@ soe-profile = { path = "../profile" }
 soe-trace = { path = "../trace" }
 
 [dev-dependencies]
+soe-papyrus = { path = "../papyrus" }
 tempfile = "3"

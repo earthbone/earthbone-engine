@@ -845,4 +845,5 @@ mod fixture;
 #[cfg(test)]
 mod environment_tests;
 
+#[cfg(test)]
 mod marker_shape_tests;

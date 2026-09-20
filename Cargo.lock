@@ -1316,6 +1316,7 @@ dependencies = [
  "soe-game",
  "soe-hkx",
  "soe-nif",
+ "soe-papyrus",
  "soe-physics",
  "soe-profile",
  "soe-trace",
