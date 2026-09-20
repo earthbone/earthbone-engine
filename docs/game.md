@@ -983,7 +983,7 @@ or complete the broader gameplay goal.
 ## Active magic applications
 
 The runtime provides `World::cast_spell` for direct scripted casts
-of Script, Value Modifier and Dual Value Modifier effects, including hostile hits. Definitions
+of Script, Value Modifier, Dual Value Modifier and Dispel effects, including hostile hits. Definitions
 come from winning SPEL and MGEF records, with each FormID resolved in its winning
 plugin. Self and target-actor delivery are supported for constant and fire-and-forget
 casts. `Spell.Cast` credits an actor source. `RemoteCast` credits its explicit
@@ -1417,3 +1417,42 @@ then executes 184 supported weapons against synthetic actors. The remaining
 weapons reject unsupported types, templates or enchantments. Real armor records
 were decoded, while armor damage calculations use synthetic fixtures.
 These changes await commit and merge review on `combat-hits`.
+
+## Dispel archetype, MAG-05
+
+MGEF archetype 2 removes the target's active applications with a positive,
+finite duration. Constant applications and zero-duration applications are
+not selected. The cast does not delete learned or equipped spells, and it
+does not affect other actors. Magnitude does not limit this selection.
+
+The CK [Magic Effect archetype table](https://ck.uesp.net/wiki/Magic_Effect)
+describes removal of effects with duration and reports magnitude as apparently
+unused. The implementation follows that documented rule. Local
+`TES5Edit/Core/wbDefinitionsTES5.pas` identifies Dispel as archetype 2.
+`CommonLibSSE-NG/include/RE/D/DispelEffect.h` declares a Start override and no
+additional saved members. It supplies no executable implementation, and local
+skymp has the enum but no archetype executor. The engine therefore implements
+the documented selection and reuses its existing per-application finish path.
+This is distinct from the exclusions in local
+`ck-wiki/DispelAllSpells_-_Actor.wikitext`, which describe that Actor native.
+
+The cast prepares actions in authored effect order before allocating effect
+objects or queuing events. It validates modifier reversals as well as new
+modifiers. A Dispel entry can remove an earlier application, allowing a later
+No Recast entry to apply again. A rejected later entry or overflowing reversal
+leaves the existing applications, values and queued callbacks unchanged.
+Victims are finished in application order, reversing only their own recover
+modifiers and delivering OnEffectFinish once. The Dispel application itself
+uses the normal script and lifetime path. Its action runs only at application,
+so loading it or advancing time does not dispel effects added afterward.
+No dependency or save-format change was added.
+
+`tests/magic/dispel.rs` verifies native casting, finite-duration selection,
+learned spells, other actors, callback counts, authored order, atomic rejection
+and saved continuation. The installed five-master survey found 1,573 non-deleted
+MGEF and 1,354 SPEL records, with zero Dispel effects or linked spells. All
+30 magic tests pass with installed data, and the existing spell survey still
+accepts 179 spells with 206 applications. Dispel execution is validated with
+synthetic records, not an installed vanilla use or an original-runtime probe.
+Concentration, area, contact delivery and condition support retain their
+separate backlog scopes.

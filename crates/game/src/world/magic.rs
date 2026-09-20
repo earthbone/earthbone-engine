@@ -63,10 +63,16 @@ pub enum MagicError {
     Identity,
 }
 
+enum EffectAction {
+    Values,
+    Dispel(Vec<EffectId>),
+}
+
 struct PreparedEffect {
     effect: ActiveEffect,
     no_recast: bool,
     hit_event: bool,
+    action: EffectAction,
 }
 
 impl World {
@@ -149,7 +155,7 @@ impl World {
                     return Err(MagicError::Target);
                 }
             }
-            if !matches!(data.archetype, 0 | 1 | 5) {
+            if !matches!(data.archetype, 0 | 1 | 2 | 5) {
                 return Err(MagicError::Unsupported("effect archetype"));
             }
             if entry.data.area != 0 || data.area != 0 || data.taper_duration != 0.0 {
@@ -179,7 +185,7 @@ impl World {
                 magnitude
             };
             let mut changes = Vec::new();
-            if data.archetype != 1 {
+            if matches!(data.archetype, 0 | 5) {
                 let name = actor_value_name(data.primary_actor_value)
                     .ok_or(MagicError::Unsupported("actor value"))?;
                 changes.push((name.to_string(), signed));
@@ -219,27 +225,16 @@ impl World {
                 },
                 no_recast: data.flags & NO_RECAST != 0,
                 hit_event: data.flags & (HOSTILE | NO_HIT_EVENT) == HOSTILE,
+                action: if data.archetype == 2 {
+                    EffectAction::Dispel(Vec::new())
+                } else {
+                    EffectAction::Values
+                },
             });
         }
-        self.next_effect
-            .checked_add(prepared.len() as u64)
-            .ok_or(MagicError::Identity)?;
-        let mut seen = std::collections::BTreeSet::new();
-        prepared.retain(|p| {
-            !p.no_recast
-                || (!self.has_magic_effect(target, p.effect.effect) && seen.insert(p.effect.effect))
-        });
-        let mut values = self.actor(target).ok_or(MagicError::Target)?.values.clone();
-        for prepared in &prepared {
-            if prepared.effect.recover || prepared.effect.duration == Some(0.0) {
-                change_values(&mut values, &prepared.effect, 1.0)?;
-            }
-        }
+        let prepared = self.prepare_effect_actions(prepared, target)?;
         let mut applied = Vec::new();
-        for mut prepared in prepared {
-            if prepared.no_recast && self.has_magic_effect(target, prepared.effect.effect) {
-                continue;
-            }
+        for prepared in prepared {
             if prepared.hit_event {
                 let aggressor = self.form_value(caster.or(Some(source)), alloc);
                 let spell_value = self.form_value(Some(spell), alloc);
@@ -261,9 +256,8 @@ impl World {
                     });
                 }
             }
-            let id = EffectId(self.next_effect);
+            let id = prepared.effect.id;
             self.next_effect += 1;
-            prepared.effect.id = id;
             let object = self.object_of(Handle::ActiveEffect(id), alloc);
             self.pending.push(Pending::BindEffect {
                 object,
@@ -286,12 +280,62 @@ impl World {
             );
             // An instant lethal effect must receive its target's death events too.
             self.active_effects.insert(id, prepared.effect.clone());
+            if let EffectAction::Dispel(ids) = prepared.action {
+                for victim in ids {
+                    self.dispel_effect(victim, alloc);
+                }
+            }
             if prepared.effect.recover || prepared.effect.duration == Some(0.0) {
                 self.apply_effect_values(&prepared.effect, 1.0)?;
             }
             applied.push(id);
         }
         Ok(applied)
+    }
+
+    /// Validate authored action order before events or live actor values change.
+    fn prepare_effect_actions(
+        &mut self,
+        prepared: Vec<PreparedEffect>,
+        target: GlobalFormId,
+    ) -> Result<Vec<PreparedEffect>, MagicError> {
+        let mut live: Vec<_> = self
+            .active_effects
+            .values()
+            .filter(|effect| effect.target == target)
+            .cloned()
+            .collect();
+        let mut values = self.actor(target).ok_or(MagicError::Target)?.values.clone();
+        let mut next = self.next_effect;
+        let mut plan = Vec::new();
+        for mut prepared in prepared {
+            if prepared.no_recast
+                && live
+                    .iter()
+                    .any(|effect| effect.effect == prepared.effect.effect)
+            {
+                continue;
+            }
+            prepared.effect.id = EffectId(next);
+            next = next.checked_add(1).ok_or(MagicError::Identity)?;
+            if let EffectAction::Dispel(ids) = &mut prepared.action {
+                for effect in &live {
+                    if effect.duration.is_some_and(|duration| duration > 0.0) {
+                        if effect.recover {
+                            change_values(&mut values, effect, -1.0)?;
+                        }
+                        ids.push(effect.id);
+                    }
+                }
+                live.retain(|effect| !ids.contains(&effect.id));
+            }
+            if prepared.effect.recover || prepared.effect.duration == Some(0.0) {
+                change_values(&mut values, &prepared.effect, 1.0)?;
+            }
+            live.push(prepared.effect.clone());
+            plan.push(prepared);
+        }
+        Ok(plan)
     }
 
     /// Match active MGEF identity without changing known or equipped spells.

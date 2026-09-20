@@ -836,3 +836,6 @@ fn each_hostile_effect_emits_a_hit_to_existing_effect_and_alias_listeners() {
         );
     }
 }
+
+#[path = "magic/dispel.rs"]
+mod dispel_archetype;
