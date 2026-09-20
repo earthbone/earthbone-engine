@@ -124,6 +124,7 @@ impl Builder {
                 vertices: t.vertices.map(u32::from),
                 neighbors,
                 blocked: deleted,
+                flags: t.flags,
             });
         }
         self.stats.meshes += 1;
@@ -324,6 +325,18 @@ mod tests {
         assert!(graph
             .find_path(NodeId::new(0, 0), NodeId::new(0, 1))
             .is_none());
+    }
+
+    #[test]
+    fn builder_retains_triangle_flags_for_path_costs() {
+        let mut navmesh = square(0.0, None);
+        navmesh.triangles[0].flags |= flags::PREFERRED;
+        navmesh.triangles[1].flags |= flags::WATER;
+        let mut builder = Builder::new();
+        builder.add(1, &navmesh, |_| None);
+        let (graph, _) = builder.build();
+        assert_eq!(graph.triangle(NodeId::new(0, 0)).flags, flags::PREFERRED);
+        assert_eq!(graph.triangle(NodeId::new(0, 1)).flags, flags::WATER);
     }
 
     #[test]
