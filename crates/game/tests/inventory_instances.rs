@@ -5,7 +5,7 @@
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::{
-    inventory::{Extra, Field, Inventory, Stack},
+    inventory::{Error, Extra, Field, Inventory, Stack, StackSource},
     World,
 };
 
@@ -60,6 +60,7 @@ fn world() -> World {
     p.push_top(Record::new(Tag(*b"WEAP"), 0x801));
     p.push_top(Record::new(Tag(*b"NPC_"), 0x810));
     p.push_top(Record::new(Tag(*b"ENCH"), 0x811));
+    p.push_top(Record::new(Tag(*b"ALCH"), 0x812));
     for object in [0x900, 0x901] {
         p.push_top(Record::new(Tag(*b"REFR"), object).sub(Tag(*b"NAME"), 0x800_u32.to_le_bytes()));
     }
@@ -255,4 +256,348 @@ fn overlapping_saved_lists_do_not_inflate_the_authoritative_item_total() {
     let mut recipient = Inventory::default();
     recipient.receive(item, moved).unwrap();
     assert_eq!(recipient.count(item), 2);
+}
+
+fn quality(value: f32) -> Extra {
+    Extra {
+        kind: 37,
+        fields: vec![Field::FloatBits(value.to_bits())],
+    }
+}
+
+fn poison() -> Extra {
+    Extra {
+        kind: 62,
+        fields: vec![Field::Form(Some(id(0x812))), Field::Word(3)],
+    }
+}
+
+#[test]
+fn crf_04_selected_crafted_instance_survives_transfer_and_save_without_adjacent_changes() {
+    let (holder, target, item) = (id(0x900), id(0x901), id(0x801));
+    let mut w = world();
+    let adjacent = stack(1);
+    let mut extras = stack(3).extras().to_vec();
+    extras.push(poison());
+    let crafted = Stack::new(3, extras).unwrap();
+    w.reference(holder)
+        .unwrap()
+        .inventory
+        .restore(item, 6, vec![adjacent.clone(), crafted.clone()])
+        .unwrap();
+    let selected = w
+        .select_item(holder, item, StackSource::Extra(1), 1)
+        .unwrap();
+    let selected = w
+        .update_item(holder, &selected, vec![quality(2.0)])
+        .unwrap();
+    let inventory = &w.reference_ref(holder).unwrap().inventory;
+    assert_eq!(inventory.stacks(item)[0], adjacent);
+    assert_eq!(inventory.stacks(item)[1].count(), 2);
+    assert_eq!(inventory.stacks(item)[1].extras(), crafted.extras());
+    assert_eq!(inventory.count(item), 6);
+    let changed = inventory
+        .selected_stack(&selected)
+        .unwrap()
+        .unwrap()
+        .clone();
+    assert_eq!(changed.extra(37), Some(&quality(2.0)));
+    for kind in [33, 40, 62, 153, 155] {
+        assert_eq!(changed.extra(kind), crafted.extra(kind));
+    }
+    let mut vm = soe_papyrus::Vm::default();
+    let mut alloc = |name: &str, class: &str| vm.create_object_of(name, class);
+    assert_eq!(
+        w.remove_selected_notified(holder, &selected, Some(target), &mut alloc)
+            .unwrap(),
+        1
+    );
+    assert_eq!(w.pending.len(), 2);
+    let source = w.reference_ref(holder).unwrap().inventory.clone();
+    assert_eq!(source.stacks(item)[0], adjacent);
+    assert_eq!(source.stacks(item)[1].extras(), crafted.extras());
+    assert_eq!(source.stacks(item).len(), 2);
+    assert_eq!(source.count(item), 5);
+    let transferred = &w.reference_ref(target).unwrap().inventory.stacks(item)[0];
+    assert!(!transferred.worn());
+    for kind in [33, 37, 40, 62, 153, 155] {
+        assert_eq!(transferred.extra(kind), changed.extra(kind));
+    }
+    let bytes = w.save_state();
+    let mut loaded = world();
+    loaded.load_state(&bytes).unwrap();
+    assert_eq!(loaded.state_hash(), w.state_hash());
+    assert_eq!(loaded.reference_ref(holder).unwrap().inventory, source);
+    assert_eq!(
+        loaded.reference_ref(target).unwrap().inventory,
+        w.reference_ref(target).unwrap().inventory
+    );
+    let fresh = loaded
+        .select_item(target, item, StackSource::Extra(0), 1)
+        .unwrap();
+    let fresh = loaded
+        .update_item(target, &fresh, vec![quality(2.5)])
+        .unwrap();
+    assert_eq!(
+        loaded
+            .reference_ref(target)
+            .unwrap()
+            .inventory
+            .selected_stack(&fresh)
+            .unwrap()
+            .unwrap()
+            .extra(62),
+        Some(&poison())
+    );
+}
+
+#[test]
+fn plain_selection_materializes_only_selected_quantity() {
+    let item = id(0x801);
+    let mut inventory = Inventory::default();
+    inventory.restore(item, 5, vec![stack(2)]).unwrap();
+    let original = inventory.stacks(item).to_vec();
+    let selected = inventory.select(item, StackSource::Plain, 1).unwrap();
+    let changed = inventory
+        .update_selected(&selected, vec![quality(1.5), poison()])
+        .unwrap();
+    assert_eq!(inventory.count(item), 5);
+    assert_eq!(inventory.stacks(item)[0], original[0]);
+    assert_eq!(
+        inventory.selected_stack(&changed).unwrap().unwrap().count(),
+        1
+    );
+    let remainder = inventory.select(item, StackSource::Plain, 2).unwrap();
+    assert!(inventory
+        .take_selected(&remainder)
+        .unwrap()
+        .stacks()
+        .is_empty());
+    assert_eq!(inventory.count(item), 3);
+}
+
+#[test]
+fn stale_selections_reject_index_shifts_identical_restoration_and_other_inventories() {
+    let item = id(0x801);
+    let mut inventory = Inventory::default();
+    inventory
+        .restore(item, 2, vec![stack(1), stack(1)])
+        .unwrap();
+    let selected = inventory.select(item, StackSource::Extra(1), 1).unwrap();
+    let first = inventory.select(item, StackSource::Extra(0), 1).unwrap();
+    inventory.take_selected(&first).unwrap();
+    let before = inventory.clone();
+    assert_eq!(
+        inventory.take_selected(&selected).unwrap_err(),
+        Error::StaleSelection
+    );
+    assert_eq!(
+        inventory
+            .update_selected(&selected, vec![quality(2.0)])
+            .unwrap_err(),
+        Error::StaleSelection
+    );
+    assert_eq!(inventory, before);
+    let selected = inventory.select(item, StackSource::Extra(0), 1).unwrap();
+    inventory.restore(item, 1, vec![stack(1)]).unwrap();
+    assert_eq!(
+        inventory.take_selected(&selected).unwrap_err(),
+        Error::StaleSelection
+    );
+    let selected = inventory.select(item, StackSource::Extra(0), 1).unwrap();
+    let mut other = Inventory::default();
+    other.restore(item, 1, vec![stack(1)]).unwrap();
+    assert_eq!(
+        other.take_selected(&selected).unwrap_err(),
+        Error::StaleSelection
+    );
+}
+
+#[test]
+fn exact_selection_rejects_ambiguous_bookkeeping_and_out_of_range_requests() {
+    let item = id(0x801);
+    let mut inventory = Inventory::default();
+    inventory
+        .restore(item, 2, vec![stack(2), stack(1)])
+        .unwrap();
+    assert!(matches!(
+        inventory.select(item, StackSource::Extra(0), 1),
+        Err(Error::AmbiguousStacks)
+    ));
+    let bookkeeping = Stack::new(
+        -2,
+        vec![Extra {
+            kind: 46,
+            fields: vec![],
+        }],
+    )
+    .unwrap();
+    inventory.restore(item, 2, vec![bookkeeping]).unwrap();
+    for (source, count) in [
+        (StackSource::Extra(0), 1),
+        (StackSource::Extra(1), 1),
+        (StackSource::Plain, 0),
+        (StackSource::Plain, -1),
+        (StackSource::Plain, 3),
+    ] {
+        assert!(matches!(
+            inventory.select(item, source, count),
+            Err(Error::Selection)
+        ));
+    }
+    let selected = inventory.select(item, StackSource::Plain, 2).unwrap();
+    inventory.take_selected(&selected).unwrap();
+    assert_eq!(inventory.stacks(item)[0].count(), -2);
+}
+
+#[test]
+fn malformed_patches_leave_inventory_and_selection_usable() {
+    let item = id(0x801);
+    let mut inventory = Inventory::default();
+    inventory.restore(item, 2, vec![stack(2)]).unwrap();
+    let selected = inventory.select(item, StackSource::Extra(0), 1).unwrap();
+    let before = inventory.clone();
+    for changes in [
+        vec![quality(f32::NAN)],
+        vec![quality(f32::INFINITY)],
+        vec![quality(-1.0)],
+        vec![quality(2.0), quality(3.0)],
+        vec![Extra {
+            kind: 37,
+            fields: vec![Field::Word(1)],
+        }],
+        vec![Extra {
+            kind: 62,
+            fields: vec![Field::Form(None), Field::Word(1)],
+        }],
+        vec![Extra {
+            kind: 62,
+            fields: vec![Field::Form(Some(id(0x812))), Field::Word(0)],
+        }],
+        vec![Extra {
+            kind: 155,
+            fields: vec![Field::Form(Some(id(0x811))), Field::Word(1)],
+        }],
+        vec![Extra {
+            kind: 36,
+            fields: vec![Field::Short(1)],
+        }],
+        vec![Extra {
+            kind: 46,
+            fields: vec![],
+        }],
+    ] {
+        assert!(inventory.update_selected(&selected, changes).is_err());
+        assert_eq!(inventory, before);
+        assert!(inventory.selected_stack(&selected).is_ok());
+    }
+}
+
+#[test]
+fn rejected_selected_transfers_emit_no_events_and_leave_source_selection_valid() {
+    let (holder, target, item) = (id(0x900), id(0x901), id(0x801));
+    let mut w = world();
+    w.reference(holder)
+        .unwrap()
+        .inventory
+        .restore(item, 2, vec![stack(2)])
+        .unwrap();
+    w.add_item(target, item, i32::MAX);
+    let selected = w
+        .select_item(holder, item, StackSource::Extra(0), 1)
+        .unwrap();
+    let before = w.state_hash();
+    let mut vm = soe_papyrus::Vm::default();
+    let mut alloc = |name: &str, class: &str| vm.create_object_of(name, class);
+    for recipient in [holder, id(0xBAD), target] {
+        assert!(w
+            .remove_selected_notified(holder, &selected, Some(recipient), &mut alloc)
+            .is_err());
+        assert_eq!(w.state_hash(), before);
+        assert!(w.pending.is_empty());
+    }
+    assert!(w
+        .update_item(
+            holder,
+            &selected,
+            vec![Extra {
+                kind: 155,
+                fields: vec![Field::Form(Some(item)), Field::Short(1)]
+            }]
+        )
+        .is_err());
+    assert_eq!(w.state_hash(), before);
+    assert_eq!(
+        w.remove_selected_notified(holder, &selected, None, &mut alloc)
+            .unwrap(),
+        1
+    );
+    assert_eq!(w.pending.len(), 1);
+    let committed = w.state_hash();
+    assert!(w
+        .remove_selected_notified(holder, &selected, None, &mut alloc)
+        .is_err());
+    assert_eq!(w.pending.len(), 1);
+    assert_eq!(w.state_hash(), committed);
+}
+
+#[test]
+fn restored_inventory_requires_fresh_selection_even_when_contents_match() {
+    let (holder, item) = (id(0x900), id(0x801));
+    let mut w = world();
+    w.reference(holder)
+        .unwrap()
+        .inventory
+        .restore(item, 2, vec![stack(2)])
+        .unwrap();
+    let selected = w
+        .select_item(holder, item, StackSource::Extra(0), 1)
+        .unwrap();
+    let bytes = w.save_state();
+    w.load_state(&bytes).unwrap();
+    assert_eq!(
+        w.update_item(holder, &selected, vec![quality(2.0)])
+            .unwrap_err(),
+        Error::StaleSelection
+    );
+}
+
+#[test]
+fn prepared_multi_field_update_changes_only_the_clone_until_committed() {
+    let item = id(0x801);
+    let mut inventory = Inventory::default();
+    inventory
+        .restore(item, 2, vec![stack(1), stack(1)])
+        .unwrap();
+    let selected = inventory.select(item, StackSource::Extra(1), 1).unwrap();
+    let original = inventory.clone();
+    let mut prepared = inventory.clone();
+    let enchantment = Extra {
+        kind: 155,
+        fields: vec![Field::Form(Some(id(0x811))), Field::Short(1000)],
+    };
+    let charge = Extra {
+        kind: 40,
+        fields: vec![Field::FloatBits(999.0_f32.to_bits())],
+    };
+    let changed = prepared
+        .update_selected(
+            &selected,
+            vec![enchantment.clone(), charge.clone(), poison()],
+        )
+        .unwrap();
+    assert_eq!(inventory, original);
+    assert!(inventory.selected_stack(&selected).is_ok());
+    inventory = prepared;
+    assert!(matches!(
+        inventory.selected_stack(&selected),
+        Err(Error::StaleSelection)
+    ));
+    assert_eq!(inventory.stacks(item)[0], original.stacks(item)[0]);
+    assert_eq!(inventory.stacks(item).len(), 2);
+    let result = inventory.selected_stack(&changed).unwrap().unwrap();
+    assert_eq!(result.extra(155), Some(&enchantment));
+    assert_eq!(result.extra(40), Some(&charge));
+    assert_eq!(result.extra(62), Some(&poison()));
+    assert_eq!(result.extra(37), original.stacks(item)[1].extra(37));
 }
