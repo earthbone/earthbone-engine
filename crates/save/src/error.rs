@@ -89,6 +89,9 @@ pub enum Error {
     #[error("invalid NPC change data: {reason}")]
     Npc { reason: String },
 
+    #[error("invalid list change data: {reason}")]
+    List { reason: String },
+
     #[error("invalid quest change data: {reason}")]
     Quest { reason: String },
 

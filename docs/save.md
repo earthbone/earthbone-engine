@@ -753,3 +753,51 @@ then reproduce the payloads exactly and reject truncated fields across the
 source-defined combinations. Wiring an unused candidate structure into all
 three dispatch cases without that evidence would not establish compatibility.
 SAV-01's live-record application remains dependent on the completed decoder.
+
+## Form-list and leveled-list changes
+
+`ChangeForm::form_list_change` decodes FLST additions.
+`ChangeForm::leveled_list_change` decodes LVLN, LVLI and LVSP additions.
+Both retain the optional shared form mask and undocumented word, list order,
+duplicates and null identities. A missing list section remains distinct from
+a present empty list. Saved identities remain RefIDs until runtime mapping.
+The typed encoders reconstruct payloads and expose matching change flags.
+`Save::write` continues to use the original raw change-form payload.
+
+Sources read were local FallrimTools `ChangeFormFLST.java`,
+`ChangeFormLeveled.java` and `LeveledEntry.java`, plus xEdit
+`Core/wbDefinitionsTES5Saves.pas` change types 43 through 46. FallrimTools
+supplies a 32-bit FLST count and a byte-sized leveled-list count. Each leveled
+entry is a RefID, level byte, count word and chance byte. These fields retain
+all wire bits without assigning runtime selection behavior. The Java reader
+cannot be called as a Rust library, so the existing Rust cursor and zlib path
+implement those declared layouts. No source code was copied and no dependency
+was added.
+
+FallrimTools checks bit 1 for FLST form flags. xEdit names bit 0 for that
+section on all four list types. The decoder follows xEdit. A fixed fixture
+asserts the six flag bytes and rejects bit 1 as unknown. The corpus contains
+only the added-list flag and cannot independently resolve that discrepancy.
+xEdit uses the same leveled-list section for LVLN, LVLI and LVSP. That shared
+layout supplies LVSP coverage even though FallrimTools does not dispatch LVSP.
+
+Counts are checked against the bytes remaining before allocation. Unknown
+change bits, impossible counts, truncated sections and trailing bytes return
+typed errors. FLST does not inherit FallrimTools' arbitrary 16,383-entry limit.
+The leveled encoder rejects more than 255 entries instead of truncating its
+count. Level, count and chance fields retain high bits, avoiding Java signed
+byte conversion at the wire boundary.
+
+The seven `list_change` tests cover every combination of the two declared
+flags for all four types, independent field values, every truncated prefix,
+trailing bytes, compression, unknown bits, omitted and empty sections, count
+bounds and encoder overflow. Before the corpus run, acceptance required at
+least 50 saves, at least one list change, zero decoder failures and exact
+re-encoding of every matching change.
+
+The 2026-09-20 run read 60 external saves in place and reproduced all 42,696
+payload bytes from 1,401 FLST, 1,620 LVLI and 60 LVLN changes. File form version
+and change version were both 78. No LVSP change occurred in the corpus, so
+LVSP and shared form-mask combinations have synthetic coverage only. No save
+bytes were copied into the repository. Applying these changes to the live
+record database is the separate SAV-52 row.
