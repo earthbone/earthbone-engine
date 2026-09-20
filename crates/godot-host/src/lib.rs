@@ -20,6 +20,7 @@ pub mod collision;
 pub mod combat;
 pub mod data_source;
 pub mod input;
+pub mod interior_prefetch;
 pub mod mesh;
 pub mod skinned;
 pub mod streaming;

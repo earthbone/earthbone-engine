@@ -385,3 +385,51 @@ fn the_crossing_test_is_the_thing_that_decides_when_events_fire() {
         "the same position crossed twice"
     );
 }
+
+#[test]
+fn nearby_prefetch_uses_only_source_cell_coordinates_without_residency_changes() {
+    let g = staged();
+    let before = g.world().loaded_reference_count();
+    let selected = g
+        .world()
+        .nearby_interior_destination(id(START_CELL), [0.0; 3], 10.0)
+        .expect("near source door");
+    assert_eq!(selected.door, id(DOOR_OUT));
+    assert_eq!(selected.cell, id(CELL_B));
+    assert_eq!(g.world().loaded_reference_count(), before);
+    assert!(!g.world().cell_is_resident(id(CELL_B)));
+    assert!(events(&g).is_empty());
+
+    // The unrelated interior's door overlaps the query while the local door is distant.
+    g.world_mut().reference(id(DOOR_B)).unwrap().position = [2000.0; 3];
+    assert!(g
+        .world()
+        .nearby_interior_destination(id(START_CELL), [2000.0; 3], 10.0)
+        .is_none());
+}
+
+#[test]
+fn nearby_prefetch_respects_live_door_state_and_rejects_invalid_proximity() {
+    let g = staged();
+    for invalid in [f32::NAN, f32::INFINITY, -1.0] {
+        assert!(g
+            .world()
+            .nearby_interior_destination(id(START_CELL), [0.0; 3], invalid)
+            .is_none());
+    }
+    assert!(g
+        .world()
+        .nearby_interior_destination(id(START_CELL), [f32::NAN; 3], 500.0)
+        .is_none());
+    g.world_mut().reference(id(DOOR_OUT)).unwrap().enabled = false;
+    assert!(g
+        .world()
+        .nearby_interior_destination(id(START_CELL), [0.0; 3], 500.0)
+        .is_none());
+    g.world_mut().reference(id(DOOR_OUT)).unwrap().enabled = true;
+    g.world_mut().reference(id(DOOR_OUT)).unwrap().deleted = true;
+    assert!(g
+        .world()
+        .nearby_interior_destination(id(START_CELL), [0.0; 3], 500.0)
+        .is_none());
+}

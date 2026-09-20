@@ -1332,3 +1332,54 @@ The process exited successfully with peak resident memory of 3,499,988 KiB.
 An earlier run with eager archive retention terminated before collision
 startup after reaching 13,654,212 KiB across its process tree. Those memory
 measurements use different scopes and are recorded separately.
+
+## Nearby interior prefetch, HST-07
+
+PlayerNode checks nearby load doors every 250 ms of simulation time after
+applying the Game pose. The game query compares the player's position only
+with enabled, non-deleted DOOR references belonging to that same logical cell.
+It follows each source door's resolved XTEL link and selects the nearest
+interior destination within 500 Skyrim units, with FormID breaking distance
+ties. Destination coordinates never participate in proximity selection.
+
+One background job prepares the selected interior's meshes, textures and
+controller/query collision inputs through the existing `load_location` path.
+The job shares immutable load-order and archive handles, uses one decode
+thread and owns a private texture cache. Rejected or stale jobs therefore do
+not fill the main source's session texture cache. Prefetch does not build game
+references, change residency, tick far-side actors or queue cell events.
+Activation retains the ordinary Game door lifecycle and cold-cell decision.
+
+The speculative budget admits at most 4,096 authored references before work,
+then at most 128 MiB of mesh-array and unique texture payloads and 100,000
+collision primitives after preparation. There is at most one outstanding job
+or retained destination. These are admission limits, not a peak allocation
+or wall-time guarantee. Parser temporaries, container capacity and metadata,
+collision shape storage and allocator overhead are outside the byte count.
+The collision primitive count is a separate limit. Oversized destinations
+use the ordinary synchronous transition when activated.
+
+The host only joins a worker after it reports completion. Selection changes,
+source-cell transitions and out-of-range doors invalidate old results without
+waiting for a running decode. The worker discards cancelled results when it
+finishes. Source replacement and node shutdown join outstanding work so the
+shared archive handles do not outlive their owning task. A matching completed
+location is consumed exactly once by `sync_game_pose`. GPU upload, physics
+server installation and an unfinished or rejected destination still cost time
+on the transition. This work does not establish a bounded cold crossing.
+
+Sources read were local OpenMW `apps/openmw/mwworld/scene.cpp`, specifically
+`preloadTeleportDoorDestinations`, the existing game's authored XTEL resolution
+and doorway event split, and the host's location/collision preparation path.
+OpenMW informs proximity scheduling. Its renderer and cell ownership do not
+fit this form-backed Godot host, so this code reuses the engine's existing
+resource builder. No new package, node per reference, or alternate game-state
+store was added.
+
+`godot/interior_prefetch_test.gd` uses installed five-master data and requires
+an exterior landing near the Bannered Mare return door to prepare that linked
+interior while the current cell and rendering stay unchanged. It requires one
+job, a nonempty payload within 128 MiB, a cache hit on return, draw instances
+and supporting collision. Its predeclared foreground-step budget is 50 ms,
+and its preparation deadline is 30 seconds. The limits are specific to this
+acceptance run, not a claim about every authored cell or machine.

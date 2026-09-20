@@ -81,6 +81,8 @@ pub struct PlayerNode {
     footstep_errors: u64,
     game_streamer: Option<Gd<crate::godot_layer::CellStreamerNode>>,
     loaded_cell: Option<GlobalFormId>,
+    interior_prefetch: crate::interior_prefetch::InteriorPrefetch,
+    interior_prefetch_elapsed: f64,
     camera: Option<Gd<Camera3D>>,
     /// Mouse motion accumulated since the last camera or physics update, so a frame that
     /// delivers two motion events turns twice as far rather than once.
@@ -121,6 +123,8 @@ impl INode3D for PlayerNode {
             footstep_errors: 0,
             game_streamer: None,
             loaded_cell: None,
+            interior_prefetch: crate::interior_prefetch::InteriorPrefetch::default(),
+            interior_prefetch_elapsed: 0.0,
             camera: None,
             pending_look: (0.0, 0.0),
             last_activate_hit: false,
@@ -210,6 +214,7 @@ impl INode3D for PlayerNode {
     }
 
     fn exit_tree(&mut self) {
+        self.interior_prefetch = crate::interior_prefetch::InteriorPrefetch::default();
         self.query_collision.free();
         if self.capture_mouse {
             Input::singleton().set_mouse_mode(godot::classes::input::MouseMode::VISIBLE);
@@ -256,6 +261,7 @@ impl PlayerNode {
     #[allow(clippy::needless_pass_by_value)]
     #[func]
     pub fn load_data(&mut self, path: GString) -> bool {
+        self.interior_prefetch = crate::interior_prefetch::InteriorPrefetch::default();
         match DataSource::open(Path::new(&path.to_string())) {
             Ok(source) => {
                 self.load_control_map(&source);
@@ -290,6 +296,7 @@ impl PlayerNode {
         if self.base().is_node_ready() {
             self.register_actions();
         }
+        self.interior_prefetch = crate::interior_prefetch::InteriorPrefetch::default();
         self.data_source = Some(source);
         self.game = None;
         self.game_streamer = Some(streamer);
@@ -341,6 +348,7 @@ impl PlayerNode {
         self.character = Some(id);
         self.world = Some(world);
         self.loaded_cell = Some(cell_id);
+        self.interior_prefetch.invalidate();
         self.melee_contact.cancel();
         self.melee_bodies.clear();
         self.collision_references = collision.references;
@@ -472,6 +480,25 @@ impl PlayerNode {
     pub fn gameplay_cell(&self) -> GString {
         self.loaded_cell
             .map_or_else(GString::new, |id| GString::from(&id.to_string()))
+    }
+
+    /// CPU prefetch state for the installed host acceptance harness.
+    #[func]
+    pub fn interior_prefetch_status(&mut self) -> VarDictionary {
+        self.interior_prefetch.poll();
+        let mut row = VarDictionary::new();
+        row.set("started", self.interior_prefetch.started as i64);
+        row.set("hits", self.interior_prefetch.hits as i64);
+        row.set("rejected", self.interior_prefetch.rejected as i64);
+        row.set("pending", self.interior_prefetch.pending());
+        row.set("payload_bytes", self.interior_prefetch.payload_bytes as i64);
+        row.set(
+            "ready",
+            self.interior_prefetch
+                .ready_cell()
+                .map_or_else(String::new, |cell| cell.to_string()),
+        );
+        row
     }
 
     /// Door links in the current logical cell for integration tools.
