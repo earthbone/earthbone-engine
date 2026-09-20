@@ -27,6 +27,7 @@ const NO_DURATION: u32 = 1 << 9;
 const NO_MAGNITUDE: u32 = 1 << 10;
 const NO_RECAST: u32 = 1 << 17;
 const NO_DEATH_DISPEL: u32 = 1 << 28;
+pub(super) const DISPEL_WITH_KEYWORDS: u32 = 1 << 8;
 const INGESTIBLE_POISON: u32 = 1 << 17;
 
 /// Identity of one effect application, independent of its MGEF FormID.
@@ -70,10 +71,17 @@ pub enum MagicError {
     Identity,
 }
 
+enum DispelRule {
+    Timed,
+    Keywords(Vec<GlobalFormId>),
+}
+
 struct PreparedEffect {
     effect: ActiveEffect,
     no_recast: bool,
     hit_event: bool,
+    dispel_rules: Vec<DispelRule>,
+    dispel: Vec<EffectId>,
 }
 
 impl World {
@@ -210,6 +218,21 @@ impl World {
                     changes.push((name.to_string(), amount));
                 }
             }
+            // An ingestible's effects carry the same dispel archetype and
+            // keyword flags a cast spell's do.
+            let mut dispel_rules = Vec::new();
+            if data.archetype == 2 {
+                dispel_rules.push(DispelRule::Timed);
+            }
+            if data.flags & DISPEL_WITH_KEYWORDS != 0 {
+                let keywords = self.keyword_entries(effect);
+                for keyword in &keywords {
+                    if self.tag_of(*keyword) != Some(super::T(b"KYWD")) {
+                        return Err(MagicError::Missing(*keyword));
+                    }
+                }
+                dispel_rules.push(DispelRule::Keywords(keywords));
+            }
             prepared.push(PreparedEffect {
                 effect: ActiveEffect {
                     id: EffectId(0),
@@ -231,6 +254,8 @@ impl World {
                 },
                 no_recast: data.flags & NO_RECAST != 0,
                 hit_event: false,
+                dispel_rules,
+                dispel: Vec::new(),
             });
         }
         let applied = self.apply_prepared_effects(prepared, drinker, alloc)?;
@@ -300,16 +325,14 @@ impl World {
                     return Err(MagicError::Target);
                 }
             }
-            if !matches!(data.archetype, 0 | 1 | 5) {
+            if !matches!(data.archetype, 0 | 1 | 2 | 5) {
                 return Err(MagicError::Unsupported("effect archetype"));
             }
             if entry.data.area != 0 || data.area != 0 || data.taper_duration != 0.0 {
                 return Err(MagicError::Unsupported("area or taper"));
             }
-            if data.perk != 0 || data.equip_ability != 0 || data.flags & (1 << 8) != 0 {
-                return Err(MagicError::Unsupported(
-                    "perk, equip ability or keyword dispelling",
-                ));
+            if data.perk != 0 || data.equip_ability != 0 {
+                return Err(MagicError::Unsupported("perk or equip ability"));
             }
             if data.cast_type != definition.data.cast_type
                 || data.delivery != definition.data.delivery
@@ -330,7 +353,7 @@ impl World {
                 magnitude
             };
             let mut changes = Vec::new();
-            if data.archetype != 1 {
+            if matches!(data.archetype, 0 | 5) {
                 let name = actor_value_name(data.primary_actor_value)
                     .ok_or(MagicError::Unsupported("actor value"))?;
                 changes.push((name.to_string(), signed));
@@ -353,6 +376,19 @@ impl World {
                     f64::from(entry.data.duration)
                 })
             };
+            let mut dispel_rules = Vec::new();
+            if data.archetype == 2 {
+                dispel_rules.push(DispelRule::Timed);
+            }
+            if data.flags & DISPEL_WITH_KEYWORDS != 0 {
+                let keywords = self.keyword_entries(effect);
+                for keyword in &keywords {
+                    if self.tag_of(*keyword) != Some(super::T(b"KYWD")) {
+                        return Err(MagicError::Missing(*keyword));
+                    }
+                }
+                dispel_rules.push(DispelRule::Keywords(keywords));
+            }
             prepared.push(PreparedEffect {
                 effect: ActiveEffect {
                     id: EffectId(0),
@@ -370,6 +406,8 @@ impl World {
                 },
                 no_recast: data.flags & NO_RECAST != 0,
                 hit_event: data.flags & (HOSTILE | NO_HIT_EVENT) == HOSTILE,
+                dispel_rules,
+                dispel: Vec::new(),
             });
         }
         self.apply_prepared_effects(prepared, target, alloc)
@@ -377,32 +415,13 @@ impl World {
 
     fn apply_prepared_effects(
         &mut self,
-        mut prepared: Vec<PreparedEffect>,
+        prepared: Vec<PreparedEffect>,
         target: GlobalFormId,
         alloc: Alloc<'_>,
     ) -> Result<Vec<EffectId>, MagicError> {
-        self.next_effect
-            .checked_add(prepared.len() as u64)
-            .ok_or(MagicError::Identity)?;
-        let mut seen = std::collections::BTreeSet::new();
-        prepared.retain(|p| {
-            !p.no_recast
-                || (!self.has_magic_effect(p.effect.target, p.effect.effect)
-                    && seen.insert(p.effect.effect))
-        });
-        let mut values = self.actor(target).ok_or(MagicError::Target)?.values.clone();
-        for prepared in &prepared {
-            if prepared.effect.recover || prepared.effect.duration == Some(0.0) {
-                change_values(&mut values, &prepared.effect, 1.0)?;
-            }
-        }
+        let prepared = self.prepare_effect_actions(prepared, target)?;
         let mut applied = Vec::new();
-        for mut prepared in prepared {
-            if prepared.no_recast
-                && self.has_magic_effect(prepared.effect.target, prepared.effect.effect)
-            {
-                continue;
-            }
+        for prepared in prepared {
             if prepared.hit_event {
                 let aggressor = self.form_value(
                     prepared.effect.caster.or(Some(prepared.effect.source)),
@@ -427,9 +446,8 @@ impl World {
                     });
                 }
             }
-            let id = EffectId(self.next_effect);
+            let id = prepared.effect.id;
             self.next_effect += 1;
-            prepared.effect.id = id;
             let object = self.object_of(Handle::ActiveEffect(id), alloc);
             self.pending.push(Pending::BindEffect {
                 object,
@@ -452,12 +470,103 @@ impl World {
             );
             // An instant lethal effect must receive its target's death events too.
             self.active_effects.insert(id, prepared.effect.clone());
+            for victim in prepared.dispel {
+                self.dispel_effect(victim, alloc);
+            }
             if prepared.effect.recover || prepared.effect.duration == Some(0.0) {
                 self.apply_effect_values(&prepared.effect, 1.0)?;
             }
             applied.push(id);
         }
         Ok(applied)
+    }
+
+    /// Validate authored action order before events or live actor values change.
+    fn prepare_effect_actions(
+        &mut self,
+        prepared: Vec<PreparedEffect>,
+        target: GlobalFormId,
+    ) -> Result<Vec<PreparedEffect>, MagicError> {
+        let mut live: Vec<_> = self
+            .active_effects
+            .values()
+            .filter(|effect| effect.target == target)
+            .cloned()
+            .collect();
+        let mut values = self.actor(target).ok_or(MagicError::Target)?.values.clone();
+        let mut next = self.next_effect;
+        let mut plan = Vec::new();
+        for mut prepared in prepared {
+            if prepared.no_recast
+                && live
+                    .iter()
+                    .any(|effect| effect.effect == prepared.effect.effect)
+            {
+                continue;
+            }
+            prepared.effect.id = EffectId(next);
+            next = next.checked_add(1).ok_or(MagicError::Identity)?;
+            let mut selected = std::collections::BTreeSet::new();
+            for rule in &prepared.dispel_rules {
+                match rule {
+                    DispelRule::Timed => selected.extend(
+                        live.iter()
+                            .filter(|effect| effect.duration.is_some_and(|duration| duration > 0.0))
+                            .map(|effect| effect.id),
+                    ),
+                    DispelRule::Keywords(keywords) => {
+                        let spells: std::collections::BTreeSet<_> =
+                            live.iter().map(|effect| effect.spell).collect();
+                        for spell in spells {
+                            if self.spell_matches_dispel_keywords(spell, keywords)? {
+                                selected.extend(
+                                    live.iter()
+                                        .filter(|effect| effect.spell == spell)
+                                        .map(|effect| effect.id),
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+            for effect in &live {
+                if selected.contains(&effect.id) && effect.recover {
+                    change_values(&mut values, effect, -1.0)?;
+                }
+            }
+            live.retain(|effect| !selected.contains(&effect.id));
+            prepared.dispel = selected.into_iter().collect();
+            if prepared.effect.recover || prepared.effect.duration == Some(0.0) {
+                change_values(&mut values, &prepared.effect, 1.0)?;
+            }
+            live.push(prepared.effect.clone());
+            plan.push(prepared);
+        }
+        Ok(plan)
+    }
+
+    fn spell_matches_dispel_keywords(
+        &self,
+        spell: GlobalFormId,
+        keywords: &[GlobalFormId],
+    ) -> Result<bool, MagicError> {
+        if keywords.is_empty() {
+            return Ok(false);
+        }
+        for entry in self.spell(spell)?.effects {
+            let effect = self
+                .resolve_from(spell, entry.base_effect)
+                .ok_or(MagicError::Missing(spell))?;
+            self.magic_effect(effect)?;
+            if self
+                .keywords(effect)
+                .iter()
+                .any(|keyword| keywords.contains(keyword))
+            {
+                return Ok(true);
+            }
+        }
+        Ok(false)
     }
 
     /// Match active MGEF identity without changing known or equipped spells.

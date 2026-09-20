@@ -217,11 +217,21 @@ impl World {
         out
     }
 
-    /// Every keyword a form carries: its own `KWDA` plus anything a Keyword
-    /// Item Distributor file attached, merged here rather than in a side table
-    /// so `HasKeyword` and every native read one list and cannot tell the two
-    /// apart. See `crate::moddata`.
+    /// Associated keywords, including Keyword Item Distributor additions.
+    /// MGEF cancellation lists are not associations under CK Magic Effect.
     pub fn keywords(&self, id: GlobalFormId) -> Vec<GlobalFormId> {
+        if self.tag_of(id) == Some(T(b"MGEF"))
+            && self
+                .magic_effect(id)
+                .is_ok_and(|effect| effect.data.flags & super::magic::DISPEL_WITH_KEYWORDS != 0)
+        {
+            return Vec::new();
+        }
+        self.keyword_entries(id)
+    }
+
+    /// Authored and distributed entries, before interpreting an effect's flag.
+    pub(super) fn keyword_entries(&self, id: GlobalFormId) -> Vec<GlobalFormId> {
         let mut out: Vec<GlobalFormId> = match self.record(id) {
             Some(rec) => rec.find(T(b"KWDA")).map_or_else(Vec::new, |kwda| {
                 kwda.as_chunks::<4>()
