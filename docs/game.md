@@ -424,11 +424,12 @@ location does not (no `LCTN` model yet).
 
 **Walking.** `ai::nav_graph` builds `soe_navmesh::vanilla` over every
 winning `NAVM` on first use and remembers which cell each mesh sits in.
-A route is `find_path_between` from the actor to the place, the actor
-follows the waypoints at 110 units per real second (walk), 160 (fast
-walk), 180 (jog) or 375 (run) when the package's preferred speed flag is
-set, values from the default movement type since race movement data is
-not read yet. Each pulled waypoint carries its triangle owner. Reaching a portal into another
+A route is `find_path_between` from the actor to the place. The actor follows
+the waypoints at its race's forward walk or run rate: `WKMV` supplies walk and
+fast walk, `RNMV` supplies jog and run, and a matching `MTYP`/`SPED` pair on
+the race overrides the selected movement type. Missing or unusable data falls
+back to 110 units per real second (walk), 160 (fast walk), 180 (jog) or 375
+(run). Each pulled waypoint carries its triangle owner. Reaching a portal into another
 mesh moves the actor into that mesh's cell, which is how travel across a cell
 link changes `RefState::cell`. Explicit gap departures retain the source cell
 until the arrival waypoint. Off the graph the route is a straight line. The driver
@@ -456,7 +457,7 @@ stacked branches with their own conditions), the other 18 procedures,
 package fragments (`VMAD` on `PACK`), the `On Begin`, `On End` and `On
 Change` idles and topics, once per day for packages that end without
 arriving, `Must Complete`, interrupt flags, combat overrides, door
-unlocking flags, race movement speeds, the `Package Data` and `Event Data`
+unlocking flags, the `Package Data` and `Event Data`
 condition targets, and every condition function outside the list above.
 
 ## Natives round two (2026-09-18)
