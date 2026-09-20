@@ -44,6 +44,60 @@ fn names(g: &Game) -> Vec<String> {
     events(g).into_iter().map(|(_, n)| n).collect()
 }
 
+#[test]
+fn blocked_activation_reports_failure_but_default_only_bypasses_it() {
+    let mut g = staged();
+    let player = g.player();
+    g.world_mut()
+        .reference(id(DOOR_OUT))
+        .unwrap()
+        .activation_blocked = true;
+    assert!(!g.activate_no_settle(id(DOOR_OUT), player));
+    assert_eq!(g.world().loaded_cell(), Some(id(START_CELL)));
+    assert_eq!(names(&g), vec!["OnActivate"]);
+    g.world_mut().pending.clear();
+    let shared = g.shared_world();
+    assert!(shared
+        .borrow_mut()
+        .activate(id(DOOR_OUT), player, false, &mut |name, class| g
+            .vm
+            .create_object_of(name, class)));
+    assert_eq!(g.world().loaded_cell(), Some(id(CELL_B)));
+    assert!(!names(&g).iter().any(|name| name == "OnActivate"));
+}
+
+#[test]
+fn deferred_activation_matches_events_and_retains_source_until_settled() {
+    let mut immediate = staged();
+    let mut deferred = staged();
+    let player = immediate.player();
+    let player_deferred = deferred.player();
+    assert!(immediate.activate_no_settle(id(DOOR_OUT), player));
+    let shared = deferred.shared_world();
+    assert!(shared.borrow_mut().activate_with_unload(
+        id(DOOR_OUT),
+        player_deferred,
+        true,
+        true,
+        &mut |name, class| deferred.vm.create_object_of(name, class)
+    ));
+    assert_eq!(events(&immediate), events(&deferred));
+    assert_eq!(
+        names(&deferred).last().map(String::as_str),
+        Some("OnActivate")
+    );
+    assert_eq!(deferred.world().pending_unload(), Some(id(START_CELL)));
+    assert_eq!(
+        deferred.world().reference_ref(player_deferred),
+        immediate.world().reference_ref(player)
+    );
+    assert!(deferred.world().is_reference_loaded(id(0x830)));
+    assert!(!immediate.world().is_reference_loaded(id(0x830)));
+    deferred.world_mut().settle_unload();
+    assert_eq!(deferred.world().pending_unload(), None);
+    assert!(!deferred.world().is_reference_loaded(id(0x830)));
+}
+
 /// A game sitting in cell A, with the destination's references given VM
 /// objects so the cell events have somewhere to go. Allocation order is fixed
 /// so two games built this way agree on object ids.

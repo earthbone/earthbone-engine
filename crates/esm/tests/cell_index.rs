@@ -222,7 +222,7 @@ fn order_of(files: &[(&str, Plugin)]) -> LoadOrder {
 
 #[test]
 fn the_master_alone_files_every_child_under_its_cell() {
-    let mut order = order_of(&[("Master.esm", master())]);
+    let order = order_of(&[("Master.esm", master())]);
     assert!(order.cell_index().is_none());
     let index = order.build_cell_index();
 
@@ -293,7 +293,7 @@ fn the_master_alone_files_every_child_under_its_cell() {
 
 #[test]
 fn a_patch_that_moves_a_reference_wins_and_a_deleted_one_disappears() {
-    let mut order = order_of(&[("Master.esm", master()), ("Patch.esp", patch())]);
+    let order = order_of(&[("Master.esm", master()), ("Patch.esp", patch())]);
     order.build_cell_index();
     let index = order.cell_index().unwrap();
 
@@ -324,4 +324,21 @@ fn adding_a_file_drops_the_index() {
         .unwrap();
     assert!(order.cell_index().is_none());
     assert_eq!(order.build_cell_index().placed_count(), 5);
+}
+
+#[test]
+fn concurrent_readers_share_one_cached_cell_index() {
+    let order = std::sync::Arc::new(order_of(&[("Master.esm", master())]));
+    let workers: Vec<_> = (0..4)
+        .map(|_| {
+            let order = order.clone();
+            std::thread::spawn(move || {
+                let index = order.build_cell_index();
+                assert_eq!(index.references(id(INTERIOR)).len(), 4);
+                std::ptr::from_ref(index) as usize
+            })
+        })
+        .collect();
+    let pointers: Vec<_> = workers.into_iter().map(|w| w.join().unwrap()).collect();
+    assert!(pointers.iter().all(|p| *p == pointers[0]));
 }

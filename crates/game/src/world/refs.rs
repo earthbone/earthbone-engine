@@ -31,6 +31,10 @@ impl World {
                     st.rotation = t.rotation;
                 }
                 st.scale = r.scale;
+                if let Some(lock) = r.lock {
+                    st.locked = true;
+                    st.lock_level = i32::from(lock.level);
+                }
                 st.linked = r
                     .linked_refs
                     .iter()
@@ -186,27 +190,25 @@ impl World {
     }
 
     pub fn player(&mut self) -> GlobalFormId {
-        if let Some(p) = self.player {
-            return p;
+        if let Some(player) = self.player {
+            return player;
         }
-        let shipped = GlobalFormId {
+        let id = GlobalFormId {
             file: 0,
             object: PLAYER_OBJECT,
         };
-        let id = if self.reference(shipped).is_some() {
-            shipped
-        } else {
-            self.next_dynamic += 1;
-            let id = GlobalFormId {
-                file: DYNAMIC_FILE,
-                object: self.next_dynamic,
-            };
-            let mut st = RefState::new(None);
-            st.is_actor = true;
-            st.display_name = Some("Player".into());
-            self.refs.insert(id, st);
-            id
-        };
+        if self.reference(id).is_none() {
+            let base = self
+                .form("Player")
+                .filter(|base| self.tag_of(*base) == Some(T(b"NPC_")));
+            let mut state = RefState::new(base);
+            state.is_actor = true;
+            state.display_name = Some("Player".into());
+            if let Some(base) = base {
+                state.inventory = self.base_inventory(base);
+            }
+            self.refs.insert(id, state);
+        }
         self.player = Some(id);
         id
     }
@@ -289,15 +291,30 @@ impl World {
         ((pa[0] - pb[0]).powi(2) + (pa[1] - pb[1]).powi(2) + (pa[2] - pb[2]).powi(2)).sqrt()
     }
 
-    /// Activate `target` by `activator`: default processing for doors and
-    /// containers unless the reference blocks activation, then `OnActivate`
-    /// to the target's scripts when `send_event` is set. Returns false when
-    /// the target is not a reference.
+    /// Activate a reference and unload the source cell immediately.
+    /// A default-only call suppresses the event and ignores BlockActivation.
     pub fn activate(
         &mut self,
         target: GlobalFormId,
         activator: GlobalFormId,
         send_event: bool,
+        alloc: Alloc<'_>,
+    ) -> bool {
+        self.activate_with_unload(target, activator, send_event, false, alloc)
+    }
+
+    /// Activate with optional deferred source-cell unload. Default-only calls
+    /// bypass BlockActivation, as specified by the CK Activate reference.
+    /// Default processing for doors and
+    /// containers unless the reference blocks activation, then `OnActivate`
+    /// to the target's scripts when `send_event` is set. Returns false when
+    /// the target is not a reference.
+    pub fn activate_with_unload(
+        &mut self,
+        target: GlobalFormId,
+        activator: GlobalFormId,
+        send_event: bool,
+        defer_unload: bool,
         alloc: Alloc<'_>,
     ) -> bool {
         let Some((blocked, base, teleport)) = self
@@ -306,13 +323,21 @@ impl World {
         else {
             return false;
         };
-        if !blocked {
-            match base.and_then(|b| self.tag_of(b)).map(|t| *t.as_bytes()) {
+        let kind = base.and_then(|b| self.tag_of(b));
+        let lockable = kind == Some(T(b"DOOR")) || kind == Some(T(b"CONT"));
+        let process = (!blocked || !send_event)
+            && (!lockable || self.unlock_with_key(target, activator, alloc));
+        if process {
+            match kind.map(|t| *t.as_bytes()) {
                 // A door with teleport data is a load door, the kind that
                 // fires a load screen in vanilla. A door without it simply
                 // swings, and both exist in the shipped files.
                 Some([b'D', b'O', b'O', b'R']) => {
-                    if let Some((far_door, landing)) = teleport {
+                    if teleport.is_some() && activator == self.player() && defer_unload {
+                        if let Some(way) = self.arm_doorway(target) {
+                            self.commit_doorway(&way);
+                        }
+                    } else if let Some((far_door, landing)) = teleport {
                         let far_cell = self.reference(far_door).and_then(|d| d.cell);
                         if let Some(r) = self.reference(activator) {
                             r.position = landing.position;
@@ -346,6 +371,6 @@ impl World {
                 args: vec![who],
             });
         }
-        true
+        process
     }
 }

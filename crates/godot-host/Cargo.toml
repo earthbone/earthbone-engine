@@ -66,6 +66,7 @@ xwma-ffmpeg = ["soe-audio/xwma-ffmpeg"]
 godot = { version = "0.5.5", features = ["api-4-4"], optional = true }
 thiserror = "2"
 soe-esm = { path = "../esm" }
+soe-game = { path = "../game" }
 soe-bsa = { path = "../bsa" }
 soe-nif = { path = "../nif" }
 soe-audio = { path = "../audio" }

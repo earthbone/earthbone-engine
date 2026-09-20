@@ -28,6 +28,7 @@
 //! - `hash`: the determinism hash.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::sync::Arc;
 
 use soe_esm::records::{Text, Transform};
 use soe_esm::{GlobalFormId, LoadOrder, RecordRef, Tag};
@@ -42,6 +43,7 @@ mod driver;
 mod events;
 mod forms;
 pub mod hash;
+mod locks;
 mod lookup;
 mod objects;
 mod quests;
@@ -343,7 +345,7 @@ pub struct UpdateTimer {
 pub type Alloc<'a> = &'a mut dyn FnMut(&str, &str) -> ObjectId;
 
 pub struct World {
-    order: LoadOrder,
+    order: Arc<LoadOrder>,
     editor_ids: HashMap<String, GlobalFormId>,
     objects: HashMap<Handle, ObjectId>,
     handles: HashMap<ObjectId, Handle>,
@@ -426,6 +428,11 @@ pub struct World {
 
 impl World {
     pub fn new(order: LoadOrder) -> World {
+        Self::from_shared_order(std::sync::Arc::new(order))
+    }
+
+    /// Use the immutable form table already opened by the host.
+    pub fn from_shared_order(order: Arc<LoadOrder>) -> World {
         let mut editor_ids = HashMap::new();
         for (file_index, file) in order.files().iter().enumerate() {
             for (i, rec) in file.plugin.records.iter().enumerate() {

@@ -22,12 +22,18 @@
 //! sound in space, so nodes are the only route to the attenuation and panning
 //! the done check asks for.
 
-use godot::classes::{audio_stream_wav, AudioStreamPlayer3D, AudioStreamWav, INode3D, Node3D};
+use std::collections::{HashMap, VecDeque};
+use std::sync::Arc;
+
+use godot::classes::{
+    audio_stream_player_3d, audio_stream_wav, AudioStreamPlayer3D, AudioStreamWav, INode3D, Node3D,
+};
 use godot::prelude::*;
 use soe_audio::{Pcm, SoundSource};
 use soe_bsa::Vfs;
 
 use crate::audio::{to_i16_bytes, to_mono, Kind, VoicePool};
+use crate::data_source::DataSource;
 
 /// The archives a sound can come out of, in load order. Voices are split per
 /// language and only the English set is named here, which is what the
@@ -40,6 +46,7 @@ const SOUND_ARCHIVES: [&str; 2] = ["Skyrim - Sounds.bsa", "Skyrim - Voices_en0.b
 /// emitters to need it, and a small pool makes the stealing rule observable
 /// rather than theoretical.
 const SLOTS: usize = 16;
+const CACHE_BYTES: usize = 64 * 1024 * 1024;
 
 /// Plays sounds resolved out of a load order, positioned in the world.
 #[derive(GodotClass)]
@@ -50,6 +57,11 @@ pub struct SoundBank {
     #[export]
     max_distance: f32,
     vfs: Option<Vfs>,
+    source: Option<Arc<DataSource>>,
+    streams: HashMap<String, (Gd<AudioStreamWav>, usize)>,
+    stream_order: VecDeque<String>,
+    stream_bytes: usize,
+    decoded_count: u64,
     pool: VoicePool,
     players: Vec<Gd<AudioStreamPlayer3D>>,
     last_error: GString,
@@ -62,6 +74,11 @@ impl INode3D for SoundBank {
             base,
             max_distance: 2000.0,
             vfs: None,
+            source: None,
+            streams: HashMap::new(),
+            stream_order: VecDeque::new(),
+            stream_bytes: 0,
+            decoded_count: 0,
             pool: VoicePool::new(SLOTS),
             players: Vec::new(),
             last_error: GString::new(),
@@ -120,7 +137,76 @@ impl SoundBank {
             return false;
         }
         self.vfs = Some(vfs);
+        self.source = None;
+        self.clear_streams();
         true
+    }
+
+    /// Share the host's complete archive and loose-file overlay.
+    #[allow(clippy::needless_pass_by_value)]
+    #[func]
+    fn use_streamer_data(&mut self, streamer: Gd<crate::godot_layer::CellStreamerNode>) -> bool {
+        let Some(source) = streamer.bind().shared_source() else {
+            return false;
+        };
+        self.use_source(source);
+        true
+    }
+
+    pub(crate) fn use_source(&mut self, source: Arc<DataSource>) {
+        self.source = Some(source);
+        self.vfs = None;
+        self.clear_streams();
+    }
+
+    /// Test/editor entry point. Runtime callers supply draws from Game's RNG.
+    #[func]
+    fn play_descriptor(
+        &mut self,
+        file: i64,
+        object: i64,
+        position: Vector3,
+        draws: Vector3,
+    ) -> i32 {
+        let (Ok(file), Ok(object)) = (u16::try_from(file), u32::try_from(object)) else {
+            self.last_error = "invalid sound FormID".into();
+            return -1;
+        };
+        let Some(source) = &self.source else {
+            self.last_error = "use_streamer_data has not run".into();
+            return -1;
+        };
+        let plan = soe_game::sound::prepare(
+            &source.shared_order(),
+            soe_esm::GlobalFormId { file, object },
+            [draws.x, draws.y, draws.z],
+            &soe_game::sound::SoundSettings::default(),
+        );
+        match plan {
+            Ok(plan) => self.play_prepared(&plan, position),
+            Err(error) => {
+                self.last_error = error.to_string().as_str().into();
+                -1
+            }
+        }
+    }
+
+    /// Number of decoder calls, for cache and installed-playback checks.
+    #[func]
+    fn decoded_count(&self) -> i64 {
+        self.decoded_count as i64
+    }
+
+    pub(crate) fn play_prepared(
+        &mut self,
+        plan: &soe_game::sound::SoundPlayback,
+        position: Vector3,
+    ) -> i32 {
+        if plan.looping != 0 {
+            self.last_error = "descriptor loop/envelope playback is not connected".into();
+            return -1;
+        }
+        self.play_with(&plan.data_path, position, Kind::Effect, Some(plan))
     }
 
     /// Plays a world sound such as a footstep at `position`. Returns the slot
@@ -152,10 +238,26 @@ impl SoundBank {
     }
 
     fn play(&mut self, data_path: &str, position: Vector3, kind: Kind) -> i32 {
-        let Some(vfs) = self.vfs.as_ref() else {
-            self.last_error = GString::from("open_data has not run");
-            return -1;
-        };
+        self.play_with(data_path, position, kind, None)
+    }
+
+    fn clear_streams(&mut self) {
+        self.streams.clear();
+        self.stream_order.clear();
+        self.stream_bytes = 0;
+    }
+
+    fn stream(&mut self, data_path: &str) -> Result<Gd<AudioStreamWav>, String> {
+        let key = soe_bsa::normalize(data_path);
+        if let Some((stream, _)) = self.streams.get(&key) {
+            return Ok(stream.clone());
+        }
+        let vfs = self
+            .source
+            .as_ref()
+            .map(|s| s.vfs())
+            .or(self.vfs.as_ref())
+            .ok_or_else(|| "no audio data source".to_owned())?;
 
         // The ffmpeg-backed decoder is only present when the feature is on.
         // Without it a vanilla voice line reports `Unsupported::Wma` and every
@@ -167,17 +269,49 @@ impl SoundBank {
         #[cfg(not(feature = "xwma-ffmpeg"))]
         let source = SoundSource::new(vfs);
 
-        let sound = match source.read(data_path) {
-            Ok(s) => s,
-            Err(e) => {
-                self.last_error = GString::from(format!("{data_path}: {e}").as_str());
+        let sound = source
+            .read(data_path)
+            .map_err(|error| format!("{data_path}: {error}"))?;
+        if sound.pcm.is_empty() {
+            return Err(format!("{data_path}: decoded to no samples"));
+        }
+        self.decoded_count += 1;
+        let stream = wav_from(&sound.pcm);
+        let bytes = sound.pcm.frames().saturating_mul(2);
+        if bytes <= CACHE_BYTES {
+            while self.stream_bytes + bytes > CACHE_BYTES {
+                let Some(oldest) = self.stream_order.pop_front() else {
+                    break;
+                };
+                if let Some((_, size)) = self.streams.remove(&oldest) {
+                    self.stream_bytes -= size;
+                }
+            }
+            self.stream_bytes += bytes;
+            self.stream_order.push_back(key.clone());
+            self.streams.insert(key, (stream.clone(), bytes));
+        }
+        Ok(stream)
+    }
+
+    fn play_with(
+        &mut self,
+        data_path: &str,
+        position: Vector3,
+        kind: Kind,
+        plan: Option<&soe_game::sound::SoundPlayback>,
+    ) -> i32 {
+        if self.players.len() != SLOTS {
+            self.last_error = "SoundBank must be inside the scene tree".into();
+            return -1;
+        }
+        let stream = match self.stream(data_path) {
+            Ok(stream) => stream,
+            Err(error) => {
+                self.last_error = error.as_str().into();
                 return -1;
             }
         };
-        if sound.pcm.is_empty() {
-            self.last_error = GString::from(format!("{data_path}: decoded to no samples").as_str());
-            return -1;
-        }
 
         let Some(slot) = self.pool.claim(kind) else {
             self.last_error =
@@ -185,11 +319,36 @@ impl SoundBank {
             return -1;
         };
 
-        let stream = wav_from(&sound.pcm);
         let player = &mut self.players[slot];
         player.set_stream(&stream);
         player.set_position(position);
+        player.set_pitch_scale(plan.map_or(1.0, |p| p.pitch));
+        player.set_volume_db(plan.map_or(0.0, |p| {
+            if p.gain > 0.0 {
+                20.0 * p.gain.log10()
+            } else {
+                f32::NEG_INFINITY
+            }
+        }));
+        let positional = plan.is_none_or(|p| p.output.kind == 0);
+        player.set_panning_strength(if positional { 1.0 } else { 0.0 });
+        let attenuates = plan.is_none_or(|p| p.output.attenuates);
+        player.set_attenuation_model(if attenuates {
+            audio_stream_player_3d::AttenuationModel::INVERSE_DISTANCE
+        } else {
+            audio_stream_player_3d::AttenuationModel::DISABLED
+        });
+        let range = plan.and_then(|p| p.output.attenuation.as_ref());
+        player.set_unit_size(range.map_or(1.0, |a| a.min_distance / soe_physics::UNITS_PER_METER));
+        player.set_max_distance(if attenuates {
+            range.map_or(self.max_distance, |a| {
+                a.max_distance / soe_physics::UNITS_PER_METER
+            })
+        } else {
+            0.0
+        });
         player.play();
+        self.last_error = GString::new();
         slot as i32
     }
 }

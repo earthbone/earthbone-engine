@@ -126,7 +126,7 @@ fn order_of(files: &[(&str, Plugin)]) -> LoadOrder {
 
 #[test]
 fn a_deleted_reference_stays_resolvable_and_out_of_the_drawn_list() {
-    let mut order = order_of(&[
+    let order = order_of(&[
         ("Master.esm", master()),
         ("Dirty.esp", dirty()),
         ("Linker.esp", linker()),

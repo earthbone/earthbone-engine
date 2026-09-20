@@ -16,6 +16,10 @@ use soe_physics::{collect, Shape};
 fn describe(s: &Shape, depth: usize) {
     let pad = "  ".repeat(depth);
     match s {
+        Shape::Material { id, shape } => {
+            println!("{pad}material {id}");
+            describe(shape, depth + 1);
+        }
         Shape::Box { half_extents } => println!("{pad}box half extents {half_extents:?}"),
         Shape::Sphere { radius } => println!("{pad}sphere radius {radius}"),
         Shape::Capsule { a, b, radius } => println!("{pad}capsule {a:?} to {b:?} radius {radius}"),
@@ -23,6 +27,7 @@ fn describe(s: &Shape, depth: usize) {
         Shape::TriangleMesh {
             vertices,
             triangles,
+            ..
         } => println!(
             "{pad}triangle mesh, {} vertices, {} triangles",
             vertices.len(),

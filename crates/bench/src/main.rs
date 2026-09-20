@@ -431,7 +431,7 @@ fn cell(opts: &Options, editor_id: &str) -> Result<(), String> {
 /// The cell index over the vanilla masters: build time on top of a parsed
 /// order, what it holds, and the cost of one lookup.
 fn cell_index(opts: &Options, editor_id: &str) -> Result<(), String> {
-    let mut order = read_order_threads(&opts.data, opts.threads)?;
+    let order = read_order_threads(&opts.data, opts.threads)?;
     let (median, ()) = timed(opts, "cell_index_build", opts.runs, || {
         order.build_cell_index();
         Ok(())

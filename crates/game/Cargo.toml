@@ -10,6 +10,7 @@ name = "soe_game"
 path = "src/lib.rs"
 
 [dependencies]
+crc32fast = "1"
 soe-trace = { path = "../trace" }
 soe-esm = { path = "../esm" }
 soe-papyrus = { path = "../papyrus" }

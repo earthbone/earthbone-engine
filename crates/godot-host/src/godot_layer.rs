@@ -230,6 +230,25 @@ impl CellStreamerNode {
     pub(crate) fn shared_source(&self) -> Option<Arc<DataSource>> {
         self.data_source.clone()
     }
+
+    /// Replace drawn resources after CPU preparation succeeds. No per-reference nodes.
+    pub(crate) fn replace_location(
+        &mut self,
+        location: &crate::data_source::LoadedLocation,
+    ) -> bool {
+        let Some(scenario) = self.scenario() else {
+            return false;
+        };
+        self.clear();
+        let before = self.materials.len();
+        let mut totals = StreamTotals::default();
+        for (id, cell) in &location.cells {
+            totals.cell_list.push(id.to_string());
+            self.add_cell(cell, scenario, &mut totals);
+        }
+        self.last_stats = totals.to_dictionary(self.materials.len() - before);
+        true
+    }
 }
 
 #[godot_api]

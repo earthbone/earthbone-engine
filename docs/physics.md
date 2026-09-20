@@ -109,6 +109,29 @@ continuous collision, keyframed movers. Those are Jolt's.
 
 ## Tests
 
+### Surface materials for footsteps (2026-09-19)
+
+Shape collection preserves the NIF material ID on primitive shapes and each
+compressed-mesh triangle. Material wrappers on compound shapes supply a default,
+and child or face materials override it. Scaling and placement preserve these
+IDs. `SimpleWorld::raycast` returns the hit surface's material, or `None` when
+the source shape has none. The Godot shape adapter accepts the metadata but
+does not yet expose it through Jolt queries.
+
+Sources are `engine-refs/nifxml/nif.xml`, its Skyrim Havok material definitions,
+`bhkMeshMaterial`, `bhkCMSChunk` and `bhkCMSBigTri`. OpenMW's
+`components/nif/physics.cpp` confirms the fields but does not resolve the
+large-triangle material field's meaning. A check against both installed Skyrim
+mesh archives establishes that it indexes the material table: 24,142 chunks and
+65,821 large triangles had valid indices, with 2,913 compressed meshes carrying
+multiple materials. This is evidence for the shipped SE assets, not a survey of
+modded meshes. Invalid material indices remain unknown.
+
+Synthetic tests check primitive, chunk and large-triangle materials, mixed
+faces after an invalid face is skipped, and nested material defaults without
+leaking into siblings. This supplies surface identity for the footstep path.
+Sound selection and playback are separate game and host integration work.
+
 ### Large world boundary survey (2026-09-19)
 
 Branch `large-world-physics` checks the former Skyrim physics boundary with

@@ -1151,3 +1151,152 @@ also ended with SIGTERM. The shutdown test now frees the first world before
 starting its second load. An initial import/runtime attempt could not find the
 shared target directory's extension. The test setup now points to the rebuilt
 library, and startup exits with failure if the extension classes are missing.
+
+## Door picking groundwork (2026-09-19)
+
+The `host-gameplay` work adds DOOR models to the shared rendering and collision
+selector. It reads the generic MODL path and excludes bit 23 editor markers,
+following `engine-refs/TES5Edit/Core/wbDefinitionsTES5.pas`, `wbRecord(DOOR)`.
+The existing NIF collision reader and placement transform are reused.
+
+`DataSource::placed_cell_colliders` retains the owning reference for each
+shape. `CellCollision::references` maps physics body IDs back to resolved
+FormIDs, including references with several bodies. `PlayerNode` retains that
+map on cell entry and reports the reference from an activation ray through
+`last_activate_reference`. Its old hit flag remains available. Both results
+reset on cell entry and on steps without an activation press. No new nodes,
+record copies or dependencies are introduced.
+
+The installed Bannered Mare regression passed with all six doors producing
+visible surfaces, mapped collision bodies and ray hits resolving to their
+own reference IDs. It also retained the checks for 29 furniture references
+and four beds. This is a Rust data/collision check, not a rendered Godot run.
+
+The next host changes share an `Arc<LoadOrder>` with `Game`, including its
+cached cell index, and load scripts through the same VFS. The host gains a
+dependency on the existing `soe-game` crate, with no new external packages.
+`start_gameplay` starts scripts and quests, then applies the selected
+walkthrough spawn. This is a play-from-here path, not the new-game intro.
+Each player step writes the
+controller pose into the game, dispatches activation, ticks the VM, then
+applies script moves and door landings back to the host. The movement-only
+tests can still run without starting the game.
+
+The ordinary load-door path uses deferred activation, including
+`arm_doorway`, `commit_doorway` and later `settle_unload`. Destination geometry
+and collision are prepared together before replacing host resources. Exterior
+destinations resolve their worldspace from the logical cell and select a
+3 by 3 grid around the landing, adding worldspace persistent references.
+Inherited LAND follows the existing parent-land rule and now contributes
+collision with the same positions as rendering. Cell identity remains intact.
+
+`godot/gameplay_test.gd` drives an unlocked Bannered Mare door outward and
+back through the game runtime, requiring a changed/restored cell identity,
+draw instances and supporting collision at each landing. This harness calls
+the same activation helper as the input ray, with explicit reference IDs.
+After the round trip it turns toward the door and injects the E key through
+the device input path, requiring the picked FormID and another exterior
+crossing. Its result is separate from the Rust gate.
+
+Godot 4.4.1 and 4.7.2 headless runs passed with the installed five-master data:
+Bannered Mare `0:01605E` to exterior `0:01A270` and back, then E picked
+`0:016072` and crossed again. The exterior had 545 collision bodies and the
+returned interior had 373. Both landing checks reached supported ground.
+Startup loaded 14,026 scripts, attached 28,143 instances and started 423
+quests, reporting nine missing script attachments. These are not resolved
+by the host integration. No rendered-image or speaker-output claim follows
+from the headless test.
+
+The integration gate passed with 915 Rust tests and 11 Python runner tests.
+All three clippy passes and every lint tool ran. The cell-index API change
+also removed unused mutable bindings in the benchmark and navmesh test,
+without changing their behavior.
+
+An initial test accepted the cell selected by startup scripts and therefore
+tested a different location. The corrected test asserts the requested
+Bannered Mare identity after startup. The first import aborted when sandbox
+restrictions denied an editor socket. Direct runtime execution succeeded.
+
+Swing animation remains unwired. Plain doors keep their authored
+mesh pose and immovable collision even when game state marks them open.
+Locked player picks use the shared game's key check. Without the key they
+remain closed, pending lockpicking UI. Resource
+preparation is synchronous, with no fade or measured frame-time bound yet.
+Exterior streaming follows door landings only, not subsequent walking across
+grid boundaries. Runtime reference enable, placement and animation changes
+are not yet reflected in all drawn objects. Portal transitions and revised
+AI remain deferred until existing Skyrim gameplay works.
+
+## Footstep audio integration (2026-09-19)
+
+Starting PlayerNode gameplay now creates a SoundBank sharing the same immutable
+DataSource and VFS. Grounded controller travel selects a movement group and
+alternates foot tags, then a supporting ray supplies its NIF material. The game
+record resolver supplies the impact and descriptor. The player uses the second
+impact sound slot when present, based on the shipped player/NPC descriptor
+pairs, with sound 1 as fallback. Unknown source material uses DOBJ's DLMT only
+when collision carries no material ID. Unknown non-null IDs are not guessed.
+
+Cadence is a distance fallback pending animation-event integration, with strides
+of 55, 70, 90 and 130 game units for sneak, walk, run and sprint. Those values
+are engine policy, not measured vanilla animation timing. Standing still,
+airborne movement and large discontinuities do not emit steps. Cell changes
+and script-driven placement reset cadence. Tests cover those exclusions and
+equivalent travel split into 30, 60 and 120 updates.
+
+SoundBank applies descriptor file choice, gain and pitch. Its existing sixteen
+AudioStreamPlayer3D slots now share a FIFO cache capped at 64 MiB of decoded
+mono 16-bit clip data. Active stream references and resource overhead are
+outside that cache budget. The cache is cleared on source replacement. No new
+decoder dependency was added.
+
+One Camera3D replaces the player's bare camera RID because Godot's 3D mixer
+enumerates Camera3D nodes before consulting listeners. An AudioListener3D alone
+left player movement silent. This behavior is visible in Godot 4.4's
+[`AudioStreamPlayer3D::_update_panning`](https://github.com/godotengine/godot/blob/4.4/scene/3d/audio_stream_player_3d.cpp).
+The camera serves rendering and listening. Bulk geometry and physics still use
+server resources. The player gains eighteen child/descendant control and audio
+nodes: one camera, one SoundBank and its sixteen players. This is a fixed player
+cost, with no new node per placed world reference. Its frame cost is unmeasured.
+
+Output handling remains partial. Non-positional player sounds disable panning
+and distance attenuation. Positional sounds use Godot's inverse-distance model
+with record distance bounds. Authored five-point curves, speaker matrices,
+reverb sends, descriptor priority, loop/envelope modes and resident alternate
+routing are not fully executed. Conditional descriptors are refused. Footstep
+sets now come from the game actor's current race, skin and equipped armor,
+with selection limits described in [game.md](game.md). Animation timing,
+landing/scuff sounds and NPC footstep delivery remain pending. The current
+controller does not supply submerged state to audio.
+
+`godot/sound_descriptor_test.gd` verifies real descriptor playback and cache
+reuse through AudioEffectCapture. Its Godot 4.7.2 run captured 20,480 frames with
+peak 0.01579 and exactly one decode across two plays. This is mixer output,
+not proof of speaker output. `godot/footsteps_test.gd` exercises actual player
+input and movement, with stationary silence and nonzero mixer output required.
+
+The movement test passed on Godot 4.4.1 and 4.7.2. Both produced four steps
+with zero errors across the same Bannered Mare route. Captured peaks were
+0.03193 and 0.03201. Existing input/camera checks also passed on both versions,
+and the 4.7.2 load-door round trip and E-key crossing passed after the camera
+change. These runs were headless and do not verify physical speaker output.
+The full gate passed with 934 Rust tests and 11 Python contract tests. All
+three clippy configurations and all lint tools ran. Comment-lint used its CPU
+fallback. The installed sound survey and Godot tests ran separately from the
+gate's tests that skip when external-data variables are absent.
+
+After actor-specific selection and implicit-player construction were connected,
+the 4.7.2 movement test again passed: four steps, zero errors, 110,592 captured
+frames and peak 0.07653. This run exercises the player's record-backed skin
+selection. Equipment changes have game-layer tests, not a host inventory UI.
+The 4.4.1 run also produced four steps, zero errors and peak 0.07653. The 4.7.2
+door round trip and E-key activation passed with the corrected player identity.
+The subsequent full gate passed with 942 Rust tests and 11 Python tests, all
+lint tools run. An initial gate failed when a BSA test's 64 MiB temporary file
+exceeded the `/tmp` quota. The passing rerun used a project-filesystem TMPDIR.
+
+After authored locks and inventory keys were connected, the 4.7.2 door round
+trip and actual E-key crossing passed again. Key use and lock state are tested
+in the game layer, including a keyed load-door transition and unload retention.
+The final gate for that increment passed with 950 Rust tests and 11 Python
+tests. All three clippy configurations and all lint tools ran.

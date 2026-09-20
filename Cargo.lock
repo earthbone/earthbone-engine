@@ -1291,6 +1291,7 @@ dependencies = [
 name = "soe-game"
 version = "0.1.0"
 dependencies = [
+ "crc32fast",
  "soe-bsa",
  "soe-esm",
  "soe-moddata",
@@ -1310,6 +1311,7 @@ dependencies = [
  "soe-bsa",
  "soe-dds",
  "soe-esm",
+ "soe-game",
  "soe-hkx",
  "soe-nif",
  "soe-physics",

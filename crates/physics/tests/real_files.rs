@@ -14,8 +14,76 @@ use soe_nif::blocks::Block;
 use soe_physics::bhk::{self, Bhk};
 use soe_physics::{collect, PhysicsWorld, Shape, SimpleWorld};
 
+/// nif.xml names the large-triangle field `Material`, unlike the chunk's
+/// explicit `Material Index`. Check the indexed interpretation on shipped
+/// meshes before relying on it for impact and footstep sound selection.
+#[test]
+fn shipped_compressed_mesh_materials_index_the_material_table() {
+    let Some(data) = std::env::var_os("SKYRIM_DATA").map(PathBuf::from) else {
+        eprintln!("SKYRIM_DATA not set, skipping");
+        return;
+    };
+    let mut chunks = 0;
+    let mut big_triangles = 0;
+    let mut multi_material = 0;
+    let mut failures = Vec::new();
+    for archive_name in ["Skyrim - Meshes0.bsa", "Skyrim - Meshes1.bsa"] {
+        let archive = soe_bsa::Archive::open(&data.join(archive_name)).unwrap();
+        for name in archive.files().iter().filter(|n| {
+            std::path::Path::new(n)
+                .extension()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("nif"))
+        }) {
+            let bytes = archive.read(name).unwrap();
+            let Ok(file) = soe_nif::parse(&bytes) else {
+                continue;
+            };
+            for block in &file.blocks {
+                let Block::Collision { type_name, data } = block else {
+                    continue;
+                };
+                if type_name != "bhkCompressedMeshShapeData" {
+                    continue;
+                }
+                let Bhk::CompressedMeshData(mesh) =
+                    bhk::decode(type_name, data, &file.header).unwrap()
+                else {
+                    panic!("compressed mesh data decoded as another block");
+                };
+                multi_material += usize::from(mesh.materials.len() > 1);
+                for index in mesh.chunks.iter().map(|c| c.material_index) {
+                    chunks += 1;
+                    if index as usize >= mesh.materials.len() {
+                        failures.push(format!(
+                            "{name}: chunk material {index}, table {}",
+                            mesh.materials.len()
+                        ));
+                    }
+                }
+                for (_, index) in &mesh.big_triangles {
+                    big_triangles += 1;
+                    if *index as usize >= mesh.materials.len() {
+                        failures.push(format!(
+                            "{name}: big triangle material {index}, table {}",
+                            mesh.materials.len()
+                        ));
+                    }
+                }
+            }
+        }
+    }
+    eprintln!("material survey: {chunks} chunks, {big_triangles} big triangles, {multi_material} meshes with multiple materials");
+    assert!(chunks > 0 && big_triangles > 0 && multi_material > 0);
+    assert!(failures.is_empty(), "material index failures: {failures:?}");
+}
+
 fn count_shapes(s: &Shape, tally: &mut BTreeMap<&'static str, usize>) {
+    if let Shape::Material { shape, .. } = s {
+        count_shapes(shape, tally);
+        return;
+    }
     let key = match s {
+        Shape::Material { .. } => unreachable!(),
         Shape::Box { .. } => "box",
         Shape::Sphere { .. } => "sphere",
         Shape::Capsule { .. } => "capsule",

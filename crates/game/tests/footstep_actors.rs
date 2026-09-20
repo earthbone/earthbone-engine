@@ -1,0 +1,313 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
+use std::collections::BTreeSet;
+
+use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
+use soe_game::footsteps::Footsteps;
+use soe_game::World;
+
+const T: fn(&[u8; 4]) -> Tag = Tag::new;
+
+fn id(object: u32) -> GlobalFormId {
+    GlobalFormId { file: 0, object }
+}
+
+fn npc(object: u32, female: bool) -> Record {
+    let mut acbs = vec![0; 24];
+    acbs[0] = u8::from(female);
+    Record::new(T(b"NPC_"), object)
+        .sub(T(b"ACBS"), acbs)
+        .sub(T(b"RNAM"), 0x100_u32.to_le_bytes())
+}
+
+fn addon(object: u32, slots: u32, priority: [u8; 2], set: u32) -> Record {
+    let mut data = vec![0; 12];
+    data[..2].copy_from_slice(&priority);
+    Record::new(T(b"ARMA"), object)
+        .sub(
+            T(b"BOD2"),
+            [slots.to_le_bytes(), 2_u32.to_le_bytes()].concat(),
+        )
+        .sub(T(b"DNAM"), data)
+        .sub(T(b"RNAM"), 0x100_u32.to_le_bytes())
+        .sub(T(b"SNDD"), set.to_le_bytes())
+}
+
+fn armor(object: u32, addon: u32) -> Record {
+    Record::new(T(b"ARMO"), object).sub(T(b"MODL"), addon.to_le_bytes())
+}
+
+fn plugin() -> Plugin {
+    let mut plugin = Plugin::new(FileHeader::default());
+    for record in [
+        Record::new(T(b"DOBJ"), 0x31).sub(
+            T(b"DNAM"),
+            [b"DFTS".as_slice(), &0x900_u32.to_le_bytes()].concat(),
+        ),
+        npc(0x10, false),
+        npc(0x11, true),
+        Record::new(T(b"RACE"), 0x100).sub(T(b"WNAM"), 0x200_u32.to_le_bytes()),
+        Record::new(T(b"RACE"), 0x101).sub(T(b"RNAM"), 0x100_u32.to_le_bytes()),
+        Record::new(T(b"RACE"), 0x102),
+        armor(0x200, 0x300),
+        armor(0x201, 0x301),
+        armor(0x202, 0x302),
+        addon(0x300, 1 << 7, [0, 0], 0x901),
+        addon(0x301, (1 << 7) | (1 << 8), [10, 5], 0x902),
+        addon(0x302, 1 << 7, [5, 10], 0x903),
+        Record::new(T(b"WEAP"), 0x400),
+    ] {
+        plugin.push_top(record);
+    }
+    for set in 0x900..=0x903 {
+        plugin.push_top(Record::new(T(b"FSTS"), set));
+    }
+    plugin
+}
+
+fn order() -> LoadOrder {
+    let mut order = LoadOrder::new();
+    order.add("Skyrim.esm", plugin()).unwrap();
+    order
+}
+
+#[test]
+fn implicit_player_uses_the_player_base_for_race_and_skin() {
+    let mut plugin = plugin();
+    plugin.push_top(npc(7, false).zsub(T(b"EDID"), "Player"));
+    let mut order = LoadOrder::new();
+    order.add("Skyrim.esm", plugin).unwrap();
+    let mut world = World::new(order);
+    let player = world.player();
+    assert_eq!(player, id(0x14));
+    assert_eq!(world.base_of(player), Some(id(7)));
+    assert_eq!(world.footstep_sets(player).unwrap(), vec![id(0x901)]);
+}
+
+#[test]
+fn world_equipment_and_race_changes_take_effect_on_the_next_event() {
+    let mut world = World::new(order());
+    let actor = world.place_at(id(0x10), id(0x14), false);
+    assert_eq!(world.footstep_sets(actor).unwrap(), vec![id(0x901)]);
+    world
+        .actor(actor)
+        .unwrap()
+        .equipped
+        .extend([id(0x201), id(0x400)]);
+    assert_eq!(world.footstep_sets(actor).unwrap(), vec![id(0x902)]);
+    world.actor(actor).unwrap().equipped.clear();
+    assert_eq!(world.footstep_sets(actor).unwrap(), vec![id(0x901)]);
+    world.actor(actor).unwrap().race = Some(id(0x102));
+    assert_eq!(world.footstep_sets(actor).unwrap(), vec![id(0x900)]);
+}
+
+#[test]
+fn sex_priorities_apply_per_slot_and_surviving_sets_are_not_duplicated() {
+    let order = order();
+    let steps = Footsteps::new(&order);
+    let equipped = BTreeSet::from([id(0x201), id(0x202)]);
+    assert_eq!(
+        steps.actor_sets(Some(id(0x10)), None, &equipped).unwrap(),
+        vec![id(0x902)]
+    );
+    // The female boot wins feet, while the other addon still occupies calves.
+    assert_eq!(
+        steps.actor_sets(Some(id(0x11)), None, &equipped).unwrap(),
+        vec![id(0x902), id(0x903)]
+    );
+}
+
+#[test]
+fn additional_races_and_armor_parent_chains_preserve_override_namespaces() {
+    let mut order = order();
+    let mut patch = Plugin::new(FileHeader {
+        masters: vec!["Skyrim.esm".into()],
+        ..Default::default()
+    });
+    let mut replacement = addon(0x301, 1 << 7, [10, 10], 0x0100_0900);
+    replacement.subrecords.retain(|s| s.tag != T(b"RNAM"));
+    replacement = replacement
+        .sub(T(b"RNAM"), 0x102_u32.to_le_bytes())
+        .sub(T(b"MODL"), 0x100_u32.to_le_bytes());
+    patch.push_top(replacement);
+    patch.push_top(Record::new(T(b"FSTS"), 0x0100_0900));
+    order.add("Sound.esp", patch).unwrap();
+    let sets = Footsteps::new(&order)
+        .actor_sets(None, Some(id(0x101)), &BTreeSet::from([id(0x201)]))
+        .unwrap();
+    assert_eq!(
+        sets,
+        vec![GlobalFormId {
+            file: 1,
+            object: 0x900
+        }]
+    );
+}
+
+#[test]
+fn silent_addons_cover_skin_and_npc_skin_precedes_race_skin() {
+    let mut plugin = plugin();
+    plugin.push_top(armor(0x203, 0x303));
+    plugin.push_top(addon(0x303, 1 << 7, [10, 10], 0));
+    plugin.push_top(npc(0x12, false).sub(T(b"WNAM"), 0x201_u32.to_le_bytes()));
+    let mut order = LoadOrder::new();
+    order.add("Skyrim.esm", plugin).unwrap();
+    let steps = Footsteps::new(&order);
+    assert_eq!(
+        steps
+            .actor_sets(Some(id(0x12)), None, &BTreeSet::new())
+            .unwrap(),
+        vec![id(0x902)]
+    );
+    assert_eq!(
+        steps
+            .actor_sets(Some(id(0x10)), None, &BTreeSet::from([id(0x203)]))
+            .unwrap(),
+        vec![id(0x900)]
+    );
+}
+
+#[test]
+fn trait_templates_resolve_links_in_the_template_owner_and_reject_cycles() {
+    let mut order = order();
+    let mut patch = Plugin::new(FileHeader {
+        masters: vec!["Skyrim.esm".into()],
+        ..Default::default()
+    });
+    let mut acbs = vec![0; 24];
+    acbs[18] = 1;
+    patch.push_top(
+        Record::new(T(b"NPC_"), 0x10)
+            .sub(T(b"ACBS"), acbs)
+            .sub(T(b"TPLT"), 0x0100_0010_u32.to_le_bytes()),
+    );
+    patch.push_top(npc(0x0100_0010, false).sub(T(b"WNAM"), 0x201_u32.to_le_bytes()));
+    order.add("Traits.esp", patch).unwrap();
+    assert_eq!(
+        Footsteps::new(&order)
+            .actor_sets(Some(id(0x10)), None, &BTreeSet::new())
+            .unwrap(),
+        vec![id(0x902)]
+    );
+    let mut patch = Plugin::new(FileHeader {
+        masters: vec!["Skyrim.esm".into()],
+        ..Default::default()
+    });
+    patch.push_top(Record::new(T(b"RACE"), 0x100).sub(T(b"RNAM"), 0x101_u32.to_le_bytes()));
+    order.add("Cycle.esp", patch).unwrap();
+    assert!(Footsteps::new(&order)
+        .actor_sets(Some(id(0x10)), None, &BTreeSet::new())
+        .unwrap_err()
+        .to_string()
+        .contains("cycle"));
+}
+
+#[test]
+fn malformed_addon_fields_and_missing_sets_are_errors() {
+    for record in [
+        Record::new(T(b"ARMA"), 0x301).sub(T(b"RNAM"), vec![0; 2]),
+        addon(0x301, 1 << 7, [10, 10], 0xFFF),
+    ] {
+        let mut order = order();
+        let mut patch = Plugin::new(FileHeader {
+            masters: vec!["Skyrim.esm".into()],
+            ..Default::default()
+        });
+        patch.push_top(record);
+        order.add("Broken.esp", patch).unwrap();
+        assert!(Footsteps::new(&order)
+            .actor_sets(Some(id(0x10)), None, &BTreeSet::from([id(0x201)]))
+            .is_err());
+    }
+}
+
+#[test]
+fn installed_skin_and_boot_sets_follow_the_authored_links() {
+    let Some(data) = std::env::var_os("SKYRIM_DATA").map(std::path::PathBuf::from) else {
+        eprintln!("SKYRIM_DATA not set, skipping");
+        return;
+    };
+    let mut order = LoadOrder::new();
+    for name in [
+        "Skyrim.esm",
+        "Update.esm",
+        "Dawnguard.esm",
+        "HearthFires.esm",
+        "Dragonborn.esm",
+    ] {
+        order
+            .add(
+                name,
+                Plugin::parse(&std::fs::read(data.join(name)).unwrap()).unwrap(),
+            )
+            .unwrap();
+    }
+    let named = |tag: &[u8; 4], name: &str| {
+        order
+            .winners_of(T(tag))
+            .find(|(_, record)| record.editor_id().as_deref() == Some(name))
+            .unwrap()
+            .0
+    };
+    let steps = Footsteps::new(&order);
+    let nord = named(b"RACE", "NordRace");
+    assert_eq!(
+        steps
+            .actor_sets(None, Some(nord), &BTreeSet::new())
+            .unwrap(),
+        vec![id(0x21468)]
+    );
+    for (addon, expected) in [(0x12E4A, 0x21487), (0x1B395, 0x21486)] {
+        let armor = order
+            .winners_of(T(b"ARMO"))
+            .find(|(id, record)| {
+                let file = order.winner_ref(*id).unwrap().file;
+                record.all(T(b"MODL")).any(|bytes| {
+                    let raw = u32::from_le_bytes(bytes.try_into().unwrap());
+                    order.resolve(file, raw)
+                        == GlobalFormId {
+                            file: 0,
+                            object: addon,
+                        }
+                })
+            })
+            .unwrap()
+            .0;
+        assert_eq!(
+            steps
+                .actor_sets(None, Some(nord), &BTreeSet::from([armor]))
+                .unwrap(),
+            vec![id(expected)]
+        );
+    }
+    let wolf = named(b"RACE", "WolfRace");
+    assert_eq!(
+        steps
+            .actor_sets(None, Some(wolf), &BTreeSet::new())
+            .unwrap(),
+        vec![id(0xDCE9D)]
+    );
+    let mut races = 0;
+    let mut distinct = BTreeSet::new();
+    for (race, record) in order.winners_of(T(b"RACE")) {
+        if record.is_deleted() {
+            continue;
+        }
+        distinct.extend(
+            steps
+                .actor_sets(None, Some(race), &BTreeSet::new())
+                .unwrap_or_else(|error| panic!("race {race} {:?}: {error}", record.editor_id())),
+        );
+        races += 1;
+    }
+    assert!(
+        races > 50 && distinct.len() > 20,
+        "race survey is too narrow"
+    );
+    eprintln!(
+        "{races} race skins resolved {} distinct sets",
+        distinct.len()
+    );
+    eprintln!("Installed bare feet, heavy boots, light boots and wolf skin selected distinct authored sets");
+}

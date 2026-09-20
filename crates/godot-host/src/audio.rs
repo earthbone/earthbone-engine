@@ -18,6 +18,43 @@ use soe_audio::Pcm;
 /// Largest magnitude a 16 bit sample can hold without wrapping to negative.
 const I16_PEAK: f32 = 32767.0;
 
+/// Distance-based player fallback until animation foot events drive playback.
+#[derive(Debug, Default)]
+pub struct FootstepCadence {
+    distance: f32,
+    right: bool,
+}
+
+impl FootstepCadence {
+    pub fn reset(&mut self) {
+        self.distance = 0.0;
+        self.right = false;
+    }
+
+    /// Returns which foot landed. Airborne movement, invalid inputs and large
+    /// discontinuities reset cadence without emitting an event.
+    pub fn advance(&mut self, distance: f32, grounded: bool, stride: f32) -> Option<bool> {
+        if !grounded
+            || !distance.is_finite()
+            || !stride.is_finite()
+            || stride <= 0.0
+            || distance < 0.0
+            || distance > stride * 2.0
+        {
+            self.reset();
+            return None;
+        }
+        self.distance += distance;
+        if self.distance < stride {
+            return None;
+        }
+        self.distance %= stride;
+        let right = self.right;
+        self.right = !self.right;
+        Some(right)
+    }
+}
+
 /// Interleaved float samples as little-endian 16 bit, the payload
 /// `AudioStreamWAV` expects under `FORMAT_16_BITS`.
 ///
@@ -166,6 +203,32 @@ impl VoicePool {
 mod tests {
     use super::{to_i16_bytes, to_mono, Kind, VoicePool};
     use soe_audio::Pcm;
+
+    #[test]
+    fn footstep_cadence_uses_ground_distance_and_resets_on_jumps_or_warps() {
+        let mut cadence = super::FootstepCadence::default();
+        assert_eq!(cadence.advance(50.0, true, 90.0), None);
+        for _ in 0..30 {
+            assert_eq!(cadence.advance(0.0, true, 90.0), None);
+        }
+        assert_eq!(cadence.advance(40.0, true, 90.0), Some(false));
+        assert_eq!(cadence.advance(90.0, true, 90.0), Some(true));
+        assert_eq!(cadence.advance(100.0, false, 90.0), None);
+        assert_eq!(cadence.advance(1000.0, true, 90.0), None);
+        assert_eq!(cadence.advance(89.0, true, 90.0), None);
+        assert_eq!(cadence.advance(1.0, true, 90.0), Some(false));
+    }
+
+    #[test]
+    fn footstep_cadence_does_not_depend_on_frame_subdivision() {
+        for count in [30, 60, 120] {
+            let mut cadence = super::FootstepCadence::default();
+            let feet: Vec<_> = (0..count)
+                .filter_map(|_| cadence.advance(360.0 / count as f32, true, 90.0))
+                .collect();
+            assert_eq!(feet, [false, true, false, true]);
+        }
+    }
 
     fn pcm(channels: u16, samples: Vec<f32>) -> Pcm {
         Pcm {

@@ -56,6 +56,14 @@ the named fields and leave the record intact, so an unknown subrecord is never l
 FormIDs inside views are raw, as written in the file, so a view can be built without a
 load order and resolved later.
 
+`Refr::lock` reads XLOC level, key and flags. Presence means initially locked,
+including level zero. Level 255 requires a key. The reader accepts the 20-byte
+layout and the 9- and 12-byte forms obtained by omitting xEdit's optional unused
+tail fields. Other lengths return a size error. The serialized flags retain
+bit 2 for leveled locks. They are distinct from the runtime locked bit.
+Sources are local xEdit's REFR XLOC, UESP REFR, Mutagen PlacedObject.xml and
+OpenMW's esm4 loadrefr.cpp. A bounds-checked Rust view fits the existing parser.
+
 `Land::heights` keeps the gradient form and `decode` produces the 33 by 33 absolute
 heights in world units, using the row-start plus running-sum rule OpenMW uses.
 `Heights::encode` is the inverse, quantised to the byte grid. `navm::Geometry` parses
@@ -102,6 +110,11 @@ parser change was needed, every record type the checks touch read cleanly.
 position" as hash lookups. `CellIndex::build` walks every winning record once,
 `LoadOrder::build_cell_index` keeps the result on the order and `add` drops it
 again, since a new file can move any placement.
+
+The host integration stores the cache in `OnceLock`, so immutable readers can
+share one `Arc<LoadOrder>` and one index. Repeated `build_cell_index` calls
+reuse that index. `add` still requires exclusive access and invalidates it.
+This also avoids rebuilding the full index on each game reference lookup.
 
 - `references(cell)`: the placed objects (`REFR`, `ACHR`, `PGRE`, `PHZD`, `PMIS`,
   `PARW`, `PBEA`, `PFLA`, `PCON`, `PBAR`) whose winning record sits in the cell,

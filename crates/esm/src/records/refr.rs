@@ -29,6 +29,31 @@ pub struct LinkedRef {
     pub reference: u32,
 }
 
+/// XLOC from xEdit's REFR definition. Presence means initially locked, even
+/// at level zero. The runtime locked bit is not the serialized flags byte.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Lock {
+    pub level: u8,
+    pub key: u32,
+    /// Bit 2 selects a leveled lock. Unknown bits remain available to callers.
+    pub flags: u8,
+}
+
+impl Lock {
+    pub fn from_bytes(data: &[u8]) -> Result<Self> {
+        let mut field = Fields::new(tag::REFR, Tag::new(b"XLOC"), data);
+        // xEdit permits omission of the two trailing unused fields.
+        if ![9, 12, 20].contains(&data.len()) {
+            field.exact(20)?;
+        }
+        let level = field.u8()?;
+        field.skip(3)?;
+        let key = field.u32()?;
+        let flags = field.u8()?;
+        Ok(Self { level, key, flags })
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Refr {
     pub form_id: u32,
@@ -43,6 +68,7 @@ pub struct Refr {
     pub owner: Option<u32>,
     pub count: Option<i32>,
     pub teleport: Option<Teleport>,
+    pub lock: Option<Lock>,
     pub location: Option<u32>,
     pub layer: Option<u32>,
     pub encounter_zone: Option<u32>,
@@ -142,6 +168,10 @@ impl Refr {
             owner: form_id(rec, Tag::new(b"XOWN"))?,
             count,
             teleport,
+            lock: rec
+                .find(Tag::new(b"XLOC"))
+                .map(Lock::from_bytes)
+                .transpose()?,
             location: form_id(rec, Tag::new(b"XLCN"))?,
             layer: form_id(rec, Tag::new(b"XLYR"))?,
             encounter_zone: form_id(rec, Tag::new(b"XEZN"))?,
@@ -173,6 +203,33 @@ impl Refr {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn lock_data_keeps_key_level_flags_and_rejects_partial_fields() {
+        let mut data = [0; 20];
+        data[0] = 255;
+        data[4..8].copy_from_slice(&0x0100_0800_u32.to_le_bytes());
+        data[8] = 0x84;
+        for length in [9, 12, 20] {
+            let record = Record::new(tag::REFR, 1)
+                .sub(b"NAME", 2_u32.to_le_bytes())
+                .sub(b"XLOC", data[..length].to_vec());
+            assert_eq!(
+                Refr::from_record(&record).unwrap().lock,
+                Some(Lock {
+                    level: 255,
+                    key: 0x0100_0800,
+                    flags: 0x84,
+                })
+            );
+        }
+        for length in (0..24).filter(|n| ![9, 12, 20].contains(n)) {
+            assert!(
+                Lock::from_bytes(&vec![0; length]).is_err(),
+                "length {length}"
+            );
+        }
+    }
 
     #[test]
     fn a_placed_door_reads_its_transform_and_teleport() {

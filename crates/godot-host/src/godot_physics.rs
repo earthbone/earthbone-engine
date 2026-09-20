@@ -164,6 +164,7 @@ enum GodotPrim {
 /// engine-refs/godot-docs/classes/class_physicsserver3d.rst.
 fn flatten(shape: &Shape, t: &Iso, out: &mut Vec<GodotPrim>) {
     match shape {
+        Shape::Material { shape, .. } => flatten(shape, t, out),
         Shape::Box { half_extents } => {
             let scale = t.scale.abs() * METRES_PER_UNIT;
             let direction = |v| godot_point(t.rotation.apply(v)) / METRES_PER_UNIT;
@@ -219,6 +220,7 @@ fn flatten(shape: &Shape, t: &Iso, out: &mut Vec<GodotPrim>) {
         Shape::TriangleMesh {
             vertices,
             triangles,
+            ..
         } => {
             let pts: Vec<Vec3> = vertices.iter().map(|p| t.apply(*p)).collect();
             let mut faces = Vec::with_capacity(triangles.len() * 3);
@@ -335,6 +337,7 @@ mod tests {
             Vec3::new(30.75, 40.25, 0.125),
         ];
         let shape = Shape::TriangleMesh {
+            materials: Vec::new(),
             vertices: vertices.clone(),
             triangles: vec![[0, 1, 2]],
         };

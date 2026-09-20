@@ -44,6 +44,7 @@ fn mesh(offset: Vec3, vertices: Vec<Vec3>) -> Collider {
         mass: 0.0,
         transform: Iso::translation(offset),
         shape: Shape::TriangleMesh {
+            materials: Vec::new(),
             vertices,
             triangles: vec![[0, 1, 2], [0, 2, 3]],
         },
