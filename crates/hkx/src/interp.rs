@@ -351,6 +351,8 @@ struct Runtime {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Output {
     pub pose: Vec<QsTransform>,
+    /// Contribution per bone, retained through nested blends and transitions.
+    pub bone_weights: Vec<f32>,
     pub weight: f32,
 }
 
@@ -423,6 +425,7 @@ impl<'a> Interpreter<'a> {
             unsupported: Unsupported::default(),
             output: Output {
                 pose: reference_pose.clone(),
+                bone_weights: vec![0.0; reference_pose.len()],
                 weight: 0.0,
             },
             reference_pose,
@@ -1054,6 +1057,7 @@ impl<'a> Interpreter<'a> {
     fn reference_output(&self) -> Output {
         Output {
             pose: self.reference_pose.clone(),
+            bone_weights: vec![0.0; self.reference_pose.len()],
             weight: 0.0,
         }
     }
@@ -1244,7 +1248,11 @@ impl<'a> Interpreter<'a> {
         }
         let mut pose = self.reference_pose.clone();
         source.sample_into(now + clip.crop_start_amount_local_time, &mut pose);
-        Output { pose, weight: 1.0 }
+        Output {
+            bone_weights: vec![1.0; pose.len()],
+            pose,
+            weight: 1.0,
+        }
     }
 
     fn generate_machine(&mut self, id: NodeId, sm: &StateMachine, dt: f32) -> Output {
@@ -1305,7 +1313,8 @@ impl<'a> Interpreter<'a> {
         if b.flags & 1 != 0 {
             self.sync_children(b, &weights, dt);
         }
-        let mut acc: Option<Vec<QsTransform>> = None;
+        let mut pose = self.reference_pose.clone();
+        let mut bone_weights = vec![0.0; pose.len()];
         let mut acc_weight = 0.0;
         for (i, child) in b.children.iter().enumerate() {
             let Some(g) = child.generator else {
@@ -1328,24 +1337,29 @@ impl<'a> Interpreter<'a> {
                 continue;
             }
             let w = w / total;
-            match &mut acc {
-                None => {
-                    acc = Some(out.pose);
-                    acc_weight = w;
+            acc_weight += w;
+            for (bone, (acc, next)) in pose.iter_mut().zip(&out.pose).enumerate() {
+                let mask = child
+                    .bone_weights
+                    .as_ref()
+                    .map_or(1.0, |m| m.get(bone).copied().unwrap_or(0.0));
+                let contribution = w * mask * out.bone_weights.get(bone).copied().unwrap_or(0.0);
+                if contribution <= 0.0 {
+                    continue;
                 }
-                Some(pose) => {
-                    let alpha = w / (acc_weight + w);
-                    blend_into(pose, &out.pose, alpha);
-                    acc_weight += w;
-                }
+                let total = bone_weights[bone] + contribution;
+                *acc = if bone_weights[bone] == 0.0 {
+                    *next
+                } else {
+                    blend_transform(acc, next, contribution / total)
+                };
+                bone_weights[bone] = total;
             }
         }
-        match acc {
-            Some(pose) => Output {
-                pose,
-                weight: acc_weight.min(1.0),
-            },
-            None => self.reference_output(),
+        Output {
+            pose,
+            bone_weights,
+            weight: acc_weight.min(1.0),
         }
     }
 
@@ -1508,15 +1522,15 @@ pub fn blend_transform(a: &QsTransform, b: &QsTransform, alpha: f32) -> QsTransf
     }
 }
 
-fn blend_into(acc: &mut [QsTransform], other: &[QsTransform], alpha: f32) {
-    for (a, b) in acc.iter_mut().zip(other) {
-        *a = blend_transform(a, b, alpha);
-    }
-}
-
 /// Blend two outputs. A side at weight zero contributes nothing, so a
 /// transition out of a reference pose is a cut to the other side.
 pub fn blend_outputs(from: &Output, to: &Output, alpha: f32) -> Output {
+    if alpha <= 0.0 {
+        return from.clone();
+    }
+    if alpha >= 1.0 {
+        return to.clone();
+    }
     if from.weight <= 0.0 && to.weight <= 0.0 {
         return from.clone();
     }
@@ -1527,9 +1541,19 @@ pub fn blend_outputs(from: &Output, to: &Output, alpha: f32) -> Output {
         return from.clone();
     }
     let mut pose = from.pose.clone();
-    blend_into(&mut pose, &to.pose, alpha);
+    let mut bone_weights = vec![0.0; pose.len()];
+    for (bone, (a, b)) in pose.iter_mut().zip(&to.pose).enumerate() {
+        let from_weight = from.bone_weights.get(bone).copied().unwrap_or(0.0) * (1.0 - alpha);
+        let to_weight = to.bone_weights.get(bone).copied().unwrap_or(0.0) * alpha;
+        let total = from_weight + to_weight;
+        if total > 0.0 {
+            *a = blend_transform(a, b, to_weight / total);
+        }
+        bone_weights[bone] = total;
+    }
     Output {
         pose,
+        bone_weights,
         weight: from.weight + (to.weight - from.weight) * alpha,
     }
 }
@@ -1663,6 +1687,7 @@ mod tests {
     fn a_zero_weight_side_does_not_blend() {
         let a = Output {
             pose: vec![QsTransform::IDENTITY],
+            bone_weights: vec![0.0],
             weight: 0.0,
         };
         let b = Output {
@@ -1670,6 +1695,7 @@ mod tests {
                 translation: [5.0, 0.0, 0.0, 0.0],
                 ..QsTransform::IDENTITY
             }],
+            bone_weights: vec![1.0],
             weight: 1.0,
         };
         assert_eq!(blend_outputs(&a, &b, 0.1), b);

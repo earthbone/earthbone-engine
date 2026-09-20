@@ -456,7 +456,7 @@ stored start state in every mode), `hkbBlendingTransitionEffect.duration` and
   expressions, priority arbitration, the `abut at end` flag,
   `hkbGeneratorTransitionEffect`, `maxSimultaneousTransitions`. Conditions
   are still accepted as satisfied, which is the largest remaining guess.
-- Blender details: bone weight masks, `subtractLastChild`, the real weight
+- Blender details: dynamic bone mask bindings, `subtractLastChild`, the real weight
   curve once a capture from the game exists (5.4).
 - Extracted motion and float tracks in the output.
 - 32-bit (Skyrim LE) layouts, wanted for Nemesis's LE cached behaviors.
@@ -469,3 +469,38 @@ stored start state in every mode), `hkbBlendingTransitionEffect.duration` and
   spliced twice. That is correct, each reference is its own instance with its
   own state, but a shared decode with per-instance run-time state would cost
   less memory.
+
+## Authored bone masks, ANM-04
+
+Blender children now retain the `hkbBoneWeightArray` rather than only a
+pointer-presence flag. Each child's effective contribution is its blend
+weight times its authored mask times its generated per-bone contribution.
+Contributing poses normalize separately for each bone. A missing mask gives
+weight one. A zero mask or an absent array entry gives no contribution, and
+bones with no contribution retain the reference pose. Per-bone weights stay
+in `interp::Output` through nested blenders and transition blends.
+
+The format sources are the local serde-hkx class tables
+`hkbBlenderGeneratorChild.json`, `hkbBoneWeightArray.json` and
+`BSBoneSwitchGeneratorBoneData.json`. The latter establishes the shared mask
+format needed by ANM-19. The listed nifly `src/Skin.cpp` source describes
+vertex skin weights, so it does not define behavior-mask evaluation. The
+implementation extends this interpreter's existing normalized blending and
+uses the authored per-bone weights. No new dependencies were added.
+
+Nine new synthetic tests check masked bones, zero and unspecified entries,
+fractional masks, invalid weights and arrays, transition endpoints and nested
+generators.
+The installed suite passes 61 HKX tests, including a survey of 428 behavior
+graphs and 1,094 masked children whose decoded weights equal their serialized
+arrays. All 7,699 packfiles and 6,126 animations still decode, and the existing
+vanilla idle/walk replay passes. This establishes the authored mask path.
+ANM-53 separately owns dynamically bound mask references, including the
+existing `MovingFlinchBlend.boneWeights` binding. ANM-04 has no prerequisite,
+and ANM-19 and ANM-53 depend on ANM-04's decoded masks.
+
+Treating absent entries in a short mask as zero is an unverified compatibility
+choice. The class tables declare an array but do not specify its out-of-range
+semantics. The editor rejects out-of-range editing indices. No original-runtime
+capture was available to settle short-mask sampling. Full-length authored
+masks and their packed values are covered by the installed corpus survey.

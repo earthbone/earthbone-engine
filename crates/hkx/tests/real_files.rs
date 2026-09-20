@@ -419,3 +419,47 @@ fn every_shipped_packfile_parses_and_animations_decode() {
         failures.len() + decode_failures.len()
     );
 }
+
+#[test]
+fn installed_behavior_bone_masks_decode_without_losing_authored_weights() {
+    let Some(archive) = animations_archive() else {
+        eprintln!("SKYRIM_DATA not set, skipping");
+        return;
+    };
+    let mut graphs = 0;
+    let mut masks = 0;
+    for path in archive
+        .files()
+        .iter()
+        .filter(|p| p.to_ascii_lowercase().ends_with(".hkx"))
+    {
+        let pf = Packfile::parse(&archive.read(path).unwrap()).unwrap();
+        if pf.objects_of("hkbBehaviorGraph").is_empty() {
+            continue;
+        }
+        let graph = BehaviorGraph::from_packfile(&pf).unwrap_or_else(|e| panic!("{path}: {e}"));
+        graphs += 1;
+        for node in &graph.nodes {
+            let soe_hkx::behavior::NodeKind::Blender(blender) = &node.kind else {
+                continue;
+            };
+            let raw_children = pf.object(node.offset).array_ptrs(96).unwrap();
+            for (child, raw) in blender
+                .children
+                .iter()
+                .zip(raw_children.into_iter().flatten())
+            {
+                let raw_mask = raw.ptr(56).unwrap().map(|m| m.array_f32(48).unwrap());
+                assert_eq!(child.bone_weights, raw_mask, "{path}");
+                if raw_mask.is_some() {
+                    masks += 1;
+                }
+            }
+        }
+    }
+    assert!(
+        graphs > 0 && masks > 0,
+        "exercise authored masks in installed graphs"
+    );
+    println!("authored bone masks: {graphs} graphs, {masks} masked children");
+}

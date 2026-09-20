@@ -25,6 +25,15 @@ pub enum Root {
 
 /// Both clips loop at speed 1, the walk's speed is bound to `Speed`.
 pub fn graph(root: &Root, idle_animation: &str, walk_animation: &str) -> Vec<u8> {
+    graph_with_masks(root, idle_animation, walk_animation, [None, None])
+}
+
+pub fn graph_with_masks(
+    root: &Root,
+    idle_animation: &str,
+    walk_animation: &str,
+    masks: [Option<&[f32]>; 2],
+) -> Vec<u8> {
     let mut b = PackfileBuilder::new();
     let container = b.object("hkRootLevelContainer", 16);
     let graph = b.object("hkbBehaviorGraph", 304);
@@ -145,6 +154,13 @@ pub fn graph(root: &Root, idle_animation: &str, walk_animation: &str) -> Vec<u8>
             } else {
                 b.set_f32(c0, 64, 1.0);
                 b.set_f32(c1, 64, 3.0);
+            }
+            for (child, mask) in [c0, c1].into_iter().zip(masks) {
+                if let Some(weights) = mask {
+                    let mask = b.object("hkbBoneWeightArray", 64);
+                    b.array_f32(mask, 48, weights);
+                    b.ptr(child, 56, mask);
+                }
             }
             b.array_ptrs(blender, 96, &[c0, c1]);
         }
