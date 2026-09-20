@@ -29,6 +29,9 @@ use crate::mesh::{Aabb, AlphaMode, SurfaceArrays};
 /// since a merged vertex buffer has one layout.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct BatchKey {
+    pub environment: Option<String>,
+    pub environment_mask: Option<String>,
+    pub environment_scale: u32,
     pub diffuse: Option<String>,
     pub normal: Option<String>,
     pub glow: Option<String>,
@@ -47,6 +50,9 @@ impl BatchKey {
     pub fn of(surface: &SurfaceArrays) -> BatchKey {
         let m = &surface.material;
         BatchKey {
+            environment: m.environment_texture().map(str::to_lowercase),
+            environment_mask: m.environment_mask.as_deref().map(str::to_lowercase),
+            environment_scale: m.environment_scale.to_bits(),
             diffuse: m.diffuse.as_deref().map(str::to_lowercase),
             normal: m.normal.as_deref().map(str::to_lowercase),
             glow: m.glow_texture().map(str::to_lowercase),

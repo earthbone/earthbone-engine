@@ -103,9 +103,8 @@ pub struct CellStats {
     pub meshes_parsed: usize,
     pub meshes_failed: usize,
     pub triangles: usize,
-    /// Distinct diffuse, normal and glow texture sets seen across the cell's
-    /// materials, lowercased. This is the number of `StandardMaterial3D`
-    /// instances the Godot layer builds, one per set.
+    /// Distinct diffuse, normal, glow, cubemap and mask path sets in the cell.
+    /// GPU material variants can also differ by flags and authored scalar inputs.
     pub distinct_texture_sets: usize,
     /// Texture files decoded, counted once per distinct lowercase path, not
     /// once per surface that names it.
@@ -138,13 +137,15 @@ pub struct LoadedSurface {
     pub textures: SurfaceTextures,
 }
 
-/// A surface's diffuse, normal and glow textures, ready to upload. `None` means
+/// A surface's 2D textures and environment cubemap, ready to upload. `None` means
 /// the material named no texture in that slot, or the read or decode
 /// failed, counted in `CellStats` either way. `Arc` because a texture shared
 /// by many statics is read once on whichever worker thread reaches it first
 /// and cloned out of `TextureCache` cheaply for every surface that uses it.
 #[derive(Debug, Clone, Default)]
 pub struct SurfaceTextures {
+    pub environment: Option<Arc<TextureData>>,
+    pub environment_mask: Option<Arc<TextureData>>,
     pub diffuse: Option<Arc<TextureData>>,
     /// Skyrim packs specular into this texture's alpha channel. The RGB
     /// channels alone are the normal map, alpha is not a transparency mask
@@ -422,6 +423,15 @@ impl DataSource {
                             arrays.material.diffuse.as_deref().map(soe_bsa::normalize),
                             arrays.material.normal.as_deref().map(soe_bsa::normalize),
                             arrays.material.glow_texture().map(soe_bsa::normalize),
+                            arrays
+                                .material
+                                .environment_texture()
+                                .map(soe_bsa::normalize),
+                            arrays
+                                .material
+                                .environment_mask
+                                .as_deref()
+                                .map(soe_bsa::normalize),
                         ));
                         surfaces.push(LoadedSurface {
                             reference: *reference,
@@ -627,6 +637,14 @@ fn material_desc_from(shape: &NifMesh) -> MaterialDesc {
         emissive_color: m.emissive_color,
         emissive_multiple: m.emissive_multiple,
         environment: m.environment().map(str::to_string),
+        environment_mask: m.environment_mask().map(str::to_string),
+        environment_scale: match m.extra {
+            soe_nif::blocks::ShaderExtra::EnvironmentMapScale(scale) => scale,
+            soe_nif::blocks::ShaderExtra::MultiLayerParallax {
+                envmap_strength, ..
+            } => envmap_strength,
+            _ => 1.0,
+        },
         shader_flags_1: m.flags1,
         shader_flags_2: m.flags2,
         alpha,
@@ -643,3 +661,6 @@ mod emission_tests;
 #[cfg(test)]
 #[path = "../../nif/tests/common/mod.rs"]
 mod fixture;
+
+#[cfg(test)]
+mod environment_tests;

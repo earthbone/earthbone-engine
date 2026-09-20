@@ -27,6 +27,8 @@ pub enum BlockFormat {
 /// A texture as the Godot layer uploads it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TextureData {
+    /// Complete DDS cubemap faces in +X, -X, +Y, -Y, +Z, -Z order.
+    Cubemap(Box<[TextureData; 6]>),
     /// The DDS payload of layer 0 as stored, every mip level back to back
     /// and padded to a 1 by 1 tail, so the upload is a copy and the GPU
     /// samples the file's own mip chain. `mip0_len` lets the layer fall
@@ -47,6 +49,7 @@ pub enum TextureData {
 impl TextureData {
     pub fn width(&self) -> u32 {
         match self {
+            TextureData::Cubemap(faces) => faces[0].width(),
             TextureData::Compressed { width, .. } => *width,
             TextureData::Rgba8(image) => image.width,
         }
@@ -54,6 +57,7 @@ impl TextureData {
 
     pub fn height(&self) -> u32 {
         match self {
+            TextureData::Cubemap(faces) => faces[0].height(),
             TextureData::Compressed { height, .. } => *height,
             TextureData::Rgba8(image) => image.height,
         }
@@ -67,6 +71,25 @@ impl TextureData {
 fn load_texture(vfs: &Vfs, path: &str) -> Result<TextureData, DataSourceError> {
     let bytes = vfs.read(path)?;
     let dds = Dds::parse(&bytes)?;
+    if dds.header().is_cubemap() {
+        if dds.layer_count() != 6 || dds.width() != dds.height() || dds.header().depth() != 1 {
+            return Err(soe_dds::Error::BadHeader(
+                "environment cubemap requires six square 2D faces",
+            )
+            .into());
+        }
+        let faces: Vec<_> = (0..6)
+            .map(|layer| texture_layer(&dds, layer))
+            .collect::<Result<_, _>>()?;
+        let faces = faces
+            .try_into()
+            .map_err(|_| soe_dds::Error::BadHeader("cubemap face count"))?;
+        return Ok(TextureData::Cubemap(Box::new(faces)));
+    }
+    texture_layer(&dds, 0)
+}
+
+fn texture_layer(dds: &Dds<'_>, layer: u32) -> Result<TextureData, DataSourceError> {
     let format = match dds.format() {
         soe_dds::Format::Bc1 => Some(BlockFormat::Bc1),
         soe_dds::Format::Bc2 => Some(BlockFormat::Bc2),
@@ -76,14 +99,14 @@ fn load_texture(vfs: &Vfs, path: &str) -> Result<TextureData, DataSourceError> {
         soe_dds::Format::Bc7 => Some(BlockFormat::Bc7),
         _ => None,
     };
-    let flat = dds.level(0, 0).map(|l| l.depth == 1).unwrap_or(false);
+    let flat = dds.level(layer, 0).map(|l| l.depth == 1).unwrap_or(false);
     let Some(format) = format.filter(|_| flat) else {
-        return Ok(TextureData::Rgba8(dds.decode(0, 0)?));
+        return Ok(TextureData::Rgba8(dds.decode(layer, 0)?));
     };
     let stored = dds.mip_count().max(1);
     let mut payload = Vec::new();
     for mip in 0..stored {
-        payload.extend_from_slice(dds.level_bytes(0, mip)?);
+        payload.extend_from_slice(dds.level_bytes(layer, mip)?);
     }
     // Godot wants the chain to reach 1 by 1 and refuses a shorter one. The
     // vanilla files stop at 2 by 2 or 4 by 4, so the missing levels, each
@@ -108,7 +131,7 @@ fn load_texture(vfs: &Vfs, path: &str) -> Result<TextureData, DataSourceError> {
         height,
         format,
         mips: full.max(stored),
-        mip0_len: dds.level(0, 0)?.len,
+        mip0_len: dds.level(layer, 0)?.len,
         bytes: payload,
     })
 }
@@ -147,6 +170,13 @@ pub(super) struct TextureCounters {
 impl TextureCache {
     pub(super) fn resolve(&self, vfs: &Vfs, material: &MaterialDesc) -> SurfaceTextures {
         SurfaceTextures {
+            environment: material
+                .environment_texture()
+                .and_then(|p| self.get_or_decode(vfs, p)),
+            environment_mask: material
+                .environment_texture()
+                .and(material.environment_mask.as_deref())
+                .and_then(|p| self.get_or_decode(vfs, p)),
             diffuse: material
                 .diffuse
                 .as_deref()

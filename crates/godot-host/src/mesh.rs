@@ -22,6 +22,8 @@ pub struct MaterialDesc {
     pub emissive_color: [f32; 3],
     pub emissive_multiple: f32,
     pub environment: Option<String>,
+    pub environment_mask: Option<String>,
+    pub environment_scale: f32,
     /// BSLightingShaderProperty shader flags 1 and 2, verbatim. The mapping
     /// to material features happens in the Godot layer, where the feature
     /// set is known.
@@ -41,6 +43,8 @@ impl Default for MaterialDesc {
             emissive_color: [0.0; 3],
             emissive_multiple: 1.0,
             environment: None,
+            environment_mask: None,
+            environment_scale: 1.0,
             shader_flags_1: 0,
             shader_flags_2: 0,
             alpha: AlphaMode::default(),
@@ -50,6 +54,13 @@ impl Default for MaterialDesc {
 }
 
 impl MaterialDesc {
+    /// The cubemap slot is active only for authored environment mapping.
+    pub fn environment_texture(&self) -> Option<&str> {
+        (self.shader_flags_1 & soe_nif::blocks::flags1::ENVIRONMENT_MAPPING != 0)
+            .then_some(self.environment.as_deref())
+            .flatten()
+    }
+
     /// Slot two is a glow map only with SLSF2_Glow_Map. Skin uses the same slot.
     pub fn glow_texture(&self) -> Option<&str> {
         (self.shader_flags_2 & soe_nif::blocks::flags2::GLOW_MAP != 0)
@@ -80,10 +91,13 @@ pub enum AlphaMode {
     Blend,
 }
 
-/// Every feature consumed by the host's standard material builder.
+/// Every feature consumed by the host's material builders.
 /// Texture upload identity is separate from alpha and culling state.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct MaterialKey {
+    pub environment: Option<String>,
+    pub environment_mask: Option<String>,
+    pub environment_scale: u32,
     pub diffuse: Option<String>,
     pub normal: Option<String>,
     pub glow: Option<String>,
@@ -97,6 +111,9 @@ pub struct MaterialKey {
 impl From<&MaterialDesc> for MaterialKey {
     fn from(material: &MaterialDesc) -> Self {
         Self {
+            environment: material.environment_texture().map(str::to_lowercase),
+            environment_mask: material.environment_mask.as_deref().map(str::to_lowercase),
+            environment_scale: material.environment_scale.to_bits(),
             diffuse: material.diffuse.as_deref().map(str::to_lowercase),
             normal: material.normal.as_deref().map(str::to_lowercase),
             glow: material.glow_texture().map(str::to_lowercase),

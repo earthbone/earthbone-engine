@@ -270,6 +270,56 @@ NIF. Both are closed below. Per-cell triangle and byte budgets, and interior cel
 proximity rather than by editor id, are still unstarted, `stream_cell` loads exactly the one
 cell it is asked for.
 
+## Environment maps, RND-12 (2026-09-20)
+
+The host carries the authored environment cubemap, mask and scale through
+cell loading, texture caching, material identity and batch identity. This
+extends the emission material path from RND-06, recorded as its dependency.
+The NIF reader already exposes these values, so no parser change is needed.
+The environment mapping flag gates the cubemap slot. Environment-map and
+multilayer-parallax scale fields retain their values.
+
+Sources read before implementation:
+
+- `nifxml/nif.xml` declares shader flags, slots four and five, and the scale
+  fields of BSLightingShaderProperty.
+- `skyrim-community-shaders/package/Shaders/Lighting.hlsl` samples a cube in
+  the world reflection direction, multiplies by the authored scale and the
+  mask's red channel, and falls back to normal-map alpha without an explicit
+  mask. Its static cubemap path informed this implementation.
+- `openmw/components/nifosg/nifloader.cpp` was inspected, but its environment
+  shader type falls back to the default shader and does not supply this path.
+- `godot-docs/classes/class_cubemap.rst` and `class_imagetexturelayered.rst`
+  describe samplerCube upload and face order, positive X, negative X,
+  positive Y, negative Y, positive Z, negative Z. The spatial shader reference
+  supplies view-space normals and the inverse view transform.
+
+The existing DDS reader supplies all six faces and their mip chains. Cubes
+must contain six square 2D faces. Incomplete legacy cubes and cube arrays
+are rejected before upload. Compressed faces retain their blocks through
+Godot upload and share the source texture cache. A GPU cubemap cache shares
+one resource across material variants. No dependencies or per-reference
+nodes were added.
+
+Environment materials use Godot shader materials. The shader converts the
+reflected view ray into world space, then into Skyrim's Z-up axes before
+sampling the authored cube. It adds the masked reflection to the indirect
+color term while retaining diffuse lighting, normal mapping, emission,
+alpha handling and optional decal depth bias. A mask is linear data, while
+cubemap color uses the shader's sRGB conversion. Normal alpha remains a
+reflection mask and never becomes transparency.
+
+`environment_fixture_preserves_cube_faces_masks_and_scale` writes NIF,
+plugin and DDS inputs independently and exercises the production cell
+loader, including compressed face order, mip completion and material
+separation. `incomplete_environment_cube_is_rejected_before_upload` checks
+the typed rejection. `SOE_ENVIRONMENT_FIXTURE` retains generated inputs for
+`godot/environment_test.gd`. That test checks six face directions, authored
+scale, explicit red masks, fallback normal alpha, flag-off and zero-scale
+controls, alternate cube and mask paths, and decal reflection in both cache
+orders. Limits are declared before running: 0.08 sRGB channel error for
+nonzero values and 0.03 for dark values. No proprietary asset is embedded.
+
 ## Emissive materials, RND-06 (2026-09-20)
 
 The host carries BSLightingShaderProperty emissive RGB and multiplier into
