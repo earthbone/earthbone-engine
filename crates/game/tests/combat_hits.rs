@@ -44,6 +44,12 @@ fn armor(object: u32, rating: u32, slots: u32, kind: u32) -> Record {
         .sub(Tag(*b"DNAM"), rating.to_le_bytes())
         .sub(Tag(*b"BOD2"), body)
 }
+fn weapon_template(object: u32, template: u32) -> Record {
+    Record::new(Tag(*b"WEAP"), object).sub(Tag(*b"CNAM"), template.to_le_bytes())
+}
+fn armor_template(object: u32, template: u32) -> Record {
+    Record::new(Tag(*b"ARMO"), object).sub(Tag(*b"TNAM"), template.to_le_bytes())
+}
 fn settings(plugin: &mut Plugin) {
     for (index, (name, value)) in [
         ("fDamageWeaponMult", 1_f32),
@@ -107,6 +113,55 @@ fn equip(game: &Game, actor: u32, item: u32) {
     world.add_item(id(actor), id(item), 1);
     world.actor(id(actor)).unwrap().equipped.insert(id(item));
 }
+fn warm_combat_actor_base(game: &mut Game) {
+    // Combat builds this view while checking target base flags.
+    game.world_mut().actor_base(id(0x800)).unwrap();
+}
+fn template_fixture(
+    template: Record,
+    sources: Vec<Record>,
+    patch_records: Vec<Record>,
+) -> (Game, GlobalFormId) {
+    let mut master = Plugin::new(FileHeader::default());
+    master.push_top(Record::new(Tag(*b"NPC_"), 0x800));
+    master.push_top(Record::new(Tag(*b"ACHR"), 0x901).sub(Tag(*b"NAME"), 0x800_u32.to_le_bytes()));
+    for source in sources {
+        master.push_top(source);
+    }
+    settings(&mut master);
+    let mut patch = Plugin::new(FileHeader {
+        masters: vec!["Combat.esm".into()],
+        ..FileHeader::default()
+    });
+    patch.push_top(template);
+    for record in patch_records {
+        patch.push_top(record);
+    }
+    let mut order = LoadOrder::new();
+    order.add("Combat.esm", master).unwrap();
+    order.add("Template.esp", patch).unwrap();
+    let mut game = Game::new(order);
+    let player = game.player();
+    for actor in [player, id(0x901)] {
+        game.world_mut()
+            .set_actor_value(actor, "health", 100.)
+            .unwrap();
+        game.world_mut()
+            .set_actor_value(actor, "onehanded", 100.)
+            .unwrap();
+    }
+    let item = GlobalFormId {
+        file: 1,
+        object: 0xA01,
+    };
+    game.world_mut().add_item(id(0x14), item, 1);
+    game.world_mut()
+        .actor(id(0x14))
+        .unwrap()
+        .equipped
+        .insert(item);
+    (game, item)
+}
 fn close(actual: f32, expected: f32) {
     assert!((actual - expected).abs() < 0.0001, "{actual} != {expected}");
 }
@@ -154,6 +209,148 @@ fn armor_uses_its_skill_hidden_categories_and_reduction_cap() {
         .mod_actor_value(id(0x901), "damageresist", 1000.)
         .unwrap();
     close(game.melee_hit(hit(0x14, 0x901)).unwrap().health_damage, 3.);
+}
+
+#[test]
+fn weapon_and_armor_templates_supply_combat_values() {
+    let mut game = fixture(vec![
+        weapon_template(0xA01, 0xA02),
+        weapon(0xA02, 20, 6),
+        armor_template(0xB00, 0xB01),
+        armor(0xB01, 10000, 4, 1),
+    ]);
+    equip(&game, 0x14, 0xA01);
+    equip(&game, 0x901, 0xB00);
+    game.world_mut()
+        .set_actor_value(id(0x901), "heavyarmor", 100.)
+        .unwrap();
+    let result = game
+        .melee_hit(MeleeHit {
+            weapon: id(0xA01),
+            ..hit(0x14, 0x901)
+        })
+        .unwrap();
+    close(result.weapon_damage, 30.);
+    close(result.armor_rating, 250.);
+    close(result.health_damage, 20.1);
+}
+
+#[test]
+fn a_fieldless_cross_plugin_weapon_template_uses_the_winning_master_record() {
+    let (mut game, weapon) = template_fixture(
+        weapon_template(0x0100_0A01, 0x0000_0A02),
+        vec![weapon(0xA02, 20, 6)],
+        vec![weapon(0xA02, 25, 6)],
+    );
+    let result = game
+        .melee_hit(MeleeHit {
+            attacker: id(0x14),
+            target: id(0x901),
+            weapon,
+        })
+        .unwrap();
+    close(result.weapon_damage, 37.5);
+    close(result.health_damage, 37.5);
+}
+
+#[test]
+fn a_fieldless_cross_plugin_armor_template_uses_the_winning_master_record() {
+    let (mut game, weapon) = template_fixture(
+        weapon_template(0x0100_0A01, 0x0000_0A02),
+        vec![weapon(0xA02, 20, 6), armor(0xB01, 10000, 4, 1)],
+        vec![
+            armor_template(0x0100_0B00, 0x0000_0B01),
+            armor(0xB01, 12000, 4, 1),
+        ],
+    );
+    let armor = GlobalFormId {
+        file: 1,
+        object: 0xB00,
+    };
+    game.world_mut().add_item(id(0x901), armor, 1);
+    game.world_mut()
+        .actor(id(0x901))
+        .unwrap()
+        .equipped
+        .insert(armor);
+    game.world_mut()
+        .set_actor_value(id(0x901), "heavyarmor", 100.)
+        .unwrap();
+    let result = game
+        .melee_hit(MeleeHit {
+            attacker: id(0x14),
+            target: id(0x901),
+            weapon,
+        })
+        .unwrap();
+    close(result.armor_rating, 300.);
+    close(result.health_damage, 18.3);
+}
+
+#[test]
+fn cyclic_weapon_template_rejects_without_damage() {
+    let mut game = fixture(vec![
+        weapon_template(0xA01, 0xA02),
+        weapon_template(0xA02, 0xA01),
+    ]);
+    equip(&game, 0x14, 0xA01);
+    warm_combat_actor_base(&mut game);
+    let before = game.save_state().unwrap();
+    assert!(matches!(
+        game.melee_hit(MeleeHit {
+            weapon: id(0xA01),
+            ..hit(0x14, 0x901)
+        }),
+        Err(Error::Unsupported("cyclic weapon template"))
+    ));
+    assert_eq!(game.save_state().unwrap(), before);
+}
+
+#[test]
+fn cyclic_armor_template_rejects_without_damage_or_events() {
+    let mut game = fixture(vec![
+        armor_template(0xB00, 0xB01),
+        armor_template(0xB01, 0xB00),
+    ]);
+    equip(&game, 0x901, 0xB00);
+    warm_combat_actor_base(&mut game);
+    let before = game.save_state().unwrap();
+    assert!(matches!(
+        game.melee_hit(hit(0x14, 0x901)),
+        Err(Error::Unsupported("cyclic armor template"))
+    ));
+    assert_eq!(game.save_state().unwrap(), before);
+}
+
+#[test]
+fn unresolved_or_wrong_type_template_rejects_without_damage_or_events() {
+    for (template, source) in [
+        (weapon_template(0xA01, 0xDEAD), None),
+        (
+            weapon_template(0xA01, 0xB00),
+            Some(armor(0xB00, 10000, 4, 1)),
+        ),
+        (
+            Record::new(Tag(*b"WEAP"), 0xA01).sub(Tag(*b"CNAM"), [0, 0, 0]),
+            None,
+        ),
+    ] {
+        let mut records = vec![template];
+        if let Some(source) = source {
+            records.push(source);
+        }
+        let mut game = fixture(records);
+        equip(&game, 0x14, 0xA01);
+        warm_combat_actor_base(&mut game);
+        let before = game.save_state().unwrap();
+        assert!(game
+            .melee_hit(MeleeHit {
+                weapon: id(0xA01),
+                ..hit(0x14, 0x901)
+            })
+            .is_err());
+        assert_eq!(game.save_state().unwrap(), before);
+    }
 }
 
 #[test]

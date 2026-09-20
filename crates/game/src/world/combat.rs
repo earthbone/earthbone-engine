@@ -4,6 +4,8 @@
 //! GMST interpolation and armor formulas follow the sources in docs/combat.md.
 //! Unsupported modifiers reject the hit before health or events change.
 
+use std::collections::BTreeSet;
+
 use soe_esm::{GlobalFormId, Tag};
 use soe_papyrus::Value;
 
@@ -49,12 +51,9 @@ impl World {
                 return Err(Error::Unsupported("invulnerable target"));
             }
         }
-        let weapon = Weapon::from_record(self.record(hit.weapon).ok_or(Error::Equipment)?)?;
+        let weapon = self.combat_weapon(hit.weapon)?;
         if !matches!(weapon.animation, 1..=6) || !matches!(weapon.skill, 6..=8 | -1) {
             return Err(Error::Unsupported("non-melee weapon or governing skill"));
-        }
-        if weapon.template.is_some() || weapon.enchantment.is_some() {
-            return Err(Error::Unsupported("weapon template or enchantment"));
         }
         if weapon.flags & 1 != 0 || weapon.flags2 & 0x1000 != 0 || weapon.resist != -1 {
             return Err(Error::Unsupported("weapon resistance or non-hostile flags"));
@@ -224,17 +223,14 @@ impl World {
         let mut occupied = 0_u32;
         let mut categories = 0_u32;
         for &item in &state.equipped {
-            let Some(record) = self
+            if self
                 .record(item)
-                .filter(|record| record.tag == Tag(*b"ARMO"))
-            else {
+                .is_none_or(|record| record.tag != Tag(*b"ARMO"))
+            {
                 continue;
-            };
-            self.check_combat_stack(actor, item)?;
-            let armor = Armor::from_record(record)?;
-            if armor.template.is_some() || armor.enchantment.is_some() {
-                return Err(Error::Unsupported("armor template or enchantment"));
             }
+            self.check_combat_stack(actor, item)?;
+            let armor = self.combat_armor_record(item)?;
             if armor.slots & occupied != 0 {
                 return Err(Error::Unsupported("overlapping equipped armor"));
             }
@@ -255,6 +251,51 @@ impl World {
             categories |= armor.slots & ((1 << 0) | (1 << 2) | (1 << 3) | (1 << 7) | (1 << 9));
         }
         Ok((finite(rating.max(0.0))?, categories.count_ones()))
+    }
+
+    fn combat_weapon(&self, id: GlobalFormId) -> Result<Weapon, Error> {
+        let mut current = id;
+        let mut seen = BTreeSet::new();
+        loop {
+            if !seen.insert(current) || seen.len() > 128 {
+                return Err(Error::Unsupported("cyclic weapon template"));
+            }
+            let record = self.record(current).ok_or(Error::Equipment)?;
+            let (template, enchantment) = Weapon::template_links(record)?;
+            if enchantment.is_some() {
+                return Err(Error::Unsupported("weapon enchantment"));
+            }
+            let Some(template) = template else {
+                return Ok(Weapon::from_record(record)?);
+            };
+            current = self
+                .resolve_from(current, template)
+                .ok_or(Error::Unsupported("unresolved weapon template"))?;
+        }
+    }
+
+    fn combat_armor_record(&self, id: GlobalFormId) -> Result<Armor, Error> {
+        let mut current = id;
+        let mut seen = BTreeSet::new();
+        loop {
+            if !seen.insert(current) || seen.len() > 128 {
+                return Err(Error::Unsupported("cyclic armor template"));
+            }
+            let record = self
+                .record(current)
+                .filter(|record| record.tag == Tag(*b"ARMO"))
+                .ok_or(Error::Equipment)?;
+            let (template, enchantment) = Armor::template_links(record)?;
+            if enchantment.is_some() {
+                return Err(Error::Unsupported("armor enchantment"));
+            }
+            let Some(template) = template else {
+                return Ok(Armor::from_record(record)?);
+            };
+            current = self
+                .resolve_from(current, template)
+                .ok_or(Error::Unsupported("unresolved armor template"))?;
+        }
     }
 }
 

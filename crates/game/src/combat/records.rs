@@ -61,6 +61,18 @@ impl Weapon {
             enchantment: link(record, T(b"EITM"))?,
         })
     }
+
+    /// Decode only the links needed to follow a weapon template chain.
+    ///
+    /// Template children may omit combat fields supplied by their terminal
+    /// template, so callers must not require DATA or DNAM before following CNAM.
+    ///
+    /// # Errors
+    /// Wrong/deleted forms or malformed links.
+    pub fn template_links(record: &Record) -> Result<(Option<u32>, Option<u32>), Error> {
+        check_record(record, T(b"WEAP"))?;
+        Ok((link(record, T(b"CNAM"))?, link(record, T(b"EITM"))?))
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -109,6 +121,19 @@ impl Armor {
             template: link(record, T(b"TNAM"))?,
             enchantment: link(record, T(b"EITM"))?,
         })
+    }
+
+    /// Decode only the links needed to follow an armor template chain.
+    ///
+    /// Template children may omit combat fields supplied by their terminal
+    /// template, so callers must not require DNAM or BOD2/BODT before following
+    /// TNAM.
+    ///
+    /// # Errors
+    /// Wrong/deleted forms or malformed links.
+    pub fn template_links(record: &Record) -> Result<(Option<u32>, Option<u32>), Error> {
+        check_record(record, T(b"ARMO"))?;
+        Ok((link(record, T(b"TNAM"))?, link(record, T(b"EITM"))?))
     }
 }
 

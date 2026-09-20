@@ -42,11 +42,29 @@ the player. Apprentice uses 1.5 and 0.75. Adept uses 1.0 and 1.0. Expert uses
 0.75 and 1.5. Master uses 0.5 and 2.0. Legendary uses 0.25 and 3.0. Plugin
 records and runtime overrides for the selected GMST pair take precedence over
 these defaults. It rejects all perked
-actors, enchantments, item tempering/poison, weapon/armor templates, special
+actors, enchantments, item tempering/poison, special
 resistance flags and unsupported weapon skills/types. These are open execution
 requirements, not silently omitted modifiers. Protected and essential targets
 are rejected pending bleedout handling. Ghosts and dead actors are rejected.
 An essential attacker can still attack an ordinary target.
+
+Weapon `CNAM` and armor `TNAM` template links resolve through their source
+record's load-order context until a terminal template supplies the combat
+fields. A child only needs a well-formed template or enchantment link. It may
+omit DATA, DNAM and BOD2/BODT, so those fields are decoded only from the
+terminal record. Each link remains a form lookup, so templates do not create a
+parallel item store. Cycles, unresolved links, wrong record types and
+enchantments anywhere in the chain reject the contact before it changes health
+or queues an event.
+
+TES5Edit and UESP identify the links and field layouts, while CommonLibSSE
+exposes the template pointers. None of these local sources states a
+field-by-field merge mask for WEAP or ARMO. This path therefore treats the
+terminal referenced form as the combat source for CMB-11 instead of merging
+child fields. The synthetic cross-plugin fixtures cover weapon damage, armor
+rating, slots, skill and weapon behavior fields from that terminal record.
+An EITM link on a child or terminal record still rejects the contact, pending
+weapon enchantment execution.
 
 ## Application and events
 
@@ -73,6 +91,9 @@ Local sources read before implementation:
   values.
 - skymp5-client/src/services/services/ragdollService.ts, which names all six
   `fDiffMultHPToPC` difficulty GMST suffixes.
+- CommonLibSSE `TESObjectWEAP::templateWeapon` and
+  `TESObjectARMO::templateArmor`, which name the runtime pointers for `CNAM`
+  and `TNAM`.
 - uesp-modfileformat/WEAP.wikitext and ARMO.wikitext, including the distinction
   between animation type, governing skill and equip slot.
 - ck-wiki/OnHit_-_ObjectReference.wikitext for event arguments and actor
