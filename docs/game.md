@@ -982,6 +982,57 @@ or complete the broader gameplay goal.
 
 ## Active magic applications
 
+### Telekinesis prerequisite audit, MAG-41
+
+The 2026-09-20 five-master survey found 1,573 non-deleted MGEF winners and
+1,354 non-deleted SPEL winners. One MGEF uses archetype 20, `TelekinesisEffect`
+(`0:01A4CB`), referenced by one SPEL, `Telekinesis` (`0:01A4CC`). Both use
+cast type 2, concentration, and delivery 0, self. The spell's effect has
+magnitude 1, area 0 and duration 0. Neither record has effect conditions.
+
+The MGEF grants `AbTelekinesis` (`0:01A4CA`) as its equip ability. This is a
+constant self ability whose `AbTelekinesisEffect` (`0:01A4C9`) modifies actor
+value 88, Telekinesis, by magnitude 1. Concentration execution, the actor-value
+mapping and owned equip-ability lifetimes therefore precede execution of the
+shipped spell. Their backlog owners are MAG-03, MAG-08 and MAG-20.
+
+Repeat the survey with `SKYRIM_DATA` set:
+
+```sh
+rtk proxy cargo run -p soe-game --example telekinesis_survey
+```
+
+The example uses the existing SPEL/MGEF record views and resolves references
+in each winning record's plugin context. It scans all five masters, prints the
+equip-ability chain, and attempts the associated direct casts. On prerequisite
+commit `3190621`, the shipped cast returned the existing concentration error
+with byte-identical world save state afterward. This establishes the current
+rejection boundary, not successful object manipulation.
+
+Local `TES5Edit/Core/wbDefinitionsTES5.pas` identifies archetype 20 and the
+casting/delivery enums. `uesp-modfileformat/MGEF.wikitext` supplies the same
+archetype number without an object-motion algorithm. CommonLibSSE-NG
+`include/RE/T/TelekinesisEffect.h` declares one `grabbedObject` handle and
+Start, Update and Finish hooks. The CK pages
+`ck-wiki/OnGrab_-_ObjectReference.wikitext` and
+`ck-wiki/OnRelease_-_ObjectReference.wikitext` specify player grab and release
+events, including Telekinesis. These sources establish object identity and
+event lifetimes, but do not supply a Skyrim movement solver. OpenMW's
+`apps/openmw/mwworld/worldimp.cpp`, `World::getFocusObject`, implements
+Morrowind's extended activation distance, so that policy is not reused here.
+The local skymp search found enum declarations, without a Telekinesis runtime
+implementation to reuse.
+
+The host currently omits movable collision bodies and does not synchronize
+their simulated placement with the shared World and rendered references.
+[The host audit](godot-host.md#movable-reference-physics-prerequisite-hst-12)
+records those prerequisites under HST-04 and HST-12. MAG-41 retains its object
+manipulation and interruption acceptance check and stays blocked on these
+dependencies. No grab events, force policy, object eligibility, release motion
+or host runtime behavior were implemented or tested by this audit.
+
+### Direct active-effect foundation
+
 The runtime provides `World::cast_spell` for direct scripted casts
 of Script, Value Modifier and Dual Value Modifier effects, including hostile hits. Definitions
 come from winning SPEL and MGEF records, with each FormID resolved in its winning

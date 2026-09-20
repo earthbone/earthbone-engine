@@ -14,6 +14,36 @@ With `--no-default-features` the `godot` dependency is gone and what remains is 
 
 ## Layout
 
+### Movable-reference physics prerequisite, HST-12
+
+The MAG-41 prerequisite audit on 2026-09-20 confirmed that the host has no
+movable-reference body lifecycle yet. `collision::DataSource::collide_cell_id`
+filters placed colliders with `Collider::is_static` before adding them to
+`SimpleWorld`. `godot_physics::add_statics` applies the same filter and creates
+only `PhysicsServer3D` bodies in `BodyMode::STATIC`. Its `CellBodies` holds RID
+lists for freeing a cell, without a body-to-FormID map for simulated movement.
+The player gameplay path uses the static `SimpleWorld`. Render batches bake
+reference placement into surface vertices, and runtime reference placement
+changes are not generally synchronized with rendering and collision.
+
+Local `godot-docs/classes/class_physicsserver3d.rst` documents rigid body modes,
+state synchronization callbacks and RID cleanup. Rigid bodies receive forces
+and collision responses. A callback can copy their latest pose into the shared
+World each physics tick, preserving the record-backed authority rule. This
+is a host integration task using Godot's existing physics facilities.
+
+HST-04 owns reflection of runtime reference changes. HST-12 depends on it and
+owns movable-reference rigid bodies, physics-to-World pose synchronization and
+resource cleanup on disable, despawn or unload. Its acceptance run must observe
+one authored movable reference responding to collision while the shared World
+and renderer agree on its pose, then verify the body's resources are released.
+MAG-41 depends on both rows before it can manipulate an object and release it
+on interruption. The audit made no host runtime changes, added no scene nodes
+and performed no Godot run. It therefore supplies no motion, collision-cost or
+cleanup measurement.
+
+### Modules
+
 | Module | Depends on Godot | Job |
 |---|---|---|
 | `units` | no | Skyrim units and axes to Godot metres and Y up |
