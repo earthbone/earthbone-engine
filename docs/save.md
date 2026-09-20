@@ -909,3 +909,12 @@ predeclared populated-corpus requirement fails. Synthetic fields and malformed
 input are covered, but no real nonempty entry is validated. See
 [Created Objects tables](save-created-objects.md) for sources, full accounting,
 the required fixtures and SAV-17's separate live-record restoration boundary.
+
+## Base-object value and full-name field evidence
+
+SAV-53 remains blocked on exact Skyrim field-layout evidence. The local and
+current public xEdit definitions leave both target payloads as placeholders.
+Additional public readers do not supply the missing boundaries. The audit
+records pinned sources, the limits of the existing corpus result and the
+controlled observations required to proceed in
+[saved base-object fields](save-base-fields.md). No decoder was added.
