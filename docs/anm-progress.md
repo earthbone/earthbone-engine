@@ -1,10 +1,10 @@
 # ANM work review, 2026-09-20
 
-The active goal remains all ANM backlog work. ANM-01, ANM-04, ANM-05,
-ANM-06, ANM-07, ANM-08, ANM-12, ANM-23 and ANM-52 have tested implementation
+The active goal remains all ANM backlog work. ANM-01, ANM-02, ANM-04, ANM-05,
+ANM-06, ANM-07, ANM-08, ANM-11, ANM-12, ANM-23, ANM-51 and ANM-52 have tested implementation
 commits on separate branches.
-None has been merged. The consolidated `BACKLOG.csv` records 53 ANM rows,
-with those nine marked `done` on their branches and ANM-51 claimed as `wip`.
+None has been merged. The consolidated `BACKLOG.csv` records 56 ANM rows,
+with those twelve marked `done` on their branches.
 All dependency IDs exist and the complete backlog dependency graph is acyclic.
 The original checkout and its unrelated changes were preserved.
 
@@ -28,7 +28,7 @@ evidence-commit rerun retained a full log and passed 1,166 Rust tests and
 Builds used isolated targets to avoid stale artifacts across worktrees.
 Quota failures in the default temporary filesystem were addressed with private
 scratch directories. The ANM-05 compiled target was cleaned after validation
-to reclaim 1.8 GiB. Sources and gate logs remain available.
+to reclaim 1.8 GiB. Branches, commits and gate logs remain available.
 
 ## Reviewed changes
 
@@ -96,7 +96,10 @@ The user approved these commits and gave standing approval to commit after
 task completion. Implementation evidence is recorded below and in each
 completed backlog row. The user also requested cleanup after each completed task. Completed worktrees
 and private build caches are removed after commits. Branches, commits and
-validation logs are retained. Active trees are kept until completion.
+validation logs are retained. Active trees are kept until completion. ANM-02 and ANM-51 cleanup removed
+about 3.9 GiB of private build caches, plus their clean worktrees. ANM-11
+is also committed and its clean worktree removed. Its cache is reused for the
+consolidated gate, then removed.
 
 | Item | Implementation commit |
 | --- | --- |
@@ -134,7 +137,12 @@ Tests cover the enabled to disabled to enabled sequence and an authored
 non-reference clip pose. Concrete modifier effects remain separate rows.
 
 ANM-51 starts from the committed ANM-52 branch and retains that explicit
-dependency. It is assigned to the backlog's recommended Terra medium worker.
+dependency. The recommended Terra medium worker implemented it. Parent review
+required observable conflicting-output tests, disabled-child ordering, whole-list
+cycle rejection, depth bounds and safe public enable lookups. Implementation
+`8b6bc39` and evidence `c437de3` are committed. The final gate passed 1,174 Rust
+and 11 Python tests, including 60 HKX tests without installed data. Concrete
+modifier effects remain separate rows.
 ANM-12 completed scalar float tracks, shared spline block timing and binding
 identity. No combined runtime gate has run.
 
@@ -145,3 +153,34 @@ Independent review caught shared-frame timing, mismatched container bindings
 and invalid timing metadata. The fixes are covered by regressions and the
 installed corpus. Original Havok sampled-value parity and behavior output
 blending of float slots were not tested by this decoder task.
+
+ANM-02 starts from the committed ANM-01 branch. Its unequal-priority and blend-capacity
+implementation is committed on `behavior-priority`.
+
+ANM-54 splits unresolved transition ties from ANM-02. The available declaration
+specifies capacity eviction and priority differences but does not establish
+local versus wildcard ties or equal-priority interruption. The original-runtime
+comparison remains open, including delayed ties after ANM-11. No compatibility
+claim is inferred from the current deterministic fallback.
+
+ANM-55 records an inherited shared-descendant lifecycle gap found during
+ANM-02 review. Direct state-generator deduplication does not protect a clip
+reached through two distinct wrapper nodes.
+
+ANM-02 implementation `246099ce2bb28ac321c00a348c42f71d8731cf8e` passed 1,191 Rust and
+11 Python gate tests, plus 77 installed HKX tests. Independent review checked
+chained poses, capacity eviction, priority protection and prefix cleanup.
+Boundary tests cover nonpositive capacity and eviction above capacity one.
+Equal-priority and shared-descendant scopes remain explicit open rows.
+
+ANM-11 is committed on `task-anm-11`, based on the committed ANM-02
+branch. Its dependencies now include ANM-02 for delayed-request priority.
+ANM-56 preserves unknown original-runtime delayed timeouts and interval edge
+semantics. Trigger admission and delayed initiation have distinct acceptance
+checks. Implementation `b63787d8c9c8d77a375d43d872749438a104d328` passed 1,205 Rust and 11 Python
+gate tests and 91 installed HKX checks, including 7,699 packfiles and 6,126
+spline animations. Independent review corrected delayed-start clock drift and
+priority arbitration between a ready request and a new event. Fourteen interval
+tests cover these fixes and the stated provisional policies. Local serde-hkx and
+hkxcmd supply layouts, with interval semantics from the Havok declaration.
+No original-runtime capture was made. No optional gate tool was skipped.
