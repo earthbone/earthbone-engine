@@ -152,6 +152,54 @@ pub fn generate(scene: &Scene, agent: &Agent) -> Result<Navmesh> {
         min: Vec3::new(lo.x - pad, lo.y - agent.cell_height, lo.z - pad),
         max: Vec3::new(hi.x + pad, hi.y + agent.height, hi.z + pad),
     };
+    generate_in_bounds(scene, agent, aabb, 0)
+}
+
+/// Generate one exterior cell, using the scene's neighbouring geometry as padding.
+/// All tiles to be stitched must use the same scene and agent. The ground voxel
+/// size is rounded down to divide 4096 exactly. Heights use the scene's origin.
+pub fn generate_cell(scene: &Scene, agent: &Agent, x: i16, y: i16) -> Result<Navmesh> {
+    agent.validate()?;
+    let (min, max) = scene.bounds().ok_or(Error::EmptyScene)?;
+    let mut agent = agent.clone();
+    let columns = (4096.0 / agent.cell_size).ceil().max(1.0);
+    if columns > f32::from(u16::MAX) {
+        return Err(Error::Agent("too many voxels in one cell".into()));
+    }
+    agent.cell_size = 4096.0 / columns;
+    let border = agent
+        .walkable_radius()
+        .checked_add(3)
+        .ok_or_else(|| Error::Agent("tile border exceeds 16 bits".into()))?;
+    let pad = f32::from(border) * agent.cell_size;
+    let west = f32::from(x) * 4096.0;
+    let south = f32::from(y) * 4096.0;
+    let aabb = Aabb3d {
+        min: Vec3::new(
+            west - pad,
+            min[2] - agent.cell_height,
+            -south - 4096.0 - pad,
+        ),
+        max: Vec3::new(west + 4096.0 + pad, max[2] + agent.height, -south + pad),
+    };
+    let mut mesh = generate_in_bounds(scene, &agent, aabb, border)?;
+    // CONTEXT: Tile boundaries are exact game coordinates, not accumulated voxel sums.
+    for p in &mut mesh.vertices {
+        for (axis, origin) in [(0, west), (1, south)] {
+            for boundary in [origin, origin + 4096.0] {
+                if (p[axis] - boundary).abs() < agent.cell_size * 0.01 {
+                    p[axis] = boundary;
+                }
+            }
+        }
+    }
+    Ok(mesh)
+}
+
+fn generate_in_bounds(scene: &Scene, agent: &Agent, aabb: Aabb3d, border: u16) -> Result<Navmesh> {
+    if scene.triangles.is_empty() {
+        return Err(Error::EmptyScene);
+    }
     let width = ((aabb.max.x - aabb.min.x) / agent.cell_size + 0.5) as usize;
     let depth = ((aabb.max.z - aabb.min.z) / agent.cell_size + 0.5) as usize;
     if width == 0 || depth == 0 {
@@ -207,7 +255,7 @@ pub fn generate(scene: &Scene, agent: &Agent) -> Result<Navmesh> {
         .merge_region_size
         .saturating_mul(agent.merge_region_size);
     compact
-        .build_regions(0, min_area, merge_area)
+        .build_regions(border, min_area, merge_area)
         .map_err(|e| Error::Generate(e.to_string()))?;
 
     let max_edge_len = agent

@@ -100,8 +100,8 @@ counter-clockwise seen from +Z, so the order is kept.
 
 The output `Navmesh` (vertices, convex polygons, per-edge neighbours) becomes a
 `NavGraph` through `to_graph` (fan triangulation, adjacency from shared edges)
-and an `NVNM` block through `to_geometry`, with in-mesh edges, no edge links,
-and a grid of the requested divisor. The block round-trips through
+and an `NVNM` block through `to_geometry`, with in-mesh edges and a grid of
+the requested divisor. `stitch::stitch_cells` supplies cross-cell edge links. The block round-trips through
 `Geometry::parse` byte for byte, so it can sit in a `NAVM` record written by
 `soe-esm`. That is the piece a mod with a broken or missing navmesh needs and the
 Creation Kit used to be the only source of.
@@ -167,11 +167,9 @@ was needed.
 - No dynamic obstacles or door state, the graph is static.
 - Generation reads render meshes, not `bhk` collision, until `soe-nif` decodes
   those. Interiors are not tested against real data, only Tamriel's exteriors.
-- The generated `NVNM` carries no edge links, cover triangles or location CRC,
-  so a generated cell does not join its neighbours until a stitching pass
-  matches border vertices, which is the next piece for a Creation Kit
-  replacement.
-- Tiled generation for anything bigger than a few cells, and the detail mesh.
+- Generated `NVNM` does not author cover triangles or location CRC. NAVI info
+  maps and authored-neighbour regeneration belong to the editor/export work.
+- Scene geometry selection for world-sized generation, and the detail mesh.
 
 ## Deleted navmeshes (2026-09-18, branch `dirty-records`)
 
@@ -255,3 +253,59 @@ All 50 cross-mesh queries still succeeded. It loaded 13,011 meshes and
 2,271,709 triangles, with the same 187,193 resolved links and 23 unresolved
 links as the prior baseline. The largest mesh's 59-triangle route retains its
 5,205 centroid-distance cost. No frame-time improvement is claimed.
+
+## Generated cell stitching, AI-10
+
+`generate_cell(scene, agent, x, y)` builds one exterior cell through Recast's
+padded tile pipeline. Supply the same scene, including geometry across cell
+borders, and agent to every neighbouring tile. The ground voxel size rounds
+down to divide 4096, so the default 12-unit request uses 4096/342 units.
+All tiles share the scene's vertical origin. A border of the rounded actor
+radius plus three voxels provides erosion context and is excluded from regions.
+Missing neighbouring scene geometry remains an obstacle to generation.
+
+`stitch::stitch_cells` accepts generated cells with their NAVM FormIDs in one
+export namespace. It returns NVNM geometries sorted by FormID. Cardinal
+neighbours match border positions within 0.01 units in XY. The caller supplies
+an explicit finite, nonnegative `max_height_difference`, normally the agent's
+voxel height, to accommodate contour quantization. This is a generation policy,
+not an implementation of Bethesda step-height behaviour. Corner groups use the
+lowest FormID's position and reject chains whose full extent exceeds either
+tolerance. Polygons are checked before and after snapping and subdivision.
+Unequal and partial spans gain vertices and split triangles so every portal
+occupies a whole triangle edge. Links use kind 0, Portal, and point back to
+the source triangle. Heights outside the chosen tolerance, holes and absent neighbours stay
+unlinked. Triangles and their grid memberships are rebuilt together. The
+ordinary `vanilla::Builder` loads these results, including after an NVNM
+serialization round trip. No host nodes or dependencies were added.
+
+The implementation follows local
+`recastnavigation/RecastDemo/Source/Sample_TileMesh.cpp`, `buildTileMesh`,
+for padding and border regions. Its neighbouring-geometry requirement is
+retained. `recastnavigation/Detour/Source/DetourNavMesh.cpp`,
+`findConnectingPolys` and `connectExtLinks`, supplies the border-span model.
+Detour permits multiple links per polygon edge, while NVNM has one per
+triangle edge. The Rust pass therefore splits spans before linking and does
+not adopt Detour's separate mesh representation or step-height links.
+`TES5Edit/Core/wbDefinitionsTES5.pas`, `wbNVNM` and NAVI, establishes that
+per-triangle NVNM links and the NAVI info map are distinct outputs.
+`TES5Edit/Core/wbDefinitionsCommon.pas`, `wbNavmeshEdgeLinkEnum`, names kind 0.
+This API generates cell geometry, not a complete finalized plugin with NAVI.
+
+`tests/stitch.rs` includes the `ai_10` done check: generated cells at negative
+and positive coordinates share exact border vertices after export, and paths
+cross both axes in both directions. Other fixtures cover unequal subdivision,
+partial spans, missing neighbours, height gaps, an obstructed seam, malformed
+inputs and unchanged inputs after rejection. A sloped two-cell fixture and
+flat/sloped two-by-two fixtures cover contour quantization and shared corners.
+Repeated vertices, vertical projected edges and over-wide corner chains reject
+before export. Exported links are checked for
+exact reciprocal vertices and triangle references, then round-trip through
+NVNM before path queries. Reversed input order must produce identical output.
+Real-game generation and editor integration are not exercised by these tests.
+
+Validation at `63f3fae` on 2026-09-20: all nine stitching regressions passed.
+The full `tools/lint.sh` gate passed 1,207 Rust tests and 11 Python tests,
+including all three Clippy configurations. All optional tools ran. Tier 1
+leaves installed-game and save-corpus inputs unset. The generated-cell tests
+use synthetic scenes and do not claim real-game regeneration evidence.
