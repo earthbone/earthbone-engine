@@ -1691,3 +1691,57 @@ record layout and dependency reach. It does not render, measure frame time or
 test GPU resource cleanup. No Godot process was launched and no visible
 image-space behavior is claimed for this audit. The full MAG-71 acceptance
 check remains in BACKLOG.csv without a narrowed color-only substitute.
+
+## Record-driven skin refresh (INV-08)
+
+After loading a character rig, `PlayerNode.bind_actor_appearance(node, file, object)`
+connects that existing `SkinnedActorNode` to the gameplay World and DataSource.
+The node derives its visible addons each tick, including ticks while animation
+is paused. A changed skin, race or equipment set reloads authored ARMA model
+paths through the shared archive and loose-file overlay. Unchanged views avoid
+mesh loading. Failed views are cached too, so unchanged bad assets do not reload
+or log on each tick. A changed view or an explicit rebind retries preparation. Failed model preparation retains the previously displayed surfaces.
+`ActorError::RigMismatch` reports missing rig bones before a live replacement.
+
+The node owns the replaceable surface arrays. Only the existing animation rig
+has the loader's process-lifetime allocation, so repeated skin changes do not
+leak new rigs. Geometry remains RenderingServer instances and skeleton RIDs on
+the existing character node. This introduces no new per-reference node path.
+The loaded rig and its animation graph remain in use. Selecting new race animation
+rigs, face/head-part generation and first-person scene assembly are separate from
+this third-person addon refresh.
+
+Covered addon slots remove corresponding BSDismemberSkinInstance partition
+triangles. The loader handles both SSE shape indices and partition-local indices
+with vertex maps, validates bounds and preserves Godot's winding conversion.
+Local `nifxml/nif.xml` defines Skyrim body parts 30 to 61 as equipment visibility
+slots. The existing `nif::blocks` partition reader supplies the data, so no new
+parser or dependency was added. Other dismember states are unchanged.
+
+`actor` unit tests cover overlapping feet/calves in both partition layouts.
+`real_skinning` loads installed body and hand meshes through live skin changes,
+checks failed-model rollback, null skins and unchanged inventory. Its cached-view
+cost threshold is 2 ms per actor, written before measurement. A five-race survey
+checks authored human and beast addon paths against the installed archives.
+
+The installed five-race survey assembles six model paths and 22 shapes, including
+Argonian and Khajiit tails. Both tails name `TailBone01` through `TailBone05`, which
+the current human rig does not contain. Live binding reports this mismatch and
+keeps the previous geometry. Breton, High Elf and Nord addons match that rig.
+ANM-55 tracks record-selected animation rigs without narrowing skin selection.
+The installed body/hand/null refresh fixture measured a 8.2 us cached view against
+the declared 2 ms budget. This measures record resolution, not rendered frame time.
+
+A Godot 4.7.2 headless check used five synthetic masters with a player, a skin
+containing body/hands/feet addons and one interior static floor. Meshes and animation
+came from the installed archives. PlayerNode gameplay binding replaced the original
+two shapes and 2,948 triangles with four shapes and 4,668 triangles, with no unmatched
+bones. Paused upload and subsequent ticks passed with process exit status 0.
+Full installed-data startup received SIGTERM before loading finished, exit 143,
+so that larger startup is not claimed as verified. Rust checks execute the node's
+same `AppearanceCache::prepare` path, including live record mutation, failed-view
+caching and explicit rig mismatch results.
+
+The existing `godot/skinned_test.gd` passed on Godot 4.7.2 with the changed
+surface ownership: two shapes, 2,948 triangles and 29 matched mesh bones. Its
+idle-to-walk transition completed with exit status 0.

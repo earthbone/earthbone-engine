@@ -37,7 +37,7 @@ See [actor values](actor-values.md) for sources, evidence and remaining work.
 
 The integration combines combat attributes, crafting execution, dialogue,
 active magic, host gameplay and both vanilla-save groundwork branches.
-The native registry has 361 stateful entries and 180 stubs. These are
+The native registry has 365 stateful entries and 180 stubs. These are
 incremental implementations, not completion of Skyrim gameplay.
 
 | Area | Integrated behavior | Still open |
@@ -381,3 +381,12 @@ This updates the older table's statement that the original LIP body was
 undecoded. Playback seconds, interpolation and named facial morph binding
 belong to ANM-13 and DLG-20 and are not implemented by this decoder.
 Fixed-target and big-endian variants remain explicitly unsupported.
+
+## Skin override assembly (INV-08)
+
+NPC and race WNAM setters now drive a shared body-part view for footsteps and
+host rendering. Four SKSE skin natives use canonical record overrides, including
+save restoration of race skins. Skin forms never become carried inventory.
+An existing loaded character node can bind to PlayerNode's gameplay world and
+refresh authored addon surfaces when skin or equipment changes. The host keeps
+its loaded animation rig and uses RIDs for replacement geometry.

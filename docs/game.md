@@ -92,6 +92,8 @@ and `engine-refs/skse64/scripts/vanilla` can establish the contract.
 Counts from `natives::register`: 364 natives with state behind them and 177
 
 Counts from `natives::register`: 366 natives with state behind them and 175
+
+Counts from `natives::register`: 365 natives with state behind them and 180
 quiet stubs (141 and 176 before the natives round of 2026-09-18, 294 and 137
 before the DLC round). A stub returns the value the game gives when nothing
 is going on (`IsBleedingOut` false, `ShakeCamera` nothing) so vanilla scripts
@@ -1653,6 +1655,9 @@ not a dependency because its terminal-record combat lookup does not supply
 field-specific inheritance.
 Default outfits initialize through the reference path described below. Runtime
 skin overrides are not supplied by this path.
+
+Outfit auto-equipping is not supplied by this path. Runtime skin overrides use
+the shared appearance view described below.
 The World footstep path supplies the selected trait source for leveled actors.
 Direct record-only actor_sets calls still require a non-leveled trait chain.
 
@@ -2830,3 +2835,34 @@ No executable bytes or proprietary code were copied.
 templates, winning namespaces, per-entry draws, nested quantity collapse, COED
 discard, slot conflicts, nonwearable results, dynamic placement, once-only
 initialization, restored inventories, save/load and invalid-input rollback.
+
+## Live skin overrides and body parts (INV-08)
+
+`World::set_actor_base_skin` and `World::set_race_skin` write WNAM into the
+canonical record overlay. `ActorBase.GetSkin/SetSkin` and `Race.GetSkin/SetSkin`
+use these operations. Null clears the direct skin, so actor assembly falls back
+from NPC WNAM to race WNAM. A private leveled NPC base affects its owning actor.
+No setter inserts an inventory stack, equips an item or sends an inventory event.
+The existing SOEW record-override encoding also persists race WNAM. Its reader
+rejects race changes outside that field, invalid skin targets and NPC-only metadata.
+
+`appearance::ActorAppearance` derives surviving ARMA body slots and male/female
+third-person and first-person model paths. It reads current record overrides,
+actor race and equipped forms. Footsteps and the host use this same selector.
+Armor templates retain INV-07's inherited armature source and plugin namespace.
+Priority ties retain the documented later-addon and sorted-equipment policy.
+This change does not establish an original-runtime comparison for those ties.
+
+Sources read locally:
+
+- `skse64/skse64/PapyrusActorBase.cpp`, GetSkin and SetSkin, and
+  `PapyrusRace.cpp`, GetSkin and SetSkin, directly read and assign the skin form.
+- `TES5Edit/Core/wbDefinitionsTES5.pas`, NPC and RACE WNAM, ARMO armatures,
+  ARMA sex priorities, model paths and additional races.
+- `CommonLibSSE-NG/src/RE/T/TESObjectARMA.cpp`, IsValidRace follows armor parents.
+- `ck-wiki/ActorBase_Script.wikitext`, the SKSE skin method declarations.
+
+`footstep_actors` checks live changes, null fallback, mapped links, save/hash
+round trips, invalid-save rollback, private-base isolation and unchanged carried
+inventory. `natives_2` calls all four methods through Papyrus bytecode. The host's
+`real_skinning` tests exercise the same refresh preparation used by its node.

@@ -65,6 +65,7 @@ mod objects;
 mod outfits;
 pub use npc_restore::NpcRestoreReport;
 mod record_overrides;
+mod skins;
 mod temporary_npc;
 pub use record_overrides::NpcRecordExtra;
 mod quest_restore;

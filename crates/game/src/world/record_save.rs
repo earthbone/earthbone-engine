@@ -93,15 +93,22 @@ impl World {
                 || self
                     .order
                     .winner(text_origin)
-                    .is_none_or(|r| r.tag != T(b"NPC_"))
+                    .is_none_or(|r| !matches!(&r.tag.0, b"NPC_" | b"RACE"))
             {
                 return Err(bad("invalid NPC origin or temporary identity"));
             }
             let original = self
                 .order
                 .winner(origin)
-                .filter(|rec| rec.tag == T(b"NPC_") && !rec.is_deleted())
-                .ok_or_else(|| bad("missing NPC origin"))?;
+                .filter(|rec| matches!(&rec.tag.0, b"NPC_" | b"RACE") && !rec.is_deleted())
+                .ok_or_else(|| bad("missing NPC or race origin"))?;
+            if self
+                .order
+                .winner(text_origin)
+                .is_none_or(|record| record.tag != original.tag)
+            {
+                return Err(bad("record and text origins have different types"));
+            }
             let mut record = original.clone();
             if temporary_for.is_some() {
                 record.form_id = 0xFF00_0000 | id.object;
@@ -158,8 +165,58 @@ impl World {
                     .order
                     .winner_ref(text_origin)
                     .is_some_and(|owner| self.order.file(owner.file).plugin.header.is_localized());
-            crate::npc::Npc::from_record(&record, localized)
-                .map_err(|e| VmError::State(e.to_string()))?;
+            if record.tag == T(b"NPC_") {
+                crate::npc::Npc::from_record(&record, localized)
+                    .map_err(|e| VmError::State(e.to_string()))?;
+            } else {
+                // Race overrides currently expose only WNAM. Reject other
+                // fields instead of admitting opaque mutable race state.
+                let unchanged = |record: &soe_esm::Record| {
+                    record
+                        .subrecords
+                        .iter()
+                        .filter(|sub| sub.tag != T(b"WNAM"))
+                        .cloned()
+                        .collect::<Vec<_>>()
+                };
+                if temporary_for.is_some()
+                    || text_origin != id
+                    || plain_full
+                    || original_race.is_some()
+                    || body_tint.is_some()
+                    || pending_form_flags.is_some()
+                    || unchanged(&record) != unchanged(original)
+                    || record.all(T(b"WNAM")).count() != 1
+                {
+                    return Err(bad("race override changed fields outside skin"));
+                }
+                let bytes = record
+                    .required(T(b"WNAM"))
+                    .map_err(|_| bad("missing race skin"))?;
+                let raw = u32::from_le_bytes(
+                    bytes
+                        .try_into()
+                        .map_err(|_| bad("invalid race skin length"))?,
+                );
+                let target = if raw == 0 {
+                    None
+                } else {
+                    links
+                        .get(&raw)
+                        .copied()
+                        .or_else(|| self.resolve_from(origin, raw))
+                };
+                if (raw != 0 && target.is_none())
+                    || target.is_some_and(|id| {
+                        self.order
+                            .winner(id)
+                            .is_none_or(|r| r.tag != T(b"ARMO") || r.is_deleted())
+                    })
+                    || links.keys().any(|token| *token != raw)
+                {
+                    return Err(bad("invalid race skin link"));
+                }
+            }
             let value = RecordOverride {
                 origin,
                 text_origin,

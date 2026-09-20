@@ -24,6 +24,7 @@
 
 pub mod actor_values;
 pub mod ai;
+pub mod appearance;
 pub mod clock;
 pub mod combat;
 pub mod conditions;
