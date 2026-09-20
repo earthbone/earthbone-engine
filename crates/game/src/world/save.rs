@@ -37,7 +37,8 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// Version 13 persists runtime NPC record overrides and mapped links.
 /// Version 14 adds temporary NPC identities, ownership and component provenance.
 /// Version 15 persists deferred-death requests and their eventual event recipients.
-pub const SAVE_VERSION: u16 = 15;
+/// Version 16 preserves the sequential PACK procedure cursor.
+pub const SAVE_VERSION: u16 = 16;
 
 impl World {
     /// Serialize the run-time state: the VM object handles, references,
@@ -326,6 +327,17 @@ impl World {
         self.write_quest_aux(&mut body);
         self.write_item_stacks(&mut body);
         self.write_record_overrides(&mut body);
+        let cursors: BTreeMap<_, _> = self
+            .actors
+            .iter()
+            .filter_map(|(id, a)| a.ai.tree.as_ref().map(|tree| (*id, tree)))
+            .collect();
+        body.len(cursors.len());
+        for (id, tree) in cursors {
+            write_form_id(&mut body, id);
+            crate::ai::write_tree_state(&mut body, Some(tree));
+        }
+
         let mut out = Writer::new();
         out.out.extend_from_slice(SAVE_MAGIC);
         out.u16(SAVE_VERSION);
@@ -797,6 +809,21 @@ impl World {
         } else {
             BTreeMap::new()
         };
+        if version >= 16 {
+            let count = r.len()?;
+            let mut seen = BTreeSet::new();
+            for _ in 0..count {
+                let id = read_form_id(&mut r)?;
+                let actor = actors
+                    .get_mut(&id)
+                    .ok_or_else(|| VmError::State("package cursor names a missing actor".into()))?;
+                let tree = crate::ai::read_tree_state(&mut r)?;
+                if !seen.insert(id) || actor.ai.package.is_none() || tree.is_none() {
+                    return Err(VmError::State("invalid package cursor entry".into()));
+                }
+                actor.ai.tree = tree;
+            }
+        }
         r.expect_end()?;
         super::death::validate_pending(&actors, &pending)?;
 
@@ -1143,7 +1170,7 @@ fn write_actor_state(w: &mut Writer, a: &ActorState) {
     if let Some(race) = a.race {
         write_form_id(w, race);
     }
-    crate::ai::write_state(w, &a.ai);
+    crate::ai::write_legacy_state(w, &a.ai);
     write_form_set(w, &a.perks);
     for flag in [
         a.alerted,
@@ -1255,7 +1282,7 @@ fn read_actor_state(r: &mut Reader<'_>, version: u16) -> Result<ActorState, VmEr
     if r.bool()? {
         a.race = Some(read_form_id(r)?);
     }
-    a.ai = crate::ai::read_state(r)?;
+    a.ai = crate::ai::read_legacy_state(r)?;
     a.perks = read_form_set(r)?;
     a.alerted = r.bool()?;
     a.sneaking = r.bool()?;

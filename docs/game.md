@@ -404,13 +404,30 @@ GetActorValuePercent. Any other function fails its condition and is
 counted in `World::ai.unsupported_functions` by index, so a live run
 prints what the next round should add.
 
-**Procedures.** The template tree is not walked as a tree. Most vanilla
-templates are a sequence of a `Travel` to the place and what happens
-there, so `ai::procedure_of` takes the strongest procedure it knows from
-the chain, `Sleep` over `Sandbox` over `Travel`, with the first location
-input that procedure reads (falling back to the first location input of
-the chain). The driver then walks to the place itself. `Travel` walks to
-the location and holds, marking the package complete on arrival.
+**Procedures.** AI-02 walks sequential branches in authored preorder. The
+actor retains the active child and its completion state. A completed Travel
+starts the next child on the next driver tick. Nested `Sequence` branches
+finish after their children, and `Repeat when Complete` restarts only the
+branch carrying that flag. `Success Completes Package` stops the whole tree,
+including enclosing repeats. Once Per Day is recorded after the tree finishes,
+not at every Travel arrival. Conditions are checked when entering each branch.
+Unsupported group types hold with an explicit `Procedure::Unsupported` value.
+The tooling helper `procedure_of` reports the first procedure before conditions.
+
+Input locations retain their defining package's namespace when inherited from
+a template. SOEW version 16 saves the tree cursor alongside the existing path.
+Versions 4 through 15 remain readable. They have no tree cursor, so their
+selected package starts its tree from the beginning on its first driver tick.
+Empty repeating branches yield each tick without running later siblings.
+
+The layout follows local xEdit `wbRecord(PACK)`, `PRCB`, `FNAM`, and `PKC2`,
+plus the local UESP PACK page. CommonLib's sequence header supplies a type
+but no implementation. The nested-repeat behavior follows the mod author's
+[repeat experiment](https://forums.nexusmods.com/topic/11591393-ai-package-wont-repeat/).
+No reusable interpreter exists in those sources, so this interpreter uses the
+existing world and procedure driver without a new dependency.
+
+`Travel` walks to its input location and completes on arrival.
 `Sandbox` picks an idle marker or a piece of furniture (beds excluded)
 within the radius of the location, walks there, dwells 0.1 to 0.4 game
 hours, and picks the next, or a random point in the radius when the cell
@@ -451,8 +468,8 @@ to an idle marker, sleep on schedule and wake at 08:00, take an alias
 package over the base list, switch at once from a script's
 `EvaluatePackage`, and keep walking after a save and load.
 
-**Not done.** Procedure trees as trees (sequence, random, simultaneous,
-stacked branches with their own conditions), the other 18 procedures,
+**Not done.** Random, simultaneous and stacked branches (AI-13 to AI-15),
+the other 18 procedures,
 package fragments (`VMAD` on `PACK`), the `On Begin`, `On End` and `On
 Change` idles and topics, once per day for packages that end without
 arriving, `Must Complete`, interrupt flags, combat overrides, door
@@ -1373,3 +1390,14 @@ then executes 184 supported weapons against synthetic actors. The remaining
 weapons reject unsupported types, templates or enchantments. Real armor records
 were decoded, while armor damage calculations use synthetic fixtures.
 These changes await commit and merge review on `combat-hits`.
+
+### Sequential package validation
+
+AI-02 has synthetic tests for child order, nested and root repeats, early
+package completion, skipped conditional subtrees, current-package conditions,
+Once Per Day, Travel before Sleep, save/load on the second child, malformed
+child counts, empty repeats and unsupported groups. The existing package
+regressions remain applicable. The installed Skyrim.esm survey decodes 5,961
+packages with no failures under the new child-count validation. Its 3,966
+supported first procedures are an entry-point count, not complete tree coverage.
+The earlier strongest-procedure survey above describes the old heuristic.

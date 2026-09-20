@@ -478,6 +478,7 @@ impl Package {
                 _ => {}
             }
         }
+        branch_ends(&p.tree)?;
         Ok(p)
     }
 
@@ -515,6 +516,24 @@ impl Package {
     pub fn procedures(&self) -> impl Iterator<Item = &Branch> {
         self.tree.iter().filter(|b| b.procedure.is_some())
     }
+}
+
+/// Exclusive subtree ends in the preorder list, from xEdit's PRCB child counts.
+pub(crate) fn branch_ends(tree: &[Branch]) -> Result<Vec<usize>> {
+    let mut ends = vec![0; tree.len()];
+    for (index, branch) in tree.iter().enumerate().rev() {
+        if branch.procedure.is_some() && branch.child_count != 0 {
+            return Err(Error::Invalid("PACK procedure has child branches".into()));
+        }
+        let mut end = index + 1;
+        for _ in 0..branch.child_count {
+            end = *ends
+                .get(end)
+                .ok_or_else(|| Error::Invalid("PACK branch child count exceeds its tree".into()))?;
+        }
+        ends[index] = end;
+    }
+    Ok(ends)
 }
 
 fn general(d: &[u8]) -> Result<General> {
