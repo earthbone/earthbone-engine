@@ -156,6 +156,33 @@ handle. Casts follow the declared type of the destination variable, which is
 why locals and script variables keep their type names. Floats print with six
 decimals, as in the game's log.
 
+**Object reclamation.** `Vm::collect_objects` traces a host-supplied candidate set
+from non-candidate objects, frame locals and owners, thread results and explicit
+host roots. It follows instance variables and shared arrays, including cycles.
+An array with an outstanding mutable borrow defers the pass. Unreachable
+candidates are removed together, so two expired effects referring to one another
+do not keep either alive. Instance storage is compacted and surviving frame and
+object indices are remapped. `InstanceId` is a storage index that callers must
+reacquire after collection. `ObjectId` remains stable and is never reused.
+The existing state format stores the compacted indices without a version change.
+
+The host must supply retained values and queued callbacks as roots. Bare IDs held
+outside the VM are not counted references. Completed thread results remain roots
+because `thread_result` can still retrieve them. This is targeted object cleanup,
+not collection of threads or arbitrary host allocations. The game host applies it
+to expired active effects after each VM run.
+
+Local sources consulted were the shipped
+`skse64/scripts/vanilla/ActiveMagicEffect.psc`, whose finish event can outlive native
+state, and CommonLibSSE-NG `include/RE/O/Object.h`, which has a reference-counted
+object lifetime. The local skymp
+`papyrus-vm/src/papyrus-vm-lib/VirtualMachine.cpp` has an empty `RemoveObject`, so
+there was no reclamation implementation to port. The trace uses this VM's explicit
+frames and values. Five collection unit tests cover object and array cycles,
+sleeping and latent frames, compaction across save/load, completed results,
+borrowed arrays and 256 allocation/reclamation rounds with one surviving object
+and instance throughout.
+
 ## Vanilla numbers worth keeping
 
 From the 14,026 shipped scripts, counting call sites by target. The

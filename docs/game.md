@@ -997,6 +997,18 @@ sends `OnEffectFinish`. The getters return the base MGEF, target actor and caste
 while the application is live. Finish handlers may observe absent native state,
 as allowed by the shipped ActiveMagicEffect.psc contract.
 
+After each VM run, expired effect objects are reclaimed once no script variable,
+array, thread frame, thread result or queued callback retains them. Pending
+bindings and death recipients also keep objects alive. Live form and alias objects
+remain roots. Sleeping or latent finish handlers retain their instances through
+save/load, then release them when the handler and other references finish.
+Reclamation removes both world handle mappings and any registrations made after
+dispel. Future registrations alone do not keep an expired effect alive.
+`tests/magic/collection.rs` checks this lifecycle, including 64 casts dispelled
+before binding, a suspended finish callback, a live alias reference and a callback
+queued during `OnEffectFinish`. VM storage checks are described in
+[Papyrus](papyrus.md).
+
 Recover modifiers change the target once and reverse their own delta at the end.
 Other value modifiers integrate magnitude over unpaused simulation seconds, with
 the final tick clipped to the remaining duration. Zero-duration effects apply
@@ -1024,7 +1036,7 @@ Actor-value indices above 45 are not yet supported. Recover effects use the temp
 restore the damage component without changing permanent modifiers.
 Automatic ability application from AddSpell or NPC spell lists, enchantments,
 potions, resistance and absorption, effect artwork and sounds, actor-event
-forwarding, effect inventory filters and VM object reclamation remain unfinished.
+forwarding and effect inventory filters remain unfinished.
 This is an active-effect foundation, not complete magic execution.
 
 Validation on the installed five-master load order found 1,354 non-deleted

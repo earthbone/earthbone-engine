@@ -50,6 +50,7 @@ pub const MAX_ARRAY_LEN: usize = 1 << 20;
 /// script legitimately builds.
 pub const MAX_STRING_LEN: usize = 1 << 20;
 
+mod collection;
 mod dispatch;
 mod execution;
 mod properties;

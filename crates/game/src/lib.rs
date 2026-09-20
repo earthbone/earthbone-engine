@@ -642,6 +642,7 @@ impl Game {
         for _ in 0..max_rounds {
             self.pump();
             self.vm.run(self.budget);
+            self.world.borrow_mut().collect_effect_objects(&mut self.vm);
             let queued = self.world.borrow().has_pending_calls();
             if self.vm.idle() && !queued {
                 return true;
