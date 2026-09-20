@@ -47,7 +47,9 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// Version 23 adds walking Patrol marker, direction and dwell progress.
 /// Version 24 retains an actor's active exclusive dialogue branch.
 /// Version 25 persists image-space applications and crossfade progress.
-pub const SAVE_VERSION: u16 = 25;
+/// Version 26 retains loose item stacks and validates contained reference identities.
+/// Version 27 retains locked encounter-zone selection levels.
+pub const SAVE_VERSION: u16 = 27;
 
 #[derive(Clone, Copy)]
 pub(crate) enum FormNamespace {
@@ -393,6 +395,8 @@ impl World {
             crate::ai::write_tree_state(&mut body, Some(tree));
         }
         self.write_image_space(&mut body);
+        self.write_loose_items(&mut body);
+        self.write_encounter_levels(&mut body);
         let mut out = Writer::new();
         out.out.extend_from_slice(SAVE_MAGIC);
         out.u16(SAVE_VERSION);
@@ -533,7 +537,7 @@ impl World {
             form_lists.insert(id, items);
         }
 
-        let next_dynamic = r.u32()?;
+        let mut next_dynamic = r.u32()?;
         let player = read_opt_form_id(&mut r)?;
         let loaded_cell = read_opt_form_id(&mut r)?;
         let rng = r.u64()?;
@@ -917,6 +921,19 @@ impl World {
         } else {
             super::image_space::ImageSpaceState::default()
         };
+        if version >= 26 {
+            self.read_loose_items(&mut r, &mut refs)?;
+        } else {
+            self.migrate_loose_items(&mut refs);
+        }
+        if let Some(dynamic) = self.reconcile_item_references(&mut refs, version)? {
+            next_dynamic = next_dynamic.max(dynamic);
+        }
+        let encounter_levels = if version >= 27 {
+            self.read_encounter_levels(&mut r)?
+        } else {
+            BTreeMap::new()
+        };
         r.expect_end()?;
         super::death::validate_pending(&actors, &pending)?;
 
@@ -946,6 +963,7 @@ impl World {
         self.factions = factions;
         self.actor_bases = actor_bases;
         self.cells = cells;
+        self.encounter_levels = encounter_levels;
         self.settings = settings;
         self.inventory_filters = inventory_filters;
         self.sleep_listeners = sleep_listeners;
@@ -1234,6 +1252,7 @@ fn read_ref_state(r: &mut FormReader<'_, '_>) -> Result<RefState, VmError> {
         lock_extra: None,
         display_name,
         inventory,
+        item: None,
         linked,
         teleport,
         is_actor,

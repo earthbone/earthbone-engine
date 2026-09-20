@@ -3,7 +3,7 @@
 //! Per-reference NPC template choices. Layouts follow xEdit LVLN and NPC_.
 //! Group traversal follows skymp EvaluateTemplate. Level filtering follows
 //! the LVLF contract and OpenMW's highest-eligible versus all-level selection.
-//! Skyrim encounter-zone level calculation remains a separate caller input.
+//! Placed and dynamically created actors receive the containing encounter level.
 
 use std::collections::{BTreeMap, BTreeSet};
 

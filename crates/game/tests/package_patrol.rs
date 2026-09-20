@@ -370,8 +370,8 @@ fn patrol_hash_and_save_validation_retain_direction_and_deadline() {
     let mut game = game(Settings::default());
     let original = game.world().save_state();
     let mut old = legacy::without_exclusive_branches(&mut game.world_mut(), &[id(ACTOR)]);
-    // Version 22 also predates the image-space block.
-    old.truncate(old.len() - 9);
+    // Version 22 predates the image-space, loose-item and zone blocks.
+    old.truncate(old.len() - 17);
     old[4..6].copy_from_slice(&22u16.to_le_bytes());
     game.world_mut().load_state(&old).unwrap();
     assert_eq!(game.world().save_state(), original);
@@ -388,8 +388,8 @@ fn patrol_hash_and_save_validation_retain_direction_and_deadline() {
     assert_ne!(game.world().state_hash(), old_hash);
     let original = game.world().save_state();
     let mut old = legacy::without_exclusive_branches(&mut game.world_mut(), &[id(ACTOR)]);
-    // Version 22 also predates the image-space block.
-    old.truncate(old.len() - 9);
+    // Version 22 predates the image-space, loose-item and zone blocks.
+    old.truncate(old.len() - 17);
     old[4..6].copy_from_slice(&22u16.to_le_bytes());
     assert!(game.world_mut().load_state(&old).is_err());
     assert_eq!(game.world().save_state(), original);

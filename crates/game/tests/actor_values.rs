@@ -253,7 +253,7 @@ fn version_seven_components_load_without_dialogue_state() {
     let hash = original.world().state_hash();
     let mut old = legacy::without_exclusive_branches(&mut original.world_mut(), &[actor]);
     // Version 7 predates the empty dialogue cursor and history appended in v8.
-    old.truncate(old.len() - 55);
+    old.truncate(old.len() - 63);
     old[4..6].copy_from_slice(&7u16.to_le_bytes());
     let (restored, _) = fresh();
     restored.world_mut().load_state(&old).unwrap();
