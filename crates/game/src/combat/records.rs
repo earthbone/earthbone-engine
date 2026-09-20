@@ -3,7 +3,9 @@
 //! WEAP DATA/DNAM and ARMO DNAM/BOD2/BODT from local xEdit and UESP layouts.
 //! These are transient record views, not another authoritative item database.
 
-use soe_esm::{cursor::Fields, Error, Record, Tag};
+use std::collections::BTreeSet;
+
+use soe_esm::{cursor::Fields, Error, GlobalFormId, LoadOrder, Record, Tag};
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
 
@@ -65,6 +67,8 @@ impl Weapon {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Armor {
+    pub value: Option<i32>,
+    pub weight: Option<f32>,
     pub rating: f32,
     pub slots: u32,
     /// 0 light, 1 heavy, 2 clothing, absent in early BODT records.
@@ -73,23 +77,69 @@ pub struct Armor {
     pub enchantment: Option<u32>,
 }
 
+/// The records that supply an armor's Creation Kit template fields.
+///
+/// `child` supplies FULL, DATA value and EITM. `inherited` supplies every
+/// other ARMO field after following TNAM to its terminal source.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ArmorSources {
+    pub child: GlobalFormId,
+    pub inherited: GlobalFormId,
+}
+
 impl Armor {
-    /// Decode armor input fields. Runtime template application remains separate.
+    /// Resolve a template chain in each winning record's defining-file namespace.
+    ///
+    /// # Errors
+    /// Missing, deleted, malformed, non-ARMO or cyclic template records.
+    pub fn sources(order: &LoadOrder, child: GlobalFormId) -> Result<ArmorSources, Error> {
+        let mut inherited = child;
+        let mut seen = BTreeSet::new();
+        loop {
+            if !seen.insert(inherited) {
+                return Err(Error::Invalid(format!(
+                    "ARMO template cycle at {inherited}"
+                )));
+            }
+            let owner = order
+                .winner_ref(inherited)
+                .ok_or_else(|| Error::Invalid(format!("missing ARMO template {inherited}")))?;
+            let record = order.record(owner);
+            check_record(record, T(b"ARMO"))?;
+            let Some(template) = link(record, T(b"TNAM"))? else {
+                return Ok(ArmorSources { child, inherited });
+            };
+            inherited = order.resolve(owner.file, template);
+        }
+    }
+
+    /// Decode a non-templated armor input record.
     ///
     /// # Errors
     /// Wrong/deleted forms, missing or malformed fields.
     pub fn from_record(record: &Record) -> Result<Self, Error> {
-        check_record(record, T(b"ARMO"))?;
-        let mut rating = Fields::new(record.tag, T(b"DNAM"), record.required(T(b"DNAM"))?);
+        Self::from_sources(record, record)
+    }
+
+    /// Decode child value/enchantment fields and inherited physical properties.
+    ///
+    /// # Errors
+    /// Wrong/deleted forms, missing or malformed fields, non-finite weights.
+    pub fn from_sources(child: &Record, inherited: &Record) -> Result<Self, Error> {
+        check_record(child, T(b"ARMO"))?;
+        check_record(inherited, T(b"ARMO"))?;
+        let value = armor_data(child)?.map(|data| data.0);
+        let weight = armor_data(inherited)?.map(|data| data.1);
+        let mut rating = Fields::new(inherited.tag, T(b"DNAM"), inherited.required(T(b"DNAM"))?);
         rating.exact(4)?;
         // UESP documents the runtime's low-16-bit rating, stored in hundredths.
         let rating = (rating.u32()? & 0xffff) as f32 / 100.0;
-        let (tag, bytes) = if let Some(bytes) = record.find(T(b"BOD2")) {
+        let (tag, bytes) = if let Some(bytes) = inherited.find(T(b"BOD2")) {
             (T(b"BOD2"), bytes)
         } else {
-            (T(b"BODT"), record.required(T(b"BODT"))?)
+            (T(b"BODT"), inherited.required(T(b"BODT"))?)
         };
-        let mut body = Fields::new(record.tag, tag, bytes);
+        let mut body = Fields::new(inherited.tag, tag, bytes);
         let slots = body.u32()?;
         if tag == T(b"BODT") {
             body.skip(4)?;
@@ -103,11 +153,13 @@ impl Armor {
             return Err(Error::Invalid("excess armor body data".into()));
         }
         Ok(Self {
+            value,
+            weight,
             rating,
             slots,
             kind,
-            template: link(record, T(b"TNAM"))?,
-            enchantment: link(record, T(b"EITM"))?,
+            template: link(child, T(b"TNAM"))?,
+            enchantment: link(child, T(b"EITM"))?,
         })
     }
 }
@@ -124,6 +176,15 @@ fn number(value: f32) -> Result<f32, Error> {
         return Err(Error::Invalid("invalid combat record float".into()));
     }
     Ok(value)
+}
+
+fn armor_data(record: &Record) -> Result<Option<(i32, f32)>, Error> {
+    let Some(bytes) = record.find(T(b"DATA")) else {
+        return Ok(None);
+    };
+    let mut data = Fields::new(record.tag, T(b"DATA"), bytes);
+    data.exact(8)?;
+    Ok(Some((data.i32()?, number(data.f32()?)?)))
 }
 
 fn link(record: &Record, tag: Tag) -> Result<Option<u32>, Error> {

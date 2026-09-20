@@ -1120,12 +1120,23 @@ Sources are local xEdit NPC_/RACE/ARMO/ARMA definitions, UESP record pages,
 and CommonLibSSE-NG `src/RE/T/TESObjectARMA.cpp` for armor-parent matching.
 Equal-priority conflicts use later record/equipment order. Deduplicated
 layering and tie handling are engine policy pending original-runtime checks.
-Equipment is the current actor state's equipped set. Outfit auto-equipping,
-armor template inheritance and runtime skin overrides
-are not supplied by this path. The World footstep path supplies the selected trait source for leveled actors.
+Equipment is the current actor state's equipped set. `TNAM` armor templates
+keep the child `FULL` name, `DATA` value and `EITM` enchantment. They inherit
+every other field, including `DATA` weight, `DNAM`, body slots, keywords and
+`MODL` armor addons, from the template chain. Each `TNAM` is resolved in the
+winning record's defining-file namespace. Cycles, malformed links and missing
+or non-ARMO templates reject the consuming operation before it changes state.
+The source is the [Creation Kit Armor page](https://ck.uesp.net/w/api.php?action=parse&page=Armor&prop=wikitext&format=json),
+retrieved on 2026-09-20. Local xEdit `Core/wbDefinitionsTES5.pas` supplies the
+ARMO layout, and CommonLibSSE-NG `include/RE/T/TESObjectARMO.h` confirms the
+`templateArmor` relationship and the armor-rating/addon consumers. CMB-11 is
+not a dependency because its terminal-record combat lookup does not supply
+field-specific inheritance.
+Outfit auto-equipping and runtime skin overrides are not supplied by this path.
+The World footstep path supplies the selected trait source for leveled actors.
 Direct record-only actor_sets calls still require a non-leveled trait chain.
 
-Eight actor-selection tests pass, including installed-data checks for Nord
+Ten actor-selection tests pass, including installed-data checks for Nord
 bare feet, light boots, heavy boots and wolf skin. The same run resolves all
 161 non-deleted race skins into 41 distinct sets across the five masters.
 Synthetic cases cover live equipment/race changes, implicit player identity,

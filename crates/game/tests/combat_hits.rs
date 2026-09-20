@@ -42,6 +42,10 @@ fn armor(object: u32, rating: u32, slots: u32, kind: u32) -> Record {
     let mut body = slots.to_le_bytes().to_vec();
     body.extend_from_slice(&kind.to_le_bytes());
     Record::new(Tag(*b"ARMO"), object)
+        .sub(
+            Tag(*b"DATA"),
+            [0_i32.to_le_bytes(), 5_f32.to_le_bytes()].concat(),
+        )
         .sub(Tag(*b"DNAM"), rating.to_le_bytes())
         .sub(Tag(*b"BOD2"), body)
 }
@@ -136,6 +140,90 @@ fn weapon_skill_is_independent_of_animation_and_fields_use_schema_offsets() {
 }
 
 #[test]
+fn armor_templates_keep_child_value_and_enchantment_inherit_physical_fields() {
+    let mut master = Plugin::new(FileHeader::default());
+    master.push_top(
+        Record::new(Tag(*b"ARMO"), 0xB00)
+            .zsub(Tag(*b"FULL"), "Template")
+            .sub(
+                Tag(*b"DATA"),
+                [40_i32.to_le_bytes(), 12_f32.to_le_bytes()].concat(),
+            )
+            .sub(Tag(*b"DNAM"), 7000_u32.to_le_bytes())
+            .sub(
+                Tag(*b"BOD2"),
+                [4_u32.to_le_bytes(), 1_u32.to_le_bytes()].concat(),
+            ),
+    );
+    master.push_top(Record::new(Tag(*b"ARMO"), 0xB01).sub(Tag(*b"TNAM"), 0xB00_u32.to_le_bytes()));
+    let unrelated = Plugin::new(FileHeader::default());
+    let other_master = Plugin::new(FileHeader::default());
+    let mut child = Plugin::new(FileHeader {
+        masters: vec!["Master.esm".into(), "Other.esm".into()],
+        ..Default::default()
+    });
+    child.push_top(
+        Record::new(Tag(*b"ARMO"), 0x0200_0800)
+            .zsub(Tag(*b"FULL"), "Child")
+            .sub(
+                Tag(*b"DATA"),
+                [90_i32.to_le_bytes(), 1_f32.to_le_bytes()].concat(),
+            )
+            .sub(Tag(*b"EITM"), 0x0200_0900_u32.to_le_bytes())
+            .sub(Tag(*b"TNAM"), 0x0000_0B01_u32.to_le_bytes()),
+    );
+    child.push_top(Record::new(Tag(*b"ENCH"), 0x0200_0900));
+    let mut order = LoadOrder::new();
+    order.add("Unrelated.esm", unrelated).unwrap();
+    order.add("Master.esm", master).unwrap();
+    order.add("Other.esm", other_master).unwrap();
+    order.add("Child.esp", child).unwrap();
+    let child_id = GlobalFormId {
+        file: 3,
+        object: 0x800,
+    };
+    assert_eq!(
+        order.resolve(3, 0x0000_0B01),
+        GlobalFormId {
+            file: 1,
+            object: 0xB01,
+        }
+    );
+    let sources = Armor::sources(&order, child_id).unwrap();
+    assert_eq!(sources.child, child_id);
+    assert_eq!(
+        sources.inherited,
+        GlobalFormId {
+            file: 1,
+            object: 0xB00,
+        }
+    );
+    let view = Armor::from_sources(
+        order.winner(sources.child).unwrap(),
+        order.winner(sources.inherited).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(view.value, Some(90));
+    assert_eq!(view.weight, Some(12.));
+    assert_eq!(view.rating, 70.);
+    assert_eq!(view.slots, 4);
+    assert_eq!(view.kind, Some(1));
+    assert_eq!(view.enchantment, Some(0x0200_0900));
+}
+
+#[test]
+fn armor_template_cycles_and_malformed_links_are_rejected() {
+    let mut plugin = Plugin::new(FileHeader::default());
+    plugin.push_top(armor(0xB00, 0, 1, 0).sub(Tag(*b"TNAM"), 0x0000_0B01_u32.to_le_bytes()));
+    plugin.push_top(armor(0xB01, 0, 1, 0).sub(Tag(*b"TNAM"), 0x0000_0B00_u32.to_le_bytes()));
+    plugin.push_top(armor(0xB02, 0, 1, 0).sub(Tag(*b"TNAM"), [1, 2, 3]));
+    let mut order = LoadOrder::new();
+    order.add("Cycle.esm", plugin).unwrap();
+    assert!(Armor::sources(&order, id(0xB00)).is_err());
+    assert!(Armor::sources(&order, id(0xB02)).is_err());
+}
+
+#[test]
 fn player_and_npc_skill_settings_are_distinct_and_overrides_are_live() {
     let mut game = fixture(vec![]);
     close(game.melee_hit(hit(0x14, 0x901)).unwrap().health_damage, 15.);
@@ -182,6 +270,26 @@ fn equipping_overlapping_supported_armor_replaces_only_the_conflicting_item() {
     assert!(!equipped.contains(&id(0xB00)));
     assert!(equipped.contains(&id(0xB01)));
     assert!(equipped.contains(&id(0xB02)));
+}
+
+#[test]
+fn equipping_templated_armor_uses_inherited_slots_for_conflicts() {
+    let game = fixture(vec![
+        armor(0xB00, 100, 1 << 2, 1),
+        Record::new(Tag(*b"ARMO"), 0xB01)
+            .sub(
+                Tag(*b"DATA"),
+                [20_i32.to_le_bytes(), 1_f32.to_le_bytes()].concat(),
+            )
+            .sub(Tag(*b"TNAM"), 0xB00_u32.to_le_bytes()),
+        armor(0xB02, 100, 1 << 2, 1),
+    ]);
+    equip(&game, 0x901, 0xB02);
+    game.world_mut().equip_item(id(0x901), id(0xB01)).unwrap();
+    let mut world = game.world_mut();
+    let actor = world.actor(id(0x901)).unwrap();
+    assert!(actor.equipped.contains(&id(0xB01)));
+    assert!(!actor.equipped.contains(&id(0xB02)));
 }
 
 #[test]
