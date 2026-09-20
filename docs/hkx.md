@@ -139,9 +139,39 @@ top bits of the first two words, its sign in the third.
 Evaluation is de Boor on the block's local frame (`animation::locate`
 turns a time into a block and a frame within it). Rotations are
 renormalized after blending control points, which is what Havok does too.
-Float tracks (4 in `mt_jump`, the weapon and shield slots) are located but
-not decoded yet, and neither is extracted motion, which Skyrim stores in a
-separate `hkaDefaultAnimatedReferenceFrame` this crate does not read.
+Float tracks (4 in `mt_jump`, the weapon and shield slots) decode as
+identity zero, a static value or a scalar B-spline with 8-bit or 16-bit control
+points. `SplineCompressedAnimation::sample_float` samples a decoded track.
+`Clip::sample_floats_into` uses the binding's separate float-slot map and
+preserves unbound reference values. Transform-track mapping is unchanged.
+
+The float layout was checked against the local Nemesis tree's Havok 2010.2
+`Animation/Animation/Animation/SplineCompressed/hkaSplineCompressedAnimation.h`
+and `.inl`: scalar quantization occupies mask bits 1 and 2, static uses bit 0,
+spline uses bit 4, and `floatBlockOffsets` is relative to each block. The
+implementation reuses this crate's spline evaluator and checked reader.
+HavokLib's `source/hka_spline_decompressor.cpp` skips float masks but does not
+decode float payloads, so its decoder could not supply this path. The
+serde-hkx `hkaSplineCompressedAnimation` and `hkaAnimationBinding` class
+layouts supply the offset arrays and slot map. No Havok source was copied.
+
+ANM-12 rejects unsupported masks, non-finite values, malformed knots, missing
+float block offsets and payload reads across a block boundary. Its synthetic
+checks cover both quantizations, endpoints, midpoints, static and identity
+values, negative slot indices, reordered named slots and block-relative
+padding. The installed survey checks all 7,699 packfiles and 6,126 animations,
+including 10,137 float tracks, with zero decode failures and finite samples.
+This survey does not compare sampled values against an original Havok runtime.
+Review also corrected time lookup to account for the shared boundary frame
+between spline blocks, as described by HavokLib
+`source/packfile/hka_animation_spline.cpp` and the local Havok inline header.
+The cross-block test samples at and between shared frames. Review also fixed
+container binding selection to match the chosen spline animation index,
+rather than taking an unrelated first binding. A reordered-container regression
+checks both bone and float-slot maps. Invalid timing metadata is rejected
+before decoding, and the public time lookup has a defensive guard.
+Float slots are exposed by the clip sampler. Behavior output blending and
+host application of those slots are separate runtime work.
 
 ## 4. The behavior graph, as data
 

@@ -5,7 +5,7 @@
 //! never ship in Skyrim files and are reported as unsupported.
 
 use crate::packfile::Obj;
-use crate::spline::{decode_block, Block};
+use crate::spline::{decode_block_with_float_offset, Block};
 use crate::{Error, QsTransform, Result};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -143,34 +143,82 @@ impl SplineCompressedAnimation {
         if anim.max_frames_per_block == 0 && anim.num_blocks > 0 {
             return Err(Error::BadSpline("maxFramesPerBlock is 0".into()));
         }
+        anim.validate_timing()?;
         Ok(anim)
+    }
+
+    fn validate_timing(&self) -> Result<()> {
+        let values = [
+            self.duration,
+            self.frame_duration,
+            self.block_duration,
+            self.block_inverse_duration,
+        ];
+        if values
+            .iter()
+            .any(|value| !value.is_finite() || *value < 0.0)
+            || (self.num_frames > 1 && values[1..].contains(&0.0))
+            || !((self.num_frames.saturating_sub(1)) as f32 * self.frame_duration).is_finite()
+        {
+            return Err(Error::BadSpline("invalid animation timing".into()));
+        }
+        Ok(())
     }
 
     /// Decode every block.
     pub fn decode(&self) -> Result<Vec<Block>> {
+        self.validate_timing()?;
+        if self.num_float_tracks > 0 && self.float_block_offsets.len() != self.num_blocks {
+            return Err(Error::BadSpline("missing float block offsets".into()));
+        }
         self.block_offsets
             .iter()
-            .map(|&off| {
-                decode_block(
-                    &self.data,
+            .enumerate()
+            .map(|(index, &off)| {
+                let end = self
+                    .block_offsets
+                    .get(index + 1)
+                    .map_or(self.data.len(), |&next| next as usize);
+                let data = self
+                    .data
+                    .get(..end)
+                    .filter(|_| off as usize <= end)
+                    .ok_or_else(|| Error::BadSpline("invalid block boundary".into()))?;
+                decode_block_with_float_offset(
+                    data,
                     off as usize,
                     self.num_transform_tracks,
                     self.num_float_tracks,
+                    self.float_block_offsets
+                        .get(index)
+                        .map(|&offset| offset as usize),
                 )
             })
             .collect()
     }
 
+    /// One float track at a time, from blocks produced by [`Self::decode`].
+    pub fn sample_float(&self, blocks: &[Block], track: usize, time: f32) -> Option<f32> {
+        let (block, local) = self.locate(time);
+        Some(blocks.get(block)?.float_tracks.get(track)?.sample(local))
+    }
+
     /// Which block holds a time, and the frame within it. Times outside the
     /// animation clamp to its ends.
     pub fn locate(&self, time: f32) -> (usize, f32) {
-        if self.num_frames == 0 || self.frame_duration <= 0.0 || self.num_blocks == 0 {
+        if self.num_frames == 0
+            || self.frame_duration <= 0.0
+            || self.num_blocks == 0
+            || self.validate_timing().is_err()
+        {
             return (0, 0.0);
         }
         let last = (self.num_frames - 1) as f32;
-        let frame = (time / self.frame_duration).clamp(0.0, last);
-        let block = ((frame / self.max_frames_per_block as f32) as usize).min(self.num_blocks - 1);
-        (block, frame - (block * self.max_frames_per_block) as f32)
+        let time = time.clamp(0.0, last * self.frame_duration);
+        // Authored block duration includes the shared boundary frame.
+        let block = ((time * self.block_inverse_duration) as usize).min(self.num_blocks - 1);
+        let local = (time - block as f32 * self.block_duration).max(0.0);
+        (block, local / self.frame_duration)
     }
 
     /// One track at a time, from blocks produced by [`Self::decode`].
@@ -203,8 +251,8 @@ mod tests {
             num_blocks: blocks,
             max_frames_per_block: per_block,
             mask_and_quantization_size: 0,
-            block_duration: per_block as f32 / 30.0,
-            block_inverse_duration: 30.0 / per_block as f32,
+            block_duration: (per_block - 1) as f32 / 30.0,
+            block_inverse_duration: 30.0 / (per_block - 1) as f32,
             frame_duration: 1.0 / 30.0,
             block_offsets: vec![0; blocks],
             float_block_offsets: vec![],
@@ -218,14 +266,16 @@ mod tests {
 
     #[test]
     fn times_map_to_blocks_and_local_frames() {
-        let a = anim(64, 32, 2);
+        let a = anim(63, 32, 2);
         assert_eq!(a.locate(0.0), (0, 0.0));
         let (b, f) = a.locate(31.0 / 30.0);
-        assert_eq!(b, 0);
-        assert!((f - 31.0).abs() < 1e-4);
+        assert!((b as f32 * 31.0 + f - 31.0).abs() < 1e-4);
+        let (b, f) = a.locate(31.5 / 30.0);
+        assert_eq!(b, 1);
+        assert!((f - 0.5).abs() < 1e-4);
         let (b, f) = a.locate(40.0 / 30.0);
         assert_eq!(b, 1);
-        assert!((f - 8.0).abs() < 1e-4);
+        assert!((f - 9.0).abs() < 1e-4);
         // Past the end clamps to the last frame of the last block.
         let (b, f) = a.locate(100.0);
         assert_eq!(b, 1);
