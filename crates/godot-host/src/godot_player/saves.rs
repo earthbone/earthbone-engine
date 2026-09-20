@@ -65,7 +65,7 @@ impl PlayerNode {
         };
         let feet = self.feet();
         let rotation = [-self.rig.pitch(), 0.0, self.rig.yaw()];
-        let Some(game) = &self.game else {
+        let Some(game) = &mut self.game else {
             return failed("gameplay has not started");
         };
         let player_id = game.player();
