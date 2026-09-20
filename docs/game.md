@@ -1437,3 +1437,10 @@ The inventory_references fixtures check loose pickup, quantity-three pickup,
 exact-stack transfer, adjacent plain items, notification identity, consumed
 references, partial splits, overflow, Papyrus calls, legacy-save migration,
 metadata hashing, stable save bytes and atomic rejection of corrupt saves.
+
+UI-02 routes native menu equipment through World::equip_item and
+World::unequip_item. Actor.UnequipItem shares the latter operation, which removes
+both the actor's equipped entry and the inventory's worn markers. The menu
+requires a carried weapon or armor before calling these operations, so a stale
+selection cannot create an item. The host's inventory_menu tests cover shared
+armor slots, worn-marker cleanup and rejected missing or unowned selections.

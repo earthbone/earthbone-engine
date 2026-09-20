@@ -37,6 +37,7 @@ use crate::input::{godot_key_for, Action, Bindings, ControlMap, Driver, InputSta
 
 mod footsteps;
 mod gameplay;
+mod menu;
 
 /// How far ahead of the eye an activate ray reaches, in Skyrim units. The
 /// vanilla reach is about this, and it is a setting rather than a constant so
@@ -89,6 +90,10 @@ pub struct PlayerNode {
     held_actions: BTreeSet<Action>,
     devices: Devices,
     input_focused: bool,
+    menu: crate::ui::MenuState,
+    inventory_category: crate::inventory_menu::Category,
+    menu_view: Option<menu::MenuView>,
+    restore_mouse_on_focus: Option<godot::classes::input::MouseMode>,
 }
 
 #[godot_api]
@@ -122,6 +127,10 @@ impl INode3D for PlayerNode {
             held_actions: BTreeSet::new(),
             devices: Devices::default(),
             input_focused: true,
+            menu: crate::ui::MenuState::default(),
+            inventory_category: crate::inventory_menu::Category::All,
+            menu_view: None,
+            restore_mouse_on_focus: None,
         }
     }
 
@@ -136,13 +145,14 @@ impl INode3D for PlayerNode {
         );
         self.register_actions();
         self.create_camera();
+        self.create_menu();
         if self.capture_mouse {
             Input::singleton().set_mouse_mode(godot::classes::input::MouseMode::CAPTURED);
         }
     }
 
     fn unhandled_input(&mut self, event: Gd<godot::classes::InputEvent>) {
-        if !self.input_focused {
+        if !self.input_focused || self.menu.is_open() {
             return;
         }
         if let Ok(motion) = event.try_cast::<InputEventMouseMotion>() {
@@ -154,6 +164,33 @@ impl INode3D for PlayerNode {
 
     fn input(&mut self, event: Gd<godot::classes::InputEvent>) {
         if !self.input_focused {
+            return;
+        }
+        if let Ok(key) = event.clone().try_cast::<InputEventKey>() {
+            if key.get_keycode() == Key::I
+                && key.is_pressed()
+                && !key.is_echo()
+                && !self.menu.is_open()
+                && self.open_inventory_menu()
+            {
+                if let Some(mut viewport) = self.base().get_viewport() {
+                    viewport.set_input_as_handled();
+                }
+                return;
+            }
+            if key.get_keycode() == Key::ESCAPE && key.is_pressed() && !key.is_echo() {
+                if self.menu.is_open() {
+                    self.close_menu();
+                } else {
+                    self.open_menu("Paused".into());
+                }
+                if let Some(mut viewport) = self.base().get_viewport() {
+                    viewport.set_input_as_handled();
+                }
+                return;
+            }
+        }
+        if self.menu.is_open() {
             return;
         }
         if let Ok(key) = event.clone().try_cast::<InputEventKey>() {
@@ -192,7 +229,7 @@ impl INode3D for PlayerNode {
     }
 
     fn process(&mut self, delta: f64) {
-        if self.auto_step {
+        if self.auto_step && !self.menu.is_open() {
             self.look_stick(delta);
             let (dx, dy) = std::mem::take(&mut self.pending_look);
             self.rig.look(dx, dy);
@@ -203,6 +240,8 @@ impl INode3D for PlayerNode {
     }
 
     fn exit_tree(&mut self) {
+        self.close_menu();
+        self.menu_view = None;
         if self.capture_mouse {
             Input::singleton().set_mouse_mode(godot::classes::input::MouseMode::VISIBLE);
         }
@@ -212,6 +251,14 @@ impl INode3D for PlayerNode {
 
 #[godot_api]
 impl PlayerNode {
+    /// Emitted after opening through gdext's reentrant base guard.
+    #[signal]
+    fn menu_opened(title: GString);
+
+    /// Emitted after closing and releasing owned content controls.
+    #[signal]
+    fn menu_closed();
+
     #[func]
     fn input_focus_lost(&mut self) {
         self.input_focused = false;
@@ -229,6 +276,11 @@ impl PlayerNode {
     fn input_focus_gained(&mut self) {
         self.input_focus_lost();
         self.input_focused = true;
+        if !self.menu.is_open() {
+            if let Some(mode) = self.restore_mouse_on_focus.take() {
+                Input::singleton().set_mouse_mode(mode);
+            }
+        }
         // Godot can retain just-pressed flags until the frame ends.
         let until = Engine::singleton().get_process_frames() + 1;
         self.action_latches = Action::all().into_iter().map(|a| (a, until)).collect();
@@ -340,6 +392,12 @@ impl PlayerNode {
     /// instead of relying on frame timing.
     #[func]
     pub fn advance(&mut self, delta: f64) {
+        if self.menu.is_open() {
+            if let Some(game) = &mut self.game {
+                self.menu.tick(game, delta);
+            }
+            return;
+        }
         let pending_location = self.game.as_mut().is_some_and(|game| {
             let player = game.player();
             game.world()

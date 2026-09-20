@@ -19,10 +19,12 @@ pub mod camera;
 pub mod collision;
 pub mod data_source;
 pub mod input;
+pub mod inventory_menu;
 pub mod mesh;
 pub mod skinned;
 pub mod streaming;
 pub mod terrain;
+pub mod ui;
 pub mod units;
 
 #[cfg(feature = "godot")]

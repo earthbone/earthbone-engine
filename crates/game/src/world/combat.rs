@@ -16,6 +16,22 @@ use crate::combat::{
 const SUPPORTED_ARMOR_SLOTS: u32 = (1 << 14) - 1;
 
 impl World {
+    /// Unequip an item from an actor through the same authoritative inventory state.
+    ///
+    /// # Errors
+    /// Missing actors or references.
+    pub fn unequip_item(&mut self, actor: GlobalFormId, item: GlobalFormId) -> Result<(), Error> {
+        self.actor(actor).ok_or(Error::Actor(actor))?;
+        let reference = self.reference(actor).ok_or(Error::Actor(actor))?;
+        reference.inventory.unequip(item);
+        self.actors
+            .get_mut(&actor)
+            .ok_or(Error::Actor(actor))?
+            .equipped
+            .remove(&item);
+        Ok(())
+    }
+
     /// Equip an item, replacing armor that occupies any supported biped slot.
     ///
     /// # Errors

@@ -1307,8 +1307,9 @@ fn actor(vm: &mut Vm, w: &Shared) {
     });
     method!(vm, w, "Actor", "UnequipItem", |world, call, me| {
         if let Some(item) = world.form_arg(&call.arg(0)) {
-            if let Some(a) = world.actor(me) {
-                a.equipped.remove(&item);
+            if let Err(error) = world.unequip_item(me, item) {
+                call.log
+                    .push(call.time, format!("Actor.UnequipItem: {error}"));
             }
         }
         none()
