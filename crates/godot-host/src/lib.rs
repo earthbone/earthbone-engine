@@ -23,6 +23,7 @@ pub mod mesh;
 pub mod skinned;
 pub mod streaming;
 pub mod terrain;
+pub mod ui;
 pub mod units;
 
 #[cfg(feature = "godot")]

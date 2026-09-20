@@ -78,7 +78,7 @@ impl PlayerNode {
             self.activate_game_reference(target);
         }
         if let Some(game) = &mut self.game {
-            game.tick(delta);
+            self.menu.tick(game, delta);
         }
         if !self.sync_game_pose() {
             self.auto_step = false;
@@ -87,20 +87,43 @@ impl PlayerNode {
     }
 
     pub(super) fn activate_game_reference(&mut self, target: GlobalFormId) -> bool {
-        let Some(game) = &mut self.game else {
-            return false;
+        let (activated, show_container) = {
+            let Some(game) = &mut self.game else {
+                return false;
+            };
+            // A player pick must not interact with an invisible/deleted reference.
+            // The shared game path handles locks and inventory keys.
+            let eligible = game
+                .world_mut()
+                .reference(target)
+                .is_some_and(|r| r.enabled && !r.deleted);
+            if !eligible {
+                return false;
+            }
+            let player = game.player();
+            let (container, blocked) = {
+                let mut world = game.world_mut();
+                let container = world.base_of(target).is_some_and(|base| {
+                    world
+                        .tag_of(base)
+                        .is_some_and(|tag| tag.as_bytes() == b"CONT")
+                });
+                let blocked = world
+                    .reference_ref(target)
+                    .is_some_and(|reference| reference.activation_blocked);
+                (container, blocked)
+            };
+            let activated = game.activate_deferred(target, player);
+            let opened = game
+                .world_mut()
+                .reference_ref(target)
+                .is_some_and(|reference| reference.opened);
+            (activated, activated && container && !blocked && opened)
         };
-        // A player pick must not interact with an invisible/deleted reference.
-        // The shared game path handles locks and inventory keys.
-        let eligible = game
-            .world_mut()
-            .reference(target)
-            .is_some_and(|r| r.enabled && !r.deleted);
-        if !eligible {
-            return false;
+        if show_container {
+            self.open_container_menu(target);
         }
-        let player = game.player();
-        game.activate_deferred(target, player)
+        activated
     }
 
     pub(super) fn sync_game_pose(&mut self) -> bool {

@@ -76,3 +76,4 @@ soe-physics = { path = "../physics" }
 soe-trace = { path = "../trace" }
 
 [dev-dependencies]
+soe-papyrus = { path = "../papyrus" }
