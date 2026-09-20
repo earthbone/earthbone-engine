@@ -186,27 +186,25 @@ impl World {
     }
 
     pub fn player(&mut self) -> GlobalFormId {
-        if let Some(p) = self.player {
-            return p;
+        if let Some(player) = self.player {
+            return player;
         }
-        let shipped = GlobalFormId {
+        let id = GlobalFormId {
             file: 0,
             object: PLAYER_OBJECT,
         };
-        let id = if self.reference(shipped).is_some() {
-            shipped
-        } else {
-            self.next_dynamic += 1;
-            let id = GlobalFormId {
-                file: DYNAMIC_FILE,
-                object: self.next_dynamic,
-            };
-            let mut st = RefState::new(None);
-            st.is_actor = true;
-            st.display_name = Some("Player".into());
-            self.refs.insert(id, st);
-            id
-        };
+        if self.reference(id).is_none() {
+            let base = self
+                .form("Player")
+                .filter(|base| self.tag_of(*base) == Some(T(b"NPC_")));
+            let mut state = RefState::new(base);
+            state.is_actor = true;
+            state.display_name = Some("Player".into());
+            if let Some(base) = base {
+                state.inventory = self.base_inventory(base);
+            }
+            self.refs.insert(id, state);
+        }
         self.player = Some(id);
         id
     }
