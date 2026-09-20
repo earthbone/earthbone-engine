@@ -139,21 +139,27 @@ impl World {
         Some(self.order.resolve(rref.file, raw))
     }
 
-    /// The quest a fragment-carrying form belongs to: a scene's `PNAM`
-    /// parent quest, a package's `QNAM` owner quest. A topic info's quest
-    /// sits on the `DIAL` above it, which the record view cannot reach from
-    /// the info alone, so that one is None here.
+    /// Resolve the owning quest through the record's authored relationship.
+    /// INFO ownership follows its topic group, never TPIC or PNAM.
     pub fn owning_quest(&self, id: GlobalFormId) -> Option<GlobalFormId> {
         let rref = self.order.winner_ref(id)?;
         let rec = self.order.record(rref);
+        if rec.is_deleted() {
+            return None;
+        }
+        if rec.tag == T(b"INFO") {
+            return self
+                .dialogue_topic_of(id)
+                .and_then(|topic| self.owning_quest(topic));
+        }
         let tag = match *rec.tag.as_bytes() {
             [b'S', b'C', b'E', b'N'] => T(b"PNAM"),
-            [b'P', b'A', b'C', b'K'] => T(b"QNAM"),
+            [b'P', b'A', b'C', b'K'] | [b'D', b'I', b'A', b'L'] | [b'D', b'L', b'B', b'R'] => {
+                T(b"QNAM")
+            }
             _ => return None,
         };
-        let raw = rec
-            .find(tag)
-            .and_then(|d| (d.len() >= 4).then(|| u32::from_le_bytes([d[0], d[1], d[2], d[3]])))?;
+        let raw = rec.find(tag).and_then(le_u32)?;
         (raw != 0).then(|| self.order.resolve(rref.file, raw))
     }
 

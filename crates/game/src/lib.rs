@@ -30,6 +30,7 @@ pub mod coverage;
 pub mod crafting;
 pub mod debug;
 pub mod determinism;
+pub mod dialogue;
 pub mod harness;
 pub mod moddata;
 pub mod natives;

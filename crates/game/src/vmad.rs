@@ -14,8 +14,8 @@
 //! bytes, v2 is two unused bytes, alias, FormID. Arrays are a u32 count of
 //! elements. Names are Windows-1252, read here as Latin-1.
 //!
-//! Only the quest tail (stage fragments and alias scripts) is decoded. The
-//! fragment tails of INFO, PACK, PERK and SCEN records are kept as bytes in
+//! Quest and INFO tails are decoded. The
+//! fragment tails of PACK, PERK and SCEN records are kept as bytes in
 //! `trailing` so the record still round-trips.
 
 use soe_esm::{Error, Result, Tag};
@@ -114,6 +114,23 @@ pub struct AliasScripts {
     pub scripts: Vec<ScriptEntry>,
 }
 
+/// A begin or end callback, including its retained VMAD marker byte.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InfoFragment {
+    pub marker: u8,
+    pub script: String,
+    pub function: String,
+}
+
+/// INFO fragment layout from xEdit wbVMADFragmentedINFO.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InfoFragments {
+    pub version: u8,
+    pub file: String,
+    pub begin: Option<InfoFragment>,
+    pub end: Option<InfoFragment>,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Vmad {
     pub version: i16,
@@ -123,7 +140,8 @@ pub struct Vmad {
     pub fragment_file: Option<String>,
     pub fragments: Vec<QuestFragment>,
     pub aliases: Vec<AliasScripts>,
-    /// Undecoded fragment tail of non-quest records.
+    pub info_fragments: Option<InfoFragments>,
+    /// Undecoded fragment tail of PACK, PERK and SCEN records.
     pub trailing: Vec<u8>,
 }
 
@@ -136,6 +154,7 @@ impl Default for Vmad {
             fragment_file: None,
             fragments: Vec::new(),
             aliases: Vec::new(),
+            info_fragments: None,
             trailing: Vec::new(),
         }
     }
@@ -334,6 +353,41 @@ impl Vmad {
         if r.pos == data.len() {
             return Ok(vmad);
         }
+        if tag == Tag::new(b"INFO") {
+            let version = r.u8()?;
+            let flags = r.u8()?;
+            if version != 2 || flags & !3 != 0 {
+                return Err(bad("unsupported INFO fragment version or flags"));
+            }
+            let file = r.wstring()?;
+            let mut fragment = || -> Result<InfoFragment> {
+                Ok(InfoFragment {
+                    marker: r.u8()?,
+                    script: r.wstring()?,
+                    function: r.wstring()?,
+                })
+            };
+            let begin = if flags & 1 != 0 {
+                Some(fragment()?)
+            } else {
+                None
+            };
+            let end = if flags & 2 != 0 {
+                Some(fragment()?)
+            } else {
+                None
+            };
+            if r.pos != data.len() {
+                return Err(bad("trailing INFO fragment bytes"));
+            }
+            vmad.info_fragments = Some(InfoFragments {
+                version,
+                file,
+                begin,
+                end,
+            });
+            return Ok(vmad);
+        }
         if tag != Tag::new(b"QUST") {
             vmad.trailing = data[r.pos..].to_vec();
             return Ok(vmad);
@@ -402,6 +456,19 @@ impl Vmad {
                 out.extend_from_slice(&VERSION.to_le_bytes());
                 out.extend_from_slice(&OBJECT_FORMAT.to_le_bytes());
                 write_scripts(&mut out, &a.scripts);
+            }
+        } else if let Some(info) = self
+            .info_fragments
+            .as_ref()
+            .filter(|_| tag == Tag::new(b"INFO"))
+        {
+            out.push(info.version);
+            out.push(u8::from(info.begin.is_some()) | (u8::from(info.end.is_some()) << 1));
+            write_wstring(&mut out, &info.file);
+            for fragment in [&info.begin, &info.end].into_iter().flatten() {
+                out.push(fragment.marker);
+                write_wstring(&mut out, &fragment.script);
+                write_wstring(&mut out, &fragment.function);
             }
         } else {
             out.extend_from_slice(&self.trailing);

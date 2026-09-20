@@ -6,6 +6,7 @@
 //! `FNAM` depends on whether an objective or an alias is open, so the reader
 //! is a small state machine over the subrecord list.
 
+use soe_esm::records::gameplay::Condition;
 use soe_esm::records::Text;
 use soe_esm::{Error, Record, Result, Tag};
 
@@ -89,6 +90,7 @@ pub struct Quest {
     pub objectives: Vec<Objective>,
     pub aliases: Vec<Alias>,
     pub vmad: Option<Vmad>,
+    pub dialogue_conditions: Vec<Condition>,
 }
 
 enum Section {
@@ -114,9 +116,20 @@ impl Quest {
             objectives: Vec::new(),
             aliases: Vec::new(),
             vmad: None,
+            dialogue_conditions: Vec::new(),
         };
         let mut section = Section::Header;
+        let mut dialogue_conditions = true;
         for sub in &rec.subrecords {
+            if sub.tag == Tag(*b"NEXT") {
+                dialogue_conditions = false;
+            }
+            if dialogue_conditions
+                && matches!(section, Section::Header)
+                && Condition::push(rec, sub, &mut q.dialogue_conditions)?
+            {
+                continue;
+            }
             let d = sub.data.as_slice();
             match sub.tag.as_bytes() {
                 b"VMAD" => q.vmad = Some(Vmad::parse(d, QUST)?),

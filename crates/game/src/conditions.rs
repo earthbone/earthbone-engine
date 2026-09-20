@@ -76,10 +76,21 @@ pub fn evaluate(
 pub fn supports_function(function: u16) -> bool {
     matches!(
         function,
-        47 | 56
+        1 | 18
+            | 46
+            | 47
+            | 56
             | 58
             | 59
+            | 67
             | 72
+            | 69
+            | 70
+            | 71
+            | 73
+            | 80
+            | 403
+            | 566
             | 74
             | 136
             | 182
@@ -89,6 +100,7 @@ pub fn supports_function(function: u16) -> bool {
             | 448
             | 543
             | 560
+            | 606
             | 629
             | 630
             | 659
@@ -202,6 +214,61 @@ fn function_value(
 ) -> Result<f32, Error> {
     let raw = c.parameters[0];
     Ok(match c.function {
+        1 => {
+            let other = resolve_reference(world, context.owner, raw)?;
+            world.distance(subject, other)
+        }
+        18 => world.clock.game_hours().rem_euclid(24.0) as f32,
+        46 => boolean(world.actor(subject).is_some_and(|actor| actor.dead)),
+        67 => {
+            let cell = resolve(world, context.owner, raw, Some(*b"CELL"))?;
+            boolean(
+                world
+                    .reference(subject)
+                    .and_then(|reference| reference.cell)
+                    == Some(cell),
+            )
+        }
+        69 => {
+            let race = resolve(world, context.owner, raw, Some(*b"RACE"))?;
+            boolean(
+                world
+                    .actor(subject)
+                    .is_some_and(|actor| actor.race == Some(race)),
+            )
+        }
+        70 => {
+            if raw > 1 {
+                return Err(Error::Parameter(c.function, raw));
+            }
+            let base = world.base_of(subject).ok_or(Error::Form(subject))?;
+            let npc = world.npc(base).ok_or(Error::Form(base))?;
+            boolean(npc.is_female() == (raw == 1))
+        }
+        71 | 73 => {
+            let faction = resolve(world, context.owner, raw, Some(*b"FACT"))?;
+            let rank = world
+                .actor(subject)
+                .and_then(|actor| actor.factions.get(&faction).copied())
+                .unwrap_or(-1);
+            if c.function == 71 {
+                boolean(rank >= 0)
+            } else {
+                rank as f32
+            }
+        }
+        80 => world.actor(subject).map_or(0.0, |actor| actor.level as f32),
+        403 => {
+            let other = resolve_reference(world, context.owner, raw)?;
+            world
+                .actor(subject)
+                .and_then(|actor| actor.relationships.get(&other).copied())
+                .unwrap_or(0) as f32
+        }
+        566 => {
+            let quest = context.quest.ok_or(Error::Target(5))?;
+            boolean(world.alias_ref(quest, raw) == Some(subject))
+        }
         47 => {
             let item = resolve(world, context.owner, raw, None)?;
             inventory_count(world, subject, item, &mut Vec::new())? as f32
@@ -266,6 +333,14 @@ fn function_value(
         560 => {
             let keyword = resolve(world, context.owner, raw, Some(*b"KYWD"))?;
             boolean(world.has_keyword(subject, keyword))
+        }
+        606 => {
+            let location = resolve(world, context.owner, raw, Some(*b"LCTN"))?;
+            let keyword = resolve(world, context.owner, c.parameters[1], Some(*b"KYWD"))?;
+            world
+                .location(location)
+                .and_then(|state| state.keyword_data.get(&keyword).copied())
+                .unwrap_or(0.0)
         }
         629 | 630 => {
             let form = if c.function == 629 {

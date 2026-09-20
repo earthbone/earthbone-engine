@@ -49,7 +49,7 @@ mod objects;
 mod quests;
 mod refs;
 mod rng;
-mod save;
+pub(crate) mod save;
 mod timers;
 mod transition;
 
@@ -344,6 +344,8 @@ pub struct UpdateTimer {
 pub type Alloc<'a> = &'a mut dyn FnMut(&str, &str) -> ObjectId;
 
 pub struct World {
+    pub(crate) dialogue_index: std::sync::OnceLock<crate::dialogue::Index>,
+    pub(crate) dialogue: crate::dialogue::State,
     order: LoadOrder,
     editor_ids: HashMap<String, GlobalFormId>,
     objects: HashMap<Handle, ObjectId>,
@@ -496,6 +498,8 @@ impl World {
             sound_instances: BTreeMap::new(),
             next_sound: 0,
             spell_casts: Vec::new(),
+            dialogue_index: std::sync::OnceLock::new(),
+            dialogue: crate::dialogue::State::default(),
         }
     }
 

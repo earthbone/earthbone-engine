@@ -241,6 +241,28 @@ fn save_preserves_components_that_have_the_same_current_total() {
 }
 
 #[test]
+fn version_seven_components_load_without_dialogue_state() {
+    let (original, actor) = fresh();
+    original
+        .world_mut()
+        .damage_actor_value(actor, "health", 15.0)
+        .unwrap();
+    let hash = original.world().state_hash();
+    let mut old = original.world().save_state();
+    // Version 7 predates the empty dialogue cursor and history appended in v8.
+    old.truncate(old.len() - 5);
+    old[4..6].copy_from_slice(&7u16.to_le_bytes());
+    let (restored, _) = fresh();
+    restored.world_mut().load_state(&old).unwrap();
+    assert_eq!(restored.world().state_hash(), hash);
+    assert_eq!(restored.world_mut().actor_value(actor, "health"), 85.0);
+    assert_eq!(
+        restored.world_mut().actor_value_maximum(actor, "health"),
+        100.0
+    );
+}
+
+#[test]
 fn health_damage_respects_essential_and_deferred_kill_flags() {
     let (game, actor) = fresh();
     let mut world = game.world_mut();

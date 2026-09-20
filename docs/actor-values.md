@@ -41,15 +41,16 @@ and OnDying/OnDeath delivery require the combat lifecycle.
 
 ## Persistence
 
-SOEW version 7 writes sorted names and all four components. Case-insensitive
+SOEW version 8 writes sorted names and all four components. Case-insensitive
 duplicate names, non-finite values, positive damage components and truncated
 input are rejected. State hashes include every component.
 
-Version 4 only restores actor values whose current and base totals agree.
+Versions 4 and 6 only restore actor values whose current and base totals agree.
 Old saves with different totals lack the information needed to distinguish
 damage from permanent or temporary modifiers and return an ambiguity error.
-Separate magic and dialogue worktree versions 5 and 6 are not accepted here.
-Their state formats and effect updates must be reconciled before integration.
+Version 7 restores with empty dialogue. Version 6 also restores its dialogue
+state when actor values are unambiguous. Magic version 5 is still rejected
+until its active-effect format is integrated.
 This is the engine's own save format, not vanilla ESS restoration.
 
 ## Verification

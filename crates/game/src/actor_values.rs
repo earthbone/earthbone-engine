@@ -100,7 +100,7 @@ impl Values {
     pub(crate) fn read(reader: &mut Reader<'_>, version: u16) -> Result<Self, VmError> {
         let invalid = || VmError::State("invalid actor-value state".into());
         let mut values = Self::default();
-        if version == 4 {
+        if version < 7 {
             let read_map = |reader: &mut Reader<'_>| -> Result<BTreeMap<String, f32>, VmError> {
                 let mut map = BTreeMap::new();
                 for _ in 0..reader.len()? {
@@ -119,7 +119,7 @@ impl Values {
                 let base = base.get(name).copied().unwrap_or(0.0);
                 if current != base {
                     return Err(VmError::State(
-                        "v4 actor-value modifiers are ambiguous and cannot be restored faithfully"
+                        "legacy actor-value modifiers are ambiguous and cannot be restored faithfully"
                             .into(),
                     ));
                 }

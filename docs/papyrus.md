@@ -393,3 +393,12 @@ script and property declarations. The local Caprica property compiler copies
 property user flags to the backing variable. `tests/conditional.rs` checks
 nonstandard flag positions, current and restored values, inherited variables,
 nonconditional declarations and duplicate names. No save format changed.
+
+## Dialogue fragment dispatch and conditional variables
+
+`Vm::call_script` and `has_script_method` resolve the script named by a VMAD
+fragment on the object's attached instance chains. An unrelated attachment
+with the same function name cannot intercept the call. Resolution uses the
+instance's current state, then its empty state. Calls use the existing frame
+builder and scheduler. The game dialogue tests attach two colliding fragment
+names and verify that only the named script changes the owning quest.

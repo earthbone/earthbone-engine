@@ -11,8 +11,8 @@ week 6 to 9 gate.
   factions, spells), quests (stage, done set, objectives, aliases), globals,
   form lists. Base data comes from the winning record the first time a form is
   touched, so the table is a view over the load order and nothing is copied up
-  front. Run-time forms from `PlaceAtMe` live in file slot
-  `FF` like the game's own. `world.rs` holds the state types, the `World`
+  front. Run-time forms from `PlaceAtMe` live in file slot `FF`. The player uses
+  the reserved PlayerRef identity 0:000014. `world.rs` holds the state types, the `World`
   struct and its constructor, the methods sit in one child module per
   concern, each an `impl World`: `lookup` (editor ids, records, run-time
   FormIDs, keywords, names, classes), `objects` (handle to VM object table),
@@ -71,7 +71,7 @@ and `engine-refs/skse64/scripts/vanilla` can establish the contract.
 
 ## Conformance table
 
-Counts from `natives::register`: 349 natives with state behind them and 191
+Counts from `natives::register`: 352 natives with state behind them and 188
 quiet stubs (141 and 176 before the natives round of 2026-09-18, 294 and 137
 before the DLC round). A stub returns the value the game gives when nothing
 is going on (`IsBleedingOut` false, `ShakeCamera` nothing) so vanilla scripts
@@ -100,7 +100,7 @@ run past it.
 | Sound | Play, StopInstance, SetInstanceVolume | |
 | Spell | Cast, RemoteCast | |
 | Scene, Package | GetOwningQuest | |
-| TopicInfo | | GetOwningQuest, None until the dialogue view lands |
+| TopicInfo | GetOwningQuest | |
 | ActiveMagicEffect | RegisterForUpdate, RegisterForSingleUpdate, RegisterForUpdateGameTime, RegisterForSingleUpdateGameTime, UnregisterForUpdate, UnregisterForUpdateGameTime, RegisterForAnimationEvent, UnregisterForAnimationEvent | GetBaseObject, GetTargetActor, GetCasterActor, Dispel, the inventory event filters |
 | EffectShader, VisualEffect | | Play, Stop |
 | ImageSpaceModifier | | Apply, ApplyCrossFade, Remove, RemoveCrossFade, PopTo |
@@ -586,15 +586,16 @@ either.
 
 `World::save_state(&self) -> Vec<u8>` and `World::load_state(&mut self,
 bytes) -> Result<(), VmError>` write and read the run-time half of the form
-table, magic `SOEW`, version 7 (version 2 added the package driver state
+table, magic `SOEW`, version 8 (version 2 added the package driver state
 to every actor and the natives round state, version 3 the DLC state:
 vampirism and lycanthropy, flying, the deferred kill, eye texture, critical
 stage, bleedout, shouts, the behavior graph floats and the player's perk
-points, version 4 the resident cell, version 7 actor-value components).
-Version 4 reads only when each actor's old current and base values agree.
+points, version 4 the resident cell, version 7 actor-value components,
+version 8 components and dialogue together).
+Versions 4 and 6 read only when each actor's old current and base values agree.
 A difference cannot identify which modifier produced it, so restoration
-returns an explicit ambiguity error. Versions 5 and 6 belong to separate
-magic and dialogue worktrees and need format reconciliation before integration.
+returns an explicit ambiguity error. Version 7 reads with empty dialogue
+state. Version 5 from the separate magic branch still needs integration.
 The state uses the same `Writer`/`Reader` encoding as
 `soe_papyrus::vm::state`, an `ArrayPool` and `ArrayTable` of its own ahead of
 the body for the `Value` arguments a pending event or call is carrying.
@@ -896,3 +897,78 @@ The game crate now directly uses the workspace's existing thiserror 2.0.20
 for typed execution errors. `cargo tree -p soe-game -i thiserror` confirms
 the dependency was already present through esm, bsa, navmesh and profile.
 No package versions or new transitive dependencies were added.
+
+## Dialogue execution, 2026-09-20
+
+`Game::begin_dialogue`, `dialogue_choices`, `choose_dialogue`,
+`dialogue_line`, `advance_dialogue` and `close_dialogue` provide a conversation
+lifecycle over winning DIAL, INFO, DLBR and QUST records. Normal top-level
+branches supply the initial choices. Quest priority and topic priority sort
+those choices. Inactive quests and failed quest/INFO conditions suppress them.
+Selection checks conditions again, so a stale menu cannot start its fragment.
+Unknown conditions return diagnostics instead of becoming true.
+
+INFO ownership comes from the winning TopicChildren group, then the owning
+DIAL's QNAM. TPIC is a previous-topic link. PNAM determines INFO ordering,
+including deleted anchors and inserted overrides. Shared INFO supplies response
+data without transferring conditions, fragment scripts or quest ownership.
+TCLT supplies follow-up DIAL links. Goodbye closes after response completion.
+Random groups draw from the saved world RNG only during selection. Say Once
+and reset hours use saved history, with reset time measured in game hours.
+Original-engine comparison of random-group selection remains open.
+
+INFO VMAD begin/end fragments run on their named script attachment through
+`Vm::call_script`. Both methods are checked before starting a response. The
+speaker reference is the fragment argument. Begin runs before the first line,
+and end is dispatched only after the host acknowledges the final response.
+Closing an interrupted conversation does not dispatch its end fragment. A
+failed end dispatch retains the current response cursor. The VM remains
+responsible for scheduling latent calls and logging runtime script failures.
+The host must not interpret successful dispatch as successful quest completion.
+
+`TopicInfo.GetOwningQuest`, `Actor.GetDialogueTarget`,
+`ObjectReference.IsInDialogueWithPlayer` and `Game.GetDialogueTarget` read this
+state. The actor getter retains the documented player exception. PlayerRef
+initialization reuses the canonical 0:000014 change from the crafting and host
+worktrees, including NPC Player base data when present.
+
+The shared condition evaluator reuses the crafting implementation and adds
+speaker/listener and owning-quest context. Supported function IDs are 1, 18,
+46, 47, 56, 58, 59, 67, 69, 70, 71, 72, 73, 74, 80, 136, 182, 264, 289, 359,
+403, 448, 543, 560, 566, 606, 629, 630 and 659. Run-on subject, target,
+explicit reference and quest alias are supported when their context exists.
+Conditions use current shared actor, quest, inventory and location state.
+Papyrus variable queries require conditional flags and reject ambiguous names.
+The evaluator does not complete missing actor-value, alias or package systems.
+
+SOEW version 8 stores the conversation cursor and sorted INFO history, and
+reads versions 4 and 7 with empty dialogue state and version 6 with its
+legacy actor-value restrictions. Version 5 belongs to the separate magic
+worktree and is rejected here. A combined format must
+be reconciled before these branches merge. Dialogue state contributes to the
+simulation hash. The derived record index is rebuilt from the load order.
+This is engine-save support, not vanilla ESS conversation restoration.
+
+Sources are local xEdit DIAL/INFO/DLBR/QUST and wbConditionFunctions, UESP
+VMAD_Field, CK GetDialogueTarget and IsInDialogueWithPlayer, shipped
+Location.psc, and Mutagen's DialogTopic reader. The PNAM ordering algorithm
+adapts GPL Wrye Bash `Mopy/bash/brec/record_groups.py`,
+`_DialChildren._sort_group`, with explicit cycle rejection. It remains in the
+GPL game crate. The schema sources do not provide a reusable Rust interpreter.
+
+The gated five-master test checks all 40,678 live INFO records for ownership,
+7,799 fragment declarations and 19,368 ordered topic groups. INFO fragment
+bytes survive re-encoding exactly. Script headers follow the existing writer's
+version 5/object format 2 normalization. The survey also exercises an authored
+Hulda topic through the conversation API. That topic has no VMAD fragment,
+so this run does not verify shipped fragment execution. Synthetic tests
+verify named fragments changing quest stages. The text remains a localized string
+identifier, not a displayed subtitle or an audible line.
+
+Remaining dialogue work includes missing conditions, blocking/exclusive
+branches, automatic greetings and ForceGreet, refusal/invisible continuation,
+favor spending, do-all-before-repeating, walk-away behavior, scenes, persuasion,
+services, complete alias behavior and interruption rules. Godot activation,
+menus, string-table resolution, voice assets, LIP and idle playback are not
+connected to this API. This increment does not establish playable dialogue
+or complete the broader gameplay goal.
