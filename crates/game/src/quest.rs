@@ -12,12 +12,14 @@ use soe_esm::{Error, Record, Result, Tag};
 
 use crate::vmad::Vmad;
 
+pub mod state;
+
 pub const QUST: Tag = Tag::new(b"QUST");
 
 pub mod flags {
     pub const START_GAME_ENABLED: u16 = 0x0001;
     pub const ALLOW_REPEATED_STAGES: u16 = 0x0008;
-    pub const RUN_ONCE: u16 = 0x0010;
+    pub const RUN_ONCE: u16 = 0x0100;
 }
 
 pub mod stage_flags {

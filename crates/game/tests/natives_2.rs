@@ -1418,7 +1418,10 @@ fn objective_globals_count_to_a_target() {
         Value::Bool(true)
     );
     let (qid, cid) = (g.form("LocQuest").unwrap(), g.form("Counter").unwrap());
-    assert_eq!(g.world().quest(qid).unwrap().instance_globals[&cid], 3.0);
+    assert_eq!(
+        g.world().quest(qid).unwrap().journal.globals().unwrap()[&cid],
+        3.0
+    );
     call(
         &mut g,
         &quest,

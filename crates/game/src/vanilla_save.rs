@@ -35,6 +35,8 @@ pub enum RestoreError {
     GlobalTarget(u32),
     #[error("saved global {0} occurs more than once")]
     DuplicateGlobal(GlobalFormId),
+    #[error("cannot restore quest {id}: {reason}")]
+    Quest { id: GlobalFormId, reason: String },
 }
 
 /// Plugin positions in a save mapped to positions in the current load order.

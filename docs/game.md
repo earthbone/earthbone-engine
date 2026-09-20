@@ -592,10 +592,11 @@ either.
 
 `World::save_state(&self) -> Vec<u8>` and `World::load_state(&mut self,
 bytes) -> Result<(), VmError>` write and read the run-time half of the form
-table, magic `SOEW`, version 10. Versions 4 to 6 use legacy actor values,
+table, magic `SOEW`, version 11. Versions 4 to 6 use legacy actor values,
 version 5 adds active magic, version 6 adds dialogue, version 7 adds actor-value
 components, version 8 adds dialogue to those components, and version 9 adds
 active magic. Version 10 adds per-reference leveled template choices.
+Version 11 adds quest journal instances and mapped runtime metadata.
 Older formats load with empty state for absent subsystems.
 Legacy current and base values must agree. Otherwise their modifier domains
 are ambiguous and restoration returns an explicit error.
@@ -605,11 +606,12 @@ the body for the `Value` arguments a pending event or call is carrying.
 
 A form's record-derived data is not stored twice. A quest's definition (its
 stages, objectives and aliases as `QUST` and `VMAD` wrote them) is read back
-from the load order the same `quest_state` call already uses to build it the
-first time, `load_state` keeps only the mutable half a running game changes:
+from the load order through a pure definition lookup. A failed load does not
+create lazy quest state. `load_state` keeps the mutable half a running game changes:
 whether it is running, completed, failed or active, the current and highest
 stage, the done set, per-objective displayed and completed and failed flags,
-and where each alias currently points. Everything with no record behind it,
+where each alias currently points, journal instances and runtime metadata.
+Everything with no record behind it,
 every reference's position, cell, enable state, inventory and links, a door's
 own teleport, every actor value, faction and spell, every global's current
 value, the VM object and handle tables, the dynamic id counter, the player,

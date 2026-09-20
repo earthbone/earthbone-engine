@@ -444,3 +444,6 @@ fn installed_save_globals_restore_into_live_forms_and_persist() {
         paths.len()
     );
 }
+
+#[path = "vanilla_save/quests.rs"]
+mod quests;

@@ -32,7 +32,8 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// Versions 7 and 8 add actor-value components and dialogue, respectively.
 /// Version 9 combines components, dialogue and active magic effects.
 /// Version 10 adds persistent per-reference leveled template selections.
-pub const SAVE_VERSION: u16 = 10;
+/// Version 11 adds mapped quest runtime and journal instance state.
+pub const SAVE_VERSION: u16 = 11;
 
 impl World {
     /// Serialize the run-time state: the VM object handles, references,
@@ -70,13 +71,13 @@ impl World {
         }
 
         body.len(self.quests.len());
-        for (id, q) in &self.quests {
+        for (id, q) in self.quests.iter().collect::<BTreeMap<_, _>>() {
             write_form_id(&mut body, *id);
             write_quest_mutable(&mut body, q);
         }
 
         body.len(self.globals.len());
-        for (id, v) in &self.globals {
+        for (id, v) in self.globals.iter().collect::<BTreeMap<_, _>>() {
             write_form_id(&mut body, *id);
             body.f32(*v);
         }
@@ -293,6 +294,7 @@ impl World {
         self.write_dialogue(&mut body);
         self.write_magic(&mut body);
         self.write_actor_templates(&mut body);
+        self.write_quest_aux(&mut body);
         let mut out = Writer::new();
         out.out.extend_from_slice(SAVE_MAGIC);
         out.u16(SAVE_VERSION);
@@ -378,7 +380,7 @@ impl World {
                 let id = read_form_id(&mut r)?;
                 instance_globals.insert(id, r.f32()?);
             }
-            let Some(def) = self.quest_state(id).map(|q| q.def.clone()) else {
+            let Some(initial) = self.initial_quest(id) else {
                 return Err(VmError::State(format!(
                     "quest {id} is not in the load order"
                 )));
@@ -386,7 +388,7 @@ impl World {
             quests.insert(
                 id,
                 QuestState {
-                    def,
+                    def: initial.def,
                     running,
                     completed,
                     failed,
@@ -396,7 +398,8 @@ impl World {
                     done,
                     objectives,
                     aliases,
-                    instance_globals,
+                    journal: crate::quest::state::Journal::legacy(instance_globals),
+                    runtime: initial.runtime,
                 },
             );
         }
@@ -729,6 +732,9 @@ impl World {
         } else {
             BTreeMap::new()
         };
+        if version >= 11 {
+            super::quest_save::read_quest_aux(&mut r, &mut quests)?;
+        }
         r.expect_end()?;
 
         self.actor_templates = actor_templates;
@@ -1231,12 +1237,12 @@ fn write_quest_mutable(w: &mut Writer, q: &QuestState) {
         write_objective(w, *o);
     }
     w.len(q.aliases.len());
-    for (id, target) in &q.aliases {
+    for (id, target) in q.aliases.iter().collect::<BTreeMap<_, _>>() {
         w.u32(*id);
         write_opt_form_id(w, *target);
     }
-    w.len(q.instance_globals.len());
-    for (id, v) in &q.instance_globals {
+    w.len(q.journal.globals().map_or(0, BTreeMap::len));
+    for (id, v) in q.journal.globals().into_iter().flatten() {
         write_form_id(w, *id);
         w.f32(*v);
     }

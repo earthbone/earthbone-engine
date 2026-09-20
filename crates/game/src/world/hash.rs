@@ -400,11 +400,9 @@ fn quest_state(h: &mut StateHasher, q: &QuestState) {
         h.u32(*k);
         opt_form(h, *v);
     });
-    h.len(q.instance_globals.len());
-    for (id, v) in &q.instance_globals {
-        form(h, *id);
-        h.f32(*v);
-    }
+    let mut saved = soe_papyrus::vm::state::Writer::new();
+    super::quest_save::write_aux(&mut saved, q);
+    h.bytes(&saved.out);
 }
 
 impl World {
@@ -760,7 +758,8 @@ mod tests {
                 done: BTreeSet::new(),
                 objectives: BTreeMap::new(),
                 aliases: HashMap::new(),
-                instance_globals: BTreeMap::new(),
+                journal: crate::quest::state::Journal::default(),
+                runtime: crate::quest::state::Runtime::default(),
             },
         );
         w
@@ -908,8 +907,8 @@ mod tests {
             w.quests
                 .get_mut(&id(2))
                 .expect("seeded quest")
-                .instance_globals
-                .insert(id(9), 1.5);
+                .journal
+                .update_global(id(9), 1.5);
         });
     }
 

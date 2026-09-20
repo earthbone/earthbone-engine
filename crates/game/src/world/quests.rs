@@ -11,33 +11,43 @@ use super::{Alloc, Handle, ObjectiveState, Pending, QuestState, World};
 use crate::quest::Quest;
 
 impl World {
+    pub(crate) fn initial_quest(&self, id: GlobalFormId) -> Option<QuestState> {
+        let rref = self.order.winner_ref(id)?;
+        let rec = self.order.record(rref);
+        if rec.is_deleted() {
+            return None;
+        }
+        let localized = self.order.file(rref.file).plugin.header.is_localized();
+        let def = Quest::from_record(rec, localized).ok()?;
+        let aliases = def
+            .aliases
+            .iter()
+            .map(|a| (a.id, a.forced_ref.map(|r| self.order.resolve(rref.file, r))))
+            .collect();
+        let runtime = crate::quest::state::Runtime {
+            other_flags: def.flags & !crate::quest::state::STATE_FLAGS,
+            ..Default::default()
+        };
+        Some(QuestState {
+            def,
+            running: false,
+            completed: false,
+            failed: false,
+            active: false,
+            current: 0,
+            highest: 0,
+            done: BTreeSet::new(),
+            objectives: BTreeMap::new(),
+            aliases,
+            journal: crate::quest::state::Journal::default(),
+            runtime,
+        })
+    }
+
     pub fn quest_state(&mut self, id: GlobalFormId) -> Option<&mut QuestState> {
         if !self.quests.contains_key(&id) {
-            let rref = self.order.winner_ref(id)?;
-            let rec = self.order.record(rref);
-            let localized = self.order.file(rref.file).plugin.header.is_localized();
-            let def = Quest::from_record(rec, localized).ok()?;
-            let aliases = def
-                .aliases
-                .iter()
-                .map(|a| (a.id, a.forced_ref.map(|r| self.order.resolve(rref.file, r))))
-                .collect();
-            self.quests.insert(
-                id,
-                QuestState {
-                    def,
-                    running: false,
-                    completed: false,
-                    failed: false,
-                    active: false,
-                    current: 0,
-                    highest: 0,
-                    done: BTreeSet::new(),
-                    objectives: BTreeMap::new(),
-                    aliases,
-                    instance_globals: BTreeMap::new(),
-                },
-            );
+            let state = self.initial_quest(id)?;
+            self.quests.insert(id, state);
         }
         self.quests.get_mut(&id)
     }

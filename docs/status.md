@@ -1,5 +1,11 @@
 # Status, per subsystem
 
+The unmerged `ess-quest-restore` follow-up applies QUST stages, objectives,
+aliases and journal instances without replaying quest events. SOEW version 11
+persists their mapped runtime state. The 60-save application survey restores
+32,256 quests. Missing world identities, lifecycle tasks, VM bindings and saved
+execution remain open. See [save.md](save.md#applying-saved-quests).
+
 The `ess-world-bindings` follow-up adds saved plugin-name mapping and atomic
 global-variable restoration into live GLOB records, including the engine-defined
 PlayCredits form. Actor/quest state, calendar and scheduler clocks, Papyrus

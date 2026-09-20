@@ -3,7 +3,8 @@
 `crates/save` reads an `.ess` file into a typed structure and turns the part of
 it that describes progress into scenario expectations the harness in
 `crates/game` can run. The game crate also imports the saved global-variable
-table using the saved plugin names. Full world restoration remains unfinished.
+table and quest change forms using saved plugin names. Full world restoration
+remains unfinished.
 
 The format was not reverse engineered. It is documented and it has a mature
 open implementation, so both were read first.
@@ -113,8 +114,8 @@ Change form payloads other than `QUST` stay as bytes, decoded on demand. The
 Papyrus auxiliary data after the save-file version stays raw, as does the
 original payload used when writing the save body.
 
-Most decoded state remains inspection data. The game crate can apply the global
-table, but neither stack execution nor pending calls can be resumed from a
+Most decoded state remains inspection data. The game crate can apply globals
+and quest state, but neither stack execution nor pending calls can be resumed from a
 vanilla save. The explicit instance-import API below can apply decoded
 variables to a prepared VM, but it is not a complete save loader.
 
@@ -202,11 +203,65 @@ Their event arrays are empty in this corpus and have synthetic coverage only.
 Synthetic tests cover all 512 section-presence combinations, wide counts,
 every truncated fixture prefix, compressed payloads and rejected mutations.
 
-This is decoded state for the future world loader, not restored quest execution.
-Runtime alias application, journal instance selection, quest lifecycle and
-story-event resumption still need implementation. The decoded flags cannot by
-themselves establish whether a quest is starting, stopping or waiting for a
-scheduled task. Full ESS restoration remains unfinished.
+The game application path below uses the decoded quest state. Story-event and
+quest lifecycle task resumption still need implementation. Flags alone cannot
+establish whether a quest is starting, stopping or waiting for a scheduled task.
+Full ESS restoration remains unfinished.
+
+## Applying saved quests
+
+`World::restore_vanilla_quests` validates all QUST change forms before replacing
+any live quest state. It reads winning definitions without lazily changing the
+world. Invalid definitions, stage/objective/alias IDs, duplicate entries and
+missing journal selectors fail atomically. Unlisted quests remain unchanged.
+Present empty runtime data clears alias fill results. Omitted sections use
+fresh quest defaults, including authored forced references.
+
+Done stages drive GetStage, GetCurrentStageID and stage queries. The vanilla
+Quest.psc describes both stage getters as the highest completed stage. Saved
+stages do not establish the order of SetStage calls, so the internal last-stage
+field starts at that highest stage. CommonLib QuestObjectiveStates supplies all
+six objective statuses. The import applies enabled, completed, failed and active
+bits separately. Remaining flags, change-form flags, script delay, already-run,
+alias creation metadata and story-event context persist without invented events.
+
+Journal entries store alias text forms and global snapshots under mapped form
+identities. Current and historical entries share one canonical collection.
+UpdateCurrentInstanceGlobal changes only the selected instance. The instance
+ID, current selector, journal stage and journal-item interpretation follow the
+matching CommonLib TESQuest/BGSQuestInstanceText structures. This field mapping
+is an inference supported by all nonempty instance lists in the corpus, whose
+selector always names an entry. xEdit and UESP leave those scalar names unknown.
+
+SOEW version 11 preserves the journal and runtime extension, including unknown
+bytes and float bits. Versions 4 through 10 remain readable. Their single global
+snapshot map becomes instance zero when nonempty. The version-11 legacy prefix
+and selected instance globals must agree bit for bit. Quest/global tables and
+quest alias maps are sorted during serialization. Hashes include the extension.
+
+No OnInit, startup stage, fragment, alias-fill or story event is dispatched by
+restoration. The report lists identities missing from both current records and
+resident references, and quests carrying stage-wait. Created references retain
+their identity even before world change forms allocate them. This report does
+not prove that saved VM objects or lifecycle tasks are bound and ready to run.
+In particular, the existing running flag receives the saved enabled bit, which
+cannot represent an in-flight promotion task. IsStarting and IsStopping remain
+stubs until execution restoration supplies that state.
+
+The first 60-save application survey restores 32,256 quests and preserves every
+engine-save byte and the world hash after reloading. It reports 6,816 unresolved
+world identities across saves and one stage-wait quest. Synthetic checks cover
+plugin reordering, native queries, all objective statuses, created aliases,
+current versus historical globals, metadata persistence, old saves and atomic
+failure. Runtime reference alias kind one has synthetic coverage only. The
+corpus contains kind zero. No game has resumed its quests from an ESS yet.
+
+Sources were local Quest.psc, UESP QUST_Changeform, xEdit's QUST save definitions,
+CommonLib TESQuest.h and QuestObjectiveStates.h. Existing form mapping, World,
+VM native and binary state paths are reused. No dependency was added. Type-107
+quest-static state remains decoded inspection data. The remaining work includes
+created/world forms, live Papyrus object bindings, calendar and scheduler state,
+saved stacks and latent calls, atomic whole-game loading and host resumption.
 
 ## Saved forms and live globals
 

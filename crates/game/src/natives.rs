@@ -1502,7 +1502,7 @@ fn quest(vm: &mut Vm, w: &Shared) {
             let value = world.global_value(global);
             match world.quest_state(me) {
                 Some(q) => {
-                    q.instance_globals.insert(global, value);
+                    q.journal.update_global(global, value);
                     b(true)
                 }
                 None => b(false),

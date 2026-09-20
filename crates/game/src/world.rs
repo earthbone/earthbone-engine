@@ -49,7 +49,10 @@ mod locks;
 mod lookup;
 pub mod magic;
 mod objects;
+mod quest_restore;
+mod quest_save;
 mod quests;
+pub use quest_restore::QuestRestoreReport;
 mod refs;
 mod rng;
 pub(crate) mod save;
@@ -314,15 +317,15 @@ pub struct QuestState {
     pub completed: bool,
     pub failed: bool,
     pub active: bool,
-    /// The last stage set. Both public stage getters return `highest`.
+    /// Last stage set locally, or highest done stage after vanilla restoration.
     pub current: u16,
     /// The highest stage set, what `GetStage` returns.
     pub highest: u16,
     pub done: BTreeSet<u16>,
     pub objectives: BTreeMap<u16, ObjectiveState>,
     pub aliases: HashMap<u32, Option<GlobalFormId>>,
-    /// `UpdateCurrentInstanceGlobal` snapshots, per global.
-    pub instance_globals: BTreeMap<GlobalFormId, f32>,
+    pub journal: crate::quest::state::Journal,
+    pub runtime: crate::quest::state::Runtime,
 }
 
 /// Work a native asked the VM to do.
