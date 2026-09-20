@@ -19,10 +19,12 @@
 
 use std::collections::HashMap;
 
+use crate::expression::{Expression, ExpressionError};
+
 use crate::animation::SplineCompressedAnimation;
 use crate::behavior::{
-    transition_flags, BehaviorGraph, BehaviorGraphData, BlenderGenerator, ClipGenerator, NodeId,
-    NodeKind, StateMachine, TimeInterval, TransitionInfo, VariableBindingSet, VariableInfo,
+    transition_flags, BehaviorGraph, BehaviorGraphData, BlenderGenerator, ClipGenerator, Condition,
+    NodeId, NodeKind, StateMachine, TimeInterval, TransitionInfo, VariableBindingSet, VariableInfo,
     VariableType, IS_ACTIVE_SLOTS,
 };
 use crate::skeleton::AnimationContainer;
@@ -263,7 +265,7 @@ pub struct StateChange {
     pub machine: NodeId,
     pub from: Option<i32>,
     pub to: i32,
-    /// The event that caused it, `None` for activation.
+    /// The event that caused it, `None` for activation or a condition-only transition.
     pub event: Option<i32>,
 }
 
@@ -365,6 +367,8 @@ pub struct Unsupported {
     pub unknown_classes: Vec<String>,
     /// Binding member paths with no setter.
     pub unbound: Vec<String>,
+    /// Condition classes, source expressions or values that cannot be evaluated.
+    pub conditions: Vec<String>,
 }
 
 fn push_unique(list: &mut Vec<String>, item: String) {
@@ -381,6 +385,7 @@ pub struct Interpreter<'a> {
     pub character_properties: Variables,
     nodes: Vec<Runtime>,
     bindings: Vec<ResolvedBinding>,
+    conditions: HashMap<Condition, std::result::Result<Expression, ExpressionError>>,
     pending: Vec<Event>,
     raised: Vec<Event>,
     handled: Vec<Event>,
@@ -388,6 +393,7 @@ pub struct Interpreter<'a> {
     unsupported: Unsupported,
     output: Output,
     frame: u64,
+    condition_frames: Vec<u64>,
 }
 
 /// Rounds of internally raised events handled per update before the rest
@@ -413,9 +419,18 @@ impl<'a> Interpreter<'a> {
             graph,
             clips,
             variables: Variables::from_graph_data(&graph.data),
-            character_properties: Variables::default(),
+            character_properties: Variables::from_infos(
+                &graph
+                    .data
+                    .character_property_names
+                    .iter()
+                    .map(String::as_str)
+                    .collect::<Vec<_>>(),
+                &graph.data.character_property_infos,
+            ),
             nodes,
             bindings: Vec::new(),
+            conditions: HashMap::new(),
             pending: Vec::new(),
             raised: Vec::new(),
             handled: Vec::new(),
@@ -427,9 +442,96 @@ impl<'a> Interpreter<'a> {
             },
             reference_pose,
             frame: 0,
+            condition_frames: vec![0; graph.nodes.len()],
         };
         interp.resolve_bindings();
+        interp.resolve_conditions();
         interp
+    }
+
+    fn resolve_conditions(&mut self) {
+        for node in &self.graph.nodes {
+            let NodeKind::StateMachine(sm) = &node.kind else {
+                continue;
+            };
+            for transition in sm
+                .states
+                .iter()
+                .flat_map(|state| &state.transitions)
+                .chain(&sm.wildcard_transitions)
+            {
+                if transition.flags & transition_flags::DISABLE_CONDITION != 0 {
+                    continue;
+                }
+                if let Some(condition) = &transition.condition {
+                    if let Some((source, scope)) = condition.expression() {
+                        let result =
+                            self.conditions.entry(condition.clone()).or_insert_with(|| {
+                                Expression::compile(
+                                    source,
+                                    &self.variables,
+                                    &self.character_properties,
+                                    scope,
+                                )
+                            });
+                        if let Err(error) = result {
+                            push_unique(
+                                &mut self.unsupported.conditions,
+                                format!("{source}: {error:?}"),
+                            );
+                        }
+                    } else if let Condition::Unsupported(class) = condition {
+                        push_unique(&mut self.unsupported.conditions, class.clone());
+                    }
+                }
+            }
+        }
+    }
+
+    fn condition_passes(&mut self, transition: &TransitionInfo) -> bool {
+        if transition.flags & transition_flags::DISABLE_CONDITION != 0 {
+            return true;
+        }
+        let Some(condition) = &transition.condition else {
+            return true;
+        };
+        let Some((source, _)) = condition.expression() else {
+            return false;
+        };
+        let Some(Ok(expression)) = self.conditions.get(condition) else {
+            return false;
+        };
+        match expression.evaluate(&self.variables, &self.character_properties) {
+            Ok(value) => value != 0.0,
+            Err(error) => {
+                push_unique(
+                    &mut self.unsupported.conditions,
+                    format!("{source}: {error:?}"),
+                );
+                false
+            }
+        }
+    }
+
+    /// Poll each active machine once, outermost first. A transition waits
+    /// taken by a condition waits until the next frame before polling its new state.
+    fn handle_conditions(&mut self, id: NodeId) {
+        if !self.nodes[id.0].active || self.condition_frames[id.0] == self.frame {
+            return;
+        }
+        self.condition_frames[id.0] = self.frame;
+        let node = self.graph.node(id);
+        let children = if let NodeKind::StateMachine(sm) = &node.kind {
+            if self.machine_event(id, sm, Event { id: -1 }) {
+                return;
+            }
+            self.active_generators_of_machine(id, sm)
+        } else {
+            node.children()
+        };
+        for child in children {
+            self.handle_conditions(child);
+        }
     }
 
     fn resolve_bindings(&mut self) {
@@ -636,6 +738,7 @@ impl<'a> Interpreter<'a> {
                 self.handled.push(ev);
                 self.handle_event(root, ev);
             }
+            self.handle_conditions(root);
             let output = self.generate(root, dt);
             self.output = output;
             for _ in 0..MAX_EVENT_ROUNDS {
@@ -950,7 +1053,7 @@ impl<'a> Interpreter<'a> {
             .transitions
             .iter()
             .chain(sm.wildcard_transitions.iter())
-            .find(|t| Self::transition_matches(sm, current, t, ev))
+            .find(|t| Self::transition_matches(sm, current, t, ev) && self.condition_passes(t))
             .cloned();
         let target = match candidate {
             Some(t) => Some((t.to_state_id, t)),
@@ -966,12 +1069,13 @@ impl<'a> Interpreter<'a> {
         true
     }
 
-    /// The gate from `hkbStateMachine.inl`'s `shouldTransition` minus what
-    /// this crate does not decode yet: conditions and trigger intervals
-    /// are accepted as satisfied. A wildcard that would land on the
-    /// current state is skipped unless it allows self transitions.
+    /// Match event or condition-only transitions. Trigger intervals are
+    /// not evaluated here. Wildcard self transitions require their flag.
     fn transition_matches(sm: &StateMachine, current: i32, t: &TransitionInfo, ev: Event) -> bool {
         if t.flags & transition_flags::DISABLED != 0 || t.event_id != ev.id {
+            return false;
+        }
+        if ev.id == -1 && t.condition.is_none() {
             return false;
         }
         let wildcard = transition_flags::IS_GLOBAL_WILDCARD | transition_flags::IS_LOCAL_WILDCARD;
@@ -1033,7 +1137,7 @@ impl<'a> Interpreter<'a> {
                 }
             }
         }
-        self.enter_state(id, sm, to, Some(ev.id));
+        self.enter_state(id, sm, to, (ev.id >= 0).then_some(ev.id));
     }
 
     fn finish_transition(&mut self, id: NodeId, t: ActiveTransition) {
@@ -1417,7 +1521,7 @@ impl TransitionInfo {
             trigger_interval: never,
             initiate_interval: never,
             transition: None,
-            has_condition: false,
+            condition: None,
             event_id: -1,
             to_state_id,
             from_nested_state_id: -1,

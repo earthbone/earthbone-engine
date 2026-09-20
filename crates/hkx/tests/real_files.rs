@@ -419,3 +419,72 @@ fn every_shipped_packfile_parses_and_animations_decode() {
         failures.len() + decode_failures.len()
     );
 }
+
+#[test]
+fn anm_01_shipped_transition_expressions_are_decoded_and_diagnosed() {
+    let Some(archive) = animations_archive() else {
+        return;
+    };
+    let clips = ClipLibrary::new();
+    let mut graphs = 0;
+    let mut conditions = 0;
+    let mut failures = Vec::new();
+    for name in archive.files().iter().filter(|name| {
+        std::path::Path::new(name)
+            .extension()
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("hkx"))
+    }) {
+        let bytes = archive.read(name).unwrap();
+        let pf = Packfile::parse(&bytes).unwrap();
+        if pf.objects_of("hkbBehaviorGraph").is_empty() {
+            continue;
+        }
+        let graph = BehaviorGraph::from_packfile(&pf).unwrap();
+        graphs += 1;
+        let mut decoded_sources = std::collections::BTreeSet::new();
+        for node in &graph.nodes {
+            if let soe_hkx::behavior::NodeKind::StateMachine(sm) = &node.kind {
+                for transition in sm
+                    .states
+                    .iter()
+                    .flat_map(|state| &state.transitions)
+                    .chain(&sm.wildcard_transitions)
+                {
+                    if let Some(soe_hkx::behavior::Condition::Expression(source)) =
+                        &transition.condition
+                    {
+                        conditions += 1;
+                        decoded_sources.insert(source.clone());
+                    }
+                }
+            }
+        }
+        for class in ["hkbExpressionCondition", "hkbStringCondition"] {
+            for condition in pf.objects_of(class) {
+                let source = condition.string_or_empty(16).unwrap();
+                assert!(
+                    decoded_sources.contains(&source),
+                    "{name}: missed serialized {class}: {source}"
+                );
+            }
+        }
+        let vm = Interpreter::new(&graph, &clips, Vec::new());
+        failures.extend(
+            vm.unsupported()
+                .conditions
+                .iter()
+                .map(|error| format!("{name}: {error}")),
+        );
+    }
+    eprintln!(
+        "{graphs} behavior graphs, {conditions} guards, {} unsupported expressions",
+        failures.len()
+    );
+    assert!(graphs > 100, "survey did not cover shipped behaviors");
+    failures.sort();
+    assert_eq!(failures, [
+        "meshes/actors/draugr/behaviors/draugrbehavior.hkx: SpeedSampled < 5.0: UnknownSymbol(\"SpeedSampled\")",
+        "meshes/actors/draugr/behaviors/draugrbehavior.hkx: SpeedSampled >= 5.0: UnknownSymbol(\"SpeedSampled\")",
+        "meshes/actors/troll/behaviors/trollbehavior.hkx: (staggerDirection < .25) || (staggerDirection > .75) || (staggerMagnitude > .3 , < .7): Syntax(79)",
+    ], "undeclared draugr variable and ANM-50 comma comparison stay closed");
+}

@@ -272,9 +272,8 @@ The first milestone on that road is the map's: an idle and a walk cycle
 on the player skeleton. In graph terms that is `0_master` entering
 `MT_BehaviorReference`, `mt_behavior` reaching its idle state, then a
 `Speed` write and a transition into the walk blend. Everything that test
-needs is loaded by this crate today except conditions (`hkbCondition`
-expressions on transitions, flagged but not decoded) and the extracted
-motion frame.
+needs is loaded by this crate today except the extracted motion frame.
+Scalar transition conditions are evaluated as described below.
 
 ## Live run (2026-09-14)
 
@@ -305,9 +304,9 @@ What each node does:
   deterministic stand-in for random, 3 falls back to 0 since choosers are
   not decoded). An event matches the first transition in the current
   state's list, then the wildcards, whose event id it carries, whose flags
-  are not disabled and whose target state is enabled. Conditions and
-  trigger intervals are accepted as satisfied, the arbitration gap the
-  references list. The return-to-previous-state event goes back one state.
+  are not disabled, whose target state is enabled and whose scalar condition
+  passes. Eventless guards are polled once per active machine per frame.
+  Trigger intervals are still accepted as satisfied. The return-to-previous-state event goes back one state.
   A blending transition effect with a duration crossfades the old and new
   generators with `blend_curve` (0 smooth, 1 linear, 2 linear to smooth, 3
   smooth to linear) and keeps the old one active until it ends. Without
@@ -430,8 +429,8 @@ knows keeps the parent's id, one the parent lacks is appended to the parent's
 tables. Then every id inside the sub-graph is rewritten, its node ids shift
 past the parent's, and the reference points at the sub-graph's root.
 
-Character property bindings are left alone, they index a separate table this
-map does not cover.
+Character properties use a separate name map. Their names and typed infos are
+merged too, and binding type 1 is remapped through that property map.
 
 ### Input and output bindings
 
@@ -445,6 +444,80 @@ read as before, now including `hkbStateMachine.startStateId` (which beats the
 stored start state in every mode), `hkbBlendingTransitionEffect.duration` and
 `BSCyclicBlendTransitionGenerator.fBlendParameter`.
 
+### Scalar transition conditions, ANM-01
+
+`hkbExpressionCondition.expression` and legacy
+`hkbStringCondition.conditionString` are string pointers at offset 16.
+Conditions have no `hkbNode` header. The parser preserves their source in
+`TransitionInfo.condition`, including an explicit unsupported class variant.
+`Interpreter::new` compiles the source after reference linking. Named graph
+variables then bind to the merged table, so a subgraph's original variable
+index cannot accidentally select a parent variable with a different name.
+Character property names resolve against the merged property table, including
+properties declared only by a referenced graph. The linker retains each
+expression's originating variable and property namespaces. Thus a parent
+variable cannot capture a child property with the same name, or the reverse.
+Those scopes survive further linking, and identical source text with different
+scopes compiles separately.
+
+Supported scalar syntax includes parentheses, decimal and exponent literals,
+`true` and `false`, unary `!`, `+`, `-`, arithmetic `+`, `-`, `*`, `/`, `%`,
+comparisons `==`, `!=`, `<`, `<=`, `>`, `>=`, and short-circuit `&&`, `||`.
+Bool, signed 8-bit, signed 16-bit, signed 32-bit and real values use their
+stored types. Numeric expression operands use `hkReal` precision. Pointer,
+vector and quaternion operands, unknown symbols, malformed source and
+non-finite arithmetic return expression errors. Their guards stay closed,
+with deduplicated entries in `Unsupported.conditions`.
+
+`DISABLE_CONDITION` bypasses a guard. `DISABLED` still disables the whole
+transition. An event guard must match its event as well as its expression.
+An event ID of -1 with a condition is polled once per node each frame, before
+sampling, with no synthetic event added to the event queue. After a condition-only transition, the new
+state waits until the next frame for another condition-only transition. An
+external event enters its target before condition polling, so that target's
+guard can run in the same frame.
+Missing guards keep the existing event-driven behavior.
+
+Sources read locally before implementation:
+
+- `serde-hkx/assets/classes/hkbExpressionCondition.json` and
+  `hkbStringCondition.json` supply the serialized string offsets.
+- `serde-hkx/assets/classes/hkbCompiledExpressionSetToken.json` supplies the
+  operator inventory and `hkReal` operand representation.
+- `serde-hkx/assets/classes/hkbStateMachineTransitionInfo.json` supplies
+  the condition pointer and disable-condition flag.
+- `Skyrim-Behavior-Editor-/src/hkxclasses/behavior/hkbexpressioncondition.cpp`
+  and `hkbstringcondition.cpp` preserve authored expression strings.
+- Nemesis local `test environment/mod` examples confirm named variables,
+  ordinary scalar comparisons and logical operators in authored conditions.
+
+Neither the class tables nor the editor implement expression evaluation, so
+this crate uses its own bounded scalar parser instead of adding a dependency
+on a serializer or a Qt editor. Function calls are rejected and tracked by
+ANM-49, including seeded random evaluation. No Havok runtime capture was used
+and timing arbitration outside these guards remains separate work.
+
+`tests/conditions.rs` covers binary decoding, bool/int/real changes, false
+guards, condition-only polling, cycles, disabled conditions, malformed or
+unknown input, parent/subgraph symbol reordering, child-only properties,
+variable/property name collisions, repeated linking and property binding IDs.
+Expression unit tests
+cover precedence, short circuiting, typed storage, character properties and
+malformed-input limits.
+
+The installed-data survey visits 428 behavior graphs and 814 guarded
+transitions. It checks every serialized expression/string condition appears
+in the decoded graph. Two draugr conditions refer to the undeclared variable
+`SpeedSampled`, and one troll guard contains `staggerMagnitude > .3 , < .7`.
+These three inputs stay closed and are asserted as exact diagnostics. ANM-50
+requires runtime evidence for the comma syntax. The initial survey guessed
+more than 1,000 guards and failed that count check. The final coverage check
+compares serialized conditions directly instead of using that guessed count.
+
+The existing installed-data checks still parse all 7,699 packfiles, decode
+all 6,126 spline animations and sample 466,793 tracks without failures. The
+linked human idle/walk graph still reaches both clips with weight one.
+
 ## 7. Not done and next
 
 - Modifier evaluation. `BSIsActiveModifier` reports its own activity and the
@@ -452,10 +525,10 @@ stored start state in every mode), `hkbBlendingTransitionEffect.duration` and
   work: bone weight masks on a blender, `BSEventOnFalseToTrueModifier`,
   `hkbRotateCharacterModifier` and `hkbEventsFromRangeModifier`. Their
   layouts are in `serde-hkx` like the rest.
-- Transition details: trigger and initiate intervals, `hkbCondition`
-  expressions, priority arbitration, the `abut at end` flag,
-  `hkbGeneratorTransitionEffect`, `maxSimultaneousTransitions`. Conditions
-  are still accepted as satisfied, which is the largest remaining guess.
+- Transition details: trigger and initiate intervals, priority arbitration,
+  the `abut at end` flag, `hkbGeneratorTransitionEffect` and
+  `maxSimultaneousTransitions`. Expression functions are ANM-49 and the
+  undocumented troll comma condition is ANM-50.
 - Blender details: bone weight masks, `subtractLastChild`, the real weight
   curve once a capture from the game exists (5.4).
 - Extracted motion and float tracks in the output.

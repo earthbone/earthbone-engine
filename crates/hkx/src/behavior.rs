@@ -18,6 +18,7 @@
 //! overlap (`hkbNode`, `hkbStateMachine`, `hkbBlendingTransitionEffect`).
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use crate::packfile::{root_variant_of, Obj};
 use crate::{Packfile, Result};
@@ -297,15 +298,54 @@ pub mod transition_flags {
     pub const ABUT_AT_END_OF_FROM_GENERATOR: u16 = 16384;
 }
 
+/// Original expression symbol namespaces, retained across graph linking.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ExpressionScope {
+    pub(crate) variables: Vec<String>,
+    pub(crate) properties: Vec<String>,
+}
+
+/// Serialized transition guard. Compiled expression caches are not serialized.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum Condition {
+    /// Source text in `hkbExpressionCondition` or legacy `hkbStringCondition`.
+    Expression(String),
+    /// Linked expression with its originating symbol namespaces.
+    ScopedExpression {
+        source: String,
+        scope: Arc<ExpressionScope>,
+    },
+    /// A condition class without an evaluator. It never passes a guard.
+    Unsupported(String),
+}
+
+impl Condition {
+    pub(crate) fn expression(&self) -> Option<(&str, Option<&ExpressionScope>)> {
+        match self {
+            Self::Expression(source) => Some((source, None)),
+            Self::ScopedExpression { source, scope } => Some((source, Some(scope))),
+            Self::Unsupported(_) => None,
+        }
+    }
+
+    fn from_obj(o: Obj<'_>) -> Result<Self> {
+        let class = o.class().unwrap_or("unknown");
+        if matches!(class, "hkbExpressionCondition" | "hkbStringCondition") {
+            Ok(Self::Expression(o.string_or_empty(16)?))
+        } else {
+            Ok(Self::Unsupported(class.to_string()))
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct TransitionInfo {
     pub trigger_interval: TimeInterval,
     pub initiate_interval: TimeInterval,
     /// The transition effect node, when one is set.
     pub transition: Option<NodeId>,
-    /// An `hkbCondition` (expression) guards this transition. The
-    /// expression itself is not decoded yet.
-    pub has_condition: bool,
+    /// A decoded guard, or an unsupported condition class.
+    pub condition: Option<Condition>,
     pub event_id: i32,
     pub to_state_id: i32,
     pub from_nested_state_id: i32,
@@ -738,7 +778,7 @@ impl<'a> Loader<'a> {
                 trigger_interval: TimeInterval::read(t, 0)?,
                 initiate_interval: TimeInterval::read(t, 16)?,
                 transition,
-                has_condition: t.ptr(40)?.is_some(),
+                condition: t.ptr(40)?.map(Condition::from_obj).transpose()?,
                 event_id: t.i32(48)?,
                 to_state_id: t.i32(52)?,
                 from_nested_state_id: t.i32(56)?,
