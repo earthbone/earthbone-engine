@@ -10,6 +10,10 @@ CELL, LCTN and ECZN decoding remains blocked on missing serialized layouts.
 See [saved spatial fields](save-spatial-fields.md) for the source boundary and
 60-save coverage census supporting SAV-27 and its SAV-66 prerequisite.
 
+The projectile and hazard decoder tasks share a missing subtype-layout
+prerequisite. See [saved projectile layouts](save-projectile-layouts.md) for
+the xEdit dispatch gap, runtime type boundaries and evidence needed by SAV-55.
+
 The format was not reverse engineered. It is documented and it has a mature
 open implementation, so both were read first.
 
