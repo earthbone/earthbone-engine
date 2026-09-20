@@ -615,3 +615,13 @@ isolated package survey reduced that count to 81 and recovered 73 additional
 inventory sections. See [saved package runtime state](save-package-data.md) for
 source evidence, boundaries and integration validation. Runtime package
 restoration and complete ESS resumption remain unfinished.
+
+## Created Objects decoder checkpoint
+
+`Save::created_objects` reads all four type-4 magic-item tables using the UESP
+and skymp field definitions, retaining exact count encodings and float bits.
+SAV-65 remains blocked because all 60 external saves have empty tables and the
+predeclared populated-corpus requirement fails. Synthetic fields and malformed
+input are covered, but no real nonempty entry is validated. See
+[Created Objects tables](save-created-objects.md) for sources, full accounting,
+the required fixtures and SAV-17's separate live-record restoration boundary.

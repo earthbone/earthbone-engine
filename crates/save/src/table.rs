@@ -99,6 +99,8 @@ pub struct GlobalData {
 impl GlobalData {
     /// Type 3 is the global variable table.
     pub const GLOBAL_VARIABLES: u32 = 3;
+    /// Type 4 holds created enchantments, potions and poisons.
+    pub const CREATED_OBJECTS: u32 = 4;
     /// Type 1001 is the Papyrus virtual machine state.
     pub const PAPYRUS: u32 = 1001;
 
