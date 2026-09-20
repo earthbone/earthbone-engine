@@ -30,6 +30,7 @@ to be available in the audited baseline.
 | PRG-01 | PRG-08, AI-37 | Skill-use accumulation applies Mod Skill Use. Its advance-object and action predicates, CTDA 691 and 692, belong to AI-37. The curve also reads AVIF AVSK, not only GMST. |
 | PRG-02 | None | Perk purchase consumes the existing saved World::perk_points balance and current actor values. Earning new skill XP is not required to spend already granted points. |
 | PRG-04 | None | ECZN clamps the selection level used by existing actor-template selection. PRG-03 computes attributes after selection and does not supply the zone's level lock. |
+| PRG-08 | PRG-17 | Runtime ordering, internal rank eligibility and condition-tab target binding need verified semantics before entry dispatch. |
 | PRG-09 | PRG-15 | Skill initialization needs verified manual and automatic calculation rules. DNAM caches can already include racial bonuses. |
 | PRG-12 | PRG-06, PRG-13, DLG-10 | Arrest needs bounty state, an executable jail outcome and the choice interface. Jail service can be checked before the guard conversation. |
 | PRG-13 | PRG-06, CRF-04, PRG-01 | Jail uses faction bounty, transfers selected confiscated stacks and applies skill-progress penalties without losing instance metadata. |
@@ -103,7 +104,7 @@ them. Serena confirmed the alias lookup and mutation definitions.
 ## Validation
 
 The initial CSV validation checked all 541 rows. The completion update adds
-PRG-16, bringing the registry to 542 rows and the selected scope to 45.
+PRG-16 and PRG-17, bringing the registry to 543 rows and the selected scope to 46.
 CSV validation checks the complete registry. It checks unique IDs, required fields,
 title/source/crate bounds, canonical quoting, valid status/evidence/date
 fields, retained original IDs, existing non-dropped prerequisites and cycle
@@ -140,3 +141,35 @@ depends on PRG-15 so bonuses apply once across spawn and reload. Cached DNAM
 bytes do not identify the inputs used to calculate them. Reusing those bytes
 alone cannot honor independent RACE overrides or separate STATS and TRAITS
 template sources. PRG-03 continues to own health, magicka and stamina.
+
+## Perk entry semantics prerequisite
+
+PRG-17 preserves PRG-08's complete dispatcher acceptance check. The ordinary
+perk purchase API is a useful implementation base, but purchasing ranks is
+not a dependency of executing already owned perks. PRG-08 is blocked on
+PRG-17, whose original-runtime comparisons depend on TOOL-04.
+
+Local xEdit, Mutagen and CommonLib establish PRKE to PRKF entry layouts,
+function payloads and PRKC condition tabs. They do not establish all runtime
+priority ties, cross-perk order or internal rank eligibility. xEdit's sorted
+editor array is insufficient evidence for execution order. UESP labels its
+priority interpretation as assumed. PRKE rank, NNAM chain position and NPC
+PRKR rank bytes are separate fields. ActorState currently retains owned
+PERK identities. The audit adds no guessed rank mapping.
+
+The primary
+[Perk Entry Point Extender implementation](https://raw.githubusercontent.com/NoahBoddie/perk-entry-point-extender/main/src/EntryPoint.h)
+traverses existing actor entry arrays and supports visitor termination.
+It delegates ordinary sorting and rank filtering to the original executable.
+Its custom rank semantics are extension behavior. The
+[condition hooks](https://raw.githubusercontent.com/NoahBoddie/perk-entry-point-extender/main/src/Hooks.h)
+and [target helper](https://raw.githubusercontent.com/NoahBoddie/perk-entry-point-extender/main/src/Utility.h)
+also show why bound objects and actor references need separate context roles.
+The existing GetIsID path asks for a reference's base, which cannot directly
+evaluate a weapon base FormID as a PRKC weapon tab.
+
+PRG-17's comparison matrix uses noncommuting Set, Add and Multiply entries,
+unequal and equal priorities, same and different PERKs, reversed acquisition
+order, raw ranks zero and one, actor/weapon/target tabs and save/load. Each
+accepted rule needs a cited implementation or reproducible original-runtime
+trace. CMB-09 continues to own the hit-damage handlers and combat integration.
