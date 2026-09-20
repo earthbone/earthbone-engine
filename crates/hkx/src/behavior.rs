@@ -334,7 +334,7 @@ impl Condition {
     fn from_obj(o: Obj<'_>) -> Result<Self> {
         let class = o.class().unwrap_or("unknown");
         if matches!(class, "hkbExpressionCondition" | "hkbStringCondition") {
-            Ok(Self::Expression(o.string_or_empty(16)?))
+            Ok(Self::Expression(o.string_or_empty(o.layout_offset(8, 16))?))
         } else {
             Ok(Self::Unsupported(class.to_string()))
         }
