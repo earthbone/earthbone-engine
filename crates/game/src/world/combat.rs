@@ -59,13 +59,13 @@ impl World {
     }
 
     fn equip_armor(&self, item: GlobalFormId) -> Result<Option<Armor>, Error> {
-        let Some(record) = self
+        let Some(_) = self
             .record(item)
             .filter(|record| record.tag == Tag(*b"ARMO"))
         else {
             return Ok(None);
         };
-        let armor = Armor::from_record(record)?;
+        let armor = self.armor_for_equipment(item)?;
         if armor.kind.is_some_and(|kind| kind > 2) {
             return Err(Error::Unsupported("unknown armor skill"));
         }
@@ -271,16 +271,16 @@ impl World {
         let mut occupied = 0_u32;
         let mut categories = 0_u32;
         for &item in &state.equipped {
-            let Some(record) = self
+            let Some(_) = self
                 .record(item)
                 .filter(|record| record.tag == Tag(*b"ARMO"))
             else {
                 continue;
             };
             self.check_combat_stack(actor, item)?;
-            let armor = Armor::from_record(record)?;
-            if armor.template.is_some() || armor.enchantment.is_some() {
-                return Err(Error::Unsupported("armor template or enchantment"));
+            let armor = self.armor_for_equipment(item)?;
+            if armor.enchantment.is_some() {
+                return Err(Error::Unsupported("armor enchantment"));
             }
             if armor.slots & occupied != 0 {
                 return Err(Error::Unsupported("overlapping equipped armor"));
@@ -302,6 +302,17 @@ impl World {
             categories |= armor.slots & ((1 << 0) | (1 << 2) | (1 << 3) | (1 << 7) | (1 << 9));
         }
         Ok((finite(rating.max(0.0))?, categories.count_ones()))
+    }
+
+    /// Resolve physical armor fields without caching a second item definition.
+    ///
+    /// # Errors
+    /// Missing, malformed, cyclic or non-ARMO template records.
+    pub(crate) fn armor_for_equipment(&self, item: GlobalFormId) -> Result<Armor, Error> {
+        let sources = Armor::sources(self.order(), item)?;
+        let child = self.record(sources.child).ok_or(Error::Equipment)?;
+        let inherited = self.record(sources.inherited).ok_or(Error::Equipment)?;
+        Ok(Armor::from_sources(child, inherited)?)
     }
 }
 

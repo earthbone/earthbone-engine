@@ -119,6 +119,31 @@ fn sex_priorities_apply_per_slot_and_surviving_sets_are_not_duplicated() {
 }
 
 #[test]
+fn templated_armor_uses_inherited_armatures_in_the_defining_namespace() {
+    let mut order = order();
+    let mut patch = Plugin::new(FileHeader {
+        masters: vec!["Skyrim.esm".into()],
+        ..Default::default()
+    });
+    patch.push_top(
+        Record::new(T(b"ARMO"), 0x0100_0800)
+            .zsub(T(b"FULL"), "Child boots")
+            .sub(T(b"TNAM"), 0x201_u32.to_le_bytes()),
+    );
+    order.add("Child.esp", patch).unwrap();
+    let child = GlobalFormId {
+        file: 1,
+        object: 0x800,
+    };
+    assert_eq!(
+        Footsteps::new(&order)
+            .actor_sets(None, Some(id(0x100)), &BTreeSet::from([child]))
+            .unwrap(),
+        vec![id(0x902)]
+    );
+}
+
+#[test]
 fn additional_races_and_armor_parent_chains_preserve_override_namespaces() {
     let mut order = order();
     let mut patch = Plugin::new(FileHeader {
