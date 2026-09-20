@@ -29,7 +29,15 @@ a patch that overrides one navmesh still links to the vanilla ones beside it.
 ## The graph
 
 `NavGraph::find_path` is `A*` over triangle adjacency with centroid distance as the
-cost and the heuristic. `find_path_between` locates two world points first
+cost and the heuristic. Each centroid segment is charged using the flags on the
+triangle it enters. The default `PathCosts` policy makes a water triangle cost ten
+times its centroid distance and a preferred triangle cost half. These are configurable
+engine policy defaults, not measured Skyrim setting values. Callers can supply a
+different valid policy through `find_path_with_costs`. The heuristic is scaled by the
+lowest multiplier, including a triangle that is both water and preferred, so it remains
+admissible. xEdit supplies the water and preferred bit values through
+`wbNavmeshTriangleFlags`.
+`find_path_between` locates two world points first
 (`locate`: the triangle whose XY contains the point and whose surface is nearest
 in Z, meshes pruned by their bounds, with `nearest` as a fallback for points just
 off the mesh). A `Path` carries the selected triangles, the search cost, and a pulled polyline.
@@ -45,7 +53,10 @@ with all crossings. This Rust adaptation retains the source notice in
 `crates/navmesh/LICENSE-Detour.txt`. Detour's full query requires its own mesh
 representation. Keeping a small adaptation preserves native NAVM triangles,
 resolved links and the existing graph rather than introducing another navmesh.
-No dependency was added.
+No dependency was added. Detour's `dtQueryFilter::getCost` applies the current
+polygon's area multiplier to each traversed segment. This graph uses the entered
+triangle's flag multiplier because its centroid adjacency does not retain Detour's
+portal segment state. xEdit's `wbNavmeshTriangleFlags` supplies the NAVM bit values.
 
 Portal winding comes from the departing triangle. Cross-mesh portals use the
 shared span of collinear edges, with a 0.01-unit position/height tolerance.
@@ -101,7 +112,8 @@ Creation Kit used to be the only source of.
   blocked triangle cutting it, locate and nearest, links joining two meshes, a
   dangling link ignored, in-mesh edges and cross-mesh links resolving from
   synthetic `NVNM` geometry, unresolved and malformed links counted as borders,
-  the axis map, agent validation, a flat cell producing upward polygons, the
+  water avoidance and preferred route costs, retained NAVM flags, the axis map,
+  agent validation, a flat cell producing upward polygons, the
   `NVNM` export round trip with mutual edges.
 - `tests/synthetic.rs`, the plan's done check: a flat cell with a box in the
   middle produces a navmesh whose path between two points on either side never
@@ -150,8 +162,8 @@ was needed.
 
 ## Not done yet
 
-- No path costs from triangle flags (water, preferred, no large creatures).
-  `flags` names them, `A*` ignores them.
+- No large-creature path policy. Its NAVM flag is retained, but actor size is not
+  yet part of navigation queries.
 - No dynamic obstacles or door state, the graph is static.
 - Generation reads render meshes, not `bhk` collision, until `soe-nif` decodes
   those. Interiors are not tested against real data, only Tamriel's exteriors.

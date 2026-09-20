@@ -23,6 +23,29 @@ mod query_tests;
 mod spatial;
 use spatial::SpatialIndex;
 
+const WATER_FLAG: u16 = 0x0200;
+const PREFERRED_FLAG: u16 = 0x0040;
+
+/// Traversal costs for the NAVM triangle flags this graph understands.
+///
+/// The default values are an engine policy, not measured Skyrim setting values.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PathCosts {
+    /// Multiplier for a triangle carrying the water flag.
+    pub water: f32,
+    /// Multiplier for a triangle carrying the preferred flag.
+    pub preferred: f32,
+}
+
+impl Default for PathCosts {
+    fn default() -> Self {
+        Self {
+            water: 10.0,
+            preferred: 0.5,
+        }
+    }
+}
+
 /// A triangle in the graph: which mesh, and which triangle in it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct NodeId {
@@ -44,6 +67,8 @@ pub struct Triangle {
     /// A triangle the game would not path over. It stays in the graph so
     /// links through it still resolve, A* skips it.
     pub blocked: bool,
+    /// Vanilla NAVM triangle flags retained for path cost selection.
+    pub flags: u16,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -124,7 +149,7 @@ pub struct Path {
     pub points: Vec<[f32; 3]>,
     /// Triangle entered at each point, parallel to `points`.
     pub point_nodes: Vec<NodeId>,
-    /// Sum of centroid to centroid distances, the cost A* minimised.
+    /// Sum of centroid distances weighted by each entered triangle's flags.
     pub cost: f32,
 }
 
@@ -165,6 +190,36 @@ impl PartialOrd for Open {
 fn distance(a: [f32; 3], b: [f32; 3]) -> f32 {
     let d = [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
     (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt()
+}
+
+impl PathCosts {
+    fn traversal_cost(self, flags: u16) -> f32 {
+        let mut multiplier = 1.0;
+        if flags & WATER_FLAG != 0 {
+            multiplier *= self.water;
+        }
+        if flags & PREFERRED_FLAG != 0 {
+            multiplier *= self.preferred;
+        }
+        multiplier
+    }
+
+    fn minimum(self) -> f32 {
+        1.0_f32
+            .min(self.water)
+            .min(self.preferred)
+            .min(self.water * self.preferred)
+    }
+
+    fn is_valid(self) -> bool {
+        let combined = self.water * self.preferred;
+        self.water.is_finite()
+            && self.water > 0.0
+            && self.preferred.is_finite()
+            && self.preferred > 0.0
+            && combined.is_finite()
+            && combined > 0.0
+    }
 }
 
 impl NavGraph {
@@ -208,6 +263,7 @@ impl NavGraph {
                 vertices: *t,
                 neighbors: [None; 3],
                 blocked: false,
+                flags: 0,
             })
             .collect();
         for users in by_edge.values() {
@@ -230,6 +286,20 @@ impl NavGraph {
 
     pub fn set_blocked(&mut self, node: NodeId, blocked: bool) {
         self.meshes[node.mesh as usize].triangles[node.triangle as usize].blocked = blocked;
+    }
+
+    /// Set the vanilla NAVM triangle flags used by path cost selection.
+    /// Returns `false` when `node` is outside the graph.
+    pub fn set_flags(&mut self, node: NodeId, flags: u16) -> bool {
+        let Some(triangle) = self
+            .meshes
+            .get_mut(node.mesh as usize)
+            .and_then(|mesh| mesh.triangles.get_mut(node.triangle as usize))
+        else {
+            return false;
+        };
+        triangle.flags = flags;
+        true
     }
 
     pub fn meshes(&self) -> &[Mesh] {
@@ -356,11 +426,17 @@ impl NavGraph {
         })
     }
 
-    /// A* over triangle adjacency, centroid distance as cost and as the
-    /// heuristic (which is admissible, a straight line is never longer than
-    /// the walked route).
+    /// A* over triangle adjacency with weighted centroid edge costs and a
+    /// minimum-multiplier-scaled straight-line heuristic.
     pub fn find_path(&self, from: NodeId, to: NodeId) -> Option<Path> {
-        self.find_path_impl(from, to, None)
+        self.find_path_with_costs(from, to, PathCosts::default())
+    }
+
+    /// Find a path with caller-selected triangle flag costs.
+    /// Returns `None` when either cost or their product is non-finite or not
+    /// strictly positive.
+    pub fn find_path_with_costs(&self, from: NodeId, to: NodeId, costs: PathCosts) -> Option<Path> {
+        self.find_path_impl(from, to, None, costs)
     }
 
     fn find_path_impl(
@@ -368,8 +444,12 @@ impl NavGraph {
         from: NodeId,
         to: NodeId,
         endpoints: Option<([f32; 3], [f32; 3])>,
+        costs: PathCosts,
     ) -> Option<Path> {
         let _span = soe_trace::Span::new("navmesh.find_path", "navmesh");
+        if !costs.is_valid() {
+            return None;
+        }
         let start = self
             .meshes
             .get(from.mesh as usize)?
@@ -394,7 +474,7 @@ impl NavGraph {
         let mut came: HashMap<NodeId, (NodeId, usize)> = HashMap::new();
         g.insert(from, 0.0);
         open.push(Open {
-            f: distance(self.centroid(from), goal),
+            f: distance(self.centroid(from), goal) * costs.minimum(),
             node: from,
             g: 0.0,
         });
@@ -422,12 +502,13 @@ impl NavGraph {
                 if nt.blocked {
                     continue;
                 }
-                let tentative = here + distance(c, m.centroid(next.triangle));
+                let tentative =
+                    here + distance(c, m.centroid(next.triangle)) * costs.traversal_cost(nt.flags);
                 if g.get(&next).is_none_or(|&old| tentative < old) {
                     g.insert(next, tentative);
                     came.insert(next, (node, edge));
                     open.push(Open {
-                        f: tentative + distance(m.centroid(next.triangle), goal),
+                        f: tentative + distance(m.centroid(next.triangle), goal) * costs.minimum(),
                         node: next,
                         g: tentative,
                     });
@@ -443,7 +524,7 @@ impl NavGraph {
     pub fn find_path_between(&self, from: [f32; 3], to: [f32; 3]) -> Option<Path> {
         let a = self.locate(from).or_else(|| self.nearest(from))?;
         let b = self.locate(to).or_else(|| self.nearest(to))?;
-        self.find_path_impl(a, b, Some((from, to)))
+        self.find_path_impl(a, b, Some((from, to)), PathCosts::default())
     }
 
     fn assemble(
@@ -519,6 +600,14 @@ mod tests {
         g
     }
 
+    fn isolated_triangle(graph: &mut NavGraph, x: f32, y: f32) -> NodeId {
+        let mesh = graph.add_mesh_with_adjacency(
+            vec![[x, y, 0.0], [x + 1.0, y, 0.0], [x, y + 1.0, 0.0]],
+            &[[0, 1, 2]],
+        );
+        NodeId::new(mesh, 0)
+    }
+
     #[test]
     fn adjacency_comes_from_shared_edges() {
         let g = strip();
@@ -556,6 +645,42 @@ mod tests {
         g.set_blocked(NodeId::new(0, 5), true);
         assert!(g.find_path(NodeId::new(0, 0), NodeId::new(0, 7)).is_none());
         assert!(g.find_path(NodeId::new(0, 0), NodeId::new(0, 3)).is_some());
+    }
+
+    #[test]
+    fn paths_avoid_water_when_a_dry_detour_costs_less() {
+        let mut graph = NavGraph::new();
+        let start = isolated_triangle(&mut graph, 0.0, 0.0);
+        let water = isolated_triangle(&mut graph, 1.0, 0.0);
+        let dry = isolated_triangle(&mut graph, 0.0, 2.0);
+        let goal = isolated_triangle(&mut graph, 2.0, 0.0);
+        graph.link(start, 0, water);
+        graph.link(water, 0, goal);
+        graph.link(start, 1, dry);
+        graph.link(dry, 0, goal);
+        assert!(graph.set_flags(water, WATER_FLAG));
+
+        let path = graph.find_path(start, goal).unwrap();
+        assert_eq!(path.nodes, vec![start, dry, goal]);
+        assert!(path.cost < 5.0, "dry path cost is {}", path.cost);
+    }
+
+    #[test]
+    fn paths_choose_preferred_triangles_over_a_shorter_default_route() {
+        let mut graph = NavGraph::new();
+        let start = isolated_triangle(&mut graph, 0.0, 0.0);
+        let direct = isolated_triangle(&mut graph, 1.0, 0.0);
+        let preferred = isolated_triangle(&mut graph, 3.5, 0.0);
+        let goal = isolated_triangle(&mut graph, 3.0, 0.0);
+        graph.link(start, 0, direct);
+        graph.link(direct, 0, goal);
+        graph.link(start, 1, preferred);
+        graph.link(preferred, 0, goal);
+        assert!(graph.set_flags(preferred, PREFERRED_FLAG));
+
+        let path = graph.find_path(start, goal).unwrap();
+        assert_eq!(path.nodes, vec![start, preferred, goal]);
+        assert!(path.cost < 2.5, "preferred path cost is {}", path.cost);
     }
 
     #[test]

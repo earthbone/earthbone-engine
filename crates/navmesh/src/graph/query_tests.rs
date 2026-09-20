@@ -5,7 +5,18 @@
 
 use proptest::prelude::*;
 
-use super::{distance, spatial::SpatialIndex, NavGraph, NodeId};
+use super::{distance, spatial::SpatialIndex, NavGraph, NodeId, PREFERRED_FLAG, WATER_FLAG};
+
+fn oracle_traversal_cost(flags: u16, water: f32, preferred: f32) -> f32 {
+    let mut multiplier = 1.0;
+    if flags & 0x0200 != 0 {
+        multiplier *= water;
+    }
+    if flags & 0x0040 != 0 {
+        multiplier *= preferred;
+    }
+    multiplier
+}
 
 fn add_triangle(graph: &mut NavGraph, x: f32, y: f32, z: f32) -> u32 {
     graph.add_mesh_with_adjacency(
@@ -74,17 +85,20 @@ proptest! {
 
     #[test]
     fn a_star_agrees_with_dijkstra_on_directed_blocked_graphs(
-        nodes in prop::collection::vec((any::<bool>(), prop::array::uniform3(0usize..24), -50i16..50, -50i16..50), 2..24),
+        nodes in prop::collection::vec((any::<bool>(), prop::sample::select(vec![0, PREFERRED_FLAG, WATER_FLAG, PREFERRED_FLAG | WATER_FLAG]), prop::array::uniform3(0usize..24), -50i16..50, -50i16..50), 2..24),
         from in any::<usize>(), to in any::<usize>(),
+        water in 0.1f32..10.0,
+        preferred in 0.1f32..10.0,
     ) {
         let mut graph = NavGraph::new();
         let n = nodes.len();
-        for (_, _, x, y) in &nodes {
+        for (_, _, _, x, y) in &nodes {
             add_triangle(&mut graph, f32::from(*x), f32::from(*y), 0.0);
         }
-        for (i, (blocked, next, _, _)) in nodes.iter().enumerate() {
+        for (i, (blocked, flags, next, _, _)) in nodes.iter().enumerate() {
             let id = NodeId::new(i as u32, 0);
             graph.set_blocked(id, *blocked);
+            prop_assert!(graph.set_flags(id, *flags));
             for (edge, neighbor) in next.iter().enumerate() {
                 if *neighbor < n {
                     graph.link(id, edge, NodeId::new(*neighbor as u32, 0));
@@ -99,13 +113,17 @@ proptest! {
             let current = (0..n).filter(|i| !visited[*i]).min_by(|a, b| costs[*a].total_cmp(&costs[*b]));
             let Some(current) = current else { break };
             visited[current] = true;
-            for &next in &nodes[current].1 {
+            for &next in &nodes[current].2 {
                 if next >= n || nodes[next].0 { continue; }
-                let edge = distance(graph.centroid(NodeId::new(current as u32, 0)), graph.centroid(NodeId::new(next as u32, 0)));
+                let edge = distance(graph.centroid(NodeId::new(current as u32, 0)), graph.centroid(NodeId::new(next as u32, 0))) * oracle_traversal_cost(nodes[next].1, water, preferred);
                 costs[next] = costs[next].min(costs[current] + edge);
             }
         }
-        let path = graph.find_path(NodeId::new(from as u32, 0), NodeId::new(to as u32, 0));
+        let path = graph.find_path_with_costs(
+            NodeId::new(from as u32, 0),
+            NodeId::new(to as u32, 0),
+            super::PathCosts { water, preferred },
+        );
         prop_assert_eq!(path.is_some(), costs[to].is_finite());
         if let Some(path) = path {
             prop_assert!((path.cost - costs[to]).abs() <= 0.001, "A* {}, oracle {}", path.cost, costs[to]);
@@ -171,4 +189,42 @@ fn invalid_query_nodes_and_nonfinite_points_return_none() {
         .is_none());
     assert!(graph.locate([f32::NAN, 0.0, 0.0]).is_none());
     assert!(graph.nearest([f32::INFINITY, 0.0, 0.0]).is_none());
+    assert!(!graph.set_flags(NodeId::new(99, 0), WATER_FLAG));
+    assert!(!graph.set_flags(NodeId::new(0, 99), WATER_FLAG));
+}
+
+#[test]
+fn invalid_path_costs_return_none() {
+    let mut graph = NavGraph::new();
+    let a = NodeId::new(add_triangle(&mut graph, 0.0, 0.0, 0.0), 0);
+    let b = NodeId::new(add_triangle(&mut graph, 4.0, 0.0, 0.0), 0);
+    graph.link(a, 0, b);
+    for costs in [
+        super::PathCosts {
+            water: 0.0,
+            preferred: 1.0,
+        },
+        super::PathCosts {
+            water: -1.0,
+            preferred: 1.0,
+        },
+        super::PathCosts {
+            water: f32::NAN,
+            preferred: 1.0,
+        },
+        super::PathCosts {
+            water: f32::INFINITY,
+            preferred: 1.0,
+        },
+        super::PathCosts {
+            water: f32::MAX,
+            preferred: 2.0,
+        },
+        super::PathCosts {
+            water: f32::MIN_POSITIVE,
+            preferred: f32::MIN_POSITIVE,
+        },
+    ] {
+        assert!(graph.find_path_with_costs(a, b, costs).is_none());
+    }
 }

@@ -23,7 +23,7 @@ pub mod scene;
 pub mod vanilla;
 
 pub use generate::{generate, Agent, Navmesh};
-pub use graph::{NavGraph, NodeId, Path};
+pub use graph::{NavGraph, NodeId, Path, PathCosts};
 pub use scene::Scene;
 
 #[derive(Debug, thiserror::Error)]
