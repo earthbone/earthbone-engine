@@ -6,6 +6,39 @@ survey resolved 4,718 of 6,361 NPC bases, with 1,643 leveled templates pending
 spawn selection. This is a combat prerequisite, not weapon-hit execution.
 See [actor values](actor-values.md) for sources, evidence and remaining work.
 
+## Integrated execution milestones, 2026-09-20
+
+The integration combines combat attributes, crafting execution, dialogue,
+active magic, host gameplay and both vanilla-save groundwork branches.
+The native registry has 361 stateful entries and 180 stubs. These are
+incremental implementations, not completion of Skyrim gameplay.
+
+| Area | Integrated behavior | Still open |
+|---|---|---|
+| Combat foundation | Separate actor-value components, corrected NPC fields, race and stats/traits template sources | Weapon hits, equipment damage rules, live leveling, leveled templates and combat AI |
+| Crafting | Condition-checked COBJ transactions and reference/alias inventory events | Tempering, alchemy, enchanting, item instances, progression and menus |
+| Dialogue | Record-backed choices, conditions, responses, named fragments, history and saved cursor | Host menus, text localization, voice/LIP, scenes, services and remaining conditions/branch modes |
+| Magic | Direct non-hostile applications, effect script objects, expiry, dispel and saved state | Hostile hits, projectiles, concentration, costs, many archetypes, player input and visuals |
+| Host | Shared Game/VM, reference activation, locked doors and keys, load-door round trips and material-selected footsteps | Swing-door animation/collision, lockpicking, walking exterior streaming and physical speaker verification |
+| Vanilla saves | Typed execution parsing and explicit-mapping import of instances, references and arrays | Binding to live world forms/aliases/effects, stack and latent-call resume, world change forms and complete ESS restoration |
+
+SOEW version 9 combines actor-value components, dialogue and active effects.
+Cross-branch tests cover inherited conditional variables, modifier preservation,
+and reloading an active conversation and buff without replaying either.
+Legacy saves with ambiguous actor-value modifiers return an explicit error.
+See [game.md](game.md), [save.md](save.md) and
+[execution-plan.md](execution-plan.md) for contracts and remaining work.
+
+Combined installed-data validation passes 65 game tests and nine save tests.
+The 60 save bodies round-trip byte for byte. Object import restores 2,649,854
+instance/reference entries and 19,194 arrays, without resuming saved stacks.
+Startup reaches 423 quests and 1,490 native calls with zero unresolved calls.
+Godot 4.7.2 passes the Bannered Mare door round trip, landing collision and
+E-key activation, plus grounded footstep playback through the audio mixer.
+These are headless checks, not rendered-image or physical speaker verification.
+
+## Earlier baseline, 2026-09-19
+
 Reconciled on 2026-09-19 against engine commit `75cfb55` on `master`.
 This is a source and history review. The full gate, Godot sessions and live
 corpus tests were not rerun for this documentation update. Numbers below are
@@ -129,9 +162,9 @@ still requires host activation/doorway wiring and footsteps. Record views,
 function coverage and deeper save inspection do not close those integration
 items or the larger gameplay scopes.
 
-## Dialogue execution worktree, 2026-09-20
+## Dialogue source milestone, 2026-09-20
 
-The unmerged `dialogue-execution` branch adds a record-backed conversation
+The `dialogue-execution` source milestone adds a record-backed conversation
 API, topic/quest ownership, conditions, response sequencing, named INFO
 fragment calls, shared responses, links and engine-save state. Its native
 registry reports 348 stateful entries and 188 stubs. See [game.md](game.md)
@@ -146,9 +179,9 @@ Combat, full magic and crafting, host integration and full vanilla-save
 restoration remain part of the active objective. Work on other unmerged
 branches is not evidence that their combined runtime has passed the gate.
 
-## Active magic worktree
+## Active magic source milestone
 
-The unmerged `magic-effects` worktree implements direct non-hostile Script,
+The `magic-effects` source milestone implements direct non-hostile Script,
 Value Modifier and Dual Value Modifier applications, per-application script
 objects, duration and expiry, effect queries, dispelling and SOEW version 5
 persistence with version 4 reading. Its registry has 353 stateful natives and

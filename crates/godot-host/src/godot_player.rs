@@ -14,26 +14,29 @@
 //! control map read from the game's own `controlmap.txt` is what fills them.
 //! And the character is `soe_physics`, not a Godot body: `docs/physics.md`
 //! keeps the simulation's authority in the engine so the headless run and the
-//! rendered one cannot drift, and the camera is a `RenderingServer` camera
-//! rather than a `Camera3D` node for the reason the rest of the crate avoids
-//! nodes.
+//! rendered one cannot drift. One Camera3D node also registers the listener
+//! required by Godot's positional audio, which a camera RID alone cannot do.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::Path;
 use std::sync::Arc;
 
 use godot::classes::{
-    Engine, INode3D, Input, InputEventJoypadButton, InputEventJoypadMotion, InputEventKey,
-    InputEventMouseButton, InputEventMouseMotion, InputMap, Node3D, RenderingServer, Viewport,
+    Camera3D, Engine, INode3D, Input, InputEventJoypadButton, InputEventJoypadMotion,
+    InputEventKey, InputEventMouseButton, InputEventMouseMotion, InputMap, Node3D,
 };
 use godot::global::{JoyAxis, JoyButton, Key, MouseButton};
 use godot::prelude::*;
+use soe_esm::GlobalFormId;
 use soe_physics::{BodyId, CharacterSettings, PhysicsWorld, SimpleWorld, Vec3};
 
 use crate::camera::{CameraMode, CameraMotion, CameraRig, Eye};
 use crate::data_source::DataSource;
 use crate::input::devices::{godot_mouse_for, godot_pad_for, Devices, PadControl};
 use crate::input::{godot_key_for, Action, Bindings, ControlMap, Driver, InputState};
+
+mod footsteps;
+mod gameplay;
 
 /// How far ahead of the eye an activate ray reaches, in Skyrim units. The
 /// vanilla reach is about this, and it is a setting rather than a constant so
@@ -64,15 +67,24 @@ pub struct PlayerNode {
     bindings: Bindings,
     driver: Driver,
     world: Option<SimpleWorld>,
+    collision_references: HashMap<BodyId, GlobalFormId>,
     character: Option<BodyId>,
     data_source: Option<Arc<DataSource>>,
-    camera: Option<Rid>,
+    game: Option<soe_game::Game>,
+    sound_bank: Option<Gd<crate::godot_audio::SoundBank>>,
+    footstep_cadence: crate::audio::FootstepCadence,
+    footstep_count: u64,
+    footstep_errors: u64,
+    game_streamer: Option<Gd<crate::godot_layer::CellStreamerNode>>,
+    loaded_cell: Option<GlobalFormId>,
+    camera: Option<Gd<Camera3D>>,
     /// Mouse motion accumulated since the last camera or physics update, so a frame that
     /// delivers two motion events turns twice as far rather than once.
     pending_look: (f32, f32),
     /// Whether the activate ray hit something on the last step, reported to
     /// GDScript so a prompt can be drawn without a second raycast.
     last_activate_hit: bool,
+    last_activate_reference: Option<GlobalFormId>,
     action_latches: BTreeMap<Action, u64>,
     held_actions: BTreeSet<Action>,
     devices: Devices,
@@ -92,11 +104,20 @@ impl INode3D for PlayerNode {
             bindings: Bindings::default(),
             driver: Driver::new(),
             world: None,
+            collision_references: HashMap::new(),
             character: None,
             data_source: None,
+            game: None,
+            sound_bank: None,
+            footstep_cadence: crate::audio::FootstepCadence::default(),
+            footstep_count: 0,
+            footstep_errors: 0,
+            game_streamer: None,
+            loaded_cell: None,
             camera: None,
             pending_look: (0.0, 0.0),
             last_activate_hit: false,
+            last_activate_reference: None,
             action_latches: BTreeMap::new(),
             held_actions: BTreeSet::new(),
             devices: Devices::default(),
@@ -185,9 +206,7 @@ impl INode3D for PlayerNode {
         if self.capture_mouse {
             Input::singleton().set_mouse_mode(godot::classes::input::MouseMode::VISIBLE);
         }
-        if let Some(rid) = self.camera.take() {
-            RenderingServer::singleton().free_rid(rid);
-        }
+        self.camera = None;
     }
 }
 
@@ -236,6 +255,8 @@ impl PlayerNode {
                     self.register_actions();
                 }
                 self.data_source = Some(Arc::new(source));
+                self.game = None;
+                self.game_streamer = None;
                 true
             }
             Err(e) => {
@@ -262,6 +283,8 @@ impl PlayerNode {
             self.register_actions();
         }
         self.data_source = Some(source);
+        self.game = None;
+        self.game_streamer = Some(streamer);
         true
     }
 
@@ -304,6 +327,10 @@ impl PlayerNode {
         let id = world.create_character(CharacterSettings::default(), Vec3::new(x, y, z));
         self.character = Some(id);
         self.world = Some(world);
+        self.loaded_cell = Some(cell_id);
+        self.collision_references = collision.references;
+        self.last_activate_hit = false;
+        self.last_activate_reference = None;
         self.motion = CameraMotion::new(self.feet(), self.capsule_height());
         self.update_camera();
         bodies as i32
@@ -313,6 +340,16 @@ impl PlayerNode {
     /// instead of relying on frame timing.
     #[func]
     pub fn advance(&mut self, delta: f64) {
+        let pending_location = self.game.as_mut().is_some_and(|game| {
+            let player = game.player();
+            game.world()
+                .reference_ref(player)
+                .is_some_and(|r| r.cell != self.loaded_cell)
+        });
+        if pending_location && !self.sync_game_pose() {
+            self.auto_step = false;
+            return;
+        }
         if !self.auto_step {
             self.look_stick(delta);
         }
@@ -326,6 +363,8 @@ impl PlayerNode {
 
         let camera = self.rig;
         let intent = self.driver.update(&input, &camera);
+        let before = self.feet();
+        let was_grounded = self.character().is_some_and(|c| c.on_ground);
 
         if let (Some(world), Some(id)) = (self.world.as_mut(), self.character) {
             world.set_crouch(id, intent.crouch);
@@ -336,11 +375,18 @@ impl PlayerNode {
             world.step(delta as f32);
         }
 
-        self.last_activate_hit = if input.activate_pressed {
-            self.activate_ray().is_some()
+        self.advance_footsteps(before, was_grounded, &input);
+
+        let activation_hit = if input.activate_pressed {
+            self.activate_ray()
         } else {
-            false
+            None
         };
+        self.last_activate_hit = activation_hit.is_some();
+        self.last_activate_reference =
+            activation_hit.and_then(|hit| self.collision_references.get(&hit.body).copied());
+
+        self.advance_game(delta);
 
         self.motion.step(self.feet(), self.capsule_height());
         if !self.auto_step {
@@ -376,10 +422,75 @@ impl PlayerNode {
         self.character().is_some_and(|c| c.on_ground)
     }
 
+    #[func]
+    fn footstep_count(&self) -> i64 {
+        self.footstep_count as i64
+    }
+
+    #[func]
+    fn footstep_errors(&self) -> i64 {
+        self.footstep_errors as i64
+    }
+
     /// Whether the last activate press found something within reach.
     #[func]
     pub fn last_activate_hit(&self) -> bool {
         self.last_activate_hit
+    }
+
+    /// Resolved placed reference from the last activate press, or an empty string.
+    /// This diagnostic does not imply that default game activation ran.
+    #[func]
+    pub fn last_activate_reference(&self) -> GString {
+        self.last_activate_reference
+            .map_or_else(GString::new, |id| GString::from(&id.to_string()))
+    }
+
+    /// Start the game VM using the same records and VFS as the renderer.
+    #[func]
+    pub fn start_gameplay(&mut self) -> bool {
+        self.start_game_runtime()
+    }
+
+    /// Logical cell currently represented by the host.
+    #[func]
+    pub fn gameplay_cell(&self) -> GString {
+        self.loaded_cell
+            .map_or_else(GString::new, |id| GString::from(&id.to_string()))
+    }
+
+    /// Door links in the current logical cell for integration tools.
+    #[func]
+    pub fn gameplay_doors(&mut self) -> Array<VarDictionary> {
+        let (Some(game), Some(cell)) = (&mut self.game, self.loaded_cell) else {
+            return Array::new();
+        };
+        let mut world = game.world_mut();
+        let doors = world.cell_doors(cell);
+        let mut result = Array::new();
+        for (id, far) in doors {
+            let Some(far) = far else {
+                continue;
+            };
+            let mut row = VarDictionary::new();
+            row.set("file", i64::from(id.file));
+            row.set("object", i64::from(id.object));
+            row.set("far_file", i64::from(far.file));
+            row.set("far_object", i64::from(far.object));
+            row.set("locked", world.reference(id).is_none_or(|r| r.locked));
+            result.push(&row);
+        }
+        result
+    }
+
+    /// Drive the same activation path from a runtime harness using a resolved FormID.
+    #[func]
+    pub fn activate_reference(&mut self, file: i32, object: i64) -> bool {
+        let (Ok(file), Ok(object)) = (u16::try_from(file), u32::try_from(object)) else {
+            return false;
+        };
+        let ok = self.activate_game_reference(GlobalFormId { file, object });
+        self.sync_game_pose() && ok
     }
 
     /// Point the camera, used when a door or a save sets a facing.
@@ -592,21 +703,13 @@ impl PlayerNode {
     }
 
     fn create_camera(&mut self) {
-        let mut server = RenderingServer::singleton();
-        let camera = server.camera_create();
-        if let Some(viewport) = self.viewport_rid() {
-            server.viewport_attach_camera(viewport, camera);
-        } else {
-            godot_error!("PlayerNode: no viewport to attach a camera to");
-        }
+        let mut camera = Camera3D::new_alloc();
+        camera.set_near(0.05);
+        camera.set_far(4096.0);
+        self.base_mut().add_child(&camera);
+        camera.make_current();
         self.camera = Some(camera);
         self.update_camera();
-    }
-
-    fn viewport_rid(&self) -> Option<Rid> {
-        self.base()
-            .get_viewport()
-            .map(|v: Gd<Viewport>| v.get_viewport_rid())
     }
 
     /// Place the camera where the rig says, converting into Godot's space.
@@ -615,9 +718,9 @@ impl PlayerNode {
     }
 
     fn place_camera(&mut self, feet: Vec3, height: f32) {
-        let Some(camera) = self.camera else {
+        if self.camera.is_none() {
             return;
-        };
+        }
 
         // In third person the boom is pulled in by whatever it would pass
         // through, so the camera never ends up inside a wall.
@@ -640,9 +743,10 @@ impl PlayerNode {
 
         let eye = self.rig.eye(feet, height, clear);
         let transform = godot_transform(&eye);
-        let mut server = RenderingServer::singleton();
-        server.camera_set_transform(camera, transform);
-        server.camera_set_perspective(camera, self.rig.fov(), 0.05, 4096.0);
+        if let Some(camera) = &mut self.camera {
+            camera.set_global_transform(transform);
+            camera.set_fov(self.rig.fov());
+        }
     }
 }
 

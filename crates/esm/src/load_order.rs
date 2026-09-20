@@ -66,7 +66,7 @@ pub struct LoadOrder {
     light_slots: u16,
     /// Built on request, dropped whenever a file is added since every
     /// placement may change.
-    cell_index: Option<CellIndex>,
+    cell_index: OnceLock<CellIndex>,
     /// Every winner in id order, built on the first walk and dropped when a
     /// file is added. The table is a `HashMap`, so walking it directly gave
     /// a different order per process and `Game::start` inherited it, see
@@ -130,22 +130,21 @@ impl LoadOrder {
             });
         }
         self.files.push(file);
-        self.cell_index = None;
+        self.cell_index.take();
         self.sorted = OnceLock::new();
         Ok(file_index)
     }
 
-    /// Build the cell index over the current order and keep it. The next
-    /// `add` drops it again.
-    pub fn build_cell_index(&mut self) -> &CellIndex {
-        let index = CellIndex::build(self);
-        self.cell_index.insert(index)
+    /// Build the cell index once over the current order. Adding a plugin invalidates it.
+    /// Shared host and game readers retain the same immutable index.
+    pub fn build_cell_index(&self) -> &CellIndex {
+        self.cell_index.get_or_init(|| CellIndex::build(self))
     }
 
     /// The index built by the last `build_cell_index`, if no file was added
     /// since.
     pub fn cell_index(&self) -> Option<&CellIndex> {
-        self.cell_index.as_ref()
+        self.cell_index.get()
     }
 
     pub fn files(&self) -> &[LoadedFile] {

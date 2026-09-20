@@ -40,10 +40,12 @@ use crate::mesh::{
 };
 
 mod exterior;
+mod location;
 mod models;
 mod textures;
 mod workers;
 
+pub use location::LoadedLocation;
 pub(crate) use models::model_for;
 use textures::TextureCache;
 pub use textures::{BlockFormat, TextureData};
@@ -97,6 +99,7 @@ pub struct CellStats {
     pub statics_with_model: usize,
     pub furniture_with_model: usize,
     pub containers_with_model: usize,
+    pub doors_with_model: usize,
     pub meshes_parsed: usize,
     pub meshes_failed: usize,
     pub triangles: usize,
@@ -211,8 +214,7 @@ impl LoadedExterior {
 /// An opened `Data` folder: the load order and the archive and loose file
 /// view built from it.
 pub struct DataSource {
-    order: LoadOrder,
-    index: CellIndex,
+    order: std::sync::Arc<LoadOrder>,
     vfs: Vfs,
     threads: usize,
     textures: TextureCache,
@@ -263,7 +265,7 @@ impl DataSource {
                     source,
                 })?;
         }
-        let index = CellIndex::build(&order);
+        order.build_cell_index();
         let mut vfs = Vfs::new();
         {
             let _archives = soe_trace::Span::new("host.index_archives", "host");
@@ -277,8 +279,7 @@ impl DataSource {
             vfs.add_loose_root(data_dir)?;
         }
         Ok(DataSource {
-            order,
-            index,
+            order: std::sync::Arc::new(order),
             vfs,
             threads,
             textures: TextureCache::default(),
@@ -300,14 +301,19 @@ impl DataSource {
     /// position or need a cell's land and navmeshes.
     #[must_use]
     pub fn cell_index(&self) -> &CellIndex {
-        &self.index
+        self.order.build_cell_index()
+    }
+
+    /// Share records and the cached cell index with the authoritative game runtime.
+    pub fn shared_order(&self) -> std::sync::Arc<LoadOrder> {
+        self.order.clone()
     }
 
     /// The winning `CELL` record whose editor id matches, preferring an
     /// interior cell when both an interior and an exterior one share a name.
     #[must_use]
     pub fn resolve_cell(&self, editor_id: &str) -> Option<GlobalFormId> {
-        self.index.cell_by_editor_id(editor_id)
+        self.cell_index().cell_by_editor_id(editor_id)
     }
 
     /// The first interior cell, by form id, whose reference count exceeds
@@ -317,9 +323,9 @@ impl DataSource {
     #[must_use]
     pub fn first_populated_interior_cell(&self, min_refs: usize) -> Option<GlobalFormId> {
         let mut candidates: Vec<GlobalFormId> = self
-            .index
+            .cell_index()
             .cells()
-            .filter(|&(id, n)| n > min_refs && self.index.is_interior(id))
+            .filter(|&(id, n)| n > min_refs && self.cell_index().is_interior(id))
             .map(|(id, _)| id)
             .collect();
         candidates.sort_unstable();
@@ -358,14 +364,14 @@ impl DataSource {
             let _scan = soe_trace::Span::with_payload(
                 "host.scan_references",
                 "host",
-                self.index.references(cell_id).len() as u64,
+                self.cell_index().references(cell_id).len() as u64,
             );
             let mut work: Vec<(String, Refr, GlobalFormId)> = Vec::new();
             // A placed object whose winner is deleted is not in this slice,
             // the index files it under `deleted_references` instead. It stays
             // resolvable through the load order and the game starts it
             // disabled, so there is nothing here to draw.
-            for id in self.index.references(cell_id).iter().copied() {
+            for id in self.cell_index().references(cell_id).iter().copied() {
                 let Some(rref) = self.order.winner_ref(id) else {
                     continue;
                 };
@@ -390,6 +396,8 @@ impl DataSource {
                     stats.statics_with_model += 1;
                 } else if base_rec.tag == soe_esm::Tag::new(b"FURN") {
                     stats.furniture_with_model += 1;
+                } else if base_rec.tag == soe_esm::Tag::new(b"DOOR") {
+                    stats.doors_with_model += 1;
                 } else {
                     stats.containers_with_model += 1;
                 }

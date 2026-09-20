@@ -37,6 +37,13 @@ pub enum Shape {
     TriangleMesh {
         vertices: Vec<Vec3>,
         triangles: Vec<[u32; 3]>,
+        /// Skyrim Havok material IDs in triangle order. Missing entries are unknown.
+        materials: Vec<Option<u32>>,
+    },
+    /// A material on a primitive or a compound's children without their own material.
+    Material {
+        id: u32,
+        shape: Box<Shape>,
     },
     /// Children with their transforms relative to this shape.
     Compound(Vec<(Iso, Shape)>),
@@ -62,9 +69,15 @@ impl Shape {
             Shape::TriangleMesh {
                 vertices,
                 triangles,
+                materials,
             } => Shape::TriangleMesh {
                 vertices: vertices.into_iter().map(|p| p * s).collect(),
                 triangles,
+                materials,
+            },
+            Shape::Material { id, shape } => Shape::Material {
+                id,
+                shape: Box::new(shape.scaled(s)),
             },
             Shape::Compound(children) => Shape::Compound(
                 children
@@ -84,6 +97,7 @@ impl Shape {
     /// Bounding box of the shape placed by `t`.
     pub fn aabb(&self, t: &Iso) -> Aabb {
         match self {
+            Shape::Material { shape, .. } => shape.aabb(t),
             Shape::Box { half_extents } => {
                 let h = *half_extents;
                 let corners = (0..8).map(|i| {
@@ -120,6 +134,7 @@ impl Shape {
 
     pub fn triangle_count(&self) -> usize {
         match self {
+            Shape::Material { shape, .. } => shape.triangle_count(),
             Shape::TriangleMesh { triangles, .. } => triangles.len(),
             Shape::Compound(children) => children.iter().map(|(_, c)| c.triangle_count()).sum(),
             _ => 0,
@@ -293,7 +308,16 @@ impl<'a> Walker<'a> {
                 .push((r, "shape reference is not a bhk block".into()));
             return Ok(None);
         };
-        Ok(match b {
+        let material = match &b {
+            Bhk::Box { material, .. }
+            | Bhk::Sphere { material, .. }
+            | Bhk::Capsule { material, .. }
+            | Bhk::ConvexVertices { material, .. }
+            | Bhk::Transform { material, .. }
+            | Bhk::List { material, .. } => Some(*material),
+            _ => None,
+        };
+        let shape = match b {
             Bhk::Box { half_extents, .. } => Some(Shape::Box { half_extents }),
             Bhk::Sphere { radius, .. } => Some(Shape::Sphere { radius }),
             Bhk::Capsule {
@@ -371,7 +395,14 @@ impl<'a> Walker<'a> {
                     .push((r, "shape reference points at a non-shape block".into()));
                 None
             }
-        })
+        };
+        Ok(shape.map(|shape| match material {
+            Some(id) => Shape::Material {
+                id,
+                shape: Box::new(shape),
+            },
+            None => shape,
+        }))
     }
 }
 
@@ -379,6 +410,7 @@ impl<'a> Walker<'a> {
 fn compressed_mesh(d: &CompressedMeshData, scale: Vec3) -> Shape {
     let mut vertices = Vec::new();
     let mut triangles = Vec::new();
+    let mut materials = Vec::new();
     let s = |v: Vec3| Vec3::new(v.x * scale.x, v.y * scale.y, v.z * scale.z);
     for chunk in &d.chunks {
         let base = vertices.len() as u32;
@@ -392,19 +424,22 @@ fn compressed_mesh(d: &CompressedMeshData, scale: Vec3) -> Shape {
         for t in chunk.triangles() {
             if t.iter().all(|&i| i < n) {
                 triangles.push([base + t[0] as u32, base + t[1] as u32, base + t[2] as u32]);
+                materials.push(d.materials.get(chunk.material_index as usize).map(|m| m.0));
             }
         }
     }
     let base = vertices.len() as u32;
     vertices.extend(d.big_vertices.iter().map(|&p| s(p)));
     let n = d.big_vertices.len() as u16;
-    for (t, _) in &d.big_triangles {
+    for (t, material_index) in &d.big_triangles {
         if t.iter().all(|&i| i < n) {
             triangles.push([base + t[0] as u32, base + t[1] as u32, base + t[2] as u32]);
+            materials.push(d.materials.get(*material_index as usize).map(|m| m.0));
         }
     }
     Shape::TriangleMesh {
         vertices,
         triangles,
+        materials,
     }
 }

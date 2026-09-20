@@ -184,7 +184,7 @@ pub fn register(vm: &mut Vm, world: &Shared) -> Registered {
 
 /// Hand-kept count of the non-stub natives registered below. The test in
 /// this module checks it against the registry.
-pub const NATIVE_COUNT: usize = 360;
+pub const NATIVE_COUNT: usize = 361;
 
 fn declare_parents(vm: &mut Vm) {
     for (class, parent) in [
@@ -732,10 +732,12 @@ fn object_reference(vm: &mut Vm, w: &Shared) {
     });
     method!(vm, w, "ObjectReference", "Lock", |world, call, me| {
         let lock = call.args.first().is_none_or(Value::as_bool);
-        if let Some(r) = world.reference(me) {
-            r.locked = lock;
-        }
+        world.set_locked(me, lock, alloc!(call));
         none()
+    });
+    method!(vm, w, "ObjectReference", "GetKey", |world, call, me| {
+        let key = world.key(me);
+        form_value(world, call, key)
     });
     method!(vm, w, "ObjectReference", "IsLocked", |world, call, me| b(
         world.reference(me).is_some_and(|r| r.locked)
@@ -753,9 +755,7 @@ fn object_reference(vm: &mut Vm, w: &Shared) {
         "ObjectReference",
         "SetLockLevel",
         |world, call, me| {
-            if let Some(r) = world.reference(me) {
-                r.lock_level = call.arg(0).as_int();
-            }
+            world.set_lock_level(me, call.arg(0).as_int(), alloc!(call));
             none()
         }
     );

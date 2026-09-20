@@ -52,17 +52,20 @@ fn bannered_mare_furniture_is_drawn_and_beds_have_collision() {
         .resolve_cell("WhiterunBanneredMare")
         .expect("Bannered Mare exists");
     let loaded = source.stream_cell_id(cell).expect("stream Bannered Mare");
-    let (_, collision_stats) = source.cell_colliders(cell).expect("cell collision builds");
+    let collision = source.collide_cell_id(cell).expect("cell collision builds");
+    let collision_stats = &collision.stats;
     assert_eq!(
         collision_stats.references,
         loaded.stats.statics_with_model
             + loaded.stats.furniture_with_model
-            + loaded.stats.containers_with_model,
+            + loaded.stats.containers_with_model
+            + loaded.stats.doors_with_model,
         "rendering and collision select different model-bearing references"
     );
     let drawn: BTreeSet<_> = loaded.surfaces.iter().map(|s| s.reference).collect();
     let mut furniture = 0;
     let mut beds = 0;
+    let mut doors = 0;
     let mut omitted = Vec::new();
     for &id in source.cell_index().references(cell) {
         let rref = source.order().winner_ref(id).expect("reference resolves");
@@ -75,6 +78,49 @@ fn bannered_mare_furniture_is_drawn_and_beds_have_collision() {
             .order()
             .winner(source.order().resolve(rref.file, refr.base))
             .expect("base resolves");
+        if base.tag == Tag::new(b"DOOR") && base.flags & (1 << 23) == 0 {
+            let Some(model) = model_for(base) else {
+                continue;
+            };
+            doors += 1;
+            assert!(drawn.contains(&id), "door {id} has no visible surfaces");
+            assert!(
+                collision
+                    .references
+                    .values()
+                    .any(|reference| *reference == id),
+                "door {id} has no mapped collision body"
+            );
+            let collected = source.colliders_of(&model, &refr).expect("door collision");
+            let reachable = collected
+                .colliders
+                .iter()
+                .filter(|c| c.is_static())
+                .any(|c| {
+                    let bounds = c.aabb();
+                    let center = (bounds.min + bounds.max) * 0.5;
+                    let half = (bounds.max - bounds.min) * 0.5;
+                    [
+                        soe_physics::Vec3::new(half.x + 16.0, 0.0, 0.0),
+                        soe_physics::Vec3::new(0.0, half.y + 16.0, 0.0),
+                        soe_physics::Vec3::new(0.0, 0.0, half.z + 16.0),
+                    ]
+                    .into_iter()
+                    .any(|offset| {
+                        [1.0, -1.0].into_iter().any(|sign| {
+                            collision
+                                .world
+                                .raycast(center + offset * sign, center - offset * sign)
+                                .is_some_and(|hit| collision.references.get(&hit.body) == Some(&id))
+                        })
+                    })
+                });
+            assert!(
+                reachable,
+                "door {id} cannot be picked through its collision bounds"
+            );
+            eprintln!("door {id}: {model}, mapped collision and ray hit");
+        }
         if base.tag != Tag::new(b"FURN") || base.flags & (1 << 23) != 0 {
             continue;
         }
@@ -106,6 +152,9 @@ fn bannered_mare_furniture_is_drawn_and_beds_have_collision() {
     );
     assert!(furniture > 0, "fixture contains no furniture");
     assert!(beds > 0, "fixture contains no beds");
+    assert!(doors > 0, "fixture contains no doors");
+    assert_eq!(loaded.stats.doors_with_model, doors);
+    assert_eq!(collision.references.len(), collision_stats.bodies);
     assert_eq!(loaded.stats.furniture_with_model, furniture);
     assert!(
         omitted.is_empty(),

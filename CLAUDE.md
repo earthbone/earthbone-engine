@@ -139,30 +139,27 @@ GPL tool is fine there, but no GPL derived code may reach the MIT shim crates.
 - Code forks at most three at a time. Progress is read from branch commits and
   the master gate, never from an agent's own report.
 
-## Status (reconciled 2026-09-19, master 75cfb55)
+## Status, integrated execution milestones, 2026-09-20
 
-Rounds 1, 2 and 3 have merged foundations. The round 6 branches are merged,
-including `playback` at `5b1a9ed` and `input` at `75cfb55`. The round 7
-simulation transition split, `no-load-screen`, merged at `35a5dd7`.
-Merged does not mean the interactive walkthrough is verified.
+The 2026-09-20 integration combines actor-value components and corrected
+race/template sources, crafting transactions and inventory events, dialogue
+selection and fragments, direct non-hostile magic, host doors and footsteps,
+and vanilla-save execution parsing and object/array import groundwork.
+The native registry has 361 stateful entries and 180 stubs. SOEW version 9
+combines actor-value components, dialogue and active effects. SOEV version 3
+retains declaring-script variable identity.
 
-`docs/status.md` is the current subsystem summary. `HANDOFF.md` names the
-stopping point and proposed next work. This update reviewed source and Git
-history, not a new engine run. The previous handover's 750-test tier 1 result
-predates the input merge. Do not report it as a fresh gate on `75cfb55`.
+PlayerNode now drives Game/VM activation, locked-door key checks and the
+load-door lifecycle with rendering/collision replacement. Grounded movement
+selects footstep sounds from records and reaches the Godot mixer. Physical
+speaker output, swinging-door collision and exterior walking streaming remain
+unverified or unfinished. Portal city transitions and revised AI are deferred.
 
-Follow-up on branch `host-player-run`: PlayerNode's input/camera script now
-passes in Godot 4.4.1 and 4.7.2, with real Bannered Mare collision/movement
-checked on 4.7.2. The PC control map uses DirectInput scan codes and includes
-movement bindings. Earlier tests had selected a console map by suffix.
-Late rebindings, chord handling and action edges are corrected. Activation
-only records a ray hit and does not drive the game/doorway lifecycle. Audio
-buffers reach host playback code, but footsteps and dialogue are not driven
-by the game loop and speaker output is unverified. These are the seams for
-the proposed full Bannered Mare walkthrough. A movement-only launcher now
-exists at `godot/walkthrough.gd`. Portal doorways remain a prototype
-proposal. Mod-data parsing/application and behavior-2 have merged, while
-OAR animation consumption and packages-2 remain incomplete.
+Weapon combat, complete magic/crafting/dialogue, player UI and full vanilla-save
+restoration remain open. ESS import requires explicit object mapping and does
+not resume saved stacks or restore all world change forms. The CommonLib shim
+is a skeleton and the editor is a design. Read docs/status.md and
+docs/execution-plan.md for current evidence and the remaining scopes.
 
 ## Reference-correction checkpoint, 2026-09-19
 

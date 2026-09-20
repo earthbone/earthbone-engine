@@ -11,6 +11,7 @@ path = "src/lib.rs"
 
 [dependencies]
 thiserror = "2.0"
+crc32fast = "1"
 soe-trace = { path = "../trace" }
 soe-esm = { path = "../esm" }
 soe-papyrus = { path = "../papyrus" }

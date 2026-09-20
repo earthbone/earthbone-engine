@@ -128,7 +128,8 @@ pub struct CompressedMeshData {
     /// Per chunk transforms, referenced by `CompressedChunk::transform_index`.
     pub transforms: Vec<Iso>,
     pub big_vertices: Vec<Vec3>,
-    /// Triangles too large for a chunk, indexing `big_vertices`.
+    /// Triangles too large for a chunk, indexing `big_vertices`, paired with
+    /// an index into `materials`. Verified against the shipped SE meshes.
     pub big_triangles: Vec<([u16; 3], u32)>,
     pub chunks: Vec<CompressedChunk>,
 }

@@ -31,6 +31,7 @@ pub mod crafting;
 pub mod debug;
 pub mod determinism;
 pub mod dialogue;
+pub mod footsteps;
 pub mod harness;
 pub mod moddata;
 pub mod natives;
@@ -39,6 +40,7 @@ pub mod package;
 pub mod quest;
 pub mod race;
 pub mod save;
+pub mod sound;
 pub mod vmad;
 pub mod world;
 
@@ -133,7 +135,12 @@ pub struct Game {
 
 impl Game {
     pub fn new(order: LoadOrder) -> Game {
-        let world = Rc::new(RefCell::new(World::new(order)));
+        Self::from_shared_order(std::sync::Arc::new(order))
+    }
+
+    /// Use the immutable form table already opened by the host.
+    pub fn from_shared_order(order: std::sync::Arc<LoadOrder>) -> Game {
+        let world = Rc::new(RefCell::new(World::from_shared_order(order)));
         let mut vm = Vm::new();
         let registered = natives::register(&mut vm, &world);
         Game {
@@ -196,6 +203,16 @@ impl Game {
         if data_dir.is_dir() {
             let _ = vfs.add_loose_root(data_dir);
         }
+        let loaded = self.load_scripts_from_vfs(&vfs);
+        report.scripts_found = loaded.scripts_found;
+        report.scripts_loaded = loaded.scripts_loaded;
+        report.scripts_failed.extend(loaded.scripts_failed);
+        report
+    }
+
+    /// Load scripts through the host's existing archive and loose-file overlay.
+    pub fn load_scripts_from_vfs(&mut self, vfs: &soe_bsa::Vfs) -> ScriptLoadReport {
+        let mut report = ScriptLoadReport::default();
         let mut pex: Vec<String> = vfs
             .list("scripts")
             .into_iter()
@@ -461,6 +478,21 @@ impl Game {
     /// Activate a reference the way a player click would, then settle.
     pub fn activate(&mut self, target: GlobalFormId, activator: GlobalFormId) -> bool {
         let ok = self.activate_no_settle(target, activator);
+        self.run_until_idle(64);
+        ok
+    }
+
+    /// Activate through the usual default processing and event path, retaining
+    /// the source cell until the host replaces its resources and settles unload.
+    pub fn activate_deferred(&mut self, target: GlobalFormId, activator: GlobalFormId) -> bool {
+        let vm = &mut self.vm;
+        let ok = self.world.borrow_mut().activate_with_unload(
+            target,
+            activator,
+            true,
+            true,
+            &mut |n, c| vm.create_object_of(n, c),
+        );
         self.run_until_idle(64);
         ok
     }

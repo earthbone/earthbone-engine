@@ -183,7 +183,7 @@ fn the_master_alone_links_both_ways() {
 
 #[test]
 fn a_deleted_navmesh_drops_out_and_its_neighbour_link_is_repaired() {
-    let mut order = order_of(&[
+    let order = order_of(&[
         ("Master.esm", master()),
         ("Dirty.esp", patch_deleting_navm_2()),
     ]);

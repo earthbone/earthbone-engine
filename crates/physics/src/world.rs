@@ -138,6 +138,8 @@ fn axis_at(position: Vec3, radius: f32, height: f32) -> (Vec3, Vec3) {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct RayHit {
     pub body: BodyId,
+    /// Material of the hit primitive, when supplied by the collision asset.
+    pub material: Option<u32>,
     pub point: Vec3,
     pub normal: Vec3,
     /// Fraction along the ray, 0 at the start and 1 at the end.
@@ -202,6 +204,7 @@ struct StaticBody {
     id: BodyId,
     layer: Layer,
     prims: Vec<Prim>,
+    materials: Vec<Option<u32>>,
     aabb: Aabb,
 }
 
@@ -469,7 +472,14 @@ impl PhysicsWorld for SimpleWorld {
         let id = BodyId(self.next);
         self.next += 1;
         let mut prims = Vec::new();
-        flatten(&collider.shape, &collider.transform, &mut prims);
+        let mut materials = Vec::new();
+        flatten(
+            &collider.shape,
+            &collider.transform,
+            &mut prims,
+            &mut materials,
+            None,
+        );
         let aabb = prims
             .iter()
             .map(Prim::aabb)
@@ -478,6 +488,7 @@ impl PhysicsWorld for SimpleWorld {
             id,
             layer: collider.layer,
             prims,
+            materials,
             aabb,
         });
         self.dirty = true;
@@ -585,6 +596,7 @@ impl PhysicsWorld for SimpleWorld {
                 if best.is_none_or(|b| t < b.fraction) {
                     best = Some(RayHit {
                         body: self.statics[si].id,
+                        material: self.statics[si].materials[pi],
                         point: from + (to - from) * t,
                         normal,
                         fraction: t,
@@ -597,8 +609,17 @@ impl PhysicsWorld for SimpleWorld {
 }
 
 /// World-space primitives for a shape placed by `t`.
-fn flatten(shape: &Shape, t: &Iso, out: &mut Vec<Prim>) {
+fn flatten(
+    shape: &Shape,
+    t: &Iso,
+    out: &mut Vec<Prim>,
+    materials: &mut Vec<Option<u32>>,
+    material: Option<u32>,
+) {
     match shape {
+        Shape::Material { id, shape } => {
+            flatten(shape, t, out, materials, Some(*id));
+        }
         Shape::Box { half_extents } => {
             let h = *half_extents;
             let corners: Vec<Vec3> = (0..8)
@@ -635,24 +656,27 @@ fn flatten(shape: &Shape, t: &Iso, out: &mut Vec<Prim>) {
         Shape::TriangleMesh {
             vertices,
             triangles,
+            materials: face_materials,
         } => {
             let pts: Vec<Vec3> = vertices.iter().map(|p| t.apply(*p)).collect();
-            for tri in triangles {
+            for (index, tri) in triangles.iter().enumerate() {
                 if let (Some(&a), Some(&b), Some(&c)) = (
                     pts.get(tri[0] as usize),
                     pts.get(tri[1] as usize),
                     pts.get(tri[2] as usize),
                 ) {
                     out.push(Prim::Tri(a, b, c));
+                    materials.push(face_materials.get(index).copied().flatten().or(material));
                 }
             }
         }
         Shape::Compound(children) => {
             for (ct, c) in children {
-                flatten(c, &t.then(ct), out);
+                flatten(c, &t.then(ct), out, materials, material);
             }
         }
     }
+    materials.resize(out.len(), material);
 }
 
 /// Closest points between a primitive's surface and the segment `a b`:
@@ -961,6 +985,7 @@ mod tests {
                 mass: 0.0,
                 transform: Iso::IDENTITY,
                 shape: Shape::TriangleMesh {
+                    materials: Vec::new(),
                     vertices: vec![
                         Vec3::new(-500.0, -500.0, z),
                         Vec3::new(500.0, -500.0, z),

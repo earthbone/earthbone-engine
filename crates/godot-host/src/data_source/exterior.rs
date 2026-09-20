@@ -152,7 +152,7 @@ impl DataSource {
     /// `kUseLandData`). `WhiterunWorld` carries its own `LAND` for three of
     /// the nine cells around its origin and draws Tamriel's under the rest,
     /// which is what that bit means in practice.
-    fn land_parent_of(&self, world: GlobalFormId) -> Option<GlobalFormId> {
+    pub(super) fn land_parent_of(&self, world: GlobalFormId) -> Option<GlobalFormId> {
         let rref = self.order.winner_ref(world)?;
         let rec = self.order.record(rref);
         let localized = self.order.file(rref.file).plugin.header.is_localized();
@@ -207,6 +207,14 @@ impl DataSource {
     ) -> Result<LoadedExterior, DataSourceError> {
         let _span = soe_trace::Span::new("host.stream_exterior", "host");
         let block = self.resolve_exterior_block(editor_id, radius)?;
+        self.stream_exterior_block(block)
+    }
+
+    /// Stream an already resolved exterior selection, including inherited terrain.
+    pub(super) fn stream_exterior_block(
+        &self,
+        block: ExteriorBlock,
+    ) -> Result<LoadedExterior, DataSourceError> {
         let mut wanted = block.cells.clone();
         wanted.extend_from_slice(&block.parent_cells);
         let land = self.land_for_cells(&wanted);

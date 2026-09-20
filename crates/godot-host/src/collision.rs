@@ -14,10 +14,12 @@
 //! carries the reasoning: the authoritative simulation stays in our process
 //! so the per tick state hash can see it and a headless run can reproduce it.
 
+use std::collections::HashMap;
+
 use crate::data_source::{model_for, placement_iso, DataSource, DataSourceError};
 use soe_esm::records::refr::Refr;
 use soe_esm::{tag, GlobalFormId};
-use soe_physics::{Collider, PhysicsWorld, SimpleWorld};
+use soe_physics::{BodyId, Collider, PhysicsWorld, SimpleWorld};
 
 #[cfg(test)]
 mod furniture_tests;
@@ -29,7 +31,7 @@ mod scene_tests;
 /// what the world actually holds.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct CollisionStats {
-    /// Placed statics, furniture and containers, the same set the renderer draws.
+    /// Placed statics, furniture, containers and doors selected by the renderer.
     pub references: usize,
     /// References whose model carried at least one collider.
     pub with_collision: usize,
@@ -51,34 +53,55 @@ pub struct CollisionStats {
 pub struct CellCollision {
     pub world: SimpleWorld,
     pub stats: CollisionStats,
+    /// Placed references owning each body. Several bodies may belong to one reference.
+    pub references: HashMap<BodyId, GlobalFormId>,
+}
+
+/// One placed collision shape with the reference identity used by activation.
+pub struct PlacedCollider {
+    pub reference: GlobalFormId,
+    pub collider: Collider,
 }
 
 impl DataSource {
-    /// Builds the static collision world for one cell.
-    ///
-    /// Sequential on purpose: a cell is a few hundred models and the shape
-    /// layer is cheap next to texture decoding, so there is nothing here worth
-    /// the threading the visual path needs. Measure before changing that.
+    /// Builds static collision and maps each body back to its placed reference.
     ///
     /// # Errors
     ///
-    /// Only for a failure that stops the walk. A model that cannot be read or
-    /// parsed is counted in [`CollisionStats::failed`] and skipped, the same
-    /// way the visual path treats one.
+    /// Only for a failure that stops the walk. Unreadable models are counted
+    /// in [CollisionStats::failed] and skipped.
     pub fn collide_cell_id(&self, cell_id: GlobalFormId) -> Result<CellCollision, DataSourceError> {
-        let (colliders, stats) = self.cell_colliders(cell_id)?;
+        let (colliders, mut stats) = self.placed_cell_colliders(cell_id)?;
         let mut world = SimpleWorld::new();
-        let mut stats = stats;
-        for col in colliders.iter().filter(|c| c.is_static()) {
+        let mut references = HashMap::new();
+        for placed in colliders.iter().filter(|p| p.collider.is_static()) {
             let before = world.primitive_count();
-            world.add_static(col);
+            let body = world.add_static(&placed.collider);
+            references.insert(body, placed.reference);
             stats.primitives += world.primitive_count() - before;
             stats.bodies += 1;
         }
-        Ok(CellCollision { world, stats })
+        Ok(CellCollision {
+            world,
+            stats,
+            references,
+        })
     }
 
-    /// Every collider a cell's placed statics carry, in world space.
+    /// Collision shapes without reference metadata for existing physics consumers.
+    ///
+    /// # Errors
+    ///
+    /// Propagates failures from [Self::placed_cell_colliders].
+    pub fn cell_colliders(
+        &self,
+        cell_id: GlobalFormId,
+    ) -> Result<(Vec<Collider>, CollisionStats), DataSourceError> {
+        let (placed, stats) = self.placed_cell_colliders(cell_id)?;
+        Ok((placed.into_iter().map(|p| p.collider).collect(), stats))
+    }
+
+    /// Every selected collider in world space, retaining its placed reference.
     ///
     /// The two worlds start here. [`Self::collide_cell_id`] feeds these to the
     /// headless [`SimpleWorld`], and under the `godot` feature
@@ -90,13 +113,13 @@ impl DataSource {
     ///
     /// Only for a failure that stops the walk. A model that cannot be read is
     /// counted in [`CollisionStats::failed`] and skipped.
-    pub fn cell_colliders(
+    pub fn placed_cell_colliders(
         &self,
         cell_id: GlobalFormId,
-    ) -> Result<(Vec<Collider>, CollisionStats), DataSourceError> {
+    ) -> Result<(Vec<PlacedCollider>, CollisionStats), DataSourceError> {
         let _span = soe_trace::Span::new("host.collide_cell", "host");
         let mut stats = CollisionStats::default();
-        let mut out: Vec<Collider> = Vec::new();
+        let mut out: Vec<PlacedCollider> = Vec::new();
 
         for id in self.cell_index().references(cell_id).iter().copied() {
             let Some(rref) = self.order().winner_ref(id) else {
@@ -125,7 +148,15 @@ impl DataSource {
                     }
                     stats.with_collision += 1;
                     stats.colliders += collected.colliders.len();
-                    out.extend(collected.colliders);
+                    out.extend(
+                        collected
+                            .colliders
+                            .into_iter()
+                            .map(|collider| PlacedCollider {
+                                reference: id,
+                                collider,
+                            }),
+                    );
                 }
                 Err(e) => {
                     eprintln!("collide_cell: {model}: {e}");

@@ -246,11 +246,13 @@ fn the_floor_collects_to_a_triangle_mesh_in_game_units() {
     let Shape::TriangleMesh {
         vertices,
         triangles,
+        materials,
     } = &col.shape
     else {
         panic!("expected a triangle mesh, got {:?}", col.shape);
     };
     assert_eq!(triangles.len(), 2);
+    assert_eq!(materials, &[Some(1), Some(1)]);
     let half = 10.0 * UNITS_PER_METER;
     assert!((vertices[0] - Vec3::new(-half, -half, 0.0)).length() < 0.05);
     assert!((vertices[2] - Vec3::new(half, half, 0.0)).length() < 0.05);
@@ -319,8 +321,11 @@ fn a_box_under_a_moved_node_lands_where_the_transforms_say() {
         "{t:?}"
     );
     assert_eq!(
-        col.shape,
-        Shape::Box {
+        match &col.shape {
+            Shape::Material { shape, .. } => shape.as_ref(),
+            shape => shape,
+        },
+        &Shape::Box {
             half_extents: Vec3::new(UNITS_PER_METER, UNITS_PER_METER, 0.5 * UNITS_PER_METER)
         }
     );
@@ -343,6 +348,7 @@ fn a_box_under_a_moved_node_lands_where_the_transforms_say() {
         .unwrap();
     assert!((hit.point.z - UNITS_PER_METER).abs() < 1e-2);
     assert!(hit.normal.z > 0.99);
+    assert_eq!(hit.material, Some(1));
     // Beside the box there is nothing.
     assert!(world
         .raycast(Vec3::new(300.0, 0.0, 500.0), Vec3::new(300.0, 0.0, -500.0))
@@ -373,6 +379,10 @@ fn nested_nodes_accumulate_and_a_big_triangle_is_kept() {
     assert_eq!(c.colliders.len(), 1);
     assert!((c.colliders[0].transform.translation.x - 75.0).abs() < 1e-4);
     assert_eq!(c.colliders[0].shape.triangle_count(), 1);
+    let Shape::TriangleMesh { materials, .. } = &c.colliders[0].shape else {
+        panic!("expected a triangle mesh");
+    };
+    assert_eq!(materials, &[Some(1)]);
 }
 
 #[test]

@@ -31,9 +31,16 @@ CK, UESP, FallrimTools and the reference implementations named in
 
 ## Current work
 
-`crafting-execution` starts the recipe execution path with COBJ bench matching,
-condition evaluation and atomic ingredient/output transactions. Tempering,
-alchemy, enchanting, progression and host menu wiring remain separate parts
-of crafting to implement. Other areas above remain pending. Each completed
-milestone must record its exact tests, installed-data checks and remaining
-limits, and pass `tools/lint.sh` before commit.
+The integrated foundation includes actor-value components and record-backed
+actor initialization, COBJ transactions and inventory events, dialogue selection
+and fragments, direct non-hostile magic applications, host doors and footsteps,
+and two vanilla-save groundwork increments. These share one form table and VM.
+SOEW version 9 retains dialogue, active effects and actor-value components
+without replaying applied effects or dialogue begin fragments on restore.
+
+The remaining boundaries are listed in [status.md](status.md). In particular,
+weapon combat, complete magic/crafting/dialogue, their host interfaces and
+full vanilla-save continuation remain unfinished. Save object import still
+requires an explicit caller-provided mapping and does not resume saved stacks.
+Each subsequent milestone needs its own source review, installed-data evidence
+and full lint gate. New work should branch from the combined master baseline.

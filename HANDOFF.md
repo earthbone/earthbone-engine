@@ -1,8 +1,7 @@
 # Skyrim open engine: handoff
 
-Updated 2026-09-19 for integration of player-host commit `8485d48` with
-`master` at `6d990e7`. This replaces the September 14 handoff. Its
-instructions to start the game crate and install Godot were superseded.
+Updated 2026-09-20 for the combined execution foundations. Branch subsequent
+work from the consolidated master, preserving the remaining scopes below.
 
 ## Read first
 
@@ -29,59 +28,51 @@ branches have merged. Later merges include the save reader, audio and viseme
 work, behavior second pass, mod-data parsing/application, determinism hashes,
 Jolt host path, character controller, skinning and bind-pose correction.
 
-The most recent feature merges are:
+The combined baseline includes these source milestones:
 
-| Branch | Merge | What it adds |
+| Branch | Source commit | What it adds |
 |---|---|---|
-| playback | `5b1a9ed` | Host audio support and real-data conversion tests |
-| no-load-screen | `35a5dd7` | Simulation prefetch/attach split and deferred unload |
-| input | `75cfb55` | Control maps, input driver, cameras and Godot PlayerNode |
+| combat-execution | 3488cb2 | Actor-value components and corrected race/NPC/template sources |
+| crafting-execution | 4d552ac | COBJ transactions, conditions and inventory events |
+| vanilla-save-runtime | da0b0fd | Typed Papyrus execution decoding and round trips |
+| vanilla-save-bindings | ba21070 | Explicit-mapping object/array import and variable identity |
+| dialogue-execution | f64821d | Dialogue choices, response lifecycle and named fragments |
+| magic-effects | a4dd385 | Direct non-hostile applications, effect scripts and expiry |
+| host-gameplay | 0873bd2 | Host activation, doors, keys and material-selected footsteps |
 
-Those branches are no longer in flight. Reference fixes `0c84bbe` and audit
-improvements `3f336e3` were reconciled on master at `6d990e7`. Player-host
-work is integrated in the `host-player-run` worktree. Other registered
-worktrees remain owned by their sessions. Check Git before taking ownership.
+Integration resolves shared condition evaluation, declaring-script variables,
+actor-value modifier domains and SOEW version 9 persistence. One reload test
+retains an active conversation and buff without replaying either. Source
+worktrees remain in place. Check their status before taking ownership.
 
 ## What to pick up next
 
-The nearest proposed milestone is a verified Bannered Mare walkthrough.
-The `host-player-run` follow-up now verifies input and camera in Godot 4.4.1
-and 4.7.2, and real-cell movement on 4.7.2. It fixes PC control-map selection,
-scan-code translation and rebindings, and adds `godot/walkthrough.gd` as a
-movement-only launcher. Its activate path only records whether a ray hit. It does not identify
-and activate a game reference or connect the doorway lifecycle. SoundBank
-receives audio buffers, but nothing in the game loop drives footsteps or
-dialogue, and speaker output is unverified.
+Continue Skyrim gameplay parity using [execution-plan.md](docs/execution-plan.md)
+and [status.md](docs/status.md). Weapon combat, complete spell execution,
+tempering/alchemy/enchanting, dialogue presentation and remaining conditions,
+progression and player interfaces remain unfinished. Vanilla-save restoration
+still needs world change forms, runtime identity mapping, stacks and latent
+continuations. Parser and import tests do not establish gameplay resume.
 
-Run and connect these existing pieces before claiming an interactive demo.
-Verify the camera and movement in a real cell, activation and the door event
-sequence, deferred unload on a later frame, and audible footsteps. Measure
-cold material loading before promising a crossing without a fallback fade.
-See the final sections of `docs/godot-host.md` and `docs/game.md`.
-
-The reference audit now supplies source paths and acceptance checks for
-pending gameplay work. Combat, crafting and progression still need separate
-record-backed scopes. The CommonLib shim is a skeleton, and the Creation
-Kit replacement is a design. Do not count either as delivered compatibility.
-
-`portal-cells` remains a prototype proposal. The simulation transition split
-it depends on has merged, but visible doors still need host integration.
-Reuse the local godotwind findings before beginning portal work.
+Host activation and load-door travel are connected. Footsteps reach the mixer
+from grounded movement. Remaining host work includes physical speaker checks,
+swing-door animation/collision, walking exterior streaming and measured cold
+resource preparation. Portal city transitions and core AI redesign remain
+deferred until Skyrim itself is playable. The CommonLib shim and editor also
+remain unfinished.
 
 ## Verification and safe continuation
 
-The player-host gate recorded 821 passes before integration. Its separate
-Godot input/camera and real-cell movement tests passed. A rendered capture
-succeeded, but the user reported rug flicker, missing beds, broken kitchen
-flooring and slow loading. The renderer still filters out non-STAT bases,
-and the player and renderer open separate data sources. Visual correctness
-is not established. The combined gate passed with 852 test passes, and the
-rebuilt Godot 4.7.2 player test passed with 281 bodies and the same 90-unit
-movement result. The initial combined run skipped Taplo and Markdownlint.
-Taplo 0.10.0 and Markdownlint CLI2 0.23.2 are now installed through Homebrew,
-and both standalone checks pass.
-Historical live-game and save-corpus results remain in the crate docs.
-Never substitute a skipped gated test for a real-data run.
+The combined installed-data game run passes 65 tests, including actor values,
+crafting, dialogue, magic, locks and footstep selection. Startup starts 423
+quests through 1,490 native calls with zero unresolved calls. Save corpus and
+object/array import checks pass all nine selected tests using the 60 external
+saves. These checks do not execute saved stacks or restore every world field.
+Godot 4.7.2 passes the door round trip, E-key crossing and footstep mixer test.
+
+Historical validation remains in crate docs, labeled by milestone. Never
+substitute a skipped gated test for a real-data run. Headless Godot mixer
+output is separate from physical speaker and rendered-image verification.
 
 Run `rtk proxy ./tools/lint.sh` from the engine worktree before a commit.
 It includes formatting, three clippy passes, prose checks, TOML and Markdown

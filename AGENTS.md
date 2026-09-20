@@ -5,7 +5,7 @@ first, in full. It is short on purpose. Everything it points at is real and
 worth opening before you write code.
 
 Read `docs/intent.md` for the full governing intent and `docs/status.md` for
-the status reconciled against `75cfb55` on 2026-09-19. The intent combines
+the current integration status on 2026-09-20. The intent combines
 the user's original goals with later decisions, including the compatibility
 boundary, modernization and editor scope. It is not a feature-completion list.
 
@@ -229,29 +229,25 @@ one. That is why physics runs on Godot's bundled Jolt and audio goes through
 
 ## Where the project stands
 
-Reviewed on 2026-09-19 against `master` at `75cfb55`. Foundations include the
-form table and parsers, Papyrus and startup quest execution, behavior graphs,
-basic AI packages, navmesh, rendering and skinning, physics/controller paths,
-audio support, mod-data application, engine saves and a vanilla ESS reader.
-The latest merges are `playback`, `no-load-screen` and `input`. None remains
-in flight. The full gate was not rerun for this documentation review.
+The 2026-09-20 integration combines actor-value components and corrected
+race/template sources, crafting transactions and inventory events, dialogue
+selection and fragments, direct non-hostile magic, host doors and footsteps,
+and vanilla-save execution parsing and object/array import groundwork.
+The native registry has 361 stateful entries and 180 stubs. SOEW version 9
+combines actor-value components, dialogue and active effects. SOEV version 3
+retains declaring-script variable identity.
 
-The first job after input merged is still host integration. PlayerNode's
-activate path records a ray hit but does not drive a game reference or the
-doorway lifecycle. The `host-player-run` follow-up now runs PlayerNode's
-input/camera checks on Godot 4.4.1 and 4.7.2 and real-cell movement on 4.7.2.
-It fixes the PC control-map lookup and scan-code translation, late rebindings,
-chords and toggle edges, and supplies a movement-only walkthrough launcher.
-SoundBank is not connected to footsteps or dialogue, and speaker output is
-unverified. The proposed next milestone is a verified Bannered Mare
-walkthrough, with movement, camera, interaction, a door crossing and footsteps.
+PlayerNode now drives Game/VM activation, locked-door key checks and the
+load-door lifecycle with rendering/collision replacement. Grounded movement
+selects footstep sounds from records and reaches the Godot mixer. Physical
+speaker output, swinging-door collision and exterior walking streaming remain
+unverified or unfinished. Portal city transitions and revised AI are deferred.
 
-Combat, magic, dialogue, crafting, progression and player UI still need
-implementation. The reference audit supplies source paths and acceptance
-checks for the game layer. Combat, crafting and progression still need
-separate record-backed scopes. Records and a VM are necessary foundations,
-not evidence that the game layer is complete.
-The CommonLib shim is a skeleton, and the editor is a design.
+Weapon combat, complete magic/crafting/dialogue, player UI and full vanilla-save
+restoration remain open. ESS import requires explicit object mapping and does
+not resume saved stacks or restore all world change forms. The CommonLib shim
+is a skeleton and the editor is a design. Read docs/status.md and
+docs/execution-plan.md for current evidence and the remaining scopes.
 
 Do not reuse the old 23-of-47 open-item count as a current completion metric.
 Some listed work landed under other branches, including compressed texture
@@ -264,8 +260,8 @@ all feature-range and target checks, instead of that abbreviated list.
 
 The reference fixes in `0c84bbe`, reconciled with the audit improvements at
 `6d990e7`, add distinct wait clock domains, safe dispel stubs and explicit
-unsupported deterministic SPID rules. The registry reports 345 stateful
-natives and 191 stubs. `docs/reference-audit.md` now supplies source paths
+unsupported deterministic SPID rules. That checkpoint reported 345 stateful
+natives and 191 stubs, before the integrated execution milestones. `docs/reference-audit.md` now supplies source paths
 and acceptance checks for pending gameplay work.
 
 ## Traps

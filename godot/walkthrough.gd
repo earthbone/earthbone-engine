@@ -1,6 +1,6 @@
 extends SceneTree
 
-## Interactive movement prototype. Requires SKYRIM_DATA and the release extension.
+## Gameplay integration prototype. Requires SKYRIM_DATA and the release extension.
 ## WASD move, mouse looks, Space jumps, Ctrl sneaks, F changes camera, Esc exits.
 
 var player: Node3D
@@ -69,10 +69,17 @@ func _start() -> void:
 		quit(1)
 		return
 	print("STARTUP player ms=", Time.get_ticks_msec() - phase_msec)
+	loading_phase = "Starting game scripts"
+	await process_frame
+	await process_frame
+	if not player.call("start_gameplay"):
+		printerr("Could not start the gameplay runtime")
+		quit(1)
+		return
 	print("STARTUP ready ms=", Time.get_ticks_msec() - startup_msec)
 	loading_label.queue_free()
 	loading_label = null
-	print("WASD move, mouse look, Space jump, Ctrl sneak, F camera, Esc exit")
+	print("WASD move, mouse look, E activate, Space jump, Ctrl sneak, F camera, Esc exit")
 	loaded = true
 
 func _process(_delta: float) -> bool:

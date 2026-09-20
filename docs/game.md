@@ -71,7 +71,7 @@ and `engine-refs/skse64/scripts/vanilla` can establish the contract.
 
 ## Conformance table
 
-Counts from `natives::register`: 360 natives with state behind them and 180
+Counts from `natives::register`: 361 natives with state behind them and 180
 quiet stubs (141 and 176 before the natives round of 2026-09-18, 294 and 137
 before the DLC round). A stub returns the value the game gives when nothing
 is going on (`IsBleedingOut` false, `ShakeCamera` nothing) so vanilla scripts
@@ -1021,3 +1021,153 @@ The rest returned explicit unsupported reasons. The installed startup still ran
 423 quests through 1,388 native calls with zero unresolved calls. Binding now
 attached 27,563 scripts, with seven missing scripts and 88 missing properties,
 because MGEF script attachments wait until an application exists.
+
+## Host gameplay integration (2026-09-19)
+
+`Game::from_shared_order` and `World::from_shared_order` accept the host's
+immutable `Arc<LoadOrder>`. `load_scripts_from_vfs` reads its existing asset
+overlay. The owning constructors and data-directory loader remain available.
+There is one winning-record table and one authoritative game state.
+
+`Game::activate_deferred` uses ordinary default activation and `OnActivate`
+dispatch. For a player load door it arms and commits the doorway, retaining
+the source cell until the host installs destination rendering and collision
+and calls `settle_unload` on the following step. Existing `activate` callers
+keep immediate unloading. Both paths have the same queued cell and activation
+event sequence in the synthetic fixture.
+
+Local CK `Activate_-_ObjectReference.wikitext` and
+`OnActivate_-_ObjectReference.wikitext` require blocked activation to return
+false while still sending the event. A default-only call must ignore the
+block and suppress `OnActivate`. These contracts are now applied and tested.
+This corrects the old unconditional-success result and blocked default-only
+behavior. It does not implement every type's default action.
+
+Host resource preparation, player synchronization, lock restrictions and
+remaining rendering limits are recorded in [godot-host.md](godot-host.md).
+
+## Footstep record selection (2026-09-19)
+
+`footsteps::Footsteps` borrows the load order and resolves a selected FSTS,
+movement type, animation event tag and MATT surface to IPCT and SNDR identities.
+It follows FSTS to FSTP to IPDS to IPCT, retaining both impact sound links.
+Every link resolves in the file supplying its winning record. Deleted records,
+malformed counts and material-parent cycles return errors. Unmatched event tags
+and empty movement groups produce no impact.
+
+Sources are the local xEdit `wbDefinitionsTES5.pas` FSTS, FSTP, IPDS, IPCT,
+MATT and DOBJ definitions, UESP's corresponding record pages, and CommonLib's
+`include/RE/C/CRC.h` and `include/RE/M/MaterialIDs.h`. FSTS stores its DATA
+groups in reverse XCNT order. DOBJ merges keys across sparse override records.
+The DLC default-object records do not repeat Skyrim's DFTS entry, so reading
+only the winning DOBJ would lose the default footstep set.
+
+Material IDs are CRC32 over lowercase MNAM bytes with initial zero and no
+final inversion. This input convention was checked against all 79 installed
+material names and CommonLib's declared IDs. The runtime uses `crc32fast`,
+already present transitively, whose only dependency is `cfg-if`. No new
+packages were added to the lockfile. Hashing retains raw plugin bytes and
+stops at NUL. Non-ASCII case folding has not been established by the corpus.
+Missing IPDS entries fall back along MATT parent links. That fallback follows
+the record hierarchy and has synthetic coverage, but has not been compared
+against the original executable's behavior.
+
+The installed five-master test checks wood, stone and dirt, both feet, and
+walk, run, sprint and sneak. All 24 cases resolved, supplying 48 sound links.
+Sprint uses `FootSprintLeft` and `FootSprintRight`, unlike the ordinary
+`FootLeft` and `FootRight` tags. Synthetic tests cover distinct movement
+groups, sparse defaults, owner-relative links, parent cycles, malformed counts,
+deleted records and three published material hash constants.
+
+The two impact sound slots retain their positions, including null links. The
+installed impacts pair NPC sound 1 and player sound 2. Player playback currently
+selects sound 2, falling back to sound 1 when absent, based on that content
+pattern. Selection across other impact types is not established by this survey.
+
+`World::footstep_sets` reads current race and equipment for each event. The
+resolver follows NPC trait templates, NPC skin with race-skin fallback, and
+ARMO MODL links to ARMA. Addons match the current race or its armor-parent
+chain, including additional races. Links retain the defining file's namespace.
+Each body slot selects the addon with the higher sex-specific priority. Skin
+is considered before equipment. Silent addons can replace skin parts, and
+each surviving FSTS is returned once. If no set survives, the resolver uses DFTS.
+The implicit player now retains reference 0:000014 and its Player NPC base,
+so skin and race selection work before an explicit placed player is loaded.
+
+Sources are local xEdit NPC_/RACE/ARMO/ARMA definitions, UESP record pages,
+and CommonLibSSE-NG `src/RE/T/TESObjectARMA.cpp` for armor-parent matching.
+Equal-priority conflicts use later record/equipment order. Deduplicated
+layering and tie handling are engine policy pending original-runtime checks.
+Equipment is the current actor state's equipped set. Outfit auto-equipping,
+leveled trait templates, armor template inheritance and runtime skin overrides
+are not supplied by this path. A leveled trait template returns a type error.
+Actor initialization follows distinct stats and traits template chains.
+Other template groups still need the same correction.
+
+Eight actor-selection tests pass, including installed-data checks for Nord
+bare feet, light boots, heavy boots and wolf skin. The same run resolves all
+161 non-deleted race skins into 41 distinct sets across the five masters.
+Synthetic cases cover live equipment/race changes, implicit player identity,
+sex-specific slot priorities, skin replacement, additional and inherited races,
+owner-relative overrides, malformed links and cyclic armor-parent chains.
+
+## Sound preparation (2026-09-19)
+
+`sound::prepare` resolves SNDR files, signed frequency shift, frequency and
+attenuation variation, SNCT parent gain and menu defaults, underwater muting,
+and SOPM output parameters. Slider overrides are explicit inputs. Descriptor,
+category and output links use their winning owners. Category cycles, malformed
+fields, invalid random draws and unsupported descriptor types return errors.
+Conditional descriptors return an unsupported error until connected to the
+shared condition evaluator. Loop modes and alternate links are preserved.
+
+Sources are local xEdit SNDR/SNCT/SOPM definitions, UESP's corresponding pages,
+and CommonLib `BGSStandardSoundDef.h`, `BGSSoundCategory.h` and
+`BGSSoundOutput.h`. The three caller-supplied random draws select a file,
+uniform signed pitch variation and uniform additional attenuation. This
+distribution is engine policy, not a measured vanilla random sequence.
+Player footsteps draw from the world's saved RNG.
+
+Five synthetic tests cover file/path choice, pitch and decibels, category
+sliders, inherited underwater muting, conditional refusal, invalid inputs,
+cycles and output links supplied by overrides. All 48 installed footstep sound
+links prepared successfully in the existing 24-case survey. Host execution and
+its output-model limits are documented in [godot-host.md](godot-host.md).
+
+## Authored locks and keys (2026-09-19)
+
+Placed references initialize their lock state and level from XLOC, which was
+previously ignored. `World::key` resolves the winning reference's KEYM link.
+Default door and container activation uses the activator's inventory key,
+unlocks without consuming it and continues ordinary activation. Missing or
+wrong keys leave the lock and inventory unchanged. BlockActivation prevents
+the key action as well as opening. Default-only activation bypasses that block
+but still needs the key. The host now delegates lock handling to this path.
+
+`ObjectReference.GetKey` is registered. `Lock` updates shared state, closes an
+open object's logical state when locking, and queues `OnLockStateChanged` on
+every call, including repeats. `SetLockLevel` clamps to 0 through 255 and queues
+the event when the level changes, retaining the current locked state. Level
+zero is a novice lock, not an unlocked marker. Existing engine state saves and
+hashes already retain the mutable lock fields, so no save layout changed.
+
+Sources are local CK Lock, GetLockLevel, OnLockStateChanged and Activate pages,
+the shipped ObjectReference.psc declarations, and xEdit's XLOC definition.
+OpenMW's esm4 loader confirms that XLOC presence initializes a locked object.
+Key unlock queues its lock event before OnActivate. That ordering and
+out-of-range level clamping have tests but no original-runtime comparison.
+
+Six synthetic scenarios cover key checks on doors and containers, blocked
+and default-only activation, repeated lock events, logical closing, native
+queries, override namespaces, engine save restoration and load-door unload
+retention. A separate installed-data run read all 1,497 non-deleted locked
+references across five masters and resolved all 509 non-null key links.
+Chest 0:016DB7 refused activation without its key, then unlocked with key
+0:03C590 while retaining the key in inventory. There are 146 leveled-lock
+flags in that survey. Their level scaling is not executed yet.
+
+Lockpicking, difficulty scaling, key-use messages, crime handling, reciprocal
+door lock synchronization and `Lock`'s abAsOwner public/private-cell effect
+remain pending. Lock events currently target reference scripts, without alias
+forwarding. Logical closing does not animate or update the host collision of
+a swinging door. The ordinary unloaded/load-door resource path is unchanged.
