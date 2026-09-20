@@ -982,6 +982,70 @@ or complete the broader gameplay goal.
 
 ## Active magic applications
 
+### Spawn Hazard prerequisite audit, MAG-61
+
+The 2026-09-20 five-master survey found 51 non-deleted HAZD winners, 394 PHZD,
+236 PROJ, 1,573 MGEF and 1,354 SPEL. Thirteen MGEF winners use archetype 40,
+Spawn Hazard, and resolve to seven distinct HAZD bases. Eleven spells contain
+these effects. All eleven are fire-and-forget, ten self and one target actor.
+This corpus does not establish a concentration or target-location prerequisite.
+
+Repeat the survey with `SKYRIM_DATA` set:
+
+```sh
+rtk proxy cargo run -p soe-game --example hazard_survey
+```
+
+The example follows winning-record plugin contexts through MGEF, HAZD and
+SPEL links. Its diagnostic HAZD fields and MGEF projectile links use the
+existing bounds-checked ESM cursor, following local xEdit definitions. They
+are not a production HAZD view. The survey initializes the player actor
+before taking world snapshots, since first-use actor lookup materializes
+state. At prerequisite commit `3190621`, all eleven direct casts rejected
+with byte-identical world state: three for conditions and eight for the
+unsupported archetype. No script or host simulation ran.
+
+Local `TES5Edit/Core/wbDefinitionsTES5.pas`, `uesp-modfileformat/HAZD.wikitext`
+and `Mutagen/Mutagen.Bethesda.Skyrim/Records/Major Records/Hazard.xml` agree on
+the 40-byte HAZD DATA layout. It supplies limit, radius, lifetime, image-space
+radius, target interval, flags, spell, light, impact-data and sound links.
+Its flags can inherit duration or radius from the spawning effect, align to
+an impact normal, drop to ground or restrict application to the player.
+CommonLibSSE-NG `include/RE/B/BGSHazard.h` names the same fields.
+
+The CK [Spawn Hazard description](https://ck.uesp.net/w/index.php?section=16&title=Magic_Effect)
+assigns the hazard to the caster, restricts its hits to enemies and scales
+its spell with the spawning magnitude. Constant effects spawn once per
+activation. CommonLibSSE-NG `include/RE/S/SpawnHazardEffect.h` retains an
+actor cause and hazard handle through its start/finish hooks. Its
+`include/RE/H/Hazard.h` declares owner, age, lifetime, target timer, radius
+and magnitude on the placed reference, with save/load hooks. These sources
+establish fields and ownership, not an executable targeting algorithm.
+The local skymp search found the archetype enum but no hazard executor.
+
+The linked Blizzard hazards use contact spells. The largest also inherits
+radius and duration, and its spell combines frost damage with a Peak Value
+Modifier, owned by MAG-55. Circle of Protection uses a conditioned contact
+Turn Undead spell, owned by MAG-45. Some spawning effects grant equip
+abilities, owned by MAG-20. Nonzero projectile links also
+occur on self effects, but their presence alone does not establish how a
+hazard uses them. FMT-02 already owns exposing those MGEF fields.
+
+MAG-61 requires the typed HAZD view in FMT-28, condition evaluation in MAG-04,
+radius selection in MAG-06, contact delivery in MAG-16 and the shared hostility
+policy in CMB-17. Its host lifecycle depends on HST-04. `World::place_at`
+creates a generic reference but has no hazard owner, age or target timer.
+The active-effect tick and finish paths only handle actor applications, with
+no owned hazard cleanup. [The host audit](godot-host.md#spawn-hazard-prerequisites-mag-61)
+records the corresponding resource boundary.
+
+MAG-61 stays blocked with its original acceptance check. No hazard spawning,
+target selection, contact application, save continuation or expiry cleanup
+was implemented or validated by this audit. The survey establishes record
+dependencies and the current direct-cast rejection boundary.
+
+### Direct active-effect foundation
+
 The runtime provides `World::cast_spell` for direct scripted casts
 of Script, Value Modifier and Dual Value Modifier effects, including hostile hits. Definitions
 come from winning SPEL and MGEF records, with each FormID resolved in its winning

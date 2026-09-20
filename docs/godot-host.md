@@ -14,6 +14,36 @@ With `--no-default-features` the `godot` dependency is gone and what remains is 
 
 ## Layout
 
+### Spawn Hazard prerequisites, MAG-61
+
+The MAG-61 audit on 2026-09-20 found no host path for HAZD or PHZD.
+`DataSource::stream_cell_id` accepts placed REFR records and skips PHZD.
+The shared `data_source::models::model_for` selector accepts STAT, FURN,
+DOOR and CONT, excluding HAZD even when a generic reference names that base.
+Its mesh builder bakes reference placement into surface vertices. The
+collision builder uses the same model selector and installs static bodies.
+
+`PlayerNode::advance_game` updates the player, advances Game and synchronizes
+the player's pose or cell resources. It does not install resources for new
+runtime references or consume hazard expiry notifications. The existing
+`World::place_at` therefore cannot by itself satisfy the Spawn Hazard check.
+HST-04 owns reflection of runtime reference changes. MAG-61 depends on it
+before adding hazard-specific collision/effect resources and their cleanup.
+
+Local `CommonLibSSE-NG/include/RE/H/Hazard.h` represents a hazard as a placed
+reference with owner, age, lifetime, target timer, radius and magnitude.
+`include/RE/S/SpawnHazardEffect.h` retains the spawned reference handle.
+Those fields belong in the shared game state, with host resources derived
+from it. `uesp-modfileformat/PHZD.wikitext` distinguishes a placed hazard
+from its HAZD base. The record survey and additional gameplay prerequisites
+are in [game.md](game.md#spawn-hazard-prerequisite-audit-mag-61).
+
+This audit adds no host runtime code or scene nodes and performs no Godot
+run. Hazard contacts, rendering, resource cleanup and their costs remain
+unmeasured. Static world collision is not evidence of hazard execution.
+
+### Modules
+
 | Module | Depends on Godot | Job |
 |---|---|---|
 | `units` | no | Skyrim units and axes to Godot metres and Y up |
