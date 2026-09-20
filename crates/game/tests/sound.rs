@@ -6,6 +6,7 @@ use soe_game::sound::{prepare, SoundSettings};
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
 const SOUND: u32 = 0x800;
+const MARKER: u32 = 0x801;
 const CATEGORY: u32 = 0x900;
 const PARENT: u32 = 0x901;
 const OUTPUT: u32 = 0xA00;
@@ -25,6 +26,20 @@ fn descriptor() -> Record {
         .sub(T(b"LNAM"), [1, 0, 0, 0])
 }
 
+fn marker_with_id(form_id: u32, descriptor: u32) -> Record {
+    Record::new(T(b"SOUN"), form_id)
+        .zsub(T(b"EDID"), "TestSoundMarker")
+        .sub(T(b"SDSC"), descriptor.to_le_bytes())
+}
+
+fn marker_with(descriptor: u32) -> Record {
+    marker_with_id(MARKER, descriptor)
+}
+
+fn marker() -> Record {
+    marker_with(SOUND)
+}
+
 fn category(object: u32, flags: u32) -> Record {
     Record::new(T(b"SNCT"), object)
         .sub(T(b"FNAM"), flags.to_le_bytes())
@@ -34,6 +49,7 @@ fn category(object: u32, flags: u32) -> Record {
 fn order() -> LoadOrder {
     let mut plugin = Plugin::new(FileHeader::default());
     plugin.push_top(descriptor());
+    plugin.push_top(marker());
     plugin.push_top(
         category(CATEGORY, 2)
             .sub(T(b"UNAM"), 32768_u16.to_le_bytes())
@@ -53,6 +69,78 @@ fn order() -> LoadOrder {
     let mut order = LoadOrder::new();
     order.add("Skyrim.esm", plugin).unwrap();
     order
+}
+
+#[test]
+fn named_sound_marker_resolves_to_its_descriptor_path_and_output() {
+    let playback = prepare(&order(), id(MARKER), [0.0; 3], &SoundSettings::default()).unwrap();
+    assert_eq!(playback.descriptor, id(SOUND));
+    assert_eq!(playback.data_path, "sound/fx/first.wav");
+    assert_eq!(playback.output.kind, 0);
+}
+
+#[test]
+fn marker_override_resolves_sdsc_in_its_reordered_master_namespace() {
+    let mut order = order();
+    let mut other = Plugin::new(FileHeader::default());
+    other.push_top(Record::new(T(b"SNDR"), SOUND));
+    order.add("Other.esm", other).unwrap();
+    let mut plugin = Plugin::new(FileHeader {
+        masters: vec!["Other.esm".into(), "Skyrim.esm".into()],
+        ..Default::default()
+    });
+    plugin.push_top(marker_with_id(0x0100_0801, 0x0100_0800));
+    order.add("Marker.esp", plugin).unwrap();
+
+    assert_eq!(order.winner_ref(id(MARKER)).unwrap().file, 2);
+    let playback = prepare(&order, id(MARKER), [0.0; 3], &SoundSettings::default()).unwrap();
+    assert_eq!(playback.descriptor, id(SOUND));
+    assert_eq!(playback.data_path, "sound/fx/first.wav");
+}
+
+#[test]
+fn malformed_null_deleted_and_wrong_target_markers_are_rejected() {
+    let mut missing = order();
+    patch(
+        &mut missing,
+        Record::new(T(b"SOUN"), MARKER).zsub(T(b"EDID"), "MissingDescriptor"),
+    );
+    assert!(
+        prepare(&missing, id(MARKER), [0.0; 3], &SoundSettings::default())
+            .unwrap_err()
+            .to_string()
+            .contains("has no descriptor")
+    );
+
+    let mut null = order();
+    patch(&mut null, marker_with(0));
+    assert!(
+        prepare(&null, id(MARKER), [0.0; 3], &SoundSettings::default())
+            .unwrap_err()
+            .to_string()
+            .contains("has no descriptor")
+    );
+
+    let mut deleted = order();
+    patch(
+        &mut deleted,
+        marker().with_flags(soe_esm::plugin::flags::DELETED),
+    );
+    assert!(
+        prepare(&deleted, id(MARKER), [0.0; 3], &SoundSettings::default())
+            .unwrap_err()
+            .to_string()
+            .contains("expected live SNDR or SOUN")
+    );
+
+    let mut wrong = order();
+    patch(&mut wrong, marker_with(CATEGORY));
+    assert!(
+        prepare(&wrong, id(MARKER), [0.0; 3], &SoundSettings::default())
+            .unwrap_err()
+            .to_string()
+            .contains("expected live SNDR")
+    );
 }
 
 fn patch(order: &mut LoadOrder, record: Record) {

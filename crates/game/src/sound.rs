@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! Sound playback parameters from winning SNDR, SNCT and SOPM records.
+//! Sound playback parameters from winning SOUN, SNDR, SNCT and SOPM records.
 //! Layouts follow xEdit wbDefinitionsTES5.pas, UESP's record pages and
 //! CommonLibSSE-NG BGSStandardSoundDef/BGSSoundOutput declarations.
 //! File, pitch and attenuation draws are supplied by the caller's saved RNG.
@@ -57,7 +57,7 @@ pub struct SoundSettings {
 /// Uniform variation is an engine policy, not a verified vanilla RNG sequence.
 pub fn prepare(
     order: &LoadOrder,
-    descriptor: GlobalFormId,
+    sound: GlobalFormId,
     draws: [f32; 3],
     settings: &SoundSettings,
 ) -> Result<SoundPlayback> {
@@ -69,6 +69,7 @@ pub fn prepare(
             "sound draws must be finite values in 0 to 1".into(),
         ));
     }
+    let descriptor = resolve_descriptor(order, sound)?;
     let (record, file) = record(order, descriptor, T(b"SNDR"))?;
     if field(record, T(b"CNAM"), 4)?.u32()? != 0x1EEF_540A {
         return Err(Error::Invalid(format!(
@@ -235,6 +236,26 @@ fn record(order: &LoadOrder, id: GlobalFormId, tag: Tag) -> Result<(&Record, usi
         return Err(Error::Invalid(format!("expected live {tag} at {id}")));
     }
     Ok((record, owner.file))
+}
+
+/// A SOUN marker delegates playback to its required SNDR through SDSC.
+/// The FormID is relative to the marker's winning file.
+fn resolve_descriptor(order: &LoadOrder, sound: GlobalFormId) -> Result<GlobalFormId> {
+    let owner = order
+        .winner_ref(sound)
+        .ok_or_else(|| Error::Invalid(format!("missing SNDR or SOUN {sound}")))?;
+    let record = order.record(owner);
+    if record.is_deleted() {
+        return Err(Error::Invalid(format!(
+            "expected live SNDR or SOUN at {sound}"
+        )));
+    }
+    match record.tag {
+        tag if tag == T(b"SNDR") => Ok(sound),
+        tag if tag == T(b"SOUN") => link(order, record, owner.file, T(b"SDSC"))?
+            .ok_or_else(|| Error::Invalid(format!("sound marker {sound} has no descriptor"))),
+        _ => Err(Error::Invalid(format!("expected SNDR or SOUN at {sound}"))),
+    }
 }
 
 fn field(record: &Record, tag: Tag, size: usize) -> Result<Fields<'_>> {
