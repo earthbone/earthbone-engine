@@ -29,7 +29,8 @@ impl World {
         })
     }
 
-    /// Queue a count change for the reference and its running quest aliases.
+    /// Queue a count change for the reference, its running quest aliases and
+    /// active effects targeting that reference.
     /// Positive delta means added. A consumed/created stack has no item reference.
     pub fn inventory_event(
         &mut self,
@@ -65,6 +66,15 @@ impl World {
         let mut recipients = vec![direct];
         for (quest, id) in aliases {
             recipients.push(self.object_of(Handle::Alias { quest, id }, alloc));
+        }
+        let effects: Vec<_> = self
+            .active_effects
+            .values()
+            .filter(|effect| effect.target == holder)
+            .map(|effect| effect.id)
+            .collect();
+        for id in effects {
+            recipients.push(self.object_of(Handle::ActiveEffect(id), alloc));
         }
         let item_value = self.form_value(Some(item), alloc);
         let other_value = self.form_value(other, alloc);

@@ -22,6 +22,8 @@ const OTHER: u32 = 0x101;
 const EFFECT: u32 = 0x200;
 const SPELL: u32 = 0x300;
 const KEYWORD: u32 = 0x400;
+const ITEM: u32 = 0x600;
+const OTHER_ITEM: u32 = 0x601;
 
 fn id(object: u32) -> GlobalFormId {
     GlobalFormId { file: 0, object }
@@ -75,6 +77,8 @@ fn plugin(effect: Record, spells: Vec<Record>) -> Plugin {
         );
     }
     plugin.push_top(Record::new(T(b"KYWD"), KEYWORD).zsub(T(b"EDID"), "ProbeKeyword"));
+    plugin.push_top(Record::new(T(b"MISC"), ITEM).zsub(T(b"EDID"), "AllowedItem"));
+    plugin.push_top(Record::new(T(b"MISC"), OTHER_ITEM).zsub(T(b"EDID"), "RejectedItem"));
     plugin.push_top(effect);
     for spell in spells {
         plugin.push_top(spell);
@@ -97,6 +101,8 @@ fn game(plugin: Plugin) -> Game {
     let script = ScriptBuilder::new("EffectProbe", "ActiveMagicEffect")
         .variable("started", "Int", i(0))
         .variable("finished", "Int", i(0))
+        .variable("added", "Int", i(0))
+        .variable("removed", "Int", i(0))
         .variable("target", "Actor", soe_papyrus::asm::none())
         .variable("caster", "Actor", soe_papyrus::asm::none())
         .function(
@@ -113,6 +119,30 @@ fn game(plugin: Plugin) -> Game {
                 .param("akTarget", "Actor")
                 .param("akCaster", "Actor")
                 .ins(IAdd, vec![ident("finished"), ident("finished"), i(1)])
+                .build(),
+        )
+        .function(
+            FunctionBuilder::new("OnItemAdded", "None")
+                .param("akBaseItem", "Form")
+                .param("aiItemCount", "Int")
+                .param("akItemReference", "ObjectReference")
+                .param("akSourceContainer", "ObjectReference")
+                .ins(
+                    IAdd,
+                    vec![ident("added"), ident("added"), ident("aiItemCount")],
+                )
+                .build(),
+        )
+        .function(
+            FunctionBuilder::new("OnItemRemoved", "None")
+                .param("akBaseItem", "Form")
+                .param("aiItemCount", "Int")
+                .param("akItemReference", "ObjectReference")
+                .param("akDestContainer", "ObjectReference")
+                .ins(
+                    IAdd,
+                    vec![ident("removed"), ident("removed"), ident("aiItemCount")],
+                )
                 .build(),
         )
         .bytes();
@@ -450,6 +480,89 @@ fn active_effect_natives_distinguish_definition_target_and_blame_actor() {
     );
     native(&mut game, effect.clone(), "Dispel", &[]);
     assert_eq!(native(&mut game, effect, "GetBaseObject", &[]), Value::None);
+}
+
+#[test]
+fn active_effect_inventory_filters_forward_matching_events_until_expiry() {
+    let mut game = fixture(0, 1, 0.0, 1);
+    let application = cast(&mut game, SPELL, OTHER).unwrap()[0];
+    assert!(game.run_until_idle(64));
+    let effect = Value::Object(game.object_of(Handle::ActiveEffect(application)));
+    let target = Value::Object(game.object_of_form(id(OTHER)));
+    let allowed = Value::Object(game.object_of_form(id(ITEM)));
+    let rejected = Value::Object(game.object_of_form(id(OTHER_ITEM)));
+    native(
+        &mut game,
+        effect.clone(),
+        "AddInventoryEventFilter",
+        std::slice::from_ref(&allowed),
+    );
+    native(
+        &mut game,
+        target.clone(),
+        "AddItem",
+        &[allowed.clone(), Value::Int(2)],
+    );
+    native(
+        &mut game,
+        target.clone(),
+        "RemoveItem",
+        &[
+            allowed.clone(),
+            Value::Int(2),
+            Value::Bool(true),
+            Value::None,
+        ],
+    );
+    native(
+        &mut game,
+        target.clone(),
+        "AddItem",
+        &[rejected.clone(), Value::Int(1)],
+    );
+    native(
+        &mut game,
+        target.clone(),
+        "RemoveItem",
+        &[rejected, Value::Int(1), Value::Bool(true), Value::None],
+    );
+    assert!(game.run_until_idle(64));
+    assert_eq!(
+        game.vm
+            .get_var(effect.as_object().unwrap(), "EffectProbe", "added"),
+        Some(Value::Int(2))
+    );
+    assert_eq!(
+        game.vm
+            .get_var(effect.as_object().unwrap(), "EffectProbe", "removed"),
+        Some(Value::Int(2))
+    );
+
+    game.tick(1.0);
+    assert!(game.run_until_idle(64));
+    native(
+        &mut game,
+        target.clone(),
+        "AddItem",
+        &[allowed.clone(), Value::Int(1)],
+    );
+    native(
+        &mut game,
+        target,
+        "RemoveItem",
+        &[allowed, Value::Int(1), Value::Bool(true), Value::None],
+    );
+    assert!(game.run_until_idle(64));
+    assert_eq!(
+        game.vm
+            .get_var(effect.as_object().unwrap(), "EffectProbe", "added"),
+        Some(Value::Int(2))
+    );
+    assert_eq!(
+        game.vm
+            .get_var(effect.as_object().unwrap(), "EffectProbe", "removed"),
+        Some(Value::Int(2))
+    );
 }
 
 #[test]

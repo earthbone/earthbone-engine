@@ -184,7 +184,7 @@ pub fn register(vm: &mut Vm, world: &Shared) -> Registered {
 
 /// Hand-kept count of the non-stub natives registered below. The test in
 /// this module checks it against the registry.
-pub const NATIVE_COUNT: usize = 361;
+pub const NATIVE_COUNT: usize = 364;
 
 fn declare_parents(vm: &mut Vm) {
     for (class, parent) in [
@@ -2457,6 +2457,41 @@ fn active_magic(vm: &mut Vm, w: &Shared) {
         }
         none()
     });
+    self_method!(
+        vm,
+        w,
+        "ActiveMagicEffect",
+        "AddInventoryEventFilter",
+        |world, call, me| {
+            if let Some(filter) = world.form_arg(&call.arg(0)) {
+                world.inventory_filters.entry(me).or_default().push(filter);
+            }
+            none()
+        }
+    );
+    self_method!(
+        vm,
+        w,
+        "ActiveMagicEffect",
+        "RemoveInventoryEventFilter",
+        |world, call, me| {
+            let filter = world.form_arg(&call.arg(0));
+            if let Some(list) = world.inventory_filters.get_mut(&me) {
+                list.retain(|entry| Some(*entry) != filter);
+            }
+            none()
+        }
+    );
+    self_method!(
+        vm,
+        w,
+        "ActiveMagicEffect",
+        "RemoveAllInventoryEventFilters",
+        |world, _call, me| {
+            world.inventory_filters.remove(&me);
+            none()
+        }
+    );
 }
 
 /// What Dawnguard, HearthFires and Dragonborn added to the base classes.
@@ -3082,10 +3117,6 @@ fn stubs(vm: &mut Vm) -> usize {
         ("Faction", "ModReaction"),
         ("Keyword", "SendStoryEvent"),
         ("ActorBase", "GetGiftFilter"),
-        // CONTEXT: Effect inventory-event forwarding is not implemented.
-        ("ActiveMagicEffect", "AddInventoryEventFilter"),
-        ("ActiveMagicEffect", "RemoveInventoryEventFilter"),
-        ("ActiveMagicEffect", "RemoveAllInventoryEventFilters"),
         ("ObjectReference", "WaitForAnimationEvent"),
         ("ObjectReference", "InterruptCast"),
         ("Actor", "PlayIdleWithTarget"),
