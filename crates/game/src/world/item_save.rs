@@ -5,12 +5,9 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use soe_esm::GlobalFormId;
-use soe_papyrus::{
-    vm::state::{Reader, Writer},
-    VmError,
-};
+use soe_papyrus::{vm::state::Writer, VmError};
 
-use super::save::{read_form_id, read_opt_form_id, write_form_id, write_opt_form_id};
+use super::save::{read_form_id, read_opt_form_id, write_form_id, write_opt_form_id, FormReader};
 use super::{RefState, World};
 use crate::inventory::{Extra, Field, Inventory, Stack};
 
@@ -65,7 +62,7 @@ fn write_fields(w: &mut Writer, fields: &[Field]) {
     }
 }
 
-fn read_fields(r: &mut Reader<'_>, depth: usize) -> Result<Vec<Field>, VmError> {
+fn read_fields(r: &mut FormReader<'_, '_>, depth: usize) -> Result<Vec<Field>, VmError> {
     if depth > 128 {
         return Err(bad("extra-data nesting exceeds 128 levels"));
     }
@@ -116,7 +113,7 @@ pub(super) fn write_stacks(w: &mut Writer, inventory: &Inventory) {
     }
 }
 
-fn read_stacks(r: &mut Reader<'_>, inventory: &mut Inventory) -> Result<(), VmError> {
+fn read_stacks(r: &mut FormReader<'_, '_>, inventory: &mut Inventory) -> Result<(), VmError> {
     let n = r.len()?;
     let mut seen = BTreeSet::new();
     for _ in 0..n {
@@ -169,7 +166,7 @@ impl World {
 }
 
 pub(super) fn read_item_stacks(
-    r: &mut Reader<'_>,
+    r: &mut FormReader<'_, '_>,
     refs: &mut HashMap<GlobalFormId, RefState>,
 ) -> Result<(), VmError> {
     let n = r.len()?;

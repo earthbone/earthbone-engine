@@ -5,13 +5,10 @@
 use std::collections::BTreeMap;
 
 use soe_esm::{plugin::Subrecord, GlobalFormId, Slot, Tag};
-use soe_papyrus::{
-    vm::state::{Reader, Writer},
-    VmError,
-};
+use soe_papyrus::{vm::state::Writer, VmError};
 
 use super::record_overrides::{raw_words, NpcRecordExtra, RecordOverride};
-use super::save::{read_form_id, read_opt_form_id, write_form_id, write_opt_form_id};
+use super::save::{read_form_id, read_opt_form_id, write_form_id, write_opt_form_id, FormReader};
 use super::{World, T};
 
 fn bad(reason: &str) -> VmError {
@@ -73,7 +70,7 @@ impl World {
 
     pub(super) fn read_record_overrides(
         &self,
-        r: &mut Reader<'_>,
+        r: &mut FormReader<'_, '_>,
         version: u16,
     ) -> Result<BTreeMap<GlobalFormId, RecordOverride>, VmError> {
         let mut values = BTreeMap::new();

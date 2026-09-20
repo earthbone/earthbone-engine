@@ -80,9 +80,9 @@ pub use doorway::{Doorway, Side, Threshold, THRESHOLD_BAND, UNITS_PER_METRE};
 pub use save::{SAVE_MAGIC, SAVE_VERSION};
 pub use transition::CellTransition;
 
-/// Forms created at run time by `PlaceAtMe` live in a
-/// file slot no plugin can own, the same `FF` prefix the game uses.
-pub const DYNAMIC_FILE: u16 = 0xFF;
+/// Created references and temporary bases share an internal namespace outside
+/// the plugin positions. Runtime FormIDs still use the `FF` prefix.
+pub const DYNAMIC_FILE: u16 = soe_esm::CREATED_FILE;
 pub const PLAYER_OBJECT: u32 = 0x14;
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;

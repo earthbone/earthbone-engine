@@ -27,8 +27,6 @@ pub enum RestoreError {
     MissingPlugin(String),
     #[error("plugin {0} changed between regular and light format")]
     PluginKind(String),
-    #[error("plugin {0} occupies the engine's reserved created-form position")]
-    ReservedPosition(String),
     #[error("saved reference {0:#08x} has no valid FormID")]
     Reference(u32),
     #[error("saved FormID {0:#010x} names a plugin slot outside the saved lists")]
@@ -61,16 +59,13 @@ impl<'a> SavedFormMap<'a> {
     ///
     /// # Errors
     /// Missing or ambiguous plugins, incompatible regular/light flags, invalid
-    /// list sizes or a collision with the engine's created-form namespace.
+    /// list sizes.
     pub fn new(save: &'a Save, order: &LoadOrder) -> Result<Self, RestoreError> {
         if save.plugins.is_empty() || save.plugins.len() > 254 || save.light_plugins.len() > 4096 {
             return Err(RestoreError::PluginLists("invalid slot counts".into()));
         }
         let mut current = BTreeMap::new();
         for (index, file) in order.files().iter().enumerate() {
-            if index == usize::from(DYNAMIC_FILE) {
-                return Err(RestoreError::ReservedPosition(file.name.clone()));
-            }
             let name = file.name.to_ascii_lowercase();
             if current.insert(name, (index, file.slot)).is_some() {
                 return Err(RestoreError::PluginLists(format!(

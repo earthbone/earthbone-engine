@@ -282,10 +282,11 @@ slot, allocate created forms or infer Papyrus object identity from a form.
 
 Missing plugins, duplicate names, changed regular/light classification and
 invalid references return errors. These are strict import checks, not a
-missing-mod recovery policy. The world currently reserves file position 255
-for created forms, so this mapping rejects a load order reaching that position
-rather than confusing plugin records with created objects. Correcting that
-engine identity limit remains required for large light-plugin loadouts.
+missing-mod recovery policy. Created forms use the internal `u16::MAX`
+namespace, separate from plugin positions, while their runtime IDs retain
+the `FF` prefix. This mapping accepts all 254 regular and 4096 light plugin
+slots, including a plugin at position 255. See [game.md](game.md#save-and-load)
+for SOEW version 19 and the migration limits of older engine saves.
 
 `World::restore_vanilla_globals` requires one global table and validates all
 targets before applying any value. Each target must be a non-deleted winning

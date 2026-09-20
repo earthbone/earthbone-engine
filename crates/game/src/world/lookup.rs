@@ -86,8 +86,6 @@ impl World {
     pub fn runtime_id(&self, id: GlobalFormId) -> u32 {
         if id.file == 0 && id.object == super::PLAYER_OBJECT {
             super::PLAYER_OBJECT
-        } else if id.file == DYNAMIC_FILE {
-            0xFF00_0000 | (id.object & 0x00FF_FFFF)
         } else {
             self.order.runtime_id(id)
         }

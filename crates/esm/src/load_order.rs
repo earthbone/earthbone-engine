@@ -13,7 +13,9 @@
 //! A light plugin (the `ESL` header flag) does not get a top-byte slot of its
 //! own at runtime. The game packs it as `FE:sss:ooo`, a twelve-bit light slot
 //! and a twelve-bit object id. `runtime_id` produces that form, the table
-//! itself never needs it.
+//! itself never needs it. Created forms use a separate internal namespace and
+//! pack with the `FF` prefix documented by UESP Save File Format. The masks
+//! follow Mutagen's Plugins/FormID.cs and docs/plugins/Compaction.md.
 
 use std::collections::HashMap;
 use std::sync::OnceLock;
@@ -25,7 +27,7 @@ use crate::tag::Tag;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct GlobalFormId {
-    /// Position of the owning file in the load order.
+    /// Position of the owning file in the load order, or [`CREATED_FILE`].
     pub file: u16,
     /// The 24-bit object id as written in the file.
     pub object: u32,
@@ -76,6 +78,10 @@ pub struct LoadOrder {
 
 pub const MAX_REGULAR_SLOTS: u8 = 0xFE;
 pub const MAX_LIGHT_SLOTS: u16 = 0x1000;
+
+/// Internal namespace for created forms. All 254 regular and 4096 light
+/// plugins fit below it. This is not the runtime `FF` prefix.
+pub const CREATED_FILE: u16 = u16::MAX;
 
 impl LoadOrder {
     pub fn new() -> Self {
@@ -186,6 +192,9 @@ impl LoadOrder {
 
     /// The 32-bit FormID the game would use for this id under this order.
     pub fn runtime_id(&self, id: GlobalFormId) -> u32 {
+        if id.file == CREATED_FILE {
+            return 0xFF00_0000 | (id.object & 0x00FF_FFFF);
+        }
         match self.files[id.file as usize].slot {
             Slot::Regular(s) => (u32::from(s) << 24) | (id.object & 0x00FF_FFFF),
             Slot::Light(s) => 0xFE00_0000 | (u32::from(s) << 12) | (id.object & 0xFFF),

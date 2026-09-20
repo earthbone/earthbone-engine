@@ -48,6 +48,19 @@ Light plugins (`ESL` header flag) do not take a top-byte slot at runtime. The ga
 them as `FE:sss:ooo`, a twelve-bit slot and a twelve-bit object. `LoadOrder::runtime_id`
 produces that 32-bit form for save files and scripts. The table itself never needs it.
 
+Created forms use `CREATED_FILE`, the internal `u16::MAX` namespace, and
+`runtime_id` packs them as `FF:oooooo`. Load-order positions include both
+regular and light files, so position 255 can belong to either plugin kind.
+It cannot reserve created identities. All 254 regular and 4096 light slots
+fit below the created namespace without reducing the supported load order.
+
+The source for created RefIDs is local
+`engine-refs/uesp-savefile/Save_File_Format.wikitext`, FormID and FormIDs Array.
+Light masks and object widths follow local Mutagen
+`Mutagen.Bethesda.Core/Plugins/FormID.cs` and `docs/plugins/Compaction.md`.
+These describe the external packing. The existing Rust identity and loader
+are retained, with a separate internal sentinel rather than another form table.
+
 When the first file is Skyrim.esm, the runtime load order supplies the missing
 engine-defined GLOB `00000063`, `PlayCredits`, as a short with initial value
 zero. The layout comes from local xEdit `Core/Hardcoded/Skyrim.esp`. A record

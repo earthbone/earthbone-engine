@@ -8,9 +8,10 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use soe_esm::{Error, GlobalFormId};
-use soe_papyrus::vm::state::{Reader, Writer};
+use soe_papyrus::vm::state::Writer;
 use soe_papyrus::VmError;
 
+use super::save::FormReader;
 use super::{le_u32, World, T};
 use crate::npc::Npc;
 
@@ -252,7 +253,7 @@ impl World {
 
     pub(super) fn read_actor_templates(
         &self,
-        reader: &mut Reader<'_>,
+        reader: &mut FormReader<'_, '_>,
         allow_unknown_level: bool,
     ) -> Result<BTreeMap<GlobalFormId, TemplateChoice>, VmError> {
         use super::save::read_form_id;

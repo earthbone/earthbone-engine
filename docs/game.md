@@ -2,7 +2,7 @@
 
 The combat integration includes race-based unarmed damage, difficulty selection,
 template-backed hits,
-armor slot replacement and explicit weapon hands. SOEW version 18 retains
+armor slot replacement and explicit weapon hands. SOEW version 19 retains
 both difficulty and hands, with separate readers for the version 16 and 17
 branch layouts. The authored contact bridge reaches the shared Game through
 animation events. Live host collision synchronization and attack input are
@@ -602,17 +602,51 @@ either.
 
 `World::save_state(&self) -> Vec<u8>` and `World::load_state(&mut self,
 bytes) -> Result<(), VmError>` write and read the run-time half of the form
-table, magic `SOEW`, version 11. Versions 4 to 6 use legacy actor values,
+table, magic `SOEW`, version 19. Versions 4 to 6 use legacy actor values,
 version 5 adds active magic, version 6 adds dialogue, version 7 adds actor-value
 components, version 8 adds dialogue to those components, and version 9 adds
 active magic. Version 10 adds per-reference leveled template choices.
 Version 11 adds quest journal instances and mapped runtime metadata.
+Versions 12 to 15 add distinct inventory stacks, record overrides, temporary
+NPC bases and deferred deaths. Version 16 contains difficulty alone, version
+17 weapon hands alone, and version 18 both. Version 19 separates created
+identities from plugin load-order position 255 while retaining both combat fields.
 Older formats load with empty state for absent subsystems.
 Legacy current and base values must agree. Otherwise their modifier domains
 are ambiguous and restoration returns an explicit error.
 The state uses the same `Writer`/`Reader` encoding as
 `soe_papyrus::vm::state`, an `ArrayPool` and `ArrayTable` of its own ahead of
 the body for the `Value` arguments a pending event or call is carrying.
+
+Created references and temporary bases use `DYNAMIC_FILE`, an alias of
+`soe_esm::CREATED_FILE` (`u16::MAX`). Their runtime FormIDs retain `FF` packing.
+Regular and light files can occupy internal position 255 without aliasing
+created forms. `SavedFormMap` accepts the full 254 regular and 4096 light
+plugin lists, remaps each by name, and keeps created RefIDs in this namespace.
+
+SOEW versions 4 to 18 used position 255 for created forms. Their typed readers
+now migrate that position across handles, references, AI, dialogue, quests,
+inventory extras, template choices, record links, active effects and weapon
+hands. Scalar values and opaque bytes remain unchanged. Legacy saves require
+at most 255 loaded plugins. At 256 or more, the old namespace is ambiguous
+and loading fails before world or VM mutation. Engine saves still require
+the identical load order used to write them. This change does not infer a
+missing or reordered plugin list from the legacy format.
+
+The local UESP `Save_File_Format.wikitext` created RefID rule and Mutagen
+`Plugins/FormID.cs` and `docs/plugins/Compaction.md` informed this change.
+The existing Rust cursors and form table are reused, with a game-side reader
+carrying namespace migration through nested structures. No dependency or
+reference-source code was added. The public standalone AI reader retains
+its existing signature and reads current identities.
+
+The `sav_07` tests cover all 4,350 plugin positions with position 255 occupied
+by either plugin kind, created references sharing plugin object numbers,
+runtime packing and lookup, all saved regular/light slots and created RefIDs,
+engine round trips and allocation afterward. Rich synthetic saves cover
+versions 15 to 18 including difficulty and hand variants, nested created
+links and unchanged scalar bytes. The exact 255/256 plugin boundary and
+unchanged whole-game bytes after ambiguous legacy loads are asserted.
 
 A form's record-derived data is not stored twice. A quest's definition (its
 stages, objectives and aliases as `QUST` and `VMAD` wrote them) is read back

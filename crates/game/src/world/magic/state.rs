@@ -5,11 +5,13 @@
 
 use std::collections::BTreeMap;
 
-use soe_papyrus::vm::state::{Reader, Writer};
+use soe_papyrus::vm::state::Writer;
 use soe_papyrus::VmError;
 
 use super::{ActiveEffect, EffectId, World};
-use crate::world::save::{read_form_id, read_opt_form_id, write_form_id, write_opt_form_id};
+use crate::world::save::{
+    read_form_id, read_opt_form_id, write_form_id, write_opt_form_id, FormReader,
+};
 
 impl World {
     pub(crate) fn write_magic(&self, w: &mut Writer) {
@@ -40,7 +42,7 @@ impl World {
 }
 
 pub(in crate::world) fn read_magic(
-    r: &mut Reader<'_>,
+    r: &mut FormReader<'_, '_>,
 ) -> Result<(u64, BTreeMap<EffectId, ActiveEffect>), VmError> {
     let next = r.u64()?;
     let count = r.len()?;
