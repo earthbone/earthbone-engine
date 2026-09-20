@@ -6,6 +6,10 @@ it that describes progress into scenario expectations the harness in
 table and quest change forms using saved plugin names. Full world restoration
 remains unfinished.
 
+The projectile and hazard decoder tasks share a missing subtype-layout
+prerequisite. See [saved projectile layouts](save-projectile-layouts.md) for
+the xEdit dispatch gap, runtime type boundaries and evidence needed by SAV-55.
+
 The format was not reverse engineered. It is documented and it has a mature
 open implementation, so both were read first.
 
