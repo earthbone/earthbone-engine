@@ -73,8 +73,10 @@ when they were wrong and neither announces itself.
 - The file location table, with the third table count corrected.
 - All three global data tables, as typed blocks with raw payloads.
 - Type 3, the global variable table, as references and floats.
-- Every change form header, and the `QUST` payload far enough to read quest
-  stages and their done flags.
+- Every change form header. `ChangeForm::quest_change` decodes documented QUST
+  flags, stages, objectives, runtime aliases/events and quest instances.
+- Type 107, quest static data, including its two event arrays, three reference
+  arrays, reference-keyed values and final byte.
 - Type 1001, the Papyrus block: the string table, the script definitions with
   their member descriptors, script instances that bind scripts to forms,
   reference and array headers, runtime ID and active-script headers. The
@@ -148,6 +150,63 @@ instances, inheritance cycles, missing identities, invalid array elements
 and unsupported variant/struct runtime values. Arrays use the existing VM
 allocation ceiling. It also refuses to replace instances beneath existing
 threads. It does not invent a form or alias binding from an opaque saved ID.
+
+## Quest change and static data
+
+`ChangeForm::quest_change` reads the documented QUST payload in full, including
+the instance section omitted by FallrimTools `ChangeFormQust.java`. The older
+`quest_stages` method remains a prefix reader for inspection. Optional sections
+retain the distinction between an unset header bit and a present empty array.
+Unknown change bits, invalid event parameter tags, impossible counts, truncated
+fields and trailing bytes return errors. Counts are checked against remaining
+bytes before allocation. Compressed change forms use the existing zlib path.
+
+Saved objectives retain their ID and status word. Runtime reference aliases
+carry one RefID for kind zero and five for nonzero kinds. xEdit names kind one's
+five references as new reference, bound object, reference location, starting
+location and location-ref type. Location aliases have their own array. Quest
+instances retain separate alias text references and snapshots of global values.
+The scalar fields without established save semantics remain explicitly unknown.
+
+Story events retain their ID, four-byte code and typed parameter payloads.
+xEdit identifies the code where UESP and FallrimTools describe an unknown float.
+Type zero is a reference in xEdit, although the other two sources omit it.
+The real QUST corpus contains 2,850 type-zero parameters. Reference types one,
+two and four and integer type three are also represented. No event is executed
+by decoding it. The script-change header bit has no payload in xEdit's schema.
+
+`Save::quest_static_data` decodes global data type 107. Its event layout is the
+same one used by QUST runtime data. The meaning of its outer arrays is not
+established by the sources, so their order and fields are retained without
+assigning scheduler behavior. Duplicate type-107 blocks return an error.
+
+`QuestChange::data_bytes` and `QuestStaticData::data_bytes` independently rebuild
+payloads from their typed fields. They preserve variable-count widths and float
+bits, and reject inconsistent edits to count or presence fields. These are
+diagnostic encoders. `Save::write` continues to use its original raw payloads.
+
+Sources read before implementation were local UESP `QUST_Changeform.wikitext`
+and `Quest_Static_Data.wikitext`, xEdit `wbDefinitionsTES5Saves.pas`, and
+FallrimTools `ChangeFormQust.java` and `ChangeFlagConstantsQust.java`.
+CommonLibSSE-NG `TESQuest.h` and `QuestObjectiveStates.h` establish runtime flag
+and objective-state names, but do not establish how to resume all saved state.
+The existing Rust cursor and compression paths are reused. No new runtime
+dependency is introduced. Tests use the existing `soe-esm` crate to compare
+saved IDs with installed quest definitions, adding no workspace packages.
+
+The 2026-09-20 survey re-encoded all 32,256 QUST payloads across 60 saves,
+1,987,156 bytes exactly. Those contain 92,077 stages, 6,442 objectives, 116,015
+runtime alias entries, 1,735 story events, 9,978 quest instances and 9,308
+instance global values. The type-107 blocks reproduce all 84,021 bytes.
+Their event arrays are empty in this corpus and have synthetic coverage only.
+Synthetic tests cover all 512 section-presence combinations, wide counts,
+every truncated fixture prefix, compressed payloads and rejected mutations.
+
+This is decoded state for the future world loader, not restored quest execution.
+Runtime alias application, journal instance selection, quest lifecycle and
+story-event resumption still need implementation. The decoded flags cannot by
+themselves establish whether a quest is starting, stopping or waiting for a
+scheduled task. Full ESS restoration remains unfinished.
 
 ## Saved forms and live globals
 

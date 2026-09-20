@@ -80,6 +80,9 @@ pub enum Error {
     #[error("the Papyrus section is {reason}")]
     Papyrus { reason: String },
 
+    #[error("invalid quest change data: {reason}")]
+    Quest { reason: String },
+
     #[error("could not read the save file: {0}")]
     Io(String),
 }

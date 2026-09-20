@@ -4,7 +4,12 @@ The `ess-world-bindings` follow-up adds saved plugin-name mapping and atomic
 global-variable restoration into live GLOB records, including the engine-defined
 PlayCredits form. Actor/quest state, calendar and scheduler clocks, Papyrus
 object bindings, world change forms and saved execution remain unfinished.
-This follow-up is separate from the actor-template commit awaiting merge.
+
+The `ess-quest-state` follow-up decodes QUST objectives, runtime aliases and
+story events, quest instances and global quest-static data. Across 60 saves,
+all 32,256 quest payloads and all quest-static blocks reproduce their original
+bytes from typed fields. Applying this state to live quest execution remains
+unfinished.
 
 The combat attribute milestone adds actor-value components, corrected
 NPC stat offsets and race/template attribute sources. Its installed-data
