@@ -123,7 +123,10 @@ fn fixture() -> Save {
         data.push(4);
         reference(form).write(&mut data);
     }
-    data.extend([2; 20]);
+    data.extend([2, 3, 50, 1, 4, 2, 1, 0]);
+    for radius in [500_u32, 300, 100] {
+        data.extend(radius.to_le_bytes());
+    }
     WString::from_text("Éowyn €").write(&mut data);
     data.extend(record.find(Tag(*b"DNAM")).unwrap());
     reference(1).write(&mut data);
@@ -167,6 +170,16 @@ fn assert_actor(world: &mut World) {
     assert_eq!(base.sleep_outfit, None);
     let actor = world.actor(id(0, 0x900)).unwrap();
     assert_eq!(actor.values.get("health").base(), 777.0);
+    for (name, expected) in [
+        ("aggression", 2.0),
+        ("confidence", 3.0),
+        ("energy", 50.0),
+        ("morality", 1.0),
+        ("mood", 4.0),
+        ("assistance", 2.0),
+    ] {
+        assert_eq!(actor.values.get(name).base(), expected, "{name}");
+    }
     assert_eq!(actor.level, 27);
     assert!(actor.essential);
     assert_eq!(actor.race, Some(id(4, 0x833)));

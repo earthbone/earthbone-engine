@@ -76,6 +76,19 @@ impl World {
                 let (inventory_source, inventory) =
                     self.actor_npc_part(id, template::INVENTORY).ok()?;
                 let traits_source = self.actor_component_source(id, template::TRAITS).ok()?;
+                let (_, ai_source) = self.actor_npc_part(id, template::AI_DATA).ok()?;
+                if let Some(data) = ai_source.ai_data {
+                    for (name, value) in [
+                        ("aggression", data.aggression),
+                        ("confidence", data.confidence),
+                        ("energy", data.energy),
+                        ("morality", data.morality),
+                        ("mood", data.mood),
+                        ("assistance", data.assistance),
+                    ] {
+                        a.values.set_base(name, f32::from(value)).ok()?;
+                    }
+                }
                 for (name, value) in self
                     .actor_values_from_sources(stats_source, traits_source)
                     .ok()?
