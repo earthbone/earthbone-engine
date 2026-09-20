@@ -6,6 +6,10 @@ it that describes progress into scenario expectations the harness in
 table and quest change forms using saved plugin names. Full world restoration
 remains unfinished.
 
+CELL, LCTN and ECZN decoding remains blocked on missing serialized layouts.
+See [saved spatial fields](save-spatial-fields.md) for the source boundary and
+60-save coverage census supporting SAV-27 and its SAV-66 prerequisite.
+
 The format was not reverse engineered. It is documented and it has a mature
 open implementation, so both were read first.
 
