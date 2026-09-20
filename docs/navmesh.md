@@ -291,3 +291,9 @@ before export. Exported links are checked for
 exact reciprocal vertices and triangle references, then round-trip through
 NVNM before path queries. Reversed input order must produce identical output.
 Real-game generation and editor integration are not exercised by these tests.
+
+Validation at `63f3fae` on 2026-09-20: all nine stitching regressions passed.
+The full `tools/lint.sh` gate passed 1,207 Rust tests and 11 Python tests,
+including all three Clippy configurations. All optional tools ran. Tier 1
+leaves installed-game and save-corpus inputs unset. The generated-cell tests
+use synthetic scenes and do not claim real-game regeneration evidence.
