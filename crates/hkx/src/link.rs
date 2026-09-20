@@ -149,6 +149,17 @@ fn merge_symbols(parent: &mut BehaviorGraphData, sub: &BehaviorGraphData) -> Sym
             }
         }
     }
+    if !appended.is_empty() {
+        let existing = parent.variable_names.len() - appended.len();
+        let values = parent.variable_initial_values.get_or_insert_with(|| {
+            crate::behavior::VariableValueSet {
+                word_values: Vec::new(),
+                quad_values: Vec::new(),
+                variant_values: Vec::new(),
+            }
+        });
+        values.word_values.resize(existing, 0);
+    }
     for &i in &appended {
         parent.variable_infos.push(
             sub.variable_infos
@@ -348,6 +359,11 @@ fn remap_node(node: &mut Node, map: &SymbolMap, offset: usize) {
             *deactivate_event_id = map.event(*deactivate_event_id);
         }
         NodeKind::TimerModifier { alarm_event, .. } => remap_event_property(alarm_event, map),
+        NodeKind::FalseToTrueModifier { slots, .. } => {
+            for slot in slots {
+                remap_event_property(&mut slot.event, map);
+            }
+        }
         // Nothing here carries a node id, an event or a variable. A blending
         // transition effect is timing only, the rest are leaves.
         NodeKind::BlendingTransition(_)

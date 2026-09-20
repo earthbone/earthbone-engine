@@ -367,8 +367,9 @@ What each node does:
   the index changes.
 - `hkbModifierGenerator` and Skyrim's `BS*` wrappers (`BSiStateTagging`,
   `BSBoneSwitch`, `BSOffsetAnimation`, `BSSynchronizedClip`,
-  `BSCyclicBlendTransition`) pass their child through. Modifiers do
-  nothing yet.
+  `BSCyclicBlendTransition`) pass their generator child through.
+  `hkbModifierGenerator` also gives an enabled modifier child activation and
+  deactivation lifecycle. Concrete modifier effects remain unimplemented.
 - `hkbBehaviorReferenceGenerator` and unmodelled classes yield the
   reference pose at weight zero and are listed in `Unsupported`.
 
@@ -685,6 +686,77 @@ currently activates and generates only the generator child.
   undocumented troll comma condition is ANM-50.
 - Blender details: bone weight masks, `subtractLastChild`, the real weight
 
+### Modifier generator lifecycle (2026-09-20)
+
+`hkbModifierGenerator` has a modifier pointer at 72 and a generator pointer
+at 80 in the 64-bit layout, from
+`engine-refs/serde-hkx/assets/classes/hkbModifierGenerator.json`. The
+interpreter activates an enabled modifier child before its generator child,
+deactivates a child when its `enable` binding changes to false, and deactivates
+both through the node child walk. This makes the existing `BSIsActiveModifier`
+output binding report the authored active state without changing the generated
+pose. The synthetic test covers enabled and disabled children, an enabled to
+disabled to enabled transition, explicit deactivation and reactivation, and a
+sampled non-reference pose.
+
+### Modifier lists (2026-09-20)
+
+`hkbModifierList` inherits `hkbModifier.enable` and serializes an ordered
+`hkArray<hkbModifier*>` at offset 80 in the 64-bit layout, from
+`engine-refs/serde-hkx/assets/classes/hkbModifierList.json`. The interpreter
+uses its authored enable value unless a binding overrides it, then activates
+the child modifiers in that serialized order. Nested lists follow the same
+rule. Disabling a list deactivates its full modifier subtree, so every
+`BSIsActiveModifier` output changes to inactive while the wrapping generator
+continues to supply its pose. Modifier output bindings publish in that same
+order, including disabled children, so a later serialized modifier wins when
+two bindings write one variable. Traversal is iterative, rejects cycles and
+stops at 64 nested lists. It deactivates the rejected subtree and records the
+malformed list. The
+synthetic tests cover two direct outputs, an arena order different from the
+serialized order, a shared output with invert, a nested output, list and child
+enable transitions, authored disable, cleanup, malformed cycles and deep
+lists, and pose preservation.
+
+### False-to-true event slots (2026-09-20)
+
+ANM-03 decodes all three `BSEventOnFalseToTrueModifier` slots. Local
+`serde-hkx/assets/classes/BSEventOnFalseToTrueModifier.json` and
+`hkxcmd/compat/BSEventOnFalseToTrueModifier_1.h` supply the layout. Each slot
+has an enable flag, tested boolean and event property. The Skyrim Behavior
+Editor class and UI confirm both booleans can bind to variables or character
+properties. Its code edits fields and does not implement runtime evaluation.
+
+The interpreter evaluates the slots during modifier-list updates. An enabled
+slot whose tested value changes from false to true raises its event once.
+Steady true and falling edges are quiet. Slot activity is the conjunction of
+its enable flag and tested value. Disabling a slot clears that activity.
+Activation resets history to false, so an initially true enabled slot emits
+on its first update, including after a whole-modifier reactivation. These
+activation choices are explicit policies, not an original-runtime comparison.
+The serialized history fields are ignored, as the class metadata requires.
+The graph's declared character-property table is initialized to typed zero
+values so property bindings can be populated by the caller. Events keep slot
+and modifier-list order and enter the existing raised-event
+queue. A failed list emits no partial modifier effects.
+
+Graph linking remaps each slot event and preserves appended scalar defaults
+when the parent has no initial-value table. Quad and variant default linking
+is tracked separately by ANM-57. Event payload presence is decoded, while the
+interpreter's existing event queue carries IDs only. The eleven `false_to_true`
+regressions cover three independent slots, enable transitions, malformed binding
+names, shared visits, list rejection, symbol remapping and a parent-machine
+transition caused by a modifier event. The installed survey decodes every
+behavior graph and verifies that all edge-slot bindings resolve. The full
+installed scan found 428 graphs, 23 edge modifiers and 29 enabled slots, with
+no slot payloads. The linked locomotion run now resolves 195 bindings with
+four unbound, compared with the historical 194 and five above.
+
+## 7. Not done and next
+
+- Modifier evaluation beyond `BSIsActiveModifier` and
+  `BSEventOnFalseToTrueModifier`. Rotation and range events remain separate
+  backlog rows. The historical unbound counts above predate ANM-03.
 - Transition details: trigger and initiate intervals, `hkbCondition`
   expressions, priority arbitration, the `abut at end` flag,
   `hkbGeneratorTransitionEffect`, `maxSimultaneousTransitions`. Conditions

@@ -24,7 +24,7 @@ use crate::expression::{Expression, ExpressionError};
 use crate::behavior::{
     transition_flags, BehaviorGraph, BehaviorGraphData, BlenderGenerator, ClipGenerator, Condition,
     NodeId, NodeKind, StateMachine, TimeInterval, TransitionInfo, VariableBindingSet, VariableInfo,
-    VariableType, IS_ACTIVE_SLOTS,
+    VariableType, FALSE_TO_TRUE_SLOTS, IS_ACTIVE_SLOTS,
 };
 use crate::skeleton::AnimationContainer;
 use crate::spline::Block;
@@ -326,6 +326,8 @@ enum Target {
     ChildWeight(usize),
     SelectedGeneratorIndex,
     Enable,
+    FalseToTrueEnable(usize),
+    FalseToTrueValue(usize),
     /// Which state the machine enters on activation.
     StartStateId,
     /// A transition effect's blend duration in seconds.
@@ -411,6 +413,9 @@ struct Runtime {
     start_state: Option<i32>,
     /// A bound blend `duration`, on a transition effect.
     duration: Option<f32>,
+    edge_enabled: [Option<bool>; FALSE_TO_TRUE_SLOTS],
+    edge_value: [Option<bool>; FALSE_TO_TRUE_SLOTS],
+    edge_previous: [bool; FALSE_TO_TRUE_SLOTS],
 }
 
 /// A generator's result for one frame: a local pose and how much of it
@@ -436,6 +441,22 @@ pub struct Unsupported {
     pub unbound: Vec<String>,
     /// Condition classes, source expressions or values that cannot be evaluated.
     pub conditions: Vec<String>,
+    /// Modifier lists whose child pointer closes a cycle.
+    pub modifier_list_cycles: Vec<String>,
+    /// Modifier-list paths deeper than the interpreter's fixed safety limit.
+    pub modifier_list_depth_limit: Vec<String>,
+}
+
+fn false_to_true_slot(path: &str, prefix: &str) -> Option<usize> {
+    let suffix = path.strip_prefix(prefix)?;
+    if suffix.len() != 1 {
+        return None;
+    }
+    suffix
+        .parse::<usize>()
+        .ok()?
+        .checked_sub(1)
+        .filter(|slot| *slot < FALSE_TO_TRUE_SLOTS)
 }
 
 fn push_unique(list: &mut Vec<String>, item: String) {
@@ -453,6 +474,9 @@ pub struct Interpreter<'a> {
     nodes: Vec<Runtime>,
     bindings: Vec<ResolvedBinding>,
     conditions: HashMap<Condition, std::result::Result<Expression, ExpressionError>>,
+    /// Modifier nodes in this frame's authored traversal order. Output
+    /// bindings publish in this order rather than arena allocation order.
+    modifier_order: Vec<NodeId>,
     pending: Vec<Event>,
     raised: Vec<Event>,
     handled: Vec<Event>,
@@ -467,6 +491,8 @@ pub struct Interpreter<'a> {
 /// wait for the next frame. A graph whose states raise each other's
 /// events forever would otherwise never return.
 const MAX_EVENT_ROUNDS: usize = 8;
+/// A malformed modifier-list chain must not consume an unbounded call stack.
+const MAX_MODIFIER_LIST_DEPTH: usize = 64;
 
 impl<'a> Interpreter<'a> {
     /// Resolve every binding and size the run-time arena. The reference
@@ -498,6 +524,7 @@ impl<'a> Interpreter<'a> {
             nodes,
             bindings: Vec::new(),
             conditions: HashMap::new(),
+            modifier_order: Vec::new(),
             pending: Vec::new(),
             raised: Vec::new(),
             handled: Vec::new(),
@@ -638,6 +665,13 @@ impl<'a> Interpreter<'a> {
                 ("duration", None, NodeKind::BlendingTransition(_)) => Some(Target::Duration),
                 ("fBlendParameter", None, NodeKind::CyclicBlendTransition { .. }) => {
                     Some(Target::BlendParameter)
+                }
+                (path, None, NodeKind::FalseToTrueModifier { .. }) => {
+                    if let Some(slot) = false_to_true_slot(path, "bEnableEvent") {
+                        Some(Target::FalseToTrueEnable(slot))
+                    } else {
+                        false_to_true_slot(path, "bVariableToTest").map(Target::FalseToTrueValue)
+                    }
                 }
                 (path, None, NodeKind::IsActiveModifier { invert_active, .. })
                     if path.starts_with("bIsActive") =>
@@ -814,6 +848,7 @@ impl<'a> Interpreter<'a> {
                 self.handle_event(root, ev);
             }
             self.handle_conditions(root);
+            self.modifier_order.clear();
             let output = self.generate(root, dt);
             self.output = output;
             for _ in 0..MAX_EVENT_ROUNDS {
@@ -837,19 +872,35 @@ impl<'a> Interpreter<'a> {
     /// Character properties are read-only to the graph, so an output binding
     /// on one is skipped.
     fn apply_output_bindings(&mut self) {
+        for node in self.modifier_order.clone() {
+            for i in 0..self.bindings.len() {
+                let b = self.bindings[i];
+                if b.node == node {
+                    self.apply_output_binding(b);
+                }
+            }
+        }
         for i in 0..self.bindings.len() {
             let b = self.bindings[i];
-            if !b.target.is_output() || b.property {
-                continue;
+            if !self.modifier_order.contains(&b.node) {
+                self.apply_output_binding(b);
             }
-            let active = self.nodes[b.node.0].active;
-            let value = match b.target {
-                Target::IsActive { invert, .. } => active != invert,
-                Target::MachineIsActive => active,
-                _ => continue,
-            };
-            self.variables.set_word(b.variable, i32::from(value));
         }
+    }
+
+    fn apply_output_binding(&mut self, b: ResolvedBinding) {
+        if !b.target.is_output() || b.property {
+            return;
+        }
+        let Some(runtime) = self.nodes.get(b.node.0) else {
+            return;
+        };
+        let value = match b.target {
+            Target::IsActive { invert, .. } => runtime.active != invert,
+            Target::MachineIsActive => runtime.active,
+            _ => return,
+        };
+        self.variables.set_word(b.variable, i32::from(value));
     }
 
     fn apply_bindings(&mut self) {
@@ -879,6 +930,8 @@ impl<'a> Interpreter<'a> {
                     rt.selected = usize::try_from(value as i32).ok();
                 }
                 Target::Enable => rt.enabled = Some(value != 0.0),
+                Target::FalseToTrueEnable(slot) => rt.edge_enabled[slot] = Some(value != 0.0),
+                Target::FalseToTrueValue(slot) => rt.edge_value[slot] = Some(value != 0.0),
                 Target::StartStateId => rt.start_state = Some(value as i32),
                 Target::Duration => rt.duration = Some(value),
                 // Written by apply_output_bindings, skipped above.
@@ -887,12 +940,91 @@ impl<'a> Interpreter<'a> {
         }
     }
 
-    /// Whether a node's `enable` binding, when it has one, allows it.
-    /// Modifiers pass through either way, so this only reports the value.
+    /// Whether a modifier's authored `enable` value, overridden by a binding
+    /// when present, allows it to run.
     pub fn node_enabled(&self, id: NodeId) -> bool {
+        let Some(node) = self.graph.nodes.get(id.0) else {
+            return false;
+        };
+        let authored = match &node.kind {
+            NodeKind::ModifierList { enable, .. }
+            | NodeKind::EventDrivenModifier { enable, .. }
+            | NodeKind::TimerModifier { enable, .. }
+            | NodeKind::IsActiveModifier { enable, .. }
+            | NodeKind::FalseToTrueModifier { enable, .. }
+            | NodeKind::Modifier { enable } => *enable,
+            _ => true,
+        };
         self.nodes
             .get(id.0)
-            .is_none_or(|n| n.enabled.unwrap_or(true))
+            .and_then(|node| node.enabled)
+            .unwrap_or(authored)
+    }
+
+    /// Apply a modifier subtree in serialized order without following a
+    /// malformed list cycle or an unbounded list chain.
+    fn sync_modifier(&mut self, id: NodeId) {
+        let mut path = vec![false; self.nodes.len()];
+        let mut stack = vec![(id, 0, false, true)];
+        while let Some((node_id, depth, leaving, parent_enabled)) = stack.pop() {
+            if node_id.0 >= self.nodes.len() || node_id.0 >= self.graph.nodes.len() {
+                continue;
+            }
+            if leaving {
+                path[node_id.0] = false;
+                continue;
+            }
+            let node = &self.graph.nodes[node_id.0];
+            if path[node_id.0] {
+                push_unique(
+                    &mut self.unsupported.modifier_list_cycles,
+                    format!("{} ({})", node.name, node.class),
+                );
+                self.deactivate(id);
+                return;
+            }
+            if depth >= MAX_MODIFIER_LIST_DEPTH {
+                push_unique(
+                    &mut self.unsupported.modifier_list_depth_limit,
+                    format!("{} ({})", node.name, node.class),
+                );
+                self.deactivate(id);
+                return;
+            }
+            let enabled = parent_enabled && self.node_enabled(node_id);
+            if enabled {
+                self.activate(node_id);
+            } else {
+                self.deactivate(node_id);
+            }
+            self.modifier_order.push(node_id);
+            if let NodeKind::ModifierList { modifiers, .. } = &node.kind {
+                path[node_id.0] = true;
+                stack.push((node_id, depth, true, enabled));
+                for child in modifiers.iter().rev().flatten().copied() {
+                    stack.push((child, depth + 1, false, enabled));
+                }
+            }
+        }
+    }
+
+    /// Evaluate edge slots only during update, after list enable state is known.
+    fn update_modifier(&mut self, id: NodeId) {
+        if !self.nodes[id.0].active {
+            return;
+        }
+        if let NodeKind::FalseToTrueModifier { slots, .. } = &self.graph.nodes[id.0].kind {
+            for (index, slot) in slots.iter().enumerate() {
+                let runtime = &mut self.nodes[id.0];
+                let active = runtime.edge_enabled[index].unwrap_or(slot.enable)
+                    && runtime.edge_value[index].unwrap_or(slot.variable_to_test);
+                let rising = active && !runtime.edge_previous[index];
+                runtime.edge_previous[index] = active;
+                if rising {
+                    self.raise(slot.event.id);
+                }
+            }
+        }
     }
 
     fn activate(&mut self, id: NodeId) {
@@ -902,6 +1034,9 @@ impl<'a> Interpreter<'a> {
         self.nodes[id.0].active = true;
         let graph = self.graph;
         match &graph.node(id).kind {
+            NodeKind::FalseToTrueModifier { .. } => {
+                self.nodes[id.0].edge_previous = [false; FALSE_TO_TRUE_SLOTS];
+            }
             NodeKind::Clip(c) => {
                 let rt = &mut self.nodes[id.0];
                 rt.local_time = c.start_time.max(0.0);
@@ -941,8 +1076,18 @@ impl<'a> Interpreter<'a> {
                     self.activate(*g);
                 }
             }
-            NodeKind::ModifierGenerator { generator, .. }
-            | NodeKind::IStateTagging {
+            NodeKind::ModifierGenerator {
+                modifier,
+                generator,
+            } => {
+                if let Some(modifier) = modifier {
+                    self.sync_modifier(*modifier);
+                }
+                if let Some(generator) = generator {
+                    self.activate(*generator);
+                }
+            }
+            NodeKind::IStateTagging {
                 default_generator: generator,
                 ..
             }
@@ -983,28 +1128,36 @@ impl<'a> Interpreter<'a> {
     }
 
     fn deactivate(&mut self, id: NodeId) {
-        if !self.nodes[id.0].active {
-            return;
-        }
-        let graph = self.graph;
-        let node = graph.node(id);
-        if let NodeKind::StateMachine(sm) = &node.kind {
-            if let Some(current) = self.nodes[id.0].current_state {
-                if let Some(state) = sm.state(current) {
-                    for e in &state.exit_notify_events {
-                        self.raise(e.id);
+        let mut seen = vec![false; self.nodes.len()];
+        let mut stack = vec![id];
+        while let Some(node_id) = stack.pop() {
+            if node_id.0 >= self.nodes.len() || node_id.0 >= self.graph.nodes.len() {
+                continue;
+            }
+            if seen[node_id.0] || !self.nodes[node_id.0].active {
+                continue;
+            }
+            seen[node_id.0] = true;
+            let node = &self.graph.nodes[node_id.0];
+            let mut children = node.children();
+            if let NodeKind::StateMachine(sm) = &node.kind {
+                if let Some(current) = self.nodes[node_id.0].current_state {
+                    if let Some(state) = sm.state(current) {
+                        for e in &state.exit_notify_events {
+                            self.raise(e.id);
+                        }
                     }
                 }
+                let runtime = &mut self.nodes[node_id.0];
+                children.extend(runtime.transitions.iter().filter_map(|t| t.from_generator));
+                runtime.transitions.clear();
+                runtime.delayed = None;
+                runtime.intervals.clear();
+                runtime.current_state = None;
             }
-            self.nodes[id.0].transitions.clear();
-            self.nodes[id.0].delayed = None;
-            self.nodes[id.0].intervals.clear();
-            self.nodes[id.0].current_state = None;
+            self.nodes[node_id.0].active = false;
+            stack.extend(children);
         }
-        for child in node.children() {
-            self.deactivate(child);
-        }
-        self.nodes[id.0].active = false;
     }
 
     fn raise(&mut self, id: i32) {
@@ -1382,8 +1535,24 @@ impl<'a> Interpreter<'a> {
                     None => self.reference_output(),
                 }
             }
-            NodeKind::ModifierGenerator { generator, .. }
-            | NodeKind::IStateTagging {
+            NodeKind::ModifierGenerator {
+                modifier,
+                generator,
+            } => {
+                if let Some(modifier) = modifier {
+                    let start = self.modifier_order.len();
+                    self.sync_modifier(*modifier);
+                    for index in start..self.modifier_order.len() {
+                        let node = self.modifier_order[index];
+                        self.update_modifier(node);
+                    }
+                }
+                match generator {
+                    Some(generator) => self.generate(*generator, dt),
+                    None => self.reference_output(),
+                }
+            }
+            NodeKind::IStateTagging {
                 default_generator: generator,
                 ..
             }
@@ -1435,6 +1604,7 @@ impl<'a> Interpreter<'a> {
             | NodeKind::EventDrivenModifier { .. }
             | NodeKind::TimerModifier { .. }
             | NodeKind::IsActiveModifier { .. }
+            | NodeKind::FalseToTrueModifier { .. }
             | NodeKind::Modifier { .. } => self.reference_output(),
         }
     }
@@ -1888,6 +2058,60 @@ mod tests {
     use super::*;
 
     use crate::behavior::{Binding, Node, VariableBindingSet};
+    use crate::spline::encode;
+
+    fn pad4(bytes: &mut Vec<u8>) {
+        while !bytes.len().is_multiple_of(4) {
+            bytes.push(0);
+        }
+    }
+
+    /// One transform track at a non-reference x position. This is encoded as
+    /// a spline clip so the wrapper test exercises the normal sampling path.
+    fn modifier_generator_clip() -> Clip {
+        const FRAMES: usize = 31;
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&[1 | (2 << 2), 0b0001_0000, 0b0000_0001, 0]);
+        pad4(&mut bytes);
+        let items = (FRAMES - 1) as u16;
+        bytes.extend_from_slice(&items.to_le_bytes());
+        bytes.push(1);
+        bytes.push(0);
+        for frame in 0..FRAMES {
+            bytes.push(frame as u8);
+        }
+        bytes.push((FRAMES - 1) as u8);
+        pad4(&mut bytes);
+        bytes.extend_from_slice(&4.0f32.to_le_bytes());
+        bytes.extend_from_slice(&4.0f32.to_le_bytes());
+        for _ in 0..FRAMES {
+            bytes.extend_from_slice(&encode::point_16(4.0, 4.0, 4.0).to_le_bytes());
+        }
+        pad4(&mut bytes);
+        bytes.extend_from_slice(&encode::quat_48([0.0, 0.0, 0.0, 1.0]));
+        pad4(&mut bytes);
+        let animation = SplineCompressedAnimation {
+            duration: (FRAMES - 1) as f32 / 30.0,
+            num_transform_tracks: 1,
+            num_float_tracks: 0,
+            annotation_tracks: vec![],
+            num_frames: FRAMES,
+            num_blocks: 1,
+            max_frames_per_block: 256,
+            mask_and_quantization_size: 4,
+            block_duration: 256.0 / 30.0,
+            block_inverse_duration: 30.0 / 256.0,
+            frame_duration: 1.0 / 30.0,
+            block_offsets: vec![0],
+            float_block_offsets: vec![0],
+            transform_offsets: vec![4],
+            float_offsets: vec![],
+            data: bytes,
+            endian: 0,
+            extracted_motion: None,
+        };
+        Clip::from_parts("modifier-pose", animation, &[0]).unwrap()
+    }
 
     /// A graph of one `BSIsActiveModifier` with a binding on one slot, so the
     /// output path can be driven without a packfile.
@@ -1929,6 +2153,399 @@ mod tests {
                 },
             }],
         }
+    }
+
+    fn modifier_generator_graph() -> BehaviorGraph {
+        let mut graph = is_active_graph(false, 0);
+        graph.root = Some(NodeId(0));
+        graph.data.variable_names.push("Enabled".into());
+        graph.data.variable_infos.push(VariableInfo::default());
+        graph.nodes[0].id = NodeId(1);
+        graph.nodes[0]
+            .bindings
+            .as_mut()
+            .unwrap()
+            .bindings
+            .push(Binding {
+                member_path: "enable".into(),
+                variable_index: 1,
+                bit_index: -1,
+                binding_type: 0,
+            });
+        graph.nodes.insert(
+            0,
+            Node {
+                id: NodeId(0),
+                offset: 0,
+                class: "hkbModifierGenerator".into(),
+                name: "wrapper".into(),
+                user_data: 0,
+                bindings: None,
+                kind: NodeKind::ModifierGenerator {
+                    modifier: Some(NodeId(1)),
+                    generator: Some(NodeId(2)),
+                },
+            },
+        );
+        graph.nodes.push(Node {
+            id: NodeId(2),
+            offset: 2,
+            class: "hkbClipGenerator".into(),
+            name: "pose".into(),
+            user_data: 0,
+            bindings: None,
+            kind: NodeKind::Clip(ClipGenerator {
+                animation_name: "modifier-pose".into(),
+                ..Default::default()
+            }),
+        });
+        graph
+    }
+
+    fn is_active_node(
+        id: usize,
+        name: &str,
+        output_variable: usize,
+        enable_variable: Option<usize>,
+    ) -> Node {
+        let mut bindings = vec![Binding {
+            member_path: "bIsActive0".into(),
+            variable_index: i32::try_from(output_variable).unwrap(),
+            bit_index: -1,
+            binding_type: 0,
+        }];
+        if let Some(variable) = enable_variable {
+            bindings.push(Binding {
+                member_path: "enable".into(),
+                variable_index: i32::try_from(variable).unwrap(),
+                bit_index: -1,
+                binding_type: 0,
+            });
+        }
+        Node {
+            id: NodeId(id),
+            offset: u32::try_from(id).unwrap(),
+            class: "BSIsActiveModifier".into(),
+            name: name.into(),
+            user_data: 0,
+            bindings: Some(VariableBindingSet {
+                bindings,
+                index_of_binding_to_enable: -1,
+            }),
+            kind: NodeKind::IsActiveModifier {
+                enable: true,
+                is_active: [false; IS_ACTIVE_SLOTS],
+                invert_active: [false; IS_ACTIVE_SLOTS],
+            },
+        }
+    }
+
+    fn modifier_list_graph(list_enable: bool, bind_list_enable: bool) -> BehaviorGraph {
+        let list_bindings = bind_list_enable.then(|| VariableBindingSet {
+            bindings: vec![Binding {
+                member_path: "enable".into(),
+                variable_index: 2,
+                bit_index: -1,
+                binding_type: 0,
+            }],
+            index_of_binding_to_enable: -1,
+        });
+        BehaviorGraph {
+            name: "modifier-list".into(),
+            variable_mode: 0,
+            root: Some(NodeId(0)),
+            data: BehaviorGraphData {
+                variable_names: vec![
+                    "first active".into(),
+                    "second active".into(),
+                    "list enabled".into(),
+                    "second enabled".into(),
+                    "nested active".into(),
+                ],
+                variable_infos: vec![VariableInfo::default(); 5],
+                ..Default::default()
+            },
+            nodes: vec![
+                Node {
+                    id: NodeId(0),
+                    offset: 0,
+                    class: "hkbModifierGenerator".into(),
+                    name: "wrapper".into(),
+                    user_data: 0,
+                    bindings: None,
+                    kind: NodeKind::ModifierGenerator {
+                        modifier: Some(NodeId(1)),
+                        generator: Some(NodeId(6)),
+                    },
+                },
+                Node {
+                    id: NodeId(1),
+                    offset: 1,
+                    class: "hkbModifierList".into(),
+                    name: "outer".into(),
+                    user_data: 0,
+                    bindings: list_bindings,
+                    // This order intentionally differs from the arena order.
+                    kind: NodeKind::ModifierList {
+                        enable: list_enable,
+                        modifiers: vec![Some(NodeId(3)), Some(NodeId(2)), Some(NodeId(4))],
+                    },
+                },
+                is_active_node(2, "second", 1, Some(3)),
+                is_active_node(3, "first", 0, None),
+                Node {
+                    id: NodeId(4),
+                    offset: 4,
+                    class: "hkbModifierList".into(),
+                    name: "nested".into(),
+                    user_data: 0,
+                    bindings: None,
+                    kind: NodeKind::ModifierList {
+                        enable: true,
+                        modifiers: vec![Some(NodeId(5))],
+                    },
+                },
+                is_active_node(5, "nested child", 4, None),
+                Node {
+                    id: NodeId(6),
+                    offset: 6,
+                    class: "hkbClipGenerator".into(),
+                    name: "pose".into(),
+                    user_data: 0,
+                    bindings: None,
+                    kind: NodeKind::Clip(ClipGenerator {
+                        animation_name: "modifier-pose".into(),
+                        ..Default::default()
+                    }),
+                },
+            ],
+        }
+    }
+
+    #[test]
+    fn modifier_generator_activates_outputs_deactivates_and_preserves_pose() {
+        let graph = modifier_generator_graph();
+        let pose = vec![QsTransform::IDENTITY];
+        let mut clips = ClipLibrary::new();
+        clips.insert(modifier_generator_clip());
+        let mut vm = Interpreter::new(&graph, &clips, pose);
+        vm.variables.set_word(1, 1);
+        vm.update(1.0 / 60.0);
+        assert_eq!(vm.variables.word(0), Some(1));
+        assert_eq!(vm.output().pose[0].translation[0], 4.0);
+        vm.variables.set_word(1, 0);
+        vm.update(1.0 / 60.0);
+        assert_eq!(vm.variables.word(0), Some(0));
+        assert_eq!(vm.output().pose[0].translation[0], 4.0);
+        vm.variables.set_word(1, 1);
+        vm.update(1.0 / 60.0);
+        assert_eq!(vm.variables.word(0), Some(1));
+        vm.deactivate(NodeId(0));
+        vm.apply_output_bindings();
+        assert_eq!(vm.variables.word(0), Some(0));
+        vm.update(1.0 / 60.0);
+        assert_eq!(vm.variables.word(0), Some(1));
+    }
+
+    #[test]
+    fn modifier_generator_does_not_activate_a_disabled_modifier() {
+        let graph = modifier_generator_graph();
+        let clips = ClipLibrary::new();
+        let mut vm = Interpreter::new(&graph, &clips, Vec::new());
+        vm.variables.set_word(1, 0);
+        vm.update(1.0 / 60.0);
+        assert_eq!(vm.variables.word(0), Some(0));
+    }
+
+    #[test]
+    fn modifier_list_uses_serialized_order_and_updates_nested_child_outputs() {
+        let graph = modifier_list_graph(true, true);
+        assert_eq!(
+            graph.node(NodeId(1)).children(),
+            vec![NodeId(3), NodeId(2), NodeId(4)],
+            "the list's authored child order differs from arena order"
+        );
+        let mut clips = ClipLibrary::new();
+        clips.insert(modifier_generator_clip());
+        let mut vm = Interpreter::new(&graph, &clips, vec![QsTransform::IDENTITY]);
+
+        vm.variables.set_word(2, 1);
+        vm.variables.set_word(3, 1);
+        vm.update(1.0 / 60.0);
+        assert_eq!(
+            [
+                vm.variables.word(0),
+                vm.variables.word(1),
+                vm.variables.word(4)
+            ],
+            [Some(1), Some(1), Some(1)]
+        );
+        assert_eq!(vm.output().pose[0].translation[0], 4.0);
+
+        vm.variables.set_word(2, 0);
+        vm.update(1.0 / 60.0);
+        assert_eq!(
+            [
+                vm.variables.word(0),
+                vm.variables.word(1),
+                vm.variables.word(4)
+            ],
+            [Some(0), Some(0), Some(0)],
+            "disabling the list cleans up direct and nested children"
+        );
+        assert_eq!(vm.output().pose[0].translation[0], 4.0);
+
+        vm.variables.set_word(2, 1);
+        vm.variables.set_word(3, 0);
+        vm.update(1.0 / 60.0);
+        assert_eq!(
+            [
+                vm.variables.word(0),
+                vm.variables.word(1),
+                vm.variables.word(4)
+            ],
+            [Some(1), Some(0), Some(1)],
+            "a child enable binding affects only that child"
+        );
+
+        vm.variables.set_word(3, 1);
+        vm.update(1.0 / 60.0);
+        assert_eq!(
+            [
+                vm.variables.word(0),
+                vm.variables.word(1),
+                vm.variables.word(4)
+            ],
+            [Some(1), Some(1), Some(1)]
+        );
+    }
+
+    #[test]
+    fn modifier_list_publishes_shared_outputs_in_serialized_order() {
+        let mut graph = modifier_list_graph(true, true);
+        graph.nodes[2].bindings.as_mut().unwrap().bindings[0].variable_index = 0;
+        if let NodeKind::IsActiveModifier { invert_active, .. } = &mut graph.nodes[2].kind {
+            invert_active[0] = true;
+        }
+        let lib = ClipLibrary::new();
+        let mut vm = Interpreter::new(&graph, &lib, Vec::new());
+        vm.variables.set_word(2, 1);
+        vm.variables.set_word(3, 1);
+        vm.update(1.0 / 60.0);
+        assert_eq!(
+            vm.variables.word(0),
+            Some(0),
+            "the second serialized child overwrites the first despite lower arena index"
+        );
+    }
+
+    #[test]
+    fn a_disabled_child_publishes_before_a_later_enabled_shared_output() {
+        let mut graph = modifier_list_graph(true, true);
+        graph.nodes[2].bindings.as_mut().unwrap().bindings[0].variable_index = 0;
+        if let NodeKind::IsActiveModifier { enable, .. } = &mut graph.nodes[3].kind {
+            *enable = false;
+        }
+        let lib = ClipLibrary::new();
+        let mut vm = Interpreter::new(&graph, &lib, Vec::new());
+        vm.variables.set_word(2, 1);
+        vm.variables.set_word(3, 1);
+        vm.update(1.0 / 60.0);
+        assert_eq!(
+            vm.variables.word(0),
+            Some(1),
+            "the enabled second child wins after the disabled first child"
+        );
+    }
+
+    #[test]
+    fn an_authored_disabled_modifier_list_never_activates_its_children() {
+        let graph = modifier_list_graph(false, false);
+        let mut clips = ClipLibrary::new();
+        clips.insert(modifier_generator_clip());
+        let mut vm = Interpreter::new(&graph, &clips, vec![QsTransform::IDENTITY]);
+        vm.update(1.0 / 60.0);
+        assert_eq!(
+            [
+                vm.variables.word(0),
+                vm.variables.word(1),
+                vm.variables.word(4)
+            ],
+            [Some(0), Some(0), Some(0)]
+        );
+        assert_eq!(vm.output().pose[0].translation[0], 4.0);
+    }
+
+    #[test]
+    fn a_cyclic_modifier_list_is_deactivated_and_reported() {
+        let mut graph = modifier_list_graph(true, false);
+        if let NodeKind::ModifierList { modifiers, .. } = &mut graph.nodes[1].kind {
+            modifiers.rotate_right(1);
+        }
+        if let NodeKind::ModifierList { modifiers, .. } = &mut graph.nodes[4].kind {
+            modifiers.push(Some(NodeId(1)));
+        }
+        let lib = ClipLibrary::new();
+        let mut vm = Interpreter::new(&graph, &lib, Vec::new());
+        vm.update(1.0 / 60.0);
+        assert_eq!(vm.unsupported().modifier_list_cycles.len(), 1);
+        assert!(!vm.is_active(NodeId(1)));
+        assert!(!vm.is_active(NodeId(2)));
+        assert!(!vm.is_active(NodeId(3)));
+        assert!(!vm.is_active(NodeId(4)));
+    }
+
+    #[test]
+    fn an_excessively_deep_modifier_list_is_deactivated_and_reported() {
+        let mut nodes = vec![Node {
+            id: NodeId(0),
+            offset: 0,
+            class: "hkbModifierGenerator".into(),
+            name: "wrapper".into(),
+            user_data: 0,
+            bindings: None,
+            kind: NodeKind::ModifierGenerator {
+                modifier: Some(NodeId(1)),
+                generator: None,
+            },
+        }];
+        for id in 1..=MAX_MODIFIER_LIST_DEPTH + 1 {
+            nodes.push(Node {
+                id: NodeId(id),
+                offset: u32::try_from(id).unwrap(),
+                class: "hkbModifierList".into(),
+                name: format!("list {id}"),
+                user_data: 0,
+                bindings: None,
+                kind: NodeKind::ModifierList {
+                    enable: true,
+                    modifiers: (id < MAX_MODIFIER_LIST_DEPTH + 1)
+                        .then_some(Some(NodeId(id + 1)))
+                        .into_iter()
+                        .collect(),
+                },
+            });
+        }
+        let graph = BehaviorGraph {
+            name: "deep modifier list".into(),
+            variable_mode: 0,
+            root: Some(NodeId(0)),
+            data: BehaviorGraphData::default(),
+            nodes,
+        };
+        let lib = ClipLibrary::new();
+        let mut vm = Interpreter::new(&graph, &lib, Vec::new());
+        vm.update(1.0 / 60.0);
+        assert_eq!(vm.unsupported().modifier_list_depth_limit.len(), 1);
+        assert!(!vm.is_active(NodeId(MAX_MODIFIER_LIST_DEPTH + 1)));
+    }
+
+    #[test]
+    fn an_out_of_range_node_is_not_enabled() {
+        let graph = modifier_list_graph(true, false);
+        let lib = ClipLibrary::new();
+        let vm = Interpreter::new(&graph, &lib, Vec::new());
+        assert!(!vm.node_enabled(NodeId(usize::MAX)));
     }
 
     #[test]
