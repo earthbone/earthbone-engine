@@ -46,6 +46,13 @@ week 6 to 9 gate.
 
 ## Design
 
+`vanilla_save::SavedFormMap` remaps ESS references through saved plugin names,
+including regular and light slots. `World::restore_vanilla_globals` atomically
+applies the global table to winning GLOB forms. Values reach the existing
+Papyrus native path and engine save state. This is one restoration component,
+not a full ESS load or resumed game. See [save.md](save.md) for mapping rules,
+failure behavior and the remaining world and VM work.
+
 **Forms, not structs.** Every native takes and returns forms by
 `GlobalFormId`. The VM sees them as objects created on first use with the
 class the record's signature implies (`QUST` is a `Quest`, `ACHR` an `Actor`),

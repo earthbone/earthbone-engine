@@ -24,6 +24,12 @@ impl GlobalVariables {
     pub fn read(data: &[u8]) -> Result<Self> {
         let mut cursor = Cursor::new(data, "global variables");
         let count = cursor.vsval()?.value();
+        if cursor.remaining() != count as usize * 7 {
+            return Err(crate::error::Error::GlobalVariableSize {
+                count,
+                bytes: cursor.remaining(),
+            });
+        }
         let mut variables = Vec::with_capacity(count as usize);
         for _ in 0..count {
             let form = cursor.ref_id()?;

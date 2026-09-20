@@ -2,8 +2,8 @@
 
 `crates/save` reads an `.ess` file into a typed structure and turns the part of
 it that describes progress into scenario expectations the harness in
-`crates/game` can run. It does not apply a save onto a running world, that is a
-separate item.
+`crates/game` can run. The game crate also imports the saved global-variable
+table using the saved plugin names. Full world restoration remains unfinished.
 
 The format was not reverse engineered. It is documented and it has a mature
 open implementation, so both were read first.
@@ -111,8 +111,8 @@ Change form payloads other than `QUST` stay as bytes, decoded on demand. The
 Papyrus auxiliary data after the save-file version stays raw, as does the
 original payload used when writing the save body.
 
-This is inspection, not VM restoration. Values are not applied to the running
-world, and neither stack execution nor pending calls can be resumed from a
+Most decoded state remains inspection data. The game crate can apply the global
+table, but neither stack execution nor pending calls can be resumed from a
 vanilla save. The explicit instance-import API below can apply decoded
 variables to a prepared VM, but it is not a complete save loader.
 
@@ -148,6 +148,55 @@ instances, inheritance cycles, missing identities, invalid array elements
 and unsupported variant/struct runtime values. Arrays use the existing VM
 allocation ceiling. It also refuses to replace instances beneath existing
 threads. It does not invent a form or alias binding from an opaque saved ID.
+
+## Saved forms and live globals
+
+`soe_game::vanilla_save::SavedFormMap` resolves RefIDs through the save's own
+FormID array, then matches regular and light plugin names to the current load
+order without regard to ASCII case. It preserves the local object ID and
+created-form namespace. It does not treat a saved runtime slot as a current
+slot, allocate created forms or infer Papyrus object identity from a form.
+
+Missing plugins, duplicate names, changed regular/light classification and
+invalid references return errors. These are strict import checks, not a
+missing-mod recovery policy. The world currently reserves file position 255
+for created forms, so this mapping rejects a load order reaching that position
+rather than confusing plugin records with created objects. Correcting that
+engine identity limit remains required for large light-plugin loadouts.
+
+`World::restore_vanilla_globals` requires one global table and validates all
+targets before applying any value. Each target must be a non-deleted winning
+GLOB record, and duplicate targets fail. Unlisted globals retain their current
+values. Float bits, including signed zero and NaN payloads, are preserved.
+The global reader checks that the declared count exactly fits the payload
+before allocating, including when the count uses a wider encoding.
+
+The first corpus run exposed the engine-defined `PlayCredits` global, form
+`00000063`, absent from Skyrim.esm. The local xEdit file
+`Core/Hardcoded/Skyrim.esp` defines it as a short global with initial value zero.
+The load order now supplies that record when the first file is Skyrim.esm and
+does not define it. Authored records and later overrides retain precedence.
+The source plugin on disk is not changed. This does not implement the credits
+screen or supply the rest of Skyrim's hardcoded records.
+
+Identity rules were read in local FallrimTools `RefID.java` and
+`PluginInfo.java`, with table layout from UESP `Global_Variables.wikitext`.
+The existing Rust save reader is reused. `soe-game` now depends on `soe-save`,
+whose existing dependencies include encoding_rs, flate2, lz4_flex, thiserror,
+soe-papyrus and soe-trace. No package was added to the workspace lockfile.
+
+Validation on 2026-09-20 restored all 933 globals in each of the 60 external
+saves, 55,980 entries total, into the five-master live form table. Every value
+retained its float bits after an engine save/load cycle, with no events queued.
+Synthetic checks cover reordered regular and light plugins, authored builtin
+overrides, Papyrus GetValue, duplicate and malformed input, and unchanged world
+state on failure. The corpus has no light plugins, so that path has synthetic
+coverage only.
+
+This API applies one component of save state. It does not synchronize calendar
+or scheduler clocks, restore quest or actor state, apply change forms, bind
+Papyrus instances or resume execution. Full ESS restoration still needs all
+of those paths and an atomic whole-game load operation.
 
 ## Round trip
 
