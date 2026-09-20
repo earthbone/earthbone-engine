@@ -7,8 +7,35 @@
 
 use super::{Alloc, Handle, Pending, World, T};
 use crate::inventory::{Bundle, Error, Extra, Field, Selection, Stack, StackSource};
-use soe_esm::{GlobalFormId, Record};
+use soe_esm::{GlobalFormId, Record, Tag};
 use soe_papyrus::Value;
+
+enum FormListAddition {
+    Base(GlobalFormId, i32),
+    Reference(GlobalFormId),
+    Leveled(GlobalFormId, i32),
+}
+
+#[derive(Clone)]
+struct ReferenceAddition {
+    reference: GlobalFormId,
+    source: Option<GlobalFormId>,
+    base: GlobalFormId,
+    count: i32,
+    bundle: Bundle,
+}
+
+enum PreparedFormListAddition {
+    Base(GlobalFormId, i32),
+    Reference(ReferenceAddition),
+    Leveled(Vec<(GlobalFormId, i32)>),
+}
+
+enum ReferenceSource {
+    Loose,
+    Held(GlobalFormId),
+    Ambiguous,
+}
 
 impl World {
     /// Select a quantity from one stack or the plain remainder of a holder's items.
@@ -379,107 +406,319 @@ impl World {
         reference: GlobalFormId,
         alloc: Alloc<'_>,
     ) -> bool {
-        if holder == reference {
+        let Some(addition) = self.reference_addition(holder, reference) else {
             return false;
-        }
-        let mut matches = self.refs.iter().filter_map(|(&source, state)| {
-            state
-                .inventory
-                .find_reference(reference)
-                .map(|(base, stack)| (source, base, stack.count()))
-        });
-        let existing = matches.next();
-        if matches.next().is_some() {
-            return false;
-        }
-        let (source, base, count) = if let Some((source, base, count)) = existing {
-            (Some(source), base, count)
-        } else {
-            let Some(state) = self.reference(reference) else {
-                return false;
-            };
-            if state.deleted || state.destroyed {
-                return false;
-            }
-            let (Some(base), Some(stack)) = (state.base, state.item.as_ref()) else {
-                return false;
-            };
-            (None, base, stack.count())
         };
-        if source == Some(holder) || count <= 0 || !self.is_inventory_base(base) {
-            return false;
-        }
         let Some(target) = self.reference(holder) else {
             return false;
         };
         if target.deleted
             || target.destroyed
-            || target.inventory.count(base).checked_add(count).is_none()
+            || target
+                .inventory
+                .count(addition.base)
+                .checked_add(addition.count)
+                .is_none()
         {
             return false;
         }
-        if source.is_some() {
-            if !self.refs.contains_key(&reference) {
+        let result = target
+            .inventory
+            .receive(addition.base, addition.bundle.clone());
+        debug_assert!(result.is_ok());
+        self.apply_reference_addition(holder, &addition, alloc);
+        true
+    }
+
+    fn reference_source(&self, reference: GlobalFormId) -> ReferenceSource {
+        let mut matches = self.refs.iter().filter_map(|(&source, state)| {
+            state.inventory.find_reference(reference).map(|_| source)
+        });
+        let existing = matches.next();
+        if matches.next().is_some() {
+            return ReferenceSource::Ambiguous;
+        }
+        existing.map_or(ReferenceSource::Loose, ReferenceSource::Held)
+    }
+
+    fn reference_addition(
+        &mut self,
+        holder: GlobalFormId,
+        reference: GlobalFormId,
+    ) -> Option<ReferenceAddition> {
+        if holder == reference {
+            return None;
+        }
+        let source = match self.reference_source(reference) {
+            ReferenceSource::Loose => None,
+            ReferenceSource::Held(source) => Some(source),
+            ReferenceSource::Ambiguous => return None,
+        };
+        let (base, count, bundle) = if let Some(source) = source {
+            let (base, stack) = self
+                .refs
+                .get(&source)?
+                .inventory
+                .find_reference(reference)?;
+            let count = stack.count();
+            let bundle = Bundle::from_stack(stack.clone());
+            let valid = if let Some(state) = self.refs.get(&reference) {
+                state.base == Some(base) && !state.is_actor
+            } else {
                 let state = self
                     .load_ref_record(reference)
                     .unwrap_or_else(|| super::RefState::new(Some(base)));
-                if state.base != Some(base) || state.is_actor {
-                    return false;
+                let valid = state.base == Some(base) && !state.is_actor;
+                if valid {
+                    self.refs.insert(reference, state);
                 }
-                self.refs.insert(reference, state);
-            }
-            let Some(state) = self.refs.get_mut(&reference) else {
-                return false;
+                valid
             };
-            if state.base != Some(base) || state.is_actor {
-                return false;
+            if !valid {
+                return None;
             }
+            (base, count, bundle)
+        } else {
+            let state = self.reference(reference)?;
+            if state.deleted || state.destroyed {
+                return None;
+            }
+            let (Some(base), Some(stack)) = (state.base, state.item.as_ref()) else {
+                return None;
+            };
+            (
+                base,
+                stack.count(),
+                Bundle::from_stack(stack.clone().with_reference(reference)),
+            )
+        };
+        if source == Some(holder) || count <= 0 || !self.is_inventory_base(base) {
+            return None;
+        }
+        let mut bundle = bundle;
+        bundle.unequip();
+        Some(ReferenceAddition {
+            reference,
+            source,
+            base,
+            count,
+            bundle,
+        })
+    }
+
+    fn apply_reference_addition(
+        &mut self,
+        holder: GlobalFormId,
+        addition: &ReferenceAddition,
+        alloc: Alloc<'_>,
+    ) {
+        if let Some(source) = addition.source {
+            let Some(state) = self.refs.get_mut(&addition.reference) else {
+                unreachable!("preflight loaded held reference");
+            };
+            debug_assert_eq!(state.base, Some(addition.base));
+            debug_assert!(!state.is_actor);
             state.item = None;
             state.enabled = false;
             state.cell = None;
-            if reference.file == super::DYNAMIC_FILE {
-                self.next_dynamic = self.next_dynamic.max(reference.object);
+            if addition.reference.file == super::DYNAMIC_FILE {
+                self.next_dynamic = self.next_dynamic.max(addition.reference.object);
             }
-        }
-        let mut bundle = if let Some(source) = source {
-            let Some((_, bundle)) = self
+            let removed = self
                 .refs
                 .get_mut(&source)
-                .and_then(|state| state.inventory.take_reference(reference))
-            else {
-                return false;
-            };
-            bundle
-        } else {
-            let Some(state) = self.refs.get_mut(&reference) else {
-                return false;
-            };
-            let Some(stack) = state.item.take() else {
-                return false;
-            };
-            state.enabled = false;
-            state.cell = None;
-            Bundle::from_stack(stack.with_reference(reference))
-        };
-        bundle.unequip();
-        // CONTEXT: Destination existence and capacity were checked before taking the source.
-        if let Some(target) = self.refs.get_mut(&holder) {
-            let result = target.inventory.receive(base, bundle);
-            debug_assert!(result.is_ok());
-        }
-        if let Some(source) = source {
+                .and_then(|state| state.inventory.take_reference(addition.reference));
+            debug_assert!(removed.is_some());
             self.inventory_reference_event(
                 source,
-                base,
-                -count,
-                Some(reference),
+                addition.base,
+                -addition.count,
+                Some(addition.reference),
                 Some(holder),
                 alloc,
             );
+        } else {
+            let Some(state) = self.refs.get_mut(&addition.reference) else {
+                unreachable!("preflight loaded reference");
+            };
+            let removed = state.item.take();
+            debug_assert!(removed.is_some());
+            state.enabled = false;
+            state.cell = None;
         }
-        self.inventory_reference_event(holder, base, count, Some(reference), source, alloc);
-        self.container_changed(reference, holder, source, alloc);
+        self.inventory_reference_event(
+            holder,
+            addition.base,
+            addition.count,
+            Some(addition.reference),
+            addition.source,
+            alloc,
+        );
+        self.container_changed(addition.reference, holder, addition.source, alloc);
+    }
+
+    /// Add every supported item reachable through a FormList in one transaction.
+    /// Lists are flattened in member order. A depth cap and ancestry check reject
+    /// malformed cycles before inventory mutation or event queueing. Leveled
+    /// leaves use the receiver encounter level and the AddItem player context.
+    pub fn add_form_list_notified(
+        &mut self,
+        holder: GlobalFormId,
+        list: GlobalFormId,
+        count: i32,
+        alloc: Alloc<'_>,
+    ) -> bool {
+        if count <= 0 || self.reference(holder).is_none() {
+            return false;
+        }
+        let Ok(level) = self.encounter_level(holder) else {
+            return false;
+        };
+        let Some(additions) = self.form_list_additions(list, count, &mut Vec::new()) else {
+            return false;
+        };
+        let target_inventory = {
+            let Some(target) = self.reference(holder) else {
+                return false;
+            };
+            if target.deleted || target.destroyed {
+                return false;
+            }
+            target.inventory.clone()
+        };
+        let previous_rng = self.rng;
+        let mut updated = target_inventory;
+        let mut prepared = Vec::new();
+        let mut references = Vec::new();
+        for addition in additions {
+            match addition {
+                FormListAddition::Base(item, total) => {
+                    if updated.add(item, total).is_err() {
+                        self.rng = previous_rng;
+                        return false;
+                    }
+                    prepared.push(PreparedFormListAddition::Base(item, total));
+                }
+                FormListAddition::Reference(reference) => {
+                    if references.contains(&reference) {
+                        self.rng = previous_rng;
+                        return false;
+                    }
+                    references.push(reference);
+                    let Some(addition) = self.reference_addition(holder, reference) else {
+                        self.rng = previous_rng;
+                        return false;
+                    };
+                    if updated
+                        .receive(addition.base, addition.bundle.clone())
+                        .is_err()
+                    {
+                        self.rng = previous_rng;
+                        return false;
+                    }
+                    prepared.push(PreparedFormListAddition::Reference(addition));
+                }
+                FormListAddition::Leveled(list, count) => {
+                    let Ok(mut selected) = self.roll_leveled_inventory_context(
+                        list,
+                        level,
+                        count,
+                        Some(self.player_level),
+                    ) else {
+                        self.rng = previous_rng;
+                        return false;
+                    };
+                    let changes: Vec<_> = selected
+                        .iter()
+                        .map(|(item, total)| (*item, total))
+                        .collect();
+                    for (item, total) in &changes {
+                        if updated
+                            .receive(*item, selected.take(*item, *total))
+                            .is_err()
+                        {
+                            self.rng = previous_rng;
+                            return false;
+                        }
+                    }
+                    prepared.push(PreparedFormListAddition::Leveled(changes));
+                }
+            }
+        }
+        let Some(target) = self.reference(holder) else {
+            self.rng = previous_rng;
+            return false;
+        };
+        target.inventory = updated;
+        for addition in prepared {
+            match addition {
+                PreparedFormListAddition::Base(item, total) => {
+                    self.inventory_event(holder, item, total, None, alloc);
+                }
+                PreparedFormListAddition::Reference(addition) => {
+                    self.apply_reference_addition(holder, &addition, alloc);
+                }
+                PreparedFormListAddition::Leveled(changes) => {
+                    for (item, total) in changes {
+                        self.inventory_event(holder, item, total, None, alloc);
+                    }
+                }
+            }
+        }
         true
+    }
+
+    /// Flatten a list before applying it. The Creation Kit says AddItem adds
+    /// each FormList item, but does not specify nested-list behavior. The
+    /// recursive policy matches this project's FormList inventory-count walk.
+    fn form_list_additions(
+        &mut self,
+        list: GlobalFormId,
+        count: i32,
+        visiting: &mut Vec<GlobalFormId>,
+    ) -> Option<Vec<FormListAddition>> {
+        if visiting.len() >= 64 || visiting.contains(&list) {
+            return None;
+        }
+        let items = self.form_list(list)?.clone();
+        visiting.push(list);
+        let result = (|| {
+            let mut additions = Vec::new();
+            for item in items {
+                let entries = if self.tag_of(item) == Some(Tag::new(b"FLST")) {
+                    self.form_list_additions(item, count, visiting)?
+                } else if self.is_inventory_base(item) {
+                    vec![FormListAddition::Base(item, count)]
+                } else if self.tag_of(item) == Some(Tag::new(b"LVLI")) {
+                    vec![FormListAddition::Leveled(item, count)]
+                } else if self.tag_of(item) == Some(Tag::new(b"REFR")) && count == 1 {
+                    vec![FormListAddition::Reference(item)]
+                } else {
+                    return None;
+                };
+                for entry in entries {
+                    match entry {
+                        FormListAddition::Base(item, count) => {
+                            if let Some(FormListAddition::Base(_, total)) = additions
+                                .iter_mut()
+                                .find(|entry| matches!(entry, FormListAddition::Base(form, _) if *form == item))
+                            {
+                                *total = total.checked_add(count)?;
+                            } else {
+                                additions.push(FormListAddition::Base(item, count));
+                            }
+                        }
+                        FormListAddition::Reference(item) => additions.push(FormListAddition::Reference(item)),
+                        FormListAddition::Leveled(item, count) => {
+                            additions.push(FormListAddition::Leveled(item, count));
+                        }
+                    }
+                }
+            }
+            Some(additions)
+        })();
+        visiting.pop();
+        result
     }
 
     /// Remove or transfer a stack, then notify both holders. No partial overflow transfer.

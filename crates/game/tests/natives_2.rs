@@ -20,7 +20,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use soe_esm::{plugin::flags, Entry, FileHeader, Group, GroupKind, LoadOrder, Plugin, Record, Tag};
 use soe_game::quest::{self, stage_flags};
 use soe_game::vmad::{AliasScripts, ObjectRef, ScriptEntry, Vmad};
-use soe_game::{Game, Handle};
+use soe_game::{Game, Handle, Pending};
 use soe_papyrus::asm::{f, i, ident, s, FunctionBuilder, ScriptBuilder};
 use soe_papyrus::pex::Function;
 use soe_papyrus::Opcode::*;
@@ -59,6 +59,20 @@ const COUNTER: u32 = 0x91A;
 const QUEST: u32 = 0x91B;
 const WORD: u32 = 0x91C;
 const OTHER_CELL: u32 = 0x91D;
+const ADD_LIST: u32 = 0x91E;
+const MIXED_ADD_LIST: u32 = 0x91F;
+const REFERENCE_ADD_LIST: u32 = 0x920;
+const DUPLICATE_ADD_LIST: u32 = 0x921;
+const EMPTY_ADD_LIST: u32 = 0x922;
+const NESTED_ADD_LIST: u32 = 0x923;
+const SHARED_ADD_LIST: u32 = 0x924;
+const CYCLE_ADD_LIST_A: u32 = 0x925;
+const CYCLE_ADD_LIST_B: u32 = 0x926;
+const LOOSE_SWORD: u32 = 0x927;
+const REPEATED_REFERENCE_ADD_LIST: u32 = 0x928;
+const MIXED_REFERENCE_ADD_LIST: u32 = 0x929;
+const NESTED_LEVELED_ADD_LIST: u32 = 0x92A;
+const DEEP_ADD_LIST: u32 = 0x930;
 const PLAYER: u32 = 0x14;
 
 fn le(v: u32) -> [u8; 4] {
@@ -177,10 +191,19 @@ fn test_plugin() -> Plugin {
         Record::new(T(b"LVLI"), LOOT_LIST)
             .zsub(EDID, "LootList")
             .sub(T(b"LVLD"), [25u8])
-            .sub(T(b"LVLF"), [0u8])
+            .sub(T(b"LVLF"), [4u8])
             .sub(T(b"LLCT"), [2u8])
             .sub(T(b"LVLO"), lvlo(1, GOLD, 5))
-            .sub(T(b"LVLO"), lvlo(10, SWORD, 1)),
+            .sub(T(b"LVLO"), lvlo(10, SWORD, 1))
+            .sub(
+                T(b"COED"),
+                [
+                    0_u32.to_le_bytes(),
+                    0_u32.to_le_bytes(),
+                    1.25_f32.to_le_bytes(),
+                ]
+                .concat(),
+            ),
     );
     p.push_top(
         Record::new(T(b"LVLN"), ENEMY_LIST)
@@ -194,6 +217,90 @@ fn test_plugin() -> Plugin {
             .sub(T(b"LVLD"), [0u8])
             .sub(T(b"LVLO"), lvlo(1, FLAMES, 1)),
     );
+    p.push_top(
+        Record::new(T(b"FLST"), ADD_LIST)
+            .zsub(EDID, "AddList")
+            .sub(T(b"LNAM"), le(GOLD))
+            .sub(T(b"LNAM"), le(SWORD)),
+    );
+    p.push_top(
+        Record::new(T(b"FLST"), MIXED_ADD_LIST)
+            .zsub(EDID, "MixedAddList")
+            .sub(T(b"LNAM"), le(GOLD))
+            .sub(T(b"LNAM"), le(LOOT_LIST)),
+    );
+    p.push_top(
+        Record::new(T(b"FLST"), REFERENCE_ADD_LIST)
+            .zsub(EDID, "ReferenceAddList")
+            .sub(T(b"LNAM"), le(GOLD))
+            .sub(T(b"LNAM"), le(LOOSE_SWORD)),
+    );
+    p.push_top(
+        Record::new(T(b"FLST"), MIXED_REFERENCE_ADD_LIST)
+            .zsub(EDID, "MixedReferenceAddList")
+            .sub(T(b"LNAM"), le(GOLD))
+            .sub(T(b"LNAM"), le(LOOT_LIST))
+            .sub(T(b"LNAM"), le(LOOSE_SWORD)),
+    );
+    p.push_top(
+        Record::new(T(b"FLST"), NESTED_LEVELED_ADD_LIST)
+            .zsub(EDID, "NestedLeveledAddList")
+            .sub(T(b"LNAM"), le(MIXED_ADD_LIST)),
+    );
+    p.push_top(
+        Record::new(T(b"FLST"), REPEATED_REFERENCE_ADD_LIST)
+            .zsub(EDID, "RepeatedReferenceAddList")
+            .sub(T(b"LNAM"), le(GOLD))
+            .sub(T(b"LNAM"), le(LOOSE_SWORD))
+            .sub(T(b"LNAM"), le(LOOSE_SWORD)),
+    );
+    p.push_top(
+        Record::new(T(b"FLST"), DUPLICATE_ADD_LIST)
+            .zsub(EDID, "DuplicateAddList")
+            .sub(T(b"LNAM"), le(GOLD))
+            .sub(T(b"LNAM"), le(GOLD)),
+    );
+    p.push_top(Record::new(T(b"FLST"), EMPTY_ADD_LIST).zsub(EDID, "EmptyAddList"));
+    p.push_top(
+        Record::new(T(b"FLST"), NESTED_ADD_LIST)
+            .zsub(EDID, "NestedAddList")
+            .sub(T(b"LNAM"), le(ADD_LIST)),
+    );
+    p.push_top(
+        Record::new(T(b"FLST"), SHARED_ADD_LIST)
+            .zsub(EDID, "SharedAddList")
+            .sub(T(b"LNAM"), le(ADD_LIST))
+            .sub(T(b"LNAM"), le(ADD_LIST)),
+    );
+    p.push_top(
+        Record::new(T(b"FLST"), CYCLE_ADD_LIST_A)
+            .zsub(EDID, "CycleAddListA")
+            .sub(T(b"LNAM"), le(CYCLE_ADD_LIST_B)),
+    );
+    p.push_top(
+        Record::new(T(b"FLST"), CYCLE_ADD_LIST_B)
+            .zsub(EDID, "CycleAddListB")
+            .sub(T(b"LNAM"), le(CYCLE_ADD_LIST_A)),
+    );
+    p.push_top(
+        Record::new(T(b"REFR"), LOOSE_SWORD)
+            .zsub(EDID, "LooseSwordRef")
+            .sub(T(b"NAME"), le(SWORD))
+            .sub(T(b"XCNT"), le(2))
+            .sub(T(b"XCHG"), le(0x3fc0_0000)),
+    );
+    for offset in 0..65 {
+        let next = if offset == 64 {
+            GOLD
+        } else {
+            DEEP_ADD_LIST + offset + 1
+        };
+        p.push_top(
+            Record::new(T(b"FLST"), DEEP_ADD_LIST + offset)
+                .zsub(EDID, &format!("DeepAddList{offset}"))
+                .sub(T(b"LNAM"), le(next)),
+        );
+    }
     p.push_top(
         Record::new(T(b"MESG"), BOX_MESSAGE)
             .zsub(EDID, "BoxMessage")
@@ -1182,6 +1289,299 @@ fn inventory_event_filters_stack() {
     assert!(errors(&g).is_empty(), "{:?}", errors(&g));
 }
 
+/// CK's AddItem page says that a FormList adds aiCount of every member. The
+/// queued events are one OnItemAdded per base form, carrying that same count.
+#[test]
+fn add_item_expands_form_list_with_member_counts_and_events() {
+    let mut g = game();
+    let guard = obj(&mut g, "GuardRef");
+    let list = obj(&mut g, "AddList");
+    let guard_id = g.form("GuardRef").unwrap();
+    let gold = g.form("Gold001").unwrap();
+    let sword = g.form("IronSword").unwrap();
+    let add_list = g.form("AddList").unwrap();
+    call(&mut g, &guard, "AddItem", &[list, Value::Int(3)]);
+    assert_eq!(g.world_mut().item_count(guard_id, gold), 3);
+    assert_eq!(g.world_mut().item_count(guard_id, sword), 3);
+
+    let shared = g.shared_world();
+    let mut world = shared.borrow_mut();
+    let mut alloc = |name: &str, class: &str| g.vm.create_object_of(name, class);
+    assert!(world.add_form_list_notified(guard_id, add_list, 2, &mut alloc));
+    let events: Vec<_> = world
+        .pending
+        .iter()
+        .filter_map(|pending| match pending {
+            Pending::Event { name, args, .. } if name == "OnItemAdded" => {
+                Some((args[0].clone(), args[1].clone()))
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(events.len(), 2);
+    assert_eq!(events[0].1, Value::Int(2));
+    assert_eq!(events[1].1, Value::Int(2));
+}
+
+/// A FormList resolves every LVLI occurrence with its receiver's AddItem
+/// context, then combines the selected result with its ordinary members.
+#[test]
+fn add_item_expands_mixed_form_list_with_leveled_metadata() {
+    let mut g = game();
+    let guard = obj(&mut g, "GuardRef");
+    let list = obj(&mut g, "NestedLeveledAddList");
+    let guard_id = g.form("GuardRef").unwrap();
+    let gold = g.form("Gold001").unwrap();
+    let sword = g.form("IronSword").unwrap();
+    call(&mut g, &guard, "AddItem", &[list, Value::Int(2)]);
+    assert_eq!(g.world_mut().item_count(guard_id, gold), 12);
+    assert_eq!(g.world_mut().item_count(guard_id, sword), 2);
+    let world = g.world();
+    let stack = &world
+        .reference_ref(guard_id)
+        .unwrap()
+        .inventory
+        .stacks(sword)[0];
+    assert_eq!(stack.count(), 2);
+    assert_eq!(
+        stack.extra(37).unwrap().fields,
+        vec![soe_game::inventory::Field::FloatBits(1.25_f32.to_bits())]
+    );
+}
+
+/// A later reference capacity failure rolls the earlier LVLI during preflight,
+/// then restores its RNG state and leaves all ordinary, selected and reference
+/// additions untouched.
+#[test]
+fn add_item_preflights_mixed_base_leveled_and_reference_atomically() {
+    let mut g = game();
+    let guard = g.form("GuardRef").unwrap();
+    let gold = g.form("Gold001").unwrap();
+    let sword = g.form("IronSword").unwrap();
+    let list = g.form("MixedReferenceAddList").unwrap();
+    let loose = g.form("LooseSwordRef").unwrap();
+    let loot_list = g.form("LootList").unwrap();
+    let shared = g.shared_world();
+    let mut world = shared.borrow_mut();
+    world.add_item(guard, sword, i32::MAX - 1);
+    world.leveled_list(loot_list).unwrap();
+    let saved = world.save_state();
+    let expected_rng = world.random_u64();
+    world.load_state(&saved).unwrap();
+    let mut alloc = |name: &str, class: &str| g.vm.create_object_of(name, class);
+    assert!(!world.add_form_list_notified(guard, list, 1, &mut alloc));
+    assert_eq!(world.item_count(guard, gold), 0);
+    assert_eq!(world.item_count(guard, sword), i32::MAX - 1);
+    assert!(world.reference_ref(loose).unwrap().item.is_some());
+    assert!(world.pending.is_empty());
+    assert_eq!(world.random_u64(), expected_rng);
+}
+
+/// A later overflowing member rejects the complete list before the preceding
+/// member changes or queues an event.
+#[test]
+fn add_item_rejects_later_member_overflow_without_partial_addition() {
+    let mut g = game();
+    let guard = g.form("GuardRef").unwrap();
+    let gold = g.form("Gold001").unwrap();
+    let sword = g.form("IronSword").unwrap();
+    let list = g.form("AddList").unwrap();
+    let shared = g.shared_world();
+    let mut world = shared.borrow_mut();
+    world.add_item(guard, sword, i32::MAX);
+    let mut alloc = |name: &str, class: &str| g.vm.create_object_of(name, class);
+    assert!(!world.add_form_list_notified(guard, list, 1, &mut alloc));
+    assert_eq!(world.item_count(guard, gold), 0);
+    assert_eq!(world.item_count(guard, sword), i32::MAX);
+    assert!(world.pending.is_empty());
+}
+
+/// A reference member repeats neither its item identity nor its loose stack.
+/// Its count must be one, matching INV-01's direct AddItem contract.
+#[test]
+fn add_item_rejects_reference_member_without_partial_addition() {
+    let mut g = game();
+    let guard = obj(&mut g, "GuardRef");
+    let list = obj(&mut g, "ReferenceAddList");
+    let guard_id = g.form("GuardRef").unwrap();
+    let gold = g.form("Gold001").unwrap();
+    call(&mut g, &guard, "AddItem", &[list, Value::Int(2)]);
+    assert_eq!(g.world_mut().item_count(guard_id, gold), 0);
+}
+
+/// FormList reference members retain their original-reference identity and
+/// loose-item metadata through INV-01's transfer path.
+#[test]
+fn add_item_transfers_form_list_reference_with_metadata_and_events() {
+    let mut g = game();
+    let guard = g.form("GuardRef").unwrap();
+    let gold = g.form("Gold001").unwrap();
+    let sword = g.form("IronSword").unwrap();
+    let list = g.form("ReferenceAddList").unwrap();
+    let loose = g.form("LooseSwordRef").unwrap();
+    let shared = g.shared_world();
+    let mut world = shared.borrow_mut();
+    let mut alloc = |name: &str, class: &str| g.vm.create_object_of(name, class);
+    assert!(world.add_form_list_notified(guard, list, 1, &mut alloc));
+    assert_eq!(world.item_count(guard, gold), 1);
+    assert_eq!(world.item_count(guard, sword), 2);
+    let stack = &world.reference_ref(guard).unwrap().inventory.stacks(sword)[0];
+    assert_eq!(stack.reference(), Some(loose));
+    assert!(stack.extra(40).is_some());
+    let state = world.reference_ref(loose).unwrap();
+    assert!(state.item.is_none());
+    assert!(!state.enabled);
+    let names: Vec<_> = world
+        .pending
+        .iter()
+        .filter_map(|pending| match pending {
+            Pending::Event { name, .. } => Some(name.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(names, ["OnItemAdded", "OnItemAdded", "OnContainerChanged"]);
+}
+
+/// A nested or malformed list cannot move one concrete reference twice. The
+/// complete call fails before its earlier base member changes or queues work.
+#[test]
+fn add_item_rejects_repeated_reference_without_partial_addition() {
+    let mut g = game();
+    let guard = g.form("GuardRef").unwrap();
+    let gold = g.form("Gold001").unwrap();
+    let loose = g.form("LooseSwordRef").unwrap();
+    let list = g.form("RepeatedReferenceAddList").unwrap();
+    let shared = g.shared_world();
+    let mut world = shared.borrow_mut();
+    let mut alloc = |name: &str, class: &str| g.vm.create_object_of(name, class);
+    assert!(!world.add_form_list_notified(guard, list, 1, &mut alloc));
+    assert_eq!(world.item_count(guard, gold), 0);
+    assert!(world.reference_ref(loose).unwrap().item.is_some());
+    assert!(world.pending.is_empty());
+}
+
+/// The reference contribution joins base forms in the same checked capacity
+/// preflight. Overflow leaves the loose reference, the earlier base and all
+/// event queues unchanged.
+#[test]
+fn add_item_preflights_reference_overflow_before_base_mutation() {
+    let mut g = game();
+    let guard = g.form("GuardRef").unwrap();
+    let gold = g.form("Gold001").unwrap();
+    let sword = g.form("IronSword").unwrap();
+    let loose = g.form("LooseSwordRef").unwrap();
+    let list = g.form("ReferenceAddList").unwrap();
+    let shared = g.shared_world();
+    let mut world = shared.borrow_mut();
+    world.add_item(guard, sword, i32::MAX - 1);
+    let mut alloc = |name: &str, class: &str| g.vm.create_object_of(name, class);
+    assert!(!world.add_form_list_notified(guard, list, 1, &mut alloc));
+    assert_eq!(world.item_count(guard, gold), 0);
+    assert_eq!(world.item_count(guard, sword), i32::MAX - 1);
+    assert!(world.reference_ref(loose).unwrap().item.is_some());
+    assert!(world.pending.is_empty());
+}
+
+/// Nested FormLists flatten in depth-first member order. Each occurrence
+/// applies aiCount, so a shared child list contributes each time it appears.
+#[test]
+fn add_item_flattens_nested_and_shared_form_lists_in_member_order() {
+    let mut g = game();
+    let guard = obj(&mut g, "GuardRef");
+    let list = obj(&mut g, "NestedAddList");
+    let guard_id = g.form("GuardRef").unwrap();
+    let gold = g.form("Gold001").unwrap();
+    let sword = g.form("IronSword").unwrap();
+    let gold_object = g.object_of_form(gold);
+    let sword_object = g.object_of_form(sword);
+    call(&mut g, &guard, "AddItem", &[list, Value::Int(2)]);
+    assert_eq!(g.world_mut().item_count(guard_id, gold), 2);
+    assert_eq!(g.world_mut().item_count(guard_id, sword), 2);
+
+    let shared = g.form("SharedAddList").unwrap();
+    let shared_world = g.shared_world();
+    let mut world = shared_world.borrow_mut();
+    let mut alloc = |name: &str, class: &str| g.vm.create_object_of(name, class);
+    assert!(world.add_form_list_notified(guard_id, shared, 2, &mut alloc));
+    assert_eq!(world.item_count(guard_id, gold), 6);
+    assert_eq!(world.item_count(guard_id, sword), 6);
+    let events: Vec<_> = world
+        .pending
+        .iter()
+        .filter_map(|pending| match pending {
+            Pending::Event { name, args, .. } if name == "OnItemAdded" => Some(args),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(events.len(), 2);
+    assert_eq!(events[0][0], Value::Object(gold_object));
+    assert_eq!(events[1][0], Value::Object(sword_object));
+    assert_eq!(events[0][1], Value::Int(4));
+    assert_eq!(events[1][1], Value::Int(4));
+}
+
+/// Cyclic or over-deep lists reject during preflight, so they neither add the
+/// reachable base item nor queue an inventory event.
+#[test]
+fn add_item_rejects_cyclic_and_overdeep_form_lists_atomically() {
+    for name in ["CycleAddListA", "DeepAddList0"] {
+        let mut g = game();
+        let guard = g.form("GuardRef").unwrap();
+        let gold = g.form("Gold001").unwrap();
+        let list = g.form(name).unwrap();
+        let shared = g.shared_world();
+        let mut world = shared.borrow_mut();
+        let mut alloc = |name: &str, class: &str| g.vm.create_object_of(name, class);
+        assert!(!world.add_form_list_notified(guard, list, 1, &mut alloc));
+        assert_eq!(world.item_count(guard, gold), 0);
+        assert!(world.pending.is_empty());
+    }
+}
+
+/// CK says FormLists cannot contain duplicates. If malformed record data or
+/// the current script mutation path supplies one, aggregate it by base form.
+/// OnItemAdded documents one queued call per base form for bulk additions.
+#[test]
+fn add_item_aggregates_duplicate_members_into_one_event() {
+    let mut g = game();
+    let guard = g.form("GuardRef").unwrap();
+    let gold = g.form("Gold001").unwrap();
+    let list = g.form("DuplicateAddList").unwrap();
+    let shared = g.shared_world();
+    let mut world = shared.borrow_mut();
+    let mut alloc = |name: &str, class: &str| g.vm.create_object_of(name, class);
+    assert!(world.add_form_list_notified(guard, list, 2, &mut alloc));
+    assert_eq!(world.item_count(guard, gold), 4);
+    let events: Vec<_> = world
+        .pending
+        .iter()
+        .filter(|pending| matches!(pending, Pending::Event { name, .. } if name == "OnItemAdded"))
+        .collect();
+    assert_eq!(events.len(), 1);
+    let Pending::Event { args, .. } = events[0] else {
+        unreachable!();
+    };
+    assert_eq!(args[1], Value::Int(4));
+}
+
+/// Empty lists are successful no-ops. The direct helper rejects zero and
+/// negative counts so non-script callers cannot manufacture a count change.
+#[test]
+fn add_item_form_list_empty_and_nonpositive_counts_do_not_mutate() {
+    let mut g = game();
+    let guard = g.form("GuardRef").unwrap();
+    let gold = g.form("Gold001").unwrap();
+    let list = g.form("EmptyAddList").unwrap();
+    let shared = g.shared_world();
+    let mut world = shared.borrow_mut();
+    let mut alloc = |name: &str, class: &str| g.vm.create_object_of(name, class);
+    assert!(world.add_form_list_notified(guard, list, 1, &mut alloc));
+    assert!(!world.add_form_list_notified(guard, list, 0, &mut alloc));
+    assert!(!world.add_form_list_notified(guard, list, -1, &mut alloc));
+    assert_eq!(world.item_count(guard, gold), 0);
+    assert!(world.pending.is_empty());
+}
+
 // ----- listeners on Form -----
 
 /// RegisterForAnimationEvent "registers this form to receive the specified
@@ -1673,4 +2073,35 @@ fn the_new_state_survives_save_and_load() {
         h.traces()
     );
     assert!(errors(&h).is_empty(), "{:?}", errors(&h));
+}
+
+/// A held reference whose materialized identity disagrees with its stack must
+/// fail preflight before an earlier FormList base member can be added.
+#[test]
+fn add_item_preflights_inconsistent_held_reference_before_base_mutation() {
+    for actor_mismatch in [false, true] {
+        let mut g = game();
+        let guard = g.form("GuardRef").unwrap();
+        let source = g.form("MarkerRef").unwrap();
+        let gold = g.form("Gold001").unwrap();
+        let sword = g.form("IronSword").unwrap();
+        let loose = g.form("LooseSwordRef").unwrap();
+        let list = g.form("ReferenceAddList").unwrap();
+        let shared = g.shared_world();
+        let mut world = shared.borrow_mut();
+        let mut alloc = |name: &str, class: &str| g.vm.create_object_of(name, class);
+        assert!(world.add_item_notified(source, loose, 1, &mut alloc));
+        world.pending.clear();
+        let state = world.reference(loose).unwrap();
+        if actor_mismatch {
+            state.is_actor = true;
+        } else {
+            state.base = Some(gold);
+        }
+        assert!(!world.add_form_list_notified(guard, list, 1, &mut alloc));
+        assert_eq!(world.item_count(guard, gold), 0);
+        assert_eq!(world.item_count(guard, sword), 0);
+        assert_eq!(world.item_count(source, sword), 2);
+        assert!(world.pending.is_empty());
+    }
 }

@@ -13,7 +13,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use soe_esm::GlobalFormId;
+use soe_esm::{GlobalFormId, Tag};
 use soe_papyrus::{NativeCall, NativeReturn, ObjectId, Value, Vm};
 
 use crate::clock::GameClock;
@@ -633,9 +633,15 @@ fn object_reference(vm: &mut Vm, w: &Shared) {
     method!(vm, w, "ObjectReference", "AddItem", |world, call, me| {
         let count = call.args.get(1).map_or(1, Value::as_int);
         if let Some(item) = world.form_arg(&call.arg(0)) {
-            world.add_item_notified(me, item, count, &mut |name, class| {
-                call.create_object(name, class)
-            });
+            if world.tag_of(item) == Some(Tag::new(b"FLST")) {
+                world.add_form_list_notified(me, item, count, &mut |name, class| {
+                    call.create_object(name, class)
+                });
+            } else {
+                world.add_item_notified(me, item, count, &mut |name, class| {
+                    call.create_object(name, class)
+                });
+            }
         }
         none()
     });
