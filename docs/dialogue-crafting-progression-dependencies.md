@@ -108,8 +108,9 @@ change, including two completed implementations and one active implementation cl
 
 These edges describe implementation requirements. They do not claim that
 the named external AI, format, UI or animation work is complete. The full
-repository gate is required before a commit. Changes remain unstaged until
-the user approves their concrete diff summary.
+repository gate passed with 1,165 Rust and 11 Python tests and no optional
+tool skips. The user authorized commits after task completion. Commit
+`b2ce592` contains the reviewed dependency changes.
 
 ## Race skill scope correction
 
