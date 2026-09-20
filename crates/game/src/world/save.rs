@@ -42,7 +42,8 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// Version 18 stores difficulty followed by explicit left/right weapon selections.
 /// Version 19 separates created identities from plugin load-order position 255.
 /// Version 20 appends restored reference ownership and lock metadata.
-pub const SAVE_VERSION: u16 = 20;
+/// Version 21 appends the sequential PACK procedure cursor per actor.
+pub const SAVE_VERSION: u16 = 21;
 
 #[derive(Clone, Copy)]
 pub(crate) enum FormNamespace {
@@ -377,6 +378,16 @@ impl World {
             write_opt_form_id(&mut body, actor.right_weapon);
         }
         self.write_reference_extras(&mut body);
+        let cursors: BTreeMap<_, _> = self
+            .actors
+            .iter()
+            .filter_map(|(id, a)| a.ai.tree.as_ref().map(|tree| (*id, tree)))
+            .collect();
+        body.len(cursors.len());
+        for (id, tree) in cursors {
+            write_form_id(&mut body, id);
+            crate::ai::write_tree_state(&mut body, Some(tree));
+        }
         let mut out = Writer::new();
         out.out.extend_from_slice(SAVE_MAGIC);
         out.u16(SAVE_VERSION);
@@ -884,6 +895,21 @@ impl World {
             super::reference_extras::read_reference_extras(&mut r, &mut refs)?;
             self.validate_reference_extras(&refs)?;
         }
+        if version >= 21 {
+            let count = r.len()?;
+            let mut seen = BTreeSet::new();
+            for _ in 0..count {
+                let id = read_form_id(&mut r)?;
+                let actor = actors
+                    .get_mut(&id)
+                    .ok_or_else(|| VmError::State("package cursor names a missing actor".into()))?;
+                let tree = crate::ai::read_tree_state(&mut r)?;
+                if !seen.insert(id) || actor.ai.package.is_none() || tree.is_none() {
+                    return Err(VmError::State("invalid package cursor entry".into()));
+                }
+                actor.ai.tree = tree;
+            }
+        }
         r.expect_end()?;
         super::death::validate_pending(&actors, &pending)?;
 
@@ -1246,7 +1272,7 @@ fn write_actor_state(w: &mut Writer, a: &ActorState) {
     if let Some(race) = a.race {
         write_form_id(w, race);
     }
-    crate::ai::write_state(w, &a.ai);
+    crate::ai::write_record_state(w, &a.ai);
     write_form_set(w, &a.perks);
     for flag in [
         a.alerted,

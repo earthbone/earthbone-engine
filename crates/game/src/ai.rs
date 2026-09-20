@@ -30,11 +30,13 @@ use soe_papyrus::VmError;
 
 use crate::clock::GameClock;
 use crate::package::{
-    condition, flags, speed, CompValue, Condition, DataValue, Location, LocationData, Package,
-    Schedule,
+    condition, flags, speed, CompValue, Condition, Location, LocationData, Package, Schedule,
 };
 use crate::world::save::{read_form_id, read_opt_form_id, FormNamespace, FormReader};
 use crate::world::{Alloc, Handle, Pending, World};
+
+mod tree;
+pub use tree::TreeState;
 
 /// Units per real second used when a race lacks a usable movement type.
 ///
@@ -78,6 +80,8 @@ pub struct AiState {
     /// The quest alias the package came from, none for a base package.
     pub alias: Option<(GlobalFormId, u32)>,
     pub procedure: Procedure,
+    /// Saved position in the winning template's procedure tree.
+    pub tree: Option<TreeState>,
     pub destination: Option<[f32; 3]>,
     /// Waypoints still ahead, first to reach first.
     pub path: Vec<[f32; 3]>,
@@ -262,61 +266,10 @@ fn template_chain(world: &World, id: GlobalFormId) -> Vec<(GlobalFormId, Package
     out
 }
 
-/// What the package makes an actor do, and the location input it reads.
-/// The tree's branch structure is not walked. Most vanilla templates are a
-/// sequence of a `Travel` to the place followed by what happens there, so
-/// among the procedures the driver knows the one that happens there wins:
-/// `Sleep` over `Sandbox` over `Travel`. The driver walks to the place on
-/// its own for each of them.
+/// The first procedure in tree order, without evaluating actor conditions.
+/// Runtime execution uses the actor's saved tree cursor.
 pub fn procedure_of(world: &World, id: GlobalFormId) -> (Procedure, Option<LocationData>, bool) {
-    let chain = template_chain(world, id);
-    let mut first_unknown: Option<String> = None;
-    let mut best: Option<(u8, Procedure, Option<LocationData>, bool)> = None;
-    for (_, template) in &chain {
-        for branch in template.procedures() {
-            let Some(name) = branch.procedure.as_deref() else {
-                continue;
-            };
-            let (rank, procedure) = match name.to_ascii_lowercase().as_str() {
-                "travel" => (1, Procedure::Travel),
-                "sandbox" => (2, Procedure::Sandbox),
-                "sleep" => (3, Procedure::Sleep),
-                _ => {
-                    if first_unknown.is_none() {
-                        first_unknown = Some(name.to_string());
-                    }
-                    continue;
-                }
-            };
-            if best.as_ref().is_some_and(|(r, ..)| *r >= rank) {
-                continue;
-            }
-            let location = branch.inputs.iter().find_map(|&index| {
-                chain
-                    .iter()
-                    .find_map(|(_, p)| match p.input(index as i8).map(|i| i.value) {
-                        Some(DataValue::Location(l)) => Some(l),
-                        _ => None,
-                    })
-            });
-            let location = location.or_else(|| first_location(&chain));
-            best = Some((rank, procedure, location, branch.success_completes_package));
-        }
-    }
-    match (best, first_unknown) {
-        (Some((_, procedure, location, completes)), _) => (procedure, location, completes),
-        (None, Some(name)) => (Procedure::Unsupported(name), None, false),
-        (None, None) => (Procedure::None, None, false),
-    }
-}
-
-fn first_location(chain: &[(GlobalFormId, Package)]) -> Option<LocationData> {
-    chain.iter().find_map(|(_, p)| {
-        p.inputs.iter().find_map(|i| match i.value {
-            DataValue::Location(l) => Some(l),
-            _ => None,
-        })
-    })
+    tree::first(world, id)
 }
 
 // ----- the stack -----
@@ -709,14 +662,15 @@ pub fn evaluate(world: &mut World, actor: GlobalFormId, alloc: Alloc<'_>) -> Opt
             args: vec![old_value],
         });
     }
-    let (position, cell) = world
+    let position = world
         .reference(actor)
-        .map(|r| (r.position, r.cell))
+        .map(|r| r.position)
         .unwrap_or_default();
     let mut ai = std::mem::take(&mut world.actor(actor)?.ai);
     ai.package = chosen.map(|c| c.package);
     ai.alias = chosen.and_then(|c| c.alias);
     ai.procedure = Procedure::None;
+    ai.tree = None;
     ai.destination = None;
     ai.path.clear();
     ai.path_cells.clear();
@@ -730,8 +684,6 @@ pub fn evaluate(world: &mut World, actor: GlobalFormId, alloc: Alloc<'_>) -> Opt
     ai.speed = movement_speed(world, actor, speed::WALK);
     ai.start_position = position;
     if let Some(c) = chosen {
-        let (procedure, location, _) = procedure_of(world, c.package);
-        ai.procedure = procedure;
         if let Some(p) = package(world, c.package) {
             ai.speed = movement_speed(
                 world,
@@ -743,41 +695,7 @@ pub fn evaluate(world: &mut World, actor: GlobalFormId, alloc: Alloc<'_>) -> Opt
                 },
             );
         }
-        let place =
-            location.and_then(|l| resolve_location(world, actor, c.package, c.alias, &ai, &l));
-        match ai.procedure {
-            Procedure::Travel => {
-                ai.destination = place.map(|p| p.position);
-                ai.center_cell = place.and_then(|p| p.cell);
-            }
-            Procedure::Sandbox => {
-                let center = place.map_or(position, |p| p.position);
-                ai.center = Some(center);
-                ai.center_cell = place.and_then(|p| p.cell).or(cell);
-                ai.radius = location.map_or(0.0, |l| l.radius as f32);
-                if ai.radius <= 0.0 {
-                    ai.radius = DEFAULT_SANDBOX_RADIUS;
-                }
-            }
-            Procedure::Sleep => {
-                let bed = place
-                    .and_then(|p| p.reference)
-                    .filter(|r| world.tag_of(*r) == Some(T(b"FURN")) || is_bed(world, *r))
-                    .or_else(|| {
-                        let search_cell = place.and_then(|p| p.cell).or(cell)?;
-                        let near = place.map_or(position, |p| p.position);
-                        nearest_bed(world, search_cell, near)
-                    });
-                ai.bed = bed;
-                ai.destination = bed
-                    .and_then(|b| world.reference(b).map(|r| r.position))
-                    .or_else(|| place.map(|p| p.position));
-                ai.center_cell = bed
-                    .and_then(|b| world.reference(b).and_then(|r| r.cell))
-                    .or_else(|| place.and_then(|p| p.cell));
-            }
-            Procedure::None | Procedure::Unsupported(_) => {}
-        }
+        tree::start(world, actor, &mut ai);
         let new_value = world.form_value(Some(c.package), alloc);
         world.pending.push(Pending::Event {
             object,
@@ -790,6 +708,70 @@ pub fn evaluate(world: &mut World, actor: GlobalFormId, alloc: Alloc<'_>) -> Opt
         a.ai = ai;
     }
     running
+}
+
+fn begin_procedure(
+    world: &mut World,
+    actor: GlobalFormId,
+    ai: &mut AiState,
+    procedure: Procedure,
+    location: Option<(GlobalFormId, LocationData)>,
+) {
+    let (position, cell) = world
+        .reference(actor)
+        .map(|r| (r.position, r.cell))
+        .unwrap_or_default();
+    ai.procedure = procedure;
+    ai.destination = None;
+    ai.path.clear();
+    ai.path_cells.clear();
+    ai.arrived = false;
+    ai.sleeping = false;
+    ai.bed = None;
+    ai.center = None;
+    ai.center_cell = None;
+    ai.radius = 0.0;
+    ai.dwell_until = 0.0;
+    let alias = ai.alias.or_else(|| {
+        let id = ai.package?;
+        let raw = package(world, id)?.owner_quest?;
+        Some((world.resolve_from(id, raw)?, 0))
+    });
+    let place =
+        location.and_then(|(owner, l)| resolve_location(world, actor, owner, alias, ai, &l));
+    match ai.procedure {
+        Procedure::Travel => {
+            ai.destination = place.map(|p| p.position);
+            ai.center_cell = place.and_then(|p| p.cell);
+        }
+        Procedure::Sandbox => {
+            let center = place.map_or(position, |p| p.position);
+            ai.center = Some(center);
+            ai.center_cell = place.and_then(|p| p.cell).or(cell);
+            ai.radius = location.map_or(0.0, |(_, l)| l.radius as f32);
+            if ai.radius <= 0.0 {
+                ai.radius = DEFAULT_SANDBOX_RADIUS;
+            }
+        }
+        Procedure::Sleep => {
+            let bed = place
+                .and_then(|p| p.reference)
+                .filter(|r| world.tag_of(*r) == Some(T(b"FURN")) || is_bed(world, *r))
+                .or_else(|| {
+                    let search_cell = place.and_then(|p| p.cell).or(cell)?;
+                    let near = place.map_or(position, |p| p.position);
+                    nearest_bed(world, search_cell, near)
+                });
+            ai.bed = bed;
+            ai.destination = bed
+                .and_then(|b| world.reference(b).map(|r| r.position))
+                .or_else(|| place.map(|p| p.position));
+            ai.center_cell = bed
+                .and_then(|b| world.reference(b).and_then(|r| r.cell))
+                .or_else(|| place.and_then(|p| p.cell));
+        }
+        Procedure::None | Procedure::Unsupported(_) => {}
+    }
 }
 
 /// Where a package location input points for this actor.
@@ -1077,6 +1059,11 @@ fn step(world: &mut World, actor: GlobalFormId, dt: f32) {
     let Some(mut ai) = world.actor(actor).map(|a| std::mem::take(&mut a.ai)) else {
         return;
     };
+    if ai.tree.is_none() && ai.package.is_some() {
+        tree::start(world, actor, &mut ai);
+    } else {
+        tree::enter(world, actor, &mut ai);
+    }
     let hours = world.clock.game_hours();
     if ai.arrived {
         match ai.procedure {
@@ -1153,10 +1140,7 @@ fn step(world: &mut World, actor: GlobalFormId, dt: f32) {
                 ai.dwell_until = hours + f64::from(world.random_float(0.1, 0.4));
             }
             if ai.procedure == Procedure::Travel {
-                if let Some(p) = ai.package {
-                    let today = world.clock.game_days.floor() as u32;
-                    ai.completed.insert(p, today);
-                }
+                tree::succeeded(world, &mut ai);
             }
         }
         if let Some(r) = world.reference(actor) {
@@ -1194,7 +1178,9 @@ fn read_point(r: &mut Reader<'_>) -> Result<[f32; 3], VmError> {
     Ok([r.f32()?, r.f32()?, r.f32()?])
 }
 
-pub fn write_state(w: &mut Writer, a: &AiState) {
+/// Write one actor's driver record. The procedure cursor is not part of it,
+/// the world save keeps cursors in their own block.
+pub(crate) fn write_record_state(w: &mut Writer, a: &AiState) {
     write_opt_form_id(w, a.package);
     match a.alias {
         Some((q, id)) => {
@@ -1255,8 +1241,30 @@ pub fn write_state(w: &mut Writer, a: &AiState) {
     }
 }
 
+/// Write one actor's package procedure cursor. The world save keeps these in
+/// their own block so an actor record stays at its established layout.
+pub(crate) fn write_tree_state(w: &mut Writer, tree: Option<&TreeState>) {
+    w.bool(tree.is_some());
+    if let Some(tree) = tree {
+        w.u16(tree.owner.file);
+        w.u32(tree.owner.object);
+        w.u32(tree.branch);
+        w.bool(tree.active);
+        w.bool(tree.finished);
+    }
+}
+
+/// Write a complete driver state, record and procedure cursor together.
+pub fn write_state(w: &mut Writer, a: &AiState) {
+    write_record_state(w, a);
+    write_tree_state(w, a.tree.as_ref());
+}
+
+/// Read a complete driver state written by [`write_state`].
 pub fn read_state(r: &mut Reader<'_>) -> Result<AiState, VmError> {
-    read_state_mapped(&mut FormReader::new(r, FormNamespace::Current))
+    let mut a = read_state_mapped(&mut FormReader::new(r, FormNamespace::Current))?;
+    a.tree = read_tree_state(r)?;
+    Ok(a)
 }
 
 pub(crate) fn read_state_mapped(r: &mut FormReader<'_, '_>) -> Result<AiState, VmError> {
@@ -1306,6 +1314,27 @@ pub(crate) fn read_state_mapped(r: &mut FormReader<'_, '_>) -> Result<AiState, V
         a.completed.insert(id, r.u32()?);
     }
     Ok(a)
+}
+
+pub(crate) fn read_tree_state(r: &mut Reader<'_>) -> Result<Option<TreeState>, VmError> {
+    if !r.bool()? {
+        return Ok(None);
+    }
+    let state = TreeState {
+        owner: GlobalFormId {
+            file: r.u16()?,
+            object: r.u32()?,
+        },
+        branch: r.u32()?,
+        active: r.bool()?,
+        finished: r.bool()?,
+    };
+    if state.active && state.finished {
+        return Err(VmError::State(
+            "finished package tree has an active child".into(),
+        ));
+    }
+    Ok(Some(state))
 }
 
 #[cfg(test)]
@@ -1463,6 +1492,12 @@ mod tests {
             package: Some(GlobalFormId { file: 1, object: 2 }),
             alias: Some((GlobalFormId { file: 1, object: 3 }, 4)),
             procedure: Procedure::Unsupported("Patrol".into()),
+            tree: Some(TreeState {
+                owner: GlobalFormId { file: 1, object: 8 },
+                branch: 2,
+                active: true,
+                finished: false,
+            }),
             destination: Some([1.0, 2.0, 3.0]),
             path: vec![[4.0, 5.0, 6.0]],
             path_cells: vec![Some(GlobalFormId { file: 0, object: 9 })],
@@ -1486,5 +1521,19 @@ mod tests {
         let back = read_state(&mut r).unwrap();
         r.expect_end().unwrap();
         assert_eq!(back, a);
+    }
+    #[test]
+    fn an_actor_record_stops_before_the_next_actor_field() {
+        let state = AiState {
+            package: Some(GlobalFormId { file: 1, object: 2 }),
+            ..Default::default()
+        };
+        let mut writer = Writer::new();
+        write_state(&mut writer, &state);
+        writer.u32(0x12345678);
+        let mut reader = Reader::new(&writer.out);
+        assert_eq!(read_state(&mut reader).unwrap(), state);
+        assert_eq!(reader.u32().unwrap(), 0x12345678);
+        reader.expect_end().unwrap();
     }
 }

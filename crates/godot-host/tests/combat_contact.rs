@@ -403,6 +403,8 @@ fn combined_save_reads_both_branch_layouts_without_confusing_their_extensions() 
     }
     let mut suffix = vec![Difficulty::Legendary as u8];
     suffix.extend_from_slice(&hands);
+    // The empty version 20 reference extras, then the empty version 21 cursors.
+    suffix.extend_from_slice(&0_u32.to_le_bytes());
     suffix.extend_from_slice(&0_u32.to_le_bytes());
     assert!(bytes.ends_with(&suffix));
     assert_eq!(

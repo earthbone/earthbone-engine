@@ -290,19 +290,24 @@ fn engine_extras_reject_truncation_duplicates_and_bad_flags_atomically_and_read_
     world.reference(id(0, 0x100)).unwrap();
     world.reference(id(0, 0x101)).unwrap();
     let mut legacy = world.save_state();
-    legacy.truncate(legacy.len() - 4);
+    legacy.truncate(legacy.len() - 8);
     legacy[4..6].copy_from_slice(&19_u16.to_le_bytes());
     let mut save = save();
     save.change_forms = vec![change(0x400100, 0x400811, 0, 5, 0x400801)];
     world.restore_vanilla_reference_extras(&save).unwrap();
     let before = world.save_state();
     let mut bad_flags = before.clone();
-    let at = bad_flags.len() - 9;
+    let at = bad_flags.len() - 13;
     bad_flags[at] |= 1;
-    let mut duplicate = before.clone();
     let start = legacy.len();
-    duplicate[start..start + 4].copy_from_slice(&2_u32.to_le_bytes());
-    duplicate.extend_from_slice(&before[start + 4..]);
+    // The extras block is followed by the package cursor block, so repeat the
+    // entry inside the extras block rather than past the end of the save.
+    let entry = &before[start + 4..before.len() - 4];
+    let mut duplicate = before[..start].to_vec();
+    duplicate.extend_from_slice(&2_u32.to_le_bytes());
+    duplicate.extend_from_slice(entry);
+    duplicate.extend_from_slice(entry);
+    duplicate.extend_from_slice(&before[before.len() - 4..]);
     assert!(world
         .load_state(&duplicate)
         .unwrap_err()
