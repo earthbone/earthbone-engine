@@ -506,8 +506,11 @@ Sources are UESP `Extra_data.wikitext`, REFR/ACHR change-form pages, xEdit
 and `ChangeFormNPC.java`. xEdit supplies signed rank width and inline NPC
 sections where the other readers disagree. Array counts are bounded before
 allocation. Unknown extra layouts stop decoding instead of searching for a
-plausible next item. The nonempty PackageData payload is still unsupported.
-Its absence from these public schemas remains a format gap.
+plausible next item. The empty kind-18 PackageData variant decodes, with its
+prefix and procedure name retained. The nonempty payload is still unsupported.
+Its absence from these public schemas remains a format gap. Local sources,
+corpus evidence and the remaining strict decoder failures are in
+[save-package-data.md](save-package-data.md).
 
 The game-side application maps references in every decoded extra field and
 retains exact non-reference scalar data. CommonLib `ExtraDataList::GetCount`
@@ -519,7 +522,8 @@ See game.md for the current mutation, persistence and execution limits.
 
 The current 60-save decoder survey reproduces 1,154,357 reference-content
 sections exactly, including 174,550 inventory sections, 865,169 item entries
-and 844,285 stack lists. It still fails on 169 PackageData kind-18 payloads.
+and 844,285 stack lists. That run predates the empty kind-18 decode, so its
+169 PackageData failures have not been remeasured against this reader.
 The corpus test continues to require zero failures. No failing record is
 skipped to pass it. The separate non-actor application survey is evidence for
 that narrower path, not full inventory restoration. Quest and reference-header
