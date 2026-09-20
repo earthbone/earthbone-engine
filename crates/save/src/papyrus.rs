@@ -24,6 +24,7 @@ mod execution;
 mod fragments;
 mod frames;
 mod instructions;
+pub mod restore;
 mod values;
 pub use execution::{
     ActiveScriptData, Execution, FunctionMessage, FunctionMessageData, QueuedUnbind, SuspendedStack,

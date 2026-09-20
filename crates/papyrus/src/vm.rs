@@ -57,6 +57,7 @@ mod scheduler;
 
 pub mod coverage;
 pub mod hash;
+pub mod restore;
 pub mod state;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -277,6 +278,29 @@ struct Instance {
     state: String,
     vars: HashMap<String, Value>,
     var_types: HashMap<String, String>,
+}
+
+fn variable_key(script: &str, name: &str) -> String {
+    let script = script.to_ascii_lowercase();
+    format!("{}:{script}{}", script.len(), name.to_ascii_lowercase())
+}
+
+impl Instance {
+    fn variable_key(&self, script: &str, name: &str) -> String {
+        let start = self
+            .chain
+            .iter()
+            .position(|owner| owner.name.eq_ignore_ascii_case(script))
+            .unwrap_or(0);
+        let owner = self.chain[start..].iter().find(|owner| {
+            owner
+                .object
+                .variables
+                .iter()
+                .any(|variable| variable.name.eq_ignore_ascii_case(name))
+        });
+        variable_key(owner.map_or(script, |owner| owner.name.as_str()), name)
+    }
 }
 
 #[derive(Debug)]
@@ -596,7 +620,7 @@ impl Vm {
         let mut var_types = HashMap::new();
         for s in chain.iter().rev() {
             for v in &s.object.variables {
-                let key = v.name.to_ascii_lowercase();
+                let key = variable_key(&s.name, &v.name);
                 var_types.insert(key.clone(), v.type_name.clone());
                 vars.insert(key, operand_to_value(&v.default, Some(&v.type_name)));
             }
@@ -638,20 +662,28 @@ impl Vm {
             .collect()
     }
 
-    /// Every variable of one attached script with its value, sorted by name.
-    /// The names are the compiled ones, so an auto property reads as its
-    /// backing `::Name_var`.
     pub fn vars_on(&self, object: ObjectId, script: &str) -> Vec<(String, Value)> {
         let Some(id) = self.instance_on(object, script) else {
             return Vec::new();
         };
-        let mut out: Vec<(String, Value)> = self.instances[id.0]
-            .vars
+        let instance = &self.instances[id.0];
+        let start = instance
+            .chain
             .iter()
-            .map(|(k, v)| (k.clone(), v.clone()))
-            .collect();
-        out.sort_by(|a, b| a.0.cmp(&b.0));
-        out
+            .position(|owner| owner.name.eq_ignore_ascii_case(script))
+            .unwrap_or(0);
+        let mut visible = std::collections::BTreeMap::new();
+        for owner in &instance.chain[start..] {
+            let prefix = format!("{}:{}", owner.name.len(), owner.name.to_ascii_lowercase());
+            for (key, value) in &instance.vars {
+                if let Some(name) = key.strip_prefix(&prefix) {
+                    visible
+                        .entry(name.to_owned())
+                        .or_insert_with(|| value.clone());
+                }
+            }
+        }
+        visible.into_iter().collect()
     }
 
     /// The property names one attached script declares, sorted, walking the
@@ -687,10 +719,8 @@ impl Vm {
     /// Read a script variable, `::Name_var` for auto properties.
     pub fn get_var(&self, object: ObjectId, script: &str, var: &str) -> Option<Value> {
         let id = self.instance_on(object, script)?;
-        self.instances[id.0]
-            .vars
-            .get(&var.to_ascii_lowercase())
-            .cloned()
+        let key = self.instances[id.0].variable_key(script, var);
+        self.instances[id.0].vars.get(&key).cloned()
     }
 
     pub fn set_var(
@@ -703,9 +733,8 @@ impl Vm {
         let id = self
             .instance_on(object, script)
             .ok_or_else(|| VmError::UnknownScript(script.to_string()))?;
-        self.instances[id.0]
-            .vars
-            .insert(var.to_ascii_lowercase(), value);
+        let key = self.instances[id.0].variable_key(script, var);
+        self.instances[id.0].vars.insert(key, value);
         Ok(())
     }
 
@@ -764,6 +793,10 @@ impl Vm {
             return v.clone();
         }
         if let Some(iid) = frame.instance {
+            let key = instances[iid.0].variable_key(
+                frame.script.as_ref().map_or("", |script| &script.name),
+                name,
+            );
             if let Some(v) = instances[iid.0].vars.get(&key) {
                 return v.clone();
             }
@@ -778,7 +811,11 @@ impl Vm {
             return;
         }
         if let Some(iid) = frame.instance {
-            if let Some(slot) = instances[iid.0].vars.get_mut(&key) {
+            let instance_key = instances[iid.0].variable_key(
+                frame.script.as_ref().map_or("", |script| &script.name),
+                name,
+            );
+            if let Some(slot) = instances[iid.0].vars.get_mut(&instance_key) {
                 *slot = value;
                 return;
             }
@@ -792,6 +829,10 @@ impl Vm {
             return Some(t.clone());
         }
         if let Some(iid) = frame.instance {
+            let key = instances[iid.0].variable_key(
+                frame.script.as_ref().map_or("", |script| &script.name),
+                name,
+            );
             if let Some(t) = instances[iid.0].var_types.get(&key) {
                 return Some(t.clone());
             }

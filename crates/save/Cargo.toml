@@ -22,3 +22,4 @@ thiserror = "2"
 
 [dev-dependencies]
 lz4_flex = "0.11"
+soe-bsa = { path = "../bsa" }

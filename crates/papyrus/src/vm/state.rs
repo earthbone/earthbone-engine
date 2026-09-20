@@ -30,7 +30,7 @@ use super::{
 };
 
 pub const MAGIC: &[u8; 4] = b"SOEV";
-pub const VERSION: u16 = 2;
+pub const VERSION: u16 = 3;
 
 /// Little-endian byte writer.
 #[derive(Default)]
@@ -587,7 +587,7 @@ impl Vm {
             return Err(bad("not a VM state file"));
         }
         let version = r.u16()?;
-        if version != 1 && version != VERSION {
+        if !(1..=VERSION).contains(&version) {
             return Err(bad(&format!(
                 "state version {version}, this VM reads {VERSION}"
             )));
@@ -627,7 +627,45 @@ impl Vm {
                 chain.push(self.script(&name).ok_or(VmError::UnknownScript(name))?);
             }
             let state = r.str()?;
-            let (vars, var_types) = read_vars(&table, &mut r)?;
+            let (mut vars, mut var_types) = read_vars(&table, &mut r)?;
+            if version < 3 {
+                let old_vars = std::mem::take(&mut vars);
+                let old_types = std::mem::take(&mut var_types);
+                for script in &chain {
+                    for variable in &script.object.variables {
+                        let old_key = variable.name.to_ascii_lowercase();
+                        let key = super::variable_key(&script.name, &variable.name);
+                        if let Some(value) = old_vars.get(&old_key) {
+                            vars.insert(key.clone(), value.clone());
+                            var_types.insert(
+                                key,
+                                old_types
+                                    .get(&old_key)
+                                    .cloned()
+                                    .unwrap_or_else(|| variable.type_name.clone()),
+                            );
+                        }
+                    }
+                }
+                if let Some(script) = chain.first() {
+                    for (name, value) in old_vars {
+                        if chain.iter().any(|owner| {
+                            owner
+                                .object
+                                .variables
+                                .iter()
+                                .any(|variable| variable.name.eq_ignore_ascii_case(&name))
+                        }) {
+                            continue;
+                        }
+                        let key = super::variable_key(&script.name, &name);
+                        vars.entry(key.clone()).or_insert(value);
+                        if let Some(type_name) = old_types.get(&name) {
+                            var_types.entry(key).or_insert_with(|| type_name.clone());
+                        }
+                    }
+                }
+            }
             instances.push(super::Instance {
                 object,
                 chain,
@@ -904,6 +942,63 @@ mod tests {
         assert_eq!(loaded.time, 180.0);
         assert_eq!(loaded.menu_time, 180.0);
         assert_eq!(loaded.game_hours, 1.0);
+    }
+
+    #[test]
+    fn version_two_unqualified_variables_expand_into_declared_slots() {
+        use crate::asm::{i, ScriptBuilder};
+        let parent = ScriptBuilder::new("Parent", "")
+            .variable("count", "Int", i(0))
+            .variable("inherited", "Int", i(0))
+            .build();
+        let child = ScriptBuilder::new("Child", "Parent")
+            .variable("count", "Int", i(1))
+            .build();
+        let mut old = Vm::new();
+        old.load(parent.clone());
+        old.load(child.clone());
+        let object = old.create_object("legacy");
+        old.attach(object, "Child").unwrap();
+        old.instances[0].vars = HashMap::from([
+            ("count".into(), Value::Int(77)),
+            ("inherited".into(), Value::Int(42)),
+        ]);
+        old.instances[0].var_types = HashMap::from([
+            ("count".into(), "Int".into()),
+            ("inherited".into(), "Int".into()),
+        ]);
+        let mut bytes = old.save_state().unwrap();
+        bytes[4..6].copy_from_slice(&2u16.to_le_bytes());
+        let mut fresh = Vm::new();
+        fresh.load(parent);
+        fresh.load(child);
+        fresh.load_state(&bytes).unwrap();
+        assert_eq!(
+            fresh.get_var(object, "Parent", "count"),
+            Some(Value::Int(77))
+        );
+        assert_eq!(
+            fresh.get_var(object, "Child", "count"),
+            Some(Value::Int(77))
+        );
+        fresh
+            .set_var(object, "Parent", "inherited", Value::Int(9))
+            .unwrap();
+        assert_eq!(
+            fresh
+                .vars_on(object, "Child")
+                .into_iter()
+                .find(|(name, _)| name == "inherited")
+                .map(|(_, value)| value),
+            Some(Value::Int(9))
+        );
+        fresh
+            .set_var(object, "Parent", "count", Value::Int(12))
+            .unwrap();
+        assert_eq!(
+            fresh.get_var(object, "Child", "count"),
+            Some(Value::Int(77))
+        );
     }
 
     #[test]

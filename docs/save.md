@@ -30,6 +30,9 @@ open implementation, so both were read first.
   These supply table order, optional fields, ID widths and value tags. The
   Java reader is not a Rust library, so this crate implements the documented
   layouts locally. No source code was copied.
+  Runtime variable import uses `Script.getExtendedMembers` for parent-first
+  slot order and CommonLibSSE-NG `src/RE/O/Object.cpp` for distinct inherited
+  slots. The VM scope rules also follow Caprica's identifier resolution.
 - The npm `@save-ward/save-parser-skyrim` was not used. It states that it does
   not support Special Edition, which is the only edition this crate targets.
 
@@ -109,8 +112,42 @@ Papyrus auxiliary data after the save-file version stays raw, as does the
 original payload used when writing the save body.
 
 This is inspection, not VM restoration. Values are not applied to the running
-engine, inherited member descriptors are not joined to variable slots, and
-neither stack execution nor pending calls can be resumed from a vanilla save.
+world, and neither stack execution nor pending calls can be resumed from a
+vanilla save. The explicit instance-import API below can apply decoded
+variables to a prepared VM, but it is not a complete save loader.
+
+## Runtime instance import
+
+`Papyrus::restore_instances` joins parent-first member descriptors to saved
+slots by ID. The host must supply an explicit map from each saved instance or
+reference ID to an existing VM object. A value-only reference may map to
+`None` when the host explicitly determines it is unresolved. Missing mappings
+are errors. Saved form/script pairs are not used as unique identities, since
+the corpus contains repeated pairs and unbound instances.
+
+Arrays are allocated once per saved ID, then filled and shared by every
+variable naming that ID. Scalar, object and array references become VM values.
+Both the script-instance and reference tables carry variable state. In the
+corpus, `critterFish` reference entries include 95 slots and the state
+`schooling`, despite FallrimTools naming that payload field `TYPE`.
+
+Each variable retains its declaring script, including private parent and
+child variables with the same name. The VM imports the saved state without
+calling `OnInit`, `OnEndState` or `OnBeginState`. It validates declarations
+before replacing any live instance. State names with no matching PEX body
+are retained, as the VM's existing state transition path allows.
+
+The returned instance and array ID maps are available for later stack import.
+The save crate now depends on the existing `soe-papyrus` crate, whose only
+runtime dependency is the existing `soe-trace` crate. `soe-bsa` is a test
+dependency for reading installed PEX files. No new third-party package is
+required.
+
+The import refuses mismatched slots or declarations, duplicate target
+instances, inheritance cycles, missing identities, invalid array elements
+and unsupported variant/struct runtime values. Arrays use the existing VM
+allocation ceiling. It also refuses to replace instances beneath existing
+threads. It does not invent a form or alias binding from an opaque saved ID.
 
 ## Round trip
 
@@ -162,6 +199,9 @@ Dragonborn.
 | Typed Papyrus value payloads round tripped byte for byte | 60 of 60 |
 | Papyrus value slots decoded, including array elements | 15,900,669 |
 | Papyrus arrays decoded | 19,194 |
+| Saves whose instance variables imported against installed PEX | 60 of 60 |
+| Script-instance and reference entries imported | 2,649,854 |
+| Shared arrays imported | 19,194 |
 | Typed second-pass bytes re-encoded | 211,771,719 |
 | Typed Papyrus execution payloads round tripped byte for byte | 60 of 60 |
 | Active threads and stack frames decoded | 170 threads, 375 frames |
@@ -208,3 +248,16 @@ fragment variants, optional messages, malformed instructions and every
 truncated prefix of the execution fixture. The real corpus has few queued
 messages and suspended stacks. It does not establish how to resume latent
 native calls, reconstruct scheduler timing or apply change forms to the world.
+
+The instance-import survey requires both `SKYRIM_DATA` and `SOE_TEST_SAVES`.
+It uses distinct standalone VM objects for saved IDs, not live game forms.
+It validates every saved instance and reference against installed PEX
+declarations and requires zero scheduled instructions after import.
+Synthetic tests execute functions against restored state, distinguish parent
+and child values, preserve shared arrays through VM save/load, and check that
+late errors do not replace existing state. The external corpus is read in
+place and never copied.
+
+Game-world object bindings, alias and active-effect identities, change-form
+application, saved stack conversion, pending native calls and scheduler clocks
+remain required for full vanilla-save restoration.
