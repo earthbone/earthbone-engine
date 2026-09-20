@@ -241,8 +241,9 @@ fn function_value(
             if raw > 1 {
                 return Err(Error::Parameter(c.function, raw));
             }
-            let base = world.base_of(subject).ok_or(Error::Form(subject))?;
-            let npc = world.npc(base).ok_or(Error::Form(base))?;
+            let (_, npc) = world
+                .actor_npc_part(subject, crate::npc::template::TRAITS)
+                .map_err(|_| Error::Form(subject))?;
             boolean(npc.is_female() == (raw == 1))
         }
         71 | 73 => {

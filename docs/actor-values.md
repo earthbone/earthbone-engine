@@ -41,7 +41,7 @@ and OnDying/OnDeath delivery require the combat lifecycle.
 
 ## Persistence
 
-SOEW version 9 writes sorted names and all four components. Case-insensitive
+SOEW version 10 writes sorted names and all four components. Case-insensitive
 duplicate names, non-finite values, positive damage components and truncated
 input are rejected. State hashes include every component.
 
@@ -72,13 +72,68 @@ These values have not been checked against a running vanilla game.
 
 ## Remaining gameplay work
 
-Leveled templates need a persistent selection per spawned reference.
-Class/level calculations and race skill bonuses are missing. Missing RACE
-DATA retains the previous synthetic-record fallback. Other NPC properties,
-including flags, inventory, spells and factions, still use the older template
-view and need their own group and namespace corrections.
+Leveled templates now retain a selection per reference, as detailed below.
+Encounter-zone difficulty and reset integration, class/level calculations and
+race skill bonuses are missing. Missing RACE
+DATA retains the previous synthetic-record fallback. Runtime flags, inventory, spells, perks, factions, outfits and packages now
+resolve their owning template groups. Script, keyword, AI-data and attack-data
+inheritance still need the corresponding runtime consumers.
 
 No melee contact, weapon damage formula, armor/block/perk evaluation,
 death-event sequence, stagger, attack animation or host attack input was added.
-The separate magic branch must use these modifier domains for active effects.
+The integrated magic runtime uses these modifier domains for active effects.
 The full gameplay-foundations objective remains open.
+
+## Per-reference actor templates, 2026-09-20
+
+The actor-templates increment resolves NPC TPLT chains through LVLN records.
+Each reference retains one selection across stats, traits, inventory, spells,
+perks, factions, outfits, basic AI packages, sex conditions and footstep skin
+selection. Raw links are resolved in the file supplying each winning source.
+Stats inheritance no longer copies the configuration flags belonging to base
+data, which could remove a child's essential or protected status.
+
+LVLF selects either all entries up to the supplied level or only entries at
+the highest eligible level. Duplicate entries retain their weight. Nested
+lists reuse that level. LVLD and a live LVLG global supply chance-none, with
+the global taking precedence. An empty result persists and disables the
+logical reference instead of being rolled again by each getter. Script list
+changes affect future references. Existing selections retain their NPC chain.
+Unsupported flags, counts other than one, malformed entries, deleted records
+and cycles return errors. Failed selection restores the RNG, though lazy
+list/global reads can still materialize state. Selection does not retry on an
+empty result and does not treat a missing NPC as a default 100-health actor.
+
+The current lazy-reference and PlaceAtMe paths supply player level. The public
+prepare_actor_template entry point accepts a caller-resolved level before the
+reference is materialized. ECZN level locking, XLCM difficulty multipliers,
+zone resets and actor respawn are not connected. Therefore this increment
+removes unresolved actor initialization without establishing vanilla encounter
+selection. A single actor has one result, so LVLF's per-count flag adds no
+extra selection in this path. Multi-actor count expansion remains unfinished.
+
+Source evidence is local xEdit LVLN, LVLO and NPC definitions, UESP LVLN/NPC
+notes, CommonLibSSE-NG TESLeveledList::GetChanceNone, and skymp NPC_.h and
+EvaluateTemplate.h for group ownership. OpenMW's mwmechanics/levelledlist.cpp
+provides the highest-eligible/all-level comparison. Its Morrowind flag positions
+and missing-form behavior were not copied. skymp LeveledListUtils.cpp was also
+read, but its selection omits the highest-level restriction and treats a chance
+global as 100 percent, so those policies were not reused. The engine's existing
+leveled-list state and saved RNG are reused. No dependency was added.
+
+SOEW version 10 appends sorted per-reference choices and their selection
+levels. Versions 4 to 9 remain readable with the earlier actor-value limits
+and an empty selection table. Tests cover a reference saved before actor
+initialization, stable inventory and random state after reload, retained empty
+spawns, old-format loading, corrupt choices and atomic load rejection.
+Base-form queries do not choose a result for a spawn. They retain the editor
+base's fields when inheritance reaches a leveled list. Generated temporary
+ActorBase identity and complete GetLeveledActorBase semantics remain pending.
+
+The installed five-master survey initializes every one of the 6,361 NPC bases
+at selection levels 1, 20 and 50, for 19,083 actor initializations. Each pass
+has zero suppressed spawns and zero source errors. The full population saves
+and reloads to the same world hash. The acceptance threshold, more than 6,000
+successful actors and zero errors per level, was written before the first run.
+This exercises authored inputs and runtime initialization, not comparison with
+a running vanilla executable or rendered NPC spawning.

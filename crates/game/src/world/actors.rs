@@ -71,47 +71,61 @@ impl World {
         };
         if !self.actors.contains_key(&id) {
             let mut a = ActorState::default();
-            match base.and_then(|b| self.npc(b)) {
-                Some(npc) => {
-                    let base_file = base.and_then(|b| self.order.winner_ref(b)).map(|r| r.file);
-                    for (name, v) in self.initial_actor_values(base?).ok()? {
-                        a.values.set_base(&name, v).ok()?;
-                    }
-                    a.level = npc.level_for(self.player_level);
-                    a.essential = npc.is_essential();
-                    a.protected = npc.is_protected();
-                    a.ghost = npc.config.flags & crate::npc::flags::GHOST != 0;
-                    a.allow_pc_dialogue = true;
-                    if let Some(file) = base_file {
-                        a.race = self.actor_base_race(base?).ok()?;
-                        a.perks = npc
-                            .perks
-                            .iter()
-                            .map(|p| self.order.resolve(file, *p))
-                            .collect();
-                        a.crime_faction = npc.crime_faction.map(|f| self.order.resolve(file, f));
-                        a.outfit = npc.outfit.map(|o| self.order.resolve(file, o));
-                        a.sleep_outfit = npc.sleep_outfit.map(|o| self.order.resolve(file, o));
-                        a.spells = npc
-                            .spells
-                            .iter()
-                            .map(|s| self.order.resolve(file, *s))
-                            .collect();
-                        a.factions = npc
-                            .factions
-                            .iter()
-                            .map(|(f, rank)| (self.order.resolve(file, *f), i32::from(*rank)))
-                            .collect();
-                    }
+            if base.is_some() {
+                use crate::npc::template;
+                let (stats_source, stats) = self.actor_npc_part(id, template::STATS).ok()?;
+                let (_, flags) = self.actor_npc_part(id, template::BASE_DATA).ok()?;
+                let (spells_source, spells) = self.actor_npc_part(id, template::SPELLS).ok()?;
+                let (factions_source, factions) =
+                    self.actor_npc_part(id, template::FACTIONS).ok()?;
+                let (inventory_source, inventory) =
+                    self.actor_npc_part(id, template::INVENTORY).ok()?;
+                let traits_source = self.actor_component_source(id, template::TRAITS).ok()?;
+                for (name, value) in self
+                    .actor_values_from_sources(stats_source, traits_source)
+                    .ok()?
+                {
+                    a.values.set_base(&name, value).ok()?;
                 }
-                None => {
-                    for (name, v) in [("health", 100.0), ("magicka", 100.0), ("stamina", 100.0)] {
-                        a.values.set_base(name, v).ok()?;
-                    }
-                    a.level = 1;
-                    a.allow_pc_dialogue = true;
+                a.level = stats.level_for(self.player_level);
+                a.essential = flags.is_essential();
+                a.protected = flags.is_protected();
+                a.ghost = flags.config.flags & crate::npc::flags::GHOST != 0;
+                a.race = self.npc_race(traits_source).ok()?;
+                a.perks = spells
+                    .perks
+                    .iter()
+                    .filter_map(|raw| self.resolve_from(spells_source, *raw))
+                    .collect();
+                a.spells = spells
+                    .spells
+                    .iter()
+                    .filter_map(|raw| self.resolve_from(spells_source, *raw))
+                    .collect();
+                a.factions = factions
+                    .factions
+                    .iter()
+                    .filter_map(|(raw, rank)| {
+                        self.resolve_from(factions_source, *raw)
+                            .map(|id| (id, i32::from(*rank)))
+                    })
+                    .collect();
+                a.crime_faction = factions
+                    .crime_faction
+                    .and_then(|raw| self.resolve_from(factions_source, raw));
+                a.outfit = inventory
+                    .outfit
+                    .and_then(|raw| self.resolve_from(inventory_source, raw));
+                a.sleep_outfit = inventory
+                    .sleep_outfit
+                    .and_then(|raw| self.resolve_from(inventory_source, raw));
+            } else {
+                for name in ["health", "magicka", "stamina"] {
+                    a.values.set_base(name, 100.0).ok()?;
                 }
+                a.level = 1;
             }
+            a.allow_pc_dialogue = true;
             // Spell Perk Item Distributor hands things to a base, and an
             // actor's state is built here on first use, so a reference that
             // loads long after the distribution still receives what its base

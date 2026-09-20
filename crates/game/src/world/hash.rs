@@ -447,6 +447,9 @@ impl World {
             form(h, *id);
             actor_state(h, a);
         });
+        let mut templates = soe_papyrus::vm::state::Writer::new();
+        self.write_actor_templates(&mut templates);
+        h.bytes(&templates.out);
         let actors = h.finish();
 
         let mut h = StateHasher::new();

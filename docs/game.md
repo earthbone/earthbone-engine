@@ -585,10 +585,11 @@ either.
 
 `World::save_state(&self) -> Vec<u8>` and `World::load_state(&mut self,
 bytes) -> Result<(), VmError>` write and read the run-time half of the form
-table, magic `SOEW`, version 9. Versions 4 to 6 use legacy actor values,
+table, magic `SOEW`, version 10. Versions 4 to 6 use legacy actor values,
 version 5 adds active magic, version 6 adds dialogue, version 7 adds actor-value
 components, version 8 adds dialogue to those components, and version 9 adds
-active magic. Older formats load with empty state for absent subsystems.
+active magic. Version 10 adds per-reference leveled template choices.
+Older formats load with empty state for absent subsystems.
 Legacy current and base values must agree. Otherwise their modifier domains
 are ambiguous and restoration returns an explicit error.
 The state uses the same `Writer`/`Reader` encoding as
@@ -633,8 +634,9 @@ notification fired, and the alias resolved to the lever.
 ## Not done, and known gaps
 
 - Race starting attributes are read. Live class/level calculations, racial
-  skill bonuses and leveled-template selection remain unfinished. Other NPC
-  template groups still use the older one-level view and need correction.
+  skill bonuses and encounter-zone selection context remain unfinished. Runtime
+  template groups share persistent leveled choices, with the remaining
+  inheritance boundaries documented in [actor-values.md](actor-values.md).
 - Weapon combat remains unfinished. Dialogue and magic have the limited
   execution paths documented below. Packages run three
   procedures, see the Packages section for the rest. Scenes play as a flag
@@ -1099,10 +1101,9 @@ and CommonLibSSE-NG `src/RE/T/TESObjectARMA.cpp` for armor-parent matching.
 Equal-priority conflicts use later record/equipment order. Deduplicated
 layering and tie handling are engine policy pending original-runtime checks.
 Equipment is the current actor state's equipped set. Outfit auto-equipping,
-leveled trait templates, armor template inheritance and runtime skin overrides
-are not supplied by this path. A leveled trait template returns a type error.
-Actor initialization follows distinct stats and traits template chains.
-Other template groups still need the same correction.
+armor template inheritance and runtime skin overrides
+are not supplied by this path. The World footstep path supplies the selected trait source for leveled actors.
+Direct record-only actor_sets calls still require a non-leveled trait chain.
 
 Eight actor-selection tests pass, including installed-data checks for Nord
 bare feet, light boots, heavy boots and wolf skin. The same run resolves all

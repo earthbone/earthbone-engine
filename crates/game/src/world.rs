@@ -53,6 +53,7 @@ mod quests;
 mod refs;
 mod rng;
 pub(crate) mod save;
+mod templates;
 mod timers;
 mod transition;
 
@@ -369,6 +370,7 @@ pub struct World {
     globals: HashMap<GlobalFormId, f32>,
     form_lists: HashMap<GlobalFormId, Vec<GlobalFormId>>,
     leveled_lists: HashMap<GlobalFormId, LeveledList>,
+    actor_templates: BTreeMap<GlobalFormId, templates::TemplateChoice>,
     locations: HashMap<GlobalFormId, LocationState>,
     factions: HashMap<GlobalFormId, FactionState>,
     actor_bases: HashMap<GlobalFormId, ActorBaseState>,
@@ -477,6 +479,7 @@ impl World {
             globals: HashMap::new(),
             form_lists: HashMap::new(),
             leveled_lists: HashMap::new(),
+            actor_templates: BTreeMap::new(),
             locations: HashMap::new(),
             factions: HashMap::new(),
             actor_bases: HashMap::new(),

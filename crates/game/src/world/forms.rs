@@ -206,19 +206,31 @@ impl World {
 
     pub fn actor_base(&mut self, id: GlobalFormId) -> Option<&mut ActorBaseState> {
         if !self.actor_bases.contains_key(&id) {
-            let npc = self.npc(id)?;
-            let file = self.order.winner_ref(id)?.file;
+            use crate::npc::template;
+            let (_, npc) = self.npc_part(id, template::BASE_DATA).ok()?;
+            let (_, traits) = self.npc_part(id, template::TRAITS).ok()?;
+            let (stats_source, stats) = self.npc_part(id, template::STATS).ok()?;
+            let (inventory_source, inventory) = self.npc_part(id, template::INVENTORY).ok()?;
             let f = npc.config.flags;
             let st = ActorBaseState {
                 essential: npc.is_essential(),
                 protected: npc.is_protected(),
                 invulnerable: f & crate::npc::flags::INVULNERABLE != 0,
-                unique: f & crate::npc::flags::UNIQUE != 0,
-                female: npc.is_female(),
-                race: npc.race.map(|r| self.order.resolve(file, r)),
-                class: npc.class.map(|c| self.order.resolve(file, c)),
-                outfit: npc.outfit.map(|o| self.order.resolve(file, o)),
-                sleep_outfit: npc.sleep_outfit.map(|o| self.order.resolve(file, o)),
+                unique: self.npc_record(id).ok()?.config.flags & crate::npc::flags::UNIQUE != 0,
+                female: traits.is_female(),
+                race: {
+                    let (source, _) = self.npc_part(id, template::TRAITS).ok()?;
+                    self.npc_race(source).ok()?
+                },
+                class: stats
+                    .class
+                    .and_then(|raw| self.resolve_from(stats_source, raw)),
+                outfit: inventory
+                    .outfit
+                    .and_then(|raw| self.resolve_from(inventory_source, raw)),
+                sleep_outfit: inventory
+                    .sleep_outfit
+                    .and_then(|raw| self.resolve_from(inventory_source, raw)),
                 dead_count: 0,
             };
             self.actor_bases.insert(id, st);

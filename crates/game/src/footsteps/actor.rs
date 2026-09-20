@@ -31,7 +31,11 @@ impl World {
     /// Resolve from current actor state on each event, including equipment and
     /// SetRace changes. No independent audio copy of equipment is maintained.
     pub fn footstep_sets(&mut self, actor: GlobalFormId) -> Result<Vec<GlobalFormId>> {
-        let base = self.reference(actor).and_then(|r| r.base);
+        let base = if self.reference(actor).and_then(|r| r.base).is_some() {
+            Some(self.actor_component_source(actor, crate::npc::template::TRAITS)?)
+        } else {
+            None
+        };
         let state = self
             .actor(actor)
             .ok_or_else(|| Error::Invalid(format!("footsteps require an actor: {actor}")))?;

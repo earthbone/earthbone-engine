@@ -37,6 +37,13 @@ Godot 4.7.2 passes the Bannered Mare door round trip, landing collision and
 E-key activation, plus grounded footstep playback through the audio mixer.
 These are headless checks, not rendered-image or physical speaker verification.
 
+The actor-templates follow-up adds persistent leveled selections and correct
+source ownership for runtime NPC groups. All 6,361 installed NPC bases initialize
+at selection levels 1, 20 and 50 and survive a population save/load check.
+SOEW version 10 persists these choices. Encounter-zone difficulty/reset rules,
+generated ActorBase identity and remaining template consumers are still open.
+See [actor-values.md](actor-values.md#per-reference-actor-templates-2026-09-20).
+
 ## Earlier baseline, 2026-09-19
 
 Reconciled on 2026-09-19 against engine commit `75cfb55` on `master`.

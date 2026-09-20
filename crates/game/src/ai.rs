@@ -281,15 +281,13 @@ pub fn candidates(world: &mut World, actor: GlobalFormId) -> Vec<Candidate> {
     }
     alias_packages.sort_by_key(|a| std::cmp::Reverse(a.0));
     out.extend(alias_packages.into_iter().map(|(_, c)| c));
-    if let Some(base) = world.base_of(actor) {
-        if let Some(npc) = world.npc(base) {
-            for raw in &npc.packages {
-                if let Some(package) = world.resolve_from(base, *raw) {
-                    out.push(Candidate {
-                        package,
-                        alias: None,
-                    });
-                }
+    if let Ok((source, npc)) = world.actor_npc_part(actor, crate::npc::template::AI_PACKAGES) {
+        for raw in &npc.packages {
+            if let Some(package) = world.resolve_from(source, *raw) {
+                out.push(Candidate {
+                    package,
+                    alias: None,
+                });
             }
         }
     }
@@ -529,9 +527,8 @@ fn function_value(
         }
         70 => {
             let female = world
-                .base_of(subject)
-                .and_then(|b| world.npc(b))
-                .is_some_and(|n| n.is_female());
+                .actor_npc_part(subject, crate::npc::template::TRAITS)
+                .is_ok_and(|(_, npc)| npc.is_female());
             bool_f(female == (c.param1 == 1))
         }
         71 => {

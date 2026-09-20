@@ -31,7 +31,8 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// Versions 5 and 6 add magic and dialogue to legacy actor values.
 /// Versions 7 and 8 add actor-value components and dialogue, respectively.
 /// Version 9 combines components, dialogue and active magic effects.
-pub const SAVE_VERSION: u16 = 9;
+/// Version 10 adds persistent per-reference leveled template selections.
+pub const SAVE_VERSION: u16 = 10;
 
 impl World {
     /// Serialize the run-time state: the VM object handles, references,
@@ -291,6 +292,7 @@ impl World {
 
         self.write_dialogue(&mut body);
         self.write_magic(&mut body);
+        self.write_actor_templates(&mut body);
         let mut out = Writer::new();
         out.out.extend_from_slice(SAVE_MAGIC);
         out.u16(SAVE_VERSION);
@@ -722,8 +724,14 @@ impl World {
                 }
             }
         }
+        let actor_templates = if version >= 10 {
+            self.read_actor_templates(&mut r)?
+        } else {
+            BTreeMap::new()
+        };
         r.expect_end()?;
 
+        self.actor_templates = actor_templates;
         self.leveled_lists = leveled_lists;
         self.locations = locations;
         self.factions = factions;

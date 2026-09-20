@@ -162,6 +162,9 @@ impl Npc {
                     *d.get(4).ok_or_else(|| short("SNAM"))? as i8,
                 )),
                 b"CNTO" => {
+                    if d.len() != 8 {
+                        return Err(short("CNTO"));
+                    }
                     let item = u32_at(d, 0, "CNTO")?;
                     let count = i32::from_le_bytes([d[4], d[5], d[6], d[7]]);
                     n.items.push((item, count));

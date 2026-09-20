@@ -456,7 +456,7 @@ fn active_effect_natives_distinguish_definition_target_and_blame_actor() {
 fn version_eight_worlds_load_without_active_effects() {
     let mut game = fixture(0, 1, 0.0, 10);
     let mut old = game.world().save_state();
-    old.truncate(old.len() - 12);
+    old.truncate(old.len() - 16);
     old[4..6].copy_from_slice(&8u16.to_le_bytes());
     cast(&mut game, SPELL, OTHER).unwrap();
     game.world_mut().load_state(&old).unwrap();
@@ -469,8 +469,8 @@ fn corrupt_effect_data_leaves_the_live_world_unchanged() {
     cast(&mut game, SPELL, OTHER).unwrap();
     let before = game.world().state_hash();
     let mut bytes = game.world().save_state();
-    let offset = bytes.len() - 4;
-    bytes[offset..].copy_from_slice(&f32::NAN.to_le_bytes());
+    let offset = bytes.len() - 8;
+    bytes[offset..offset + 4].copy_from_slice(&f32::NAN.to_le_bytes());
     assert!(game.world_mut().load_state(&bytes).is_err());
     assert_eq!(game.world().state_hash(), before);
 }

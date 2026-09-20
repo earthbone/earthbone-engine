@@ -113,7 +113,14 @@ impl World {
         // is held until now. See `crate::moddata`.
         st.base = st.base.map(|b| self.mod_data.swap(b));
         if let Some(base) = st.base {
-            st.inventory = self.base_inventory(base);
+            if st.is_actor
+                && !self
+                    .prepare_actor_template(id, base, self.player_level)
+                    .ok()?
+            {
+                st.enabled = false;
+            }
+            st.inventory = self.reference_inventory(Some(id), base);
         }
         Some(st)
     }
@@ -122,13 +129,38 @@ impl World {
     /// item, so a distributed item counts the same as a shipped one through
     /// `GetItemCount`. See `crate::moddata`.
     fn base_inventory(&self, base: GlobalFormId) -> BTreeMap<GlobalFormId, i32> {
+        self.reference_inventory(None, base)
+    }
+
+    fn reference_inventory(
+        &self,
+        reference: Option<GlobalFormId>,
+        base: GlobalFormId,
+    ) -> BTreeMap<GlobalFormId, i32> {
         let mut out = BTreeMap::new();
         for d in self.mod_data.for_base(base) {
             if d.record_type == soe_moddata::spid::RecordType::Item {
                 *out.entry(d.what).or_insert(0) += d.count;
             }
         }
-        let Some(rref) = self.order.winner_ref(base) else {
+        let source = if self.tag_of(base) == Some(T(b"NPC_")) {
+            match reference.map_or_else(
+                || self.npc_component_source(base, crate::npc::template::INVENTORY),
+                |reference| {
+                    self.reference_component_source(
+                        reference,
+                        base,
+                        crate::npc::template::INVENTORY,
+                    )
+                },
+            ) {
+                Ok(source) => source,
+                Err(_) => return out,
+            }
+        } else {
+            base
+        };
+        let Some(rref) = self.order.winner_ref(source) else {
             return out;
         };
         for cnto in self.order.record(rref).all(T(b"CNTO")) {
@@ -184,7 +216,14 @@ impl World {
         st.cell = cell;
         st.enabled = !disabled;
         st.is_actor = self.tag_of(base) == Some(T(b"NPC_"));
-        st.inventory = self.base_inventory(base);
+        if st.is_actor
+            && !self
+                .prepare_actor_template(id, base, self.player_level)
+                .unwrap_or(false)
+        {
+            st.enabled = false;
+        }
+        st.inventory = self.reference_inventory(Some(id), base);
         self.refs.insert(id, st);
         id
     }
