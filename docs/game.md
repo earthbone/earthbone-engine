@@ -989,6 +989,18 @@ plugin. Self and target-actor delivery are supported for constant and fire-and-f
 casts. `Spell.Cast` credits an actor source. `RemoteCast` credits its explicit
 blame actor. Player charging, costs and hand input are separate unfinished work.
 
+Each SPEL effect group's CTDAs run before that group is prepared. MGEF CTDAs
+run separately, with FormIDs resolved against their owning MGEF. Both use the
+delivery recipient as subject and the credited caster as target. A false group
+skips only its effect. The currently implemented CTDA function set is shared
+with dialogue and crafting. Variable-backed predicates return a typed error
+until direct casting can borrow the VM for that lookup.
+The [Creation Kit Magic Effect page](https://ck.uesp.net/wiki/Magic_Effect)
+calls the flag "Swap Subject and Target" useful for running a condition on
+the spellcaster. The common SPEL/MGEF context is inferred from that statement
+and the shared Effect Item layout, with the recipient as default subject and
+the caster as default target.
+
 Each application gets an `EffectId` and a distinct `ActiveMagicEffect` VM object.
 MGEF scripts are attached when an effect is applied, rather than attached to the
 MGEF form at startup. VMAD properties use the winning MGEF's plugin context.
@@ -1018,7 +1030,7 @@ typed cast errors. It was already present transitively, with no new package.
 
 Unsupported casts return a typed error before applying any of their effects,
 and Papyrus casts log that error. This includes hostile hit resolution,
-projectiles, contact and location delivery, concentration, conditions, area,
+projectiles, contact and location delivery, concentration, area,
 taper, perk adjustments, equip abilities, keyword dispelling and other archetypes.
 Actor-value indices above 45 are not yet supported. Recover effects use the temporary modifier domain. Other effects damage or
 restore the damage component without changing permanent modifiers.

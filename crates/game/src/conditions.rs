@@ -57,10 +57,31 @@ pub fn evaluate(
     context: Context,
     conditions: &[Condition],
 ) -> Result<bool, Error> {
+    evaluate_with_vm(world, Some(vm), context, conditions)
+}
+
+/// Evaluate conditions that do not require a Papyrus variable lookup.
+///
+/// Direct world actions have no VM borrow while they queue their later script
+/// events. Variable-backed predicates return [`Error::Variable`] in this mode.
+pub(crate) fn evaluate_without_vm(
+    world: &mut World,
+    context: Context,
+    conditions: &[Condition],
+) -> Result<bool, Error> {
+    evaluate_with_vm(world, None, context, conditions)
+}
+
+fn evaluate_with_vm(
+    world: &mut World,
+    vm: Option<&Vm>,
+    context: Context,
+    conditions: &[Condition],
+) -> Result<bool, Error> {
     let mut any = false;
     for (index, condition) in conditions.iter().enumerate() {
         if !any {
-            any = evaluate_one(world, vm, context, condition)?;
+            any = evaluate_one_with_vm(world, vm, context, condition)?;
         }
         if !condition.or_with_next() || index + 1 == conditions.len() {
             if !any {
@@ -118,12 +139,26 @@ pub fn evaluate_one(
     context: Context,
     c: &Condition,
 ) -> Result<bool, Error> {
-    if c.flags & 0x1a != 0 {
+    evaluate_one_with_vm(world, Some(vm), context, c)
+}
+
+fn evaluate_one_with_vm(
+    world: &mut World,
+    vm: Option<&Vm>,
+    context: Context,
+    c: &Condition,
+) -> Result<bool, Error> {
+    if c.flags & 0x0a != 0 {
         return Err(Error::Flags(c.flags & 0x1f));
     }
+    let (context_subject, context_target) = if c.flags & 0x10 != 0 {
+        (context.target, Some(context.subject))
+    } else {
+        (Some(context.subject), context.target)
+    };
     let subject = match c.run_on {
-        0 => Some(context.subject),
-        1 => context.target,
+        0 => context_subject,
+        1 => context_target,
         2 => Some(resolve_reference(world, context.owner, c.reference)?),
         5 => context.quest.and_then(|quest| {
             u32::try_from(c.parameter_3)
@@ -207,7 +242,7 @@ pub(crate) fn resolve(
 
 fn function_value(
     world: &mut World,
-    vm: &Vm,
+    vm: Option<&Vm>,
     context: Context,
     subject: GlobalFormId,
     c: &Condition,
@@ -354,7 +389,10 @@ fn function_value(
                 .ok_or_else(|| Error::Variable("missing CIS2".into()))?;
             let values = world
                 .object_id(Handle::Form(form))
-                .map(|object| vm.conditional_vars(object, name))
+                .map(|object| {
+                    vm.map(|vm| vm.conditional_vars(object, name))
+                        .unwrap_or_default()
+                })
                 .unwrap_or_default();
             match values.as_slice() {
                 [Value::Int(value)] => *value as f32,

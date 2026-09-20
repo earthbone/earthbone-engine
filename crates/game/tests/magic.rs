@@ -19,6 +19,7 @@ use soe_papyrus::Value;
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
 const ACTOR: u32 = 0x100;
 const OTHER: u32 = 0x101;
+const SOURCE: u32 = 0x102;
 const EFFECT: u32 = 0x200;
 const SPELL: u32 = 0x300;
 const KEYWORD: u32 = 0x400;
@@ -64,10 +65,25 @@ fn spell(form: u32, kind: u32, constant: bool, magnitude: f32, duration: u32) ->
         .sub(T(b"EFIT"), efit)
 }
 
+fn condition(function: u16, parameter: u32, expected: f32, run_on: u32) -> Vec<u8> {
+    let mut data = vec![0; 32];
+    data[4..8].copy_from_slice(&expected.to_le_bytes());
+    data[8..10].copy_from_slice(&function.to_le_bytes());
+    data[12..16].copy_from_slice(&parameter.to_le_bytes());
+    data[20..24].copy_from_slice(&run_on.to_le_bytes());
+    data
+}
+
+fn swapped_condition(function: u16, parameter: u32, expected: f32, run_on: u32) -> Vec<u8> {
+    let mut data = condition(function, parameter, expected, run_on);
+    data[0] = 0x10;
+    data
+}
+
 fn plugin(effect: Record, spells: Vec<Record>) -> Plugin {
     let mut plugin = Plugin::new(FileHeader::default());
     plugin.push_top(Record::new(T(b"NPC_"), 0x500).sub(T(b"ACBS"), vec![0; 24]));
-    for actor in [ACTOR, OTHER] {
+    for actor in [ACTOR, OTHER, SOURCE] {
         plugin.push_top(
             Record::new(T(b"ACHR"), actor)
                 .sub(T(b"NAME"), 0x500u32.to_le_bytes())
@@ -86,7 +102,7 @@ fn game(plugin: Plugin) -> Game {
     let mut order = LoadOrder::new();
     order.add("Magic.esm", plugin).unwrap();
     let mut game = Game::new(order);
-    for actor in [ACTOR, OTHER] {
+    for actor in [ACTOR, OTHER, SOURCE] {
         game.world_mut()
             .set_actor_value(id(actor), "health", 100.0)
             .unwrap();
@@ -138,6 +154,118 @@ fn cast(game: &mut Game, spell: u32, target: u32) -> Result<Vec<EffectId>, Magic
         &mut |name, class| game.vm.create_object_of(name, class),
     );
     result
+}
+
+#[test]
+fn magic_conditions_use_credited_caster_and_delivery_target() {
+    let effect = effect(4, 0, 24, false)
+        .sub(T(b"CTDA"), condition(136, ACTOR, 1.0, 0))
+        .sub(T(b"CTDA"), condition(136, OTHER, 1.0, 1))
+        .sub(T(b"CTDA"), swapped_condition(136, OTHER, 1.0, 0));
+    let spell = spell(SPELL, 0, false, 10.0, 0).sub(T(b"CTDA"), condition(136, ACTOR, 1.0, 0));
+    let mut game = game(plugin(effect, vec![spell]));
+    let shared = game.shared_world();
+    let applied = shared
+        .borrow_mut()
+        .cast_spell(
+            id(SPELL),
+            id(SOURCE),
+            Some(id(OTHER)),
+            Some(id(ACTOR)),
+            &mut |name, class| game.vm.create_object_of(name, class),
+        )
+        .unwrap();
+    assert_eq!(applied.len(), 1);
+    assert_eq!(game.world_mut().actor_value(id(ACTOR), "health"), 90.0);
+
+    let shared = game.shared_world();
+    let skipped = shared
+        .borrow_mut()
+        .cast_spell(
+            id(SPELL),
+            id(SOURCE),
+            Some(id(OTHER)),
+            Some(id(OTHER)),
+            &mut |name, class| game.vm.create_object_of(name, class),
+        )
+        .unwrap();
+    assert!(skipped.is_empty());
+    assert_eq!(game.world_mut().actor_value(id(OTHER), "health"), 100.0);
+}
+
+#[test]
+fn spell_and_magic_effect_conditions_use_their_own_plugin_namespaces() {
+    let effect = effect(4, 0, 24, false).sub(T(b"CTDA"), condition(74, 0x600, 1.0, 0));
+    let mut first = plugin(effect, vec![]);
+    first.push_top(Record::new(T(b"GLOB"), 0x600).sub(T(b"FLTV"), 1.0f32.to_le_bytes()));
+    let mut second = Plugin::new(FileHeader::default());
+    second.push_top(Record::new(T(b"GLOB"), 0x600).sub(T(b"FLTV"), 2.0f32.to_le_bytes()));
+    let mut patch = Plugin::new(FileHeader {
+        masters: vec!["Second.esm".into(), "First.esm".into()],
+        ..FileHeader::default()
+    });
+    let mut authored = spell(SPELL, 0, false, 10.0, 0);
+    authored.form_id = 0x0200_0000 | SPELL;
+    authored.subrecords[1].data = 0x0100_0200u32.to_le_bytes().to_vec();
+    patch.push_top(
+        authored
+            .sub(T(b"EFID"), 0x0100_0200u32.to_le_bytes())
+            .sub(
+                T(b"EFIT"),
+                [
+                    10.0f32.to_le_bytes(),
+                    0u32.to_le_bytes(),
+                    0u32.to_le_bytes(),
+                ]
+                .concat(),
+            )
+            .sub(T(b"CTDA"), condition(74, 0x600, 2.0, 0)),
+    );
+    let mut order = LoadOrder::new();
+    order.add("First.esm", first).unwrap();
+    order.add("Second.esm", second).unwrap();
+    order.add("Patch.esp", patch).unwrap();
+    let mut game = Game::new(order);
+    for actor in [ACTOR, OTHER, SOURCE] {
+        game.world_mut()
+            .set_actor_value(id(actor), "health", 100.0)
+            .unwrap();
+    }
+    let shared = game.shared_world();
+    let applied = shared
+        .borrow_mut()
+        .cast_spell(
+            GlobalFormId {
+                file: 2,
+                object: SPELL,
+            },
+            id(SOURCE),
+            Some(id(OTHER)),
+            Some(id(ACTOR)),
+            &mut |name, class| game.vm.create_object_of(name, class),
+        )
+        .unwrap();
+    assert_eq!(applied.len(), 2);
+    assert_eq!(game.world_mut().actor_value(id(ACTOR), "health"), 80.0);
+}
+
+#[test]
+fn unsupported_later_magic_condition_leaves_earlier_effect_unapplied() {
+    let mut second = 10.0f32.to_le_bytes().to_vec();
+    second.extend_from_slice(&0u32.to_le_bytes());
+    second.extend_from_slice(&0u32.to_le_bytes());
+    let spell = spell(SPELL, 0, false, 10.0, 0)
+        .sub(T(b"EFID"), EFFECT.to_le_bytes())
+        .sub(T(b"EFIT"), second)
+        .sub(T(b"CTDA"), condition(u16::MAX, 0, 1.0, 0));
+    let mut game = game(plugin(effect(4, 0, 24, false), vec![spell]));
+    assert!(matches!(
+        cast(&mut game, SPELL, ACTOR),
+        Err(MagicError::Condition(_))
+    ));
+    assert_eq!(game.world().active_effects().count(), 0);
+    assert!(game.world().pending.is_empty());
+    assert_eq!(game.world_mut().actor_value(id(ACTOR), "health"), 100.0);
 }
 
 fn dispel(game: &mut Game, effect: EffectId) -> bool {
