@@ -8,9 +8,17 @@
 //! UESP CONT defines the same MODL field for containers, including the
 //! nightstands and cupboards that support placed candles.
 //! xEdit's wbRecord(DOOR) uses the generic MODL path and bit 23 marker flag too.
+//! Its NIF reader also identifies `NiObjectNET` names containing `EditorMarker`.
+//! The cell loader removes only shapes below those nodes, retaining ordinary
+//! sibling geometry and leaving collision selection unchanged.
 
 use soe_esm::records::stat::Static;
 use soe_esm::{tag, Record, Tag};
+
+/// xEdit identifies editor markers by the name on a `NiObjectNET` block.
+pub(crate) fn is_editor_marker_name(name: &str) -> bool {
+    name.to_ascii_lowercase().contains("editormarker")
+}
 
 pub(crate) fn model_for(record: &Record) -> Option<String> {
     let model = if record.tag == tag::STAT {
@@ -60,6 +68,13 @@ mod tests {
             assert_eq!(model_for(&Record::new(kind, 1)), None);
             assert_eq!(model_for(&Record::new(kind, 1).zsub(b"MODL", "")), None);
         }
+    }
+
+    #[test]
+    fn nif_editor_marker_names_are_case_insensitive() {
+        assert!(is_editor_marker_name("EditorMarker"));
+        assert!(is_editor_marker_name("xeditormarker01"));
+        assert!(!is_editor_marker_name("WhiterunDoor"));
     }
 
     #[test]

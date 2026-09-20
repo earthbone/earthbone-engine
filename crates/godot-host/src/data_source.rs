@@ -33,7 +33,7 @@ use std::sync::Arc;
 use soe_bsa::{find_associated_archives, Archive, Vfs};
 use soe_esm::records::refr::Refr;
 use soe_esm::{tag, CellIndex, GlobalFormId, LoadOrder};
-use soe_nif::{Mat33, Mesh as NifMesh, Transform as NifTransform, Vec3 as NifVec3};
+use soe_nif::{Mat33, Mesh as NifMesh, NifFile, Transform as NifTransform, Vec3 as NifVec3};
 
 use crate::mesh::{
     build_surface, AlphaMode, MaterialDesc, MeshData, MeshError, MeshOptions, SurfaceArrays,
@@ -45,8 +45,11 @@ mod models;
 mod textures;
 mod workers;
 
+#[cfg(test)]
+mod marker_survey_tests;
+
 pub use location::LoadedLocation;
-pub(crate) use models::model_for;
+pub(crate) use models::{is_editor_marker_name, model_for};
 use textures::TextureCache;
 pub use textures::{BlockFormat, TextureData};
 use workers::ordered_map;
@@ -100,6 +103,8 @@ pub struct CellStats {
     pub furniture_with_model: usize,
     pub containers_with_model: usize,
     pub doors_with_model: usize,
+    pub editor_markers_filtered: usize,
+    pub editor_marker_only_models: usize,
     pub meshes_parsed: usize,
     pub meshes_failed: usize,
     pub triangles: usize,
@@ -413,7 +418,13 @@ impl DataSource {
         let mut texture_sets: HashSet<(Option<String>, Option<String>)> = HashSet::new();
         for ((model, _, reference), result) in work.iter().zip(results) {
             match result {
-                Ok(built) => {
+                Ok(LoadedStatic::Surfaces {
+                    built,
+                    marker_shapes_filtered,
+                    marker_only,
+                }) => {
+                    stats.editor_markers_filtered += marker_shapes_filtered;
+                    stats.editor_marker_only_models += usize::from(marker_only);
                     stats.meshes_parsed += 1;
                     for (arrays, textures) in built {
                         stats.triangles += arrays.triangle_count();
@@ -461,7 +472,14 @@ impl DataSource {
         let path = format!("meshes/{model}");
         let bytes = self.vfs.read(&path)?;
         let file = placed_model(&bytes)?;
-        let meshes = file.meshes()?;
+        let marker_blocks = editor_marker_shape_blocks(&file);
+        let mut meshes = file.meshes()?;
+        let marker_shapes_filtered = meshes
+            .iter()
+            .filter(|mesh| marker_blocks.contains(&mesh.block))
+            .count();
+        meshes.retain(|mesh| !marker_blocks.contains(&mesh.block));
+        let marker_only = marker_shapes_filtered > 0 && meshes.is_empty();
         let refr_transform = placement_transform(refr);
         let mut out = Vec::with_capacity(meshes.len());
         for shape in &meshes {
@@ -477,12 +495,70 @@ impl DataSource {
             };
             out.push((arrays, textures));
         }
-        Ok(out)
+        Ok(LoadedStatic::Surfaces {
+            built: out,
+            marker_shapes_filtered,
+            marker_only,
+        })
     }
 }
 
 /// One static's surfaces with their textures, or why it failed.
-type BuiltStatic = Result<Vec<(SurfaceArrays, SurfaceTextures)>, DataSourceError>;
+type BuiltStatic = Result<LoadedStatic, DataSourceError>;
+
+enum LoadedStatic {
+    Surfaces {
+        built: Vec<(SurfaceArrays, SurfaceTextures)>,
+        marker_shapes_filtered: usize,
+        marker_only: bool,
+    },
+}
+
+fn editor_marker_shape_blocks(file: &NifFile) -> HashSet<usize> {
+    editor_marker_shape_indices(&file.blocks)
+}
+
+fn editor_marker_shape_indices(blocks: &[soe_nif::blocks::Block]) -> HashSet<usize> {
+    let mut marked = HashSet::new();
+    for (index, block) in blocks.iter().enumerate() {
+        match block {
+            soe_nif::blocks::Block::Node(node) if is_editor_marker_name(node.av.name()) => {
+                mark_descendant_shapes(blocks, index, &mut marked);
+            }
+            soe_nif::blocks::Block::TriShape(shape) if is_editor_marker_name(shape.av.name()) => {
+                marked.insert(index);
+            }
+            soe_nif::blocks::Block::BsTriShape(shape) if is_editor_marker_name(shape.av.name()) => {
+                marked.insert(index);
+            }
+            _ => {}
+        }
+    }
+    marked
+}
+
+fn mark_descendant_shapes(
+    blocks: &[soe_nif::blocks::Block],
+    index: usize,
+    marked: &mut HashSet<usize>,
+) {
+    let mut pending = vec![index];
+    let mut visited = HashSet::new();
+    while let Some(index) = pending.pop() {
+        if !visited.insert(index) {
+            continue;
+        }
+        match blocks.get(index) {
+            Some(soe_nif::blocks::Block::Node(node)) => {
+                pending.extend(node.children.iter().filter_map(|child| child.get()));
+            }
+            Some(soe_nif::blocks::Block::TriShape(_) | soe_nif::blocks::Block::BsTriShape(_)) => {
+                marked.insert(index);
+            }
+            _ => {}
+        }
+    }
+}
 
 /// A placed model replaces its single root node's export transform with REFR
 /// placement. OpenMW's NiNode::read applies
@@ -632,3 +708,6 @@ fn material_desc_from(shape: &NifMesh) -> MaterialDesc {
 
 #[cfg(test)]
 mod placement_tests;
+
+#[cfg(test)]
+mod marker_shape_tests;
