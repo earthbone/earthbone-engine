@@ -369,7 +369,7 @@ What each node does:
   `BSBoneSwitch`, `BSOffsetAnimation`, `BSSynchronizedClip`,
   `BSCyclicBlendTransition`) pass their generator child through.
   `hkbModifierGenerator` also gives an enabled modifier child activation and
-  deactivation lifecycle. Concrete modifier effects remain unimplemented.
+  deactivation lifecycle.
 - `hkbBehaviorReferenceGenerator` and unmodelled classes yield the
   reference pose at weight zero and are listed in `Unsupported`.
 
@@ -757,6 +757,35 @@ four unbound, compared with the historical 194 and five above.
 - Modifier evaluation beyond `BSIsActiveModifier` and
   `BSEventOnFalseToTrueModifier`. Rotation and range events remain separate
   backlog rows. The historical unbound counts above predate ANM-03.
+
+### BSDecomposeVectorModifier (2026-09-20)
+
+`BSDecomposeVectorModifier` stores an `hkVector4` at offset 80, followed by
+real `x`, `y`, `z` and `w` fields at 96, 100, 104 and 108. Those fields come
+from `engine-refs/serde-hkx/assets/classes/BSDecomposeVectorModifier.json` and
+the matching Nemesis HKX compatibility declaration at
+`engine-refs/Project-New-Reign---Nemesis-Main/external/hkxcmd/havok_2010_2_0/compat/BSDecomposeVectorModifier_0.cpp`.
+The interpreter reads a bound `vector` from the graph quad table when present,
+otherwise it uses the authored vector, then writes each component through its
+`x`, `y`, `z` or `w` output binding. A disabled modifier publishes no
+components. Outputs follow modifier-list traversal order, including nested
+lists, so a later serialized modifier wins when two components share a target
+variable. The synthetic tests cover authored and bound vectors, all four
+components, disabled lifecycle and nested-list order.
+
+Linked behavior references currently preserve word defaults only. A
+`BSDecomposeVectorModifier` inside a linked sub-graph needs its vector supplied
+by the parent graph until the linker imports quad defaults and remaps their
+word-table slots. ANM-57 owns that linker work.
+
+## 7. Not done and next
+
+- Modifier evaluation. `BSIsActiveModifier` reports its own activity and
+  `BSDecomposeVectorModifier` writes its components. Other modifiers still
+  pass through, including bone weight masks on a blender,
+  `BSEventOnFalseToTrueModifier`,
+  `hkbRotateCharacterModifier` and `hkbEventsFromRangeModifier`. Their
+  layouts are in `serde-hkx` like the rest.
 - Transition details: trigger and initiate intervals, `hkbCondition`
   expressions, priority arbitration, the `abut at end` flag,
   `hkbGeneratorTransitionEffect`, `maxSimultaneousTransitions`. Conditions

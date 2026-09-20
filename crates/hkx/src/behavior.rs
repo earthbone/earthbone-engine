@@ -600,6 +600,12 @@ pub enum NodeKind {
         enable: bool,
         slots: [FalseToTrueSlot; FALSE_TO_TRUE_SLOTS],
     },
+    /// `BSDecomposeVectorModifier`: copies the four components of `vector`
+    /// into its real outputs.
+    DecomposeVector {
+        enable: bool,
+        vector: [f32; 4],
+    },
     /// Any other `hkbModifier` subclass: only the enable flag is read.
     Modifier {
         enable: bool,
@@ -674,6 +680,8 @@ impl Node {
             | NodeKind::TimerModifier { .. }
             | NodeKind::IsActiveModifier { .. }
             | NodeKind::FalseToTrueModifier { .. }
+
+            | NodeKind::DecomposeVector { .. }
             | NodeKind::Modifier { .. }
             | NodeKind::Unknown => {}
         }
@@ -1084,18 +1092,30 @@ impl<'a> Loader<'a> {
                 }
             }
             "BSEventOnFalseToTrueModifier" => {
-                let read_slot = |offset| -> Result<FalseToTrueSlot> {
+                // EventToSend sits four bytes past its two flags on LE and
+                // eight on SE, as serde-hkx declares the three slots.
+                let event_offset = o.layout_offset(4, 8);
+                let read_slot = |offset: u32| -> Result<FalseToTrueSlot> {
                     Ok(FalseToTrueSlot {
                         enable: o.bool(offset)?,
                         variable_to_test: o.bool(offset + 1)?,
-                        event: EventProperty::read(o, offset + 8)?,
+                        event: EventProperty::read(o, offset + event_offset)?,
                     })
                 };
                 NodeKind::FalseToTrueModifier {
-                    enable: o.bool(72)?,
-                    slots: [read_slot(80)?, read_slot(104)?, read_slot(128)?],
+                    enable: o.bool(o.layout_offset(40, 72))?,
+                    slots: [
+                        read_slot(o.layout_offset(44, 80))?,
+                        read_slot(o.layout_offset(56, 104))?,
+                        read_slot(o.layout_offset(68, 128))?,
+                    ],
                 }
             }
+
+            "BSDecomposeVectorModifier" => NodeKind::DecomposeVector {
+                enable: o.bool(o.layout_offset(40, 72))?,
+                vector: o.vec4(o.layout_offset(48, 80))?,
+            },
             c if c.ends_with("Modifier") => NodeKind::Modifier {
                 enable: o.bool(o.layout_offset(40, 72))?,
             },
