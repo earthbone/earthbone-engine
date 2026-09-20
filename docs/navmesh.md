@@ -243,3 +243,28 @@ All 50 cross-mesh queries still succeeded. It loaded 13,011 meshes and
 2,271,709 triangles, with the same 187,193 resolved links and 23 unresolved
 links as the prior baseline. The largest mesh's 59-triangle route retains its
 5,205 centroid-distance cost. No frame-time improvement is claimed.
+
+## Runtime door associations
+
+A vanilla NVNM door entry is a triangle index, PathingDoor CRC and door REFR
+FormID. It does not name an edge slot or the far-side triangle. This is the
+layout in local `TES5Edit/Core/wbDefinitionsTES5.pas`, `wbNVNM` Door Links.
+`CommonLibSSE-NG/include/RE/B/BSNavmesh.h` also declares separate door-portal
+and closed-door arrays, each associating a pathing door with a triangle.
+Blocking all edges of that triangle would remove ordinary walkable space,
+not just the doorway connection.
+
+Local `recastnavigation/DetourTileCache/Include/DetourTileCache.h` requires
+an explicit cylinder or box obstacle and rebuilds affected tiles. It does
+not recover a swinging door's footprint from an NVNM door association.
+Door collision geometry and its navigation-edge association must therefore
+be established before an automatic blocking-door update can be claimed.
+The game already stores lock and logical open state on the shared reference.
+Those fields alone cannot identify which triangle edge the door obstructs.
+
+AI-09 is blocked on HST-01, swinging-door animation and collision, and AI-17,
+dynamic obstacle updates. Its acceptance check still requires closing one
+blocking door to remove only its navigation link and opening to restore it.
+Physical footprint binding and invalidation of already planned routes are
+prerequisites. No door-edge heuristic or runtime implementation was added by
+this research disposition.
