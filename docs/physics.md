@@ -55,7 +55,7 @@ moves on. The `controller` item of round 6 is what will use the last of those.
   nif.xml for stream 20.2.0.7 at Bethesda version 83 and 100, cross-read
   against OpenMW's `physics.cpp`. Fallout 4 (130) is refused as
   `Unsupported`. Covered: `bhkCollisionObject` and its P, SP and Blend
-  variants, `bhkRigidBody` and `bhkRigidBodyT`, box, sphere, capsule,
+  variants, `bhkRigidBody`, `bhkRigidBodyT`, `bhkSimpleShapePhantom`, box, sphere, capsule,
   convex vertices, `bhkTransformShape` and `bhkConvexTransformShape`,
   `bhkListShape`, `bhkMoppBvTreeShape` (the MOPP tree itself is Havok's
   closed code and is skipped, the wrapped shape is used),
@@ -461,3 +461,10 @@ do not establish actor-specific collision geometry. They are not used as a
 fallback capsule. CMB-33 owns runtime-generated geometry, while CMB-28 owns
 host body installation and synchronization. This decoder adds no nodes or
 server bodies, and does not implement ragdoll collision.
+
+Validation at completion: the combined `tools/lint.sh` gate passed with 1,209
+reported Rust results and 11 Python tests, with no optional-tool skips.
+The installed physics suite passed 50 tests, including the skeleton survey
+and the 22,047-mesh regression. The HKX metadata survey read 353 character
+objects. Synthetic checks cover filter preservation, capsule extent and
+transform conversion, truncation, malformed values and incomplete compounds.
