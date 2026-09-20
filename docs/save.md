@@ -672,3 +672,31 @@ operation or controlled vanilla saves with observed before/after flags for
 both authored bit values, both reference types and supported versions.
 Those outcomes must drive native enable queries and unload decisions, then
 survive engine save/load. The backlog done check remains unchanged.
+
+## ARMO, WEAP and AMMO change coverage
+
+SAV-33 remains blocked on field-layout evidence. Local xEdit
+`Core/wbDefinitionsTES5Saves.pas` names change types 12, 23 and 24 and their
+form-flags, value and full-name bits. The form-flags section contains a
+32-bit mask and a 16-bit word. However, `wbUnionCHANGE_BASE_OBJECT_VALUE`
+and `wbUnionCHANGE_BASE_OBJECT_FULLNAME` each select `wbNull` for both flag
+states. They do not establish the value or name field encoding. Treating
+those placeholders as proof that the fields have no payload is not justified.
+
+Local FallrimTools `ChangeForm.java::getData` has no decoder for these three
+types. Its fallback `ChangeFormDefault` retains bytes without field names.
+The local UESP save corpus has no matching field definitions. No parser was
+added from assumptions about the similarly named plugin record fields.
+
+The gated `sav_33_corpus_reports_item_change_field_coverage` survey records
+save version, change version, record type, flags, payload size and count in
+sorted order. Its threshold is at least 50 saves. The 2026-09-20 run read all
+60 external saves and found zero ARMO, WEAP and AMMO change forms, with zero
+payload bytes for those types. That result establishes the coverage gap and
+does not pass the planned SAV-33 decoder acceptance check. The external saves
+were read in place. No save bytes were copied into the repository.
+
+Completing SAV-33 requires a field definition from a public implementation
+or controlled reference-game saves isolating the value and full-name flags.
+The planned all-flags, exact-byte and truncation checks remain required.
+SAV-34 still depends on that completed decoder before applying its fields.

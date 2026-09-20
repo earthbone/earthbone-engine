@@ -1,0 +1,71 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
+//! SAV-33 coverage survey, using xEdit change types 12, 23 and 24.
+//! Field decoding remains blocked by the value and name schema placeholders.
+
+use std::{collections::BTreeMap, path::Path};
+
+use soe_save::Save;
+
+fn collect(path: &Path, paths: &mut Vec<std::path::PathBuf>) {
+    for entry in std::fs::read_dir(path).unwrap() {
+        let path = entry.unwrap().path();
+        if path.is_dir() {
+            collect(&path, paths);
+        } else if path
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("ess"))
+        {
+            paths.push(path);
+        }
+    }
+}
+
+#[test]
+fn sav_33_corpus_reports_item_change_field_coverage() {
+    let Some(root) = std::env::var_os("SOE_TEST_SAVES") else {
+        eprintln!("SOE_TEST_SAVES unset, skipping item change coverage survey");
+        return;
+    };
+    let mut paths = Vec::new();
+    collect(Path::new(&root), &mut paths);
+    paths.sort();
+    assert!(
+        paths.len() >= 50,
+        "coverage survey requires at least 50 saves"
+    );
+    let mut counts = BTreeMap::from([("AMMO", 0usize), ("ARMO", 0), ("WEAP", 0)]);
+    let mut variants = BTreeMap::new();
+    let mut bytes = 0usize;
+    for path in &paths {
+        let save = Save::open(path).unwrap();
+        for form in &save.change_forms {
+            let kind = form.record_type();
+            let Some(count) = counts.get_mut(kind) else {
+                continue;
+            };
+            *count += 1;
+            let payload = form.payload().unwrap();
+            bytes += payload.len();
+            *variants
+                .entry((
+                    save.form_version,
+                    form.version,
+                    kind,
+                    form.change_flags,
+                    payload.len(),
+                ))
+                .or_insert(0usize) += 1;
+        }
+    }
+    eprintln!(
+        "SAV-33 coverage schema 1: {} saves, {bytes} payload bytes",
+        paths.len()
+    );
+    eprintln!("type counts: {counts:?}");
+    for ((save_version, change_version, kind, flags, len), count) in variants {
+        eprintln!("save_version={save_version} change_version={change_version} type={kind} flags={flags:#010x} payload_bytes={len} count={count}");
+    }
+    eprintln!("Coverage only. Value/name field decoding and SAV-33 completion are unverified.");
+}

@@ -65,3 +65,13 @@ Plugin files, archives, mesh and texture formats, script bytecode and the save f
 inputs the engine reads unchanged, so existing mods, tools and knowledge keep working. New
 formats (glTF, PNG, a data behaviour format) are additions with converters, never
 replacements, until the scene has moved on its own.
+
+That last clause is a sequencing rule, and it cannot bootstrap on its own. The scene will
+not move while the open path is only an alternative way to reach the same result, and the
+open path will not improve while it waits for the scene. So the open path has to win
+decisively for new content before anyone is asked to port old content. Concretely: an
+author who wants a new weapon with a custom animation should ship a glTF and a data
+behaviour file, with no Nemesis run, no hkx export and no FNIS registration. If that
+works, adoption follows on its own merit, because nobody has to convert anything they
+already have. Old content keeps loading unchanged either way, which is what makes the
+open path safe to offer before it is complete.
