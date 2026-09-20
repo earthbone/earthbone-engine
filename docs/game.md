@@ -970,10 +970,24 @@ and running quest alias recipients have independent filters, applied when
 events are queued. Filter lists inspect immediate members only. Empty lists
 suppress events, and later filter changes do not cancel pending calls.
 The script-facing AddItem, RemoveItem and RemoveAllItems stack paths now
-queue these events too. Silent removal still notifies scripts. AddItem accepts
-concrete item references as described below. List and leveled-list inputs are
-rejected instead of reported as inventory base forms. List semantics and
-active-effect recipients remain pending with inventory and magic execution.
+queue these events too. Silent removal still notifies scripts. AddItem expands
+a FormList into one count change and OnItemAdded event for every supported
+base form, matching the CK AddItem page. It flattens nested FormLists in
+depth-first member order, aggregates duplicate members into one base-form event,
+and rejects a cycle or a nesting depth above 64 before changing inventory. CK
+does not specify nested AddItem semantics, so this matches the bounded recursive
+FormList walk used by GetItemCount. CK FormLists cannot contain duplicates, and
+OnItemAdded documents bulk additions as one queued call per base form. A
+concrete-reference member follows direct AddItem's move-once rule. Repeated
+references and a reference count other than one reject the whole call before
+any base form changes. Each leveled-list member rolls with the receiver's
+encounter level and player context. Its selected stacks retain COED metadata.
+The combined transaction checks capacity for ordinary, selected and reference
+additions before moving a reference or queueing events. It restores RNG when a
+later malformed member, reference or capacity check fails. Preflight also checks
+held reference identity against its materialized or authored state before an
+earlier member can change inventory or queue events.
+Active-effect recipients remain pending with magic execution.
 
 The condition evaluator implements functions 47, 56, 58, 59, 72, 74, 136,
 182, 264, 289, 359, 448, 543, 560, 629, 630 and 659. This is a bounded set,
