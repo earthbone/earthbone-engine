@@ -421,3 +421,43 @@ The regression places oppositely wound thin floors 24 units apart and checks
 standing and crouching capsules at six starting heights. Existing stair,
 slope, ceiling and large-world tests still apply. Installed Bannered Mare
 routes and render-camera interpolation are covered in `docs/godot-host.md`.
+
+## Authored actor controller geometry, CMB-29
+
+`bhkSimpleShapePhantom` decodes the published shape reference, Havok filter
+(layer, flags and group), and matrix. `shape::collect` retains controller-layer
+phantoms in `Collected::phantoms`, separate from static rigid bodies. Each
+entry carries its node, material-bearing shape tree and root-space transform.
+Lengths are converted from Havok metres to game units once. Capsule endpoints
+are cap centres, so total axial extent includes two radii.
+
+The layout comes from local `nifxml/nif.xml` (`bhkWorldObject` and
+`bhkSimpleShapePhantom`) and `nifly/src/bhk.cpp`. The reader reuses the existing
+shape-tree decoder and matrix conversion. Non-controller phantoms retain the
+previous skipped behavior. Truncation, non-finite geometry, invalid capsule
+radii, singular transforms and incomplete controller shape trees reject.
+No phantom is automatically installed as a static body.
+
+The source choice was corrected using the published
+[Dynamic Collision Adjustment implementation](https://github.com/ersh1/DynamicCollisionAdjustment/blob/main/src/AdjustmentHandler.cpp)
+and its [author's description](https://www.nexusmods.com/skyrimspecialedition/mods/76783).
+The author distinguishes skeleton-authored collision from runtime-generated
+controllers. Its skeleton check identifies the controller collision layer and
+separates the character bumper by material. Collection preserves that material
+instead of treating every controller-layer shape as the main hit shape.
+
+`controller_geometry_survey` in `godot-host` and the installed physics test
+read the two mesh archives in place. The 2026-09-20 run parsed 76 skeletons,
+with 36 controller-layer phantoms in 26 files. This includes bumpers. The
+human skeleton carries a bumper, while the giant and dragon also carry main
+controller geometry. The full physics regression parsed 22,047 meshes.
+
+`character_metadata_survey` checks the independent HKX source assumption.
+All 353 character data objects in the installed animation archive have
+height 1.7, radius 0.4, filter 1, scale 1 and no controller cinfo pointer.
+The layout is published by `serde-hkx` and the default values also appear in
+Nemesis character XML. Identical fields across humans, creatures and objects
+do not establish actor-specific collision geometry. They are not used as a
+fallback capsule. CMB-33 owns runtime-generated geometry, while CMB-28 owns
+host body installation and synchronization. This decoder adds no nodes or
+server bodies, and does not implement ragdoll collision.

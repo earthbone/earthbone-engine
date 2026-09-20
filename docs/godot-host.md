@@ -1332,3 +1332,15 @@ The process exited successfully with peak resident memory of 3,499,988 KiB.
 An earlier run with eager archive retention terminated before collision
 startup after reaching 13,654,212 KiB across its process tree. Those memory
 measurements use different scopes and are recorded separately.
+
+## Authored controller geometry surveys
+
+CMB-29 supplies decoded skeleton controller phantoms through
+`soe_physics::shape::Collected::phantoms`. Their geometry is in game units,
+with material and filter fields retained for actor-body selection. Static
+location collision consumes only `colliders`, so phantoms cannot accidentally
+become immovable level geometry. `docs/physics.md` records the source evidence
+and installed survey. The host examples `controller_geometry_survey` and
+`character_metadata_survey` inspect the installed NIF and HKX sources without
+copying assets. CMB-28 installs and synchronizes actor bodies, and CMB-33
+supplies generated controller geometry when authored geometry is absent.

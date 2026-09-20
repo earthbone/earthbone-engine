@@ -103,6 +103,9 @@ fn main() -> ExitCode {
 fn summary(b: &Bhk) -> String {
     match b {
         Bhk::CollisionObject { body, .. } => format!("collision object, body {body:?}"),
+        Bhk::SimpleShapePhantom(body) => {
+            format!("phantom, shape {:?}, layer {:?}", body.shape, body.layer)
+        }
         Bhk::Box { half_extents, .. } => format!("box {half_extents:?}"),
         Bhk::Sphere { radius, .. } => format!("sphere {radius}"),
         Bhk::Capsule { first, second, .. } => format!("capsule {first:?} {second:?}"),

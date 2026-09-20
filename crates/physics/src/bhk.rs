@@ -94,6 +94,16 @@ pub struct RigidBody {
     pub transformed: bool,
 }
 
+/// Published `bhkSimpleShapePhantom` layout, in Havok metres.
+#[derive(Clone, Debug, PartialEq)]
+pub struct SimpleShapePhantom {
+    pub shape: BlockRef,
+    pub layer: Layer,
+    pub filter_flags: u8,
+    pub group: u16,
+    pub transform: Iso,
+}
+
 impl RigidBody {
     /// The body's transform in its node's space, in Havok metres.
     pub fn local_transform(&self) -> Iso {
@@ -144,6 +154,7 @@ pub enum Bhk {
         body: BlockRef,
     },
     RigidBody(RigidBody),
+    SimpleShapePhantom(SimpleShapePhantom),
     Box {
         material: u32,
         radius: f32,
@@ -188,7 +199,7 @@ pub enum Bhk {
         radius: f32,
     },
     CompressedMeshData(CompressedMeshData),
-    /// A bhk block this crate does not decode: constraints, phantoms, the
+    /// A bhk block this crate does not decode: constraints, other phantoms, the
     /// pre-Skyrim packed strips, the Fallout 4 family.
     Other(String),
 }
@@ -275,6 +286,31 @@ pub fn decode(type_name: &str, data: &[u8], header: &Header) -> Result<Bhk> {
         "bhkRigidBody" | "bhkRigidBodyT" => {
             Bhk::RigidBody(rigid_body(s, type_name == "bhkRigidBodyT")?)
         }
+        "bhkSimpleShapePhantom" => {
+            let shape = s.block_ref()?;
+            let (layer, filter_flags, group) = filter(s)?;
+            skip(s, 28)?;
+            let matrix = s.take(64)?;
+            let value = |i: usize| {
+                f32::from_le_bytes([
+                    matrix[i * 4],
+                    matrix[i * 4 + 1],
+                    matrix[i * 4 + 2],
+                    matrix[i * 4 + 3],
+                ])
+            };
+            if !(0..16).all(|i| value(i).is_finite()) {
+                return Err(Error::Invalid("phantom matrix is not finite".into()));
+            }
+            let transform = matrix44(&mut Stream::new(matrix))?;
+            Bhk::SimpleShapePhantom(SimpleShapePhantom {
+                shape,
+                layer,
+                filter_flags,
+                group,
+                transform,
+            })
+        }
         "bhkBoxShape" => {
             let (material, radius) = convex_prefix(s)?;
             skip(s, 8)?;
@@ -297,6 +333,9 @@ pub fn decode(type_name: &str, data: &[u8], header: &Header) -> Result<Bhk> {
             let r1 = s.f32()?;
             let second = vec3(s)?;
             let r2 = s.f32()?;
+            if [radius, r1, r2].iter().any(|r| !r.is_finite() || *r < 0.0) {
+                return Err(Error::Invalid("capsule radius".into()));
+            }
             // The two radii are always equal in Bethesda files. Take the
             // larger so a mismatch errs on the side of blocking.
             Bhk::Capsule {

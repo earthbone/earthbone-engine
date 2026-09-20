@@ -80,6 +80,118 @@ fn collision_object(body: i32) -> Block {
     }
 }
 
+fn simple_phantom(shape: i32) -> Block {
+    let mut w = W::new();
+    w.i32(shape).u8(30).u8(0x42).u16(0x1234).zeros(28);
+    for column in [
+        [0.0, 1.0, 0.0, 0.0],
+        [-1.0, 0.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0, 0.0],
+        [1.0, 2.0, 3.0, 0.0],
+    ] {
+        for value in column {
+            w.f32(value);
+        }
+    }
+    Block::Collision {
+        type_name: "bhkSimpleShapePhantom".into(),
+        data: w.done(),
+    }
+}
+
+fn controller_blocks() -> Vec<Block> {
+    let mut capsule = W::new();
+    capsule.u32(1591009235).f32(0.25).zeros(8);
+    capsule.vec4([0.0, 0.0, 0.25]).vec4([0.0, 0.0, 1.25]);
+    vec![
+        node("Controller", [10.0, 20.0, 30.0], 1, vec![]),
+        collision_object(2),
+        simple_phantom(3),
+        Block::Collision {
+            type_name: "bhkCapsuleShape".into(),
+            data: capsule.done(),
+        },
+    ]
+}
+
+#[test]
+fn cmb_29_authored_controller_keeps_filter_geometry_and_transform() {
+    let out = collect_blocks(&header(), &controller_blocks(), &[BlockRef(0)]).unwrap();
+    assert!(
+        out.colliders.is_empty(),
+        "a phantom must not become a static body"
+    );
+    assert!(out.skipped.is_empty());
+    assert_eq!(out.phantoms.len(), 1);
+    let phantom = &out.phantoms[0];
+    assert_eq!(phantom.layer, Layer::CHAR_CONTROLLER);
+    assert_eq!(phantom.filter_flags, 0x42);
+    assert_eq!(phantom.group, 0x1234);
+    assert_eq!(
+        phantom.transform.translation,
+        Vec3::new(10.0, 20.0, 30.0) + Vec3::new(1.0, 2.0, 3.0) * UNITS_PER_METER
+    );
+    assert_eq!(
+        phantom.transform.rotation.rows,
+        [[0.0, -1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]]
+    );
+    let Shape::Material { id, shape } = &phantom.shape else {
+        panic!("missing material");
+    };
+    assert_eq!(*id, 1591009235);
+    let Shape::Capsule { a, b, radius } = shape.as_ref() else {
+        panic!("missing capsule");
+    };
+    assert_eq!(*radius, 0.25 * UNITS_PER_METER);
+    assert_eq!(*a, Vec3::new(0.0, 0.0, 0.25) * UNITS_PER_METER);
+    assert_eq!(*b, Vec3::new(0.0, 0.0, 1.25) * UNITS_PER_METER);
+    let bounds = phantom.shape.aabb(&phantom.transform);
+    assert!((bounds.max.z - bounds.min.z - 1.5 * UNITS_PER_METER).abs() < 0.0001);
+}
+
+#[test]
+fn cmb_29_rejects_truncated_and_nonfinite_controller_data() {
+    let blocks = controller_blocks();
+    let Block::Collision { type_name, data } = &blocks[2] else {
+        panic!("phantom");
+    };
+    for len in 0..data.len() {
+        assert!(
+            bhk::decode(type_name, &data[..len], &header()).is_err(),
+            "length {len}"
+        );
+    }
+    for (block, offset, value) in [
+        (2, 36, f32::NAN),
+        (3, 4, f32::NAN),
+        (3, 28, -1.0),
+        (3, 16, f32::INFINITY),
+    ] {
+        let mut corrupt = blocks.clone();
+        let Block::Collision { data, .. } = &mut corrupt[block] else {
+            panic!("collision");
+        };
+        data[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
+        assert!(collect_blocks(&header(), &corrupt, &[BlockRef(0)]).is_err());
+    }
+    let mut missing = blocks;
+    missing[2] = simple_phantom(99);
+    assert!(collect_blocks(&header(), &missing, &[BlockRef(0)]).is_err());
+}
+
+#[test]
+fn cmb_29_rejects_partial_compound_controller_geometry() {
+    let mut blocks = controller_blocks();
+    blocks[2] = simple_phantom(4);
+    let mut list = W::new();
+    list.u32(2).i32(3).i32(99).u32(1591009235).zeros(24).u32(0);
+    blocks.push(Block::Collision {
+        type_name: "bhkListShape".into(),
+        data: list.done(),
+    });
+    assert!(collect_blocks(&header(), &blocks, &[BlockRef(0)]).is_err());
+}
+
 /// A `bhkRigidBodyT` with the full Skyrim SE layout (250 bytes, as the
 /// shipped files have it), mass zero, every field the crate does not read
 /// left at zero.

@@ -175,8 +175,73 @@ impl Collider {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Collected {
     pub colliders: Vec<Collider>,
+    /// Authored character-controller phantoms. These
+    /// are never inserted into the static collision world automatically.
+    pub phantoms: Vec<Phantom>,
     /// Blocks that were referenced but not decoded, with the reason.
     pub skipped: Vec<(BlockRef, String)>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct Phantom {
+    pub node: BlockRef,
+    pub node_name: String,
+    pub layer: Layer,
+    pub filter_flags: u8,
+    pub group: u16,
+    /// Root-space placement, game units.
+    pub transform: Iso,
+    /// Local geometry, game units. Capsule endpoints are centres of the caps.
+    pub shape: Shape,
+}
+
+fn finite_point(v: Vec3) -> bool {
+    v.x.is_finite() && v.y.is_finite() && v.z.is_finite()
+}
+
+fn valid_transform(t: &Iso) -> bool {
+    let m = t.rotation.rows;
+    let determinant = m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1])
+        - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0])
+        + m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0]);
+    finite_point(t.translation)
+        && t.scale.is_finite()
+        && t.scale > 0.0
+        && m.iter().flatten().all(|v| v.is_finite())
+        && determinant.is_finite()
+        && determinant != 0.0
+}
+
+fn valid_phantom_shape(shape: &Shape) -> bool {
+    match shape {
+        Shape::Box { half_extents: v } => finite_point(*v) && v.x > 0.0 && v.y > 0.0 && v.z > 0.0,
+        Shape::Sphere { radius } => radius.is_finite() && *radius > 0.0,
+        Shape::Capsule { a, b, radius } => {
+            finite_point(*a) && finite_point(*b) && radius.is_finite() && *radius > 0.0
+        }
+        Shape::ConvexHull { points } => {
+            points.len() >= 4 && points.iter().copied().all(finite_point)
+        }
+        Shape::TriangleMesh {
+            vertices,
+            triangles,
+            ..
+        } => {
+            !triangles.is_empty()
+                && vertices.iter().copied().all(finite_point)
+                && triangles
+                    .iter()
+                    .flatten()
+                    .all(|i| (*i as usize) < vertices.len())
+        }
+        Shape::Material { shape, .. } => valid_phantom_shape(shape),
+        Shape::Compound(children) => {
+            !children.is_empty()
+                && children
+                    .iter()
+                    .all(|(t, s)| valid_transform(t) && valid_phantom_shape(s))
+        }
+    }
 }
 
 /// Every collider a file places, in the file's root space.
@@ -264,6 +329,41 @@ impl<'a> Walker<'a> {
             None => return Ok(()),
         };
         let body = match self.bhk(body_ref)? {
+            Some(Bhk::SimpleShapePhantom(body)) => {
+                if body.layer != Layer::CHAR_CONTROLLER {
+                    self.out
+                        .skipped
+                        .push((body_ref, "non-controller phantom".into()));
+                    return Ok(());
+                }
+                let previous_skips = self.out.skipped.len();
+                if let Some(shape) = self.shape(body.shape, 0)? {
+                    let local = Iso {
+                        translation: body.transform.translation * UNITS_PER_METER,
+                        ..body.transform
+                    };
+                    let phantom = Phantom {
+                        node,
+                        node_name: name.to_string(),
+                        layer: body.layer,
+                        filter_flags: body.filter_flags,
+                        group: body.group,
+                        transform: world.then(&local),
+                        shape: shape.scaled(UNITS_PER_METER),
+                    };
+                    if previous_skips != self.out.skipped.len() {
+                        return Err(Error::Unsupported("incomplete phantom shape tree".into()));
+                    }
+                    if !valid_transform(&phantom.transform) || !valid_phantom_shape(&phantom.shape)
+                    {
+                        return Err(Error::Invalid("phantom geometry or transform".into()));
+                    }
+                    self.out.phantoms.push(phantom);
+                } else {
+                    return Err(Error::Unsupported("missing phantom shape geometry".into()));
+                }
+                return Ok(());
+            }
             Some(Bhk::RigidBody(b)) => b,
             Some(Bhk::Other(t)) => {
                 self.out.skipped.push((body_ref, format!("body {t}")));
@@ -389,7 +489,10 @@ impl<'a> Walker<'a> {
                 self.out.skipped.push((r, format!("shape {t}")));
                 None
             }
-            Bhk::CollisionObject { .. } | Bhk::RigidBody(_) | Bhk::CompressedMeshData(_) => {
+            Bhk::CollisionObject { .. }
+            | Bhk::RigidBody(_)
+            | Bhk::SimpleShapePhantom(_)
+            | Bhk::CompressedMeshData(_) => {
                 self.out
                     .skipped
                     .push((r, "shape reference points at a non-shape block".into()));
