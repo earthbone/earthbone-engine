@@ -631,7 +631,9 @@ fn object_reference(vm: &mut Vm, w: &Shared) {
     method!(vm, w, "ObjectReference", "AddItem", |world, call, me| {
         let count = call.args.get(1).map_or(1, Value::as_int);
         if let Some(item) = world.form_arg(&call.arg(0)) {
-            world.add_item(me, item, count.max(1));
+            world.add_item_notified(me, item, count.max(1), &mut |name, class| {
+                call.create_object(name, class)
+            });
         }
         none()
     });
@@ -639,7 +641,9 @@ fn object_reference(vm: &mut Vm, w: &Shared) {
         let count = call.args.get(1).map_or(1, Value::as_int);
         let target = world.form_arg(&call.arg(3));
         if let Some(item) = world.form_arg(&call.arg(0)) {
-            world.remove_item(me, item, count.max(1), target);
+            world.remove_item_notified(me, item, count.max(1), target, &mut |name, class| {
+                call.create_object(name, class)
+            });
         }
         none()
     });
@@ -655,7 +659,9 @@ fn object_reference(vm: &mut Vm, w: &Shared) {
                 .map(|r| r.inventory.iter().map(|(k, v)| (*k, *v)).collect())
                 .unwrap_or_default();
             for (item, count) in items {
-                world.remove_item(me, item, count, target);
+                world.remove_item_notified(me, item, count, target, &mut |name, class| {
+                    call.create_object(name, class)
+                });
             }
             none()
         }

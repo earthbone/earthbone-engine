@@ -18,6 +18,12 @@ Club content loads through the ordinary plugin/profile route, with native
 coverage extended in measured call-count order. These are scope commitments,
 not claims of complete compatibility.
 
+The implementation order, clarified on 2026-09-19, is playable Skyrim behavior
+first and redesigned systems afterward. Match the existing gameplay and AI
+contracts before pursuing portal transitions, continuous city flight or core
+AI improvements. Rendering and simulation detail may scale with distance and
+visibility only while preserving observable gameplay and script behavior.
+
 The mod manager is a separate workspace track. The engine should consume a
 resolved loadout and existing profile conventions without requiring a manager
 to emulate a single Data directory. Engine work does not authorize changing

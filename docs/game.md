@@ -11,7 +11,7 @@ week 6 to 9 gate.
   factions, spells), quests (stage, done set, objectives, aliases), globals,
   form lists. Base data comes from the winning record the first time a form is
   touched, so the table is a view over the load order and nothing is copied up
-  front. Run-time forms (`PlaceAtMe`, the fallback player) live in file slot
+  front. Run-time forms from `PlaceAtMe` live in file slot
   `FF` like the game's own. `world.rs` holds the state types, the `World`
   struct and its constructor, the methods sit in one child module per
   concern, each an `impl World`: `lookup` (editor ids, records, run-time
@@ -823,3 +823,76 @@ alone.
 settling costs what it does. A dirty flag set at each mutation site would
 make it a walk instead of a rebuild, and would help every unload rather than
 only this path.
+
+## Crafting execution, first increment
+
+`Game::check_craft` and `Game::craft` read the winning COBJ recipe, resolve its
+links in that winning file's master order, match the placed workbench keyword
+and evaluate conditions against current world and VM state. FURN WBDT must
+select object creation. ACTI benches can provide a creation keyword. The
+canonical armor and weapon improvement keywords cannot create new items.
+
+Ingredient counts are aggregated with checked arithmetic. The transaction
+requires the full input quantity even if an input is also the output. It
+checks output capacity before committing the complete inventory once.
+Rejected crafts preserve inventory quantities and queued events, although
+lazy record reads can materialize other world state. A preview is rechecked
+at execution. Distance, menu ownership and host activation remain caller work.
+
+Successful transactions queue OnItemRemoved for consumed stacks and
+OnItemAdded for the output. The next game pump executes handlers. Reference
+and running quest alias recipients have independent filters, applied when
+events are queued. Filter lists inspect immediate members only. Empty lists
+suppress events, and later filter changes do not cancel pending calls.
+The script-facing AddItem, RemoveItem and RemoveAllItems stack paths now
+queue these events too. Silent removal still notifies scripts. AddItem rejects
+unsupported reference, list and leveled-list inputs instead of reporting them
+as inventory base forms. Their full semantics and active-effect recipients
+remain pending with item-instance and magic execution.
+
+The condition evaluator implements functions 47, 56, 58, 59, 72, 74, 136,
+182, 264, 289, 359, 448, 543, 560, 629, 630 and 659. This is a bounded set,
+not the entire CTDA contract. It supports ordered AND/OR groups, numeric or
+global comparisons, explicit references and caller-supplied quest aliases.
+Reserved PlayerRef resolves to the runtime player even without a placed record.
+New runtime players retain reserved FormID 00000014 and use the Player NPC
+base when present, so forced player aliases and inventory notifications agree.
+Conditional Papyrus variables come from current attached instances, with
+ambiguous or nonnumeric values reported as errors. Unavailable targets,
+unsupported flags/functions, nonzero HasPerk parameter 2 and missing tempering
+context are explicit errors. Crafting does not invent a target or quest context.
+Float comparisons are exact and have not been compared against vanilla
+near-equality behavior. Inventory instance queries remain unfinished.
+
+Sources consulted were local xEdit `wbDefinitionsTES5.pas` for CTDA, COBJ and
+FURN WBDT, UESP COBJ notes for missing outputs, skymp `CraftService.cpp` and
+`unit/CraftTest.cpp` for bench matching and DLC cases, Mutagen
+`Skyrim/Constants.cs` for PlayerRef, and CK inventory event/filter pages.
+The skymp evaluator's unknown-function success and unresolved target mapping
+were not adopted. Mutagen labels HasPerk's second integer unused, while xEdit
+exposes it, so nonzero values need further evidence. Caprica's property
+compiler confirms conditional auto-property flags on the backing variable.
+
+Twelve synthetic crafting scenarios cover duplicate inputs, gross versus net
+counts, overflow, bench modes, winning overrides, condition rechecks,
+conditional quest variables, alias filters and script callbacks. Two Papyrus
+tests cover conditional flags, inheritance, ambiguity and saved variables.
+An engine save made before event dispatch resumes to the same inventory,
+handler variables and canonical state hash. Save bytes are not required to
+match because existing world hash maps serialize in arbitrary order.
+
+The installed five-master run surveyed 1,385 recipes and executed
+RecipeWeaponIronDagger and BYOHRecipeNails at forge reference 0001AD6E.
+The dagger consumed one iron ingot and one leather strip. Nails consumed one
+iron ingot and produced ten nails. Explicit PlayerRef inventory conditions
+also passed. Predicate presence across the survey does not establish that
+every recipe is executable or that all predicate contexts match vanilla.
+
+Tempering, alchemy, enchanting, skill advancement, crafting story events,
+item instance state and host menus remain unfinished. The full requested
+execution scope is tracked in [execution-plan.md](execution-plan.md).
+
+The game crate now directly uses the workspace's existing thiserror 2.0.20
+for typed execution errors. `cargo tree -p soe-game -i thiserror` confirms
+the dependency was already present through esm, bsa, navmesh and profile.
+No package versions or new transitive dependencies were added.

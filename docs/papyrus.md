@@ -378,3 +378,18 @@ it has no cost.
 bodies, queued calls, global waits and resume, stable saves/hashes, and stale
 instances after script replacement. Quest grouping is in `soe-game` and is
 documented in `validation.md`.
+
+## Conditional variable lookup
+
+`Vm::conditional_vars` exposes current conditional variables on attached
+instances for game-side CTDA queries. The conditional bit comes from the PEX
+user-flag table, not a fixed bit number. Both the declaring script and variable
+must carry that flag. Auto properties use their compiled backing name, such
+as `::activeHouseLocation_var`, and do not execute a property getter.
+
+The lookup follows inheritance and preserves multiple matching values so the
+caller can report ambiguity. CK's Papyrus introduction specifies conditional
+script and property declarations. The local Caprica property compiler copies
+property user flags to the backing variable. `tests/conditional.rs` checks
+nonstandard flag positions, current and restored values, inherited variables,
+nonconditional declarations and duplicate names. No save format changed.

@@ -265,6 +265,7 @@ struct LoadedScript {
     name: String,
     parent: Option<String>,
     object: Object,
+    conditional_mask: u32,
     /// `(state, function)` both lowercased.
     functions: HashMap<(String, String), Rc<Function>>,
     getters: HashMap<String, Rc<Function>>,
@@ -374,6 +375,12 @@ impl Vm {
     pub fn load(&mut self, script: Script) {
         // A new script set needs a fresh coverage denominator.
         self.coverage = None;
+        let conditional_mask = script
+            .user_flags
+            .iter()
+            .filter(|flag| flag.name.eq_ignore_ascii_case("conditional"))
+            .filter_map(|flag| 1u32.checked_shl(u32::from(flag.bit)))
+            .fold(0, |mask, bit| mask | bit);
         for object in script.objects {
             let mut functions = HashMap::new();
             for st in &object.states {
@@ -404,6 +411,7 @@ impl Vm {
                 name: name.clone(),
                 parent,
                 object,
+                conditional_mask,
                 functions,
                 getters,
                 setters,
@@ -721,6 +729,37 @@ impl Vm {
         let id = self.instance_on(object, script)?;
         let key = self.instances[id.0].variable_key(script, var);
         self.instances[id.0].vars.get(&key).cloned()
+    }
+
+    /// Read matching conditional variables from attached script instances.
+    /// CK conditions name a variable, not a script. Multiple matches remain
+    /// visible to the caller instead of choosing by attachment order.
+    /// Auto properties use their compiled `::Name_var` variable name.
+    pub fn conditional_vars(&self, object: ObjectId, name: &str) -> Vec<Value> {
+        let Some(object) = self.objects.get(&object) else {
+            return Vec::new();
+        };
+        object
+            .instances
+            .iter()
+            .filter_map(|id| {
+                let instance = &self.instances[id.0];
+                let (script, variable) = instance.chain.iter().find_map(|script| {
+                    script
+                        .object
+                        .variables
+                        .iter()
+                        .find(|variable| variable.name.eq_ignore_ascii_case(name))
+                        .map(|variable| (script, variable))
+                })?;
+                let mask = script.conditional_mask;
+                if script.object.user_flags & mask == 0 || variable.user_flags & mask == 0 {
+                    return None;
+                }
+                let key = variable_key(&script.name, &variable.name);
+                instance.vars.get(&key).cloned()
+            })
+            .collect()
     }
 
     pub fn set_var(

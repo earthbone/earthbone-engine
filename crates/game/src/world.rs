@@ -43,6 +43,7 @@ mod driver;
 mod events;
 mod forms;
 pub mod hash;
+mod inventory;
 mod lookup;
 mod objects;
 mod quests;
@@ -56,7 +57,7 @@ pub use doorway::{Doorway, Side, Threshold, THRESHOLD_BAND, UNITS_PER_METRE};
 pub use save::{SAVE_MAGIC, SAVE_VERSION};
 pub use transition::CellTransition;
 
-/// Forms created at run time (`PlaceAtMe`, the fallback player) live in a
+/// Forms created at run time by `PlaceAtMe` live in a
 /// file slot no plugin can own, the same `FF` prefix the game uses.
 pub const DYNAMIC_FILE: u16 = 0xFF;
 pub const PLAYER_OBJECT: u32 = 0x14;
