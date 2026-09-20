@@ -37,7 +37,8 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// Version 13 persists runtime NPC record overrides and mapped links.
 /// Version 14 adds temporary NPC identities, ownership and component provenance.
 /// Version 15 persists deferred-death requests and their eventual event recipients.
-pub const SAVE_VERSION: u16 = 15;
+/// Version 16 retains an actor's active exclusive dialogue branch.
+pub const SAVE_VERSION: u16 = 16;
 
 impl World {
     /// Serialize the run-time state: the VM object handles, references,
@@ -1157,6 +1158,7 @@ fn write_actor_state(w: &mut Writer, a: &ActorState) {
     ] {
         w.bool(flag);
     }
+    write_opt_form_id(w, a.exclusive_branch);
     w.len(a.relationships.len());
     for (id, rank) in &a.relationships {
         write_form_id(w, *id);
@@ -1265,6 +1267,9 @@ fn read_actor_state(r: &mut Reader<'_>, version: u16) -> Result<ActorState, VmEr
     a.attack_on_sight = r.bool()?;
     a.dont_move = r.bool()?;
     a.allow_pc_dialogue = r.bool()?;
+    if version >= 16 {
+        a.exclusive_branch = read_opt_form_id(r)?;
+    }
     let n = r.len()?;
     for _ in 0..n {
         let id = read_form_id(r)?;
@@ -1333,5 +1338,46 @@ fn write_quest_mutable(w: &mut Writer, q: &QuestState) {
     for (id, v) in q.journal.globals().into_iter().flatten() {
         write_form_id(w, *id);
         w.f32(*v);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn version_15_actor_state_defaults_an_absent_exclusive_branch() {
+        let mut actor = ActorState {
+            exclusive_branch: Some(GlobalFormId {
+                file: 0,
+                object: 0x1903,
+            }),
+            ..ActorState::default()
+        };
+        actor.relationships.insert(
+            GlobalFormId {
+                file: 2,
+                object: 0x1234,
+            },
+            -3,
+        );
+        actor.combat_target = Some(GlobalFormId {
+            file: 3,
+            object: 0x5678,
+        });
+        actor.graph_floats.insert("speed".into(), 1.5);
+        let mut writer = Writer::new();
+        write_actor_state(&mut writer, &actor);
+        let marker = [1, 0, 0, 3, 0x19, 0, 0];
+        let offset = writer
+            .out
+            .windows(marker.len())
+            .position(|bytes| bytes == marker)
+            .expect("exclusive branch is serialized");
+        writer.out.drain(offset..offset + marker.len());
+        actor.exclusive_branch = None;
+
+        let restored = read_actor_state(&mut Reader::new(&writer.out), 15).unwrap();
+        assert_eq!(restored, actor);
     }
 }

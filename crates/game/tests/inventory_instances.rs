@@ -158,7 +158,7 @@ fn engine_save_retains_every_stack_field_and_failed_load_is_atomic() {
         .unwrap();
     let hash = w.state_hash();
     let bytes = w.save_state();
-    assert_eq!(u16::from_le_bytes([bytes[4], bytes[5]]), 15);
+    assert_eq!(u16::from_le_bytes([bytes[4], bytes[5]]), 16);
     let mut loaded = world();
     loaded.load_state(&bytes).unwrap();
     assert_eq!(loaded.state_hash(), hash);

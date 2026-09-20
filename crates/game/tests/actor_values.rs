@@ -4,6 +4,9 @@
 //! CK actor-value contracts through the native boundary, independent NPC
 //! field bytes, and winning template/race inputs used by combat and magic.
 
+#[path = "common/legacy.rs"]
+mod legacy;
+
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::{
     actor_values::Values,
@@ -248,7 +251,7 @@ fn version_seven_components_load_without_dialogue_state() {
         .damage_actor_value(actor, "health", 15.0)
         .unwrap();
     let hash = original.world().state_hash();
-    let mut old = original.world().save_state();
+    let mut old = legacy::without_exclusive_branches(&mut original.world_mut(), &[actor]);
     // Version 7 predates the empty dialogue cursor and history appended in v8.
     old.truncate(old.len() - 33);
     old[4..6].copy_from_slice(&7u16.to_le_bytes());

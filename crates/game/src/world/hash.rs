@@ -345,6 +345,7 @@ fn actor_state(h: &mut StateHasher, a: &ActorState) {
     ] {
         h.bool(flag);
     }
+    opt_form(h, a.exclusive_branch);
     h.len(a.relationships.len());
     for (id, rank) in &a.relationships {
         form(h, *id);

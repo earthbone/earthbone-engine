@@ -200,6 +200,8 @@ pub struct ActorState {
     pub attack_on_sight: bool,
     pub dont_move: bool,
     pub allow_pc_dialogue: bool,
+    /// The active exclusive `DLBR`, retained when conversation closes.
+    pub exclusive_branch: Option<GlobalFormId>,
     /// Relationship rank per other actor, `SetRelationshipRank` values.
     pub relationships: BTreeMap<GlobalFormId, i32>,
     pub combat_target: Option<GlobalFormId>,

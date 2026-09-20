@@ -594,11 +594,13 @@ either.
 
 `World::save_state(&self) -> Vec<u8>` and `World::load_state(&mut self,
 bytes) -> Result<(), VmError>` write and read the run-time half of the form
-table, magic `SOEW`, version 11. Versions 4 to 6 use legacy actor values,
+table, magic `SOEW`, version 16. Versions 4 to 6 use legacy actor values,
 version 5 adds active magic, version 6 adds dialogue, version 7 adds actor-value
 components, version 8 adds dialogue to those components, and version 9 adds
 active magic. Version 10 adds per-reference leveled template choices.
-Version 11 adds quest journal instances and mapped runtime metadata.
+Version 11 adds quest journal instances and mapped runtime metadata. Versions
+12 to 15 add inventory, NPC, identity and deferred-death state. Version 16
+adds an actor's active exclusive dialogue branch.
 Older formats load with empty state for absent subsystems.
 Legacy current and base values must agree. Otherwise their modifier domains
 are ambiguous and restoration returns an explicit error.
@@ -912,8 +914,12 @@ No package versions or new transitive dependencies were added.
 `Game::begin_dialogue`, `dialogue_choices`, `choose_dialogue`,
 `dialogue_line`, `advance_dialogue` and `close_dialogue` provide a conversation
 lifecycle over winning DIAL, INFO, DLBR and QUST records. Normal top-level
-branches supply the initial choices. Quest priority and topic priority sort
-those choices. Inactive quests and failed quest/INFO conditions suppress them.
+branches supply the initial choices. An eligible blocking branch, with or
+without Top-Level, suppresses normal topics. An active exclusive branch enters
+the same blocking arbitration. The highest quest priority wins between
+blockers, and an equal priority uses the resolved DLBR FormID so the result
+stays deterministic. Quest priority and topic priority sort non-blocking choices.
+Inactive quests and failed quest/INFO conditions suppress them.
 Selection checks conditions again, so a stale menu cannot start its fragment.
 Unknown conditions return diagnostics instead of becoming true.
 
@@ -950,6 +956,13 @@ Conditions use current shared actor, quest, inventory and location state.
 Papyrus variable queries require conditional flags and reject ambiguous names.
 The evaluator does not complete missing actor-value, alias or package systems.
 
+SOEW version 16 stores an actor's active exclusive DLBR. Speaking any topic
+owned by an exclusive branch retains that branch after the conversation
+closes. It enters blocking arbitration on the next root choices, including
+when the prior INFO has no links. Speaking a topic from another exclusive
+branch updates the retained branch. Speaking a topic from a non-exclusive
+branch clears it. An unbranched topic does not clear it. Unknown DLBR flag bits
+are rejected. Version 15 and older saves load with no retained exclusive branch.
 SOEW version 9 stores the conversation cursor, sorted INFO history and active
 magic effects alongside actor-value components. Formats without dialogue load
 an empty conversation state. Dialogue state contributes to the
@@ -957,11 +970,22 @@ simulation hash. The derived record index is rebuilt from the load order.
 This is engine-save support, not vanilla ESS conversation restoration.
 
 Sources are local xEdit DIAL/INFO/DLBR/QUST and wbConditionFunctions, UESP
-VMAD_Field, CK GetDialogueTarget and IsInDialogueWithPlayer, shipped
+DLBR and VMAD_Field, CommonLibSSE-NG `BGSDialogueBranch` and
+`TESObjectREFR` exclusive-branch accessors, CK GetDialogueTarget and
+IsInDialogueWithPlayer, shipped
 Location.psc, and Mutagen's DialogTopic reader. The PNAM ordering algorithm
 adapts GPL Wrye Bash `Mopy/bash/brec/record_groups.py`,
 `_DialChildren._sort_group`, with explicit cycle rejection. It remains in the
 GPL game crate. The schema sources do not provide a reusable Rust interpreter.
+The archived Creation Kit Dialogue Branch lifecycle page could not be fetched
+again on 2026-09-20. The blocking and exclusive lifecycle above follows the
+prior successful retrieval report for oldid 33340, while xEdit, UESP and
+CommonLib independently establish the record flags and actor-scoped exclusive
+branch state.
+
+The installed five-master survey sees 3,933 non-deleted DLBR winners: flags
+0 (224), 1 (2,708), 2 (970), 4 (13), 5 (1) and 6 (17). This confirms that
+blocking without Top-Level and exclusive combinations occur in shipped data.
 
 The gated five-master test checks all 40,678 live INFO records for ownership,
 7,799 fragment declarations and 19,368 ordered topic groups. INFO fragment
@@ -973,8 +997,8 @@ verify named fragments changing quest stages. DLG-12 now resolves the localized
 text through the conversation API. Subtitle widgets and audible lines remain
 outside this test.
 
-Remaining dialogue work includes missing conditions, blocking/exclusive
-branches, automatic greetings and ForceGreet, refusal/invisible continuation,
+Remaining dialogue work includes missing conditions, automatic greetings and
+ForceGreet, refusal/invisible continuation,
 favor spending, do-all-before-repeating, walk-away behavior, scenes, persuasion,
 services, complete alias behavior and interruption rules. Godot activation,
 menus, voice assets, LIP and idle playback are not connected to this API. This increment does not establish playable dialogue
