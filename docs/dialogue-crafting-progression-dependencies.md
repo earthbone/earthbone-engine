@@ -16,7 +16,7 @@ to be available in the audited baseline.
 
 | Consumer | Required rows | Reason |
 |---|---|---|
-| DLG-08 | PRG-05 | Merchant container merchandise can contain LVLI entries. Resolve those before exposing eligible merchandise. INV-01 adds concrete reference inputs to AddItem, which vendor-data resolution does not call. |
+| DLG-08 | PRG-05, PRG-18, PRG-19, PRG-20 | Merchant container merchandise can contain LVLI entries, including special loot, entry metadata and mixed Use All flags. Resolve those before exposing eligible merchandise. INV-01 adds concrete reference inputs to AddItem, which vendor-data resolution does not call. |
 | DLG-09 | FMT-04, FMT-18 | Scheduling consumes SCEN fields and its begin, end and phase fragment declarations. Scene state currently records only playing membership and OnBegin/OnEnd callbacks. |
 | DLG-10 | UI-01, DLG-12 | Native controls and resolved topic/response text are required to display shipped conversations. A localized string ID is not the player's choice text. |
 | DLG-13 | None | Speaker resolution consumes a filled alias. World::alias_ref and force_alias already supply and clear that identity. AI-12 adds a search-based filling method. |
@@ -104,7 +104,7 @@ them. Serena confirmed the alias lookup and mutation definitions.
 ## Validation
 
 The initial CSV validation checked all 541 rows. The completion update adds
-PRG-16 and PRG-17, bringing the registry to 543 rows and the selected scope to 46.
+PRG-16 through PRG-20, bringing the registry to 546 rows and the selected scope to 49.
 CSV validation checks the complete registry. It checks unique IDs, required fields,
 title/source/crate bounds, canonical quoting, valid status/evidence/date
 fields, retained original IDs, existing non-dropped prerequisites and cycle
@@ -173,3 +173,26 @@ unequal and equal priorities, same and different PERKs, reversed acquisition
 order, raw ranks zero and one, actor/weapon/target tabs and save/load. Each
 accepted rule needs a cited implementation or reproducible original-runtime
 trace. CMB-09 continues to own the hit-damage handlers and combat integration.
+
+## Cross-branch leveled-list reconciliation
+
+The completed progression-zones and leveled-lists branches were inspected
+before starting overlapping work. PRG-04 evidence comes from 8710fad and
+d6b1df6, with 13 focused encounter-zone checks and a recorded full gate.
+PRG-05 evidence comes from 1261260 and 3dd55a2, with 19 leveled-item checks,
+a 3835-list installed survey and a recorded full gate. Their row evidence
+records those branch validations, not a new integration gate on master.
+
+The leveled-lists branch independently assigned PRG-14, PRG-15 and PRG-16
+to three follow-up scopes. Those IDs already name Story Manager, NPC skill
+calculation and non-default perk purchase DATA in this registry. Existing
+assignments remain unchanged here and in the source branch. The imported
+scopes receive new canonical IDs: PRG-18 for Special Loot, PRG-19 for COED
+entry metadata and PRG-20 for mixed Use All flags. The branch names preserve
+the link to each original scope. Integration must retain the canonical IDs
+from this registry rather than reintroducing the conflicting source rows.
+
+PRG-05 covers ordinary quantities. It rejects Special Loot, COED and mixed
+Use All flags before rolling, so the full vendor-merchandise scope in DLG-08
+requires all three follow-ups as well as PRG-05. This preserves the original
+merchandise contract across vanilla and mod-authored lists.
