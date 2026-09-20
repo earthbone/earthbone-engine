@@ -521,6 +521,12 @@ pub enum NodeKind {
         is_active: [bool; IS_ACTIVE_SLOTS],
         invert_active: [bool; IS_ACTIVE_SLOTS],
     },
+    /// `BSDecomposeVectorModifier`: copies the four components of `vector`
+    /// into its real outputs.
+    DecomposeVector {
+        enable: bool,
+        vector: [f32; 4],
+    },
     /// Any other `hkbModifier` subclass: only the enable flag is read.
     Modifier {
         enable: bool,
@@ -594,6 +600,7 @@ impl Node {
             | NodeKind::BlendingTransition(_)
             | NodeKind::TimerModifier { .. }
             | NodeKind::IsActiveModifier { .. }
+            | NodeKind::DecomposeVector { .. }
             | NodeKind::Modifier { .. }
             | NodeKind::Unknown => {}
         }
@@ -989,6 +996,10 @@ impl<'a> Loader<'a> {
                     invert_active,
                 }
             }
+            "BSDecomposeVectorModifier" => NodeKind::DecomposeVector {
+                enable: o.bool(72)?,
+                vector: o.vec4(80)?,
+            },
             c if c.ends_with("Modifier") => NodeKind::Modifier {
                 enable: o.bool(72)?,
             },

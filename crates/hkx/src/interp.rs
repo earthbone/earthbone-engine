@@ -290,6 +290,10 @@ enum Target {
     },
     /// Output: whether the state machine is active.
     MachineIsActive,
+    /// Input: the quad vector which the modifier decomposes.
+    DecomposeVector,
+    /// Output: one component of a decomposed vector.
+    DecomposeComponent(usize),
 }
 
 impl Target {
@@ -299,7 +303,10 @@ impl Target {
     /// `SERIALIZE_IGNORED`), so the member decides: these two are node state
     /// with no setter behind them.
     fn is_output(self) -> bool {
-        matches!(self, Target::IsActive { .. } | Target::MachineIsActive)
+        matches!(
+            self,
+            Target::IsActive { .. } | Target::MachineIsActive | Target::DecomposeComponent(_)
+        )
     }
 }
 
@@ -344,6 +351,8 @@ struct Runtime {
     start_state: Option<i32>,
     /// A bound blend `duration`, on a transition effect.
     duration: Option<f32>,
+    /// A bound vector input for `BSDecomposeVectorModifier`.
+    vector: Option<[f32; 4]>,
 }
 
 /// A generator's result for one frame: a local pose and how much of it
@@ -490,6 +499,19 @@ impl<'a> Interpreter<'a> {
                             slot,
                             invert: invert_active[slot],
                         })
+                }
+                ("vector", None, NodeKind::DecomposeVector { .. }) => Some(Target::DecomposeVector),
+                ("x", None, NodeKind::DecomposeVector { .. }) => {
+                    Some(Target::DecomposeComponent(0))
+                }
+                ("y", None, NodeKind::DecomposeVector { .. }) => {
+                    Some(Target::DecomposeComponent(1))
+                }
+                ("z", None, NodeKind::DecomposeVector { .. }) => {
+                    Some(Target::DecomposeComponent(2))
+                }
+                ("w", None, NodeKind::DecomposeVector { .. }) => {
+                    Some(Target::DecomposeComponent(3))
                 }
                 (path, _, _) if path.starts_with("children:") && path.ends_with("/weight") => path
                     ["children:".len()..path.len() - "/weight".len()]
@@ -690,15 +712,36 @@ impl<'a> Interpreter<'a> {
         if !b.target.is_output() || b.property {
             return;
         }
-        let Some(runtime) = self.nodes.get(b.node.0) else {
-            return;
-        };
-        let value = match b.target {
-            Target::IsActive { invert, .. } => runtime.active != invert,
-            Target::MachineIsActive => runtime.active,
-            _ => return,
-        };
-        self.variables.set_word(b.variable, i32::from(value));
+        match b.target {
+            Target::IsActive { invert, .. } => {
+                let Some(runtime) = self.nodes.get(b.node.0) else {
+                    return;
+                };
+                self.variables
+                    .set_word(b.variable, i32::from(runtime.active != invert));
+            }
+            Target::MachineIsActive => {
+                let Some(runtime) = self.nodes.get(b.node.0) else {
+                    return;
+                };
+                self.variables
+                    .set_word(b.variable, i32::from(runtime.active));
+            }
+            Target::DecomposeComponent(component) => {
+                let Some(runtime) = self.nodes.get(b.node.0) else {
+                    return;
+                };
+                if !runtime.active {
+                    return;
+                }
+                let NodeKind::DecomposeVector { vector, .. } = &self.graph.node(b.node).kind else {
+                    return;
+                };
+                self.variables
+                    .set_real(b.variable, runtime.vector.unwrap_or(*vector)[component]);
+            }
+            _ => {}
+        }
     }
 
     fn apply_bindings(&mut self) {
@@ -730,8 +773,11 @@ impl<'a> Interpreter<'a> {
                 Target::Enable => rt.enabled = Some(value != 0.0),
                 Target::StartStateId => rt.start_state = Some(value as i32),
                 Target::Duration => rt.duration = Some(value),
+                Target::DecomposeVector => rt.vector = table.quad(b.variable),
                 // Written by apply_output_bindings, skipped above.
-                Target::IsActive { .. } | Target::MachineIsActive => {}
+                Target::IsActive { .. }
+                | Target::MachineIsActive
+                | Target::DecomposeComponent(_) => {}
             }
         }
     }
@@ -747,6 +793,7 @@ impl<'a> Interpreter<'a> {
             | NodeKind::EventDrivenModifier { enable, .. }
             | NodeKind::TimerModifier { enable, .. }
             | NodeKind::IsActiveModifier { enable, .. }
+            | NodeKind::DecomposeVector { enable, .. }
             | NodeKind::Modifier { enable } => *enable,
             _ => true,
         };
@@ -895,6 +942,7 @@ impl<'a> Interpreter<'a> {
             | NodeKind::EventDrivenModifier { .. }
             | NodeKind::TimerModifier { .. }
             | NodeKind::IsActiveModifier { .. }
+            | NodeKind::DecomposeVector { .. }
             | NodeKind::Modifier { .. }
             | NodeKind::Unknown => {}
         }
@@ -1255,6 +1303,7 @@ impl<'a> Interpreter<'a> {
             | NodeKind::EventDrivenModifier { .. }
             | NodeKind::TimerModifier { .. }
             | NodeKind::IsActiveModifier { .. }
+            | NodeKind::DecomposeVector { .. }
             | NodeKind::Modifier { .. } => self.reference_output(),
         }
     }
@@ -1649,7 +1698,7 @@ pub fn blend_outputs(from: &Output, to: &Output, alpha: f32) -> Output {
 mod tests {
     use super::*;
 
-    use crate::behavior::{Binding, Node, VariableBindingSet};
+    use crate::behavior::{Binding, Node, VariableBindingSet, VariableValueSet};
     use crate::spline::encode;
 
     fn pad4(bytes: &mut Vec<u8>) {
@@ -1912,6 +1961,228 @@ mod tests {
                 },
             ],
         }
+    }
+
+    fn decompose_node(
+        id: usize,
+        name: &str,
+        enable: bool,
+        vector: [f32; 4],
+        bind_vector: bool,
+        output_variables: [usize; 4],
+    ) -> Node {
+        let mut bindings = ["x", "y", "z", "w"]
+            .into_iter()
+            .zip(output_variables)
+            .map(|(member_path, variable_index)| Binding {
+                member_path: member_path.into(),
+                variable_index: i32::try_from(variable_index).unwrap(),
+                bit_index: -1,
+                binding_type: 0,
+            })
+            .collect::<Vec<_>>();
+        if bind_vector {
+            bindings.insert(
+                0,
+                Binding {
+                    member_path: "vector".into(),
+                    variable_index: 4,
+                    bit_index: -1,
+                    binding_type: 0,
+                },
+            );
+        }
+        Node {
+            id: NodeId(id),
+            offset: u32::try_from(id).unwrap(),
+            class: "BSDecomposeVectorModifier".into(),
+            name: name.into(),
+            user_data: 0,
+            bindings: Some(VariableBindingSet {
+                bindings,
+                index_of_binding_to_enable: -1,
+            }),
+            kind: NodeKind::DecomposeVector { enable, vector },
+        }
+    }
+
+    fn decompose_graph(enable: bool, bind_vector: bool) -> BehaviorGraph {
+        BehaviorGraph {
+            name: "decompose vector".into(),
+            variable_mode: 0,
+            root: Some(NodeId(0)),
+            data: BehaviorGraphData {
+                variable_names: vec![
+                    "x".into(),
+                    "y".into(),
+                    "z".into(),
+                    "w".into(),
+                    "input".into(),
+                ],
+                variable_infos: vec![
+                    VariableInfo {
+                        ty: VariableType::Real,
+                        ..Default::default()
+                    },
+                    VariableInfo {
+                        ty: VariableType::Real,
+                        ..Default::default()
+                    },
+                    VariableInfo {
+                        ty: VariableType::Real,
+                        ..Default::default()
+                    },
+                    VariableInfo {
+                        ty: VariableType::Real,
+                        ..Default::default()
+                    },
+                    VariableInfo {
+                        ty: VariableType::Vector4,
+                        ..Default::default()
+                    },
+                ],
+                variable_initial_values: Some(VariableValueSet {
+                    word_values: vec![0, 0, 0, 0, 0],
+                    quad_values: vec![[1.25, -2.5, 3.75, -4.0]],
+                    variant_values: Vec::new(),
+                }),
+                ..Default::default()
+            },
+            nodes: vec![
+                Node {
+                    id: NodeId(0),
+                    offset: 0,
+                    class: "hkbModifierGenerator".into(),
+                    name: "wrapper".into(),
+                    user_data: 0,
+                    bindings: None,
+                    kind: NodeKind::ModifierGenerator {
+                        modifier: Some(NodeId(1)),
+                        generator: None,
+                    },
+                },
+                decompose_node(
+                    1,
+                    "decompose",
+                    enable,
+                    [9.0, 8.0, 7.0, 6.0],
+                    bind_vector,
+                    [0, 1, 2, 3],
+                ),
+            ],
+        }
+    }
+
+    #[test]
+    fn decompose_vector_uses_authored_and_bound_inputs_for_all_components() {
+        let lib = ClipLibrary::new();
+        let authored = decompose_graph(true, false);
+        let mut vm = Interpreter::new(&authored, &lib, Vec::new());
+        vm.update(1.0 / 60.0);
+        assert_eq!(
+            [
+                vm.variables.real(0),
+                vm.variables.real(1),
+                vm.variables.real(2),
+                vm.variables.real(3),
+            ],
+            [Some(9.0), Some(8.0), Some(7.0), Some(6.0)]
+        );
+
+        let bound = decompose_graph(true, true);
+        let mut vm = Interpreter::new(&bound, &lib, Vec::new());
+        vm.update(1.0 / 60.0);
+        assert_eq!(
+            [
+                vm.variables.real(0),
+                vm.variables.real(1),
+                vm.variables.real(2),
+                vm.variables.real(3),
+            ],
+            [Some(1.25), Some(-2.5), Some(3.75), Some(-4.0)]
+        );
+        assert!(vm.unsupported().unbound.is_empty());
+    }
+
+    #[test]
+    fn a_disabled_decompose_vector_modifier_preserves_its_outputs() {
+        let graph = decompose_graph(false, true);
+        let lib = ClipLibrary::new();
+        let mut vm = Interpreter::new(&graph, &lib, Vec::new());
+        vm.variables.set_real(0, 10.0);
+        vm.variables.set_real(1, 20.0);
+        vm.variables.set_real(2, 30.0);
+        vm.variables.set_real(3, 40.0);
+        vm.update(1.0 / 60.0);
+        assert!(!vm.is_active(NodeId(1)));
+        assert_eq!(
+            [
+                vm.variables.real(0),
+                vm.variables.real(1),
+                vm.variables.real(2),
+                vm.variables.real(3),
+            ],
+            [Some(10.0), Some(20.0), Some(30.0), Some(40.0)]
+        );
+    }
+
+    #[test]
+    fn nested_modifier_lists_publish_decomposed_components_in_serialized_order() {
+        let mut graph = decompose_graph(true, false);
+        graph.nodes[0].kind = NodeKind::ModifierGenerator {
+            modifier: Some(NodeId(1)),
+            generator: None,
+        };
+        graph.nodes[1] = Node {
+            id: NodeId(1),
+            offset: 1,
+            class: "hkbModifierList".into(),
+            name: "outer".into(),
+            user_data: 0,
+            bindings: None,
+            kind: NodeKind::ModifierList {
+                enable: true,
+                modifiers: vec![Some(NodeId(2)), Some(NodeId(3))],
+            },
+        };
+        graph.nodes.push(Node {
+            id: NodeId(2),
+            offset: 2,
+            class: "hkbModifierList".into(),
+            name: "nested".into(),
+            user_data: 0,
+            bindings: None,
+            kind: NodeKind::ModifierList {
+                enable: true,
+                modifiers: vec![Some(NodeId(4))],
+            },
+        });
+        graph.nodes.push(decompose_node(
+            3,
+            "later",
+            true,
+            [2.0, 0.0, 0.0, 0.0],
+            false,
+            [0, 1, 2, 3],
+        ));
+        graph.nodes.push(decompose_node(
+            4,
+            "nested first",
+            true,
+            [1.0, 0.0, 0.0, 0.0],
+            false,
+            [0, 1, 2, 3],
+        ));
+
+        let lib = ClipLibrary::new();
+        let mut vm = Interpreter::new(&graph, &lib, Vec::new());
+        vm.update(1.0 / 60.0);
+        assert_eq!(vm.variables.real(0), Some(2.0));
+        assert_eq!(
+            graph.node(NodeId(1)).children(),
+            vec![NodeId(2), NodeId(3)],
+            "the later serialized modifier overwrites the nested output"
+        );
     }
 
     #[test]
