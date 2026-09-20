@@ -268,7 +268,7 @@ impl World {
             return Some(v.clone());
         }
         let Some(id) = self.form(name) else {
-            return crate::game_settings::combat_default(name).map(Value::Float);
+            return crate::game_settings::engine_default(name).map(Value::Float);
         };
         let rec = self.record(id).filter(|r| r.tag == T(b"GMST"))?;
         let data = rec.find(T(b"DATA"))?;

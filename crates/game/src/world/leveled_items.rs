@@ -13,20 +13,24 @@ use crate::inventory::{Extra, Inventory, Stack};
 
 mod extras;
 
+mod special_loot;
+use special_loot::SpecialLoot;
+
 struct List {
     state: LeveledList,
     chance: u8,
     extras: Vec<Vec<Extra>>,
+    special: Option<SpecialLoot>,
 }
 
 impl World {
-    /// Resolve ordinary LVLI quantities at a caller-supplied selection level.
+    /// Resolve LVLI quantities at a caller-supplied selection level.
     /// This does not add items or send events. Repeated calls roll again.
     ///
     /// # Errors
     /// Rejects invalid records, cycles, nonpositive levels, negative quantities,
-    /// arithmetic overflow and excessive expansion. Special loot, mixed Use All
-    /// flags require separate handling before rolling.
+    /// arithmetic overflow and excessive expansion. Special Loot uses the current
+    /// player level and live settings.
     /// Errors preserve RNG state. Lazy list/global reads may populate caches.
     pub fn roll_leveled_items(
         &mut self,
@@ -51,13 +55,23 @@ impl World {
         level: u32,
         count: i32,
     ) -> Result<Inventory, Error> {
+        self.roll_leveled_inventory_context(list, level, count, None)
+    }
+
+    pub(crate) fn roll_leveled_inventory_context(
+        &mut self,
+        list: GlobalFormId,
+        level: u32,
+        count: i32,
+        player_level: Option<u32>,
+    ) -> Result<Inventory, Error> {
         if level == 0 || count < 0 {
             return Err(Error::Invalid("invalid leveled item level or count".into()));
         }
         let mut lists = BTreeMap::new();
         self.prepare_item_lists(list, &mut lists, &mut BTreeSet::new())?;
         let previous_rng = self.rng;
-        let result = self.roll_item_list(list, level, count, &lists, &mut 65_536);
+        let result = self.roll_item_list(list, level, count, player_level, &lists, &mut 65_536);
         if result.is_err() {
             self.rng = previous_rng;
         }
@@ -106,7 +120,7 @@ impl World {
             .leveled_list(id)
             .ok_or_else(|| Error::Invalid("missing LVLI state".into()))?
             .clone();
-        if state.flags & !7 != 0 || (state.flags & 4 != 0 && state.flags & 3 != 0) {
+        if state.flags & !15 != 0 {
             return Err(Error::Invalid(format!(
                 "unsupported LVLI flags {:#04x}",
                 state.flags
@@ -139,6 +153,12 @@ impl World {
                 return Err(Error::Invalid(format!("invalid LVLI item {}", entry.form)));
             }
         }
+        let use_all = state.flags & 4 != 0 && state.flags & 2 == 0;
+        let special = if state.flags & 8 != 0 && !use_all {
+            Some(SpecialLoot::read(self)?)
+        } else {
+            None
+        };
         visiting.remove(&id);
         extras.resize_with(state.entries.len(), Vec::new);
         lists.insert(
@@ -147,6 +167,7 @@ impl World {
                 state,
                 chance,
                 extras,
+                special,
             },
         );
         Ok(())
@@ -157,6 +178,7 @@ impl World {
         id: GlobalFormId,
         level: u32,
         count: i32,
+        player_level: Option<u32>,
         lists: &BTreeMap<GlobalFormId, List>,
         budget: &mut u32,
     ) -> Result<Inventory, Error> {
@@ -167,33 +189,54 @@ impl World {
         if count == 0 {
             return Ok(result);
         }
-        let use_all = list.state.flags & 4 != 0;
         let each = list.state.flags & 2 != 0;
-        let highest = list
-            .state
-            .entries
-            .iter()
-            .filter(|entry| u32::from(entry.level) <= level)
-            .map(|entry| entry.level)
-            .max();
-        let eligible: Vec<_> = list
-            .state
-            .entries
-            .iter()
-            .enumerate()
-            .filter(|(_, entry)| {
-                use_all
-                    || (u32::from(entry.level) <= level
-                        && (list.state.flags & 1 != 0 || Some(entry.level) == highest))
-            })
-            .collect();
+        let use_all = list.state.flags & 4 != 0 && !each;
         for _ in 0..if each { count } else { 1 } {
             *budget = budget
                 .checked_sub(1)
                 .ok_or_else(|| Error::Invalid("excessive LVLI expansion".into()))?;
+            // The runtime tests chance-none before the Special Loot draw.
+            if list.special.is_some() && self.item_list_chance_none(list.chance) {
+                continue;
+            }
+            let used_level = if let Some(special) = &list.special {
+                let input = if list.state.flags & 1 != 0 {
+                    level.min(
+                        list.state
+                            .entries
+                            .iter()
+                            .map(|entry| u32::from(entry.level))
+                            .max()
+                            .unwrap_or(0),
+                    )
+                } else {
+                    level
+                };
+                i64::from(special.level(self.player_level, input, self.random_u64() as u32))
+            } else {
+                // Only ordinary selection applies AddItem's player-level ceiling.
+                i64::from(player_level.map_or(level, |player| level.min(player.max(1))))
+            };
+            let highest = list
+                .state
+                .entries
+                .iter()
+                .filter(|entry| i64::from(entry.level) <= used_level)
+                .map(|entry| entry.level)
+                .max();
+            let eligible: Vec<_> = list
+                .state
+                .entries
+                .iter()
+                .enumerate()
+                .filter(|(_, entry)| {
+                    use_all
+                        || (i64::from(entry.level) <= used_level
+                            && (list.state.flags & 1 != 0 || Some(entry.level) == highest))
+                })
+                .collect();
             if eligible.is_empty()
-                || list.chance == 100
-                || (list.chance > 0 && self.random_u64() % 100 < u64::from(list.chance))
+                || (list.special.is_none() && self.item_list_chance_none(list.chance))
             {
                 continue;
             }
@@ -210,7 +253,7 @@ impl World {
             for &(index, entry) in selected {
                 let quantity = i32::from(entry.count);
                 let items = if lists.contains_key(&entry.form) {
-                    self.roll_item_list(entry.form, level, quantity, lists, budget)?
+                    self.roll_item_list(entry.form, level, quantity, player_level, lists, budget)?
                 } else {
                     let mut items = Inventory::default();
                     let extra = list.extras.get(index).cloned().unwrap_or_default();
@@ -261,6 +304,10 @@ impl World {
             }
         }
         Ok(result)
+    }
+
+    fn item_list_chance_none(&mut self, chance: u8) -> bool {
+        chance == 100 || (chance > 0 && self.random_u64() % 100 < u64::from(chance))
     }
 }
 

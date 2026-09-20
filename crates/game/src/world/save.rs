@@ -37,7 +37,9 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// Version 13 persists runtime NPC record overrides and mapped links.
 /// Version 14 adds temporary NPC identities, ownership and component provenance.
 /// Version 15 persists deferred-death requests and their eventual event recipients.
-pub const SAVE_VERSION: u16 = 15;
+/// Version 16 retains loose item stacks and validates contained reference identities.
+/// Version 17 retains locked encounter-zone selection levels.
+pub const SAVE_VERSION: u16 = 17;
 
 impl World {
     /// Serialize the run-time state: the VM object handles, references,
@@ -326,6 +328,8 @@ impl World {
         self.write_quest_aux(&mut body);
         self.write_item_stacks(&mut body);
         self.write_record_overrides(&mut body);
+        self.write_loose_items(&mut body);
+        self.write_encounter_levels(&mut body);
         let mut out = Writer::new();
         out.out.extend_from_slice(SAVE_MAGIC);
         out.u16(SAVE_VERSION);
@@ -454,7 +458,7 @@ impl World {
             form_lists.insert(id, items);
         }
 
-        let next_dynamic = r.u32()?;
+        let mut next_dynamic = r.u32()?;
         let player = read_opt_form_id(&mut r)?;
         let loaded_cell = read_opt_form_id(&mut r)?;
         let rng = r.u64()?;
@@ -797,6 +801,19 @@ impl World {
         } else {
             BTreeMap::new()
         };
+        if version >= 16 {
+            self.read_loose_items(&mut r, &mut refs)?;
+        } else {
+            self.migrate_loose_items(&mut refs);
+        }
+        if let Some(dynamic) = self.reconcile_item_references(&mut refs, version)? {
+            next_dynamic = next_dynamic.max(dynamic);
+        }
+        let encounter_levels = if version >= 17 {
+            self.read_encounter_levels(&mut r)?
+        } else {
+            BTreeMap::new()
+        };
         r.expect_end()?;
         super::death::validate_pending(&actors, &pending)?;
 
@@ -826,6 +843,7 @@ impl World {
         self.factions = factions;
         self.actor_bases = actor_bases;
         self.cells = cells;
+        self.encounter_levels = encounter_levels;
         self.settings = settings;
         self.inventory_filters = inventory_filters;
         self.sleep_listeners = sleep_listeners;
@@ -1099,6 +1117,7 @@ fn read_ref_state(r: &mut Reader<'_>) -> Result<RefState, VmError> {
         lock_level,
         display_name,
         inventory,
+        item: None,
         linked,
         teleport,
         is_actor,

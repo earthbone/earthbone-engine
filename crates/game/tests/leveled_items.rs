@@ -185,7 +185,7 @@ fn saved_rng_and_runtime_list_edits_reproduce_future_rolls() {
 #[test]
 fn malformed_lists_and_unmodeled_metadata_are_explicit_errors() {
     for record in [
-        list(LIST, 8, 0, &[(1, A, 1)]),
+        list(LIST, 16, 0, &[(1, A, 1)]),
         list(LIST, 0, 101, &[(1, A, 1)]),
         list(LIST, 0, 0, &[(1, A, 0)]),
         list(LIST, 0, 0, &[(1, 0xdead, 1)]),
@@ -281,14 +281,62 @@ fn nonfinite_global_and_invalid_request_are_rejected() {
 }
 
 #[test]
-fn mixed_use_all_flags_are_rejected_until_precedence_is_established() {
-    for flags in [5, 6, 7] {
-        let mut world = world(vec![list(LIST, flags, 0, &[(1, A, 1)])]);
-        assert!(world
-            .roll_leveled_items(id(LIST), 1, 1)
-            .unwrap_err()
-            .to_string()
-            .contains("unsupported LVLI flags"));
+fn prg_16_flag_five_uses_all_levels_and_multiplies_entry_counts() {
+    let mut world = world(vec![list(LIST, 5, 0, &[(1, A, 2), (50, B, 3), (99, A, 4)])]);
+    assert_eq!(
+        world.roll_leveled_items(id(LIST), 1, 2).unwrap(),
+        BTreeMap::from([(id(A), 12), (id(B), 6)])
+    );
+}
+
+#[test]
+fn prg_16_flag_six_rolls_each_count_at_the_highest_eligible_level() {
+    let mut world = world(vec![list(LIST, 6, 0, &[(1, A, 1), (10, B, 2), (20, A, 3)])]);
+    assert_eq!(
+        world.roll_leveled_items(id(LIST), 15, 4).unwrap(),
+        BTreeMap::from([(id(B), 8)])
+    );
+    assert!(world.roll_leveled_items(id(LIST), 1, 0).unwrap().is_empty());
+}
+
+#[test]
+fn prg_16_flag_seven_rolls_each_count_across_eligible_levels_only() {
+    let mut world = world(vec![list(
+        LIST,
+        7,
+        0,
+        &[(1, A, 1), (10, B, 1), (20, A, 1000)],
+    )]);
+    let items = world.roll_leveled_items(id(LIST), 10, 3000).unwrap();
+    assert_eq!(items.values().sum::<i32>(), 3000);
+    assert!((1300..1700).contains(&items[&id(A)]));
+    assert!((1300..1700).contains(&items[&id(B)]));
+}
+
+#[test]
+fn mixed_per_count_flags_apply_chance_none_per_requested_item() {
+    for flags in [6, 7] {
+        let mut world = world(vec![list(LIST, flags, 25, &[(1, A, 1)])]);
+        let count = world.roll_leveled_items(id(LIST), 1, 4000).unwrap()[&id(A)];
+        assert!((2800..3200).contains(&count));
+    }
+}
+
+#[test]
+fn mixed_flags_preserve_child_precedence_and_nested_count_multiplication() {
+    for parent_flags in [5, 6, 7] {
+        for child_flags in [5, 6, 7] {
+            let mut world = world(vec![
+                list(LIST, parent_flags, 0, &[(1, CHILD, 3)]),
+                list(CHILD, child_flags, 0, &[(1, A, 2), (50, B, 4)]),
+            ]);
+            let expected = if child_flags == 5 {
+                BTreeMap::from([(id(A), 12), (id(B), 24)])
+            } else {
+                BTreeMap::from([(id(A), 12)])
+            };
+            assert_eq!(world.roll_leveled_items(id(LIST), 1, 2).unwrap(), expected);
+        }
     }
 }
 
@@ -319,15 +367,32 @@ fn installed_ordinary_lists_resolve_or_report_declared_metadata_boundaries() {
         .map(|(id, _)| id)
         .collect();
     assert!(lists.len() > 1000, "expected five-master LVLI survey");
+    let special_lists: std::collections::BTreeSet<_> = order
+        .winners_of(T(b"LVLI"))
+        .filter(|(_, record)| {
+            !record.is_deleted()
+                && record
+                    .find(T(b"LVLF"))
+                    .is_some_and(|flags| flags[0] & 8 != 0)
+        })
+        .map(|(id, _)| id)
+        .collect();
+    assert!(
+        special_lists.len() > 50,
+        "expected authored Special Loot coverage"
+    );
+    let mut special_resolved = 0;
     let mut world = World::new(order);
     let mut resolved = 0;
     let mut boundaries = BTreeMap::new();
     for id in &lists {
         for level in [1, 20, 50] {
+            world.player_level = level;
             match world.roll_leveled_items(*id, level, 1) {
                 Ok(items) => {
                     assert!(items.values().all(|count| *count > 0));
                     resolved += 1;
+                    special_resolved += usize::from(special_lists.contains(id));
                 }
                 Err(error) => {
                     let reason = error.to_string();
@@ -344,11 +409,202 @@ fn installed_ordinary_lists_resolve_or_report_declared_metadata_boundaries() {
         resolved > lists.len(),
         "at least one third of list/level cases must resolve"
     );
+    assert!(
+        special_resolved > 150,
+        "Special Loot must resolve at all three survey levels"
+    );
     eprintln!(
-        "LVLI survey: {} lists, {resolved} resolved cases, boundaries {boundaries:?}",
+        "LVLI survey: {} lists, {resolved} resolved cases, {special_resolved} Special Loot cases, boundaries {boundaries:?}",
         lists.len()
     );
 }
 
 #[path = "leveled_items/extras.rs"]
 mod extras;
+
+fn special_settings(minimum: [f32; 4], maximum: [f32; 4], weighting: f32) -> Vec<Record> {
+    [
+        ("fSpecialLootMinPCLevelMult", minimum[0]),
+        ("fSpecialLootMinPCLevelBase", minimum[1]),
+        ("fSpecialLootMinZoneLevelBase", minimum[2]),
+        ("fSpecialLootMinZoneLevelMult", minimum[3]),
+        ("fSpecialLootMaxPCLevelMult", maximum[0]),
+        ("fSpecialLootMaxPCLevelBase", maximum[1]),
+        ("fSpecialLootMaxZoneLevelBase", maximum[2]),
+        ("fSpecialLootMaxZoneLevelMult", maximum[3]),
+        ("fSpecialLootWeighting", weighting),
+    ]
+    .into_iter()
+    .enumerate()
+    .map(|(index, (name, value))| {
+        Record::new(T(b"GMST"), 0x400 + index as u32)
+            .sub(T(b"EDID"), format!("{name}\0").into_bytes())
+            .sub(T(b"DATA"), value.to_le_bytes())
+    })
+    .collect()
+}
+
+#[test]
+fn prg_14_special_loot_combines_player_input_and_all_eight_bound_settings() {
+    let bound = [2.0, 3.0, 5.0, 7.0];
+    let mut records = special_settings(bound, bound, 4.0);
+    records.push(list(LIST, 8, 0, &[(55, A, 1), (56, B, 2), (57, A, 3)]));
+    let mut world = world(records);
+    world.player_level = 10;
+    assert_eq!(
+        world.roll_leveled_items(id(LIST), 4, 1).unwrap(),
+        BTreeMap::from([(id(B), 2)])
+    );
+}
+
+#[test]
+fn special_loot_per_count_recalculates_the_selection_level() {
+    let mut records = special_settings([0.0, 10.0, 0.0, 0.0], [0.0, 30.0, 0.0, 0.0], 1.0);
+    records.push(list(LIST, 10, 0, &[(1, A, 1), (20, B, 1)]));
+    let mut world = world(records);
+    let items = world.roll_leveled_items(id(LIST), 1, 1000).unwrap();
+    assert_eq!(items.values().sum::<i32>(), 1000);
+    assert!((400..600).contains(&items[&id(A)]));
+    assert!((400..600).contains(&items[&id(B)]));
+}
+
+#[test]
+fn special_loot_without_per_count_multiplies_one_level_draw() {
+    let mut records = special_settings([0.0, 10.0, 0.0, 0.0], [0.0, 30.0, 0.0, 0.0], 1.0);
+    records.push(list(LIST, 8, 0, &[(1, A, 1), (20, B, 1)]));
+    let mut world = world(records);
+    let before = world.save_state();
+    world.random_u64();
+    let expected_next = world.random_u64();
+    world.load_state(&before).unwrap();
+    let items = world.roll_leveled_items(id(LIST), 1, 1000).unwrap();
+    assert_eq!(items.len(), 1);
+    assert_eq!(items.values().sum::<i32>(), 1000);
+    assert_eq!(world.random_u64(), expected_next);
+}
+
+#[test]
+fn special_loot_nested_lists_receive_original_input_level() {
+    let bound = [0.0, 0.0, 0.0, 2.0];
+    for (child_flags, expected) in [(0, A), (8, B)] {
+        let mut records = special_settings(bound, bound, 4.0);
+        records.extend([
+            list(LIST, 8, 0, &[(20, CHILD, 2)]),
+            list(CHILD, child_flags, 0, &[(10, A, 1), (20, B, 1), (40, A, 1)]),
+        ]);
+        let mut world = world(records);
+        assert_eq!(
+            world.roll_leveled_items(id(LIST), 10, 3).unwrap(),
+            BTreeMap::from([(id(expected), 6)])
+        );
+    }
+}
+
+#[test]
+fn special_loot_all_levels_caps_formula_input_at_highest_entry() {
+    let bound = [0.0, 0.0, 0.0, 0.5];
+    let mut records = special_settings(bound, bound, 4.0);
+    records.push(list(LIST, 11, 0, &[(10, A, 1), (40, B, 1)]));
+    assert_eq!(
+        world(records)
+            .roll_leveled_items(id(LIST), 100, 100)
+            .unwrap(),
+        BTreeMap::from([(id(A), 100)])
+    );
+}
+
+#[test]
+fn special_loot_all_levels_cap_does_not_propagate_to_children() {
+    let bound = [0.0, 0.0, 0.0, 2.0];
+    let mut records = special_settings(bound, bound, 4.0);
+    records.extend([
+        list(LIST, 9, 0, &[(10, CHILD, 1)]),
+        list(CHILD, 0, 0, &[(40, A, 1)]),
+    ]);
+    assert_eq!(
+        world(records).roll_leveled_items(id(LIST), 50, 1).unwrap(),
+        BTreeMap::from([(id(A), 1)])
+    );
+}
+
+#[test]
+fn special_loot_chance_none_and_use_all_bypass_level_draws() {
+    for (flags, chance, expected) in [
+        (8, 100, BTreeMap::new()),
+        (12, 0, BTreeMap::from([(id(A), 1), (id(B), 1)])),
+    ] {
+        let mut world = world(vec![list(LIST, flags, chance, &[(1, A, 1), (100, B, 1)])]);
+        let before = world.save_state();
+        let expected_next = world.random_u64();
+        world.load_state(&before).unwrap();
+        assert_eq!(world.roll_leveled_items(id(LIST), 1, 1).unwrap(), expected);
+        assert_eq!(world.random_u64(), expected_next);
+    }
+}
+
+#[test]
+fn special_loot_live_settings_and_saved_rng_reproduce_future_rolls() {
+    let mut world = world(vec![list(LIST, 10, 0, &[(1, A, 1), (20, B, 1)])]);
+    world.player_level = 20;
+    world.settings.insert(
+        "fspeciallootweighting".into(),
+        soe_papyrus::Value::Float(0.5),
+    );
+    let before = world.save_state();
+    let expected = world.roll_leveled_items(id(LIST), 10, 100).unwrap();
+    world.load_state(&before).unwrap();
+    assert_eq!(
+        world.roll_leveled_items(id(LIST), 10, 100).unwrap(),
+        expected
+    );
+    world.settings.insert(
+        "fspeciallootweighting".into(),
+        soe_papyrus::Value::Float(0.0),
+    );
+    assert_eq!(
+        world.roll_leveled_items(id(LIST), 10, 100).unwrap(),
+        BTreeMap::from([(id(B), 100)])
+    );
+}
+
+#[test]
+fn special_loot_invalid_settings_and_late_overflow_preserve_rng() {
+    let mut world = world(vec![list(LIST, 8, 0, &[(1, A, 2)])]);
+    world.settings.insert(
+        "fspeciallootweighting".into(),
+        soe_papyrus::Value::Float(f32::NAN),
+    );
+    let before = world.save_state();
+    let expected_next = world.random_u64();
+    world.load_state(&before).unwrap();
+    assert!(world
+        .roll_leveled_items(id(LIST), 10, 1)
+        .unwrap_err()
+        .to_string()
+        .contains("Special Loot setting"));
+    assert_eq!(world.random_u64(), expected_next);
+    world.settings.clear();
+    let before = world.save_state();
+    let expected_next = world.random_u64();
+    world.load_state(&before).unwrap();
+    assert!(world.roll_leveled_items(id(LIST), 10, i32::MAX).is_err());
+    assert_eq!(world.random_u64(), expected_next);
+}
+
+#[test]
+fn special_loot_signed_truncation_and_invalid_conversion_control_eligibility() {
+    for (bound, expected) in [
+        (1.9, BTreeMap::from([(id(B), 1)])),
+        (-0.5, BTreeMap::from([(id(A), 1)])),
+        (-1.5, BTreeMap::new()),
+        (f32::MAX, BTreeMap::new()),
+    ] {
+        let bound = [0.0, bound, 0.0, 0.0];
+        let mut records = special_settings(bound, bound, 1.0);
+        records.push(list(LIST, 8, 0, &[(0, A, 1), (1, B, 1), (2, A, 1)]));
+        assert_eq!(
+            world(records).roll_leveled_items(id(LIST), 1, 1).unwrap(),
+            expected
+        );
+    }
+}

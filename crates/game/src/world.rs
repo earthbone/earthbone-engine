@@ -43,6 +43,7 @@ mod combat;
 mod death;
 mod doorway;
 mod driver;
+mod encounter_zones;
 mod events;
 mod forms;
 pub mod hash;
@@ -114,6 +115,8 @@ pub struct RefState {
     pub lock_level: i32,
     pub display_name: Option<String>,
     pub inventory: crate::inventory::Inventory,
+    /// Loose collectible quantity and extras, moved out when put into an inventory.
+    pub item: Option<crate::inventory::Stack>,
     /// `(keyword, reference)` per XLKR.
     pub linked: Vec<(Option<GlobalFormId>, GlobalFormId)>,
     /// A door's far side: the other door and where to land.
@@ -154,6 +157,7 @@ impl RefState {
             lock_level: 0,
             display_name: None,
             inventory: crate::inventory::Inventory::default(),
+            item: None,
             linked: Vec::new(),
             teleport: None,
             is_actor: false,
@@ -407,6 +411,7 @@ pub struct World {
     factions: HashMap<GlobalFormId, FactionState>,
     actor_bases: HashMap<GlobalFormId, ActorBaseState>,
     cells: HashMap<GlobalFormId, CellState>,
+    encounter_levels: BTreeMap<GlobalFormId, u16>,
     /// The cell whose temporary references are resident, set by a transition.
     /// See `crate::world::transition`.
     loaded_cell: Option<GlobalFormId>,
@@ -517,6 +522,7 @@ impl World {
             factions: HashMap::new(),
             actor_bases: HashMap::new(),
             cells: HashMap::new(),
+            encounter_levels: BTreeMap::new(),
             loaded_cell: None,
             streamed_cells: std::collections::HashSet::new(),
             pending_unload: None,

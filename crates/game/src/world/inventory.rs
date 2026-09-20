@@ -2,12 +2,56 @@
 
 //! Inventory notification contracts from CK OnItemAdded/OnItemRemoved and
 //! AddInventoryEventFilter. Filters are per recipient and apply when queued.
+//! CK AddItem and CommonLib ExtraOriginalReference define concrete item moves.
+//! xEdit REFR supplies loose quantity, charge and ownership fields.
 
-use super::{Alloc, Handle, Pending, World};
-use soe_esm::GlobalFormId;
+use super::{Alloc, Handle, Pending, World, T};
+use crate::inventory::{Bundle, Extra, Field, Stack};
+use soe_esm::{GlobalFormId, Record};
 use soe_papyrus::Value;
 
 impl World {
+    pub(super) fn loose_item(
+        &self,
+        base: Option<GlobalFormId>,
+        owner: Option<GlobalFormId>,
+        record: Option<&Record>,
+    ) -> Option<Stack> {
+        if !base.is_some_and(|base| self.is_inventory_base(base))
+            || record.is_some_and(Record::is_deleted)
+        {
+            return None;
+        }
+        let mut extras = Vec::new();
+        if let Some(owner) = owner {
+            extras.push(Extra {
+                kind: 33,
+                fields: vec![Field::Form(Some(owner))],
+            });
+        }
+        for (tag, kind) in [(b"XRNK", 35), (b"XCHG", 40)] {
+            if let Some(bits) = record
+                .and_then(|r| r.find(super::T(tag)))
+                .and_then(super::le_u32)
+            {
+                let field = if kind == 40 {
+                    Field::FloatBits(bits)
+                } else {
+                    Field::Word(bits)
+                };
+                extras.push(Extra {
+                    kind,
+                    fields: vec![field],
+                });
+            }
+        }
+        let count = record
+            .and_then(|r| r.find(super::T(b"XCNT")))
+            .and_then(super::le_u32)
+            .map_or(1, |v| v as i32);
+        Stack::new(count, extras).ok()
+    }
+
     /// Base forms supported by inventory stacks, from xEdit's item lists.
     pub(crate) fn is_inventory_base(&self, item: GlobalFormId) -> bool {
         self.record(item).is_some_and(|record| {
@@ -40,6 +84,18 @@ impl World {
         other: Option<GlobalFormId>,
         alloc: Alloc<'_>,
     ) {
+        self.inventory_reference_event(holder, item, delta, None, other, alloc);
+    }
+
+    fn inventory_reference_event(
+        &mut self,
+        holder: GlobalFormId,
+        item: GlobalFormId,
+        delta: i32,
+        reference: Option<GlobalFormId>,
+        other: Option<GlobalFormId>,
+        alloc: Alloc<'_>,
+    ) {
         let Some(count) = delta.checked_abs().filter(|count| *count > 0) else {
             return;
         };
@@ -69,6 +125,7 @@ impl World {
         }
         let item_value = self.form_value(Some(item), alloc);
         let other_value = self.form_value(other, alloc);
+        let reference_value = self.form_value(reference, alloc);
         let name = if delta > 0 {
             "OnItemAdded"
         } else {
@@ -98,12 +155,56 @@ impl World {
                     args: vec![
                         item_value.clone(),
                         Value::Int(count),
-                        Value::None,
+                        reference_value.clone(),
                         other_value.clone(),
                     ],
                 });
             }
         }
+    }
+
+    /// Add one LVLI result at the caller's resolved selection level.
+    /// Validation and capacity failures leave inventory, events and RNG unchanged.
+    pub fn add_leveled_item_notified(
+        &mut self,
+        holder: GlobalFormId,
+        list: GlobalFormId,
+        level: u32,
+        count: i32,
+        alloc: Alloc<'_>,
+    ) -> bool {
+        if count <= 0 {
+            return false;
+        }
+        let Some(reference) = self.reference(holder) else {
+            return false;
+        };
+        let mut updated = reference.inventory.clone();
+        let previous_rng = self.rng;
+        let Ok(mut selected) =
+            self.roll_leveled_inventory_context(list, level, count, Some(self.player_level))
+        else {
+            return false;
+        };
+        let changes: Vec<_> = selected
+            .iter()
+            .map(|(item, count)| (*item, count))
+            .collect();
+        for &(item, count) in &changes {
+            if updated.receive(item, selected.take(item, count)).is_err() {
+                self.rng = previous_rng;
+                return false;
+            }
+        }
+        let Some(reference) = self.reference(holder) else {
+            self.rng = previous_rng;
+            return false;
+        };
+        reference.inventory = updated;
+        for (item, count) in changes {
+            self.inventory_event(holder, item, count, None, alloc);
+        }
+        true
     }
 
     /// Add a stack through the script-facing path, with checked quantity and events.
@@ -114,8 +215,17 @@ impl World {
         count: i32,
         alloc: Alloc<'_>,
     ) -> bool {
-        if count <= 0 || !self.is_inventory_base(item) {
+        if count <= 0 {
             return false;
+        }
+        if self.tag_of(item) == Some(T(b"LVLI")) {
+            let Ok(level) = self.encounter_level(holder) else {
+                return false;
+            };
+            return self.add_leveled_item_notified(holder, item, level, count, alloc);
+        }
+        if !self.is_inventory_base(item) {
+            return count == 1 && self.add_reference_notified(holder, item, alloc);
         }
         let Some(reference) = self.reference(holder) else {
             return false;
@@ -124,6 +234,132 @@ impl World {
             return false;
         }
         self.inventory_event(holder, item, count, None, alloc);
+        true
+    }
+
+    fn container_changed(
+        &mut self,
+        reference: GlobalFormId,
+        target: GlobalFormId,
+        source: Option<GlobalFormId>,
+        alloc: Alloc<'_>,
+    ) {
+        let object = self.object_of(Handle::Form(reference), alloc);
+        let new = self.form_value(Some(target), alloc);
+        let old = self.form_value(source, alloc);
+        self.pending.push(Pending::Event {
+            object,
+            name: "OnContainerChanged".into(),
+            args: vec![new, old],
+        });
+    }
+
+    fn add_reference_notified(
+        &mut self,
+        holder: GlobalFormId,
+        reference: GlobalFormId,
+        alloc: Alloc<'_>,
+    ) -> bool {
+        if holder == reference {
+            return false;
+        }
+        let mut matches = self.refs.iter().filter_map(|(&source, state)| {
+            state
+                .inventory
+                .find_reference(reference)
+                .map(|(base, stack)| (source, base, stack.count()))
+        });
+        let existing = matches.next();
+        if matches.next().is_some() {
+            return false;
+        }
+        let (source, base, count) = if let Some((source, base, count)) = existing {
+            (Some(source), base, count)
+        } else {
+            let Some(state) = self.reference(reference) else {
+                return false;
+            };
+            if state.deleted || state.destroyed {
+                return false;
+            }
+            let (Some(base), Some(stack)) = (state.base, state.item.as_ref()) else {
+                return false;
+            };
+            (None, base, stack.count())
+        };
+        if source == Some(holder) || count <= 0 || !self.is_inventory_base(base) {
+            return false;
+        }
+        let Some(target) = self.reference(holder) else {
+            return false;
+        };
+        if target.deleted
+            || target.destroyed
+            || target.inventory.count(base).checked_add(count).is_none()
+        {
+            return false;
+        }
+        if source.is_some() {
+            if !self.refs.contains_key(&reference) {
+                let state = self
+                    .load_ref_record(reference)
+                    .unwrap_or_else(|| super::RefState::new(Some(base)));
+                if state.base != Some(base) || state.is_actor {
+                    return false;
+                }
+                self.refs.insert(reference, state);
+            }
+            let Some(state) = self.refs.get_mut(&reference) else {
+                return false;
+            };
+            if state.base != Some(base) || state.is_actor {
+                return false;
+            }
+            state.item = None;
+            state.enabled = false;
+            state.cell = None;
+            if reference.file == super::DYNAMIC_FILE {
+                self.next_dynamic = self.next_dynamic.max(reference.object);
+            }
+        }
+        let mut bundle = if let Some(source) = source {
+            let Some((_, bundle)) = self
+                .refs
+                .get_mut(&source)
+                .and_then(|state| state.inventory.take_reference(reference))
+            else {
+                return false;
+            };
+            bundle
+        } else {
+            let Some(state) = self.refs.get_mut(&reference) else {
+                return false;
+            };
+            let Some(stack) = state.item.take() else {
+                return false;
+            };
+            state.enabled = false;
+            state.cell = None;
+            Bundle::from_stack(stack.with_reference(reference))
+        };
+        bundle.unequip();
+        // CONTEXT: Destination existence and capacity were checked before taking the source.
+        if let Some(target) = self.refs.get_mut(&holder) {
+            let result = target.inventory.receive(base, bundle);
+            debug_assert!(result.is_ok());
+        }
+        if let Some(source) = source {
+            self.inventory_reference_event(
+                source,
+                base,
+                -count,
+                Some(reference),
+                Some(holder),
+                alloc,
+            );
+        }
+        self.inventory_reference_event(holder, base, count, Some(reference), source, alloc);
+        self.container_changed(reference, holder, source, alloc);
         true
     }
 
@@ -136,25 +372,39 @@ impl World {
         target: Option<GlobalFormId>,
         alloc: Alloc<'_>,
     ) -> i32 {
-        let moved = count.min(self.item_count(holder, item)).max(0);
-        if moved == 0 || target == Some(holder) {
-            return 0;
-        }
-        if let Some(target) = target {
-            let Some(reference) = self.reference(target) else {
-                return 0;
-            };
-            if reference.inventory.count(item).checked_add(moved).is_none() {
-                return 0;
-            }
-        }
-        let moved = self.remove_item(holder, item, moved, target);
+        let bundle = self.remove_item_bundle(holder, item, count, target);
+        let moved = bundle.count();
         if moved == 0 {
             return 0;
         }
-        self.inventory_event(holder, item, -moved, target, alloc);
+        let mut plain = moved;
+        for stack in bundle.stacks() {
+            if let Some(reference) = stack.reference() {
+                plain -= stack.count();
+                self.inventory_reference_event(
+                    holder,
+                    item,
+                    -stack.count(),
+                    Some(reference),
+                    target,
+                    alloc,
+                );
+                if let Some(target) = target {
+                    self.inventory_reference_event(
+                        target,
+                        item,
+                        stack.count(),
+                        Some(reference),
+                        Some(holder),
+                        alloc,
+                    );
+                    self.container_changed(reference, target, Some(holder), alloc);
+                }
+            }
+        }
+        self.inventory_event(holder, item, -plain, target, alloc);
         if let Some(target) = target {
-            self.inventory_event(target, item, moved, Some(holder), alloc);
+            self.inventory_event(target, item, plain, Some(holder), alloc);
         }
         moved
     }
