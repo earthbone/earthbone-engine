@@ -137,7 +137,7 @@ with unusual modded settings remain unverified against vanilla.
 
 ## Validation
 
-The combined branch passes tools/lint.sh with 1,163 Rust tests and 11 Python
+The initial melee checkpoint passed tools/lint.sh with 1,163 Rust tests and 11 Python
 tests. All optional gate tools ran, and no warnings were reported. Its separate
 installed-data run passes 12 melee tests and 11 death-lifecycle tests.
 

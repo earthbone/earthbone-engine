@@ -1,5 +1,14 @@
 # Status, per subsystem
 
+The completed combat integration adds difficulty selection, weapon and armor
+templates, armor slot replacement and the authored melee contact bridge.
+SOEW version 18 combines difficulty with hand assignments and reads the
+distinct version 16 and 17 branch layouts. The combined gate passes 1,191 Rust
+tests and 11 Python tests. The installed record survey executes 195 supported
+weapons. BACKLOG.csv records the completed rows and their prerequisites.
+Live actor collision synchronization, host attack input, bleedout and combat
+AI remain unfinished. See [combat](combat.md) for evidence and limits.
+
 The unmerged `ess-quest-restore` follow-up applies QUST stages, objectives,
 aliases and journal instances without replaying quest events. SOEW version 11
 persists their mapped runtime state. The 60-save application survey restores

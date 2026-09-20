@@ -1,5 +1,12 @@
 # soe-game: the runtime form table and the first natives
 
+The combat integration includes difficulty selection, template-backed hits,
+armor slot replacement and explicit weapon hands. SOEW version 18 retains
+both difficulty and hands, with separate readers for the version 16 and 17
+branch layouts. The authored contact bridge reaches the shared Game through
+animation events. Live host collision synchronization and attack input are
+separate unfinished rows. See [combat](combat.md) and BACKLOG.csv.
+
 Crate `crates/game`. Round 2 of `ENGINE-PLAN.md`, written 2026-09-14. The map's
 week 6 to 9 gate.
 
