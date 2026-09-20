@@ -24,6 +24,7 @@ control point packings.
 | File kind | Root class | Skyrim path | Module |
 | --- | --- | --- | --- |
 | Rig | `hkaAnimationContainer` with one or two `hkaSkeleton` | `character assets/skeleton.hkx` | `skeleton` |
+| Ragdoll | `hkaRagdollInstance` | `character assets/skeleton.hkx` | `ragdoll` |
 | Clip | `hkaAnimationContainer` with one `hkaSplineCompressedAnimation` and its `hkaAnimationBinding` | `animations/*.hkx` | `skeleton`, `animation`, `spline` |
 | Character | `hkbCharacterData` | `characters/*.hkx` | `character` |
 | Project | `hkbProjectData` | `*project.hkx` | `character` |
@@ -460,8 +461,6 @@ stored start state in every mode), `hkbBlendingTransitionEffect.duration` and
   curve once a capture from the game exists (5.4).
 - Extracted motion and float tracks in the output.
 - 32-bit (Skyrim LE) layouts, wanted for Nemesis's LE cached behaviors.
-- Ragdoll data (`hkaRagdollInstance`, `hkpRigidBody`) in `skeleton.hkx`,
-  which the physics layer will want from the same file.
 - A packfile writer that round-trips real files, so Nemesis-style patching
   can happen in Rust. The builder here writes valid files but does not yet
   copy unmodelled objects through.
@@ -469,3 +468,73 @@ stored start state in every mode), `hkbBlendingTransitionEffect.duration` and
   spliced twice. That is correct, each reference is its own instance with its
   own state, but a shared decode with per-instance run-time state would cost
   less memory.
+
+## 8. Ragdoll data (ANM-06, 2026-09-20)
+
+`ragdoll::Ragdoll::from_packfile` reads the root `hkaRagdollInstance`.
+`from_obj` also reads an instance discovered through the virtual fixups.
+The result owns the low resolution skeleton, ordered rigid bodies, constraints,
+and bone-to-body map. The map retains unmapped bones as `None`, and joint
+endpoints use `BodyIndex` into the body array. A null joint endpoint means the
+world. This is separate from the animation skeleton and its skeleton mapper.
+
+Bodies include names, collision filters, contact materials, column-major
+transforms, local centers of mass, inverse diagonal inertia and mass,
+velocities, damping, time factors and gravity factors. Units remain as authored.
+The transform translation is the fourth column, and the first three columns
+are the rotation. `hkHalf` damping values use the upper 16 bits of an f32.
+
+Shapes decode capsules, boxes, spheres, convex hull vertices and planes, and
+translated or transformed convex children. Hull vertices are unpacked from
+four-vector groups and discard the final group's unused lanes. Joint data
+covers ragdoll and limited-hinge constraints, including both body-space frames,
+angular limits in radians, friction, stabilization, pivot impulse settings,
+motor targets and optional position motors. Null motor slots retain their
+original positions.
+
+Unknown shapes, joint classes, constraint modifiers and motor classes return
+`Error::Unsupported`. Missing required pointers, duplicate bodies, invalid bone
+maps, external body references, invalid hull counts, and cyclic or excessively
+nested shapes return errors. The reader does not silently remove array slots.
+Like the other readers at this checkpoint, these layouts require 64-bit files.
+No new dependency or per-reference host node is introduced.
+
+### Sources and scope
+
+Layouts were read from `../engine-refs/serde-hkx/assets/classes/`, especially
+`hkaRagdollInstance.json`, `hkpWorldObject.json`, `hkpEntity.json`,
+`hkpMotion.json`, `hkMotionState.json`, `hkpConstraintInstance.json`, the
+`hkpRagdollConstraintData*` and `hkpLimitedHingeConstraintData*` descriptions,
+and their shape, motor and atom descriptions. The half-float conversion follows
+`serde-hkx/crates/havok_types/src/half.rs`.
+`../engine-refs/activeragdoll/src/RE/havok.cpp`, functions
+`LimitedHingeToRagdollConstraint` and
+`ConvertLimitedHingeDataToRagdollConstraintData`, establishes the body-space
+frames and limit meanings. The existing bounds-checked packfile reader is used
+instead of adding serde-hkx as a dependency. Only its class layouts and half
+encoding are needed here. No Havok SDK source was consulted.
+
+This is a data reader. Physics simulation, death activation, animation-to-ragdoll
+pose mapping and host physics integration remain separate runtime work. The
+reader does not claim support for every custom Havok class a mod can author.
+
+### Validation
+
+`tests/ragdoll.rs` checks reordered bone maps, unmapped bones, world endpoints,
+material and mass properties, half-float damping, independent angular limits,
+motor slots, convex vertex unpacking, and malformed references and shapes.
+Two tests use `SKYRIM_DATA` and skip when it is unset:
+
+- `anm_06_vanilla_human_has_typed_bodies_and_constraints`: the human skeleton
+  yields 18 bodies and 17 constraints, comprising 9 ragdoll joints and 8 hinges.
+  Transforming each joint's two pivots from body space into world space gives
+  a maximum difference of 0.0000157 file units, below the preselected 0.05 bound.
+- `anm_06_all_vanilla_skeleton_ragdolls_decode`: every ragdoll in every HKX file
+  inside `Skyrim - Animations.bsa` decodes. The installed archive yielded
+  48 ragdolls, 1009 bodies and 961 constraints, with no failures. The survey
+  requires at least 40 ragdolls, 900 bodies and 850 constraints and checks body
+  mass properties and skeleton relationships. It does not use a sample limit.
+
+ANM-06 has no backlog prerequisite. Reading 32-bit ragdolls requires the layout
+work in ANM-07. Consumers implementing death ragdolls can depend on this reader
+without requiring behavior evaluation or extracted motion.

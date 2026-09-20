@@ -17,6 +17,7 @@
 //! - [`skeleton`], [`animation`], [`spline`]: `hkaSkeleton`,
 //!   `hkaAnimationBinding` and `hkaSplineCompressedAnimation`, with the spline
 //!   block decoder that turns quantized control points into poses.
+//! - [`ragdoll`]: rigid bodies, shapes, joint frames and limits from skeleton files.
 //! - [`behavior`]: the `hkb` behavior graph as a typed data model.
 //! - [`interp`]: the interpreter over that model, one instance per actor,
 //!   ticked per frame into a local pose (see `docs/hkx.md`).
@@ -37,6 +38,7 @@ pub mod interp;
 pub mod link;
 pub mod packfile;
 pub mod pose;
+pub mod ragdoll;
 pub mod skeleton;
 pub mod spline;
 pub mod writer;
@@ -100,6 +102,8 @@ pub enum Error {
     Unsupported(String),
     /// A spline block is inconsistent with its animation header.
     BadSpline(String),
+    /// A ragdoll has inconsistent body, bone, or constraint references.
+    BadRagdoll(String),
 }
 
 impl fmt::Display for Error {
@@ -134,6 +138,7 @@ impl fmt::Display for Error {
             Error::BadString(at) => write!(f, "bad string at data offset {at}"),
             Error::Unsupported(what) => write!(f, "unsupported: {what}"),
             Error::BadSpline(what) => write!(f, "bad spline data: {what}"),
+            Error::BadRagdoll(what) => write!(f, "bad ragdoll data: {what}"),
         }
     }
 }
