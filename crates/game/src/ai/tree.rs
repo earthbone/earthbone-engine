@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! Sequential PACK execution from xEdit's PRCB child counts and repeat flag.
+//! Sequential and random PACK execution from xEdit's PRCB counts and repeat flag.
 //! The author test in Nexus thread 11591393 confirms that nested repeat
 //! restarts that branch alone. Progress belongs to the actor, definitions to PACK.
+//! Random single-child execution follows the CK examples in Nexus article 2467
+//! and thread 804089. Choices use the existing saved world RNG.
 
 use super::{conditions_hold, package, template_chain, AiState, Procedure, World};
 use crate::package::{branch_ends, Branch, DataValue, LocationData, Package};
@@ -67,11 +69,12 @@ impl Tree {
                 state.finished = next == self.branches.len();
                 return;
             };
-            if next < self.ends[parent] {
+            let branch = &self.branches[parent];
+            if !branch.kind.eq_ignore_ascii_case("random") && next < self.ends[parent] {
                 state.branch = next as u32;
                 return;
             }
-            if self.branches[parent].repeat_when_complete {
+            if branch.repeat_when_complete {
                 state.branch = parent as u32;
                 return;
             }
@@ -95,12 +98,15 @@ fn procedure(branch: &Branch) -> Procedure {
     }
 }
 
-/// Static first procedure for tooling, before actor-dependent branch conditions.
+/// Static first procedure for tooling. Random choices have no static first leaf.
 pub(super) fn first(world: &World, id: GlobalFormId) -> (Procedure, Option<LocationData>, bool) {
     let Some(tree) = Tree::load(world, id) else {
         return (Procedure::None, None, false);
     };
     for branch in &tree.branches {
+        if branch.kind.eq_ignore_ascii_case("random") && branch.procedure.is_none() {
+            return (Procedure::None, None, false);
+        }
         if branch.kind.eq_ignore_ascii_case("sequence") && branch.procedure.is_none() {
             continue;
         }
@@ -156,6 +162,7 @@ pub(super) fn enter(world: &mut World, actor: GlobalFormId, ai: &mut AiState) {
             .owner_quest
             .and_then(|raw| world.resolve_from(id, raw))
     });
+    let mut checked = None;
     // CONTEXT: An empty repeating branch must yield rather than spin in one tick.
     for _ in 0..=tree.branches.len() {
         if state.finished {
@@ -166,8 +173,39 @@ pub(super) fn enter(world: &mut World, actor: GlobalFormId, ai: &mut AiState) {
             state.finished = true;
             break;
         };
-        if !conditions_hold(world, actor, tree.owner, quest, &branch.conditions) {
+        if checked.take() != Some(index)
+            && !conditions_hold(world, actor, tree.owner, quest, &branch.conditions)
+        {
             tree.after(index, &mut state);
+            continue;
+        }
+        if branch.kind.eq_ignore_ascii_case("random") && branch.procedure.is_none() {
+            let mut eligible = Vec::new();
+            let mut child = index + 1;
+            while child < tree.ends[index] {
+                if conditions_hold(
+                    world,
+                    actor,
+                    tree.owner,
+                    quest,
+                    &tree.branches[child].conditions,
+                ) {
+                    eligible.push(child);
+                }
+                child = tree.ends[child];
+            }
+            if eligible.is_empty() {
+                if branch.repeat_when_complete {
+                    break;
+                }
+                tree.after(index, &mut state);
+            } else {
+                let pick = (world.random_u64() % eligible.len() as u64) as usize;
+                let child = eligible[pick];
+                state.branch = child as u32;
+                // CONTEXT: RandomPercent conditions must not roll again on entry.
+                checked = Some(child);
+            }
             continue;
         }
         if branch.kind.eq_ignore_ascii_case("sequence") && branch.procedure.is_none() {

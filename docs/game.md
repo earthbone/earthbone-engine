@@ -468,7 +468,7 @@ to an idle marker, sleep on schedule and wake at 08:00, take an alias
 package over the base list, switch at once from a script's
 `EvaluatePackage`, and keep walking after a save and load.
 
-**Not done.** Random, simultaneous and stacked branches (AI-13 to AI-15),
+**Not done.** Simultaneous and stacked branches (AI-14 and AI-15),
 the other 18 procedures,
 package fragments (`VMAD` on `PACK`), the `On Begin`, `On End` and `On
 Change` idles and topics, once per day for packages that end without
@@ -1401,3 +1401,30 @@ regressions remain applicable. The installed Skyrim.esm survey decodes 5,961
 packages with no failures under the new child-count validation. Its 3,966
 supported first procedures are an entry-point count, not complete tree coverage.
 The earlier strongest-procedure survey above describes the old heuristic.
+
+### Random package branches
+
+AI-13 runs one eligible immediate child of a Random branch. Conditions are
+checked once per candidate, and the selected child does not recheck a random
+condition while entering. After that child finishes, the Random branch ends
+or chooses again if Repeat when Complete is set. A selected Sequence runs all
+its children before returning to Random. Success Completes Package still ends
+the whole package. Empty repeating groups yield until the next driver tick.
+
+Selection draws from the existing world RNG, whose state is saved with the
+world. The AI-02 cursor already identifies the chosen subtree and active leaf,
+so no new save version or parallel authoritative state is needed. Restoring
+an active child resumes its path without consuming another selection draw.
+The static `procedure_of` helper returns None when its first leaf depends on
+a random choice. It does not consume the runtime RNG for a preview.
+
+Local xEdit PACK PRCB and the UESP PACK layout supply the group representation.
+The [AI Overhaul author's two-location example](https://www.nexusmods.com/skyrimspecialedition/articles/2467)
+and the [random travel authoring example](https://forums.nexusmods.com/topic/804089-npc-random-exploring/)
+supply the single-choice and repeat behavior. These sources provide no reusable
+interpreter. Choice uses the engine's existing deterministic RNG and equal
+candidate weights. Exact Bethesda RNG output remains unverified.
+
+Tests extend `package_sequences.rs` with single-child selection, candidate
+conditions, nested sequences, repeat, empty groups, one condition evaluation,
+and save/load equality of both movement and the subsequent RNG draw.
