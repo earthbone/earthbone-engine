@@ -186,6 +186,10 @@ fn all_external_reference_headers_reencode_and_compare_player_locations() {
     let mut layouts = BTreeMap::new();
     let mut player_pairs = BTreeMap::new();
     let mut actor_words = BTreeMap::new();
+    let mut mask_versions = BTreeMap::new();
+    let mut mask_bits = BTreeMap::new();
+    let mut second_words = BTreeMap::new();
+    let mut relevant_masks = [0_usize; 3];
     let mut next_range = (u32::MAX, 0);
     for path in &paths {
         let save = Save::open(path).unwrap();
@@ -226,6 +230,21 @@ fn all_external_reference_headers_reencode_and_compare_player_locations() {
             {
                 nonfinite += 1;
             }
+            if let Some((mask, unknown)) = header.form_flags {
+                *mask_versions
+                    .entry((
+                        save.header.version,
+                        save.form_version,
+                        form.version,
+                        form.type_index(),
+                    ))
+                    .or_insert(0_usize) += 1;
+                *mask_bits.entry(mask & 0xC00).or_insert(0_usize) += 1;
+                *second_words.entry(unknown).or_insert(0_usize) += 1;
+                relevant_masks[0] += usize::from(mask & 0x800 != 0);
+                relevant_masks[1] += usize::from(mask & 0x400 != 0);
+                relevant_masks[2] += usize::from(unknown != 0);
+            }
             if let Some(words) = header.actor {
                 *actor_words.entry(words[0]).or_insert(0) += 1;
             }
@@ -252,5 +271,13 @@ fn all_external_reference_headers_reencode_and_compare_player_locations() {
     }
     assert!(total > 100000);
     eprintln!("{} saves: {total} reference headers, {created} created, {with_suffix} nonempty suffixes, {nonfinite} nonfinite transforms", paths.len());
+    eprintln!("mask versions (file, form, change, type)={mask_versions:?}");
+    for (bits, count) in mask_bits {
+        eprintln!("mask bits 0x{bits:03X}: {count}");
+    }
+    for (word, count) in second_words {
+        eprintln!("second word 0x{word:04X}: {count}");
+    }
+    eprintln!("bit11/bit10/nonzero second word={relevant_masks:?}");
     eprintln!("layouts={layouts:?}, player first/second match={player_pairs:?}, actor first word={actor_words:?}, next object range={next_range:x?}");
 }
