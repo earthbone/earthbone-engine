@@ -60,7 +60,7 @@ fn every_vanilla_archive_indexes_and_reads() {
         let bytes = archive.read_record(0).unwrap();
         assert!(!bytes.is_empty(), "{} record 0 is empty", path.display());
         let record = &archive.index().records[0];
-        if record.compressed {
+        if record.compressed && record.uncompressed_size > 0 {
             assert_eq!(
                 bytes.len(),
                 record.uncompressed_size as usize,

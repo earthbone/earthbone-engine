@@ -7,12 +7,14 @@
 //!
 //! Two entry points. [`index_archive`] reads the header and tables only, which
 //! is what a tool listing a hundred archives wants: a real 246 MB archive
-//! describes its 468 files in 20 KB. [`Archive::open`] holds the whole file in
-//! memory and answers reads, which is what an engine wants.
+//! describes its 468 files in 20 KB. [`Archive::open`] keeps only that index
+//! and reads each payload from disk on demand. [`Archive::from_bytes`] retains
+//! its in-memory API for callers that already own an archive buffer.
 
 use std::collections::HashMap;
 use std::io::{Cursor, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 
@@ -161,18 +163,25 @@ pub(crate) fn index_from<R: Read + Seek>(
     }
 }
 
-/// An archive held in memory with a case-insensitive path lookup.
+enum ArchiveStorage {
+    Memory(Vec<u8>),
+    Disk {
+        file: Mutex<std::fs::File>,
+        len: u64,
+    },
+}
+
+/// An archive index with a case-insensitive path lookup and on-demand payloads.
 pub struct Archive {
     path: PathBuf,
-    data: Vec<u8>,
+    storage: ArchiveStorage,
     index: ArchiveIndex,
     /// Normalised path to record position.
     lookup: HashMap<String, usize>,
 }
 
-// CONTEXT: `data` is the whole archive's bytes and `lookup` is a derived
-// index, both too large to print, so this intentionally shows a summary
-// rather than every field.
+// CONTEXT: backing storage and the lookup are too large to print, so this
+// intentionally shows a summary rather than every field.
 #[allow(clippy::missing_fields_in_debug)]
 impl std::fmt::Debug for Archive {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -187,24 +196,45 @@ impl std::fmt::Debug for Archive {
 impl Archive {
     pub fn open(path: &Path) -> Result<Self> {
         let _span = soe_trace::Span::new("bsa.archive_open", "bsa");
-        let data = std::fs::read(path)?;
-        Self::from_bytes(path, data)
+        let file = std::fs::File::open(path)?;
+        let len = file.metadata()?.len();
+        if len < 8 {
+            return Err(Error::format("Archive too small", path));
+        }
+        let mut reader = std::io::BufReader::new(&file);
+        let index = index_from(&mut reader, len, path, false)?;
+        Ok(Self::with_storage(
+            path,
+            index,
+            ArchiveStorage::Disk {
+                file: Mutex::new(file),
+                len,
+            },
+        ))
     }
 
     /// `path` only names the archive in errors.
     pub fn from_bytes(path: &Path, data: Vec<u8>) -> Result<Self> {
         let index = index_archive_in(&data, path)?;
+        Ok(Self::with_storage(
+            path,
+            index,
+            ArchiveStorage::Memory(data),
+        ))
+    }
+
+    fn with_storage(path: &Path, index: ArchiveIndex, storage: ArchiveStorage) -> Self {
         let mut lookup = HashMap::with_capacity(index.records.len());
         for (i, r) in index.records.iter().enumerate() {
             // First occurrence wins, matching the game's own lookup order.
             lookup.entry(normalize(&r.path)).or_insert(i);
         }
-        Ok(Archive {
+        Archive {
             path: path.to_path_buf(),
-            data,
+            storage,
             index,
             lookup,
-        })
+        }
     }
 
     #[must_use]
@@ -250,9 +280,101 @@ impl Archive {
 
     /// Same as [`Archive::read`] by record position.
     pub fn read_record(&self, i: usize) -> Result<Vec<u8>> {
-        let record = &self.index.records[i];
-        read_record(&self.data, self.index.format, record)
+        let record = self.index.records.get(i).ok_or_else(|| Error::NotFound {
+            name: i.to_string(),
+        })?;
+        match &self.storage {
+            ArchiveStorage::Memory(data) => read_record(data, self.index.format, record),
+            ArchiveStorage::Disk { file, len } => {
+                read_disk_record(file, *len, self.index.format, record)
+            }
+        }
     }
+}
+
+fn read_disk_range(
+    file: &Mutex<std::fs::File>,
+    len: u64,
+    name: &str,
+    offset: u64,
+    size: u64,
+) -> Result<Vec<u8>> {
+    if offset
+        .checked_add(size)
+        .as_ref()
+        .is_none_or(|end| *end > len)
+    {
+        return Err(Error::Truncated {
+            name: name.to_string(),
+            offset,
+            size,
+        });
+    }
+    let size = usize::try_from(size).map_err(|_| Error::Truncated {
+        name: name.to_string(),
+        offset,
+        size,
+    })?;
+    let mut bytes = vec![0; size];
+    let mut file = file
+        .lock()
+        .map_err(|_| Error::Io(std::io::Error::other("archive read lock poisoned")))?;
+    file.seek(SeekFrom::Start(offset))?;
+    file.read_exact(&mut bytes).map_err(|source| {
+        if source.kind() == std::io::ErrorKind::UnexpectedEof {
+            Error::Truncated {
+                name: name.to_string(),
+                offset,
+                size: size as u64,
+            }
+        } else {
+            Error::Io(source)
+        }
+    })?;
+    Ok(bytes)
+}
+
+fn read_disk_record(
+    file: &Mutex<std::fs::File>,
+    len: u64,
+    format: ArchiveFormat,
+    record: &FileRecord,
+) -> Result<Vec<u8>> {
+    if let Some(dds) = &record.dds_info {
+        return rebuild_dds_from_disk(file, len, &record.path, dds);
+    }
+    let size = if record.name_embedded || record.compressed {
+        record.raw_size
+    } else if record.uncompressed_size > 0 {
+        record.uncompressed_size
+    } else {
+        record.raw_size
+    };
+    let bytes = read_disk_range(file, len, &record.path, record.offset, u64::from(size))?;
+    let mut memory_record = record.clone();
+    memory_record.offset = 0;
+    if memory_record.compressed
+        && !memory_record.name_embedded
+        && matches!(format, ArchiveFormat::Bsa(_))
+        && memory_record.uncompressed_size == 0
+    {
+        let prefix_offset = record
+            .offset
+            .checked_sub(4)
+            .ok_or_else(|| Error::Truncated {
+                name: record.path.clone(),
+                offset: record.offset,
+                size: 4,
+            })?;
+        let prefix_bytes = read_disk_range(file, len, &record.path, prefix_offset, 4)?;
+        let prefix_bytes: [u8; 4] = prefix_bytes.try_into().map_err(|_| Error::Truncated {
+            name: record.path.clone(),
+            offset: prefix_offset,
+            size: 4,
+        })?;
+        memory_record.uncompressed_size = u32::from_le_bytes(prefix_bytes);
+    }
+    read_record(&bytes, format, &memory_record)
 }
 
 fn is_sse(format: ArchiveFormat) -> bool {
@@ -426,6 +548,32 @@ fn rebuild_dds(data: &[u8], name: &str, dds: &DdsInfo) -> Result<Vec<u8>> {
         } else {
             out.extend_from_slice(slice(
                 data,
+                name,
+                chunk.offset,
+                u64::from(chunk.unpacked_size),
+            )?);
+        }
+    }
+    Ok(out)
+}
+
+fn rebuild_dds_from_disk(
+    file: &Mutex<std::fs::File>,
+    len: u64,
+    name: &str,
+    dds: &DdsInfo,
+) -> Result<Vec<u8>> {
+    let mut out = Vec::new();
+    write_dds_header(&mut out, dds)?;
+    for chunk in &dds.chunks {
+        if chunk.packed_size > 0 {
+            let compressed =
+                read_disk_range(file, len, name, chunk.offset, u64::from(chunk.packed_size))?;
+            out.extend(decompress_zlib(&compressed, chunk.unpacked_size, name)?);
+        } else {
+            out.extend(read_disk_range(
+                file,
+                len,
                 name,
                 chunk.offset,
                 u64::from(chunk.unpacked_size),
@@ -1184,6 +1332,10 @@ mod tests {
         let out_dir = tmpdir.path().join("output");
         std::fs::create_dir(&out_dir).unwrap();
 
+        let memory = Archive::from_bytes(&archive_path, data.clone()).unwrap();
+        let disk = Archive::open(&archive_path).unwrap();
+        assert_eq!(memory.read("data/compressed.txt").unwrap(), original);
+        assert_eq!(disk.read("data/compressed.txt").unwrap(), original);
         assert_eq!(extract_archive(&archive_path, &out_dir).unwrap(), 1);
         let extracted = std::fs::read(out_dir.join("data/compressed.txt")).unwrap();
         assert_eq!(extracted, original);
@@ -1416,6 +1568,60 @@ mod tests {
     }
 
     #[test]
+    fn disk_bsa_reads_match_memory_under_concurrency() {
+        let payload = b"one compressed payload shared by concurrent readers";
+        let (bytes, _) = compressed_bsa(payload);
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("concurrent.bsa");
+        std::fs::write(&path, &bytes).unwrap();
+        let memory = Archive::from_bytes(&path, bytes).unwrap();
+        let disk = std::sync::Arc::new(Archive::open(&path).unwrap());
+        assert_eq!(memory.read("meshes/a.nif").unwrap(), payload);
+        std::thread::scope(|scope| {
+            for _ in 0..8 {
+                let disk = std::sync::Arc::clone(&disk);
+                scope.spawn(move || {
+                    for _ in 0..32 {
+                        assert_eq!(disk.read("MESHES\\A.NIF").unwrap(), payload);
+                    }
+                });
+            }
+        });
+    }
+
+    #[test]
+    fn disk_open_keeps_a_large_payload_off_heap() {
+        let data = sse_bsa(&[("meshes", "a.nif", b"x")]);
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("sparse.bsa");
+        std::fs::write(&path, data).unwrap();
+        let size = 64 * 1024 * 1024;
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(&path)
+            .unwrap()
+            .set_len(size)
+            .unwrap();
+        let archive = Archive::open(&path).unwrap();
+        assert_eq!(archive.index().records.len(), 1);
+        assert!(matches!(&archive.storage, ArchiveStorage::Disk { len, .. } if *len == size));
+    }
+
+    #[test]
+    fn disk_payload_truncation_is_typed_after_indexing() {
+        let (bytes, _) = compressed_bsa(b"payload");
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("cut-after-open.bsa");
+        std::fs::write(&path, &bytes).unwrap();
+        let archive = Archive::open(&path).unwrap();
+        std::fs::write(&path, &bytes[..bytes.len() - 1]).unwrap();
+        assert!(matches!(
+            archive.read("meshes/a.nif"),
+            Err(Error::Truncated { .. })
+        ));
+    }
+
+    #[test]
     fn sse_archive_reads_lz4_frames_and_1252_names() {
         // Build a v105 archive by hand with one LZ4-framed file whose folder
         // has an accented name, the case Windows-1252 exists for.
@@ -1497,6 +1703,9 @@ mod tests {
         d.extend_from_slice(&block_a);
         d.extend_from_slice(&block_b);
 
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("tex.bsa");
+        std::fs::write(&path, &d).unwrap();
         let archive = Archive::from_bytes(Path::new("tex.bsa"), d).unwrap();
         assert!(archive.index().records[0].name_embedded);
         assert_eq!(
@@ -1505,6 +1714,9 @@ mod tests {
         );
         assert_eq!(archive.read("textures/a.dds").unwrap(), plain);
         assert_eq!(archive.read("textures/b.dds").unwrap(), packed_src);
+        let disk = Archive::open(&path).unwrap();
+        assert_eq!(disk.read("textures/a.dds").unwrap(), plain);
+        assert_eq!(disk.read("textures/b.dds").unwrap(), packed_src);
     }
 
     #[test]
@@ -1574,8 +1786,18 @@ mod tests {
         d.extend_from_slice(name);
         d.extend_from_slice(&pixels);
 
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("t.ba2");
+        std::fs::write(&path, &d).unwrap();
         let archive = Archive::from_bytes(Path::new("t.ba2"), d).unwrap();
         let dds = archive.read("textures/t.dds").unwrap();
+        assert_eq!(
+            Archive::open(&path)
+                .unwrap()
+                .read("textures/t.dds")
+                .unwrap(),
+            dds
+        );
         assert_eq!(&dds[..4], b"DDS ");
         assert_eq!(dds.len(), 4 + 124 + 20 + 16);
         assert_eq!(&dds[dds.len() - 16..], &pixels);

@@ -35,11 +35,14 @@ through the reader to keep it that way. `uncompressed_size` stays 0 for
 compressed BSA entries on this path, because that number lives out in the
 payload.
 
-`Archive::open(path)` holds the whole file and answers `read(path)` with the
-decompressed bytes, case-insensitive on either slash. This is the engine path.
-`read_record(data, format, record)` is the same thing over a byte slice a
-caller already owns, so memory mapping stays possible without a change to the
-API.
+`Archive::open(path)` retains only the header and index tables, then reads the
+selected record or DX10 chunk from its open file handle. A mutex covers the
+seek and read operation, then decompression happens after that lock is
+released, so shared archive reads cannot race while unrelated decoding can run
+at the same time. This is the engine path and keeps archive payloads out of
+startup memory. `Archive::from_bytes(path, data)` retains the in-memory API for
+callers that already own archive bytes. `read_record(data, format, record)` is
+the corresponding byte-slice decoder.
 
 Every record read is bounds-checked against the archive length and reports
 `Error::Truncated` with the name and offset instead of panicking, which is what
@@ -77,7 +80,8 @@ loop two bytes short of the end of the name.
 
 Synthetic archives cover every format and both compression paths, a name
 with a non-ASCII byte, a truncated payload, absurd header counts, a DX10
-texture rebuilt into a DDS file, and the override rules of the view.
+texture rebuilt into a DDS file, concurrent disk reads, a sparse 64 MiB
+payload that stays off heap at open time, and the override rules of the view.
 
 `tests/real_data.rs` runs when `SKYRIM_DATA` points at a Skyrim SE `Data/`
 folder: it indexes every vanilla archive, reads a record from each, and pulls
