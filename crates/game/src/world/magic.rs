@@ -6,7 +6,7 @@
 //! elapsed time and reversible actor-value deltas belong to the world.
 //! Unsupported delivery and archetypes return errors before applying effects.
 
-use soe_esm::records::gameplay::{MagicEffect, Spell};
+use soe_esm::records::gameplay::{Effect, Ingestible, MagicEffect, Spell};
 use soe_esm::GlobalFormId;
 use soe_papyrus::{ObjectId, Value};
 
@@ -23,6 +23,7 @@ const NO_DURATION: u32 = 1 << 9;
 const NO_MAGNITUDE: u32 = 1 << 10;
 const NO_RECAST: u32 = 1 << 17;
 const NO_DEATH_DISPEL: u32 = 1 << 28;
+const INGESTIBLE_POISON: u32 = 1 << 17;
 
 /// Identity of one effect application, independent of its MGEF FormID.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -99,6 +100,136 @@ impl World {
             self.order.record(rref),
             self.order.file(rref.file).plugin.header.is_localized(),
         )?)
+    }
+
+    /// Read the current winning ALCH definition.
+    pub fn ingestible(&self, id: GlobalFormId) -> Result<Ingestible, MagicError> {
+        let rref = self.order.winner_ref(id).ok_or(MagicError::Missing(id))?;
+        Ok(Ingestible::from_record(
+            self.order.record(rref),
+            self.order.file(rref.file).plugin.header.is_localized(),
+        )?)
+    }
+
+    pub(crate) fn magic_item_effect(
+        &self,
+        item: GlobalFormId,
+        index: u32,
+    ) -> Result<Effect, MagicError> {
+        let effects = match self.tag_of(item).map(|tag| *tag.as_bytes()) {
+            Some(tag) if tag == *b"SPEL" => self.spell(item)?.effects,
+            Some(tag) if tag == *b"ALCH" => self.ingestible(item)?.effects,
+            _ => return Err(MagicError::Missing(item)),
+        };
+        effects
+            .get(index as usize)
+            .cloned()
+            .ok_or(MagicError::Unsupported("active effect entry"))
+    }
+
+    /// Consume one ALCH inventory item and apply its effects to its drinker.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error without consuming the item when it is absent, malformed
+    /// or needs a magic behavior that has no execution path yet.
+    pub fn drink_ingestible(
+        &mut self,
+        ingestible: GlobalFormId,
+        drinker: GlobalFormId,
+        alloc: Alloc<'_>,
+    ) -> Result<Vec<EffectId>, MagicError> {
+        if self.item_count(drinker, ingestible) == 0 {
+            return Err(MagicError::Missing(ingestible));
+        }
+        let definition = self.ingestible(ingestible)?;
+        if definition.data.flags & INGESTIBLE_POISON != 0 {
+            return Err(MagicError::Unsupported("poison application to a weapon"));
+        }
+        if self.actor(drinker).is_none() {
+            return Err(MagicError::Target);
+        }
+        let mut prepared = Vec::new();
+        for (index, entry) in definition.effects.iter().enumerate() {
+            let effect = self
+                .resolve_from(ingestible, entry.base_effect)
+                .ok_or(MagicError::Missing(ingestible))?;
+            let base = self.magic_effect(effect)?;
+            let data = &base.data;
+            if !entry.conditions.is_empty() || !base.conditions.is_empty() {
+                return Err(MagicError::Unsupported("magic condition evaluation"));
+            }
+            if data.flags & HOSTILE != 0 {
+                let actor = self.actor(drinker).ok_or(MagicError::Target)?;
+                if actor.dead || actor.ghost {
+                    return Err(MagicError::Target);
+                }
+            }
+            if !matches!(data.archetype, 0 | 1 | 5) {
+                return Err(MagicError::Unsupported("effect archetype"));
+            }
+            if entry.data.area != 0 || data.area != 0 || data.taper_duration != 0.0 {
+                return Err(MagicError::Unsupported("area or taper"));
+            }
+            if data.perk != 0 || data.equip_ability != 0 || data.flags & (1 << 8) != 0 {
+                return Err(MagicError::Unsupported(
+                    "perk, equip ability or keyword dispelling",
+                ));
+            }
+            let magnitude = if data.flags & NO_MAGNITUDE != 0 {
+                0.0
+            } else {
+                entry.data.magnitude
+            };
+            if !magnitude.is_finite() || magnitude < 0.0 {
+                return Err(MagicError::Number);
+            }
+            let signed = if data.flags & DETRIMENTAL != 0 {
+                -magnitude
+            } else {
+                magnitude
+            };
+            let mut changes = Vec::new();
+            if data.archetype != 1 {
+                let name = actor_value_name(data.primary_actor_value)
+                    .ok_or(MagicError::Unsupported("actor value"))?;
+                changes.push((name.to_string(), signed));
+                if data.archetype == 5 {
+                    let name = actor_value_name(data.second_actor_value)
+                        .ok_or(MagicError::Unsupported("secondary actor value"))?;
+                    let amount = signed * data.second_actor_value_weight;
+                    if !amount.is_finite() {
+                        return Err(MagicError::Number);
+                    }
+                    changes.push((name.to_string(), amount));
+                }
+            }
+            prepared.push(PreparedEffect {
+                effect: ActiveEffect {
+                    id: EffectId(0),
+                    spell: ingestible,
+                    effect,
+                    effect_index: index as u32,
+                    source: ingestible,
+                    caster: Some(drinker),
+                    target: drinker,
+                    magnitude,
+                    duration: Some(if data.flags & NO_DURATION != 0 {
+                        0.0
+                    } else {
+                        f64::from(entry.data.duration)
+                    }),
+                    elapsed: 0.0,
+                    recover: data.flags & RECOVER != 0,
+                    changes,
+                },
+                no_recast: data.flags & NO_RECAST != 0,
+                hit_event: false,
+            });
+        }
+        let applied = self.apply_prepared_effects(prepared, drinker, alloc)?;
+        self.remove_item_notified(drinker, ingestible, 1, None, alloc);
+        Ok(applied)
     }
 
     /// Execute a direct scripted cast. This bypasses player charging and cost.
@@ -221,13 +352,23 @@ impl World {
                 hit_event: data.flags & (HOSTILE | NO_HIT_EVENT) == HOSTILE,
             });
         }
+        self.apply_prepared_effects(prepared, target, alloc)
+    }
+
+    fn apply_prepared_effects(
+        &mut self,
+        mut prepared: Vec<PreparedEffect>,
+        target: GlobalFormId,
+        alloc: Alloc<'_>,
+    ) -> Result<Vec<EffectId>, MagicError> {
         self.next_effect
             .checked_add(prepared.len() as u64)
             .ok_or(MagicError::Identity)?;
         let mut seen = std::collections::BTreeSet::new();
         prepared.retain(|p| {
             !p.no_recast
-                || (!self.has_magic_effect(target, p.effect.effect) && seen.insert(p.effect.effect))
+                || (!self.has_magic_effect(p.effect.target, p.effect.effect)
+                    && seen.insert(p.effect.effect))
         });
         let mut values = self.actor(target).ok_or(MagicError::Target)?.values.clone();
         for prepared in &prepared {
@@ -237,12 +378,17 @@ impl World {
         }
         let mut applied = Vec::new();
         for mut prepared in prepared {
-            if prepared.no_recast && self.has_magic_effect(target, prepared.effect.effect) {
+            if prepared.no_recast
+                && self.has_magic_effect(prepared.effect.target, prepared.effect.effect)
+            {
                 continue;
             }
             if prepared.hit_event {
-                let aggressor = self.form_value(caster.or(Some(source)), alloc);
-                let spell_value = self.form_value(Some(spell), alloc);
+                let aggressor = self.form_value(
+                    prepared.effect.caster.or(Some(prepared.effect.source)),
+                    alloc,
+                );
+                let spell_value = self.form_value(Some(prepared.effect.spell), alloc);
                 let args = vec![
                     aggressor,
                     spell_value,
@@ -252,7 +398,7 @@ impl World {
                     Value::Bool(false),
                     Value::Bool(false),
                 ];
-                for recipient in self.actor_event_recipients(target) {
+                for recipient in self.actor_event_recipients(prepared.effect.target) {
                     let object = self.object_of(recipient, alloc);
                     self.pending.push(Pending::Event {
                         object,
@@ -269,19 +415,19 @@ impl World {
                 object,
                 effect: prepared.effect.effect,
             });
-            let target_value = self.form_value(Some(target), alloc);
-            let caster_value = self.form_value(caster, alloc);
+            let target_value = self.form_value(Some(prepared.effect.target), alloc);
+            let caster_value = self.form_value(prepared.effect.caster, alloc);
             self.pending.push(Pending::Event {
                 object,
                 name: "OnEffectStart".into(),
                 args: vec![target_value, caster_value],
             });
-            let source_value = self.form_value(Some(source), alloc);
+            let caster_value = self.form_value(prepared.effect.caster, alloc);
             let effect_value = self.form_value(Some(prepared.effect.effect), alloc);
             self.form_event(
-                target,
+                prepared.effect.target,
                 "OnMagicEffectApply",
-                vec![source_value, effect_value],
+                vec![caster_value, effect_value],
                 alloc,
             );
             // An instant lethal effect must receive its target's death events too.

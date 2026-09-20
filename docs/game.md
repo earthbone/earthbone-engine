@@ -1016,13 +1016,32 @@ map and wall-clock expiry do not fit independent applications or menu pause, so
 those policies were not reused. `thiserror` is now a direct game dependency for
 typed cast errors. It was already present transitively, with no new package.
 
+`World::drink_ingestible` reads a winning ALCH record, validates every EFID and
+EFIT group, then consumes one item from the drinker's inventory and applies the
+supported effects to that actor. The ALCH FormID is the active effect's source
+and the drinker is the active-effect caster and `OnMagicEffectApply` caster.
+`Actor.EquipItem` routes ALCH records through this operation. A timed effect
+expires on the ordinary game clock,
+while a zero-duration effect applies once. Unsupported effects and malformed
+records leave the inventory unchanged. The reader follows local xEdit
+`wbRecord(ALCH)` and `uesp-modfileformat/ALCH.wikitext`, which specify ENIT and
+the shared EFID/EFIT groups. Food, medicine and poison flags are retained in
+the record view. Food and medicine apply through this path. Poison application
+to equipped weapons stays rejected without consuming the item until CMB-25
+implements that separate interaction. Addiction and consume sounds have no
+runtime behavior yet.
+
+SOEW validation resolves saved active-effect entries through their owning SPEL
+or ALCH record. Restoring an active potion effect retains its consumed inventory
+state and its existing modifier, then expires it from its saved elapsed time.
+
 Unsupported casts return a typed error before applying any of their effects,
 and Papyrus casts log that error. This includes projectiles, contact and location delivery, concentration, conditions, area,
 taper, perk adjustments, equip abilities, keyword dispelling and other archetypes.
 Actor-value indices above 45 are not yet supported. Recover effects use the temporary modifier domain. Other effects damage or
 restore the damage component without changing permanent modifiers.
 Automatic ability application from AddSpell or NPC spell lists, enchantments,
-potions, resistance and absorption, effect artwork and sounds, actor-event
+resistance and absorption, effect artwork and sounds, actor-event
 forwarding, effect inventory filters and VM object reclamation remain unfinished.
 This is an active-effect foundation, not complete magic execution.
 
@@ -1417,3 +1436,15 @@ then executes 184 supported weapons against synthetic actors. The remaining
 weapons reject unsupported types, templates or enchantments. Real armor records
 were decoded, while armor damage calculations use synthetic fixtures.
 These changes await commit and merge review on `combat-hits`.
+
+### Ingestible survey, MAG-11
+
+The installed five-master survey parsed all 407 ALCH winners. It accepted 114
+items and created 143 applications. The 293 rejections covered 187 unsupported
+archetypes, 80 weapon poisons, 23 actor-value indices, one area or taper entry,
+one conditioned effect and one perk, equip-ability or keyword-dispelling
+entry. Every rejected item preserved the initialized World bytes. Every
+accepted item consumed exactly one item, including pre-existing inventory.
+Run `installed_ingestible_survey_reports_supported_applications` with
+`SKYRIM_DATA` to repeat the survey. These counts describe this branch before
+integration with the other magic milestones.

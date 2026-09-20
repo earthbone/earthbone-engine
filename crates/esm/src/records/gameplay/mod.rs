@@ -12,7 +12,9 @@ mod magic;
 pub use condition::{Comparison, Condition};
 pub use crafting::{Ingredient, ItemOwnership, Recipe};
 pub use dialogue::{DialogueInfo, DialogueTopic, InfoData, Response, TopicSubtype};
-pub use magic::{Effect, EffectData, MagicEffect, MagicEffectData, Spell, SpellData};
+pub use magic::{
+    Effect, EffectData, Ingestible, IngestibleData, MagicEffect, MagicEffectData, Spell, SpellData,
+};
 
 use super::Text;
 use crate::cursor::{zstring, Fields};

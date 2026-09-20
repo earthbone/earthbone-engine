@@ -1293,7 +1293,15 @@ fn actor(vm: &mut Vm, w: &Shared) {
             if world.item_count(me, item) == 0 {
                 world.add_item(me, item, 1);
             }
-            if let Some(a) = world.actor(me) {
+            if world
+                .tag_of(item)
+                .is_some_and(|tag| tag.as_bytes() == b"ALCH")
+            {
+                if let Err(error) = world.drink_ingestible(item, me, alloc!(call)) {
+                    call.log
+                        .push(call.time, format!("Actor.EquipItem: {error}"));
+                }
+            } else if let Some(a) = world.actor(me) {
                 a.equipped.insert(item);
             }
         }
