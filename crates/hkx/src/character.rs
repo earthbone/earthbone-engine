@@ -33,20 +33,19 @@ impl ProjectData {
         s.expect_class("hkbProjectStringData")?;
         Ok(ProjectData {
             world_up_ws: o.vec4(16)?,
-            default_event_mode: o.i8(40)?,
-            animation_filenames: s.array_strings(16)?,
-            behavior_filenames: s.array_strings(32)?,
-            character_filenames: s.array_strings(48)?,
-            event_names: s.array_strings(64)?,
-            animation_path: s.string_or_empty(80)?,
-            behavior_path: s.string_or_empty(88)?,
-            character_path: s.string_or_empty(96)?,
-            full_path_to_source: s.string_or_empty(104)?,
+            default_event_mode: o.i8(o.layout_offset(36, 40))?,
+            animation_filenames: s.array_strings(s.layout_offset(8, 16))?,
+            behavior_filenames: s.array_strings(s.layout_offset(20, 32))?,
+            character_filenames: s.array_strings(s.layout_offset(32, 48))?,
+            event_names: s.array_strings(s.layout_offset(44, 64))?,
+            animation_path: s.string_or_empty(s.layout_offset(56, 80))?,
+            behavior_path: s.string_or_empty(s.layout_offset(60, 88))?,
+            character_path: s.string_or_empty(s.layout_offset(64, 96))?,
+            full_path_to_source: s.string_or_empty(s.layout_offset(68, 104))?,
         })
     }
 
     pub fn from_packfile(pf: &Packfile) -> Result<ProjectData> {
-        pf.require_64bit()?;
         Self::from_obj(root_variant_of(pf, "hkbProjectData")?)
     }
 }
@@ -90,37 +89,39 @@ impl CharacterData {
     /// rigName 168, ragdollName 176, behaviorFilename 184.
     pub fn from_obj(o: Obj<'_>) -> Result<CharacterData> {
         o.expect_class("hkbCharacterData")?;
-        let s = o.ptr_required(152, "hkbCharacterData.stringData")?;
+        let s = o.ptr_required(o.layout_offset(116, 152), "hkbCharacterData.stringData")?;
         s.expect_class("hkbCharacterStringData")?;
         Ok(CharacterData {
-            model_up_ms: o.vec4(48)?,
-            model_forward_ms: o.vec4(64)?,
-            model_right_ms: o.vec4(80)?,
-            character_property_infos: VariableInfo::array(o, 96)?,
-            num_bones_per_lod: o.array_i32(112)?,
-            character_property_values: o.ptr(128)?.map(VariableValueSet::from_obj).transpose()?,
-            scale: o.f32(168)?,
-            deformable_skin_names: s.array_strings(16)?,
-            rigid_skin_names: s.array_strings(32)?,
-            animation_names: s.array_strings(48)?,
-            animation_filenames: s.array_strings(64)?,
-            character_property_names: s.array_strings(80)?,
-            retargeting_skeleton_mapper_filenames: s.array_strings(96)?,
-            lod_names: s.array_strings(112)?,
-            mirrored_sync_point_substrings_a: s.array_strings(128)?,
-            mirrored_sync_point_substrings_b: s.array_strings(144)?,
-            name: s.string_or_empty(160)?,
-            rig_name: s.string_or_empty(168)?,
-            ragdoll_name: s.string_or_empty(176)?,
-            behavior_filename: s.string_or_empty(184)?,
-            has_foot_ik_driver_info: o.ptr(136)?.is_some(),
-            has_hand_ik_driver_info: o.ptr(144)?.is_some(),
-            has_mirrored_skeleton_info: o.ptr(160)?.is_some(),
+            model_up_ms: o.vec4(o.layout_offset(32, 48))?,
+            model_forward_ms: o.vec4(o.layout_offset(48, 64))?,
+            model_right_ms: o.vec4(o.layout_offset(64, 80))?,
+            character_property_infos: VariableInfo::array(o, o.layout_offset(80, 96))?,
+            num_bones_per_lod: o.array_i32(o.layout_offset(92, 112))?,
+            character_property_values: o
+                .ptr(o.layout_offset(104, 128))?
+                .map(VariableValueSet::from_obj)
+                .transpose()?,
+            scale: o.f32(o.layout_offset(124, 168))?,
+            deformable_skin_names: s.array_strings(s.layout_offset(8, 16))?,
+            rigid_skin_names: s.array_strings(s.layout_offset(20, 32))?,
+            animation_names: s.array_strings(s.layout_offset(32, 48))?,
+            animation_filenames: s.array_strings(s.layout_offset(44, 64))?,
+            character_property_names: s.array_strings(s.layout_offset(56, 80))?,
+            retargeting_skeleton_mapper_filenames: s.array_strings(s.layout_offset(68, 96))?,
+            lod_names: s.array_strings(s.layout_offset(80, 112))?,
+            mirrored_sync_point_substrings_a: s.array_strings(s.layout_offset(92, 128))?,
+            mirrored_sync_point_substrings_b: s.array_strings(s.layout_offset(104, 144))?,
+            name: s.string_or_empty(s.layout_offset(116, 160))?,
+            rig_name: s.string_or_empty(s.layout_offset(120, 168))?,
+            ragdoll_name: s.string_or_empty(s.layout_offset(124, 176))?,
+            behavior_filename: s.string_or_empty(s.layout_offset(128, 184))?,
+            has_foot_ik_driver_info: o.ptr(o.layout_offset(108, 136))?.is_some(),
+            has_hand_ik_driver_info: o.ptr(o.layout_offset(112, 144))?.is_some(),
+            has_mirrored_skeleton_info: o.ptr(o.layout_offset(120, 160))?.is_some(),
         })
     }
 
     pub fn from_packfile(pf: &Packfile) -> Result<CharacterData> {
-        pf.require_64bit()?;
         Self::from_obj(root_variant_of(pf, "hkbCharacterData")?)
     }
 }

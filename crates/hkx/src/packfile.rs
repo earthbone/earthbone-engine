@@ -14,7 +14,7 @@
 //! - a virtual fixup maps an object position to its class name, which is how
 //!   the loader knows which constructor, or here which layout, to use.
 //!
-//! Layouts are the 64-bit `hk_2010.2.0-r1` ones. An `hkArray<T>` is a null
+//! Pointer width comes from the `hk_2010.2.0-r1` header. An `hkArray<T>` is a null
 //! pointer, an `i32` count and an `i32` capacity-and-flags word. An
 //! `hkStringPtr` is a pointer. Both are resolved through local fixups.
 
@@ -379,6 +379,24 @@ impl std::fmt::Debug for Obj<'_> {
 }
 
 impl<'a> Obj<'a> {
+    /// Select a byte offset or element stride from Havok's x86 and x64 layouts.
+    pub fn layout_offset(&self, x86: u32, x64: u32) -> u32 {
+        if self.pf.pointer_size() == 4 {
+            x86
+        } else {
+            x64
+        }
+    }
+
+    /// Read an `hkUlong`, whose width follows the file's pointer size.
+    pub fn ulong(&self, off: u32) -> Result<u64> {
+        if self.pf.pointer_size() == 4 {
+            self.u32(off).map(u64::from)
+        } else {
+            self.u64(off)
+        }
+    }
+
     pub fn packfile(&self) -> &'a Packfile {
         self.pf
     }

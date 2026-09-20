@@ -62,6 +62,7 @@ fn align_up(n: usize, a: usize) -> usize {
 
 #[derive(Default)]
 pub struct PackfileBuilder {
+    is_32bit: bool,
     data: Vec<u8>,
     local: Vec<(u32, u32)>,
     global: Vec<(u32, u32)>,
@@ -73,6 +74,22 @@ pub struct PackfileBuilder {
 impl PackfileBuilder {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Build a Skyrim LE packfile with four-byte pointers and array headers.
+    pub fn new_32bit() -> Self {
+        Self {
+            is_32bit: true,
+            ..Self::default()
+        }
+    }
+
+    fn pointer_size(&self) -> u32 {
+        if self.is_32bit {
+            4
+        } else {
+            8
+        }
     }
 
     fn alloc(&mut self, size: usize, align: usize) -> u32 {
@@ -156,8 +173,12 @@ impl PackfileBuilder {
 
     /// Fill an `hkArray` field with raw element bytes and a count.
     pub fn array_bytes(&mut self, obj: u32, off: u32, bytes: &[u8], count: usize) {
-        self.set_i32(obj, off + 8, count as i32);
-        self.set_i32(obj, off + 12, (count as i32) | i32::MIN);
+        self.set_i32(obj, off + self.pointer_size(), count as i32);
+        self.set_i32(
+            obj,
+            off + self.pointer_size() + 4,
+            (count as i32) | i32::MIN,
+        );
         if count > 0 {
             let at = self.blob(bytes);
             self.local.push((obj + off, at));
@@ -166,40 +187,52 @@ impl PackfileBuilder {
 
     /// Fill an `hkArray<T*>` field, one global fixup per element.
     pub fn array_ptrs(&mut self, obj: u32, off: u32, targets: &[u32]) {
-        self.set_i32(obj, off + 8, targets.len() as i32);
-        self.set_i32(obj, off + 12, (targets.len() as i32) | i32::MIN);
+        self.set_i32(obj, off + self.pointer_size(), targets.len() as i32);
+        self.set_i32(
+            obj,
+            off + self.pointer_size() + 4,
+            (targets.len() as i32) | i32::MIN,
+        );
         if targets.is_empty() {
             return;
         }
-        let at = self.blob(&vec![0u8; 8 * targets.len()]);
+        let at = self.blob(&vec![0u8; self.pointer_size() as usize * targets.len()]);
         self.local.push((obj + off, at));
         for (i, t) in targets.iter().enumerate() {
-            self.global.push((at + 8 * i as u32, *t));
+            self.global.push((at + self.pointer_size() * i as u32, *t));
         }
     }
 
     /// Fill an `hkArray<hkStringPtr>` field.
     pub fn array_strings(&mut self, obj: u32, off: u32, strings: &[&str]) {
-        self.set_i32(obj, off + 8, strings.len() as i32);
-        self.set_i32(obj, off + 12, (strings.len() as i32) | i32::MIN);
+        self.set_i32(obj, off + self.pointer_size(), strings.len() as i32);
+        self.set_i32(
+            obj,
+            off + self.pointer_size() + 4,
+            (strings.len() as i32) | i32::MIN,
+        );
         if strings.is_empty() {
             return;
         }
-        let at = self.blob(&vec![0u8; 8 * strings.len()]);
+        let at = self.blob(&vec![0u8; self.pointer_size() as usize * strings.len()]);
         self.local.push((obj + off, at));
         for (i, s) in strings.iter().enumerate() {
             let mut bytes = s.as_bytes().to_vec();
             bytes.push(0);
             let sat = self.blob(&bytes);
-            self.local.push((at + 8 * i as u32, sat));
+            self.local.push((at + self.pointer_size() * i as u32, sat));
         }
     }
 
     /// Allocate an array of `count` structs of `stride` bytes for a field
     /// and return the offset of element 0, so the caller can fill them.
     pub fn array_structs(&mut self, obj: u32, off: u32, stride: usize, count: usize) -> u32 {
-        self.set_i32(obj, off + 8, count as i32);
-        self.set_i32(obj, off + 12, (count as i32) | i32::MIN);
+        self.set_i32(obj, off + self.pointer_size(), count as i32);
+        self.set_i32(
+            obj,
+            off + self.pointer_size() + 4,
+            (count as i32) | i32::MIN,
+        );
         if count == 0 {
             return 0;
         }
@@ -300,7 +333,7 @@ impl PackfileBuilder {
         out.extend_from_slice(&MAGIC1.to_le_bytes());
         out.extend_from_slice(&0i32.to_le_bytes()); // user tag
         out.extend_from_slice(&8i32.to_le_bytes()); // file version
-        out.extend_from_slice(&[8, 1, 0, 1]); // ptr size, little endian, padding, base class
+        out.extend_from_slice(&[self.pointer_size() as u8, 1, 0, 1]); // ptr size, little endian, padding, base class
         out.extend_from_slice(&3i32.to_le_bytes());
         out.extend_from_slice(&2i32.to_le_bytes()); // contents section
         out.extend_from_slice(&0i32.to_le_bytes()); // contents offset
