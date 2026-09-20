@@ -51,6 +51,13 @@ value store. Unarmed damage does not use weapon skill scaling or
 `fDamageWeaponMult`. Missing or malformed race data rejects the hit before
 health or events change.
 
+AttackDamageMult scales the attacker's ordinary weapon or unarmed damage.
+Its shared actor-value default is 1. Base, permanent, temporary and damage
+components all contribute. An explicit zero remains zero through save/load.
+The target's AttackDamageMult does not change incoming damage. Negative or
+overflowing multipliers reject before health or events change. Armor,
+difficulty and the existing weapon/equipment validation still apply.
+
 The current path is ordinary melee at a selected difficulty. It defaults to
 Adept and persists the selection in SOEW version 18. Its separate damage
 to/from player settings are read on every contact, while NPC-to-NPC contacts
@@ -333,3 +340,37 @@ health scaling, inherited absolute overrides, live settings and malformed
 inputs. The runtime evidence has not yet been checked through an interactive
 vanilla comparison. Entry, automatic recovery, NoBleedoutRecovery behavior,
 OnEnterBleedout and persistence are still required before CMB-13 is done.
+
+## Combat actor-value modifiers, CMB-15 in progress
+
+The intrinsic AttackDamageMult milestone uses the shared actor-value store,
+including its default, native reads and mutations, and serialization. There
+is no combat-private multiplier cache and no save-format change. An older
+save without the entry receives the documented default. Saved explicit
+values are retained. The value is applied after weapon skill scaling and
+before armor and difficulty reduction. Its exact floating-point rounding
+relative to the original runtime remains unmeasured.
+
+Local CommonLibSSE and skymp actor-value enums identify AttackDamageMult as
+154. The [Skills-based Damage and Magnitude Multipliers author](https://www.nexusmods.com/skyrim/mods/21828)
+documents its native default of 1 and its damage-multiplier role. That public
+mod description supplies the behavior missing from the local enum declarations.
+The four `cmb_15` combat tests cover shared components, armor and difficulty
+composition, explicit zero, unarmed damage, save/load, overflow and rejection
+without health or event changes.
+
+CMB-15 remains unfinished because the skill Mod and PowerMod values are
+PERK inputs, not intrinsic percentage multipliers. The installed five-master
+survey finds PerkSkillBoosts at 0:0CF788 and AlchemySkillBoosts at 0:0A725C.
+Both use function 14, multiply by one plus actor value times coefficient.
+OneHanded, TwoHanded and Marksman modifier entries use ModAttackDamage with
+coefficient 0.01. LightArmor and HeavyArmor modifier entries instead use
+ModIncomingDamage with coefficient -0.01. Their conditions and priorities
+come from the winning PERK records. Hardcoding those effects into armor
+rating would ignore record edits and apply the wrong term. The
+`combat_modifier_survey` example prints the relevant subrecords using the
+existing plugin reader, without copying installed assets.
+
+CMB-15 now depends on CMB-09 so those modifiers will execute through the perk
+path. They continue to reject pending that work. `docs/combat-perks.md`
+records the dispatch prerequisites and the ordering evidence still needed.

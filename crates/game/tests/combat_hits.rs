@@ -257,6 +257,87 @@ fn close(actual: f32, expected: f32) {
 }
 
 #[test]
+fn cmb_15_attack_damage_mult_uses_shared_components_and_survives_save() {
+    let records = vec![armor(0xB00, 10_000, 1 << 2, 1)];
+    let mut game = fixture(records.clone());
+    let player = game.player();
+    close(game.world_mut().actor_value(player, "AttackDamageMult"), 1.);
+    game.world_mut()
+        .mod_actor_value(player, "attackdamagemult", 0.5)
+        .unwrap();
+    game.world_mut()
+        .mod_temporary_actor_value(player, "attackdamagemult", 0.25)
+        .unwrap();
+    game.world_mut()
+        .damage_actor_value(player, "attackdamagemult", 0.25)
+        .unwrap();
+    game.world_mut()
+        .set_actor_value(id(0x901), "attackdamagemult", 10.)
+        .unwrap();
+    equip(&game, 0x901, 0xB00);
+    game.set_difficulty(Difficulty::Expert);
+    let saved = game.save_state().unwrap();
+    let mut loaded = fixture(records);
+    loaded.load_state(&saved).unwrap();
+    assert_eq!(loaded.world().state_hash(), game.world().state_hash());
+    let result = loaded.melee_hit(hit(0x14, 0x901)).unwrap();
+    close(result.weapon_damage, 22.5);
+    close(result.armor_rating, 100.);
+    close(result.armor_reduction, 0.15);
+    close(result.health_damage, 22.5 * 0.85 * 0.75);
+}
+
+#[test]
+fn cmb_15_explicit_zero_mult_survives_save_and_only_scales_outgoing_damage() {
+    let mut game = fixture(vec![]);
+    game.world_mut()
+        .set_actor_value(id(0x900), "attackdamagemult", 0.)
+        .unwrap();
+    let saved = game.save_state().unwrap();
+    let mut loaded = fixture(vec![]);
+    loaded.load_state(&saved).unwrap();
+    close(
+        loaded.melee_hit(hit(0x900, 0x901)).unwrap().health_damage,
+        0.,
+    );
+    close(
+        loaded.melee_hit(hit(0x901, 0x900)).unwrap().health_damage,
+        30.,
+    );
+}
+
+#[test]
+fn cmb_15_unarmed_damage_uses_attack_damage_mult() {
+    let mut game = ready_unarmed_game(race(0x700, 10.));
+    game.world_mut()
+        .mod_actor_value(id(0x900), "attackdamagemult", 0.5)
+        .unwrap();
+    close(
+        game.melee_hit(unarmed_hit(0x900, 0x901))
+            .unwrap()
+            .health_damage,
+        15.,
+    );
+}
+
+#[test]
+fn cmb_15_invalid_damage_mult_rejects_without_health_or_event_changes() {
+    for value in [-1., f32::MAX] {
+        let mut game = fixture(vec![]);
+        warm_combat_actor_base(&mut game);
+        game.world_mut()
+            .set_actor_value(id(0x14), "attackdamagemult", value)
+            .unwrap();
+        let before = game.save_state().unwrap();
+        assert!(matches!(
+            game.melee_hit(hit(0x14, 0x901)),
+            Err(Error::Number)
+        ));
+        assert_eq!(game.save_state().unwrap(), before);
+    }
+}
+
+#[test]
 fn weapon_skill_is_independent_of_animation_and_fields_use_schema_offsets() {
     let parsed = Weapon::from_record(&weapon(0xA00, 27, 8)).unwrap();
     assert_eq!(
