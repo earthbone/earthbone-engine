@@ -46,7 +46,8 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// Version 22 adds the Wait procedure tag, movement flag and real-time deadline.
 /// Version 23 adds walking Patrol marker, direction and dwell progress.
 /// Version 24 retains an actor's active exclusive dialogue branch.
-pub const SAVE_VERSION: u16 = 24;
+/// Version 25 persists image-space applications and crossfade progress.
+pub const SAVE_VERSION: u16 = 25;
 
 #[derive(Clone, Copy)]
 pub(crate) enum FormNamespace {
@@ -391,6 +392,7 @@ impl World {
             write_form_id(&mut body, id);
             crate::ai::write_tree_state(&mut body, Some(tree));
         }
+        self.write_image_space(&mut body);
         let mut out = Writer::new();
         out.out.extend_from_slice(SAVE_MAGIC);
         out.u16(SAVE_VERSION);
@@ -910,6 +912,11 @@ impl World {
                 actor.ai.tree = tree;
             }
         }
+        let image_space = if version >= 25 {
+            self.read_image_space(&mut r)?
+        } else {
+            super::image_space::ImageSpaceState::default()
+        };
         r.expect_end()?;
         super::death::validate_pending(&actors, &pending)?;
 
@@ -962,6 +969,7 @@ impl World {
         self.dialogue = dialogue;
         self.next_effect = next_effect;
         self.active_effects = active_effects;
+        self.image_space = image_space;
 
         self.objects = objects;
         self.handles = handles;

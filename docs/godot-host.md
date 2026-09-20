@@ -1621,3 +1621,73 @@ Godot project pointing to this worktree's extension, so an existing interactive
 window keeps its loaded library. A small synthetic master set with installed
 mesh archives exercises this path without loading the full installed records.
 That fixture verifies host integration, not a full installed-game session.
+
+## Image-space lifetime stack, MAG-25
+
+`image_space::ImageSpaceStack` derives its ordered frame snapshot from the
+shared World. PlayerNode synchronizes it after startup scripts and each game
+tick, and clears it when replacing the data source. The diagnostic
+`gameplay_image_space` method exposes modifier identity, strength and age.
+No additional scene nodes or server resources are allocated for applications.
+
+The headless host test applies, fades and removes modifiers through Game,
+checks the production snapshot and replaces the World to verify cleanup.
+The full gate compiles the PlayerNode integration with Godot enabled. No
+interactive renderer run or performance measurement is claimed.
+
+The lifetime sources and tested timing policies are documented in
+[game.md](game.md#image-space-modifier-lifetimes-mag-25). Authored IMAD curves
+remain in their winning records. MAG-71 owns their evaluation and visible
+post-processing through the host stack, including renderer resource cleanup.
+
+## Image-space renderer prerequisites, MAG-71
+
+The MAG-71 source audit confirms that the host needs the MAG-72 base IMGS
+pipeline before the complete modifier renderer can be accepted. PlayerNode
+currently synchronizes identity, age and strength only. No Environment,
+CameraAttributes or Compositor consumes that snapshot. `godot/walkthrough.gd`
+constructs a fixed background, ambient light and directional light. Those
+constants are not the cell or weather's authored image space. Substituting
+them for IMGS values would change multiply curves and restoration after a
+modifier ends.
+
+MAG-72 owns resolution and rendering of base IMGS HDR, cinematic, tint and
+depth fields for CELL/XCIM and explicitly selected WTHR/IMSP inputs. Its
+observable check includes rendered fixtures and cleanup when the selected
+source changes. It does not own autonomous weather or climate simulation.
+MAG-71 retains animated curves, active-stack composition, all authored blur
+modes and modifier renderer cleanup. Both rows require rendered evidence.
+
+Sources read under `engine-refs`:
+
+- xEdit `Core/wbDefinitionsTES5.pas` and `Core/wbDefinitionsCommon.pas`, plus
+  Mutagen `Records/Major Records/ImageSpaceAdapter.xml` and `.cs`, establish
+  curve layouts and flags. CommonLibSSE-NG
+  `include/RE/T/TESImageSpaceModifier.h` and `include/RE/I/ImageSpaceData.h`
+  distinguish base HDR/color data from modifier-only effects.
+- Community Shaders `package/Shaders/ISHDR.hlsl` consumes exposure history,
+  bloom, cinematic, tint and fade inputs. `ISBlur.hlsl`, `ISDoubleVision.hlsl`
+  and `ISRadialBlur.hlsl` show separate passes and their shader parameters.
+  `src/Features/LinearLighting.cpp` reads the combined sunlight scale for
+  directional lighting. These sources show the required inputs. They do not
+  establish the complete mapping from each IMAD curve to shader constants.
+  The current HDR shader also contains explicit changes to vanilla contrast
+  and display mapping, so copying it would not prove vanilla parity.
+- Godot `classes/class_environment.rst`, `class_cameraattributes.rst`,
+  `class_cameraattributespractical.rst` and
+  `tutorials/3d/environment_and_post_processing.rst` describe color
+  adjustments, tone mapping, bloom, exposure and depth-of-field controls.
+  These are available implementation mechanisms. Their names do not prove
+  equivalent units, transfer functions or ordering to Skyrim.
+- Godot `tutorials/rendering/compositor.rst` documents custom passes with
+  RenderingDevice access in Forward+ and Mobile. Callbacks run on the render
+  thread and require synchronized state and explicit resource cleanup.
+  `tutorials/shaders/advanced_postprocessing.rst` describes depth access and
+  reconstruction. No custom compositor was installed during this audit.
+
+The repeatable installed survey and its exact counts are recorded in
+[game.md](game.md#image-space-rendering-prerequisite-audit-mag-71). It verifies
+record layout and dependency reach. It does not render, measure frame time or
+test GPU resource cleanup. No Godot process was launched and no visible
+image-space behavior is claimed for this audit. The full MAG-71 acceptance
+check remains in BACKLOG.csv without a narrowed color-only substitute.

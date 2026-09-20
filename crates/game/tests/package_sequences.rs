@@ -355,6 +355,8 @@ fn a_world_saved_before_cursors_existed_starts_its_authored_tree() {
     );
     let mut game = game(tree, 0);
     let mut bytes = legacy::without_exclusive_branches(&mut game.world_mut(), &[id(ACTOR)]);
+    // Drop the image-space block, then the empty cursor count beneath it.
+    bytes.truncate(bytes.len() - 9);
     assert_eq!(&bytes[bytes.len() - 4..], &[0; 4]);
     bytes.truncate(bytes.len() - 4);
     // Version 20 is the last one written without a cursor block.
@@ -371,14 +373,15 @@ fn a_corrupt_cursor_is_rejected_before_replacing_the_world() {
     game.tick(0.1);
     let original = game.world().save_state();
     let mut invalid = original.clone();
-    *invalid.last_mut().unwrap() = 1;
+    let finished = invalid.len() - 10;
+    invalid[finished] = 1;
     assert!(
         game.world_mut().load_state(&invalid).is_err(),
         "active and finished conflict"
     );
     assert_eq!(game.world().save_state(), original);
     let mut invalid = original.clone();
-    let actor_object = invalid.len() - 17;
+    let actor_object = invalid.len() - 26;
     invalid[actor_object..actor_object + 4].copy_from_slice(&0xffffu32.to_le_bytes());
     assert!(
         game.world_mut().load_state(&invalid).is_err(),

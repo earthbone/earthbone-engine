@@ -52,6 +52,7 @@ mod inventory;
 mod inventory_restore;
 mod weapon_hands;
 pub use inventory_restore::InventoryRestoreReport;
+pub mod image_space;
 mod item_save;
 mod localization;
 mod locks;
@@ -494,6 +495,7 @@ pub struct World {
     pub spell_casts: Vec<(GlobalFormId, GlobalFormId, Option<GlobalFormId>)>,
     pub(crate) active_effects: BTreeMap<magic::EffectId, magic::ActiveEffect>,
     pub(crate) next_effect: u64,
+    pub(crate) image_space: image_space::ImageSpaceState,
 }
 
 impl World {
@@ -580,6 +582,7 @@ impl World {
             localized_strings: BTreeMap::new(),
             active_effects: BTreeMap::new(),
             next_effect: 1,
+            image_space: image_space::ImageSpaceState::default(),
         }
     }
 

@@ -20,6 +20,7 @@ pub mod collision;
 pub mod combat;
 pub mod data_source;
 pub mod door_fade;
+pub mod image_space;
 pub mod input;
 pub mod mesh;
 pub mod skinned;

@@ -51,6 +51,7 @@ impl PlayerNode {
         }
         game.world_mut().change_cell(Some(cell));
         game.run_until_idle(64);
+        self.image_space.sync(&game.world());
         self.start_footstep_audio();
         self.game = Some(game);
         self.sync_game_pose()
@@ -79,6 +80,7 @@ impl PlayerNode {
         }
         if let Some(game) = &mut self.game {
             self.menu.tick(game, delta);
+            self.image_space.sync(&game.world());
         }
         if !self.sync_game_pose() {
             self.auto_step = false;

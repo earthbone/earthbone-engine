@@ -90,6 +90,8 @@ and `engine-refs/skse64/scripts/vanilla` can establish the contract.
 ## Conformance table
 
 Counts from `natives::register`: 364 natives with state behind them and 177
+
+Counts from `natives::register`: 366 natives with state behind them and 175
 quiet stubs (141 and 176 before the natives round of 2026-09-18, 294 and 137
 before the DLC round). A stub returns the value the game gives when nothing
 is going on (`IsBleedingOut` false, `ShakeCamera` nothing) so vanilla scripts
@@ -121,7 +123,7 @@ run past it.
 | TopicInfo | GetOwningQuest | |
 | ActiveMagicEffect | RegisterForUpdate, RegisterForSingleUpdate, RegisterForUpdateGameTime, RegisterForSingleUpdateGameTime, UnregisterForUpdate, UnregisterForUpdateGameTime, RegisterForAnimationEvent, UnregisterForAnimationEvent, GetBaseObject, GetTargetActor, GetCasterActor, Dispel, AddInventoryEventFilter, RemoveInventoryEventFilter, RemoveAllInventoryEventFilters | |
 | EffectShader, VisualEffect | | Play, Stop |
-| ImageSpaceModifier | | Apply, ApplyCrossFade, Remove, RemoveCrossFade, PopTo |
+| ImageSpaceModifier | Apply, ApplyCrossFade, Remove, RemoveCrossFade, PopTo | |
 | ShaderParticleGeometry | | Apply, Remove |
 | MusicType, Topic | | Add, Remove |
 | Weather, Weapon, Scroll | | SetActive, Fire, Cast |
@@ -2022,3 +2024,104 @@ accepted item consumed exactly one item, including pre-existing inventory.
 Run `installed_ingestible_survey_reports_supported_applications` with
 `SKYRIM_DATA` to repeat the survey. These counts describe this branch before
 integration with the other magic milestones.
+
+## Image-space modifier lifetimes, MAG-25
+
+The five `ImageSpaceModifier` natives now update shared World state. Ordinary
+applications retain their unclamped finite strength. `PopTo` removes its source
+and applies its destination without interrupting an unrelated crossfade.
+`ApplyCrossFade` and `RemoveCrossFade` operate on a separate ordered chain.
+The host receives ordinary applications in application order, followed by the
+crossfade chain. Reapplying the same modifier replaces its application and
+restarts its age. A modifier has at most one application in this implementation.
+
+The local shipped `skse64/scripts/vanilla/ImageSpaceModifier.psc` supplies the
+five signatures, default strengths and durations, and the distinction between
+ordinary applications and crossfades. The CK
+[PopTo contract](https://ck.uesp.net/wiki/PopTo_-_ImageSpaceModifier) confirms
+unclamped strength and preservation of unrelated crossfades. CommonLibSSE-NG
+`include/RE/I/ImageSpaceModifierInstance.h` stores strength and age, while
+`ImageSpaceModifierInstanceForm.h` exposes trigger and stop entry points.
+Their implementation is a binary relocation, so it provides no reusable
+crossfade algorithm. Local skymp and Community Shaders supplied no lifetime
+executor to reuse.
+
+`TES5Edit/Core/wbDefinitionsTES5.pas` and CommonLibSSE-NG
+`include/RE/T/TESImageSpaceModifier.h` define the 244-byte DNAM lifetime prefix.
+Each application reads its winning IMAD record. Animated applications expire
+at their authored duration. Invalid records and non-finite arguments reject
+before changing the stack. All 225 non-deleted IMAD winners in the installed
+five-master survey passed this lifetime reader and a Game save/load round trip.
+
+Crossfades interpolate linearly from their current weights when interrupted.
+Nonpositive fade durations settle immediately. Ages and fades use unpaused
+simulation seconds. These timing and replacement policies are engine choices
+covered by tests, not measured vanilla parity claims. SOEW version 16 stores
+the applications, ages and in-progress fade. Older saves start with an empty
+stack. Loading validates identities, finite values and the correspondence
+between fade time and weights before replacing live state.
+
+`tests/image_space.rs` exercises all five natives, interruption, menu pause,
+animated expiry, invalid-call atomicity, save continuation and corrupt-save
+rejection. Its installed-record test is gated on `SKYRIM_DATA`. The host
+snapshot test checks order, fade weights and clearing on world replacement.
+MAG-71 separately owns authored color, blur, depth and HDR curve evaluation
+and rendering. MAG-25 adds no visible post-processing and claims no rendered
+parity with Skyrim.
+
+## Image-space rendering prerequisite audit, MAG-71
+
+MAG-71 is blocked on MAG-25 and MAG-72. Its acceptance check still requires
+rendered animated color, blur, depth and HDR fixtures at the active stack
+weights. MAG-72 owns the missing shared base image-space inputs and renderer.
+No curve evaluator or partial rendering path was added by this audit.
+
+The local xEdit `Core/wbDefinitionsTES5.pas` IMGS and IMAD definitions,
+`Core/wbDefinitionsCommon.pas` interpolation and weather helpers, and Mutagen
+`Records/Major Records/ImageSpaceAdapter.xml` and `.cs` establish the layouts.
+IMAD DNAM contains key counts, target flags and fixed radial-blur centers.
+Scalar curves store time/value pairs. Tint and fade store time plus RGBA.
+The first byte of each IAD subrecord signature is a numeric channel code,
+including non-printable values. HDR and cinematic channels have separate
+multiply and add curves. These are modifiers of base image-space parameters.
+CommonLibSSE-NG `include/RE/I/ImageSpaceData.h` separates base IMGS data from
+modifier-only fade and blur data. `ImageSpaceManager.h` retains current,
+override and underwater base data alongside the combined result.
+
+`examples/imad_curve_survey.rs` uses the existing load-order reader and xEdit
+field layouts. Run it with `SKYRIM_DATA` set through
+`cargo run -p soe-game --example imad_curve_survey`. It surveys the five
+installed masters in their normal order and ignores deleted winning records.
+The 2026-09-20 run found 225 IMAD records, including 153 animated records,
+and 293 IMGS records. All 55 curve arrays in every IMAD had at least two keys,
+with finite values, matching DNAM counts and no descending key times.
+Non-neutral values occur in 143 blur-radius curves, 160 radial-strength
+curves, 16 double-vision curves, 8 motion-blur curves and 29 DOF-strength
+curves. Tint alpha is nonzero in 160 records and fade alpha in 130.
+These counts describe authored data, not successful rendering.
+
+The base dependency is used by the installed corpus. Non-neutral multiply
+curves occur in 74 bloom-scale records, 29 sky-scale records, 15 sunlight-scale
+records and 70 brightness records. The survey resolves 875 CELL/XCIM links
+to 49 distinct IMGS records and 432 WTHR/IMSP links from 108 weather records
+to 227 distinct IMGS records. xEdit defines the four weather image spaces as
+sunrise, day, sunset and night. The game and host currently have no consumer
+for these selected base values. MAG-72 must resolve winning records through
+their owning load-order namespace and expose the resulting shared base state.
+Its weather input is an explicitly selected weather and time blend.
+Autonomous climate selection, weather scheduling and Papyrus weather natives
+are outside that row. SCR-54 needs the owning weather API before binding
+`Weather.SetActive`, which is still a quiet stub.
+
+Several rendering contracts need further evidence within MAG-71. The local
+UESP `IMAD.wikitext` describes normalized times but leaves interpolation
+unspecified. The corpus contains 39 key timestamps outside zero to one.
+Five pairs labelled unused by xEdit contain non-neutral values in
+`ISMExterior`. CommonLib's `TESImageSpaceModifier.h` supplies interpolator
+storage, while `ImageSpaceModifierInstanceForm.h` calls binary entry points
+instead of defining interpolation or weighted composition. Target flags are
+set in 84 radial-blur records and 4 DOF records. The instance type stores a
+scene target, but the five Papyrus natives expose no target argument.
+Fallback target behavior, curve interpolation, unused channels and exact
+strength composition are not recovered contracts. They must not be inferred
+from similarly named Godot properties or a linear crossfade weight test.

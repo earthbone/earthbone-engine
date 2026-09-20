@@ -177,6 +177,7 @@ pub fn register(vm: &mut Vm, world: &Shared) -> Registered {
     dlc(vm, world);
     fragments_and_effects(vm, world);
     active_magic(vm, world);
+    image_space(vm, world);
     let stubs = stubs(vm);
     let natives = NATIVE_COUNT + stubs - (vm.natives.duplicates.len() - before);
     Registered { natives, stubs }
@@ -184,7 +185,7 @@ pub fn register(vm: &mut Vm, world: &Shared) -> Registered {
 
 /// Hand-kept count of the non-stub natives registered below. The test in
 /// this module checks it against the registry.
-pub const NATIVE_COUNT: usize = 364;
+pub const NATIVE_COUNT: usize = 366;
 
 fn declare_parents(vm: &mut Vm) {
     for (class, parent) in [
@@ -2403,6 +2404,57 @@ fn message_scene_sound_spell(vm: &mut Vm, w: &Shared) {
     });
 }
 
+/// Shipped ImageSpaceModifier methods keep ordinary and crossfade lifetimes apart.
+fn image_space(vm: &mut Vm, w: &Shared) {
+    method!(vm, w, "ImageSpaceModifier", "Apply", |world, call, me| {
+        let strength = call.args.first().map_or(1.0, Value::as_float);
+        if let Err(error) = world.apply_image_space(me, strength) {
+            call.log.push(call.time, error.to_string());
+        }
+        none()
+    });
+    method!(vm, w, "ImageSpaceModifier", "Remove", |world, _call, me| {
+        world.remove_image_space(me);
+        none()
+    });
+    method!(vm, w, "ImageSpaceModifier", "PopTo", |world, call, me| {
+        let Some(next) = world.form_arg(&call.arg(0)) else {
+            return none();
+        };
+        let strength = call.args.get(1).map_or(1.0, Value::as_float);
+        if let Err(error) = world.pop_image_space(me, next, strength) {
+            call.log.push(call.time, error.to_string());
+        }
+        none()
+    });
+    method!(
+        vm,
+        w,
+        "ImageSpaceModifier",
+        "ApplyCrossFade",
+        |world, call, me| {
+            let seconds = call.args.first().map_or(1.0, Value::as_float);
+            if let Err(error) = world.crossfade_image_space(Some(me), seconds) {
+                call.log.push(call.time, error.to_string());
+            }
+            none()
+        }
+    );
+    global!(
+        vm,
+        w,
+        "ImageSpaceModifier",
+        "RemoveCrossFade",
+        |world, call| {
+            let seconds = call.args.first().map_or(1.0, Value::as_float);
+            if let Err(error) = world.crossfade_image_space(None, seconds) {
+                call.log.push(call.time, error.to_string());
+            }
+            none()
+        }
+    );
+}
+
 /// CK active-effect identity, queries and dispelling contracts.
 fn active_magic(vm: &mut Vm, w: &Shared) {
     method!(vm, w, "Actor", "HasMagicEffect", |world, call, me| {
@@ -3150,10 +3202,6 @@ fn stubs(vm: &mut Vm) -> usize {
         ("EffectShader", "Stop"),
         ("VisualEffect", "Play"),
         ("VisualEffect", "Stop"),
-        ("ImageSpaceModifier", "Apply"),
-        ("ImageSpaceModifier", "ApplyCrossFade"),
-        ("ImageSpaceModifier", "Remove"),
-        ("ImageSpaceModifier", "PopTo"),
         ("ShaderParticleGeometry", "Apply"),
         ("ShaderParticleGeometry", "Remove"),
         ("MusicType", "Add"),
@@ -3204,7 +3252,6 @@ fn stubs(vm: &mut Vm) -> usize {
         ("Game", "ServeTime"),
         ("Game", "ClearPrison"),
         ("Game", "SetSunGazeImageSpaceModifier"),
-        ("ImageSpaceModifier", "RemoveCrossFade"),
         ("Message", "ResetHelpMessage"),
         ("Game", "ShakeController"),
         ("Game", "FadeOutGame"),
