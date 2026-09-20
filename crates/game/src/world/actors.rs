@@ -143,6 +143,7 @@ impl World {
                     apply_distributed(&mut a, d);
                 }
             }
+            a.spells = self.expand_actor_spell_lists(&a.spells, a.level).ok()?;
             self.actors.insert(id, a);
         }
         self.actors.get_mut(&id)

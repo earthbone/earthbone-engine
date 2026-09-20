@@ -28,10 +28,19 @@ fn fixture_order() -> LoadOrder {
         (0x830, *b"CLAS"),
         (0x831, *b"SPEL"),
         (0x834, *b"SHOU"),
-        (0x836, *b"LVSP"),
+        (0x83A, *b"SPEL"),
     ] {
         a.push_top(Record::new(Tag(tag), object));
     }
+    let mut entry = vec![0; 12];
+    entry[..2].copy_from_slice(&1u16.to_le_bytes());
+    entry[4..8].copy_from_slice(&0x83Au32.to_le_bytes());
+    entry[8..10].copy_from_slice(&1u16.to_le_bytes());
+    a.push_top(
+        Record::new(Tag(*b"LVSP"), 0x836)
+            .sub(Tag(*b"LLCT"), [1])
+            .sub(Tag(*b"LVLO"), entry),
+    );
     order.add("A.esp", a).unwrap();
     order
         .add(
@@ -165,6 +174,11 @@ fn assert_actor(world: &mut World) {
     assert_eq!(base.class, Some(id(2, 0x830)));
     assert_eq!(base.outfit, Some(id(4, 0x835)));
     assert_eq!(base.sleep_outfit, None);
+    let record = world.record(id(0, 0x800)).unwrap();
+    assert!(record.all(Tag(*b"SPLO")).any(|raw| {
+        world.resolve_from(id(0, 0x800), u32::from_le_bytes(raw.try_into().unwrap()))
+            == Some(id(2, 0x836))
+    }));
     let actor = world.actor(id(0, 0x900)).unwrap();
     assert_eq!(actor.values.get("health").base(), 777.0);
     assert_eq!(actor.level, 27);
@@ -172,7 +186,8 @@ fn assert_actor(world: &mut World) {
     assert_eq!(actor.race, Some(id(4, 0x833)));
     assert_eq!(actor.factions[&id(4, 0x832)], -1);
     assert!(actor.spells.contains(&id(2, 0x831)));
-    assert!(actor.spells.contains(&id(2, 0x836)));
+    assert!(actor.spells.contains(&id(2, 0x83A)));
+    assert!(!actor.spells.contains(&id(2, 0x836)));
     assert!(!actor.spells.contains(&id(2, 0x834)));
     assert!(actor.shouts.contains(&id(2, 0x834)));
     assert_eq!(actor.sleep_outfit, None);
