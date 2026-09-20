@@ -147,6 +147,9 @@ fn ref_state(h: &mut StateHasher, s: &RefState) {
     h.bool(s.opened);
     h.bool(s.locked);
     h.i32(s.lock_level);
+    let mut extras = soe_papyrus::vm::state::Writer::new();
+    super::reference_extras::write_extra_state(&mut extras, s);
+    h.bytes(&extras.out);
     h.opt_str(s.display_name.as_deref());
     h.len(s.inventory.len());
     for (item, count) in s.inventory.iter() {

@@ -188,7 +188,7 @@ fn version_eleven_counts_load_as_plain_items() {
     let mut w = world();
     w.add_item(id(0x900), id(0x801), 17);
     let mut bytes = w.save_state();
-    bytes.truncate(bytes.len() - 13);
+    bytes.truncate(bytes.len() - 17);
     bytes[4..6].copy_from_slice(&11_u16.to_le_bytes());
     let mut loaded = world();
     loaded.load_state(&bytes).unwrap();

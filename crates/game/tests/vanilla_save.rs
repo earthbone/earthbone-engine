@@ -4,6 +4,9 @@
 //! Saved identities must survive load-order changes before world state can
 //! be applied. Fixtures exercise distinct owners with the same local ID.
 
+#[path = "vanilla_save/reference_extras.rs"]
+mod reference_extras;
+
 #[path = "vanilla_save/npcs.rs"]
 mod npcs;
 

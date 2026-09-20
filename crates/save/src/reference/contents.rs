@@ -81,7 +81,43 @@ impl Inventory {
     }
 }
 
+fn read_extra(change: &ChangeForm, r: &mut Cursor<'_>) -> Result<Option<ExtraData>> {
+    let common = (1 << 6)
+        | (1 << 11)
+        | (1 << 12)
+        | (1 << 17)
+        | (1 << 25)
+        | (1 << 26)
+        | (1 << 29)
+        | (1 << 31);
+    let extra_mask = if change.type_index() == 1 {
+        common | (1 << 18) | (1 << 30)
+    } else {
+        common | (1 << 10)
+    };
+    if change.change_flags & extra_mask != 0 {
+        Ok(Some(ExtraData::read(r)?))
+    } else {
+        Ok(None)
+    }
+}
+
 impl ChangeForm {
+    /// Decode only a REFR/ACHR top-level extra list. Inventory stack extras and
+    /// later actor fields are separate sections and are not traversed here.
+    ///
+    /// # Errors
+    /// Invalid placement headers, unknown extra layouts or truncated data.
+    pub fn reference_extra_data(&self, form_version: u8) -> Result<Option<ExtraData>> {
+        let Some(header) = self.reference_header(form_version)? else {
+            return Ok(None);
+        };
+        let payload = self.payload()?;
+        let mut r = Cursor::new(&payload, "reference extra data");
+        r.seek(header.bytes_consumed, "reference extra data")?;
+        read_extra(self, &mut r)
+    }
+
     /// Decode extra data and inventory following a REFR/ACHR placement header.
     ///
     /// # Errors
@@ -94,24 +130,7 @@ impl ChangeForm {
         let payload = self.payload()?;
         let mut r = Cursor::new(&payload, "reference contents");
         r.seek(header.bytes_consumed, "reference contents")?;
-        let common = (1 << 6)
-            | (1 << 11)
-            | (1 << 12)
-            | (1 << 17)
-            | (1 << 25)
-            | (1 << 26)
-            | (1 << 29)
-            | (1 << 31);
-        let extra_mask = if self.type_index() == 1 {
-            common | (1 << 18) | (1 << 30)
-        } else {
-            common | (1 << 10)
-        };
-        let extra = if self.change_flags & extra_mask != 0 {
-            Some(ExtraData::read(&mut r)?)
-        } else {
-            None
-        };
+        let extra = read_extra(self, &mut r)?;
         let inventory = if self.change_flags & ((1 << 5) | (1 << 27)) != 0 {
             Some(Inventory::read(&mut r)?)
         } else {

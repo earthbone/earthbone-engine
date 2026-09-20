@@ -2,7 +2,7 @@
 
 The combat integration includes race-based unarmed damage, difficulty selection,
 template-backed hits,
-armor slot replacement and explicit weapon hands. SOEW version 19 retains
+armor slot replacement and explicit weapon hands. SOEW version 20 retains
 both difficulty and hands, with separate readers for the version 16 and 17
 branch layouts. The authored contact bridge reaches the shared Game through
 animation events. Live host collision synchronization and attack input are
@@ -602,7 +602,7 @@ either.
 
 `World::save_state(&self) -> Vec<u8>` and `World::load_state(&mut self,
 bytes) -> Result<(), VmError>` write and read the run-time half of the form
-table, magic `SOEW`, version 19. Versions 4 to 6 use legacy actor values,
+table, magic `SOEW`, version 20. Versions 4 to 6 use legacy actor values,
 version 5 adds active magic, version 6 adds dialogue, version 7 adds actor-value
 components, version 8 adds dialogue to those components, and version 9 adds
 active magic. Version 10 adds per-reference leveled template choices.
@@ -611,6 +611,7 @@ Versions 12 to 15 add distinct inventory stacks, record overrides, temporary
 NPC bases and deferred deaths. Version 16 contains difficulty alone, version
 17 weapon hands alone, and version 18 both. Version 19 separates created
 identities from plugin load-order position 255 while retaining both combat fields.
+Version 20 appends restored reference ownership and lock metadata after those fields.
 Older formats load with empty state for absent subsystems.
 Legacy current and base values must agree. Otherwise their modifier domains
 are ambiguous and restoration returns an explicit error.
@@ -1415,3 +1416,22 @@ then executes 184 supported weapons against synthetic actors. The remaining
 weapons reject unsupported types, templates or enchantments. Real armor records
 were decoded, while armor damage calculations use synthetic fixtures.
 These changes await commit and merge review on `combat-hits`.
+
+## Saved ownership and locks, SAV-16, blocked
+
+The partial reference-extra pass writes the shared owner, locked bit and
+lock level. GetActorOwner, GetFactionOwner, IsLocked and GetLockLevel observe
+those values immediately. GetKey and default door/container activation prefer
+the saved key, including explicit null, over the authored XLOC link. The
+activator's key is retained after unlocking. Restoration queues no events.
+
+Rank and global ownership metadata and unassigned lock fields persist in the
+SOEW version 20 extension and contribute to the world hash. Older saves
+retain authored-key behavior. The full corpus remains blocked on 72 Sequence
+and nine Stacked PackageData lists whose unknown boundaries may hide later
+ownership or lock extras. The importer rejects them without changing the world.
+See [save.md](save.md#reference-ownership-and-locks-sav-16-blocked) for sources,
+independent enumeration and the superseded filtered-survey evidence. No new
+host nodes or dependencies were added. SAV-07 supplies its form namespace and is
+complete. SAV-12 and SAV-21 must finish before SAV-16 can pass its full-corpus
+checks. This is a blocked implementation checkpoint.

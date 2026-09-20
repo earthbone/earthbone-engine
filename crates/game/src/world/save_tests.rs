@@ -283,6 +283,7 @@ fn rich_world(namespace: u16) -> World {
 fn sav_07_legacy_ids_migrate_through_all_nested_world_state() {
     for version in 15..=18_u16 {
         let mut legacy = rich_world(255).save_state();
+        legacy.truncate(legacy.len() - 4);
         let tail = legacy.len() - 25;
         let mut expected = rich_world(DYNAMIC_FILE);
         match version {
@@ -318,6 +319,40 @@ fn sav_07_legacy_ids_migrate_through_all_nested_world_state() {
 }
 
 #[test]
+fn sav_16_extras_preserve_created_namespace_and_all_existing_world_state() {
+    let mut world = rich_world(DYNAMIC_FILE);
+    let values = &mut world
+        .actors
+        .get_mut(&id(DYNAMIC_FILE, 0x800))
+        .unwrap()
+        .values;
+    values.set_base("health", 100.0).unwrap();
+    values.modify("health", 12.0).unwrap();
+    values.modify_temporary("health", 23.0).unwrap();
+    values.damage("health", 34.0).unwrap();
+    let reference = world.refs.get_mut(&id(DYNAMIC_FILE, 0x800)).unwrap();
+    reference.owner_rank = Some(-7);
+    reference.lock_level = 75;
+    reference.locked = true;
+    reference.lock_extra = Some(super::super::ReferenceLock {
+        key: None,
+        flags: 4,
+        unknown: [0x1234_5678, 0xAABB_CCDD],
+    });
+    let before = world.save_state();
+    let mut loaded = World::new(legacy_order());
+    loaded.load_state(&before).unwrap();
+    assert_eq!(loaded.save_state(), before);
+    assert_eq!(loaded.state_hash(), world.state_hash());
+
+    let mut legacy = rich_world(DYNAMIC_FILE).save_state();
+    legacy.truncate(legacy.len() - 4);
+    legacy[4..6].copy_from_slice(&19_u16.to_le_bytes());
+    loaded.load_state(&legacy).unwrap();
+    assert_eq!(loaded.save_state(), rich_world(DYNAMIC_FILE).save_state());
+}
+
+#[test]
 fn sav_07_ambiguous_legacy_loadouts_fail_before_world_or_vm_mutation() {
     let mut game = crate::Game::new(full_order(true));
     game.world_mut()
@@ -341,7 +376,7 @@ fn sav_07_unknown_version_and_mixed_legacy_namespaces_are_rejected() {
     let mut world = rich_world(DYNAMIC_FILE);
     let before = world.save_state();
     for (version, message) in [
-        (20_u16, "world state version 20"),
+        (21_u16, "world state version 21"),
         (18, "created namespace in a legacy world state"),
     ] {
         let mut bytes = before.clone();
@@ -370,6 +405,7 @@ fn sav_07_legacy_migration_boundary_is_the_first_colliding_plugin_position() {
             .unwrap();
     }
     let mut legacy = rich_world(255).save_state();
+    legacy.truncate(legacy.len() - 4);
     legacy[4..6].copy_from_slice(&18_u16.to_le_bytes());
     let mut world = World::new(order);
     world.load_state(&legacy).unwrap();

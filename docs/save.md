@@ -615,3 +615,77 @@ isolated package survey reduced that count to 81 and recovered 73 additional
 inventory sections. See [saved package runtime state](save-package-data.md) for
 source evidence, boundaries and integration validation. Runtime package
 restoration and complete ESS resumption remain unfinished.
+
+## Reference ownership and locks, SAV-16, blocked
+
+The partial `World::restore_vanilla_reference_extras` pass inspects every
+REFR/ACHR top-level extra list, including general game-only and promoted lists.
+It requires resident placements and resolves links through saved plugin names.
+It validates the entire pass before mutation. Undecodable lists, invalid targets,
+duplicate entries and missing or mistyped links fail without events or changes.
+`ChangeForm::reference_extra_data` reuses the existing decoder without traversing
+inventory stacks or later actor fields.
+
+ExtraOwnership replaces the shared owner used by GetActorOwner and
+GetFactionOwner. ExtraRank and ExtraGlobal retain their signed rank and mapped
+global identity. ExtraLock replaces the shared level and locked bit, overrides
+the authored key even when null, and retains its other flag bits and two words.
+A declared ownership or lock change without the corresponding extra clears
+that state. The lock bit applies only to REFR. ACHR bit 12 names merchant
+container changes and must not clear a lock. Unlisted fields remain unchanged.
+The removal interpretation follows the extra-list model and has synthetic
+coverage, without comparison against a running vanilla executable.
+
+Sources read were local UESP REFR_Changeform and Extra_data, FallrimTools
+ChangeFormExtraDataData, xEdit wbChangedExtraData and ACHR change flags,
+CommonLibSSE-NG ExtraLock.h and ExtraLock.cpp, and CK SetActorOwner and
+SetFactionOwner. xEdit establishes the signed rank where UESP and FallrimTools
+describe a reference. CommonLib defines the locked and leveled flag bits.
+The saved level and flags byte ordering is an inference checked against the
+corpus, since the public save schemas leave those bytes unnamed. The two
+trailing words keep their bits without assigned behavior.
+
+The initial filtered survey found 10,404 lock extras in 60 saves. Of 9,143
+with authored XLOC data, 8,902 matched the proposed level byte, above the
+90 percent threshold written before running. The flags byte contained only
+zero, locked, leveled or locked plus leveled. The filtered application restored
+12,557 references with 2,194 ownership changes and 10,404 locks, including
+662 leveled locks. Those records survived engine save/load exactly.
+These results do not establish the full SAV-16 contract.
+
+Independent enumeration found 34 additional ExtraOwnership entries under
+ACHR general flags 0x88000422. It also found 81 undecodable top-level lists,
+72 carrying nonempty Sequence PackageData and nine carrying Stacked. Their
+unknown boundaries prevent ruling out ownership or lock extras later in each
+list. SAV-16 is blocked on SAV-12 and SAV-21. The importer now covers general
+flags and rejects such undecodable lists atomically. The full-corpus acceptance
+tests remain failing, without exclusions or a narrowed success claim.
+
+The SOEW version 20 extension retains reference ownership and lock
+metadata. Versions 4 through 19 remain readable and use their authored keys.
+Load rejects missing or repeated reference targets, invalid key/global links,
+conflicting locked bits, out-of-range levels and truncation before replacing
+live state. Sorted serialization and hashing include every retained field.
+Synthetic checks cover generic extra lists, the ACHR merchant flag, mapped
+native owners and keys, activation, null and removed extras, corruption,
+legacy versions and late unsupported data.
+
+Leveled-lock scaling, ownership crime rules, rank/global ownership conditions
+and lockpicking remain separate mechanics. Leveled locks are reported.
+No dependency or host node was added. Full ESS loading and saved execution
+are outside this pass. This is a blocked implementation checkpoint.
+
+The checkpoint is reconciled onto completed SAV-07 with SOEW version 20.
+The version 19 namespace boundary and difficulty/weapon-hand state remain intact.
+The full gate passes with 1,215 emitted Rust test passes and 11 Python tests,
+including gated tests that return early without external data. All optional
+tools ran with no warnings. The game regression run passes 433 tests. A combined
+world fixture preserves reference metadata alongside created identities, AI,
+quests, modifiers and combat selections, and reads version 19 without metadata.
+The host combat compatibility fixture adds only the empty metadata suffix.
+
+The installed ownership suite passes seven synthetic checks and fails all three
+strict corpus checks. Independent enumeration again reports 34 unflagged owner
+entries and 81 undecodable lists, 72 Sequence and nine Stacked. The application
+and lock-schema checks fail at the first unsupported Sequence payload. No saves
+were excluded, and no corpus restoration success is claimed by this checkpoint.

@@ -41,7 +41,8 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// Version 16 stores difficulty alone, and version 17 stores hands alone.
 /// Version 18 stores difficulty followed by explicit left/right weapon selections.
 /// Version 19 separates created identities from plugin load-order position 255.
-pub const SAVE_VERSION: u16 = 19;
+/// Version 20 appends restored reference ownership and lock metadata.
+pub const SAVE_VERSION: u16 = 20;
 
 #[derive(Clone, Copy)]
 pub(crate) enum FormNamespace {
@@ -375,6 +376,7 @@ impl World {
             write_opt_form_id(&mut body, actor.left_weapon);
             write_opt_form_id(&mut body, actor.right_weapon);
         }
+        self.write_reference_extras(&mut body);
         let mut out = Writer::new();
         out.out.extend_from_slice(SAVE_MAGIC);
         out.u16(SAVE_VERSION);
@@ -878,6 +880,10 @@ impl World {
                 actor.right_weapon = read_opt_form_id(&mut r)?;
             }
         }
+        if version >= 20 {
+            super::reference_extras::read_reference_extras(&mut r, &mut refs)?;
+            self.validate_reference_extras(&refs)?;
+        }
         r.expect_end()?;
         super::death::validate_pending(&actors, &pending)?;
 
@@ -1191,12 +1197,15 @@ fn read_ref_state(r: &mut FormReader<'_, '_>) -> Result<RefState, VmError> {
         opened,
         locked,
         lock_level,
+        lock_extra: None,
         display_name,
         inventory,
         linked,
         teleport,
         is_actor,
         owner,
+        owner_rank: None,
+        owner_global: None,
         location,
         on_map,
         fast_travel,
