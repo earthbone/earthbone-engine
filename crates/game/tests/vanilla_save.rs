@@ -459,3 +459,6 @@ fn installed_save_globals_restore_into_live_forms_and_persist() {
 
 #[path = "vanilla_save/quests.rs"]
 mod quests;
+
+#[path = "vanilla_save/calendar.rs"]
+mod calendar;

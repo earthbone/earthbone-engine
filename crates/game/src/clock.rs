@@ -3,6 +3,57 @@
 //! The game clock. Real seconds drive the VM scheduler and `OnUpdate`
 //! timers, game time runs `timescale` times faster and is what
 //! `Utility.GetCurrentGameTime` reports in days, the game's own unit.
+//! Calendar fields and month lengths follow CommonLibSSE-NG Calendar.h/.cpp.
+
+/// Calendar globals are separate values, including hour and elapsed days.
+pub const CALENDAR_GLOBALS: [&str; 6] = [
+    "GameYear",
+    "GameMonth",
+    "GameDay",
+    "GameHour",
+    "GameDaysPassed",
+    "TimeScale",
+];
+
+pub(crate) const DAYS_IN_MONTH: [u32; 12] = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+
+/// A read-only view of the current form-backed calendar. Months are zero based.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Calendar {
+    pub year: u32,
+    pub month: u32,
+    pub day: u32,
+    pub hour: f64,
+}
+
+impl Calendar {
+    pub(crate) fn from_clock(clock: &GameClock) -> Self {
+        let mut calendar = Self {
+            year: 201,
+            month: 7,
+            day: 17,
+            hour: clock.game_hours().rem_euclid(24.0),
+        };
+        calendar.add_days(clock.game_days.floor().max(0.0) as u64);
+        calendar
+    }
+
+    pub(crate) fn add_days(&mut self, days: u64) {
+        let mut day = u64::from(self.day) + days % 365;
+        self.year = self
+            .year
+            .saturating_add((days / 365).min(u64::from(u32::MAX)) as u32);
+        while day > u64::from(DAYS_IN_MONTH[self.month as usize]) {
+            day -= u64::from(DAYS_IN_MONTH[self.month as usize]);
+            self.month += 1;
+            if self.month == 12 {
+                self.month = 0;
+                self.year = self.year.saturating_add(1);
+            }
+        }
+        self.day = day as u32;
+    }
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct GameClock {

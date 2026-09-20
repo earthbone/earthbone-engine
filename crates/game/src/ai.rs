@@ -49,8 +49,6 @@ const ARRIVAL_DISTANCE: f32 = 4.0;
 const EVALUATION_INTERVAL: f64 = 1.0;
 /// A sandbox with no radius wanders this far around its center.
 const DEFAULT_SANDBOX_RADIUS: f32 = 512.0;
-/// The game starts on Sundas the 17th, with day 0 of `game_days`.
-const START_DAY_OF_MONTH: i64 = 17;
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
 
@@ -308,7 +306,7 @@ pub fn select(world: &mut World, actor: GlobalFormId) -> Option<Candidate> {
         if p.has_flag(flags::ONCE_PER_DAY) && completed.get(&c.package) == Some(&today) {
             continue;
         }
-        if !schedule_allows(&p.schedule, &world.clock) {
+        if !schedule_allows_calendar(&p.schedule, &world.clock, world.calendar()) {
             continue;
         }
         let quest = c.alias.map(|(q, _)| q).or_else(|| {
@@ -324,10 +322,17 @@ pub fn select(world: &mut World, actor: GlobalFormId) -> Option<Candidate> {
 }
 
 /// Whether the schedule window contains the clock's game time. Day of week
-/// 0 is Sundas, the day the game starts on. The date and month checks use
-/// 31 day months from that start, an approximation no vanilla package
-/// relies on (they all say any).
+/// 0 is Sundas. Standalone clocks use the default start date. Live package
+/// selection reads the date and hour from the world's calendar globals.
 pub fn schedule_allows(s: &Schedule, clock: &GameClock) -> bool {
+    schedule_allows_calendar(s, clock, crate::clock::Calendar::from_clock(clock))
+}
+
+fn schedule_allows_calendar(
+    s: &Schedule,
+    clock: &GameClock,
+    calendar: crate::clock::Calendar,
+) -> bool {
     let day = clock.game_days.floor() as i64;
     if s.day_of_week >= 0 {
         let dow = (day.rem_euclid(7)) as i8;
@@ -344,13 +349,13 @@ pub fn schedule_allows(s: &Schedule, clock: &GameClock) -> bool {
         }
     }
     if s.date > 0 {
-        let dom = ((START_DAY_OF_MONTH - 1 + day).rem_euclid(31) + 1) as i8;
+        let dom = calendar.day as i8;
         if dom != s.date {
             return false;
         }
     }
     if s.month >= 0 {
-        let month = ((7 + (START_DAY_OF_MONTH - 1 + day) / 31).rem_euclid(12)) as i8;
+        let month = calendar.month as i8;
         if month != s.month {
             return false;
         }
@@ -359,7 +364,7 @@ pub fn schedule_allows(s: &Schedule, clock: &GameClock) -> bool {
         return true;
     }
     let start = f64::from(s.hour) * 60.0 + f64::from(s.minute.max(0));
-    let now = (clock.game_hours().rem_euclid(24.0)) * 60.0;
+    let now = calendar.hour * 60.0;
     if s.duration_minutes == 0 {
         return now >= start;
     }
@@ -482,7 +487,7 @@ fn function_value(
             let name = ACTOR_VALUES.get(c.param1 as usize)?;
             world.actor_value(subject, name)
         }
-        18 => world.clock.game_hours().rem_euclid(24.0) as f32,
+        18 => world.calendar().hour as f32,
         32 => {
             let r = form(world, c.param1)?;
             let a = cell_of(world, subject);
@@ -1289,6 +1294,26 @@ mod tests {
             game_days: 3.0 + hour / 24.0,
             timescale: 20.0,
         }
+    }
+
+    #[test]
+    fn schedules_use_saved_date_and_hour_independently_of_elapsed_days() {
+        let clock = at_hour(3.0);
+        let calendar = crate::clock::Calendar {
+            year: 205,
+            month: 11,
+            day: 31,
+            hour: 23.5,
+        };
+        let schedule = Schedule {
+            month: 11,
+            date: 31,
+            hour: 23,
+            duration_minutes: 60,
+            ..Default::default()
+        };
+        assert!(schedule_allows_calendar(&schedule, &clock, calendar));
+        assert!(!schedule_allows(&schedule, &clock));
     }
 
     #[test]

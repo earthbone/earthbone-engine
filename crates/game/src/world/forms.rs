@@ -31,6 +31,11 @@ impl World {
 
     pub fn set_global(&mut self, id: GlobalFormId, value: f32) {
         self.globals.insert(id, value);
+        if self.form("GameDaysPassed") == Some(id) {
+            self.clock.game_days = f64::from(value);
+        } else if self.form("TimeScale") == Some(id) {
+            self.clock.timescale = f64::from(value);
+        }
     }
 
     pub fn form_list(&mut self, id: GlobalFormId) -> Option<&mut Vec<GlobalFormId>> {
