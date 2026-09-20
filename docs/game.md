@@ -1130,8 +1130,12 @@ attenuation variation, SNCT parent gain and menu defaults, underwater muting,
 and SOPM output parameters. Slider overrides are explicit inputs. Descriptor,
 category and output links use their winning owners. Category cycles, malformed
 fields, invalid random draws and unsupported descriptor types return errors.
-Conditional descriptors return an unsupported error until connected to the
-shared condition evaluator. Loop modes and alternate links are preserved.
+`sound::prepare_for` evaluates a descriptor's ordered CTDA list through the
+shared evaluator. The initiating reference is the subject, and the descriptor
+keeps its original global ID so `World::resolve_from` follows the winning SNDR
+record to resolve local FormIDs in its file. A false list has no playback
+branch. SNAM remains the authored Alternate Sound For link, retained on
+`SoundPlayback` without an invented fallback order. Loop modes are preserved.
 
 Sources are local xEdit SNDR/SNCT/SOPM definitions, UESP's corresponding pages,
 and CommonLib `BGSStandardSoundDef.h`, `BGSSoundCategory.h` and

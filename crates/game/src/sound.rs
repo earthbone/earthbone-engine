@@ -4,12 +4,18 @@
 //! Layouts follow xEdit wbDefinitionsTES5.pas, UESP's record pages and
 //! CommonLibSSE-NG BGSStandardSoundDef/BGSSoundOutput declarations.
 //! File, pitch and attenuation draws are supplied by the caller's saved RNG.
-//! Conditional descriptors report unsupported until connected to CTDA execution.
+//! Conditional descriptors use the shared CTDA evaluator with the initiating
+//! source as subject and the descriptor as the FormID-resolution owner.
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use soe_esm::cursor::{zstring, Fields};
+use soe_esm::records::gameplay::Condition;
 use soe_esm::{Error, GlobalFormId, LoadOrder, Record, Result, Tag};
+use soe_papyrus::Vm;
+
+use crate::conditions::{self, Context};
+use crate::World;
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
 
@@ -61,6 +67,57 @@ pub fn prepare(
     draws: [f32; 3],
     settings: &SoundSettings,
 ) -> Result<SoundPlayback> {
+    let conditions = sound_conditions(order, descriptor)?;
+    if !conditions.is_empty() {
+        return Err(Error::Invalid(format!(
+            "sound descriptor {descriptor} requires condition context"
+        )));
+    }
+    prepare_unconditional(order, descriptor, draws, settings)
+}
+
+/// Resolve a descriptor for an initiating source. The descriptor's winning
+/// record supplies the FormID namespace for CTDA parameters. A false CTDA
+/// result means this descriptor has no playable branch for the invocation.
+pub fn prepare_for(
+    order: &LoadOrder,
+    world: &mut World,
+    vm: &Vm,
+    descriptor: GlobalFormId,
+    source: GlobalFormId,
+    target: Option<GlobalFormId>,
+    draws: [f32; 3],
+    settings: &SoundSettings,
+) -> Result<SoundPlayback> {
+    let conditions = sound_conditions(order, descriptor)?;
+    if !conditions.is_empty()
+        && !conditions::evaluate(
+            world,
+            vm,
+            Context {
+                owner: descriptor,
+                subject: source,
+                target,
+                quest: None,
+                tempering_enchanted: None,
+            },
+            &conditions,
+        )
+        .map_err(|error| Error::Invalid(format!("sound condition at {descriptor}: {error}")))?
+    {
+        return Err(Error::Invalid(format!(
+            "sound descriptor conditions do not match at {descriptor}"
+        )));
+    }
+    prepare_unconditional(order, descriptor, draws, settings)
+}
+
+fn prepare_unconditional(
+    order: &LoadOrder,
+    descriptor: GlobalFormId,
+    draws: [f32; 3],
+    settings: &SoundSettings,
+) -> Result<SoundPlayback> {
     if draws
         .iter()
         .any(|v| !v.is_finite() || !(0.0..=1.0).contains(v))
@@ -73,11 +130,6 @@ pub fn prepare(
     if field(record, T(b"CNAM"), 4)?.u32()? != 0x1EEF_540A {
         return Err(Error::Invalid(format!(
             "unsupported sound descriptor type at {descriptor}"
-        )));
-    }
-    if record.find(T(b"CTDA")).is_some() {
-        return Err(Error::Invalid(format!(
-            "sound conditions are not connected at {descriptor}"
         )));
     }
     let files: Vec<_> = record
@@ -133,6 +185,15 @@ pub fn prepare(
         output: read_output(order, output)?,
         alternate_for: link(order, record, file, T(b"SNAM"))?,
     })
+}
+
+fn sound_conditions(order: &LoadOrder, descriptor: GlobalFormId) -> Result<Vec<Condition>> {
+    let (record, _) = record(order, descriptor, T(b"SNDR"))?;
+    let mut conditions = Vec::new();
+    for subrecord in &record.subrecords {
+        Condition::push(record, subrecord, &mut conditions)?;
+    }
+    Ok(conditions)
 }
 
 fn category_gain(
