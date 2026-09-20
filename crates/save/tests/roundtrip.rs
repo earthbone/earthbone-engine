@@ -190,6 +190,26 @@ fn an_uncompressed_save_round_trips_byte_for_byte() {
 }
 
 #[test]
+fn sav_65_created_objects_block_is_optional_but_duplicate_or_bad_data_fails() {
+    let mut save = Save::parse(&build(Compression::None)).unwrap();
+    assert!(save.created_objects().unwrap().is_none());
+    let block = soe_save::GlobalData {
+        kind: soe_save::GlobalData::CREATED_OBJECTS,
+        data: vec![0, 0, 0, 0],
+    };
+    save.table_1.push(block.clone());
+    assert!(save.created_objects().unwrap().is_some());
+    save.table_1.push(block);
+    assert!(matches!(
+        save.created_objects(),
+        Err(soe_save::Error::CreatedObjects { .. })
+    ));
+    save.table_1.pop();
+    save.table_1.last_mut().unwrap().data.pop();
+    assert!(save.created_objects().is_err());
+}
+
+#[test]
 fn a_compressed_save_round_trips_through_its_body() {
     let bytes = build(Compression::Lz4);
     let save = Save::parse(&bytes).expect("parses");

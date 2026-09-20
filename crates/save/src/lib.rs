@@ -21,6 +21,7 @@
 
 pub mod change;
 mod compress;
+pub mod created_objects;
 mod cursor;
 pub mod error;
 pub mod expect;
@@ -34,6 +35,7 @@ pub mod reference;
 pub mod table;
 
 pub use change::{ChangeForm, QuestStage};
+pub use created_objects::{CreatedEffect, CreatedObject, CreatedObjects};
 pub use cursor::{RefId, RefKind, WString};
 pub use error::{Error, Result};
 pub use globals::{GlobalVariable, GlobalVariables};
