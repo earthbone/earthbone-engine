@@ -34,6 +34,17 @@ through the shared game-setting lookup, so Papyrus sees the same defaults. Plugi
 runtime overrides take precedence. Malformed, negative or non-finite settings
 reject the hit.
 
+The vanilla base-game unarmed attack form `0:0001F4` selects an unarmed
+contact. It is still decoded as a live WEAP record, so a missing, deleted,
+wrong-type, malformed or unsupported modifier override rejects the hit. The
+form needs no inventory entry or equipped hand. Hand selection belongs to the
+host contact bridge. Its base damage is the current UnarmedDamage actor value,
+seeded from the winning RACE DATA through the actor's traits template source.
+This preserves actor-value changes and saved state without a second combat
+value store. Unarmed damage does not use weapon skill scaling or
+`fDamageWeaponMult`. Missing or malformed race data rejects the hit before
+health or events change.
+
 The current path is ordinary melee at Adept difficulty. Its separate damage
 to/from player settings are read on every contact, while NPC-to-NPC contacts
 do not use those multipliers. It rejects all perked
@@ -62,14 +73,16 @@ introduced by this increment.
 
 Local sources read before implementation:
 
-- TES5Edit/Core/wbDefinitionsTES5.pas WEAP and ARMO definitions.
+- TES5Edit/Core/wbDefinitionsTES5.pas WEAP, ARMO and RACE definitions.
 - uesp-modfileformat/WEAP.wikitext and ARMO.wikitext, including the distinction
   between animation type, governing skill and equip slot.
 - ck-wiki/OnHit_-_ObjectReference.wikitext for event arguments and actor
   projectile behavior, and EquipItem/GetEquippedWeapon for equipment contracts.
-- skymp TES5DamageFormula.cpp and TES5DamageFormulaTest.cpp. Their weapon,
-  armor, block, sneak and difficulty TODOs prevent adopting that implementation
-  as a complete Skyrim formula. Its GMST-based armor cap is a comparison point.
+- skymp TES5DamageFormula.cpp, TES5DamageFormulaTest.cpp and ActionListener.cpp.
+  The unarmed source form resolves to the attacker's RACE unarmed damage and
+  bypasses inventory ownership. Their weapon, armor, block, sneak and
+  difficulty TODOs prevent adopting that implementation as a complete Skyrim
+  formula. Its GMST-based armor cap is a comparison point.
 
 Online sources were consulted after local sources lacked the skill formulas:
 
@@ -115,11 +128,13 @@ record truncation, stale equipment, ordered hit/death delivery and deferred
 killer attribution across engine save/load. Event argument values and hit
 notifications to aliases or active effects lack dedicated hit-path assertions.
 No test in this increment performs host collision detection or renders combat.
+The installed-data unarmed survey executes the canonical source form against
+161 winning RACE records through synthetic actor references.
 
 ## Remaining execution work
 
 Host attack input, timing/contact detection, hand-specific selection, ranged
-weapons/ammunition, unarmed attacks, bashing, sneak and power attacks, blocking,
+weapons/ammunition, bashing, sneak and power attacks, blocking,
 perk entry points, tempering, enchantments, difficulty selection, bleedout,
 stagger, crime and combat AI remain unfinished. The API is an execution
 increment and does not establish playable combat or completion of the broader
