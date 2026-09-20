@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-//! Authored PACK sequence fixtures, using xEdit PRCB and FNAM layouts.
+//! Authored PACK branch fixtures, using xEdit PRCB and FNAM layouts.
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::ai::Procedure;
@@ -16,6 +16,7 @@ const BASE: u32 = 0x802;
 const ACTOR: u32 = 0x803;
 const A: u32 = 0x804;
 const B: u32 = 0x805;
+const C: u32 = 0x806;
 
 fn id(object: u32) -> GlobalFormId {
     GlobalFormId { file: 0, object }
@@ -55,6 +56,7 @@ fn order(tree: Record, flags: u32) -> LoadOrder {
     );
     let p = package::with_location_input(p, 0, Location::NearReference(A), 0);
     let p = package::with_location_input(p, 1, Location::NearReference(B), 0);
+    let p = package::with_location_input(p, 2, Location::NearReference(C), 0);
     plugin.push_top(package::finish(p));
     let npc = npc::build_record(
         BASE,
@@ -67,6 +69,7 @@ fn order(tree: Record, flags: u32) -> LoadOrder {
     plugin.push_top(placed(*b"ACHR", ACTOR, BASE, 0.0));
     plugin.push_top(placed(*b"REFR", A, 0, 110.0));
     plugin.push_top(placed(*b"REFR", B, 0, 220.0));
+    plugin.push_top(placed(*b"REFR", C, 0, 330.0));
     let mut order = LoadOrder::new();
     order
         .add("Sequence.esm", Plugin::parse(&plugin.to_bytes()).unwrap())
@@ -379,4 +382,203 @@ fn a_corrupt_cursor_is_rejected_before_replacing_the_world() {
         "cursor actor must exist"
     );
     assert_eq!(game.world().save_state(), original);
+}
+
+fn random_pair(repeat: bool) -> Record {
+    travel(
+        travel(branch(template(), "Random", 2, repeat), 0, false),
+        1,
+        false,
+    )
+}
+
+#[test]
+fn random_runs_exactly_one_child_and_can_choose_either_child() {
+    let mut destinations = std::collections::BTreeSet::new();
+    for offset in 0..64 {
+        let mut game = game(random_pair(false), 0);
+        for _ in 0..offset {
+            game.world_mut().random_u64();
+        }
+        game.tick(0.1);
+        let destination = game
+            .world()
+            .actor_ref(id(ACTOR))
+            .unwrap()
+            .ai
+            .destination
+            .unwrap()[0];
+        assert!(destination == 110.0 || destination == 220.0);
+        destinations.insert(destination as i32);
+        advance(&mut game, 50);
+        assert_eq!(
+            position(&mut game),
+            destination,
+            "the unchosen sibling never runs"
+        );
+        assert!(
+            game.world()
+                .actor_ref(id(ACTOR))
+                .unwrap()
+                .ai
+                .tree
+                .as_ref()
+                .unwrap()
+                .finished
+        );
+    }
+    assert_eq!(destinations, std::collections::BTreeSet::from([110, 220]));
+}
+
+#[test]
+fn a_random_child_and_rng_survive_save_load_without_rerolling() {
+    let tree = random_pair(true);
+    let mut original = game(tree.clone(), 0);
+    original.tick(0.1);
+    let selected = original
+        .world()
+        .actor_ref(id(ACTOR))
+        .unwrap()
+        .ai
+        .tree
+        .clone();
+    let saved = original.save_state().unwrap();
+    let mut restored = Game::new(order(tree, 0));
+    restored.load_state(&saved).unwrap();
+    for _ in 0..5 {
+        original.tick(0.1);
+        restored.tick(0.1);
+        assert_eq!(
+            original.world().actor_ref(id(ACTOR)).unwrap().ai.tree,
+            selected
+        );
+        assert_eq!(
+            restored.world().actor_ref(id(ACTOR)).unwrap().ai.tree,
+            selected
+        );
+        assert_eq!(restored.world().save_state(), original.world().save_state());
+    }
+    assert_eq!(
+        restored.world_mut().random_u64(),
+        original.world_mut().random_u64()
+    );
+}
+
+#[test]
+fn random_filters_immediate_children_by_their_conditions() {
+    let tree = travel(branch(template(), "Random", 2, false), 0, false);
+    let dead = Condition {
+        comparison: condition::EQUAL,
+        flags: 0,
+        value: CompValue::Float(1.0),
+        function: 46,
+        param1: 0,
+        param2: 0,
+        run_on: 0,
+        reference: 0,
+        param3: -1,
+    };
+    let tree = travel(tree.sub(T(b"CTDA"), dead.to_bytes()), 1, false);
+    let mut game = game(tree, 0);
+    game.tick(3.0);
+    assert_eq!(position(&mut game), 220.0);
+}
+
+#[test]
+fn random_waits_for_its_selected_sequence_before_returning_to_the_parent() {
+    let tree = branch(template(), "Sequence", 2, false);
+    let tree = branch(tree, "Random", 1, false);
+    let tree = branch(tree, "Sequence", 2, false);
+    let tree = travel(travel(travel(tree, 0, false), 1, false), 2, false);
+    let mut game = game(tree, 0);
+    for destination in [110.0, 220.0, 330.0] {
+        game.tick(3.0);
+        assert_eq!(position(&mut game), destination);
+    }
+    assert!(
+        game.world()
+            .actor_ref(id(ACTOR))
+            .unwrap()
+            .ai
+            .tree
+            .as_ref()
+            .unwrap()
+            .finished
+    );
+}
+
+#[test]
+fn a_repeating_random_branch_chooses_again_only_after_child_completion() {
+    let tree = random_pair(true);
+    let mut game = game(tree, 0);
+    let mut destinations = std::collections::BTreeSet::new();
+    for _ in 0..32 {
+        game.tick(3.0);
+        destinations.insert(position(&mut game) as i32);
+        let state = game
+            .world()
+            .actor_ref(id(ACTOR))
+            .unwrap()
+            .ai
+            .tree
+            .clone()
+            .unwrap();
+        assert_eq!(state.branch, 0, "completion returns to the random parent");
+        assert!(!state.active && !state.finished);
+        assert!(game
+            .world()
+            .actor_ref(id(ACTOR))
+            .unwrap()
+            .ai
+            .completed
+            .is_empty());
+    }
+    assert_eq!(destinations, std::collections::BTreeSet::from([110, 220]));
+}
+
+#[test]
+fn random_selection_does_not_evaluate_the_selected_condition_twice() {
+    let tree = travel(branch(template(), "Random", 1, false), 0, false);
+    let roll = Condition {
+        comparison: condition::GREATER_OR_EQUAL,
+        flags: 0,
+        value: CompValue::Float(0.0),
+        function: 77,
+        param1: 0,
+        param2: 0,
+        run_on: 0,
+        reference: 0,
+        param3: -1,
+    };
+    let tree = tree.sub(T(b"CTDA"), roll.to_bytes());
+    let control = game(tree.clone(), 0);
+    let mut game = game(tree, 0);
+    control.world_mut().random_u64();
+    control.world_mut().random_u64();
+    game.tick(0.1);
+    assert_eq!(
+        game.world_mut().random_u64(),
+        control.world_mut().random_u64(),
+        "one condition roll and one branch selection, then no additional roll"
+    );
+}
+
+#[test]
+fn an_empty_random_branch_completes_or_yields_according_to_its_repeat_flag() {
+    for repeat in [false, true] {
+        let mut game = game(branch(template(), "Random", 0, repeat), 0);
+        advance(&mut game, 10);
+        assert_eq!(position(&mut game), 0.0);
+        assert_eq!(
+            game.world()
+                .actor_ref(id(ACTOR))
+                .unwrap()
+                .ai
+                .tree
+                .as_ref()
+                .unwrap()
+                .finished,
+            !repeat
+        );
+    }
 }

@@ -271,6 +271,27 @@ fn ai_state(h: &mut StateHasher, a: &AiState) {
         Procedure::Travel => h.u8(1),
         Procedure::Sandbox => h.u8(2),
         Procedure::Sleep => h.u8(3),
+        Procedure::Patrol => {
+            h.u8(6);
+            h.bool(a.patrol.is_some());
+            if let Some(state) = &a.patrol {
+                form(h, state.start);
+                form(h, state.current);
+                h.bool(state.reverse);
+                h.bool(state.dwell_until.is_some());
+                if let Some(until) = state.dwell_until {
+                    h.f64(until);
+                }
+            }
+        }
+        Procedure::Wait { stop_movement } => {
+            h.u8(5);
+            h.bool(*stop_movement);
+            h.bool(a.wait_until.is_some());
+            if let Some(until) = a.wait_until {
+                h.f64(until);
+            }
+        }
         Procedure::Unsupported(name) => {
             h.u8(4);
             h.str(name);

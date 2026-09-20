@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! Sequential PACK execution from xEdit's PRCB child counts and repeat flag.
+//! Sequential and random PACK execution from xEdit's PRCB counts and repeat flag.
 //! The author test in Nexus thread 11591393 confirms that nested repeat
 //! restarts that branch alone. Progress belongs to the actor, definitions to PACK.
+//! Random single-child execution follows the CK examples in Nexus article 2467
+//! and thread 804089. Choices use the existing saved world RNG.
 
 use super::{conditions_hold, package, template_chain, AiState, Procedure, World};
 use crate::package::{branch_ends, Branch, DataValue, LocationData, Package};
@@ -59,6 +61,45 @@ impl Tree {
         })
     }
 
+    // CONTEXT: All 87 vanilla Wait branches bind seconds before the movement flag.
+    fn wait_parameters(&self, branch: &Branch) -> Option<(f32, bool)> {
+        let [seconds, stop] = branch.inputs.as_slice() else {
+            return None;
+        };
+        let input = |index: u8| {
+            self.chain
+                .iter()
+                .find_map(|(_, p)| p.input(index as i8).map(|input| input.value))
+        };
+        match (input(*seconds), input(*stop)) {
+            (Some(DataValue::Float(seconds)), Some(DataValue::Bool(stop)))
+                if seconds.is_finite() && seconds >= 0.0 =>
+            {
+                Some((seconds, stop))
+            }
+            _ => None,
+        }
+    }
+
+    fn patrol_parameters(
+        &self,
+        branch: &Branch,
+    ) -> Result<super::patrol::Parameters, &'static str> {
+        let inputs = branch
+            .inputs
+            .iter()
+            .map(|&index| {
+                self.chain.iter().find_map(|(owner, package)| {
+                    package
+                        .input(index as i8)
+                        .map(|input| (*owner, input.value))
+                })
+            })
+            .collect::<Option<Vec<_>>>()
+            .ok_or("Patrol omitted input, AI-90")?;
+        super::patrol::Parameters::from_inputs(&inputs)
+    }
+
     fn after(&self, mut index: usize, state: &mut TreeState) {
         loop {
             let next = self.ends[index];
@@ -67,11 +108,12 @@ impl Tree {
                 state.finished = next == self.branches.len();
                 return;
             };
-            if next < self.ends[parent] {
+            let branch = &self.branches[parent];
+            if !branch.kind.eq_ignore_ascii_case("random") && next < self.ends[parent] {
                 state.branch = next as u32;
                 return;
             }
-            if self.branches[parent].repeat_when_complete {
+            if branch.repeat_when_complete {
                 state.branch = parent as u32;
                 return;
             }
@@ -90,22 +132,40 @@ fn procedure(branch: &Branch) -> Procedure {
         Some("travel") => Procedure::Travel,
         Some("sandbox") => Procedure::Sandbox,
         Some("sleep") => Procedure::Sleep,
+        Some("patrol") => Procedure::Patrol,
+        Some("wait") => Procedure::Wait {
+            stop_movement: false,
+        },
         Some(_) => Procedure::Unsupported(branch.procedure.clone().unwrap_or_default()),
         None => Procedure::Unsupported(branch.kind.clone()),
     }
 }
 
-/// Static first procedure for tooling, before actor-dependent branch conditions.
+/// Static first procedure for tooling. Random choices have no static first leaf.
 pub(super) fn first(world: &World, id: GlobalFormId) -> (Procedure, Option<LocationData>, bool) {
     let Some(tree) = Tree::load(world, id) else {
         return (Procedure::None, None, false);
     };
     for branch in &tree.branches {
+        if branch.kind.eq_ignore_ascii_case("random") && branch.procedure.is_none() {
+            return (Procedure::None, None, false);
+        }
         if branch.kind.eq_ignore_ascii_case("sequence") && branch.procedure.is_none() {
             continue;
         }
+        let chosen = match procedure(branch) {
+            Procedure::Patrol => tree.patrol_parameters(branch).map_or_else(
+                |reason| Procedure::Unsupported(reason.into()),
+                |_| Procedure::Patrol,
+            ),
+            Procedure::Wait { .. } => tree.wait_parameters(branch).map_or_else(
+                || Procedure::Unsupported("Wait inputs".into()),
+                |(_, stop_movement)| Procedure::Wait { stop_movement },
+            ),
+            other => other,
+        };
         return (
-            procedure(branch),
+            chosen,
             tree.location(branch).map(|(_, l)| l),
             branch.success_completes_package,
         );
@@ -156,6 +216,7 @@ pub(super) fn enter(world: &mut World, actor: GlobalFormId, ai: &mut AiState) {
             .owner_quest
             .and_then(|raw| world.resolve_from(id, raw))
     });
+    let mut checked = None;
     // CONTEXT: An empty repeating branch must yield rather than spin in one tick.
     for _ in 0..=tree.branches.len() {
         if state.finished {
@@ -166,8 +227,39 @@ pub(super) fn enter(world: &mut World, actor: GlobalFormId, ai: &mut AiState) {
             state.finished = true;
             break;
         };
-        if !conditions_hold(world, actor, tree.owner, quest, &branch.conditions) {
+        if checked.take() != Some(index)
+            && !conditions_hold(world, actor, tree.owner, quest, &branch.conditions)
+        {
             tree.after(index, &mut state);
+            continue;
+        }
+        if branch.kind.eq_ignore_ascii_case("random") && branch.procedure.is_none() {
+            let mut eligible = Vec::new();
+            let mut child = index + 1;
+            while child < tree.ends[index] {
+                if conditions_hold(
+                    world,
+                    actor,
+                    tree.owner,
+                    quest,
+                    &tree.branches[child].conditions,
+                ) {
+                    eligible.push(child);
+                }
+                child = tree.ends[child];
+            }
+            if eligible.is_empty() {
+                if branch.repeat_when_complete {
+                    break;
+                }
+                tree.after(index, &mut state);
+            } else {
+                let pick = (world.random_u64() % eligible.len() as u64) as usize;
+                let child = eligible[pick];
+                state.branch = child as u32;
+                // CONTEXT: RandomPercent conditions must not roll again on entry.
+                checked = Some(child);
+            }
             continue;
         }
         if branch.kind.eq_ignore_ascii_case("sequence") && branch.procedure.is_none() {
@@ -182,13 +274,47 @@ pub(super) fn enter(world: &mut World, actor: GlobalFormId, ai: &mut AiState) {
             continue;
         }
         state.active = true;
-        super::begin_procedure(world, actor, ai, procedure(branch), tree.location(branch));
+        let mut chosen = procedure(branch);
+        let mut wait_until = None;
+        if matches!(chosen, Procedure::Wait { .. }) {
+            match tree.wait_parameters(branch) {
+                Some((seconds, stop_movement)) if world.clock.real_seconds.is_finite() => {
+                    chosen = Procedure::Wait { stop_movement };
+                    if seconds > 0.0 {
+                        wait_until = Some(world.clock.real_seconds + f64::from(seconds));
+                    }
+                }
+                _ => chosen = Procedure::Unsupported("Wait inputs or clock".into()),
+            }
+        }
+        let is_patrol = chosen == Procedure::Patrol;
+        super::begin_procedure(world, actor, ai, chosen, tree.location(branch));
+        if is_patrol {
+            super::patrol::begin(world, actor, ai, tree.patrol_parameters(branch));
+        }
+        ai.wait_until = wait_until;
         break;
     }
     ai.tree = Some(state);
     if ai.tree.as_ref().is_some_and(|s| s.finished) {
         complete(world, ai);
     }
+}
+
+pub(super) fn patrol_parameters(
+    world: &World,
+    ai: &AiState,
+) -> Result<super::patrol::Parameters, &'static str> {
+    let tree = ai
+        .package
+        .and_then(|id| Tree::load(world, id))
+        .ok_or("missing Patrol package")?;
+    let state = ai.tree.as_ref().ok_or("missing Patrol cursor")?;
+    let branch = tree
+        .branches
+        .get(state.branch as usize)
+        .ok_or("invalid Patrol cursor")?;
+    tree.patrol_parameters(branch)
 }
 
 pub(super) fn succeeded(world: &World, ai: &mut AiState) {

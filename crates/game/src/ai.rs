@@ -8,6 +8,7 @@
 //! The chosen package's template names a procedure, and three of them move
 //! the actor on the clock: `Travel` walks to a place, `Sandbox` wanders
 //! between idle markers around a place, `Sleep` walks to a bed and holds.
+//! `Wait` uses the non-menu clock and holds until its duration expires.
 //! Walking follows the vanilla navmesh graph (`soe_navmesh::vanilla`)
 //! built once per world, and crossing into another navmesh moves the actor
 //! into that navmesh's cell. Its rates come from the actor race's `WKMV` and
@@ -35,7 +36,9 @@ use crate::package::{
 use crate::world::save::{read_form_id, read_opt_form_id, FormNamespace, FormReader};
 use crate::world::{Alloc, Handle, Pending, World};
 
+mod patrol;
 mod tree;
+pub use patrol::PatrolState;
 pub use tree::TreeState;
 
 /// Units per real second used when a race lacks a usable movement type.
@@ -68,6 +71,11 @@ pub enum Procedure {
     Travel,
     Sandbox,
     Sleep,
+    Patrol,
+    /// A mental timer. The movement flag is retained for concurrent procedures.
+    Wait {
+        stop_movement: bool,
+    },
     /// A procedure the driver does not run yet, by its template name. The
     /// actor holds where it stands.
     Unsupported(String),
@@ -95,6 +103,9 @@ pub struct AiState {
     pub radius: f32,
     /// Game hours until a sandboxing actor leaves its marker.
     pub dwell_until: f64,
+    /// Finite Wait deadline in non-menu real seconds. None means endless Wait.
+    pub wait_until: Option<f64>,
+    pub patrol: Option<PatrolState>,
     pub speed: f32,
     pub start_position: [f32; 3],
     pub reevaluate: bool,
@@ -681,6 +692,8 @@ pub fn evaluate(world: &mut World, actor: GlobalFormId, alloc: Alloc<'_>) -> Opt
     ai.center_cell = None;
     ai.radius = 0.0;
     ai.dwell_until = 0.0;
+    ai.wait_until = None;
+    ai.patrol = None;
     ai.speed = movement_speed(world, actor, speed::WALK);
     ai.start_position = position;
     if let Some(c) = chosen {
@@ -732,6 +745,8 @@ fn begin_procedure(
     ai.center_cell = None;
     ai.radius = 0.0;
     ai.dwell_until = 0.0;
+    ai.wait_until = None;
+    ai.patrol = None;
     let alias = ai.alias.or_else(|| {
         let id = ai.package?;
         let raw = package(world, id)?.owner_quest?;
@@ -770,7 +785,10 @@ fn begin_procedure(
                 .and_then(|b| world.reference(b).and_then(|r| r.cell))
                 .or_else(|| place.and_then(|p| p.cell));
         }
-        Procedure::None | Procedure::Unsupported(_) => {}
+        Procedure::None
+        | Procedure::Wait { .. }
+        | Procedure::Patrol
+        | Procedure::Unsupported(_) => {}
     }
 }
 
@@ -1064,6 +1082,16 @@ fn step(world: &mut World, actor: GlobalFormId, dt: f32) {
     } else {
         tree::enter(world, actor, &mut ai);
     }
+    if ai.procedure == Procedure::Patrol && ai.tree.as_ref().is_some_and(|tree| tree.active) {
+        patrol::prepare(world, &mut ai);
+    }
+    if matches!(ai.procedure, Procedure::Wait { .. })
+        && ai
+            .wait_until
+            .is_some_and(|until| world.clock.real_seconds >= until)
+    {
+        tree::succeeded(world, &mut ai);
+    }
     let hours = world.clock.game_hours();
     if ai.arrived {
         match ai.procedure {
@@ -1103,6 +1131,19 @@ fn step(world: &mut World, actor: GlobalFormId, dt: f32) {
         ai.path.clear();
         ai.path_cells.clear();
     }
+    if ai.procedure == Procedure::Patrol
+        && !ai.arrived
+        && ai
+            .destination
+            .is_some_and(|dest| distance(position, dest) <= ai.radius)
+    {
+        ai.arrived = true;
+        ai.path.clear();
+        ai.path_cells.clear();
+        if let (Some(target_cell), Some(reference)) = (ai.center_cell, world.reference(actor)) {
+            reference.cell = Some(target_cell);
+        }
+    }
     if let (false, Some(dest)) = (ai.arrived, ai.destination) {
         if ai.path.is_empty() {
             let (path, cells) = plan(world, position, dest, ai.center_cell);
@@ -1115,7 +1156,27 @@ fn step(world: &mut World, actor: GlobalFormId, dt: f32) {
         while budget > 0.0 && !ai.path.is_empty() {
             let next = ai.path[0];
             let d = distance(pos, next);
-            if d <= budget.max(ARRIVAL_DISTANCE) {
+            if ai.procedure == Procedure::Patrol
+                && ai.path.len() == 1
+                && ai.radius > 0.0
+                && d - ai.radius <= budget
+            {
+                let t = ((d - ai.radius) / d).clamp(0.0, 1.0);
+                pos = std::array::from_fn(|axis| pos[axis] + (next[axis] - pos[axis]) * t);
+                if let Some(Some(target_cell)) = ai.path_cells.first() {
+                    new_cell = Some(*target_cell);
+                }
+                ai.path.clear();
+                ai.path_cells.clear();
+                ai.arrived = true;
+                break;
+            }
+            let waypoint_budget = if ai.procedure == Procedure::Patrol {
+                budget
+            } else {
+                budget.max(ARRIVAL_DISTANCE)
+            };
+            if d <= waypoint_budget {
                 pos = next;
                 budget -= d;
                 ai.path.remove(0);
@@ -1149,6 +1210,9 @@ fn step(world: &mut World, actor: GlobalFormId, dt: f32) {
                 r.cell = new_cell;
             }
         }
+    }
+    if ai.procedure == Procedure::Patrol {
+        patrol::tick(world, &mut ai);
     }
     if let Some(a) = world.actor(actor) {
         a.ai = ai;
@@ -1196,6 +1260,18 @@ pub(crate) fn write_record_state(w: &mut Writer, a: &AiState) {
         Procedure::Travel => w.u8(1),
         Procedure::Sandbox => w.u8(2),
         Procedure::Sleep => w.u8(3),
+        Procedure::Patrol => {
+            w.u8(6);
+            patrol::write(w, a.patrol.as_ref());
+        }
+        Procedure::Wait { stop_movement } => {
+            w.u8(5);
+            w.bool(*stop_movement);
+            w.bool(a.wait_until.is_some());
+            if let Some(until) = a.wait_until {
+                w.f64(until);
+            }
+        }
         Procedure::Unsupported(name) => {
             w.u8(4);
             w.str(name);
@@ -1282,6 +1358,21 @@ pub(crate) fn read_state_mapped(r: &mut FormReader<'_, '_>) -> Result<AiState, V
         2 => Procedure::Sandbox,
         3 => Procedure::Sleep,
         4 => Procedure::Unsupported(r.str()?),
+        6 => {
+            a.patrol = Some(patrol::read(r)?);
+            Procedure::Patrol
+        }
+        5 => {
+            let stop_movement = r.bool()?;
+            if r.bool()? {
+                let until = r.f64()?;
+                if !until.is_finite() || until < 0.0 {
+                    return Err(VmError::State("invalid Wait deadline".into()));
+                }
+                a.wait_until = Some(until);
+            }
+            Procedure::Wait { stop_movement }
+        }
         other => return Err(VmError::State(format!("unknown procedure {other}"))),
     };
     if r.bool()? {
@@ -1508,6 +1599,8 @@ mod tests {
             center_cell: None,
             radius: 100.0,
             dwell_until: 12.5,
+            wait_until: None,
+            patrol: None,
             speed: 180.0,
             start_position: [0.5, 0.25, 0.125],
             reevaluate: true,

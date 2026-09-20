@@ -43,7 +43,9 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// Version 19 separates created identities from plugin load-order position 255.
 /// Version 20 appends restored reference ownership and lock metadata.
 /// Version 21 appends the sequential PACK procedure cursor per actor.
-pub const SAVE_VERSION: u16 = 21;
+/// Version 22 adds the Wait procedure tag, movement flag and real-time deadline.
+/// Version 23 adds walking Patrol marker, direction and dwell progress.
+pub const SAVE_VERSION: u16 = 23;
 
 #[derive(Clone, Copy)]
 pub(crate) enum FormNamespace {
@@ -1385,6 +1387,16 @@ fn read_actor_state(r: &mut FormReader<'_, '_>, version: u16) -> Result<ActorSta
         a.race = Some(read_form_id(r)?);
     }
     a.ai = crate::ai::read_state_mapped(r)?;
+    if version < 23 && a.ai.procedure == crate::ai::Procedure::Patrol {
+        return Err(VmError::State(
+            "Patrol procedure requires world version 23".into(),
+        ));
+    }
+    if version < 22 && matches!(a.ai.procedure, crate::ai::Procedure::Wait { .. }) {
+        return Err(VmError::State(
+            "Wait procedure requires world version 22".into(),
+        ));
+    }
     a.perks = read_form_set(r)?;
     a.alerted = r.bool()?;
     a.sneaking = r.bool()?;

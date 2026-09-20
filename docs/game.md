@@ -445,7 +445,9 @@ within the radius of the location, walks there, dwells 0.1 to 0.4 game
 hours, and picks the next, or a random point in the radius when the cell
 has no markers. `Sleep` walks to the bed the location names, or the
 nearest furniture in that cell whose base carries a keyword with `bed` in
-its editor id, and holds with `sleeping` set. Every other procedure name
+its editor id, and holds with `sleeping` set. `Wait` holds for its real-time
+duration, with zero meaning indefinite. Walking `Patrol` follows linked markers,
+including their arrival radius and idle time. Every other procedure name
 is `Procedure::Unsupported` and the actor stands where it is. Location
 kinds near reference, in cell, near package start, near editor location,
 near linked reference, alias reference, alias location and near self resolve.
@@ -482,8 +484,8 @@ to an idle marker, sleep on schedule and wake at 08:00, take an alias
 package over the base list, switch at once from a script's
 `EvaluatePackage`, and keep walking after a save and load.
 
-**Not done.** Random, simultaneous and stacked branches (AI-13 to AI-15),
-the other 18 procedures,
+**Not done.** Simultaneous and stacked branches (AI-14 and AI-15),
+the other 16 procedures and the Patrol modes tracked by AI-88 through AI-91,
 package fragments (`VMAD` on `PACK`), the `On Begin`, `On End` and `On
 Change` idles and topics, once per day for packages that end without
 arriving, `Must Complete`, interrupt flags, combat overrides, door
@@ -1575,3 +1577,132 @@ regressions remain applicable. The installed Skyrim.esm survey decodes 5,961
 packages with no failures under the new child-count validation. Its 3,966
 supported first procedures are an entry-point count, not complete tree coverage.
 The earlier strongest-procedure survey above describes the old heuristic.
+
+### Random package branches
+
+AI-13 runs one eligible immediate child of a Random branch. Conditions are
+checked once per candidate, and the selected child does not recheck a random
+condition while entering. After that child finishes, the Random branch ends
+or chooses again if Repeat when Complete is set. A selected Sequence runs all
+its children before returning to Random. Success Completes Package still ends
+the whole package. Empty repeating groups yield until the next driver tick.
+
+Selection draws from the existing world RNG, whose state is saved with the
+world. The AI-02 cursor already identifies the chosen subtree and active leaf,
+so no new save version or parallel authoritative state is needed. Restoring
+an active child resumes its path without consuming another selection draw.
+The static `procedure_of` helper returns None when its first leaf depends on
+a random choice. It does not consume the runtime RNG for a preview.
+
+Local xEdit PACK PRCB and the UESP PACK layout supply the group representation.
+The [AI Overhaul author's two-location example](https://www.nexusmods.com/skyrimspecialedition/articles/2467)
+and the [random travel authoring example](https://forums.nexusmods.com/topic/804089-npc-random-exploring/)
+supply the single-choice and repeat behavior. These sources provide no reusable
+interpreter. Choice uses the engine's existing deterministic RNG and equal
+candidate weights. Exact Bethesda RNG output remains unverified.
+
+Tests extend `package_sequences.rs` with single-child selection, candidate
+conditions, nested sequences, repeat, empty groups, one condition evaluation,
+and save/load equality of both movement and the subsequent RNG draw.
+
+### Wait package procedure
+
+AI-34 resolves ordered Wait parameters through the package template chain.
+The first PKC2 input is ActualSeconds, a float, followed by StopMovement,
+a Boolean. Public input names do not control execution. Package overrides
+take precedence over template defaults. The installed Skyrim.esm survey found
+87 Wait branches, all with this float-then-Boolean order, including renamed
+inputs. Local xEdit PACK ANAM/CNAM and PKC2 definitions supply the value and
+binding layouts. The existing ESM and PACK readers perform the survey.
+
+Positive durations finish on the first driver tick at or after their deadline
+in the saved world real-seconds clock. Menus pause that clock, and game
+timescale does not change it. Entry starts the timer at the current clock,
+so the earlier part of that tick is not counted as waiting. Repeated driver
+calls at the same clock cannot spend the duration again. Zero waits forever.
+Missing, mistyped, negative or nonfinite inputs produce an explicit
+Unsupported procedure rather than silently becoming an endless wait.
+
+The source for positive and zero durations is the primary author's
+[Wait experiment](https://skyrimeasy.blog-rpg.com/ckworks/procedure07).
+The [CK Wait notes reproduced in the Papyrus index](https://papyrus.bellcube.dev/skyrimse/script/utility/function/wait/)
+identify AI Wait's real-world, non-menu clock. These sources provide no
+reusable timer implementation. The world clock and actor state already provide
+the needed timing and ownership. Negative-duration semantics are unverified.
+
+StopMovement is retained as authored. A standalone Wait issues no walking
+commands with either setting. Concurrent movement arbitration belongs to AI-14.
+The flag does not immobilize an actor against external displacement. Branch
+conditions are checked on entry, not polled continuously while waiting.
+Repeating a containing sequence begins a fresh timer. Package cancellation
+clears its timer without reporting success or recording Once Per Day completion.
+
+SOEW version 17 adds the Wait procedure tag, movement flag and optional absolute
+deadline to the actor's procedure state. Existing cursor and world-clock state
+are reused. Versions 4 through 16 remain readable. Saves with an invalid
+deadline or a Wait tag under an older version are rejected before replacing
+the world. This is SOEW persistence, not vanilla ESS Wait-state restoration.
+
+`tests/package_wait.rs` checks timing, menu pause, timescale, repeated driver
+calls, package overrides, finite and endless cancellation, repetition,
+save/load equality, state hashes and invalid state. Its installed-data test
+checks every vanilla Wait branch's parameter types when SKYRIM_DATA is set.
+
+### Walking Patrol routes
+
+AI-03 follows ordinary reference markers through keyword-free XLKR links.
+Its six ordered parameters are PathStart, PointRadius, Repeatable,
+StartAtNearestPoint, RideHorseIfPossible and StaticPathing. The read-only
+Skyrim.esm survey found 45 Patrol branches and confirmed the order on the
+vanilla Patrol template. Some branches omit optional inputs using index 255.
+Their defaults are not established, so those branches report Unsupported.
+Public parameter names do not determine execution.
+
+PathStart currently supports a specific reference or the actor's keyword-free
+linked reference. Template overrides retain their defining plugin namespace.
+Each marker must carry a finite nonnegative XPRD idle time. Zero idle time
+yields until the next driver call before selecting another marker. Positive
+idle time uses the non-menu real-seconds clock. A finite route completes after
+the terminal dwell. Repeatable reverses along an open route. A route linked
+back to its start loops even when Repeatable is false. StartAtNearestPoint
+treats the nearest marker as already used and begins at its successor.
+Distance ties use authored route order.
+
+The driver stops within PointRadius and respects the movement budget even
+for small ticks. It reuses the existing navmesh path and off-graph straight-line
+fallback, including the fallback's destination-cell assignment on arrival.
+This does not add load-door traversal or obstacle avoidance. Marker position,
+cell, availability and current route membership are checked before movement.
+Changed positions or cells invalidate the old path. Malformed links, non-root
+cycles and a single-marker open repeat report Unsupported before walking.
+
+The saved Patrol state contains its chosen start, current marker, direction
+and optional dwell deadline. The route, marker properties and procedure inputs
+remain on the winning records and are reread. SOEW version 18 adds the Patrol
+procedure tag and progress. Earlier versions 4 through 17 remain readable.
+Invalid deadlines and Patrol tags under older headers are rejected before
+world replacement. Vanilla ESS Patrol state is not restored by this change.
+
+Local xEdit PACK PKC2/PTDA and REFR XLKR/XPRD/XPPA/INAM/PDTO supply the layouts.
+Mutagen's `Records/Common Subrecords/Patrol.xml` confirms the patrol group.
+The parser distinguishes patrol INAM from the earlier image-space INAM and
+accepts null topic placeholders. The primary author's
+[Patrol tests](https://skyrimeasy.blog-rpg.com/ck/packagetemplate07) establish
+linked order, nearest entry, reversal and circular traversal. The
+[procedure authoring tutorial](https://skyrimeasy.blog-rpg.com/ck/proceduretree01)
+describes the parameter types. These sources provide no reusable runtime
+walker, so this implementation extends the existing actor driver.
+
+The row was split before implementation. AI-88 covers marker idle, furniture
+and topic actions and depends on AI-23 and HST-09. AI-89 covers mounted Patrol.
+AI-90 establishes StaticPathing and omitted-input defaults. AI-91 covers
+additional target modes, including aliases and object-list results from AI-33.
+Requested actions, mounted or static modes, additional targets and malformed
+inputs report Unsupported. They are not silently treated as ordinary walking.
+
+`tests/package_patrol.rs` exercises linked order, final dwell, open and circular
+repeat, nearest entry, radius budgets, menu timing, save/resume during travel,
+dwell and reversal, winning-template namespaces, live marker changes, action
+field contexts and invalid state. These are headless synthetic behavior checks.
+The installed-data survey establishes parameter representation, not a measured
+Patrol run in Skyrim or Godot.
