@@ -64,7 +64,19 @@ impl World {
             Some(r) if r.is_actor => r.base,
             _ => return None,
         };
-        if !self.actors.contains_key(&id) {
+        if self.actors.contains_key(&id) {
+            let actor = self.actors.get(&id)?;
+            if actor
+                .spells
+                .iter()
+                .any(|spell| self.tag_of(*spell) == Some(super::T(b"LVSP")))
+            {
+                let roots = actor.spells.clone();
+                let level = actor.level;
+                let spells = self.expand_actor_spell_lists(&roots, level).ok()?;
+                self.actors.get_mut(&id)?.spells = spells;
+            }
+        } else {
             let mut a = ActorState::default();
             if base.is_some() {
                 use crate::npc::template;
@@ -156,6 +168,7 @@ impl World {
                     apply_distributed(&mut a, d);
                 }
             }
+            a.spells = self.expand_actor_spell_lists(&a.spells, a.level).ok()?;
             self.actors.insert(id, a);
         }
         self.actors.get_mut(&id)

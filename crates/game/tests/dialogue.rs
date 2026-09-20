@@ -281,6 +281,108 @@ fn quest_dialogue_conditions_do_not_include_story_manager_conditions() {
     assert_eq!(game.dialogue_choices().unwrap().available.len(), 1);
 }
 
+fn alias_dialogue() -> Game {
+    let mut base = plugin(vec![info(INFO, 0, &["Base response"], false)]);
+    base.push_top(
+        Record::new(T(b"ACHR"), SPEAKER + 1)
+            .sub(T(b"NAME"), BASE.to_le_bytes())
+            .sub(T(b"DATA"), vec![0; 24]),
+    );
+    let mut patch = Plugin::new(FileHeader {
+        masters: vec!["Dialogue.esm".into()],
+        ..FileHeader::default()
+    });
+    for (owner, reference) in [(QUEST, SPEAKER), (OTHER_QUEST, SPEAKER + 1)] {
+        patch.push_top(
+            quest(owner, 50)
+                .sub(T(b"ALST"), 0u32.to_le_bytes())
+                .zsub(T(b"ALID"), "Speaker")
+                .sub(T(b"FNAM"), 2u32.to_le_bytes())
+                .sub(T(b"ALFR"), reference.to_le_bytes())
+                .sub(T(b"ALED"), []),
+        );
+    }
+    add_topic(
+        &mut patch,
+        topic(TOPIC, QUEST),
+        vec![info(INFO, 4, &["Alias response"], true).sub(T(b"CTDA"), condition(566, 0, 1.0, 0))],
+        false,
+    );
+    let mut order = LoadOrder::new();
+    order.add("Dialogue.esm", base).unwrap();
+    order.add("AliasOverride.esp", patch).unwrap();
+    game_with_order(order)
+}
+
+#[test]
+fn filled_actor_alias_controls_dialogue_for_same_base_references() {
+    let mut game = alias_dialogue();
+    open(&mut game);
+    assert_eq!(game.world_mut().alias_ref(id(QUEST), 0), Some(id(SPEAKER)));
+    assert_eq!(
+        game.world_mut().alias_ref(id(OTHER_QUEST), 0),
+        Some(id(SPEAKER + 1))
+    );
+    assert_eq!(game.dialogue_choices().unwrap().available.len(), 1);
+    game.close_dialogue();
+    let player = game.player();
+    game.begin_dialogue(id(SPEAKER + 1), player).unwrap();
+    assert!(game.dialogue_choices().unwrap().available.is_empty());
+    assert!(game
+        .world_mut()
+        .force_alias(id(QUEST), 0, Some(id(SPEAKER + 1))));
+    assert_eq!(game.dialogue_choices().unwrap().available.len(), 1);
+    let line = game.choose_dialogue(id(TOPIC)).unwrap().unwrap();
+    assert_eq!(line.speaker, id(SPEAKER + 1));
+    assert_eq!(line.text.as_deref(), Some("Alias response"));
+}
+
+#[test]
+fn alias_clear_invalidates_offered_choice_before_fragments() {
+    let mut game = alias_dialogue();
+    open(&mut game);
+    assert_eq!(game.dialogue_choices().unwrap().available.len(), 1);
+    assert!(game.world_mut().force_alias(id(QUEST), 0, None));
+    assert!(game.dialogue_choices().unwrap().available.is_empty());
+    assert!(matches!(
+        game.choose_dialogue(id(TOPIC)),
+        Err(Error::State(_))
+    ));
+    assert_eq!(counter(&mut game, "begins"), 0);
+    assert!(game.dialogue_line().unwrap().is_none());
+    assert!(game
+        .world_mut()
+        .force_alias(id(QUEST), 0, Some(id(SPEAKER))));
+    assert!(game.choose_dialogue(id(TOPIC)).unwrap().is_some());
+    assert_eq!(counter(&mut game, "begins"), 1);
+}
+
+#[test]
+fn dialogue_alias_assignment_survives_save_and_reload() {
+    let mut original = alias_dialogue();
+    open(&mut original);
+    assert!(original.world_mut().force_alias(id(QUEST), 0, None));
+    let bytes = original.save_state().unwrap();
+    let mut restored = alias_dialogue();
+    restored.load_state(&bytes).unwrap();
+    assert_eq!(restored.world_mut().alias_ref(id(QUEST), 0), None);
+    assert!(restored.dialogue_choices().unwrap().available.is_empty());
+    assert!(restored
+        .world_mut()
+        .force_alias(id(QUEST), 0, Some(id(SPEAKER))));
+    let bytes = restored.save_state().unwrap();
+    let mut filled = alias_dialogue();
+    filled.load_state(&bytes).unwrap();
+    assert_eq!(
+        filled.world_mut().alias_ref(id(QUEST), 0),
+        Some(id(SPEAKER))
+    );
+    assert_eq!(filled.dialogue_choices().unwrap().available.len(), 1);
+    let line = filled.choose_dialogue(id(TOPIC)).unwrap().unwrap();
+    assert_eq!(line.speaker, id(SPEAKER));
+    assert_eq!(counter(&mut filled, "begins"), 1);
+}
+
 #[test]
 fn shared_response_data_does_not_transfer_fragments_or_ownership() {
     let mut plugin = plugin(vec![

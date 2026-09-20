@@ -1781,8 +1781,8 @@ ACBS, AIDT, DNAM, factions, spells, class, race, face, gender and outfit changes
 become their corresponding NPC subrecords. Saved names retain Windows-1252
 bytes and are treated as plain text even if the winning plugin is localized.
 Form and NPC text queries reuse the ESM Windows-1252 decoder. Shouts initialize
-the actor's shout collection separately from spells. Leveled spell lists are
-retained, but their execution remains a separate requirement.
+the actor's shout collection separately from spells. PRG-11 expands leveled
+spell lists during actor initialization, as described below.
 
 CommonLib names originalRace and bodyTintColor as runtime NPC fields. The
 original race and exact four tint bytes are retained alongside the record.
@@ -2353,3 +2353,79 @@ ambiguous counts, bookkeeping, recipient overflow and failure event atomicity.
 Tempering formulas, learned enchantments, recipe eligibility, poison use and
 host menus belong to their separate backlog items. These tests do not compare
 selection policy against the original runtime or load installed save files.
+
+## Alias-backed dialogue eligibility (DLG-13)
+
+Dialogue already evaluates `GetIsAliasRef` (CTDA 566) against the current
+speaker reference and the quest that owns the winning INFO's topic. The alias
+number is a quest-local identifier. It is not a FormID or an NPC base. Two
+references using one NPC base can therefore receive different topic choices.
+`World::alias_ref` reads the canonical saved quest state on each eligibility
+check. Clearing or reassigning an alias changes the next choice listing.
+Selection checks again before consuming Say Once or dispatching fragments.
+
+The DLG-13 conformance tests establish this existing behavior through the
+conversation API, including a winning plugin override, alias zero in two
+quests, references sharing one base, clearing a displayed choice, reassignment,
+and save/load of both empty and filled aliases. No production code or new
+speaker-state cache was needed. AI-12's search-based alias filling is not a
+prerequisite for consuming an already filled alias.
+
+Sources read: local xEdit `wbDefinitionsTES5.pas` declares condition 566's
+alias parameter, QUST reference-alias fields and INFO ANAM as an NPC-base link.
+UESP `Raw_Function_Data.wikitext` names `Ref.GetIsAliasRef(QuestAlias)`.
+CK `Clear_-_ReferenceAlias.wikitext` specifies emptying an optional alias.
+The tests use optional aliases and the existing world mutation API. They do
+not establish automatic alias filling, original-runtime condition parity,
+Papyrus Clear error behavior, or scene action scheduling. Those capabilities
+retain their own backlog scopes.
+
+## Leveled spell initialization (PRG-11)
+
+Actor initialization expands each LVSP in its inherited and distributed spell
+set at the resolved actor level. Nested lists use that same level. LVLF selects
+all eligible levels or only the highest eligible level. Duplicate entries keep
+their random selection weight. Use All Spells selects every eligible entry.
+Nested entry quantities cause separate rolls when the nested list requests
+Calculate For Each Item In Count. Repeated concrete spells collapse in the
+actor's existing spell set. Direct spells and authored shouts retain their
+existing paths. Root lists are visited in resolved FormID order.
+
+Selection reads the winning record's namespace and the canonical mutable
+leveled-list state, including script additions and chance-none edits. An
+initialized actor retains its resulting spells, including an empty result,
+through the existing save format and hash. Later list edits affect newly
+initialized actors. No second spell-selection table or save version was added.
+Previously saved concrete spells remain unchanged. Older engine saves can
+contain unresolved LVSP placeholders. The next actor access expands those
+placeholders once while retaining already granted concrete spells. The result
+then uses the same saved spell set, without repeating selection on later reads
+or another save/load cycle.
+
+`World::select_leveled_spells` exposes typed selection errors. Invalid sizes,
+entry counts, spell links, flag bits, zero quantities, out-of-range chance-none,
+and cycles reject selection. LVSP has no authored LVLG chance-global field.
+The traversal permits 128 nested lists and 65,536 traversal/roll operations,
+then returns an error. A failed selection restores the RNG and installs no
+partial actor. Lazy list reads can still materialize shared list state, as with
+actor-template selection. The existing optional actor getter returns no actor
+when initialization fails.
+
+Sources read: local xEdit LVSP and `wbLeveledListEntry`, Mutagen Skyrim
+`LeveledSpell.cs` and `LeveledSpell.xml`, UESP `LVSP.wikitext`, skymp
+`LeveledListUtils.cpp`, and OpenMW `mwmechanics/levelledlist.cpp`. xEdit supplies
+the twelve-byte entry layout and the three flag bits. OpenMW and the existing
+actor-template consumer supply the highest-eligible/all-level comparison.
+skymp supplies the recursive count-selection pattern, but its missing
+highest-level restriction and chance-global shortcut are not reused. These
+references do not provide a reusable Rust consumer. No dependency was added.
+
+Eleven synthetic tests cover actor-level filtering, nested counts, duplicate
+weighting, Use All Spells, saved selections and empty outcomes, winning links,
+template inheritance, traversal bounds, malformed inputs and RNG rollback
+after earlier successful draws, plus older saved placeholders. The five-master
+survey executes all 33 winning
+LVSP lists at levels 1, 10 and 50, with 171 concrete spell results over 99
+selections. The survey checks record execution, not comparison against a
+running original game. Live actor leveling and later spell reevaluation retain
+their progression scope.
