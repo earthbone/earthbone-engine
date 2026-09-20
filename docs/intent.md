@@ -63,6 +63,14 @@ timing or saved state is observable. The user accepts limits to backward
 compatibility. That permits documented improvements, not silent breakage or
 an unsupported promise that every mod works.
 
+Save resilience is an explicit requirement, clarified on 2026-09-20. Missing
+or changed mods must not silently destroy saved records or script state.
+Preserve unresolved data, diagnose dependency changes before execution, and
+retain a recoverable original when continued play cannot be established as
+safe. Interrupted writes must preserve a previously valid save. Automatic
+deletion of unresolved state is not a recovery policy. See
+[save-resilience.md](save-resilience.md) for the required behavior and evidence.
+
 ## Modernize the runtime and authoring workflow
 
 Use existing open tooling and host systems where they solve the problem.
