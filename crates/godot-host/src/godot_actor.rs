@@ -108,6 +108,10 @@ impl INode3D for SkinnedActorNode {
 
 #[godot_api]
 impl SkinnedActorNode {
+    /// Authored graph events emitted after the corresponding pose is installed.
+    #[signal]
+    pub fn animation_event(name: GString);
+
     /// Load the vanilla human character from `data_dir` and put `mesh_path`
     /// on its skeleton. Returns false and logs on failure.
     ///
@@ -231,6 +235,13 @@ impl SkinnedActorNode {
         };
         let _span = soe_trace::Span::new("host.actor_tick", "host");
         vm.update(delta);
+        let events: Vec<GString> = vm
+            .take_events()
+            .into_iter()
+            .filter_map(|event| usize::try_from(event.id).ok())
+            .filter_map(|id| assets.graph.data.event_names.get(id))
+            .map(GString::from)
+            .collect();
         self.elapsed += f64::from(delta);
         if let Err(e) = to_model_space_into(&assets.skeleton, vm.pose(), &mut self.model) {
             godot_error!("SkinnedActorNode: {e}");
@@ -247,6 +258,9 @@ impl SkinnedActorNode {
             for (i, skin) in self.skins.iter().enumerate() {
                 server.skeleton_bone_set_transform(rids.skeleton, i as i32, to_transform3d(skin));
             }
+        }
+        for event in events {
+            self.signals().animation_event().emit(&event);
         }
     }
 

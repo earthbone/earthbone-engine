@@ -37,6 +37,7 @@ use crate::input::{godot_key_for, Action, Bindings, ControlMap, Driver, InputSta
 
 mod footsteps;
 mod gameplay;
+mod melee;
 
 /// How far ahead of the eye an activate ray reaches, in Skyrim units. The
 /// vanilla reach is about this, and it is a setting rather than a constant so
@@ -71,6 +72,8 @@ pub struct PlayerNode {
     character: Option<BodyId>,
     data_source: Option<Arc<DataSource>>,
     game: Option<soe_game::Game>,
+    melee_contact: crate::combat::MeleeContact,
+    melee_bodies: HashMap<Rid, GlobalFormId>,
     sound_bank: Option<Gd<crate::godot_audio::SoundBank>>,
     footstep_cadence: crate::audio::FootstepCadence,
     footstep_count: u64,
@@ -108,6 +111,8 @@ impl INode3D for PlayerNode {
             character: None,
             data_source: None,
             game: None,
+            melee_contact: crate::combat::MeleeContact::default(),
+            melee_bodies: HashMap::new(),
             sound_bank: None,
             footstep_cadence: crate::audio::FootstepCadence::default(),
             footstep_count: 0,
@@ -328,6 +333,8 @@ impl PlayerNode {
         self.character = Some(id);
         self.world = Some(world);
         self.loaded_cell = Some(cell_id);
+        self.melee_contact.cancel();
+        self.melee_bodies.clear();
         self.collision_references = collision.references;
         self.last_activate_hit = false;
         self.last_activate_reference = None;

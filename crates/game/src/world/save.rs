@@ -38,8 +38,9 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// Version 13 persists runtime NPC record overrides and mapped links.
 /// Version 14 adds temporary NPC identities, ownership and component provenance.
 /// Version 15 persists deferred-death requests and their eventual event recipients.
-/// Version 16 persists the selected difficulty after record overrides.
-pub const SAVE_VERSION: u16 = 16;
+/// Version 16 stores difficulty alone, and version 17 stores hands alone.
+/// Version 18 stores difficulty followed by explicit left/right weapon selections.
+pub const SAVE_VERSION: u16 = 18;
 
 impl World {
     /// Serialize the run-time state: the VM object handles, references,
@@ -329,6 +330,18 @@ impl World {
         self.write_item_stacks(&mut body);
         self.write_record_overrides(&mut body);
         body.u8(self.difficulty as u8);
+        let mut armed: Vec<_> = self
+            .actors
+            .iter()
+            .filter(|(_, actor)| actor.left_weapon.is_some() || actor.right_weapon.is_some())
+            .collect();
+        armed.sort_by_key(|(id, _)| **id);
+        body.len(armed.len());
+        for (id, actor) in armed {
+            write_form_id(&mut body, *id);
+            write_opt_form_id(&mut body, actor.left_weapon);
+            write_opt_form_id(&mut body, actor.right_weapon);
+        }
         let mut out = Writer::new();
         out.out.extend_from_slice(SAVE_MAGIC);
         out.u16(SAVE_VERSION);
@@ -800,12 +813,26 @@ impl World {
         } else {
             BTreeMap::new()
         };
-        let difficulty = if version >= 16 {
+        let difficulty = if version == 16 || version >= 18 {
             Difficulty::from_save(r.u8()?)
                 .ok_or_else(|| VmError::State("invalid saved difficulty".into()))?
         } else {
             Difficulty::Adept
         };
+        if version >= 17 {
+            let mut seen = BTreeSet::new();
+            for _ in 0..r.len()? {
+                let id = read_form_id(&mut r)?;
+                if !seen.insert(id) {
+                    return Err(VmError::State("duplicate weapon hand actor".into()));
+                }
+                let actor = actors
+                    .get_mut(&id)
+                    .ok_or_else(|| VmError::State("missing weapon hand actor".into()))?;
+                actor.left_weapon = read_opt_form_id(&mut r)?;
+                actor.right_weapon = read_opt_form_id(&mut r)?;
+            }
+        }
         r.expect_end()?;
         super::death::validate_pending(&actors, &pending)?;
 

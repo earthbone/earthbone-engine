@@ -312,6 +312,13 @@ impl World {
     }
 
     fn combat_weapon(&self, id: GlobalFormId) -> Result<Weapon, Error> {
+        Ok(self.combat_weapon_source(id)?.1)
+    }
+
+    pub(super) fn combat_weapon_source(
+        &self,
+        id: GlobalFormId,
+    ) -> Result<(GlobalFormId, Weapon), Error> {
         let mut current = id;
         let mut seen = BTreeSet::new();
         loop {
@@ -324,7 +331,7 @@ impl World {
                 return Err(Error::Unsupported("weapon enchantment"));
             }
             let Some(template) = template else {
-                return Ok(Weapon::from_record(record)?);
+                return Ok((current, Weapon::from_record(record)?));
             };
             current = self
                 .resolve_from(current, template)

@@ -41,7 +41,7 @@ runtime overrides take precedence. Malformed, negative or non-finite settings
 reject the hit.
 
 The current path is ordinary melee at a selected difficulty. It defaults to
-Adept and persists the selection in SOEW version 16. Its separate damage
+Adept and persists the selection in SOEW version 18. Its separate damage
 to/from player settings are read on every contact, while NPC-to-NPC contacts
 do not use those multipliers. Novice uses 2.0 damage by the player and 0.5 to
 the player. Apprentice uses 1.5 and 0.75. Adept uses 1.0 and 1.0. Expert uses
@@ -164,3 +164,93 @@ perk entry points, tempering, enchantments, bleedout,
 stagger, crime and combat AI remain unfinished. The API is an execution
 increment and does not establish playable combat or completion of the broader
 gameplay-foundations goal.
+
+## Authored contact bridge, CMB-03
+
+`World::equip_hand_weapon` assigns ordinary weapons to explicit left or right
+slots in shared actor state. WEAP ETYP resolves EQUP parent choices, with
+left/right roots read from DOBJ LHEQ/RHEQ entries in load order. EQUP DATA
+selects all parents or one parent. Animation type does not determine hand
+occupancy. Both-hand selections occupy the right slot and clear the left.
+Equipping one base form in both hands requires two inventory copies.
+Malformed or cyclic slot links reject before changing equipment.
+
+SOEW version 18 appends difficulty and then a sorted hand-selection table after
+record overrides. The world hash includes both. Versions 4 to 15 load at Adept
+with unassigned hands. Version 16 retains its difficulty and has unassigned
+hands. Version 17 retains its hands and defaults to Adept. Version 18 retains
+both fields. The integration checks all four extension layouts and rejects
+invalid difficulty bytes before replacing world state.
+This does not infer item-instance selection from a form-only equipment set.
+Instance quality, poison and enchantment continue to reject as described above.
+
+Hand selection and armor slot replacement use the same template resolution
+as hit calculation. Terminal weapon ETYP supplies the slot choices. The child
+item identity remains equipped and is the contact source. Integration tests
+exercise a fieldless weapon through hand selection and contact, and a fieldless
+armor through overlapping-slot replacement.
+
+The host converts decoded HitFrame, preHitFrame, weaponSwing and attackStop
+annotations to the existing graph trigger representation. Authored triggers
+are retained, exact duplicates are omitted, and the clip's disable-annotation
+flag is honored. SkinnedActorNode emits named graph events after installing
+their corresponding pose.
+
+`MeleeContact` captures the selected hand weapon at swing start. HitFrame
+consumes its one contact opportunity, including on a miss or rejected hit.
+Earlier markers cannot apply damage. Equipment changes reject stale swings,
+and attackStop cancels pending contact. A successful query calls the shared
+Game::melee_hit, retaining its validation and event delivery.
+
+The Godot adapter queries a supplied world-space weapon segment through
+PhysicsDirectSpaceState3D. It excludes registered attacker bodies and maps
+the first body RID to an actor FormID. An unmapped body obstructs the swing.
+PlayerNode exposes registration, start, cancellation and animation-contact
+entry points. Cell replacement clears registrations and cancels the swing.
+Collision owners must unregister bodies before freeing them. No dependency or
+per-reference node is added.
+
+The CMB-03 tests exercise the decoded annotation through the behavior
+interpreter into Game and assert the exact frame, hand and single damage
+application. They also cover misses, cancellation, equipment changes, rejected
+damage, slot-parent cycles, animation-independent hand occupancy and save/load.
+These tests use synthetic records and query results. A live Godot swing and
+installed attack-animation corpus have not been exercised. CMB-28 owns the
+scene wiring that supplies weapon segments and registered bodies. CMB-04 owns
+device input and depends on both CMB-03 and CMB-28.
+
+Additional local sources read for this increment:
+
+- TES5Edit/Core/wbDefinitionsTES5.pas EQUP and DOBJ definitions.
+- uesp-modfileformat/WEAP.wikitext, EQUP.wikitext and DOBJ.wikitext for hand
+  occupancy, parent choices and sparse default-object overrides.
+- ck-wiki/GetEquippedWeapon_-_Actor.wikitext for hand identity.
+- Project-New-Reign---Nemesis-Main animation event tables for separate
+  weaponSwing, preHitFrame, HitFrame and attackStop timestamps.
+- godot-docs/classes/class_physicsdirectspacestate3d.rst for first-contact
+  ray results, RID identity and exclusions.
+
+### Live contact prerequisites
+
+CMB-28 requires a central owner for actor collision RIDs and pose-derived
+weapon segments. The current SkinnedActorNode is a locomotion demo without a
+shared actor identity. Loaded actor state alone does not prove cell residency.
+The live contact owner must derive residency and placement from the shared Game,
+advance an authored attack in the physics step, and cancel on location changes.
+
+CMB-29 exposes and validates character controller metadata first. The local
+serde-hkx hkbCharacterDataCharacterControllerInfo declaration places height,
+radius and filter information at offsets 0, 4 and 8 within character data's
+controller field. Nemesis default male and female XML contain dimensions 1.7
+and 0.4. Those declarations do not establish host units, cap-height semantics
+or Skyrim's active hit hull. The row requires that evidence before creating
+contact shapes. CommonLib weapon attachment names identify a transform rather
+than a blade endpoint. Weapon segment construction also needs a verified axis
+and the record-defined reach, or a declared supported authored collision shape.
+
+CMB-30 installs obstruction bodies with each loaded location. PlayerNode
+currently creates SimpleWorld movement collision. CellStreamer's Jolt static
+installation has a separate entry point that normal startup and location
+replacement do not call. Actor registration alone would therefore permit
+contact through walls. Static and actor query resources must follow the same
+location lifecycle, with owned RIDs released on replacement.

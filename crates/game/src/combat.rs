@@ -46,6 +46,13 @@ impl Difficulty {
     }
 }
 
+/// Weapon hand, matching CK GetEquippedWeapon's left-hand argument.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Hand {
+    Left,
+    Right,
+}
+
 /// Host-confirmed contact. Spatial detection and animation choose the weapon.
 #[derive(Debug, Clone, Copy)]
 pub struct MeleeHit {
