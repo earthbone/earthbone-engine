@@ -16,12 +16,46 @@ use std::time::Instant;
 use common::{graph, Root};
 use soe_bsa::Archive;
 use soe_hkx::animation::SplineCompressedAnimation;
-use soe_hkx::behavior::BehaviorGraph;
+use soe_hkx::behavior::{BehaviorGraph, NodeKind};
 use soe_hkx::interp::{blend_transform, Clip, ClipLibrary, Interpreter};
 use soe_hkx::skeleton::{AnimationContainer, Skeleton};
 use soe_hkx::{Packfile, QsTransform};
 
 const CHARACTER: &str = "meshes/actors/character/";
+const PASSTHROUGH_MODIFIERS: &[(&str, usize, &str)] = &[
+    ("BSDecomposeVectorModifier", 1, "ANM-24"),
+    ("BSDirectAtModifier", 23, "ANM-25"),
+    ("BSEventEveryNEventsModifier", 85, "ANM-26"),
+    ("BSEventOnDeactivateModifier", 98, "ANM-27"),
+    ("BSEventOnFalseToTrueModifier", 23, "ANM-03"),
+    ("BSGetTimeStepModifier", 1, "ANM-28"),
+    ("BSIStateManagerModifier", 3, "ANM-29"),
+    ("BSInterpValueModifier", 36, "ANM-30"),
+    ("BSLimbIKModifier", 1, "ANM-31"),
+    ("BSLookAtModifier", 128, "ANM-32"),
+    ("BSModifyOnceModifier", 26, "ANM-33"),
+    ("BSPassByTargetTriggerModifier", 1, "ANM-34"),
+    ("BSRagdollContactListenerModifier", 50, "ANM-35"),
+    ("BSSpeedSamplerModifier", 42, "ANM-36"),
+    ("BSTimerModifier", 1, "ANM-37"),
+    ("BSTweenerModifier", 5, "ANM-38"),
+    ("hkbDampingModifier", 41, "ANM-39"),
+    ("hkbEvaluateExpressionModifier", 438, "ANM-40"),
+    ("hkbEventDrivenModifier", 158, "ANM-17"),
+    ("hkbEventsFromRangeModifier", 3, "ANM-15"),
+    ("hkbFootIkControlsModifier", 25, "ANM-41"),
+    ("hkbFootIkModifier", 2, "ANM-42"),
+    ("hkbGetUpModifier", 46, "ANM-43"),
+    ("hkbKeyframeBonesModifier", 91, "ANM-44"),
+    ("hkbModifierGenerator", 1909, "ANM-52"),
+    ("hkbModifierList", 708, "ANM-51"),
+    ("hkbPoweredRagdollControlsModifier", 93, "ANM-45"),
+    ("hkbRigidBodyRagdollControlsModifier", 55, "ANM-46"),
+    ("hkbRotateCharacterModifier", 6, "ANM-14"),
+    ("hkbTransformVectorModifier", 1, "ANM-47"),
+    ("hkbTimerModifier", 59, "ANM-16"),
+    ("hkbTwistModifier", 17, "ANM-48"),
+];
 
 fn animations_archive() -> Option<Archive> {
     let data = std::env::var_os("SKYRIM_DATA").map(PathBuf::from)?;
@@ -334,6 +368,69 @@ fn mt_behavior_runs_on_the_vanilla_clips() {
     println!("  {idle_us:.1} us per update idle, {walk_us:.1} us per update walking");
     assert_eq!(vm.pose().len(), 99);
     assert!(!vm.active_states().is_empty(), "the root never activated");
+}
+
+/// Every behavior modifier class whose interpreter path is still a no-op,
+/// counted across the installed animation archive. The sorted inventory is
+/// the worklist in `BACKLOG.csv` and `docs/hkx.md`.
+#[test]
+fn installed_behavior_passthrough_modifier_inventory() {
+    let Some(archive) = animations_archive() else {
+        eprintln!("SKYRIM_DATA not set, skipping");
+        return;
+    };
+    let mut classes = BTreeMap::new();
+    let mut list_children = BTreeMap::new();
+    let mut behavior_files = 0usize;
+    for name in archive
+        .files()
+        .iter()
+        .filter(|name| name.to_ascii_lowercase().ends_with(".hkx"))
+    {
+        let bytes = archive.read(name).unwrap_or_else(|e| panic!("{name}: {e}"));
+        let pf = Packfile::parse(&bytes).unwrap_or_else(|e| panic!("{name}: {e}"));
+        for graph_obj in pf.objects_of("hkbBehaviorGraph") {
+            let graph = BehaviorGraph::from_obj(graph_obj)
+                .unwrap_or_else(|e| panic!("{name}: behavior graph: {e}"));
+            behavior_files += 1;
+            for node in &graph.nodes {
+                if let NodeKind::ModifierList { modifiers, .. } = &node.kind {
+                    for child in modifiers.iter().flatten() {
+                        *list_children
+                            .entry(graph.node(*child).class.clone())
+                            .or_insert(0usize) += 1;
+                    }
+                }
+                if matches!(
+                    node.kind,
+                    NodeKind::Modifier { .. }
+                        | NodeKind::ModifierGenerator { .. }
+                        | NodeKind::ModifierList { .. }
+                        | NodeKind::EventDrivenModifier { .. }
+                        | NodeKind::TimerModifier { .. }
+                ) {
+                    *classes.entry(node.class.clone()).or_insert(0usize) += 1;
+                }
+            }
+        }
+    }
+    println!("{behavior_files} behavior graphs, passthrough modifiers {classes:?}");
+    println!("modifier-list children {list_children:?}");
+    let expected = PASSTHROUGH_MODIFIERS
+        .iter()
+        .map(|(class, count, _)| ((*class).to_string(), *count))
+        .collect();
+    assert_eq!(classes, expected);
+    for (class, _, row) in PASSTHROUGH_MODIFIERS {
+        assert!(
+            include_str!("../../../BACKLOG.csv").lines().any(|line| {
+                let fields: Vec<&str> = line.split('\"').collect();
+                fields.get(1) == Some(row)
+                    && fields.get(5).is_some_and(|title| title.contains(class))
+            }),
+            "{class} has no follow-up row {row} named for that class"
+        );
+    }
 }
 
 #[test]
