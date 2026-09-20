@@ -786,6 +786,20 @@ impl Vm {
     }
 }
 
+impl Vm {
+    /// Validate a saved VM against these loaded scripts without changing live state.
+    ///
+    /// # Errors
+    /// The same malformed-state and script-definition errors as `load_state`.
+    pub fn validate_state(&self, bytes: &[u8]) -> Result<(), VmError> {
+        let mut scratch = Self {
+            scripts: self.scripts.clone(),
+            ..Self::new()
+        };
+        scratch.load_state(bytes)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

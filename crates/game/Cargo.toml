@@ -9,6 +9,9 @@ description = "Runtime form table, the object model Papyrus sees, the first nati
 name = "soe_game"
 path = "src/lib.rs"
 
+[features]
+save-fault-tests = ["soe-save/fault-injection"]
+
 [dependencies]
 thiserror = "2.0"
 crc32fast = "1"

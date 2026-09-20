@@ -12,6 +12,9 @@ workspace = true
 name = "soe_save"
 path = "src/lib.rs"
 
+[features]
+fault-injection = []
+
 [dependencies]
 soe-papyrus = { path = "../papyrus" }
 soe-trace = { path = "../trace" }

@@ -19,6 +19,7 @@
 //! strongest check available without a game to load the result, and it is what
 //! the round trip test asserts.
 
+pub mod atomic;
 pub mod change;
 mod compress;
 pub mod created_objects;
@@ -262,6 +263,33 @@ impl Save {
             }
         }
         Ok(out)
+    }
+
+    /// Write an ESS through validated atomic replacement.
+    ///
+    /// Validation reparses the file, checks every compressed change payload,
+    /// and requires exact re-encoding. Opaque change data remains opaque, as
+    /// in [`Save::parse`]. This does not claim complete runtime restoration.
+    ///
+    /// # Errors
+    /// Serialization, read-back validation or a persistence operation fails.
+    pub fn write_file(
+        &self,
+        path: &std::path::Path,
+    ) -> std::result::Result<(), atomic::WriteError> {
+        let bytes = self
+            .write()
+            .map_err(|error| atomic::WriteError::Serialize(error.to_string()))?;
+        atomic::write_validated(path, &bytes, |written| {
+            let decoded = Self::parse(written).map_err(|error| error.to_string())?;
+            for change in &decoded.change_forms {
+                change.payload().map_err(|error| error.to_string())?;
+            }
+            if decoded.write().map_err(|error| error.to_string())? != written {
+                return Err("ESS read-back does not reproduce the complete file".into());
+            }
+            Ok(())
+        })
     }
 
     fn write_body(&self) -> Vec<u8> {
