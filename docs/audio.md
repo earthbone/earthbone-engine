@@ -323,8 +323,11 @@ its encoder delay being dropped from the header's pre-skip.
 ## Not done
 
 - Native LIP timing and named morph binding in the playback consumer, tracked by `ANM-13` and `DLG-20`.
-- Caching a generated track beside its line. At 0.83 times realtime this has to be an asset step
-  with a cache, and nothing here writes one yet.
+- Choosing and running a cache owner. `VisemeCache` writes generated tracks under `.soe-visemes` beside
+  a loose asset, or under a caller selected writable cache root for archive content. Its key hashes the
+  asset bytes and a canonical settings string. `Rhubarb::visemes_cached` supplies that string from
+  the decoded PCM, its program selection, Rhubarb reported version and dialogue text. The byte API
+  also lets a caller cache a BSA or other virtual asset without extracting it beside the cache.
 - Choosing the donor race for an actor whose own race carries no mapping. `mapping_race` takes the
   donor as an argument on purpose, and picking it belongs to whatever drives a face.
 - Feeding the line's written text to the recogniser. `VisemeSource::visemes` takes it and the

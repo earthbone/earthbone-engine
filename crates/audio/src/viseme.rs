@@ -203,6 +203,160 @@ pub trait VisemeSource {
     fn visemes(&self, pcm: &Pcm, dialog: Option<&str>) -> Result<VisemeTrack>;
 }
 
+/// Persistent cache for tracks generated from an audio asset.
+///
+/// The cache key combines the asset bytes and a caller-provided canonical
+/// description of every generation input. This keeps a changed dialogue or
+/// recogniser configuration from reusing a track generated under old inputs.
+/// The cache directory is separate from source assets so a BSA extraction or
+/// a read-only mod directory can use a writable cache root.
+#[derive(Debug, Clone)]
+pub struct VisemeCache {
+    directory: std::path::PathBuf,
+}
+
+impl VisemeCache {
+    /// Creates a cache rooted at directory.
+    #[must_use]
+    pub fn new(directory: impl Into<std::path::PathBuf>) -> Self {
+        Self {
+            directory: directory.into(),
+        }
+    }
+
+    /// Creates a cache directory beside an asset.
+    #[must_use]
+    pub fn beside(asset: &std::path::Path) -> Self {
+        let parent = asset.parent().unwrap_or_else(|| std::path::Path::new("."));
+        Self::new(parent.join(".soe-visemes"))
+    }
+
+    /// Returns a generated track from the cache, or generates and stores it.
+    ///
+    /// Asset bytes work for both loose files and virtual files read from an
+    /// archive. Settings must include every value that can alter generation.
+    ///
+    /// # Errors
+    ///
+    /// Returns an I/O error when the cache cannot be read or written, and
+    /// returns the error from generate when generation fails.
+    pub fn get_or_generate(
+        &self,
+        asset: &[u8],
+        settings: &str,
+        generate: impl FnOnce() -> Result<VisemeTrack>,
+    ) -> Result<VisemeTrack> {
+        let asset_key = cache_hash(asset);
+        let settings_key = cache_hash(settings.as_bytes());
+        let path = self
+            .directory
+            .join(format!("{asset_key:016x}-{settings_key:016x}.viseme"));
+
+        match std::fs::read_to_string(&path) {
+            Ok(text) => {
+                if let Some(track) = decode_cached_track(&text, asset_key, settings_key) {
+                    return Ok(track);
+                }
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
+        }
+
+        let track = generate()?;
+        std::fs::create_dir_all(&self.directory)?;
+        let temporary = self.directory.join(format!(
+            ".{asset_key:016x}-{settings_key:016x}-{}-{}.tmp",
+            std::process::id(),
+            cache_nonce()
+        ));
+        std::fs::write(
+            &temporary,
+            encode_cached_track(&track, asset_key, settings_key),
+        )?;
+        std::fs::rename(temporary, path)?;
+        Ok(track)
+    }
+}
+
+pub(crate) fn cache_hash(bytes: &[u8]) -> u64 {
+    let mut hash = 0xcbf2_9ce4_8422_2325_u64;
+    for byte in bytes {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    hash
+}
+
+fn cache_nonce() -> u64 {
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    NEXT.fetch_add(1, Ordering::Relaxed)
+}
+
+fn encode_cached_track(track: &VisemeTrack, asset_key: u64, settings_key: u64) -> String {
+    let mut text = format!(
+        "SOE-VISEME-CACHE 1\n{asset_key:016x}\n{settings_key:016x}\n{:016x}\n{}\n",
+        track.duration.to_bits(),
+        track.cues.len()
+    );
+    for cue in &track.cues {
+        text.push_str(&format!(
+            "{:016x} {:016x} {}\n",
+            cue.start.to_bits(),
+            cue.end.to_bits(),
+            cue.shape.letter()
+        ));
+    }
+    text
+}
+
+fn decode_cached_track(text: &str, asset_key: u64, settings_key: u64) -> Option<VisemeTrack> {
+    const MAX_CACHED_CUES: usize = 1_000_000;
+
+    let mut lines = text.lines();
+    if lines.next()? != "SOE-VISEME-CACHE 1"
+        || u64::from_str_radix(lines.next()?, 16).ok()? != asset_key
+        || u64::from_str_radix(lines.next()?, 16).ok()? != settings_key
+    {
+        return None;
+    }
+    let duration = f64::from_bits(u64::from_str_radix(lines.next()?, 16).ok()?);
+    if !duration.is_finite() || duration < 0.0 {
+        return None;
+    }
+    let count = lines.next()?.parse::<usize>().ok()?;
+    if count > MAX_CACHED_CUES || count > lines.clone().count() {
+        return None;
+    }
+    let mut cues = Vec::with_capacity(count);
+    let mut previous_end = 0.0;
+    for _ in 0..count {
+        let mut parts = lines.next()?.split_ascii_whitespace();
+        let start = f64::from_bits(u64::from_str_radix(parts.next()?, 16).ok()?);
+        let end = f64::from_bits(u64::from_str_radix(parts.next()?, 16).ok()?);
+        let token = parts.next()?;
+        let mut letters = token.chars();
+        let shape = letters.next().and_then(Shape::from_letter)?;
+        if letters.next().is_some()
+            || parts.next().is_some()
+            || !start.is_finite()
+            || !end.is_finite()
+            || start < previous_end
+            || start >= end
+            || end > duration
+        {
+            return None;
+        }
+        previous_end = end;
+        cues.push(MouthCue { start, end, shape });
+    }
+    if lines.next().is_some() {
+        return None;
+    }
+    Some(VisemeTrack { duration, cues })
+}
+
 /// The race whose phoneme mapping should drive an actor's face.
 ///
 /// Vanilla writes the mapping on six races out of ninety nine: the four with
@@ -292,6 +446,152 @@ mod tests {
             rec = rec.sub(b"PHWT", row);
         }
         Race::from_record(&rec).unwrap()
+    }
+
+    fn cache_test_directory() -> std::path::PathBuf {
+        use std::sync::atomic::{AtomicU64, Ordering};
+
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        let number = NEXT.fetch_add(1, Ordering::Relaxed);
+        std::env::temp_dir().join(format!(
+            "soe-viseme-cache-test-{}-{number}",
+            std::process::id()
+        ))
+    }
+
+    #[test]
+    fn a_repeated_request_reuses_the_cached_track() {
+        use super::VisemeCache;
+
+        let directory = cache_test_directory();
+        std::fs::create_dir_all(&directory).unwrap();
+        let asset = directory.join("line.wav");
+        std::fs::write(&asset, b"voice line").unwrap();
+        let cache = VisemeCache::beside(&asset);
+        let generated = std::cell::Cell::new(0);
+        let expected = track();
+
+        let first = cache
+            .get_or_generate(
+                &std::fs::read(&asset).unwrap(),
+                "rhubarb=1.14.0\ndialog=Hi",
+                || {
+                    generated.set(generated.get() + 1);
+                    Ok(expected.clone())
+                },
+            )
+            .unwrap();
+        let second = cache
+            .get_or_generate(
+                &std::fs::read(&asset).unwrap(),
+                "rhubarb=1.14.0\ndialog=Hi",
+                || {
+                    generated.set(generated.get() + 1);
+                    Ok(VisemeTrack::default())
+                },
+            )
+            .unwrap();
+
+        assert_eq!(first, expected);
+        assert_eq!(second, expected);
+        assert_eq!(generated.get(), 1);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn changed_generation_settings_invalidate_a_cached_track() {
+        use super::VisemeCache;
+
+        let directory = cache_test_directory();
+        std::fs::create_dir_all(&directory).unwrap();
+        let asset = directory.join("line.wav");
+        std::fs::write(&asset, b"voice line").unwrap();
+        let cache = VisemeCache::beside(&asset);
+        let generated = std::cell::Cell::new(0);
+
+        let first = cache
+            .get_or_generate(
+                &std::fs::read(&asset).unwrap(),
+                "rhubarb=1.14.0\ndialog=Hi",
+                || {
+                    generated.set(generated.get() + 1);
+                    Ok(track())
+                },
+            )
+            .unwrap();
+        let second = cache
+            .get_or_generate(
+                &std::fs::read(&asset).unwrap(),
+                "rhubarb=1.14.0\ndialog=Hello",
+                || {
+                    generated.set(generated.get() + 1);
+                    Ok(VisemeTrack::default())
+                },
+            )
+            .unwrap();
+
+        assert_eq!(first, track());
+        assert_eq!(second, VisemeTrack::default());
+        assert_eq!(generated.get(), 2);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn changed_asset_bytes_invalidate_a_cached_track() {
+        use super::VisemeCache;
+
+        let directory = cache_test_directory();
+        std::fs::create_dir_all(&directory).unwrap();
+        let asset = directory.join("line.wav");
+        std::fs::write(&asset, b"first voice line").unwrap();
+        let cache = VisemeCache::beside(&asset);
+        let generated = std::cell::Cell::new(0);
+
+        cache
+            .get_or_generate(&std::fs::read(&asset).unwrap(), "rhubarb=1.14.0", || {
+                generated.set(generated.get() + 1);
+                Ok(track())
+            })
+            .unwrap();
+        std::fs::write(&asset, b"replacement voice line").unwrap();
+        let replacement = VisemeTrack::default();
+        let second = cache
+            .get_or_generate(&std::fs::read(&asset).unwrap(), "rhubarb=1.14.0", || {
+                generated.set(generated.get() + 1);
+                Ok(replacement.clone())
+            })
+            .unwrap();
+
+        assert_eq!(second, replacement);
+        assert_eq!(generated.get(), 2);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn malformed_cache_records_are_misses() {
+        let asset_key = super::cache_hash(b"asset");
+        let settings_key = super::cache_hash(b"settings");
+        let header = format!(
+            "SOE-VISEME-CACHE 1\n{asset_key:016x}\n{settings_key:016x}\n3ff0000000000000\n1\n"
+        );
+        assert!(super::decode_cached_track(
+            &(header.clone() + "0000000000000000 3ff0000000000000 A\ntrailing"),
+            asset_key,
+            settings_key
+        )
+        .is_none());
+        assert!(super::decode_cached_track(
+            &(header.clone() + "7ff8000000000000 3ff0000000000000 A"),
+            asset_key,
+            settings_key
+        )
+        .is_none());
+        assert!(super::decode_cached_track(
+            &(header + "0000000000000000 3ff0000000000000 AXYZ"),
+            asset_key,
+            settings_key
+        )
+        .is_none());
     }
 
     #[test]
