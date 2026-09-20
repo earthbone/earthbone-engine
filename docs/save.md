@@ -880,3 +880,13 @@ strict corpus checks. Independent enumeration again reports 34 unflagged owner
 entries and 81 undecodable lists, 72 Sequence and nine Stacked. The application
 and lock-schema checks fail at the first unsupported Sequence payload. No saves
 were excluded, and no corpus restoration success is claimed by this checkpoint.
+
+## Actor-value restoration evidence
+
+SAV-06 remains blocked on SAV-64's missing serialized component layout.
+The 60-save ACHR survey accounts for 243,595 records, all without the five
+documented actor-modifier bits. Existing prefix decoding fails on 81 named
+package states and leaves actor data unparsed. These observations do not
+establish zero modifiers or their field order. See
+[saved actor-value modifiers](save-actor-values.md) for pinned sources,
+coverage counts, dependency boundaries and the required completion evidence.

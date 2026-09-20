@@ -1479,3 +1479,11 @@ independent enumeration and the superseded filtered-survey evidence. No new
 host nodes or dependencies were added. SAV-07 supplies its form namespace and is
 complete. SAV-12 and SAV-21 must finish before SAV-16 can pass its full-corpus
 checks. This is a blocked implementation checkpoint.
+
+## Vanilla actor-value restoration boundary
+
+SOEW version 19 preserves base, permanent, temporary and damage components
+separately. Importing the same components from vanilla ESS remains blocked in
+SAV-06 because their serialized ACHR boundaries are not established. SAV-64
+tracks that source prerequisite. See [saved actor-value modifiers](save-actor-values.md)
+for the source audit, all-save coverage and identity requirements.
