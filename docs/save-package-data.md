@@ -1,5 +1,8 @@
 # Saved package runtime state
 
+The [versioned variant manifest](save-package-variants.md) now records every
+remaining observed failure and the reason its continuation is unsupported.
+
 The empty-state decoder originated on ess-package-state. It is now prepared
 for integration on remaining-work-merge, based on master e9cc2f9. That base
 already contains the inventory, NPC restoration and melee increments. The
