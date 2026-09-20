@@ -48,6 +48,14 @@ Light plugins (`ESL` header flag) do not take a top-byte slot at runtime. The ga
 them as `FE:sss:ooo`, a twelve-bit slot and a twelve-bit object. `LoadOrder::runtime_id`
 produces that 32-bit form for save files and scripts. The table itself never needs it.
 
+When the first file is Skyrim.esm, the runtime load order supplies the missing
+engine-defined GLOB `00000063`, `PlayCredits`, as a short with initial value
+zero. The layout comes from local xEdit `Core/Hardcoded/Skyrim.esp`. A record
+already present in Skyrim.esm or an override in a later plugin takes precedence.
+This changes the in-memory loaded plugin, not its source file or the standalone
+parser. It supplies only this global, which is required by the real ESS corpus,
+not the complete set of Skyrim hardcoded forms.
+
 ## Typed views
 
 `records::{cell, refr, wrld, land, navm, stat, race}` and `records::gameplay`

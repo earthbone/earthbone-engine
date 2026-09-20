@@ -1299,6 +1299,7 @@ dependencies = [
  "soe-papyrus",
  "soe-physics",
  "soe-profile",
+ "soe-save",
  "soe-trace",
  "thiserror 2.0.20",
 ]

@@ -84,9 +84,27 @@ impl LoadOrder {
 
     /// Add a file at the end of the order. Its masters must already be
     /// loaded, matched by name without regard to case.
-    pub fn add(&mut self, name: &str, plugin: Plugin) -> Result<usize> {
+    pub fn add(&mut self, name: &str, mut plugin: Plugin) -> Result<usize> {
         let _span =
             soe_trace::Span::with_payload("esm.load_order_add", "esm", plugin.records.len() as u64);
+        // CONTEXT: xEdit Core/Hardcoded/Skyrim.esp defines this engine-owned
+        // global, absent from the shipped master but present in ESS globals.
+        if self.files.is_empty()
+            && name.eq_ignore_ascii_case("Skyrim.esm")
+            && !plugin.header.is_light()
+            && plugin.header.masters.is_empty()
+            && !plugin
+                .records
+                .iter()
+                .any(|record| record.form_id & 0x00FF_FFFF == 0x63)
+        {
+            plugin.push_top(
+                Record::new(Tag(*b"GLOB"), 0x63)
+                    .zsub(Tag(*b"EDID"), "PlayCredits")
+                    .sub(Tag(*b"FNAM"), [b's'])
+                    .sub(Tag(*b"FLTV"), 0_f32.to_le_bytes()),
+            );
+        }
         let mut master_positions = Vec::with_capacity(plugin.header.masters.len());
         for m in &plugin.header.masters {
             let pos = self
@@ -410,5 +428,49 @@ mod tests {
             file: 1,
             object: 0x800
         }));
+    }
+
+    #[test]
+    fn engine_global_defaults_do_not_replace_authored_records_or_overrides() {
+        let global = GlobalFormId {
+            file: 0,
+            object: 0x63,
+        };
+        for raw in [0x63, 0xFF00_0063] {
+            let mut order = LoadOrder::new();
+            let mut plugin = master("Skyrim.esm", false);
+            plugin.push_top(Record::new(Tag(*b"GLOB"), raw).zsub(tag::EDID, "Authored"));
+            order.add("Skyrim.esm", plugin).unwrap();
+            assert_eq!(
+                order.winner(global).unwrap().editor_id().as_deref(),
+                Some("Authored")
+            );
+            assert_eq!(order.overrides(global).len(), 1);
+        }
+        let mut order = LoadOrder::new();
+        order
+            .add("Skyrim.esm", master("Skyrim.esm", false))
+            .unwrap();
+        assert_eq!(
+            order.winner(global).unwrap().editor_id().as_deref(),
+            Some("PlayCredits")
+        );
+        let mut patch = patch(&["Skyrim.esm"]);
+        let mut deleted = Record::new(Tag(*b"GLOB"), 0x63);
+        deleted.flags = flags::DELETED;
+        patch.push_top(deleted);
+        order.add("Patch.esp", patch).unwrap();
+        assert!(order.winner(global).unwrap().is_deleted());
+        assert_eq!(order.overrides(global).len(), 2);
+    }
+
+    #[test]
+    fn engine_globals_are_not_injected_into_other_plugins_or_a_late_skyrim() {
+        let mut order = LoadOrder::new();
+        order.add("Other.esm", master("Other.esm", false)).unwrap();
+        order
+            .add("Skyrim.esm", master("Skyrim.esm", false))
+            .unwrap();
+        assert!(!order.winners_of(Tag(*b"GLOB")).any(|_| true));
     }
 }

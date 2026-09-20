@@ -74,6 +74,9 @@ pub enum Error {
         available: usize,
     },
 
+    #[error("global-variable table declares {count} entries but has {bytes} payload bytes")]
+    GlobalVariableSize { count: u32, bytes: usize },
+
     #[error("the Papyrus section is {reason}")]
     Papyrus { reason: String },
 

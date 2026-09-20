@@ -41,6 +41,7 @@ pub mod quest;
 pub mod race;
 pub mod save;
 pub mod sound;
+pub mod vanilla_save;
 pub mod vmad;
 pub mod world;
 
