@@ -5,7 +5,7 @@
 //! CK AddItem and CommonLib ExtraOriginalReference define concrete item moves.
 //! xEdit REFR supplies loose quantity, charge and ownership fields.
 
-use super::{Alloc, Handle, Pending, World};
+use super::{Alloc, Handle, Pending, World, T};
 use crate::inventory::{Bundle, Error, Extra, Field, Selection, Stack, StackSource};
 use soe_esm::{GlobalFormId, Record};
 use soe_papyrus::Value;
@@ -282,6 +282,50 @@ impl World {
         }
     }
 
+    /// Add one LVLI result at the caller's resolved selection level.
+    /// Validation and capacity failures leave inventory, events and RNG unchanged.
+    pub fn add_leveled_item_notified(
+        &mut self,
+        holder: GlobalFormId,
+        list: GlobalFormId,
+        level: u32,
+        count: i32,
+        alloc: Alloc<'_>,
+    ) -> bool {
+        if count <= 0 {
+            return false;
+        }
+        let Some(reference) = self.reference(holder) else {
+            return false;
+        };
+        let mut updated = reference.inventory.clone();
+        let previous_rng = self.rng;
+        let Ok(mut selected) =
+            self.roll_leveled_inventory_context(list, level, count, Some(self.player_level))
+        else {
+            return false;
+        };
+        let changes: Vec<_> = selected
+            .iter()
+            .map(|(item, count)| (*item, count))
+            .collect();
+        for &(item, count) in &changes {
+            if updated.receive(item, selected.take(item, count)).is_err() {
+                self.rng = previous_rng;
+                return false;
+            }
+        }
+        let Some(reference) = self.reference(holder) else {
+            self.rng = previous_rng;
+            return false;
+        };
+        reference.inventory = updated;
+        for (item, count) in changes {
+            self.inventory_event(holder, item, count, None, alloc);
+        }
+        true
+    }
+
     /// Add a stack through the script-facing path, with checked quantity and events.
     pub fn add_item_notified(
         &mut self,
@@ -292,6 +336,12 @@ impl World {
     ) -> bool {
         if count <= 0 {
             return false;
+        }
+        if self.tag_of(item) == Some(T(b"LVLI")) {
+            let Ok(level) = self.encounter_level(holder) else {
+                return false;
+            };
+            return self.add_leveled_item_notified(holder, item, level, count, alloc);
         }
         if !self.is_inventory_base(item) {
             return count == 1 && self.add_reference_notified(holder, item, alloc);

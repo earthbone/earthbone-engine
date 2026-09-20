@@ -2618,3 +2618,130 @@ Synthetic tests cover nested precedence, distinct and identical stacks,
 script-added entries, namespace remapping, signed ranks, health boundaries,
 invalid metadata, RNG preservation and selected-inventory save/load.
 Special-loot selection and Papyrus AddItem integration are separate rows.
+
+## Leveled AddItem transactions
+
+The INV-06 transaction stages the selected inventory before applying any
+counts or COED extras. A capacity failure discards all staged additions and
+restores RNG state. Successful application queues one OnItemAdded event per
+selected base form with no original-reference argument.
+
+The AddItem path carries a player-level cap separately from the caller's
+selection level. Ordinary selection uses the lower level, while recursion
+retains the original input. The general roll API keeps its caller-supplied
+level. Read-only inspection of the installed executable identified the
+AddItem helper at `0x140a56220`, its usePlayerLevel argument at
+`0x140a563fb`, and the ordinary cap at `0x1401e8ea6`. The executable hash
+is recorded in the entry-extras section above. Special Loot bypasses that
+ordinary cap, including when selected beneath an ordinary parent list.
+
+The transaction fixtures cover events, metadata, save/load, empty selection,
+player-level capping and capacity failure both before and after staged work.
+The ObjectReference.AddItem native dispatches LVLI through this transaction.
+It reads the receiver's encounter level without locking a new zone or applying
+variance. Ordinary selection applies the separate player cap. Papyrus fixtures
+check zone versus player levels, Special Loot, positive counts and explicit
+zero or negative counts. Concrete-reference dispatch retains INV-01 behavior.
+
+The combined AddItem resolver includes PRG-16 precedence. Calculate-each wins
+before Use All, matching runtime branches `0x1401e91f1` and `0x1401e92d4`.
+Flags 5 and 13 use every entry. Flags 6, 7, 14 and 15 roll per requested count,
+with Special Loot still active for flags 14 and 15. Integrated tests check
+these rules together with selected COED metadata and the player-level cap.
+
+## Concrete inventory reference moves
+
+INV-01 extends ObjectReference.AddItem to accept a concrete reference with
+count one. A loose reference owns one item stack until pickup. The complete
+quantity and extra-data list move into the destination inventory, while the
+loose reference becomes disabled and leaves its cell. A later AddItem moves
+that same stack between holders. It does not create another copy. Invalid
+counts, container objects, missing destinations, self-transfers and quantity
+overflow leave item quantities and event queues unchanged.
+
+The original reference identity uses mapped ExtraOriginalReference data,
+kind 32. ExtraReferenceHandle, kind 28, is container metadata and cannot claim
+that identity. Ordinary quantity removal consumes plain items first. A partial
+split retains the original identity only on the remainder. Full transfer keeps
+it with the moved stack. Consumption leaves no loose stack to recreate, even
+after save/load. Transfers clear worn flags and preserve the other extras.
+
+OnItemAdded and OnItemRemoved carry the concrete reference and source or target
+container. OnContainerChanged follows a pickup or transfer. Destruction by
+RemoveItem does not queue OnContainerChanged. Inventory filters continue to
+apply to holder and running-alias notifications.
+
+SOEW version 16 adds loose item metadata. It reads older versions by building
+loose metadata from their reference state and authored record. New saves check
+for duplicate contained identities and loose/contained collisions before
+replacing world state. Older saves and imported stacks can name a contained reference that has no
+loaded placement. Load reconstructs that identity from its record or from the
+saved stack base, clears loose placement and reserves dynamic IDs. Item
+metadata participates in the world hash.
+
+Sources read locally were CK AddItem, OnItemAdded and OnContainerChanged,
+CommonLibSSE-NG ExtraOriginalReference, ExtraReferenceHandle and ExtraDataTypes,
+and xEdit wbDefinitionsTES5.pas REFR. The authored loose fields initialized here
+are XCNT, XCHG, XOWN and XRNK. SetActorOwner, SetFactionOwner and SetDisplayName
+update loose metadata before pickup. Runtime stacks retain arbitrary mapped extras,
+including quality, enchantment, poison and text metadata. This does not add
+restoration of general loose-reference ESS extras or dropped-item physics.
+No dependency or per-reference host node was added.
+
+The inventory_references fixtures check loose pickup, quantity-three pickup,
+exact-stack transfer, adjacent plain items, notification identity, consumed
+references, partial splits, overflow, Papyrus calls, legacy-save migration,
+metadata hashing, stable save bytes and atomic rejection of corrupt saves.
+
+## Encounter-zone selection levels
+
+`World::encounter_level` reads a receiver's explicit XEZN, current parent cell
+and containing worldspace, in that order. Missing zones and the hardcoded
+NoZoneZone identity, Skyrim.esm form 00001E, use current player level. The query
+does not initialize references, consume RNG, lock zones or add level variance.
+The result is at least one and does not apply an additional player-level clamp.
+
+Zone calculation reads winning ECZN DATA and live `fLevelScalingMult`. Below
+the minimum, Match PC Below Minimum preserves the player level, otherwise the
+minimum is used. At or above the minimum, the runtime calculates minimum plus
+player-minus-minimum times the scaling multiplier, then truncates. A nonzero
+maximum caps that result. The executable default multiplier is 0.6. The runtime
+reads min/max bytes as unsigned despite the signed declarations in xEdit and
+CommonLib. Zero is the unlocked sentinel, so a calculation of zero remains
+unlocked even though the public level query returns one.
+
+`load_cell` and `attach_cell` lock their zone before loading references or
+queuing transition events. Invalid zone data prevents that entry. Prefetch and
+ordinary queries do not lock a zone. Placed actors and dynamically placed actors
+feed the zone level into existing leveled-template selection. Template choices
+retain their existing once-per-reference lifetime. If the player level changes
+between prefetch and entry, prefetched actors retain the earlier selection even
+when entry locks a different zone level. Refreshing unobserved prefetched actors
+is not implemented. Zone locks survive unloading
+and later entry. Explicit `enter_encounter_zone` provides a fallible entry API.
+SOEW version 17 appends sorted zone locks after the version-16 item extension,
+rejects duplicate or invalid locks before changing state, and reads older saves
+with an empty lock table. Zone locks contribute to the form-state hash.
+
+Sources are local xEdit ECZN/XEZN declarations, UESP ECZN and CommonLib
+`BGSEncounterZone.h`, plus primary CK
+[Encounter Zone](https://ck.uesp.net/wiki/Encounter_Zone) documentation.
+The installed SkyrimSE executable, SHA256
+`846efccf0c1374d71f892907f46549560f2fcb0a75cb87a3eed438baa0f1402f`, supplied
+read-only checks of zone lookup at `0x140300ab0`, receiver level at
+`0x140300b90`, scaling at `0x14028f9e0`, locking at `0x14028fa70`, and the
+NoZoneZone identity constructor at `0x14028fd93`. No executable bytes or
+proprietary code were copied. PRG-03 is not a dependency: the existing template
+selection already accepts an explicit level without computing NPC attributes.
+
+This work supplies zone levels to the existing LVLF selection rules. The CK
+LeveledCharacter page also describes XLCM difficulty-specific selection,
+including Easy weighting and Very Hard tier advancement. Those selector rules
+are a separate gap. Zone reset and lock clearing remain owned by PRG-10.
+Importing vanilla ESS encounter-zone changes is outside this selection contract.
+
+INV-06 integrates the reviewed INV-01 reference-transfer implementation
+`52b1605`, PRG-04 encounter zones `8710fad`, PRG-14 Special Loot `ce0551e`
+and PRG-16 flag precedence `112a85e` over PRG-15 entry metadata `fd96e42`.
+The combined native path keeps ordinary item counts, concrete reference moves
+and leveled additions distinct. FormList expansion remains the INV-05 row.
