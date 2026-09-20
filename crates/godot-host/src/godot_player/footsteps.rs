@@ -103,6 +103,7 @@ impl PlayerNode {
                 continue;
             };
             let Some(game) = &mut self.game else { return };
+            let player = game.player();
             let draws = {
                 let mut world = game.world_mut();
                 [
@@ -111,9 +112,14 @@ impl PlayerNode {
                     world.random_float(0.0, 1.0),
                 ]
             };
-            let plan = match soe_game::sound::prepare(
+            let mut world = game.world_mut();
+            let plan = match soe_game::sound::prepare_for(
                 &order,
+                &mut world,
+                &game.vm,
                 sound,
+                player,
+                None,
                 draws,
                 &soe_game::sound::SoundSettings::default(),
             ) {
@@ -124,6 +130,7 @@ impl PlayerNode {
                     continue;
                 }
             };
+            drop(world);
             let position =
                 crate::units::SkyrimPos::new(hit.point.x, hit.point.y, hit.point.z).to_godot();
             if let Some(bank) = &mut self.sound_bank {
