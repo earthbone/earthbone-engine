@@ -10,8 +10,14 @@ use soe_esm::GlobalFormId;
 use super::{Alloc, Handle, Pending, World, T};
 
 impl World {
-    /// The authored key stays in the winning REFR, not a second runtime table.
+    /// A restored key overrides XLOC, including an explicitly absent key.
     pub fn key(&self, reference: GlobalFormId) -> Option<GlobalFormId> {
+        if let Some(lock) = self.refs.get(&reference).and_then(|state| state.lock_extra) {
+            return lock.key.filter(|key| {
+                self.record(*key)
+                    .is_some_and(|record| record.tag == T(b"KEYM") && !record.is_deleted())
+            });
+        }
         let owner = self.order.winner_ref(reference)?;
         let record = self.order.record(owner);
         if record.tag != T(b"REFR") || record.is_deleted() {

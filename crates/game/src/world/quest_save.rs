@@ -6,12 +6,9 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use soe_esm::GlobalFormId;
-use soe_papyrus::{
-    vm::state::{Reader, Writer},
-    VmError,
-};
+use soe_papyrus::{vm::state::Writer, VmError};
 
-use super::save::{read_form_id, read_opt_form_id, write_form_id, write_opt_form_id};
+use super::save::{read_form_id, read_opt_form_id, write_form_id, write_opt_form_id, FormReader};
 use super::{QuestState, World};
 use crate::quest::state::{
     AliasMetadata, Journal, JournalInstance, RunData, Runtime, StoryEvent, StoryParameter,
@@ -86,7 +83,7 @@ pub(super) fn write_aux(w: &mut Writer, q: &QuestState) {
     }
 }
 
-fn read_run(r: &mut Reader<'_>, q: &QuestState) -> Result<RunData, VmError> {
+fn read_run(r: &mut FormReader<'_, '_>, q: &QuestState) -> Result<RunData, VmError> {
     let unknown = r.u8()?;
     let n = r.len()?;
     let mut aliases = BTreeMap::new();
@@ -146,7 +143,7 @@ fn read_run(r: &mut Reader<'_>, q: &QuestState) -> Result<RunData, VmError> {
     })
 }
 
-fn read_aux(r: &mut Reader<'_>, q: &mut QuestState) -> Result<(), VmError> {
+fn read_aux(r: &mut FormReader<'_, '_>, q: &mut QuestState) -> Result<(), VmError> {
     let other_flags = r.u16()?;
     if other_flags & STATE_FLAGS != 0 {
         return Err(bad("duplicated quest state flags"));
@@ -245,7 +242,7 @@ impl World {
 }
 
 pub(super) fn read_quest_aux(
-    r: &mut Reader<'_>,
+    r: &mut FormReader<'_, '_>,
     quests: &mut HashMap<GlobalFormId, QuestState>,
 ) -> Result<(), VmError> {
     let n = r.len()?;

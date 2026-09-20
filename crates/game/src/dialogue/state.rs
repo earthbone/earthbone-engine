@@ -5,11 +5,13 @@
 
 use std::collections::BTreeMap;
 
-use soe_papyrus::vm::state::{Reader, Writer};
+use soe_papyrus::vm::state::Writer;
 use soe_papyrus::VmError;
 
 use super::{Session, State};
-use crate::world::save::{read_form_id, read_opt_form_id, write_form_id, write_opt_form_id};
+use crate::world::save::{
+    read_form_id, read_opt_form_id, write_form_id, write_opt_form_id, FormReader,
+};
 use crate::World;
 
 impl World {
@@ -56,7 +58,7 @@ impl World {
     }
 }
 
-pub(crate) fn read_dialogue(r: &mut Reader<'_>) -> Result<State, VmError> {
+pub(crate) fn read_dialogue(r: &mut FormReader<'_, '_>) -> Result<State, VmError> {
     let session = if r.bool()? {
         Some(Session {
             speaker: read_form_id(r)?,

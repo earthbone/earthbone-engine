@@ -31,6 +31,7 @@ use crate::package::{
     condition, flags, speed, CompValue, Condition, DataValue, Location, LocationData, Package,
     Schedule,
 };
+use crate::world::save::{read_form_id, read_opt_form_id, FormNamespace, FormReader};
 use crate::world::{Alloc, Handle, Pending, World};
 
 /// Units per real second, the default movement type's walk, jog, run and fast
@@ -1096,17 +1097,6 @@ fn write_opt_form_id(w: &mut Writer, id: Option<GlobalFormId>) {
     }
 }
 
-fn read_opt_form_id(r: &mut Reader<'_>) -> Result<Option<GlobalFormId>, VmError> {
-    Ok(if r.bool()? {
-        Some(GlobalFormId {
-            file: r.u16()?,
-            object: r.u32()?,
-        })
-    } else {
-        None
-    })
-}
-
 fn write_point(w: &mut Writer, p: [f32; 3]) {
     for v in p {
         w.f32(v);
@@ -1179,15 +1169,16 @@ pub fn write_state(w: &mut Writer, a: &AiState) {
 }
 
 pub fn read_state(r: &mut Reader<'_>) -> Result<AiState, VmError> {
+    read_state_mapped(&mut FormReader::new(r, FormNamespace::Current))
+}
+
+pub(crate) fn read_state_mapped(r: &mut FormReader<'_, '_>) -> Result<AiState, VmError> {
     let mut a = AiState {
         package: read_opt_form_id(r)?,
         ..Default::default()
     };
     if r.bool()? {
-        let q = GlobalFormId {
-            file: r.u16()?,
-            object: r.u32()?,
-        };
+        let q = read_form_id(r)?;
         a.alias = Some((q, r.u32()?));
     }
     a.procedure = match r.u8()? {
@@ -1224,10 +1215,7 @@ pub fn read_state(r: &mut Reader<'_>) -> Result<AiState, VmError> {
     a.last_evaluation = r.f64()?;
     let n = r.len()?;
     for _ in 0..n {
-        let id = GlobalFormId {
-            file: r.u16()?,
-            object: r.u32()?,
-        };
+        let id = read_form_id(r)?;
         a.completed.insert(id, r.u32()?);
     }
     Ok(a)

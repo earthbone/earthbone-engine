@@ -403,8 +403,12 @@ fn combined_save_reads_both_branch_layouts_without_confusing_their_extensions() 
     }
     let mut suffix = vec![Difficulty::Legendary as u8];
     suffix.extend_from_slice(&hands);
+    suffix.extend_from_slice(&0_u32.to_le_bytes());
     assert!(bytes.ends_with(&suffix));
-    assert_eq!(u16::from_le_bytes([bytes[4], bytes[5]]), 18);
+    assert_eq!(
+        u16::from_le_bytes([bytes[4], bytes[5]]),
+        soe_game::world::SAVE_VERSION
+    );
     for version in [15_u16, 16, 17, 18] {
         let mut migrated = bytes[..bytes.len() - suffix.len()].to_vec();
         migrated[4..6].copy_from_slice(&version.to_le_bytes());

@@ -66,6 +66,7 @@ mod quest_save;
 mod quests;
 mod record_save;
 pub use quest_restore::QuestRestoreReport;
+mod reference_extras;
 mod reference_restore;
 mod refs;
 pub use reference_restore::{MissingPlacementCell, ReferenceRemainder, ReferenceRestoreReport};
@@ -78,12 +79,13 @@ mod timers;
 mod transition;
 
 pub use doorway::{Doorway, Side, Threshold, THRESHOLD_BAND, UNITS_PER_METRE};
+pub use reference_extras::{ReferenceExtrasRestoreReport, ReferenceLock};
 pub use save::{SAVE_MAGIC, SAVE_VERSION};
 pub use transition::CellTransition;
 
-/// Forms created at run time by `PlaceAtMe` live in a
-/// file slot no plugin can own, the same `FF` prefix the game uses.
-pub const DYNAMIC_FILE: u16 = 0xFF;
+/// Created references and temporary bases share an internal namespace outside
+/// the plugin positions. Runtime FormIDs still use the `FF` prefix.
+pub const DYNAMIC_FILE: u16 = soe_esm::CREATED_FILE;
 pub const PLAYER_OBJECT: u32 = 0x14;
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
@@ -113,6 +115,8 @@ pub struct RefState {
     pub opened: bool,
     pub locked: bool,
     pub lock_level: i32,
+    /// Saved key and lock metadata. None keeps the authored key.
+    pub lock_extra: Option<ReferenceLock>,
     pub display_name: Option<String>,
     pub inventory: crate::inventory::Inventory,
     /// `(keyword, reference)` per XLKR.
@@ -122,6 +126,9 @@ pub struct RefState {
     pub is_actor: bool,
     /// `XOWN`: an `NPC_` or a `FACT`.
     pub owner: Option<GlobalFormId>,
+    /// ExtraRank and ExtraGlobal retained for ownership rules.
+    pub owner_rank: Option<i32>,
+    pub owner_global: Option<GlobalFormId>,
     /// `XLCN`, the reference's own location when the record names one.
     pub location: Option<GlobalFormId>,
     /// A map marker shown on the player's map (`AddToMap`).
@@ -153,12 +160,15 @@ impl RefState {
             opened: false,
             locked: false,
             lock_level: 0,
+            lock_extra: None,
             display_name: None,
             inventory: crate::inventory::Inventory::default(),
             linked: Vec::new(),
             teleport: None,
             is_actor: false,
             owner: None,
+            owner_rank: None,
+            owner_global: None,
             location: None,
             on_map: false,
             fast_travel: false,

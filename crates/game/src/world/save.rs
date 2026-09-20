@@ -40,7 +40,41 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// Version 15 persists deferred-death requests and their eventual event recipients.
 /// Version 16 stores difficulty alone, and version 17 stores hands alone.
 /// Version 18 stores difficulty followed by explicit left/right weapon selections.
-pub const SAVE_VERSION: u16 = 18;
+/// Version 19 separates created identities from plugin load-order position 255.
+/// Version 20 appends restored reference ownership and lock metadata.
+pub const SAVE_VERSION: u16 = 20;
+
+#[derive(Clone, Copy)]
+pub(crate) enum FormNamespace {
+    Current,
+    Legacy,
+}
+
+/// Keep identity migration attached to the cursor across nested SOEW readers.
+pub(crate) struct FormReader<'reader, 'data> {
+    reader: &'reader mut Reader<'data>,
+    namespace: FormNamespace,
+}
+
+impl<'reader, 'data> FormReader<'reader, 'data> {
+    pub(crate) fn new(reader: &'reader mut Reader<'data>, namespace: FormNamespace) -> Self {
+        Self { reader, namespace }
+    }
+}
+
+impl<'data> std::ops::Deref for FormReader<'_, 'data> {
+    type Target = Reader<'data>;
+
+    fn deref(&self) -> &Self::Target {
+        self.reader
+    }
+}
+
+impl std::ops::DerefMut for FormReader<'_, '_> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.reader
+    }
+}
 
 impl World {
     /// Serialize the run-time state: the VM object handles, references,
@@ -342,6 +376,7 @@ impl World {
             write_opt_form_id(&mut body, actor.left_weapon);
             write_opt_form_id(&mut body, actor.right_weapon);
         }
+        self.write_reference_extras(&mut body);
         let mut out = Writer::new();
         out.out.extend_from_slice(SAVE_MAGIC);
         out.u16(SAVE_VERSION);
@@ -368,6 +403,18 @@ impl World {
                 "world state version {version}, this build reads {SAVE_VERSION}"
             )));
         }
+        let namespace = if version <= 18 {
+            if self.order.files().len() >= 256 {
+                return Err(VmError::State(
+                    "legacy world state has ambiguous created identities at plugin position 255"
+                        .into(),
+                ));
+            }
+            FormNamespace::Legacy
+        } else {
+            FormNamespace::Current
+        };
+        let mut r = FormReader::new(&mut r, namespace);
         let table = ArrayTable::read_pool(&mut r)?;
 
         let n = r.len()?;
@@ -833,6 +880,10 @@ impl World {
                 actor.right_weapon = read_opt_form_id(&mut r)?;
             }
         }
+        if version >= 20 {
+            super::reference_extras::read_reference_extras(&mut r, &mut refs)?;
+            self.validate_reference_extras(&refs)?;
+        }
         r.expect_end()?;
         super::death::validate_pending(&actors, &pending)?;
 
@@ -919,9 +970,19 @@ pub(crate) fn write_form_id(w: &mut Writer, id: GlobalFormId) {
     w.u32(id.object);
 }
 
-pub(crate) fn read_form_id(r: &mut Reader<'_>) -> Result<GlobalFormId, VmError> {
+pub(crate) fn read_form_id(r: &mut FormReader<'_, '_>) -> Result<GlobalFormId, VmError> {
+    let file = r.u16()?;
+    let file = match (r.namespace, file) {
+        (FormNamespace::Legacy, 0xFF) => super::DYNAMIC_FILE,
+        (FormNamespace::Legacy, super::DYNAMIC_FILE) => {
+            return Err(VmError::State(
+                "created namespace in a legacy world state".into(),
+            ));
+        }
+        _ => file,
+    };
     Ok(GlobalFormId {
-        file: r.u16()?,
+        file,
         object: r.u32()?,
     })
 }
@@ -936,7 +997,9 @@ pub(crate) fn write_opt_form_id(w: &mut Writer, id: Option<GlobalFormId>) {
     }
 }
 
-pub(crate) fn read_opt_form_id(r: &mut Reader<'_>) -> Result<Option<GlobalFormId>, VmError> {
+pub(crate) fn read_opt_form_id(
+    r: &mut FormReader<'_, '_>,
+) -> Result<Option<GlobalFormId>, VmError> {
     Ok(if r.bool()? {
         Some(read_form_id(r)?)
     } else {
@@ -953,7 +1016,7 @@ fn write_transform(w: &mut Writer, t: Transform) {
     }
 }
 
-fn read_transform(r: &mut Reader<'_>) -> Result<Transform, VmError> {
+fn read_transform(r: &mut FormReader<'_, '_>) -> Result<Transform, VmError> {
     let mut position = [0f32; 3];
     let mut rotation = [0f32; 3];
     for v in &mut position {
@@ -983,7 +1046,7 @@ fn write_handle(w: &mut Writer, h: Handle) {
     }
 }
 
-fn read_handle(r: &mut Reader<'_>) -> Result<Handle, VmError> {
+fn read_handle(r: &mut FormReader<'_, '_>) -> Result<Handle, VmError> {
     Ok(match r.u8()? {
         2 => Handle::ActiveEffect(super::magic::EffectId(r.u64()?)),
         0 => Handle::Form(read_form_id(r)?),
@@ -1055,7 +1118,7 @@ fn write_ref_state(w: &mut Writer, s: &RefState) {
     w.f32(s.alpha);
 }
 
-fn read_ref_state(r: &mut Reader<'_>) -> Result<RefState, VmError> {
+fn read_ref_state(r: &mut FormReader<'_, '_>) -> Result<RefState, VmError> {
     let base = read_opt_form_id(r)?;
     let cell = read_opt_form_id(r)?;
     let mut position = [0f32; 3];
@@ -1134,12 +1197,15 @@ fn read_ref_state(r: &mut Reader<'_>) -> Result<RefState, VmError> {
         opened,
         locked,
         lock_level,
+        lock_extra: None,
         display_name,
         inventory,
         linked,
         teleport,
         is_actor,
         owner,
+        owner_rank: None,
+        owner_global: None,
         location,
         on_map,
         fast_travel,
@@ -1237,7 +1303,7 @@ fn write_form_set(w: &mut Writer, set: &BTreeSet<GlobalFormId>) {
     }
 }
 
-fn read_form_set(r: &mut Reader<'_>) -> Result<BTreeSet<GlobalFormId>, VmError> {
+fn read_form_set(r: &mut FormReader<'_, '_>) -> Result<BTreeSet<GlobalFormId>, VmError> {
     let n = r.len()?;
     let mut out = BTreeSet::new();
     for _ in 0..n {
@@ -1253,7 +1319,7 @@ fn write_object_list(w: &mut Writer, list: &[ObjectId]) {
     }
 }
 
-fn read_object_list(r: &mut Reader<'_>) -> Result<Vec<ObjectId>, VmError> {
+fn read_object_list(r: &mut FormReader<'_, '_>) -> Result<Vec<ObjectId>, VmError> {
     let n = r.len()?;
     let mut out = Vec::with_capacity(n);
     for _ in 0..n {
@@ -1262,7 +1328,7 @@ fn read_object_list(r: &mut Reader<'_>) -> Result<Vec<ObjectId>, VmError> {
     Ok(out)
 }
 
-fn read_actor_state(r: &mut Reader<'_>, version: u16) -> Result<ActorState, VmError> {
+fn read_actor_state(r: &mut FormReader<'_, '_>, version: u16) -> Result<ActorState, VmError> {
     let mut a = ActorState {
         values: crate::actor_values::Values::read(r, version)?,
         ..ActorState::default()
@@ -1292,7 +1358,7 @@ fn read_actor_state(r: &mut Reader<'_>, version: u16) -> Result<ActorState, VmEr
     if r.bool()? {
         a.race = Some(read_form_id(r)?);
     }
-    a.ai = crate::ai::read_state(r)?;
+    a.ai = crate::ai::read_state_mapped(r)?;
     a.perks = read_form_set(r)?;
     a.alerted = r.bool()?;
     a.sneaking = r.bool()?;
@@ -1337,7 +1403,7 @@ fn write_objective(w: &mut Writer, o: ObjectiveState) {
     w.bool(o.failed);
 }
 
-fn read_objective(r: &mut Reader<'_>) -> Result<ObjectiveState, VmError> {
+fn read_objective(r: &mut FormReader<'_, '_>) -> Result<ObjectiveState, VmError> {
     Ok(ObjectiveState {
         displayed: r.bool()?,
         completed: r.bool()?,
@@ -1372,3 +1438,7 @@ fn write_quest_mutable(w: &mut Writer, q: &QuestState) {
         w.f32(*v);
     }
 }
+
+#[cfg(test)]
+#[path = "save_tests.rs"]
+mod tests;

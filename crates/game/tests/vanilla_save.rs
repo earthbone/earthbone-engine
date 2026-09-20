@@ -4,6 +4,9 @@
 //! Saved identities must survive load-order changes before world state can
 //! be applied. Fixtures exercise distinct owners with the same local ID.
 
+#[path = "vanilla_save/reference_extras.rs"]
+mod reference_extras;
+
 #[path = "vanilla_save/npcs.rs"]
 mod npcs;
 
@@ -210,7 +213,7 @@ fn changed_or_missing_plugin_identity_is_rejected_before_world_mutation() {
 }
 
 #[test]
-fn ambiguous_current_names_and_created_namespace_collisions_are_rejected() {
+fn ambiguous_current_names_are_rejected() {
     let save = save();
     let mut order = order();
     order.add("a.ESP", plugin(false)).unwrap();
@@ -218,19 +221,79 @@ fn ambiguous_current_names_and_created_namespace_collisions_are_rejected() {
         SavedFormMap::new(&save, &order),
         Err(RestoreError::PluginLists(_))
     ));
+}
 
-    let mut order = LoadOrder::new();
-    order.add("Skyrim.esm", plugin(false)).unwrap();
-    for n in 1..255 {
-        order.add(&format!("Extra{n}.esl"), plugin(true)).unwrap();
+#[test]
+fn sav_07_full_saved_regular_and_light_lists_keep_created_identities_separate() {
+    for regular_at_255 in [false, true] {
+        let mut save = save();
+        save.plugins = (0..254)
+            .map(|n| WString::from_text(&format!("Regular{n}.esp")))
+            .collect();
+        save.light_plugins = (0..4096)
+            .map(|n| WString::from_text(&format!("Light{n}.esl")))
+            .collect();
+        let mut order = LoadOrder::new();
+        let prefix = if regular_at_255 { 2 } else { 0 };
+        let names = save
+            .light_plugins
+            .iter()
+            .rev()
+            .take(prefix)
+            .map(|n| (n, true))
+            .chain(save.plugins.iter().rev().map(|n| (n, false)))
+            .chain(
+                save.light_plugins
+                    .iter()
+                    .rev()
+                    .skip(prefix)
+                    .map(|n| (n, true)),
+            );
+        for (name, light) in names {
+            order.add(&name.to_text(), plugin(light)).unwrap();
+        }
+        let raw_ids: Vec<_> = (0..254)
+            .map(|slot| (slot << 24) | 0x800)
+            .chain((0..4096).map(|slot| 0xFE00_0800 | (slot << 12)))
+            .chain([0xFF00_0800, 0xFFFF_FFFF])
+            .collect();
+        save.form_id_array.clone_from(&raw_ids);
+        let map = SavedFormMap::new(&save, &order).unwrap();
+        let mut identities = std::collections::BTreeSet::new();
+        for (at, raw) in raw_ids.iter().copied().enumerate() {
+            let mapped = map.form_id(raw).unwrap().unwrap();
+            assert!(
+                identities.insert(mapped),
+                "aliased saved FormID {raw:#010x}"
+            );
+            assert_eq!(
+                map.reference(reference(at as u32 + 1)).unwrap(),
+                Some(mapped)
+            );
+            let expected_file = match raw >> 24 {
+                0xFF => DYNAMIC_FILE,
+                0xFE => order
+                    .position_of(&save.light_plugins[((raw >> 12) & 0xFFF) as usize].to_text())
+                    .unwrap() as u16,
+                slot => order
+                    .position_of(&save.plugins[slot as usize].to_text())
+                    .unwrap() as u16,
+            };
+            assert_eq!(mapped.file, expected_file);
+            if mapped.file == DYNAMIC_FILE {
+                assert_eq!(order.runtime_id(mapped), raw);
+                assert!(!order.contains(mapped));
+            } else {
+                assert!(order.contains(mapped));
+            }
+        }
+        assert!(identities.contains(&id(255, 0x800)));
+        assert_eq!(
+            map.reference(reference(0x800800)).unwrap(),
+            Some(id(DYNAMIC_FILE, 0x800))
+        );
+        assert_eq!(map.form_id(0).unwrap(), None);
     }
-    order.add("A.esp", plugin(false)).unwrap();
-    order.add("B.esp", plugin(false)).unwrap();
-    order.add("Light.esl", plugin(true)).unwrap();
-    assert!(matches!(
-        SavedFormMap::new(&save, &order),
-        Err(RestoreError::ReservedPosition(_))
-    ));
 }
 
 #[test]

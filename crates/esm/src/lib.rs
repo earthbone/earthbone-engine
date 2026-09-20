@@ -44,7 +44,7 @@ pub mod tag;
 pub use cell_index::{CellIndex, GridCell};
 pub use dirty::{DirtyReport, PluginDirt};
 pub use error::{Error, Result};
-pub use load_order::{GlobalFormId, LoadOrder, LoadedFile, RecordRef, Slot};
+pub use load_order::{GlobalFormId, LoadOrder, LoadedFile, RecordRef, Slot, CREATED_FILE};
 pub use plugin::{Entry, FileHeader, Group, GroupKind, Placement, Plugin, Record, Subrecord};
 pub use tag::Tag;
 
