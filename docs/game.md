@@ -434,7 +434,8 @@ hours, and picks the next, or a random point in the radius when the cell
 has no markers. `Sleep` walks to the bed the location names, or the
 nearest furniture in that cell whose base carries a keyword with `bed` in
 its editor id, and holds with `sleeping` set. `Wait` holds for its real-time
-duration, with zero meaning indefinite. Every other procedure name
+duration, with zero meaning indefinite. Walking `Patrol` follows linked markers,
+including their arrival radius and idle time. Every other procedure name
 is `Procedure::Unsupported` and the actor stands where it is. Location
 kinds near reference, in cell, near package start, near editor location,
 near linked reference, alias reference and near self resolve, alias
@@ -470,7 +471,7 @@ package over the base list, switch at once from a script's
 `EvaluatePackage`, and keep walking after a save and load.
 
 **Not done.** Simultaneous and stacked branches (AI-14 and AI-15),
-the other 17 procedures,
+the other 16 procedures and the Patrol modes tracked by AI-88 through AI-91,
 package fragments (`VMAD` on `PACK`), the `On Begin`, `On End` and `On
 Change` idles and topics, once per day for packages that end without
 arriving, `Must Complete`, interrupt flags, combat overrides, door
@@ -1472,3 +1473,62 @@ the world. This is SOEW persistence, not vanilla ESS Wait-state restoration.
 calls, package overrides, finite and endless cancellation, repetition,
 save/load equality, state hashes and invalid state. Its installed-data test
 checks every vanilla Wait branch's parameter types when SKYRIM_DATA is set.
+
+### Walking Patrol routes
+
+AI-03 follows ordinary reference markers through keyword-free XLKR links.
+Its six ordered parameters are PathStart, PointRadius, Repeatable,
+StartAtNearestPoint, RideHorseIfPossible and StaticPathing. The read-only
+Skyrim.esm survey found 45 Patrol branches and confirmed the order on the
+vanilla Patrol template. Some branches omit optional inputs using index 255.
+Their defaults are not established, so those branches report Unsupported.
+Public parameter names do not determine execution.
+
+PathStart currently supports a specific reference or the actor's keyword-free
+linked reference. Template overrides retain their defining plugin namespace.
+Each marker must carry a finite nonnegative XPRD idle time. Zero idle time
+yields until the next driver call before selecting another marker. Positive
+idle time uses the non-menu real-seconds clock. A finite route completes after
+the terminal dwell. Repeatable reverses along an open route. A route linked
+back to its start loops even when Repeatable is false. StartAtNearestPoint
+treats the nearest marker as already used and begins at its successor.
+Distance ties use authored route order.
+
+The driver stops within PointRadius and respects the movement budget even
+for small ticks. It reuses the existing navmesh path and off-graph straight-line
+fallback, including the fallback's destination-cell assignment on arrival.
+This does not add load-door traversal or obstacle avoidance. Marker position,
+cell, availability and current route membership are checked before movement.
+Changed positions or cells invalidate the old path. Malformed links, non-root
+cycles and a single-marker open repeat report Unsupported before walking.
+
+The saved Patrol state contains its chosen start, current marker, direction
+and optional dwell deadline. The route, marker properties and procedure inputs
+remain on the winning records and are reread. SOEW version 18 adds the Patrol
+procedure tag and progress. Earlier versions 4 through 17 remain readable.
+Invalid deadlines and Patrol tags under older headers are rejected before
+world replacement. Vanilla ESS Patrol state is not restored by this change.
+
+Local xEdit PACK PKC2/PTDA and REFR XLKR/XPRD/XPPA/INAM/PDTO supply the layouts.
+Mutagen's `Records/Common Subrecords/Patrol.xml` confirms the patrol group.
+The parser distinguishes patrol INAM from the earlier image-space INAM and
+accepts null topic placeholders. The primary author's
+[Patrol tests](https://skyrimeasy.blog-rpg.com/ck/packagetemplate07) establish
+linked order, nearest entry, reversal and circular traversal. The
+[procedure authoring tutorial](https://skyrimeasy.blog-rpg.com/ck/proceduretree01)
+describes the parameter types. These sources provide no reusable runtime
+walker, so this implementation extends the existing actor driver.
+
+The row was split before implementation. AI-88 covers marker idle, furniture
+and topic actions and depends on AI-23 and HST-09. AI-89 covers mounted Patrol.
+AI-90 establishes StaticPathing and omitted-input defaults. AI-91 covers
+additional target modes, including aliases and object-list results from AI-33.
+Requested actions, mounted or static modes, additional targets and malformed
+inputs report Unsupported. They are not silently treated as ordinary walking.
+
+`tests/package_patrol.rs` exercises linked order, final dwell, open and circular
+repeat, nearest entry, radius budgets, menu timing, save/resume during travel,
+dwell and reversal, winning-template namespaces, live marker changes, action
+field contexts and invalid state. These are headless synthetic behavior checks.
+The installed-data survey establishes parameter representation, not a measured
+Patrol run in Skyrim or Godot.

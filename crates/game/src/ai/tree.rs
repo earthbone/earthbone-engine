@@ -81,6 +81,25 @@ impl Tree {
         }
     }
 
+    fn patrol_parameters(
+        &self,
+        branch: &Branch,
+    ) -> Result<super::patrol::Parameters, &'static str> {
+        let inputs = branch
+            .inputs
+            .iter()
+            .map(|&index| {
+                self.chain.iter().find_map(|(owner, package)| {
+                    package
+                        .input(index as i8)
+                        .map(|input| (*owner, input.value))
+                })
+            })
+            .collect::<Option<Vec<_>>>()
+            .ok_or("Patrol omitted input, AI-90")?;
+        super::patrol::Parameters::from_inputs(&inputs)
+    }
+
     fn after(&self, mut index: usize, state: &mut TreeState) {
         loop {
             let next = self.ends[index];
@@ -113,6 +132,7 @@ fn procedure(branch: &Branch) -> Procedure {
         Some("travel") => Procedure::Travel,
         Some("sandbox") => Procedure::Sandbox,
         Some("sleep") => Procedure::Sleep,
+        Some("patrol") => Procedure::Patrol,
         Some("wait") => Procedure::Wait {
             stop_movement: false,
         },
@@ -134,6 +154,10 @@ pub(super) fn first(world: &World, id: GlobalFormId) -> (Procedure, Option<Locat
             continue;
         }
         let chosen = match procedure(branch) {
+            Procedure::Patrol => tree.patrol_parameters(branch).map_or_else(
+                |reason| Procedure::Unsupported(reason.into()),
+                |_| Procedure::Patrol,
+            ),
             Procedure::Wait { .. } => tree.wait_parameters(branch).map_or_else(
                 || Procedure::Unsupported("Wait inputs".into()),
                 |(_, stop_movement)| Procedure::Wait { stop_movement },
@@ -263,7 +287,11 @@ pub(super) fn enter(world: &mut World, actor: GlobalFormId, ai: &mut AiState) {
                 _ => chosen = Procedure::Unsupported("Wait inputs or clock".into()),
             }
         }
+        let is_patrol = chosen == Procedure::Patrol;
         super::begin_procedure(world, actor, ai, chosen, tree.location(branch));
+        if is_patrol {
+            super::patrol::begin(world, actor, ai, tree.patrol_parameters(branch));
+        }
         ai.wait_until = wait_until;
         break;
     }
@@ -271,6 +299,22 @@ pub(super) fn enter(world: &mut World, actor: GlobalFormId, ai: &mut AiState) {
     if ai.tree.as_ref().is_some_and(|s| s.finished) {
         complete(world, ai);
     }
+}
+
+pub(super) fn patrol_parameters(
+    world: &World,
+    ai: &AiState,
+) -> Result<super::patrol::Parameters, &'static str> {
+    let tree = ai
+        .package
+        .and_then(|id| Tree::load(world, id))
+        .ok_or("missing Patrol package")?;
+    let state = ai.tree.as_ref().ok_or("missing Patrol cursor")?;
+    let branch = tree
+        .branches
+        .get(state.branch as usize)
+        .ok_or("invalid Patrol cursor")?;
+    tree.patrol_parameters(branch)
 }
 
 pub(super) fn succeeded(world: &World, ai: &mut AiState) {

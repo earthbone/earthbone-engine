@@ -39,7 +39,8 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// Version 15 persists deferred-death requests and their eventual event recipients.
 /// Version 16 preserves the sequential PACK procedure cursor.
 /// Version 17 adds the Wait procedure tag, movement flag and real-time deadline.
-pub const SAVE_VERSION: u16 = 17;
+/// Version 18 adds walking Patrol marker, direction and dwell progress.
+pub const SAVE_VERSION: u16 = 18;
 
 impl World {
     /// Serialize the run-time state: the VM object handles, references,
@@ -1284,6 +1285,11 @@ fn read_actor_state(r: &mut Reader<'_>, version: u16) -> Result<ActorState, VmEr
         a.race = Some(read_form_id(r)?);
     }
     a.ai = crate::ai::read_legacy_state(r)?;
+    if version < 18 && a.ai.procedure == crate::ai::Procedure::Patrol {
+        return Err(VmError::State(
+            "Patrol procedure requires world version 18".into(),
+        ));
+    }
     if version < 17 && matches!(a.ai.procedure, crate::ai::Procedure::Wait { .. }) {
         return Err(VmError::State(
             "Wait procedure requires world version 17".into(),
