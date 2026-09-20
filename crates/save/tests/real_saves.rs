@@ -70,6 +70,12 @@ fn every_save_in_the_corpus_parses() {
     let mut total_values = 0usize;
     let mut total_arrays = 0usize;
     let mut total_value_bytes = 0usize;
+    let mut total_execution_bytes = 0usize;
+    let mut total_frames = 0usize;
+    let mut total_instructions = 0usize;
+    let mut total_threads = 0usize;
+    let mut total_suspended = 0usize;
+    let mut total_messages = 0usize;
 
     println!(
         "{:<48} {:>5} {:>7} {:>8} {:>7} {:>7} {:>9}",
@@ -113,10 +119,38 @@ fn every_save_in_the_corpus_parses() {
                 let rewritten = block.value_data_bytes().expect("typed values encode");
                 assert_eq!(
                     rewritten,
-                    raw[block.data_start..block.decoded_len],
+                    raw[block.data_start..block.execution_start],
                     "{}: typed Papyrus values changed",
                     name_of(path)
                 );
+                let execution = block.execution.to_bytes().expect("typed execution encodes");
+                assert_eq!(
+                    execution,
+                    raw[block.execution_start..block.decoded_len],
+                    "{}: typed Papyrus execution changed",
+                    name_of(path)
+                );
+                assert_eq!(
+                    block.active_scripts.len(),
+                    block.execution.active_data.len()
+                );
+                total_execution_bytes += execution.len();
+                total_threads += block.execution.active_data.len();
+                total_messages += block.execution.messages.len();
+                total_suspended += block
+                    .execution
+                    .suspended
+                    .iter()
+                    .map(Vec::len)
+                    .sum::<usize>();
+                for active in &block.execution.active_data {
+                    total_frames += active.frames.len();
+                    total_instructions += active
+                        .frames
+                        .iter()
+                        .map(|frame| frame.instructions.len())
+                        .sum::<usize>();
+                }
                 let values = block
                     .instance_data
                     .iter()
@@ -164,6 +198,7 @@ fn every_save_in_the_corpus_parses() {
         saves.len()
     );
     println!("{total_values} Papyrus values, {total_arrays} arrays, {total_value_bytes} typed payload bytes round tripped");
+    println!("{total_threads} threads, {total_frames} frames, {total_instructions} instructions, {total_messages} messages, {total_suspended} suspended stacks, {total_execution_bytes} execution bytes round tripped");
 
     assert!(
         failures.is_empty(),

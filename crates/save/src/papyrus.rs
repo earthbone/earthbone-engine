@@ -12,14 +12,25 @@
 //! ScriptInstance.java, Reference.java, ArrayInfo.java and ActiveScript.java.
 //! The first pass contains headers. The second pass supplies instance and
 //! reference variables and array elements keyed by ID, not by header order.
-//! Active stack bodies and the remaining message tables stay raw in Save.
+//! Stack bodies, messages and suspended calls follow those values. The final
+//! auxiliary data stays raw in Save.
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::cursor::{Cursor, RefId};
 use crate::error::{Error, Result};
 
+mod execution;
+mod fragments;
+mod frames;
+mod instructions;
 mod values;
+pub use execution::{
+    ActiveScriptData, Execution, FunctionMessage, FunctionMessageData, QueuedUnbind, SuspendedStack,
+};
+pub use fragments::{FragmentData, FragmentTask};
+pub use frames::StackFrame;
+pub use instructions::{Instruction, Operand};
 pub use values::{Value, ValueType};
 
 /// A reference into the block's string table.
@@ -105,8 +116,11 @@ pub struct Papyrus {
     pub instance_data: Vec<VariableData>,
     pub reference_data: Vec<VariableData>,
     pub array_data: Vec<ArrayData>,
+    pub execution: Execution,
     /// First byte of the instance-variable data, after all first-pass headers.
     pub data_start: usize,
+    /// End of value data and first byte of active-script bodies.
+    pub execution_start: usize,
     /// Byte length of the whole block, decoded part included.
     pub block_len: usize,
     /// Byte offset where decoding stopped, so the undecoded tail is
@@ -222,6 +236,9 @@ impl Papyrus {
             array_data.push(ArrayData { id, variables });
         }
 
+        let execution_start = cursor.pos();
+        let execution = Execution::read(&mut cursor, string_count, active_ids)?;
+
         Ok(Self {
             vm_version,
             strings,
@@ -234,7 +251,9 @@ impl Papyrus {
             instance_data,
             reference_data,
             array_data,
+            execution,
             data_start,
+            execution_start,
             block_len: data.len(),
             decoded_len: cursor.pos(),
         })
@@ -246,7 +265,7 @@ impl Papyrus {
     }
 
     /// Re-encode the typed second pass to compare against
-    /// `data[data_start..decoded_len]`. This does not rewrite the raw tail.
+    /// `data[data_start..execution_start]`. This does not rewrite execution data.
     pub fn value_data_bytes(&self) -> Result<Vec<u8>> {
         let mut out = Vec::new();
         for data in self.instance_data.iter().chain(&self.reference_data) {
@@ -344,3 +363,6 @@ fn read_variable_data(
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod execution_tests;

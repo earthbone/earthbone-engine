@@ -85,6 +85,7 @@ fn build(compression: Compression) -> Vec<u8> {
     papyrus_block.extend_from_slice(&0u32.to_le_bytes());
     papyrus_block.extend_from_slice(&0u32.to_le_bytes()); // runtime ID
     papyrus_block.extend_from_slice(&0u32.to_le_bytes());
+    papyrus_block.extend_from_slice(&[0; 26]);
     let mut table_3 = Vec::new();
     table_3.extend_from_slice(&1001u32.to_le_bytes());
     table_3.extend_from_slice(&(papyrus_block.len() as u32).to_le_bytes());
