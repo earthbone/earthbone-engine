@@ -6,11 +6,14 @@
 use godot::classes::control::{LayoutPreset, SizeFlags};
 use godot::classes::input::MouseMode;
 use godot::classes::{
-    Button, CanvasLayer, Control, Input, Label, PanelContainer, StyleBoxFlat, Theme, VBoxContainer,
+    Button, CanvasLayer, Control, Input, Label, PanelContainer, ScrollContainer, StyleBoxFlat,
+    Theme, VBoxContainer,
 };
 use godot::prelude::*;
 
 use super::PlayerNode;
+use crate::inventory_menu::{self, Category};
+use soe_esm::GlobalFormId;
 
 pub(super) struct MenuView {
     panel: Gd<PanelContainer>,
@@ -74,6 +77,55 @@ impl PlayerNode {
     /// Mutations from a menu use the same Game as movement, scripts and activation.
     pub fn game_mut(&mut self) -> Option<&mut soe_game::Game> {
         self.game.as_mut()
+    }
+
+    fn inventory_content(&mut self, category: Category) -> bool {
+        if self.menu.title() != Some("Inventory") {
+            return false;
+        }
+        let Some(game) = self.game.as_mut() else {
+            return false;
+        };
+        let player = game.player();
+        let entries = inventory_menu::entries(game, player, category);
+        let Some(mut content) = self.menu_view.as_ref().map(|view| view.content.clone()) else {
+            return false;
+        };
+        let base = self.base().clone();
+        let _guard = self.base_mut();
+        for mut child in content.get_children().iter_shared() {
+            content.remove_child(&child);
+            child.queue_free();
+        }
+        let mut scroll = ScrollContainer::new_alloc();
+        scroll.set_v_size_flags(SizeFlags::EXPAND_FILL);
+        let mut rows = VBoxContainer::new_alloc();
+        scroll.add_child(&rows);
+        content.add_child(&scroll);
+        for (index, category) in Category::ALL.into_iter().enumerate() {
+            let mut button = Button::new_alloc();
+            button.set_text(category.label());
+            let callback = base
+                .callable("inventory_category")
+                .bindv(&varray![index as i64]);
+            button.connect("pressed", &callback);
+            rows.add_child(&button);
+        }
+        let mut heading = Label::new_alloc();
+        heading.set_text(&format!("{} ({})", category.label(), entries.len()));
+        rows.add_child(&heading);
+        for entry in entries {
+            let mut button = Button::new_alloc();
+            let equipped = if entry.equipped { " [Equipped]" } else { "" };
+            button.set_text(&format!("{} x{}{}", entry.name, entry.count, equipped));
+            let callback = base.callable("toggle_inventory_item").bindv(&varray![
+                i64::from(entry.item.file),
+                i64::from(entry.item.object),
+            ]);
+            button.connect("pressed", &callback);
+            rows.add_child(&button);
+        }
+        true
     }
 }
 
@@ -189,5 +241,48 @@ impl PlayerNode {
         self.game
             .as_ref()
             .map_or(0.0, |game| game.world().clock.game_days)
+    }
+
+    /// Open the shared player's inventory and render one SkyUI-style category.
+    #[func]
+    pub fn open_inventory_menu(&mut self) -> bool {
+        if self.game.is_none() || !self.open_menu("Inventory".into()) {
+            return false;
+        }
+        self.inventory_category = Category::All;
+        self.inventory_content(self.inventory_category)
+    }
+
+    /// Select one of [`Category::ALL`] in the open inventory menu.
+    #[func]
+    pub fn inventory_category(&mut self, index: i64) -> bool {
+        let Ok(index) = usize::try_from(index) else {
+            return false;
+        };
+        let Some(category) = Category::ALL.get(index).copied() else {
+            return false;
+        };
+        self.inventory_category = category;
+        self.inventory_content(category)
+    }
+
+    /// Toggle a listed weapon or armor through the shared game state, then refresh the list.
+    #[func]
+    pub fn toggle_inventory_item(&mut self, file: i64, object: i64) -> bool {
+        if self.menu.title() != Some("Inventory") {
+            return false;
+        }
+        let (Ok(file), Ok(object)) = (u16::try_from(file), u32::try_from(object)) else {
+            return false;
+        };
+        let item = GlobalFormId { file, object };
+        let changed = self
+            .game
+            .as_mut()
+            .is_some_and(|game| inventory_menu::toggle_equip(game, item));
+        if changed {
+            self.inventory_content(self.inventory_category);
+        }
+        changed
     }
 }

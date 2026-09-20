@@ -31,6 +31,22 @@ impl World {
         self.difficulty = difficulty;
     }
 
+    /// Unequip an item from an actor through the same authoritative inventory state.
+    ///
+    /// # Errors
+    /// Missing actors or references.
+    pub fn unequip_item(&mut self, actor: GlobalFormId, item: GlobalFormId) -> Result<(), Error> {
+        self.actor(actor).ok_or(Error::Actor(actor))?;
+        let reference = self.reference(actor).ok_or(Error::Actor(actor))?;
+        reference.inventory.unequip(item);
+        self.actors
+            .get_mut(&actor)
+            .ok_or(Error::Actor(actor))?
+            .equipped
+            .remove(&item);
+        Ok(())
+    }
+
     /// Equip an item, replacing armor that occupies any supported biped slot.
     ///
     /// # Errors

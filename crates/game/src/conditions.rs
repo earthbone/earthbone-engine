@@ -4,7 +4,7 @@
 //! wbConditions/wbConditionFunctions. CK documents the state queries and
 //! conditional Papyrus variables. See docs/game.md for the implemented set.
 
-use crate::{Handle, World};
+use crate::{inventory::Field, Handle, World};
 use soe_esm::{
     records::gameplay::{Comparison, Condition},
     GlobalFormId, Tag,
@@ -463,8 +463,10 @@ pub(crate) fn actor_query(
     }
 }
 
-/// GetItemCount accepts FLST membership. Keep the recursion bounded for modded cycles.
-fn inventory_count(
+/// GetItemCount totals a base, FormList or keyword, and selects one item reference.
+///
+/// FormList recursion is bounded so a modded cycle cannot make a native call diverge.
+pub(crate) fn inventory_count(
     world: &mut World,
     subject: GlobalFormId,
     item: GlobalFormId,
@@ -482,6 +484,26 @@ fn inventory_count(
                 .ok_or(Error::Inventory)?;
         }
         visiting.pop();
+        return Ok(total);
+    }
+    if world.is_reference(item) {
+        let base = world.base_of(item).ok_or(Error::Form(item))?;
+        let inventory = &world
+            .reference(subject)
+            .ok_or(Error::Form(subject))?
+            .inventory;
+        let maximum = inventory.count(base);
+        let total = inventory
+            .stacks(base)
+            .iter()
+            .filter(|stack| {
+                stack.extra(32).is_some_and(|extra| {
+                    matches!(extra.fields.as_slice(), [Field::Form(Some(id))] if *id == item)
+                })
+            })
+            .fold(0i32, |total, stack| {
+                total.saturating_add(stack.count().max(0)).min(maximum)
+            });
         return Ok(total);
     }
     if world.tag_of(item) == Some(Tag(*b"KYWD")) {

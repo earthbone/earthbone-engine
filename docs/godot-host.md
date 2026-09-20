@@ -1625,7 +1625,6 @@ not a claim of whole-host atomic loading or missing-mod recovery play.
 The methods compile in the full feature gate. Synthetic Rust tests execute
 the shared Game file APIs, corruption recovery and interrupted rotation.
 Interactive Godot resource installation after recovery remains untested.
-
 ## Native menu framework
 
 UI-01 adds a modal Control tree to PlayerNode. One CanvasLayer, one
@@ -1649,6 +1648,31 @@ the framework. menu_opened and menu_closed signals run after their state change
 through gdext's reentrant base guard, allowing callbacks to inspect PlayerNode.
 No inventory, dialogue, crafting or MCM implementation is included here.
 Those menus use this shell and their existing gameplay APIs.
+
+The inventory presenter now uses this shell. It renders the SkyUI categories
+All, Weapons, Apparel, Potions, Scrolls, Food, Ingredients, Books, Keys and
+Misc, then lists positive totals from the selected holder in FormID order.
+Food is ALCH ENIT's `Food Item` flag. Item controls toggle only weapons and
+armor through World::equip_item and World::unequip_item, so slot conflicts and
+worn extra data remain in the game layer. The public inventory_menu reader
+takes a Game, holder and category, allowing the container menu to reuse its
+form-backed rows without a second inventory model. Drop, use, charge, favorite
+and instance-specific actions remain outside UI-02.
+
+The native I shortcut opens inventory once gameplay has started. This shortcut,
+like Escape for the modal shell, is not yet remapped through controlmap.txt.
+Rows scroll, and category selection survives equipment changes. Closed or other
+menus reject stale inventory actions. Scene-tree edits use the same reentrant
+guard as the shell so focus callbacks can inspect PlayerNode safely.
+
+inventory_runtime.gd clicks categories and item controls against the shared Game,
+checks equipment indicators and preserves the selected filter. It also checks
+missing-game rejection, focus callbacks and stale handlers. The
+inventory_fixture example writes synthetic masters containing a sword and food
+in the player inventory, with a static floor in WhiterunBanneredMare. On Unix it
+links three installed archives into the output directory. Run it with a fresh
+output directory and the installed Data path, then set SOE_UI_TEST_DATA to that
+output when launching the headless script. No installed records are copied.
 
 Sources read locally were Godot's Control, Theme, Node and SceneTree class
 docs, gdext node ownership, secondary API registration and reentrant signal

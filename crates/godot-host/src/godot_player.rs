@@ -111,6 +111,7 @@ pub struct PlayerNode {
     devices: Devices,
     input_focused: bool,
     menu: crate::ui::MenuState,
+    inventory_category: crate::inventory_menu::Category,
     menu_view: Option<menu::MenuView>,
     restore_mouse_on_focus: Option<godot::classes::input::MouseMode>,
 }
@@ -156,6 +157,7 @@ impl INode3D for PlayerNode {
             devices: Devices::default(),
             input_focused: true,
             menu: crate::ui::MenuState::default(),
+            inventory_category: crate::inventory_menu::Category::All,
             menu_view: None,
             restore_mouse_on_focus: None,
         }
@@ -196,6 +198,17 @@ impl INode3D for PlayerNode {
             return;
         }
         if let Ok(key) = event.clone().try_cast::<InputEventKey>() {
+            if key.get_keycode() == Key::I
+                && key.is_pressed()
+                && !key.is_echo()
+                && !self.menu.is_open()
+                && self.open_inventory_menu()
+            {
+                if let Some(mut viewport) = self.base().get_viewport() {
+                    viewport.set_input_as_handled();
+                }
+                return;
+            }
             if key.get_keycode() == Key::ESCAPE && key.is_pressed() && !key.is_echo() {
                 if self.menu.is_open() {
                     self.close_menu();

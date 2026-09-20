@@ -23,6 +23,7 @@ pub mod door_fade;
 pub mod image_space;
 pub mod input;
 pub mod interior_prefetch;
+pub mod inventory_menu;
 pub mod mesh;
 pub mod skinned;
 pub mod streaming;

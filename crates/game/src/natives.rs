@@ -17,6 +17,7 @@ use soe_esm::{GlobalFormId, Tag};
 use soe_papyrus::{NativeCall, NativeReturn, ObjectId, Value, Vm};
 
 use crate::clock::GameClock;
+use crate::conditions;
 use crate::world::{reaction, AnimationListener, Handle, LeveledEntry, LosListener, World};
 
 pub type Shared = Rc<RefCell<World>>;
@@ -627,7 +628,8 @@ fn object_reference(vm: &mut Vm, w: &Shared) {
         |world, call, me| {
             i(world
                 .form_arg(&call.arg(0))
-                .map_or(0, |item| world.item_count(me, item)))
+                .and_then(|item| conditions::inventory_count(world, me, item, &mut Vec::new()).ok())
+                .unwrap_or(0))
         }
     );
     method!(vm, w, "ObjectReference", "AddItem", |world, call, me| {
@@ -1323,8 +1325,9 @@ fn actor(vm: &mut Vm, w: &Shared) {
     });
     method!(vm, w, "Actor", "UnequipItem", |world, call, me| {
         if let Some(item) = world.form_arg(&call.arg(0)) {
-            if let Some(a) = world.actor(me) {
-                a.equipped.remove(&item);
+            if let Err(error) = world.unequip_item(me, item) {
+                call.log
+                    .push(call.time, format!("Actor.UnequipItem: {error}"));
             }
         }
         none()
