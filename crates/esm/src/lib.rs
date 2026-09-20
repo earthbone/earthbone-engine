@@ -39,6 +39,7 @@ pub mod error;
 pub mod load_order;
 pub mod plugin;
 pub mod records;
+pub mod strings;
 pub mod tag;
 
 pub use cell_index::{CellIndex, GridCell};

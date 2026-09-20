@@ -661,8 +661,8 @@ notification fired, and the alias resolved to the lever.
 - Quest aliases are filled only from `ALFR`. Conditions, `ALCO`, location and
   reference fill types are not evaluated.
 - `SetStage` does not display the log entry or play the quest sound.
-- Localized strings come back as `<string N>` until the bsa and strings
-  readers are wired in.
+- Missing localized entries come back as `<string N>`. Selected-language
+  string tables now load through the VFS, as described below.
 - `bind` attaches every script in the load order at start. The game does this
   lazily per cell. On the five base masters this is tens of thousands of
   instances, timed at 0.2 seconds against the installed game (2026-09-17),
@@ -969,15 +969,15 @@ bytes survive re-encoding exactly. Script headers follow the existing writer's
 version 5/object format 2 normalization. The survey also exercises an authored
 Hulda topic through the conversation API. That topic has no VMAD fragment,
 so this run does not verify shipped fragment execution. Synthetic tests
-verify named fragments changing quest stages. The text remains a localized string
-identifier, not a displayed subtitle or an audible line.
+verify named fragments changing quest stages. DLG-12 now resolves the localized
+text through the conversation API. Subtitle widgets and audible lines remain
+outside this test.
 
 Remaining dialogue work includes missing conditions, blocking/exclusive
 branches, automatic greetings and ForceGreet, refusal/invisible continuation,
 favor spending, do-all-before-repeating, walk-away behavior, scenes, persuasion,
 services, complete alias behavior and interruption rules. Godot activation,
-menus, string-table resolution, voice assets, LIP and idle playback are not
-connected to this API. This increment does not establish playable dialogue
+menus, voice assets, LIP and idle playback are not connected to this API. This increment does not establish playable dialogue
 or complete the broader gameplay goal.
 
 ## Active magic applications
@@ -1373,3 +1373,22 @@ then executes 184 supported weapons against synthetic actors. The remaining
 weapons reject unsupported types, templates or enchantments. Real armor records
 were decoded, while armor damage calculations use synthetic fixtures.
 These changes await commit and merge review on `combat-hits`.
+
+## Localized dialogue and messages, 2026-09-20
+
+`World::load_localized_strings` reads selected-language tables through the
+existing VFS. A resolved field uses the winning record's plugin namespace and
+xEdit's table rule: `DESC` uses DLSTRINGS, INFO response text uses ILSTRINGS,
+and INFO prompts and ordinary names use STRINGS. `Game::load_scripts_from_data`
+loads English by default, while `load_scripts_from_data_language` selects another
+installed language. Installed-data dialogue validation reaches Hulda's Rumors
+topic and checks its resolved choice and response text.
+
+The data loader discovers each plugin's combined, Misc and Interface archives
+case-insensitively and reports archive errors through the load report. Loose
+files retain VFS precedence. Missing language tables produce the existing
+`<string N>` fallback. A malformed table leaves the previously loaded language
+intact. A successful language switch clears tables absent from the new language.
+Synthetic tests cover separate winning owners for a DIAL question and shared
+INFO response, fragment ownership, language switching and archive errors.
+Host dialogue widgets and translated voice selection are outside DLG-12.

@@ -319,3 +319,14 @@ No dialogue selection or playback, spell casting, active-effect lifecycle,
 crafting consumption, UI or progression is implemented by these readers. DLBR,
 SCEN, fragment decoding, full MGEF fields and function-specific condition
 semantics still need their own scopes.
+
+## Localized strings, 2026-09-20
+
+`strings::StringTable` reads the indexed `.strings`, `.dlstrings` and
+`.ilstrings` layouts. It checks each directory offset and length against the
+declared data section. The language mapping follows xEdit
+`Core/wbLocalization.pas`, `Core/wbInterface.pas` and `xEdit/xeInit.pas`.
+For SE, English uses Windows-1252. Other languages try UTF-8 first and then
+their language-specific fallback. Japanese and Chinese require UTF-8.
+Tests cover all three layouts, invalid offsets and termination, UTF-8 text,
+and a legacy French fallback.

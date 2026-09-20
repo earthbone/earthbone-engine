@@ -95,12 +95,10 @@ pub struct ScriptLoadReport {
     pub scripts_failed: Vec<(String, String)>,
 }
 
-/// The archives a plugin's Papyrus scripts travel in, by the two spellings
-/// the base game and every DLC use: `<stem> - Misc.bsa` for the split
-/// archives `Skyrim.esm` ships, `<stem>.bsa` for a DLC that bundles its
-/// scripts with everything else in one combined archive. Matched
+/// Script and string-table archives: the split Misc and Interface archives,
+/// and a plugin's combined archive. Matched
 /// case-insensitively since installs spell plugin names either way.
-fn script_archives_for(plugin_name: &str, data_dir: &Path) -> Vec<PathBuf> {
+fn data_archives_for(plugin_name: &str, data_dir: &Path) -> Vec<PathBuf> {
     let stem = Path::new(plugin_name)
         .file_stem()
         .map(|s| s.to_string_lossy().to_lowercase())
@@ -108,7 +106,11 @@ fn script_archives_for(plugin_name: &str, data_dir: &Path) -> Vec<PathBuf> {
     if stem.is_empty() {
         return Vec::new();
     }
-    let wanted = [format!("{stem} - misc.bsa"), format!("{stem}.bsa")];
+    let wanted = [
+        format!("{stem} - interface.bsa"),
+        format!("{stem} - misc.bsa"),
+        format!("{stem}.bsa"),
+    ];
     let mut found = Vec::new();
     let Ok(entries) = std::fs::read_dir(data_dir) else {
         return found;
@@ -184,6 +186,15 @@ impl Game {
     /// mirrors `Game::bind` reading VMAD script names against whatever
     /// actually got loaded here rather than assuming a loose folder exists.
     pub fn load_scripts_from_data(&mut self, data_dir: &Path) -> ScriptLoadReport {
+        self.load_scripts_from_data_language(data_dir, "english")
+    }
+
+    /// Load scripts and localized strings for a selected Bethesda language.
+    pub fn load_scripts_from_data_language(
+        &mut self,
+        data_dir: &Path,
+        language: &str,
+    ) -> ScriptLoadReport {
         let mut report = ScriptLoadReport::default();
         let mut vfs = soe_bsa::Vfs::new();
         let plugin_names: Vec<String> = self
@@ -195,7 +206,7 @@ impl Game {
             .map(|f| f.name.clone())
             .collect();
         for name in &plugin_names {
-            for path in script_archives_for(name, data_dir) {
+            for path in data_archives_for(name, data_dir) {
                 match vfs.add_archive_path(&path) {
                     Ok(_) => report.archives_loaded.push(path),
                     Err(e) => report
@@ -206,6 +217,15 @@ impl Game {
         }
         if data_dir.is_dir() {
             let _ = vfs.add_loose_root(data_dir);
+        }
+        if let Err(error) = self
+            .world
+            .borrow_mut()
+            .load_localized_strings(&vfs, language)
+        {
+            report
+                .scripts_failed
+                .push(("localized strings".into(), error.to_string()));
         }
         let loaded = self.load_scripts_from_vfs(&vfs);
         report.scripts_found = loaded.scripts_found;

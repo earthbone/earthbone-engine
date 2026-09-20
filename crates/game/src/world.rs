@@ -31,6 +31,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::Arc;
 
 use soe_esm::records::{Text, Transform};
+use soe_esm::strings::{StringTable, StringTableKind};
 use soe_esm::{GlobalFormId, LoadOrder, RecordRef, Tag};
 use soe_papyrus::{ObjectId, Value};
 
@@ -50,6 +51,7 @@ mod inventory;
 mod inventory_restore;
 pub use inventory_restore::InventoryRestoreReport;
 mod item_save;
+mod localization;
 mod locks;
 mod lookup;
 pub mod magic;
@@ -390,6 +392,7 @@ pub type Alloc<'a> = &'a mut dyn FnMut(&str, &str) -> ObjectId;
 pub struct World {
     pub(crate) dialogue_index: std::sync::OnceLock<crate::dialogue::Index>,
     pub(crate) dialogue: crate::dialogue::State,
+    localized_strings: BTreeMap<(u16, StringTableKind), StringTable>,
     order: Arc<LoadOrder>,
     record_overrides: BTreeMap<GlobalFormId, record_overrides::RecordOverride>,
     editor_ids: HashMap<String, GlobalFormId>,
@@ -555,6 +558,7 @@ impl World {
             spell_casts: Vec::new(),
             dialogue_index: std::sync::OnceLock::new(),
             dialogue: crate::dialogue::State::default(),
+            localized_strings: BTreeMap::new(),
             active_effects: BTreeMap::new(),
             next_effect: 1,
         }

@@ -4,7 +4,6 @@
 //! inverse, keywords, names and descriptions, and the Papyrus class and
 //! `GetType` code a form answers to.
 
-use soe_esm::records::Text;
 use soe_esm::{GlobalFormId, Record, Slot, Tag};
 
 use super::{class_for_tag, le_u32, text, type_code_for_tag, Handle, World, DYNAMIC_FILE, T};
@@ -63,13 +62,11 @@ impl World {
             let raw = rec.find(T(b"NAME"))?;
             return self.name_of(self.resolve_from(id, le_u32(raw)?)?);
         }
-        match text(
+        let text = text(
             rec.find(T(b"FULL"))?,
             self.record_text_localized(id, T(b"FULL")),
-        ) {
-            Text::Plain(s) => Some(s),
-            Text::Localized(n) => Some(format!("<string {n}>")),
-        }
+        );
+        Some(self.resolve_text(id, T(b"FULL"), &text))
     }
 
     /// The `DESC` of a form as text, `<string N>` when localized.
@@ -77,10 +74,8 @@ impl World {
         let rref = self.order.winner_ref(id)?;
         let rec = self.order.record(rref);
         let localized = self.order.file(rref.file).plugin.header.is_localized();
-        match text(rec.find(T(b"DESC"))?, localized) {
-            Text::Plain(s) => Some(s),
-            Text::Localized(n) => Some(format!("<string {n}>")),
-        }
+        let text = text(rec.find(T(b"DESC"))?, localized);
+        Some(self.resolve_text(id, T(b"DESC"), &text))
     }
 
     pub fn runtime_id(&self, id: GlobalFormId) -> u32 {

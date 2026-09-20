@@ -297,6 +297,113 @@ fn shared_response_data_does_not_transfer_fragments_or_ownership() {
     );
 }
 
+fn localized_table(text: &str, prefixed: bool) -> Vec<u8> {
+    let mut data = Vec::new();
+    if prefixed {
+        data.extend_from_slice(&((text.len() + 1) as u32).to_le_bytes());
+    }
+    data.extend_from_slice(text.as_bytes());
+    data.push(0);
+    let mut bytes = 1u32.to_le_bytes().to_vec();
+    bytes.extend_from_slice(&(data.len() as u32).to_le_bytes());
+    bytes.extend_from_slice(&1u32.to_le_bytes());
+    bytes.extend_from_slice(&0u32.to_le_bytes());
+    bytes.extend(data);
+    bytes
+}
+
+#[test]
+fn localized_choice_and_shared_response_keep_distinct_winning_owners() {
+    let root = std::env::temp_dir().join(format!("soe-dialogue-localized-{}", std::process::id()));
+    std::fs::create_dir_all(root.join("Strings")).unwrap();
+    for (stem, prompt, response) in [
+        ("Dialogue", "Wrong base prompt", "Wrong base response"),
+        (
+            "Override",
+            "Winning topic prompt",
+            "Winning shared response",
+        ),
+    ] {
+        for (extension, text, prefixed) in
+            [("strings", prompt, false), ("ilstrings", response, true)]
+        {
+            std::fs::write(
+                root.join(format!("Strings/{stem}_english.{extension}")),
+                localized_table(text, prefixed),
+            )
+            .unwrap();
+        }
+    }
+    let mut base = plugin(vec![
+        info(INFO, 0, &[], true).sub(T(b"DNAM"), SHARED.to_le_bytes())
+    ]);
+    base.header.flags |= soe_esm::plugin::flags::LOCALIZED;
+    add_topic(
+        &mut base,
+        topic(LINKED_TOPIC, OTHER_QUEST),
+        vec![info(SHARED, 0, &["Unused"], false)],
+        false,
+    );
+    let mut patch = Plugin::new(FileHeader {
+        flags: soe_esm::plugin::flags::LOCALIZED,
+        masters: vec!["Dialogue.esm".into()],
+        ..FileHeader::default()
+    });
+    let localized_topic = |form: u32, quest: u32| {
+        Record::new(T(b"DIAL"), form)
+            .sub(T(b"FULL"), 1u32.to_le_bytes())
+            .sub(T(b"QNAM"), quest.to_le_bytes())
+            .sub(T(b"BNAM"), (form + 0x1000).to_le_bytes())
+            .sub(T(b"DATA"), [0, 0, 0, 0])
+            .sub(T(b"SNAM"), *b"CUST")
+            .sub(T(b"PNAM"), 50.0f32.to_le_bytes())
+    };
+    add_topic(&mut patch, localized_topic(TOPIC, QUEST), vec![], false);
+    let mut response = vec![0; 24];
+    response[12] = 1;
+    add_topic(
+        &mut patch,
+        localized_topic(LINKED_TOPIC, OTHER_QUEST),
+        vec![info(SHARED, 0, &[], false)
+            .sub(T(b"TRDT"), response)
+            .sub(T(b"NAM1"), 1u32.to_le_bytes())],
+        false,
+    );
+    let mut order = LoadOrder::new();
+    order.add("Dialogue.esm", base).unwrap();
+    order.add("Override.esp", patch).unwrap();
+    let mut game = game_with_order(order);
+    let report = game.load_scripts_from_data(&root);
+    assert!(report.scripts_failed.is_empty());
+    open(&mut game);
+    assert_eq!(
+        game.dialogue_choices().unwrap().available[0]
+            .prompt
+            .as_deref(),
+        Some("Winning topic prompt")
+    );
+    let line = game.choose_dialogue(id(TOPIC)).unwrap().unwrap();
+    assert_eq!(line.text.as_deref(), Some("Winning shared response"));
+    assert_eq!(line.info, id(INFO));
+    assert_eq!(line.response_info, id(SHARED));
+    assert_eq!(counter(&mut game, "begins"), 1);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn mixed_case_interface_archive_errors_reach_load_report() {
+    let root = std::env::temp_dir().join(format!("soe-dialogue-archive-{}", std::process::id()));
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::write(root.join("Dialogue - iNtErFaCe.BSA"), b"invalid archive").unwrap();
+    let mut game = game(plugin(vec![]));
+    let report = game.load_scripts_from_data(&root);
+    assert_eq!(report.scripts_failed.len(), 1);
+    assert!(report.scripts_failed[0]
+        .0
+        .ends_with("Dialogue - iNtErFaCe.BSA"));
+    std::fs::remove_dir_all(root).unwrap();
+}
+
 #[test]
 fn goodbye_closes_only_after_the_last_response_and_end_fragment() {
     let mut game = game(plugin(vec![info(INFO, 1, &["Bye"], true)]));
@@ -760,17 +867,36 @@ fn installed_dialogue_preserves_ownership_fragments_and_order() {
     for choice in &choices.available {
         eprintln!("  offered {:?}: {:?}", choice.topic, choice.prompt);
     }
+    assert!(
+        choices
+            .available
+            .iter()
+            .filter_map(|choice| choice.prompt.as_deref())
+            .any(|prompt| !prompt.starts_with("<string ")),
+        "localized shipped dialogue choices stayed unresolved"
+    );
     let rumors = game
         .world()
         .form("WhiterunInnkeeperRumorsBranchTopic")
         .unwrap();
-    assert!(choices
+    let rumor_choice = choices
         .available
         .iter()
-        .any(|choice| choice.topic == rumors));
+        .find(|choice| choice.topic == rumors)
+        .unwrap();
+    assert_eq!(
+        rumor_choice.prompt.as_deref(),
+        Some("Give me the latest gossip.")
+    );
     let before_traces = game.traces().len();
     let before_calls: u64 = game.vm.natives.calls.values().sum();
     let mut line = game.choose_dialogue(rumors).unwrap();
+    assert!(
+        line.as_ref()
+            .and_then(|line| line.text.as_deref())
+            .is_some_and(|text| !text.starts_with("<string ")),
+        "rumors response stayed unresolved"
+    );
     let mut responses = 0;
     while let Some(response) = line {
         responses += 1;

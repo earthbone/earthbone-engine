@@ -1281,6 +1281,7 @@ dependencies = [
 name = "soe-esm"
 version = "0.1.0"
 dependencies = [
+ "encoding_rs",
  "flate2",
  "proptest",
  "soe-trace",

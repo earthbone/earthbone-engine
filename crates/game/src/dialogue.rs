@@ -7,7 +7,6 @@
 use std::collections::BTreeMap;
 
 use soe_esm::records::gameplay::{DialogueInfo, DialogueTopic, Response};
-use soe_esm::records::Text;
 use soe_esm::{GlobalFormId, Tag};
 use soe_papyrus::{Value, VmError};
 
@@ -62,7 +61,7 @@ struct Candidates {
 pub struct Choice {
     pub topic: GlobalFormId,
     pub info: GlobalFormId,
-    pub prompt: Option<Text>,
+    pub prompt: Option<String>,
     pub quest_priority: u8,
     pub topic_priority: f32,
 }
@@ -76,6 +75,7 @@ pub struct Line {
     pub speaker: GlobalFormId,
     pub listener: GlobalFormId,
     pub response: Response,
+    pub text: Option<String>,
     pub sound: Option<GlobalFormId>,
     pub speaker_idle: Option<GlobalFormId>,
     pub listener_idle: Option<GlobalFormId>,
@@ -303,10 +303,19 @@ impl Game {
                     infos,
                 }) => {
                     if let Some((info, data)) = infos.first() {
+                        let prompt = match (&data.prompt, &topic_data.name) {
+                            (Some(text), _) => {
+                                Some(self.world.borrow().resolve_text(*info, Tag(*b"RNAM"), text))
+                            }
+                            (None, Some(text)) => {
+                                Some(self.world.borrow().resolve_text(topic, Tag(*b"FULL"), text))
+                            }
+                            (None, None) => None,
+                        };
                         out.available.push(Choice {
                             topic,
                             info: *info,
-                            prompt: data.prompt.clone().or(topic_data.name),
+                            prompt,
                             quest_priority,
                             topic_priority: topic_data.priority.unwrap_or(50.0),
                         });
@@ -566,6 +575,10 @@ impl Game {
                 world.resolve_from(response_info, raw)
             }
         };
+        let text = response
+            .text
+            .as_ref()
+            .map(|text| world.resolve_text(response_info, Tag(*b"NAM1"), text));
         Ok(Some(Line {
             topic,
             info,
@@ -576,6 +589,7 @@ impl Game {
             speaker_idle: response.speaker_idle.and_then(resolve),
             listener_idle: response.listener_idle.and_then(resolve),
             response,
+            text,
         }))
     }
 
