@@ -14,12 +14,16 @@ use crate::units::{direction_to_godot, GodotPos, SkyrimPos};
 /// How a shape wants to be shaded, as far as a first-pass
 /// `StandardMaterial3D` can honour it. Texture paths are the NIF's own,
 /// relative to `Data/`, and are resolved by the asset layer, not here.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct MaterialDesc {
     pub diffuse: Option<String>,
     pub normal: Option<String>,
     pub glow: Option<String>,
+    pub emissive_color: [f32; 3],
+    pub emissive_multiple: f32,
     pub environment: Option<String>,
+    pub environment_mask: Option<String>,
+    pub environment_scale: f32,
     /// BSLightingShaderProperty shader flags 1 and 2, verbatim. The mapping
     /// to material features happens in the Godot layer, where the feature
     /// set is known.
@@ -30,7 +34,44 @@ pub struct MaterialDesc {
     pub double_sided: bool,
 }
 
+impl Default for MaterialDesc {
+    fn default() -> Self {
+        Self {
+            diffuse: None,
+            normal: None,
+            glow: None,
+            emissive_color: [0.0; 3],
+            emissive_multiple: 1.0,
+            environment: None,
+            environment_mask: None,
+            environment_scale: 1.0,
+            shader_flags_1: 0,
+            shader_flags_2: 0,
+            alpha: AlphaMode::default(),
+            double_sided: false,
+        }
+    }
+}
+
 impl MaterialDesc {
+    /// The cubemap slot is active only for authored environment mapping.
+    pub fn environment_texture(&self) -> Option<&str> {
+        (self.shader_flags_1 & soe_nif::blocks::flags1::ENVIRONMENT_MAPPING != 0)
+            .then_some(self.environment.as_deref())
+            .flatten()
+    }
+
+    /// Slot two is a glow map only with SLSF2_Glow_Map. Skin uses the same slot.
+    pub fn glow_texture(&self) -> Option<&str> {
+        (self.shader_flags_2 & soe_nif::blocks::flags2::GLOW_MAP != 0)
+            .then_some(self.glow.as_deref())
+            .flatten()
+    }
+
+    pub fn emits_light(&self) -> bool {
+        self.emissive_multiple > 0.0 && self.emissive_color.iter().any(|channel| *channel > 0.0)
+    }
+
     /// Decals need a depth offset, with their authored depth test/write flags.
     pub fn decal_depth(&self) -> Option<(bool, bool)> {
         use soe_nif::blocks::{flags1, flags2};
@@ -50,12 +91,18 @@ pub enum AlphaMode {
     Blend,
 }
 
-/// Every feature consumed by the host's standard material builder.
+/// Every feature consumed by the host's material builders.
 /// Texture upload identity is separate from alpha and culling state.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct MaterialKey {
+    pub environment: Option<String>,
+    pub environment_mask: Option<String>,
+    pub environment_scale: u32,
     pub diffuse: Option<String>,
     pub normal: Option<String>,
+    pub glow: Option<String>,
+    pub emissive_color: [u32; 3],
+    pub emissive_multiple: u32,
     alpha: AlphaMode,
     double_sided: bool,
     decal_depth: Option<(bool, bool)>,
@@ -64,8 +111,14 @@ pub struct MaterialKey {
 impl From<&MaterialDesc> for MaterialKey {
     fn from(material: &MaterialDesc) -> Self {
         Self {
+            environment: material.environment_texture().map(str::to_lowercase),
+            environment_mask: material.environment_mask.as_deref().map(str::to_lowercase),
+            environment_scale: material.environment_scale.to_bits(),
             diffuse: material.diffuse.as_deref().map(str::to_lowercase),
             normal: material.normal.as_deref().map(str::to_lowercase),
+            glow: material.glow_texture().map(str::to_lowercase),
+            emissive_color: material.emissive_color.map(f32::to_bits),
+            emissive_multiple: material.emissive_multiple.to_bits(),
             alpha: material.alpha,
             double_sided: material.double_sided,
             decal_depth: material.decal_depth(),
@@ -518,6 +571,25 @@ mod material_key_tests {
             }
         }
         assert_eq!(keys.len(), 5);
+    }
+
+    #[test]
+    fn emission_color_and_glow_path_keep_distinct_materials() {
+        let base = MaterialDesc {
+            glow: Some("Textures\\Glow.dds".into()),
+            emissive_color: [1.0, 0.0, 0.0],
+            shader_flags_2: soe_nif::blocks::flags2::GLOW_MAP,
+            ..Default::default()
+        };
+        let mut other_color = base.clone();
+        other_color.emissive_color = [0.0, 1.0, 0.0];
+        let mut other_map = base.clone();
+        other_map.glow = Some("textures\\other.dds".into());
+        assert_ne!(MaterialKey::from(&base), MaterialKey::from(&other_color));
+        assert_ne!(MaterialKey::from(&base), MaterialKey::from(&other_map));
+        let mut lower = base.clone();
+        lower.glow = lower.glow.map(|path| path.to_lowercase());
+        assert_eq!(MaterialKey::from(&base), MaterialKey::from(&lower));
     }
 
     #[test]

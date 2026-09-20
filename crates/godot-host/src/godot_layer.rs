@@ -16,11 +16,13 @@ use std::path::Path;
 use std::sync::Arc;
 use std::thread::JoinHandle;
 
-use godot::classes::base_material_3d::{CullMode, Feature, TextureParam, Transparency};
+use godot::classes::base_material_3d::{
+    CullMode, EmissionOperator, Feature, TextureParam, Transparency,
+};
 use godot::classes::image::Format;
 use godot::classes::mesh::{ArrayType, PrimitiveType};
 use godot::classes::{
-    ArrayMesh, INode3D, Image, ImageTexture, Material, Node3D, RenderingServer, Shader,
+    ArrayMesh, Cubemap, INode3D, Image, ImageTexture, Material, Node3D, RenderingServer, Shader,
     ShaderMaterial, StandardMaterial3D,
 };
 use godot::prelude::*;
@@ -651,6 +653,7 @@ impl CellStreamerNode {
 struct MaterialMap {
     materials: std::collections::HashMap<crate::mesh::MaterialKey, Gd<Material>>,
     textures: std::collections::HashMap<String, Gd<ImageTexture>>,
+    cubemaps: std::collections::HashMap<String, Gd<Cubemap>>,
 }
 
 impl MaterialMap {
@@ -671,28 +674,33 @@ fn material_for(
     if let Some(existing) = cache.materials.get(&key) {
         return existing.clone();
     }
-    let material: Gd<Material> = if desc.decal_depth().is_some() {
-        decal_material(desc, textures, &mut cache.textures).upcast()
-    } else {
-        material_with_textures(desc, textures, &mut cache.textures).upcast()
-    };
+    let material: Gd<Material> =
+        if desc.decal_depth().is_some() || desc.environment_texture().is_some() {
+            decal_material(desc, textures, &mut cache.textures, &mut cache.cubemaps).upcast()
+        } else {
+            material_with_textures(desc, textures, &mut cache.textures).upcast()
+        };
     cache.materials.insert(key, material.clone());
     material
 }
 
-/// Mesh decals use the same textures and lighting inputs as the standard path.
-/// OpenMW's handleDecal is the offset reference. Godot 4.4+ uses reverse Z, so
-/// positive depth bias brings the fragment forward without moving its vertices.
+/// Shader materials add authored cubemap reflection or mesh decal depth state.
+/// Community Shaders supplies the cubemap, red mask and normal alpha contract.
+/// OpenMW's handleDecal is the depth reference. Positive reverse-Z bias brings
+/// a decal forward without moving its vertices.
 fn decal_material(
     desc: &MaterialDesc,
     textures: &SurfaceTextures,
     cache: &mut std::collections::HashMap<String, Gd<ImageTexture>>,
+    cubemaps: &mut std::collections::HashMap<String, Gd<Cubemap>>,
 ) -> Gd<ShaderMaterial> {
     let mut shader = Shader::new_gd();
     shader.set_code(&decal_shader(desc));
     let mut material = ShaderMaterial::new_gd();
     material.set_shader(&shader);
-    material.set_render_priority(1);
+    if desc.decal_depth().is_some() {
+        material.set_render_priority(1);
+    }
     if let Some(data) = &textures.diffuse {
         if let Some(texture) = cached_texture(cache, desc.diffuse.as_deref(), data) {
             material.set_shader_parameter("albedo_texture", &texture.to_variant());
@@ -704,12 +712,46 @@ fn decal_material(
             material.set_shader_parameter("has_normal", &true.to_variant());
         }
     }
+    let color = Color::from_rgb(
+        desc.emissive_color[0],
+        desc.emissive_color[1],
+        desc.emissive_color[2],
+    );
+    material.set_shader_parameter("emission_color", &color.to_variant());
+    material.set_shader_parameter("emission_strength", &desc.emissive_multiple.to_variant());
+    if let Some(data) = &textures.glow {
+        if let Some(texture) = cached_texture(cache, desc.glow_texture(), data) {
+            material.set_shader_parameter("glow_texture", &texture.to_variant());
+        }
+    }
+    if let (Some(path), Some(data)) = (desc.environment_texture(), &textures.environment) {
+        let key = soe_bsa::normalize(path);
+        let cube = cubemaps.get(&key).cloned().or_else(|| {
+            let cube = cubemap_from(data)?;
+            cubemaps.insert(key, cube.clone());
+            Some(cube)
+        });
+        if let Some(cube) = cube {
+            material.set_shader_parameter("environment_texture", &cube.to_variant());
+            material
+                .set_shader_parameter("environment_scale", &desc.environment_scale.to_variant());
+            material.set_shader_parameter("has_environment", &true.to_variant());
+        }
+    }
+    if let Some(data) = &textures.environment_mask {
+        if let Some(texture) = cached_texture(cache, desc.environment_mask.as_deref(), data) {
+            material.set_shader_parameter("environment_mask", &texture.to_variant());
+            material.set_shader_parameter("has_environment_mask", &true.to_variant());
+        }
+    }
     material
 }
 
 fn decal_shader(desc: &MaterialDesc) -> String {
     let (test, write) = desc.decal_depth().unwrap_or((true, false));
-    let depth = if write {
+    let depth = if desc.decal_depth().is_none() {
+        "depth_draw_opaque"
+    } else if write {
         "depth_draw_always"
     } else {
         "depth_draw_never"
@@ -721,12 +763,15 @@ fn decal_shader(desc: &MaterialDesc) -> String {
     };
     let test = if test { "" } else { ", depth_test_disabled" };
     let alpha = match desc.alpha {
-        AlphaMode::Opaque => "ALPHA = 1.0;".into(),
+        AlphaMode::Opaque => String::new(),
         AlphaMode::Blend => "ALPHA = color.a;".into(),
-        AlphaMode::Cutout(t) => format!(
-            "if (color.a < {}) {{ discard; }} ALPHA = 1.0;",
-            f32::from(t) / 255.0
-        ),
+        AlphaMode::Cutout(t) => format!("if (color.a < {}) {{ discard; }}", f32::from(t) / 255.0),
+    };
+    let offset = if desc.decal_depth().is_some() {
+        "float slope = max(abs(dFdx(FRAGCOORD.z)), abs(dFdy(FRAGCOORD.z)));
+    DEPTH = min(1.0, FRAGCOORD.z + 0.65 * slope + 0.0000001);"
+    } else {
+        ""
     };
     format!(
         "shader_type spatial;
@@ -734,14 +779,35 @@ render_mode {depth}, {cull}{test};
 uniform sampler2D albedo_texture : source_color, hint_default_white, filter_linear_mipmap_anisotropic, repeat_enable;
 uniform sampler2D normal_texture : hint_normal, filter_linear_mipmap_anisotropic, repeat_enable;
 uniform bool has_normal = false;
+uniform sampler2D glow_texture : source_color, hint_default_white, filter_linear_mipmap_anisotropic, repeat_enable;
+uniform vec4 emission_color : source_color = vec4(0.0, 0.0, 0.0, 1.0);
+uniform float emission_strength = 1.0;
+uniform samplerCube environment_texture : source_color, hint_default_black, filter_linear_mipmap;
+uniform sampler2D environment_mask : hint_default_white, filter_linear_mipmap_anisotropic, repeat_enable;
+uniform float environment_scale = 1.0;
+uniform bool has_environment = false;
+uniform bool has_environment_mask = false;
 void fragment() {{
     vec4 color = texture(albedo_texture, UV);
     ALBEDO = color.rgb;
     ROUGHNESS = 1.0;
-    if (has_normal) {{ NORMAL_MAP = texture(normal_texture, UV).rgb; }}
+    vec4 normal_sample = texture(normal_texture, UV);
+    vec3 reflection_normal = NORMAL;
+    if (has_normal) {{
+        NORMAL_MAP = normal_sample.rgb;
+        vec2 tangent_xy = normal_sample.xy * 2.0 - 1.0;
+        vec3 tangent_normal = vec3(tangent_xy, sqrt(max(0.0, 1.0 - dot(tangent_xy, tangent_xy))));
+        reflection_normal = normalize(mat3(TANGENT, BINORMAL, NORMAL) * tangent_normal);
+    }}
+    EMISSION = emission_color.rgb * emission_strength * texture(glow_texture, UV).rgb;
+    if (has_environment) {{
+        float mask = has_environment_mask ? texture(environment_mask, UV).r : normal_sample.a;
+        vec3 world_reflection = mat3(INV_VIEW_MATRIX) * reflect(-VIEW, reflection_normal);
+        vec3 skyrim_reflection = vec3(world_reflection.x, -world_reflection.z, world_reflection.y);
+        EMISSION += texture(environment_texture, skyrim_reflection).rgb * environment_scale * mask;
+    }}
     {alpha}
-    float slope = max(abs(dFdx(FRAGCOORD.z)), abs(dFdy(FRAGCOORD.z)));
-    DEPTH = min(1.0, FRAGCOORD.z + 0.65 * slope + 0.0000001);
+    {offset}
 }}"
     )
 }
@@ -795,6 +861,22 @@ fn material_with_textures(
         }
     }
 
+    if material.emits_light() {
+        mat.set_feature(Feature::EMISSION, true);
+        mat.set_emission(Color::from_rgb(
+            material.emissive_color[0],
+            material.emissive_color[1],
+            material.emissive_color[2],
+        ));
+        mat.set_emission_energy_multiplier(material.emissive_multiple);
+        if let Some(glow) = &textures.glow {
+            if let Some(texture) = cached_texture(cache, material.glow_texture(), glow) {
+                mat.set_emission_operator(EmissionOperator::MULTIPLY);
+                mat.set_texture(TextureParam::EMISSION, &texture);
+            }
+        }
+    }
+
     match material.alpha {
         AlphaMode::Opaque => {}
         AlphaMode::Cutout(threshold) => {
@@ -819,12 +901,29 @@ fn material_with_textures(
 /// every minified sample of a 2048 square texture misses the texture cache.
 /// `None` only if `Image::create_from_data` refuses the base level too.
 fn image_texture_from(texture: &TextureData) -> Option<Gd<ImageTexture>> {
+    ImageTexture::create_from_image(&image_from_texture(texture)?)
+}
+
+fn cubemap_from(texture: &TextureData) -> Option<Gd<Cubemap>> {
+    let TextureData::Cubemap(faces) = texture else {
+        return None;
+    };
+    let mut images = Array::<Gd<Image>>::new();
+    for face in faces.iter() {
+        images.push(&image_from_texture(face)?);
+    }
+    let mut cube = Cubemap::new_gd();
+    (cube.create_from_images(&images) == godot::global::Error::OK).then_some(cube)
+}
+
+fn image_from_texture(texture: &TextureData) -> Option<Gd<Image>> {
     let _span = soe_trace::Span::with_payload(
         "host.upload_texture",
         "host",
         u64::from(texture.width() * texture.height()),
     );
     let godot_image = match texture {
+        TextureData::Cubemap(_) => return None,
         TextureData::Compressed {
             width,
             height,
@@ -868,7 +967,7 @@ fn image_texture_from(texture: &TextureData) -> Option<Gd<ImageTexture>> {
             godot_image
         }
     };
-    ImageTexture::create_from_image(&godot_image)
+    Some(godot_image)
 }
 
 /// An `ArrayMesh` with one triangle surface from converted arrays. The

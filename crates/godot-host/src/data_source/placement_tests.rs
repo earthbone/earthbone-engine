@@ -2,8 +2,7 @@
 
 //! Placed-model transforms checked with the NIF crate's independent fixture writer.
 
-#[path = "../../../nif/tests/common/mod.rs"]
-mod fixture;
+use super::fixture;
 
 use fixture::{quad, NifWriter, ROT_Z_90};
 use soe_nif::{blocks::Block, vertex::attr, BlockRef, Transform, Vec3};

@@ -238,13 +238,33 @@ impl NifWriter {
         texture_set: i32,
         tail: &[f32],
     ) -> Vec<u8> {
+        self.lighting_shader_emission(
+            shader_type,
+            flags1,
+            flags2,
+            texture_set,
+            [0.0, 0.0, 0.0, 1.0],
+            tail,
+        )
+    }
+
+    /// Lighting shader with authored emissive RGB and strength.
+    pub fn lighting_shader_emission(
+        &mut self,
+        shader_type: u32,
+        flags1: u32,
+        flags2: u32,
+        texture_set: i32,
+        emission: [f32; 4],
+        tail: &[f32],
+    ) -> Vec<u8> {
         let mut b = Buf::default();
         b.u32(shader_type);
         self.object_net(&mut b, "", &[]);
         b.u32(flags1).u32(flags2);
         b.floats(&[0.0, 0.0, 1.0, 1.0]);
         b.i32(texture_set);
-        b.floats(&[0.0, 0.0, 0.0, 1.0]);
+        b.floats(&emission);
         if self.bs_version >= 130 {
             b.u32(u32::MAX);
         }
