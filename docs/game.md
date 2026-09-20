@@ -1417,3 +1417,60 @@ snapshot test checks order, fade weights and clearing on world replacement.
 MAG-71 separately owns authored color, blur, depth and HDR curve evaluation
 and rendering. MAG-25 adds no visible post-processing and claims no rendered
 parity with Skyrim.
+
+## Image-space rendering prerequisite audit, MAG-71
+
+MAG-71 is blocked on MAG-25 and MAG-72. Its acceptance check still requires
+rendered animated color, blur, depth and HDR fixtures at the active stack
+weights. MAG-72 owns the missing shared base image-space inputs and renderer.
+No curve evaluator or partial rendering path was added by this audit.
+
+The local xEdit `Core/wbDefinitionsTES5.pas` IMGS and IMAD definitions,
+`Core/wbDefinitionsCommon.pas` interpolation and weather helpers, and Mutagen
+`Records/Major Records/ImageSpaceAdapter.xml` and `.cs` establish the layouts.
+IMAD DNAM contains key counts, target flags and fixed radial-blur centers.
+Scalar curves store time/value pairs. Tint and fade store time plus RGBA.
+The first byte of each IAD subrecord signature is a numeric channel code,
+including non-printable values. HDR and cinematic channels have separate
+multiply and add curves. These are modifiers of base image-space parameters.
+CommonLibSSE-NG `include/RE/I/ImageSpaceData.h` separates base IMGS data from
+modifier-only fade and blur data. `ImageSpaceManager.h` retains current,
+override and underwater base data alongside the combined result.
+
+`examples/imad_curve_survey.rs` uses the existing load-order reader and xEdit
+field layouts. Run it with `SKYRIM_DATA` set through
+`cargo run -p soe-game --example imad_curve_survey`. It surveys the five
+installed masters in their normal order and ignores deleted winning records.
+The 2026-09-20 run found 225 IMAD records, including 153 animated records,
+and 293 IMGS records. All 55 curve arrays in every IMAD had at least two keys,
+with finite values, matching DNAM counts and no descending key times.
+Non-neutral values occur in 143 blur-radius curves, 160 radial-strength
+curves, 16 double-vision curves, 8 motion-blur curves and 29 DOF-strength
+curves. Tint alpha is nonzero in 160 records and fade alpha in 130.
+These counts describe authored data, not successful rendering.
+
+The base dependency is used by the installed corpus. Non-neutral multiply
+curves occur in 74 bloom-scale records, 29 sky-scale records, 15 sunlight-scale
+records and 70 brightness records. The survey resolves 875 CELL/XCIM links
+to 49 distinct IMGS records and 432 WTHR/IMSP links from 108 weather records
+to 227 distinct IMGS records. xEdit defines the four weather image spaces as
+sunrise, day, sunset and night. The game and host currently have no consumer
+for these selected base values. MAG-72 must resolve winning records through
+their owning load-order namespace and expose the resulting shared base state.
+Its weather input is an explicitly selected weather and time blend.
+Autonomous climate selection, weather scheduling and Papyrus weather natives
+are outside that row. SCR-54 needs the owning weather API before binding
+`Weather.SetActive`, which is still a quiet stub.
+
+Several rendering contracts need further evidence within MAG-71. The local
+UESP `IMAD.wikitext` describes normalized times but leaves interpolation
+unspecified. The corpus contains 39 key timestamps outside zero to one.
+Five pairs labelled unused by xEdit contain non-neutral values in
+`ISMExterior`. CommonLib's `TESImageSpaceModifier.h` supplies interpolator
+storage, while `ImageSpaceModifierInstanceForm.h` calls binary entry points
+instead of defining interpolation or weighted composition. Target flags are
+set in 84 radial-blur records and 4 DOF records. The instance type stores a
+scene target, but the five Papyrus natives expose no target argument.
+Fallback target behavior, curve interpolation, unused channels and exact
+strength composition are not recovered contracts. They must not be inferred
+from similarly named Godot properties or a linear crossfade weight test.
