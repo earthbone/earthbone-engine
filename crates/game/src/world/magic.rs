@@ -12,6 +12,8 @@ use soe_papyrus::ObjectId;
 
 use crate::actor_values::actor_value_name;
 
+use crate::conditions::{self, Context};
+
 use super::{Alloc, Handle, Pending, World};
 
 mod state;
@@ -54,6 +56,8 @@ pub enum MagicError {
     Missing(GlobalFormId),
     #[error("invalid magic record: {0}")]
     Record(#[from] soe_esm::Error),
+    #[error("magic effect condition: {0}")]
+    Condition(#[from] conditions::Error),
     #[error("unsupported magic behavior: {0}")]
     Unsupported(&'static str),
     #[error("spell requires an actor target")]
@@ -106,7 +110,7 @@ impl World {
     ///
     /// # Errors
     ///
-    /// Returns an error before applying any effect when delivery, conditions,
+    /// Returns an error before applying any effect when delivery,
     /// hit resolution or an archetype needs an execution path not yet available.
     pub fn cast_spell(
         &mut self,
@@ -140,8 +144,22 @@ impl World {
                 .ok_or(MagicError::Missing(spell))?;
             let base = self.magic_effect(effect)?;
             let data = &base.data;
-            if !entry.conditions.is_empty() || !base.conditions.is_empty() {
-                return Err(MagicError::Unsupported("magic condition evaluation"));
+            let context = Context {
+                owner: spell,
+                subject: target,
+                target: caster,
+                quest: None,
+                tempering_enchanted: None,
+            };
+            if !conditions::evaluate_without_vm(self, context, &entry.conditions)? {
+                continue;
+            }
+            let context = Context {
+                owner: effect,
+                ..context
+            };
+            if !conditions::evaluate_without_vm(self, context, &base.conditions)? {
+                continue;
             }
             if data.flags & HOSTILE != 0 {
                 return Err(MagicError::Unsupported("hostile hit resolution"));
