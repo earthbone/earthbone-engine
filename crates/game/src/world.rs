@@ -43,6 +43,7 @@ mod combat;
 mod death;
 mod doorway;
 mod driver;
+mod encounter_zones;
 mod events;
 mod forms;
 pub mod hash;
@@ -409,6 +410,7 @@ pub struct World {
     factions: HashMap<GlobalFormId, FactionState>,
     actor_bases: HashMap<GlobalFormId, ActorBaseState>,
     cells: HashMap<GlobalFormId, CellState>,
+    encounter_levels: BTreeMap<GlobalFormId, u16>,
     /// The cell whose temporary references are resident, set by a transition.
     /// See `crate::world::transition`.
     loaded_cell: Option<GlobalFormId>,
@@ -519,6 +521,7 @@ impl World {
             factions: HashMap::new(),
             actor_bases: HashMap::new(),
             cells: HashMap::new(),
+            encounter_levels: BTreeMap::new(),
             loaded_cell: None,
             streamed_cells: std::collections::HashSet::new(),
             pending_unload: None,

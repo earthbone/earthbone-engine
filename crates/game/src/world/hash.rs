@@ -604,6 +604,11 @@ impl World {
             form(h, *id);
             cell_state(h, c);
         });
+        h.len(self.encounter_levels.len());
+        for (id, level) in &self.encounter_levels {
+            form(&mut h, *id);
+            h.u16(*level);
+        }
         let forms = h.finish();
 
         let mut h = StateHasher::new();

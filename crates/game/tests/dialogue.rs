@@ -605,7 +605,7 @@ fn old_world_save_starts_without_dialogue_state() {
     let mut game = game(plugin(vec![info(INFO, 0, &["New conversation"], false)]));
     let mut old = game.world().save_state();
     // CONTEXT: Legacy state ends before the empty dialogue and magic tables.
-    old.truncate(old.len() - 37);
+    old.truncate(old.len() - 41);
     old[4..6].copy_from_slice(&4u16.to_le_bytes());
     open(&mut game);
     game.choose_dialogue(id(TOPIC)).unwrap();

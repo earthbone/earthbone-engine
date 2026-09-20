@@ -645,7 +645,7 @@ notification fired, and the alias resolved to the lever.
 ## Not done, and known gaps
 
 - Race starting attributes are read. Live class/level calculations, racial
-  skill bonuses and encounter-zone selection context remain unfinished. Runtime
+  skill bonuses and XLCM actor difficulty selection remain unfinished. Runtime
   template groups share persistent leveled choices, with the remaining
   inheritance boundaries documented in [actor-values.md](actor-values.md).
 - Weapon combat remains unfinished. Dialogue and magic have the limited
@@ -1417,3 +1417,50 @@ The inventory_references fixtures check loose pickup, quantity-three pickup,
 exact-stack transfer, adjacent plain items, notification identity, consumed
 references, partial splits, overflow, Papyrus calls, legacy-save migration,
 metadata hashing, stable save bytes and atomic rejection of corrupt saves.
+
+## Encounter-zone selection levels
+
+`World::encounter_level` reads a receiver's explicit XEZN, current parent cell
+and containing worldspace, in that order. Missing zones and the hardcoded
+NoZoneZone identity, Skyrim.esm form 00001E, use current player level. The query
+does not initialize references, consume RNG, lock zones or add level variance.
+The result is at least one and does not apply an additional player-level clamp.
+
+Zone calculation reads winning ECZN DATA and live `fLevelScalingMult`. Below
+the minimum, Match PC Below Minimum preserves the player level, otherwise the
+minimum is used. At or above the minimum, the runtime calculates minimum plus
+player-minus-minimum times the scaling multiplier, then truncates. A nonzero
+maximum caps that result. The executable default multiplier is 0.6. The runtime
+reads min/max bytes as unsigned despite the signed declarations in xEdit and
+CommonLib. Zero is the unlocked sentinel, so a calculation of zero remains
+unlocked even though the public level query returns one.
+
+`load_cell` and `attach_cell` lock their zone before loading references or
+queuing transition events. Invalid zone data prevents that entry. Prefetch and
+ordinary queries do not lock a zone. Placed actors and dynamically placed actors
+feed the zone level into existing leveled-template selection. Template choices
+retain their existing once-per-reference lifetime. If the player level changes
+between prefetch and entry, prefetched actors retain the earlier selection even
+when entry locks a different zone level. Refreshing unobserved prefetched actors
+is not implemented. Zone locks survive unloading
+and later entry. Explicit `enter_encounter_zone` provides a fallible entry API.
+SOEW version 17 appends sorted zone locks after the version-16 item extension,
+rejects duplicate or invalid locks before changing state, and reads older saves
+with an empty lock table. Zone locks contribute to the form-state hash.
+
+Sources are local xEdit ECZN/XEZN declarations, UESP ECZN and CommonLib
+`BGSEncounterZone.h`, plus primary CK
+[Encounter Zone](https://ck.uesp.net/wiki/Encounter_Zone) documentation.
+The installed SkyrimSE executable, SHA256
+`846efccf0c1374d71f892907f46549560f2fcb0a75cb87a3eed438baa0f1402f`, supplied
+read-only checks of zone lookup at `0x140300ab0`, receiver level at
+`0x140300b90`, scaling at `0x14028f9e0`, locking at `0x14028fa70`, and the
+NoZoneZone identity constructor at `0x14028fd93`. No executable bytes or
+proprietary code were copied. PRG-03 is not a dependency: the existing template
+selection already accepts an explicit level without computing NPC attributes.
+
+This work supplies zone levels to the existing LVLF selection rules. The CK
+LeveledCharacter page also describes XLCM difficulty-specific selection,
+including Easy weighting and Very Hard tier advancement. Those selector rules
+are a separate gap. Zone reset and lock clearing remain owned by PRG-10.
+Importing vanilla ESS encounter-zone changes is outside this selection contract.

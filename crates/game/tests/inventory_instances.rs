@@ -158,7 +158,7 @@ fn engine_save_retains_every_stack_field_and_failed_load_is_atomic() {
         .unwrap();
     let hash = w.state_hash();
     let bytes = w.save_state();
-    assert_eq!(u16::from_le_bytes([bytes[4], bytes[5]]), 16);
+    assert_eq!(u16::from_le_bytes([bytes[4], bytes[5]]), 17);
     let mut loaded = world();
     loaded.load_state(&bytes).unwrap();
     assert_eq!(loaded.state_hash(), hash);
@@ -185,7 +185,7 @@ fn version_eleven_counts_load_as_plain_items() {
     let mut w = world();
     w.add_item(id(0x900), id(0x801), 17);
     let mut bytes = w.save_state();
-    bytes.truncate(bytes.len() - 12);
+    bytes.truncate(bytes.len() - 16);
     bytes[4..6].copy_from_slice(&11_u16.to_le_bytes());
     let mut loaded = world();
     loaded.load_state(&bytes).unwrap();

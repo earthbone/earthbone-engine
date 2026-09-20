@@ -68,6 +68,9 @@ impl World {
     /// than on first use. Returns how many were built here, so a reference
     /// already resident is not counted twice.
     pub fn load_cell(&mut self, cell: GlobalFormId) -> usize {
+        if self.enter_cell_zone(cell).is_err() {
+            return 0;
+        }
         let built = self.prefetch_cell(cell);
         self.loaded_cell = Some(cell);
         built
@@ -196,6 +199,13 @@ impl World {
     /// The detach events still fire here, in order, before anything is
     /// dropped. Only the dropping moves.
     pub fn attach_cell(&mut self, to: Option<GlobalFormId>, cold: bool) -> CellTransition {
+        if to.is_some_and(|cell| self.enter_cell_zone(cell).is_err()) {
+            return CellTransition {
+                from: self.loaded_cell,
+                to: self.loaded_cell,
+                ..CellTransition::default()
+            };
+        }
         // At most one cell is ever waiting. A caller that never settles pays
         // for it on its next transition instead of leaking a cell per door.
         self.settle_unload();

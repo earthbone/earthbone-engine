@@ -16,12 +16,11 @@ impl World {
     pub(super) fn load_ref(&mut self, id: GlobalFormId) -> Option<RefState> {
         let mut st = self.load_ref_record(id)?;
         if let Some(base) = st.base {
-            if st.is_actor
-                && !self
-                    .prepare_actor_template(id, base, self.player_level)
-                    .ok()?
-            {
-                st.enabled = false;
+            if st.is_actor {
+                let level = self.encounter_level(id).ok()?;
+                if !self.prepare_actor_template(id, base, level).ok()? {
+                    st.enabled = false;
+                }
             }
             st.inventory = self.reference_inventory(Some(id), base);
         }
@@ -220,12 +219,14 @@ impl World {
         st.cell = cell;
         st.enabled = !disabled;
         st.is_actor = self.tag_of(base) == Some(T(b"NPC_"));
-        if st.is_actor
-            && !self
-                .prepare_actor_template(id, base, self.player_level)
-                .unwrap_or(false)
-        {
-            st.enabled = false;
+        if st.is_actor {
+            let present = self
+                .encounter_level_in_cell(cell)
+                .and_then(|level| self.prepare_actor_template(id, base, level))
+                .unwrap_or(false);
+            if !present {
+                st.enabled = false;
+            }
         }
         st.inventory = self.reference_inventory(Some(id), base);
         st.item = self.loose_item(Some(base), None, None);
