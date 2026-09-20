@@ -179,3 +179,121 @@ directory. The acceptance runs use Linux tmpfs and btrfs. These are injected
 operation failures and actual process terminations, not simulated disk cache
 loss. They do not prove real power-loss behavior on arbitrary devices,
 mount options or remote filesystems.
+
+## SAV-63 verified generations
+
+`GenerationStore` owns one existing, dedicated, trusted directory for native
+SOEG generations. `Game::write_generation` publishes a new generation through
+the SAV-62 atomic writer, then rotates retained files. `select_generation` is
+read-only selection. `recover_generation` selects and validates before loading
+any live world or VM state. These APIs do not implement missing-mod recovery,
+ESS world export or a user-interface choice. SAV-61 owns that choice.
+
+The persistent `.soe-generations.lock` serializes writers and selection.
+Generation files are `generation-NNNNNNNNNNNNNNNNNNNN.soeb`, with a positive
+20-digit decimal `u64` ID. New IDs are one greater than the largest existing
+reserved filename, including damaged candidates. Exhaustion refuses a write.
+Ordering never depends on timestamps or directory enumeration order. There is
+no mutable index to repair after interruption.
+
+Each SOEB version 1 envelope contains a generation ID, native byte length and
+CRC32 over the header fields and payload. A filename/ID mismatch, truncated
+body, trailing bytes or failed checksum is an integrity rejection. This
+checksum detects accidental damage. It does not authenticate hostile edits.
+The existing `crc32fast` game dependency supplies the checksum, with `cfg-if`
+as its only dependency. No dependency or lockfile change was needed.
+
+Integrity and loadability have separate meanings. A checksum-intact candidate
+can still fail the scratch world/VM loaders under the current load order and
+loaded scripts. Selection reports these as `Definitions`, separately from
+`Integrity` damage and `Read` failures. It tries candidates newest first and
+returns the first loadable generation plus the rejected newer candidates.
+Selected bytes are owned in memory, so later file changes cannot alter them.
+Rejected selection does not mutate the game. Selection never rotates or
+removes files, including damaged evidence.
+
+### Retention and interruption
+
+The configured retention limit is 2 to 64 generations. After publishing a new
+file, the writer reads and validates it again, synchronizes that file and the
+store directory, then plans retention. It prefers the newest currently
+loadable generations, followed by intact incompatible generations if slots
+remain. This preserves a compatible older fallback ahead of a newer
+incompatible file. The new generation must remain loadable before pruning
+begins. A failed verification leaves every older generation untouched.
+
+Only after this verification does pruning remove excess or damaged reserved
+generation files, oldest first, with a directory sync after each deletion.
+The successful write keeps at most the configured count. It can keep fewer
+when fewer intact generations exist. It never deletes a retained generation.
+The new durable generation remains protected throughout pruning. If there are
+two loadable candidates, the policy retains at least two.
+
+After pruning, cleanup removes exact protocol artifacts in sorted filename
+order, synchronizing the directory after each removal. Eligible names are
+`.generation-NNNNNNNNNNNNNNNNNNNN.soeb.soe-lock` and that generation's
+`.soe-stage-PID-COUNTER` siblings, optionally ending in `.prior`. The numeric
+components must parse at their specified widths. The store lock excludes any
+active writer using those names. It is never removed. Unrelated files, other
+lock namespaces and near-matching filenames are left alone. Non-regular
+reserved paths are never followed or deleted. An error can therefore leave a
+new published generation and unfinished cleanup, which a retry reports and
+continues. Repeated interruptions can temporarily leave extra generations and
+staging evidence. Bounded retention is the result of a successful rotation.
+
+This requires the same local filesystem and synchronization behavior as
+SAV-62, plus exclusive use of the reserved names inside the dedicated
+directory. External mutation, independent atomic writers targeting generation
+names, hostile symlink replacement and real device failure are outside this
+cooperating-writer model. Rotation is the explicit retention policy for this
+store, not a general save-cleaning operation.
+
+### Host entry points and evidence
+
+`PlayerNode::save_game_generation(directory, retained)` writes its shared
+`Game`, including the latest controller pose. Godot's `ProjectSettings` expands
+`user://` to an OS path. The directory must already exist.
+`recover_game_generation` explicitly loads the selected native state, clears
+stale melee contact state and synchronizes the host pose/resources. Both return
+structured diagnostics with generation IDs represented as strings, preserving
+the full `u64` range. Rejected candidates include their path and reason.
+
+If resource installation fails after native load, the result reports
+`state_loaded: true`, `ok: false` and stops automatic stepping. This does not
+claim atomic replacement of every host resource. Definition failure leaves
+native state unchanged, and no recovery callback is executed during selection.
+Missing-mod continuation and full rendering reconciliation remain separate
+features. The host bindings compile in the complete feature gate. Their
+interactive Godot resource path is not covered by the synthetic Rust suite.
+
+The sources read before this implementation were OpenMW's
+`apps/openmw/mwstate/quicksavemanager.cpp`, `character.cpp` and the quicksave
+caller in `statemanagerimp.cpp`, plus FallrimTools'
+`src/main/java/resaver/ess/ESS.java::makeBackupFile`. OpenMW bounds quicksave
+slots and chooses the oldest by timestamp. Its slot scan reads the SAVE/profile
+header. FallrimTools makes timestamped copies with replacement allowed. Neither
+implements this checksum/loadability distinction or durable verified pruning.
+Godot's local `class_projectsettings.rst` documents path globalization. Its
+saving-games tutorial writes through `FileAccess`, so the host here calls the
+existing atomic native writer for the required persistence ordering.
+
+`crates/game/tests/save_generations.rs` checks checksum damage even when the
+changed payload remains individually loadable, damaged and incompatible
+candidates, unchanged live state on rejection, bounded retention, counter
+exhaustion and exact artifact ownership. Its explicit failure matrix covers
+35 operation occurrences, including the nested atomic writer and each of
+three generation deletions and three artifact deletions. Before/after tests
+inject 70 I/O failures and kill 70 separate writer processes. Every restart
+loads intact native generations independently, selects the newest loadable
+one and completes a bounded retry. Further checks cover publication damage,
+selection I/O failures and lock release after writer termination.
+
+```sh
+cargo test -p soe-game --features save-fault-tests --test save_generations
+```
+
+`SOE_GENERATION_TEST_ROOT` selects an existing owned directory for synthetic
+fixtures. Tests create and remove only their own exclusive child directories.
+The matrix runs on Linux tmpfs and btrfs. This tests injected errors and actual
+process termination, not power-loss cache behavior or arbitrary storage
+hardware. No user save is copied or changed.

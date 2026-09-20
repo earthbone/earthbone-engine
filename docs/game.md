@@ -648,6 +648,13 @@ including read-back validation, file and directory synchronization, a prior
 link during replacement and explicit error paths. Validation executes no
 callbacks and does not mutate the running game.
 
+`GenerationStore` adds [verified native generations](save-resilience.md#sav-63-verified-generations).
+`Game::write_generation` validates a new file before bounded rotation.
+`select_generation` reports damaged or incompatible candidates and returns the
+newest one loadable under the current definitions. `recover_generation` loads
+those verified bytes. Retention preserves loadable fallbacks before intact
+incompatible files, with a minimum configured limit of two generations.
+
 A test in `tests/quest_flow.rs` calls the new `Game::activate_no_settle`
 (the part of `Game::activate` before `run_until_idle`) on the lever so the
 `OnActivate` event is queued but not yet run, saves, loads the bytes into a
