@@ -11,7 +11,7 @@ pub enum Unsupported {
     Wma { format_tag: u16 },
     /// An Ogg Vorbis stream with the `vorbis` feature off.
     Vorbis,
-    /// An Ogg Opus stream with the `opus` feature off.
+    /// An Opus stream with the `opus` feature off or an unsupported mapping.
     Opus,
     /// A `WAVEFORMATEX` tag the crate does not recognise at all.
     WaveFormat(u16),
@@ -29,7 +29,10 @@ impl std::fmt::Display for Unsupported {
                 )
             }
             Self::Vorbis => write!(f, "Ogg Vorbis, the vorbis feature is off"),
-            Self::Opus => write!(f, "Ogg Opus, the opus feature is off"),
+            Self::Opus => write!(
+                f,
+                "Opus, the opus feature is off or the mapping is unsupported"
+            ),
             Self::WaveFormat(tag) => write!(f, "WAVEFORMATEX tag {tag:#06x}"),
             Self::Extension(e) => write!(f, "no reader for extension {e:?}"),
         }

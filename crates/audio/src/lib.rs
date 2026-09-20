@@ -34,6 +34,8 @@ pub mod wma;
 pub mod xwma;
 
 #[cfg(feature = "opus")]
+pub mod nx_opus;
+#[cfg(feature = "opus")]
 pub mod opus;
 #[cfg(feature = "rhubarb")]
 pub mod rhubarb;

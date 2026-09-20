@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! One entry point that turns a data path into samples, whichever of the four
+//! One entry point that turns a data path into samples, whichever of the
 //! containers the file turns out to be.
 //!
 //! This is where the engine's rule lands in code: a vanilla line in a FUZ and
@@ -27,6 +27,8 @@ pub enum Container {
     OggVorbis,
     /// An Ogg carrying Opus.
     OggOpus,
+    /// The Switch port's Skyrim wrapper carrying standard NX Opus.
+    NxOpus,
     /// Nothing this crate reads.
     Unknown,
 }
@@ -39,6 +41,9 @@ pub const EXTENSIONS: [&str; 3] = ["fuz", "xwm", "wav"];
 pub fn sniff(bytes: &[u8]) -> Container {
     if bytes.len() >= 4 && &bytes[..4] == b"FUZE" {
         return Container::Fuz;
+    }
+    if bytes.starts_with(&crate::fuz::NX_OPUS_SIGNATURE) {
+        return Container::NxOpus;
     }
     if bytes.len() >= 12 && &bytes[..4] == b"RIFF" {
         return match &bytes[8..12] {
@@ -177,6 +182,11 @@ impl<'a> SoundSource<'a> {
                 pcm: decode_opus(bytes)?,
                 lip: None,
             }),
+            Container::NxOpus => Ok(Sound {
+                container,
+                pcm: decode_nx_opus(bytes)?,
+                lip: None,
+            }),
             Container::Unknown => Err(Error::Unsupported(Unsupported::Extension(
                 "unrecognised container".to_string(),
             ))),
@@ -236,6 +246,16 @@ fn decode_opus(_bytes: &[u8]) -> Result<Pcm> {
     Err(Error::Unsupported(Unsupported::Opus))
 }
 
+#[cfg(feature = "opus")]
+fn decode_nx_opus(bytes: &[u8]) -> Result<Pcm> {
+    crate::nx_opus::decode(bytes)
+}
+
+#[cfg(not(feature = "opus"))]
+fn decode_nx_opus(_bytes: &[u8]) -> Result<Pcm> {
+    Err(Error::Unsupported(Unsupported::Opus))
+}
+
 #[cfg(test)]
 mod tests {
     use super::{decode_wave, sniff, Container, SoundSource};
@@ -269,6 +289,18 @@ mod tests {
         assert_eq!(sniff(b"OggS\x00\x02\x01vorbis...."), Container::OggVorbis);
         assert_eq!(sniff(b"nope"), Container::Unknown);
         assert_eq!(sniff(&[]), Container::Unknown);
+        assert_eq!(sniff(&fuz::NX_OPUS_SIGNATURE), Container::NxOpus);
+    }
+
+    #[cfg(not(feature = "opus"))]
+    #[test]
+    fn nx_opus_reports_the_disabled_codec_in_a_fuz() {
+        let vfs = Vfs::new();
+        let bytes = fuz::write(1, &[], &fuz::NX_OPUS_SIGNATURE);
+        assert!(matches!(
+            SoundSource::new(&vfs).decode(&bytes),
+            Err(Error::Unsupported(Unsupported::Opus))
+        ));
     }
 
     #[test]
