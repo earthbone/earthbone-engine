@@ -189,7 +189,7 @@ fn malformed_lists_and_unmodeled_metadata_are_explicit_errors() {
         list(LIST, 0, 101, &[(1, A, 1)]),
         list(LIST, 0, 0, &[(1, A, 0)]),
         list(LIST, 0, 0, &[(1, 0xdead, 1)]),
-        list(LIST, 0, 0, &[(1, A, 1)]).sub(T(b"COED"), [0; 12]),
+        list(LIST, 0, 0, &[(1, A, 1)]).sub(T(b"COED"), [0; 11]),
         list(LIST, 0, 0, &[]).sub(T(b"LVLO"), [0; 8]),
     ] {
         assert!(world(vec![record])
@@ -415,8 +415,7 @@ fn installed_ordinary_lists_resolve_or_report_declared_metadata_boundaries() {
                 Err(error) => {
                     let reason = error.to_string();
                     assert!(
-                        reason.contains("LVLI ownership metadata is unsupported")
-                            || reason.contains("unsupported LVLI flags"),
+                        reason.contains("unsupported LVLI flags"),
                         "{id} at {level}: {error}"
                     );
                     *boundaries.entry(reason).or_insert(0) += 1;
@@ -437,6 +436,9 @@ fn installed_ordinary_lists_resolve_or_report_declared_metadata_boundaries() {
         lists.len()
     );
 }
+
+#[path = "leveled_items/extras.rs"]
+mod extras;
 
 fn special_settings(minimum: [f32; 4], maximum: [f32; 4], weighting: f32) -> Vec<Record> {
     [

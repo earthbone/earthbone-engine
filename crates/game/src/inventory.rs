@@ -316,6 +316,36 @@ impl Inventory {
         Ok(())
     }
 
+    /// Add selected positive items, combining descriptions with identical extra data.
+    pub(crate) fn add_selected_stack(
+        &mut self,
+        item: GlobalFormId,
+        stack: Stack,
+    ) -> Result<(), Error> {
+        if stack.count <= 0 {
+            return Err(Error::Quantity);
+        }
+        let total = self
+            .count(item)
+            .checked_add(stack.count)
+            .ok_or(Error::Quantity)?;
+        let entry = self.entries.entry(item).or_default();
+        if let Some(existing) = entry
+            .stacks
+            .iter_mut()
+            .find(|entry| entry.extras == stack.extras)
+        {
+            existing.count = existing
+                .count
+                .checked_add(stack.count)
+                .ok_or(Error::Quantity)?;
+        } else {
+            entry.stacks.push(stack);
+        }
+        entry.total = total;
+        Ok(())
+    }
+
     /// Remove plain items first, then distinct stacks in their saved order.
     /// Partial stacks retain their metadata on both sides of the split.
     pub fn take(&mut self, item: GlobalFormId, count: i32) -> Bundle {
