@@ -1222,10 +1222,50 @@ mesh pose and immovable collision even when game state marks them open.
 Locked player picks use the shared game's key check. Without the key they
 remain closed, pending lockpicking UI. Resource
 preparation is synchronous, with no fade or measured frame-time bound yet.
-Exterior streaming follows door landings only, not subsequent walking across
-grid boundaries. Runtime reference enable, placement and animation changes
+Runtime reference enable, placement and animation changes
 are not yet reflected in all drawn objects. Portal transitions and revised
 AI remain deferred until existing Skyrim gameplay works.
+
+### Walking exterior grid boundaries
+
+`PlayerNode` now feeds its controller position into `CellStreamer` after each
+physics step. The walkthrough loads a radius-one square, retains cells through
+radius two, and applies at most two cell loads and four cell unloads per tick.
+The planner is cloned while new cells are prepared, and committed after their
+resources are installed. Preparation errors leave the previous planner intact.
+Triangle and byte budgets belong to HST-08.
+
+Rendering instances and static physics bodies retain their owning CELL. A delta
+adds the requested cells and frees only departed cells, preserving the handles of
+retained resources and the player's character. LAND collision uses the same helper
+as door landings, including inherited parent-world terrain. Worldspace persistent
+cells stay resident independently of the grid. Game attachment events follow the
+actual resource delta, while moving the logical focus alone sends no unload event.
+Load doors reset the planner and replace the location through the existing path.
+This adds no per-reference nodes.
+
+Sources are local `openmw/apps/openmw/mwworld/scene.cpp`, `Scene::changeCellGrid`,
+for retaining active cells while changing the grid, and CK wiki `OnCellAttach`
+and `OnCellDetach` for script event audiences. The existing host planner supplies
+ordering and hysteresis. Existing ESM CELL indexing and LAND decoding supply the
+record semantics, so no new format reader is needed.
+
+`examples/exterior_fixture.rs` generates five small master files containing a flat
+LAND grid through the existing ESM writer and height encoder. Run it with a new
+output directory, then set `SOE_EXTERIOR_FIXTURE` to that directory when running
+`godot/exterior_stream_test.gd`. Its Godot 4.4.1 headless run passed: initial residency
+was nine grid cells plus one persistent cell, the first walking crossing added three
+cells, and the second added three while unloading the column beyond hysteresis.
+Retained render and physics handles matched, and the player remained grounded.
+`exterior_resources` and `cell_instances` expose those handles for diagnostics.
+This proves resource lifetime and collision behavior, not rendered appearance or
+frame-time performance. The installed-data `gameplay_test.gd` regression also passed
+in Godot 4.4.1: Bannered Mare to Whiterun and back, grounded at both landings, then
+another crossing through E-key activation. Its process was pinned to one CPU to
+limit parallel preparation. It finished in 64 seconds and peaked near 16 GiB RSS.
+Unrestricted runs received SIGTERM while loading, before reaching the assertions.
+The full lint gate passed with 1,169 Rust and 11 Python tests, with all optional
+lint tools present. Installed-data checks are separate from that gate.
 
 ## Footstep audio integration (2026-09-19)
 

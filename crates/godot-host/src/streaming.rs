@@ -110,7 +110,7 @@ impl StreamPlan {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct CellStreamer {
     config: StreamConfig,
     /// Cells the caller has been asked to load and not yet asked to unload.

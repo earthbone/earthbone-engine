@@ -88,6 +88,8 @@ pub struct CellStreamerNode {
 /// One drawn batch: its instance and mesh RIDs and the side table that maps
 /// a triangle back to the form that placed it.
 struct Instance {
+    cell: GlobalFormId,
+    bounds: crate::mesh::Aabb,
     rid: Rid,
     mesh: Gd<ArrayMesh>,
     table: BatchTable,
@@ -231,6 +233,39 @@ impl CellStreamerNode {
         self.data_source.clone()
     }
 
+    /// Install new cells before releasing departed cells. Retained instances keep their RIDs.
+    pub(crate) fn apply_cell_delta(
+        &mut self,
+        entered: &[crate::data_source::PreparedCell],
+        departed: &[GlobalFormId],
+    ) -> bool {
+        let Some(scenario) = self.scenario() else {
+            return false;
+        };
+        let before = self.materials.len();
+        let mut totals = StreamTotals::default();
+        for cell in entered {
+            totals.cell_list.push(cell.id.to_string());
+            self.add_cell(cell.id, &cell.loaded, scenario, &mut totals);
+        }
+        let mut server = RenderingServer::singleton();
+        self.instances.retain(|instance| {
+            if departed.contains(&instance.cell) {
+                server.free_rid(instance.rid);
+                false
+            } else {
+                true
+            }
+        });
+        self.bounds = self
+            .instances
+            .iter()
+            .map(|i| i.bounds)
+            .reduce(crate::batch::merge_bounds);
+        self.last_stats = totals.to_dictionary(self.materials.len() - before);
+        true
+    }
+
     /// Replace drawn resources after CPU preparation succeeds. No per-reference nodes.
     pub(crate) fn replace_location(
         &mut self,
@@ -244,7 +279,7 @@ impl CellStreamerNode {
         let mut totals = StreamTotals::default();
         for (id, cell) in &location.cells {
             totals.cell_list.push(id.to_string());
-            self.add_cell(cell, scenario, &mut totals);
+            self.add_cell(*id, cell, scenario, &mut totals);
         }
         self.last_stats = totals.to_dictionary(self.materials.len() - before);
         true
@@ -393,7 +428,10 @@ impl CellStreamerNode {
             godot_error!("CellStreamerNode::stream_cell: load_data was not called");
             return -1;
         };
-        let loaded = match source.stream_cell(&editor_id.to_string()) {
+        let Some(cell_id) = source.resolve_cell(&editor_id.to_string()) else {
+            return -1;
+        };
+        let loaded = match source.stream_cell_id(cell_id) {
             Ok(loaded) => loaded,
             Err(e) => {
                 godot_error!("CellStreamerNode::stream_cell: {e}");
@@ -406,7 +444,7 @@ impl CellStreamerNode {
         let materials_before = self.materials.len();
         let mut totals = StreamTotals::default();
         totals.cell_list.push(editor_id.to_string());
-        self.add_cell(&loaded, scenario, &mut totals);
+        self.add_cell(cell_id, &loaded, scenario, &mut totals);
         self.last_stats = totals.to_dictionary(self.materials.len() - materials_before);
         totals.instances as i32
     }
@@ -441,7 +479,7 @@ impl CellStreamerNode {
         };
         for (cell, loaded_cell) in &loaded.cells {
             totals.cell_list.push(format!("({},{})", cell.x, cell.y));
-            self.add_cell(loaded_cell, scenario, &mut totals);
+            self.add_cell(cell.id, loaded_cell, scenario, &mut totals);
         }
         self.last_stats = totals.to_dictionary(self.materials.len() - materials_before);
         totals.instances as i32
@@ -460,6 +498,26 @@ impl CellStreamerNode {
     #[func]
     pub fn instance_count(&self) -> i32 {
         self.instances.len() as i32
+    }
+
+    /// Render handles grouped by owning cell, for residency diagnostics.
+    #[func]
+    pub fn cell_instances(&self) -> VarDictionary {
+        let mut groups = std::collections::BTreeMap::<GlobalFormId, Vec<i64>>::new();
+        for instance in &self.instances {
+            groups
+                .entry(instance.cell)
+                .or_default()
+                .push(instance.rid.to_u64() as i64);
+        }
+        let mut result = VarDictionary::new();
+        for (cell, ids) in groups {
+            result.set(
+                cell.to_string(),
+                &ids.into_iter().collect::<PackedInt64Array>(),
+            );
+        }
+        result
     }
 
     /// Merged bounds of everything streamed so far, in Godot metres. An
@@ -566,7 +624,13 @@ impl CellStreamerNode {
     }
 
     /// Draws one loaded cell's geometry as instances, batched or not.
-    fn add_cell(&mut self, loaded: &LoadedCell, scenario: Rid, totals: &mut StreamTotals) {
+    fn add_cell(
+        &mut self,
+        cell: GlobalFormId,
+        loaded: &LoadedCell,
+        scenario: Rid,
+        totals: &mut StreamTotals,
+    ) {
         let _span = soe_trace::Span::new("host.add_cell", "host");
         totals.add_cell(loaded);
         if self.batch_surfaces {
@@ -583,7 +647,7 @@ impl CellStreamerNode {
                         .map(|m| (loaded.surfaces[m.surface].reference, *m))
                         .collect(),
                 };
-                self.add_instance(&batch.arrays, &material, scenario, table);
+                self.add_instance(cell, &batch.arrays, &material, scenario, table);
                 totals.instances += 1;
             }
         } else {
@@ -606,7 +670,7 @@ impl CellStreamerNode {
                         },
                     )],
                 };
-                self.add_instance(&surface.arrays, &material, scenario, table);
+                self.add_instance(cell, &surface.arrays, &material, scenario, table);
                 totals.instances += 1;
             }
         }
@@ -616,6 +680,7 @@ impl CellStreamerNode {
     /// identity since the placement is already in the vertices.
     fn add_instance(
         &mut self,
+        cell: GlobalFormId,
         arrays: &SurfaceArrays,
         material: &Gd<Material>,
         scenario: Rid,
@@ -635,7 +700,13 @@ impl CellStreamerNode {
             Some(b) => crate::batch::merge_bounds(b, arrays.bounds),
             None => arrays.bounds,
         });
-        self.instances.push(Instance { rid, mesh, table });
+        self.instances.push(Instance {
+            cell,
+            bounds: arrays.bounds,
+            rid,
+            mesh,
+            table,
+        });
     }
 
     fn free_instances(&mut self) {

@@ -48,6 +48,90 @@ fn names(g: &Game) -> Vec<String> {
 }
 
 #[test]
+fn exterior_focus_changes_retain_neighbors_until_their_resource_unload() {
+    let mut g = staged();
+    let old = g.object_of_form(id(DOOR_OUT));
+    let new = g.object_of_form(id(ROCK_B));
+    g.world_mut().pending.clear();
+    g.world_mut()
+        .update_streaming_cells(id(START_CELL), &[id(CELL_B)], &[])
+        .unwrap();
+    assert!(events(&g).contains(&(new, "OnCellAttach".into())));
+    assert!(!events(&g).iter().any(|(object, _)| *object == old));
+    g.world_mut().pending.clear();
+
+    g.world_mut()
+        .update_streaming_cells(id(CELL_B), &[], &[])
+        .unwrap();
+    assert!(events(&g).is_empty(), "retained resources must not reload");
+    assert!(g.world().cell_is_resident(id(START_CELL)));
+    assert_eq!(g.world().pending_unload(), None);
+    assert_eq!(g.world_mut().settle_unload(), (0, 0));
+    let player = g.player();
+    assert_eq!(
+        g.world().reference_ref(player).unwrap().cell,
+        Some(id(CELL_B))
+    );
+
+    g.world_mut()
+        .update_streaming_cells(id(CELL_B), &[], &[id(START_CELL)])
+        .unwrap();
+    assert_eq!(
+        events(&g),
+        vec![(old, "OnCellDetach".into()), (old, "OnUnload".into())]
+    );
+    assert!(!g.world().cell_is_resident(id(START_CELL)));
+    assert!(g.world().cell_is_resident(id(CELL_B)));
+}
+
+#[test]
+fn invalid_streaming_delta_is_atomic() {
+    let g = staged();
+    let before = g.world().loaded_reference_count();
+    assert!(g
+        .world_mut()
+        .update_streaming_cells(id(CELL_B), &[id(CELL_B), id(0xDEAD)], &[id(START_CELL)])
+        .is_err());
+    assert_eq!(g.world().loaded_reference_count(), before);
+    assert_eq!(g.world().loaded_cell(), Some(id(START_CELL)));
+    assert!(events(&g).is_empty());
+    assert!(g.world().cell_is_resident(id(START_CELL)));
+}
+
+#[test]
+fn neighboring_cells_keep_the_focus_and_validate_before_detaching() {
+    let g = staged();
+    g.world_mut().attach_streaming_cells(&[id(CELL_B)]).unwrap();
+    assert_eq!(g.world().loaded_cell(), Some(id(START_CELL)));
+    assert!(g.world().cell_is_resident(id(CELL_B)));
+    g.world_mut().pending.clear();
+    assert!(g
+        .world_mut()
+        .detach_streaming_cells(&[id(CELL_B), id(START_CELL)])
+        .is_err());
+    assert!(g.world().cell_is_resident(id(CELL_B)));
+    assert!(events(&g).is_empty());
+    g.world_mut().detach_streaming_cells(&[id(CELL_B)]).unwrap();
+    assert!(!g.world().cell_is_resident(id(CELL_B)));
+    assert_eq!(g.world().loaded_cell(), Some(id(START_CELL)));
+}
+
+#[test]
+fn a_door_departure_can_become_a_neighbor_without_a_later_unload() {
+    let g = staged();
+    g.world_mut().attach_cell(Some(id(CELL_B)), true);
+    assert_eq!(g.world().pending_unload(), Some(id(START_CELL)));
+    g.world_mut()
+        .attach_streaming_cells(&[id(START_CELL)])
+        .unwrap();
+    assert_eq!(g.world().pending_unload(), None);
+    assert_eq!(g.world_mut().settle_unload(), (0, 0));
+    assert!(g.world().cell_is_resident(id(START_CELL)));
+    assert!(g.world().cell_is_resident(id(CELL_B)));
+    assert_eq!(g.world().loaded_cell(), Some(id(CELL_B)));
+}
+
+#[test]
 fn blocked_activation_reports_failure_but_default_only_bypasses_it() {
     let mut g = staged();
     let player = g.player();

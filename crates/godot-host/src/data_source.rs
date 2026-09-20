@@ -46,6 +46,8 @@ mod textures;
 mod workers;
 
 pub use location::LoadedLocation;
+#[cfg(feature = "godot")]
+pub(crate) use location::PreparedCell;
 pub(crate) use models::model_for;
 use textures::TextureCache;
 pub use textures::{BlockFormat, TextureData};

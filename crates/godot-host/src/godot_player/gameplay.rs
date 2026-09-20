@@ -74,6 +74,10 @@ impl PlayerNode {
                 }
             }
         }
+        if !self.advance_exterior() {
+            self.auto_step = false;
+            return;
+        }
         if let Some(target) = self.last_activate_reference {
             self.activate_game_reference(target);
         }
@@ -117,7 +121,13 @@ impl PlayerNode {
             return false;
         };
         let feet = Vec3::new(position[0], position[1], position[2]);
-        if self.loaded_cell != Some(cell) {
+        let needs_exterior = self.exterior.is_none()
+            && self
+                .data_source
+                .as_ref()
+                .and_then(|source| source.exterior_world(cell))
+                .is_some();
+        if self.loaded_cell != Some(cell) || needs_exterior {
             let Some(source) = self.data_source.as_ref() else {
                 return false;
             };
@@ -133,6 +143,51 @@ impl PlayerNode {
             };
             if !streamer.is_instance_valid() || !streamer.bind_mut().replace_location(&location) {
                 return false;
+            }
+            // Door transitions already attach the destination and defer its old focus.
+            // Other cells in an old exterior ring leave with their host resources.
+            if let Some(previous) = self.exterior.take() {
+                let mut runtime = game.world_mut();
+                let pending = runtime.pending_unload();
+                let departing: Vec<_> = previous
+                    .cells
+                    .keys()
+                    .copied()
+                    .filter(|id| Some(*id) != pending && *id != cell)
+                    .collect();
+                if !departing.is_empty() {
+                    if let Err(error) = runtime.detach_streaming_cells(&departing) {
+                        godot_error!("PlayerNode: {error}");
+                        return false;
+                    }
+                }
+            }
+            if let Some(worldspace) = source.exterior_world(cell) {
+                let mut planner = crate::streaming::CellStreamer::new(super::exterior::config())
+                    .map_err(|error| godot_error!("PlayerNode: {error}"));
+                let Ok(ref mut planner) = planner else {
+                    return false;
+                };
+                planner.settle(crate::units::SkyrimPos::new(
+                    position[0],
+                    position[1],
+                    position[2],
+                ));
+                let entered: Vec<_> = location
+                    .cells
+                    .iter()
+                    .map(|(id, _)| *id)
+                    .filter(|id| *id != cell)
+                    .collect();
+                if let Err(error) = game.world_mut().attach_streaming_cells(&entered) {
+                    godot_error!("PlayerNode: {error}");
+                    return false;
+                }
+                self.exterior = Some(super::exterior::ExteriorRuntime {
+                    world: worldspace,
+                    planner: planner.clone(),
+                    cells: location.collision_cells,
+                });
             }
             let collision = location.collision;
             let mut world = collision.world;

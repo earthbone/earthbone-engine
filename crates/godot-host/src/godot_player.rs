@@ -35,6 +35,7 @@ use crate::data_source::DataSource;
 use crate::input::devices::{godot_mouse_for, godot_pad_for, Devices, PadControl};
 use crate::input::{godot_key_for, Action, Bindings, ControlMap, Driver, InputState};
 
+mod exterior;
 mod footsteps;
 mod gameplay;
 
@@ -77,6 +78,7 @@ pub struct PlayerNode {
     footstep_errors: u64,
     game_streamer: Option<Gd<crate::godot_layer::CellStreamerNode>>,
     loaded_cell: Option<GlobalFormId>,
+    exterior: Option<exterior::ExteriorRuntime>,
     camera: Option<Gd<Camera3D>>,
     /// Mouse motion accumulated since the last camera or physics update, so a frame that
     /// delivers two motion events turns twice as far rather than once.
@@ -114,6 +116,7 @@ impl INode3D for PlayerNode {
             footstep_errors: 0,
             game_streamer: None,
             loaded_cell: None,
+            exterior: None,
             camera: None,
             pending_look: (0.0, 0.0),
             last_activate_hit: false,
@@ -256,6 +259,7 @@ impl PlayerNode {
                 }
                 self.data_source = Some(Arc::new(source));
                 self.game = None;
+                self.exterior = None;
                 self.game_streamer = None;
                 true
             }
@@ -284,6 +288,7 @@ impl PlayerNode {
         }
         self.data_source = Some(source);
         self.game = None;
+        self.exterior = None;
         self.game_streamer = Some(streamer);
         true
     }
@@ -328,6 +333,7 @@ impl PlayerNode {
         self.character = Some(id);
         self.world = Some(world);
         self.loaded_cell = Some(cell_id);
+        self.exterior = None;
         self.collision_references = collision.references;
         self.last_activate_hit = false;
         self.last_activate_reference = None;
@@ -457,6 +463,19 @@ impl PlayerNode {
     pub fn gameplay_cell(&self) -> GString {
         self.loaded_cell
             .map_or_else(GString::new, |id| GString::from(&id.to_string()))
+    }
+
+    /// Resident exterior cells and their physics handles for integration diagnostics.
+    #[func]
+    pub fn exterior_resources(&self) -> VarDictionary {
+        let mut result = VarDictionary::new();
+        if let Some(exterior) = &self.exterior {
+            for (cell, bodies) in &exterior.cells {
+                let ids: PackedInt64Array = bodies.iter().map(|body| i64::from(body.0)).collect();
+                result.set(cell.to_string(), &ids);
+            }
+        }
+        result
     }
 
     /// Door links in the current logical cell for integration tools.
