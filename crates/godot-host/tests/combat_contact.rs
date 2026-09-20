@@ -135,7 +135,7 @@ fn animation() -> (BehaviorGraph, ClipLibrary) {
         float_offsets: vec![],
         data: vec![],
         endian: 0,
-        has_extracted_motion: false,
+        extracted_motion: None,
     };
     let mut clips = ClipLibrary::new();
     clips.insert(Clip::from_parts("swing", source, &[]).unwrap());

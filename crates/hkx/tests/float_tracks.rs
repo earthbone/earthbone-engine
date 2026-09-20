@@ -25,7 +25,7 @@ fn animation(data: Vec<u8>, float_tracks: usize, float_start: u32) -> SplineComp
         float_offsets: vec![],
         data,
         endian: 0,
-        has_extracted_motion: false,
+        extracted_motion: None,
     }
 }
 

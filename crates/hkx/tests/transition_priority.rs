@@ -41,7 +41,7 @@ fn clip(name: &str, x: f32) -> Clip {
             float_offsets: vec![],
             data,
             endian: 0,
-            has_extracted_motion: false,
+            extracted_motion: None,
         },
         &[0],
     )

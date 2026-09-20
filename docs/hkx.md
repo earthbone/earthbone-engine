@@ -174,6 +174,10 @@ before decoding, and the public time lookup has a defensive guard.
 Float slots are exposed by the clip sampler. Behavior output blending and
 host application of those slots are separate runtime work.
 
+Float tracks (4 in `mt_jump`, the weapon and shield slots) are located but
+not decoded yet. ANM-05 decodes the optional extracted-motion frame through
+`motion::ReferenceFrame`, as described below.
+
 ## 4. The behavior graph, as data
 
 `behavior::BehaviorGraph` is an arena of nodes reached from the root
@@ -809,3 +813,48 @@ choice. The class tables declare an array but do not specify its out-of-range
 semantics. The editor rejects out-of-range editing indices. No original-runtime
 capture was available to settle short-mask sampling. Full-length authored
 masks and their packed values are covered by the installed corpus survey.
+
+## Extracted-motion decoding, ANM-05
+
+`SplineCompressedAnimation::extracted_motion` retains the optional
+`hkaDefaultAnimatedReferenceFrame`. It replaces the pointer-presence boolean.
+The reader keeps authored up and forward vectors, duration and every xyz
+translation plus heading-angle sample. Sampling clamps to the clip endpoints,
+linearly interpolates translation and uses shortest-arc spherical interpolation
+about the authored up axis. Empty frames return identity and a single sample
+is constant. Invalid timing, axes, non-finite values and malformed arrays
+return errors. No new dependencies were added.
+
+Sources consulted locally were
+`serde-hkx/assets/classes/hkaDefaultAnimatedReferenceFrame.json` for offsets,
+`HavokLib/source/packfile/hka_animated_reference_frame_default.cpp` for uniform
+sample timing and `HavokLib/source/core_motion.cpp` for translation and rotation
+interpolation. The Rust reader uses the existing checked packfile accessors
+instead of adding a C++ library dependency. This is absolute motion decoding.
+Applying motion to a host controller and blending extracted-motion outputs are
+outside this decoding row.
+
+`anm_05_authored_translation_and_rotation_sample_over_clip_lifetime` checks
+known translations and headings at endpoints and between samples. Other
+fixtures cover angular wrapping, a non-Z up axis, empty and constant frames,
+missing motion, wrong object classes and invalid data. The installed survey
+checks every packed sample and every non-null animation motion pointer.
+The initial survey found 13 frames with 1,069 samples. Its guessed requirement
+for more than 1,000 motion frames failed. The corrected coverage check uses
+the previously recorded corpus totals of 7,699 packfiles and 6,126 animations,
+rather than assuming most animations contain an optional motion object.
+
+## ANM dependency review
+
+The backlog's `depends_on` fields hold the execution prerequisites. The
+existing interpreter already supports typed word variables and input bindings,
+so the individual modifier and wrapper rows do not require transition
+expression evaluation simply to read bound values. ANM-03, ANM-14 through
+ANM-18, ANM-20 and ANM-21 can proceed independently of ANM-01.
+ANM-19 uses ANM-04's bone-weight handling. Both
+`BSBoneSwitchGeneratorBoneData.spBoneWeight` and
+`hkbBlenderGeneratorChild.boneWeights` reference `hkbBoneWeightArray` in the
+serde-hkx class tables. Transition arbitration, interval and transition-effect
+work retains its ANM-01 prerequisite. ANM-13 retains its authored head-morph
+and LIP-track prerequisites. Sharing `interp.rs` calls for isolated branches
+and integration review even where no semantic prerequisite exists.

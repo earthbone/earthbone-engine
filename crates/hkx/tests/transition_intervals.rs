@@ -423,7 +423,7 @@ fn anm_11_intervals_delayed_blend_keeps_target_state_clip_and_effect_clocks_alig
                     float_offsets: vec![],
                     data,
                     endian: 0,
-                    has_extracted_motion: false,
+                    extracted_motion: None,
                 },
                 &[0],
             )
