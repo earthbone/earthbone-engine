@@ -10,6 +10,8 @@ use soe_esm::records::gameplay::{MagicEffect, Spell};
 use soe_esm::GlobalFormId;
 use soe_papyrus::ObjectId;
 
+use crate::actor_values::actor_value_name;
+
 use super::{Alloc, Handle, Pending, World};
 
 mod state;
@@ -431,61 +433,4 @@ fn change_values(
         result.map_err(|_| MagicError::Number)?;
     }
     Ok(())
-}
-
-/// Actor-value indices from CommonLib ActorValues.h and the xEdit AV enum.
-/// Names use Skyrim's Papyrus spelling, including Marksman and Speechcraft.
-fn actor_value_name(index: i32) -> Option<&'static str> {
-    const NAMES: [&str; 46] = [
-        "aggression",
-        "confidence",
-        "energy",
-        "morality",
-        "mood",
-        "assistance",
-        "onehanded",
-        "twohanded",
-        "marksman",
-        "block",
-        "smithing",
-        "heavyarmor",
-        "lightarmor",
-        "pickpocket",
-        "lockpicking",
-        "sneak",
-        "alchemy",
-        "speechcraft",
-        "alteration",
-        "conjuration",
-        "destruction",
-        "illusion",
-        "restoration",
-        "enchanting",
-        "health",
-        "magicka",
-        "stamina",
-        "healrate",
-        "magickarate",
-        "staminarate",
-        "speedmult",
-        "inventoryweight",
-        "carryweight",
-        "critchance",
-        "meleedamage",
-        "unarmeddamage",
-        "mass",
-        "voicepoints",
-        "voicerate",
-        "damageresist",
-        "poisonresist",
-        "resistfire",
-        "resistshock",
-        "resistfrost",
-        "resistmagic",
-        "resistdisease",
-    ];
-    usize::try_from(index)
-        .ok()
-        .and_then(|i| NAMES.get(i))
-        .copied()
 }

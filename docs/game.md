@@ -1133,8 +1133,10 @@ Unsupported casts return a typed error before applying any of their effects,
 and Papyrus casts log that error. This includes hostile hit resolution,
 projectiles, contact and location delivery, concentration, conditions, area,
 taper, perk adjustments, equip abilities, keyword dispelling and other archetypes.
-Actor-value indices above 45 are not yet supported. Recover effects use the temporary modifier domain. Other effects damage or
-restore the damage component without changing permanent modifiers.
+Actor-value indices from 0 through 163 resolve through the shared mapping in
+[actor values](actor-values.md). Recover effects use the temporary modifier
+domain. Other effects damage or restore the damage component without changing
+permanent modifiers.
 Automatic ability application from AddSpell or NPC spell lists, enchantments,
 potions, resistance and absorption, effect artwork and sounds, actor-event
 forwarding, effect inventory filters and VM object reclamation remain unfinished.

@@ -67,3 +67,16 @@ fn old_current_and_base_maps_only_migrate_when_unambiguous() {
         }
     }
 }
+
+#[test]
+fn every_vanilla_actor_value_round_trips_between_its_index_and_name() {
+    for (index, name) in ACTOR_VALUE_NAMES.iter().enumerate() {
+        let index = i32::try_from(index).unwrap();
+        assert_eq!(actor_value_name(index), Some(*name));
+        assert_eq!(actor_value_index(name), Some(index));
+        assert_eq!(actor_value_index(&name.to_ascii_uppercase()), Some(index));
+    }
+    assert_eq!(actor_value_name(-1), None);
+    assert_eq!(actor_value_name(164), None);
+    assert_eq!(actor_value_index("not-an-actor-value"), None);
+}

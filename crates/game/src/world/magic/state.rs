@@ -77,9 +77,7 @@ pub(in crate::world) fn read_magic(
         for _ in 0..count {
             let name = r.str()?;
             let amount = r.f32()?;
-            if !amount.is_finite()
-                || !(0..46).any(|i| super::actor_value_name(i) == Some(name.as_str()))
-            {
+            if !amount.is_finite() || crate::actor_values::actor_value_index(&name).is_none() {
                 return Err(VmError::State("invalid active effect value".into()));
             }
             changes.push((name, amount));

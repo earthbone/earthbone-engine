@@ -16,6 +16,12 @@ The local corpus supplied these contracts:
   permanent debuff. Percentages return 1 for zero maximum and CarryWeight.
 - CommonLibSSE-NG ActorValues and ActorValueOwner headers distinguish the
   permanent, temporary and damage domains.
+- CommonLibSSE-NG `ActorValues.h` and xEdit
+  `TES5Edit/Core/wbDefinitionsTES5.pas` define the full actor-value index
+  range from 0 through 163. The runtime resolves every index to its
+  case-insensitive Papyrus name, including the effect and skill-progress
+  values above ResistDisease at 45. It retains the existing `marksman` and
+  `speechcraft` Papyrus spellings for the editor's Archery and Speech labels.
 - xEdit `TES5Edit/Core/wbDefinitionsTES5.pas`, NPC DNAM and RACE DATA,
   with Mutagen's NPC PlayerSkills definition and UESP NPC/RACE descriptions.
   NPC health starts at byte 36, magicka at 38, stamina at 40, far-away model
