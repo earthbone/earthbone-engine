@@ -26,6 +26,7 @@ pub mod error;
 pub mod expect;
 pub mod globals;
 pub mod header;
+pub mod npc;
 pub mod papyrus;
 pub mod quest;
 pub mod reference;

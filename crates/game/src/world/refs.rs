@@ -4,8 +4,6 @@
 //! or `ACHR` record on first use, dynamic placement, the player, inventory,
 //! movement, distance and activation.
 
-use std::collections::BTreeMap;
-
 use soe_esm::plugin::flags;
 use soe_esm::records::refr::Refr;
 use soe_esm::GlobalFormId;
@@ -131,19 +129,19 @@ impl World {
     /// A base's own `CNTO` list plus anything a distribution handed it as an
     /// item, so a distributed item counts the same as a shipped one through
     /// `GetItemCount`. See `crate::moddata`.
-    fn base_inventory(&self, base: GlobalFormId) -> BTreeMap<GlobalFormId, i32> {
+    fn base_inventory(&self, base: GlobalFormId) -> crate::inventory::Inventory {
         self.reference_inventory(None, base)
     }
 
-    fn reference_inventory(
+    pub(super) fn reference_inventory(
         &self,
         reference: Option<GlobalFormId>,
         base: GlobalFormId,
-    ) -> BTreeMap<GlobalFormId, i32> {
-        let mut out = BTreeMap::new();
+    ) -> crate::inventory::Inventory {
+        let mut out = crate::inventory::Inventory::default();
         for d in self.mod_data.for_base(base) {
             if d.record_type == soe_moddata::spid::RecordType::Item {
-                *out.entry(d.what).or_insert(0) += d.count;
+                let _ = out.add(d.what, d.count);
             }
         }
         let source = if self.tag_of(base) == Some(T(b"NPC_")) {
@@ -163,14 +161,16 @@ impl World {
         } else {
             base
         };
-        let Some(rref) = self.order.winner_ref(source) else {
+        let Some(record) = self.record(source) else {
             return out;
         };
-        for cnto in self.order.record(rref).all(T(b"CNTO")) {
+        for cnto in record.all(T(b"CNTO")) {
             if cnto.len() >= 8 {
-                let item = self.order.resolve(rref.file, le_u32(cnto).unwrap_or(0));
+                let Some(item) = self.resolve_from(source, le_u32(cnto).unwrap_or(0)) else {
+                    continue;
+                };
                 let count = i32::from_le_bytes([cnto[4], cnto[5], cnto[6], cnto[7]]);
-                *out.entry(item).or_insert(0) += count;
+                let _ = out.add(item, count);
             }
         }
         out
@@ -257,22 +257,21 @@ impl World {
 
     pub fn item_count(&mut self, holder: GlobalFormId, item: GlobalFormId) -> i32 {
         self.reference(holder)
-            .and_then(|r| r.inventory.get(&item).copied())
-            .unwrap_or(0)
+            .map_or(0, |r| r.inventory.count(item))
     }
 
     pub fn add_item(&mut self, holder: GlobalFormId, item: GlobalFormId, count: i32) {
         if let Some(r) = self.reference(holder) {
-            let n = r.inventory.entry(item).or_insert(0);
-            *n += count;
-            if *n <= 0 {
-                r.inventory.remove(&item);
+            if count >= 0 {
+                let _ = r.inventory.add(item, count);
+            } else {
+                r.inventory.take(item, count.saturating_abs());
             }
         }
     }
 
-    /// Remove up to `count` and hand them to `target` when given. Returns how
-    /// many moved.
+    /// Remove up to `count`, preserving distinct stacks during a transfer.
+    /// Missing recipients, self-transfers and overflow leave quantities unchanged.
     pub fn remove_item(
         &mut self,
         holder: GlobalFormId,
@@ -280,14 +279,29 @@ impl World {
         count: i32,
         target: Option<GlobalFormId>,
     ) -> i32 {
-        let have = self.item_count(holder, item);
-        let moved = count.min(have).max(0);
-        if moved == 0 {
+        let moved = count.min(self.item_count(holder, item)).max(0);
+        if moved == 0 || target == Some(holder) {
             return 0;
         }
-        self.add_item(holder, item, -moved);
-        if let Some(t) = target {
-            self.add_item(t, item, moved);
+        if let Some(target) = target {
+            let Some(recipient) = self.reference(target) else {
+                return 0;
+            };
+            if recipient.inventory.count(item).checked_add(moved).is_none() {
+                return 0;
+            }
+        }
+        let Some(source) = self.refs.get_mut(&holder) else {
+            return 0;
+        };
+        let mut bundle = source.inventory.take(item, moved);
+        if let Some(target) = target {
+            bundle.unequip();
+            // CONTEXT: Both references and recipient capacity were checked above.
+            if let Some(recipient) = self.refs.get_mut(&target) {
+                let result = recipient.inventory.receive(item, bundle);
+                debug_assert!(result.is_ok());
+            }
         }
         moved
     }

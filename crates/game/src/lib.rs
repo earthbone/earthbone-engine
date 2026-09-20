@@ -25,6 +25,7 @@
 pub mod actor_values;
 pub mod ai;
 pub mod clock;
+pub mod combat;
 pub mod conditions;
 pub mod coverage;
 pub mod crafting;
@@ -32,7 +33,9 @@ pub mod debug;
 pub mod determinism;
 pub mod dialogue;
 pub mod footsteps;
+mod game_settings;
 pub mod harness;
+pub mod inventory;
 pub mod moddata;
 pub mod natives;
 pub mod npc;
@@ -476,6 +479,20 @@ impl Game {
             })
     }
 
+    /// Apply a host-confirmed ordinary melee hit, then run its script events.
+    ///
+    /// # Errors
+    /// See World::melee_hit for the current supported contact rules.
+    pub fn melee_hit(&mut self, hit: combat::MeleeHit) -> Result<combat::HitResult, combat::Error> {
+        let vm = &mut self.vm;
+        let result = self
+            .world
+            .borrow_mut()
+            .melee_hit(hit, &mut |name, class| vm.create_object_of(name, class))?;
+        self.run_until_idle(64);
+        Ok(result)
+    }
+
     /// Activate a reference the way a player click would, then settle.
     pub fn activate(&mut self, target: GlobalFormId, activator: GlobalFormId) -> bool {
         let ok = self.activate_no_settle(target, activator);
@@ -541,10 +558,37 @@ impl Game {
     /// Drain queued events and calls into the VM. Returns how many.
     pub fn pump(&mut self) -> usize {
         let pending: Vec<Pending> = std::mem::take(&mut self.world.borrow_mut().pending);
-        let n = pending.len();
+        let n = pending
+            .iter()
+            .filter(|event| !matches!(event, Pending::DeferredDeath { .. }))
+            .count();
         let _span = soe_trace::Span::with_payload("game.pump", "game", n as u64);
         for p in pending {
             match p {
+                event @ Pending::DeferredDeath { .. } => {
+                    self.world.borrow_mut().pending.push(event);
+                }
+                Pending::ActorDeath {
+                    killer, recipients, ..
+                } => {
+                    let (objects, argument) = {
+                        let vm = &mut self.vm;
+                        let mut world = self.world.borrow_mut();
+                        let mut alloc = |name: &str, class: &str| vm.create_object_of(name, class);
+                        let argument = world.form_value(killer, &mut alloc);
+                        let objects: Vec<_> = recipients
+                            .into_iter()
+                            .map(|handle| world.object_of(handle, &mut alloc))
+                            .collect();
+                        (objects, argument)
+                    };
+                    for name in ["OnDying", "OnDeath"] {
+                        for object in &objects {
+                            self.vm
+                                .send_event(*object, name, std::slice::from_ref(&argument));
+                        }
+                    }
+                }
                 Pending::BindEffect { object, effect } => {
                     let definition = {
                         let world = self.world.borrow();
@@ -598,7 +642,7 @@ impl Game {
         for _ in 0..max_rounds {
             self.pump();
             self.vm.run(self.budget);
-            let queued = !self.world.borrow().pending.is_empty();
+            let queued = self.world.borrow().has_pending_calls();
             if self.vm.idle() && !queued {
                 return true;
             }

@@ -257,10 +257,11 @@ impl World {
                 vec![source_value, effect_value],
                 alloc,
             );
+            // An instant lethal effect must receive its target's death events too.
+            self.active_effects.insert(id, prepared.effect.clone());
             if prepared.effect.recover || prepared.effect.duration == Some(0.0) {
                 self.apply_effect_values(&prepared.effect, 1.0)?;
             }
-            self.active_effects.insert(id, prepared.effect);
             applied.push(id);
         }
         Ok(applied)

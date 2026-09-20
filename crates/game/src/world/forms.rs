@@ -267,7 +267,9 @@ impl World {
         if let Some(v) = self.settings.get(&name.to_ascii_lowercase()) {
             return Some(v.clone());
         }
-        let id = self.form(name)?;
+        let Some(id) = self.form(name) else {
+            return crate::game_settings::combat_default(name).map(Value::Float);
+        };
         let rec = self.record(id).filter(|r| r.tag == T(b"GMST"))?;
         let data = rec.find(T(b"DATA"))?;
         Some(match name.as_bytes().first() {

@@ -1,0 +1,136 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+//! WEAP DATA/DNAM and ARMO DNAM/BOD2/BODT from local xEdit and UESP layouts.
+//! These are transient record views, not another authoritative item database.
+
+use soe_esm::{cursor::Fields, Error, Record, Tag};
+
+const T: fn(&[u8; 4]) -> Tag = Tag::new;
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Weapon {
+    pub damage: u16,
+    pub weight: f32,
+    pub animation: u8,
+    pub speed: f32,
+    pub reach: f32,
+    pub skill: i32,
+    pub resist: i32,
+    pub flags: u16,
+    pub flags2: u32,
+    pub template: Option<u32>,
+    pub enchantment: Option<u32>,
+}
+
+impl Weapon {
+    /// Decode physical weapon inputs without guessing the governing skill from animation.
+    ///
+    /// # Errors
+    /// Wrong/deleted forms, missing or malformed fields, non-finite floats.
+    pub fn from_record(record: &Record) -> Result<Self, Error> {
+        check_record(record, T(b"WEAP"))?;
+        let mut data = Fields::new(record.tag, T(b"DATA"), record.required(T(b"DATA"))?);
+        data.exact(10)?;
+        data.skip(4)?;
+        let weight = number(data.f32()?)?;
+        let damage = data.u16()?;
+        let mut data = Fields::new(record.tag, T(b"DNAM"), record.required(T(b"DNAM"))?);
+        data.exact(100)?;
+        let animation = data.u8()?;
+        data.skip(3)?;
+        let speed = number(data.f32()?)?;
+        let reach = number(data.f32()?)?;
+        let flags = data.u16()?;
+        data.skip(26)?;
+        let flags2 = data.u32()?;
+        data.skip(32)?;
+        let skill = data.i32()?;
+        data.skip(8)?;
+        let resist = data.i32()?;
+        Ok(Self {
+            damage,
+            weight,
+            animation,
+            speed,
+            reach,
+            skill,
+            resist,
+            flags,
+            flags2,
+            template: link(record, T(b"CNAM"))?,
+            enchantment: link(record, T(b"EITM"))?,
+        })
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Armor {
+    pub rating: f32,
+    pub slots: u32,
+    /// 0 light, 1 heavy, 2 clothing, absent in early BODT records.
+    pub kind: Option<u32>,
+    pub template: Option<u32>,
+    pub enchantment: Option<u32>,
+}
+
+impl Armor {
+    /// Decode armor input fields. Runtime template application remains separate.
+    ///
+    /// # Errors
+    /// Wrong/deleted forms, missing or malformed fields.
+    pub fn from_record(record: &Record) -> Result<Self, Error> {
+        check_record(record, T(b"ARMO"))?;
+        let mut rating = Fields::new(record.tag, T(b"DNAM"), record.required(T(b"DNAM"))?);
+        rating.exact(4)?;
+        // UESP documents the runtime's low-16-bit rating, stored in hundredths.
+        let rating = (rating.u32()? & 0xffff) as f32 / 100.0;
+        let (tag, bytes) = if let Some(bytes) = record.find(T(b"BOD2")) {
+            (T(b"BOD2"), bytes)
+        } else {
+            (T(b"BODT"), record.required(T(b"BODT"))?)
+        };
+        let mut body = Fields::new(record.tag, tag, bytes);
+        let slots = body.u32()?;
+        if tag == T(b"BODT") {
+            body.skip(4)?;
+        }
+        let kind = if body.remaining() == 0 {
+            None
+        } else {
+            Some(body.u32()?)
+        };
+        if body.remaining() != 0 {
+            return Err(Error::Invalid("excess armor body data".into()));
+        }
+        Ok(Self {
+            rating,
+            slots,
+            kind,
+            template: link(record, T(b"TNAM"))?,
+            enchantment: link(record, T(b"EITM"))?,
+        })
+    }
+}
+
+fn check_record(record: &Record, tag: Tag) -> Result<(), Error> {
+    if record.tag != tag || record.is_deleted() {
+        return Err(Error::Invalid(format!("expected non-deleted {tag}")));
+    }
+    Ok(())
+}
+
+fn number(value: f32) -> Result<f32, Error> {
+    if !value.is_finite() || value < 0.0 {
+        return Err(Error::Invalid("invalid combat record float".into()));
+    }
+    Ok(value)
+}
+
+fn link(record: &Record, tag: Tag) -> Result<Option<u32>, Error> {
+    let Some(bytes) = record.find(tag) else {
+        return Ok(None);
+    };
+    let mut field = Fields::new(record.tag, tag, bytes);
+    field.exact(4)?;
+    Ok(Some(field.u32()?).filter(|id| *id != 0))
+}

@@ -35,7 +35,10 @@ fn events(g: &Game) -> Vec<(ObjectId, String)> {
         .iter()
         .filter_map(|p| match p {
             Pending::Event { object, name, .. } => Some((*object, name.clone())),
-            Pending::Call { .. } | Pending::BindEffect { .. } => None,
+            Pending::Call { .. }
+            | Pending::BindEffect { .. }
+            | Pending::DeferredDeath { .. }
+            | Pending::ActorDeath { .. } => None,
         })
         .collect()
 }

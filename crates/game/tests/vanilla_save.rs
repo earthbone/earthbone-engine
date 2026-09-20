@@ -4,8 +4,17 @@
 //! Saved identities must survive load-order changes before world state can
 //! be applied. Fixtures exercise distinct owners with the same local ID.
 
+#[path = "vanilla_save/npcs.rs"]
+mod npcs;
+
 #[path = "vanilla_save/references.rs"]
 mod references;
+
+#[path = "vanilla_save/inventory.rs"]
+mod inventory;
+
+#[path = "vanilla_save/actor_sources.rs"]
+mod actor_sources;
 
 use std::{
     path::{Path, PathBuf},

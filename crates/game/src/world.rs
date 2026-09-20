@@ -35,30 +35,43 @@ use soe_esm::{GlobalFormId, LoadOrder, RecordRef, Tag};
 use soe_papyrus::{ObjectId, Value};
 
 use crate::clock::GameClock;
-use crate::quest::{zstring, Quest};
+use crate::quest::Quest;
 
 mod actor_seeds;
 mod actors;
+mod combat;
+mod death;
 mod doorway;
 mod driver;
 mod events;
 mod forms;
 pub mod hash;
 mod inventory;
+mod inventory_restore;
+pub use inventory_restore::InventoryRestoreReport;
+mod item_save;
 mod locks;
 mod lookup;
 pub mod magic;
+mod npc_restore;
 mod objects;
+pub use npc_restore::NpcRestoreReport;
+mod record_overrides;
+mod temporary_npc;
+pub use record_overrides::NpcRecordExtra;
 mod quest_restore;
 mod quest_save;
 mod quests;
+mod record_save;
 pub use quest_restore::QuestRestoreReport;
 mod reference_restore;
 mod refs;
 pub use reference_restore::{MissingPlacementCell, ReferenceRemainder, ReferenceRestoreReport};
 mod rng;
 pub(crate) mod save;
+mod template_restore;
 mod templates;
+pub use template_restore::TemplateRestoreReport;
 mod timers;
 mod transition;
 
@@ -99,7 +112,7 @@ pub struct RefState {
     pub locked: bool,
     pub lock_level: i32,
     pub display_name: Option<String>,
-    pub inventory: BTreeMap<GlobalFormId, i32>,
+    pub inventory: crate::inventory::Inventory,
     /// `(keyword, reference)` per XLKR.
     pub linked: Vec<(Option<GlobalFormId>, GlobalFormId)>,
     /// A door's far side: the other door and where to land.
@@ -139,7 +152,7 @@ impl RefState {
             locked: false,
             lock_level: 0,
             display_name: None,
-            inventory: BTreeMap::new(),
+            inventory: crate::inventory::Inventory::default(),
             linked: Vec::new(),
             teleport: None,
             is_actor: false,
@@ -333,6 +346,18 @@ pub struct QuestState {
 /// Work a native asked the VM to do.
 #[derive(Debug, Clone)]
 pub enum Pending {
+    /// A lethal request held until EndDeferredKill, including its original cause.
+    DeferredDeath {
+        actor: GlobalFormId,
+        killer: Option<GlobalFormId>,
+        silent: bool,
+    },
+    /// Recipients are captured when death occurs, before aliases or effects change.
+    ActorDeath {
+        actor: GlobalFormId,
+        killer: Option<GlobalFormId>,
+        recipients: Vec<Handle>,
+    },
     Event {
         object: ObjectId,
         name: String,
@@ -366,6 +391,7 @@ pub struct World {
     pub(crate) dialogue_index: std::sync::OnceLock<crate::dialogue::Index>,
     pub(crate) dialogue: crate::dialogue::State,
     order: Arc<LoadOrder>,
+    record_overrides: BTreeMap<GlobalFormId, record_overrides::RecordOverride>,
     editor_ids: HashMap<String, GlobalFormId>,
     objects: HashMap<Handle, ObjectId>,
     handles: HashMap<ObjectId, Handle>,
@@ -475,6 +501,7 @@ impl World {
         }
         World {
             order,
+            record_overrides: BTreeMap::new(),
             editor_ids,
             objects: HashMap::new(),
             handles: HashMap::new(),
@@ -549,7 +576,7 @@ fn le_f32(d: &[u8]) -> f32 {
 fn text(d: &[u8], localized: bool) -> Text {
     match (localized, le_u32(d)) {
         (true, Some(n)) if d.len() == 4 => Text::Localized(n),
-        _ => Text::Plain(zstring(d)),
+        _ => Text::Plain(soe_esm::cursor::zstring(d)),
     }
 }
 

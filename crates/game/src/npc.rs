@@ -325,7 +325,7 @@ fn text(d: &[u8], localized: bool) -> Text {
     if localized && d.len() == 4 {
         Text::Localized(u32::from_le_bytes([d[0], d[1], d[2], d[3]]))
     } else {
-        Text::Plain(crate::quest::zstring(d))
+        Text::Plain(soe_esm::cursor::zstring(d))
     }
 }
 

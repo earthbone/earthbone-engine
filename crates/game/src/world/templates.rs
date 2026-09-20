@@ -16,7 +16,9 @@ use crate::npc::Npc;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct TemplateChoice {
-    pub level: u32,
+    pub temporary_base: Option<GlobalFormId>,
+    /// None for imported choices whose original encounter level is not saved.
+    pub level: Option<u32>,
     /// None records a chance-none or an empty eligible list, without rerolling.
     pub chain: Option<Vec<GlobalFormId>>,
 }
@@ -47,8 +49,14 @@ impl World {
             Ok((chain, leveled)) => {
                 let present = chain.is_some();
                 if leveled {
-                    self.actor_templates
-                        .insert(reference, TemplateChoice { level, chain });
+                    self.actor_templates.insert(
+                        reference,
+                        TemplateChoice {
+                            temporary_base: None,
+                            level: Some(level),
+                            chain,
+                        },
+                    );
                 }
                 Ok(present)
             }
@@ -199,6 +207,9 @@ impl World {
         group: u16,
     ) -> Result<GlobalFormId, Error> {
         if let Some(choice) = self.actor_templates.get(&reference) {
+            if let Some(temporary) = choice.temporary_base {
+                return Ok(temporary);
+            }
             let chain = choice
                 .chain
                 .as_ref()
@@ -228,7 +239,7 @@ impl World {
         writer.len(self.actor_templates.len());
         for (&reference, choice) in &self.actor_templates {
             write_form_id(writer, reference);
-            writer.u32(choice.level);
+            writer.u32(choice.level.unwrap_or(0));
             writer.bool(choice.chain.is_some());
             if let Some(chain) = &choice.chain {
                 writer.len(chain.len());
@@ -242,6 +253,7 @@ impl World {
     pub(super) fn read_actor_templates(
         &self,
         reader: &mut Reader<'_>,
+        allow_unknown_level: bool,
     ) -> Result<BTreeMap<GlobalFormId, TemplateChoice>, VmError> {
         use super::save::read_form_id;
         let invalid = || VmError::State("invalid saved actor template selection".into());
@@ -249,9 +261,10 @@ impl World {
         for _ in 0..reader.len()? {
             let reference = read_form_id(reader)?;
             let level = reader.u32()?;
-            if level == 0 {
+            if level == 0 && !allow_unknown_level {
                 return Err(invalid());
             }
+            let level = (level != 0).then_some(level);
             let chain = if reader.bool()? {
                 let count = reader.len()?;
                 if count == 0 || count > 128 {
@@ -271,7 +284,14 @@ impl World {
                 None
             };
             if choices
-                .insert(reference, TemplateChoice { level, chain })
+                .insert(
+                    reference,
+                    TemplateChoice {
+                        temporary_base: None,
+                        level,
+                        chain,
+                    },
+                )
                 .is_some()
             {
                 return Err(invalid());

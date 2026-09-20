@@ -456,7 +456,7 @@ fn active_effect_natives_distinguish_definition_target_and_blame_actor() {
 fn version_eight_worlds_load_without_active_effects() {
     let mut game = fixture(0, 1, 0.0, 10);
     let mut old = game.world().save_state();
-    old.truncate(old.len() - 20);
+    old.truncate(old.len() - 28);
     old[4..6].copy_from_slice(&8u16.to_le_bytes());
     cast(&mut game, SPELL, OTHER).unwrap();
     game.world_mut().load_state(&old).unwrap();
@@ -469,7 +469,7 @@ fn corrupt_effect_data_leaves_the_live_world_unchanged() {
     cast(&mut game, SPELL, OTHER).unwrap();
     let before = game.world().state_hash();
     let mut bytes = game.world().save_state();
-    let offset = bytes.len() - 12;
+    let offset = bytes.len() - 16;
     bytes[offset..offset + 4].copy_from_slice(&f32::NAN.to_le_bytes());
     assert!(game.world_mut().load_state(&bytes).is_err());
     assert_eq!(game.world().state_hash(), before);
@@ -590,4 +590,58 @@ fn installed_spell_survey_reports_supported_applications_without_running_scripts
         accepted > 0 && applications > 0,
         "at least one real spell must execute effects"
     );
+}
+
+#[test]
+fn lethal_effect_receives_death_events_before_it_is_dispelled() {
+    // Detrimental without hostile exercises the supported direct effect path.
+    for duration in [0, 2] {
+        let mut game = fixture(4, 0, 150.0, duration);
+        let observer = ScriptBuilder::new("EffectDeathProbe", "ActiveMagicEffect")
+            .variable("sequence", "Int", i(0))
+            .variable("killer", "Actor", soe_papyrus::asm::none())
+            .function(
+                FunctionBuilder::new("OnDying", "None")
+                    .param("akKiller", "Actor")
+                    .ins(Assign, vec![ident("sequence"), i(1)])
+                    .ins(Assign, vec![ident("killer"), ident("akKiller")])
+                    .build(),
+            )
+            .function(
+                FunctionBuilder::new("OnDeath", "None")
+                    .param("akKiller", "Actor")
+                    .ins(IAdd, vec![ident("sequence"), ident("sequence"), i(2)])
+                    .build(),
+            )
+            .bytes();
+        game.load_script(&observer).unwrap();
+        let application = cast(&mut game, SPELL, OTHER).unwrap()[0];
+        let object = game.object_of(Handle::ActiveEffect(application));
+        game.vm.attach(object, "EffectDeathProbe").unwrap();
+        if duration == 0 {
+            game.run_until_idle(32);
+        } else {
+            game.tick(1.0);
+        }
+        assert!(game.world().actor_ref(id(OTHER)).unwrap().dead);
+        assert_eq!(
+            game.vm.get_var(object, "EffectDeathProbe", "sequence"),
+            Some(Value::Int(3))
+        );
+        let caster = game.object_of_form(id(ACTOR));
+        assert_eq!(
+            game.vm.get_var(object, "EffectDeathProbe", "killer"),
+            Some(Value::Object(caster))
+        );
+        game.tick(0.0);
+        assert_eq!(game.world().active_effects().count(), 0);
+        assert_eq!(
+            game.vm.get_var(object, "EffectProbe", "finished"),
+            Some(Value::Int(1))
+        );
+        assert_eq!(
+            game.vm.get_var(object, "EffectDeathProbe", "sequence"),
+            Some(Value::Int(3))
+        );
+    }
 }

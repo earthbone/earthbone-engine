@@ -657,7 +657,7 @@ fn object_reference(vm: &mut Vm, w: &Shared) {
             let target = world.form_arg(&call.arg(0));
             let items: Vec<(GlobalFormId, i32)> = world
                 .reference(me)
-                .map(|r| r.inventory.iter().map(|(k, v)| (*k, *v)).collect())
+                .map(|r| r.inventory.iter().map(|(k, v)| (*k, v)).collect())
                 .unwrap_or_default();
             for (item, count) in items {
                 world.remove_item_notified(me, item, count, target, &mut |name, class| {
@@ -1047,12 +1047,20 @@ fn actor(vm: &mut Vm, w: &Shared) {
             .and_then(|a| a.combat_target);
         form_value(world, call, target)
     });
-    for name in ["GetActorBase", "GetLeveledActorBase"] {
-        method!(vm, w, "Actor", name, |world, call, me| {
-            let base = world.base_of(me);
-            form_value(world, call, base)
-        });
-    }
+    method!(vm, w, "Actor", "GetActorBase", |world, call, me| {
+        let base = world.base_of(me);
+        form_value(world, call, base)
+    });
+    method!(vm, w, "Actor", "GetLeveledActorBase", |world, call, me| {
+        match world.leveled_actor_base(me) {
+            Ok(base) => form_value(world, call, base),
+            Err(error) => {
+                call.log
+                    .push(call.time, format!("Actor.GetLeveledActorBase: {error}"));
+                none()
+            }
+        }
+    });
     method!(vm, w, "Actor", "IsEssential", |world, call, me| b(world
         .actor(me)
         .is_some_and(|a| a.essential)));
@@ -2249,9 +2257,10 @@ fn actor_base(vm: &mut Vm, w: &Shared) {
     ] {
         method!(vm, w, "ActorBase", name, |world, call, me| {
             let on = call.args.first().is_none_or(Value::as_bool);
-            if let Some(a) = world.actor_base(me) {
+            if field == 0 {
+                world.set_actor_base_essential(me, on);
+            } else if let Some(a) = world.actor_base(me) {
                 match field {
-                    0 => a.essential = on,
                     1 => a.protected = on,
                     _ => a.invulnerable = on,
                 }
@@ -2628,23 +2637,16 @@ fn dlc(vm: &mut Vm, w: &Shared) {
     // "Removes the actor from a Deferred Kill state." While the state is
     // on, a kill is held back, which is what the pair is for.
     method!(vm, w, "Actor", "StartDeferredKill", |world, call, me| {
-        if let Some(a) = world.actor(me) {
-            a.deferred_kill = true;
-        }
+        world.start_deferred_kill(me);
         none()
     });
     method!(vm, w, "Actor", "EndDeferredKill", |world, call, me| {
-        if let Some(a) = world.actor(me) {
-            a.deferred_kill = false;
-        }
+        world.end_deferred_kill(me);
         none()
     });
-    // "Kills this actor without a kill event with the killer being the
-    // guilty party." The engine raises no kill event from Kill either, so
-    // the two differ only in the event the VM has yet to send.
     method!(vm, w, "Actor", "KillSilent", |world, call, me| {
         let killer = world.form_arg(&call.arg(0));
-        world.kill_actor(me, killer);
+        world.kill_actor_silent(me, killer);
         none()
     });
     // "Tells anyone who cares that the vampirism state of this actor has

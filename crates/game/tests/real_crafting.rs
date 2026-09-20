@@ -134,7 +134,13 @@ fn installed_forge_executes_vanilla_and_hearthfires_recipes() {
         )
         .unwrap());
         assert_eq!(
-            game.world_mut().reference(player).unwrap().inventory,
+            game.world_mut()
+                .reference(player)
+                .unwrap()
+                .inventory
+                .iter()
+                .map(|(id, n)| (*id, n))
+                .collect::<BTreeMap<_, _>>(),
             BTreeMap::from([(output, expected_count)])
         );
         eprintln!(
