@@ -16,7 +16,7 @@ impl World {
     pub fn form_of(&self, object: ObjectId) -> Option<GlobalFormId> {
         match self.handle_of(object)? {
             Handle::Form(id) => Some(id),
-            Handle::Alias { .. } => None,
+            Handle::Alias { .. } | Handle::ActiveEffect(_) => None,
         }
     }
 
@@ -34,6 +34,7 @@ impl World {
             self.quest_state(quest);
         }
         let name = match handle {
+            Handle::ActiveEffect(id) => format!("active effect {}", id.0),
             Handle::Form(id) => self
                 .editor_id(id)
                 .unwrap_or_else(|| format!("{:08X}", self.runtime_id(id))),

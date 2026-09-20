@@ -256,6 +256,9 @@ impl Game {
             let mut out = Vec::new();
             for (file_index, file) in order.files().iter().enumerate() {
                 for (i, rec) in file.plugin.records.iter().enumerate() {
+                    if rec.tag == Tag::new(b"MGEF") {
+                        continue;
+                    }
                     let Some(raw) = rec.find(Tag::new(b"VMAD")) else {
                         continue;
                     };
@@ -489,6 +492,10 @@ impl Game {
             let mut w = self.world.borrow_mut();
             let before = w.clock.game_days;
             w.clock.advance(real_seconds);
+            let errors = w.tick_magic(real_seconds, &mut |n, c| vm.create_object_of(n, c));
+            for error in errors {
+                vm.log.push(vm.time(), error.to_string());
+            }
             game_hours = (w.clock.game_days - before) * 24.0;
             w.fire_timers();
             w.ai_tick(real_seconds, &mut |n, c| vm.create_object_of(n, c));
@@ -505,6 +512,34 @@ impl Game {
         let _span = soe_trace::Span::with_payload("game.pump", "game", n as u64);
         for p in pending {
             match p {
+                Pending::BindEffect { object, effect } => {
+                    let definition = {
+                        let world = self.world.borrow();
+                        world.order().winner_ref(effect).and_then(|rref| {
+                            let record = world.order().record(rref);
+                            let raw = record.find(Tag::new(b"VMAD"))?;
+                            Some((rref.file, Vmad::parse(raw, record.tag)))
+                        })
+                    };
+                    if let Some((file, definition)) = definition {
+                        match definition {
+                            Ok(vmad) => {
+                                let mut report = BindReport::default();
+                                self.attach_all(object, effect, file, &vmad.scripts, &mut report);
+                                for (script, _) in report.scripts_missing {
+                                    self.vm.log.push(
+                                        self.vm.time(),
+                                        format!("effect script missing: {script}"),
+                                    );
+                                }
+                            }
+                            Err(error) => self
+                                .vm
+                                .log
+                                .push(self.vm.time(), format!("effect VMAD: {error}")),
+                        }
+                    }
+                }
                 Pending::Event { object, name, args } => {
                     self.vm.send_event(object, &name, &args);
                 }

@@ -71,7 +71,7 @@ and `engine-refs/skse64/scripts/vanilla` can establish the contract.
 
 ## Conformance table
 
-Counts from `natives::register`: 352 natives with state behind them and 188
+Counts from `natives::register`: 360 natives with state behind them and 180
 quiet stubs (141 and 176 before the natives round of 2026-09-18, 294 and 137
 before the DLC round). A stub returns the value the game gives when nothing
 is going on (`IsBleedingOut` false, `ShakeCamera` nothing) so vanilla scripts
@@ -81,7 +81,7 @@ run past it.
 |---|---|---|
 | Form | GetFormID, GetName, GetType, HasKeyword, GetKeywords, RegisterForSingleUpdate, RegisterForUpdate, RegisterForSingleUpdateGameTime, RegisterForUpdateGameTime, UnregisterForUpdate, UnregisterForUpdateGameTime, RegisterForSleep, UnregisterForSleep, RegisterForTrackedStatsEvent, UnregisterForTrackedStatsEvent, RegisterForAnimationEvent, UnregisterForAnimationEvent, RegisterForLOS, RegisterForSingleLOSGain, RegisterForSingleLOSLost, UnregisterForLOS | |
 | ObjectReference | Enable, EnableNoWait, Disable, DisableNoWait, IsEnabled, IsDisabled, Delete, IsDeleted, GetBaseObject, GetParentCell, GetWorldSpace, IsInInterior, GetPositionX/Y/Z, GetAngleX/Y/Z, SetPosition, SetAngle, MoveTo, GetDistance, Activate, BlockActivation, IsActivationBlocked, GetLinkedRef, GetItemCount, AddItem, RemoveItem, RemoveAllItems, GetScale, SetScale, GetDisplayName, SetDisplayName, PlayAnimation, GetOpenState, SetOpen, Lock, IsLocked, GetLockLevel, SetLockLevel, PlaceAtMe, AddToMap, EnableFastTravel, SetDestroyed, IgnoreFriendlyHits, IsIgnoringFriendlyHits, GetCurrentLocation, GetEditorLocation, IsInLocation, MoveToMyEditorLocation, GetActorOwner, GetFactionOwner, SetActorOwner, SetFactionOwner, AddInventoryEventFilter, RemoveInventoryEventFilter, RemoveAllInventoryEventFilters, SetAnimationVariableFloat/Int/Bool, GetAnimationVariableFloat/Int/Bool, GetNthLinkedRef, PlaceActorAtMe | Is3DLoaded, IsFurnitureInUse, GetCurrentScene, SetMotionType, ApplyHavokImpulse, PushActorAway and 6 more, plus the DLC ragdoll, cart and translation: ForceAddRagdollToWorld, ForceRemoveRagdollFromWorld, TetherToHorse, IsFurnitureMarkerInUse, Reset, TranslateTo, SplineTranslateTo, StopTranslation, CreateDetectionEvent |
-| Actor | GetActorValue, GetBaseActorValue, SetActorValue, ModActorValue, DamageActorValue, RestoreActorValue, GetActorValuePercentage (and the AV short names), IsDead, Kill, GetKiller, Resurrect, IsInCombat, StartCombat, StopCombat, GetCombatTarget, GetActorBase, GetLeveledActorBase, IsEssential, IsPlayerTeammate, SetPlayerTeammate, IsGhost, SetGhost, IsProtected, GetLevel, GetRace, IsUnconscious, SetUnconscious, SetRestrained, IsDoingFavor, SetDoingFavor, AddSpell, RemoveSpell, HasSpell, EquipItem, UnequipItem, IsEquipped, IsInFaction, GetFactionRank, AddToFaction, RemoveFromFaction, SetFactionRank, AddPerk, RemovePerk, HasPerk, SetAlert, IsAlerted, StartSneaking, IsSneaking, DrawWeapon, SheatheWeapon, IsWeaponDrawn, IsArrested, ClearArrested, SetAttackActorOnSight, SetDontMove, SetAllowPCDialogue, SetRelationshipRank, GetRelationshipRank, GetHighestRelationshipRank, GetLowestRelationshipRank, GetCrimeFaction, SetCrimeFaction, SetOutfit, and from the DLC: SendVampirismStateChanged, SendLycanthropyStateChanged, SetAllowFlying, SetAllowFlyingEx, IsAllowedToFly, CanFlyHere, StartDeferredKill, EndDeferredKill, KillSilent, SetRace, SetEyeTexture, SetCriticalStage, AttachAshPile, SetNoBleedoutRecovery, GetNoBleedoutRecovery, EnableAI, AddShout, RemoveShout, EquipShout, UnequipShout, GetEquippedShout, EquipSpell, UnequipSpell, SetSubGraphFloatVariable, PlaySubGraphAnimation, WornHasKeyword, IsPlayersLastRiddenHorse, SetAlpha, PlayIdle | IsAlarmed, IsBleedingOut, GetCombatState, EvaluatePackage, GetEquippedWeapon, SetLookAt and 34 more, plus the DLC ones without a system: IsFlying, HasMagicEffect, HasMagicEffectWithKeyword, DispelSpell, DispelAllSpells, GetWarmthRating, ClearExtraArrows, DoCombatSpellApply, MoveToPackageLocation |
+| Actor | GetActorValue, GetBaseActorValue, SetActorValue, ModActorValue, DamageActorValue, RestoreActorValue, GetActorValuePercentage (and the AV short names), IsDead, Kill, GetKiller, Resurrect, IsInCombat, StartCombat, StopCombat, GetCombatTarget, GetActorBase, GetLeveledActorBase, IsEssential, IsPlayerTeammate, SetPlayerTeammate, IsGhost, SetGhost, IsProtected, GetLevel, GetRace, IsUnconscious, SetUnconscious, SetRestrained, IsDoingFavor, SetDoingFavor, AddSpell, RemoveSpell, HasSpell, EquipItem, UnequipItem, IsEquipped, IsInFaction, GetFactionRank, AddToFaction, RemoveFromFaction, SetFactionRank, AddPerk, RemovePerk, HasPerk, SetAlert, IsAlerted, StartSneaking, IsSneaking, DrawWeapon, SheatheWeapon, IsWeaponDrawn, IsArrested, ClearArrested, SetAttackActorOnSight, SetDontMove, SetAllowPCDialogue, SetRelationshipRank, GetRelationshipRank, GetHighestRelationshipRank, GetLowestRelationshipRank, GetCrimeFaction, SetCrimeFaction, SetOutfit, and from the DLC: SendVampirismStateChanged, SendLycanthropyStateChanged, SetAllowFlying, SetAllowFlyingEx, IsAllowedToFly, CanFlyHere, StartDeferredKill, EndDeferredKill, KillSilent, SetRace, SetEyeTexture, SetCriticalStage, AttachAshPile, SetNoBleedoutRecovery, GetNoBleedoutRecovery, EnableAI, AddShout, RemoveShout, EquipShout, UnequipShout, GetEquippedShout, EquipSpell, UnequipSpell, SetSubGraphFloatVariable, PlaySubGraphAnimation, WornHasKeyword, IsPlayersLastRiddenHorse, SetAlpha, PlayIdle, HasMagicEffect, HasMagicEffectWithKeyword, DispelSpell, DispelAllSpells | IsAlarmed, IsBleedingOut, GetCombatState, EvaluatePackage, GetEquippedWeapon, SetLookAt and 34 more, plus the DLC ones without a system: IsFlying, GetWarmthRating, ClearExtraArrows, DoCombatSpellApply, MoveToPackageLocation |
 | ActorBase | GetRace, GetClass, GetSex, GetDeadCount, IsEssential, IsProtected, IsInvulnerable, IsUnique, SetEssential, SetProtected, SetInvulnerable, SetOutfit | GetGiftFilter |
 | Quest | Start, Stop, Reset, IsRunning, IsCompleted, IsActive, SetActive, CompleteQuest, CompleteAllObjectives, FailAllObjectives, SetStage, SetCurrentStageID, GetStage, GetCurrentStageID, GetStageDone, IsStageDone, SetObjectiveDisplayed, SetObjectiveDisplayedNoWait, SetObjectiveCompleted, SetObjectiveFailed, IsObjectiveDisplayed, IsObjectiveCompleted, IsObjectiveFailed, ModObjectiveGlobal, UpdateCurrentInstanceGlobal, GetAlias, GetAliasById, GetAliasByName, GetID, GetPriority, GetQuest | IsStarting, IsStopping |
 | Alias, ReferenceAlias, LocationAlias | GetOwningQuest, GetID, GetName, GetReference, GetRef, GetActorReference, GetActorRef, ForceRefTo, ForceRefIfEmpty, Clear, GetLocation, ForceLocationTo, AddInventoryEventFilter, RemoveInventoryEventFilter, RemoveAllInventoryEventFilters | |
@@ -101,7 +101,7 @@ run past it.
 | Spell | Cast, RemoteCast | |
 | Scene, Package | GetOwningQuest | |
 | TopicInfo | GetOwningQuest | |
-| ActiveMagicEffect | RegisterForUpdate, RegisterForSingleUpdate, RegisterForUpdateGameTime, RegisterForSingleUpdateGameTime, UnregisterForUpdate, UnregisterForUpdateGameTime, RegisterForAnimationEvent, UnregisterForAnimationEvent | GetBaseObject, GetTargetActor, GetCasterActor, Dispel, the inventory event filters |
+| ActiveMagicEffect | RegisterForUpdate, RegisterForSingleUpdate, RegisterForUpdateGameTime, RegisterForSingleUpdateGameTime, UnregisterForUpdate, UnregisterForUpdateGameTime, RegisterForAnimationEvent, UnregisterForAnimationEvent, GetBaseObject, GetTargetActor, GetCasterActor, Dispel | The inventory event filters |
 | EffectShader, VisualEffect | | Play, Stop |
 | ImageSpaceModifier | | Apply, ApplyCrossFade, Remove, RemoveCrossFade, PopTo |
 | ShaderParticleGeometry | | Apply, Remove |
@@ -122,11 +122,10 @@ Current behavior and compatibility limits:
 - `GetStage` and `GetCurrentStageID` both return the highest stage set since
   reset. The shipped `Quest.psc` implements the first by calling the second.
   Internal `QuestState.current` still records the last stage set.
-- `DispelSpell` and `DispelAllSpells` are stubs pending active effects. They
-  preserve known and equipped spells. `DispelSpell` returns false because
-  no effect was removed. The CK function pages require effect removal, and
-  `DispelAllSpells` excludes abilities, diseases, worn or constant
-  enchantments and addictions. Cast recording is not an effect lifecycle.
+- `DispelSpell` removes active applications from the named spell and reports
+  whether anything was removed. Neither dispel native changes known or equipped
+  spells. `DispelAllSpells` preserves diseases, abilities, addictions and constant
+  enchantments. Worn enchantment application is not implemented yet.
 - `tick_menu_mode(dt, true)` pauses world time and ordinary waits while
   `WaitMenuMode` continues. `tick(dt)` remains the unpaused entry point.
   The UI must supply the pause state when menus are implemented.
@@ -571,8 +570,8 @@ reach a parent group yet. The `ActiveMagicEffect` registration set went in
 next: an active effect is not a `Form`, so the registrations the registry
 holds on `Form` were out of its reach, and since they key off the calling
 object rather than a form the same behaviour registers cleanly on the effect
-class. Its own getters and `Dispel` are stubs until there is an active
-effect model.
+class. The later active-effect implementation below supplies its getters and
+`Dispel` using a separate object for each effect application.
 
 172 declared natives are still unregistered, 56 of them called from a DLC
 script, the largest single group being the rest of `ActiveMagicEffect` and
@@ -586,16 +585,12 @@ either.
 
 `World::save_state(&self) -> Vec<u8>` and `World::load_state(&mut self,
 bytes) -> Result<(), VmError>` write and read the run-time half of the form
-table, magic `SOEW`, version 8 (version 2 added the package driver state
-to every actor and the natives round state, version 3 the DLC state:
-vampirism and lycanthropy, flying, the deferred kill, eye texture, critical
-stage, bleedout, shouts, the behavior graph floats and the player's perk
-points, version 4 the resident cell, version 7 actor-value components,
-version 8 components and dialogue together).
-Versions 4 and 6 read only when each actor's old current and base values agree.
-A difference cannot identify which modifier produced it, so restoration
-returns an explicit ambiguity error. Version 7 reads with empty dialogue
-state. Version 5 from the separate magic branch still needs integration.
+table, magic `SOEW`, version 9. Versions 4 to 6 use legacy actor values,
+version 5 adds active magic, version 6 adds dialogue, version 7 adds actor-value
+components, version 8 adds dialogue to those components, and version 9 adds
+active magic. Older formats load with empty state for absent subsystems.
+Legacy current and base values must agree. Otherwise their modifier domains
+are ambiguous and restoration returns an explicit error.
 The state uses the same `Writer`/`Reader` encoding as
 `soe_papyrus::vm::state`, an `ArrayPool` and `ArrayTable` of its own ahead of
 the body for the `Value` arguments a pending event or call is carrying.
@@ -640,7 +635,8 @@ notification fired, and the alias resolved to the lever.
 - Race starting attributes are read. Live class/level calculations, racial
   skill bonuses and leveled-template selection remain unfinished. Other NPC
   template groups still use the older one-level view and need correction.
-- No combat, magic, dialogue. Their natives are stubs. Packages run three
+- Weapon combat remains unfinished. Dialogue and magic have the limited
+  execution paths documented below. Packages run three
   procedures, see the Packages section for the rest. Scenes play as a flag
   with `OnBegin` and `OnEnd`, no phases or actions. Perks are a set on the
   actor, no entry point applies. Leveled lists are never rolled. Spell casts
@@ -941,11 +937,9 @@ Conditions use current shared actor, quest, inventory and location state.
 Papyrus variable queries require conditional flags and reject ambiguous names.
 The evaluator does not complete missing actor-value, alias or package systems.
 
-SOEW version 8 stores the conversation cursor and sorted INFO history, and
-reads versions 4 and 7 with empty dialogue state and version 6 with its
-legacy actor-value restrictions. Version 5 belongs to the separate magic
-worktree and is rejected here. A combined format must
-be reconciled before these branches merge. Dialogue state contributes to the
+SOEW version 9 stores the conversation cursor, sorted INFO history and active
+magic effects alongside actor-value components. Formats without dialogue load
+an empty conversation state. Dialogue state contributes to the
 simulation hash. The derived record index is rebuilt from the load order.
 This is engine-save support, not vanilla ESS conversation restoration.
 
@@ -972,3 +966,58 @@ services, complete alias behavior and interruption rules. Godot activation,
 menus, string-table resolution, voice assets, LIP and idle playback are not
 connected to this API. This increment does not establish playable dialogue
 or complete the broader gameplay goal.
+
+## Active magic applications
+
+The runtime provides `World::cast_spell` for direct scripted casts
+of non-hostile Script, Value Modifier and Dual Value Modifier effects. Definitions
+come from winning SPEL and MGEF records, with each FormID resolved in its winning
+plugin. Self and target-actor delivery are supported for constant and fire-and-forget
+casts. `Spell.Cast` credits an actor source. `RemoteCast` credits its explicit
+blame actor. Player charging, costs and hand input are separate unfinished work.
+
+Each application gets an `EffectId` and a distinct `ActiveMagicEffect` VM object.
+MGEF scripts are attached when an effect is applied, rather than attached to the
+MGEF form at startup. VMAD properties use the winning MGEF's plugin context.
+The queue binds the scripts before sending `OnEffectStart`, and expiry or dispel
+sends `OnEffectFinish`. The getters return the base MGEF, target actor and caster
+while the application is live. Finish handlers may observe absent native state,
+as allowed by the shipped ActiveMagicEffect.psc contract.
+
+Recover modifiers change the target once and reverse their own delta at the end.
+Other value modifiers integrate magnitude over unpaused simulation seconds, with
+the final tick clipped to the remaining duration. Zero-duration effects apply
+once. Healing health, magicka and stamina is limited to the maximum, including permanent and temporary modifiers. No Recast prevents a second live application of the
+same MGEF on the same actor. Death removes effects unless No Death Dispel is set.
+SOEW version 9 stores identity, source, caster, target, magnitude, elapsed time,
+duration and value deltas, including pending script attachment. Loading never
+reapplies a saved modifier. The deterministic scenes hash includes this state.
+
+The source contracts are CK [Magic Effect](https://ck.uesp.net/wiki/Magic_Effect),
+local `ck-wiki/DispelSpell_-_Actor.wikitext` and
+`DispelAllSpells_-_Actor.wikitext`, the shipped
+`skse64/scripts/vanilla/ActiveMagicEffect.psc`, xEdit's SPEL/MGEF definitions, and
+CommonLibSSE-NG `ActorValues.h` and `MagicSystem.h`. The skymp
+`ActiveMagicEffectsMap` was read for comparison. Its one-effect-per-actor-value
+map and wall-clock expiry do not fit independent applications or menu pause, so
+those policies were not reused. `thiserror` is now a direct game dependency for
+typed cast errors. It was already present transitively, with no new package.
+
+Unsupported casts return a typed error before applying any of their effects,
+and Papyrus casts log that error. This includes hostile hit resolution,
+projectiles, contact and location delivery, concentration, conditions, area,
+taper, perk adjustments, equip abilities, keyword dispelling and other archetypes.
+Actor-value indices above 45 are not yet supported. Recover effects use the temporary modifier domain. Other effects damage or
+restore the damage component without changing permanent modifiers.
+Automatic ability application from AddSpell or NPC spell lists, enchantments,
+potions, resistance and absorption, effect artwork and sounds, actor-event
+forwarding, effect inventory filters and VM object reclamation remain unfinished.
+This is an active-effect foundation, not complete magic execution.
+
+Validation on the installed five-master load order found 1,354 non-deleted
+SPEL winners. The direct path accepted 178 spells and created 205 applications.
+The survey checks definitions, identity and removal without running their scripts.
+The rest returned explicit unsupported reasons. The installed startup still ran
+423 quests through 1,388 native calls with zero unresolved calls. Binding now
+attached 27,563 scripts, with seven missing scripts and 88 missing properties,
+because MGEF script attachments wait until an application exists.

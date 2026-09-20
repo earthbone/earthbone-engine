@@ -28,9 +28,10 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// behavior graph floats and the player's perk points.
 /// Version 4 added the resident cell, so a loaded game knows which cell's
 /// temporary references it is holding. See `crate::world::transition`.
-/// Version 6 stores dialogue with legacy actor values, version 7 stores
-/// actor-value components, and version 8 combines components with dialogue.
-pub const SAVE_VERSION: u16 = 8;
+/// Versions 5 and 6 add magic and dialogue to legacy actor values.
+/// Versions 7 and 8 add actor-value components and dialogue, respectively.
+/// Version 9 combines components, dialogue and active magic effects.
+pub const SAVE_VERSION: u16 = 9;
 
 impl World {
     /// Serialize the run-time state: the VM object handles, references,
@@ -100,6 +101,11 @@ impl World {
         body.len(self.pending.len());
         for p in &self.pending {
             match p {
+                Pending::BindEffect { object, effect } => {
+                    body.u8(2);
+                    body.u64(object.0);
+                    write_form_id(&mut body, *effect);
+                }
                 Pending::Event { object, name, args } => {
                     body.u8(0);
                     body.u64(object.0);
@@ -284,6 +290,7 @@ impl World {
         }
 
         self.write_dialogue(&mut body);
+        self.write_magic(&mut body);
         let mut out = Writer::new();
         out.out.extend_from_slice(SAVE_MAGIC);
         out.u16(SAVE_VERSION);
@@ -305,7 +312,7 @@ impl World {
             return Err(VmError::State("not a world state file".into()));
         }
         let version = r.u16()?;
-        if !matches!(version, 4 | 6 | 7 | SAVE_VERSION) {
+        if !matches!(version, 4..=SAVE_VERSION) {
             return Err(VmError::State(format!(
                 "world state version {version}, this build reads {SAVE_VERSION}"
             )));
@@ -426,6 +433,10 @@ impl World {
             let tag = r.u8()?;
             let object = ObjectId(r.u64()?);
             match tag {
+                2 if version == 5 || version >= 9 => pending.push(Pending::BindEffect {
+                    object,
+                    effect: read_form_id(&mut r)?,
+                }),
                 0 => {
                     let name = r.str()?;
                     let k = r.len()?;
@@ -679,6 +690,38 @@ impl World {
                 return Err(VmError::State("dialogue cursor without actors".into()));
             }
         }
+        let (next_effect, active_effects) = if version == 5 || version >= 9 {
+            super::magic::read_magic(&mut r)?
+        } else {
+            (1, BTreeMap::new())
+        };
+        for (id, effect) in &active_effects {
+            if !objects.contains_key(&Handle::ActiveEffect(*id))
+                || !actors.contains_key(&effect.target)
+            {
+                return Err(VmError::State(
+                    "active effect without object or actor".into(),
+                ));
+            }
+            let spell = self
+                .spell(effect.spell)
+                .map_err(|e| VmError::State(e.to_string()))?;
+            let Some(entry) = spell.effects.get(effect.effect_index as usize) else {
+                return Err(VmError::State("active effect without spell entry".into()));
+            };
+            if self.resolve_from(effect.spell, entry.base_effect) != Some(effect.effect) {
+                return Err(VmError::State("active effect definition mismatch".into()));
+            }
+            self.magic_effect(effect.effect)
+                .map_err(|e| VmError::State(e.to_string()))?;
+        }
+        for handle in objects.keys() {
+            if let Handle::ActiveEffect(id) = handle {
+                if !(version == 5 || version >= 9) || id.0 == 0 || id.0 >= next_effect {
+                    return Err(VmError::State("invalid active effect handle".into()));
+                }
+            }
+        }
         r.expect_end()?;
 
         self.leveled_lists = leveled_lists;
@@ -707,6 +750,8 @@ impl World {
         self.next_sound = next_sound;
         self.spell_casts = spell_casts;
         self.dialogue = dialogue;
+        self.next_effect = next_effect;
+        self.active_effects = active_effects;
 
         self.objects = objects;
         self.handles = handles;
@@ -788,6 +833,10 @@ fn read_transform(r: &mut Reader<'_>) -> Result<Transform, VmError> {
 
 fn write_handle(w: &mut Writer, h: Handle) {
     match h {
+        Handle::ActiveEffect(id) => {
+            w.u8(2);
+            w.u64(id.0);
+        }
         Handle::Form(id) => {
             w.u8(0);
             write_form_id(w, id);
@@ -802,6 +851,7 @@ fn write_handle(w: &mut Writer, h: Handle) {
 
 fn read_handle(r: &mut Reader<'_>) -> Result<Handle, VmError> {
     Ok(match r.u8()? {
+        2 => Handle::ActiveEffect(super::magic::EffectId(r.u64()?)),
         0 => Handle::Form(read_form_id(r)?),
         1 => Handle::Alias {
             quest: read_form_id(r)?,

@@ -377,6 +377,87 @@ fn save_restores_response_cursor_without_replaying_begin_fragment() {
 }
 
 #[test]
+fn save_restores_dialogue_and_magic_without_reapplying_the_buff() {
+    let fixture = || {
+        let mut plugin = plugin(vec![info(INFO, 0, &["First", "Second"], true)]);
+        let mut effect = vec![0; 152];
+        for (offset, value) in [(0, 2u32), (16, u32::MAX), (68, 24), (80, 1), (84, 3)] {
+            effect[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
+        }
+        plugin.push_top(Record::new(T(b"MGEF"), 0xB00).sub(T(b"DATA"), effect));
+        let mut spell = vec![0; 36];
+        spell[16..20].copy_from_slice(&1u32.to_le_bytes());
+        spell[20..24].copy_from_slice(&3u32.to_le_bytes());
+        let mut magnitude = 20.0f32.to_le_bytes().to_vec();
+        magnitude.extend_from_slice(&0u32.to_le_bytes());
+        magnitude.extend_from_slice(&10u32.to_le_bytes());
+        plugin.push_top(
+            Record::new(T(b"SPEL"), 0xB01)
+                .sub(T(b"SPIT"), spell)
+                .sub(T(b"EFID"), 0xB00u32.to_le_bytes())
+                .sub(T(b"EFIT"), magnitude),
+        );
+        plugin
+    };
+    let mut original = game(fixture());
+    open(&mut original);
+    original
+        .world_mut()
+        .set_actor_value(id(SPEAKER), "health", 100.0)
+        .unwrap();
+    original
+        .world_mut()
+        .mod_actor_value(id(SPEAKER), "health", -15.0)
+        .unwrap();
+    original
+        .world_mut()
+        .damage_actor_value(id(SPEAKER), "health", 30.0)
+        .unwrap();
+    let shared = original.shared_world();
+    shared
+        .borrow_mut()
+        .cast_spell(
+            id(0xB01),
+            id(SPEAKER),
+            Some(id(SPEAKER)),
+            Some(id(SPEAKER)),
+            &mut |name, class| original.vm.create_object_of(name, class),
+        )
+        .unwrap();
+    original.choose_dialogue(id(TOPIC)).unwrap();
+    original.advance_dialogue().unwrap();
+    let bytes = original.save_state().unwrap();
+    let mut restored = game(fixture());
+    restored.load_state(&bytes).unwrap();
+    assert_eq!(restored.world().state_hash(), original.world().state_hash());
+    assert_eq!(
+        restored.dialogue_line().unwrap(),
+        original.dialogue_line().unwrap()
+    );
+    assert_eq!(counter(&mut restored, "begins"), 1);
+    assert_eq!(
+        restored.world_mut().actor_value(id(SPEAKER), "health"),
+        75.0
+    );
+    restored
+        .world_mut()
+        .restore_actor_value(id(SPEAKER), "health", 100.0)
+        .unwrap();
+    assert_eq!(
+        restored.world_mut().actor_value(id(SPEAKER), "health"),
+        105.0
+    );
+    restored.tick(10.0);
+    assert_eq!(restored.world().active_effects().count(), 0);
+    assert_eq!(
+        restored.world_mut().actor_value(id(SPEAKER), "health"),
+        85.0
+    );
+    restored.advance_dialogue().unwrap();
+    assert_eq!(counter(&mut restored, "ends"), 1);
+}
+
+#[test]
 fn info_vmad_round_trips_begin_end_and_marker_bytes() {
     let record = info(INFO, 0, &[], true);
     let bytes = record.find(T(b"VMAD")).unwrap();
@@ -523,8 +604,8 @@ fn failed_end_dispatch_preserves_a_saveable_response_cursor() {
 fn old_world_save_starts_without_dialogue_state() {
     let mut game = game(plugin(vec![info(INFO, 0, &["New conversation"], false)]));
     let mut old = game.world().save_state();
-    // CONTEXT: v4 ends before the absent-session byte and empty history count.
-    old.truncate(old.len() - 5);
+    // CONTEXT: Legacy state ends before the empty dialogue and magic tables.
+    old.truncate(old.len() - 17);
     old[4..6].copy_from_slice(&4u16.to_le_bytes());
     open(&mut game);
     game.choose_dialogue(id(TOPIC)).unwrap();

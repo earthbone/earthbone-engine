@@ -119,6 +119,10 @@ fn transform(h: &mut StateHasher, t: Transform) {
 
 fn handle(h: &mut StateHasher, handle: Handle) {
     match handle {
+        Handle::ActiveEffect(id) => {
+            h.u8(2);
+            h.u64(id.0);
+        }
         Handle::Form(id) => {
             h.u8(0);
             form(h, id);
@@ -473,6 +477,11 @@ impl World {
         h.len(self.pending.len());
         for p in &self.pending {
             match p {
+                Pending::BindEffect { object, effect } => {
+                    h.u8(2);
+                    h.u64(object.0);
+                    form(&mut h, *effect);
+                }
                 Pending::Event { object, name, args } => {
                     h.u8(0);
                     h.u64(object.0);
@@ -650,6 +659,9 @@ impl World {
         let mut dialogue = soe_papyrus::vm::state::Writer::new();
         self.write_dialogue(&mut dialogue);
         h.bytes(&dialogue.out);
+        let mut magic = soe_papyrus::vm::state::Writer::new();
+        self.write_magic(&mut magic);
+        h.bytes(&magic.out);
         let scenes = h.finish();
 
         // These three are `BTreeMap`, already in key order, so they are walked
