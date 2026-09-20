@@ -325,6 +325,19 @@ struct ActiveTransition {
     curve: i8,
 }
 
+#[derive(Debug, Clone)]
+struct DelayedTransition {
+    index: usize,
+    info: TransitionInfo,
+    event: Event,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct IntervalState {
+    trigger: bool,
+    initiate: bool,
+}
+
 /// Per node run-time state. One flat record per node keeps the arena
 /// simple, unused fields cost nothing to carry.
 #[derive(Debug, Clone, Default)]
@@ -340,6 +353,8 @@ struct Runtime {
     previous_state: Option<i32>,
     time_in_state: f32,
     transitions: Vec<ActiveTransition>,
+    delayed: Option<DelayedTransition>,
+    intervals: Vec<IntervalState>,
     blend_parameter: Option<f32>,
     child_weights: Vec<Option<f32>>,
     selected: Option<usize>,
@@ -931,6 +946,8 @@ impl<'a> Interpreter<'a> {
                 }
             }
             self.nodes[id.0].transitions.clear();
+            self.nodes[id.0].delayed = None;
+            self.nodes[id.0].intervals.clear();
             self.nodes[id.0].current_state = None;
         }
         for child in node.children() {
@@ -982,6 +999,16 @@ impl<'a> Interpreter<'a> {
         self.nodes[id.0].previous_state = from;
         self.nodes[id.0].current_state = Some(state);
         self.nodes[id.0].time_in_state = 0.0;
+        self.nodes[id.0].delayed = None;
+        self.nodes[id.0].intervals = info
+            .transitions
+            .iter()
+            .chain(&sm.wildcard_transitions)
+            .map(|transition| IntervalState {
+                trigger: transition.trigger_interval.enter_event_id < 0,
+                initiate: transition.initiate_interval.enter_event_id < 0,
+            })
+            .collect();
         if let Some(g) = info.generator {
             self.activate(g);
         }
@@ -1060,46 +1087,121 @@ impl<'a> Interpreter<'a> {
         let Some(state) = sm.state(current) else {
             return false;
         };
+        if ev.id >= 0 {
+            for (index, info) in state
+                .transitions
+                .iter()
+                .chain(&sm.wildcard_transitions)
+                .enumerate()
+            {
+                let interval = &mut self.nodes[id.0].intervals[index];
+                update_interval_event(&info.trigger_interval, &mut interval.trigger, ev.id);
+                update_interval_event(&info.initiate_interval, &mut interval.initiate, ev.id);
+            }
+        }
         if self.nodes[id.0].transitions.iter().any(|transition| {
             transition.flags & transition_flags::UNINTERRUPTIBLE_WHILE_PLAYING != 0
         }) {
             return false;
+        }
+        if self.nodes[id.0].delayed.as_ref().is_some_and(|delayed| {
+            delayed.info.flags & transition_flags::UNINTERRUPTIBLE_WHILE_DELAYED != 0
+        }) {
+            return self.start_delayed(id, sm);
         }
         let return_event = sm.return_to_previous_state_event_id;
         let mut candidates: Vec<_> = state
             .transitions
             .iter()
             .chain(sm.wildcard_transitions.iter())
-            .filter(|transition| Self::transition_matches(sm, current, transition, ev))
+            .enumerate()
+            .filter(|(index, info)| {
+                Self::transition_matches(sm, current, info, ev)
+                    && (info.flags & transition_flags::USE_TRIGGER_INTERVAL == 0
+                        || interval_open(
+                            &info.trigger_interval,
+                            self.nodes[id.0].intervals[*index].trigger,
+                            self.nodes[id.0].time_in_state,
+                        ))
+            })
             .collect();
-        candidates.sort_by_key(|transition| std::cmp::Reverse(transition.priority));
+        candidates.sort_by_key(|(_, transition)| std::cmp::Reverse(transition.priority));
         let candidate = candidates
             .into_iter()
-            .find(|transition| self.condition_passes(transition))
-            .cloned();
+            .find(|(_, transition)| self.condition_passes(transition))
+            .map(|(index, info)| (index, info.clone()));
         let target = match candidate {
-            Some(t) => Some((t.to_state_id, t)),
+            Some(pair) => Some(pair),
             None if return_event >= 0 && ev.id == return_event => self.nodes[id.0]
                 .previous_state
-                .map(|p| (p, TransitionInfo::plain(p))),
+                .map(|p| (usize::MAX, TransitionInfo::plain(p))),
             None => None,
         };
-        let Some((to, info)) = target else {
-            return false;
+        let Some((index, info)) = target else {
+            return self.start_delayed(id, sm);
         };
-        if self.nodes[id.0]
+        let runtime = &self.nodes[id.0];
+        if runtime
             .transitions
             .last()
             .is_some_and(|active| info.priority < active.priority)
+            || runtime
+                .delayed
+                .as_ref()
+                .is_some_and(|delayed| info.priority < delayed.info.priority)
         {
-            return false;
+            return self.start_delayed(id, sm);
         }
-        self.start_transition(id, sm, current, to, &info, ev);
+        if info.flags & transition_flags::USE_INITIATE_INTERVAL != 0
+            && !interval_open(
+                &info.initiate_interval,
+                runtime.intervals[index].initiate,
+                runtime.time_in_state,
+            )
+        {
+            self.nodes[id.0].delayed = Some(DelayedTransition {
+                index,
+                info,
+                event: ev,
+            });
+        } else {
+            self.start_transition(id, sm, current, info.to_state_id, &info, ev);
+        }
         true
     }
 
-    /// Match event or condition-only transitions. Trigger intervals are
-    /// not evaluated here. Wildcard self transitions require their flag.
+    /// An admitted request retains its condition result and triggering event.
+    fn start_delayed(&mut self, id: NodeId, sm: &StateMachine) -> bool {
+        let runtime = &self.nodes[id.0];
+        let Some(delayed) = &runtime.delayed else {
+            return false;
+        };
+        if !interval_open(
+            &delayed.info.initiate_interval,
+            runtime.intervals[delayed.index].initiate,
+            runtime.time_in_state,
+        ) || runtime.transitions.iter().any(|active| {
+            active.flags & transition_flags::UNINTERRUPTIBLE_WHILE_PLAYING != 0
+                || active.priority > delayed.info.priority
+        }) {
+            return false;
+        }
+        let Some(current) = runtime.current_state else {
+            return false;
+        };
+        let delayed = delayed.clone();
+        self.start_transition(
+            id,
+            sm,
+            current,
+            delayed.info.to_state_id,
+            &delayed.info,
+            delayed.event,
+        );
+        true
+    }
+
+    /// Match event or condition-only transitions. Wildcard self transitions require their flag.
     fn transition_matches(sm: &StateMachine, current: i32, t: &TransitionInfo, ev: Event) -> bool {
         if t.flags & transition_flags::DISABLED != 0 || t.event_id != ev.id {
             return false;
@@ -1552,6 +1654,29 @@ impl<'a> Interpreter<'a> {
         let rt = &self.nodes[id.0];
         let speed = rt.playback_speed.unwrap_or(c.playback_speed);
         Some((rt.local_time + dt * speed).rem_euclid(duration) / duration)
+    }
+}
+
+/// Bounds are half-open. A zero time exit has no upper bound.
+fn interval_open(interval: &TimeInterval, event_open: bool, time: f32) -> bool {
+    if interval.enter_event_id >= 0 || interval.exit_event_id >= 0 {
+        event_open
+    } else {
+        interval.enter_time.is_finite()
+            && interval.exit_time.is_finite()
+            && interval.enter_time >= 0.0
+            && interval.exit_time >= 0.0
+            && time >= interval.enter_time
+            && (interval.exit_time == 0.0 || time < interval.exit_time)
+    }
+}
+
+fn update_interval_event(interval: &TimeInterval, open: &mut bool, event: i32) {
+    if interval.enter_event_id == event {
+        *open = true;
+    }
+    if interval.exit_event_id == event {
+        *open = false;
     }
 }
 

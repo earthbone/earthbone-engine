@@ -302,11 +302,12 @@ What each node does:
 - `hkbStateMachine`: enters the start state on activation (mode 0 the
   start state, 1 the sync variable, 2 the most probable enabled state as a
   deterministic stand-in for random, 3 falls back to 0 since choosers are
-  not decoded). An event matches the first transition in the current
-  state's list, then the wildcards, whose event id it carries, whose flags
+  not decoded). An event chooses the highest-priority eligible transition in the current
+  state's list and wildcards, whose event id it carries, whose flags
   are not disabled, whose target state is enabled and whose scalar condition
   passes. Eventless guards are polled once per active machine per frame.
-  Trigger intervals are still accepted as satisfied. The return-to-previous-state event goes back one state.
+  Trigger intervals gate admission and initiate intervals defer accepted requests.
+  The return-to-previous-state event goes back one state.
   A blending transition effect with a duration crossfades the old and new
   generators with `blend_curve` (0 smooth, 1 linear, 2 linear to smooth, 3
   smooth to linear) and keeps the old one active until it ends. Without
@@ -542,12 +543,46 @@ These choices have not been verified against the original runtime. ANM-54
 tracks that comparison and the tied delayed-transition contract. ANM-02 is
 limited to unequal-priority arbitration and blend capacity. Shared descendants
 below distinct wrappers still need lifecycle and update ownership, tracked by
-ANM-55. ANM-11 retains
-trigger and initiate intervals and their delayed transitions.
+ANM-55. ANM-11 adds trigger and initiate intervals and delayed requests.
 
 The `transition_priority` suite checks numeric chained poses, capacity eviction,
 priority and guard selection, uninterruptible effects, shared-generator clocks,
 instant transitions and cleanup when a later effect completes first.
+
+### 6.5 Transition intervals
+
+ANM-11 follows the local serde-hkx `hkbStateMachineTimeInterval` layout and
+hkxcmd transition flags. The Havok declaration linked above supplies the
+interval contract. Trigger bounds gate request admission. Initiate bounds
+hold an admitted request. Fixed bounds use state-entry time, with zero exit
+meaning no upper bound. Either event ID selects event mode for both bounds.
+The implementation is original Rust, with no proprietary implementation port.
+
+The interpreter uses half-open time bounds. Queued events see the previous
+frame's state time. Delayed requests and condition-only guards are checked
+before generation. Generation advances state, clip and effect clocks together,
+so a time window reached there is observed on the next transition poll.
+The raised-event phase also polls after generation. A request started there
+keeps its target and effect clocks at zero until the next generation.
+Event bounds update before transition selection, with closing
+winning if both bounds name the same event. A missing enter event initializes
+an event interval open. State entry resets local and wildcard interval flags,
+and clears pending requests. Deactivation also clears requests. These ordering
+choices are provisional and covered by tests, not original-runtime captures.
+
+Delayed requests retain their trigger event and admission condition result.
+Higher-priority requests can replace them unless the delayed request is
+uninterruptible. The current equal-priority fallback retains one request in
+authored order, with new equal-priority requests replacing the pending one.
+ANM-54 owns the tied-candidate contract. Requests wait indefinitely if their
+initiate window never opens. The declaration mentions an excessive-delay
+fallback without defining its threshold. ANM-56 owns that threshold and the
+boundary, reset and condition-recheck comparison against the original runtime.
+Invalid fixed bounds fail closed. Event mode ignores fixed-time fields.
+
+`transition_intervals` checks admission separately from start, exact boundaries,
+event windows, condition-only transitions, state reentry, wildcard reset,
+deactivation, priority protection and accepted requests outliving trigger windows.
 
 ## 7. Not done and next
 
@@ -556,9 +591,8 @@ instant transitions and cleanup when a later effect completes first.
   work: bone weight masks on a blender, `BSEventOnFalseToTrueModifier`,
   `hkbRotateCharacterModifier` and `hkbEventsFromRangeModifier`. Their
   layouts are in `serde-hkx` like the rest.
-- Transition details: trigger and initiate intervals, equal-priority arbitration,
-  the `abut at end` flag, `hkbGeneratorTransitionEffect` and
-  delayed transition handling. Expression functions are ANM-49 and the
+- Transition details: equal-priority arbitration, the `abut at end` flag,
+  `hkbGeneratorTransitionEffect`, delayed timeout and interval boundary parity. Expression functions are ANM-49 and the
   undocumented troll comma condition is ANM-50.
 - Blender details: bone weight masks, `subtractLastChild`, the real weight
   curve once a capture from the game exists (5.4).
