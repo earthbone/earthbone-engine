@@ -518,6 +518,37 @@ The existing installed-data checks still parse all 7,699 packfiles, decode
 all 6,126 spline animations and sample 466,793 tracks without failures. The
 linked human idle/walk graph still reaches both clips with weight one.
 
+### Unequal transition priorities and blend capacity (2026-09-20)
+
+ANM-02 selects the highest-priority enabled transition whose condition passes.
+A lower-priority transition cannot interrupt a higher-priority active effect.
+The playing-uninterruptible flag prevents interruptions while its effect runs.
+Interrupted blends remain inputs to their successors. At capacity the oldest
+effect ends to admit the new effect. Completing a later effect removes its
+predecessors. Direct state generators retained by several effects advance once per update.
+Nonpositive capacity permits state changes without retaining a blend.
+
+Layout sources are local `serde-hkx/assets/classes/hkbStateMachine.json`,
+`hkbStateMachineTransitionInfo.json` and
+`activeragdoll/include/RE/havok_behavior.h`. They do not explain arbitration.
+The [Havok state-machine declaration](https://github.com/Bewolf2/projectanarchy/blob/master/Source/Behavior/Behavior/StateMachine/hkbStateMachine.h)
+documents retained interrupted blends, oldest eviction and predecessor cleanup.
+Its active-priority comment does not resolve equality. No proprietary
+implementation code was ported.
+
+Equal-priority interruptions retain the previous permissive behavior. Candidate
+ties retain authored order, with local entries preceding wildcard entries.
+These choices have not been verified against the original runtime. ANM-54
+tracks that comparison and the tied delayed-transition contract. ANM-02 is
+limited to unequal-priority arbitration and blend capacity. Shared descendants
+below distinct wrappers still need lifecycle and update ownership, tracked by
+ANM-55. ANM-11 retains
+trigger and initiate intervals and their delayed transitions.
+
+The `transition_priority` suite checks numeric chained poses, capacity eviction,
+priority and guard selection, uninterruptible effects, shared-generator clocks,
+instant transitions and cleanup when a later effect completes first.
+
 ## 7. Not done and next
 
 - Modifier evaluation. `BSIsActiveModifier` reports its own activity and the
@@ -525,9 +556,9 @@ linked human idle/walk graph still reaches both clips with weight one.
   work: bone weight masks on a blender, `BSEventOnFalseToTrueModifier`,
   `hkbRotateCharacterModifier` and `hkbEventsFromRangeModifier`. Their
   layouts are in `serde-hkx` like the rest.
-- Transition details: trigger and initiate intervals, priority arbitration,
+- Transition details: trigger and initiate intervals, equal-priority arbitration,
   the `abut at end` flag, `hkbGeneratorTransitionEffect` and
-  `maxSimultaneousTransitions`. Expression functions are ANM-49 and the
+  delayed transition handling. Expression functions are ANM-49 and the
   undocumented troll comma condition is ANM-50.
 - Blender details: bone weight masks, `subtractLastChild`, the real weight
   curve once a capture from the game exists (5.4).

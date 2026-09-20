@@ -316,6 +316,8 @@ struct ResolvedBinding {
 
 #[derive(Debug, Clone, Copy)]
 struct ActiveTransition {
+    priority: i16,
+    flags: u16,
     from_generator: Option<NodeId>,
     to_generator: Option<NodeId>,
     elapsed: f32,
@@ -337,7 +339,7 @@ struct Runtime {
     current_state: Option<i32>,
     previous_state: Option<i32>,
     time_in_state: f32,
-    transition: Option<ActiveTransition>,
+    transitions: Vec<ActiveTransition>,
     blend_parameter: Option<f32>,
     child_weights: Vec<Option<f32>>,
     selected: Option<usize>,
@@ -686,7 +688,14 @@ impl<'a> Interpreter<'a> {
     pub fn in_transition(&self, machine: NodeId) -> bool {
         self.nodes
             .get(machine.0)
-            .is_some_and(|n| n.transition.is_some())
+            .is_some_and(|n| !n.transitions.is_empty())
+    }
+
+    /// Number of blending effects currently retained by a state machine.
+    pub fn active_transition_count(&self, machine: NodeId) -> usize {
+        self.nodes
+            .get(machine.0)
+            .map_or(0, |node| node.transitions.len())
     }
 
     /// A clip generator's local time, when it is active.
@@ -837,7 +846,7 @@ impl<'a> Interpreter<'a> {
                 let start = self.start_state(id, sm);
                 self.nodes[id.0].current_state = None;
                 self.nodes[id.0].previous_state = None;
-                self.nodes[id.0].transition = None;
+                self.nodes[id.0].transitions.clear();
                 if let Some(start) = start {
                     self.enter_state(id, sm, start, None);
                 }
@@ -921,11 +930,7 @@ impl<'a> Interpreter<'a> {
                     }
                 }
             }
-            if let Some(t) = self.nodes[id.0].transition.take() {
-                if let Some(g) = t.from_generator {
-                    self.deactivate(g);
-                }
-            }
+            self.nodes[id.0].transitions.clear();
             self.nodes[id.0].current_state = None;
         }
         for child in node.children() {
@@ -993,8 +998,8 @@ impl<'a> Interpreter<'a> {
     }
 
     /// Deliver one event: a state machine takes it if a transition from
-    /// its current state (own list first, then wildcards, first match)
-    /// names it, otherwise the event goes on to the active children.
+    /// its current state names it. Highest priority wins, with authored order
+    /// breaking ties. Otherwise the event goes on to the active children.
     fn handle_event(&mut self, id: NodeId, ev: Event) -> bool {
         if !self.nodes[id.0].active {
             return false;
@@ -1028,8 +1033,15 @@ impl<'a> Interpreter<'a> {
 
     fn active_generators_of_machine(&self, id: NodeId, sm: &StateMachine) -> Vec<NodeId> {
         let mut out = Vec::new();
-        if let Some(t) = self.nodes[id.0].transition {
-            out.extend(t.from_generator);
+        for transition in &self.nodes[id.0].transitions {
+            for generator in [transition.from_generator, transition.to_generator]
+                .into_iter()
+                .flatten()
+            {
+                if !out.contains(&generator) {
+                    out.push(generator);
+                }
+            }
         }
         if let Some(current) = self.nodes[id.0].current_state {
             if let Some(g) = sm.state(current).and_then(|s| s.generator) {
@@ -1048,12 +1060,22 @@ impl<'a> Interpreter<'a> {
         let Some(state) = sm.state(current) else {
             return false;
         };
+        if self.nodes[id.0].transitions.iter().any(|transition| {
+            transition.flags & transition_flags::UNINTERRUPTIBLE_WHILE_PLAYING != 0
+        }) {
+            return false;
+        }
         let return_event = sm.return_to_previous_state_event_id;
-        let candidate = state
+        let mut candidates: Vec<_> = state
             .transitions
             .iter()
             .chain(sm.wildcard_transitions.iter())
-            .find(|t| Self::transition_matches(sm, current, t, ev) && self.condition_passes(t))
+            .filter(|transition| Self::transition_matches(sm, current, transition, ev))
+            .collect();
+        candidates.sort_by_key(|transition| std::cmp::Reverse(transition.priority));
+        let candidate = candidates
+            .into_iter()
+            .find(|transition| self.condition_passes(transition))
             .cloned();
         let target = match candidate {
             Some(t) => Some((t.to_state_id, t)),
@@ -1065,6 +1087,13 @@ impl<'a> Interpreter<'a> {
         let Some((to, info)) = target else {
             return false;
         };
+        if self.nodes[id.0]
+            .transitions
+            .last()
+            .is_some_and(|active| info.priority < active.priority)
+        {
+            return false;
+        }
         self.start_transition(id, sm, current, to, &info, ev);
         true
     }
@@ -1095,9 +1124,6 @@ impl<'a> Interpreter<'a> {
         info: &TransitionInfo,
         ev: Event,
     ) {
-        if let Some(t) = self.nodes[id.0].transition.take() {
-            self.finish_transition(id, t);
-        }
         let from_generator = sm.state(from).and_then(|s| s.generator);
         let to_generator = sm.state(to).and_then(|s| s.generator);
         if let Some(state) = sm.state(from) {
@@ -1120,8 +1146,17 @@ impl<'a> Interpreter<'a> {
             })
             .filter(|(d, _)| *d > 0.0);
         match effect {
-            Some((duration, curve)) if from_generator != to_generator => {
-                self.nodes[id.0].transition = Some(ActiveTransition {
+            Some((duration, curve))
+                if from_generator != to_generator && sm.max_simultaneous_transitions > 0 =>
+            {
+                let capacity = sm.max_simultaneous_transitions as usize;
+                let length = self.nodes[id.0].transitions.len();
+                if length >= capacity {
+                    self.end_transitions(id, sm, length - capacity + 1);
+                }
+                self.nodes[id.0].transitions.push(ActiveTransition {
+                    priority: info.priority,
+                    flags: info.flags,
                     from_generator,
                     to_generator,
                     elapsed: 0.0,
@@ -1130,6 +1165,7 @@ impl<'a> Interpreter<'a> {
                 });
             }
             _ => {
+                self.end_transitions(id, sm, self.nodes[id.0].transitions.len());
                 if from_generator != to_generator {
                     if let Some(g) = from_generator {
                         self.deactivate(g);
@@ -1140,17 +1176,14 @@ impl<'a> Interpreter<'a> {
         self.enter_state(id, sm, to, (ev.id >= 0).then_some(ev.id));
     }
 
-    fn finish_transition(&mut self, id: NodeId, t: ActiveTransition) {
-        let current = self.nodes[id.0].current_state;
-        let current_generator = match &self.graph.node(id).kind {
-            NodeKind::StateMachine(sm) => {
-                current.and_then(|c| sm.state(c)).and_then(|s| s.generator)
-            }
-            _ => None,
-        };
-        if let Some(g) = t.from_generator {
-            if Some(g) != current_generator {
-                self.deactivate(g);
+    /// End a prefix of the transition chain and release generators no longer used.
+    fn end_transitions(&mut self, id: NodeId, sm: &StateMachine, count: usize) {
+        let before = self.active_generators_of_machine(id, sm);
+        self.nodes[id.0].transitions.drain(..count);
+        let after = self.active_generators_of_machine(id, sm);
+        for generator in before {
+            if !after.contains(&generator) {
+                self.deactivate(generator);
             }
         }
     }
@@ -1357,26 +1390,41 @@ impl<'a> Interpreter<'a> {
             .current_state
             .and_then(|c| sm.state(c))
             .and_then(|s| s.generator);
-        if let Some(mut t) = self.nodes[id.0].transition {
-            t.elapsed += dt;
-            let alpha = blend_curve(t.curve, (t.elapsed / t.duration).clamp(0.0, 1.0));
-            let from = match t.from_generator {
-                Some(g) => self.generate(g, dt),
-                None => self.reference_output(),
-            };
-            let to = match t.to_generator {
-                Some(g) => self.generate(g, dt),
-                None => self.reference_output(),
-            };
-            if t.elapsed >= t.duration {
-                self.nodes[id.0].transition = None;
-                self.finish_transition(id, t);
-                // The last frame is the target itself, not a blend at one,
-                // so a quaternion the short arc negated comes back as sampled.
-                return to;
+        if !self.nodes[id.0].transitions.is_empty() {
+            for transition in &mut self.nodes[id.0].transitions {
+                transition.elapsed += dt;
             }
-            self.nodes[id.0].transition = Some(t);
-            return blend_outputs(&from, &to, alpha);
+            let transitions = self.nodes[id.0].transitions.clone();
+            let generators = self.active_generators_of_machine(id, sm);
+            let samples: Vec<_> = generators
+                .into_iter()
+                .map(|generator| (generator, self.generate(generator, dt)))
+                .collect();
+            let sample = |generator: Option<NodeId>| {
+                samples
+                    .iter()
+                    .find(|(id, _)| Some(*id) == generator)
+                    .map_or_else(|| self.reference_output(), |(_, output)| output.clone())
+            };
+            let mut output = sample(transitions[0].from_generator);
+            let mut completed = 0;
+            for (index, transition) in transitions.iter().enumerate() {
+                let target = sample(transition.to_generator);
+                if transition.elapsed >= transition.duration {
+                    output = target;
+                    completed = index + 1;
+                } else {
+                    let alpha = blend_curve(
+                        transition.curve,
+                        (transition.elapsed / transition.duration).clamp(0.0, 1.0),
+                    );
+                    output = blend_outputs(&output, &target, alpha);
+                }
+            }
+            if completed > 0 {
+                self.end_transitions(id, sm, completed);
+            }
+            return output;
         }
         match current_generator {
             Some(g) => self.generate(g, dt),
