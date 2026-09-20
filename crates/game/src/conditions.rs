@@ -126,7 +126,6 @@ pub fn supports_function(function: u16) -> bool {
             | 136
             | 182
             | 264
-            | 277
             | 289
             | 359
             | 448
@@ -330,9 +329,7 @@ fn function_value(
                 56 => boolean(state.running),
                 58 => f32::from(state.highest),
                 59 => boolean(
-                    u16::try_from(c.parameters[1])
-                        .ok()
-                        .is_some_and(|stage| state.done.contains(&stage)),
+                    u16::try_from(c.parameters[1]).is_ok_and(|stage| state.done.contains(&stage)),
                 ),
                 _ => boolean(state.completed),
             }

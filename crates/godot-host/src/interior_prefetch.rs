@@ -90,8 +90,11 @@ impl InteriorPrefetch {
             let source = source.speculative_view();
             let location = source.load_location(destination, [0.0; 3], 0)?;
             if !admitted(&location) {
-                eprintln!("interior_prefetch: rejected {destination} payload={} primitives={}",
-                    payload_bytes(&location), location.collision.stats.primitives);
+                eprintln!(
+                    "interior_prefetch: rejected {destination} payload={} primitives={}",
+                    payload_bytes(&location),
+                    location.collision.stats.primitives
+                );
                 return Ok(None);
             }
             Ok(Some(location))
@@ -348,14 +351,22 @@ mod tests {
     }
     #[test]
     fn installed_bannered_mare_prefetch_admission() {
-        let Some(data) = std::env::var_os("SKYRIM_DATA") else { return };
+        let Some(data) = std::env::var_os("SKYRIM_DATA") else {
+            return;
+        };
         let source = DataSource::open_with_threads(std::path::Path::new(&data), 1).unwrap();
         let destination = source.resolve_cell("WhiterunBanneredMare").unwrap();
         let prepared = source.load_location(destination, [0.0; 3], 0).unwrap();
-        eprintln!("PREFETCH ADMISSION references={} bytes={} primitives={} admitted={}",
-            source.cell_index().references(destination).len(), payload_bytes(&prepared),
-            prepared.collision.stats.primitives, admitted(&prepared));
-        assert!(admitted(&prepared), "installed acceptance destination exceeds admission limits");
+        eprintln!(
+            "PREFETCH ADMISSION references={} bytes={} primitives={} admitted={}",
+            source.cell_index().references(destination).len(),
+            payload_bytes(&prepared),
+            prepared.collision.stats.primitives,
+            admitted(&prepared)
+        );
+        assert!(
+            admitted(&prepared),
+            "installed acceptance destination exceeds admission limits"
+        );
     }
-
 }

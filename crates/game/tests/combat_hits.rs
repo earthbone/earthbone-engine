@@ -289,7 +289,7 @@ fn cmb_15_attack_damage_mult_uses_shared_components_and_survives_save() {
 
 #[test]
 fn cmb_15_explicit_zero_mult_survives_save_and_only_scales_outgoing_damage() {
-    let mut game = fixture(vec![]);
+    let game = fixture(vec![]);
     game.world_mut()
         .set_actor_value(id(0x900), "attackdamagemult", 0.)
         .unwrap();

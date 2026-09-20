@@ -63,7 +63,7 @@ fn stereo_keeps_channel_order_and_native_sample_rate() {
         let projection = |hz: f32| {
             let mut sin = 0.0;
             let mut cos = 0.0;
-            for (i, frame) in pcm.samples.chunks_exact(2).enumerate().skip(240) {
+            for (i, frame) in pcm.samples.as_chunks::<2>().0.iter().enumerate().skip(240) {
                 let phase = std::f32::consts::TAU * hz * i as f32 / 24_000.0;
                 sin += frame[channel] * phase.sin();
                 cos += frame[channel] * phase.cos();

@@ -1625,6 +1625,7 @@ not a claim of whole-host atomic loading or missing-mod recovery play.
 The methods compile in the full feature gate. Synthetic Rust tests execute
 the shared Game file APIs, corruption recovery and interrupted rotation.
 Interactive Godot resource installation after recovery remains untested.
+
 ## Native menu framework
 
 UI-01 adds a modal Control tree to PlayerNode. One CanvasLayer, one

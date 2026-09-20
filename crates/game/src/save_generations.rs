@@ -284,7 +284,7 @@ impl Session {
                     entries.push((id, entry.path()));
                 }
             }
-            entries.sort_by(|a, b| b.0.cmp(&a.0));
+            entries.sort_by_key(|(id, _)| std::cmp::Reverse(*id));
             Ok(entries)
         })
     }

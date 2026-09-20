@@ -3,7 +3,7 @@
 
 mod common;
 
-use soe_hkx::behavior::{BehaviorGraph, Binding, Node, NodeId, NodeKind};
+use soe_hkx::behavior::{BehaviorGraph, BehaviorGraphData, Binding, Node, NodeId, NodeKind};
 use soe_hkx::interp::{ClipLibrary, Interpreter};
 use soe_hkx::writer::PackfileBuilder;
 use soe_hkx::Packfile;
@@ -249,7 +249,7 @@ fn linking_remaps_all_three_slot_events_and_the_bound_variable() {
         name: "parent".into(),
         variable_mode: 1,
         root: Some(NodeId(0)),
-        data: Default::default(),
+        data: BehaviorGraphData::default(),
         nodes: vec![reference(NodeId(0))],
     };
     graph.data.event_names = ["other", "edge3", "edge1"].map(String::from).to_vec();
@@ -297,7 +297,7 @@ fn linking_pads_a_short_parent_default_table_without_losing_existing_scalars() {
         name: "parent".into(),
         variable_mode: 1,
         root: Some(NodeId(0)),
-        data: Default::default(),
+        data: BehaviorGraphData::default(),
         nodes: vec![reference(NodeId(0))],
     };
     graph.data.variable_names = vec!["existing".into(), "missing".into()];

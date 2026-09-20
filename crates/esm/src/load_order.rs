@@ -107,7 +107,7 @@ impl LoadOrder {
             plugin.push_top(
                 Record::new(Tag(*b"GLOB"), 0x63)
                     .zsub(Tag(*b"EDID"), "PlayCredits")
-                    .sub(Tag(*b"FNAM"), [b's'])
+                    .sub(Tag(*b"FNAM"), *b"s")
                     .sub(Tag(*b"FLTV"), 0_f32.to_le_bytes()),
             );
         }

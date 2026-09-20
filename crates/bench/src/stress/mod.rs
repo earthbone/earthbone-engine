@@ -51,7 +51,7 @@ impl Config {
         if !(args.len() - 1).is_multiple_of(2) {
             return Err("stress options need values".into());
         }
-        for pair in args[1..].chunks_exact(2) {
+        for pair in args[1..].as_chunks::<2>().0 {
             let value: usize = pair[1]
                 .parse()
                 .map_err(|_| format!("invalid {}", pair[0]))?;

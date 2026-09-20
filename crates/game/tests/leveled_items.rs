@@ -95,7 +95,7 @@ fn without_per_count_flag_one_selection_is_multiplied() {
 #[test]
 fn live_global_chance_overrides_authored_and_script_chance() {
     let global = Record::new(T(b"GLOB"), 0x300)
-        .sub(T(b"FNAM"), [b'f'])
+        .sub(T(b"FNAM"), *b"f")
         .sub(T(b"FLTV"), 100_f32.to_le_bytes());
     let mut world = world(vec![
         list(LIST, 0, 0, &[(1, A, 1)]).sub(T(b"LVLG"), 0x300_u32.to_le_bytes()),
@@ -113,7 +113,7 @@ fn live_global_chance_overrides_authored_and_script_chance() {
 #[test]
 fn fractional_global_chance_is_truncated_to_the_runtime_byte() {
     let global = Record::new(T(b"GLOB"), 0x300)
-        .sub(T(b"FNAM"), [b'f'])
+        .sub(T(b"FNAM"), *b"f")
         .sub(T(b"FLTV"), 0.99_f32.to_le_bytes());
     let mut world = world(vec![
         list(LIST, 2, 100, &[(1, A, 1)]).sub(T(b"LVLG"), 0x300_u32.to_le_bytes()),
@@ -227,7 +227,7 @@ fn winning_override_uses_its_own_namespace_for_items_and_chance_global() {
     patch.push_top(Record::new(T(b"APPA"), 0x0100_0200));
     patch.push_top(
         Record::new(T(b"GLOB"), 0x0100_0300)
-            .sub(T(b"FNAM"), [b'f'])
+            .sub(T(b"FNAM"), *b"f")
             .sub(T(b"FLTV"), 0_f32.to_le_bytes()),
     );
     let mut order = LoadOrder::new();
@@ -269,7 +269,7 @@ fn no_eligible_items_and_zero_count_return_empty_without_random_draws() {
 #[test]
 fn nonfinite_global_and_invalid_request_are_rejected() {
     let global = Record::new(T(b"GLOB"), 0x300)
-        .sub(T(b"FNAM"), [b'f'])
+        .sub(T(b"FNAM"), *b"f")
         .sub(T(b"FLTV"), f32::NAN.to_le_bytes());
     let mut world = world(vec![
         list(LIST, 0, 0, &[(1, A, 1)]).sub(T(b"LVLG"), 0x300_u32.to_le_bytes()),

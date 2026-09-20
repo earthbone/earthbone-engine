@@ -58,6 +58,7 @@ impl PlayerNode {
     /// Save the shared runtime in an existing dedicated directory, including the
     /// current controller pose. Returns diagnostics and the committed generation.
     #[func]
+    #[allow(clippy::needless_pass_by_value)]
     pub fn save_game_generation(&mut self, directory: GString, retained: i64) -> VarDictionary {
         let store = match store(&directory, retained) {
             Ok(store) => store,
@@ -90,6 +91,7 @@ impl PlayerNode {
     /// Explicitly recover the newest verified native generation. Rejected files
     /// leave the game unchanged. Resource installation failure stops stepping.
     #[func]
+    #[allow(clippy::needless_pass_by_value)]
     pub fn recover_game_generation(&mut self, directory: GString, retained: i64) -> VarDictionary {
         let store = match store(&directory, retained) {
             Ok(store) => store,

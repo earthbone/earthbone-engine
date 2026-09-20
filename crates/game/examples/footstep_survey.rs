@@ -29,13 +29,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     for (id, record) in order.winners_of(Tag::new(b"DOBJ")) {
         for owner in order.overrides(id) {
             if let Some(data) = order.record(*owner).find(Tag::new(b"DNAM")) {
-                for pair in data.chunks_exact(8).filter(|p| &p[..4] == b"DFTS") {
+                for pair in data
+                    .as_chunks::<8>()
+                    .0
+                    .iter()
+                    .filter(|p| &p[..4] == b"DFTS")
+                {
                     println!("DOBJ history file={} DFTS {:02x?}", owner.file, &pair[4..]);
                 }
             }
         }
         if let Some(data) = record.find(Tag::new(b"DNAM")) {
-            for pair in data.chunks_exact(8).filter(|p| &p[..4] == b"DFTS") {
+            for pair in data
+                .as_chunks::<8>()
+                .0
+                .iter()
+                .filter(|p| &p[..4] == b"DFTS")
+            {
                 println!("DOBJ {id} DFTS {:02x?}", &pair[4..]);
             }
         }
@@ -48,7 +58,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
         if id.file == 0 && id.object == 0x12F16 {
             let owner = order.winner_ref(id).ok_or("no FSTS owner")?;
-            for bytes in record.required(Tag::new(b"DATA"))?.chunks_exact(4) {
+            for bytes in record.required(Tag::new(b"DATA"))?.as_chunks::<4>().0 {
                 let raw =
                     soe_esm::cursor::Fields::new(record.tag, Tag::new(b"DATA"), bytes).u32()?;
                 let id = order.resolve(owner.file, raw);

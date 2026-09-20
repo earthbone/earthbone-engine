@@ -15,7 +15,10 @@ pub(crate) fn engine_default(name: &str) -> Option<f32> {
         | "fdiffmulthptopcn"
         | "fspeciallootmaxpclevelmult" => 1.0,
         "fdiffmulthpbypcve" | "fdiffmulthptopcvh" => 2.0,
-        "fdiffmulthptopcve" | "fdiffmulthpbypcvh" => 0.5,
+        "fdiffmulthptopcve"
+        | "fdiffmulthpbypcvh"
+        | "fspeciallootminpclevelmult"
+        | "fspeciallootminzonelevelmult" => 0.5,
         "fdiffmulthpbypce"
         | "fdiffmulthptopch"
         | "fdamagepcskillmax"
@@ -32,7 +35,6 @@ pub(crate) fn engine_default(name: &str) -> Option<f32> {
         | "fspeciallootminzonelevelbase"
         | "fspeciallootmaxpclevelbase"
         | "fspeciallootmaxzonelevelbase" => 0.0,
-        "fspeciallootminpclevelmult" | "fspeciallootminzonelevelmult" => 0.5,
         "fspeciallootweighting" => 4.0,
         // Installed runtime Setting data, with the address evidence in combat.md.
         "fbleedoutdefault" => 0.2,

@@ -474,14 +474,14 @@ fn mapped_race_skin_survives_repeated_changes_and_save_reload() {
     assert_eq!(loaded.state_hash(), world.state_hash());
     assert_eq!(loaded.actor_appearance(actor).unwrap(), view);
     assert_eq!(loaded.skin(id(0x11)).unwrap(), Some(target));
-    assert!(
+    assert_eq!(
         world
             .order()
             .winner(id(0x100))
             .unwrap()
             .find(T(b"WNAM"))
-            .unwrap()
-            == 0x200_u32.to_le_bytes()
+            .unwrap(),
+        0x200_u32.to_le_bytes()
     );
 }
 

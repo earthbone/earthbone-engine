@@ -49,7 +49,7 @@ impl World {
             if bytes.len() % 4 != 0 {
                 return Err(bad("invalid outfit INAM length"));
             }
-            for bytes in bytes.chunks_exact(4) {
+            for bytes in bytes.as_chunks::<4>().0 {
                 let raw = le_u32(bytes).ok_or_else(|| bad("invalid outfit item"))?;
                 let item = self
                     .resolve_from(outfit, raw)

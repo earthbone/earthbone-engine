@@ -205,7 +205,7 @@ fn all_external_reference_headers_reencode_and_compare_player_locations() {
             };
             let bytes = header.data_bytes().unwrap();
             let payload = form.payload().unwrap();
-            assert!(bytes == payload[..header.bytes_consumed]);
+            assert_eq!(bytes, payload[..header.bytes_consumed]);
             assert_eq!(
                 header.bytes_consumed + header.remaining_bytes,
                 payload.len()

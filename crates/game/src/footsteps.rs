@@ -83,7 +83,7 @@ impl<'a> Footsteps<'a> {
                 if bytes.len() % 8 != 0 {
                     return Err(Error::Invalid("DOBJ DNAM has a partial entry".into()));
                 }
-                for entry in bytes.chunks_exact(8) {
+                for entry in bytes.as_chunks::<8>().0 {
                     if key != [0; 4] && entry[..4] == key {
                         let raw = Fields::new(record.tag, T(b"DNAM"), &entry[4..]).u32()?;
                         value = self.link(owner.file, raw);
@@ -144,7 +144,7 @@ impl<'a> Footsteps<'a> {
         let start = sizes[gait.index() + 1..].iter().sum::<usize>() * 4;
         let end = start + sizes[gait.index()] * 4;
         let mut out = Vec::new();
-        for bytes in data[start..end].chunks_exact(4) {
+        for bytes in data[start..end].as_chunks::<4>().0 {
             let raw = Fields::new(record.tag, T(b"DATA"), bytes).u32()?;
             let Some(step) = self.link(file, raw) else {
                 continue;

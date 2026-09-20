@@ -20,12 +20,12 @@
 use std::collections::HashMap;
 
 use crate::animation::{Animation, SplineCompressedAnimation};
-use crate::expression::{Expression, ExpressionError};
 use crate::behavior::{
     transition_flags, BehaviorGraph, BehaviorGraphData, BlenderGenerator, ClipGenerator, Condition,
     NodeId, NodeKind, StateMachine, TimeInterval, TransitionInfo, VariableBindingSet, VariableInfo,
     VariableType, FALSE_TO_TRUE_SLOTS, IS_ACTIVE_SLOTS,
 };
+use crate::expression::{Expression, ExpressionError};
 use crate::skeleton::AnimationContainer;
 use crate::spline::Block;
 use crate::{Error, QsTransform, Result};
@@ -1029,7 +1029,6 @@ impl<'a> Interpreter<'a> {
             | NodeKind::GetTimeStepModifier { enable, .. }
             | NodeKind::IsActiveModifier { enable, .. }
             | NodeKind::FalseToTrueModifier { enable, .. }
-
             | NodeKind::DecomposeVector { enable, .. }
             | NodeKind::Modifier { enable } => *enable,
             _ => true,
@@ -1688,7 +1687,6 @@ impl<'a> Interpreter<'a> {
             | NodeKind::GetTimeStepModifier { .. }
             | NodeKind::IsActiveModifier { .. }
             | NodeKind::FalseToTrueModifier { .. }
-
             | NodeKind::DecomposeVector { .. }
             | NodeKind::Modifier { .. } => self.reference_output(),
         }

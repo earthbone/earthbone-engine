@@ -6,7 +6,7 @@
 use std::collections::BTreeMap;
 
 use soe_esm::{Error, GlobalFormId};
-use soe_papyrus::vm::state::{Reader, Writer};
+use soe_papyrus::vm::state::Writer;
 use soe_papyrus::{Value, VmError};
 
 use super::save::FormReader;

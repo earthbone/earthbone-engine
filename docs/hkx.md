@@ -674,18 +674,6 @@ row whose title names that class.
 The inventory therefore includes those wrappers even though the interpreter
 currently activates and generates only the generator child.
 
-## 7. Not done and next
-
-- Modifier evaluation. `BSIsActiveModifier` reports its own activity and the
-  rest still pass through, so the five remaining unbound members are the
-  work: bone weight masks on a blender, `BSEventOnFalseToTrueModifier`,
-  `hkbRotateCharacterModifier` and `hkbEventsFromRangeModifier`. Their
-  layouts are in `serde-hkx` like the rest.
-- Transition details: equal-priority arbitration, the `abut at end` flag,
-  `hkbGeneratorTransitionEffect`, delayed timeout and interval boundary parity. Expression functions are ANM-49 and the
-  undocumented troll comma condition is ANM-50.
-- Blender details: bone weight masks, `subtractLastChild`, the real weight
-
 ### Modifier generator lifecycle (2026-09-20)
 
 `hkbModifierGenerator` has a modifier pointer at 72 and a generator pointer
@@ -766,12 +754,6 @@ synthetic packfile test checks the class field and binding decode, while the
 interpreter tests check zero, unequal update intervals, disabled output and a
 nested list. No original-runtime capture establishes finer behavior here.
 
-## 7. Not done and next
-
-- Modifier evaluation beyond `BSIsActiveModifier` and
-  `BSEventOnFalseToTrueModifier`. Rotation and range events remain separate
-  backlog rows. The historical unbound counts above predate ANM-03.
-
 ### BSDecomposeVectorModifier (2026-09-20)
 
 `BSDecomposeVectorModifier` stores an `hkVector4` at offset 80, followed by
@@ -794,30 +776,23 @@ word-table slots. ANM-57 owns that linker work.
 
 ## 7. Not done and next
 
-- Modifier evaluation. `BSIsActiveModifier` reports its own activity and
-  `BSDecomposeVectorModifier` writes its components. Other modifiers still
-  pass through, including bone weight masks on a blender,
-  `BSEventOnFalseToTrueModifier`,
-  `hkbRotateCharacterModifier` and `hkbEventsFromRangeModifier`. Their
-  layouts are in `serde-hkx` like the rest.
-- Transition details: trigger and initiate intervals, `hkbCondition`
-  expressions, priority arbitration, the `abut at end` flag,
-  `hkbGeneratorTransitionEffect`, `maxSimultaneousTransitions`. Conditions
-  are still accepted as satisfied, which is the largest remaining guess.
-- Blender details: dynamic bone mask bindings, `subtractLastChild`, the real weight
-  curve once a capture from the game exists (5.4).
-- Extracted motion and float tracks in the output.
-- Ragdoll data (`hkaRagdollInstance`, `hkpRigidBody`) in `skeleton.hkx`,
-  which the physics layer will want from the same file.
-
-- 32-bit (Skyrim LE) layouts, wanted for Nemesis's LE cached behaviors.
-- A packfile writer that round-trips real files, so Nemesis-style patching
-  can happen in Rust. The builder here writes valid files but does not yet
-  copy unmodelled objects through.
+- Modifier evaluation beyond the four the interpreter runs:
+  `BSIsActiveModifier`, `BSEventOnFalseToTrueModifier`,
+  `BSDecomposeVectorModifier` and `BSGetTimeStepModifier`. Dynamic bone weight
+  masks on a blender, `hkbRotateCharacterModifier` and
+  `hkbEventsFromRangeModifier` still pass through. Their layouts are in
+  `serde-hkx` like the rest.
+- Transition details: equal-priority arbitration, the `abut at end` flag,
+  `hkbGeneratorTransitionEffect`, `maxSimultaneousTransitions`, delayed timeout
+  and interval boundary parity. Expression functions are ANM-49 and the
+  undocumented troll comma condition is ANM-50.
+- Blender details: dynamic bone mask bindings, `subtractLastChild`, the real
+  weight curve once a capture from the game exists (5.4).
 - Linking currently loads a file per reference, so `SprintBehavior` is
   spliced twice. That is correct, each reference is its own instance with its
   own state, but a shared decode with per-instance run-time state would cost
-  less memory.
+  less memory. Linked references preserve word defaults only, so a quad input
+  inside a sub-graph needs the parent's value until ANM-57 imports them.
 
 ## Skyrim LE layout validation (ANM-07)
 
@@ -855,6 +830,7 @@ and rejection of negative or oversized array counts. The packfile builder's
 The existing unsupported-class and animation-codec boundaries apply equally
 to LE and SE. This change does not add interpreters for classes that the
 behavior model preserves as unknown nodes.
+
 ## 8. Packfile document writer (ANM-08, 2026-09-20)
 
 `document::PackfileDocument` reads every section into editable payload bytes and

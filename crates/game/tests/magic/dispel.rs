@@ -79,13 +79,19 @@ fn mag_05_dispel_finishes_timed_effects_once_preserving_constants_and_learned_sp
         // has drained, so the probe is unreachable rather than readable. The
         // release itself is the evidence the callback ran and completed.
         assert_eq!(game.vm.get_var(object, "EffectProbe", "finished"), None);
-        assert!(!game.world().active_effects().any(|effect| effect.id == timed));
+        assert!(!game
+            .world()
+            .active_effects()
+            .any(|effect| effect.id == timed));
         cast(&mut game, DISPEL_SPELL, OTHER).unwrap();
         game.tick(20.0);
         // A second dispel finds nothing to finish, so nothing is rebound and
         // the released handle stays released.
         assert_eq!(game.vm.get_var(object, "EffectProbe", "finished"), None);
-        assert!(!game.world().active_effects().any(|effect| effect.id == timed));
+        assert!(!game
+            .world()
+            .active_effects()
+            .any(|effect| effect.id == timed));
     }
 }
 

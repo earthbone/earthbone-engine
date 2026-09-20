@@ -251,7 +251,9 @@ impl DataSource {
                         // SurfaceArrays uses Godot's clockwise front faces.
                         triangles: arrays
                             .indices
-                            .chunks_exact(3)
+                            .as_chunks::<3>()
+                            .0
+                            .iter()
                             .map(|t| [t[0] as u32, t[2] as u32, t[1] as u32])
                             .collect(),
                     },

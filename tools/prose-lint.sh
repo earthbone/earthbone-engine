@@ -14,8 +14,9 @@ fail=0
 # Markdown and Rust files, skipping the two crates another workstream owns
 # (see CLAUDE.md "Working rules"): flagging their prose would ask this repo's
 # gate to fix comments this pass has no license to touch.
-mapfile -t md_files < <(find . \( -path './target' -o -path './.git' \) -prune -o \
-  -name '*.md' -print | sed 's#^\./##')
+# .serena holds agent tool state, not this repository's prose.
+mapfile -t md_files < <(find . \( -path './target' -o -path './.git' -o -path './.serena' \) \
+  -prune -o -name '*.md' -print | sed 's#^\./##')
 mapfile -t rs_files < <(find crates -name '*.rs' \
   -not -path 'crates/game/*' -not -path 'crates/papyrus/src/*')
 
