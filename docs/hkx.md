@@ -331,8 +331,9 @@ What each node does:
   the index changes.
 - `hkbModifierGenerator` and Skyrim's `BS*` wrappers (`BSiStateTagging`,
   `BSBoneSwitch`, `BSOffsetAnimation`, `BSSynchronizedClip`,
-  `BSCyclicBlendTransition`) pass their child through. Modifiers do
-  nothing yet.
+  `BSCyclicBlendTransition`) pass their generator child through.
+  `hkbModifierGenerator` also gives an enabled modifier child activation and
+  deactivation lifecycle. Concrete modifier effects remain unimplemented.
 - `hkbBehaviorReferenceGenerator` and unmodelled classes yield the
   reference pose at weight zero and are listed in `Unsupported`.
 
@@ -444,6 +445,19 @@ That is how a Skyrim graph lets script see that a branch is running. The rest
 read as before, now including `hkbStateMachine.startStateId` (which beats the
 stored start state in every mode), `hkbBlendingTransitionEffect.duration` and
 `BSCyclicBlendTransitionGenerator.fBlendParameter`.
+
+### Modifier generator lifecycle (2026-09-20)
+
+`hkbModifierGenerator` has a modifier pointer at 72 and a generator pointer
+at 80 in the 64-bit layout, from
+`engine-refs/serde-hkx/assets/classes/hkbModifierGenerator.json`. The
+interpreter activates an enabled modifier child before its generator child,
+deactivates a child when its `enable` binding changes to false, and deactivates
+both through the node child walk. This makes the existing `BSIsActiveModifier`
+output binding report the authored active state without changing the generated
+pose. The synthetic test covers enabled and disabled children, an enabled to
+disabled to enabled transition, explicit deactivation and reactivation, and a
+sampled non-reference pose.
 
 ## 7. Not done and next
 

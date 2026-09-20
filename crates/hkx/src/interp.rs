@@ -710,7 +710,8 @@ impl<'a> Interpreter<'a> {
     }
 
     /// Whether a node's `enable` binding, when it has one, allows it.
-    /// Modifiers pass through either way, so this only reports the value.
+    /// Modifier generators use this to activate or deactivate their modifier
+    /// child while the wrapper stays active.
     pub fn node_enabled(&self, id: NodeId) -> bool {
         self.nodes
             .get(id.0)
@@ -763,8 +764,18 @@ impl<'a> Interpreter<'a> {
                     self.activate(*g);
                 }
             }
-            NodeKind::ModifierGenerator { generator, .. }
-            | NodeKind::IStateTagging {
+            NodeKind::ModifierGenerator {
+                modifier,
+                generator,
+            } => {
+                if let Some(modifier) = modifier.filter(|id| self.node_enabled(*id)) {
+                    self.activate(modifier);
+                }
+                if let Some(generator) = generator {
+                    self.activate(*generator);
+                }
+            }
+            NodeKind::IStateTagging {
                 default_generator: generator,
                 ..
             }
@@ -1091,8 +1102,23 @@ impl<'a> Interpreter<'a> {
                     None => self.reference_output(),
                 }
             }
-            NodeKind::ModifierGenerator { generator, .. }
-            | NodeKind::IStateTagging {
+            NodeKind::ModifierGenerator {
+                modifier,
+                generator,
+            } => {
+                if let Some(modifier) = modifier {
+                    if self.node_enabled(*modifier) {
+                        self.activate(*modifier);
+                    } else {
+                        self.deactivate(*modifier);
+                    }
+                }
+                match generator {
+                    Some(generator) => self.generate(*generator, dt),
+                    None => self.reference_output(),
+                }
+            }
+            NodeKind::IStateTagging {
                 default_generator: generator,
                 ..
             }
@@ -1539,6 +1565,60 @@ mod tests {
     use super::*;
 
     use crate::behavior::{Binding, Node, VariableBindingSet};
+    use crate::spline::encode;
+
+    fn pad4(bytes: &mut Vec<u8>) {
+        while !bytes.len().is_multiple_of(4) {
+            bytes.push(0);
+        }
+    }
+
+    /// One transform track at a non-reference x position. This is encoded as
+    /// a spline clip so the wrapper test exercises the normal sampling path.
+    fn modifier_generator_clip() -> Clip {
+        const FRAMES: usize = 31;
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&[1 | (2 << 2), 0b0001_0000, 0b0000_0001, 0]);
+        pad4(&mut bytes);
+        let items = (FRAMES - 1) as u16;
+        bytes.extend_from_slice(&items.to_le_bytes());
+        bytes.push(1);
+        bytes.push(0);
+        for frame in 0..FRAMES {
+            bytes.push(frame as u8);
+        }
+        bytes.push((FRAMES - 1) as u8);
+        pad4(&mut bytes);
+        bytes.extend_from_slice(&4.0f32.to_le_bytes());
+        bytes.extend_from_slice(&4.0f32.to_le_bytes());
+        for _ in 0..FRAMES {
+            bytes.extend_from_slice(&encode::point_16(4.0, 4.0, 4.0).to_le_bytes());
+        }
+        pad4(&mut bytes);
+        bytes.extend_from_slice(&encode::quat_48([0.0, 0.0, 0.0, 1.0]));
+        pad4(&mut bytes);
+        let animation = SplineCompressedAnimation {
+            duration: (FRAMES - 1) as f32 / 30.0,
+            num_transform_tracks: 1,
+            num_float_tracks: 0,
+            annotation_tracks: vec![],
+            num_frames: FRAMES,
+            num_blocks: 1,
+            max_frames_per_block: 256,
+            mask_and_quantization_size: 4,
+            block_duration: 256.0 / 30.0,
+            block_inverse_duration: 30.0 / 256.0,
+            frame_duration: 1.0 / 30.0,
+            block_offsets: vec![0],
+            float_block_offsets: vec![0],
+            transform_offsets: vec![4],
+            float_offsets: vec![],
+            data: bytes,
+            endian: 0,
+            has_extracted_motion: false,
+        };
+        Clip::from_parts("modifier-pose", animation, &[0]).unwrap()
+    }
 
     /// A graph of one `BSIsActiveModifier` with a binding on one slot, so the
     /// output path can be driven without a packfile.
@@ -1580,6 +1660,88 @@ mod tests {
                 },
             }],
         }
+    }
+
+    fn modifier_generator_graph() -> BehaviorGraph {
+        let mut graph = is_active_graph(false, 0);
+        graph.root = Some(NodeId(0));
+        graph.data.variable_names.push("Enabled".into());
+        graph.data.variable_infos.push(VariableInfo::default());
+        graph.nodes[0].id = NodeId(1);
+        graph.nodes[0]
+            .bindings
+            .as_mut()
+            .unwrap()
+            .bindings
+            .push(Binding {
+                member_path: "enable".into(),
+                variable_index: 1,
+                bit_index: -1,
+                binding_type: 0,
+            });
+        graph.nodes.insert(
+            0,
+            Node {
+                id: NodeId(0),
+                offset: 0,
+                class: "hkbModifierGenerator".into(),
+                name: "wrapper".into(),
+                user_data: 0,
+                bindings: None,
+                kind: NodeKind::ModifierGenerator {
+                    modifier: Some(NodeId(1)),
+                    generator: Some(NodeId(2)),
+                },
+            },
+        );
+        graph.nodes.push(Node {
+            id: NodeId(2),
+            offset: 2,
+            class: "hkbClipGenerator".into(),
+            name: "pose".into(),
+            user_data: 0,
+            bindings: None,
+            kind: NodeKind::Clip(ClipGenerator {
+                animation_name: "modifier-pose".into(),
+                ..Default::default()
+            }),
+        });
+        graph
+    }
+
+    #[test]
+    fn modifier_generator_activates_outputs_deactivates_and_preserves_pose() {
+        let graph = modifier_generator_graph();
+        let pose = vec![QsTransform::IDENTITY];
+        let mut clips = ClipLibrary::new();
+        clips.insert(modifier_generator_clip());
+        let mut vm = Interpreter::new(&graph, &clips, pose);
+        vm.variables.set_word(1, 1);
+        vm.update(1.0 / 60.0);
+        assert_eq!(vm.variables.word(0), Some(1));
+        assert_eq!(vm.output().pose[0].translation[0], 4.0);
+        vm.variables.set_word(1, 0);
+        vm.update(1.0 / 60.0);
+        assert_eq!(vm.variables.word(0), Some(0));
+        assert_eq!(vm.output().pose[0].translation[0], 4.0);
+        vm.variables.set_word(1, 1);
+        vm.update(1.0 / 60.0);
+        assert_eq!(vm.variables.word(0), Some(1));
+        vm.deactivate(NodeId(0));
+        vm.apply_output_bindings();
+        assert_eq!(vm.variables.word(0), Some(0));
+        vm.update(1.0 / 60.0);
+        assert_eq!(vm.variables.word(0), Some(1));
+    }
+
+    #[test]
+    fn modifier_generator_does_not_activate_a_disabled_modifier() {
+        let graph = modifier_generator_graph();
+        let clips = ClipLibrary::new();
+        let mut vm = Interpreter::new(&graph, &clips, Vec::new());
+        vm.variables.set_word(1, 0);
+        vm.update(1.0 / 60.0);
+        assert_eq!(vm.variables.word(0), Some(0));
     }
 
     #[test]
