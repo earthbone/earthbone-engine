@@ -881,15 +881,19 @@ fn active_effect_inventory_filters_forward_matching_events_until_expiry() {
         &[allowed, Value::Int(1), Value::Bool(true), Value::None],
     );
     assert!(game.run_until_idle(64));
+    // The effect expired during the tick, so its script object is retired with
+    // its filter. A filter that outlived its effect would answer here, either
+    // with the old counts or with counts raised by the calls above.
+    assert_eq!(game.world().active_effects().count(), 0);
     assert_eq!(
         game.vm
             .get_var(effect.as_object().unwrap(), "EffectProbe", "added"),
-        Some(Value::Int(2))
+        None
     );
     assert_eq!(
         game.vm
             .get_var(effect.as_object().unwrap(), "EffectProbe", "removed"),
-        Some(Value::Int(2))
+        None
     );
 }
 
