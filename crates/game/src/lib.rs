@@ -43,6 +43,7 @@ pub mod package;
 pub mod quest;
 pub mod race;
 pub mod save;
+pub mod save_generations;
 pub mod sound;
 pub mod vanilla_save;
 pub mod vmad;

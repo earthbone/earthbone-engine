@@ -1351,3 +1351,25 @@ and installed survey. The host examples `controller_geometry_survey` and
 `character_metadata_survey` inspect the installed NIF and HKX sources without
 copying assets. CMB-28 installs and synchronizes actor bodies, and CMB-33
 supplies generated controller geometry when authored geometry is absent.
+
+## Native save generations
+
+`PlayerNode::save_game_generation(directory, retained)` writes the shared
+runtime through `Game::write_generation`, including the current controller
+pose. `recover_game_generation` explicitly selects and loads the newest
+verified native generation under the current scripts and load order. The
+existing dedicated directory accepts an absolute path or `user://`, and
+retention must be between 2 and 64. The [generation protocol](save-resilience.md#sav-63-verified-generations)
+documents integrity checks, retention and recovery diagnostics.
+
+Results are dictionaries with `ok`, generation and path. Generation IDs are
+strings to retain their full unsigned range. Rejected candidates carry an
+integrity, definitions or read reason. Recovery adds `state_loaded`, clears
+stale melee contact state and synchronizes the player pose/resources. If the
+resource installation fails after native loading, it stops automatic stepping
+and reports `state_loaded: true` with `ok: false`. This is a file recovery path,
+not a claim of whole-host atomic loading or missing-mod recovery play.
+
+The methods compile in the full feature gate. Synthetic Rust tests execute
+the shared Game file APIs, corruption recovery and interrupted rotation.
+Interactive Godot resource installation after recovery remains untested.

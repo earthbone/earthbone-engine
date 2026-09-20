@@ -38,6 +38,7 @@ use crate::input::{godot_key_for, Action, Bindings, ControlMap, Driver, InputSta
 mod footsteps;
 mod gameplay;
 mod melee;
+mod saves;
 
 /// How far ahead of the eye an activate ray reaches, in Skyrim units. The
 /// vanilla reach is about this, and it is a setting rather than a constant so

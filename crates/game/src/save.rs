@@ -98,7 +98,7 @@ impl Game {
         })
     }
 
-    fn validate_saved_state(&self, bytes: &[u8]) -> Result<(), VmError> {
+    pub(crate) fn validate_saved_state(&self, bytes: &[u8]) -> Result<(), VmError> {
         let mut reader = Reader::new(bytes);
         if reader.take(4)? != MAGIC || reader.u16()? != VERSION {
             return Err(VmError::State("unsupported native save header".into()));
