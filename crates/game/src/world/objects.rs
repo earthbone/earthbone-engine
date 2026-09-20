@@ -4,11 +4,56 @@
 //! alias) and the Papyrus object that stands for it, created on first use.
 
 use soe_esm::GlobalFormId;
-use soe_papyrus::{ObjectId, Value};
+use soe_papyrus::{ObjectId, Value, Vm};
 
-use super::{Alloc, Handle, World};
+use super::{Alloc, Handle, Pending, World};
 
 impl World {
+    /// Retire expired effects after their callbacks and script references drain.
+    pub(crate) fn collect_effect_objects(&mut self, vm: &mut Vm) {
+        let candidates: Vec<_> = self
+            .handles
+            .iter()
+            .filter_map(|(object, handle)| match handle {
+                Handle::ActiveEffect(id) if !self.active_effects.contains_key(id) => Some(*object),
+                _ => None,
+            })
+            .collect();
+        if candidates.is_empty() {
+            return;
+        }
+        let mut roots: Vec<_> = self.settings.values().cloned().collect();
+        for pending in &self.pending {
+            match pending {
+                Pending::Event { object, args, .. } | Pending::Call { object, args, .. } => {
+                    roots.push(Value::Object(*object));
+                    roots.extend(args.iter().cloned());
+                }
+                Pending::BindEffect { object, .. } => roots.push(Value::Object(*object)),
+                Pending::ActorDeath { recipients, .. } => roots.extend(
+                    recipients
+                        .iter()
+                        .filter_map(|handle| self.objects.get(handle).copied())
+                        .map(Value::Object),
+                ),
+                Pending::DeferredDeath { .. } => {}
+            }
+        }
+        for object in vm.collect_objects(&candidates, &roots) {
+            if let Some(handle) = self.handles.remove(&object) {
+                self.objects.remove(&handle);
+            }
+            self.timers.retain(|timer| timer.object != object);
+            self.sleep_listeners.retain(|listener| *listener != object);
+            self.stats_listeners.retain(|listener| *listener != object);
+            self.animation_listeners
+                .retain(|listener| listener.listener != object);
+            self.los_listeners
+                .retain(|listener| listener.listener != object);
+            self.inventory_filters.remove(&object);
+        }
+    }
+
     pub fn handle_of(&self, object: ObjectId) -> Option<Handle> {
         self.handles.get(&object).copied()
     }

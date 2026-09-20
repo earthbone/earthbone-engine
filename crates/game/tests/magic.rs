@@ -30,6 +30,21 @@ const KEYWORD: u32 = 0x400;
 const ITEM: u32 = 0x600;
 const OTHER_ITEM: u32 = 0x601;
 
+#[path = "magic/collection.rs"]
+mod collection;
+
+fn retain_effect(game: &mut Game, effect: soe_papyrus::ObjectId) {
+    let script = ScriptBuilder::new("EffectHolder", "Actor")
+        .variable("held", "ActiveMagicEffect", soe_papyrus::asm::none())
+        .bytes();
+    game.load_script(&script).unwrap();
+    let holder = game.object_of_form(id(ACTOR));
+    game.vm.attach(holder, "EffectHolder").unwrap();
+    game.vm
+        .set_var(holder, "EffectHolder", "held", Value::Object(effect))
+        .unwrap();
+}
+
 fn id(object: u32) -> GlobalFormId {
     GlobalFormId { file: 0, object }
 }
@@ -536,6 +551,7 @@ fn scripts_bind_per_application_and_receive_target_and_caster() {
     let caster = game.object_of_form(id(ACTOR));
     let first_object = game.object_of(Handle::ActiveEffect(first));
     let second_object = game.object_of(Handle::ActiveEffect(second));
+    retain_effect(&mut game, first_object);
     assert_eq!(
         game.vm
             .get_var(first_object, "EffectProbe", "target")
@@ -658,6 +674,7 @@ fn save_load_keeps_pending_bindings_and_does_not_reapply_modifiers() {
     assert_eq!(game.world().state_hash(), restored.world().state_hash());
     restored.run_until_idle(64);
     let object = restored.object_of(Handle::ActiveEffect(effect));
+    retain_effect(&mut restored, object);
     assert_eq!(
         restored
             .vm
@@ -1117,6 +1134,7 @@ fn lethal_effect_receives_death_events_before_it_is_dispelled() {
         game.load_script(&observer).unwrap();
         let application = cast(&mut game, SPELL, OTHER).unwrap()[0];
         let object = game.object_of(Handle::ActiveEffect(application));
+        retain_effect(&mut game, object);
         game.vm.attach(object, "EffectDeathProbe").unwrap();
         if duration == 0 {
             game.run_until_idle(32);
