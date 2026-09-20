@@ -266,3 +266,190 @@ fn a_vanilla_body_skins_to_the_animated_skeleton() {
         "the head should sit at human height, got {head_y:.2} m"
     );
 }
+
+#[test]
+fn live_skin_overrides_rebuild_authored_models_without_inventory() {
+    use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
+    use soe_godot_host::actor::AppearanceCache;
+    let Some(vfs) = character_vfs() else { return };
+    let assets = ActorAssets::load(&vfs, BODY).unwrap();
+    let tag = Tag::new;
+    let id = |object| GlobalFormId { file: 0, object };
+    let mut plugin = Plugin::new(FileHeader::default());
+    plugin.push_top(
+        Record::new(tag(b"NPC_"), 0x100)
+            .sub(tag(b"ACBS"), vec![0; 24])
+            .sub(tag(b"RNAM"), 0x101_u32.to_le_bytes()),
+    );
+    plugin.push_top(Record::new(tag(b"RACE"), 0x101).sub(tag(b"WNAM"), 0x200_u32.to_le_bytes()));
+    for (index, path) in [
+        "actors/character/character assets/malebody_1.nif",
+        "actors/character/character assets/malehands_1.nif",
+        "missing-skin-model.nif",
+    ]
+    .iter()
+    .enumerate()
+    {
+        let offset = index as u32;
+        plugin.push_top(
+            Record::new(tag(b"ARMO"), 0x200 + offset)
+                .sub(tag(b"MODL"), (0x300 + offset).to_le_bytes()),
+        );
+        plugin.push_top(
+            Record::new(tag(b"ARMA"), 0x300 + offset)
+                .sub(tag(b"RNAM"), 0x101_u32.to_le_bytes())
+                .sub(tag(b"BOD2"), 4_u32.to_le_bytes())
+                .sub(tag(b"DNAM"), vec![0; 12])
+                .zsub(tag(b"MOD2"), path),
+        );
+    }
+    let mut order = LoadOrder::new();
+    order.add("Skin.esm", plugin).unwrap();
+    let mut world = soe_game::World::new(order);
+    let actor = world.place_at(id(0x100), id(0x14), false);
+    let mut cache = AppearanceCache::default();
+    let first = cache
+        .prepare(&mut world, actor, &vfs, &assets.skeleton)
+        .unwrap()
+        .unwrap();
+    let inventory = world.reference(actor).unwrap().inventory.clone();
+    let mut wrong_rig = assets.skeleton.clone();
+    for bone in &mut wrong_rig.bones {
+        bone.name.insert_str(0, "wrong:");
+    }
+    assert!(
+        matches!(AppearanceCache::default().prepare(&mut world, actor, &vfs, &wrong_rig),
+        Err(soe_godot_host::actor::ActorError::RigMismatch { bones }) if !bones.is_empty())
+    );
+
+    let triangles = |surfaces: &[soe_godot_host::actor::ActorSurface]| {
+        surfaces
+            .iter()
+            .map(|surface| surface.arrays.triangle_count())
+            .sum::<usize>()
+    };
+    assert_eq!(triangles(&first.surfaces), triangles(&assets.surfaces));
+    // Write the cost threshold before measuring: a cached single actor view
+    // must average less than 2 ms, including canonical record resolution.
+    let begin = Instant::now();
+    for _ in 0..1000 {
+        assert!(cache
+            .prepare(&mut world, actor, &vfs, &assets.skeleton)
+            .unwrap()
+            .is_none());
+    }
+    let micros = begin.elapsed().as_secs_f64() * 1e6 / 1000.0;
+    assert!(micros < 2000.0, "cached appearance costs {micros} us");
+    world.set_race_skin(id(0x101), Some(id(0x201))).unwrap();
+    let hands = cache
+        .prepare(&mut world, actor, &vfs, &assets.skeleton)
+        .unwrap()
+        .unwrap();
+    assert!(triangles(&hands.surfaces) > 0);
+    assert_ne!(triangles(&hands.surfaces), triangles(&first.surfaces));
+    world
+        .set_actor_base_skin(id(0x100), Some(id(0x202)))
+        .unwrap();
+    assert!(cache
+        .prepare(&mut world, actor, &vfs, &assets.skeleton)
+        .is_err());
+    assert!(
+        cache
+            .prepare(&mut world, actor, &vfs, &assets.skeleton)
+            .unwrap()
+            .is_none(),
+        "an unchanged failed view must not load or report its error again"
+    );
+    assert!(
+        triangles(&hands.surfaces) > 0,
+        "failed preparation preserves old geometry"
+    );
+    world
+        .set_actor_base_skin(id(0x100), Some(id(0x200)))
+        .unwrap();
+    let body = cache
+        .prepare(&mut world, actor, &vfs, &assets.skeleton)
+        .unwrap()
+        .unwrap();
+    assert_eq!(triangles(&body.surfaces), triangles(&first.surfaces));
+    world.set_actor_base_skin(id(0x100), None).unwrap();
+    world.set_race_skin(id(0x101), None).unwrap();
+    let empty = cache
+        .prepare(&mut world, actor, &vfs, &assets.skeleton)
+        .unwrap()
+        .unwrap();
+    assert!(empty.surfaces.is_empty());
+    assert_eq!(world.reference(actor).unwrap().inventory, inventory);
+    assert!(world.actor(actor).unwrap().equipped.is_empty());
+    eprintln!("live body/hand/empty skin refresh passed, cached view {micros:.1} us, no new nodes");
+}
+
+#[test]
+fn installed_race_skins_assemble_multiple_authored_addon_models() {
+    use soe_esm::{LoadOrder, Plugin, Tag};
+    use soe_game::appearance::ActorAppearance;
+    use std::collections::BTreeSet;
+    let (Some(vfs), Some(data)) = (character_vfs(), data_dir()) else {
+        return;
+    };
+    let assets = ActorAssets::load(&vfs, BODY).unwrap();
+    let mut order = LoadOrder::new();
+    for name in [
+        "Skyrim.esm",
+        "Update.esm",
+        "Dawnguard.esm",
+        "HearthFires.esm",
+        "Dragonborn.esm",
+    ] {
+        order
+            .add(
+                name,
+                Plugin::parse(&std::fs::read(data.join(name)).unwrap()).unwrap(),
+            )
+            .unwrap();
+    }
+    let mut races = 0;
+    let mut paths = BTreeSet::new();
+    let mut shapes = 0;
+    for (race, record) in order.winners_of(Tag::new(b"RACE")) {
+        if !matches!(
+            record.editor_id().as_deref(),
+            Some("NordRace" | "BretonRace" | "HighElfRace" | "KhajiitRace" | "ArgonianRace")
+        ) {
+            continue;
+        }
+        let view = ActorAppearance::from_order(&order, None, Some(race), &BTreeSet::new()).unwrap();
+        assert!(
+            view.parts.len() >= 3,
+            "body, hands and feet must be separate authored addons"
+        );
+        paths.extend(view.parts.iter().filter_map(|part| part.model.clone()));
+        let surfaces = ActorAssets::appearance_surfaces(&vfs, &view, &assets.skeleton).unwrap();
+        assert!(surfaces.len() >= 3);
+        let unmatched: BTreeSet<_> = surfaces
+            .iter()
+            .flat_map(|surface| surface.map.unmatched.iter())
+            .collect();
+        eprintln!("{:?} rig coverage: {unmatched:?}", record.editor_id());
+        if !unmatched.is_empty() {
+            eprintln!(
+                "selected beast models: {:?}",
+                view.parts
+                    .iter()
+                    .filter_map(|part| part.model.as_deref())
+                    .collect::<Vec<_>>()
+            );
+        }
+        shapes += surfaces.len();
+        races += 1;
+    }
+    assert_eq!(races, 5);
+    assert!(
+        paths.len() >= 5,
+        "survey must include distinct human and beast parts"
+    );
+    eprintln!(
+        "installed skin assembly: {races} races, {} authored models, {shapes} shapes",
+        paths.len()
+    );
+}

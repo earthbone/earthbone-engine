@@ -27,7 +27,7 @@ See [actor values](actor-values.md) for sources, evidence and remaining work.
 
 The integration combines combat attributes, crafting execution, dialogue,
 active magic, host gameplay and both vanilla-save groundwork branches.
-The native registry has 361 stateful entries and 180 stubs. These are
+The native registry has 365 stateful entries and 180 stubs. These are
 incremental implementations, not completion of Skyrim gameplay.
 
 | Area | Integrated behavior | Still open |
@@ -357,3 +357,12 @@ warnings or skipped optional tools. All 42 installed-data save-restoration
 tests pass. The actor inventory survey now restores 114,769 inventories and
 excludes 53 unsupported records, compared with 126 before this increment.
 The separate strict decoder test remains failing on the 81 named states.
+
+## Skin override assembly (INV-08)
+
+NPC and race WNAM setters now drive a shared body-part view for footsteps and
+host rendering. Four SKSE skin natives use canonical record overrides, including
+save restoration of race skins. Skin forms never become carried inventory.
+An existing loaded character node can bind to PlayerNode's gameplay world and
+refresh authored addon surfaces when skin or equipment changes. The host keeps
+its loaded animation rig and uses RIDs for replacement geometry.

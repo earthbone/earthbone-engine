@@ -14,7 +14,10 @@
 //! combine with the mesh's bind pose, copy into the skeleton. The two buffers
 //! are kept on the node so a frame allocates nothing.
 
+use std::cell::RefCell;
 use std::path::Path;
+use std::rc::Rc;
+use std::sync::Arc;
 
 use godot::classes::{ArrayMesh, INode3D, Node3D, RenderingServer};
 use godot::prelude::*;
@@ -23,7 +26,8 @@ use soe_hkx::interp::Interpreter;
 use soe_hkx::pose::to_model_space_into;
 use soe_hkx::QsTransform;
 
-use crate::actor::{ActorAssets, HUMAN_SKELETON};
+use crate::actor::{ActorAssets, ActorSurface, HUMAN_SKELETON};
+use crate::data_source::DataSource;
 use crate::godot_layer::array_mesh_from;
 use crate::skinned::{skinning_transforms_into, Affine};
 
@@ -53,6 +57,13 @@ struct ShapeRids {
     skeleton: Rid,
 }
 
+struct AppearanceBinding {
+    world: Rc<RefCell<soe_game::World>>,
+    source: Arc<DataSource>,
+    actor: soe_esm::GlobalFormId,
+    cache: crate::actor::AppearanceCache,
+}
+
 /// One animated character. Call `load_character`, then let it process.
 #[derive(GodotClass)]
 #[class(base = Node3D)]
@@ -65,6 +76,8 @@ pub struct SkinnedActorNode {
     /// The character's files. Leaked on purpose, see `load_character`.
     assets: Option<&'static ActorAssets>,
     vm: Option<Interpreter<'static>>,
+    surfaces: Vec<ActorSurface>,
+    appearance: Option<AppearanceBinding>,
     /// One instance and one skeleton per shape. They cannot share a skeleton:
     /// a shape's vertex bone indices address its **own** bone list, so two
     /// shapes naming different bones would read each other's transforms.
@@ -85,6 +98,8 @@ impl INode3D for SkinnedActorNode {
             playing: true,
             assets: None,
             vm: None,
+            surfaces: Vec::new(),
+            appearance: None,
             shapes: Vec::new(),
             meshes: Vec::new(),
             model: Vec::new(),
@@ -100,6 +115,7 @@ impl INode3D for SkinnedActorNode {
 
     fn process(&mut self, delta: f64) {
         if !self.playing {
+            self.refresh_appearance();
             return;
         }
         self.advance(delta as f32);
@@ -132,21 +148,40 @@ impl SkinnedActorNode {
                 return false;
             }
         }
-        let assets = match ActorAssets::load(&vfs, &mesh_path.to_string()) {
+        let mut assets = match ActorAssets::load(&vfs, &mesh_path.to_string()) {
             Ok(a) => a,
             Err(e) => {
                 godot_error!("SkinnedActorNode: {e}");
                 return false;
             }
         };
-        let assets: &'static ActorAssets = Box::leak(Box::new(assets));
-
         let Some(scenario) = self.scenario() else {
             return false;
         };
+        self.surfaces = std::mem::take(&mut assets.surfaces);
+        let assets: &'static ActorAssets = Box::leak(Box::new(assets));
+        self.upload_surfaces(scenario);
 
+        let mut stats = VarDictionary::new();
+        stats.set("skeleton_bones", assets.skeleton.bones.len() as i64);
+        stats.set("graph_nodes", assets.graph.nodes.len() as i64);
+        stats.set("clips", assets.clips.len() as i64);
+        stats.set("missing_clips", assets.missing_clips.len() as i64);
+        self.stats = stats;
+        self.update_surface_stats();
+
+        self.vm = Some(Interpreter::new(
+            &assets.graph,
+            &assets.clips,
+            assets.skeleton.reference_pose.clone(),
+        ));
+        self.assets = Some(assets);
+        true
+    }
+
+    fn upload_surfaces(&mut self, scenario: Rid) {
         let mut server = RenderingServer::singleton();
-        for surface in &assets.surfaces {
+        for surface in &self.surfaces {
             let bones = surface.map.len();
             let skeleton = server.skeleton_create();
             server.skeleton_allocate_data(skeleton, bones as i32);
@@ -160,50 +195,41 @@ impl SkinnedActorNode {
             self.shapes.push(ShapeRids { instance, skeleton });
             self.meshes.push(mesh);
         }
+    }
 
-        let (total, matched) = assets.bone_totals();
-        let mut stats = VarDictionary::new();
-        stats.set("shapes", assets.surfaces.len() as i64);
-        stats.set("skeleton_bones", assets.skeleton.bones.len() as i64);
-        stats.set("mesh_bones", total as i64);
-        stats.set("matched_bones", matched as i64);
-        stats.set("skeletons", assets.surfaces.len() as i64);
-        stats.set(
+    fn update_surface_stats(&mut self) {
+        self.stats.set("shapes", self.surfaces.len() as i64);
+        self.stats.set("skeletons", self.surfaces.len() as i64);
+        self.stats.set(
+            "mesh_bones",
+            self.surfaces.iter().map(|s| s.map.len()).sum::<usize>() as i64,
+        );
+        self.stats.set(
+            "matched_bones",
+            self.surfaces.iter().map(|s| s.map.matched()).sum::<usize>() as i64,
+        );
+        self.stats.set(
             "partitions",
-            assets.surfaces.iter().map(|s| s.partitions).sum::<usize>() as i64,
+            self.surfaces.iter().map(|s| s.partitions).sum::<usize>() as i64,
         );
-        stats.set(
+        self.stats.set(
             "remapped_shapes",
-            assets.surfaces.iter().filter(|s| s.remapped).count() as i64,
+            self.surfaces.iter().filter(|s| s.remapped).count() as i64,
         );
-        stats.set(
+        self.stats.set(
             "unmatched",
-            assets
-                .surfaces
+            self.surfaces
                 .iter()
                 .map(|s| s.map.unmatched.len())
                 .sum::<usize>() as i64,
         );
-        stats.set("graph_nodes", assets.graph.nodes.len() as i64);
-        stats.set("clips", assets.clips.len() as i64);
-        stats.set("missing_clips", assets.missing_clips.len() as i64);
-        stats.set(
+        self.stats.set(
             "triangles",
-            assets
-                .surfaces
+            self.surfaces
                 .iter()
                 .map(|s| s.arrays.triangle_count())
                 .sum::<usize>() as i64,
         );
-        self.stats = stats;
-
-        self.vm = Some(Interpreter::new(
-            &assets.graph,
-            &assets.clips,
-            assets.skeleton.reference_pose.clone(),
-        ));
-        self.assets = Some(assets);
-        true
     }
 
     /// Ask the graph for a walk the way the game does: raise the speed
@@ -226,6 +252,7 @@ impl SkinnedActorNode {
     /// this while `playing`, and a test can call it directly.
     #[func]
     pub fn advance(&mut self, delta: f32) {
+        self.refresh_appearance();
         let (Some(assets), Some(vm)) = (self.assets, self.vm.as_mut()) else {
             return;
         };
@@ -236,8 +263,12 @@ impl SkinnedActorNode {
             godot_error!("SkinnedActorNode: {e}");
             return;
         }
+        self.push_pose();
+    }
+
+    fn push_pose(&mut self) {
         let mut server = RenderingServer::singleton();
-        for (surface, rids) in assets.surfaces.iter().zip(&self.shapes) {
+        for (surface, rids) in self.surfaces.iter().zip(&self.shapes) {
             if let Err(e) =
                 skinning_transforms_into(&surface.map, &surface.skin, &self.model, &mut self.skins)
             {
@@ -307,5 +338,79 @@ impl SkinnedActorNode {
             server.free_rid(shape.skeleton);
         }
         self.meshes.clear();
+    }
+}
+
+impl SkinnedActorNode {
+    /// Bind an existing rig to a live actor. Geometry is replaced only after
+    /// every selected model loads, so failed refreshes preserve the last view.
+    pub(crate) fn bind_appearance(
+        &mut self,
+        world: Rc<RefCell<soe_game::World>>,
+        source: Arc<DataSource>,
+        actor: soe_esm::GlobalFormId,
+    ) -> Result<(), String> {
+        let assets = self
+            .assets
+            .ok_or("load the character rig before binding its appearance")?;
+        let mut cache = crate::actor::AppearanceCache::default();
+        let update = cache
+            .prepare(
+                &mut world.borrow_mut(),
+                actor,
+                source.vfs(),
+                &assets.skeleton,
+            )
+            .map_err(|error| error.to_string())?
+            .ok_or("initial appearance was not prepared")?;
+        self.replace_surfaces(update.surfaces)?;
+        self.appearance = Some(AppearanceBinding {
+            world,
+            source,
+            actor,
+            cache,
+        });
+        Ok(())
+    }
+
+    fn refresh_appearance(&mut self) {
+        let (Some(binding), Some(assets)) = (&mut self.appearance, self.assets) else {
+            return;
+        };
+        let update = match binding.cache.prepare(
+            &mut binding.world.borrow_mut(),
+            binding.actor,
+            binding.source.vfs(),
+            &assets.skeleton,
+        ) {
+            Ok(Some(update)) => update,
+            Ok(None) => return,
+            Err(error) => {
+                godot_error!("SkinnedActorNode appearance: {error}");
+                return;
+            }
+        };
+        if let Err(error) = self.replace_surfaces(update.surfaces) {
+            godot_error!("SkinnedActorNode appearance: {error}");
+        }
+    }
+
+    fn replace_surfaces(&mut self, surfaces: Vec<ActorSurface>) -> Result<(), String> {
+        let scenario = self.scenario().ok_or("actor has no rendering scenario")?;
+        if self.model.is_empty() {
+            let assets = self.assets.ok_or("character rig is not loaded")?;
+            to_model_space_into(
+                &assets.skeleton,
+                &assets.skeleton.reference_pose,
+                &mut self.model,
+            )
+            .map_err(|error| error.to_string())?;
+        }
+        self.free_rids();
+        self.surfaces = surfaces;
+        self.upload_surfaces(scenario);
+        self.update_surface_stats();
+        self.push_pose();
+        Ok(())
     }
 }

@@ -36,6 +36,10 @@ pub const LOCOMOTION_BEHAVIOR: &str = "behaviors/mt_behavior.hkx";
 /// What went wrong assembling a character.
 #[derive(Debug, thiserror::Error)]
 pub enum ActorError {
+    #[error("actor appearance: {0}")]
+    Appearance(#[from] soe_esm::Error),
+    #[error("loaded rig does not contain skin bones: {bones:?}")]
+    RigMismatch { bones: Vec<String> },
     #[error("reading {path}: {source}")]
     Read {
         path: String,
@@ -54,6 +58,8 @@ pub enum ActorError {
         #[source]
         source: soe_nif::Error,
     },
+    #[error("invalid body partitions in {path}: {reason}")]
+    Partitions { path: String, reason: String },
     #[error("{path} holds no skeleton")]
     NoSkeleton { path: String },
     #[error("{path} holds no skinned shape, so there is nothing to animate")]
@@ -96,6 +102,50 @@ pub struct ActorAssets {
     pub missing_clips: Vec<String>,
     /// Referenced behavior files that linking could not find.
     pub unresolved_references: Vec<String>,
+}
+
+/// Prepared geometry and its source view. The consumer commits both only
+/// after upload succeeds, preserving its previous view on any load error.
+pub struct AppearanceUpdate {
+    pub appearance: soe_game::appearance::ActorAppearance,
+    pub surfaces: Vec<ActorSurface>,
+}
+
+/// Transient render cache. Failed views are remembered so unchanged bad assets
+/// do not cause repeated I/O or repeated errors. Rebinding starts a fresh cache.
+#[derive(Default)]
+pub struct AppearanceCache {
+    last_attempt: Option<soe_game::appearance::ActorAppearance>,
+}
+
+impl AppearanceCache {
+    pub fn prepare(
+        &mut self,
+        world: &mut soe_game::World,
+        actor: soe_esm::GlobalFormId,
+        vfs: &Vfs,
+        skeleton: &Skeleton,
+    ) -> Result<Option<AppearanceUpdate>, ActorError> {
+        let appearance = world.actor_appearance(actor)?;
+        if self.last_attempt.as_ref() == Some(&appearance) {
+            return Ok(None);
+        }
+        self.last_attempt = Some(appearance.clone());
+        let surfaces = ActorAssets::appearance_surfaces(vfs, &appearance, skeleton)?;
+        let bones: std::collections::BTreeSet<_> = surfaces
+            .iter()
+            .flat_map(|surface| surface.map.unmatched.iter().cloned())
+            .collect();
+        if !bones.is_empty() {
+            return Err(ActorError::RigMismatch {
+                bones: bones.into_iter().collect(),
+            });
+        }
+        Ok(Some(AppearanceUpdate {
+            appearance,
+            surfaces,
+        }))
+    }
 }
 
 fn read(vfs: &Vfs, path: &str) -> Result<Vec<u8>, ActorError> {
@@ -220,6 +270,43 @@ impl ActorAssets {
         mesh_path: &str,
         skeleton: &Skeleton,
     ) -> Result<Vec<ActorSurface>, ActorError> {
+        Self::load_visible_surfaces(vfs, mesh_path, skeleton, 0)
+    }
+
+    /// Assemble the current third-person addon models on an existing rig.
+    /// Record paths resolve through the same archive and loose-file overlay.
+    /// BoneMap reports unmatched rig bones. Live consumers use
+    /// [`AppearanceCache::prepare`] to reject those before replacing their geometry.
+    pub fn appearance_surfaces(
+        vfs: &Vfs,
+        appearance: &soe_game::appearance::ActorAppearance,
+        skeleton: &Skeleton,
+    ) -> Result<Vec<ActorSurface>, ActorError> {
+        let mut surfaces = Vec::new();
+        for part in &appearance.parts {
+            let Some(model) = &part.model else { continue };
+            let path = model.replace('\\', "/");
+            let path = if path.to_ascii_lowercase().starts_with("meshes/") {
+                path
+            } else {
+                format!("meshes/{path}")
+            };
+            surfaces.extend(Self::load_visible_surfaces(
+                vfs,
+                &path,
+                skeleton,
+                part.authored_slots & !part.visible_slots,
+            )?);
+        }
+        Ok(surfaces)
+    }
+
+    fn load_visible_surfaces(
+        vfs: &Vfs,
+        mesh_path: &str,
+        skeleton: &Skeleton,
+        hidden_slots: u32,
+    ) -> Result<Vec<ActorSurface>, ActorError> {
         let bytes = read(vfs, mesh_path)?;
         let file = soe_nif::parse(&bytes).map_err(|source| ActorError::Nif {
             path: mesh_path.to_string(),
@@ -241,6 +328,17 @@ impl ActorAssets {
                 path: mesh_path.to_string(),
                 source,
             })?;
+            if let Some(indices) = visible_indices(&file, mesh, hidden_slots).map_err(|reason| {
+                ActorError::Partitions {
+                    path: mesh_path.to_owned(),
+                    reason,
+                }
+            })? {
+                arrays.indices = indices;
+                if arrays.indices.is_empty() {
+                    continue;
+                }
+            }
             let partitions = partition_count(&file, mesh);
             let remapped = match partition_bone_indices(&file, mesh) {
                 Some(fixed) => {
@@ -264,7 +362,7 @@ impl ActorAssets {
                 remapped,
             });
         }
-        if out.is_empty() {
+        if out.is_empty() && hidden_slots == 0 {
             return Err(ActorError::NotSkinned {
                 path: mesh_path.to_string(),
             });
@@ -279,6 +377,84 @@ impl ActorAssets {
         let matched = self.surfaces.iter().map(|s| s.map.matched()).sum();
         (total, matched)
     }
+}
+
+/// Omit triangles belonging to body slots covered by another addon. Part IDs
+/// outside Skyrim's 30 to 61 equipment slots belong to other dismember states.
+fn visible_indices(
+    file: &soe_nif::NifFile,
+    mesh: &soe_nif::mesh::Mesh,
+    hidden_slots: u32,
+) -> Result<Option<Vec<i32>>, String> {
+    use soe_nif::blocks::Block;
+    if hidden_slots == 0 {
+        return Ok(None);
+    }
+    let skin = match file.blocks.get(mesh.block) {
+        Some(Block::BsTriShape(shape)) => shape.skin,
+        Some(Block::TriShape(shape)) => shape.skin,
+        _ => return Ok(None),
+    };
+    let Some(Block::SkinInstance(instance)) = file.get(skin) else {
+        return Ok(None);
+    };
+    if instance.body_parts.is_empty() {
+        return Ok(None);
+    }
+    let Some(Block::SkinPartition(partition)) = file.get(instance.partition) else {
+        return Err("dismember instance has no partition block".into());
+    };
+    partition_indices(
+        &instance.body_parts,
+        &partition.partitions,
+        hidden_slots,
+        mesh.positions.len(),
+    )
+    .map(Some)
+}
+
+fn partition_indices(
+    body_parts: &[soe_nif::blocks::BodyPart],
+    partitions: &[soe_nif::blocks::Partition],
+    hidden_slots: u32,
+    vertices: usize,
+) -> Result<Vec<i32>, String> {
+    if body_parts.len() != partitions.len() {
+        return Err("body-part and partition counts differ".into());
+    }
+    let mut out = Vec::new();
+    for (body, partition) in body_parts.iter().zip(partitions) {
+        if (30..62).contains(&body.part) && hidden_slots & (1 << (body.part - 30)) != 0 {
+            continue;
+        }
+        let direct = !partition.triangles_copy.is_empty();
+        let triangles = if direct {
+            &partition.triangles_copy
+        } else {
+            &partition.triangles
+        };
+        for triangle in triangles {
+            let mut mapped = [0; 3];
+            for (index, &vertex) in triangle.iter().enumerate() {
+                let vertex = if direct {
+                    vertex
+                } else {
+                    *partition
+                        .vertex_map
+                        .get(usize::from(vertex))
+                        .ok_or("partition triangle exceeds its vertex map")?
+                };
+                if usize::from(vertex) >= vertices {
+                    return Err("partition triangle exceeds the shape vertices".into());
+                }
+                mapped[index] = i32::from(vertex);
+            }
+            // Match build_surface's default Godot winding conversion.
+            mapped.swap(1, 2);
+            out.extend(mapped);
+        }
+    }
+    Ok(out)
 }
 
 /// How many body part partitions a shape is split into, 0 when it has none.
@@ -399,6 +575,40 @@ fn surface_of(mesh: &soe_nif::mesh::Mesh) -> Result<SurfaceArrays, crate::mesh::
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn covered_body_part_triangles_are_removed_in_both_partition_layouts() {
+        use soe_nif::blocks::{BodyPart, Partition};
+        let bodies = [
+            BodyPart { part: 37, flags: 0 },
+            BodyPart { part: 38, flags: 0 },
+        ];
+        let partitions = [
+            Partition {
+                triangles_copy: vec![[0, 1, 2]],
+                ..Default::default()
+            },
+            Partition {
+                vertex_map: vec![3, 4, 5],
+                triangles: vec![[0, 1, 2]],
+                ..Default::default()
+            },
+        ];
+        assert_eq!(
+            partition_indices(&bodies, &partitions, 1 << 7, 6),
+            Ok(vec![3, 5, 4])
+        );
+        assert_eq!(
+            partition_indices(&bodies, &partitions, 1 << 8, 6),
+            Ok(vec![0, 2, 1])
+        );
+        assert_eq!(
+            partition_indices(&bodies, &partitions, (1 << 7) | (1 << 8), 6),
+            Ok(vec![])
+        );
+        assert!(partition_indices(&bodies[..1], &partitions, 1 << 7, 6).is_err());
+        assert!(partition_indices(&bodies, &partitions, 1 << 7, 5).is_err());
+    }
 
     #[test]
     fn a_havok_path_becomes_an_archive_path_under_the_character_root() {

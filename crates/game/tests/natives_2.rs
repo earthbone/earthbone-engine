@@ -1674,3 +1674,28 @@ fn the_new_state_survives_save_and_load() {
     );
     assert!(errors(&h).is_empty(), "{:?}", errors(&h));
 }
+
+#[test]
+fn skse_actor_base_and_race_skin_natives_use_canonical_records() {
+    let mut plugin = Plugin::new(FileHeader::default());
+    plugin.push_top(
+        Record::new(T(b"NPC_"), 0x100)
+            .zsub(EDID, "SkinBase")
+            .sub(T(b"ACBS"), acbs(0)),
+    );
+    plugin.push_top(Record::new(T(b"RACE"), 0x101).zsub(EDID, "SkinRace"));
+    plugin.push_top(Record::new(T(b"ARMO"), 0x102).zsub(EDID, "SkinArmor"));
+    let mut order = LoadOrder::new();
+    order.add("Skins.esm", plugin).unwrap();
+    let mut game = Game::new(order);
+    let armor = obj(&mut game, "SkinArmor");
+    for owner in ["SkinBase", "SkinRace"] {
+        let target = obj(&mut game, owner);
+        assert_eq!(call(&mut game, &target, "GetSkin", &[]), Value::None);
+        call(&mut game, &target, "SetSkin", std::slice::from_ref(&armor));
+        assert_eq!(call(&mut game, &target, "GetSkin", &[]), armor);
+        call(&mut game, &target, "SetSkin", &[Value::None]);
+        assert_eq!(call(&mut game, &target, "GetSkin", &[]), Value::None);
+    }
+    assert!(errors(&game).is_empty(), "{:?}", errors(&game));
+}

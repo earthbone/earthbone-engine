@@ -372,4 +372,148 @@ fn temporary_bases_keep_inherited_skin_and_gender_in_footstep_selection() {
     let mut loaded = World::from_shared_order(order);
     loaded.load_state(&world.save_state()).unwrap();
     assert_eq!(loaded.footstep_sets(actor).unwrap(), [id(0x902), id(0x903)]);
+    let other = loaded.place_at(id(0x12), id(0x14), false);
+    loaded.actor(other).unwrap().equipped.insert(id(0x202));
+    loaded
+        .set_actor_base_skin(temporary, Some(id(0x202)))
+        .unwrap();
+    assert_eq!(loaded.footstep_sets(actor).unwrap(), [id(0x903)]);
+    assert_eq!(loaded.footstep_sets(other).unwrap(), [id(0x902), id(0x903)]);
+}
+
+#[test]
+fn skin_overrides_change_shared_parts_without_carried_items() {
+    let mut world = World::new(order());
+    let actor = world.place_at(id(0x10), id(0x14), false);
+    let other = world.place_at(id(0x10), id(0x14), false);
+    let original = world.actor_appearance(actor).unwrap();
+    world.actor_appearance(other).unwrap();
+    let inventory = world.reference(actor).unwrap().inventory.clone();
+    let equipped = world.actor(actor).unwrap().equipped.clone();
+    assert_eq!(original.skin, Some(id(0x200)));
+    world
+        .set_actor_base_skin(id(0x10), Some(id(0x201)))
+        .unwrap();
+    for actor in [actor, other] {
+        let view = world.actor_appearance(actor).unwrap();
+        assert_eq!(view.skin, Some(id(0x201)));
+        assert_eq!(view.parts.len(), 1);
+        assert_eq!(view.parts[0].addon, id(0x301));
+        assert_eq!(view.parts[0].visible_slots, (1 << 7) | (1 << 8));
+        assert_eq!(world.footstep_sets(actor).unwrap(), [id(0x902)]);
+    }
+    world.set_race_skin(id(0x100), Some(id(0x202))).unwrap();
+    assert_eq!(world.actor_appearance(actor).unwrap().skin, Some(id(0x201)));
+    world.set_actor_base_skin(id(0x10), None).unwrap();
+    assert_eq!(world.actor_appearance(actor).unwrap().skin, Some(id(0x202)));
+    assert_eq!(world.footstep_sets(actor).unwrap(), [id(0x903)]);
+    world.set_race_skin(id(0x100), None).unwrap();
+    assert!(world.actor_appearance(actor).unwrap().parts.is_empty());
+    assert_eq!(world.reference(actor).unwrap().inventory, inventory);
+    assert_eq!(world.actor(actor).unwrap().equipped, equipped);
+}
+
+#[test]
+fn appearance_exposes_sex_models_and_only_surviving_slots() {
+    use soe_game::appearance::ActorAppearance;
+    let mut plugin = plugin();
+    for record in &mut plugin.records {
+        if record.tag == T(b"ARMA") {
+            *record = record
+                .clone()
+                .zsub(T(b"MOD2"), "male.nif")
+                .zsub(T(b"MOD3"), "female.nif")
+                .zsub(T(b"MOD4"), "arms_male.nif")
+                .zsub(T(b"MOD5"), "arms_female.nif");
+        }
+    }
+    let mut order = LoadOrder::new();
+    order.add("Skyrim.esm", plugin).unwrap();
+    let equipped = BTreeSet::from([id(0x201), id(0x202)]);
+    let female = ActorAppearance::from_order(&order, Some(id(0x11)), None, &equipped).unwrap();
+    assert_eq!(female.parts.len(), 2);
+    assert_eq!(female.parts[0].addon, id(0x301));
+    assert_eq!(female.parts[0].authored_slots, (1 << 7) | (1 << 8));
+    assert_eq!(female.parts[0].visible_slots, 1 << 8);
+    assert_eq!(female.parts[1].visible_slots, 1 << 7);
+    assert_eq!(female.parts[0].model.as_deref(), Some("female.nif"));
+    assert_eq!(
+        female.parts[0].first_person_model.as_deref(),
+        Some("arms_female.nif")
+    );
+    let male = ActorAppearance::from_order(&order, Some(id(0x10)), None, &equipped).unwrap();
+    assert_eq!(male.parts.len(), 1);
+    assert_eq!(male.parts[0].model.as_deref(), Some("male.nif"));
+}
+
+#[test]
+fn mapped_race_skin_survives_repeated_changes_and_save_reload() {
+    let mut order = order();
+    let mut patch = Plugin::new(FileHeader {
+        masters: vec!["Skyrim.esm".into()],
+        ..Default::default()
+    });
+    patch.push_top(armor(0x0100_0800, 0x301));
+    order.add("Skin.esp", patch).unwrap();
+    let target = GlobalFormId {
+        file: 1,
+        object: 0x800,
+    };
+    let order = std::sync::Arc::new(order);
+    let mut world = World::from_shared_order(order.clone());
+    let actor = world.place_at(id(0x10), id(0x14), false);
+    for skin in [Some(target), Some(id(0x202)), None, Some(target)] {
+        world.set_race_skin(id(0x100), skin).unwrap();
+        world.set_actor_base_skin(id(0x11), skin).unwrap();
+    }
+    let view = world.actor_appearance(actor).unwrap();
+    assert_eq!(view.skin, Some(target));
+    assert_eq!(view.parts[0].addon, id(0x301));
+    let mut loaded = World::from_shared_order(order);
+    loaded.load_state(&world.save_state()).unwrap();
+    assert_eq!(loaded.state_hash(), world.state_hash());
+    assert_eq!(loaded.actor_appearance(actor).unwrap(), view);
+    assert_eq!(loaded.skin(id(0x11)).unwrap(), Some(target));
+    assert!(
+        world
+            .order()
+            .winner(id(0x100))
+            .unwrap()
+            .find(T(b"WNAM"))
+            .unwrap()
+            == 0x200_u32.to_le_bytes()
+    );
+}
+
+#[test]
+fn invalid_skin_changes_and_tampered_race_overrides_are_atomic() {
+    let mut world = World::new(order());
+    let initial = world.state_hash();
+    assert!(world.set_race_skin(id(0x100), Some(id(0x400))).is_err());
+    assert!(world
+        .set_actor_base_skin(id(0x100), Some(id(0x200)))
+        .is_err());
+    assert_eq!(world.state_hash(), initial);
+    world.set_race_skin(id(0x100), Some(id(0x201))).unwrap();
+    let before = world.state_hash();
+    let mut bytes = world.save_state();
+    let offset = bytes.windows(4).position(|v| v == b"WNAM").unwrap();
+    bytes[offset..offset + 4].copy_from_slice(b"RNAM");
+    assert!(world.load_state(&bytes).is_err());
+    assert_eq!(world.state_hash(), before);
+    world.set_race_skin(id(0x100), None).unwrap();
+    let before = world.state_hash();
+    let mut bytes = world.save_state();
+    let field = [b"WNAM".as_slice(), &4_u32.to_le_bytes()].concat();
+    let at = bytes
+        .windows(field.len())
+        .position(|bytes| bytes == field)
+        .unwrap()
+        + field.len();
+    bytes[at..at + 4].copy_from_slice(&0xFEFF_F123_u32.to_le_bytes());
+    assert!(
+        world.load_state(&bytes).is_err(),
+        "nonzero unresolved skin must be rejected"
+    );
+    assert_eq!(world.state_hash(), before);
 }

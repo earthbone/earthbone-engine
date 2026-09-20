@@ -234,6 +234,34 @@ impl PlayerNode {
         self.action_latches = Action::all().into_iter().map(|a| (a, until)).collect();
     }
 
+    /// Connect an already loaded character rig to this gameplay world's live
+    /// skin and equipment records. Reuses the existing character node.
+    #[func]
+    pub fn bind_actor_appearance(
+        &mut self,
+        mut visual: Gd<crate::godot_actor::SkinnedActorNode>,
+        file: i32,
+        object: i64,
+    ) -> bool {
+        let (Some(game), Some(source)) = (&self.game, &self.data_source) else {
+            return false;
+        };
+        let (Ok(file), Ok(object)) = (u16::try_from(file), u32::try_from(object)) else {
+            return false;
+        };
+        match visual.bind_mut().bind_appearance(
+            game.shared_world(),
+            Arc::clone(source),
+            soe_esm::GlobalFormId { file, object },
+        ) {
+            Ok(()) => true,
+            Err(error) => {
+                godot_error!("PlayerNode actor appearance: {error}");
+                false
+            }
+        }
+    }
+
     /// Clear a disconnected pad's buttons and axes before the next step.
     #[func]
     fn joy_connection_changed(&mut self, device: i32, connected: bool) {

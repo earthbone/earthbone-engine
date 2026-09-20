@@ -184,7 +184,7 @@ pub fn register(vm: &mut Vm, world: &Shared) -> Registered {
 
 /// Hand-kept count of the non-stub natives registered below. The test in
 /// this module checks it against the registry.
-pub const NATIVE_COUNT: usize = 361;
+pub const NATIVE_COUNT: usize = 365;
 
 fn declare_parents(vm: &mut Vm) {
     for (class, parent) in [
@@ -2219,6 +2219,31 @@ fn faction(vm: &mut Vm, w: &Shared) {
 }
 
 fn actor_base(vm: &mut Vm, w: &Shared) {
+    for class in ["ActorBase", "Race"] {
+        method!(vm, w, class, "GetSkin", |world, call, me| {
+            match world.skin(me) {
+                Ok(skin) => form_value(world, call, skin),
+                Err(error) => {
+                    call.log
+                        .push(call.time, format!("{class}.GetSkin: {error}"));
+                    none()
+                }
+            }
+        });
+        method!(vm, w, class, "SetSkin", |world, call, me| {
+            let skin = call.args.first().and_then(|value| world.form_arg(value));
+            let result = if class == "ActorBase" {
+                world.set_actor_base_skin(me, skin)
+            } else {
+                world.set_race_skin(me, skin)
+            };
+            if let Err(error) = result {
+                call.log
+                    .push(call.time, format!("{class}.SetSkin: {error}"));
+            }
+            none()
+        });
+    }
     method!(vm, w, "ActorBase", "GetRace", |world, call, me| {
         let race = world.actor_base(me).and_then(|a| a.race);
         form_value(world, call, race)
