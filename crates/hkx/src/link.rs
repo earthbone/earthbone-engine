@@ -23,18 +23,20 @@
 //! the idle state at weight zero.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use crate::behavior::{
-    BehaviorGraph, BehaviorGraphData, EventInfo, EventProperty, Node, NodeId, NodeKind, StateInfo,
-    TimeInterval, TransitionInfo, VariableBindingSet, VariableInfo,
+    BehaviorGraph, BehaviorGraphData, Condition, EventInfo, EventProperty, ExpressionScope, Node,
+    NodeId, NodeKind, StateInfo, TimeInterval, TransitionInfo, VariableBindingSet, VariableInfo,
 };
 use crate::{Error, Result};
 
-/// Sub-graph id to parent id, by position, for events and variables.
+/// Sub-graph id to parent id, by position, for events, variables and properties.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SymbolMap {
     events: Vec<i32>,
     variables: Vec<i32>,
+    properties: Vec<i32>,
 }
 
 impl SymbolMap {
@@ -60,6 +62,16 @@ impl SymbolMap {
             .unwrap_or(id)
     }
 
+    /// As [`SymbolMap::event`], for character property indices.
+    #[must_use]
+    pub fn property(&self, id: i32) -> i32 {
+        usize::try_from(id)
+            .ok()
+            .and_then(|i| self.properties.get(i))
+            .copied()
+            .unwrap_or(id)
+    }
+
     /// How many sub-graph events and variables the map covers.
     #[must_use]
     pub fn len(&self) -> (usize, usize) {
@@ -68,7 +80,7 @@ impl SymbolMap {
 
     #[must_use]
     pub fn is_empty(&self) -> bool {
-        self.events.is_empty() && self.variables.is_empty()
+        self.events.is_empty() && self.variables.is_empty() && self.properties.is_empty()
     }
 }
 
@@ -160,7 +172,30 @@ fn merge_symbols(parent: &mut BehaviorGraphData, sub: &BehaviorGraphData) -> Sym
             values.word_values.push(initial);
         }
     }
-    SymbolMap { events, variables }
+    let mut known = index_by_name(&parent.character_property_names);
+    let mut properties = Vec::with_capacity(sub.character_property_names.len());
+    for (i, name) in sub.character_property_names.iter().enumerate() {
+        let id = if let Some(&id) = known.get(name) {
+            id
+        } else {
+            let id = i32::try_from(parent.character_property_names.len()).unwrap_or(i32::MAX);
+            parent.character_property_names.push(name.clone());
+            parent.character_property_infos.push(
+                sub.character_property_infos
+                    .get(i)
+                    .copied()
+                    .unwrap_or_default(),
+            );
+            known.insert(name.clone(), id);
+            id
+        };
+        properties.push(id);
+    }
+    SymbolMap {
+        events,
+        variables,
+        properties,
+    }
 }
 
 fn remap_event_property(e: &mut EventProperty, map: &SymbolMap) {
@@ -181,10 +216,10 @@ fn remap_transition(t: &mut TransitionInfo, map: &SymbolMap, offset: usize) {
 
 fn remap_bindings(b: &mut VariableBindingSet, map: &SymbolMap) {
     for binding in &mut b.bindings {
-        // Binding type 1 is a character property, indexed in its own table,
-        // which this map does not cover.
-        if binding.binding_type == 0 {
-            binding.variable_index = map.variable(binding.variable_index);
+        match binding.binding_type {
+            0 => binding.variable_index = map.variable(binding.variable_index),
+            1 => binding.variable_index = map.property(binding.variable_index),
+            _ => {}
         }
     }
 }
@@ -322,6 +357,31 @@ fn remap_node(node: &mut Node, map: &SymbolMap, offset: usize) {
     }
 }
 
+fn scope_conditions(nodes: &mut [Node], data: &BehaviorGraphData) {
+    let scope = Arc::new(ExpressionScope {
+        variables: data.variable_names.clone(),
+        properties: data.character_property_names.clone(),
+    });
+    for node in nodes {
+        let NodeKind::StateMachine(sm) = &mut node.kind else {
+            continue;
+        };
+        for transition in sm
+            .states
+            .iter_mut()
+            .flat_map(|state| &mut state.transitions)
+            .chain(&mut sm.wildcard_transitions)
+        {
+            if let Some(Condition::Expression(source)) = &mut transition.condition {
+                transition.condition = Some(Condition::ScopedExpression {
+                    source: std::mem::take(source),
+                    scope: Arc::clone(&scope),
+                });
+            }
+        }
+    }
+}
+
 impl BehaviorGraph {
     /// Splice `sub` in under the behavior reference at `at`, mapping its
     /// symbols into this graph's tables.
@@ -332,7 +392,7 @@ impl BehaviorGraph {
     ///
     /// [`Error::Unsupported`] when `at` is not a behavior reference, or when
     /// the sub-graph has no root generator to splice.
-    pub fn link_reference(&mut self, at: NodeId, sub: BehaviorGraph) -> Result<NodeId> {
+    pub fn link_reference(&mut self, at: NodeId, mut sub: BehaviorGraph) -> Result<NodeId> {
         let Some(node) = self.nodes.get(at.0) else {
             return Err(Error::Unsupported(format!("no node {at:?} to link")));
         };
@@ -349,6 +409,8 @@ impl BehaviorGraph {
             )));
         };
 
+        scope_conditions(&mut self.nodes, &self.data);
+        scope_conditions(&mut sub.nodes, &sub.data);
         let map = merge_symbols(&mut self.data, &sub.data);
         let offset = self.nodes.len();
         let mut nodes = sub.nodes;

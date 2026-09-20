@@ -19,10 +19,12 @@
 
 use std::collections::HashMap;
 
+use crate::expression::{Expression, ExpressionError};
+
 use crate::animation::SplineCompressedAnimation;
 use crate::behavior::{
-    transition_flags, BehaviorGraph, BehaviorGraphData, BlenderGenerator, ClipGenerator, NodeId,
-    NodeKind, StateMachine, TimeInterval, TransitionInfo, VariableBindingSet, VariableInfo,
+    transition_flags, BehaviorGraph, BehaviorGraphData, BlenderGenerator, ClipGenerator, Condition,
+    NodeId, NodeKind, StateMachine, TimeInterval, TransitionInfo, VariableBindingSet, VariableInfo,
     VariableType, IS_ACTIVE_SLOTS,
 };
 use crate::skeleton::AnimationContainer;
@@ -263,7 +265,7 @@ pub struct StateChange {
     pub machine: NodeId,
     pub from: Option<i32>,
     pub to: i32,
-    /// The event that caused it, `None` for activation.
+    /// The event that caused it, `None` for activation or a condition-only transition.
     pub event: Option<i32>,
 }
 
@@ -314,11 +316,26 @@ struct ResolvedBinding {
 
 #[derive(Debug, Clone, Copy)]
 struct ActiveTransition {
+    priority: i16,
+    flags: u16,
     from_generator: Option<NodeId>,
     to_generator: Option<NodeId>,
     elapsed: f32,
     duration: f32,
     curve: i8,
+}
+
+#[derive(Debug, Clone)]
+struct DelayedTransition {
+    index: usize,
+    info: TransitionInfo,
+    event: Event,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct IntervalState {
+    trigger: bool,
+    initiate: bool,
 }
 
 /// Per node run-time state. One flat record per node keeps the arena
@@ -335,7 +352,9 @@ struct Runtime {
     current_state: Option<i32>,
     previous_state: Option<i32>,
     time_in_state: f32,
-    transition: Option<ActiveTransition>,
+    transitions: Vec<ActiveTransition>,
+    delayed: Option<DelayedTransition>,
+    intervals: Vec<IntervalState>,
     blend_parameter: Option<f32>,
     child_weights: Vec<Option<f32>>,
     selected: Option<usize>,
@@ -365,6 +384,8 @@ pub struct Unsupported {
     pub unknown_classes: Vec<String>,
     /// Binding member paths with no setter.
     pub unbound: Vec<String>,
+    /// Condition classes, source expressions or values that cannot be evaluated.
+    pub conditions: Vec<String>,
 }
 
 fn push_unique(list: &mut Vec<String>, item: String) {
@@ -381,6 +402,7 @@ pub struct Interpreter<'a> {
     pub character_properties: Variables,
     nodes: Vec<Runtime>,
     bindings: Vec<ResolvedBinding>,
+    conditions: HashMap<Condition, std::result::Result<Expression, ExpressionError>>,
     pending: Vec<Event>,
     raised: Vec<Event>,
     handled: Vec<Event>,
@@ -388,6 +410,7 @@ pub struct Interpreter<'a> {
     unsupported: Unsupported,
     output: Output,
     frame: u64,
+    condition_frames: Vec<u64>,
 }
 
 /// Rounds of internally raised events handled per update before the rest
@@ -413,9 +436,18 @@ impl<'a> Interpreter<'a> {
             graph,
             clips,
             variables: Variables::from_graph_data(&graph.data),
-            character_properties: Variables::default(),
+            character_properties: Variables::from_infos(
+                &graph
+                    .data
+                    .character_property_names
+                    .iter()
+                    .map(String::as_str)
+                    .collect::<Vec<_>>(),
+                &graph.data.character_property_infos,
+            ),
             nodes,
             bindings: Vec::new(),
+            conditions: HashMap::new(),
             pending: Vec::new(),
             raised: Vec::new(),
             handled: Vec::new(),
@@ -427,9 +459,96 @@ impl<'a> Interpreter<'a> {
             },
             reference_pose,
             frame: 0,
+            condition_frames: vec![0; graph.nodes.len()],
         };
         interp.resolve_bindings();
+        interp.resolve_conditions();
         interp
+    }
+
+    fn resolve_conditions(&mut self) {
+        for node in &self.graph.nodes {
+            let NodeKind::StateMachine(sm) = &node.kind else {
+                continue;
+            };
+            for transition in sm
+                .states
+                .iter()
+                .flat_map(|state| &state.transitions)
+                .chain(&sm.wildcard_transitions)
+            {
+                if transition.flags & transition_flags::DISABLE_CONDITION != 0 {
+                    continue;
+                }
+                if let Some(condition) = &transition.condition {
+                    if let Some((source, scope)) = condition.expression() {
+                        let result =
+                            self.conditions.entry(condition.clone()).or_insert_with(|| {
+                                Expression::compile(
+                                    source,
+                                    &self.variables,
+                                    &self.character_properties,
+                                    scope,
+                                )
+                            });
+                        if let Err(error) = result {
+                            push_unique(
+                                &mut self.unsupported.conditions,
+                                format!("{source}: {error:?}"),
+                            );
+                        }
+                    } else if let Condition::Unsupported(class) = condition {
+                        push_unique(&mut self.unsupported.conditions, class.clone());
+                    }
+                }
+            }
+        }
+    }
+
+    fn condition_passes(&mut self, transition: &TransitionInfo) -> bool {
+        if transition.flags & transition_flags::DISABLE_CONDITION != 0 {
+            return true;
+        }
+        let Some(condition) = &transition.condition else {
+            return true;
+        };
+        let Some((source, _)) = condition.expression() else {
+            return false;
+        };
+        let Some(Ok(expression)) = self.conditions.get(condition) else {
+            return false;
+        };
+        match expression.evaluate(&self.variables, &self.character_properties) {
+            Ok(value) => value != 0.0,
+            Err(error) => {
+                push_unique(
+                    &mut self.unsupported.conditions,
+                    format!("{source}: {error:?}"),
+                );
+                false
+            }
+        }
+    }
+
+    /// Poll each active machine once, outermost first. A transition waits
+    /// taken by a condition waits until the next frame before polling its new state.
+    fn handle_conditions(&mut self, id: NodeId) {
+        if !self.nodes[id.0].active || self.condition_frames[id.0] == self.frame {
+            return;
+        }
+        self.condition_frames[id.0] = self.frame;
+        let node = self.graph.node(id);
+        let children = if let NodeKind::StateMachine(sm) = &node.kind {
+            if self.machine_event(id, sm, Event { id: -1 }) {
+                return;
+            }
+            self.active_generators_of_machine(id, sm)
+        } else {
+            node.children()
+        };
+        for child in children {
+            self.handle_conditions(child);
+        }
     }
 
     fn resolve_bindings(&mut self) {
@@ -584,7 +703,14 @@ impl<'a> Interpreter<'a> {
     pub fn in_transition(&self, machine: NodeId) -> bool {
         self.nodes
             .get(machine.0)
-            .is_some_and(|n| n.transition.is_some())
+            .is_some_and(|n| !n.transitions.is_empty())
+    }
+
+    /// Number of blending effects currently retained by a state machine.
+    pub fn active_transition_count(&self, machine: NodeId) -> usize {
+        self.nodes
+            .get(machine.0)
+            .map_or(0, |node| node.transitions.len())
     }
 
     /// A clip generator's local time, when it is active.
@@ -636,6 +762,7 @@ impl<'a> Interpreter<'a> {
                 self.handled.push(ev);
                 self.handle_event(root, ev);
             }
+            self.handle_conditions(root);
             let output = self.generate(root, dt);
             self.output = output;
             for _ in 0..MAX_EVENT_ROUNDS {
@@ -734,7 +861,7 @@ impl<'a> Interpreter<'a> {
                 let start = self.start_state(id, sm);
                 self.nodes[id.0].current_state = None;
                 self.nodes[id.0].previous_state = None;
-                self.nodes[id.0].transition = None;
+                self.nodes[id.0].transitions.clear();
                 if let Some(start) = start {
                     self.enter_state(id, sm, start, None);
                 }
@@ -818,11 +945,9 @@ impl<'a> Interpreter<'a> {
                     }
                 }
             }
-            if let Some(t) = self.nodes[id.0].transition.take() {
-                if let Some(g) = t.from_generator {
-                    self.deactivate(g);
-                }
-            }
+            self.nodes[id.0].transitions.clear();
+            self.nodes[id.0].delayed = None;
+            self.nodes[id.0].intervals.clear();
             self.nodes[id.0].current_state = None;
         }
         for child in node.children() {
@@ -874,6 +999,16 @@ impl<'a> Interpreter<'a> {
         self.nodes[id.0].previous_state = from;
         self.nodes[id.0].current_state = Some(state);
         self.nodes[id.0].time_in_state = 0.0;
+        self.nodes[id.0].delayed = None;
+        self.nodes[id.0].intervals = info
+            .transitions
+            .iter()
+            .chain(&sm.wildcard_transitions)
+            .map(|transition| IntervalState {
+                trigger: transition.trigger_interval.enter_event_id < 0,
+                initiate: transition.initiate_interval.enter_event_id < 0,
+            })
+            .collect();
         if let Some(g) = info.generator {
             self.activate(g);
         }
@@ -890,8 +1025,8 @@ impl<'a> Interpreter<'a> {
     }
 
     /// Deliver one event: a state machine takes it if a transition from
-    /// its current state (own list first, then wildcards, first match)
-    /// names it, otherwise the event goes on to the active children.
+    /// its current state names it. Highest priority wins, with authored order
+    /// breaking ties. Otherwise the event goes on to the active children.
     fn handle_event(&mut self, id: NodeId, ev: Event) -> bool {
         if !self.nodes[id.0].active {
             return false;
@@ -925,8 +1060,15 @@ impl<'a> Interpreter<'a> {
 
     fn active_generators_of_machine(&self, id: NodeId, sm: &StateMachine) -> Vec<NodeId> {
         let mut out = Vec::new();
-        if let Some(t) = self.nodes[id.0].transition {
-            out.extend(t.from_generator);
+        for transition in &self.nodes[id.0].transitions {
+            for generator in [transition.from_generator, transition.to_generator]
+                .into_iter()
+                .flatten()
+            {
+                if !out.contains(&generator) {
+                    out.push(generator);
+                }
+            }
         }
         if let Some(current) = self.nodes[id.0].current_state {
             if let Some(g) = sm.state(current).and_then(|s| s.generator) {
@@ -945,33 +1087,126 @@ impl<'a> Interpreter<'a> {
         let Some(state) = sm.state(current) else {
             return false;
         };
+        if ev.id >= 0 {
+            for (index, info) in state
+                .transitions
+                .iter()
+                .chain(&sm.wildcard_transitions)
+                .enumerate()
+            {
+                let interval = &mut self.nodes[id.0].intervals[index];
+                update_interval_event(&info.trigger_interval, &mut interval.trigger, ev.id);
+                update_interval_event(&info.initiate_interval, &mut interval.initiate, ev.id);
+            }
+        }
+        if self.nodes[id.0].transitions.iter().any(|transition| {
+            transition.flags & transition_flags::UNINTERRUPTIBLE_WHILE_PLAYING != 0
+        }) {
+            return false;
+        }
+        if self.nodes[id.0].delayed.as_ref().is_some_and(|delayed| {
+            delayed.info.flags & transition_flags::UNINTERRUPTIBLE_WHILE_DELAYED != 0
+        }) {
+            return self.start_delayed(id, sm);
+        }
         let return_event = sm.return_to_previous_state_event_id;
-        let candidate = state
+        let mut candidates: Vec<_> = state
             .transitions
             .iter()
             .chain(sm.wildcard_transitions.iter())
-            .find(|t| Self::transition_matches(sm, current, t, ev))
-            .cloned();
+            .enumerate()
+            .filter(|(index, info)| {
+                Self::transition_matches(sm, current, info, ev)
+                    && (info.flags & transition_flags::USE_TRIGGER_INTERVAL == 0
+                        || interval_open(
+                            &info.trigger_interval,
+                            self.nodes[id.0].intervals[*index].trigger,
+                            self.nodes[id.0].time_in_state,
+                        ))
+            })
+            .collect();
+        candidates.sort_by_key(|(_, transition)| std::cmp::Reverse(transition.priority));
+        let candidate = candidates
+            .into_iter()
+            .find(|(_, transition)| self.condition_passes(transition))
+            .map(|(index, info)| (index, info.clone()));
         let target = match candidate {
-            Some(t) => Some((t.to_state_id, t)),
+            Some(pair) => Some(pair),
             None if return_event >= 0 && ev.id == return_event => self.nodes[id.0]
                 .previous_state
-                .map(|p| (p, TransitionInfo::plain(p))),
+                .map(|p| (usize::MAX, TransitionInfo::plain(p))),
             None => None,
         };
-        let Some((to, info)) = target else {
-            return false;
+        let Some((index, info)) = target else {
+            return self.start_delayed(id, sm);
         };
-        self.start_transition(id, sm, current, to, &info, ev);
+        let runtime = &self.nodes[id.0];
+        if runtime
+            .transitions
+            .last()
+            .is_some_and(|active| info.priority < active.priority)
+            || runtime
+                .delayed
+                .as_ref()
+                .is_some_and(|delayed| info.priority < delayed.info.priority)
+        {
+            return self.start_delayed(id, sm);
+        }
+        if info.flags & transition_flags::USE_INITIATE_INTERVAL != 0
+            && !interval_open(
+                &info.initiate_interval,
+                runtime.intervals[index].initiate,
+                runtime.time_in_state,
+            )
+        {
+            self.nodes[id.0].delayed = Some(DelayedTransition {
+                index,
+                info,
+                event: ev,
+            });
+        } else {
+            self.start_transition(id, sm, current, info.to_state_id, &info, ev);
+        }
         true
     }
 
-    /// The gate from `hkbStateMachine.inl`'s `shouldTransition` minus what
-    /// this crate does not decode yet: conditions and trigger intervals
-    /// are accepted as satisfied. A wildcard that would land on the
-    /// current state is skipped unless it allows self transitions.
+    /// An admitted request retains its condition result and triggering event.
+    fn start_delayed(&mut self, id: NodeId, sm: &StateMachine) -> bool {
+        let runtime = &self.nodes[id.0];
+        let Some(delayed) = &runtime.delayed else {
+            return false;
+        };
+        if !interval_open(
+            &delayed.info.initiate_interval,
+            runtime.intervals[delayed.index].initiate,
+            runtime.time_in_state,
+        ) || runtime.transitions.iter().any(|active| {
+            active.flags & transition_flags::UNINTERRUPTIBLE_WHILE_PLAYING != 0
+                || active.priority > delayed.info.priority
+        }) {
+            return false;
+        }
+        let Some(current) = runtime.current_state else {
+            return false;
+        };
+        let delayed = delayed.clone();
+        self.start_transition(
+            id,
+            sm,
+            current,
+            delayed.info.to_state_id,
+            &delayed.info,
+            delayed.event,
+        );
+        true
+    }
+
+    /// Match event or condition-only transitions. Wildcard self transitions require their flag.
     fn transition_matches(sm: &StateMachine, current: i32, t: &TransitionInfo, ev: Event) -> bool {
         if t.flags & transition_flags::DISABLED != 0 || t.event_id != ev.id {
+            return false;
+        }
+        if ev.id == -1 && t.condition.is_none() {
             return false;
         }
         let wildcard = transition_flags::IS_GLOBAL_WILDCARD | transition_flags::IS_LOCAL_WILDCARD;
@@ -991,9 +1226,6 @@ impl<'a> Interpreter<'a> {
         info: &TransitionInfo,
         ev: Event,
     ) {
-        if let Some(t) = self.nodes[id.0].transition.take() {
-            self.finish_transition(id, t);
-        }
         let from_generator = sm.state(from).and_then(|s| s.generator);
         let to_generator = sm.state(to).and_then(|s| s.generator);
         if let Some(state) = sm.state(from) {
@@ -1016,8 +1248,17 @@ impl<'a> Interpreter<'a> {
             })
             .filter(|(d, _)| *d > 0.0);
         match effect {
-            Some((duration, curve)) if from_generator != to_generator => {
-                self.nodes[id.0].transition = Some(ActiveTransition {
+            Some((duration, curve))
+                if from_generator != to_generator && sm.max_simultaneous_transitions > 0 =>
+            {
+                let capacity = sm.max_simultaneous_transitions as usize;
+                let length = self.nodes[id.0].transitions.len();
+                if length >= capacity {
+                    self.end_transitions(id, sm, length - capacity + 1);
+                }
+                self.nodes[id.0].transitions.push(ActiveTransition {
+                    priority: info.priority,
+                    flags: info.flags,
                     from_generator,
                     to_generator,
                     elapsed: 0.0,
@@ -1026,6 +1267,7 @@ impl<'a> Interpreter<'a> {
                 });
             }
             _ => {
+                self.end_transitions(id, sm, self.nodes[id.0].transitions.len());
                 if from_generator != to_generator {
                     if let Some(g) = from_generator {
                         self.deactivate(g);
@@ -1033,20 +1275,17 @@ impl<'a> Interpreter<'a> {
                 }
             }
         }
-        self.enter_state(id, sm, to, Some(ev.id));
+        self.enter_state(id, sm, to, (ev.id >= 0).then_some(ev.id));
     }
 
-    fn finish_transition(&mut self, id: NodeId, t: ActiveTransition) {
-        let current = self.nodes[id.0].current_state;
-        let current_generator = match &self.graph.node(id).kind {
-            NodeKind::StateMachine(sm) => {
-                current.and_then(|c| sm.state(c)).and_then(|s| s.generator)
-            }
-            _ => None,
-        };
-        if let Some(g) = t.from_generator {
-            if Some(g) != current_generator {
-                self.deactivate(g);
+    /// End a prefix of the transition chain and release generators no longer used.
+    fn end_transitions(&mut self, id: NodeId, sm: &StateMachine, count: usize) {
+        let before = self.active_generators_of_machine(id, sm);
+        self.nodes[id.0].transitions.drain(..count);
+        let after = self.active_generators_of_machine(id, sm);
+        for generator in before {
+            if !after.contains(&generator) {
+                self.deactivate(generator);
             }
         }
     }
@@ -1253,26 +1492,41 @@ impl<'a> Interpreter<'a> {
             .current_state
             .and_then(|c| sm.state(c))
             .and_then(|s| s.generator);
-        if let Some(mut t) = self.nodes[id.0].transition {
-            t.elapsed += dt;
-            let alpha = blend_curve(t.curve, (t.elapsed / t.duration).clamp(0.0, 1.0));
-            let from = match t.from_generator {
-                Some(g) => self.generate(g, dt),
-                None => self.reference_output(),
-            };
-            let to = match t.to_generator {
-                Some(g) => self.generate(g, dt),
-                None => self.reference_output(),
-            };
-            if t.elapsed >= t.duration {
-                self.nodes[id.0].transition = None;
-                self.finish_transition(id, t);
-                // The last frame is the target itself, not a blend at one,
-                // so a quaternion the short arc negated comes back as sampled.
-                return to;
+        if !self.nodes[id.0].transitions.is_empty() {
+            for transition in &mut self.nodes[id.0].transitions {
+                transition.elapsed += dt;
             }
-            self.nodes[id.0].transition = Some(t);
-            return blend_outputs(&from, &to, alpha);
+            let transitions = self.nodes[id.0].transitions.clone();
+            let generators = self.active_generators_of_machine(id, sm);
+            let samples: Vec<_> = generators
+                .into_iter()
+                .map(|generator| (generator, self.generate(generator, dt)))
+                .collect();
+            let sample = |generator: Option<NodeId>| {
+                samples
+                    .iter()
+                    .find(|(id, _)| Some(*id) == generator)
+                    .map_or_else(|| self.reference_output(), |(_, output)| output.clone())
+            };
+            let mut output = sample(transitions[0].from_generator);
+            let mut completed = 0;
+            for (index, transition) in transitions.iter().enumerate() {
+                let target = sample(transition.to_generator);
+                if transition.elapsed >= transition.duration {
+                    output = target;
+                    completed = index + 1;
+                } else {
+                    let alpha = blend_curve(
+                        transition.curve,
+                        (transition.elapsed / transition.duration).clamp(0.0, 1.0),
+                    );
+                    output = blend_outputs(&output, &target, alpha);
+                }
+            }
+            if completed > 0 {
+                self.end_transitions(id, sm, completed);
+            }
+            return output;
         }
         match current_generator {
             Some(g) => self.generate(g, dt),
@@ -1403,6 +1657,29 @@ impl<'a> Interpreter<'a> {
     }
 }
 
+/// Bounds are half-open. A zero time exit has no upper bound.
+fn interval_open(interval: &TimeInterval, event_open: bool, time: f32) -> bool {
+    if interval.enter_event_id >= 0 || interval.exit_event_id >= 0 {
+        event_open
+    } else {
+        interval.enter_time.is_finite()
+            && interval.exit_time.is_finite()
+            && interval.enter_time >= 0.0
+            && interval.exit_time >= 0.0
+            && time >= interval.enter_time
+            && (interval.exit_time == 0.0 || time < interval.exit_time)
+    }
+}
+
+fn update_interval_event(interval: &TimeInterval, open: &mut bool, event: i32) {
+    if interval.enter_event_id == event {
+        *open = true;
+    }
+    if interval.exit_event_id == event {
+        *open = false;
+    }
+}
+
 impl TransitionInfo {
     /// A transition with no effect and no flags, used for the implicit
     /// return-to-previous-state transition.
@@ -1417,7 +1694,7 @@ impl TransitionInfo {
             trigger_interval: never,
             initiate_interval: never,
             transition: None,
-            has_condition: false,
+            condition: None,
             event_id: -1,
             to_state_id,
             from_nested_state_id: -1,
