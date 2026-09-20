@@ -1392,3 +1392,29 @@ intact. A successful language switch clears tables absent from the new language.
 Synthetic tests cover separate winning owners for a DIAL question and shared
 INFO response, fragment ownership, language switching and archive errors.
 Host dialogue widgets and translated voice selection are outside DLG-12.
+
+## Alias-backed dialogue eligibility (DLG-13)
+
+Dialogue already evaluates `GetIsAliasRef` (CTDA 566) against the current
+speaker reference and the quest that owns the winning INFO's topic. The alias
+number is a quest-local identifier. It is not a FormID or an NPC base. Two
+references using one NPC base can therefore receive different topic choices.
+`World::alias_ref` reads the canonical saved quest state on each eligibility
+check. Clearing or reassigning an alias changes the next choice listing.
+Selection checks again before consuming Say Once or dispatching fragments.
+
+The DLG-13 conformance tests establish this existing behavior through the
+conversation API, including a winning plugin override, alias zero in two
+quests, references sharing one base, clearing a displayed choice, reassignment,
+and save/load of both empty and filled aliases. No production code or new
+speaker-state cache was needed. AI-12's search-based alias filling is not a
+prerequisite for consuming an already filled alias.
+
+Sources read: local xEdit `wbDefinitionsTES5.pas` declares condition 566's
+alias parameter, QUST reference-alias fields and INFO ANAM as an NPC-base link.
+UESP `Raw_Function_Data.wikitext` names `Ref.GetIsAliasRef(QuestAlias)`.
+CK `Clear_-_ReferenceAlias.wikitext` specifies emptying an optional alias.
+The tests use optional aliases and the existing world mutation API. They do
+not establish automatic alias filling, original-runtime condition parity,
+Papyrus Clear error behavior, or scene action scheduling. Those capabilities
+retain their own backlog scopes.
