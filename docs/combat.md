@@ -34,9 +34,14 @@ through the shared game-setting lookup, so Papyrus sees the same defaults. Plugi
 runtime overrides take precedence. Malformed, negative or non-finite settings
 reject the hit.
 
-The current path is ordinary melee at Adept difficulty. Its separate damage
+The current path is ordinary melee at a selected difficulty. It defaults to
+Adept and persists the selection in SOEW version 16. Its separate damage
 to/from player settings are read on every contact, while NPC-to-NPC contacts
-do not use those multipliers. It rejects all perked
+do not use those multipliers. Novice uses 2.0 damage by the player and 0.5 to
+the player. Apprentice uses 1.5 and 0.75. Adept uses 1.0 and 1.0. Expert uses
+0.75 and 1.5. Master uses 0.5 and 2.0. Legendary uses 0.25 and 3.0. Plugin
+records and runtime overrides for the selected GMST pair take precedence over
+these defaults. It rejects all perked
 actors, enchantments, item tempering/poison, weapon/armor templates, special
 resistance flags and unsupported weapon skills/types. These are open execution
 requirements, not silently omitted modifiers. Protected and essential targets
@@ -63,6 +68,11 @@ introduced by this increment.
 Local sources read before implementation:
 
 - TES5Edit/Core/wbDefinitionsTES5.pas WEAP and ARMO definitions.
+- TES5Edit/Core/wbDefinitionsTES5.pas GMST definitions. The checkout defines
+  record structure but does not include Skyrim's engine-default difficulty
+  values.
+- skymp5-client/src/services/services/ragdollService.ts, which names all six
+  `fDiffMultHPToPC` difficulty GMST suffixes.
 - uesp-modfileformat/WEAP.wikitext and ARMO.wikitext, including the distinction
   between animation type, governing skill and equip slot.
 - ck-wiki/OnHit_-_ObjectReference.wikitext for event arguments and actor
@@ -110,7 +120,7 @@ The death survey initializes 6,361 actors, records 6,018 deaths and retains
 343 essential actors, then verifies persistence.
 
 Synthetic tests also cover live settings overrides, player/NPC coefficients,
-Adept damage multipliers, absent engine defaults, rejected malformed settings,
+Adept through Legendary damage multipliers, absent engine defaults, rejected malformed settings,
 record truncation, stale equipment, ordered hit/death delivery and deferred
 killer attribution across engine save/load. Event argument values and hit
 notifications to aliases or active effects lack dedicated hit-path assertions.
@@ -120,7 +130,7 @@ No test in this increment performs host collision detection or renders combat.
 
 Host attack input, timing/contact detection, hand-specific selection, ranged
 weapons/ammunition, unarmed attacks, bashing, sneak and power attacks, blocking,
-perk entry points, tempering, enchantments, difficulty selection, bleedout,
+perk entry points, tempering, enchantments, bleedout,
 stagger, crime and combat AI remain unfinished. The API is an execution
 increment and does not establish playable combat or completion of the broader
 gameplay-foundations goal.

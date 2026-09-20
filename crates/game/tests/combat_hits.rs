@@ -7,7 +7,7 @@ use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::{
     combat::{
         records::{Armor, Weapon},
-        Error, MeleeHit,
+        Difficulty, Error, MeleeHit,
     },
     Game, Handle,
 };
@@ -447,18 +447,53 @@ fn absent_engine_settings_use_defaults_but_plugin_and_runtime_overrides_win() {
 }
 
 #[test]
-fn adept_difficulty_overrides_affect_only_hits_involving_the_player() {
+fn every_difficulty_uses_its_documented_player_damage_multipliers() {
+    for (difficulty, from_player, to_player) in [
+        (Difficulty::Novice, 30., 15.),
+        (Difficulty::Apprentice, 22.5, 22.5),
+        (Difficulty::Adept, 15., 30.),
+        (Difficulty::Expert, 11.25, 45.),
+        (Difficulty::Master, 7.5, 60.),
+        (Difficulty::Legendary, 3.75, 90.),
+    ] {
+        let mut game = fixture(vec![]);
+        game.set_difficulty(difficulty);
+        close(
+            game.melee_hit(hit(0x14, 0x901)).unwrap().health_damage,
+            from_player,
+        );
+        close(
+            game.melee_hit(hit(0x900, 0x14)).unwrap().health_damage,
+            to_player,
+        );
+        close(
+            game.melee_hit(hit(0x900, 0x901)).unwrap().health_damage,
+            30.,
+        );
+    }
+}
+
+#[test]
+fn selected_difficulty_reads_its_live_gmst_overrides_and_survives_save_load() {
     let mut game = fixture(vec![]);
+    let adept_hash = game.world().state_hash();
+    game.set_difficulty(Difficulty::Legendary);
+    assert_ne!(game.world().state_hash(), adept_hash);
     game.world_mut()
         .settings
-        .insert("fdiffmulthpbypcn".into(), Value::Float(0.5));
+        .insert("fdiffmulthpbypcl".into(), Value::Float(0.5));
     game.world_mut()
         .settings
-        .insert("fdiffmulthptopcn".into(), Value::Float(2.));
+        .insert("fdiffmulthptopcl".into(), Value::Float(2.));
     close(game.melee_hit(hit(0x14, 0x901)).unwrap().health_damage, 7.5);
     close(game.melee_hit(hit(0x900, 0x14)).unwrap().health_damage, 60.);
+    let saved = game.save_state().unwrap();
+    let mut loaded = fixture(vec![]);
+    loaded.load_state(&saved).unwrap();
+    assert_eq!(loaded.difficulty(), Difficulty::Legendary);
+    assert_eq!(loaded.world().state_hash(), game.world().state_hash());
     close(
-        game.melee_hit(hit(0x900, 0x901)).unwrap().health_damage,
-        30.,
+        loaded.melee_hit(hit(0x14, 0x901)).unwrap().health_damage,
+        7.5,
     );
 }

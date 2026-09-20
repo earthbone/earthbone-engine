@@ -8,8 +8,12 @@ pub(crate) fn combat_default(name: &str) -> Option<f32> {
     Some(match name.to_ascii_lowercase().as_str() {
         "fdamageweaponmult" | "fdamagepcskillmin" | "fdamageskillmin" | "farmorratingbase"
         | "fdiffmulthpbypcn" | "fdiffmulthptopcn" => 1.0,
-        "fdamagepcskillmax" => 1.5,
-        "fdamageskillmax" => 3.0,
+        "fdiffmulthpbypcve" | "fdiffmulthptopcvh" => 2.0,
+        "fdiffmulthptopcve" | "fdiffmulthpbypcvh" => 0.5,
+        "fdiffmulthpbypce" | "fdiffmulthptopch" | "fdamagepcskillmax" => 1.5,
+        "fdiffmulthptopce" | "fdiffmulthpbypch" => 0.75,
+        "fdiffmulthpbypcl" => 0.25,
+        "fdiffmulthptopcl" | "fdamageskillmax" => 3.0,
         "farmorratingpcmax" => 1.4,
         "farmorratingmax" => 2.5,
         "farmorscalingfactor" => 0.12,

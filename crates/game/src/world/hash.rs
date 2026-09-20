@@ -39,7 +39,7 @@ pub struct WorldHash {
     /// Leveled lists, locations, factions, actor bases and cells built from
     /// records on first use, with what scripts changed on them.
     pub forms: u64,
-    /// `SetGameSetting*` overrides and the INI overlay.
+    /// `SetGameSetting*` overrides, selected difficulty and the INI overlay.
     pub settings: u64,
     /// Inventory filters, sleep, stats, animation and line-of-sight
     /// registrations.
@@ -609,6 +609,7 @@ impl World {
             h.str(k);
             h.str(v);
         });
+        h.u8(self.difficulty as u8);
         let settings = h.finish();
 
         let mut h = StateHasher::new();

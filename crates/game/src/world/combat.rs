@@ -10,12 +10,22 @@ use soe_papyrus::Value;
 use super::{Alloc, Pending, World};
 use crate::combat::{
     records::{Armor, Weapon},
-    Error, HitResult, MeleeHit,
+    Difficulty, Error, HitResult, MeleeHit,
 };
 
 impl World {
+    /// Return the selected difficulty tier.
+    #[must_use]
+    pub const fn difficulty(&self) -> Difficulty {
+        self.difficulty
+    }
+
+    /// Select the difficulty tier used for player melee contacts.
+    pub fn set_difficulty(&mut self, difficulty: Difficulty) {
+        self.difficulty = difficulty;
+    }
+
     /// Execute one ordinary melee contact after host collision detection.
-    /// This currently evaluates the Adept difficulty path only.
     ///
     /// # Errors
     /// Invalid actors/equipment/settings, unsupported combat modifiers or overflow.
@@ -83,10 +93,11 @@ impl World {
             + f64::from(categories) * self.combat_setting("fArmorBaseFactor")?)
         .min(self.combat_setting("fMaxArmorRating")? / 100.0)
         .clamp(0.0, 1.0);
+        let (from_player, to_player) = self.difficulty.gmst_names();
         let difficulty = if self.player == Some(hit.attacker) {
-            self.combat_setting("fDiffMultHPByPCN")?
+            self.combat_setting(from_player)?
         } else if self.player == Some(hit.target) {
-            self.combat_setting("fDiffMultHPToPCN")?
+            self.combat_setting(to_player)?
         } else {
             1.0
         };

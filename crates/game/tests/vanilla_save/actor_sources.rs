@@ -201,7 +201,7 @@ fn inline_npc_changes_are_private_and_unknown_selection_level_is_not_written_as_
     loaded.load_state(&bytes).unwrap();
     assert_eq!(loaded.state_hash(), world.state_hash());
     let mut old = bytes;
-    old.truncate(old.len() - 8);
+    old.truncate(old.len() - 9);
     old[4..6].copy_from_slice(&11_u16.to_le_bytes());
     assert!(
         loaded.load_state(&old).is_err(),

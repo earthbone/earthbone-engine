@@ -16,6 +16,7 @@ use super::{
     UpdateTimer, World,
 };
 use crate::clock::GameClock;
+use crate::combat::Difficulty;
 
 /// Magic and version for [`World::save_state`]. Embedded as a length-prefixed
 /// block inside the whole-game save `Game::save_state` writes, self-describing
@@ -37,7 +38,8 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// Version 13 persists runtime NPC record overrides and mapped links.
 /// Version 14 adds temporary NPC identities, ownership and component provenance.
 /// Version 15 persists deferred-death requests and their eventual event recipients.
-pub const SAVE_VERSION: u16 = 15;
+/// Version 16 persists the selected difficulty after record overrides.
+pub const SAVE_VERSION: u16 = 16;
 
 impl World {
     /// Serialize the run-time state: the VM object handles, references,
@@ -326,6 +328,7 @@ impl World {
         self.write_quest_aux(&mut body);
         self.write_item_stacks(&mut body);
         self.write_record_overrides(&mut body);
+        body.u8(self.difficulty as u8);
         let mut out = Writer::new();
         out.out.extend_from_slice(SAVE_MAGIC);
         out.u16(SAVE_VERSION);
@@ -797,6 +800,12 @@ impl World {
         } else {
             BTreeMap::new()
         };
+        let difficulty = if version >= 16 {
+            Difficulty::from_save(r.u8()?)
+                .ok_or_else(|| VmError::State("invalid saved difficulty".into()))?
+        } else {
+            Difficulty::Adept
+        };
         r.expect_end()?;
         super::death::validate_pending(&actors, &pending)?;
 
@@ -858,6 +867,7 @@ impl World {
         self.globals = globals;
         self.form_lists = form_lists;
         self.next_dynamic = next_dynamic;
+        self.difficulty = difficulty;
         self.player = player;
         self.loaded_cell = loaded_cell;
         self.rng = rng;

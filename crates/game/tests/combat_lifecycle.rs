@@ -330,6 +330,7 @@ fn old_saves_resolve_deferred_health_but_reject_new_queue_tags() {
     // Version 14 held only the boolean and health, without a queued request.
     game.world_mut().pending.clear();
     let mut bytes = game.world().save_state();
+    bytes.truncate(bytes.len() - 1);
     bytes[4..6].copy_from_slice(&14_u16.to_le_bytes());
     game.world_mut().load_state(&bytes).unwrap();
     assert!(game.world_mut().end_deferred_kill(id(0x900)));

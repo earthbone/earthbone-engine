@@ -245,6 +245,17 @@ impl Game {
         self.world.borrow_mut()
     }
 
+    /// Return the selected damage difficulty tier.
+    #[must_use]
+    pub fn difficulty(&self) -> combat::Difficulty {
+        self.world.borrow().difficulty()
+    }
+
+    /// Select the damage difficulty tier.
+    pub fn set_difficulty(&mut self, difficulty: combat::Difficulty) {
+        self.world.borrow_mut().set_difficulty(difficulty);
+    }
+
     pub fn shared_world(&self) -> Rc<RefCell<World>> {
         self.world.clone()
     }

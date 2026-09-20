@@ -8,6 +8,44 @@ pub mod records;
 
 use soe_esm::GlobalFormId;
 
+/// The six Skyrim damage difficulty tiers.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[repr(u8)]
+pub enum Difficulty {
+    Novice,
+    Apprentice,
+    #[default]
+    Adept,
+    Expert,
+    Master,
+    Legendary,
+}
+
+impl Difficulty {
+    pub(crate) const fn gmst_names(self) -> (&'static str, &'static str) {
+        match self {
+            Self::Novice => ("fDiffMultHPByPCVE", "fDiffMultHPToPCVE"),
+            Self::Apprentice => ("fDiffMultHPByPCE", "fDiffMultHPToPCE"),
+            Self::Adept => ("fDiffMultHPByPCN", "fDiffMultHPToPCN"),
+            Self::Expert => ("fDiffMultHPByPCH", "fDiffMultHPToPCH"),
+            Self::Master => ("fDiffMultHPByPCVH", "fDiffMultHPToPCVH"),
+            Self::Legendary => ("fDiffMultHPByPCL", "fDiffMultHPToPCL"),
+        }
+    }
+
+    pub(crate) const fn from_save(value: u8) -> Option<Self> {
+        match value {
+            0 => Some(Self::Novice),
+            1 => Some(Self::Apprentice),
+            2 => Some(Self::Adept),
+            3 => Some(Self::Expert),
+            4 => Some(Self::Master),
+            5 => Some(Self::Legendary),
+            _ => None,
+        }
+    }
+}
+
 /// Host-confirmed contact. Spatial detection and animation choose the weapon.
 #[derive(Debug, Clone, Copy)]
 pub struct MeleeHit {

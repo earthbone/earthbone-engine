@@ -443,6 +443,7 @@ pub struct World {
     pub ai: crate::ai::AiWorld,
     /// What the mod data files changed, see `crate::moddata`.
     pub mod_data: crate::moddata::ModDataState,
+    difficulty: crate::combat::Difficulty,
     /// `SetGameSetting*` overrides, consulted before the `GMST` record.
     pub settings: HashMap<String, Value>,
     /// Inventory event filters per listening object.
@@ -533,6 +534,7 @@ impl World {
             ini: HashMap::new(),
             ai: crate::ai::AiWorld::default(),
             mod_data: crate::moddata::ModDataState::default(),
+            difficulty: crate::combat::Difficulty::default(),
             settings: HashMap::new(),
             inventory_filters: HashMap::new(),
             sleep_listeners: Vec::new(),
