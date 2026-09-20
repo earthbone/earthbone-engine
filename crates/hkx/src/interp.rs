@@ -23,7 +23,7 @@ use crate::animation::SplineCompressedAnimation;
 use crate::behavior::{
     transition_flags, BehaviorGraph, BehaviorGraphData, BlenderGenerator, ClipGenerator, NodeId,
     NodeKind, StateMachine, TimeInterval, TransitionInfo, VariableBindingSet, VariableInfo,
-    VariableType, IS_ACTIVE_SLOTS,
+    VariableType, FALSE_TO_TRUE_SLOTS, IS_ACTIVE_SLOTS,
 };
 use crate::skeleton::AnimationContainer;
 use crate::spline::Block;
@@ -276,6 +276,8 @@ enum Target {
     ChildWeight(usize),
     SelectedGeneratorIndex,
     Enable,
+    FalseToTrueEnable(usize),
+    FalseToTrueValue(usize),
     /// Which state the machine enters on activation.
     StartStateId,
     /// A transition effect's blend duration in seconds.
@@ -344,6 +346,9 @@ struct Runtime {
     start_state: Option<i32>,
     /// A bound blend `duration`, on a transition effect.
     duration: Option<f32>,
+    edge_enabled: [Option<bool>; FALSE_TO_TRUE_SLOTS],
+    edge_value: [Option<bool>; FALSE_TO_TRUE_SLOTS],
+    edge_previous: [bool; FALSE_TO_TRUE_SLOTS],
 }
 
 /// A generator's result for one frame: a local pose and how much of it
@@ -369,6 +374,18 @@ pub struct Unsupported {
     pub modifier_list_cycles: Vec<String>,
     /// Modifier-list paths deeper than the interpreter's fixed safety limit.
     pub modifier_list_depth_limit: Vec<String>,
+}
+
+fn false_to_true_slot(path: &str, prefix: &str) -> Option<usize> {
+    let suffix = path.strip_prefix(prefix)?;
+    if suffix.len() != 1 {
+        return None;
+    }
+    suffix
+        .parse::<usize>()
+        .ok()?
+        .checked_sub(1)
+        .filter(|slot| *slot < FALSE_TO_TRUE_SLOTS)
 }
 
 fn push_unique(list: &mut Vec<String>, item: String) {
@@ -422,7 +439,15 @@ impl<'a> Interpreter<'a> {
             graph,
             clips,
             variables: Variables::from_graph_data(&graph.data),
-            character_properties: Variables::default(),
+            character_properties: Variables::from_infos(
+                &graph
+                    .data
+                    .character_property_names
+                    .iter()
+                    .map(String::as_str)
+                    .collect::<Vec<_>>(),
+                &graph.data.character_property_infos,
+            ),
             nodes,
             bindings: Vec::new(),
             modifier_order: Vec::new(),
@@ -478,6 +503,13 @@ impl<'a> Interpreter<'a> {
                 ("duration", None, NodeKind::BlendingTransition(_)) => Some(Target::Duration),
                 ("fBlendParameter", None, NodeKind::CyclicBlendTransition { .. }) => {
                     Some(Target::BlendParameter)
+                }
+                (path, None, NodeKind::FalseToTrueModifier { .. }) => {
+                    if let Some(slot) = false_to_true_slot(path, "bEnableEvent") {
+                        Some(Target::FalseToTrueEnable(slot))
+                    } else {
+                        false_to_true_slot(path, "bVariableToTest").map(Target::FalseToTrueValue)
+                    }
                 }
                 (path, None, NodeKind::IsActiveModifier { invert_active, .. })
                     if path.starts_with("bIsActive") =>
@@ -728,6 +760,8 @@ impl<'a> Interpreter<'a> {
                     rt.selected = usize::try_from(value as i32).ok();
                 }
                 Target::Enable => rt.enabled = Some(value != 0.0),
+                Target::FalseToTrueEnable(slot) => rt.edge_enabled[slot] = Some(value != 0.0),
+                Target::FalseToTrueValue(slot) => rt.edge_value[slot] = Some(value != 0.0),
                 Target::StartStateId => rt.start_state = Some(value as i32),
                 Target::Duration => rt.duration = Some(value),
                 // Written by apply_output_bindings, skipped above.
@@ -747,6 +781,7 @@ impl<'a> Interpreter<'a> {
             | NodeKind::EventDrivenModifier { enable, .. }
             | NodeKind::TimerModifier { enable, .. }
             | NodeKind::IsActiveModifier { enable, .. }
+            | NodeKind::FalseToTrueModifier { enable, .. }
             | NodeKind::Modifier { enable } => *enable,
             _ => true,
         };
@@ -803,6 +838,25 @@ impl<'a> Interpreter<'a> {
         }
     }
 
+    /// Evaluate edge slots only during update, after list enable state is known.
+    fn update_modifier(&mut self, id: NodeId) {
+        if !self.nodes[id.0].active {
+            return;
+        }
+        if let NodeKind::FalseToTrueModifier { slots, .. } = &self.graph.nodes[id.0].kind {
+            for (index, slot) in slots.iter().enumerate() {
+                let runtime = &mut self.nodes[id.0];
+                let active = runtime.edge_enabled[index].unwrap_or(slot.enable)
+                    && runtime.edge_value[index].unwrap_or(slot.variable_to_test);
+                let rising = active && !runtime.edge_previous[index];
+                runtime.edge_previous[index] = active;
+                if rising {
+                    self.raise(slot.event.id);
+                }
+            }
+        }
+    }
+
     fn activate(&mut self, id: NodeId) {
         if self.nodes[id.0].active {
             return;
@@ -810,6 +864,9 @@ impl<'a> Interpreter<'a> {
         self.nodes[id.0].active = true;
         let graph = self.graph;
         match &graph.node(id).kind {
+            NodeKind::FalseToTrueModifier { .. } => {
+                self.nodes[id.0].edge_previous = [false; FALSE_TO_TRUE_SLOTS];
+            }
             NodeKind::Clip(c) => {
                 let rt = &mut self.nodes[id.0];
                 rt.local_time = c.start_time.max(0.0);
@@ -1196,7 +1253,12 @@ impl<'a> Interpreter<'a> {
                 generator,
             } => {
                 if let Some(modifier) = modifier {
+                    let start = self.modifier_order.len();
                     self.sync_modifier(*modifier);
+                    for index in start..self.modifier_order.len() {
+                        let node = self.modifier_order[index];
+                        self.update_modifier(node);
+                    }
                 }
                 match generator {
                     Some(generator) => self.generate(*generator, dt),
@@ -1255,6 +1317,7 @@ impl<'a> Interpreter<'a> {
             | NodeKind::EventDrivenModifier { .. }
             | NodeKind::TimerModifier { .. }
             | NodeKind::IsActiveModifier { .. }
+            | NodeKind::FalseToTrueModifier { .. }
             | NodeKind::Modifier { .. } => self.reference_output(),
         }
     }

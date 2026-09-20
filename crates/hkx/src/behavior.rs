@@ -432,6 +432,16 @@ pub struct GeneratorTransitionEffect {
     pub sync_to_generator_start_time: bool,
 }
 
+/// Event slots carried by `BSEventOnFalseToTrueModifier`.
+pub const FALSE_TO_TRUE_SLOTS: usize = 3;
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct FalseToTrueSlot {
+    pub enable: bool,
+    pub variable_to_test: bool,
+    pub event: EventProperty,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum NodeKind {
     StateMachine(StateMachine),
@@ -521,6 +531,10 @@ pub enum NodeKind {
         is_active: [bool; IS_ACTIVE_SLOTS],
         invert_active: [bool; IS_ACTIVE_SLOTS],
     },
+    FalseToTrueModifier {
+        enable: bool,
+        slots: [FalseToTrueSlot; FALSE_TO_TRUE_SLOTS],
+    },
     /// Any other `hkbModifier` subclass: only the enable flag is read.
     Modifier {
         enable: bool,
@@ -594,6 +608,7 @@ impl Node {
             | NodeKind::BlendingTransition(_)
             | NodeKind::TimerModifier { .. }
             | NodeKind::IsActiveModifier { .. }
+            | NodeKind::FalseToTrueModifier { .. }
             | NodeKind::Modifier { .. }
             | NodeKind::Unknown => {}
         }
@@ -987,6 +1002,19 @@ impl<'a> Loader<'a> {
                     enable: o.bool(72)?,
                     is_active,
                     invert_active,
+                }
+            }
+            "BSEventOnFalseToTrueModifier" => {
+                let read_slot = |offset| -> Result<FalseToTrueSlot> {
+                    Ok(FalseToTrueSlot {
+                        enable: o.bool(offset)?,
+                        variable_to_test: o.bool(offset + 1)?,
+                        event: EventProperty::read(o, offset + 8)?,
+                    })
+                };
+                NodeKind::FalseToTrueModifier {
+                    enable: o.bool(72)?,
+                    slots: [read_slot(80)?, read_slot(104)?, read_slot(128)?],
                 }
             }
             c if c.ends_with("Modifier") => NodeKind::Modifier {

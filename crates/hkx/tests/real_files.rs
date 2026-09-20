@@ -419,3 +419,49 @@ fn every_shipped_packfile_parses_and_animations_decode() {
         failures.len() + decode_failures.len()
     );
 }
+
+#[test]
+fn every_shipped_false_to_true_modifier_decodes_all_three_slots() {
+    let Some(archive) = animations_archive() else {
+        return;
+    };
+    // The prior full behavior inventory contains 428 graphs. Scan the whole archive.
+    let mut graphs = 0;
+    let mut modifiers = 0;
+    let mut enabled_slots = 0;
+    let mut payloads = 0;
+    for name in archive
+        .files()
+        .iter()
+        .filter(|name| name.to_lowercase().ends_with(".hkx"))
+    {
+        let bytes = archive.read(name).unwrap();
+        let pack = Packfile::parse(&bytes).unwrap();
+        for object in pack.objects_of("hkbBehaviorGraph") {
+            let graph = BehaviorGraph::from_obj(object).unwrap();
+            graphs += 1;
+            let clips = ClipLibrary::new();
+            let vm = Interpreter::new(&graph, &clips, vec![]);
+            for node in graph.nodes_of_class("BSEventOnFalseToTrueModifier") {
+                let soe_hkx::behavior::NodeKind::FalseToTrueModifier { slots, .. } = &node.kind
+                else {
+                    panic!("{name}: {} was not decoded", node.name)
+                };
+                modifiers += 1;
+                enabled_slots += slots.iter().filter(|slot| slot.enable).count();
+                payloads += slots.iter().filter(|slot| slot.event.has_payload).count();
+                assert!(
+                    !vm.unsupported().unbound.iter().any(|binding| {
+                        binding.starts_with(&format!("{}.bVariableToTest", node.name))
+                            || binding.starts_with(&format!("{}.bEnableEvent", node.name))
+                    }),
+                    "{name}: {} has an unresolved edge binding",
+                    node.name
+                );
+            }
+        }
+    }
+    assert!(graphs >= 428, "only {graphs} behavior graphs scanned");
+    assert!(modifiers > 0, "the survey did not reach any edge modifiers");
+    println!("{graphs} graphs, {modifiers} false-to-true modifiers, {enabled_slots} enabled slots, {payloads} slot payloads");
+}
