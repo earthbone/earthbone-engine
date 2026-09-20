@@ -4,9 +4,13 @@
 //! CommonLib InventoryEntryData/ExtraDataList supply the count/extra distinction.
 //! Saved RefIDs become resolved forms before entering this model.
 
+mod selection;
 mod vanilla;
 
+pub use selection::{Selection, StackSource};
+
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use soe_esm::GlobalFormId;
 
@@ -48,6 +52,18 @@ pub enum Error {
     DuplicateExtra(u8),
     #[error("item extra-data nesting exceeds 128 levels")]
     Nesting,
+    #[error("inventory selection is stale or belongs to another inventory")]
+    StaleSelection,
+    #[error("stack does not contain the requested quantity")]
+    Selection,
+    #[error("overlapping stack counts cannot identify an exact item")]
+    AmbiguousStacks,
+    #[error("invalid crafted item extra-data type or fields: {0}")]
+    InvalidExtra(u8),
+    #[error("inventory holder or recipient is missing or invalid")]
+    Holder,
+    #[error("inventory base form or extra-data form is missing or invalid")]
+    Form,
 }
 
 fn validate_fields(fields: &[Field], depth: usize) -> Result<(), Error> {
@@ -134,6 +150,8 @@ impl Bundle {
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct Inventory {
     entries: BTreeMap<GlobalFormId, Bundle>,
+    // CONTEXT: Clones can prepare transactions, but any mutation invalidates selections.
+    revision: Arc<()>,
 }
 
 impl Inventory {
@@ -165,6 +183,7 @@ impl Inventory {
 
     pub fn clear(&mut self) {
         self.entries.clear();
+        self.revision = Arc::new(());
     }
 
     pub fn iter(&self) -> impl Iterator<Item = (&GlobalFormId, i32)> {
@@ -185,6 +204,7 @@ impl Inventory {
             return Err(Error::Quantity);
         }
         self.entries.insert(item, Bundle { total, stacks });
+        self.revision = Arc::new(());
         Ok(())
     }
 
@@ -198,6 +218,7 @@ impl Inventory {
         }
         if count != 0 {
             self.entries.entry(item).or_default().total += count;
+            self.revision = Arc::new(());
         }
         Ok(())
     }
@@ -206,6 +227,9 @@ impl Inventory {
     /// Partial stacks retain their metadata on both sides of the split.
     pub fn take(&mut self, item: GlobalFormId, count: i32) -> Bundle {
         let mut remaining = count.max(0).min(self.count(item));
+        if remaining == 0 {
+            return Bundle::default();
+        }
         let Some(entry) = self.entries.get_mut(&item) else {
             return Bundle::default();
         };
@@ -241,6 +265,7 @@ impl Inventory {
         if entry.count() == 0 && entry.stacks.is_empty() {
             self.entries.remove(&item);
         }
+        self.revision = Arc::new(());
         taken
     }
 
@@ -255,6 +280,7 @@ impl Inventory {
             let entry = self.entries.entry(item).or_default();
             entry.total += bundle.total;
             entry.stacks.extend(bundle.stacks);
+            self.revision = Arc::new(());
         }
         Ok(())
     }

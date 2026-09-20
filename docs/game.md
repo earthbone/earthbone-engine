@@ -2164,3 +2164,53 @@ accepts 179 spells with 206 applications. Dispel execution is validated with
 synthetic records, not an installed vanilla use or an original-runtime probe.
 Concentration, area, contact delivery and condition support retain their
 separate backlog scopes.
+
+## Exact crafted item selection (CRF-04)
+
+`Inventory::select` chooses an explicit extra-list index or the plain remainder
+and a positive quantity. `selected_stack` exposes that selection's metadata.
+A selection is transient. Every inventory mutation invalidates earlier
+selections, including removal that shifts indices and restoration of identical
+contents. Save/load requires a fresh selection. Cloned inventories share the
+initial selection revision so crafting can prepare an atomic transaction.
+Revisions are process-local validity checks, excluded from saves and hashes.
+They do not duplicate item state or assign new persistent item identities.
+
+`update_selected` patches quality, charge, poison and enchantment extras while
+retaining every unmentioned field, including opaque bytes and float bits.
+Partial updates split only the selected quantity into a new stack. Plain
+selection materializes a stack for just that quantity. The returned selection
+names the changed items. The API rejects duplicate patches, unsupported kinds,
+wrong field shapes, nonfinite or negative new quality/charge, null form links
+and zero poison doses before changing inventory. The lower inventory API
+accepts resolved identities. `World::update_item` also checks enchantment and
+poison links against live ENCH and ALCH records.
+
+`take_selected` consumes the exact selection. `World::remove_selected_notified`
+prepares source and destination before committing either. Missing recipients,
+self-transfer, stale selections and overflow leave quantities and events
+unchanged. Successful transfers clear received worn markers and queue source
+then destination count events through the existing reference/alias filters.
+Updating metadata emits no count event. SOEW already serializes these extras,
+so this change needs no new save version.
+
+Exact selection rejects overlapping positive extra-list counts because they
+do not identify a unique physical quantity. Saved bookkeeping and overlapping
+lists remain preserved by import and ordinary count-based operations. Negative
+leveled entries cannot be selected. This is an explicit engine API for future
+crafting operations, not a change to Papyrus RemoveItem selection policy.
+
+Sources read: local CommonLibSSE-NG `InventoryEntryData.h`, `ExtraHealth.h`,
+`ExtraEnchantment.h` and `ExtraPoison.h`, CK `SetItemHealthPercent` and
+`RemoveItem` pages, and the existing save extra-data field decoder. The headers
+establish distinct per-instance fields. CK documents health as tempering state
+and the limits of reference-based inventory calls. Existing inventory, save
+and event paths supply the implementation. No new dependency was added.
+
+Synthetic inventory tests cover selected quality updates retaining enchantment,
+poison, charge and opaque fields, exact transfer, adjacent stacks, save/load,
+plain quantity splits, stale indices, identical restoration, malformed patches,
+ambiguous counts, bookkeeping, recipient overflow and failure event atomicity.
+Tempering formulas, learned enchantments, recipe eligibility, poison use and
+host menus belong to their separate backlog items. These tests do not compare
+selection policy against the original runtime or load installed save files.

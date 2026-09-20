@@ -4,10 +4,120 @@
 //! AddInventoryEventFilter. Filters are per recipient and apply when queued.
 
 use super::{Alloc, Handle, Pending, World};
+use crate::inventory::{Error, Extra, Field, Selection, StackSource};
 use soe_esm::GlobalFormId;
 use soe_papyrus::Value;
 
 impl World {
+    /// Select a quantity from one stack or the plain remainder of a holder's items.
+    ///
+    /// # Errors
+    /// Invalid holder, base form, quantity, stack index or ambiguous saved lists.
+    pub fn select_item(
+        &mut self,
+        holder: GlobalFormId,
+        item: GlobalFormId,
+        source: StackSource,
+        count: i32,
+    ) -> Result<Selection, Error> {
+        if !self.is_inventory_base(item) {
+            return Err(Error::Form);
+        }
+        self.reference(holder)
+            .ok_or(Error::Holder)?
+            .inventory
+            .select(item, source, count)
+    }
+
+    /// Patch selected instance extras and return the updated selection.
+    /// Quantity does not change, so this emits no inventory count event.
+    ///
+    /// # Errors
+    /// Invalid holder, stale selection, malformed patches or invalid linked forms.
+    pub fn update_item(
+        &mut self,
+        holder: GlobalFormId,
+        selected: &Selection,
+        changes: Vec<Extra>,
+    ) -> Result<Selection, Error> {
+        if !self.is_inventory_base(selected.item()) {
+            return Err(Error::Form);
+        }
+        for extra in &changes {
+            let tag = match extra.kind {
+                155 => Some(*b"ENCH"),
+                62 => Some(*b"ALCH"),
+                _ => None,
+            };
+            if let Some(tag) = tag {
+                let Some(Field::Form(Some(form))) = extra.fields.first() else {
+                    return Err(Error::InvalidExtra(extra.kind));
+                };
+                if self
+                    .record(*form)
+                    .is_none_or(|r| r.is_deleted() || r.tag.as_bytes() != &tag)
+                {
+                    return Err(Error::Form);
+                }
+            }
+        }
+        self.reference(holder)
+            .ok_or(Error::Holder)?
+            .inventory
+            .update_selected(selected, changes)
+    }
+
+    /// Consume or transfer the exact selected items and queue count events.
+    /// Received stacks lose worn markers, as in the ordinary transfer path.
+    ///
+    /// # Errors
+    /// Invalid holders, self-transfer, stale selection or recipient overflow.
+    pub fn remove_selected_notified(
+        &mut self,
+        holder: GlobalFormId,
+        selected: &Selection,
+        target: Option<GlobalFormId>,
+        alloc: Alloc<'_>,
+    ) -> Result<i32, Error> {
+        if target == Some(holder) {
+            return Err(Error::Holder);
+        }
+        let mut source = self
+            .reference(holder)
+            .ok_or(Error::Holder)?
+            .inventory
+            .clone();
+        let mut bundle = source.take_selected(selected)?;
+        let recipient = if let Some(target) = target {
+            let mut inventory = self
+                .reference(target)
+                .ok_or(Error::Holder)?
+                .inventory
+                .clone();
+            bundle.unequip();
+            inventory.receive(selected.item(), bundle)?;
+            Some((target, inventory))
+        } else {
+            None
+        };
+        // CONTEXT: Both inventories are prepared before either live state is changed.
+        self.reference(holder).ok_or(Error::Holder)?.inventory = source;
+        if let Some((target, inventory)) = recipient {
+            self.reference(target).ok_or(Error::Holder)?.inventory = inventory;
+        }
+        self.inventory_event(holder, selected.item(), -selected.count(), target, alloc);
+        if let Some(target) = target {
+            self.inventory_event(
+                target,
+                selected.item(),
+                selected.count(),
+                Some(holder),
+                alloc,
+            );
+        }
+        Ok(selected.count())
+    }
+
     /// Base forms supported by inventory stacks, from xEdit's item lists.
     pub(crate) fn is_inventory_base(&self, item: GlobalFormId) -> bool {
         self.record(item).is_some_and(|record| {
