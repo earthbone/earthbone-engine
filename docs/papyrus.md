@@ -345,3 +345,20 @@ it has no cost.
 bodies, queued calls, global waits and resume, stable saves/hashes, and stale
 instances after script replacement. Quest grouping is in `soe-game` and is
 documented in `validation.md`.
+
+## Dialogue fragment dispatch and conditional variables
+
+`Vm::call_script` and `has_script_method` resolve the script named by a VMAD
+fragment on the object's attached instance chains. An unrelated attachment
+with the same function name cannot intercept the call. Resolution uses the
+instance's current state, then its empty state. Calls use the existing frame
+builder and scheduler. The game dialogue tests attach two colliding fragment
+names and verify that only the named script changes the owning quest.
+
+`Vm::conditional_vars` reads live conditional variables, including inherited
+ones and auto-property backing names. It uses the PEX user-flag table instead
+of assuming a fixed bit. Both the declaring script and variable must carry the
+conditional flag. Multiple matching attachments remain multiple results so
+callers can reject ambiguity. This prerequisite is shared with the unmerged
+crafting branch. Tests cover flag placement, inheritance, mutation, save/load,
+nonconditional scripts and duplicate names.

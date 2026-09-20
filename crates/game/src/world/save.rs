@@ -28,7 +28,9 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// behavior graph floats and the player's perk points.
 /// Version 4 added the resident cell, so a loaded game knows which cell's
 /// temporary references it is holding. See `crate::world::transition`.
-pub const SAVE_VERSION: u16 = 4;
+/// Version 6 adds dialogue state. Version 5 is reserved for the separately
+/// reviewed magic-effects worktree and is not read by this standalone branch.
+pub const SAVE_VERSION: u16 = 6;
 
 impl World {
     /// Serialize the run-time state: the VM object handles, references,
@@ -281,6 +283,7 @@ impl World {
             write_opt_form_id(&mut body, *target);
         }
 
+        self.write_dialogue(&mut body);
         let mut out = Writer::new();
         out.out.extend_from_slice(SAVE_MAGIC);
         out.u16(SAVE_VERSION);
@@ -302,7 +305,7 @@ impl World {
             return Err(VmError::State("not a world state file".into()));
         }
         let version = r.u16()?;
-        if version != SAVE_VERSION {
+        if !matches!(version, 4 | SAVE_VERSION) {
             return Err(VmError::State(format!(
                 "world state version {version}, this build reads {SAVE_VERSION}"
             )));
@@ -665,6 +668,17 @@ impl World {
             let source = read_form_id(&mut r)?;
             spell_casts.push((spell, source, read_opt_form_id(&mut r)?));
         }
+        let dialogue = if version >= 6 {
+            crate::dialogue::read_dialogue(&mut r)?
+        } else {
+            crate::dialogue::State::default()
+        };
+        self.validate_dialogue(&dialogue)?;
+        if let Some(session) = &dialogue.session {
+            if !actors.contains_key(&session.speaker) || !actors.contains_key(&session.listener) {
+                return Err(VmError::State("dialogue cursor without actors".into()));
+            }
+        }
         r.expect_end()?;
 
         self.leveled_lists = leveled_lists;
@@ -692,6 +706,7 @@ impl World {
         self.sound_instances = sound_instances;
         self.next_sound = next_sound;
         self.spell_casts = spell_casts;
+        self.dialogue = dialogue;
 
         self.objects = objects;
         self.handles = handles;
@@ -720,19 +735,19 @@ impl World {
     }
 }
 
-fn write_form_id(w: &mut Writer, id: GlobalFormId) {
+pub(crate) fn write_form_id(w: &mut Writer, id: GlobalFormId) {
     w.u16(id.file);
     w.u32(id.object);
 }
 
-fn read_form_id(r: &mut Reader<'_>) -> Result<GlobalFormId, VmError> {
+pub(crate) fn read_form_id(r: &mut Reader<'_>) -> Result<GlobalFormId, VmError> {
     Ok(GlobalFormId {
         file: r.u16()?,
         object: r.u32()?,
     })
 }
 
-fn write_opt_form_id(w: &mut Writer, id: Option<GlobalFormId>) {
+pub(crate) fn write_opt_form_id(w: &mut Writer, id: Option<GlobalFormId>) {
     match id {
         Some(id) => {
             w.bool(true);
@@ -742,7 +757,7 @@ fn write_opt_form_id(w: &mut Writer, id: Option<GlobalFormId>) {
     }
 }
 
-fn read_opt_form_id(r: &mut Reader<'_>) -> Result<Option<GlobalFormId>, VmError> {
+pub(crate) fn read_opt_form_id(r: &mut Reader<'_>) -> Result<Option<GlobalFormId>, VmError> {
     Ok(if r.bool()? {
         Some(read_form_id(r)?)
     } else {

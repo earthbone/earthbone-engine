@@ -65,7 +65,11 @@ impl Condition {
     }
 
     /// Returns true only for condition subrecords.
-    pub(super) fn push(rec: &Record, sub: &Subrecord, out: &mut Vec<Self>) -> Result<bool> {
+    ///
+    /// # Errors
+    ///
+    /// Rejects malformed CTDA data and orphaned or repeated condition strings.
+    pub fn push(rec: &Record, sub: &Subrecord, out: &mut Vec<Self>) -> Result<bool> {
         match sub.tag.as_bytes() {
             b"CTDA" => out.push(Self::read(rec, sub)?),
             b"CIS1" | b"CIS2" => {

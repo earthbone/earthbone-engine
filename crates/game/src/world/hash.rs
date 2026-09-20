@@ -647,6 +647,9 @@ impl World {
             form(&mut h, *source);
             opt_form(&mut h, *target);
         }
+        let mut dialogue = soe_papyrus::vm::state::Writer::new();
+        self.write_dialogue(&mut dialogue);
+        h.bytes(&dialogue.out);
         let scenes = h.finish();
 
         // These three are `BTreeMap`, already in key order, so they are walked

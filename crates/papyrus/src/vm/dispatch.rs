@@ -92,6 +92,69 @@ impl Vm {
         Ok(self.spawn(frame))
     }
 
+    /// Start a method on the script named by a VMAD fragment.
+    /// Unrelated attachments with the same function name are not candidates.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for a missing object, attachment or function.
+    pub fn call_script(
+        &mut self,
+        object: ObjectId,
+        class: &str,
+        name: &str,
+        args: &[Value],
+    ) -> Result<ThreadId, VmError> {
+        if !self.objects.contains_key(&object) {
+            return Err(VmError::UnknownObject(object));
+        }
+        let (iid, script, function) =
+            self.find_script_method(object, class, name)
+                .ok_or_else(|| VmError::UnknownFunction {
+                    class: class.into(),
+                    name: name.into(),
+                })?;
+        let frame = Self::make_frame(Some(iid), Some(object), Some(script), function, args, None);
+        Ok(self.spawn(frame))
+    }
+
+    /// Whether a script-qualified host call can currently resolve.
+    pub fn has_script_method(&self, object: ObjectId, class: &str, name: &str) -> bool {
+        self.find_script_method(object, class, name).is_some()
+    }
+
+    fn find_script_method(
+        &self,
+        object: ObjectId,
+        class: &str,
+        name: &str,
+    ) -> Option<(InstanceId, Rc<LoadedScript>, Rc<Function>)> {
+        let obj = self.objects.get(&object)?;
+        let function_name = name.to_ascii_lowercase();
+        for &iid in &obj.instances {
+            let instance = &self.instances[iid.0];
+            let Some(script) = instance
+                .chain
+                .iter()
+                .find(|script| script.name.eq_ignore_ascii_case(class))
+            else {
+                continue;
+            };
+            if let Some(function) = script
+                .functions
+                .get(&(instance.state.to_ascii_lowercase(), function_name.clone()))
+                .or_else(|| {
+                    script
+                        .functions
+                        .get(&(String::new(), function_name.clone()))
+                })
+            {
+                return Some((iid, script.clone(), function.clone()));
+            }
+        }
+        None
+    }
+
     /// Start a thread that calls a global function of a script.
     pub fn call_global(
         &mut self,

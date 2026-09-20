@@ -183,7 +183,7 @@ pub fn register(vm: &mut Vm, world: &Shared) -> Registered {
 
 /// Hand-kept count of the non-stub natives registered below. The test in
 /// this module checks it against the registry.
-pub const NATIVE_COUNT: usize = 345;
+pub const NATIVE_COUNT: usize = 348;
 
 fn declare_parents(vm: &mut Vm) {
     for (class, parent) in [
@@ -2762,18 +2762,34 @@ fn dlc(vm: &mut Vm, w: &Shared) {
 /// The quest-owned fragment classes and `ActiveMagicEffect`. Both groups
 /// are what the DLC scripts reach for most after the base classes.
 fn fragments_and_effects(vm: &mut Vm, w: &Shared) {
-    // GetOwningQuest on a quest-owned fragment script. A scene names its
-    // parent quest in PNAM, a package its owner quest in QNAM. A topic info
-    // takes its quest from the DIAL above it, which the record alone does
-    // not reach, so that one answers None until the dialogue view lands.
-    for class in ["Scene", "Package"] {
+    // CONTEXT: INFO ownership follows its DIAL group, not previous-topic links.
+    for class in ["Scene", "Package", "TopicInfo"] {
         method!(vm, w, class, "GetOwningQuest", |world, call, me| {
             let quest = world.owning_quest(me);
             form_value(world, call, quest)
         });
     }
-    method!(vm, w, "TopicInfo", "GetOwningQuest", |world, call, _me| {
-        form_value(world, call, None)
+    method!(vm, w, "Actor", "GetDialogueTarget", |world, call, me| {
+        let target = world.dialogue_target(me);
+        form_value(world, call, target)
+    });
+    method!(
+        vm,
+        w,
+        "ObjectReference",
+        "IsInDialogueWithPlayer",
+        |world, _call, me| {
+            b(world
+                .dialogue_target(me)
+                .is_some_and(|target| world.is_player(target)))
+        }
+    );
+    global!(vm, w, "Game", "GetDialogueTarget", |world, call| {
+        let target = world
+            .dialogue_session()
+            .filter(|session| world.is_player(session.listener))
+            .map(|session| session.speaker);
+        form_value(world, call, target)
     });
 
     // An ActiveMagicEffect is not a Form, so the registration natives the
@@ -2872,7 +2888,6 @@ fn stubs(vm: &mut Vm) -> usize {
         ("Actor", "IsChild", false),
         ("Actor", "IsCommandedActor", false),
         ("Actor", "IsOnMount", false),
-        ("Actor", "IsInDialogueWithPlayer", false),
         ("Actor", "IsTrespassing", false),
         ("Actor", "IsDetectedBy", true),
         ("Actor", "HasLOS", true),
@@ -2954,7 +2969,6 @@ fn stubs(vm: &mut Vm) -> usize {
         ("Actor", "ClearKeepOffsetFromActor"),
         ("Actor", "KeepOffsetFromActor"),
         ("Actor", "SetForcedLandingMarker"),
-        ("Actor", "GetDialogueTarget"),
         ("Actor", "GetEquippedWeapon"),
         ("Actor", "GetEquippedShield"),
         ("Actor", "GetEquippedSpell"),
@@ -3079,7 +3093,6 @@ fn stubs(vm: &mut Vm) -> usize {
         ("Game", "FindRandomActor"),
         ("Game", "FindClosestReferenceOfType"),
         ("Game", "FindRandomReferenceOfType"),
-        ("Game", "GetDialogueTarget"),
         ("Game", "GetFormEx2"),
         ("Debug", "QuitGame"),
         ("Debug", "CenterOnCell"),

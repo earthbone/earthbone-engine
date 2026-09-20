@@ -121,3 +121,20 @@ from the historical baseline above. The Bannered Mare gameplay walkthrough
 still requires host activation/doorway wiring and footsteps. Record views,
 function coverage and deeper save inspection do not close those integration
 items or the larger gameplay scopes.
+
+## Dialogue execution worktree, 2026-09-20
+
+The unmerged `dialogue-execution` branch adds a record-backed conversation
+API, topic/quest ownership, conditions, response sequencing, named INFO
+fragment calls, shared responses, links and engine-save state. Its native
+registry reports 348 stateful entries and 188 stubs. See [game.md](game.md)
+for source attribution, tests and unsupported behavior. Earlier tables above
+remain the recorded master baseline.
+
+The five-master survey covers 40,678 INFO records, 7,799 fragments and 19,368
+ordered topic groups. An authored Hulda topic reaches response completion.
+This is headless evidence. Menus, localized text, voice playback, greetings,
+services, several branch modes and missing conditions remain unfinished.
+Combat, full magic and crafting, host integration and full vanilla-save
+restoration remain part of the active objective. Work on other unmerged
+branches is not evidence that their combined runtime has passed the gate.

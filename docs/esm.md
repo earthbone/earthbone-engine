@@ -242,6 +242,10 @@ remain in file order and are attached to their record or individual spell
 effect. No function table, condition evaluator or eligibility decision is
 provided. Unknown numeric enum values and flags are retained.
 
+`Condition::push` is public for record readers in other crates. It groups
+CTDA and its following CIS1/CIS2 without assigning execution semantics. The
+game crate uses it for QUST dialogue conditions before the first NEXT marker.
+
 Sources read before implementation:
 
 - `../engine-refs/TES5Edit/Core/wbDefinitionsTES5.pas`, definitions for DIAL,
