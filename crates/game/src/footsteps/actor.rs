@@ -12,6 +12,7 @@ use soe_esm::cursor::Fields;
 use soe_esm::{Error, GlobalFormId, Record, Result};
 
 use super::{Footsteps, T};
+use crate::combat::records::Armor;
 use crate::World;
 
 #[derive(Default)]
@@ -176,7 +177,8 @@ impl Footsteps<'_> {
         female: bool,
         parts: &mut BTreeMap<u32, Part>,
     ) -> Result<()> {
-        let (record, file) = self.record(armor, T(b"ARMO"))?;
+        let sources = Armor::sources(self.order, armor)?;
+        let (record, file) = self.record(sources.inherited, T(b"ARMO"))?;
         for bytes in record.all(T(b"MODL")) {
             let mut field = Fields::new(record.tag, T(b"MODL"), bytes);
             field.exact(4)?;

@@ -365,7 +365,7 @@ impl World {
         }
     }
 
-    fn combat_armor_record(&self, id: GlobalFormId) -> Result<Armor, Error> {
+    pub(super) fn combat_armor_record(&self, id: GlobalFormId) -> Result<Armor, Error> {
         let mut current = id;
         let mut seen = BTreeSet::new();
         loop {

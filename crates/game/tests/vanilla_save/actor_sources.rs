@@ -145,6 +145,55 @@ fn restored_choices_ignore_current_level_and_chance_and_supply_saved_inventory()
 }
 
 #[test]
+fn first_saved_actor_initialization_does_not_roll_current_default_outfit() {
+    use soe_game::npc::{self, Config, Stats};
+    let mut order = fixture_order();
+    let mut patch = Plugin::new(FileHeader {
+        masters: vec!["Skyrim.esm".into()],
+        ..Default::default()
+    });
+    patch.push_top(
+        npc::build_record(
+            0x812,
+            "Selected",
+            "Selected",
+            Config::default(),
+            Stats::default(),
+        )
+        .sub(
+            Tag(*b"CNTO"),
+            [0x813_u32.to_le_bytes(), 3_i32.to_le_bytes()].concat(),
+        )
+        .sub(Tag(*b"DOFT"), 0x0100_0814_u32.to_le_bytes()),
+    );
+    patch.push_top(
+        Record::new(Tag(*b"OTFT"), 0x0100_0814).sub(Tag(*b"INAM"), 0x0100_0815_u32.to_le_bytes()),
+    );
+    let mut entry = vec![0; 12];
+    entry[..2].copy_from_slice(&1_u16.to_le_bytes());
+    entry[4..8].copy_from_slice(&0x0100_0816_u32.to_le_bytes());
+    entry[8..10].copy_from_slice(&1_u16.to_le_bytes());
+    patch.push_top(Record::new(Tag(*b"LVLI"), 0x0100_0815).sub(Tag(*b"LVLO"), entry));
+    patch.push_top(Record::new(Tag(*b"ARMO"), 0x0100_0816));
+    order.add("Outfits.esp", patch).unwrap();
+    let saved = fixture();
+    let mut world = World::new(order);
+    let mut control = World::new(fixture_order());
+    control.load_state(&world.save_state()).unwrap();
+    let rng = control.random_u64();
+    world.restore_vanilla_reference_placements(&saved).unwrap();
+    world.restore_vanilla_actor_templates(&saved).unwrap();
+    world.restore_vanilla_inventories(&saved).unwrap();
+    assert_eq!(world.item_count(id(0, 0x900), id(0, 0x813)), 3);
+    assert_eq!(world.item_count(id(0, 0x900), id(1, 0x816)), 0);
+    let actor = world.actor(id(0, 0x900)).unwrap();
+    assert_eq!(actor.outfit, Some(id(1, 0x814)));
+    assert!(actor.equipped.is_empty());
+    assert_eq!(world.random_u64(), rng);
+    assert!(world.pending.is_empty());
+}
+
+#[test]
 fn a_late_invalid_choice_cannot_install_partial_template_state() {
     let original = fixture();
     for kind in 0..4 {

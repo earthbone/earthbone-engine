@@ -47,6 +47,10 @@ fn armor(object: u32, rating: u32, slots: u32, kind: u32) -> Record {
     let mut body = slots.to_le_bytes().to_vec();
     body.extend_from_slice(&kind.to_le_bytes());
     Record::new(Tag(*b"ARMO"), object)
+        .sub(
+            Tag(*b"DATA"),
+            [0_i32.to_le_bytes(), 5_f32.to_le_bytes()].concat(),
+        )
         .sub(Tag(*b"DNAM"), rating.to_le_bytes())
         .sub(Tag(*b"BOD2"), body)
 }

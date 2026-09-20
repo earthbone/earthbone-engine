@@ -1625,12 +1625,24 @@ Sources are local xEdit NPC_/RACE/ARMO/ARMA definitions, UESP record pages,
 and CommonLibSSE-NG `src/RE/T/TESObjectARMA.cpp` for armor-parent matching.
 Equal-priority conflicts use later record/equipment order. Deduplicated
 layering and tie handling are engine policy pending original-runtime checks.
-Equipment is the current actor state's equipped set. Outfit auto-equipping,
-armor template inheritance and runtime skin overrides
-are not supplied by this path. The World footstep path supplies the selected trait source for leveled actors.
+Equipment is the current actor state's equipped set. `TNAM` armor templates
+keep the child `FULL` name, `DATA` value and `EITM` enchantment. They inherit
+every other field, including `DATA` weight, `DNAM`, body slots, keywords and
+`MODL` armor addons, from the template chain. Each `TNAM` is resolved in the
+winning record's defining-file namespace. Cycles, malformed links and missing
+or non-ARMO templates reject the consuming operation before it changes state.
+The source is the [Creation Kit Armor page](https://ck.uesp.net/w/api.php?action=parse&page=Armor&prop=wikitext&format=json),
+retrieved on 2026-09-20. Local xEdit `Core/wbDefinitionsTES5.pas` supplies the
+ARMO layout, and CommonLibSSE-NG `include/RE/T/TESObjectARMO.h` confirms the
+`templateArmor` relationship and the armor-rating/addon consumers. CMB-11 is
+not a dependency because its terminal-record combat lookup does not supply
+field-specific inheritance.
+Default outfits initialize through the reference path described below. Runtime
+skin overrides are not supplied by this path.
+The World footstep path supplies the selected trait source for leveled actors.
 Direct record-only actor_sets calls still require a non-leveled trait chain.
 
-Eight actor-selection tests pass, including installed-data checks for Nord
+Ten actor-selection tests pass, including installed-data checks for Nord
 bare feet, light boots, heavy boots and wolf skin. The same run resolves all
 161 non-deleted race skins into 41 distinct sets across the five masters.
 Synthetic cases cover live equipment/race changes, implicit player identity,
@@ -2745,3 +2757,62 @@ INV-06 integrates the reviewed INV-01 reference-transfer implementation
 and PRG-16 flag precedence `112a85e` over PRG-15 entry metadata `fd96e42`.
 The combined native path keeps ordinary item counts, concrete reference moves
 and leveled additions distinct. FormList expansion remains the INV-05 row.
+
+## Default outfit instances
+
+Fresh placed and dynamic NPC references resolve DOFT from their selected
+INVENTORY template source. OTFT INAM links use the winning outfit record's
+namespace and retain authored entry order. Each LVLI entry rolls separately at
+the NPC's calculated level with count one, including repeated list entries.
+This caller does not use AddItem's encounter-level input or player-level cap.
+The ordinary, Special Loot and mixed-flag rules use the shared LVLI resolver.
+
+Outfit application creates one instance per selected base, regardless of the
+rolled quantity. Duplicate results carrying the same outfit tag do not add a
+second copy. ExtraOutfitItem 142 records the resolved outfit FormID. The outfit
+resolver mode skips COED processing, matching the original caller's discarded
+metadata. PRG-15 is therefore not a semantic dependency. INV-06 supplies the
+integrated shared resolver used by this caller.
+
+The selected outfit stack receives ExtraWorn 22. Existing plain copies of the
+same base remain plain. Armor equipment uses CMB-16's supported slot-conflict
+rules and INV-07's resolved template fields, retaining displaced armor as an
+unworn inventory item. Weapon and ammunition forms, plus carryable lights,
+receive worn markers through their declared equipment categories. Other
+selected inventory forms remain carried without invented worn markers.
+The existing equipment model does not resolve hand conflicts or execute
+scroll/consumable equip actions. Those categories retain the selected item.
+
+OTFT entries are processed in authored order. Each LVLI result uses the shared
+resolver's sorted FormID order. Later armor replaces earlier conflicting
+supported slots. This is deterministic engine policy, not a verified claim
+about the original runtime's conflict winner.
+
+Outfit preparation does not recursively initialize actor state. The later actor
+view derives its equipped set from worn stacks. Existing references are never
+initialized again, even if their outfit items have been removed. Actor
+references survive cell unloading, and existing SOEW inventory extras and actor
+equipment preserve the result through save/load. Restored inventories are not
+repopulated. No inventory events are queued during initial construction. A
+malformed outfit rejects fresh authored-reference construction, or disables a
+dynamic placement, without installing a partial outfit or consuming outfit RNG.
+SOFT sleep-outfit materialization and runtime SetOutfit replacement are separate
+from this default spawn contract.
+
+Sources are local xEdit OTFT/DOFT definitions, CommonLibSSE and CommonLibSSE-NG
+`BGSOutfit.h`, `InventoryChanges.cpp`, `ExtraOutfitItem.h` and equipment class
+headers, plus CK `EquipItem` and `SetOutfit`. skymp's `GetOutfitObjects` confirms
+the INVENTORY template source, but its separate rolls for inventory and equipment
+were not copied. Read-only inspection of installed SkyrimSE 1.7.104.0, SHA256
+`846efccf0c1374d71f892907f46549560f2fcb0a75cb87a3eed438baa0f1402f`, verifies
+`InitOutfitItems` at `0x140233f90`, its visitor at `0x14023fa80`, NPC level input
+at `0x14023c3e6`, and tagged result application at `0x14023c0b0`. The COED call
+at `0x14023c1a5` passes a null extra list and returns without applying fields.
+The wear helper at `0x1402e8070` finds the outfit-tagged extra list and passes
+that exact instance, count one, to ActorEquipManager at `0x1406dc310`.
+No executable bytes or proprietary code were copied.
+
+`tests/outfits.rs` checks exact outfit stacks, plain-copy isolation, selected
+templates, winning namespaces, per-entry draws, nested quantity collapse, COED
+discard, slot conflicts, nonwearable results, dynamic placement, once-only
+initialization, restored inventories, save/load and invalid-input rollback.

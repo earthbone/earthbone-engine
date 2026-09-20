@@ -158,6 +158,22 @@ impl World {
                 }
                 a.level = 1;
             }
+            a.equipped = self
+                .refs
+                .get(&id)
+                .into_iter()
+                .flat_map(|reference| {
+                    reference.inventory.iter().filter_map(|(item, count)| {
+                        (count > 0
+                            && reference
+                                .inventory
+                                .stacks(*item)
+                                .iter()
+                                .any(|stack| stack.worn()))
+                        .then_some(*item)
+                    })
+                })
+                .collect();
             a.allow_pc_dialogue = true;
             // Spell Perk Item Distributor hands things to a base, and an
             // actor's state is built here on first use, so a reference that

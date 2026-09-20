@@ -111,6 +111,8 @@ Local sources read before implementation:
 - CommonLibSSE `TESObjectWEAP::templateWeapon` and
   `TESObjectARMO::templateArmor`, which name the runtime pointers for `CNAM`
   and `TNAM`.
+
+- TES5Edit/Core/wbDefinitionsTES5.pas WEAP and ARMO definitions.
 - TES5Edit/Core/wbDefinitionsTES5.pas BOD2/BODT biped mask layout and armor type.
 - CommonLibSSE include/RE/B/BipedObjects.h and BGSBipedObjectForm.h for the
   fourteen normal biped slots and light, heavy and clothing type values.
