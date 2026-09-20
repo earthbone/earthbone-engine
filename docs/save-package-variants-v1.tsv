@@ -1,0 +1,145 @@
+manifest	soe-package-variants	1
+corpus	60	1154526	1154445
+variant	PD18-SEQUENCE	72	unsupported	SEQUENCE-LAYOUT
+variant	PD18-STACKED	9	unsupported	STACKED-LAYOUT
+occurrence	Clean Saves/After Alduin's Bane.ess	419dfd	00019dfd	a2000c23	157	1313	PD18-SEQUENCE	OPAQUE-CONTINUATION
+occurrence	Clean Saves/After Alduin's Wall.ess	419dfd	00019dfd	b2000c23	147	19229	PD18-SEQUENCE	OPAQUE-CONTINUATION
+occurrence	Clean Saves/After Diplomatic Immunity.ess	800e22	ff000e22	82040823	96	827	PD18-SEQUENCE	OPAQUE-CONTINUATION
+occurrence	Clean Saves/After Dragonslayer(Back in Skyrim).ess	419dfd	00019dfd	a2000c23	157	3526	PD18-SEQUENCE	OPAQUE-CONTINUATION
+occurrence	Clean Saves/After Elder Knowledge.ess	419dfd	00019dfd	a2000c23	137	1293	PD18-SEQUENCE	OPAQUE-CONTINUATION
+occurrence	Clean Saves/After Season Unending.ess	419dfd	00019dfd	b2000c23	167	17104	PD18-SEQUENCE	OPAQUE-CONTINUATION
+occurrence	Clean Saves/After Sovngarde.ess	419dfd	00019dfd	a2000c23	147	4942	PD18-SEQUENCE	OPAQUE-CONTINUATION
+occurrence	Clean Saves/After The Fallen.ess	419dfd	00019dfd	a2000c23	157	5438	PD18-SEQUENCE	OPAQUE-CONTINUATION
+occurrence	Clean Saves/After The Throat of the World.ess	419dfd	00019dfd	a2000c23	147	1397	PD18-SEQUENCE	OPAQUE-CONTINUATION
+occurrence	Clean Saves/Memory Loss.ess	419dfd	00019dfd	a2000c23	157	3438	PD18-SEQUENCE	OPAQUE-CONTINUATION
+occurrence	Main Quest + Dawnguard(Vampire) + Dragonborn/13 Alduin's Wall.ess	419ddd	00019ddd	aa000033	88	787	PD18-SEQUENCE	OPAQUE-CONTINUATION
+occurrence	Main Quest + Dawnguard(Vampire) + Dragonborn/14 The Throat of the World.ess	419dfd	00019dfd	b2000823	147	12573	PD18-SEQUENCE	OPAQUE-CONTINUATION
+occurrence	Main Quest + Dawnguard(Vampire) + Dragonborn/14 The Throat of the World.ess	800fed	ff000fed	a000000b	60	539	PD18-STACKED	OPAQUE-CONTINUATION
+occurrence	Main Quest + Dawnguard(Vampire) + Dragonborn/15 Elder Knowledge.ess	419dfd	00019dfd	a2000823	147	1310	PD18-SEQUENCE	OPAQUE-CONTINUATION
+occurrence	Main Quest + Dawnguard(Vampire) + Dragonborn/15 Elder Knowledge.ess	800fed	ff000fed	a000000b	60	539	PD18-STACKED	OPAQUE-CONTINUATION
+occurrence	Main Quest + Dawnguard(Vampire) + Dragonborn/16 Elder Knowledge (Discerning the Transmundane).ess	419dfd	00019dfd	a2000823	147	1139	PD18-SEQUENCE	OPAQUE-CONTINUATION
+occurrence	Main Quest + Dawnguard(Vampire) + Dragonborn/16 Elder Knowledge (Discerning the Transmundane).ess	800fed	ff000fed	a000000b	60	539	PD18-STACKED	OPAQUE-CONTINUATION
+occurrence	Main Quest + Dawnguard(Vampire) + Dragonborn/17 Alduin's Bane.ess	419dfd	00019dfd	a2000823	137	1065	PD18-SEQUENCE	OPAQUE-CONTINUATION
+occurrence	Main Quest + Dawnguard(Vampire) + Dragonborn/18 The Fallen.ess	419dfd	00019dfd	a2000823	157	1085	PD18-SEQUENCE	OPAQUE-CONTINUATION
+occurrence	Main Quest + Dawnguard(Vampire) + Dragonborn/19 The World-Eater's Eyrie.ess	419dfd	00019dfd	a2000823	157	5243	PD18-SEQUENCE	OPAQUE-CONTINUATION
+occurrence	Main Quest + Dawnguard(Vampire) + Dragonborn/20 Sovngarde.ess	419dfd	00019dfd	a2000823	147	5020	PD18-SEQUENCE	OPAQUE-CONTINUATION
+occurrence	Main Quest + Dawnguard(Vampire) + Dragonborn/21 Alduin Defeated (Still in Sovngarde).ess	419dfd	00019dfd	a2000823	157	3638	PD18-SEQUENCE	OPAQUE-CONTINUATION
+occurrence	Main Quest + Dawnguard(Vampire) + Dragonborn/22 Alduin Defeated (Back in Tamriel).ess	419dfd	00019dfd	a2000823	157	3638	PD18-SEQUENCE	OPAQUE-CONTINUATION
+occurrence	Main Quest + Dawnguard(Vampire) + Dragonborn/23 Dawnguard.ess	419dfd	00019dfd	a2000823	157	865	PD18-SEQUENCE	OPAQUE-CONTINUATION
+occurrence	Main Quest + Dawnguard(Vampire) + Dragonborn/23 Dawnguard.ess	800956	ff000956	a000040f	710	1561	PD18-SEQUENCE	OPAQUE-CONTINUATION
+occurrence	Main Quest + Dawnguard(Vampire) + Dragonborn/24 Bloodline.ess	419dfd	00019dfd	a2000823	157	865	PD18-SEQUENCE	OPAQUE-CONTINUATION
+occurrence	Main Quest + Dawnguard(Vampire) + Dragonborn/24 Bloodline.ess	800956	ff000956	a000040f	710	1561	PD18-SEQUENCE	OPAQUE-CONTINUATION
+occurrence	Main Quest + Dawnguard(Vampire) + Dragonborn/25 Dawnguard - Choose Your Path.ess	419dfd	00019dfd	a2000823	157	865	PD18-SEQUENCE	OPAQUE-CONTINUATION
+occurrence	Main Quest + Dawnguard(Vampire) + Dragonborn/25 Dawnguard - Choose Your Path.ess	800956	ff000956	a000040f	710	1561	PD18-SEQUENCE	OPAQUE-CONTINUATION
+occurrence	Main Quest + Dawnguard(Vampire) + Dragonborn/26 Bloodstone Chalice.ess	419dfd	00019dfd	a2000823	157	865	PD18-SEQUENCE	OPAQUE-CONTINUATION
+occurrence	Main Quest + Dawnguard(Vampire) + Dragonborn/26 Bloodstone Chalice.ess	800956	ff000956	a000040f	710	1561	PD18-SEQUENCE	OPAQUE-CONTINUATION
+occurrence	Main Quest + Dawnguard(Vampire) + Dragonborn/27 Prophet.ess	000297	020033af	9a000002	120	14262	PD18-SEQUENCE	OPAQUE-CONTINUATION
+occurrence	Main Quest + Dawnguard(Vampire) + Dragonborn/27 Prophet.ess	419dfd	00019dfd	a2000823	157	865	PD18-SEQUENCE	OPAQUE-CONTINUATION
+occurrence	Main Quest + Dawnguard(Vampire) + Dragonborn/27 Prophet.ess	800956	ff000956	a000040f	710	1561	PD18-SEQUENCE	OPAQUE-CONTINUATION
+occurrence	Main Quest + Dawnguard(Vampire) + Dragonborn/28 Seeking Disclosure (Chasing Echoes).ess	419dfd	00019dfd	a2000823	157	865	PD18-SEQUENCE	OPAQUE-CONTINUATION
+occurrence	Main Quest + Dawnguard(Vampire) + Dragonborn/28 Seeking Disclosure (Chasing Echoes).ess	800956	ff000956	a000040f	710	1561	PD18-SEQUENCE	OPAQUE-CONTINUATION
+occurrence	Main Quest + Dawnguard(Vampire) + Dragonborn/29 Seeking Disclosure (Beyond Death).ess	003d47	0201831e	88040407	630	1456	PD18-SEQUENCE	OPAQUE-CONTINUATION
+occurrence	Main Quest + Dawnguard(Vampire) + Dragonborn/29 Seeking Disclosure (Beyond Death).ess	419dfd	00019dfd	a2000823	157	865	PD18-SEQUENCE	OPAQUE-CONTINUATION
+occurrence	Main Quest + Dawnguard(Vampire) + Dragonborn/29 Seeking Disclosure (Beyond Death).ess	800956	ff000956	a000040f	710	1561	PD18-SEQUENCE	OPAQUE-CONTINUATION
+occurrence	Main Quest + Dawnguard(Vampire) + Dragonborn/30 Unseen Visions.ess	003d47	0201831e	88040407	622	1390	PD18-SEQUENCE	OPAQUE-CONTINUATION
+occurrence	Main Quest + Dawnguard(Vampire) + Dragonborn/30 Unseen Visions.ess	419dfd	00019dfd	a2000823	157	865	PD18-SEQUENCE	OPAQUE-CONTINUATION
+occurrence	Main Quest + Dawnguard(Vampire) + Dragonborn/30 Unseen Visions.ess	800956	ff000956	a000040f	710	1561	PD18-SEQUENCE	OPAQUE-CONTINUATION
+occurrence	Main Quest + Dawnguard(Vampire) + Dragonborn/31 Touching The Sky.ess	003d47	0201831e	88040407	622	1390	PD18-SEQUENCE	OPAQUE-CONTINUATION
+occurrence	Main Quest + Dawnguard(Vampire) + Dragonborn/31 Touching The Sky.ess	419dfd	00019dfd	a2000823	157	865	PD18-SEQUENCE	OPAQUE-CONTINUATION
+occurrence	Main Quest + Dawnguard(Vampire) + Dragonborn/31 Touching The Sky.ess	800956	ff000956	a000040f	710	1561	PD18-SEQUENCE	OPAQUE-CONTINUATION
+occurrence	Main Quest + Dawnguard(Vampire) + Dragonborn/32 Kindred Judgement.ess	003d47	0201831e	88040403	67	835	PD18-SEQUENCE	OPAQUE-CONTINUATION
+occurrence	Main Quest + Dawnguard(Vampire) + Dragonborn/32 Kindred Judgement.ess	419dfd	00019dfd	a2000823	157	865	PD18-SEQUENCE	OPAQUE-CONTINUATION
+occurrence	Main Quest + Dawnguard(Vampire) + Dragonborn/32 Kindred Judgement.ess	800956	ff000956	a000040f	710	1561	PD18-SEQUENCE	OPAQUE-CONTINUATION
+occurrence	Main Quest + Dawnguard(Vampire) + Dragonborn/33 Dawnguard Complete (Vampire).ess	003d47	0201831e	88040403	67	835	PD18-SEQUENCE	OPAQUE-CONTINUATION
+occurrence	Main Quest + Dawnguard(Vampire) + Dragonborn/33 Dawnguard Complete (Vampire).ess	419dfd	00019dfd	a2000823	157	865	PD18-SEQUENCE	OPAQUE-CONTINUATION
+occurrence	Main Quest + Dawnguard(Vampire) + Dragonborn/33 Dawnguard Complete (Vampire).ess	800956	ff000956	a000040f	710	1561	PD18-SEQUENCE	OPAQUE-CONTINUATION
+occurrence	Main Quest + Dawnguard(Vampire) + Dragonborn/34 Dragonborn (Raven Rock Arrival).ess	003d47	0201831e	88040403	67	835	PD18-SEQUENCE	OPAQUE-CONTINUATION
+occurrence	Main Quest + Dawnguard(Vampire) + Dragonborn/34 Dragonborn (Raven Rock Arrival).ess	419dfd	00019dfd	a2000823	157	865	PD18-SEQUENCE	OPAQUE-CONTINUATION
+occurrence	Main Quest + Dawnguard(Vampire) + Dragonborn/34 Dragonborn (Raven Rock Arrival).ess	800956	ff000956	a000040f	710	1561	PD18-SEQUENCE	OPAQUE-CONTINUATION
+occurrence	Main Quest + Dawnguard(Vampire) + Dragonborn/35 The Temple of Miraak.ess	003d47	0201831e	88040403	67	835	PD18-SEQUENCE	OPAQUE-CONTINUATION
+occurrence	Main Quest + Dawnguard(Vampire) + Dragonborn/35 The Temple of Miraak.ess	419dfd	00019dfd	a2000823	157	865	PD18-SEQUENCE	OPAQUE-CONTINUATION
+occurrence	Main Quest + Dawnguard(Vampire) + Dragonborn/35 The Temple of Miraak.ess	800956	ff000956	a000040f	710	1561	PD18-SEQUENCE	OPAQUE-CONTINUATION
+occurrence	Main Quest + Dawnguard(Vampire) + Dragonborn/36 The Fate of the Skaal.ess	003d47	0201831e	88040403	67	835	PD18-SEQUENCE	OPAQUE-CONTINUATION
+occurrence	Main Quest + Dawnguard(Vampire) + Dragonborn/36 The Fate of the Skaal.ess	419dfd	00019dfd	a2000823	157	865	PD18-SEQUENCE	OPAQUE-CONTINUATION
+occurrence	Main Quest + Dawnguard(Vampire) + Dragonborn/36 The Fate of the Skaal.ess	800956	ff000956	a000040f	710	1561	PD18-SEQUENCE	OPAQUE-CONTINUATION
+occurrence	Main Quest + Dawnguard(Vampire) + Dragonborn/36 The Fate of the Skaal.ess	800fa4	ff000fa4	9200000a	59	5565	PD18-STACKED	OPAQUE-CONTINUATION
+occurrence	Main Quest + Dawnguard(Vampire) + Dragonborn/37 The Fate of the Skaal (Cleansing The Stones).ess	003d47	0201831e	88040403	67	835	PD18-SEQUENCE	OPAQUE-CONTINUATION
+occurrence	Main Quest + Dawnguard(Vampire) + Dragonborn/37 The Fate of the Skaal (Cleansing The Stones).ess	419dfd	00019dfd	a2000823	157	865	PD18-SEQUENCE	OPAQUE-CONTINUATION
+occurrence	Main Quest + Dawnguard(Vampire) + Dragonborn/37 The Fate of the Skaal (Cleansing The Stones).ess	800956	ff000956	a000040f	710	1561	PD18-SEQUENCE	OPAQUE-CONTINUATION
+occurrence	Main Quest + Dawnguard(Vampire) + Dragonborn/37 The Fate of the Skaal (Cleansing The Stones).ess	800fa4	ff000fa4	8200000a	59	1042	PD18-STACKED	OPAQUE-CONTINUATION
+occurrence	Main Quest + Dawnguard(Vampire) + Dragonborn/38 The Path of Knowledge.ess	003d47	0201831e	88040403	67	835	PD18-SEQUENCE	OPAQUE-CONTINUATION
+occurrence	Main Quest + Dawnguard(Vampire) + Dragonborn/38 The Path of Knowledge.ess	419dfd	00019dfd	a2000823	157	865	PD18-SEQUENCE	OPAQUE-CONTINUATION
+occurrence	Main Quest + Dawnguard(Vampire) + Dragonborn/38 The Path of Knowledge.ess	800956	ff000956	a000040f	710	1561	PD18-SEQUENCE	OPAQUE-CONTINUATION
+occurrence	Main Quest + Dawnguard(Vampire) + Dragonborn/38 The Path of Knowledge.ess	800fa4	ff000fa4	8200000a	59	1042	PD18-STACKED	OPAQUE-CONTINUATION
+occurrence	Main Quest + Dawnguard(Vampire) + Dragonborn/39 The Gardener of Men.ess	003d47	0201831e	88040403	67	835	PD18-SEQUENCE	OPAQUE-CONTINUATION
+occurrence	Main Quest + Dawnguard(Vampire) + Dragonborn/39 The Gardener of Men.ess	419dfd	00019dfd	a2000823	157	865	PD18-SEQUENCE	OPAQUE-CONTINUATION
+occurrence	Main Quest + Dawnguard(Vampire) + Dragonborn/39 The Gardener of Men.ess	800956	ff000956	a000040f	710	1561	PD18-SEQUENCE	OPAQUE-CONTINUATION
+occurrence	Main Quest + Dawnguard(Vampire) + Dragonborn/39 The Gardener of Men.ess	800fa4	ff000fa4	8200000a	59	1042	PD18-STACKED	OPAQUE-CONTINUATION
+occurrence	Main Quest + Dawnguard(Vampire) + Dragonborn/40 At The Summit of Apocrypha.ess	003d47	0201831e	88040403	67	835	PD18-SEQUENCE	OPAQUE-CONTINUATION
+occurrence	Main Quest + Dawnguard(Vampire) + Dragonborn/40 At The Summit of Apocrypha.ess	419dfd	00019dfd	a2000823	157	865	PD18-SEQUENCE	OPAQUE-CONTINUATION
+occurrence	Main Quest + Dawnguard(Vampire) + Dragonborn/40 At The Summit of Apocrypha.ess	800956	ff000956	a000040f	710	1561	PD18-SEQUENCE	OPAQUE-CONTINUATION
+occurrence	Main Quest + Dawnguard(Vampire) + Dragonborn/40 At The Summit of Apocrypha.ess	800fa4	ff000fa4	8200000a	59	1042	PD18-STACKED	OPAQUE-CONTINUATION
+occurrence	Main Quest + Dawnguard(Vampire) + Dragonborn/41 Miraak Defeated.ess	003d47	0201831e	88040403	67	835	PD18-SEQUENCE	OPAQUE-CONTINUATION
+occurrence	Main Quest + Dawnguard(Vampire) + Dragonborn/41 Miraak Defeated.ess	419dfd	00019dfd	a2000823	157	865	PD18-SEQUENCE	OPAQUE-CONTINUATION
+occurrence	Main Quest + Dawnguard(Vampire) + Dragonborn/41 Miraak Defeated.ess	800956	ff000956	a000040f	710	1561	PD18-SEQUENCE	OPAQUE-CONTINUATION
+occurrence	Main Quest + Dawnguard(Vampire) + Dragonborn/41 Miraak Defeated.ess	800fa4	ff000fa4	8200000a	59	1042	PD18-STACKED	OPAQUE-CONTINUATION
+save	Clean Saves/After A Blade in the Dark.ess	15802	0
+save	Clean Saves/After A Cornered Rat.ess	19655	0
+save	Clean Saves/After Alduin's Bane.ess	23208	1
+save	Clean Saves/After Alduin's Wall.ess	20406	1
+save	Clean Saves/After Bleak Falls Barrow.ess	12958	0
+save	Clean Saves/After Diplomatic Immunity.ess	18554	1
+save	Clean Saves/After Dragon Rising.ess	13176	0
+save	Clean Saves/After Dragonslayer(Back in Skyrim).ess	25339	1
+save	Clean Saves/After Elder Knowledge.ess	22600	1
+save	Clean Saves/After Season Unending.ess	24089	1
+save	Clean Saves/After Sovngarde.ess	25097	1
+save	Clean Saves/After The Fallen.ess	24474	1
+save	Clean Saves/After The Horn of Jurgen Windcaller.ess	15173	0
+save	Clean Saves/After The Throat of the World.ess	20109	1
+save	Clean Saves/After The Way of the Voice.ess	14361	0
+save	Clean Saves/Character Creation.ess	9011	0
+save	Clean Saves/Memory Loss.ess	25461	1
+save	Clean Saves/Outside Helgen.ess	10519	0
+save	Clean Saves/Ralof or Hadvar.ess	10020	0
+save	Main Quest + Dawnguard(Vampire) + Dragonborn/01 Right Off The Block.ess	9989	0
+save	Main Quest + Dawnguard(Vampire) + Dragonborn/02 Choose Your Path.ess	10150	0
+save	Main Quest + Dawnguard(Vampire) + Dragonborn/03 Followed Ralof.ess	10511	0
+save	Main Quest + Dawnguard(Vampire) + Dragonborn/04 To Riverwood.ess	10546	0
+save	Main Quest + Dawnguard(Vampire) + Dragonborn/05 Delve the Barrow.ess	11267	0
+save	Main Quest + Dawnguard(Vampire) + Dragonborn/06 Bleak Falls Barrow Complete.ess	11383	0
+save	Main Quest + Dawnguard(Vampire) + Dragonborn/07 Dragon Rising.ess	12837	0
+save	Main Quest + Dawnguard(Vampire) + Dragonborn/08 The Way of the Voice.ess	13103	0
+save	Main Quest + Dawnguard(Vampire) + Dragonborn/09 The Horn of Jurgen Windcaller.ess	13310	0
+save	Main Quest + Dawnguard(Vampire) + Dragonborn/10 A Blade In The Dark.ess	13767	0
+save	Main Quest + Dawnguard(Vampire) + Dragonborn/11 Diplomatic Immunity (Turn In Horn).ess	14000	0
+save	Main Quest + Dawnguard(Vampire) + Dragonborn/12 A Cornered Rat.ess	16136	0
+save	Main Quest + Dawnguard(Vampire) + Dragonborn/13 Alduin's Wall.ess	16908	1
+save	Main Quest + Dawnguard(Vampire) + Dragonborn/14 The Throat of the World.ess	16731	2
+save	Main Quest + Dawnguard(Vampire) + Dragonborn/15 Elder Knowledge.ess	16881	2
+save	Main Quest + Dawnguard(Vampire) + Dragonborn/16 Elder Knowledge (Discerning the Transmundane).ess	17121	2
+save	Main Quest + Dawnguard(Vampire) + Dragonborn/17 Alduin's Bane.ess	18506	1
+save	Main Quest + Dawnguard(Vampire) + Dragonborn/18 The Fallen.ess	19283	1
+save	Main Quest + Dawnguard(Vampire) + Dragonborn/19 The World-Eater's Eyrie.ess	20035	1
+save	Main Quest + Dawnguard(Vampire) + Dragonborn/20 Sovngarde.ess	20505	1
+save	Main Quest + Dawnguard(Vampire) + Dragonborn/21 Alduin Defeated (Still in Sovngarde).ess	20756	1
+save	Main Quest + Dawnguard(Vampire) + Dragonborn/22 Alduin Defeated (Back in Tamriel).ess	21041	1
+save	Main Quest + Dawnguard(Vampire) + Dragonborn/23 Dawnguard.ess	19746	2
+save	Main Quest + Dawnguard(Vampire) + Dragonborn/24 Bloodline.ess	20988	2
+save	Main Quest + Dawnguard(Vampire) + Dragonborn/25 Dawnguard - Choose Your Path.ess	21822	2
+save	Main Quest + Dawnguard(Vampire) + Dragonborn/26 Bloodstone Chalice.ess	21808	2
+save	Main Quest + Dawnguard(Vampire) + Dragonborn/27 Prophet.ess	22174	3
+save	Main Quest + Dawnguard(Vampire) + Dragonborn/28 Seeking Disclosure (Chasing Echoes).ess	22582	2
+save	Main Quest + Dawnguard(Vampire) + Dragonborn/29 Seeking Disclosure (Beyond Death).ess	23370	3
+save	Main Quest + Dawnguard(Vampire) + Dragonborn/30 Unseen Visions.ess	24206	3
+save	Main Quest + Dawnguard(Vampire) + Dragonborn/31 Touching The Sky.ess	24123	3
+save	Main Quest + Dawnguard(Vampire) + Dragonborn/32 Kindred Judgement.ess	24530	3
+save	Main Quest + Dawnguard(Vampire) + Dragonborn/33 Dawnguard Complete (Vampire).ess	25150	3
+save	Main Quest + Dawnguard(Vampire) + Dragonborn/34 Dragonborn (Raven Rock Arrival).ess	26411	3
+save	Main Quest + Dawnguard(Vampire) + Dragonborn/35 The Temple of Miraak.ess	26597	3
+save	Main Quest + Dawnguard(Vampire) + Dragonborn/36 The Fate of the Skaal.ess	27535	4
+save	Main Quest + Dawnguard(Vampire) + Dragonborn/37 The Fate of the Skaal (Cleansing The Stones).ess	27868	4
+save	Main Quest + Dawnguard(Vampire) + Dragonborn/38 The Path of Knowledge.ess	27508	4
+save	Main Quest + Dawnguard(Vampire) + Dragonborn/39 The Gardener of Men.ess	27642	4
+save	Main Quest + Dawnguard(Vampire) + Dragonborn/40 At The Summit of Apocrypha.ess	27930	4
+save	Main Quest + Dawnguard(Vampire) + Dragonborn/41 Miraak Defeated.ess	27758	4
