@@ -118,6 +118,8 @@ impl PlayerNode {
         };
         let feet = Vec3::new(position[0], position[1], position[2]);
         if self.loaded_cell != Some(cell) {
+            self.melee_contact.cancel();
+            self.melee_bodies.clear();
             let Some(source) = self.data_source.as_ref() else {
                 return false;
             };

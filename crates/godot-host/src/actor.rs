@@ -133,8 +133,9 @@ impl ActorAssets {
     /// when the mesh carries no skinned shape.
     pub fn load(vfs: &Vfs, mesh_path: &str) -> Result<ActorAssets, ActorError> {
         let skeleton = Self::load_skeleton(vfs)?;
-        let (graph, unresolved_references) = Self::load_graph(vfs)?;
+        let (mut graph, unresolved_references) = Self::load_graph(vfs)?;
         let (clips, missing_clips) = Self::load_clips(vfs, &graph);
+        crate::combat::contact_annotation_triggers(&mut graph, &clips);
         let surfaces = Self::load_surfaces(vfs, mesh_path, &skeleton)?;
         Ok(ActorAssets {
             skeleton,

@@ -48,6 +48,7 @@ mod forms;
 pub mod hash;
 mod inventory;
 mod inventory_restore;
+mod weapon_hands;
 pub use inventory_restore::InventoryRestoreReport;
 mod item_save;
 mod locks;
@@ -187,6 +188,9 @@ pub struct ActorState {
     pub factions: HashMap<GlobalFormId, i32>,
     pub spells: BTreeSet<GlobalFormId>,
     pub equipped: BTreeSet<GlobalFormId>,
+    /// Explicit weapon slots. The equipment set retains armor and spell membership.
+    pub left_weapon: Option<GlobalFormId>,
+    pub right_weapon: Option<GlobalFormId>,
     /// The package driver's state, see `crate::ai`.
     pub ai: crate::ai::AiState,
     pub perks: BTreeSet<GlobalFormId>,

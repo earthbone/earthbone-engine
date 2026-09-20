@@ -379,6 +379,8 @@ fn actor_state(h: &mut StateHasher, a: &ActorState) {
     opt_form(h, a.ash_pile);
     form_set(h, &a.shouts);
     opt_form(h, a.equipped_shout);
+    opt_form(h, a.left_weapon);
+    opt_form(h, a.right_weapon);
 }
 
 fn quest_state(h: &mut StateHasher, q: &QuestState) {

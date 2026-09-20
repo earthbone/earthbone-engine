@@ -17,6 +17,7 @@ pub mod audio;
 pub mod batch;
 pub mod camera;
 pub mod collision;
+pub mod combat;
 pub mod data_source;
 pub mod input;
 pub mod mesh;
@@ -29,6 +30,8 @@ pub mod units;
 pub mod godot_actor;
 #[cfg(feature = "godot")]
 pub mod godot_audio;
+#[cfg(feature = "godot")]
+pub mod godot_combat;
 #[cfg(feature = "godot")]
 pub mod godot_layer;
 #[cfg(feature = "godot")]
