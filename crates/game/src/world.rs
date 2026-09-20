@@ -43,6 +43,7 @@ mod events;
 mod forms;
 pub mod hash;
 mod lookup;
+pub mod magic;
 mod objects;
 mod quests;
 mod refs;
@@ -66,7 +67,12 @@ const T: fn(&[u8; 4]) -> Tag = Tag::new;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Handle {
     Form(GlobalFormId),
-    Alias { quest: GlobalFormId, id: u32 },
+    Alias {
+        quest: GlobalFormId,
+        id: u32,
+    },
+    /// One application of a magic effect, distinct from its MGEF definition.
+    ActiveEffect(magic::EffectId),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -328,6 +334,11 @@ pub enum Pending {
         function: String,
         args: Vec<Value>,
     },
+    /// Attach the winning MGEF's scripts before delivering its lifecycle events.
+    BindEffect {
+        object: ObjectId,
+        effect: GlobalFormId,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -422,6 +433,8 @@ pub struct World {
     next_sound: i32,
     /// `(spell, source, target)` per `Spell.Cast`, in order.
     pub spell_casts: Vec<(GlobalFormId, GlobalFormId, Option<GlobalFormId>)>,
+    pub(crate) active_effects: BTreeMap<magic::EffectId, magic::ActiveEffect>,
+    pub(crate) next_effect: u64,
 }
 
 impl World {
@@ -495,6 +508,8 @@ impl World {
             sound_instances: BTreeMap::new(),
             next_sound: 0,
             spell_casts: Vec::new(),
+            active_effects: BTreeMap::new(),
+            next_effect: 1,
         }
     }
 

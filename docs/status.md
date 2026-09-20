@@ -121,3 +121,16 @@ from the historical baseline above. The Bannered Mare gameplay walkthrough
 still requires host activation/doorway wiring and footsteps. Record views,
 function coverage and deeper save inspection do not close those integration
 items or the larger gameplay scopes.
+
+## Active magic worktree
+
+The unmerged `magic-effects` worktree implements direct non-hostile Script,
+Value Modifier and Dual Value Modifier applications, per-application script
+objects, duration and expiry, effect queries, dispelling and SOEW version 5
+persistence with version 4 reading. Its registry has 353 stateful natives and
+183 stubs. These counts describe this worktree, not master.
+
+Hostile spells, concentration, projectiles, conditions, peak modifiers and
+other archetypes, learned abilities, enchantments, potions, player casting input
+and audiovisual effects remain unfinished. See [game.md](game.md#active-magic-applications)
+for the exact supported path and reference sources.

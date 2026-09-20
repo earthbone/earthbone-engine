@@ -220,6 +220,7 @@ impl World {
     /// The Papyrus class a form answers to when no script is attached.
     pub fn class_of(&self, handle: Handle) -> &'static str {
         match handle {
+            Handle::ActiveEffect(_) => "ActiveMagicEffect",
             Handle::Alias { quest, id } => {
                 let location = self
                     .quests

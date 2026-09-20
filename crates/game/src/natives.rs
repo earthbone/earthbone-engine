@@ -176,6 +176,7 @@ pub fn register(vm: &mut Vm, world: &Shared) -> Registered {
     message_scene_sound_spell(vm, world);
     dlc(vm, world);
     fragments_and_effects(vm, world);
+    active_magic(vm, world);
     let stubs = stubs(vm);
     let natives = NATIVE_COUNT + stubs - (vm.natives.duplicates.len() - before);
     Registered { natives, stubs }
@@ -183,7 +184,7 @@ pub fn register(vm: &mut Vm, world: &Shared) -> Registered {
 
 /// Hand-kept count of the non-stub natives registered below. The test in
 /// this module checks it against the registry.
-pub const NATIVE_COUNT: usize = 345;
+pub const NATIVE_COUNT: usize = 353;
 
 fn declare_parents(vm: &mut Vm) {
     for (class, parent) in [
@@ -2322,15 +2323,15 @@ fn message_scene_sound_spell(vm: &mut Vm, w: &Shared) {
         }
         none()
     });
-    // Cast(akSource, akTarget = None) and RemoteCast(akSource,
-    // akBlameActor, akTarget = None): recorded in order, no magic system
-    // applies the effects yet.
     method!(vm, w, "Spell", "Cast", |world, call, me| {
         let Some(source) = world.form_arg(&call.arg(0)) else {
             return none();
         };
         let target = world.form_arg(&call.arg(1));
         world.spell_casts.push((me, source, target));
+        if let Err(error) = world.cast_spell(me, source, Some(source), target, alloc!(call)) {
+            call.log.push(call.time, format!("Spell.Cast: {error}"));
+        }
         none()
     });
     method!(vm, w, "Spell", "RemoteCast", |world, call, me| {
@@ -2339,13 +2340,82 @@ fn message_scene_sound_spell(vm: &mut Vm, w: &Shared) {
         };
         let target = world.form_arg(&call.arg(2));
         world.spell_casts.push((me, source, target));
+        let caster = world.form_arg(&call.arg(1));
+        if let Err(error) = world.cast_spell(me, source, caster, target, alloc!(call)) {
+            call.log
+                .push(call.time, format!("Spell.RemoteCast: {error}"));
+        }
+        none()
+    });
+}
+
+/// CK active-effect identity, queries and dispelling contracts.
+fn active_magic(vm: &mut Vm, w: &Shared) {
+    method!(vm, w, "Actor", "HasMagicEffect", |world, call, me| {
+        b(world
+            .form_arg(&call.arg(0))
+            .is_some_and(|effect| world.has_magic_effect(me, effect)))
+    });
+    method!(
+        vm,
+        w,
+        "Actor",
+        "HasMagicEffectWithKeyword",
+        |world, call, me| {
+            b(world
+                .form_arg(&call.arg(0))
+                .is_some_and(|keyword| world.has_magic_effect_with_keyword(me, keyword)))
+        }
+    );
+    method!(vm, w, "Actor", "DispelSpell", |world, call, me| {
+        b(world
+            .form_arg(&call.arg(0))
+            .is_some_and(|spell| world.dispel_spell(me, spell, alloc!(call))))
+    });
+    method!(vm, w, "Actor", "DispelAllSpells", |world, call, me| {
+        world.dispel_all_spells(me, alloc!(call));
+        none()
+    });
+    self_method!(
+        vm,
+        w,
+        "ActiveMagicEffect",
+        "GetBaseObject",
+        |world, call, me| {
+            let id = world.active_effect_of(me).map(|effect| effect.effect);
+            form_value(world, call, id)
+        }
+    );
+    self_method!(
+        vm,
+        w,
+        "ActiveMagicEffect",
+        "GetTargetActor",
+        |world, call, me| {
+            let id = world.active_effect_of(me).map(|effect| effect.target);
+            form_value(world, call, id)
+        }
+    );
+    self_method!(
+        vm,
+        w,
+        "ActiveMagicEffect",
+        "GetCasterActor",
+        |world, call, me| {
+            let id = world.active_effect_of(me).and_then(|effect| effect.caster);
+            form_value(world, call, id)
+        }
+    );
+    self_method!(vm, w, "ActiveMagicEffect", "Dispel", |world, call, me| {
+        if let Some(id) = world.active_effect_of(me).map(|effect| effect.id) {
+            world.dispel_effect(id, alloc!(call));
+        }
         none()
     });
 }
 
 /// What Dawnguard, HearthFires and Dragonborn added to the base classes.
-/// Ordered by how often the DLC scripts call each one. Semantics from the
-/// class pages: none of these has a page of its own in the corpus.
+/// Ordered by how often the DLC scripts call each one.
 fn dlc(vm: &mut Vm, w: &Shared) {
     // "Set a variable on all of an actor's sub graphs." The behavior graph
     // reads these, the engine keeps them per actor under a lowercase name.
@@ -2885,12 +2955,8 @@ fn stubs(vm: &mut Vm) -> usize {
         ("Scene", "IsActionComplete", false),
         ("Keyword", "SendStoryEventAndWait", false),
         ("Game", "IsPlayerSungazing", false),
-        // No flight, no active magic effect list, no ragdoll yet.
+        // CONTEXT: Flight and ragdoll execution are not implemented.
         ("Actor", "IsFlying", false),
-        ("Actor", "HasMagicEffect", false),
-        // CK DispelSpell removes active effects, never known or equipped spells.
-        ("Actor", "DispelSpell", false),
-        ("Actor", "HasMagicEffectWithKeyword", false),
         ("ObjectReference", "IsFurnitureMarkerInUse", false),
         ("Utility", "IsInMenuMode", false),
         ("Debug", "OpenUserLog", true),
@@ -2964,13 +3030,7 @@ fn stubs(vm: &mut Vm) -> usize {
         ("Faction", "ModReaction"),
         ("Keyword", "SendStoryEvent"),
         ("ActorBase", "GetGiftFilter"),
-        // No active magic effect model, so the effect's own getters and
-        // Dispel answer quietly.
-        ("ActiveMagicEffect", "GetBaseObject"),
-        ("ActiveMagicEffect", "GetTargetActor"),
-        ("ActiveMagicEffect", "GetCasterActor"),
-        ("ActiveMagicEffect", "Dispel"),
-        ("Actor", "DispelAllSpells"),
+        // CONTEXT: Effect inventory-event forwarding is not implemented.
         ("ActiveMagicEffect", "AddInventoryEventFilter"),
         ("ActiveMagicEffect", "RemoveInventoryEventFilter"),
         ("ActiveMagicEffect", "RemoveAllInventoryEventFilters"),

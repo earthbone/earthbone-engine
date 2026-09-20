@@ -28,7 +28,9 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// behavior graph floats and the player's perk points.
 /// Version 4 added the resident cell, so a loaded game knows which cell's
 /// temporary references it is holding. See `crate::world::transition`.
-pub const SAVE_VERSION: u16 = 4;
+/// Version 5 adds active magic effects and their pending script bindings.
+/// Version 4 remains readable with an empty effect table.
+pub const SAVE_VERSION: u16 = 5;
 
 impl World {
     /// Serialize the run-time state: the VM object handles, references,
@@ -98,6 +100,11 @@ impl World {
         body.len(self.pending.len());
         for p in &self.pending {
             match p {
+                Pending::BindEffect { object, effect } => {
+                    body.u8(2);
+                    body.u64(object.0);
+                    write_form_id(&mut body, *effect);
+                }
                 Pending::Event { object, name, args } => {
                     body.u8(0);
                     body.u64(object.0);
@@ -281,6 +288,7 @@ impl World {
             write_opt_form_id(&mut body, *target);
         }
 
+        self.write_magic(&mut body);
         let mut out = Writer::new();
         out.out.extend_from_slice(SAVE_MAGIC);
         out.u16(SAVE_VERSION);
@@ -302,7 +310,7 @@ impl World {
             return Err(VmError::State("not a world state file".into()));
         }
         let version = r.u16()?;
-        if version != SAVE_VERSION {
+        if !matches!(version, 4 | SAVE_VERSION) {
             return Err(VmError::State(format!(
                 "world state version {version}, this build reads {SAVE_VERSION}"
             )));
@@ -423,6 +431,10 @@ impl World {
             let tag = r.u8()?;
             let object = ObjectId(r.u64()?);
             match tag {
+                2 if version >= 5 => pending.push(Pending::BindEffect {
+                    object,
+                    effect: read_form_id(&mut r)?,
+                }),
                 0 => {
                     let name = r.str()?;
                     let k = r.len()?;
@@ -665,6 +677,38 @@ impl World {
             let source = read_form_id(&mut r)?;
             spell_casts.push((spell, source, read_opt_form_id(&mut r)?));
         }
+        let (next_effect, active_effects) = if version >= 5 {
+            super::magic::read_magic(&mut r)?
+        } else {
+            (1, BTreeMap::new())
+        };
+        for (id, effect) in &active_effects {
+            if !objects.contains_key(&Handle::ActiveEffect(*id))
+                || !actors.contains_key(&effect.target)
+            {
+                return Err(VmError::State(
+                    "active effect without object or actor".into(),
+                ));
+            }
+            let spell = self
+                .spell(effect.spell)
+                .map_err(|e| VmError::State(e.to_string()))?;
+            let Some(entry) = spell.effects.get(effect.effect_index as usize) else {
+                return Err(VmError::State("active effect without spell entry".into()));
+            };
+            if self.resolve_from(effect.spell, entry.base_effect) != Some(effect.effect) {
+                return Err(VmError::State("active effect definition mismatch".into()));
+            }
+            self.magic_effect(effect.effect)
+                .map_err(|e| VmError::State(e.to_string()))?;
+        }
+        for handle in objects.keys() {
+            if let Handle::ActiveEffect(id) = handle {
+                if version < 5 || id.0 == 0 || id.0 >= next_effect {
+                    return Err(VmError::State("invalid active effect handle".into()));
+                }
+            }
+        }
         r.expect_end()?;
 
         self.leveled_lists = leveled_lists;
@@ -692,6 +736,8 @@ impl World {
         self.sound_instances = sound_instances;
         self.next_sound = next_sound;
         self.spell_casts = spell_casts;
+        self.next_effect = next_effect;
+        self.active_effects = active_effects;
 
         self.objects = objects;
         self.handles = handles;
@@ -720,19 +766,19 @@ impl World {
     }
 }
 
-fn write_form_id(w: &mut Writer, id: GlobalFormId) {
+pub(super) fn write_form_id(w: &mut Writer, id: GlobalFormId) {
     w.u16(id.file);
     w.u32(id.object);
 }
 
-fn read_form_id(r: &mut Reader<'_>) -> Result<GlobalFormId, VmError> {
+pub(super) fn read_form_id(r: &mut Reader<'_>) -> Result<GlobalFormId, VmError> {
     Ok(GlobalFormId {
         file: r.u16()?,
         object: r.u32()?,
     })
 }
 
-fn write_opt_form_id(w: &mut Writer, id: Option<GlobalFormId>) {
+pub(super) fn write_opt_form_id(w: &mut Writer, id: Option<GlobalFormId>) {
     match id {
         Some(id) => {
             w.bool(true);
@@ -742,7 +788,7 @@ fn write_opt_form_id(w: &mut Writer, id: Option<GlobalFormId>) {
     }
 }
 
-fn read_opt_form_id(r: &mut Reader<'_>) -> Result<Option<GlobalFormId>, VmError> {
+pub(super) fn read_opt_form_id(r: &mut Reader<'_>) -> Result<Option<GlobalFormId>, VmError> {
     Ok(if r.bool()? {
         Some(read_form_id(r)?)
     } else {
@@ -773,6 +819,10 @@ fn read_transform(r: &mut Reader<'_>) -> Result<Transform, VmError> {
 
 fn write_handle(w: &mut Writer, h: Handle) {
     match h {
+        Handle::ActiveEffect(id) => {
+            w.u8(2);
+            w.u64(id.0);
+        }
         Handle::Form(id) => {
             w.u8(0);
             write_form_id(w, id);
@@ -787,6 +837,7 @@ fn write_handle(w: &mut Writer, h: Handle) {
 
 fn read_handle(r: &mut Reader<'_>) -> Result<Handle, VmError> {
     Ok(match r.u8()? {
+        2 => Handle::ActiveEffect(super::magic::EffectId(r.u64()?)),
         0 => Handle::Form(read_form_id(r)?),
         1 => Handle::Alias {
             quest: read_form_id(r)?,

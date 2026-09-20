@@ -176,7 +176,7 @@ fn the_real_event_sequence_does_not_change_when_the_far_side_was_streamed() {
             .iter()
             .filter_map(|p| match p {
                 soe_game::Pending::Event { object, name, .. } => Some(format!("{object:?} {name}")),
-                soe_game::Pending::Call { .. } => None,
+                soe_game::Pending::Call { .. } | soe_game::Pending::BindEffect { .. } => None,
             })
             .collect()
     };
