@@ -145,6 +145,13 @@ pub(super) struct TextureCounters {
 }
 
 impl TextureCache {
+    pub(super) fn clear_prepared(&self) {
+        self.textures
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clear();
+    }
+
     pub(super) fn resolve(&self, vfs: &Vfs, material: &MaterialDesc) -> SurfaceTextures {
         SurfaceTextures {
             diffuse: material

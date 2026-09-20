@@ -346,6 +346,12 @@ impl DataSource {
         self.threads = threads.max(1);
     }
 
+    /// Drop prepared texture entries so the next stream measures cold cache work.
+    /// Existing returned textures remain valid through their shared ownership.
+    pub fn clear_prepared_textures(&self) {
+        self.textures.clear_prepared();
+    }
+
     #[must_use]
     pub fn threads(&self) -> usize {
         self.threads

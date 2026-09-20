@@ -130,6 +130,11 @@ impl PlayerNode {
                     return false;
                 }
             };
+            let texture_preparation = location
+                .cells
+                .iter()
+                .map(|(_, loaded)| loaded.stats.texture_decode_time)
+                .sum();
             let Some(streamer) = self.game_streamer.as_mut() else {
                 return false;
             };
@@ -143,11 +148,14 @@ impl PlayerNode {
             self.character = Some(id);
             self.collision_references = collision.references;
             self.loaded_cell = Some(cell);
+            self.record_door_texture_preparation(texture_preparation);
             self.footstep_cadence.reset();
             self.motion = CameraMotion::new(feet, self.capsule_height());
             godot_print!(
-                "GAMEPLAY cell={cell} position={position:?} bodies={}",
-                collision.stats.bodies
+                "GAMEPLAY cell={cell} position={position:?} bodies={} texture_prepare_ms={:.3} fade={}",
+                collision.stats.bodies,
+                texture_preparation.as_secs_f64() * 1000.0,
+                self.door_fade_active()
             );
         } else if self.feet() != feet {
             self.footstep_cadence.reset();
