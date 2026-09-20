@@ -614,3 +614,57 @@ isolated package survey reduced that count to 81 and recovered 73 additional
 inventory sections. See [saved package runtime state](save-package-data.md) for
 source evidence, boundaries and integration validation. Runtime package
 restoration and complete ESS resumption remain unfinished.
+
+## Reference mask semantics, SAV-15 blocked
+
+SAV-15 still requires saved reference masks to override authored enable and
+persistence state with validated version-specific semantics. The byte layout
+is established, but the application operation has not been established.
+No reference behavior or engine-save layout changed in this investigation.
+
+Local xEdit `Core/wbDefinitionsTES5Saves.pas`, at
+`wbUnionCHANGE_FORM_FLAGS`, names a 32-bit Mask Invert Flags followed by a
+16-bit Mask Set unk010. It supplies record flag labels, but no application
+algorithm or version-specific decider for these fields. FallrimTools
+`src/main/java/resaver/ess/ChangeFormFlags.java` reads and writes the words
+as FLAGS and UNKNOWN without applying them. UESP's local
+`REFR_Changeform.wikitext` links a ChangeFlags page absent from the corpus.
+The online page and MediaWiki API could not be retrieved during this audit.
+
+CommonLibSSE-NG `include/RE/T/TESForm.h` and
+`include/RE/T/TESObjectREFR.h` identify runtime disabled bit 11 and persistent
+bit 10. `src/RE/T/TESObjectREFR.cpp` checks those bits in IsDisabled and
+IsPersistent. Its load declarations do not supply the saved-mask operation.
+Searches of CommonLibSSE, SKSE64, TiltedEvolution, OpenSkyrim, skymp,
+Skyrim-NX-Toolkit and Wrye Bash found no independent Skyrim mask application.
+An inversion label alone is insufficient evidence to choose XOR over a
+clear/set operation or establish the role of the second word.
+
+The existing `all_external_reference_headers_reencode_and_compare_player_locations`
+test now reports mask counts after re-encoding the complete typed prefix.
+All seven reference-header tests pass with the 60-save corpus supplied.
+All 1,154,526 prefixes reproduce their bytes exactly. Of 328,337 masks,
+276,805 belong to REFR and 51,532 to ACHR. Every observed mask has save-header
+version 12, form version 78 and change-form version 78.
+
+| Observed bits in the first word | Entries |
+|---|---|
+| Neither bit 10 nor bit 11 | 69,708 |
+| Bit 10 alone | 61,999 |
+| Bit 11 alone | 147,495 |
+| Both | 49,135 |
+
+There are 826,189 references without a form-mask field. The second word is
+nonzero in 68,235 masks, with observed values 0x0001, 0x0004, 0x0008,
+0x0010, 0x0040, 0x0048 and 0x0050. These observations establish layout
+coverage, not the resulting enable or persistence state.
+
+The runtime consumer audit found that `World::load_ref_record` derives enable
+state from the winning plugin, while `World::unload_cell` and
+`World::is_persistent_child` use the authored cell index. The placement pass
+reports both mask words without applying them. The runtime has no saved
+persistence override. Completing SAV-15 needs an independently documented
+operation or controlled vanilla saves with observed before/after flags for
+both authored bit values, both reference types and supported versions.
+Those outcomes must drive native enable queries and unload decisions, then
+survive engine save/load. The backlog done check remains unchanged.
