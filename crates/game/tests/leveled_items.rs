@@ -281,14 +281,72 @@ fn nonfinite_global_and_invalid_request_are_rejected() {
 }
 
 #[test]
-fn mixed_use_all_flags_are_rejected_until_precedence_is_established() {
-    for flags in [5, 6, 7] {
+fn prg_16_flag_five_uses_all_levels_and_multiplies_entry_counts() {
+    let mut world = world(vec![list(LIST, 5, 0, &[(1, A, 2), (50, B, 3), (99, A, 4)])]);
+    assert_eq!(
+        world.roll_leveled_items(id(LIST), 1, 2).unwrap(),
+        BTreeMap::from([(id(A), 12), (id(B), 6)])
+    );
+}
+
+#[test]
+fn prg_16_flag_six_rolls_each_count_at_the_highest_eligible_level() {
+    let mut world = world(vec![list(LIST, 6, 0, &[(1, A, 1), (10, B, 2), (20, A, 3)])]);
+    assert_eq!(
+        world.roll_leveled_items(id(LIST), 15, 4).unwrap(),
+        BTreeMap::from([(id(B), 8)])
+    );
+    assert!(world.roll_leveled_items(id(LIST), 1, 0).unwrap().is_empty());
+}
+
+#[test]
+fn prg_16_flag_seven_rolls_each_count_across_eligible_levels_only() {
+    let mut world = world(vec![list(
+        LIST,
+        7,
+        0,
+        &[(1, A, 1), (10, B, 1), (20, A, 1000)],
+    )]);
+    let items = world.roll_leveled_items(id(LIST), 10, 3000).unwrap();
+    assert_eq!(items.values().sum::<i32>(), 3000);
+    assert!((1300..1700).contains(&items[&id(A)]));
+    assert!((1300..1700).contains(&items[&id(B)]));
+}
+
+#[test]
+fn mixed_per_count_flags_apply_chance_none_per_requested_item() {
+    for flags in [6, 7] {
+        let mut world = world(vec![list(LIST, flags, 25, &[(1, A, 1)])]);
+        let count = world.roll_leveled_items(id(LIST), 1, 4000).unwrap()[&id(A)];
+        assert!((2800..3200).contains(&count));
+    }
+}
+
+#[test]
+fn mixed_flags_preserve_child_precedence_and_nested_count_multiplication() {
+    for parent_flags in [5, 6, 7] {
+        for child_flags in [5, 6, 7] {
+            let mut world = world(vec![
+                list(LIST, parent_flags, 0, &[(1, CHILD, 3)]),
+                list(CHILD, child_flags, 0, &[(1, A, 2), (50, B, 4)]),
+            ]);
+            let expected = if child_flags == 5 {
+                BTreeMap::from([(id(A), 12), (id(B), 24)])
+            } else {
+                BTreeMap::from([(id(A), 12)])
+            };
+            assert_eq!(world.roll_leveled_items(id(LIST), 1, 2).unwrap(), expected);
+        }
+    }
+}
+
+#[test]
+fn special_loot_still_requires_its_separate_resolver() {
+    for flags in [8, 13, 14, 15] {
         let mut world = world(vec![list(LIST, flags, 0, &[(1, A, 1)])]);
-        assert!(world
-            .roll_leveled_items(id(LIST), 1, 1)
-            .unwrap_err()
-            .to_string()
-            .contains("unsupported LVLI flags"));
+        let before = world.state_hash().rng;
+        assert!(world.roll_leveled_items(id(LIST), 1, 1).is_err());
+        assert_eq!(world.state_hash().rng, before);
     }
 }
 

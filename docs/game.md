@@ -204,7 +204,10 @@ The `leveled-lists` follow-up adds `World::roll_leveled_items` for ordinary
 LVLI quantities. Callers supply the selection level and requested count.
 Highest eligible level, all eligible levels, per-count rolls, Use All,
 duplicate entry weighting, nested counts and live LVLG chance globals feed
-the saved world RNG. Use All selects every entry. Failed validation or
+the saved world RNG. Use All selects every entry unless calculate-each is set.
+Calculate-each takes precedence, so flags 6 and 7 select once per requested
+count using highest-eligible or all-eligible levels respectively. Flag 5 uses
+every entry regardless of level. Failed validation or
 overflow preserves RNG state and does not change an inventory or queue events.
 The graph is checked before selection, including unselected branches.
 Expansion is bounded to 128 nested lists, 4,096 distinct lists and 65,536
@@ -222,12 +225,21 @@ No package or host node was added.
 The 19 leveled-item checks include a five-master survey of 3,835 LVLI records
 at levels 1, 20 and 50. It resolves 10,878 cases and reports 627 cases with
 unsupported flags. Special-loot selection is tracked by PRG-14 and COED
-ownership/condition propagation by PRG-15. Mixed Use All flags require the
-precedence evidence tracked by PRG-16. This quantity API rejects these cases
-before rolling. The survey encountered no COED rejection. AddItem dispatch
+ownership/condition propagation by PRG-15. This quantity API rejects those cases
+before rolling. PRG-16 adds six mixed-flag checks, replacing the prior rejection
+check. The survey encountered no COED rejection. AddItem dispatch
 and outfit initialization consume these results in their own backlog items.
 The fixtures also cover owner-relative override links, script list edits,
 save/load reproducibility, cycle rejection, overflow and the expansion bound.
+
+Mixed-flag precedence comes from read-only inspection of the installed
+SkyrimSE 1.7.104.0 executable, SHA256
+`846efccf0c1374d71f892907f46549560f2fcb0a75cb87a3eed438baa0f1402f`.
+`CalculateCurrentFormList` at `0x1401e90f0` checks calculate-each at
+`0x1401e91f1` before checking Use All at `0x1401e92d4`. The per-count branch
+returns without visiting Use All, including for nested lists. Tests cover
+flags 5, 6 and 7, eligibility, chance-none rolls and nested count multiplication.
+No executable bytes or proprietary code were copied.
 No comparison of the RNG sequence against Bethesda's runtime was performed.
 
 - Unit tests per module: VMAD round trip, object format 1, version 3, cuts at

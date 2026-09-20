@@ -21,8 +21,8 @@ impl World {
     ///
     /// # Errors
     /// Rejects invalid records, cycles, nonpositive levels, negative quantities,
-    /// arithmetic overflow and excessive expansion. Special loot, mixed Use All
-    /// flags and COED metadata require separate handling before rolling.
+    /// arithmetic overflow and excessive expansion. Special loot and COED metadata
+    /// require separate handling before rolling.
     /// Errors preserve RNG state. Lazy list/global reads may populate caches.
     pub fn roll_leveled_items(
         &mut self,
@@ -89,7 +89,7 @@ impl World {
             .leveled_list(id)
             .ok_or_else(|| Error::Invalid("missing LVLI state".into()))?
             .clone();
-        if state.flags & !7 != 0 || (state.flags & 4 != 0 && state.flags & 3 != 0) {
+        if state.flags & !7 != 0 {
             return Err(Error::Invalid(format!(
                 "unsupported LVLI flags {:#04x}",
                 state.flags
@@ -142,8 +142,9 @@ impl World {
         if count == 0 {
             return Ok(result);
         }
-        let use_all = list.state.flags & 4 != 0;
         let each = list.state.flags & 2 != 0;
+        // Runtime CalculateCurrentFormList selects the per-count path first.
+        let use_all = list.state.flags & 4 != 0 && !each;
         let highest = list
             .state
             .entries
