@@ -56,6 +56,7 @@ mod lookup;
 pub mod magic;
 mod npc_restore;
 mod objects;
+mod outfits;
 pub use npc_restore::NpcRestoreReport;
 mod record_overrides;
 mod temporary_npc;

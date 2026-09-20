@@ -9,6 +9,7 @@ use soe_game::{
         records::{Armor, Weapon},
         Error, MeleeHit,
     },
+    inventory::{Extra, Stack},
     Game, Handle,
 };
 use soe_papyrus::{
@@ -41,6 +42,10 @@ fn armor(object: u32, rating: u32, slots: u32, kind: u32) -> Record {
     let mut body = slots.to_le_bytes().to_vec();
     body.extend_from_slice(&kind.to_le_bytes());
     Record::new(Tag(*b"ARMO"), object)
+        .sub(
+            Tag(*b"DATA"),
+            [0_i32.to_le_bytes(), 5_f32.to_le_bytes()].concat(),
+        )
         .sub(Tag(*b"DNAM"), rating.to_le_bytes())
         .sub(Tag(*b"BOD2"), body)
 }
@@ -95,6 +100,17 @@ fn fixture(extra: Vec<Record>) -> Game {
     }
     game
 }
+fn uninitialized_fixture(extra: Vec<Record>) -> Game {
+    let mut plugin = Plugin::new(FileHeader::default());
+    plugin.push_top(Record::new(Tag(*b"NPC_"), 0x800));
+    plugin.push_top(Record::new(Tag(*b"ACHR"), 0x901).sub(Tag(*b"NAME"), 0x800_u32.to_le_bytes()));
+    for record in extra {
+        plugin.push_top(record);
+    }
+    let mut order = LoadOrder::new();
+    order.add("Combat.esm", plugin).unwrap();
+    Game::new(order)
+}
 fn hit(attacker: u32, target: u32) -> MeleeHit {
     MeleeHit {
         attacker: id(attacker),
@@ -104,8 +120,7 @@ fn hit(attacker: u32, target: u32) -> MeleeHit {
 }
 fn equip(game: &Game, actor: u32, item: u32) {
     let mut world = game.world_mut();
-    world.add_item(id(actor), id(item), 1);
-    world.actor(id(actor)).unwrap().equipped.insert(id(item));
+    world.equip_item(id(actor), id(item)).unwrap();
 }
 fn close(actual: f32, expected: f32) {
     assert!((actual - expected).abs() < 0.0001, "{actual} != {expected}");
@@ -122,6 +137,90 @@ fn weapon_skill_is_independent_of_animation_and_fields_use_schema_offsets() {
     assert_eq!(parsed.reach, 1.1);
     let parsed = Armor::from_record(&armor(0xB00, 70000, 4, 1)).unwrap();
     close(parsed.rating, 44.64);
+}
+
+#[test]
+fn armor_templates_keep_child_value_and_enchantment_inherit_physical_fields() {
+    let mut master = Plugin::new(FileHeader::default());
+    master.push_top(
+        Record::new(Tag(*b"ARMO"), 0xB00)
+            .zsub(Tag(*b"FULL"), "Template")
+            .sub(
+                Tag(*b"DATA"),
+                [40_i32.to_le_bytes(), 12_f32.to_le_bytes()].concat(),
+            )
+            .sub(Tag(*b"DNAM"), 7000_u32.to_le_bytes())
+            .sub(
+                Tag(*b"BOD2"),
+                [4_u32.to_le_bytes(), 1_u32.to_le_bytes()].concat(),
+            ),
+    );
+    master.push_top(Record::new(Tag(*b"ARMO"), 0xB01).sub(Tag(*b"TNAM"), 0xB00_u32.to_le_bytes()));
+    let unrelated = Plugin::new(FileHeader::default());
+    let other_master = Plugin::new(FileHeader::default());
+    let mut child = Plugin::new(FileHeader {
+        masters: vec!["Master.esm".into(), "Other.esm".into()],
+        ..Default::default()
+    });
+    child.push_top(
+        Record::new(Tag(*b"ARMO"), 0x0200_0800)
+            .zsub(Tag(*b"FULL"), "Child")
+            .sub(
+                Tag(*b"DATA"),
+                [90_i32.to_le_bytes(), 1_f32.to_le_bytes()].concat(),
+            )
+            .sub(Tag(*b"EITM"), 0x0200_0900_u32.to_le_bytes())
+            .sub(Tag(*b"TNAM"), 0x0000_0B01_u32.to_le_bytes()),
+    );
+    child.push_top(Record::new(Tag(*b"ENCH"), 0x0200_0900));
+    let mut order = LoadOrder::new();
+    order.add("Unrelated.esm", unrelated).unwrap();
+    order.add("Master.esm", master).unwrap();
+    order.add("Other.esm", other_master).unwrap();
+    order.add("Child.esp", child).unwrap();
+    let child_id = GlobalFormId {
+        file: 3,
+        object: 0x800,
+    };
+    assert_eq!(
+        order.resolve(3, 0x0000_0B01),
+        GlobalFormId {
+            file: 1,
+            object: 0xB01,
+        }
+    );
+    let sources = Armor::sources(&order, child_id).unwrap();
+    assert_eq!(sources.child, child_id);
+    assert_eq!(
+        sources.inherited,
+        GlobalFormId {
+            file: 1,
+            object: 0xB00,
+        }
+    );
+    let view = Armor::from_sources(
+        order.winner(sources.child).unwrap(),
+        order.winner(sources.inherited).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(view.value, Some(90));
+    assert_eq!(view.weight, Some(12.));
+    assert_eq!(view.rating, 70.);
+    assert_eq!(view.slots, 4);
+    assert_eq!(view.kind, Some(1));
+    assert_eq!(view.enchantment, Some(0x0200_0900));
+}
+
+#[test]
+fn armor_template_cycles_and_malformed_links_are_rejected() {
+    let mut plugin = Plugin::new(FileHeader::default());
+    plugin.push_top(armor(0xB00, 0, 1, 0).sub(Tag(*b"TNAM"), 0x0000_0B01_u32.to_le_bytes()));
+    plugin.push_top(armor(0xB01, 0, 1, 0).sub(Tag(*b"TNAM"), 0x0000_0B00_u32.to_le_bytes()));
+    plugin.push_top(armor(0xB02, 0, 1, 0).sub(Tag(*b"TNAM"), [1, 2, 3]));
+    let mut order = LoadOrder::new();
+    order.add("Cycle.esm", plugin).unwrap();
+    assert!(Armor::sources(&order, id(0xB00)).is_err());
+    assert!(Armor::sources(&order, id(0xB02)).is_err());
 }
 
 #[test]
@@ -154,6 +253,191 @@ fn armor_uses_its_skill_hidden_categories_and_reduction_cap() {
         .mod_actor_value(id(0x901), "damageresist", 1000.)
         .unwrap();
     close(game.melee_hit(hit(0x14, 0x901)).unwrap().health_damage, 3.);
+}
+
+#[test]
+fn equipping_overlapping_supported_armor_replaces_only_the_conflicting_item() {
+    let game = fixture(vec![
+        armor(0xB00, 100, 1 << 2, 1),
+        armor(0xB01, 100, (1 << 2) | (1 << 3), 1),
+        armor(0xB02, 100, 1 << 7, 1),
+    ]);
+    equip(&game, 0x901, 0xB00);
+    equip(&game, 0x901, 0xB02);
+    equip(&game, 0x901, 0xB01);
+    let world = game.world();
+    let equipped = &world.actor_ref(id(0x901)).unwrap().equipped;
+    assert!(!equipped.contains(&id(0xB00)));
+    assert!(equipped.contains(&id(0xB01)));
+    assert!(equipped.contains(&id(0xB02)));
+}
+
+#[test]
+fn equipping_templated_armor_uses_inherited_slots_for_conflicts() {
+    let game = fixture(vec![
+        armor(0xB00, 100, 1 << 2, 1),
+        Record::new(Tag(*b"ARMO"), 0xB01)
+            .sub(
+                Tag(*b"DATA"),
+                [20_i32.to_le_bytes(), 1_f32.to_le_bytes()].concat(),
+            )
+            .sub(Tag(*b"TNAM"), 0xB00_u32.to_le_bytes()),
+        armor(0xB02, 100, 1 << 2, 1),
+    ]);
+    equip(&game, 0x901, 0xB02);
+    game.world_mut().equip_item(id(0x901), id(0xB01)).unwrap();
+    let mut world = game.world_mut();
+    let actor = world.actor(id(0x901)).unwrap();
+    assert!(actor.equipped.contains(&id(0xB01)));
+    assert!(!actor.equipped.contains(&id(0xB02)));
+}
+
+#[test]
+fn unsupported_bod2_overlap_is_not_replaced_and_combat_rejects_it() {
+    let mut game = fixture(vec![
+        armor(0xB00, 100, 1 << 31, 1),
+        armor(0xB01, 100, 1 << 31, 1),
+    ]);
+    equip(&game, 0x901, 0xB00);
+    equip(&game, 0x901, 0xB01);
+    let world = game.world();
+    let equipped = &world.actor_ref(id(0x901)).unwrap().equipped;
+    assert!(equipped.contains(&id(0xB00)));
+    assert!(equipped.contains(&id(0xB01)));
+    drop(world);
+    assert!(matches!(
+        game.melee_hit(hit(0x14, 0x901)),
+        Err(Error::Unsupported("overlapping equipped armor"))
+    ));
+}
+
+#[test]
+fn invalid_armor_skill_remains_an_error_after_equipping() {
+    let mut game = fixture(vec![armor(0xB00, 100, 1 << 2, 3)]);
+    assert!(matches!(
+        game.world_mut().equip_item(id(0x901), id(0xB00)),
+        Err(Error::Unsupported("unknown armor skill"))
+    ));
+    {
+        let mut world = game.world_mut();
+        world.add_item(id(0x901), id(0xB00), 1);
+        world.actor(id(0x901)).unwrap().equipped.insert(id(0xB00));
+    }
+    assert!(matches!(
+        game.melee_hit(hit(0x14, 0x901)),
+        Err(Error::Unsupported("unknown armor skill"))
+    ));
+}
+
+#[test]
+fn equip_initializes_an_unloaded_actor_before_recording_armor() {
+    let game = uninitialized_fixture(vec![armor(0xB00, 100, 1 << 2, 1)]);
+    assert!(game.world().actor_ref(id(0x901)).is_none());
+    equip(&game, 0x901, 0xB00);
+    assert!(game
+        .world()
+        .actor_ref(id(0x901))
+        .unwrap()
+        .equipped
+        .contains(&id(0xB00)));
+}
+
+#[test]
+fn malformed_incoming_or_current_armor_leaves_equipment_and_inventory_unchanged() {
+    let malformed = Record::new(Tag(*b"ARMO"), 0xB01).sub(Tag(*b"DNAM"), 100_u32.to_le_bytes());
+    let game = fixture(vec![armor(0xB00, 100, 1 << 2, 1), malformed]);
+    equip(&game, 0x901, 0xB00);
+    let before = game.save_state().unwrap();
+    assert!(matches!(
+        game.world_mut().equip_item(id(0x901), id(0xB01)),
+        Err(Error::Record(_))
+    ));
+    assert_eq!(game.save_state().unwrap(), before);
+    {
+        let mut world = game.world_mut();
+        world.add_item(id(0x901), id(0xB01), 1);
+        world.actor(id(0x901)).unwrap().equipped.insert(id(0xB01));
+    }
+    let before = game.save_state().unwrap();
+    assert!(matches!(
+        game.world_mut().equip_item(id(0x901), id(0xB00)),
+        Err(Error::Record(_))
+    ));
+    assert_eq!(game.save_state().unwrap(), before);
+}
+
+#[test]
+fn replacing_armor_clears_worn_metadata_and_survives_save_load() {
+    let records = vec![armor(0xB00, 100, 1 << 2, 1), armor(0xB01, 100, 1 << 2, 1)];
+    let game = fixture(records.clone());
+    equip(&game, 0x901, 0xB00);
+    game.world_mut()
+        .reference(id(0x901))
+        .unwrap()
+        .inventory
+        .restore(
+            id(0xB00),
+            1,
+            vec![Stack::new(
+                1,
+                vec![Extra {
+                    kind: 22,
+                    fields: vec![],
+                }],
+            )
+            .unwrap()],
+        )
+        .unwrap();
+    equip(&game, 0x901, 0xB01);
+    assert!(!game
+        .world()
+        .reference_ref(id(0x901))
+        .unwrap()
+        .inventory
+        .stacks(id(0xB00))
+        .iter()
+        .any(Stack::worn));
+    let saved = game.save_state().unwrap();
+    let mut restored = fixture(records);
+    restored.load_state(&saved).unwrap();
+    let world = restored.world();
+    let actor = world.actor_ref(id(0x901)).unwrap();
+    assert!(!actor.equipped.contains(&id(0xB00)));
+    assert!(actor.equipped.contains(&id(0xB01)));
+    assert!(!restored
+        .world()
+        .reference_ref(id(0x901))
+        .unwrap()
+        .inventory
+        .stacks(id(0xB00))
+        .iter()
+        .any(Stack::worn));
+}
+
+#[test]
+fn reequipping_armor_preserves_worn_metadata_and_saved_state() {
+    let game = fixture(vec![armor(0xB00, 100, 1 << 2, 1)]);
+    equip(&game, 0x901, 0xB00);
+    game.world_mut()
+        .reference(id(0x901))
+        .unwrap()
+        .inventory
+        .restore(
+            id(0xB00),
+            1,
+            vec![Stack::new(
+                1,
+                vec![Extra {
+                    kind: 22,
+                    fields: vec![],
+                }],
+            )
+            .unwrap()],
+        )
+        .unwrap();
+    let before = game.save_state().unwrap();
+    equip(&game, 0x901, 0xB00);
+    assert_eq!(game.save_state().unwrap(), before);
 }
 
 #[test]

@@ -242,6 +242,12 @@ impl Inventory {
         self.entries.contains_key(&item)
     }
 
+    pub(crate) fn unequip(&mut self, item: GlobalFormId) {
+        if let Some(entry) = self.entries.get_mut(&item) {
+            entry.unequip();
+        }
+    }
+
     pub fn len(&self) -> usize {
         self.entries.len()
     }

@@ -65,11 +65,31 @@ impl World {
         count: i32,
         player_level: Option<u32>,
     ) -> Result<Inventory, Error> {
+        self.roll_leveled_inventory_mode(list, level, count, player_level, true)
+    }
+
+    /// Outfit generation uses the same rolls but does not apply COED extras.
+    pub(super) fn roll_outfit_items(
+        &mut self,
+        list: GlobalFormId,
+        level: u32,
+    ) -> Result<Inventory, Error> {
+        self.roll_leveled_inventory_mode(list, level, 1, None, false)
+    }
+
+    fn roll_leveled_inventory_mode(
+        &mut self,
+        list: GlobalFormId,
+        level: u32,
+        count: i32,
+        player_level: Option<u32>,
+        metadata: bool,
+    ) -> Result<Inventory, Error> {
         if level == 0 || count < 0 {
             return Err(Error::Invalid("invalid leveled item level or count".into()));
         }
         let mut lists = BTreeMap::new();
-        self.prepare_item_lists(list, &mut lists, &mut BTreeSet::new())?;
+        self.prepare_item_lists(list, &mut lists, &mut BTreeSet::new(), metadata)?;
         let previous_rng = self.rng;
         let result = self.roll_item_list(list, level, count, player_level, &lists, &mut 65_536);
         if result.is_err() {
@@ -83,6 +103,7 @@ impl World {
         id: GlobalFormId,
         lists: &mut BTreeMap<GlobalFormId, List>,
         visiting: &mut BTreeSet<GlobalFormId>,
+        metadata: bool,
     ) -> Result<(), Error> {
         if visiting.contains(&id) {
             return Err(Error::Invalid(format!("cyclic leveled item list {id}")));
@@ -110,7 +131,11 @@ impl World {
         {
             return Err(Error::Invalid("invalid LVLI entries".into()));
         }
-        let mut extras = self.leveled_item_extras(id)?;
+        let mut extras = if metadata {
+            self.leveled_item_extras(id)?
+        } else {
+            Vec::new()
+        };
         let global = match record.find(T(b"LVLG")) {
             Some(bytes) if bytes.len() == 4 => le_u32(bytes).filter(|raw| *raw != 0),
             Some(_) => return Err(Error::Invalid("invalid LVLI chance global".into())),
@@ -148,7 +173,7 @@ impl World {
                 return Err(Error::Invalid("zero LVLI entry count".into()));
             }
             if self.tag_of(entry.form) == Some(T(b"LVLI")) {
-                self.prepare_item_lists(entry.form, lists, visiting)?;
+                self.prepare_item_lists(entry.form, lists, visiting, metadata)?;
             } else if !self.is_inventory_base(entry.form) {
                 return Err(Error::Invalid(format!("invalid LVLI item {}", entry.form)));
             }
