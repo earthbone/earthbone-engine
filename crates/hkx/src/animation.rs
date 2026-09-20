@@ -4,6 +4,7 @@
 //! `hkaSplineCompressedAnimation`. Interleaved, delta and wavelet animations
 //! never ship in Skyrim files and are reported as unsupported.
 
+use crate::motion::ReferenceFrame;
 use crate::packfile::Obj;
 use crate::spline::{decode_block, Block};
 use crate::{Error, QsTransform, Result};
@@ -83,8 +84,8 @@ pub struct SplineCompressedAnimation {
     pub float_offsets: Vec<u32>,
     pub data: Vec<u8>,
     pub endian: i32,
-    /// Whether the extracted-motion pointer was set.
-    pub has_extracted_motion: bool,
+    /// Authored motion of the character independently of its bone tracks.
+    pub extracted_motion: Option<Box<ReferenceFrame>>,
 }
 
 fn non_negative(v: i32, what: &str) -> Result<usize> {
@@ -131,7 +132,11 @@ impl SplineCompressedAnimation {
             float_offsets: o.array_u32(136)?,
             data: o.array_u8(152)?,
             endian: o.i32(168)?,
-            has_extracted_motion: o.ptr(32)?.is_some(),
+            extracted_motion: o
+                .ptr(32)?
+                .map(ReferenceFrame::from_obj)
+                .transpose()?
+                .map(Box::new),
         };
         if anim.block_offsets.len() != anim.num_blocks {
             return Err(Error::BadSpline(format!(
@@ -212,7 +217,7 @@ mod tests {
             float_offsets: vec![],
             data: vec![],
             endian: 0,
-            has_extracted_motion: false,
+            extracted_motion: None,
         }
     }
 

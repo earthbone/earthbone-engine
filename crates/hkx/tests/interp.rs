@@ -66,7 +66,7 @@ fn linear_clip(name: &str, lo: f32, hi: f32) -> Clip {
         float_offsets: vec![],
         data: b,
         endian: 0,
-        has_extracted_motion: false,
+        extracted_motion: None,
     };
     Clip::from_parts(name, anim, &[1]).unwrap()
 }

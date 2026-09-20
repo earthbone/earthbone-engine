@@ -35,6 +35,7 @@ pub mod behavior;
 pub mod character;
 pub mod interp;
 pub mod link;
+pub mod motion;
 pub mod packfile;
 pub mod pose;
 pub mod skeleton;
@@ -100,6 +101,8 @@ pub enum Error {
     Unsupported(String),
     /// A spline block is inconsistent with its animation header.
     BadSpline(String),
+    /// An extracted-motion frame has invalid samples or timing.
+    BadMotion(String),
 }
 
 impl fmt::Display for Error {
@@ -134,6 +137,7 @@ impl fmt::Display for Error {
             Error::BadString(at) => write!(f, "bad string at data offset {at}"),
             Error::Unsupported(what) => write!(f, "unsupported: {what}"),
             Error::BadSpline(what) => write!(f, "bad spline data: {what}"),
+            Error::BadMotion(what) => write!(f, "bad extracted motion: {what}"),
         }
     }
 }
