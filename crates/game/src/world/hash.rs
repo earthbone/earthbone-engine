@@ -294,14 +294,14 @@ fn ai_state(h: &mut StateHasher, a: &AiState) {
 }
 
 fn actor_state(h: &mut StateHasher, a: &ActorState) {
-    h.map(&a.values, |h, k, v| {
+    h.len(a.values.entries.len());
+    for (k, v) in &a.values.entries {
         h.str(k);
-        h.f32(*v);
-    });
-    h.map(&a.base_values, |h, k, v| {
-        h.str(k);
-        h.f32(*v);
-    });
+        h.f32(v.base());
+        h.f32(v.permanent());
+        h.f32(v.temporary());
+        h.f32(v.damage());
+    }
     h.bool(a.dead);
     h.bool(a.in_combat);
     h.bool(a.teammate);

@@ -36,6 +36,7 @@ use soe_papyrus::{ObjectId, Value};
 use crate::clock::GameClock;
 use crate::quest::{zstring, Quest};
 
+mod actor_seeds;
 mod actors;
 mod doorway;
 mod driver;
@@ -144,8 +145,7 @@ impl RefState {
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ActorState {
     /// Current values keyed by lowercase actor value name.
-    pub values: HashMap<String, f32>,
-    pub base_values: HashMap<String, f32>,
+    pub values: crate::actor_values::Values,
     pub dead: bool,
     pub in_combat: bool,
     pub teammate: bool,

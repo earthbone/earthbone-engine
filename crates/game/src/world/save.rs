@@ -28,7 +28,9 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// behavior graph floats and the player's perk points.
 /// Version 4 added the resident cell, so a loaded game knows which cell's
 /// temporary references it is holding. See `crate::world::transition`.
-pub const SAVE_VERSION: u16 = 4;
+/// Version 7 stores actor-value components. Versions 5 and 6 belong to the
+/// separately reviewed magic and dialogue worktrees and are not read here.
+pub const SAVE_VERSION: u16 = 7;
 
 impl World {
     /// Serialize the run-time state: the VM object handles, references,
@@ -302,7 +304,7 @@ impl World {
             return Err(VmError::State("not a world state file".into()));
         }
         let version = r.u16()?;
-        if version != SAVE_VERSION {
+        if !matches!(version, 4 | SAVE_VERSION) {
             return Err(VmError::State(format!(
                 "world state version {version}, this build reads {SAVE_VERSION}"
             )));
@@ -330,7 +332,7 @@ impl World {
         let mut actors = HashMap::with_capacity(n);
         for _ in 0..n {
             let id = read_form_id(&mut r)?;
-            actors.insert(id, read_actor_state(&mut r)?);
+            actors.insert(id, read_actor_state(&mut r, version)?);
         }
 
         let n = r.len()?;
@@ -949,16 +951,7 @@ fn read_ref_state(r: &mut Reader<'_>) -> Result<RefState, VmError> {
 }
 
 fn write_actor_state(w: &mut Writer, a: &ActorState) {
-    w.len(a.values.len());
-    for (k, v) in &a.values {
-        w.str(k);
-        w.f32(*v);
-    }
-    w.len(a.base_values.len());
-    for (k, v) in &a.base_values {
-        w.str(k);
-        w.f32(*v);
-    }
+    a.values.write(w);
     w.bool(a.dead);
     w.bool(a.in_combat);
     w.bool(a.teammate);
@@ -1067,18 +1060,11 @@ fn read_object_list(r: &mut Reader<'_>) -> Result<Vec<ObjectId>, VmError> {
     Ok(out)
 }
 
-fn read_actor_state(r: &mut Reader<'_>) -> Result<ActorState, VmError> {
-    let mut a = ActorState::default();
-    let n = r.len()?;
-    for _ in 0..n {
-        let k = r.str()?;
-        a.values.insert(k, r.f32()?);
-    }
-    let n = r.len()?;
-    for _ in 0..n {
-        let k = r.str()?;
-        a.base_values.insert(k, r.f32()?);
-    }
+fn read_actor_state(r: &mut Reader<'_>, version: u16) -> Result<ActorState, VmError> {
+    let mut a = ActorState {
+        values: crate::actor_values::Values::read(r, version)?,
+        ..ActorState::default()
+    };
     a.dead = r.bool()?;
     a.in_combat = r.bool()?;
     a.teammate = r.bool()?;

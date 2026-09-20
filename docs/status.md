@@ -1,5 +1,11 @@
 # Status, per subsystem
 
+The combat attribute milestone adds actor-value components, corrected
+NPC stat offsets and race/template attribute sources. Its installed-data
+survey resolved 4,718 of 6,361 NPC bases, with 1,643 leveled templates pending
+spawn selection. This is a combat prerequisite, not weapon-hit execution.
+See [actor values](actor-values.md) for sources, evidence and remaining work.
+
 Reconciled on 2026-09-19 against engine commit `75cfb55` on `master`.
 This is a source and history review. The full gate, Godot sessions and live
 corpus tests were not rerun for this documentation update. Numbers below are

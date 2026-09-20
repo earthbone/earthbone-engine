@@ -183,7 +183,7 @@ pub fn register(vm: &mut Vm, world: &Shared) -> Registered {
 
 /// Hand-kept count of the non-stub natives registered below. The test in
 /// this module checks it against the registry.
-pub const NATIVE_COUNT: usize = 345;
+pub const NATIVE_COUNT: usize = 349;
 
 fn declare_parents(vm: &mut Vm) {
     for (class, parent) in [
@@ -930,31 +930,63 @@ fn actor(vm: &mut Vm, w: &Shared) {
     }
     for name in ["SetActorValue", "SetAV"] {
         method!(vm, w, "Actor", name, |world, call, me| {
-            world.set_actor_value(me, &text(&call.arg(0)), call.arg(1).as_float());
+            if let Err(error) =
+                world.set_actor_value(me, &text(&call.arg(0)), call.arg(1).as_float())
+            {
+                call.log.push(call.time, error.to_string());
+            }
             none()
         });
     }
-    for name in ["ModActorValue", "ModAV", "RestoreActorValue", "RestoreAV"] {
+    for name in ["ModActorValue", "ModAV"] {
         method!(vm, w, "Actor", name, |world, call, me| {
-            world.mod_actor_value(me, &text(&call.arg(0)), call.arg(1).as_float());
+            if let Err(error) =
+                world.mod_actor_value(me, &text(&call.arg(0)), call.arg(1).as_float())
+            {
+                call.log.push(call.time, error.to_string());
+            }
             none()
         });
     }
     for name in ["DamageActorValue", "DamageAV"] {
         method!(vm, w, "Actor", name, |world, call, me| {
-            world.mod_actor_value(me, &text(&call.arg(0)), -call.arg(1).as_float());
+            if let Err(error) =
+                world.damage_actor_value(me, &text(&call.arg(0)), call.arg(1).as_float())
+            {
+                call.log.push(call.time, error.to_string());
+            }
             none()
         });
     }
     for name in ["GetActorValuePercentage", "GetAVPercentage"] {
         method!(vm, w, "Actor", name, |world, call, me| {
             let name = text(&call.arg(0));
-            let base = world.base_actor_value(me, &name);
-            f(if base > 0.0 {
-                world.actor_value(me, &name) / base
-            } else {
-                0.0
-            })
+            f(world.actor_value_percentage(me, &name))
+        });
+    }
+    for name in ["GetActorValueMax", "GetAVMax"] {
+        method!(vm, w, "Actor", name, |world, call, me| f(
+            world.actor_value_maximum(me, &text(&call.arg(0)))
+        ));
+    }
+    for name in ["RestoreActorValue", "RestoreAV"] {
+        method!(vm, w, "Actor", name, |world, call, me| {
+            if let Err(error) =
+                world.restore_actor_value(me, &text(&call.arg(0)), call.arg(1).as_float())
+            {
+                call.log.push(call.time, error.to_string());
+            }
+            none()
+        });
+    }
+    for name in ["ForceActorValue", "ForceAV"] {
+        method!(vm, w, "Actor", name, |world, call, me| {
+            if let Err(error) =
+                world.force_actor_value(me, &text(&call.arg(0)), call.arg(1).as_float())
+            {
+                call.log.push(call.time, error.to_string());
+            }
+            none()
         });
     }
     method!(vm, w, "Actor", "IsDead", |world, call, me| b(world
@@ -970,10 +1002,8 @@ fn actor(vm: &mut Vm, w: &Shared) {
         form_value(world, call, killer)
     });
     method!(vm, w, "Actor", "Resurrect", |world, call, me| {
-        if let Some(a) = world.actor(me) {
-            a.dead = false;
-            let base = a.base_values.get("health").copied().unwrap_or(100.0);
-            a.values.insert("health".into(), base);
+        if let Err(error) = world.resurrect_actor(me) {
+            call.log.push(call.time, error.to_string());
         }
         none()
     });

@@ -667,9 +667,13 @@ impl Console {
                     return Err(format!("{actor} is not an actor"));
                 }
                 if name == "setav" {
-                    world.set_actor_value(actor, &key, value);
+                    world
+                        .set_actor_value(actor, &key, value)
+                        .map_err(|error| error.to_string())?;
                 } else {
-                    world.mod_actor_value(actor, &key, value);
+                    world
+                        .mod_actor_value(actor, &key, value)
+                        .map_err(|error| error.to_string())?;
                 }
                 Ok(Outcome::Float(f64::from(world.actor_value(actor, &key))))
             }
@@ -728,13 +732,9 @@ impl Console {
             "resurrect" => {
                 let actor = self.target_of(game, target)?;
                 let mut world = game.world_mut();
-                let state = world
-                    .actor(actor)
-                    .ok_or_else(|| format!("{actor} is not an actor"))?;
-                state.dead = false;
-                state.killer = None;
-                let health = state.base_values.get("health").copied().unwrap_or(100.0);
-                state.values.insert("health".into(), health);
+                world
+                    .resurrect_actor(actor)
+                    .map_err(|error| error.to_string())?;
                 Ok(Outcome::Done)
             }
             "evp" => {

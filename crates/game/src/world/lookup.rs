@@ -21,17 +21,19 @@ impl World {
     }
 
     pub fn exists(&self, id: GlobalFormId) -> bool {
-        id.file == DYNAMIC_FILE && self.refs.contains_key(&id) || self.order.contains(id)
+        self.refs.contains_key(&id) || self.order.contains(id)
     }
 
     pub fn tag_of(&self, id: GlobalFormId) -> Option<Tag> {
-        if id.file == DYNAMIC_FILE {
-            return self
-                .refs
-                .get(&id)
-                .map(|r| if r.is_actor { T(b"ACHR") } else { T(b"REFR") });
-        }
-        self.record(id).map(|r| r.tag)
+        self.record(id).map(|record| record.tag).or_else(|| {
+            self.refs.get(&id).map(|reference| {
+                if reference.is_actor {
+                    T(b"ACHR")
+                } else {
+                    T(b"REFR")
+                }
+            })
+        })
     }
 
     pub fn editor_id(&self, id: GlobalFormId) -> Option<String> {
@@ -72,7 +74,9 @@ impl World {
     }
 
     pub fn runtime_id(&self, id: GlobalFormId) -> u32 {
-        if id.file == DYNAMIC_FILE {
+        if id.file == 0 && id.object == super::PLAYER_OBJECT {
+            super::PLAYER_OBJECT
+        } else if id.file == DYNAMIC_FILE {
             0xFF00_0000 | (id.object & 0x00FF_FFFF)
         } else {
             self.order.runtime_id(id)
@@ -81,6 +85,13 @@ impl World {
 
     /// The inverse of [`World::runtime_id`].
     pub fn from_runtime_id(&self, form_id: u32) -> Option<GlobalFormId> {
+        if form_id == super::PLAYER_OBJECT {
+            let player = GlobalFormId {
+                file: 0,
+                object: super::PLAYER_OBJECT,
+            };
+            return self.exists(player).then_some(player);
+        }
         let top = (form_id >> 24) as u8;
         let id = if top == 0xFF {
             GlobalFormId {

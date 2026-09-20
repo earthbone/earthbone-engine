@@ -71,7 +71,7 @@ and `engine-refs/skse64/scripts/vanilla` can establish the contract.
 
 ## Conformance table
 
-Counts from `natives::register`: 345 natives with state behind them and 191
+Counts from `natives::register`: 349 natives with state behind them and 191
 quiet stubs (141 and 176 before the natives round of 2026-09-18, 294 and 137
 before the DLC round). A stub returns the value the game gives when nothing
 is going on (`IsBleedingOut` false, `ShakeCamera` nothing) so vanilla scripts
@@ -131,13 +131,23 @@ Current behavior and compatibility limits:
   `WaitMenuMode` continues. `tick(dt)` remains the unpaused entry point.
   The UI must supply the pause state when menus are implemented.
 - Inventories start from the base record's `CNTO` list.
-- Actor values come from the base `NPC_`: `DNAM` health, magicka, stamina
-  and the 18 skills plus the `ACBS` offsets, with the `TPLT` template applied
-  one level where the template flags say so. Race starting values are not
-  read yet, so they add nothing. `GetLevel` applies the PC level multiplier
-  against `World::player_level` and clamps to the calc range. An actor with
-  no base (the fallback player) starts at 100 for the three main values.
-  Health reaching zero kills a non-essential actor.
+- Actor values keep base, permanent, temporary and damage components in one
+  store. Set changes base, Mod changes permanent, Force adjusts permanent
+  to reach the requested current value, Damage subtracts from the damage
+  component and Restore heals that component without changing maximum.
+  GetActorValueMax/GetAVMax includes permanent and temporary modifiers.
+  GetActorValuePercentage uses that maximum and follows the CK exceptions
+  for zero maximum and CarryWeight.
+- Health, magicka and stamina use race starting values plus NPC offsets for
+  manual stats. Auto-calculated actors use their authored DNAM cache pending
+  live class/level calculation. Stats and traits follow separate template
+  chains with links resolved in each winning file. Leveled templates return
+  an error pending spawn selection. Missing race DATA retains the old
+  DNAM-plus-offset fallback for synthetic records. See [actor values](actor-values.md).
+- PlayerRef keeps form 0x14 and binds to the Player NPC base when available.
+  A base-less synthetic player starts at 100 for the three main values.
+  Health reaching zero marks death unless essential or deferred, with no
+  death-event or bleedout lifecycle yet. Healing alone does not resurrect.
 - `GetAngle*` return degrees, the record stores radians.
 - Update timers run on real seconds, the game-time variants on game hours.
 - `Game.GetForm` accepts the runtime id under the current load order, light
@@ -214,12 +224,12 @@ cargo test -p soe-game
 
 ## Live run (2026-09-14)
 
-`tests/npc.rs` against the installed Skyrim.esm: the player base (`Player`,
-form 7) reads level 1, health 150, magicka 150, stamina 50, OneHanded 20,
-Sneak 15, three spells, four factions, sixteen items, race NordRace.
-`MQ101Alduin` reads through its template (flags 0xf63): level 10, essential,
-health 1550, magicka 80, four spells. `Prisoner` is a `CLAS` record, not an
-actor base.
+The old NPC attribute measurements are superseded by the 2026-09-20 survey.
+They used DNAM fields read two bytes late and omitted race starting values.
+With the corrected layout, the five-master inputs resolve Player to health,
+magicka and stamina 100, Hulda to 75/60/60, and MQ101Alduin to 2355/50/80.
+These are engine results from authored data, not comparison with a running
+vanilla game. `Prisoner` is a `CLAS` record, not an actor base.
 
 A gated test, `the_installed_game_binds_its_vanilla_scripts` in
 `tests/real_files.rs`, loads the five base masters through `soe_esm`, builds a
@@ -576,12 +586,16 @@ either.
 
 `World::save_state(&self) -> Vec<u8>` and `World::load_state(&mut self,
 bytes) -> Result<(), VmError>` write and read the run-time half of the form
-table, magic `SOEW`, version 4 (version 2 added the package driver state
+table, magic `SOEW`, version 7 (version 2 added the package driver state
 to every actor and the natives round state, version 3 the DLC state:
 vampirism and lycanthropy, flying, the deferred kill, eye texture, critical
 stage, bleedout, shouts, the behavior graph floats and the player's perk
-points, version 4 the resident cell. Older files are refused,
-nothing shipped them), in the same `Writer`/`Reader` encoding as
+points, version 4 the resident cell, version 7 actor-value components).
+Version 4 reads only when each actor's old current and base values agree.
+A difference cannot identify which modifier produced it, so restoration
+returns an explicit ambiguity error. Versions 5 and 6 belong to separate
+magic and dialogue worktrees and need format reconciliation before integration.
+The state uses the same `Writer`/`Reader` encoding as
 `soe_papyrus::vm::state`, an `ArrayPool` and `ArrayTable` of its own ahead of
 the body for the `Value` arguments a pending event or call is carrying.
 
@@ -622,8 +636,9 @@ notification fired, and the alias resolved to the lever.
 
 ## Not done, and known gaps
 
-- Race records are not read, so race starting stats and the skill bonuses
-  they carry are missing from actor values.
+- Race starting attributes are read. Live class/level calculations, racial
+  skill bonuses and leveled-template selection remain unfinished. Other NPC
+  template groups still use the older one-level view and need correction.
 - No combat, magic, dialogue. Their natives are stubs. Packages run three
   procedures, see the Packages section for the rest. Scenes play as a flag
   with `OnBegin` and `OnEnd`, no phases or actions. Perks are a set on the

@@ -299,11 +299,11 @@ fn stats(d: &[u8]) -> Result<Stats> {
     s.skills.copy_from_slice(&d[0..18]);
     s.skill_offsets.copy_from_slice(&d[18..36]);
     let u16_at = |i: usize| u16::from_le_bytes([d[i], d[i + 1]]);
-    s.health = u16_at(38);
-    s.magicka = u16_at(40);
-    s.stamina = u16_at(42);
-    s.far_away_distance = f32::from_le_bytes([d[46], d[47], d[48], d[49]]);
-    s.geared_up_weapons = d[50];
+    s.health = u16_at(36);
+    s.magicka = u16_at(38);
+    s.stamina = u16_at(40);
+    s.far_away_distance = f32::from_le_bytes([d[44], d[45], d[46], d[47]]);
+    s.geared_up_weapons = d[48];
     Ok(s)
 }
 
@@ -350,11 +350,11 @@ pub fn build_record(
     let mut dnam = vec![0u8; 52];
     dnam[0..18].copy_from_slice(&stats.skills);
     dnam[18..36].copy_from_slice(&stats.skill_offsets);
-    dnam[38..40].copy_from_slice(&stats.health.to_le_bytes());
-    dnam[40..42].copy_from_slice(&stats.magicka.to_le_bytes());
-    dnam[42..44].copy_from_slice(&stats.stamina.to_le_bytes());
-    dnam[46..50].copy_from_slice(&stats.far_away_distance.to_le_bytes());
-    dnam[50] = stats.geared_up_weapons;
+    dnam[36..38].copy_from_slice(&stats.health.to_le_bytes());
+    dnam[38..40].copy_from_slice(&stats.magicka.to_le_bytes());
+    dnam[40..42].copy_from_slice(&stats.stamina.to_le_bytes());
+    dnam[44..48].copy_from_slice(&stats.far_away_distance.to_le_bytes());
+    dnam[48] = stats.geared_up_weapons;
     Record::new(NPC, form_id)
         .zsub(Tag::new(b"EDID"), editor_id)
         .zsub(Tag::new(b"FULL"), name)

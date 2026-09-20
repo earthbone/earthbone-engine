@@ -22,6 +22,7 @@
 //! game.tick(1.0 / 60.0);
 //! ```
 
+pub mod actor_values;
 pub mod ai;
 pub mod clock;
 pub mod coverage;
@@ -33,6 +34,7 @@ pub mod natives;
 pub mod npc;
 pub mod package;
 pub mod quest;
+pub mod race;
 pub mod save;
 pub mod vmad;
 pub mod world;
