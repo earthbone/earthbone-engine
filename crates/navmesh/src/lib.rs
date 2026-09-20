@@ -20,9 +20,10 @@
 pub mod generate;
 pub mod graph;
 pub mod scene;
+pub mod stitch;
 pub mod vanilla;
 
-pub use generate::{generate, Agent, Navmesh};
+pub use generate::{generate, generate_cell, Agent, Navmesh};
 pub use graph::{NavGraph, NodeId, Path};
 pub use scene::Scene;
 
