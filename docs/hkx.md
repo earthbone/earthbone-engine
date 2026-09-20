@@ -479,7 +479,8 @@ stored start state in every mode), `hkbBlendingTransitionEffect.duration` and
 ### Scalar transition conditions, ANM-01
 
 `hkbExpressionCondition.expression` and legacy
-`hkbStringCondition.conditionString` are string pointers at offset 16.
+`hkbStringCondition.conditionString` are string pointers at offset 8 on LE and
+16 on SE, as `serde-hkx` declares them.
 Conditions have no `hkbNode` header. The parser preserves their source in
 `TransitionInfo.condition`, including an explicit unsupported class variant.
 `Interpreter::new` compiles the source after reference linking. Named graph
