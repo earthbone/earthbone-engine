@@ -410,7 +410,9 @@ GetFactionRank, GetGlobalValue, GetRandomPercent, GetLevel,
 GetPlayerControlsDisabled, GetIsReference, GetIsCurrentPackage,
 GetDayOfWeek, IsSneaking (always false, no sneak state yet), IsInCombat,
 IsInInterior, GetQuestCompleted, HasKeyword, GetIsAliasRef,
-GetActorValuePercent. Any other function fails its condition and is
+GetActorValuePercent. The AI-01 increment also shares GetStaminaPercentage,
+GetBaseActorValue, IsKiller, GetHealthPercentage and GetPermanentActorValue
+with the gameplay evaluator. Any other function fails its condition and is
 counted in `World::ai.unsupported_functions` by index, so a live run
 prints what the next round should add.
 
@@ -1508,3 +1510,38 @@ separately. Importing the same components from vanilla ESS remains blocked in
 SAV-06 because their serialized ACHR boundaries are not established. SAV-64
 tracks that source prerequisite. See [saved actor-value modifiers](save-actor-values.md)
 for the source audit, all-save coverage and identity requirements.
+
+## Actor condition batch AI-01
+
+Both the gameplay CTDA evaluator and the package evaluator now execute
+GetActorValue (14), GetStaminaPercentage (128), GetBaseActorValue (277),
+IsKiller (408), GetHealthPercentage (430) and GetPermanentActorValue (494)
+through one helper over the existing actor store. Current includes every
+modifier, base excludes them, and permanent includes only base and the
+permanent modifier. Health and stamina fractions reuse the Papyrus percentage
+contract, including zero maximum and exhausted values. IsKiller reads the
+existing death attribution and requires a dead actor. Missing, deleted and
+non-actor subjects return explicit errors, and package predicates fail closed.
+
+Sources are local xEdit `wbConditionFunctions`, CommonLibSSE-NG
+`include/RE/A/ActorValues.h`, and CK `GetActorValue`, `GetBaseActorValue` and
+`GetActorValuePercentage` pages in `engine-refs/ck-wiki`. The
+[CK IsKiller contract](https://ck.uesp.net/wiki/IsKiller) names the dead actor
+as subject and the possible killer as parameter. The
+[SKSE command reference](https://skse.silverlock.org/vanilla_commands.html)
+describes the permanent-value query as excluding temporary modifiers.
+The condition index table covers all 164 CommonLib actor values, with the
+existing store spellings for marksman, speechcraft and critchance. This does
+not widen the separate magic effect actor-value allowlist.
+
+AI-86 retains IsKillerObject (409) and GetXPForNextLevel (530). xEdit and
+SKSE name a FormList argument for 409 without defining what it matches. The
+[Experience author](https://www.nexusmods.com/skyrimspecialedition/articles/7028)
+describes 530 as a placebo vanilla command fixed by that mod. These queries
+remain unsupported pending a Skyrim contract. They are not counted as
+implemented predicates.
+
+`condition_actor_values` checks both evaluators against independent expected
+values, high indices, invalid indices and subjects, resource fractions and the
+existing kill/resurrection lifecycle. No new authoritative actor state,
+dependency or save format was added.

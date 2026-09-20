@@ -11,6 +11,8 @@ use soe_esm::{
 };
 use soe_papyrus::{Value, Vm};
 
+mod actor_values;
+
 /// The record supplies local FormID mapping. Subject and target are runtime forms.
 #[derive(Debug, Clone, Copy)]
 pub struct Context {
@@ -26,6 +28,8 @@ pub struct Context {
 pub enum Error {
     #[error("unsupported condition function {0}")]
     Function(u16),
+    #[error("invalid actor-value index {0}")]
+    ActorValue(u32),
     #[error("unsupported second parameter {1:#x} for condition function {0}")]
     Parameter(u16, u32),
     #[error("unsupported condition flags {0:#x}")]
@@ -76,7 +80,13 @@ pub fn evaluate(
 pub fn supports_function(function: u16) -> bool {
     matches!(
         function,
-        1 | 18
+        1 | 14
+            | 128
+            | 277
+            | 408
+            | 430
+            | 494
+            | 18
             | 46
             | 47
             | 56
@@ -214,6 +224,9 @@ fn function_value(
 ) -> Result<f32, Error> {
     let raw = c.parameters[0];
     Ok(match c.function {
+        14 | 128 | 277 | 408 | 430 | 494 => {
+            actor_query(world, context.owner, subject, c.function, raw)?
+        }
         1 => {
             let other = resolve_reference(world, context.owner, raw)?;
             world.distance(subject, other)
@@ -366,6 +379,49 @@ fn function_value(
         659 => boolean(context.tempering_enchanted.ok_or(Error::TemperingContext)?),
         other => return Err(Error::Function(other)),
     })
+}
+
+/// Shared actor queries keep package and gameplay predicates on the same state.
+pub(crate) fn actor_query(
+    world: &mut World,
+    owner: GlobalFormId,
+    subject: GlobalFormId,
+    function: u16,
+    parameter: u32,
+) -> Result<f32, Error> {
+    if world
+        .reference(subject)
+        .is_none_or(|reference| reference.deleted)
+    {
+        return Err(Error::Form(subject));
+    }
+    if function == 408 {
+        let other = resolve_reference(world, owner, parameter)?;
+        if world.actor(other).is_none() {
+            return Err(Error::Form(other));
+        }
+        let actor = world.actor(subject).ok_or(Error::Form(subject))?;
+        return Ok(boolean(actor.dead && actor.killer == Some(other)));
+    }
+    let name = match function {
+        128 => "stamina",
+        430 => "health",
+        14 | 277 | 494 => actor_values::name(parameter).ok_or(Error::ActorValue(parameter))?,
+        _ => return Err(Error::Function(function)),
+    };
+    let actor = world.actor(subject).ok_or(Error::Form(subject))?;
+    let components = actor.values.get(name);
+    let value = match function {
+        14 => components.current(),
+        277 => components.base(),
+        494 => (f64::from(components.base()) + f64::from(components.permanent())) as f32,
+        _ => actor.values.percentage(name),
+    };
+    if value.is_finite() {
+        Ok(value)
+    } else {
+        Err(Error::NonFinite)
+    }
 }
 
 /// GetItemCount accepts FLST membership. Keep the recursion bounded for modded cycles.
