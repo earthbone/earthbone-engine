@@ -614,3 +614,12 @@ isolated package survey reduced that count to 81 and recovered 73 additional
 inventory sections. See [saved package runtime state](save-package-data.md) for
 source evidence, boundaries and integration validation. Runtime package
 restoration and complete ESS resumption remain unfinished.
+
+## Base-object value and full-name field evidence
+
+SAV-53 remains blocked on exact Skyrim field-layout evidence. The local and
+current public xEdit definitions leave both target payloads as placeholders.
+Additional public readers do not supply the missing boundaries. The audit
+records pinned sources, the limits of the existing corpus result and the
+controlled observations required to proceed in
+[saved base-object fields](save-base-fields.md). No decoder was added.
