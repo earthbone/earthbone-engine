@@ -1300,3 +1300,46 @@ trip and actual E-key crossing passed again. Key use and lock state are tested
 in the game layer, including a keyed load-door transition and unload retention.
 The final gate for that increment passed with 950 Rust tests and 11 Python
 tests. All three clippy configurations and all lint tools ran.
+
+## Native menu framework
+
+UI-01 adds a modal Control tree to PlayerNode. One CanvasLayer, one
+PanelContainer, two VBoxContainers, one Label and one Button form the fixed
+shell. A Theme supplies shared text and panel styling. Opening sets keyboard
+focus and releases the mouse. Escape and the Close button close the menu.
+Closing frees presenter controls, clears held gameplay actions and restores
+prior focus and mouse mode. Mouse restoration waits for window focus when
+closing while unfocused. Repeated opens and closes do not add shell nodes.
+
+The host keeps the scene tree running. PlayerNode routes its existing Game
+through MenuState::tick and Game::tick_menu_mode. While a menu is open, host
+physics, camera input and activation do not advance. The game clock, ordinary
+Papyrus waits and game-time waits pause, while menu-time waits continue. After
+closing, the next player step resumes the existing Game and synchronizes any
+scripted player move through the normal host path.
+
+Native presenters use PlayerNode::game and game_mut to read and mutate the
+shared form-backed runtime. menu_content exposes a Control container owned by
+the framework. menu_opened and menu_closed signals run after their state change
+through gdext's reentrant base guard, allowing callbacks to inspect PlayerNode.
+No inventory, dialogue, crafting or MCM implementation is included here.
+Those menus use this shell and their existing gameplay APIs.
+
+Sources read locally were Godot's Control, Theme, Node and SceneTree class
+docs, gdext node ownership, secondary API registration and reentrant signal
+tests, and SkyUI SKI_ConfigBase's page/open/close lifecycle. The SkyUI source
+informs the future content boundary only. Its Scaleform UI and MCM execution
+are not ported by this increment. The only dependency addition is the existing
+workspace Papyrus crate under dev-dependencies for clock tests.
+
+The menu_clock Rust test calls the same coordinator as PlayerNode and checks
+Wait, WaitMenuMode and WaitGameTime across open and close. The menu_runtime.gd
+headless scene-tree test checks native controls, theme, focus, signal callbacks,
+input isolation, mouse restoration, node lifetime and shutdown. With
+SOE_UI_TEST_DATA or its fallback SKYRIM_DATA set, it also starts the shared Game
+in WhiterunBanneredMare and checks that the
+same game clock and host position pause and resume. It runs from a disposable
+Godot project pointing to this worktree's extension, so an existing interactive
+window keeps its loaded library. A small synthetic master set with installed
+mesh archives exercises this path without loading the full installed records.
+That fixture verifies host integration, not a full installed-game session.

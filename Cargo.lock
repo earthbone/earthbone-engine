@@ -1316,6 +1316,7 @@ dependencies = [
  "soe-game",
  "soe-hkx",
  "soe-nif",
+ "soe-papyrus",
  "soe-physics",
  "soe-trace",
  "thiserror 2.0.20",
