@@ -194,6 +194,24 @@ focus node to the tree before the streamer node, or gate the first `process` tic
 
 ## Real cell (2026-09-17)
 
+### Editor marker survey (2026-09-20)
+
+`DataSource` keeps the form-level bit 23 filter for FURN and DOOR. For models
+selected through STAT, CONT, FURN and DOOR, it also removes only TriShape and
+BSTriShape blocks reached through an `EditorMarker` node. xEdit's
+`Core/wbDataFormatNif.pas`, `TwbNifBlock.GetIsEditorMarker`, is the source: it
+defines an editor marker per named NiObjectNET block. Collision still reads the
+full model, so the visual filter does not remove physical geometry.
+
+The installed base-master survey found 248 marker shapes in 113 models. Of
+those models, 111 contained only marker shapes. The two mixed models retained
+their ordinary sibling shapes. The production loader test compares its emitted
+surface and triangle totals with the decoded nonmarker meshes for every
+available surveyed model. It found 41 ordinary visible controls and nine
+baseline VFS-not-found paths, which it reports without treating them as marker
+filter failures. The serial one-CPU run completed in 18 seconds and peaked at
+13.6 GiB RSS.
+
 `godot-host` now depends on `esm`, `bsa` and `nif` (`crates/godot-host/Cargo.toml`), closing
 the gap the previous section called out. `src/data_source.rs` is the new module, engine-free
 like the rest of the crate below the Godot layer. `DataSource::open` loads the five base
