@@ -1,10 +1,11 @@
 # Status, per subsystem
 
 The completed combat integration adds difficulty selection, weapon and armor
-templates, armor slot replacement and the authored melee contact bridge.
+templates, armor slot replacement, race-based unarmed damage and the authored
+melee contact bridge.
 SOEW version 18 combines difficulty with hand assignments and reads the
-distinct version 16 and 17 branch layouts. The combined gate passes 1,191 Rust
-tests and 11 Python tests. The installed record survey executes 195 supported
+distinct version 16 and 17 branch layouts. The checkpoint before unarmed
+integration passed 1,191 Rust tests and 11 Python tests. The installed record survey executes 195 supported
 weapons. BACKLOG.csv records the completed rows and their prerequisites.
 Live actor collision synchronization, host attack input, bleedout and combat
 AI remain unfinished. See [combat](combat.md) for evidence and limits.

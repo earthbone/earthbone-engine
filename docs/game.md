@@ -1,6 +1,7 @@
 # soe-game: the runtime form table and the first natives
 
-The combat integration includes difficulty selection, template-backed hits,
+The combat integration includes race-based unarmed damage, difficulty selection,
+template-backed hits,
 armor slot replacement and explicit weapon hands. SOEW version 18 retains
 both difficulty and hands, with separate readers for the version 16 and 17
 branch layouts. The authored contact bridge reaches the shared Game through

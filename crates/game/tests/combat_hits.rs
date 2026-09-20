@@ -38,6 +38,11 @@ fn weapon(object: u32, damage: u16, skill: i32) -> Record {
         .sub(Tag(*b"DATA"), data)
         .sub(Tag(*b"DNAM"), dnam)
 }
+fn unarmed_weapon() -> Record {
+    // The source identity selects race damage. This fixture only supplies a
+    // complete WEAP layout, while the installed survey checks Skyrim.esm's form.
+    weapon(0x1F4, 0, -1)
+}
 fn armor(object: u32, rating: u32, slots: u32, kind: u32) -> Record {
     let mut body = slots.to_le_bytes().to_vec();
     body.extend_from_slice(&kind.to_le_bytes());
@@ -50,6 +55,21 @@ fn weapon_template(object: u32, template: u32) -> Record {
 }
 fn armor_template(object: u32, template: u32) -> Record {
     Record::new(Tag(*b"ARMO"), object).sub(Tag(*b"TNAM"), template.to_le_bytes())
+}
+fn race(object: u32, unarmed_damage: f32) -> Record {
+    let mut data = vec![0; 124];
+    put(&mut data, 96, unarmed_damage.to_bits());
+    Record::new(Tag(*b"RACE"), object).sub(Tag(*b"DATA"), data)
+}
+fn templated_npc(object: u32, template: u32) -> Record {
+    let mut acbs = vec![0; 24];
+    acbs[18..20].copy_from_slice(&1_u16.to_le_bytes());
+    Record::new(Tag(*b"NPC_"), object)
+        .sub(Tag(*b"ACBS"), acbs)
+        .sub(Tag(*b"TPLT"), template.to_le_bytes())
+}
+fn npc_with_race(object: u32, race: u32) -> Record {
+    Record::new(Tag(*b"NPC_"), object).sub(Tag(*b"RNAM"), race.to_le_bytes())
 }
 fn settings(plugin: &mut Plugin) {
     for (index, (name, value)) in [
@@ -113,11 +133,66 @@ fn uninitialized_fixture(extra: Vec<Record>) -> Game {
     order.add("Combat.esm", plugin).unwrap();
     Game::new(order)
 }
+fn unarmed_game(winning_race: Record) -> Game {
+    unarmed_game_with_source(winning_race, Some(unarmed_weapon()))
+}
+fn unarmed_game_with_source(winning_race: Record, source: Option<Record>) -> Game {
+    let mut plugin = Plugin::new(FileHeader::default());
+    plugin.push_top(race(0x700, 4.));
+    plugin.push_top(templated_npc(0x800, 0x801));
+    plugin.push_top(npc_with_race(0x801, 0x700));
+    for actor in [0x900, 0x901] {
+        plugin.push_top(
+            Record::new(Tag(*b"ACHR"), actor).sub(Tag(*b"NAME"), 0x800_u32.to_le_bytes()),
+        );
+    }
+    plugin.push_top(weapon(0xA00, 10, 6));
+    if let Some(source) = source {
+        plugin.push_top(source);
+    }
+    settings(&mut plugin);
+    let mut order = LoadOrder::new();
+    order.add("Combat.esm", plugin).unwrap();
+    let mut patch = Plugin::new(FileHeader {
+        masters: vec!["Combat.esm".into()],
+        ..FileHeader::default()
+    });
+    patch.push_top(winning_race);
+    order.add("CombatPatch.esp", patch).unwrap();
+    Game::new(order)
+}
+fn ready_unarmed_game(winning_race: Record) -> Game {
+    let game = unarmed_game(winning_race);
+    game.world_mut().actor_base(id(0x800)).unwrap();
+    for actor in [0x900, 0x901] {
+        game.world_mut()
+            .set_actor_value(id(actor), "health", 100.)
+            .unwrap();
+    }
+    game
+}
+fn ready_unarmed_game_with_source(winning_race: Record, source: Option<Record>) -> Game {
+    let game = unarmed_game_with_source(winning_race, source);
+    game.world_mut().actor_base(id(0x800)).unwrap();
+    for actor in [0x900, 0x901] {
+        game.world_mut()
+            .set_actor_value(id(actor), "health", 100.)
+            .unwrap();
+    }
+    game
+}
 fn hit(attacker: u32, target: u32) -> MeleeHit {
     MeleeHit {
         attacker: id(attacker),
         target: id(target),
         weapon: id(0xA00),
+    }
+}
+fn unarmed_hit(attacker: u32, target: u32) -> MeleeHit {
+    MeleeHit {
+        attacker: id(attacker),
+        target: id(target),
+        weapon: id(0x1F4),
     }
 }
 fn equip(game: &Game, actor: u32, item: u32) {
@@ -188,6 +263,228 @@ fn weapon_skill_is_independent_of_animation_and_fields_use_schema_offsets() {
     assert_eq!(parsed.reach, 1.1);
     let parsed = Armor::from_record(&armor(0xB00, 70000, 4, 1)).unwrap();
     close(parsed.rating, 44.64);
+}
+
+#[test]
+fn unarmed_uses_the_winning_trait_race_and_current_actor_value() {
+    let mut game = ready_unarmed_game(race(0x700, 10.));
+    close(
+        game.melee_hit(unarmed_hit(0x900, 0x901))
+            .unwrap()
+            .health_damage,
+        10.,
+    );
+    game.world_mut()
+        .mod_actor_value(id(0x900), "unarmeddamage", 2.)
+        .unwrap();
+    let bytes = game.save_state().unwrap();
+    let mut restored = ready_unarmed_game(race(0x700, 10.));
+    restored.load_state(&bytes).unwrap();
+    close(
+        restored
+            .melee_hit(unarmed_hit(0x900, 0x901))
+            .unwrap()
+            .health_damage,
+        12.,
+    );
+}
+
+#[test]
+fn unarmed_composes_with_templated_armor_difficulty_and_saved_state() {
+    let records = vec![
+        unarmed_weapon(),
+        armor_template(0xB00, 0xB01),
+        armor(0xB01, 10_000, 1 << 2, 1),
+    ];
+    let mut game = fixture(records.clone());
+    let player = game.player();
+    game.world_mut()
+        .set_actor_value(player, "unarmeddamage", 10.)
+        .unwrap();
+    equip(&game, 0x901, 0xB00);
+    game.set_difficulty(Difficulty::Legendary);
+    let result = game.melee_hit(unarmed_hit(0x14, 0x901)).unwrap();
+    close(result.weapon_damage, 10.);
+    close(result.armor_rating, 100.);
+    close(result.armor_reduction, 0.15);
+    close(result.health_damage, 2.125);
+    let saved = game.save_state().unwrap();
+    let mut loaded = fixture(records);
+    loaded.load_state(&saved).unwrap();
+    assert_eq!(loaded.world().state_hash(), game.world().state_hash());
+    assert_eq!(loaded.difficulty(), Difficulty::Legendary);
+    close(
+        loaded
+            .melee_hit(unarmed_hit(0x14, 0x901))
+            .unwrap()
+            .health_damage,
+        2.125,
+    );
+}
+
+#[test]
+fn unarmed_source_does_not_require_inventory_or_an_empty_weapon_slot() {
+    let mut game = ready_unarmed_game(race(0x700, 10.));
+    {
+        let mut world = game.world_mut();
+        world.add_item(id(0x900), id(0xA00), 1);
+        world.actor(id(0x900)).unwrap().equipped.insert(id(0xA00));
+    }
+    close(
+        game.melee_hit(unarmed_hit(0x900, 0x901))
+            .unwrap()
+            .health_damage,
+        10.,
+    );
+}
+
+#[test]
+fn unarmed_requires_a_live_canonical_weapon_record_without_mutating_state() {
+    for source in [
+        None,
+        Some(Record::new(Tag(*b"ARMO"), 0x1F4)),
+        Some({
+            let mut record = unarmed_weapon();
+            record.flags = soe_esm::plugin::flags::DELETED;
+            record
+        }),
+        Some(Record::new(Tag(*b"WEAP"), 0x1F4)),
+    ] {
+        let mut game = ready_unarmed_game_with_source(race(0x700, 10.), source);
+        let before = game.save_state().unwrap();
+        assert!(matches!(
+            game.melee_hit(unarmed_hit(0x900, 0x901)),
+            Err(Error::Equipment | Error::Record(_))
+        ));
+        assert_eq!(game.save_state().unwrap(), before);
+    }
+}
+
+#[test]
+fn unarmed_rejects_unsupported_canonical_weapon_modifiers() {
+    let mut flagged = unarmed_weapon();
+    flagged
+        .subrecords
+        .iter_mut()
+        .find(|field| field.tag == Tag(*b"DNAM"))
+        .unwrap()
+        .data[12..14]
+        .copy_from_slice(&1_u16.to_le_bytes());
+    let mut resistant = unarmed_weapon();
+    put(
+        &mut resistant
+            .subrecords
+            .iter_mut()
+            .find(|field| field.tag == Tag(*b"DNAM"))
+            .unwrap()
+            .data,
+        88,
+        0,
+    );
+    for source in [
+        unarmed_weapon().sub(Tag(*b"EITM"), 0x123_u32.to_le_bytes()),
+        flagged,
+        resistant,
+    ] {
+        let mut game = ready_unarmed_game_with_source(race(0x700, 10.), Some(source));
+        assert!(matches!(
+            game.melee_hit(unarmed_hit(0x900, 0x901)),
+            Err(Error::Unsupported(
+                "weapon template or enchantment" | "weapon resistance or non-hostile flags"
+            ))
+        ));
+    }
+}
+
+#[test]
+fn malformed_unarmed_race_rejects_the_hit() {
+    let mut game = unarmed_game(Record::new(Tag(*b"RACE"), 0x700).sub(Tag(*b"DATA"), [0; 96]));
+    game.world_mut().actor_base(id(0x800)).unwrap();
+    assert!(game.world_mut().initial_actor_values(id(0x800)).is_err());
+    assert!(matches!(
+        game.melee_hit(unarmed_hit(0x900, 0x901)),
+        Err(Error::Actor(actor)) if actor == id(0x900)
+    ));
+}
+
+#[test]
+fn installed_race_backed_unarmed_hits_execute() {
+    let Some(data) = std::env::var_os("SKYRIM_DATA").map(std::path::PathBuf::from) else {
+        eprintln!("SKYRIM_DATA not set, skipping race-backed unarmed survey");
+        return;
+    };
+    let masters = [
+        "Skyrim.esm",
+        "Update.esm",
+        "Dawnguard.esm",
+        "HearthFires.esm",
+        "Dragonborn.esm",
+    ];
+    let mut order = LoadOrder::new();
+    for name in masters {
+        order
+            .add(
+                name,
+                Plugin::parse(&std::fs::read(data.join(name)).unwrap()).unwrap(),
+            )
+            .unwrap();
+    }
+    let races: Vec<_> = order
+        .winners_of(Tag(*b"RACE"))
+        .filter(|(_, record)| !record.is_deleted())
+        .map(|(form, _)| form)
+        .collect();
+    assert!(
+        races.len() > 100,
+        "too few installed races: {}",
+        races.len()
+    );
+    let mut fixture = Plugin::new(FileHeader {
+        masters: masters.into_iter().map(str::to_owned).collect(),
+        ..FileHeader::default()
+    });
+    for (index, race) in races.iter().enumerate() {
+        let base = 0x0500_1000 + index as u32;
+        let attacker = 0x0500_2000 + index as u32 * 2;
+        fixture.push_top(
+            Record::new(Tag(*b"NPC_"), base)
+                .sub(Tag(*b"RNAM"), order.runtime_id(*race).to_le_bytes()),
+        );
+        for reference in [attacker, attacker + 1] {
+            fixture.push_top(
+                Record::new(Tag(*b"ACHR"), reference).sub(Tag(*b"NAME"), base.to_le_bytes()),
+            );
+        }
+    }
+    order.add("UnarmedSurvey.esp", fixture).unwrap();
+    let mut game = Game::new(order);
+    let mut executed = 0;
+    for index in 0..races.len() {
+        let attacker = GlobalFormId {
+            file: 5,
+            object: 0x2000 + index as u32 * 2,
+        };
+        let target = GlobalFormId {
+            file: 5,
+            object: 0x2001 + index as u32 * 2,
+        };
+        for actor in [attacker, target] {
+            game.world_mut()
+                .set_actor_value(actor, "health", 10000.)
+                .unwrap();
+        }
+        let result = game
+            .melee_hit(MeleeHit {
+                attacker,
+                target,
+                weapon: id(0x1F4),
+            })
+            .unwrap();
+        assert!(result.health_damage.is_finite());
+        executed += 1;
+    }
+    assert_eq!(executed, races.len());
+    eprintln!("Executed {executed} installed race-backed unarmed contacts");
 }
 
 #[test]
