@@ -15,6 +15,8 @@ use crate::combat::{
     Difficulty, Error, HitResult, MeleeHit,
 };
 
+const UNARMED_ATTACK: u32 = 0x1F4;
+
 const SUPPORTED_ARMOR_SLOTS: u32 = (1 << 14) - 1;
 
 impl World {
@@ -109,41 +111,44 @@ impl World {
                 return Err(Error::Unsupported("invulnerable target"));
             }
         }
-        let weapon = self.combat_weapon(hit.weapon)?;
-        if !matches!(weapon.animation, 1..=6) || !matches!(weapon.skill, 6..=8 | -1) {
-            return Err(Error::Unsupported("non-melee weapon or governing skill"));
-        }
-        if weapon.flags & 1 != 0 || weapon.flags2 & 0x1000 != 0 || weapon.resist != -1 {
-            return Err(Error::Unsupported("weapon resistance or non-hostile flags"));
-        }
-        let attacker = self
-            .actor_ref(hit.attacker)
-            .ok_or(Error::Actor(hit.attacker))?;
-        if !attacker.equipped.contains(&hit.weapon) {
-            return Err(Error::Equipment);
-        }
-        if self.item_count(hit.attacker, hit.weapon) <= 0 {
-            return Err(Error::Equipment);
-        }
-        self.check_combat_stack(hit.attacker, hit.weapon)?;
-        let skill = match weapon.skill {
-            6 => "onehanded",
-            7 => "twohanded",
-            8 => "marksman",
-            _ => "",
-        };
-        let scale = if skill.is_empty() {
-            1.0
+        let weapon_damage = if hit.weapon.file == 0 && hit.weapon.object == UNARMED_ATTACK {
+            self.unarmed_damage(hit.attacker, hit.weapon)?
         } else {
-            let (min, max) = if self.player == Some(hit.attacker) {
-                ("fDamagePCSkillMin", "fDamagePCSkillMax")
-            } else {
-                ("fDamageSkillMin", "fDamageSkillMax")
+            let weapon = self.combat_weapon(hit.weapon)?;
+            if !matches!(weapon.animation, 1..=6) || !matches!(weapon.skill, 6..=8 | -1) {
+                return Err(Error::Unsupported("non-melee weapon or governing skill"));
+            }
+            if weapon.flags & 1 != 0 || weapon.flags2 & 0x1000 != 0 || weapon.resist != -1 {
+                return Err(Error::Unsupported("weapon resistance or non-hostile flags"));
+            }
+            let attacker = self
+                .actor_ref(hit.attacker)
+                .ok_or(Error::Actor(hit.attacker))?;
+            if !attacker.equipped.contains(&hit.weapon) {
+                return Err(Error::Equipment);
+            }
+            if self.item_count(hit.attacker, hit.weapon) <= 0 {
+                return Err(Error::Equipment);
+            }
+            self.check_combat_stack(hit.attacker, hit.weapon)?;
+            let skill = match weapon.skill {
+                6 => "onehanded",
+                7 => "twohanded",
+                8 => "marksman",
+                _ => "",
             };
-            self.combat_skill_scale(hit.attacker, skill, min, max)?
+            let scale = if skill.is_empty() {
+                1.0
+            } else {
+                let (min, max) = if self.player == Some(hit.attacker) {
+                    ("fDamagePCSkillMin", "fDamagePCSkillMax")
+                } else {
+                    ("fDamageSkillMin", "fDamageSkillMax")
+                };
+                self.combat_skill_scale(hit.attacker, skill, min, max)?
+            };
+            finite(f64::from(weapon.damage) * scale * self.combat_setting("fDamageWeaponMult")?)?
         };
-        let weapon_damage =
-            finite(f64::from(weapon.damage) * scale * self.combat_setting("fDamageWeaponMult")?)?;
         let (armor_rating, categories) = self.combat_armor(hit.target)?;
         let reduction = (f64::from(armor_rating) * self.combat_setting("fArmorScalingFactor")?
             / 100.0
@@ -225,6 +230,27 @@ impl World {
             }
         }
         Ok(())
+    }
+
+    fn unarmed_damage(&self, attacker: GlobalFormId, source: GlobalFormId) -> Result<f32, Error> {
+        // The base-game attack form chooses race damage, but remains a live WEAP
+        // record. This keeps deleted, malformed, and modifier-bearing overrides
+        // from becoming a bypass around ordinary combat record validation.
+        let weapon = Weapon::from_record(self.record(source).ok_or(Error::Equipment)?)?;
+        if weapon.template.is_some() || weapon.enchantment.is_some() {
+            return Err(Error::Unsupported("weapon template or enchantment"));
+        }
+        if weapon.flags & 1 != 0 || weapon.flags2 & 0x1000 != 0 || weapon.resist != -1 {
+            return Err(Error::Unsupported("weapon resistance or non-hostile flags"));
+        }
+        let attacker = self.actor_ref(attacker).ok_or(Error::Actor(attacker))?;
+        let value = attacker
+            .values
+            .entries
+            .get("unarmeddamage")
+            .ok_or(Error::Unsupported("missing race unarmed damage"))?
+            .current();
+        finite(f64::from(value))
     }
 
     fn check_combat_stack(&self, actor: GlobalFormId, item: GlobalFormId) -> Result<(), Error> {
