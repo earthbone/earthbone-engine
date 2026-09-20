@@ -41,6 +41,7 @@ use crate::quest::Quest;
 mod actor_seeds;
 mod actor_spells;
 mod actors;
+mod bleedout;
 mod calendar;
 mod combat;
 mod death;

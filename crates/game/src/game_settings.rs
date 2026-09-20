@@ -34,6 +34,8 @@ pub(crate) fn engine_default(name: &str) -> Option<f32> {
         | "fspeciallootmaxzonelevelbase" => 0.0,
         "fspeciallootminpclevelmult" | "fspeciallootminzonelevelmult" => 0.5,
         "fspeciallootweighting" => 4.0,
+        // Installed runtime Setting data, with the address evidence in combat.md.
+        "fbleedoutdefault" => 0.2,
         _ => return None,
     })
 }
