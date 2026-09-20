@@ -1035,6 +1035,43 @@ The rest returned explicit unsupported reasons. The installed startup still ran
 attached 27,563 scripts, with seven missing scripts and 88 missing properties,
 because MGEF script attachments wait until an application exists.
 
+### Unnamed archetypes, MAG-68
+
+The five-master inventory on 2026-09-20 reads all 1,573 non-deleted winning
+MGEF records from Skyrim, Update, Dawnguard, HearthFires and Dragonborn. None
+uses archetype 13 or 14. This is a winning-record result for the installed
+masters, not a claim about all modded records or original runtime behavior.
+
+| Value | xEdit label | CommonLib label | Installed winning uses |
+|---|---|---|---|
+| 13 | Unknown 13 | Darkness | 0 |
+| 14 | Unknown 14 | NightEye | 0 |
+
+The source declarations are `TES5Edit/Core/wbDefinitionsTES5.pas`,
+`CommonLibSSE-NG/include/RE/E/EffectArchetypes.h` and
+`Mutagen/Mutagen.Bethesda.Skyrim/Records/Major Records/MagicEffectArchetype.cs`
+in the local reference corpus. CommonLib's corresponding `.cpp` converts
+these values to strings but supplies no execution contract. Mutagen omits
+both enum entries. The local UESP MGEF page was also inspected and does not
+establish their execution semantics. No public implementation was ported.
+
+`mag_68_five_master_winning_effect_inventory_has_no_unnamed_archetypes` prints
+the complete winning archetype histogram. Its pre-run acceptance criteria are
+more than 1,000 decoded effects and zero uses of 13 and 14. It fails if those
+values appear, requiring a fresh characterization rather than assuming they
+are inert. `mag_68_unnamed_archetypes_reject_without_changes` independently
+asserts an Unsupported error and byte-identical game state for each value.
+Both tests passed with installed data using this command:
+
+```text
+cargo test -p soe-game --test magic --test magic_archetypes mag_68 -- --nocapture
+```
+
+Retain the existing explicit unsupported boundary for both values. The source
+names and absent corpus uses do not justify implementing darkness or night
+vision. MAG-68 is characterization only and adds no runtime behavior, new
+record parser, dependency or save format.
+
 ## Host gameplay integration (2026-09-19)
 
 `Game::from_shared_order` and `World::from_shared_order` accept the host's
