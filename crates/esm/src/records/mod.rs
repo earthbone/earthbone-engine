@@ -11,6 +11,7 @@
 pub mod cell;
 pub mod gameplay;
 pub mod land;
+pub mod lctn;
 pub mod navm;
 pub mod race;
 pub mod refr;

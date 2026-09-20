@@ -4,6 +4,7 @@
 //! leveled lists, locations and their parent chain, factions, actor bases,
 //! cells and game settings.
 
+use soe_esm::records::lctn::Location;
 use soe_esm::GlobalFormId;
 use soe_papyrus::Value;
 
@@ -111,6 +112,26 @@ impl World {
             .and_then(le_u32)
             .filter(|p| *p != 0)
             .map(|p| self.order.resolve(rref.file, p))
+    }
+
+    /// The `MNAM` world marker that supplies an `LCTN` package destination.
+    pub fn location_marker(&self, id: GlobalFormId) -> Option<GlobalFormId> {
+        let rref = self.order.winner_ref(id)?;
+        let record = self.order.record(rref);
+        if record.is_deleted() {
+            return None;
+        }
+        let location = Location::from_record(record).ok()?;
+        let marker = location
+            .world_marker
+            .filter(|marker| *marker != 0)
+            .map(|marker| self.order.resolve(rref.file, marker))?;
+        self.order
+            .winner(marker)
+            .filter(|record| {
+                !record.is_deleted() && matches!(record.tag.as_bytes(), b"REFR" | b"ACHR")
+            })
+            .map(|_| marker)
     }
 
     /// The parent chain of a location, nearest first, the location itself

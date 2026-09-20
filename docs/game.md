@@ -419,8 +419,9 @@ nearest furniture in that cell whose base carries a keyword with `bed` in
 its editor id, and holds with `sleeping` set. Every other procedure name
 is `Procedure::Unsupported` and the actor stands where it is. Location
 kinds near reference, in cell, near package start, near editor location,
-near linked reference, alias reference and near self resolve, alias
-location does not (no `LCTN` model yet).
+near linked reference, alias reference, alias location and near self resolve.
+An alias location uses its filled `LCTN` form's `MNAM` world marker as its
+destination. Location alias fill rules remain separate quest work.
 
 **Walking.** `ai::nav_graph` builds `soe_navmesh::vanilla` over every
 winning `NAVM` on first use and remembers which cell each mesh sits in.

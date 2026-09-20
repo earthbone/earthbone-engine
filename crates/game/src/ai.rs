@@ -786,7 +786,23 @@ pub fn resolve_location(
             cell: cell_of(world, actor),
             reference: None,
         }),
-        Location::AliasLocation(_) | Location::Other(..) => None,
+        Location::AliasLocation(id) => {
+            let quest = alias.map(|(q, _)| q).or_else(|| {
+                package(world, package_id)
+                    .and_then(|p| p.owner_quest)
+                    .and_then(|raw| world.resolve_from(package_id, raw))
+            })?;
+            if !world.alias_is_location(quest, id) {
+                return None;
+            }
+            let location = world.alias_ref(quest, id)?;
+            let marker = world.location_marker(location)?;
+            if world.reference(marker)?.deleted {
+                return None;
+            }
+            at_ref(world, marker)
+        }
+        Location::Other(..) => None,
     }
 }
 

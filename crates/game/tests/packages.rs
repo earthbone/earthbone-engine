@@ -9,9 +9,9 @@
 
 use soe_esm::records::navm::{EdgeLink, Geometry, NavGrid, Parent, Triangle};
 use soe_esm::{plugin::flags, Entry, FileHeader, Group, GroupKind, LoadOrder, Plugin, Record, Tag};
-use soe_game::ai::{self, Procedure};
+use soe_game::ai::{self, AiState, Procedure};
 use soe_game::npc::{self, Config, Stats};
-use soe_game::package::{self, condition, CompValue, Condition, Location, Schedule};
+use soe_game::package::{self, condition, CompValue, Condition, Location, LocationData, Schedule};
 use soe_game::quest;
 use soe_game::vmad::{ScriptEntry, Vmad};
 use soe_game::Game;
@@ -34,8 +34,12 @@ const TRAVEL: u32 = 0x720;
 const SLEEP: u32 = 0x721;
 const SANDBOX: u32 = 0x722;
 const ALIAS_TRAVEL: u32 = 0x723;
+const LOCATION_ALIAS_TRAVEL: u32 = 0x724;
 const GUARD_QUEST: u32 = 0x730;
 const ALIAS_QUEST: u32 = 0x731;
+const LOCATION_ALIAS_QUEST: u32 = 0x732;
+const ALIAS_LOCATION: u32 = 0x733;
+const OVERRIDE_LOCATION: u32 = 0x734;
 const GUARD_BASE: u32 = 0x740;
 const CELL_A: u32 = 0x800;
 const CELL_B: u32 = 0x801;
@@ -207,6 +211,18 @@ fn test_plugin() -> Plugin {
     };
     p.push_top(travel_to(TRAVEL, "GuardTravel", MARKER_B, &[stage_reached]));
     p.push_top(travel_to(ALIAS_TRAVEL, "AliasTravel", MARKER_A, &[]));
+    let location_alias_travel = package::build_record(
+        LOCATION_ALIAS_TRAVEL,
+        "LocationAliasTravel",
+        0,
+        Schedule::default(),
+    );
+    let location_alias_travel = package::close_header(location_alias_travel, Some(TRAVEL_TEMPLATE));
+    let location_alias_travel =
+        package::with_location_input(location_alias_travel, 0, Location::AliasLocation(1), 0);
+    p.push_top(package::with_actions(package::finish(
+        location_alias_travel,
+    )));
     let sleep = package::build_record(
         SLEEP,
         "GuardSleep",
@@ -233,6 +249,20 @@ fn test_plugin() -> Plugin {
     let aq = quest::with_stage(aq, 0, quest::stage_flags::START_UP, 0, "");
     let aq = quest::with_alias_packages(aq, 0, "Guard", Some(GUARD), &[ALIAS_TRAVEL]);
     p.push_top(aq);
+    let lq = quest::build_record(LOCATION_ALIAS_QUEST, "LocationAliasQuest", 0);
+    let lq = quest::with_stage(lq, 0, quest::stage_flags::START_UP, 0, "");
+    let lq = quest::with_alias_packages(lq, 0, "Guard", Some(GUARD), &[LOCATION_ALIAS_TRAVEL]);
+    let lq = lq
+        .sub(T(b"ALLS"), 1_u32.to_le_bytes())
+        .zsub(T(b"ALID"), "Destination")
+        .sub(T(b"FNAM"), 0_u32.to_le_bytes())
+        .sub(T(b"ALED"), []);
+    p.push_top(lq);
+    p.push_top(
+        Record::new(T(b"LCTN"), ALIAS_LOCATION)
+            .zsub(EDID, "AliasDestination")
+            .sub(T(b"MNAM"), MARKER_A.to_le_bytes()),
+    );
 
     let guard = npc::build_record(
         GUARD_BASE,
@@ -479,6 +509,148 @@ fn an_alias_package_outranks_the_base_list() {
         (pos[0] - 90.0).abs() < 5.0 && (pos[1] - 90.0).abs() < 5.0,
         "at MarkerA, not {pos:?}"
     );
+}
+
+#[test]
+fn an_alias_location_package_resolves_its_world_marker_destination() {
+    let mut game = game_at_hour(12.0);
+    let guard = game.form("GuardRef").unwrap();
+    let quest = game.form("LocationAliasQuest").unwrap();
+    assert!(game.start_quest(quest));
+    let location = game.form("AliasDestination").unwrap();
+    assert!(game.world_mut().force_alias(quest, 1, Some(location)));
+    tick(&mut game, 1.1);
+    assert_eq!(package_name(&game, guard), "LocationAliasTravel");
+    assert_eq!(
+        game.world().actor_ref(guard).and_then(|a| a.ai.alias),
+        Some((quest, 0))
+    );
+    tick(&mut game, 2.0);
+    let pos = game.world_mut().reference(guard).unwrap().position;
+    assert!(
+        (pos[0] - 90.0).abs() < 5.0 && (pos[1] - 90.0).abs() < 5.0,
+        "at MarkerA, not {pos:?}"
+    );
+}
+
+#[test]
+fn a_reference_alias_cannot_supply_a_location_package_destination() {
+    let mut game = game_at_hour(12.0);
+    let guard = game.form("GuardRef").unwrap();
+    let quest = game.form("LocationAliasQuest").unwrap();
+    let package = game.form("LocationAliasTravel").unwrap();
+    let location = game.form("AliasDestination").unwrap();
+    assert!(game.start_quest(quest));
+    assert!(game.world_mut().force_alias(quest, 0, Some(location)));
+
+    let destination = ai::resolve_location(
+        &mut game.world_mut(),
+        guard,
+        package,
+        Some((quest, 0)),
+        &AiState::default(),
+        &LocationData {
+            location: Location::AliasLocation(0),
+            radius: 0,
+        },
+    );
+    assert_eq!(destination, None);
+}
+
+#[test]
+fn a_location_marker_uses_the_winning_override_namespace() {
+    let mut base = test_plugin();
+    base.push_top(
+        Record::new(T(b"LCTN"), OVERRIDE_LOCATION)
+            .zsub(EDID, "OverrideDestination")
+            .sub(T(b"MNAM"), MARKER_A.to_le_bytes()),
+    );
+    let mut patch = Plugin::new(FileHeader {
+        masters: vec!["Packages.esm".into()],
+        ..Default::default()
+    });
+    patch.push_top(
+        Record::new(T(b"LCTN"), 0x0000_0734)
+            .zsub(EDID, "OverrideDestination")
+            .sub(T(b"MNAM"), 0x0100_0900_u32.to_le_bytes()),
+    );
+    patch.push_top(Record::new(T(b"REFR"), 0x0100_0900).zsub(EDID, "PatchMarker"));
+    let mut order = LoadOrder::new();
+    order.add("Packages.esm", base).unwrap();
+    order.add("Override.esp", patch).unwrap();
+    let game = Game::new(order);
+    let location = game.form("OverrideDestination").unwrap();
+
+    assert_eq!(
+        game.world_mut().location_marker(location),
+        Some(soe_esm::GlobalFormId {
+            file: 1,
+            object: 0x900,
+        })
+    );
+}
+
+#[test]
+fn a_deleted_location_or_marker_has_no_package_destination() {
+    let mut deleted_location = Record::new(T(b"LCTN"), 0x0000_0733)
+        .zsub(EDID, "AliasDestination")
+        .sub(T(b"MNAM"), MARKER_A.to_le_bytes());
+    deleted_location.flags = flags::DELETED;
+    let mut location_patch = Plugin::new(FileHeader {
+        masters: vec!["Packages.esm".into()],
+        ..Default::default()
+    });
+    location_patch.push_top(deleted_location);
+    let mut location_order = LoadOrder::new();
+    location_order.add("Packages.esm", test_plugin()).unwrap();
+    location_order
+        .add("DeletedLocation.esp", location_patch)
+        .unwrap();
+    let game = Game::new(location_order);
+    let location = game.form("AliasDestination").unwrap();
+    assert_eq!(game.world_mut().location_marker(location), None);
+
+    let mut deleted_marker = Record::new(T(b"REFR"), 0x0000_0808).zsub(EDID, "MarkerA");
+    deleted_marker.flags = flags::DELETED;
+    let mut marker_patch = Plugin::new(FileHeader {
+        masters: vec!["Packages.esm".into()],
+        ..Default::default()
+    });
+    marker_patch.push_top(deleted_marker);
+    let mut marker_order = LoadOrder::new();
+    marker_order.add("Packages.esm", test_plugin()).unwrap();
+    marker_order.add("DeletedMarker.esp", marker_patch).unwrap();
+    let game = Game::new(marker_order);
+    let location = game.form("AliasDestination").unwrap();
+    assert_eq!(game.world_mut().location_marker(location), None);
+}
+
+#[test]
+fn a_runtime_deleted_marker_has_no_package_destination() {
+    let mut game = game_at_hour(12.0);
+    let guard = game.form("GuardRef").unwrap();
+    let quest = game.form("LocationAliasQuest").unwrap();
+    let package = game.form("LocationAliasTravel").unwrap();
+    let location = game.form("AliasDestination").unwrap();
+    let marker = game.form("MarkerA").unwrap();
+    assert!(game.start_quest(quest));
+    let destination = {
+        let mut world = game.world_mut();
+        assert!(world.force_alias(quest, 1, Some(location)));
+        world.reference(marker).unwrap().deleted = true;
+        ai::resolve_location(
+            &mut world,
+            guard,
+            package,
+            Some((quest, 0)),
+            &AiState::default(),
+            &LocationData {
+                location: Location::AliasLocation(1),
+                radius: 0,
+            },
+        )
+    };
+    assert_eq!(destination, None);
 }
 
 #[test]
