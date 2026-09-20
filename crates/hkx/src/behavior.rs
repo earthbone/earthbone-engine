@@ -425,10 +425,32 @@ pub struct ClipTrigger {
     pub is_annotation: bool,
 }
 
+/// Read an authored bone mask, retaining zero weights and array order.
+///
+/// # Errors
+/// Rejects the wrong class, malformed arrays and negative or non-finite weights.
+pub fn bone_weights(o: Obj<'_>) -> Result<Vec<f32>> {
+    o.expect_class("hkbBoneWeightArray")?;
+    if o.i32(o.layout_offset(32, 56))? < 0 {
+        return Err(crate::Error::Unsupported(
+            "negative bone mask length".into(),
+        ));
+    }
+    let weights = o.array_f32(o.layout_offset(28, 48))?;
+    if weights.len() != o.i32(o.layout_offset(32, 56))? as usize {
+        return Err(crate::Error::NullPointer("nonempty bone mask array"));
+    }
+    if weights.iter().any(|w| !w.is_finite() || *w < 0.0) {
+        return Err(crate::Error::Unsupported("invalid bone mask weight".into()));
+    }
+    Ok(weights)
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct BlenderChild {
     pub generator: Option<NodeId>,
-    pub has_bone_weights: bool,
+    /// Per-bone mask. Missing masks give every bone weight one.
+    pub bone_weights: Option<Vec<f32>>,
     pub weight: f32,
     pub world_from_model_weight: f32,
     pub bindings: Option<VariableBindingSet>,
@@ -881,7 +903,10 @@ impl<'a> Loader<'a> {
             let generator = self.opt_id(c.ptr(c.layout_offset(32, 48))?);
             children.push(BlenderChild {
                 generator,
-                has_bone_weights: c.ptr(c.layout_offset(36, 56))?.is_some(),
+                bone_weights: c
+                    .ptr(c.layout_offset(36, 56))?
+                    .map(bone_weights)
+                    .transpose()?,
                 weight: c.f32(c.layout_offset(40, 64))?,
                 world_from_model_weight: c.f32(c.layout_offset(44, 68))?,
                 bindings: Self::bindings(c)?,

@@ -326,3 +326,183 @@ fn a_missing_clip_yields_the_reference_pose_and_is_reported() {
         NodeKind::ManualSelector { .. }
     ));
 }
+
+#[test]
+fn anm_04_masked_blend_changes_only_authored_bones() {
+    let bytes = common::graph_with_masks(
+        &Root::Blender { parametric: false },
+        "mt_idle",
+        "mt_walkforward",
+        [Some(&[1.0, 0.0]), Some(&[0.0, 1.0])],
+    );
+    let pf = Packfile::parse(&bytes).unwrap();
+    let graph = BehaviorGraph::from_packfile(&pf).unwrap();
+    let lib = library();
+    let mut vm = Interpreter::new(&graph, &lib, reference_pose());
+    let out = vm.update(DT);
+    assert_eq!(out.pose[0], reference_pose()[0]);
+    assert!(close(
+        out.pose[1].translation[0],
+        sampled_x(&lib, "mt_walkforward", DT)
+    ));
+    assert_eq!(out.bone_weights, [0.25, 0.75]);
+}
+
+#[test]
+fn masked_out_and_unspecified_bones_keep_reference_pose() {
+    let bytes = common::graph_with_masks(
+        &Root::Blender { parametric: false },
+        "mt_idle",
+        "mt_walkforward",
+        [Some(&[1.0]), Some(&[0.0])],
+    );
+    let pf = Packfile::parse(&bytes).unwrap();
+    let graph = BehaviorGraph::from_packfile(&pf).unwrap();
+    let lib = library();
+    let mut vm = Interpreter::new(&graph, &lib, reference_pose());
+    let out = vm.update(DT);
+    assert_eq!(out.pose, reference_pose());
+    assert_eq!(out.bone_weights, [0.25, 0.0]);
+}
+
+#[test]
+fn fractional_masks_normalize_each_bone_independently() {
+    let bytes = common::graph_with_masks(
+        &Root::Blender { parametric: false },
+        "mt_idle",
+        "mt_walkforward",
+        [None, Some(&[1.0, 0.25])],
+    );
+    let pf = Packfile::parse(&bytes).unwrap();
+    let graph = BehaviorGraph::from_packfile(&pf).unwrap();
+    let lib = library();
+    let mut vm = Interpreter::new(&graph, &lib, reference_pose());
+    let out = vm.update(DT);
+    let expected =
+        (sampled_x(&lib, "mt_idle", DT) + 0.75 * sampled_x(&lib, "mt_walkforward", DT)) / 1.75;
+    assert!(close(out.pose[1].translation[0], expected));
+    assert_eq!(out.bone_weights, [1.0, 0.4375]);
+}
+
+#[test]
+fn invalid_mask_values_fail_graph_loading() {
+    for invalid in [-1.0, f32::NAN, f32::INFINITY] {
+        let bytes = common::graph_with_masks(
+            &Root::Blender { parametric: false },
+            "mt_idle",
+            "mt_walkforward",
+            [None, Some(&[invalid])],
+        );
+        let pf = Packfile::parse(&bytes).unwrap();
+        assert!(BehaviorGraph::from_packfile(&pf).is_err());
+    }
+}
+
+#[test]
+fn transition_blends_preserve_a_zero_mask_through_nested_outputs() {
+    use soe_hkx::interp::{blend_outputs, Output};
+    let a = Output {
+        pose: vec![
+            QsTransform {
+                translation: [10.0, 0.0, 0.0, 0.0],
+                ..QsTransform::IDENTITY
+            };
+            2
+        ],
+        bone_weights: vec![1.0, 0.0],
+        weight: 1.0,
+    };
+    let b = Output {
+        pose: vec![
+            QsTransform {
+                translation: [20.0, 0.0, 0.0, 0.0],
+                ..QsTransform::IDENTITY
+            };
+            2
+        ],
+        bone_weights: vec![0.0, 1.0],
+        weight: 1.0,
+    };
+    let output = blend_outputs(&a, &b, 0.5);
+    assert_eq!(output.pose[0].translation[0], 10.0);
+    assert_eq!(output.pose[1].translation[0], 20.0);
+    let nested = blend_outputs(&output, &a, 0.5);
+    assert_eq!(nested.pose[1].translation[0], 20.0);
+}
+
+#[test]
+fn nested_generators_use_child_bone_contributions() {
+    let bytes = common::graph_with_masks(
+        &Root::Blender { parametric: false },
+        "mt_idle",
+        "mt_walkforward",
+        [None, Some(&[1.0, 0.0])],
+    );
+    let pf = Packfile::parse(&bytes).unwrap();
+    let mut graph = BehaviorGraph::from_packfile(&pf).unwrap();
+    let inner = graph.root.unwrap();
+    let mut outer = graph.nodes[inner.0].clone();
+    outer.id = NodeId(graph.nodes.len());
+    let NodeKind::Blender(ref mut blender) = outer.kind else {
+        panic!("blender expected")
+    };
+    blender.children[0].generator = Some(inner);
+    for child in &mut blender.children {
+        child.bone_weights = None;
+    }
+    graph.root = Some(outer.id);
+    graph.nodes.push(outer);
+    let lib = library();
+    let mut vm = Interpreter::new(&graph, &lib, reference_pose());
+    let output = vm.update(0.0);
+    assert!(close(output.pose[1].translation[0], 100.0 * 12.0 / 13.0));
+}
+
+#[test]
+fn masked_transition_endpoints_equal_their_authored_outputs() {
+    use soe_hkx::interp::{blend_outputs, Output};
+    let from = Output {
+        pose: vec![QsTransform {
+            translation: [10.0, 0.0, 0.0, 0.0],
+            ..QsTransform::IDENTITY
+        }],
+        bone_weights: vec![1.0],
+        weight: 1.0,
+    };
+    let to = Output {
+        pose: vec![QsTransform::IDENTITY],
+        bone_weights: vec![0.0],
+        weight: 1.0,
+    };
+    assert_eq!(blend_outputs(&from, &to, 0.0), from);
+    assert_eq!(blend_outputs(&from, &to, 1.0), to);
+}
+
+#[test]
+fn nonempty_bone_mask_without_payload_is_rejected() {
+    use soe_hkx::writer::PackfileBuilder;
+    let mut builder = PackfileBuilder::new();
+    let mask = builder.object("hkbBoneWeightArray", 64);
+    builder.set_i32(mask, 56, 1);
+    let packfile = Packfile::parse(&builder.finish()).unwrap();
+    assert!(matches!(
+        soe_hkx::behavior::bone_weights(packfile.root().unwrap()),
+        Err(soe_hkx::Error::NullPointer(_))
+    ));
+}
+
+#[test]
+fn first_contributing_pose_preserves_small_authored_coordinates() {
+    let mut graph = load(&Root::Blender { parametric: false });
+    let root = graph.root.unwrap();
+    let NodeKind::Blender(ref mut blender) = graph.nodes[root.0].kind else {
+        panic!("blender expected")
+    };
+    blender.children[1].weight = 0.0;
+    let mut lib = ClipLibrary::new();
+    lib.insert(linear_clip("mt_idle", 1.0, 2.0));
+    let mut reference = reference_pose();
+    reference[1].translation[0] = 1e8;
+    let mut vm = Interpreter::new(&graph, &lib, reference);
+    assert_eq!(vm.update(0.0).pose[1].translation[0], 1.0);
+}
