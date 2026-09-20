@@ -87,6 +87,9 @@ fn pending(game: &Game) -> Vec<(soe_papyrus::ObjectId, String, Vec<Value>)> {
             Pending::Event { object, name, args } => (*object, name.clone(), args.clone()),
             Pending::Call { .. } => panic!("unexpected function call"),
             Pending::BindEffect { .. } => panic!("unexpected magic effect binding"),
+            Pending::DeferredDeath { .. } | Pending::ActorDeath { .. } => {
+                panic!("unexpected actor death")
+            }
         })
         .collect()
 }
@@ -519,4 +522,46 @@ fn implicit_player_keeps_reserved_identity_and_receives_forced_alias_events() {
     g.load_state(&bytes).unwrap();
     assert_eq!(g.world_mut().player(), reserved);
     assert_eq!(g.world_mut().alias_ref(quest, 0), Some(reserved));
+}
+
+#[test]
+fn crafting_consumes_distinct_ingredients_without_losing_unspent_instances() {
+    use soe_game::inventory::{Extra, Field, Stack};
+    let mut g = game(recipe(&[(IRON, 2)], NAILS, 10), 1);
+    let (player, iron) = (id(&g, PLAYER), id(&g, IRON));
+    let distinct = Stack::new(
+        3,
+        vec![Extra {
+            kind: 33,
+            fields: vec![Field::Form(Some(player))],
+        }],
+    )
+    .unwrap();
+    g.world_mut()
+        .reference(player)
+        .unwrap()
+        .inventory
+        .restore(iron, 3, vec![distinct.clone()])
+        .unwrap();
+    g.check_craft(player, id(&g, BENCH), id(&g, RECIPE))
+        .unwrap();
+    assert_eq!(
+        g.world()
+            .reference_ref(player)
+            .unwrap()
+            .inventory
+            .stacks(iron),
+        &[distinct]
+    );
+    craft(&mut g).unwrap();
+    let inventory = g.world().reference_ref(player).unwrap().inventory.clone();
+    assert_eq!(inventory.count(iron), 1);
+    assert_eq!(inventory.stacks(iron)[0].count(), 1);
+    assert_eq!(
+        inventory.stacks(iron)[0].extras()[0].fields,
+        vec![Field::Form(Some(player))]
+    );
+    let before = inventory.clone();
+    assert!(craft(&mut g).is_err());
+    assert_eq!(g.world().reference_ref(player).unwrap().inventory, before);
 }

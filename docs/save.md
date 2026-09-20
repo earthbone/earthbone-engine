@@ -43,10 +43,16 @@ A `vsval` packs its value into the bits above a two bit width tag, so one byte
 holds at most `0x3F`. The UESP page says a value up to `0x40` fits in one byte
 and ReSaver's encoder follows it, but `0x40` shifted left by two is `0x100` and
 does not survive the cast to a byte, so that path writes zero. The same off by
-one sits at `0x4000`, and the three byte cap is `0x3FFFFF` rather than the
-`0x40000000` both sources give, which would need a fourth byte. This crate uses
-the bit widths and refuses a value that does not fit. Decoding is unaffected,
-only encoding, which is why it survives in a tool that mostly reads.
+one sits at `0x4000`.
+
+The previous reader also incorrectly treated width tag two as three bytes.
+xEdit's `Core/wbInterface.pas`, `ReadIntegerCounterSize` and
+`ReadIntegerCounter`, define one, two and four bytes. The largest encoding
+therefore holds thirty value bits, through `0x3FFFFFFF`. This crate follows
+that reader, rejects the reserved tag three, and keeps the original width.
+The encoder uses the corresponding bit widths rather than copying the
+inconsistent reference encoders. Fixed-byte boundary tests check alignment
+with the following field as well as truncation and re-encoding.
 
 ## The layout, and its two traps
 
@@ -76,6 +82,8 @@ when they were wrong and neither announces itself.
 - Type 3, the global variable table, as references and floats.
 - Every change form header. `ChangeForm::quest_change` decodes documented QUST
   flags, stages, objectives, runtime aliases/events and quest instances.
+- `ChangeForm::npc_change` decodes complete NPC_ payloads, including base data,
+  factions, spells, AI data, names, skills, class, race, face, gender and outfits.
 - Type 107, quest static data, including its two event arrays, three reference
   arrays, reference-keyed values and final byte.
 - Type 1001, the Papyrus block: the string table, the script definitions with
@@ -483,3 +491,116 @@ place and never copied.
 Game-world object bindings, alias and active-effect identities, change-form
 application, saved stack conversion, pending native calls and scheduler clocks
 remain required for full vanilla-save restoration.
+
+## Reference contents and inventory, work in progress
+
+`ChangeForm::reference_contents` reads the extra-data and inventory sections
+following a placement header. Inventory nesting follows xEdit: entries carry
+a signed count delta and a list of stacks, each with its own extra-data list.
+Typed fields retain scalar widths, reference IDs, count widths, string bytes,
+float bits and nested arrays. Diagnostic encoding reconstructs the section
+exactly. Remaining actor or animation bytes remain explicit.
+
+Sources are UESP `Extra_data.wikitext`, REFR/ACHR change-form pages, xEdit
+`wbDefinitionsTES5Saves.pas`, and FallrimTools `ChangeFormExtraDataData.java`
+and `ChangeFormNPC.java`. xEdit supplies signed rank width and inline NPC
+sections where the other readers disagree. Array counts are bounded before
+allocation. Unknown extra layouts stop decoding instead of searching for a
+plausible next item. The nonempty PackageData payload is still unsupported.
+Its absence from these public schemas remains a format gap.
+
+The game-side application maps references in every decoded extra field and
+retains exact non-reference scalar data. CommonLib `ExtraDataList::GetCount`
+supplies the implicit count of one and `ExtraCount.h` its signed interpretation.
+CommonLib `TESObjectREFR::GetInventory` combines base counts and deltas and
+excludes authored counts for entries carrying ExtraLeveledItem. It also keeps
+entry totals distinct from the extra lists, which is required by the corpus.
+See game.md for the current mutation, persistence and execution limits.
+
+The current 60-save decoder survey reproduces 1,154,357 reference-content
+sections exactly, including 174,550 inventory sections, 865,169 item entries
+and 844,285 stack lists. It still fails on 169 PackageData kind-18 payloads.
+The corpus test continues to require zero failures. No failing record is
+skipped to pass it. The separate non-actor application survey is evidence for
+that narrower path, not full inventory restoration. Quest and reference-header
+live tests pass all 17 checks after the count-width correction.
+
+## Saved actor choices
+
+`ChangeForm::leveled_creature` reads the prefix through the declared
+ExtraLeveledCreature entry and reports where it stopped. Unknown earlier
+layouts and a missing declared entry fail. Later extras, inventory and actor
+execution remain outside this prefix's validation scope. The original and
+selected RefIDs and the named `NpcChange` fields are retained. Both the prefix
+reader and complete extra-data reader use the same NPC decoder. The complete
+reader exposes a field-tree view that retains RefIDs for inventory mapping.
+The full decoder's 169 PackageData failures remain required unfinished work.
+
+The runtime restores all 156,169 template choices across the external saves
+without rerolling and creates a private ActorBase for each. It applies the
+4,930 inline NPC changes to those bases. A separate diagnostic applies the
+114,696 actor inventories whose
+complete contents decode, preserving 921,081 item entries and 678,486 stack
+lists through engine save/load. It excludes 126 inventory-bearing actors with
+unsupported PackageData and accepts no other decoding failures. There are no
+missing item definitions in the applied subset. Forty-one entries have a zero
+item total while retaining worn metadata, so the importer preserves both
+without turning the metadata into an extra item. This diagnostic does not
+prove complete actor inventory restoration or vanilla item-selection behavior.
+
+## NPC change records
+
+`ChangeForm::npc_change` decodes an entire NPC_ change payload and rejects
+trailing bytes. `NpcChange::read_prefix` exposes the same field sequence for
+embedded NPC changes and returns the exact number of bytes it consumed.
+Neither API applies the changes to the live world. ACBS, AIDT and DNAM retain
+their fixed record layouts. Factions have signed ranks, and spells, leveled
+spells, shouts, class, race, outfits and face links retain saved RefIDs until
+the world maps them through the saved plugin list. Face morph options retain
+float bits, including NaNs and negative zero. Names retain their string bytes.
+
+The sources were xEdit `Core/wbDefinitionsTES5Saves.pas`, specifically
+`wbChangeFlags009`, `wbChangedActorBase` and `wbChangedNPC`, and FallrimTools
+`ChangeFormNPC.java`. The existing Rust cursor and change-form decompressor
+are reused. The Pascal and Java implementations are not libraries this Rust
+crate can call. No dependency was added and no source code was copied.
+Variable-length counts use the corrected one-, two- and four-byte reader from
+the pending inventory work. That prerequisite is identical in both worktrees.
+
+xEdit puts head parts and morph data outside the optional head-data block.
+FallrimTools puts them inside it. This reader follows xEdit. The corpus has no
+NPC face change with an absent head block, so the empty-head distinction is
+covered by synthetic fixtures, not established by the corpus. Attribute bit 2
+has no serialized payload in xEdit. Unknown bits are rejected. Presence flags,
+retained list counts and remaining-byte bounds are checked before re-encoding.
+
+Before the first corpus run, the acceptance check required at least 50 saves,
+more than 100 fully decoded NPC changes, one decoded player base per save and
+zero failures. All 13,362 NPC changes across 60 saves decode and re-encode
+exactly from named fields. This includes 60 player bases and no created NPC
+base identities. Synthetic tests cover every optional field alone, the full
+field order, every truncation point, compressed payloads, reserved and
+oversized counts, wide zero counts, invalid presence edits and complete versus
+embedded sequence boundaries.
+
+`World::restore_vanilla_npcs` now applies standalone NPC changes to shared
+runtime record overrides before reference and actor initialization. See
+[game.md](game.md#restoring-npc-records) for identity mapping, engine-save
+persistence and verification, including temporary per-actor bases and inline
+NPC application. This reader does not restore actor value modifiers
+or saved AI execution, and nonempty PackageData remains open.
+
+The embedded-NPC acceptance check requires at least 50 saves, more than
+100,000 leveled entries and more than 4,000 nonempty NPC changes, with exact
+re-encoding of every embedded payload. The 60-save run passes all 156,169
+entries. Of the 4,930 changed entries, four contain only ACBS and 4,926 contain
+ACBS, AIDT and DNAM. All saved ACBS blocks have the copied-template bit named
+by CommonLib's `ACTOR_BASE_DATA::TEMPLATE_USE_FLAG::kCopiedTemplate`.
+
+CK's GetActorBase and GetLeveledActorBase pages distinguish the authored base
+from the temporary per-actor base. Applying these payloads to the shared
+selected NPC would change unrelated actors. The runtime now creates private
+records with inherited components and applies inline changes to them. Known
+links retain their source namespace through relocation tokens. These bases
+persist in SOEW version 14. Saved Papyrus references to vanilla temporary
+base identities still need rebinding before complete ESS resumption.

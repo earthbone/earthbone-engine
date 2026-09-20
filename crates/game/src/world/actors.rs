@@ -3,6 +3,8 @@
 //! Actors: the `NPC_` view with its template applied, the run-time state
 //! built from it on first use, and actor values.
 
+use std::collections::BTreeSet;
+
 use soe_esm::GlobalFormId;
 
 use super::{ActorState, World};
@@ -42,19 +44,12 @@ fn apply_distributed(a: &mut ActorState, d: Distributed) {
 impl World {
     /// The `NPC_` view of an actor base, with one level of `TPLT` applied.
     pub fn npc(&self, base: GlobalFormId) -> Option<Npc> {
-        let rref = self.order.winner_ref(base)?;
-        let rec = self.order.record(rref);
-        let localized = self.order.file(rref.file).plugin.header.is_localized();
-        let mut npc = Npc::from_record(rec, localized).ok()?;
+        let mut npc = self.npc_record(base).ok()?;
         if npc.config.template_flags != 0 {
             if let Some(raw) = npc.template {
-                let tid = self.order.resolve(rref.file, raw);
-                if let Some(tref) = self.order.winner_ref(tid) {
-                    let trec = self.order.record(tref);
-                    let tloc = self.order.file(tref.file).plugin.header.is_localized();
-                    if let Ok(t) = Npc::from_record(trec, tloc) {
-                        npc.apply_template(&t);
-                    }
+                let tid = self.resolve_from(base, raw)?;
+                if let Ok(template) = self.npc_record(tid) {
+                    npc.apply_template(&template);
                 }
             }
         }
@@ -74,7 +69,7 @@ impl World {
             if base.is_some() {
                 use crate::npc::template;
                 let (stats_source, stats) = self.actor_npc_part(id, template::STATS).ok()?;
-                let (_, flags) = self.actor_npc_part(id, template::BASE_DATA).ok()?;
+                let (flags_source, flags) = self.actor_npc_part(id, template::BASE_DATA).ok()?;
                 let (spells_source, spells) = self.actor_npc_part(id, template::SPELLS).ok()?;
                 let (factions_source, factions) =
                     self.actor_npc_part(id, template::FACTIONS).ok()?;
@@ -88,7 +83,10 @@ impl World {
                     a.values.set_base(&name, value).ok()?;
                 }
                 a.level = stats.level_for(self.player_level);
-                a.essential = flags.is_essential();
+                a.essential = self
+                    .actor_bases
+                    .get(&flags_source)
+                    .map_or_else(|| flags.is_essential(), |base| base.essential);
                 a.protected = flags.is_protected();
                 a.ghost = flags.config.flags & crate::npc::flags::GHOST != 0;
                 a.race = self.npc_race(traits_source).ok()?;
@@ -102,6 +100,16 @@ impl World {
                     .iter()
                     .filter_map(|raw| self.resolve_from(spells_source, *raw))
                     .collect();
+                let shouts: BTreeSet<_> = a
+                    .spells
+                    .iter()
+                    .copied()
+                    .filter(|id| self.tag_of(*id) == Some(super::T(b"SHOU")))
+                    .collect();
+                for shout in &shouts {
+                    a.spells.remove(shout);
+                }
+                a.shouts = shouts;
                 a.factions = factions
                     .factions
                     .iter()
@@ -143,25 +151,6 @@ impl World {
     /// The actor's state when it has been built, without building it.
     pub fn actor_ref(&self, id: GlobalFormId) -> Option<&ActorState> {
         self.actors.get(&id)
-    }
-
-    /// `Actor.Kill` and `Actor.KillSilent`: an essential actor never dies,
-    /// and one inside a deferred kill holds its death until
-    /// `EndDeferredKill`. True when the actor died here.
-    pub fn kill_actor(&mut self, id: GlobalFormId, killer: Option<GlobalFormId>) -> bool {
-        let Some(a) = self.actor(id) else {
-            return false;
-        };
-        if a.essential || a.deferred_kill {
-            return false;
-        }
-        let current = a.values.get("health").current().max(0.0);
-        if a.values.damage("health", current).is_err() {
-            return false;
-        }
-        a.dead = true;
-        a.killer = killer;
-        true
     }
 
     pub fn actor_value(&mut self, id: GlobalFormId, name: &str) -> f32 {
@@ -272,6 +261,9 @@ impl World {
         actor.values.restore("health", f32::MAX)?;
         actor.dead = false;
         actor.killer = None;
+        self.pending.retain(
+            |event| !matches!(event, super::Pending::DeferredDeath { actor, .. } if *actor == id),
+        );
         Ok(())
     }
 
@@ -290,12 +282,8 @@ impl World {
             .actor(id)
             .ok_or(crate::actor_values::Error::Actor(id))?;
         operation(&mut actor.values, name, amount)?;
-        if name.eq_ignore_ascii_case("health")
-            && actor.values.get(name).current() <= 0.0
-            && !actor.essential
-            && !actor.deferred_kill
-        {
-            actor.dead = true;
+        if name.eq_ignore_ascii_case("health") {
+            self.resolve_health_death(id);
         }
         Ok(())
     }

@@ -111,16 +111,19 @@ impl<'a> Cursor<'a> {
     }
 
     pub fn vsval(&mut self) -> Result<VsVal> {
+        let at = self.pos;
         let first = self.u8()?;
-        let width = (first & 0x3) as usize;
-        let rest = self.take(width.min(2))?;
-        let mut bytes = [0u8; 3];
+        let len = match first & 3 {
+            0 => 1,
+            1 => 2,
+            2 => 4,
+            _ => return Err(Error::VariableCount { at }),
+        };
+        let rest = self.take(len - 1)?;
+        let mut bytes = [0u8; 4];
         bytes[0] = first;
-        bytes[1..=rest.len()].copy_from_slice(rest);
-        Ok(VsVal {
-            bytes,
-            len: 1 + rest.len(),
-        })
+        bytes[1..len].copy_from_slice(rest);
+        Ok(VsVal { bytes, len })
     }
 
     /// A `RefID`: three bytes, big-endian, the top two bits naming the kind.
@@ -179,62 +182,32 @@ impl std::fmt::Display for WString {
 /// the value is the remaining bits shifted down by two.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct VsVal {
-    bytes: [u8; 3],
+    bytes: [u8; 4],
     len: usize,
 }
 
 impl VsVal {
     pub fn value(&self) -> u32 {
-        let raw = match self.len {
-            1 => u32::from(self.bytes[0]),
-            2 => u32::from(self.bytes[0]) | u32::from(self.bytes[1]) << 8,
-            _ => {
-                u32::from(self.bytes[0])
-                    | u32::from(self.bytes[1]) << 8
-                    | u32::from(self.bytes[2]) << 16
-            }
-        };
-        raw >> 2
+        u32::from_le_bytes(self.bytes) >> 2
     }
 
     pub fn write(&self, out: &mut Vec<u8>) {
         out.extend_from_slice(&self.bytes[..self.len]);
     }
 
-    /// The narrowest encoding of `value`, or `None` when it does not fit.
-    ///
-    /// The widths are six, fourteen and twenty two bits, because two bits of
-    /// the first byte are the width tag. Both references get the boundaries
-    /// wrong in the same direction: the UESP page says a value up to 0x40 is
-    /// one byte and ReSaver's encoder follows it, but 0x40 shifted left by two
-    /// is 0x100 and does not survive the cast to a byte, so it writes zero.
-    /// The largest one byte value is 0x3F. The same off by one applies at
-    /// 0x4000, and the three byte cap is 0x3FFFFF rather than the 0x40000000
-    /// both sources state, which would need a fourth byte.
+    /// The narrowest encoding, with six, fourteen or thirty value bits.
+    /// xEdit's ReadIntegerCounter uses byte, word and dword widths.
     pub fn from_value(value: u32) -> Option<Self> {
-        let shifted = value.checked_shl(2)?;
-        if value <= 0x3F {
-            Some(VsVal {
-                bytes: [shifted as u8, 0, 0],
-                len: 1,
-            })
-        } else if value <= 0x3FFF {
-            Some(VsVal {
-                bytes: [(shifted as u8) | 0x1, (shifted >> 8) as u8, 0],
-                len: 2,
-            })
-        } else if value <= 0x3F_FFFF {
-            Some(VsVal {
-                bytes: [
-                    (shifted as u8) | 0x2,
-                    (shifted >> 8) as u8,
-                    (shifted >> 16) as u8,
-                ],
-                len: 3,
-            })
-        } else {
-            None
-        }
+        let (len, tag) = match value {
+            0..=0x3F => (1, 0),
+            0x40..=0x3FFF => (2, 1),
+            0x4000..=0x3FFF_FFFF => (4, 2),
+            _ => return None,
+        };
+        Some(Self {
+            bytes: ((value << 2) | tag).to_le_bytes(),
+            len,
+        })
     }
 }
 
@@ -306,8 +279,36 @@ mod tests {
     use super::*;
 
     #[test]
+    fn variable_counts_follow_xedit_widths_and_preserve_the_next_field() {
+        for (wire, value) in [
+            (vec![0xFC], 0x3F),
+            (vec![0x01, 0x01], 0x40),
+            (vec![0xFD, 0xFF], 0x3FFF),
+            (vec![0x02, 0x00, 0x01, 0x00], 0x4000),
+            (vec![0xFE, 0xFF, 0xFF, 0xFF], 0x3FFF_FFFF),
+        ] {
+            for cut in 0..wire.len() {
+                assert!(Cursor::new(&wire[..cut], "count").vsval().is_err());
+            }
+            let mut input = wire.clone();
+            input.push(0xA5);
+            let mut cursor = Cursor::new(&input, "count");
+            assert_eq!(cursor.vsval().unwrap().value(), value);
+            assert_eq!(cursor.u8().unwrap(), 0xA5);
+            assert!(cursor.is_empty());
+            let mut encoded = vec![];
+            VsVal::from_value(value).unwrap().write(&mut encoded);
+            assert_eq!(encoded, wire);
+        }
+        assert!(matches!(
+            Cursor::new(&[3], "count").vsval(),
+            Err(Error::VariableCount { at: 0 })
+        ));
+    }
+
+    #[test]
     fn a_vsval_round_trips_through_its_bytes() {
-        for value in [0u32, 1, 0x3F, 0x40, 0x3FFF, 0x4000, 0x4001, 0x3F_FFFF] {
+        for value in [0u32, 1, 0x3F, 0x40, 0x3FFF, 0x4000, 0x4001, 0x3FFF_FFFF] {
             let Some(encoded) = VsVal::from_value(value) else {
                 panic!("{value} should encode");
             };
@@ -323,19 +324,19 @@ mod tests {
     }
 
     #[test]
-    fn a_vsval_too_large_for_three_bytes_is_refused() {
-        assert!(VsVal::from_value(0x3F_FFFF).is_some());
+    fn a_vsval_too_large_for_four_bytes_is_refused() {
+        assert!(VsVal::from_value(0x3FFF_FFFF).is_some());
         assert!(
-            VsVal::from_value(0x40_0000).is_none(),
-            "twenty two bits is the cap, both references claim more"
+            VsVal::from_value(0x4000_0000).is_none(),
+            "thirty value bits fit beside the width tag"
         );
     }
 
     #[test]
     fn a_wide_vsval_keeps_its_width() {
-        // 0 written in the three byte form. The value is 0 either way, but a
+        // 0 written in the four byte form. The value is 0 either way, but a
         // save that stored it wide must be written back wide.
-        let wide = [0x02u8, 0x00, 0x00];
+        let wide = [0x02u8, 0x00, 0x00, 0x00];
         let mut cursor = Cursor::new(&wide, "test");
         let decoded = cursor.vsval().expect("decodes");
         assert_eq!(decoded.value(), 0);

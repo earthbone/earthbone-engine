@@ -15,6 +15,10 @@ use crate::{world::DYNAMIC_FILE, World};
 /// A failure to identify or apply saved state without changing the world.
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum RestoreError {
+    #[error("cannot restore actor templates: {0}")]
+    ActorTemplates(String),
+    #[error("cannot restore inventory: {0}")]
+    Inventory(String),
     #[error(transparent)]
     Save(#[from] soe_save::Error),
     #[error("invalid saved plugin lists: {0}")]
@@ -37,6 +41,8 @@ pub enum RestoreError {
     DuplicateGlobal(GlobalFormId),
     #[error("cannot restore quest {id}: {reason}")]
     Quest { id: GlobalFormId, reason: String },
+    #[error("cannot restore NPC {id}: {reason}")]
+    Npc { id: GlobalFormId, reason: String },
     #[error("cannot restore reference {id}: {reason}")]
     WorldReference { id: GlobalFormId, reason: String },
 }

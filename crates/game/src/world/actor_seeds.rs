@@ -166,21 +166,12 @@ impl World {
     }
 
     pub(crate) fn npc_record(&self, id: GlobalFormId) -> Result<Npc, Error> {
-        let reference = self
-            .order()
-            .winner_ref(id)
+        let record = self
+            .record(id)
             .ok_or_else(|| Error::Invalid(format!("missing NPC {id}")))?;
-        let record = self.order().record(reference);
         if record.is_deleted() {
             return Err(Error::Invalid(format!("deleted NPC {id}")));
         }
-        Npc::from_record(
-            record,
-            self.order()
-                .file(reference.file)
-                .plugin
-                .header
-                .is_localized(),
-        )
+        Npc::from_record(record, self.record_text_localized(id, Tag(*b"FULL")))
     }
 }

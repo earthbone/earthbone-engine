@@ -4,7 +4,16 @@
 //! UESP and FallrimTools ChangeFormInitialData. Extra data, inventory and
 //! actor execution follow this header and are not consumed by this reader.
 
+mod contents;
+mod extra;
+mod fields;
+mod leveled;
+mod npc;
 mod player;
+pub use contents::{Inventory, InventoryEntry, ReferenceContents};
+pub use extra::{Extra, ExtraData};
+pub use fields::{Field, FieldArray};
+pub use leveled::LeveledCreature;
 pub use player::PlayerLocation;
 
 use crate::cursor::{Cursor, VsVal};

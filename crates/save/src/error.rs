@@ -15,6 +15,9 @@ pub enum Error {
         have: usize,
     },
 
+    #[error("invalid variable-count width tag at byte {at}")]
+    VariableCount { at: usize },
+
     #[error("not a Skyrim save: expected the magic TESV_SAVEGAME, found {found:?}")]
     NotASave { found: String },
 
@@ -82,6 +85,9 @@ pub enum Error {
 
     #[error("invalid reference change data: {reason}")]
     Reference { reason: String },
+
+    #[error("invalid NPC change data: {reason}")]
+    Npc { reason: String },
 
     #[error("invalid quest change data: {reason}")]
     Quest { reason: String },

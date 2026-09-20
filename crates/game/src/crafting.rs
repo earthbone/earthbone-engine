@@ -48,7 +48,7 @@ pub struct Outcome {
 
 struct Prepared {
     outcome: Outcome,
-    inventory: BTreeMap<GlobalFormId, i32>,
+    inventory: crate::inventory::Inventory,
 }
 
 impl Game {
@@ -169,7 +169,7 @@ impl Game {
             .inventory
             .clone();
         for (&item, &needed) in &consumed {
-            let available = inventory.get(&item).copied().unwrap_or(0);
+            let available = inventory.count(item);
             if available < needed {
                 return Err(Error::MissingIngredient {
                     item,
@@ -177,14 +177,9 @@ impl Game {
                     available,
                 });
             }
-            if available == needed {
-                inventory.remove(&item);
-            } else {
-                inventory.insert(item, available - needed);
-            }
+            inventory.take(item, needed);
         }
-        let output = inventory.entry(created).or_default();
-        *output = output.checked_add(count).ok_or(Error::Quantity)?;
+        inventory.add(created, count).map_err(|_| Error::Quantity)?;
         Ok(Prepared {
             outcome: Outcome {
                 recipe: recipe_id,

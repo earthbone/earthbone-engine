@@ -35,9 +35,9 @@ than DATA attributes. The game view therefore adds the missing prefix only.
 
 The store rejects non-finite inputs and overflowing components or totals
 before mutation. Resurrection clears health damage and death identity while
-retaining modifiers. Essential and deferred-kill flags suppress the current
-death flag transition. Bleedout, protected-actor attacker rules, invulnerability
-and OnDying/OnDeath delivery require the combat lifecycle.
+retaining modifiers. Essential actors reject death. Deferred kills retain the first lethal request
+until EndDeferredKill. The lifecycle below delivers OnDying and OnDeath.
+Bleedout, protected-actor attacker rules and invulnerability remain unfinished.
 
 ## Persistence
 
@@ -80,7 +80,7 @@ resolve their owning template groups. Script, keyword, AI-data and attack-data
 inheritance still need the corresponding runtime consumers.
 
 No melee contact, weapon damage formula, armor/block/perk evaluation,
-death-event sequence, stagger, attack animation or host attack input was added.
+stagger, attack animation or host attack input was added.
 The integrated magic runtime uses these modifier domains for active effects.
 The full gameplay-foundations objective remains open.
 
@@ -127,8 +127,8 @@ and an empty selection table. Tests cover a reference saved before actor
 initialization, stable inventory and random state after reload, retained empty
 spawns, old-format loading, corrupt choices and atomic load rejection.
 Base-form queries do not choose a result for a spawn. They retain the editor
-base's fields when inheritance reaches a leveled list. Generated temporary
-ActorBase identity and complete GetLeveledActorBase semantics remain pending.
+base's fields when inheritance reaches a leveled list. The temporary-base
+follow-up below adds a distinct identity for per-reference ActorBase queries.
 
 The installed five-master survey initializes every one of the 6,361 NPC bases
 at selection levels 1, 20 and 50, for 19,083 actor initializations. Each pass
@@ -137,3 +137,112 @@ and reloads to the same world hash. The acceptance threshold, more than 6,000
 successful actors and zero errors per level, was written before the first run.
 This exercises authored inputs and runtime initialization, not comparison with
 a running vanilla executable or rendered NPC spawning.
+
+## Restoring saved template choices, work in progress
+
+`World::restore_vanilla_actor_templates` runs after saved reference placement
+and before actor initialization. It validates the original base against the
+saved reference, finds the selected NPC through the original template's nested
+LVLN graph, and retains the subsequent static template chain. It does not roll
+chance-none or apply current level eligibility to an already-made choice.
+Current live leveled-list edits, when present, participate in membership checks.
+Missing choices, mismatched bases, duplicate references and incomplete chains
+fail before any choices are installed. More than one unresolved leveled link
+in a single NPC chain is still unsupported.
+
+The saved leveled-creature entry identifies original and selected bases but
+does not identify the encounter level that originally chose them. Imported
+choices therefore have no selection level. SOEW version 12 encodes that as
+zero and reads it back as an absent level. Versions 10 and 11 still reject
+zero. New engine spawns continue to require and record a positive selection
+level. No player-level substitute is invented during restoration.
+
+The prefix decoder stops after ExtraLeveledCreature. This lets the template
+pass read its own state without interpreting later unsupported package data.
+The complete reference-contents decoder still requires every extra entry and
+retains its failing PackageData acceptance check.
+
+Public sources were CommonLibSSE-NG `ExtraLeveledCreature.h`, CK
+`GetActorBase`/`GetLeveledActorBase`, xEdit's save definitions and UESP extra-data
+notes. The first 156,154 fully decoded entries all named the reference's
+original NPC first and a different selected NPC second. The prefix reader also
+reaches fifteen leveled entries whose later package data is not decoded yet.
+No NPC choice is inferred from current RNG or current player level.
+
+Across 60 saves, all 156,169 recorded actor choices restore and survive engine
+save/load, with unchanged RNG and no queued events. Synthetic tests cover
+late failures, current chance-none and level differences, inherited inventory,
+unknown selection levels and old-format rejection. The current pass creates
+156,169 private NPC records and applies all 4,930 inline NPC changes, including
+saved ACBS, AIDT and DNAM. Actor initialization reads the resulting stats.
+GetActorBase retains the authored identity, while GetLeveledActorBase returns
+the private record. SOEW version 14 persists the records and their owning
+references. See [game.md](game.md#temporary-actor-bases) for inheritance,
+namespace handling and validation.
+
+Saved actor-value modifiers, AI execution and combat state remain separate
+restoration work. Temporary-base cleanup on reset, deletion and respawn, and
+saved Papyrus bindings to vanilla temporary identities are not implemented.
+
+## Death lifecycle increment, unmerged
+
+The combat-lifecycle worktree builds on the frozen inventory/NPC restoration
+review. Kill, KillSilent, lethal actor-value changes and supported lethal magic
+share the same death transition. Death records the killer, clears combat state
+and queues OnDying followed by OnDeath. Repeated kills do not replace the killer
+or queue duplicate notifications. Healing alone does not revive a dead actor.
+Resurrect clears health damage and any held deferred-death request.
+
+StartDeferredKill keeps the actor alive through lethal damage or Kill.
+EndDeferredKill resolves the first held request, preserving its killer and
+silent flag even if the actor healed in between. Held requests are persistent
+state and do not keep the VM pump busy. ActorBase.SetEssential updates already
+initialized actors that inherit that base-data source, and later actors read
+the same runtime flag. Private temporary actor bases keep their own flag.
+
+The event recipient snapshot contains the actor, its running quest aliases
+and its active effect objects. Alias order is sorted, effect order follows
+stable effect IDs. Clearing an alias or expiring an effect before delivery does
+not redirect an already queued notification. Instant lethal magic registers
+its effect before capturing recipients. This includes the lethal effect's own
+script in death notifications.
+
+SOEW version 15 persists held requests and undelivered death notifications,
+including recipient handles. They also contribute to the state hash. Loading
+rejects inconsistent held requests, duplicate held actors, empty recipient
+lists and duplicate recipients before replacing world state. Version 14 and
+older saves retain their existing payload shape and use nonpositive health
+when EndDeferredKill has no saved request. No dependency or host node was added.
+
+Sources are local CK StartDeferredKill, EndDeferredKill and KillSilent pages,
+and skse64/scripts/vanilla/Actor.psc, including KillEssential, plus the death
+event declarations in Actor.psc, ReferenceAlias.psc and ActiveMagicEffect.psc. Existing actor-value components, the pending queue and
+engine-save IO were reused. The local skymp TES5DamageFormula was inspected,
+but its unfinished armor, perks and block calculations were not adopted.
+
+The tests cover native calls, essential changes, duplicate kills, resurrection,
+healing during deferral, alias snapshots, active-effect events, engine saves,
+old-version fallback and atomic rejection of invalid queues. They do not prove
+original-runtime parity. KillSilent currently suppresses both Papyrus death
+events, interpreting the CK phrase about no kill event. Whether that phrase
+also describes a separate story event remains unverified. The healed deferred
+request behavior follows the CK wording and also needs a vanilla comparison.
+
+Both events enter the VM during one pump. There is no death-animation completion
+signal or ragdoll timing yet. Essential alias flags, bleedout, protection by
+attacker identity, invulnerability, weapon contacts, damage formulas and combat
+AI remain unfinished. Full vanilla ESS restoration is a separate open scope.
+
+Validation on 2026-09-20 passed the combined tools/lint.sh gate with 1,151 Rust
+and 11 Python tests, no warnings and no skipped optional tools. The installed
+five-master survey initializes 6,361 actors, kills 6,018 and retains 343
+essential actors. Death state, killer attribution, queued notifications and
+save bytes survive reload. It exercises immediate and deferred kills with
+thresholds fixed before its first run. The installed run passes all 11
+lifecycle tests, 42 game-side save tests and nine footstep tests.
+
+The save surveys retain their earlier limits: 126 unsupported actor inventory
+records are excluded, and full reference decoding still has 169 unsupported
+PackageData payloads in this tree. The separate empty-package decoder increment
+has not been copied here. Neither these surveys nor the death tests establish
+full ESS resumption or a completed combat system.

@@ -62,7 +62,8 @@ so a form with no script still answers its class's natives. The VM gained
 **Natives cannot touch the VM.** They run inside a VM thread. Anything they
 want the VM to do, an `OnActivate` event, an `OnInit`, a stage fragment call,
 goes into `World::pending`, and `Game::run_until_idle` alternates draining that
-queue with running the VM until both are empty. Timers are the same: `tick`
+queue with running the VM until no runnable work remains. Deferred death
+requests stay queued until EndDeferredKill. Timers are the same: `tick`
 moves due registrations into the queue as `OnUpdate` events.
 
 **Provider collisions.** `Game::add_natives` runs a second provider (an
@@ -152,8 +153,9 @@ Current behavior and compatibility limits:
   DNAM-plus-offset fallback for synthetic records. See [actor values](actor-values.md).
 - PlayerRef keeps form 0x14 and binds to the Player NPC base when available.
   A base-less synthetic player starts at 100 for the three main values.
-  Health reaching zero marks death unless essential or deferred, with no
-  death-event or bleedout lifecycle yet. Healing alone does not resurrect.
+  Health reaching zero uses the shared death lifecycle, including essential
+  checks, deferred requests and OnDying/OnDeath delivery. Bleedout remains
+  unfinished. Healing alone does not resurrect.
 - `GetAngle*` return degrees, the record stores radians.
 - Update timers run on real seconds, the game-time variants on game hours.
 - `Game.GetForm` accepts the runtime id under the current load order, light
@@ -1191,3 +1193,168 @@ before changing the world. Its report identifies missing dependencies and
 unapplied state. Inventory, actor values, extra data and saved execution remain
 separate requirements. See [save.md](save.md#reference-placements) for sources,
 validation and the limits of this intermediate reconstruction pass.
+
+## Inventory instances and ESS application, work in progress
+
+`RefState::inventory` now holds one canonical per-item total and ordered
+extra-data lists. The previous count map could not retain a tempered item,
+charge, owner, equipped marker or custom name after restoration or transfer.
+`Inventory` checks quantity arithmetic and keeps mapped form identities,
+string bytes and floating-point bits in its stack fields. Stack fields retain
+information without claiming that every extra-data type already drives gameplay.
+
+Saved extra-list counts are not always a partition of the item total. The
+corpus contains overlapping positive lists and negative ExtraLeveledItem
+bookkeeping under zero-total entries. Those descriptions are preserved, while
+the item total bounds every removal. Ordinary removal uses undescribed items
+first, then positive stacks in saved order. Negative bookkeeping stays with
+the source. Transfers clear Worn/WornLeft on received stacks. This selection
+policy has not been compared with vanilla's selection among otherwise similar
+instances. Ownership changes, theft rules, equipment events and restocking
+remain unfinished.
+
+Crafting prepares its changes on a cloned inventory and commits the complete
+result only after eligibility and quantity checks pass. Consumed stacks lose
+their extra data with the items. Unspent stacks keep it. Missing recipients,
+self-transfers and recipient overflow do not remove anything from the source.
+
+`World::restore_vanilla_inventories` reconstructs authored quantities and
+applies saved deltas, with the ExtraLeveledItem authored-count exclusion from
+CommonLib. Saved RefIDs in extra fields map through the saved plugin list.
+Count defaults to one when ExtraCount is absent. Every reference is prepared
+before any inventory is replaced, with no inventory events or random template
+selection. Saved actor template choices and created base records must exist
+before their inventories can be reconstructed. Item definitions absent from
+the current table are reported. General reference extras remain unapplied.
+
+SOEW version 12 appends stack descriptions to the existing quantity prefix.
+Versions 4 through 11 remain readable. The extension rejects duplicate item
+or reference keys, invalid field tags, excessive nesting and truncation before
+replacing world state. Inventory hashes include the complete stack extension.
+
+Sources read were local CommonLibSSE-NG `TESObjectREFR.cpp`,
+`InventoryEntryData.cpp`, `ExtraDataList.cpp`, `ExtraCount.h` and
+`ExtraLeveledItem.h`, plus the save layout sources in save.md. Existing world,
+form mapping, engine-save IO and inventory event paths are reused. No new
+package or host node was added. Full ESS loading, actor inventory restoration,
+item-use effects, equipment combat, tempering and menus remain open.
+
+The 60-save non-actor inventory survey restores 59,854 inventories, 402,177
+item entries and 165,799 extra-data lists with no missing item definitions.
+Engine save/load preserves every surveyed inventory and the world hash. The
+combined game-side vanilla-save suite passes 28 installed-data tests. These
+results do not cover actor inventories or prove vanilla stack-selection rules.
+
+## Restoring NPC records
+
+`World::restore_vanilla_npcs` applies standalone NPC_ changes before reference,
+actor-base or actor construction. It prepares all records and mappings before
+installing any, and queues no events. It rejects duplicate, missing, deleted
+or non-NPC targets and malformed payloads. Missing mapped link definitions are
+reported without replacing their identities with other forms.
+
+Runtime overrides are records keyed by the same resolved FormID as their
+plugin origin. `World::record`, NPC views, names, actor initialization and
+inventory-source lookup see the override. The immutable `LoadOrder` remains
+the authored input, shared with the host. Unchanged links retain their winning
+plugin's namespace. Changed links use private relocation tokens, allocated
+outside every four-byte window in the original subrecords and resolved by
+`World::resolve_from`. This retains opaque original data without inventing a
+plugin or rewriting its master list. A null raw link resolves to None.
+
+ACBS, AIDT, DNAM, factions, spells, class, race, face, gender and outfit changes
+become their corresponding NPC subrecords. Saved names retain Windows-1252
+bytes and are treated as plain text even if the winning plugin is localized.
+Form and NPC text queries reuse the ESM Windows-1252 decoder. Shouts initialize
+the actor's shout collection separately from spells. Leveled spell lists are
+retained, but their execution remains a separate requirement.
+
+CommonLib names originalRace and bodyTintColor as runtime NPC fields. The
+original race and exact four tint bytes are retained alongside the record.
+QNAM receives normalized RGB, following CommonLib NiColor's byte conversion.
+Morph floats retain their exact bits. Generic form-flag masks are preserved,
+reported and serialized, but remain unapplied. No such masks occurred in the
+60-save NPC survey. The absent-head face case follows xEdit and has only
+synthetic layout coverage. Rendered NPC appearance has not been verified.
+
+SOEW version 13 introduced overrides after the version-12 inventory extension.
+Engine load reconstructs them against the same plugin order and validates
+origins, identity ranges, link-token collisions, duplicate records, editor
+identities, bounds and NPC structure before changing the world. Old saves
+clear the override table. World hashes include its complete serialized state.
+
+Sources read were xEdit's NPC_ and changed-NPC definitions, FallrimTools
+ChangeFormNPC, CommonLibSSE-NG TESNPC and NiColor, and OpenMW's TypedDynamicStore.
+OpenMW informed the separation of authored and runtime records, not Skyrim's
+field layouts. Existing record, reference mapping, save IO, text decoding and
+actor initialization code is reused. No dependency or host node was added.
+
+All 13,362 standalone NPC bases across 60 saves restore into shared records and
+survive engine save/load with no missing mapped links. The combined installed
+vanilla-save suite passes 38 tests with NPC restoration before the existing
+template and inventory surveys. Synthetic cases cover reordered regular and
+light plugins, a winning override with a different master namespace, untouched
+opaque bytes, non-ASCII names, live actor queries, Papyrus health, restoration
+before actor initialization, failed late imports and old saves clearing state.
+The temporary-base follow-up below adds inline NPC application. Complete
+actor state, save resumption and saved package execution remain open.
+
+## Temporary actor bases
+
+The template-restoration pass now materializes a private NPC record for every
+saved leveled actor before actor initialization. Each template group comes
+from the validated saved chain. ACBS flags and fields and the DNAM fields
+follow their group ownership. The record keeps the original editor identity,
+removes TPLT, marks the copied-template bit and receives a distinct dynamic
+FormID. Inline NPC changes then apply to that private record. Original and
+selected plugin bases remain unchanged.
+
+Known FormID fields are relocated using each component's source namespace.
+This includes script object properties, inventory ownership, keywords, attack
+data and alternate textures. Opaque fields stay with their original source.
+The base-data source supplies localized text provenance. Actor initialization,
+inventory, keyword queries and footstep selection read the resulting record.
+Papyrus GetActorBase retains the authored base, while GetLeveledActorBase
+returns the private base. New engine spawns materialize it on the first such
+query. Imported saved choices all receive their bases during restoration.
+
+The entire import prepares records, choices and dynamic IDs before installing
+any. Bad later entries and exhausted IDs leave the world unchanged. Sorting
+actors before allocation makes saved change-form order irrelevant. The pass
+does not consume RNG or queue events.
+
+SOEW version 14 adds record origin, text origin and owning actor identity.
+Load checks the owner against its saved template chain, rejects collisions
+and IDs beyond the allocator, and reconnects each choice to its private base.
+Versions 4 through 13 remain readable. World maps now serialize in sorted
+order, fixing byte differences after a save/load cycle caused by hash-map
+iteration. Saved record metadata and associations contribute to the world hash.
+
+Sources were local UESP NPC template descriptions, skymp NPC_.h, xEdit NPC_
+and alternate-texture layouts, CommonLib's ACTOR_BASE_DATA and
+ExtraLeveledCreature declarations, and CK GetActorBase/GetLeveledActorBase.
+Existing VMAD parsing/writing, record overrides and actor initialization are
+reused. No dependency or host node was added.
+
+The 60-save corpus creates and persists 156,169 temporary actor bases and
+applies all 4,930 nonempty inline NPC changes. Applicable saved DNAM health
+values reach live actor initialization. Synthetic checks cover separate
+stats for actors sharing an authored base, Papyrus base queries, component
+links across different plugin namespaces, script properties, inventory
+ownership, footsteps, stable save bytes, version-13 migration and atomic
+rejection of corrupt identities and exhausted allocation.
+
+Group composition follows the public field descriptions. It has not been
+compared with a running vanilla executable for every flag or modded layout.
+Temporary-base cleanup on reset, deletion and respawn, saved Papyrus rebinding
+to vanilla temporary base IDs, generic form-flag application, rendered
+appearance and complete actor/AI execution remain unfinished. Passing these
+tests does not establish a complete ESS load or a resumed game.
+
+## Death lifecycle worktree
+
+The unmerged combat-lifecycle increment routes native kills, lethal value
+changes and supported magic through one transition. SOEW version 15 preserves
+held requests and undelivered notifications. Actor, running alias and active
+effect scripts receive death events. See [actor values](actor-values.md#death-lifecycle-increment-unmerged)
+for sources, event timing, validation and the remaining combat requirements.

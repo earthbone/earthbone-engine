@@ -311,3 +311,40 @@ fn installed_skin_and_boot_sets_follow_the_authored_links() {
     );
     eprintln!("Installed bare feet, heavy boots, light boots and wolf skin selected distinct authored sets");
 }
+
+#[test]
+fn temporary_bases_keep_inherited_skin_and_gender_in_footstep_selection() {
+    let mut plugin = plugin();
+    let selected = plugin
+        .records
+        .iter_mut()
+        .find(|r| r.form_id == 0x11)
+        .unwrap();
+    *selected = selected.clone().sub(T(b"WNAM"), 0x201_u32.to_le_bytes());
+    let mut root = npc(0x12, false).sub(T(b"TPLT"), 0x110_u32.to_le_bytes());
+    let acbs = root
+        .subrecords
+        .iter_mut()
+        .find(|s| s.tag == T(b"ACBS"))
+        .unwrap();
+    acbs.data[18..20].copy_from_slice(&soe_game::npc::template::TRAITS.to_le_bytes());
+    plugin.push_top(root);
+    let mut lvlo = vec![0; 12];
+    lvlo[4..8].copy_from_slice(&0x11_u32.to_le_bytes());
+    lvlo[8..10].copy_from_slice(&1_u16.to_le_bytes());
+    plugin.push_top(Record::new(T(b"LVLN"), 0x110).sub(T(b"LVLO"), lvlo));
+    let mut order = LoadOrder::new();
+    order.add("Skyrim.esm", plugin).unwrap();
+    let order = std::sync::Arc::new(order);
+    let mut world = World::from_shared_order(std::sync::Arc::clone(&order));
+    let actor = world.place_at(id(0x12), id(0x14), false);
+    world.actor(actor).unwrap().equipped.insert(id(0x202));
+    assert_eq!(world.footstep_sets(actor).unwrap(), [id(0x902), id(0x903)]);
+    let temporary = world.leveled_actor_base(actor).unwrap().unwrap();
+    assert_ne!(temporary, id(0x12));
+    assert_ne!(temporary, id(0x11));
+    assert_eq!(world.footstep_sets(actor).unwrap(), [id(0x902), id(0x903)]);
+    let mut loaded = World::from_shared_order(order);
+    loaded.load_state(&world.save_state()).unwrap();
+    assert_eq!(loaded.footstep_sets(actor).unwrap(), [id(0x902), id(0x903)]);
+}

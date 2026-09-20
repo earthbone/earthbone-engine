@@ -395,7 +395,7 @@ fn inventory_count(
             .ok_or(Error::Form(subject))?
             .inventory
             .iter()
-            .map(|(id, count)| (*id, *count))
+            .map(|(id, count)| (*id, count))
             .collect();
         let mut total = 0i32;
         for (id, count) in items {

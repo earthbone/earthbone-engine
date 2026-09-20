@@ -33,7 +33,11 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// Version 9 combines components, dialogue and active magic effects.
 /// Version 10 adds persistent per-reference leveled template selections.
 /// Version 11 adds mapped quest runtime and journal instance state.
-pub const SAVE_VERSION: u16 = 11;
+/// Version 12 retains distinct inventory stacks and their mapped extra data.
+/// Version 13 persists runtime NPC record overrides and mapped links.
+/// Version 14 adds temporary NPC identities, ownership and component provenance.
+/// Version 15 persists deferred-death requests and their eventual event recipients.
+pub const SAVE_VERSION: u16 = 15;
 
 impl World {
     /// Serialize the run-time state: the VM object handles, references,
@@ -53,19 +57,21 @@ impl World {
         let mut body = Writer::new();
 
         body.len(self.objects.len());
-        for (h, o) in &self.objects {
+        let mut objects: Vec<_> = self.objects.iter().collect();
+        objects.sort_by_key(|(_, object)| object.0);
+        for (h, o) in objects {
             write_handle(&mut body, *h);
             body.u64(o.0);
         }
 
         body.len(self.refs.len());
-        for (id, s) in &self.refs {
+        for (id, s) in self.refs.iter().collect::<BTreeMap<_, _>>() {
             write_form_id(&mut body, *id);
             write_ref_state(&mut body, s);
         }
 
         body.len(self.actors.len());
-        for (id, a) in &self.actors {
+        for (id, a) in self.actors.iter().collect::<BTreeMap<_, _>>() {
             write_form_id(&mut body, *id);
             write_actor_state(&mut body, a);
         }
@@ -83,7 +89,7 @@ impl World {
         }
 
         body.len(self.form_lists.len());
-        for (id, items) in &self.form_lists {
+        for (id, items) in self.form_lists.iter().collect::<BTreeMap<_, _>>() {
             write_form_id(&mut body, *id);
             body.len(items.len());
             for i in items {
@@ -103,6 +109,29 @@ impl World {
         body.len(self.pending.len());
         for p in &self.pending {
             match p {
+                Pending::DeferredDeath {
+                    actor,
+                    killer,
+                    silent,
+                } => {
+                    body.u8(3);
+                    write_form_id(&mut body, *actor);
+                    write_opt_form_id(&mut body, *killer);
+                    body.bool(*silent);
+                }
+                Pending::ActorDeath {
+                    actor,
+                    killer,
+                    recipients,
+                } => {
+                    body.u8(4);
+                    write_form_id(&mut body, *actor);
+                    write_opt_form_id(&mut body, *killer);
+                    body.len(recipients.len());
+                    for recipient in recipients {
+                        write_handle(&mut body, *recipient);
+                    }
+                }
                 Pending::BindEffect { object, effect } => {
                     body.u8(2);
                     body.u64(object.0);
@@ -162,14 +191,14 @@ impl World {
         }
         body.bool(self.player_controls);
         body.len(self.ini.len());
-        for (k, v) in &self.ini {
+        for (k, v) in self.ini.iter().collect::<BTreeMap<_, _>>() {
             body.str(k);
             body.str(v);
         }
 
         // Version 2: the state the natives round added.
         body.len(self.leveled_lists.len());
-        for (id, l) in &self.leveled_lists {
+        for (id, l) in self.leveled_lists.iter().collect::<BTreeMap<_, _>>() {
             write_form_id(&mut body, *id);
             body.u8(l.chance_none);
             body.u8(l.flags);
@@ -183,7 +212,7 @@ impl World {
             }
         }
         body.len(self.locations.len());
-        for (id, l) in &self.locations {
+        for (id, l) in self.locations.iter().collect::<BTreeMap<_, _>>() {
             write_form_id(&mut body, *id);
             body.bool(l.cleared);
             body.len(l.keyword_data.len());
@@ -193,7 +222,7 @@ impl World {
             }
         }
         body.len(self.factions.len());
-        for (id, f) in &self.factions {
+        for (id, f) in self.factions.iter().collect::<BTreeMap<_, _>>() {
             write_form_id(&mut body, *id);
             body.len(f.reactions.len());
             for (k, v) in &f.reactions {
@@ -209,7 +238,7 @@ impl World {
             body.bool(f.tracks_crime);
         }
         body.len(self.actor_bases.len());
-        for (id, a) in &self.actor_bases {
+        for (id, a) in self.actor_bases.iter().collect::<BTreeMap<_, _>>() {
             write_form_id(&mut body, *id);
             for flag in [a.essential, a.protected, a.invulnerable, a.unique, a.female] {
                 body.bool(flag);
@@ -220,18 +249,18 @@ impl World {
             body.i32(a.dead_count);
         }
         body.len(self.cells.len());
-        for (id, c) in &self.cells {
+        for (id, c) in self.cells.iter().collect::<BTreeMap<_, _>>() {
             write_form_id(&mut body, *id);
             write_opt_form_id(&mut body, c.owner);
             body.bool(c.public);
         }
         body.len(self.settings.len());
-        for (k, v) in &self.settings {
+        for (k, v) in self.settings.iter().collect::<BTreeMap<_, _>>() {
             body.str(k);
             pool.write_value(&mut body, v);
         }
         body.len(self.inventory_filters.len());
-        for (o, list) in &self.inventory_filters {
+        for (o, list) in self.inventory_filters.iter().collect::<BTreeMap<_, _>>() {
             body.u64(o.0);
             body.len(list.len());
             for f in list {
@@ -295,6 +324,8 @@ impl World {
         self.write_magic(&mut body);
         self.write_actor_templates(&mut body);
         self.write_quest_aux(&mut body);
+        self.write_item_stacks(&mut body);
+        self.write_record_overrides(&mut body);
         let mut out = Writer::new();
         out.out.extend_from_slice(SAVE_MAGIC);
         out.u16(SAVE_VERSION);
@@ -436,13 +467,35 @@ impl World {
         let mut pending = Vec::with_capacity(n);
         for _ in 0..n {
             let tag = r.u8()?;
-            let object = ObjectId(r.u64()?);
             match tag {
+                3 if version >= 15 => pending.push(Pending::DeferredDeath {
+                    actor: read_form_id(&mut r)?,
+                    killer: read_opt_form_id(&mut r)?,
+                    silent: r.bool()?,
+                }),
+                4 if version >= 15 => {
+                    let actor = read_form_id(&mut r)?;
+                    let killer = read_opt_form_id(&mut r)?;
+                    let count = r.len()?;
+                    if count > r.remaining() / 7 {
+                        return Err(VmError::State("death recipient count exceeds data".into()));
+                    }
+                    let mut recipients = Vec::with_capacity(count);
+                    for _ in 0..count {
+                        recipients.push(read_handle(&mut r)?);
+                    }
+                    pending.push(Pending::ActorDeath {
+                        actor,
+                        killer,
+                        recipients,
+                    });
+                }
                 2 if version == 5 || version >= 9 => pending.push(Pending::BindEffect {
-                    object,
+                    object: ObjectId(r.u64()?),
                     effect: read_form_id(&mut r)?,
                 }),
                 0 => {
+                    let object = ObjectId(r.u64()?);
                     let name = r.str()?;
                     let k = r.len()?;
                     let mut args = Vec::with_capacity(k);
@@ -452,6 +505,7 @@ impl World {
                     pending.push(Pending::Event { object, name, args });
                 }
                 1 => {
+                    let object = ObjectId(r.u64()?);
                     let function = r.str()?;
                     let k = r.len()?;
                     let mut args = Vec::with_capacity(k);
@@ -727,16 +781,45 @@ impl World {
                 }
             }
         }
-        let actor_templates = if version >= 10 {
-            self.read_actor_templates(&mut r)?
+        let mut actor_templates = if version >= 10 {
+            self.read_actor_templates(&mut r, version >= 12)?
         } else {
             BTreeMap::new()
         };
         if version >= 11 {
             super::quest_save::read_quest_aux(&mut r, &mut quests)?;
         }
+        if version >= 12 {
+            super::item_save::read_item_stacks(&mut r, &mut refs)?;
+        }
+        let record_overrides = if version >= 13 {
+            self.read_record_overrides(&mut r, version)?
+        } else {
+            BTreeMap::new()
+        };
         r.expect_end()?;
+        super::death::validate_pending(&actors, &pending)?;
 
+        for (&id, value) in &record_overrides {
+            let Some(actor) = value.temporary_for else {
+                continue;
+            };
+            let choice = actor_templates
+                .get_mut(&actor)
+                .ok_or_else(|| VmError::State("temporary NPC has no actor choice".into()))?;
+            if id.object > next_dynamic
+                || refs.contains_key(&id)
+                || refs.get(&actor).is_none_or(|r| !r.is_actor)
+                || choice.temporary_base.is_some()
+                || choice.chain.as_ref().and_then(|c| c.first()) != Some(&value.origin)
+                || value.record.find(super::T(b"TPLT")).is_some()
+            {
+                return Err(VmError::State("inconsistent temporary NPC identity".into()));
+            }
+            choice.temporary_base = Some(id);
+        }
+
+        self.record_overrides = record_overrides;
         self.actor_templates = actor_templates;
         self.leveled_lists = leveled_lists;
         self.locations = locations;
@@ -893,9 +976,9 @@ fn write_ref_state(w: &mut Writer, s: &RefState) {
     w.i32(s.lock_level);
     w.opt_str(s.display_name.as_deref());
     w.len(s.inventory.len());
-    for (item, count) in &s.inventory {
+    for (item, count) in s.inventory.iter() {
         write_form_id(w, *item);
-        w.i32(*count);
+        w.i32(count);
     }
     w.len(s.linked.len());
     for (kw, r) in &s.linked {
@@ -955,10 +1038,15 @@ fn read_ref_state(r: &mut Reader<'_>) -> Result<RefState, VmError> {
     let lock_level = r.i32()?;
     let display_name = r.opt_str()?;
     let n = r.len()?;
-    let mut inventory = BTreeMap::new();
+    let mut inventory = crate::inventory::Inventory::default();
     for _ in 0..n {
         let item = read_form_id(r)?;
-        inventory.insert(item, r.i32()?);
+        if inventory.contains(item) {
+            return Err(VmError::State("duplicate inventory item".into()));
+        }
+        inventory
+            .restore(item, r.i32()?, vec![])
+            .map_err(|error| VmError::State(error.to_string()))?;
     }
     let n = r.len()?;
     let mut linked = Vec::with_capacity(n);
@@ -1037,7 +1125,7 @@ fn write_actor_state(w: &mut Writer, a: &ActorState) {
     w.bool(a.unconscious);
     w.bool(a.doing_favor);
     w.len(a.factions.len());
-    for (id, rank) in &a.factions {
+    for (id, rank) in a.factions.iter().collect::<BTreeMap<_, _>>() {
         write_form_id(w, *id);
         w.i32(*rank);
     }

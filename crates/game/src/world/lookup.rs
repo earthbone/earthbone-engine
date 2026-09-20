@@ -17,11 +17,16 @@ impl World {
     }
 
     pub fn record(&self, id: GlobalFormId) -> Option<&Record> {
-        self.order.winner(id)
+        self.record_overrides
+            .get(&id)
+            .map(|value| &value.record)
+            .or_else(|| self.order.winner(id))
     }
 
     pub fn exists(&self, id: GlobalFormId) -> bool {
-        self.refs.contains_key(&id) || self.order.contains(id)
+        self.refs.contains_key(&id)
+            || self.record_overrides.contains_key(&id)
+            || self.order.contains(id)
     }
 
     pub fn tag_of(&self, id: GlobalFormId) -> Option<Tag> {
@@ -46,17 +51,22 @@ impl World {
             if let Some(n) = &r.display_name {
                 return Some(n.clone());
             }
-            return r.base.and_then(|b| self.name_of(b));
+            let base = self
+                .actor_templates
+                .get(&id)
+                .and_then(|c| c.temporary_base)
+                .or(r.base);
+            return base.and_then(|b| self.name_of(b));
         }
-        let rref = self.order.winner_ref(id)?;
-        let rec = self.order.record(rref);
+        let rec = self.record(id)?;
         if matches!(rec.tag.as_bytes(), b"REFR" | b"ACHR") {
             let raw = rec.find(T(b"NAME"))?;
-            let base = self.order.resolve(rref.file, le_u32(raw)?);
-            return self.name_of(base);
+            return self.name_of(self.resolve_from(id, le_u32(raw)?)?);
         }
-        let localized = self.order.file(rref.file).plugin.header.is_localized();
-        match text(rec.find(T(b"FULL"))?, localized) {
+        match text(
+            rec.find(T(b"FULL"))?,
+            self.record_text_localized(id, T(b"FULL")),
+        ) {
             Text::Plain(s) => Some(s),
             Text::Localized(n) => Some(format!("<string {n}>")),
         }
@@ -133,9 +143,22 @@ impl World {
         self.exists(id).then_some(id)
     }
 
-    /// Resolve a raw FormID found in the winning record of `owner`.
     pub fn resolve_from(&self, owner: GlobalFormId, raw: u32) -> Option<GlobalFormId> {
-        let rref = self.order.winner_ref(owner)?;
+        if raw == 0 {
+            return None;
+        }
+        if let Some(id) = self
+            .record_overrides
+            .get(&owner)
+            .and_then(|value| value.links.get(&raw))
+        {
+            return Some(*id);
+        }
+        let origin = self
+            .record_overrides
+            .get(&owner)
+            .map_or(owner, |r| r.origin);
+        let rref = self.order.winner_ref(origin)?;
         Some(self.order.resolve(rref.file, raw))
     }
 
@@ -206,17 +229,14 @@ impl World {
     /// so `HasKeyword` and every native read one list and cannot tell the two
     /// apart. See `crate::moddata`.
     pub fn keywords(&self, id: GlobalFormId) -> Vec<GlobalFormId> {
-        let mut out: Vec<GlobalFormId> = match self.order.winner_ref(id) {
-            Some(rref) => {
-                let rec = self.order.record(rref);
-                rec.find(T(b"KWDA")).map_or_else(Vec::new, |kwda| {
-                    kwda.as_chunks::<4>()
-                        .0
-                        .iter()
-                        .map(|c| self.order.resolve(rref.file, u32::from_le_bytes(*c)))
-                        .collect()
-                })
-            }
+        let mut out: Vec<GlobalFormId> = match self.record(id) {
+            Some(rec) => rec.find(T(b"KWDA")).map_or_else(Vec::new, |kwda| {
+                kwda.as_chunks::<4>()
+                    .0
+                    .iter()
+                    .filter_map(|c| self.resolve_from(id, u32::from_le_bytes(*c)))
+                    .collect()
+            }),
             None => Vec::new(),
         };
         if let Some(added) = self.mod_data.added_keywords.get(&id) {
@@ -230,7 +250,12 @@ impl World {
     }
 
     pub fn has_keyword(&mut self, id: GlobalFormId, keyword: GlobalFormId) -> bool {
-        let target = self.base_of(id).unwrap_or(id);
+        let target = self
+            .actor_templates
+            .get(&id)
+            .and_then(|c| c.temporary_base)
+            .or_else(|| self.base_of(id))
+            .unwrap_or(id);
         self.keywords(target).contains(&keyword)
     }
 

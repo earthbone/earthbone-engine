@@ -36,12 +36,31 @@ impl World {
         } else {
             None
         };
+        let traits = if let Some(base) = base {
+            let skin = self
+                .record(base)
+                .and_then(|r| r.find(T(b"WNAM")))
+                .map(|data| {
+                    let mut field = Fields::new(T(b"NPC_"), T(b"WNAM"), data);
+                    field.exact(4)?;
+                    Ok(self.resolve_from(base, field.u32()?))
+                })
+                .transpose()?
+                .flatten();
+            Traits {
+                race: self.actor_base_race(base)?,
+                skin,
+                female: self.npc_record(base)?.is_female(),
+            }
+        } else {
+            Traits::default()
+        };
         let state = self
             .actor(actor)
             .ok_or_else(|| Error::Invalid(format!("footsteps require an actor: {actor}")))?;
         let race = state.race;
         let equipped = state.equipped.clone();
-        Footsteps::new(self.order()).actor_sets(base, race, &equipped)
+        Footsteps::new(self.order()).sets(&traits, race, &equipped)
     }
 }
 
@@ -60,6 +79,15 @@ impl Footsteps<'_> {
             .map(|id| self.traits(id))
             .transpose()?
             .unwrap_or_default();
+        self.sets(&traits, current_race, equipped)
+    }
+
+    fn sets(
+        &self,
+        traits: &Traits,
+        current_race: Option<GlobalFormId>,
+        equipped: &BTreeSet<GlobalFormId>,
+    ) -> Result<Vec<GlobalFormId>> {
         let race = current_race.or(traits.race);
         let mut parts = BTreeMap::new();
         if let Some(race) = race {

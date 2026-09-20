@@ -224,3 +224,101 @@ Hostile spells, concentration, projectiles, conditions, peak modifiers and
 other archetypes, learned abilities, enchantments, potions, player casting input
 and audiovisual effects remain unfinished. See [game.md](game.md#active-magic-applications)
 for the exact supported path and reference sources.
+
+## Inventory worktree, unmerged
+
+The inventory follow-up replaces quantity-only reference inventory with item
+totals and distinct stack metadata. Transfers, crafting and SOEW version 12
+preserve that state. The ESS inventory application validates an entire pass
+before mutation and maps stack references through saved plugin identities.
+The full reference-contents corpus test still requires zero decoder failures.
+Nonempty PackageData remains unsupported, so full vanilla restoration is not
+complete. This work is not part of the master integration reported above.
+
+Validation passes the full gate with 1,114 Rust tests and 11 Python tests,
+28 installed-data game-save tests, and 17 quest/header decoder tests. The
+non-actor application survey restores and persists 59,854 inventories across
+60 saves. The broader reference-contents decoder still rejects 169 kind-18
+PackageData payloads. That failing test remains a required unfinished check.
+
+The same worktree now restores all 156,169 saved actor-template choices across
+60 saves without consuming RNG. Those choices persist in SOEW version 12,
+including an explicitly unknown original encounter level. The actor-inventory
+diagnostic applies 114,696 decodable inventories and preserves their stack
+state. It explicitly excludes 126 inventory-bearing actors blocked by
+PackageData. Inline NPC changes on 4,930 actors, temporary ActorBase identities,
+complete actor state and all package execution restoration remain unfinished.
+
+The combined follow-up gate passes 1,120 Rust tests and 11 Python tests. All
+33 game-side save tests pass with installed data. Optional gate tools ran.
+The normal comment-lint clone index reported its existing disk I/O warning,
+while a separate fresh-index run passed. The full reference-contents corpus
+check still fails on all 169 unsupported PackageData records. No worktree
+changes in this follow-up have been committed or merged.
+
+## NPC save changes, work in progress on ess-npc-changes
+
+The save crate decodes complete NPC_ changes and exposes the same named fields
+for embedded changes. The game applies standalone NPC changes to shared
+record overrides before initializing references and actors. All 13,362 NPC
+bases across 60 saves restore and persist through engine save/load, with no
+missing mapped links or pending form-flag masks in that corpus. Synthetic
+checks verify live stats, race, class, factions, spells, shouts, outfits, names
+and a Papyrus query, plus atomic rejection and load-order changes.
+
+SOEW version 13 preserves the overrides, mapped links, original race, exact
+body-tint bytes and any pending generic form-flag masks. Versions 4 through 12
+remain readable. The full installed-data vanilla-save suite passes 38 tests,
+including NPC restoration before placement/template/inventory surveys. The
+actor inventory survey still excludes 126 package-bearing records. The
+separate complete-contents test still fails on 169 package payloads.
+
+The combined gate passes with 1,134 Rust tests and 11 Python tests. All optional
+gate tools ran. These changes remain uncommitted on `ess-npc-changes`.
+
+Both embedded-NPC paths now use the same named decoder. All 156,169 leveled
+entries re-encode exactly. The 4,930 nonempty changes include four ACBS-only
+payloads and 4,926 ACBS/AIDT/DNAM payloads. The nine NPC decoder tests pass,
+including the external corpus. The repeated strict contents survey still
+fails only on the same 169 PackageData payloads. Runtime inline application
+is covered by the temporary-base follow-up below.
+
+This worktree includes the frozen inventory diff as a prerequisite. The
+original review worktree remains unchanged.
+
+The temporary-base follow-up creates a private NPC record for every saved
+leveled actor and applies its inline changes before actor initialization.
+GetActorBase and GetLeveledActorBase now expose the authored and private
+identities separately. Inherited links keep their source namespaces, and
+footsteps read restored traits. SOEW version 14 persists the private records,
+their origins and their owning actors while retaining older-save loading.
+World-state maps serialize in sorted order so load/save preserves byte order.
+
+The combined gate passes with 1,139 Rust tests and 11 Python tests, with no
+optional tools skipped and no warnings. All 42 game-side save tests and nine
+footstep tests pass with installed data. The 60-save corpus creates and
+persists 156,169 temporary bases and applies all 4,930 inline changes.
+The frozen 41-file inventory review tree remains unchanged.
+
+Temporary-base cleanup and saved Papyrus rebinding, generic form-flag
+application, rendered appearance, leveled spell execution and saved actor/AI
+execution remain unfinished. The complete-contents corpus test still fails
+on 169 PackageData records. These results do not establish a complete ESS
+load or a resumed game.
+
+## Combat lifecycle worktree, unmerged
+
+The combat-lifecycle increment builds on the frozen 57-file NPC/inventory
+review. It adds persistent deferred death requests, killer attribution,
+OnDying/OnDeath delivery to actor, alias and active-effect scripts, and essential
+base-flag propagation. SOEW version 15 retains undelivered notifications.
+The combined full gate passes 1,151 Rust tests and 11 Python tests, with no
+warnings or skipped optional tools. Installed-data validation passes 11
+lifecycle tests, 42 game-side save tests and nine footstep tests. The lifecycle
+survey initializes 6,361 actors, records 6,018 deaths and retains 343 essential
+actors. All surveyed death state and queued events persist through save/load.
+
+Weapon hits, damage formulas, bleedout, animation timing and combat AI remain
+unfinished. KillSilent event scope and deferred death after healing still need
+comparison with the original runtime. See [actor values](actor-values.md#death-lifecycle-increment-unmerged).
+No changes in this worktree have been committed or merged.

@@ -61,7 +61,7 @@ fn full_payload() -> Vec<u8> {
         }
     }
     u32_bytes(&mut out, 456);
-    out.extend_from_slice(&[6, 0, 0]);
+    out.extend_from_slice(&[6, 0, 0, 0]);
     u32_bytes(&mut out, 789);
     out.push(4);
     u32_bytes(&mut out, 10);
@@ -276,7 +276,7 @@ fn quest_static_data_preserves_array_roles_and_wide_counts() {
     }
     bytes.extend_from_slice(&[5, 0]);
     reference(&mut bytes, 0x400900);
-    bytes.extend_from_slice(&[6, 0, 0]);
+    bytes.extend_from_slice(&[6, 0, 0, 0]);
     u32_bytes(&mut bytes, 0x1234_5678);
     u32_bytes(&mut bytes, 0xABCD_EF01);
     bytes.push(1);

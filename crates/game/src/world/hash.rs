@@ -149,10 +149,13 @@ fn ref_state(h: &mut StateHasher, s: &RefState) {
     h.i32(s.lock_level);
     h.opt_str(s.display_name.as_deref());
     h.len(s.inventory.len());
-    for (item, count) in &s.inventory {
+    for (item, count) in s.inventory.iter() {
         form(h, *item);
-        h.i32(*count);
+        h.i32(count);
     }
+    let mut stacks = soe_papyrus::vm::state::Writer::new();
+    super::item_save::write_stacks(&mut stacks, &s.inventory);
+    h.bytes(&stacks.out);
     h.len(s.linked.len());
     for (keyword, target) in &s.linked {
         opt_form(h, *keyword);
@@ -478,6 +481,29 @@ impl World {
         h.len(self.pending.len());
         for p in &self.pending {
             match p {
+                Pending::DeferredDeath {
+                    actor,
+                    killer,
+                    silent,
+                } => {
+                    h.u8(3);
+                    form(&mut h, *actor);
+                    opt_form(&mut h, *killer);
+                    h.bool(*silent);
+                }
+                Pending::ActorDeath {
+                    actor,
+                    killer,
+                    recipients,
+                } => {
+                    h.u8(4);
+                    form(&mut h, *actor);
+                    opt_form(&mut h, *killer);
+                    h.len(recipients.len());
+                    for recipient in recipients {
+                        handle(&mut h, *recipient);
+                    }
+                }
                 Pending::BindEffect { object, effect } => {
                     h.u8(2);
                     h.u64(object.0);
@@ -663,6 +689,9 @@ impl World {
         let mut magic = soe_papyrus::vm::state::Writer::new();
         self.write_magic(&mut magic);
         h.bytes(&magic.out);
+        let mut records = soe_papyrus::vm::state::Writer::new();
+        self.write_record_overrides(&mut records);
+        h.bytes(&records.out);
         let scenes = h.finish();
 
         // These three are `BTreeMap`, already in key order, so they are walked

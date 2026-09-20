@@ -8,7 +8,7 @@ use soe_esm::GlobalFormId;
 use soe_papyrus::Value;
 
 impl World {
-    /// Base forms supported by quantity-only inventory stacks, from xEdit's item lists.
+    /// Base forms supported by inventory stacks, from xEdit's item lists.
     pub(crate) fn is_inventory_base(&self, item: GlobalFormId) -> bool {
         self.record(item).is_some_and(|record| {
             !record.is_deleted()
@@ -119,11 +119,9 @@ impl World {
         let Some(reference) = self.reference(holder) else {
             return false;
         };
-        let old = reference.inventory.get(&item).copied().unwrap_or(0);
-        let Some(new) = old.checked_add(count) else {
+        if reference.inventory.add(item, count).is_err() {
             return false;
-        };
-        reference.inventory.insert(item, new);
+        }
         self.inventory_event(holder, item, count, None, alloc);
         true
     }
@@ -145,18 +143,14 @@ impl World {
             let Some(reference) = self.reference(target) else {
                 return 0;
             };
-            if reference
-                .inventory
-                .get(&item)
-                .copied()
-                .unwrap_or(0)
-                .checked_add(moved)
-                .is_none()
-            {
+            if reference.inventory.count(item).checked_add(moved).is_none() {
                 return 0;
             }
         }
-        self.remove_item(holder, item, moved, target);
+        let moved = self.remove_item(holder, item, moved, target);
+        if moved == 0 {
+            return 0;
+        }
         self.inventory_event(holder, item, -moved, target, alloc);
         if let Some(target) = target {
             self.inventory_event(target, item, moved, Some(holder), alloc);
