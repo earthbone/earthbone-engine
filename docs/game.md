@@ -2711,8 +2711,8 @@ with Special Loot still active for flags 14 and 15. Integrated tests check
 these rules together with selected COED metadata and the player-level cap.
 
 INV-06 integrates the reviewed INV-01 reference-transfer implementation
-`52b1605`, PRG-04 encounter zones `8710fad`, PRG-14 Special Loot `ce0551e`
-and PRG-16 flag precedence `112a85e` over PRG-15 entry metadata `fd96e42`.
+`52b1605`, PRG-04 encounter zones `8710fad`, PRG-18 Special Loot `ce0551e`
+and PRG-20 flag precedence `112a85e` over PRG-19 entry metadata `fd96e42`.
 The combined native path keeps ordinary item counts, concrete reference moves
 and leveled additions distinct. FormList expansion remains the INV-05 row.
 
