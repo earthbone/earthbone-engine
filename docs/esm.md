@@ -71,7 +71,7 @@ not the complete set of Skyrim hardcoded forms.
 
 ## Typed views
 
-`records::{cell, refr, wrld, land, navm, stat, race}` and `records::gameplay`
+`records::{cell, refr, wrld, land, lctn, navm, stat, race}` and `records::gameplay`
 expose `from_record`. Views copy
 the named fields and leave the record intact, so an unknown subrecord is never lost.
 FormIDs inside views are raw, as written in the file, so a view can be built without a

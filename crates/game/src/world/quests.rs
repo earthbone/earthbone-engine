@@ -182,6 +182,13 @@ impl World {
             .flatten()
     }
 
+    /// Whether this quest declares `alias` as an `ALLS` location alias.
+    pub fn alias_is_location(&mut self, quest: GlobalFormId, alias: u32) -> bool {
+        self.quest_state(quest)
+            .and_then(|state| state.def.alias(alias))
+            .is_some_and(|definition| definition.location)
+    }
+
     pub fn force_alias(
         &mut self,
         quest: GlobalFormId,
