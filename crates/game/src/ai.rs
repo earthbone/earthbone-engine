@@ -10,7 +10,9 @@
 //! between idle markers around a place, `Sleep` walks to a bed and holds.
 //! Walking follows the vanilla navmesh graph (`soe_navmesh::vanilla`)
 //! built once per world, and crossing into another navmesh moves the actor
-//! into that navmesh's cell.
+//! into that navmesh's cell. Its rates come from the actor race's `WKMV` and
+//! `RNMV` movement types, with matching `MTYP`/`SPED` overrides. The layouts
+//! are from xEdit `wbRecord(RACE)` and Mutagen `Race.xml`.
 //!
 //! Conditions are the `CTDA` subset listed in [`function_value`], the
 //! function indexes from xEdit's `wbConditionFunctions`. A function outside
@@ -34,8 +36,7 @@ use crate::package::{
 use crate::world::save::{read_form_id, read_opt_form_id, FormNamespace, FormReader};
 use crate::world::{Alloc, Handle, Pending, World};
 
-/// Units per real second, the default movement type's walk, jog, run and fast
-/// walk speeds. Race movement data is not read yet.
+/// Units per real second used when a race lacks a usable movement type.
 ///
 /// These live in `soe_physics` because the character controller is the lower
 /// crate and cannot depend on the runtime that drives it. They are re-exported
@@ -52,6 +53,10 @@ const EVALUATION_INTERVAL: f64 = 1.0;
 const DEFAULT_SANDBOX_RADIUS: f32 = 512.0;
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
+const WKMV: Tag = Tag::new(b"WKMV");
+const RNMV: Tag = Tag::new(b"RNMV");
+const MTYP: Tag = Tag::new(b"MTYP");
+const SPED: Tag = Tag::new(b"SPED");
 
 /// What the chosen package makes the actor do.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -171,6 +176,74 @@ const ACTOR_VALUES: [&str; 30] = [
 pub fn package(world: &World, id: GlobalFormId) -> Option<Package> {
     let rec = world.record(id)?;
     Package::from_record(rec).ok()
+}
+
+fn movement_speed(world: &mut World, actor: GlobalFormId, preferred: u8) -> f32 {
+    let (default_tag, offset, fallback) = movement_input(preferred);
+    let Some(race) = world.actor(actor).and_then(|state| state.race) else {
+        return fallback;
+    };
+    let Some(record) = world
+        .record(race)
+        .filter(|record| record.tag == T(b"RACE") && !record.is_deleted())
+    else {
+        return fallback;
+    };
+    let Some(raw) = record.find(default_tag).and_then(form_id) else {
+        return fallback;
+    };
+    let Some(movement_type) = world.resolve_from(race, raw) else {
+        return fallback;
+    };
+    let Some(movement_record) = world
+        .record(movement_type)
+        .filter(|record| record.tag == T(b"MOVT") && !record.is_deleted())
+    else {
+        return fallback;
+    };
+    race_override(world, race, record, movement_type, offset)
+        .or_else(|| {
+            movement_record
+                .find(SPED)
+                .and_then(|data| speed_at(data, offset))
+        })
+        .unwrap_or(fallback)
+}
+
+fn movement_input(preferred: u8) -> (Tag, usize, f32) {
+    match preferred {
+        speed::RUN => (RNMV, 20, RUN_SPEED),
+        speed::JOG => (RNMV, 16, JOG_SPEED),
+        speed::FAST_WALK => (WKMV, 20, FAST_WALK_SPEED),
+        _ => (WKMV, 16, WALK_SPEED),
+    }
+}
+
+fn race_override(
+    world: &World,
+    race: GlobalFormId,
+    record: &soe_esm::Record,
+    movement_type: GlobalFormId,
+    offset: usize,
+) -> Option<f32> {
+    let mut current = None;
+    for subrecord in &record.subrecords {
+        if subrecord.tag == MTYP {
+            current = form_id(&subrecord.data).and_then(|raw| world.resolve_from(race, raw));
+        } else if subrecord.tag == SPED && current == Some(movement_type) {
+            return speed_at(&subrecord.data, offset);
+        }
+    }
+    None
+}
+
+fn form_id(data: &[u8]) -> Option<u32> {
+    Some(u32::from_le_bytes(data.get(..4)?.try_into().ok()?))
+}
+
+fn speed_at(data: &[u8], offset: usize) -> Option<f32> {
+    let speed = f32::from_le_bytes(data.get(offset..offset + 4)?.try_into().ok()?);
+    (speed.is_finite() && speed > 0.0).then_some(speed)
 }
 
 /// The template chain of a package, innermost last: the package itself,
@@ -654,22 +727,21 @@ pub fn evaluate(world: &mut World, actor: GlobalFormId, alloc: Alloc<'_>) -> Opt
     ai.center_cell = None;
     ai.radius = 0.0;
     ai.dwell_until = 0.0;
-    ai.speed = WALK_SPEED;
+    ai.speed = movement_speed(world, actor, speed::WALK);
     ai.start_position = position;
     if let Some(c) = chosen {
         let (procedure, location, _) = procedure_of(world, c.package);
         ai.procedure = procedure;
         if let Some(p) = package(world, c.package) {
-            ai.speed = if p.has_flag(flags::PREFERRED_SPEED) {
-                match p.general.preferred_speed {
-                    speed::JOG => JOG_SPEED,
-                    speed::RUN => RUN_SPEED,
-                    speed::FAST_WALK => FAST_WALK_SPEED,
-                    _ => WALK_SPEED,
-                }
-            } else {
-                WALK_SPEED
-            };
+            ai.speed = movement_speed(
+                world,
+                actor,
+                if p.has_flag(flags::PREFERRED_SPEED) {
+                    p.general.preferred_speed
+                } else {
+                    speed::WALK
+                },
+            );
         }
         let place =
             location.and_then(|l| resolve_location(world, actor, c.package, c.alias, &ai, &l));
@@ -1360,6 +1432,29 @@ mod tests {
         assert!(schedule_allows(&weekends, &c));
         c.game_days = 8.5;
         assert!(!schedule_allows(&weekends, &c));
+    }
+
+    #[test]
+    fn package_speeds_select_the_race_walk_or_run_rate() {
+        assert_eq!(movement_input(speed::WALK), (WKMV, 16, WALK_SPEED));
+        assert_eq!(
+            movement_input(speed::FAST_WALK),
+            (WKMV, 20, FAST_WALK_SPEED)
+        );
+        assert_eq!(movement_input(speed::JOG), (RNMV, 16, JOG_SPEED));
+        assert_eq!(movement_input(speed::RUN), (RNMV, 20, RUN_SPEED));
+    }
+
+    #[test]
+    fn invalid_movement_speeds_are_rejected() {
+        let mut data = vec![0; 24];
+        data[16..20].copy_from_slice(&123.0f32.to_le_bytes());
+        assert_eq!(speed_at(&data, 16), Some(123.0));
+        for speed in [0.0, -1.0, f32::NAN, f32::INFINITY] {
+            data[16..20].copy_from_slice(&speed.to_le_bytes());
+            assert_eq!(speed_at(&data, 16), None);
+        }
+        assert_eq!(speed_at(&data[..19], 16), None);
     }
 
     #[test]

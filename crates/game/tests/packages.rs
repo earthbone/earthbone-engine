@@ -23,6 +23,10 @@ const T: fn(&[u8; 4]) -> Tag = Tag::new;
 const EDID: Tag = Tag::new(b"EDID");
 
 const RACE: u32 = 0x700;
+const WALK_MOVEMENT: u32 = 0x705;
+const RUN_MOVEMENT: u32 = 0x706;
+const INVALID_MOVEMENT: u32 = 0x707;
+const DELETED_MOVEMENT: u32 = 0x708;
 const BED_KEYWORD: u32 = 0x701;
 const BED_BASE: u32 = 0x702;
 const IDLE_BASE: u32 = 0x703;
@@ -35,6 +39,7 @@ const SLEEP: u32 = 0x721;
 const SANDBOX: u32 = 0x722;
 const ALIAS_TRAVEL: u32 = 0x723;
 const LOCATION_ALIAS_TRAVEL: u32 = 0x724;
+const RUN_SANDBOX: u32 = 0x725;
 const GUARD_QUEST: u32 = 0x730;
 const ALIAS_QUEST: u32 = 0x731;
 const LOCATION_ALIAS_QUEST: u32 = 0x732;
@@ -61,6 +66,21 @@ fn placed(tag: [u8; 4], id: u32, edid: &str, base: u32, at: [f32; 3]) -> Record 
         .zsub(EDID, edid)
         .sub(T(b"NAME"), base.to_le_bytes())
         .sub(T(b"DATA"), data)
+}
+
+fn movement_speeds(forward_walk: f32, forward_run: f32) -> Vec<u8> {
+    let mut speeds = vec![0; 44];
+    speeds[16..20].copy_from_slice(&forward_walk.to_le_bytes());
+    speeds[20..24].copy_from_slice(&forward_run.to_le_bytes());
+    speeds
+}
+
+fn with_preferred_speed(record: Record, speed: u8) -> Record {
+    let mut data = record.find(T(b"PKDT")).unwrap().to_vec();
+    let flags = u32::from_le_bytes(data[..4].try_into().unwrap()) | package::flags::PREFERRED_SPEED;
+    data[..4].copy_from_slice(&flags.to_le_bytes());
+    data[6] = speed;
+    record.sub(T(b"PKDT"), data)
 }
 
 /// A 100 by 100 square of two triangles at `origin` on the x axis. The
@@ -162,13 +182,50 @@ fn travel_to(id: u32, edid: &str, target: u32, conditions: &[Condition]) -> Reco
     package::with_actions(package::finish(rec))
 }
 
-fn test_plugin() -> Plugin {
+fn race_record(override_speeds: Option<(f32, f32)>) -> Record {
+    race_record_with_walk(WALK_MOVEMENT, override_speeds)
+}
+
+fn race_record_with_walk(walk_movement: u32, override_speeds: Option<(f32, f32)>) -> Record {
+    let race = Record::new(T(b"RACE"), RACE)
+        .zsub(EDID, "NordRace")
+        .sub(T(b"WKMV"), walk_movement.to_le_bytes())
+        .sub(T(b"RNMV"), RUN_MOVEMENT.to_le_bytes());
+    let Some((walk, run)) = override_speeds else {
+        return race;
+    };
+    race.sub(T(b"MTYP"), walk_movement.to_le_bytes())
+        .sub(T(b"SPED"), movement_speeds(walk, run))
+}
+
+fn test_plugin_for_race(race: Record) -> Plugin {
     let mut p = Plugin::new(FileHeader {
         flags: flags::MASTER,
         author: "soe".into(),
         ..Default::default()
     });
-    p.push_top(Record::new(T(b"RACE"), RACE).zsub(EDID, "NordRace"));
+    p.push_top(
+        Record::new(T(b"MOVT"), WALK_MOVEMENT)
+            .zsub(EDID, "WalkMovement")
+            .sub(T(b"SPED"), movement_speeds(110.0, 160.0)),
+    );
+    p.push_top(
+        Record::new(T(b"MOVT"), RUN_MOVEMENT)
+            .zsub(EDID, "RunMovement")
+            .sub(T(b"SPED"), movement_speeds(180.0, 375.0)),
+    );
+    p.push_top(
+        Record::new(T(b"STAT"), INVALID_MOVEMENT)
+            .zsub(EDID, "NotMovement")
+            .sub(T(b"SPED"), movement_speeds(999.0, 999.0)),
+    );
+    p.push_top(
+        Record::new(T(b"MOVT"), DELETED_MOVEMENT)
+            .zsub(EDID, "DeletedMovement")
+            .sub(T(b"SPED"), movement_speeds(999.0, 999.0))
+            .with_flags(flags::DELETED),
+    );
+    p.push_top(race);
     p.push_top(Record::new(T(b"KYWD"), BED_KEYWORD).zsub(EDID, "FurnitureBedRoll"));
     p.push_top(
         Record::new(T(b"FURN"), BED_BASE)
@@ -240,6 +297,20 @@ fn test_plugin() -> Plugin {
     let sandbox = package::close_header(sandbox, Some(SANDBOX_TEMPLATE));
     let sandbox = package::with_location_input(sandbox, 0, Location::NearSelf, 200);
     p.push_top(package::with_actions(package::finish(sandbox)));
+    let run_sandbox = package::build_record(
+        RUN_SANDBOX,
+        "GuardRunSandbox",
+        0,
+        Schedule {
+            hour: 13,
+            ..Default::default()
+        },
+    );
+    let run_sandbox = package::close_header(run_sandbox, Some(SANDBOX_TEMPLATE));
+    let run_sandbox = package::with_location_input(run_sandbox, 0, Location::NearSelf, 200);
+    p.push_top(package::with_actions(package::finish(
+        with_preferred_speed(run_sandbox, package::speed::RUN),
+    )));
 
     let q = quest::build_record(GUARD_QUEST, "GuardQuest", 0);
     let q = quest::with_stage(q, 0, quest::stage_flags::START_UP, 0, "");
@@ -280,6 +351,7 @@ fn test_plugin() -> Plugin {
     .sub(T(b"RNAM"), RACE.to_le_bytes())
     .sub(T(b"PKID"), TRAVEL.to_le_bytes())
     .sub(T(b"PKID"), SLEEP.to_le_bytes())
+    .sub(T(b"PKID"), RUN_SANDBOX.to_le_bytes())
     .sub(T(b"PKID"), SANDBOX.to_le_bytes());
     p.push_top(guard);
 
@@ -337,6 +409,10 @@ fn test_plugin() -> Plugin {
     p
 }
 
+fn test_plugin() -> Plugin {
+    test_plugin_for_race(race_record(Some((123.0, 246.0))))
+}
+
 fn guard_script() -> Vec<u8> {
     ScriptBuilder::new("GuardScript", "Actor")
         .function(
@@ -352,7 +428,11 @@ fn guard_script() -> Vec<u8> {
 }
 
 pub fn game_at_hour(hour: f64) -> Game {
-    let bytes = test_plugin().to_bytes();
+    game_at_hour_with_race(hour, race_record(Some((123.0, 246.0))))
+}
+
+fn game_at_hour_with_race(hour: f64, race: Record) -> Game {
+    let bytes = test_plugin_for_race(race).to_bytes();
     let mut order = LoadOrder::new();
     order
         .add("Packages.esm", Plugin::parse(&bytes).unwrap())
@@ -438,6 +518,62 @@ fn a_travel_package_walks_the_navmesh_into_the_next_cell() {
     let a = w.actor(guard).unwrap();
     assert!(a.ai.arrived);
     assert!(a.ai.completed.contains_key(&travel));
+}
+
+#[test]
+fn a_race_walks_at_its_record_override() {
+    let mut game = game_at_hour(12.0);
+    let guard = game.form("GuardRef").unwrap();
+    let race = game.form("NordRace").unwrap();
+    let expected = {
+        let world = game.world();
+        let speeds = world.record(race).unwrap().find(T(b"SPED")).unwrap();
+        f32::from_le_bytes(speeds[16..20].try_into().unwrap())
+    };
+    tick(&mut game, 0.1);
+    assert_eq!(game.world().actor_ref(guard).unwrap().ai.speed, expected);
+}
+
+#[test]
+fn a_race_without_override_uses_its_base_movement_type() {
+    let mut game = game_at_hour_with_race(12.0, race_record(None));
+    let guard = game.form("GuardRef").unwrap();
+    let movement = game.form("WalkMovement").unwrap();
+    let expected = {
+        let world = game.world();
+        let speeds = world.record(movement).unwrap().find(T(b"SPED")).unwrap();
+        f32::from_le_bytes(speeds[16..20].try_into().unwrap())
+    };
+    tick(&mut game, 0.1);
+    assert_eq!(game.world().actor_ref(guard).unwrap().ai.speed, expected);
+}
+
+#[test]
+fn a_preferred_run_uses_the_race_run_movement_type() {
+    let mut game = game_at_hour(13.0);
+    let guard = game.form("GuardRef").unwrap();
+    let movement = game.form("RunMovement").unwrap();
+    let expected = {
+        let world = game.world();
+        let speeds = world.record(movement).unwrap().find(T(b"SPED")).unwrap();
+        f32::from_le_bytes(speeds[20..24].try_into().unwrap())
+    };
+    tick(&mut game, 0.1);
+    assert_eq!(package_name(&game, guard), "GuardRunSandbox");
+    assert_eq!(game.world().actor_ref(guard).unwrap().ai.speed, expected);
+}
+
+#[test]
+fn invalid_or_deleted_movement_records_fall_back_to_the_default_walk_rate() {
+    for race in [
+        race_record_with_walk(INVALID_MOVEMENT, Some((999.0, 999.0))),
+        race_record_with_walk(DELETED_MOVEMENT, Some((999.0, 999.0))),
+    ] {
+        let mut game = game_at_hour_with_race(12.0, race);
+        let guard = game.form("GuardRef").unwrap();
+        tick(&mut game, 0.1);
+        assert_eq!(game.world().actor_ref(guard).unwrap().ai.speed, 110.0);
+    }
 }
 
 #[test]
