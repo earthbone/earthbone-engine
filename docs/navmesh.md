@@ -309,3 +309,28 @@ The full `tools/lint.sh` gate passed 1,207 Rust tests and 11 Python tests,
 including all three Clippy configurations. All optional tools ran. Tier 1
 leaves installed-game and save-corpus inputs unset. The generated-cell tests
 use synthetic scenes and do not claim real-game regeneration evidence.
+
+## Runtime door associations
+
+A vanilla NVNM door entry is a triangle index, PathingDoor CRC and door REFR
+FormID. It does not name an edge slot or the far-side triangle. This is the
+layout in local `TES5Edit/Core/wbDefinitionsTES5.pas`, `wbNVNM` Door Links.
+`CommonLibSSE-NG/include/RE/B/BSNavmesh.h` also declares separate door-portal
+and closed-door arrays, each associating a pathing door with a triangle.
+Blocking all edges of that triangle would remove ordinary walkable space,
+not just the doorway connection.
+
+Local `recastnavigation/DetourTileCache/Include/DetourTileCache.h` requires
+an explicit cylinder or box obstacle and rebuilds affected tiles. It does
+not recover a swinging door's footprint from an NVNM door association.
+Door collision geometry and its navigation-edge association must therefore
+be established before an automatic blocking-door update can be claimed.
+The game already stores lock and logical open state on the shared reference.
+Those fields alone cannot identify which triangle edge the door obstructs.
+
+AI-09 is blocked on HST-01, swinging-door animation and collision, and AI-17,
+dynamic obstacle updates. Its acceptance check still requires closing one
+blocking door to remove only its navigation link and opening to restore it.
+Physical footprint binding and invalidation of already planned routes are
+prerequisites. No door-edge heuristic or runtime implementation was added by
+this research disposition.
