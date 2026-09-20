@@ -130,12 +130,20 @@ impl PlayerNode {
                     return false;
                 }
             };
+            let Some(mut query_collision) = self.prepare_query_collision(&location.collision)
+            else {
+                return false;
+            };
             let Some(streamer) = self.game_streamer.as_mut() else {
+                query_collision.free();
                 return false;
             };
             if !streamer.is_instance_valid() || !streamer.bind_mut().replace_location(&location) {
+                query_collision.free();
                 return false;
             }
+            self.query_collision.free();
+            self.query_collision = query_collision;
             let collision = location.collision;
             let mut world = collision.world;
             let id = world.create_character(CharacterSettings::default(), feet);

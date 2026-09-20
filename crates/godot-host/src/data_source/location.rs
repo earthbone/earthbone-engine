@@ -103,6 +103,7 @@ impl DataSource {
             }
             cells
         };
+        let mut colliders = Vec::new();
         let mut world = SimpleWorld::new();
         let mut references = HashMap::new();
         let mut stats = CollisionStats::default();
@@ -117,6 +118,7 @@ impl DataSource {
                 let before = world.primitive_count();
                 let body = world.add_static(&placed.collider);
                 references.insert(body, placed.reference);
+                colliders.push(placed.collider);
                 stats.bodies += 1;
                 stats.primitives += world.primitive_count() - before;
             }
@@ -157,6 +159,7 @@ impl DataSource {
                 let before = world.primitive_count();
                 let body = world.add_static(&collider);
                 references.insert(body, surface.reference);
+                colliders.push(collider);
                 stats.bodies += 1;
                 stats.primitives += world.primitive_count() - before;
             }
@@ -164,6 +167,7 @@ impl DataSource {
         Ok(LoadedLocation {
             cells,
             collision: CellCollision {
+                colliders,
                 world,
                 stats,
                 references,

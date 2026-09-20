@@ -68,6 +68,7 @@ pub struct PlayerNode {
     bindings: Bindings,
     driver: Driver,
     world: Option<SimpleWorld>,
+    query_collision: crate::godot_physics::CellBodies,
     collision_references: HashMap<BodyId, GlobalFormId>,
     character: Option<BodyId>,
     data_source: Option<Arc<DataSource>>,
@@ -107,6 +108,7 @@ impl INode3D for PlayerNode {
             bindings: Bindings::default(),
             driver: Driver::new(),
             world: None,
+            query_collision: crate::godot_physics::CellBodies::default(),
             collision_references: HashMap::new(),
             character: None,
             data_source: None,
@@ -208,6 +210,7 @@ impl INode3D for PlayerNode {
     }
 
     fn exit_tree(&mut self) {
+        self.query_collision.free();
         if self.capture_mouse {
             Input::singleton().set_mouse_mode(godot::classes::input::MouseMode::VISIBLE);
         }
@@ -327,6 +330,11 @@ impl PlayerNode {
                 return -1;
             }
         };
+        let Some(query_collision) = self.prepare_query_collision(&collision) else {
+            return -1;
+        };
+        self.query_collision.free();
+        self.query_collision = query_collision;
         let mut world = collision.world;
         let bodies = collision.stats.bodies;
         let id = world.create_character(CharacterSettings::default(), Vec3::new(x, y, z));

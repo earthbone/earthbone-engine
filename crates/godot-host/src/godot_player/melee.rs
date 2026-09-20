@@ -11,6 +11,19 @@ use super::PlayerNode;
 
 #[godot_api(secondary)]
 impl PlayerNode {
+    /// Static body RIDs belonging to the currently loaded controller location.
+    /// Diagnostic callers may inspect these handles, but must not free them.
+    #[func]
+    pub fn contact_collision_bodies(&self) -> Array<Rid> {
+        self.query_collision.bodies.iter().copied().collect()
+    }
+
+    /// Shape count for the current query location, for host resource diagnostics.
+    #[func]
+    pub fn contact_collision_shape_count(&self) -> i64 {
+        self.query_collision.shapes.len() as i64
+    }
+
     /// Register an existing actor physics body without allocating a host node.
     /// The collision owner must unregister its RID before freeing it.
     #[func]
@@ -81,5 +94,21 @@ impl PlayerNode {
                 false
             }
         }
+    }
+}
+
+impl PlayerNode {
+    pub(super) fn prepare_query_collision(
+        &self,
+        collision: &crate::collision::CellCollision,
+    ) -> Option<crate::godot_physics::CellBodies> {
+        let space = self.base().get_world_3d()?.get_space();
+        if !space.is_valid() {
+            return None;
+        }
+        Some(crate::godot_physics::add_statics(
+            space,
+            &collision.colliders,
+        ))
     }
 }

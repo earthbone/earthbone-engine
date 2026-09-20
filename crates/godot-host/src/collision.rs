@@ -51,6 +51,8 @@ pub struct CollisionStats {
 
 /// A cell's static collision, ready to step a character through.
 pub struct CellCollision {
+    /// Prepared static shapes shared by the controller and host query space.
+    pub colliders: Vec<Collider>,
     pub world: SimpleWorld,
     pub stats: CollisionStats,
     /// Placed references owning each body. Several bodies may belong to one reference.
@@ -82,6 +84,11 @@ impl DataSource {
             stats.bodies += 1;
         }
         Ok(CellCollision {
+            colliders: colliders
+                .into_iter()
+                .filter(|placed| placed.collider.is_static())
+                .map(|placed| placed.collider)
+                .collect(),
             world,
             stats,
             references,

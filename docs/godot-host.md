@@ -1300,3 +1300,36 @@ trip and actual E-key crossing passed again. Key use and lock state are tested
 in the game layer, including a keyed load-door transition and unload retention.
 The final gate for that increment passed with 950 Rust tests and 11 Python
 tests. All three clippy configurations and all lint tools ran.
+
+## Static contact queries, CMB-30 in progress
+
+`PlayerNode` prepares server static bodies from the same `CellCollision`
+colliders used by its Rust controller. `enter_cell` installs the initial set.
+A successful logical location replacement installs the destination set,
+including LAND triangles, and releases the previous body and shape RIDs.
+Failed rendering installation releases the newly prepared query resources.
+Leaving the tree releases the current set. No per-reference node is added.
+The collider vector is a transient transfer input, then drops after both
+physics paths have consumed it. It is not another mutable gameplay store.
+
+Sources are the local Godot `PhysicsServer3D` documentation for `body_set_space`,
+`body_add_shape`, `space_get_direct_state` and `free_rid`, plus the existing
+`godot_physics::add_statics` converter and `DataSource::load_location` path.
+The converter is reused without a second format reader or physics library.
+Actor collision and animated weapon segments remain the separate CMB-28 row.
+
+`godot/combat_collision_test.gd` checks installed-data startup, an exterior door
+and return, first-obstruction queries with a probe behind a world surface,
+replacement of the old query geometry, and removal at node exit. It requires
+`SKYRIM_DATA` and the compiled extension, and runs headlessly through Godot.
+The Rust lint gate passes. A diagnostic run retaining all five masters,
+meshes and scripts, but omitting standalone texture and voice archives, passed
+on Godot 4.7.2 with Jolt. The interior installed 373 bodies and 377 shapes,
+the exterior installed 545 bodies and 568 shapes, and the return restored the
+original counts. Old geometry no longer obstructed queries after replacement
+or node exit. This does not replace the full-asset acceptance run.
+Current full-asset loading terminates with SIGTERM before initial collision.
+A measured run reached 13,654,212 KiB resident memory in the process tree before
+termination at 12.3 seconds. `Archive::open` retains complete archive files.
+FMT-27 records the on-demand archive-read prerequisite. The termination probe
+reported sender PID zero in this process namespace, so its source is unknown.
