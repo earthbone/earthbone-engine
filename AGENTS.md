@@ -181,6 +181,84 @@ There is no git identity configured in this repository. Set
 `GIT_COMMITTER_EMAIL` on every commit. Never add an AI-attribution trailer to a
 commit, a pull request, or any signed prose.
 
+## The backlog, and how to write a row
+
+`BACKLOG.csv` at the repository root is the list of unfinished work across the
+whole engine. It is the only place that list lives. `docs/status.md` says what
+is built and what its limits are, `ENGINE-PLAN.md` keeps the rounds and the
+reasoning, and the backlog turns both into claimable units.
+
+Before starting work, claim a row by setting its `status` to `wip`. When the
+work is done, update the same row in the commit that finishes it. A commit that
+implements a row and leaves the row saying `open` is an incomplete commit.
+
+### Columns
+
+| Column | Rule |
+|---|---|
+| `id` | `AREA-NN`, matching the pattern below. Stable forever. Never renumber, never reuse an id whose work was dropped |
+| `area` | One of the area codes below, nothing else |
+| `title` | Imperative, one line, no trailing period, at most 90 characters |
+| `status` | One of `open`, `wip`, `blocked`, `done`, `dropped` |
+| `branch` | The worktree branch name, assigned when the row is written, not invented at start time |
+| `depends_on` | Space free list of ids separated by commas, or `-` |
+| `crates` | The crates this row may touch. At most two |
+| `read_first` | The local sources to open before writing code. At most five |
+| `done_check` | One observable result, naming the test, survey or command that shows it |
+| `evidence` | `-` while unfinished. On `done`, the commit hash plus what was run |
+| `updated` | ISO date of the last change to the row |
+
+Area codes: `CMB`, `MAG`, `DLG`, `CRF`, `PRG`, `INV`, `AI`, `ANM`, `HST`, `RND`,
+`AUD`, `SAV`, `FMT`, `MOD`, `UI`, `SHM`, `EDT`, `SCR`, `TST`, `PRF`, `TOOL`.
+
+### Notation, enforced
+
+```text
+id       ^[A-Z]{2,4}-[0-9]{2}$
+status   ^(open|wip|blocked|done|dropped)$
+evidence ^-$  when status is not done
+updated  ^[0-9]{4}-[0-9]{2}-[0-9]{2}$
+```
+
+Every field is quoted, including empty ones, which are written `-` rather than
+left blank. One row per line with no embedded newline. No field contains a
+double quote. House style applies to every cell, so no em dash, no en dash and
+no semicolon, exactly as in Markdown prose.
+
+### One row is one context window
+
+A row must be finishable by one agent in one 300k context window. Two limits
+make that mechanical rather than a judgement call. A row names **at most two
+crates** plus their docs, and **at most five** read-first sources. A unit of
+work that cannot be written inside those limits is not a row yet.
+
+A row must also leave nothing behind. If finishing it would produce a report
+ending in a "remaining" clause, it was too big, and the leftovers were always
+separate work. Split it before starting, never after. Splitting means adding
+new rows with new ids and narrowing the original, never widening one row to
+absorb the remainder.
+
+Splitting during work is expected rather than a failure. When a row turns out
+to hide two features, stop, write the second row, narrow the first, and say so
+in the report.
+
+### Finding what is missing
+
+Do not look for the gaps by grepping for `TODO`. This tree contains none, and
+no `todo!` or `unimplemented!` either. Incompleteness here is expressed three
+other ways, and each is a source of rows:
+
+- Stub natives in `crates/game/src/natives.rs`, registered in `fn stubs` so
+  vanilla scripts get a quiet return instead of failing.
+- Typed `Unsupported` errors that reject an input before changing state, as in
+  `World::cast_spell` and `World::melee_hit`.
+- Allowlists that silently bound a contract, as in `conditions::supports_function`,
+  which covers 29 CTDA function codes out of the vanilla table.
+
+A number in a doc is a claim about the branch that wrote it. Check the code
+before turning one into a row, because several subsystem documents carry native
+counts from different branches.
+
 ## House style, enforced by the gate
 
 `tools/prose-lint.sh` checks this and will fail your commit.
