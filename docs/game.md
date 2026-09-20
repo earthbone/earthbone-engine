@@ -1185,22 +1185,24 @@ owner-relative overrides, malformed links and cyclic armor-parent chains.
 
 ## Sound preparation (2026-09-19)
 
-`sound::prepare` resolves SNDR files, signed frequency shift, frequency and
-attenuation variation, SNCT parent gain and menu defaults, underwater muting,
+`sound::prepare` resolves SOUN markers through their SDSC SNDR links, then
+resolves SNDR files, signed frequency shift, frequency and attenuation
+variation, SNCT parent gain and menu defaults, underwater muting,
 and SOPM output parameters. Slider overrides are explicit inputs. Descriptor,
 category and output links use their winning owners. Category cycles, malformed
 fields, invalid random draws and unsupported descriptor types return errors.
 Conditional descriptors return an unsupported error until connected to the
 shared condition evaluator. Loop modes and alternate links are preserved.
 
-Sources are local xEdit SNDR/SNCT/SOPM definitions, UESP's corresponding pages,
+Sources are local xEdit SOUN/SNDR/SNCT/SOPM definitions, UESP's corresponding pages,
 and CommonLib `BGSStandardSoundDef.h`, `BGSSoundCategory.h` and
 `BGSSoundOutput.h`. The three caller-supplied random draws select a file,
 uniform signed pitch variation and uniform additional attenuation. This
 distribution is engine policy, not a measured vanilla random sequence.
 Player footsteps draw from the world's saved RNG.
 
-Five synthetic tests cover file/path choice, pitch and decibels, category
+Eight synthetic tests cover SOUN marker descriptor resolution, file/path choice,
+pitch and decibels, category
 sliders, inherited underwater muting, conditional refusal, invalid inputs,
 cycles and output links supplied by overrides. All 48 installed footstep sound
 links prepared successfully in the existing 24-case survey. Host execution and
