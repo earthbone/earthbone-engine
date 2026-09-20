@@ -149,6 +149,14 @@ impl World {
             };
             finite(f64::from(weapon.damage) * scale * self.combat_setting("fDamageWeaponMult")?)?
         };
+        let attack_multiplier = finite(f64::from(
+            self.actor_ref(hit.attacker)
+                .ok_or(Error::Actor(hit.attacker))?
+                .values
+                .get("attackdamagemult")
+                .current(),
+        ))?;
+        let weapon_damage = finite(f64::from(weapon_damage) * f64::from(attack_multiplier))?;
         let (armor_rating, categories) = self.combat_armor(hit.target)?;
         let reduction = (f64::from(armor_rating) * self.combat_setting("fArmorScalingFactor")?
             / 100.0
@@ -213,7 +221,6 @@ impl World {
             return Err(Error::Unsupported("perk entry points"));
         }
         for name in [
-            "attackdamagemult",
             "onehandedmod",
             "twohandedmod",
             "marksmanmod",

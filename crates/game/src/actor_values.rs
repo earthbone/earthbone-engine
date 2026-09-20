@@ -147,7 +147,14 @@ impl Values {
         self.entries
             .get(&name.to_ascii_lowercase())
             .copied()
-            .unwrap_or_default()
+            .unwrap_or_else(|| Components {
+                base: if name.eq_ignore_ascii_case("attackdamagemult") {
+                    1.0
+                } else {
+                    0.0
+                },
+                ..Components::default()
+            })
     }
 
     fn change(
