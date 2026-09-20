@@ -19,9 +19,8 @@
 
 use std::collections::HashMap;
 
+use crate::animation::{Animation, SplineCompressedAnimation};
 use crate::expression::{Expression, ExpressionError};
-
-use crate::animation::SplineCompressedAnimation;
 use crate::behavior::{
     transition_flags, BehaviorGraph, BehaviorGraphData, BlenderGenerator, ClipGenerator, Condition,
     NodeId, NodeKind, StateMachine, TimeInterval, TransitionInfo, VariableBindingSet, VariableInfo,
@@ -39,22 +38,33 @@ pub struct Clip {
     blocks: Vec<Block>,
     /// Bone index per transform track. Identity when the binding had no map.
     track_to_bone: Vec<usize>,
+    /// Slot index per float track, kept separate from bone indices.
+    track_to_float_slot: Vec<usize>,
 }
 
 impl Clip {
     /// The first spline animation in a clip file and its binding.
     pub fn from_container(name: &str, container: &AnimationContainer) -> Result<Clip> {
-        let animation = container
-            .spline_animations()
-            .next()
-            .ok_or_else(|| Error::Unsupported(format!("{name}: no spline animation")))?
-            .clone();
-        let map = container
+        let (index, animation) = container
+            .animations
+            .iter()
+            .enumerate()
+            .find_map(|(index, animation)| match animation {
+                Animation::SplineCompressed(animation) => Some((index, animation)),
+                Animation::Unsupported { .. } => None,
+            })
+            .ok_or_else(|| Error::Unsupported(format!("{name}: no spline animation")))?;
+        let binding = container
             .bindings
-            .first()
-            .map(|b| b.transform_track_to_bone_indices.clone())
+            .iter()
+            .find(|binding| binding.animation == Some(index));
+        let map = binding
+            .map(|binding| binding.transform_track_to_bone_indices.as_slice())
             .unwrap_or_default();
-        Clip::from_parts(name, animation, &map)
+        let float_map = binding
+            .map(|binding| binding.float_track_to_float_slot_indices.as_slice())
+            .unwrap_or_default();
+        Clip::from_parts_with_float_binding(name, animation.clone(), map, float_map)
     }
 
     pub fn from_parts(
@@ -62,7 +72,25 @@ impl Clip {
         animation: SplineCompressedAnimation,
         track_to_bone: &[i16],
     ) -> Result<Clip> {
+        Self::from_parts_with_float_binding(name, animation, track_to_bone, &[])
+    }
+
+    /// Construct a clip with independent transform and float binding maps.
+    pub fn from_parts_with_float_binding(
+        name: &str,
+        animation: SplineCompressedAnimation,
+        track_to_bone: &[i16],
+        track_to_float_slot: &[i16],
+    ) -> Result<Clip> {
         let blocks = animation.decode()?;
+        let track_to_float_slot = if track_to_float_slot.is_empty() {
+            (0..animation.num_float_tracks).collect()
+        } else {
+            track_to_float_slot
+                .iter()
+                .map(|&slot| usize::try_from(slot).unwrap_or(usize::MAX))
+                .collect()
+        };
         let track_to_bone = if track_to_bone.is_empty() {
             (0..animation.num_transform_tracks).collect()
         } else {
@@ -76,6 +104,7 @@ impl Clip {
             animation,
             blocks,
             track_to_bone,
+            track_to_float_slot,
         })
     }
 
@@ -86,6 +115,25 @@ impl Clip {
     /// Bone index per track, as the binding maps it.
     pub fn track_to_bone(&self) -> &[usize] {
         &self.track_to_bone
+    }
+
+    /// Slot index per float track, as the binding maps it.
+    pub fn track_to_float_slot(&self) -> &[usize] {
+        &self.track_to_float_slot
+    }
+
+    /// Write driven float slots, preserving unbound reference values.
+    pub fn sample_floats_into(&self, time: f32, slots: &mut [f32]) {
+        let (block, local) = self.animation.locate(time);
+        let Some(block) = self.blocks.get(block) else {
+            return;
+        };
+        for (track, &slot) in self.track_to_float_slot.iter().enumerate() {
+            if let (Some(track), Some(value)) = (block.float_tracks.get(track), slots.get_mut(slot))
+            {
+                *value = track.sample(local);
+            }
+        }
     }
 
     /// Write every track into the bone it binds. Bones no track drives

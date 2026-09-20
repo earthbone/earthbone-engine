@@ -129,10 +129,35 @@ pub struct TransformTrack {
     pub scale: VecTrack,
 }
 
+/// A scalar animation track, independent of the transform-track order.
+#[derive(Debug, Clone, PartialEq)]
+pub enum FloatTrack {
+    Static(f32),
+    Spline {
+        degree: u8,
+        knots: Vec<u8>,
+        points: Vec<f32>,
+    },
+}
+
+impl FloatTrack {
+    pub fn sample(&self, local_frame: f32) -> f32 {
+        match self {
+            Self::Static(value) => *value,
+            Self::Spline {
+                degree,
+                knots,
+                points,
+            } => eval_scalar(*degree, knots, points, local_frame),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Block {
     pub masks: Vec<TransformMask>,
     pub float_masks: Vec<u8>,
+    pub float_tracks: Vec<FloatTrack>,
     pub tracks: Vec<TransformTrack>,
 }
 
@@ -476,6 +501,56 @@ fn read_quat_track(r: &mut Reader<'_>, mask: TransformMask) -> Result<QuatTrack>
     }
 }
 
+fn read_float_track(r: &mut Reader<'_>, mask: u8) -> Result<FloatTrack> {
+    let quantization = (mask >> 1) & 3;
+    if quantization > 1 || mask & !0x17 != 0 || mask & 0x11 == 0x11 {
+        return Err(Error::BadSpline(format!("float mask {mask:#04x}")));
+    }
+    if mask & 0x10 == 0 {
+        let value = if mask & 1 != 0 {
+            r.f32("static float")?
+        } else {
+            0.0
+        };
+        if !value.is_finite() {
+            return Err(Error::BadSpline("non-finite static float".into()));
+        }
+        return Ok(FloatTrack::Static(value));
+    }
+    let (items, degree, knots) = read_spline_header(r)?;
+    let count = items + 1;
+    if degree > 3
+        || count <= usize::from(degree)
+        || knots.windows(2).any(|pair| pair[0] > pair[1])
+        || knots[usize::from(degree)] >= knots[count]
+    {
+        return Err(Error::BadSpline(
+            "invalid float spline knots or degree".into(),
+        ));
+    }
+    r.align(4);
+    let lo = r.f32("float minimum")?;
+    let hi = r.f32("float maximum")?;
+    if !lo.is_finite() || !hi.is_finite() || lo > hi {
+        return Err(Error::BadSpline("invalid float spline bounds".into()));
+    }
+    let mut points = Vec::with_capacity(count);
+    for _ in 0..count {
+        let fraction = if quantization == 0 {
+            f64::from(r.u8("8-bit float point")?) / 255.0
+        } else {
+            f64::from(r.u16("16-bit float point")?) / 65535.0
+        };
+        points.push((f64::from(lo) + (f64::from(hi) - f64::from(lo)) * fraction) as f32);
+    }
+    r.align(4);
+    Ok(FloatTrack::Spline {
+        degree,
+        knots,
+        points,
+    })
+}
+
 /// Decode one block. `data` is the animation's whole data array and
 /// `offset` the block's start in it, so alignment matches Havok's.
 pub fn decode_block(
@@ -483,6 +558,17 @@ pub fn decode_block(
     offset: usize,
     num_transform_tracks: usize,
     num_float_tracks: usize,
+) -> Result<Block> {
+    decode_block_with_float_offset(data, offset, num_transform_tracks, num_float_tracks, None)
+}
+
+/// Decode using an optional block-relative start for the float payload.
+pub(crate) fn decode_block_with_float_offset(
+    data: &[u8],
+    offset: usize,
+    num_transform_tracks: usize,
+    num_float_tracks: usize,
+    float_offset: Option<usize>,
 ) -> Result<Block> {
     if offset > data.len() {
         return Err(Error::BadSpline(format!(
@@ -525,9 +611,24 @@ pub fn decode_block(
             scale,
         });
     }
+    if num_float_tracks > 0 {
+        r.align(4);
+        if let Some(relative) = float_offset {
+            let start = offset
+                .checked_add(relative)
+                .filter(|&start| start >= r.pos && start <= data.len())
+                .ok_or_else(|| Error::BadSpline("invalid float block offset".into()))?;
+            r.pos = start;
+        }
+    }
+    let float_tracks = float_masks
+        .iter()
+        .map(|&mask| read_float_track(&mut r, mask))
+        .collect::<Result<Vec<_>>>()?;
     Ok(Block {
         masks,
         float_masks,
+        float_tracks,
         tracks,
     })
 }
