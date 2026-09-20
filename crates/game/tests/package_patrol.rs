@@ -3,6 +3,9 @@
 
 //! Walking Patrol fixtures follow xEdit PKC2, PTDA, XLKR and XPRD layouts.
 
+#[path = "common/legacy.rs"]
+mod legacy;
+
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::ai::{AiState, Procedure};
 use soe_game::npc::{self, Config, Stats};
@@ -366,7 +369,7 @@ fn patrol_hash_and_save_validation_retain_direction_and_deadline() {
     use soe_papyrus::vm::state::{Reader, Writer};
     let mut game = game(Settings::default());
     let original = game.world().save_state();
-    let mut old = original.clone();
+    let mut old = legacy::without_exclusive_branches(&mut game.world_mut(), &[id(ACTOR)]);
     old[4..6].copy_from_slice(&22u16.to_le_bytes());
     game.world_mut().load_state(&old).unwrap();
     assert_eq!(game.world().save_state(), original);
@@ -382,7 +385,7 @@ fn patrol_hash_and_save_validation_retain_direction_and_deadline() {
         .reverse = true;
     assert_ne!(game.world().state_hash(), old_hash);
     let original = game.world().save_state();
-    let mut old = original.clone();
+    let mut old = legacy::without_exclusive_branches(&mut game.world_mut(), &[id(ACTOR)]);
     old[4..6].copy_from_slice(&22u16.to_le_bytes());
     assert!(game.world_mut().load_state(&old).is_err());
     assert_eq!(game.world().save_state(), original);

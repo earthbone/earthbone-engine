@@ -7,7 +7,6 @@
 use std::collections::BTreeMap;
 
 use soe_esm::records::gameplay::{DialogueInfo, DialogueTopic, Response};
-use soe_esm::records::Text;
 use soe_esm::{GlobalFormId, Tag};
 use soe_papyrus::{Value, VmError};
 
@@ -42,6 +41,10 @@ const GOODBYE: u16 = 1;
 const RANDOM: u16 = 1 << 1;
 const SAY_ONCE: u16 = 1 << 2;
 const RANDOM_END: u16 = 1 << 5;
+const TOP_LEVEL: u32 = 1;
+const BLOCKING: u32 = 2;
+const EXCLUSIVE: u32 = 4;
+const BRANCH_FLAGS: u32 = TOP_LEVEL | BLOCKING | EXCLUSIVE;
 
 #[derive(Debug)]
 struct Branch {
@@ -62,7 +65,7 @@ struct Candidates {
 pub struct Choice {
     pub topic: GlobalFormId,
     pub info: GlobalFormId,
-    pub prompt: Option<Text>,
+    pub prompt: Option<String>,
     pub quest_priority: u8,
     pub topic_priority: f32,
 }
@@ -76,6 +79,7 @@ pub struct Line {
     pub speaker: GlobalFormId,
     pub listener: GlobalFormId,
     pub response: Response,
+    pub text: Option<String>,
     pub sound: Option<GlobalFormId>,
     pub speaker_idle: Option<GlobalFormId>,
     pub listener_idle: Option<GlobalFormId>,
@@ -87,6 +91,8 @@ pub struct Choices {
     pub available: Vec<Choice>,
     pub rejected: Vec<(GlobalFormId, String)>,
 }
+
+type RootTopics = (Vec<GlobalFormId>, Vec<(GlobalFormId, String)>);
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -213,6 +219,19 @@ impl World {
             category: field(*b"TNAM")?,
         })
     }
+
+    fn topic_branch(&self, id: GlobalFormId) -> Result<Option<GlobalFormId>, Error> {
+        let topic = self.dialogue_topic(id)?;
+        let branch = topic
+            .branch
+            .filter(|raw| *raw != 0)
+            .map(|raw| self.resolve_from(id, raw).ok_or(Error::Record(id)))
+            .transpose()?;
+        Ok(branch.filter(|branch| {
+            self.record(*branch)
+                .is_some_and(|record| record.tag == Tag(*b"DLBR") && !record.is_deleted())
+        }))
+    }
 }
 
 impl Game {
@@ -272,24 +291,21 @@ impl Game {
         if session.current_info.is_some() {
             return Err(Error::State("response still playing"));
         }
-        let (candidates, rejected) = {
+        let linked_topics = if let Some(last) = session.last_info {
             let world = self.world.borrow();
-            if let Some(last) = session.last_info {
-                let info = world.dialogue_info(last)?;
-                if info.topic_links.is_empty() {
-                    self.root_dialogue_topics()
-                } else {
-                    (
-                        info.topic_links
-                            .iter()
-                            .filter_map(|raw| world.resolve_from(last, *raw))
-                            .collect(),
-                        Vec::new(),
-                    )
-                }
-            } else {
-                self.root_dialogue_topics()
-            }
+            let info = world.dialogue_info(last)?;
+            (!info.topic_links.is_empty()).then(|| {
+                info.topic_links
+                    .iter()
+                    .filter_map(|raw| world.resolve_from(last, *raw))
+                    .collect()
+            })
+        } else {
+            None
+        };
+        let (candidates, rejected) = match linked_topics {
+            Some(topics) => (topics, Vec::new()),
+            None => self.root_dialogue_topics(&session),
         };
         let mut out = Choices {
             available: Vec::new(),
@@ -303,10 +319,19 @@ impl Game {
                     infos,
                 }) => {
                     if let Some((info, data)) = infos.first() {
+                        let prompt = match (&data.prompt, &topic_data.name) {
+                            (Some(text), _) => {
+                                Some(self.world.borrow().resolve_text(*info, Tag(*b"RNAM"), text))
+                            }
+                            (None, Some(text)) => {
+                                Some(self.world.borrow().resolve_text(topic, Tag(*b"FULL"), text))
+                            }
+                            (None, None) => None,
+                        };
                         out.available.push(Choice {
                             topic,
                             info: *info,
-                            prompt: data.prompt.clone().or(topic_data.name),
+                            prompt,
                             quest_priority,
                             topic_priority: topic_data.priority.unwrap_or(50.0),
                         });
@@ -324,33 +349,92 @@ impl Game {
         Ok(out)
     }
 
-    fn root_dialogue_topics(&self) -> (Vec<GlobalFormId>, Vec<(GlobalFormId, String)>) {
-        let world = self.world.borrow();
+    fn root_dialogue_topics(&self, session: &Session) -> RootTopics {
+        let active_exclusive = {
+            let world = self.world.borrow();
+            world
+                .actor_ref(session.speaker)
+                .and_then(|actor| actor.exclusive_branch)
+        };
+        let branches: Vec<_> = {
+            let world = self.world.borrow();
+            world
+                .order()
+                .winners_of(Tag(*b"DLBR"))
+                .filter(|(_, record)| !record.is_deleted())
+                .map(|(id, _)| (id, world.dialogue_branch(id)))
+                .collect()
+        };
         let mut topics = Vec::new();
+        let mut blocking = Vec::new();
         let mut rejected = Vec::new();
-        for (id, record) in world.order().winners_of(Tag(*b"DLBR")) {
-            if record.is_deleted() {
-                continue;
+        if let Some(id) = active_exclusive {
+            let active_branch = { self.world.borrow().dialogue_branch(id) };
+            match active_branch {
+                Ok(branch) if branch.flags & !BRANCH_FLAGS != 0 => rejected.push((
+                    id,
+                    Error::Unsupported("unknown dialogue branch flags").to_string(),
+                )),
+                Ok(branch) if branch.flags & EXCLUSIVE == 0 => rejected.push((
+                    id,
+                    Error::State("active non-exclusive dialogue branch").to_string(),
+                )),
+                Ok(branch)
+                    if branch.category != 0
+                        || self.world.borrow().owning_quest(branch.start) != Some(branch.quest) =>
+                {
+                    rejected.push((
+                        id,
+                        Error::State("invalid active dialogue branch").to_string(),
+                    ));
+                }
+                Ok(branch) => match self.dialogue_candidates(branch.start, session) {
+                    Ok(candidates) if !candidates.infos.is_empty() => {
+                        blocking.push((candidates.quest_priority, id, branch.start));
+                    }
+                    Ok(_) => {}
+                    Err(error) => rejected.push((id, error.to_string())),
+                },
+                Err(error) => rejected.push((id, error.to_string())),
             }
-            let branch = match world.dialogue_branch(id) {
+        }
+        for (id, branch) in branches {
+            let branch = match branch {
                 Ok(branch) => branch,
                 Err(error) => {
                     rejected.push((id, error.to_string()));
                     continue;
                 }
             };
-            if branch.category == 0 && branch.flags & 1 != 0 {
-                if branch.flags & !1 != 0 {
-                    rejected.push((
-                        id,
-                        Error::Unsupported("blocking or exclusive branch").to_string(),
-                    ));
-                    continue;
-                }
-                if world.owning_quest(branch.start) == Some(branch.quest) {
-                    topics.push(branch.start);
-                }
+            if branch.flags & !BRANCH_FLAGS != 0 {
+                rejected.push((
+                    id,
+                    Error::Unsupported("unknown dialogue branch flags").to_string(),
+                ));
+                continue;
             }
+            if branch.category != 0
+                || branch.flags & (TOP_LEVEL | BLOCKING) == 0
+                || active_exclusive == Some(id)
+                || self.world.borrow().owning_quest(branch.start) != Some(branch.quest)
+            {
+                continue;
+            }
+            match self.dialogue_candidates(branch.start, session) {
+                Ok(candidates) if !candidates.infos.is_empty() => {
+                    if branch.flags & BLOCKING != 0 {
+                        blocking.push((candidates.quest_priority, id, branch.start));
+                    } else {
+                        topics.push(branch.start);
+                    }
+                }
+                Ok(_) => {}
+                Err(error) => rejected.push((id, error.to_string())),
+            }
+        }
+        if !blocking.is_empty() {
+            blocking.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
+            return (vec![blocking[0].2], rejected);
         }
         topics.sort();
         topics.dedup();
@@ -520,6 +604,29 @@ impl Game {
         }
         {
             let mut world = self.world.borrow_mut();
+            let branch = world.topic_branch(topic)?;
+            let active = world
+                .actor_ref(session.speaker)
+                .and_then(|actor| actor.exclusive_branch);
+            let selected_branch = match branch {
+                Some(id) => {
+                    let branch = world.dialogue_branch(id)?;
+                    if branch.flags & !BRANCH_FLAGS != 0 {
+                        return Err(Error::Unsupported("unknown dialogue branch flags"));
+                    }
+                    Some((id, branch))
+                }
+                None => None,
+            };
+            if let Some(actor) = world.actor(session.speaker) {
+                match selected_branch {
+                    Some((id, branch)) if branch.flags & EXCLUSIVE != 0 => {
+                        actor.exclusive_branch = Some(id);
+                    }
+                    Some(_) if active.is_some() => actor.exclusive_branch = None,
+                    _ => {}
+                }
+            }
             let mut session = session;
             session.topic = Some(topic);
             session.current_info = Some(info_id);
@@ -566,6 +673,10 @@ impl Game {
                 world.resolve_from(response_info, raw)
             }
         };
+        let text = response
+            .text
+            .as_ref()
+            .map(|text| world.resolve_text(response_info, Tag(*b"NAM1"), text));
         Ok(Some(Line {
             topic,
             info,
@@ -576,6 +687,7 @@ impl Game {
             speaker_idle: response.speaker_idle.and_then(resolve),
             listener_idle: response.listener_idle.and_then(resolve),
             response,
+            text,
         }))
     }
 

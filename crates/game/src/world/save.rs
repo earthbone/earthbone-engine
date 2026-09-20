@@ -45,7 +45,8 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// Version 21 appends the sequential PACK procedure cursor per actor.
 /// Version 22 adds the Wait procedure tag, movement flag and real-time deadline.
 /// Version 23 adds walking Patrol marker, direction and dwell progress.
-pub const SAVE_VERSION: u16 = 23;
+/// Version 24 retains an actor's active exclusive dialogue branch.
+pub const SAVE_VERSION: u16 = 24;
 
 #[derive(Clone, Copy)]
 pub(crate) enum FormNamespace {
@@ -1288,6 +1289,7 @@ fn write_actor_state(w: &mut Writer, a: &ActorState) {
     ] {
         w.bool(flag);
     }
+    write_opt_form_id(w, a.exclusive_branch);
     w.len(a.relationships.len());
     for (id, rank) in &a.relationships {
         write_form_id(w, *id);
@@ -1406,6 +1408,9 @@ fn read_actor_state(r: &mut FormReader<'_, '_>, version: u16) -> Result<ActorSta
     a.attack_on_sight = r.bool()?;
     a.dont_move = r.bool()?;
     a.allow_pc_dialogue = r.bool()?;
+    if version >= 24 {
+        a.exclusive_branch = read_opt_form_id(r)?;
+    }
     let n = r.len()?;
     for _ in 0..n {
         let id = read_form_id(r)?;

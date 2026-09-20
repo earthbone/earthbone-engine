@@ -44,7 +44,7 @@ incremental implementations, not completion of Skyrim gameplay.
 |---|---|---|
 | Combat foundation | Separate actor-value components, corrected NPC fields, race and stats/traits template sources | Weapon hits, equipment damage rules, live leveling, leveled templates and combat AI |
 | Crafting | Condition-checked COBJ transactions and reference/alias inventory events | Tempering, alchemy, enchanting, item instances, progression and menus |
-| Dialogue | Record-backed choices, conditions, responses, named fragments, history and saved cursor | Host menus, text localization, voice/LIP, scenes, services and remaining conditions/branch modes |
+| Dialogue | Record-backed choices, conditions, responses, named fragments, history, saved cursor, blocking and exclusive branches | Host menus, text localization, voice/LIP, scenes, services and remaining conditions/branch modes |
 | Magic | Direct non-hostile applications, effect script objects, expiry, dispel and saved state | Hostile hits, projectiles, concentration, costs, many archetypes, player input and visuals |
 | Host | Shared Game/VM, reference activation, locked doors and keys, load-door round trips and material-selected footsteps | Swing-door animation/collision, lockpicking, walking exterior streaming and physical speaker verification |
 | Vanilla saves | Typed execution parsing and explicit-mapping import of instances, references and arrays | Binding to live world forms/aliases/effects, stack and latent-call resume, world change forms and complete ESS restoration |

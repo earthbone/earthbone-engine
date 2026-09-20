@@ -3,6 +3,9 @@
 
 //! Wait fixtures use vanilla PKC2 ordering: ActualSeconds, then StopMovement.
 
+#[path = "common/legacy.rs"]
+mod legacy;
+
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::ai::{AiState, Procedure};
 use soe_game::npc::{self, Config, Stats};
@@ -236,7 +239,7 @@ fn wait_deadlines_affect_hashes_and_invalid_or_old_save_tags_are_rejected() {
 fn worlds_saved_before_wait_tags_remain_readable() {
     let game = game(2.0, false, false);
     let original = game.world().save_state();
-    let mut legacy = original.clone();
+    let mut legacy = legacy::without_exclusive_branches(&mut game.world_mut(), &[id(ACTOR)]);
     // Version 21 is the last one written without a Wait tag.
     legacy[4..6].copy_from_slice(&21u16.to_le_bytes());
     game.world_mut().load_state(&legacy).unwrap();

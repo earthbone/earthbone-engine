@@ -279,10 +279,42 @@ fn rich_world(namespace: u16) -> World {
     world
 }
 
+/// Save `world` the way a version 23 engine would, without the exclusive
+/// dialogue branch field that version 24 added inside every actor record.
+/// Each branch is set to a unique sentinel so its serialized bytes can be
+/// located exactly, then cut back out.
+fn without_exclusive_branches(world: &mut World) -> Vec<u8> {
+    let ids: Vec<_> = world.actors.keys().copied().collect();
+    let mut markers = Vec::new();
+    for (index, id) in ids.iter().enumerate() {
+        let sentinel = GlobalFormId {
+            file: u16::MAX,
+            object: 0xF000_0000 + index as u32,
+        };
+        world.actors.get_mut(id).unwrap().exclusive_branch = Some(sentinel);
+        let mut marker = vec![1];
+        marker.extend_from_slice(&sentinel.file.to_le_bytes());
+        marker.extend_from_slice(&sentinel.object.to_le_bytes());
+        markers.push(marker);
+    }
+    let mut bytes = world.save_state();
+    for id in &ids {
+        world.actors.get_mut(id).unwrap().exclusive_branch = None;
+    }
+    for marker in markers {
+        let at = bytes
+            .windows(marker.len())
+            .position(|window| window == marker)
+            .expect("sentinel exclusive branch is serialized");
+        bytes.drain(at..at + marker.len());
+    }
+    bytes
+}
+
 #[test]
 fn sav_07_legacy_ids_migrate_through_all_nested_world_state() {
     for version in 15..=18_u16 {
-        let mut legacy = rich_world(255).save_state();
+        let mut legacy = without_exclusive_branches(&mut rich_world(255));
         // Drop the empty version 21 cursor block and the version 20 extras.
         legacy.truncate(legacy.len() - 8);
         let tail = legacy.len() - 25;
@@ -346,7 +378,7 @@ fn sav_16_extras_preserve_created_namespace_and_all_existing_world_state() {
     assert_eq!(loaded.save_state(), before);
     assert_eq!(loaded.state_hash(), world.state_hash());
 
-    let mut legacy = rich_world(DYNAMIC_FILE).save_state();
+    let mut legacy = without_exclusive_branches(&mut rich_world(DYNAMIC_FILE));
     legacy.truncate(legacy.len() - 8);
     legacy[4..6].copy_from_slice(&19_u16.to_le_bytes());
     loaded.load_state(&legacy).unwrap();
@@ -377,7 +409,7 @@ fn sav_07_unknown_version_and_mixed_legacy_namespaces_are_rejected() {
     let mut world = rich_world(DYNAMIC_FILE);
     let before = world.save_state();
     for (version, message) in [
-        (24_u16, "world state version 24"),
+        (25_u16, "world state version 25"),
         (18, "created namespace in a legacy world state"),
     ] {
         let mut bytes = before.clone();
@@ -405,7 +437,7 @@ fn sav_07_legacy_migration_boundary_is_the_first_colliding_plugin_position() {
             )
             .unwrap();
     }
-    let mut legacy = rich_world(255).save_state();
+    let mut legacy = without_exclusive_branches(&mut rich_world(255));
     legacy.truncate(legacy.len() - 8);
     legacy[4..6].copy_from_slice(&18_u16.to_le_bytes());
     let mut world = World::new(order);
@@ -423,4 +455,42 @@ fn sav_07_legacy_migration_boundary_is_the_first_colliding_plugin_position() {
         .to_string()
         .contains("ambiguous created identities"));
     assert_eq!(world.save_state(), before);
+}
+
+#[test]
+fn an_actor_state_before_version_24_defaults_an_absent_exclusive_branch() {
+    let mut actor = ActorState {
+        exclusive_branch: Some(GlobalFormId {
+            file: 0,
+            object: 0x1903,
+        }),
+        ..ActorState::default()
+    };
+    actor.relationships.insert(
+        GlobalFormId {
+            file: 2,
+            object: 0x1234,
+        },
+        -3,
+    );
+    actor.combat_target = Some(GlobalFormId {
+        file: 3,
+        object: 0x5678,
+    });
+    actor.graph_floats.insert("speed".into(), 1.5);
+    let mut writer = Writer::new();
+    write_actor_state(&mut writer, &actor);
+    let marker = [1, 0, 0, 3, 0x19, 0, 0];
+    let offset = writer
+        .out
+        .windows(marker.len())
+        .position(|bytes| bytes == marker)
+        .expect("exclusive branch is serialized");
+    writer.out.drain(offset..offset + marker.len());
+    actor.exclusive_branch = None;
+
+    let mut reader = Reader::new(&writer.out);
+    let mut reader = FormReader::new(&mut reader, FormNamespace::Current);
+    let restored = read_actor_state(&mut reader, 23).unwrap();
+    assert_eq!(restored, actor);
 }

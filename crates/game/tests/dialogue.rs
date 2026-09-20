@@ -19,6 +19,10 @@ const QUEST: u32 = 0x800;
 const OTHER_QUEST: u32 = 0x801;
 const TOPIC: u32 = 0x900;
 const LINKED_TOPIC: u32 = 0x901;
+const BLOCKING_TOPIC: u32 = 0x902;
+const EXCLUSIVE_A_TOPIC: u32 = 0x903;
+const EXCLUSIVE_B_TOPIC: u32 = 0x904;
+const OUTSIDE_TOPIC: u32 = 0x905;
 const INFO: u32 = 0xA00;
 const SHARED: u32 = 0xA01;
 
@@ -61,13 +65,7 @@ fn add_topic(plugin: &mut Plugin, topic: Record, infos: Vec<Record>, top_level: 
     let raw = topic.form_id;
     let quest = topic.find(T(b"QNAM")).unwrap().to_vec();
     if top_level {
-        plugin.push_top(
-            Record::new(T(b"DLBR"), raw + 0x1000)
-                .sub(T(b"QNAM"), quest)
-                .sub(T(b"TNAM"), 0u32.to_le_bytes())
-                .sub(T(b"DNAM"), 1u32.to_le_bytes())
-                .sub(T(b"SNAM"), raw.to_le_bytes()),
-        );
+        add_branch(plugin, raw, quest, 1);
     }
     let mut group = Group::new(GroupKind::Top(T(b"DIAL")));
     group.entries.push(Entry::Record(plugin.push_record(topic)));
@@ -79,6 +77,16 @@ fn add_topic(plugin: &mut Plugin, topic: Record, infos: Vec<Record>, top_level: 
     }
     group.entries.push(Entry::Group(children));
     plugin.groups.push(group);
+}
+
+fn add_branch(plugin: &mut Plugin, topic: u32, quest: Vec<u8>, flags: u32) {
+    plugin.push_top(
+        Record::new(T(b"DLBR"), topic + 0x1000)
+            .sub(T(b"QNAM"), quest)
+            .sub(T(b"TNAM"), 0u32.to_le_bytes())
+            .sub(T(b"DNAM"), flags.to_le_bytes())
+            .sub(T(b"SNAM"), topic.to_le_bytes()),
+    );
 }
 
 fn info(form: u32, flags: u16, lines: &[&str], scripts: bool) -> Record {
@@ -295,6 +303,113 @@ fn shared_response_data_does_not_transfer_fragments_or_ownership() {
         game.world().dialogue_session().is_some(),
         "shared INFO goodbye flag is not inherited"
     );
+}
+
+fn localized_table(text: &str, prefixed: bool) -> Vec<u8> {
+    let mut data = Vec::new();
+    if prefixed {
+        data.extend_from_slice(&((text.len() + 1) as u32).to_le_bytes());
+    }
+    data.extend_from_slice(text.as_bytes());
+    data.push(0);
+    let mut bytes = 1u32.to_le_bytes().to_vec();
+    bytes.extend_from_slice(&(data.len() as u32).to_le_bytes());
+    bytes.extend_from_slice(&1u32.to_le_bytes());
+    bytes.extend_from_slice(&0u32.to_le_bytes());
+    bytes.extend(data);
+    bytes
+}
+
+#[test]
+fn localized_choice_and_shared_response_keep_distinct_winning_owners() {
+    let root = std::env::temp_dir().join(format!("soe-dialogue-localized-{}", std::process::id()));
+    std::fs::create_dir_all(root.join("Strings")).unwrap();
+    for (stem, prompt, response) in [
+        ("Dialogue", "Wrong base prompt", "Wrong base response"),
+        (
+            "Override",
+            "Winning topic prompt",
+            "Winning shared response",
+        ),
+    ] {
+        for (extension, text, prefixed) in
+            [("strings", prompt, false), ("ilstrings", response, true)]
+        {
+            std::fs::write(
+                root.join(format!("Strings/{stem}_english.{extension}")),
+                localized_table(text, prefixed),
+            )
+            .unwrap();
+        }
+    }
+    let mut base = plugin(vec![
+        info(INFO, 0, &[], true).sub(T(b"DNAM"), SHARED.to_le_bytes())
+    ]);
+    base.header.flags |= soe_esm::plugin::flags::LOCALIZED;
+    add_topic(
+        &mut base,
+        topic(LINKED_TOPIC, OTHER_QUEST),
+        vec![info(SHARED, 0, &["Unused"], false)],
+        false,
+    );
+    let mut patch = Plugin::new(FileHeader {
+        flags: soe_esm::plugin::flags::LOCALIZED,
+        masters: vec!["Dialogue.esm".into()],
+        ..FileHeader::default()
+    });
+    let localized_topic = |form: u32, quest: u32| {
+        Record::new(T(b"DIAL"), form)
+            .sub(T(b"FULL"), 1u32.to_le_bytes())
+            .sub(T(b"QNAM"), quest.to_le_bytes())
+            .sub(T(b"BNAM"), (form + 0x1000).to_le_bytes())
+            .sub(T(b"DATA"), [0, 0, 0, 0])
+            .sub(T(b"SNAM"), *b"CUST")
+            .sub(T(b"PNAM"), 50.0f32.to_le_bytes())
+    };
+    add_topic(&mut patch, localized_topic(TOPIC, QUEST), vec![], false);
+    let mut response = vec![0; 24];
+    response[12] = 1;
+    add_topic(
+        &mut patch,
+        localized_topic(LINKED_TOPIC, OTHER_QUEST),
+        vec![info(SHARED, 0, &[], false)
+            .sub(T(b"TRDT"), response)
+            .sub(T(b"NAM1"), 1u32.to_le_bytes())],
+        false,
+    );
+    let mut order = LoadOrder::new();
+    order.add("Dialogue.esm", base).unwrap();
+    order.add("Override.esp", patch).unwrap();
+    let mut game = game_with_order(order);
+    let report = game.load_scripts_from_data(&root);
+    assert!(report.scripts_failed.is_empty());
+    open(&mut game);
+    assert_eq!(
+        game.dialogue_choices().unwrap().available[0]
+            .prompt
+            .as_deref(),
+        Some("Winning topic prompt")
+    );
+    let line = game.choose_dialogue(id(TOPIC)).unwrap().unwrap();
+    assert_eq!(line.text.as_deref(), Some("Winning shared response"));
+    assert_eq!(line.info, id(INFO));
+    assert_eq!(line.response_info, id(SHARED));
+    assert_eq!(counter(&mut game, "begins"), 1);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn mixed_case_interface_archive_errors_reach_load_report() {
+    let root = std::env::temp_dir().join(format!("soe-dialogue-archive-{}", std::process::id()));
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::write(root.join("Dialogue - iNtErFaCe.BSA"), b"invalid archive").unwrap();
+    let mut game = game(plugin(vec![]));
+    let report = game.load_scripts_from_data(&root);
+    assert_eq!(report.scripts_failed.len(), 1);
+    assert!(report.scripts_failed[0]
+        .0
+        .ends_with("Dialogue - iNtErFaCe.BSA"));
+    std::fs::remove_dir_all(root).unwrap();
 }
 
 #[test]
@@ -614,6 +729,334 @@ fn old_world_save_starts_without_dialogue_state() {
 }
 
 #[test]
+fn blocking_branch_waits_for_its_quest_and_info_conditions() {
+    let blocked = info(INFO + 1, 0, &["Blocked until stage 10"], false)
+        .sub(T(b"CTDA"), condition(58, OTHER_QUEST, 10.0, 0));
+    let mut plugin = plugin(vec![info(INFO, 0, &["Normal"], false)]);
+    add_topic(
+        &mut plugin,
+        topic(BLOCKING_TOPIC, OTHER_QUEST),
+        vec![blocked],
+        false,
+    );
+    add_branch(
+        &mut plugin,
+        BLOCKING_TOPIC,
+        OTHER_QUEST.to_le_bytes().to_vec(),
+        2,
+    );
+    let mut game = game(plugin);
+    game.start_quest(id(QUEST));
+    game.start_quest(id(OTHER_QUEST));
+    let player = game.player();
+    game.begin_dialogue(id(SPEAKER), player).unwrap();
+    assert_eq!(
+        game.dialogue_choices()
+            .unwrap()
+            .available
+            .iter()
+            .map(|choice| choice.topic)
+            .collect::<Vec<_>>(),
+        vec![id(TOPIC)]
+    );
+    assert!(game.set_stage(id(OTHER_QUEST), 10));
+    assert_eq!(
+        game.dialogue_choices()
+            .unwrap()
+            .available
+            .iter()
+            .map(|choice| choice.topic)
+            .collect::<Vec<_>>(),
+        vec![id(BLOCKING_TOPIC)]
+    );
+}
+
+#[test]
+fn highest_priority_eligible_blocking_branch_wins_deterministically() {
+    let mut plugin = plugin(vec![info(INFO, 0, &["Normal"], false)]);
+    add_topic(
+        &mut plugin,
+        topic(BLOCKING_TOPIC, QUEST),
+        vec![info(INFO + 1, 0, &["Lower blocker"], false)],
+        false,
+    );
+    add_topic(
+        &mut plugin,
+        topic(LINKED_TOPIC, OTHER_QUEST),
+        vec![info(SHARED, 0, &["Higher blocker"], false)],
+        false,
+    );
+    add_branch(&mut plugin, BLOCKING_TOPIC, QUEST.to_le_bytes().to_vec(), 2);
+    add_branch(
+        &mut plugin,
+        LINKED_TOPIC,
+        OTHER_QUEST.to_le_bytes().to_vec(),
+        2,
+    );
+    let mut game = game(plugin);
+    game.start_quest(id(QUEST));
+    game.start_quest(id(OTHER_QUEST));
+    let player = game.player();
+    game.begin_dialogue(id(SPEAKER), player).unwrap();
+    let choices = game.dialogue_choices().unwrap();
+    assert_eq!(choices.available.len(), 1);
+    assert_eq!(choices.available[0].topic, id(LINKED_TOPIC));
+}
+
+#[test]
+fn unknown_dialogue_branch_flags_are_rejected() {
+    let mut plugin = plugin(vec![info(INFO, 0, &["Normal"], false)]);
+    add_topic(
+        &mut plugin,
+        topic(BLOCKING_TOPIC, QUEST),
+        vec![info(INFO + 1, 0, &["Unknown flags"], false)],
+        false,
+    );
+    add_branch(&mut plugin, BLOCKING_TOPIC, QUEST.to_le_bytes().to_vec(), 8);
+    let mut game = game(plugin);
+    open(&mut game);
+    let choices = game.dialogue_choices().unwrap();
+    assert_eq!(choices.available[0].topic, id(TOPIC));
+    assert!(choices.rejected.iter().any(|(form_id, reason)| {
+        *form_id == id(BLOCKING_TOPIC + 0x1000) && reason.contains("unknown")
+    }));
+}
+
+fn exclusive_game(first_links: Option<u32>, outside_is_branch: bool) -> Game {
+    let mut first = info(INFO + 1, 0, &["Exclusive A"], false);
+    if let Some(link) = first_links {
+        first = first.sub(T(b"TCLT"), link.to_le_bytes());
+    }
+    let mut plugin = plugin(vec![info(INFO, 0, &["Normal"], false)]);
+    add_topic(
+        &mut plugin,
+        topic(EXCLUSIVE_A_TOPIC, QUEST),
+        vec![first],
+        false,
+    );
+    add_topic(
+        &mut plugin,
+        topic(EXCLUSIVE_B_TOPIC, QUEST),
+        vec![info(INFO + 2, 0, &["Exclusive B"], false)],
+        false,
+    );
+    add_topic(
+        &mut plugin,
+        topic(OUTSIDE_TOPIC, QUEST),
+        vec![info(INFO + 3, 0, &["Outside"], false)],
+        false,
+    );
+    add_branch(
+        &mut plugin,
+        EXCLUSIVE_A_TOPIC,
+        QUEST.to_le_bytes().to_vec(),
+        5,
+    );
+    add_branch(
+        &mut plugin,
+        EXCLUSIVE_B_TOPIC,
+        QUEST.to_le_bytes().to_vec(),
+        5,
+    );
+    if outside_is_branch {
+        add_branch(&mut plugin, OUTSIDE_TOPIC, QUEST.to_le_bytes().to_vec(), 1);
+    }
+    game(plugin)
+}
+
+#[test]
+fn exclusive_branch_survives_closure_and_an_empty_link_list() {
+    let mut game = exclusive_game(None, true);
+    open(&mut game);
+    game.choose_dialogue(id(EXCLUSIVE_A_TOPIC)).unwrap();
+    game.advance_dialogue().unwrap();
+    game.close_dialogue();
+    let player = game.player();
+    game.begin_dialogue(id(SPEAKER), player).unwrap();
+    assert_eq!(
+        game.dialogue_choices()
+            .unwrap()
+            .available
+            .iter()
+            .map(|choice| choice.topic)
+            .collect::<Vec<_>>(),
+        vec![id(EXCLUSIVE_A_TOPIC)]
+    );
+}
+
+#[test]
+fn exclusive_branch_updates_for_another_exclusive_and_releases_for_a_normal_one() {
+    let mut game = exclusive_game(Some(EXCLUSIVE_B_TOPIC), true);
+    open(&mut game);
+    game.choose_dialogue(id(EXCLUSIVE_A_TOPIC)).unwrap();
+    game.advance_dialogue().unwrap();
+    game.choose_dialogue(id(EXCLUSIVE_B_TOPIC)).unwrap();
+    game.advance_dialogue().unwrap();
+    game.close_dialogue();
+    let player = game.player();
+    game.begin_dialogue(id(SPEAKER), player).unwrap();
+    assert_eq!(
+        game.dialogue_choices()
+            .unwrap()
+            .available
+            .iter()
+            .map(|choice| choice.topic)
+            .collect::<Vec<_>>(),
+        vec![id(EXCLUSIVE_B_TOPIC)]
+    );
+
+    game.close_dialogue();
+    let mut release = exclusive_game(Some(OUTSIDE_TOPIC), true);
+    open(&mut release);
+    release.choose_dialogue(id(EXCLUSIVE_A_TOPIC)).unwrap();
+    release.advance_dialogue().unwrap();
+    release.choose_dialogue(id(OUTSIDE_TOPIC)).unwrap();
+    release.advance_dialogue().unwrap();
+    release.close_dialogue();
+    let player = release.player();
+    release.begin_dialogue(id(SPEAKER), player).unwrap();
+    let topics: Vec<_> = release
+        .dialogue_choices()
+        .unwrap()
+        .available
+        .iter()
+        .map(|choice| choice.topic)
+        .collect();
+    assert!(topics.contains(&id(TOPIC)));
+    assert!(topics.contains(&id(EXCLUSIVE_A_TOPIC)));
+}
+
+#[test]
+fn unbranched_link_does_not_release_an_exclusive_branch() {
+    let mut game = exclusive_game(Some(OUTSIDE_TOPIC), false);
+    open(&mut game);
+    game.choose_dialogue(id(EXCLUSIVE_A_TOPIC)).unwrap();
+    game.advance_dialogue().unwrap();
+    game.choose_dialogue(id(OUTSIDE_TOPIC)).unwrap();
+    game.advance_dialogue().unwrap();
+    game.close_dialogue();
+    let player = game.player();
+    game.begin_dialogue(id(SPEAKER), player).unwrap();
+    assert_eq!(
+        game.dialogue_choices().unwrap().available[0].topic,
+        id(EXCLUSIVE_A_TOPIC)
+    );
+}
+
+#[test]
+fn active_exclusive_branch_yields_to_an_eligible_higher_priority_blocker() {
+    let blocked = info(INFO + 2, 0, &["Higher blocker"], false)
+        .sub(T(b"CTDA"), condition(58, OTHER_QUEST, 10.0, 0));
+    let mut plugin = plugin(vec![info(INFO, 0, &["Normal"], false)]);
+    add_topic(
+        &mut plugin,
+        topic(EXCLUSIVE_A_TOPIC, QUEST),
+        vec![info(INFO + 1, 0, &["Exclusive"], false)],
+        false,
+    );
+    add_topic(
+        &mut plugin,
+        topic(BLOCKING_TOPIC, OTHER_QUEST),
+        vec![blocked],
+        false,
+    );
+    add_branch(
+        &mut plugin,
+        EXCLUSIVE_A_TOPIC,
+        QUEST.to_le_bytes().to_vec(),
+        5,
+    );
+    add_branch(
+        &mut plugin,
+        BLOCKING_TOPIC,
+        OTHER_QUEST.to_le_bytes().to_vec(),
+        2,
+    );
+    let mut game = game(plugin);
+    game.start_quest(id(QUEST));
+    game.start_quest(id(OTHER_QUEST));
+    let player = game.player();
+    game.begin_dialogue(id(SPEAKER), player).unwrap();
+    game.choose_dialogue(id(EXCLUSIVE_A_TOPIC)).unwrap();
+    game.advance_dialogue().unwrap();
+    game.close_dialogue();
+    let player = game.player();
+    game.begin_dialogue(id(SPEAKER), player).unwrap();
+    assert_eq!(
+        game.dialogue_choices().unwrap().available[0].topic,
+        id(EXCLUSIVE_A_TOPIC),
+        "an ineligible blocker leaves the active exclusive branch in control"
+    );
+    assert!(game.set_stage(id(OTHER_QUEST), 10));
+    assert_eq!(
+        game.dialogue_choices().unwrap().available[0].topic,
+        id(BLOCKING_TOPIC)
+    );
+}
+
+#[test]
+fn ineligible_active_exclusive_branch_yields_without_clearing_its_state() {
+    let gated = info(INFO + 1, 0, &["Exclusive at stage 10"], false)
+        .sub(T(b"CTDA"), condition(58, QUEST, 10.0, 0));
+    let mut plugin = plugin(vec![info(INFO, 0, &["Normal"], false)]);
+    add_topic(
+        &mut plugin,
+        topic(EXCLUSIVE_A_TOPIC, QUEST),
+        vec![gated],
+        false,
+    );
+    add_branch(
+        &mut plugin,
+        EXCLUSIVE_A_TOPIC,
+        QUEST.to_le_bytes().to_vec(),
+        5,
+    );
+    let mut game = game(plugin);
+    game.start_quest(id(QUEST));
+    game.world_mut()
+        .actor(id(SPEAKER))
+        .unwrap()
+        .exclusive_branch = Some(id(EXCLUSIVE_A_TOPIC + 0x1000));
+    let player = game.player();
+    game.begin_dialogue(id(SPEAKER), player).unwrap();
+    assert_eq!(
+        game.dialogue_choices().unwrap().available[0].topic,
+        id(TOPIC)
+    );
+    assert_eq!(
+        game.world()
+            .actor_ref(id(SPEAKER))
+            .unwrap()
+            .exclusive_branch,
+        Some(id(EXCLUSIVE_A_TOPIC + 0x1000))
+    );
+    assert!(game.set_stage(id(QUEST), 10));
+    assert_eq!(
+        game.dialogue_choices().unwrap().available[0].topic,
+        id(EXCLUSIVE_A_TOPIC)
+    );
+}
+
+#[test]
+fn save_restores_the_active_exclusive_branch() {
+    let mut original = exclusive_game(None, true);
+    open(&mut original);
+    original.choose_dialogue(id(EXCLUSIVE_A_TOPIC)).unwrap();
+    original.advance_dialogue().unwrap();
+    original.close_dialogue();
+    let saved = original.save_state().unwrap();
+
+    let mut restored = exclusive_game(None, true);
+    restored.load_state(&saved).unwrap();
+    let player = restored.player();
+    restored.begin_dialogue(id(SPEAKER), player).unwrap();
+    assert_eq!(
+        restored.dialogue_choices().unwrap().available[0].topic,
+        id(EXCLUSIVE_A_TOPIC)
+    );
+}
+
+#[test]
 fn reset_hours_uses_game_time_and_survives_closing_the_conversation() {
     let mut record = info(INFO, 0, &["Come back later"], false);
     record.subrecords[0].data[2..4].copy_from_slice(&65535u16.to_le_bytes());
@@ -699,6 +1142,7 @@ fn installed_dialogue_preserves_ownership_fragments_and_order() {
     let mut infos = 0;
     let mut fragments = 0;
     let mut topics = std::collections::BTreeSet::new();
+    let mut branch_flags = std::collections::BTreeMap::new();
     {
         let world = game.world();
         for (id, record) in world.order().winners_of(T(b"INFO")) {
@@ -739,12 +1183,26 @@ fn installed_dialogue_preserves_ownership_fragments_and_order() {
                 .dialogue_infos(*topic)
                 .unwrap_or_else(|e| panic!("{topic:?}: {e}"));
         }
+        for (id, record) in world.order().winners_of(T(b"DLBR")) {
+            if record.is_deleted() {
+                continue;
+            }
+            let flags = u32::from_le_bytes(
+                record
+                    .find(T(b"DNAM"))
+                    .unwrap_or_else(|| panic!("DLBR {id:?} has no DNAM"))
+                    .try_into()
+                    .unwrap_or_else(|_| panic!("DLBR {id:?} has invalid DNAM")),
+            );
+            *branch_flags.entry(flags).or_insert(0usize) += 1;
+        }
     }
     assert!(infos > 10_000 && fragments > 1_000 && topics.len() > 1_000);
     eprintln!(
         "dialogue survey: {infos} INFO, {fragments} fragments, {} ordered topics",
         topics.len()
     );
+    eprintln!("dialogue branch flags: {branch_flags:?}");
     let scripts = game.load_scripts_from_data(&data);
     assert!(scripts.scripts_failed.is_empty());
     game.start();
@@ -760,17 +1218,36 @@ fn installed_dialogue_preserves_ownership_fragments_and_order() {
     for choice in &choices.available {
         eprintln!("  offered {:?}: {:?}", choice.topic, choice.prompt);
     }
+    assert!(
+        choices
+            .available
+            .iter()
+            .filter_map(|choice| choice.prompt.as_deref())
+            .any(|prompt| !prompt.starts_with("<string ")),
+        "localized shipped dialogue choices stayed unresolved"
+    );
     let rumors = game
         .world()
         .form("WhiterunInnkeeperRumorsBranchTopic")
         .unwrap();
-    assert!(choices
+    let rumor_choice = choices
         .available
         .iter()
-        .any(|choice| choice.topic == rumors));
+        .find(|choice| choice.topic == rumors)
+        .unwrap();
+    assert_eq!(
+        rumor_choice.prompt.as_deref(),
+        Some("Give me the latest gossip.")
+    );
     let before_traces = game.traces().len();
     let before_calls: u64 = game.vm.natives.calls.values().sum();
     let mut line = game.choose_dialogue(rumors).unwrap();
+    assert!(
+        line.as_ref()
+            .and_then(|line| line.text.as_deref())
+            .is_some_and(|text| !text.starts_with("<string ")),
+        "rumors response stayed unresolved"
+    );
     let mut responses = 0;
     while let Some(response) = line {
         responses += 1;

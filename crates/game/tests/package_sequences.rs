@@ -3,6 +3,9 @@
 
 //! Authored PACK branch fixtures, using xEdit PRCB and FNAM layouts.
 
+#[path = "common/legacy.rs"]
+mod legacy;
+
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::ai::Procedure;
 use soe_game::npc::{self, Config, Stats};
@@ -351,7 +354,7 @@ fn a_world_saved_before_cursors_existed_starts_its_authored_tree() {
         false,
     );
     let mut game = game(tree, 0);
-    let mut bytes = game.world().save_state();
+    let mut bytes = legacy::without_exclusive_branches(&mut game.world_mut(), &[id(ACTOR)]);
     assert_eq!(&bytes[bytes.len() - 4..], &[0; 4]);
     bytes.truncate(bytes.len() - 4);
     // Version 20 is the last one written without a cursor block.

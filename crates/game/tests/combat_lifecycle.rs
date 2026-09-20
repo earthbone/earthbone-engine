@@ -3,6 +3,9 @@
 
 //! CK death/deferred-kill behavior through shared state, Papyrus and engine saves.
 
+#[path = "common/legacy.rs"]
+mod legacy;
+
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::{quest, Game, Handle, Pending};
 use soe_papyrus::{
@@ -322,7 +325,10 @@ fn old_saves_resolve_deferred_health_but_reject_new_queue_tags() {
     let game = fresh();
     game.world_mut().start_deferred_kill(id(0x900));
     game.world_mut().kill_actor(id(0x900), None);
-    let mut bytes = game.world().save_state();
+    let mut bytes = legacy::without_exclusive_branches(
+        &mut game.world_mut(),
+        &[id(0x900), id(0x901), id(0x902)],
+    );
     bytes.truncate(bytes.len() - 13);
     bytes[4..6].copy_from_slice(&14_u16.to_le_bytes());
     let before = game.world().save_state();
@@ -330,7 +336,10 @@ fn old_saves_resolve_deferred_health_but_reject_new_queue_tags() {
     assert_eq!(game.world().save_state(), before);
     // Version 14 held only the boolean and health, without a queued request.
     game.world_mut().pending.clear();
-    let mut bytes = game.world().save_state();
+    let mut bytes = legacy::without_exclusive_branches(
+        &mut game.world_mut(),
+        &[id(0x900), id(0x901), id(0x902)],
+    );
     bytes.truncate(bytes.len() - 13);
     bytes[4..6].copy_from_slice(&14_u16.to_le_bytes());
     game.world_mut().load_state(&bytes).unwrap();

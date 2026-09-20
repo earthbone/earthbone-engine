@@ -3,6 +3,9 @@
 
 //! CMB-03 contact timing through the authored animation interpreter and Game.
 
+#[path = "../../game/tests/common/legacy.rs"]
+mod legacy;
+
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::{
     combat::{Difficulty, Error, Hand},
@@ -391,7 +394,8 @@ fn templated_hand_weapon_reaches_contact_damage_with_selected_identity() {
 fn combined_save_reads_both_branch_layouts_without_confusing_their_extensions() {
     let game = fixture();
     game.world_mut().set_difficulty(Difficulty::Legendary);
-    let bytes = game.world().save_state();
+    let actors = game.world().loaded_actors();
+    let bytes = legacy::without_exclusive_branches(&mut game.world_mut(), &actors);
     // Independently construct the one-player hand table in this fixture.
     let mut hands = 1_u32.to_le_bytes().to_vec();
     hands.extend_from_slice(&0_u16.to_le_bytes());

@@ -3,6 +3,9 @@
 
 //! Actor-level template selection and group ownership, including persistence.
 
+#[path = "common/legacy.rs"]
+mod legacy;
+
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::{
     npc::{self, template, Config, Stats},
@@ -281,7 +284,7 @@ fn version_nine_loads_static_actors_without_a_selection_table() {
     let mut world = world(fixture);
     world.actor(id(ACTOR)).unwrap();
     let hash = world.state_hash();
-    let mut bytes = world.save_state();
+    let mut bytes = legacy::without_exclusive_branches(&mut world, &[id(ACTOR)]);
     bytes.truncate(bytes.len() - 29);
     bytes[4..6].copy_from_slice(&9u16.to_le_bytes());
     world.load_state(&bytes).unwrap();

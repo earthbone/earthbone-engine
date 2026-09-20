@@ -637,6 +637,14 @@ NPC bases and deferred deaths. Version 16 contains difficulty alone, version
 17 weapon hands alone, and version 18 both. Version 19 separates created
 identities from plugin load-order position 255 while retaining both combat fields.
 Version 20 appends restored reference ownership and lock metadata after those fields.
+
+table, magic `SOEW`, version 16. Versions 4 to 6 use legacy actor values,
+version 5 adds active magic, version 6 adds dialogue, version 7 adds actor-value
+components, version 8 adds dialogue to those components, and version 9 adds
+active magic. Version 10 adds per-reference leveled template choices.
+Version 11 adds quest journal instances and mapped runtime metadata. Versions
+12 to 15 add inventory, NPC, identity and deferred-death state. Version 16
+adds an actor's active exclusive dialogue branch.
 Older formats load with empty state for absent subsystems.
 Legacy current and base values must agree. Otherwise their modifier domains
 are ambiguous and restoration returns an explicit error.
@@ -744,8 +752,8 @@ notification fired, and the alias resolved to the lever.
 - Quest aliases are filled only from `ALFR`. Conditions, `ALCO`, location and
   reference fill types are not evaluated.
 - `SetStage` does not display the log entry or play the quest sound.
-- Localized strings come back as `<string N>` until the bsa and strings
-  readers are wired in.
+- Missing localized entries come back as `<string N>`. Selected-language
+  string tables now load through the VFS, as described below.
 - `bind` attaches every script in the load order at start. The game does this
   lazily per cell. On the five base masters this is tens of thousands of
   instances, timed at 0.2 seconds against the installed game (2026-09-17),
@@ -995,8 +1003,12 @@ No package versions or new transitive dependencies were added.
 `Game::begin_dialogue`, `dialogue_choices`, `choose_dialogue`,
 `dialogue_line`, `advance_dialogue` and `close_dialogue` provide a conversation
 lifecycle over winning DIAL, INFO, DLBR and QUST records. Normal top-level
-branches supply the initial choices. Quest priority and topic priority sort
-those choices. Inactive quests and failed quest/INFO conditions suppress them.
+branches supply the initial choices. An eligible blocking branch, with or
+without Top-Level, suppresses normal topics. An active exclusive branch enters
+the same blocking arbitration. The highest quest priority wins between
+blockers, and an equal priority uses the resolved DLBR FormID so the result
+stays deterministic. Quest priority and topic priority sort non-blocking choices.
+Inactive quests and failed quest/INFO conditions suppress them.
 Selection checks conditions again, so a stale menu cannot start its fragment.
 Unknown conditions return diagnostics instead of becoming true.
 
@@ -1033,6 +1045,13 @@ Conditions use current shared actor, quest, inventory and location state.
 Papyrus variable queries require conditional flags and reject ambiguous names.
 The evaluator does not complete missing actor-value, alias or package systems.
 
+SOEW version 16 stores an actor's active exclusive DLBR. Speaking any topic
+owned by an exclusive branch retains that branch after the conversation
+closes. It enters blocking arbitration on the next root choices, including
+when the prior INFO has no links. Speaking a topic from another exclusive
+branch updates the retained branch. Speaking a topic from a non-exclusive
+branch clears it. An unbranched topic does not clear it. Unknown DLBR flag bits
+are rejected. Version 15 and older saves load with no retained exclusive branch.
 SOEW version 9 stores the conversation cursor, sorted INFO history and active
 magic effects alongside actor-value components. Formats without dialogue load
 an empty conversation state. Dialogue state contributes to the
@@ -1040,11 +1059,22 @@ simulation hash. The derived record index is rebuilt from the load order.
 This is engine-save support, not vanilla ESS conversation restoration.
 
 Sources are local xEdit DIAL/INFO/DLBR/QUST and wbConditionFunctions, UESP
-VMAD_Field, CK GetDialogueTarget and IsInDialogueWithPlayer, shipped
+DLBR and VMAD_Field, CommonLibSSE-NG `BGSDialogueBranch` and
+`TESObjectREFR` exclusive-branch accessors, CK GetDialogueTarget and
+IsInDialogueWithPlayer, shipped
 Location.psc, and Mutagen's DialogTopic reader. The PNAM ordering algorithm
 adapts GPL Wrye Bash `Mopy/bash/brec/record_groups.py`,
 `_DialChildren._sort_group`, with explicit cycle rejection. It remains in the
 GPL game crate. The schema sources do not provide a reusable Rust interpreter.
+The archived Creation Kit Dialogue Branch lifecycle page could not be fetched
+again on 2026-09-20. The blocking and exclusive lifecycle above follows the
+prior successful retrieval report for oldid 33340, while xEdit, UESP and
+CommonLib independently establish the record flags and actor-scoped exclusive
+branch state.
+
+The installed five-master survey sees 3,933 non-deleted DLBR winners: flags
+0 (224), 1 (2,708), 2 (970), 4 (13), 5 (1) and 6 (17). This confirms that
+blocking without Top-Level and exclusive combinations occur in shipped data.
 
 The gated five-master test checks all 40,678 live INFO records for ownership,
 7,799 fragment declarations and 19,368 ordered topic groups. INFO fragment
@@ -1052,15 +1082,15 @@ bytes survive re-encoding exactly. Script headers follow the existing writer's
 version 5/object format 2 normalization. The survey also exercises an authored
 Hulda topic through the conversation API. That topic has no VMAD fragment,
 so this run does not verify shipped fragment execution. Synthetic tests
-verify named fragments changing quest stages. The text remains a localized string
-identifier, not a displayed subtitle or an audible line.
+verify named fragments changing quest stages. DLG-12 now resolves the localized
+text through the conversation API. Subtitle widgets and audible lines remain
+outside this test.
 
-Remaining dialogue work includes missing conditions, blocking/exclusive
-branches, automatic greetings and ForceGreet, refusal/invisible continuation,
+Remaining dialogue work includes missing conditions, automatic greetings and
+ForceGreet, refusal/invisible continuation,
 favor spending, do-all-before-repeating, walk-away behavior, scenes, persuasion,
 services, complete alias behavior and interruption rules. Godot activation,
-menus, string-table resolution, voice assets, LIP and idle playback are not
-connected to this API. This increment does not establish playable dialogue
+menus, voice assets, LIP and idle playback are not connected to this API. This increment does not establish playable dialogue
 or complete the broader gameplay goal.
 
 ## Active magic applications
@@ -1706,3 +1736,22 @@ dwell and reversal, winning-template namespaces, live marker changes, action
 field contexts and invalid state. These are headless synthetic behavior checks.
 The installed-data survey establishes parameter representation, not a measured
 Patrol run in Skyrim or Godot.
+
+## Localized dialogue and messages, 2026-09-20
+
+`World::load_localized_strings` reads selected-language tables through the
+existing VFS. A resolved field uses the winning record's plugin namespace and
+xEdit's table rule: `DESC` uses DLSTRINGS, INFO response text uses ILSTRINGS,
+and INFO prompts and ordinary names use STRINGS. `Game::load_scripts_from_data`
+loads English by default, while `load_scripts_from_data_language` selects another
+installed language. Installed-data dialogue validation reaches Hulda's Rumors
+topic and checks its resolved choice and response text.
+
+The data loader discovers each plugin's combined, Misc and Interface archives
+case-insensitively and reports archive errors through the load report. Loose
+files retain VFS precedence. Missing language tables produce the existing
+`<string N>` fallback. A malformed table leaves the previously loaded language
+intact. A successful language switch clears tables absent from the new language.
+Synthetic tests cover separate winning owners for a DIAL question and shared
+INFO response, fragment ownership, language switching and archive errors.
+Host dialogue widgets and translated voice selection are outside DLG-12.

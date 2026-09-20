@@ -5,6 +5,9 @@
 //! CK lifecycle, recover, expiry and dispel contracts are asserted independently
 //! of whether a spell remains learned or equipped.
 
+#[path = "common/legacy.rs"]
+mod legacy;
+
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
@@ -455,7 +458,8 @@ fn active_effect_natives_distinguish_definition_target_and_blame_actor() {
 #[test]
 fn version_eight_worlds_load_without_active_effects() {
     let mut game = fixture(0, 1, 0.0, 10);
-    let mut old = game.world().save_state();
+    let mut old =
+        legacy::without_exclusive_branches(&mut game.world_mut(), &[id(ACTOR), id(OTHER)]);
     old.truncate(old.len() - 41);
     old[4..6].copy_from_slice(&8u16.to_le_bytes());
     cast(&mut game, SPELL, OTHER).unwrap();
