@@ -15,6 +15,8 @@ pub(crate) fn combat_default(name: &str) -> Option<f32> {
         "farmorscalingfactor" => 0.12,
         "farmorbasefactor" => 0.03,
         "fmaxarmorrating" => 80.0,
+        // Installed runtime Setting data, with the address evidence in combat.md.
+        "fbleedoutdefault" => 0.2,
         _ => return None,
     })
 }

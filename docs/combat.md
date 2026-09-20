@@ -124,3 +124,63 @@ perk entry points, tempering, enchantments, difficulty selection, bleedout,
 stagger, crime and combat AI remain unfinished. The API is an execution
 increment and does not establish playable combat or completion of the broader
 gameplay-foundations goal.
+
+## Bleedout investigation, CMB-13 in progress
+
+The threshold query reads the selected STATS template source through the
+existing actor-template resolver. ACBS Bleedout Override supplies absolute
+health. Otherwise CLAS DATA's Bleedout Default multiplies permanent health,
+which includes the base and permanent modifier, without damage or temporary
+effects. A missing class link uses fBleedoutDefault. An invalid class record
+returns an error. Zero is a valid threshold. This is preparation for the
+transition, and does not yet make protected or essential contacts executable.
+
+The local xEdit NPC_ and CLAS definitions supply the record layouts.
+CommonLibSSE-NG ActorValueOwner.h identifies the permanent-health virtual call,
+TESClass.h identifies bleedoutDefault at class offset 0x68, and ActorState.h
+distinguishes EssentialDown from Bleedout. These declarations alone do not
+describe the calculation. Read-only llvm-objdump inspection of the installed
+SkyrimSE.exe supplied the following additional evidence. The executable is
+37,910,440 bytes, with SHA-256
+`846efccf0c1374d71f892907f46549560f2fcb0a75cb87a3eed438baa0f1402f`.
+Addresses below are virtual addresses for that executable only.
+
+- At 0x14041dc50, the threshold calculation tests ACBS bit 18 and returns
+  the sign-extended two-byte override. Otherwise it reads class offset 0x68,
+  or fBleedoutDefault when the class pointer is null, and multiplies the
+  result by ActorValueOwner virtual slot 2 for Health (24).
+- fBleedoutDefault's engine Setting value at 0x1420a13a8 is 0.2. The installed
+  Skyrim.esm GMST overrides it with 0.15. Setting.h supplies the name and
+  value layout used to identify it. Plugin and runtime settings retain
+  precedence through World::game_setting.
+- At 0x1406c4a58, the regeneration path recognizes both down states. It reads
+  NoBleedoutRecovery from actor flag bit 5 and uses a cached bleedout rate,
+  initializing that rate from the threshold divided by fBleedoutRate.
+  Other branches apply combat and actor-value multipliers. This observation
+  does not yet establish the complete recovery transition.
+- AIProcess.h names essentialDownTimer at offset 0x90. The getter at
+  0x1406e9690 and setter at 0x1406e96a0 read and write that field. At
+  0x14067a5eb the actor update checks NoBleedoutRecovery before decrementing
+  a positive timer for EssentialDown. Crossing zero calls Actor virtual slot
+  0xE5, which CommonLib identifies as StopCombat, then returns an actor still
+  in EssentialDown to life state zero. The following health restoration call
+  needs its own modifier interpretation before it can be reproduced.
+- At 0x1406c68f9 a positive health change reaching at least 1 can leave
+  EssentialDown. A positive essentialDownTimer is cleared first, with a
+  StopCombat call. Bleedout instead calls 0x1406cf330, which compares the
+  changed health with its cached threshold and checks NoBleedoutRecovery.
+  These are distinct recovery paths, not one unconditional timeout.
+
+The record survey found 159 winning classes, including 16 with a zero
+threshold. It found 391 NPC records carrying the override flag, including
+384 zero overrides and seven overrides of 50. Of 496 NPC records directly
+flagged essential or protected, 98 inherit their STATS group. These counts
+are authored record counts, not a survey of live actors entering bleedout.
+Run the survey with SKYRIM_DATA set and
+`cargo run -p soe-game --example bleedout_survey`.
+
+The focused combat_bleedout tests cover winning class overrides, permanent
+health scaling, inherited absolute overrides, live settings and malformed
+inputs. The runtime evidence has not yet been checked through an interactive
+vanilla comparison. Entry, automatic recovery, NoBleedoutRecovery behavior,
+OnEnterBleedout and persistence are still required before CMB-13 is done.

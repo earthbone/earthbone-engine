@@ -39,6 +39,7 @@ use crate::quest::Quest;
 
 mod actor_seeds;
 mod actors;
+mod bleedout;
 mod combat;
 mod death;
 mod doorway;
