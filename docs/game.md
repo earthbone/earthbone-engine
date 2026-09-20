@@ -89,7 +89,7 @@ and `engine-refs/skse64/scripts/vanilla` can establish the contract.
 
 ## Conformance table
 
-Counts from `natives::register`: 361 natives with state behind them and 180
+Counts from `natives::register`: 364 natives with state behind them and 177
 quiet stubs (141 and 176 before the natives round of 2026-09-18, 294 and 137
 before the DLC round). A stub returns the value the game gives when nothing
 is going on (`IsBleedingOut` false, `ShakeCamera` nothing) so vanilla scripts
@@ -119,7 +119,7 @@ run past it.
 | Spell | Cast, RemoteCast | |
 | Scene, Package | GetOwningQuest | |
 | TopicInfo | GetOwningQuest | |
-| ActiveMagicEffect | RegisterForUpdate, RegisterForSingleUpdate, RegisterForUpdateGameTime, RegisterForSingleUpdateGameTime, UnregisterForUpdate, UnregisterForUpdateGameTime, RegisterForAnimationEvent, UnregisterForAnimationEvent, GetBaseObject, GetTargetActor, GetCasterActor, Dispel | The inventory event filters |
+| ActiveMagicEffect | RegisterForUpdate, RegisterForSingleUpdate, RegisterForUpdateGameTime, RegisterForSingleUpdateGameTime, UnregisterForUpdate, UnregisterForUpdateGameTime, RegisterForAnimationEvent, UnregisterForAnimationEvent, GetBaseObject, GetTargetActor, GetCasterActor, Dispel, AddInventoryEventFilter, RemoveInventoryEventFilter, RemoveAllInventoryEventFilters | |
 | EffectShader, VisualEffect | | Play, Stop |
 | ImageSpaceModifier | | Apply, ApplyCrossFade, Remove, RemoveCrossFade, PopTo |
 | ShaderParticleGeometry | | Apply, Remove |
@@ -941,10 +941,12 @@ lazy record reads can materialize other world state. A preview is rechecked
 at execution. Distance, menu ownership and host activation remain caller work.
 
 Successful transactions queue OnItemRemoved for consumed stacks and
-OnItemAdded for the output. The next game pump executes handlers. Reference
-and running quest alias recipients have independent filters, applied when
-events are queued. Filter lists inspect immediate members only. Empty lists
-suppress events, and later filter changes do not cancel pending calls.
+OnItemAdded for the output. The next game pump executes handlers. Reference,
+running quest alias and active-effect recipients targeting the changed holder
+have independent filters, applied when events are queued. Filter lists inspect
+immediate members only. Empty lists suppress events, and later filter changes
+do not cancel pending calls. Effect expiry and dispel remove its filters before
+later inventory changes are queued.
 The script-facing AddItem, RemoveItem and RemoveAllItems stack paths now
 queue these events too. Silent removal still notifies scripts. AddItem rejects
 unsupported reference, list and leveled-list inputs instead of reporting them
@@ -1122,6 +1124,14 @@ sends `OnEffectFinish`. The getters return the base MGEF, target actor and caste
 while the application is live. Finish handlers may observe absent native state,
 as allowed by the shipped ActiveMagicEffect.psc contract.
 
+An active effect targeting an inventory holder receives `OnItemAdded` and
+`OnItemRemoved` only when its own filters admit the changed base item. The
+filters follow the same direct form-list matching as reference and alias
+recipients. Expiry and dispel remove the effect's filters before later changes
+are queued. `active_effect_inventory_filters_forward_matching_events_until_expiry`
+in `tests/magic.rs` covers allowed additions and removals, rejected items and
+the absence of later events after expiry.
+
 Recover modifiers change the target once and reverse their own delta at the end.
 Other value modifiers integrate magnitude over unpaused simulation seconds, with
 the final tick clipped to the remaining duration. Zero-duration effects apply
@@ -1132,7 +1142,8 @@ duration and value deltas, including pending script attachment. Loading never
 reapplies a saved modifier. The deterministic scenes hash includes this state.
 
 The source contracts are CK [Magic Effect](https://ck.uesp.net/wiki/Magic_Effect),
-local `ck-wiki/DispelSpell_-_Actor.wikitext` and
+local `ck-wiki/AddInventoryEventFilter_-_ObjectReference.wikitext`,
+`DispelSpell_-_Actor.wikitext` and
 `DispelAllSpells_-_Actor.wikitext`, the shipped
 `skse64/scripts/vanilla/ActiveMagicEffect.psc`, xEdit's SPEL/MGEF definitions, and
 CommonLibSSE-NG `ActorValues.h` and `MagicSystem.h`. The skymp
@@ -1151,7 +1162,7 @@ domain. Other effects damage or restore the damage component without changing
 permanent modifiers.
 Automatic ability application from AddSpell or NPC spell lists, enchantments,
 potions, resistance and absorption, effect artwork and sounds, actor-event
-forwarding, effect inventory filters and VM object reclamation remain unfinished.
+forwarding and VM object reclamation remain unfinished.
 This is an active-effect foundation, not complete magic execution.
 
 Validation on the installed five-master load order found 1,354 non-deleted
