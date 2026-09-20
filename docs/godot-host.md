@@ -1300,3 +1300,21 @@ trip and actual E-key crossing passed again. Key use and lock state are tested
 in the game layer, including a keyed load-door transition and unload retention.
 The final gate for that increment passed with 950 Rust tests and 11 Python
 tests. All three clippy configurations and all lint tools ran.
+
+## Image-space lifetime stack, MAG-25
+
+`image_space::ImageSpaceStack` derives its ordered frame snapshot from the
+shared World. PlayerNode synchronizes it after startup scripts and each game
+tick, and clears it when replacing the data source. The diagnostic
+`gameplay_image_space` method exposes modifier identity, strength and age.
+No additional scene nodes or server resources are allocated for applications.
+
+The headless host test applies, fades and removes modifiers through Game,
+checks the production snapshot and replaces the World to verify cleanup.
+The full gate compiles the PlayerNode integration with Godot enabled. No
+interactive renderer run or performance measurement is claimed.
+
+The lifetime sources and tested timing policies are documented in
+[game.md](game.md#image-space-modifier-lifetimes-mag-25). Authored IMAD curves
+remain in their winning records. MAG-71 owns their evaluation and visible
+post-processing through the host stack, including renderer resource cleanup.

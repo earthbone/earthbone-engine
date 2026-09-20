@@ -259,7 +259,7 @@ fn corrupt_saved_template_does_not_replace_existing_state() {
     world.actor(id(ACTOR)).unwrap();
     let hash = world.state_hash();
     let mut bytes = world.save_state();
-    let offset = bytes.len() - 16;
+    let offset = bytes.len() - 25;
     bytes[offset..offset + 4].copy_from_slice(&0x600u32.to_le_bytes());
     assert!(world.load_state(&bytes).is_err());
     assert_eq!(world.state_hash(), hash);
@@ -282,7 +282,8 @@ fn version_nine_loads_static_actors_without_a_selection_table() {
     world.actor(id(ACTOR)).unwrap();
     let hash = world.state_hash();
     let mut bytes = world.save_state();
-    bytes.truncate(bytes.len() - 16);
+    // Drop template and later empty extension tables, including image-space state.
+    bytes.truncate(bytes.len() - 25);
     bytes[4..6].copy_from_slice(&9u16.to_le_bytes());
     world.load_state(&bytes).unwrap();
     assert_eq!(world.state_hash(), hash);

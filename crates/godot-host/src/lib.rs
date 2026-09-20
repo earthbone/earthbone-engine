@@ -18,6 +18,7 @@ pub mod batch;
 pub mod camera;
 pub mod collision;
 pub mod data_source;
+pub mod image_space;
 pub mod input;
 pub mod mesh;
 pub mod skinned;

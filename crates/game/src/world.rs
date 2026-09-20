@@ -49,6 +49,7 @@ pub mod hash;
 mod inventory;
 mod inventory_restore;
 pub use inventory_restore::InventoryRestoreReport;
+pub mod image_space;
 mod item_save;
 mod locks;
 mod lookup;
@@ -473,6 +474,7 @@ pub struct World {
     pub spell_casts: Vec<(GlobalFormId, GlobalFormId, Option<GlobalFormId>)>,
     pub(crate) active_effects: BTreeMap<magic::EffectId, magic::ActiveEffect>,
     pub(crate) next_effect: u64,
+    pub(crate) image_space: image_space::ImageSpaceState,
 }
 
 impl World {
@@ -557,6 +559,7 @@ impl World {
             dialogue: crate::dialogue::State::default(),
             active_effects: BTreeMap::new(),
             next_effect: 1,
+            image_space: image_space::ImageSpaceState::default(),
         }
     }
 

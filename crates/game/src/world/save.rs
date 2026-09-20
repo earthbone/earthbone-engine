@@ -37,7 +37,8 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// Version 13 persists runtime NPC record overrides and mapped links.
 /// Version 14 adds temporary NPC identities, ownership and component provenance.
 /// Version 15 persists deferred-death requests and their eventual event recipients.
-pub const SAVE_VERSION: u16 = 15;
+/// Version 16 persists image-space applications and crossfade progress.
+pub const SAVE_VERSION: u16 = 16;
 
 impl World {
     /// Serialize the run-time state: the VM object handles, references,
@@ -326,6 +327,7 @@ impl World {
         self.write_quest_aux(&mut body);
         self.write_item_stacks(&mut body);
         self.write_record_overrides(&mut body);
+        self.write_image_space(&mut body);
         let mut out = Writer::new();
         out.out.extend_from_slice(SAVE_MAGIC);
         out.u16(SAVE_VERSION);
@@ -797,6 +799,11 @@ impl World {
         } else {
             BTreeMap::new()
         };
+        let image_space = if version >= 16 {
+            self.read_image_space(&mut r)?
+        } else {
+            super::image_space::ImageSpaceState::default()
+        };
         r.expect_end()?;
         super::death::validate_pending(&actors, &pending)?;
 
@@ -849,6 +856,7 @@ impl World {
         self.dialogue = dialogue;
         self.next_effect = next_effect;
         self.active_effects = active_effects;
+        self.image_space = image_space;
 
         self.objects = objects;
         self.handles = handles;

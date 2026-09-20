@@ -79,7 +79,7 @@ and `engine-refs/skse64/scripts/vanilla` can establish the contract.
 
 ## Conformance table
 
-Counts from `natives::register`: 361 natives with state behind them and 180
+Counts from `natives::register`: 366 natives with state behind them and 175
 quiet stubs (141 and 176 before the natives round of 2026-09-18, 294 and 137
 before the DLC round). A stub returns the value the game gives when nothing
 is going on (`IsBleedingOut` false, `ShakeCamera` nothing) so vanilla scripts
@@ -111,7 +111,7 @@ run past it.
 | TopicInfo | GetOwningQuest | |
 | ActiveMagicEffect | RegisterForUpdate, RegisterForSingleUpdate, RegisterForUpdateGameTime, RegisterForSingleUpdateGameTime, UnregisterForUpdate, UnregisterForUpdateGameTime, RegisterForAnimationEvent, UnregisterForAnimationEvent, GetBaseObject, GetTargetActor, GetCasterActor, Dispel | The inventory event filters |
 | EffectShader, VisualEffect | | Play, Stop |
-| ImageSpaceModifier | | Apply, ApplyCrossFade, Remove, RemoveCrossFade, PopTo |
+| ImageSpaceModifier | Apply, ApplyCrossFade, Remove, RemoveCrossFade, PopTo | |
 | ShaderParticleGeometry | | Apply, Remove |
 | MusicType, Topic | | Add, Remove |
 | Weather, Weapon, Scroll | | SetActive, Fire, Cast |
@@ -1373,3 +1373,47 @@ then executes 184 supported weapons against synthetic actors. The remaining
 weapons reject unsupported types, templates or enchantments. Real armor records
 were decoded, while armor damage calculations use synthetic fixtures.
 These changes await commit and merge review on `combat-hits`.
+
+## Image-space modifier lifetimes, MAG-25
+
+The five `ImageSpaceModifier` natives now update shared World state. Ordinary
+applications retain their unclamped finite strength. `PopTo` removes its source
+and applies its destination without interrupting an unrelated crossfade.
+`ApplyCrossFade` and `RemoveCrossFade` operate on a separate ordered chain.
+The host receives ordinary applications in application order, followed by the
+crossfade chain. Reapplying the same modifier replaces its application and
+restarts its age. A modifier has at most one application in this implementation.
+
+The local shipped `skse64/scripts/vanilla/ImageSpaceModifier.psc` supplies the
+five signatures, default strengths and durations, and the distinction between
+ordinary applications and crossfades. The CK
+[PopTo contract](https://ck.uesp.net/wiki/PopTo_-_ImageSpaceModifier) confirms
+unclamped strength and preservation of unrelated crossfades. CommonLibSSE-NG
+`include/RE/I/ImageSpaceModifierInstance.h` stores strength and age, while
+`ImageSpaceModifierInstanceForm.h` exposes trigger and stop entry points.
+Their implementation is a binary relocation, so it provides no reusable
+crossfade algorithm. Local skymp and Community Shaders supplied no lifetime
+executor to reuse.
+
+`TES5Edit/Core/wbDefinitionsTES5.pas` and CommonLibSSE-NG
+`include/RE/T/TESImageSpaceModifier.h` define the 244-byte DNAM lifetime prefix.
+Each application reads its winning IMAD record. Animated applications expire
+at their authored duration. Invalid records and non-finite arguments reject
+before changing the stack. All 225 non-deleted IMAD winners in the installed
+five-master survey passed this lifetime reader and a Game save/load round trip.
+
+Crossfades interpolate linearly from their current weights when interrupted.
+Nonpositive fade durations settle immediately. Ages and fades use unpaused
+simulation seconds. These timing and replacement policies are engine choices
+covered by tests, not measured vanilla parity claims. SOEW version 16 stores
+the applications, ages and in-progress fade. Older saves start with an empty
+stack. Loading validates identities, finite values and the correspondence
+between fade time and weights before replacing live state.
+
+`tests/image_space.rs` exercises all five natives, interruption, menu pause,
+animated expiry, invalid-call atomicity, save continuation and corrupt-save
+rejection. Its installed-record test is gated on `SKYRIM_DATA`. The host
+snapshot test checks order, fade weights and clearing on world replacement.
+MAG-71 separately owns authored color, blur, depth and HDR curve evaluation
+and rendering. MAG-25 adds no visible post-processing and claims no rendered
+parity with Skyrim.

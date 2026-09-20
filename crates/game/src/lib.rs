@@ -542,6 +542,7 @@ impl Game {
             let mut w = self.world.borrow_mut();
             let before = w.clock.game_days;
             w.clock.advance(real_seconds);
+            w.tick_image_space(real_seconds);
             let errors = w.tick_magic(real_seconds, &mut |n, c| vm.create_object_of(n, c));
             for error in errors {
                 vm.log.push(vm.time(), error.to_string());

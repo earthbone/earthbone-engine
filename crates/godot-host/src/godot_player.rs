@@ -71,6 +71,7 @@ pub struct PlayerNode {
     character: Option<BodyId>,
     data_source: Option<Arc<DataSource>>,
     game: Option<soe_game::Game>,
+    image_space: crate::image_space::ImageSpaceStack,
     sound_bank: Option<Gd<crate::godot_audio::SoundBank>>,
     footstep_cadence: crate::audio::FootstepCadence,
     footstep_count: u64,
@@ -108,6 +109,7 @@ impl INode3D for PlayerNode {
             character: None,
             data_source: None,
             game: None,
+            image_space: crate::image_space::ImageSpaceStack::default(),
             sound_bank: None,
             footstep_cadence: crate::audio::FootstepCadence::default(),
             footstep_count: 0,
@@ -256,6 +258,7 @@ impl PlayerNode {
                 }
                 self.data_source = Some(Arc::new(source));
                 self.game = None;
+                self.image_space = crate::image_space::ImageSpaceStack::default();
                 self.game_streamer = None;
                 true
             }
@@ -284,6 +287,7 @@ impl PlayerNode {
         }
         self.data_source = Some(source);
         self.game = None;
+        self.image_space = crate::image_space::ImageSpaceStack::default();
         self.game_streamer = Some(streamer);
         true
     }
@@ -450,6 +454,20 @@ impl PlayerNode {
     #[func]
     pub fn start_gameplay(&mut self) -> bool {
         self.start_game_runtime()
+    }
+
+    /// Current derived image-space stack for host diagnostics.
+    #[func]
+    pub fn gameplay_image_space(&self) -> Array<VarDictionary> {
+        let mut result = Array::new();
+        for layer in self.image_space.layers() {
+            let mut row = VarDictionary::new();
+            row.set("modifier", &GString::from(&layer.modifier.to_string()));
+            row.set("strength", layer.strength);
+            row.set("age", layer.age);
+            result.push(&row);
+        }
+        result
     }
 
     /// Logical cell currently represented by the host.
