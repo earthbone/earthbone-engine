@@ -30,7 +30,8 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use soe_bsa::{find_associated_archives, Archive, Vfs};
+use soe_audio::{VoiceArchiveError, VoiceLocale};
+use soe_bsa::{Archive, Vfs};
 use soe_esm::records::refr::Refr;
 use soe_esm::{tag, CellIndex, GlobalFormId, LoadOrder};
 use soe_nif::{Mat33, Mesh as NifMesh, Transform as NifTransform, Vec3 as NifVec3};
@@ -83,6 +84,16 @@ pub enum DataSourceError {
     Mesh(#[from] MeshError),
     #[error("{0}")]
     Dds(#[from] soe_dds::Error),
+    #[error("{0}")]
+    Profile(#[from] soe_profile::Error),
+    #[error("{0}")]
+    VoiceLocale(#[from] VoiceArchiveError),
+    #[error("{0} does not name a game Data directory")]
+    DataDirectory(PathBuf),
+    #[error("the selected voice archive {0} is unavailable")]
+    MissingVoiceArchive(String),
+    #[error("no voice archive is available for the selected language")]
+    NoVoiceArchives,
     #[error("cell '{0}' was not found in the load order")]
     CellNotFound(String),
     #[error("a data source worker panicked")]
@@ -242,19 +253,60 @@ fn parse_masters(data_dir: &Path, threads: usize) -> Result<Vec<soe_esm::Plugin>
 }
 
 impl DataSource {
-    /// Loads the base masters and their associated archives from `data_dir`,
-    /// then adds `data_dir` itself as a loose overlay so a texture or mesh
-    /// replacer placed there beats the archives, matching the shipped engine.
+    /// Loads a vanilla game's resolved profile from its `Data` directory.
+    /// The game's default INI supplies the locale when no user INI is given.
     /// Parsing and mesh building use the machine's parallelism.
     pub fn open(data_dir: &Path) -> Result<Self, DataSourceError> {
+        let game_dir = data_dir
+            .parent()
+            .ok_or_else(|| DataSourceError::DataDirectory(data_dir.to_path_buf()))?;
+        let loadout = soe_profile::LoadoutInput {
+            game_dir: game_dir.to_path_buf(),
+            data_roots: vec![data_dir.to_path_buf()],
+            plugins_txt: None,
+            loadorder_txt: None,
+            ini_dir: None,
+            ccc: None,
+        }
+        .resolve()?;
         let threads = std::thread::available_parallelism().map_or(1, std::num::NonZero::get);
-        Self::open_with_threads(data_dir, threads)
+        Self::open_loadout_with_threads(&loadout, threads)
     }
 
-    /// `open` with a fixed worker count, one for the sequential path.
+    /// Opens a resolved profile, retaining its archive and loose-root order.
+    pub fn open_loadout(loadout: &soe_profile::Loadout) -> Result<Self, DataSourceError> {
+        let threads = std::thread::available_parallelism().map_or(1, std::num::NonZero::get);
+        Self::open_loadout_with_threads(loadout, threads)
+    }
+
+    /// `open_loadout` with a fixed worker count, one for the sequential path.
     pub fn open_with_threads(data_dir: &Path, threads: usize) -> Result<Self, DataSourceError> {
+        let game_dir = data_dir
+            .parent()
+            .ok_or_else(|| DataSourceError::DataDirectory(data_dir.to_path_buf()))?;
+        let loadout = soe_profile::LoadoutInput {
+            game_dir: game_dir.to_path_buf(),
+            data_roots: vec![data_dir.to_path_buf()],
+            plugins_txt: None,
+            loadorder_txt: None,
+            ini_dir: None,
+            ccc: None,
+        }
+        .resolve()?;
+        Self::open_loadout_with_threads(&loadout, threads)
+    }
+
+    /// `open_loadout` with a fixed worker count, one for the sequential path.
+    pub fn open_loadout_with_threads(
+        loadout: &soe_profile::Loadout,
+        threads: usize,
+    ) -> Result<Self, DataSourceError> {
         let _span = soe_trace::Span::with_payload("host.open", "host", threads as u64);
         let threads = threads.max(1);
+        let data_dir = loadout
+            .data_roots
+            .first()
+            .ok_or_else(|| DataSourceError::DataDirectory(PathBuf::new()))?;
         let parsed = parse_masters(data_dir, threads)?;
         let mut order = LoadOrder::new();
         for (name, plugin) in BASE_MASTERS.iter().zip(parsed) {
@@ -269,14 +321,13 @@ impl DataSource {
         let mut vfs = Vfs::new();
         {
             let _archives = soe_trace::Span::new("host.index_archives", "host");
-            let mut paths = Vec::new();
-            for name in BASE_MASTERS {
-                paths.extend(find_associated_archives(name, data_dir)?);
-            }
+            let paths = archive_paths(loadout, false)?;
             for archive in ordered_map(&paths, threads, |path| Archive::open(path))? {
                 vfs.add_archive(archive?);
             }
-            vfs.add_loose_root(data_dir)?;
+            for root in &loadout.data_roots {
+                vfs.add_loose_root(root)?;
+            }
         }
         Ok(DataSource {
             order: std::sync::Arc::new(order),
@@ -479,6 +530,53 @@ impl DataSource {
         }
         Ok(out)
     }
+}
+
+/// Builds the archive and loose-file view for one resolved profile.
+pub fn vfs_from_loadout(loadout: &soe_profile::Loadout) -> Result<Vfs, DataSourceError> {
+    let mut vfs = Vfs::new();
+    for archive in archive_paths(loadout, true)? {
+        vfs.add_archive_path(&archive)?;
+    }
+    for root in &loadout.data_roots {
+        vfs.add_loose_root(root)?;
+    }
+    Ok(vfs)
+}
+
+fn archive_paths(
+    loadout: &soe_profile::Loadout,
+    require_voice_archive: bool,
+) -> Result<Vec<PathBuf>, DataSourceError> {
+    let locale = match VoiceLocale::from_language(loadout.settings.get("General", "sLanguage")) {
+        Ok(locale) => Some(locale),
+        Err(error) if require_voice_archive => return Err(error.into()),
+        Err(_) => None,
+    };
+    let mut paths = Vec::new();
+    let mut voices = 0;
+    for archive in &loadout.archives {
+        if VoiceLocale::is_voice_archive(&archive.name) {
+            if !locale
+                .as_ref()
+                .is_some_and(|locale| locale.matches_archive(&archive.name))
+            {
+                continue;
+            }
+            let path = archive
+                .path
+                .clone()
+                .ok_or_else(|| DataSourceError::MissingVoiceArchive(archive.name.clone()))?;
+            paths.push(path);
+            voices += 1;
+        } else if let Some(path) = &archive.path {
+            paths.push(path.clone());
+        }
+    }
+    if require_voice_archive && voices == 0 {
+        return Err(DataSourceError::NoVoiceArchives);
+    }
+    Ok(paths)
 }
 
 /// One static's surfaces with their textures, or why it failed.

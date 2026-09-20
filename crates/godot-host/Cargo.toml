@@ -73,6 +73,8 @@ soe-audio = { path = "../audio" }
 soe-dds = { path = "../dds" }
 soe-hkx = { path = "../hkx" }
 soe-physics = { path = "../physics" }
+soe-profile = { path = "../profile" }
 soe-trace = { path = "../trace" }
 
 [dev-dependencies]
+tempfile = "3"

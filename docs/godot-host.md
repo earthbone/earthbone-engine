@@ -704,7 +704,14 @@ device makes noise needs a windowed Godot run with a `SoundBank` in the tree,
 `open_data` pointed at the install, and `play_effect` called with a footstep
 path. Nothing yet drives `SoundBank` from the game loop, so footsteps are not
 wired to the character controller and voice lines are not wired to dialogue.
-Only English voices are indexed, `Skyrim - Voices_en0.bsa` by name.
+`SoundBank::open_data` and the profile-taking `DataSource` entry point build
+their VFS from resolved profile archives and loose roots. Both direct paths
+retain the supplied data directory. The selected
+`sLanguage` admits matching voice archives and skips competing locales. A
+missing selected voice archive reports an error and does not fall back to
+English. `DataSource::open(data_dir)` retains its exact supplied data root and
+does not require voice assets, since it still builds records from the five base
+masters rather than a profile's complete plugin list.
 
 ## Input and camera (2026-09-18, branch `input`)
 

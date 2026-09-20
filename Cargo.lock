@@ -1317,7 +1317,9 @@ dependencies = [
  "soe-hkx",
  "soe-nif",
  "soe-physics",
+ "soe-profile",
  "soe-trace",
+ "tempfile",
  "thiserror 2.0.20",
 ]
 

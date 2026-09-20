@@ -42,6 +42,21 @@ Six crates in total, `lewton`, `byteorder`, `tinyvec`, `ogg`, `opus-decoder` and
 `thiserror` and `soe-bsa` which the workspace already carries. `cargo tree -p soe-audio` prints
 the lot on one screen.
 
+### Voice archive locale selection
+
+`[General] sLanguage` selects the voice archive suffix. `VoiceLocale` maps the
+seven shipped language names to `en`, `fr`, `de`, `it`, `ja`, `ru` and `es`,
+then lets the host retain only matching `* - Voices_<suffix><part>.bsa` entries
+from the profile's resolved archive order. It does not order archives or choose
+loose files. `soe-bsa::Vfs` does both, with later archives and loose roots
+winning.
+
+The local `Skyrim-NX-Toolkit/DefaultIniFiles/Skyrim_fr.ini` and
+`Skyrim_de.ini` name `Voices_fr0` and `Voices_de0` respectively. Mutagen's
+`GetArchiveIniListingsTests.cs` confirms that the two INI archive lists retain
+their written order. A selected archive that is unavailable returns an error.
+The host does not substitute English.
+
 ### The WMA bitstream
 
 ffmpeg has demuxed xWMA and decoded `wmav2` for years, so no WMA decoder is written here and none

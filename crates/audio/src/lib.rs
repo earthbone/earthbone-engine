@@ -30,6 +30,7 @@ pub mod pcm;
 pub mod riff;
 pub mod source;
 pub mod viseme;
+pub mod voice_archives;
 pub mod wma;
 pub mod xwma;
 
@@ -46,5 +47,6 @@ pub use lip::Lip;
 pub use pcm::Pcm;
 pub use source::{sniff, Container, Sound, SoundSource};
 pub use viseme::{mapping_race, morph_weights, MouthCue, Shape, VisemeSource, VisemeTrack};
+pub use voice_archives::{VoiceArchiveError, VoiceLocale};
 pub use wma::WmaDecoder;
 pub use xwma::Xwma;
