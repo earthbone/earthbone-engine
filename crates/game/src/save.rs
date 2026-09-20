@@ -69,3 +69,44 @@ impl Game {
         Ok(())
     }
 }
+
+impl Game {
+    /// Serialize and atomically replace a native save after read-back validation.
+    ///
+    /// # Errors
+    /// State serialization, validation or a file persistence operation fails.
+    pub fn write_file(&self, path: &std::path::Path) -> Result<(), soe_save::atomic::WriteError> {
+        let bytes = self
+            .save_state()
+            .map_err(|error| soe_save::atomic::WriteError::Serialize(error.to_string()))?;
+        self.write_state_file(path, &bytes)
+    }
+
+    /// Write previously serialized native bytes against this game's definitions.
+    /// Validation uses scratch world and VM state and executes no script callbacks.
+    ///
+    /// # Errors
+    /// Invalid native bytes, missing definitions or file persistence failures.
+    pub fn write_state_file(
+        &self,
+        path: &std::path::Path,
+        bytes: &[u8],
+    ) -> Result<(), soe_save::atomic::WriteError> {
+        soe_save::atomic::write_validated(path, bytes, |written| {
+            self.validate_saved_state(written)
+                .map_err(|error| error.to_string())
+        })
+    }
+
+    fn validate_saved_state(&self, bytes: &[u8]) -> Result<(), VmError> {
+        let mut reader = Reader::new(bytes);
+        if reader.take(4)? != MAGIC || reader.u16()? != VERSION {
+            return Err(VmError::State("unsupported native save header".into()));
+        }
+        let world = reader.bytes()?;
+        let vm = reader.bytes()?;
+        reader.expect_end()?;
+        self.world.borrow().validate_state(world)?;
+        self.vm.validate_state(vm)
+    }
+}

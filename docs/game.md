@@ -640,6 +640,14 @@ way `Game::new` and `Game::load_script` already ask for them, and it should
 not have been bound or started first since it overwrites object and instance
 state wholesale.
 
+`Game::write_file` serializes and validates native state before replacing an
+existing file. `Game::write_state_file` accepts previously serialized bytes and
+checks them against the current load order and scripts in scratch state. Both
+use the [atomic file protocol](save-resilience.md#sav-62-file-replacement),
+including read-back validation, file and directory synchronization, a prior
+link during replacement and explicit error paths. Validation executes no
+callbacks and does not mutate the running game.
+
 A test in `tests/quest_flow.rs` calls the new `Game::activate_no_settle`
 (the part of `Game::activate` before `run_until_idle`) on the lever so the
 `OnActivate` event is queued but not yet run, saves, loads the bytes into a

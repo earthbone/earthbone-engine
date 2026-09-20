@@ -73,6 +73,15 @@ with the same late, confusing failure.
 Both are pinned by `tests/probe.rs`, since both cost a full parse of the corpus
 when they were wrong and neither announces itself.
 
+## Writing files
+
+`Save::write_file` serializes an ESS container, validates compressed change-form
+payloads and checks exact re-encoding before replacing the destination. It uses
+a synchronized sibling staging file and keeps a prior link across replacement.
+The [file protocol](save-resilience.md#sav-62-file-replacement) documents error
+paths, cooperating-writer locking and the tested filesystem model. Validation
+does not claim runtime support for opaque payloads.
+
 ## What is decoded
 
 - The header, every field, including the screenshot kept as raw pixels.

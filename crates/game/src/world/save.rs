@@ -1372,3 +1372,10 @@ fn write_quest_mutable(w: &mut Writer, q: &QuestState) {
         w.f32(*v);
     }
 }
+
+impl World {
+    pub(crate) fn validate_state(&self, bytes: &[u8]) -> Result<(), VmError> {
+        let mut scratch = Self::from_shared_order(self.order.clone());
+        scratch.load_state(bytes)
+    }
+}
