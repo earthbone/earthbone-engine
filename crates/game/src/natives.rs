@@ -1298,11 +1298,9 @@ fn actor(vm: &mut Vm, w: &Shared) {
     });
     method!(vm, w, "Actor", "EquipItem", |world, call, me| {
         if let Some(item) = world.form_arg(&call.arg(0)) {
-            if world.item_count(me, item) == 0 {
-                world.add_item(me, item, 1);
-            }
-            if let Some(a) = world.actor(me) {
-                a.equipped.insert(item);
+            if let Err(error) = world.equip_item(me, item) {
+                call.log
+                    .push(call.time, format!("Actor.EquipItem: {error}"));
             }
         }
         none()

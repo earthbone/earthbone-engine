@@ -9,6 +9,7 @@ use soe_game::{
         records::{Armor, Weapon},
         Error, MeleeHit,
     },
+    inventory::{Extra, Stack},
     Game, Handle,
 };
 use soe_papyrus::{
@@ -95,6 +96,17 @@ fn fixture(extra: Vec<Record>) -> Game {
     }
     game
 }
+fn uninitialized_fixture(extra: Vec<Record>) -> Game {
+    let mut plugin = Plugin::new(FileHeader::default());
+    plugin.push_top(Record::new(Tag(*b"NPC_"), 0x800));
+    plugin.push_top(Record::new(Tag(*b"ACHR"), 0x901).sub(Tag(*b"NAME"), 0x800_u32.to_le_bytes()));
+    for record in extra {
+        plugin.push_top(record);
+    }
+    let mut order = LoadOrder::new();
+    order.add("Combat.esm", plugin).unwrap();
+    Game::new(order)
+}
 fn hit(attacker: u32, target: u32) -> MeleeHit {
     MeleeHit {
         attacker: id(attacker),
@@ -104,8 +116,7 @@ fn hit(attacker: u32, target: u32) -> MeleeHit {
 }
 fn equip(game: &Game, actor: u32, item: u32) {
     let mut world = game.world_mut();
-    world.add_item(id(actor), id(item), 1);
-    world.actor(id(actor)).unwrap().equipped.insert(id(item));
+    world.equip_item(id(actor), id(item)).unwrap();
 }
 fn close(actual: f32, expected: f32) {
     assert!((actual - expected).abs() < 0.0001, "{actual} != {expected}");
@@ -154,6 +165,171 @@ fn armor_uses_its_skill_hidden_categories_and_reduction_cap() {
         .mod_actor_value(id(0x901), "damageresist", 1000.)
         .unwrap();
     close(game.melee_hit(hit(0x14, 0x901)).unwrap().health_damage, 3.);
+}
+
+#[test]
+fn equipping_overlapping_supported_armor_replaces_only_the_conflicting_item() {
+    let game = fixture(vec![
+        armor(0xB00, 100, 1 << 2, 1),
+        armor(0xB01, 100, (1 << 2) | (1 << 3), 1),
+        armor(0xB02, 100, 1 << 7, 1),
+    ]);
+    equip(&game, 0x901, 0xB00);
+    equip(&game, 0x901, 0xB02);
+    equip(&game, 0x901, 0xB01);
+    let world = game.world();
+    let equipped = &world.actor_ref(id(0x901)).unwrap().equipped;
+    assert!(!equipped.contains(&id(0xB00)));
+    assert!(equipped.contains(&id(0xB01)));
+    assert!(equipped.contains(&id(0xB02)));
+}
+
+#[test]
+fn unsupported_bod2_overlap_is_not_replaced_and_combat_rejects_it() {
+    let mut game = fixture(vec![
+        armor(0xB00, 100, 1 << 31, 1),
+        armor(0xB01, 100, 1 << 31, 1),
+    ]);
+    equip(&game, 0x901, 0xB00);
+    equip(&game, 0x901, 0xB01);
+    let world = game.world();
+    let equipped = &world.actor_ref(id(0x901)).unwrap().equipped;
+    assert!(equipped.contains(&id(0xB00)));
+    assert!(equipped.contains(&id(0xB01)));
+    drop(world);
+    assert!(matches!(
+        game.melee_hit(hit(0x14, 0x901)),
+        Err(Error::Unsupported("overlapping equipped armor"))
+    ));
+}
+
+#[test]
+fn invalid_armor_skill_remains_an_error_after_equipping() {
+    let mut game = fixture(vec![armor(0xB00, 100, 1 << 2, 3)]);
+    assert!(matches!(
+        game.world_mut().equip_item(id(0x901), id(0xB00)),
+        Err(Error::Unsupported("unknown armor skill"))
+    ));
+    {
+        let mut world = game.world_mut();
+        world.add_item(id(0x901), id(0xB00), 1);
+        world.actor(id(0x901)).unwrap().equipped.insert(id(0xB00));
+    }
+    assert!(matches!(
+        game.melee_hit(hit(0x14, 0x901)),
+        Err(Error::Unsupported("unknown armor skill"))
+    ));
+}
+
+#[test]
+fn equip_initializes_an_unloaded_actor_before_recording_armor() {
+    let game = uninitialized_fixture(vec![armor(0xB00, 100, 1 << 2, 1)]);
+    assert!(game.world().actor_ref(id(0x901)).is_none());
+    equip(&game, 0x901, 0xB00);
+    assert!(game
+        .world()
+        .actor_ref(id(0x901))
+        .unwrap()
+        .equipped
+        .contains(&id(0xB00)));
+}
+
+#[test]
+fn malformed_incoming_or_current_armor_leaves_equipment_and_inventory_unchanged() {
+    let malformed = Record::new(Tag(*b"ARMO"), 0xB01).sub(Tag(*b"DNAM"), 100_u32.to_le_bytes());
+    let game = fixture(vec![armor(0xB00, 100, 1 << 2, 1), malformed]);
+    equip(&game, 0x901, 0xB00);
+    let before = game.save_state().unwrap();
+    assert!(matches!(
+        game.world_mut().equip_item(id(0x901), id(0xB01)),
+        Err(Error::Record(_))
+    ));
+    assert_eq!(game.save_state().unwrap(), before);
+    {
+        let mut world = game.world_mut();
+        world.add_item(id(0x901), id(0xB01), 1);
+        world.actor(id(0x901)).unwrap().equipped.insert(id(0xB01));
+    }
+    let before = game.save_state().unwrap();
+    assert!(matches!(
+        game.world_mut().equip_item(id(0x901), id(0xB00)),
+        Err(Error::Record(_))
+    ));
+    assert_eq!(game.save_state().unwrap(), before);
+}
+
+#[test]
+fn replacing_armor_clears_worn_metadata_and_survives_save_load() {
+    let records = vec![armor(0xB00, 100, 1 << 2, 1), armor(0xB01, 100, 1 << 2, 1)];
+    let game = fixture(records.clone());
+    equip(&game, 0x901, 0xB00);
+    game.world_mut()
+        .reference(id(0x901))
+        .unwrap()
+        .inventory
+        .restore(
+            id(0xB00),
+            1,
+            vec![Stack::new(
+                1,
+                vec![Extra {
+                    kind: 22,
+                    fields: vec![],
+                }],
+            )
+            .unwrap()],
+        )
+        .unwrap();
+    equip(&game, 0x901, 0xB01);
+    assert!(!game
+        .world()
+        .reference_ref(id(0x901))
+        .unwrap()
+        .inventory
+        .stacks(id(0xB00))
+        .iter()
+        .any(Stack::worn));
+    let saved = game.save_state().unwrap();
+    let mut restored = fixture(records);
+    restored.load_state(&saved).unwrap();
+    let world = restored.world();
+    let actor = world.actor_ref(id(0x901)).unwrap();
+    assert!(!actor.equipped.contains(&id(0xB00)));
+    assert!(actor.equipped.contains(&id(0xB01)));
+    assert!(!restored
+        .world()
+        .reference_ref(id(0x901))
+        .unwrap()
+        .inventory
+        .stacks(id(0xB00))
+        .iter()
+        .any(Stack::worn));
+}
+
+#[test]
+fn reequipping_armor_preserves_worn_metadata_and_saved_state() {
+    let game = fixture(vec![armor(0xB00, 100, 1 << 2, 1)]);
+    equip(&game, 0x901, 0xB00);
+    game.world_mut()
+        .reference(id(0x901))
+        .unwrap()
+        .inventory
+        .restore(
+            id(0xB00),
+            1,
+            vec![Stack::new(
+                1,
+                vec![Extra {
+                    kind: 22,
+                    fields: vec![],
+                }],
+            )
+            .unwrap()],
+        )
+        .unwrap();
+    let before = game.save_state().unwrap();
+    equip(&game, 0x901, 0xB00);
+    assert_eq!(game.save_state().unwrap(), before);
 }
 
 #[test]

@@ -32,6 +32,8 @@ pub enum Error {
     Record(#[from] soe_esm::Error),
     #[error(transparent)]
     Value(#[from] crate::actor_values::Error),
+    #[error(transparent)]
+    Inventory(#[from] crate::inventory::Error),
     #[error("invalid combat actor {0}")]
     Actor(GlobalFormId),
     #[error("weapon is not equipped or present in the attacker's inventory")]
