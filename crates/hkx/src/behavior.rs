@@ -587,6 +587,12 @@ pub enum NodeKind {
         alarm_time_seconds: f32,
         alarm_event: EventProperty,
     },
+    /// `BSGetTimeStepModifier`: writes the current graph update interval to
+    /// its `timeStep` output binding.
+    GetTimeStepModifier {
+        enable: bool,
+        time_step: f32,
+    },
     /// `BSIsActiveModifier`: five slots, each a flag the graph binds a
     /// variable to and an invert bit. Skyrim uses it to turn parts of a
     /// graph on from script, and its bindings are the bulk of what an
@@ -678,6 +684,7 @@ impl Node {
             NodeKind::Clip(_)
             | NodeKind::BlendingTransition(_)
             | NodeKind::TimerModifier { .. }
+            | NodeKind::GetTimeStepModifier { .. }
             | NodeKind::IsActiveModifier { .. }
             | NodeKind::FalseToTrueModifier { .. }
 
@@ -1076,6 +1083,10 @@ impl<'a> Loader<'a> {
                 alarm_time_seconds: o.f32(o.layout_offset(44, 80))?,
                 alarm_event: EventProperty::read(o, o.layout_offset(48, 88))?,
             },
+            "BSGetTimeStepModifier" => NodeKind::GetTimeStepModifier {
+                enable: o.bool(o.layout_offset(40, 72))?,
+                time_step: o.f32(o.layout_offset(44, 80))?,
+            },
             // Five (flag, invert) pairs packed one byte each from 80.
             "BSIsActiveModifier" => {
                 let mut is_active = [false; IS_ACTIVE_SLOTS];
@@ -1159,20 +1170,35 @@ mod tests {
         b.ptr(data, 120, strings);
         b.ptr(data, 112, values);
         b.array_strings(strings, 16, &["idleStart", "walkStart"]);
-        b.array_strings(strings, 48, &["Speed", "IsMoving"]);
-        let infos = b.array_structs(data, 32, 6, 2);
+        b.array_strings(strings, 48, &["Speed", "IsMoving", "Elapsed"]);
+        let infos = b.array_structs(data, 32, 6, 3);
         b.set_i8(infos, 4, 4);
         b.set_i8(infos + 6, 4, 0);
+        b.set_i8(infos + 12, 4, 4);
         b.array_u32(data, 64, &[0, 2]);
         b.array_i32(values, 16, &[0, 1]);
 
         let sm = b.object("hkbStateMachine", 264);
-        b.ptr(graph, 128, sm);
         b.string(sm, 56, "Locomotion");
         b.set_i32(sm, 72, -1);
         b.set_i32(sm, 104, 0);
         b.set_i32(sm, 108, -1);
         b.set_i8(sm, 133, 32);
+
+        let wrapper = b.object("hkbModifierGenerator", 88);
+        let time_step = b.object("BSGetTimeStepModifier", 88);
+        b.ptr(graph, 128, wrapper);
+        b.ptr(wrapper, 72, time_step);
+        b.ptr(wrapper, 80, sm);
+        b.string(time_step, 56, "Elapsed time");
+        b.set_bool(time_step, 72, true);
+        b.set_f32(time_step, 80, 0.75);
+        let time_step_bindings = b.object("hkbVariableBindingSet", 40);
+        b.ptr(time_step, 16, time_step_bindings);
+        let time_step_binding = b.array_structs(time_step_bindings, 16, 40, 1);
+        b.string(time_step_binding, 0, "timeStep");
+        b.set_i32(time_step_binding, 28, 2);
+        b.set_i32(time_step_bindings, 32, -1);
 
         let idle = b.object("hkbClipGenerator", 272);
         b.string(idle, 56, "IdleClip");
@@ -1246,7 +1272,7 @@ mod tests {
         assert_eq!(g.name, "test");
         assert_eq!(g.variable_mode, 1);
         assert_eq!(g.data.event_names, vec!["idleStart", "walkStart"]);
-        assert_eq!(g.data.variable_names, vec!["Speed", "IsMoving"]);
+        assert_eq!(g.data.variable_names, vec!["Speed", "IsMoving", "Elapsed"]);
         assert_eq!(g.data.variable_infos[0].ty, VariableType::Real);
         assert_eq!(g.data.variable_infos[1].ty, VariableType::Bool);
         assert_eq!(g.data.event_infos[1].flags, 2);
@@ -1256,12 +1282,38 @@ mod tests {
         );
         assert_eq!(g.data.event_id("walkStart"), Some(1));
 
-        let root = g.node(g.root.unwrap());
+        let wrapper = g.node(g.root.unwrap());
+        let NodeKind::ModifierGenerator {
+            modifier: Some(time_step),
+            generator: Some(sm),
+        } = &wrapper.kind
+        else {
+            panic!("root is {:?}", wrapper.kind);
+        };
+        let root = g.node(*sm);
         assert_eq!(root.class, "hkbStateMachine");
         assert_eq!(root.name, "Locomotion");
         let NodeKind::StateMachine(sm) = &root.kind else {
-            panic!("root is {:?}", root.kind);
+            panic!("state machine is {:?}", root.kind);
         };
+        let time_step_node = g.node(*time_step);
+        let NodeKind::GetTimeStepModifier {
+            enable,
+            time_step: authored_time_step,
+        } = &time_step_node.kind
+        else {
+            panic!("time modifier is {:?}", time_step_node.kind);
+        };
+        assert!(enable);
+        assert_eq!(*authored_time_step, 0.75);
+        assert_eq!(
+            time_step_node.bindings.as_ref().unwrap().bindings[0].member_path,
+            "timeStep"
+        );
+        assert_eq!(
+            time_step_node.bindings.as_ref().unwrap().bindings[0].variable_index,
+            2
+        );
         assert_eq!(sm.max_simultaneous_transitions, 32);
         assert_eq!(sm.states.len(), 2);
         assert_eq!(sm.states[0].name, "Idle");
@@ -1307,7 +1359,7 @@ mod tests {
 
         assert_eq!(g.clip_animation_names(), vec!["mt_idle", "mt_walkforward"]);
         assert_eq!(root.children().len(), 3);
-        assert_eq!(g.nodes.len(), 4);
+        assert_eq!(g.nodes.len(), 6);
     }
 
     #[test]

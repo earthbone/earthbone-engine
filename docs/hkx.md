@@ -752,6 +752,20 @@ installed scan found 428 graphs, 23 edge modifiers and 29 enabled slots, with
 no slot payloads. The linked locomotion run now resolves 195 bindings with
 four unbound, compared with the historical 194 and five above.
 
+### Get time step modifier (2026-09-20)
+
+`BSGetTimeStepModifier` inherits the `hkbModifier` enable field and stores an
+authored `timeStep` real at offset 80 in the 64-bit layout. The layout comes
+from `engine-refs/serde-hkx/assets/classes/BSGetTimeStepModifier.json`, which
+also records the class signature and the 32-bit offset. The interpreter
+decodes the authored value and treats a `timeStep` variable binding as output:
+after an enabled modifier subtree runs, it writes the update interval passed to
+`Interpreter::update`. An inactive modifier writes zero. Nested modifier lists
+preserve the existing serialized traversal order for those outputs. The
+synthetic packfile test checks the class field and binding decode, while the
+interpreter tests check zero, unequal update intervals, disabled output and a
+nested list. No original-runtime capture establishes finer behavior here.
+
 ## 7. Not done and next
 
 - Modifier evaluation beyond `BSIsActiveModifier` and

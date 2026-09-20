@@ -367,6 +367,7 @@ fn remap_node(node: &mut Node, map: &SymbolMap, offset: usize) {
         // Nothing here carries a node id, an event or a variable. A blending
         // transition effect is timing only, the rest are leaves.
         NodeKind::BlendingTransition(_)
+        | NodeKind::GetTimeStepModifier { .. }
         | NodeKind::IsActiveModifier { .. }
         | NodeKind::DecomposeVector { .. }
         | NodeKind::Modifier { .. }
