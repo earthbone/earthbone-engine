@@ -10,7 +10,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::vmad::{ScriptEntry, Vmad};
 use soe_game::world::magic::{EffectId, MagicError};
-use soe_game::world::Handle;
+use soe_game::world::{Handle, Pending};
 use soe_game::Game;
 use soe_papyrus::asm::{i, ident, s, FunctionBuilder, ScriptBuilder};
 use soe_papyrus::Opcode::{Assign, CallMethod, IAdd, Return};
@@ -546,6 +546,7 @@ fn installed_spell_survey_reports_supported_applications_without_running_scripts
     let baseline = game.world().save_state();
     let mut accepted = 0;
     let mut applications = 0;
+    let mut hostile_applications = 0;
     let mut rejected = std::collections::BTreeMap::new();
     let mut examples = Vec::new();
     for spell in &spells {
@@ -566,7 +567,15 @@ fn installed_spell_survey_reports_supported_applications_without_running_scripts
                     examples.push(game.world().editor_id(*spell).unwrap_or_default());
                 }
                 for id in ids {
-                    assert!(game.world().active_effects().any(|effect| effect.id == id));
+                    let effect = game
+                        .world()
+                        .active_effects()
+                        .find(|effect| effect.id == id)
+                        .unwrap()
+                        .effect;
+                    if game.world().magic_effect(effect).unwrap().data.flags & 1 != 0 {
+                        hostile_applications += 1;
+                    }
                     assert!(dispel(&mut game, id));
                 }
                 assert_eq!(game.world().active_effects().count(), 0);
@@ -579,7 +588,7 @@ fn installed_spell_survey_reports_supported_applications_without_running_scripts
         }
     }
     eprintln!(
-        "magic survey: {} spells, {accepted} accepted, {applications} applications",
+        "magic survey: {} spells, {accepted} accepted, {applications} applications, {hostile_applications} hostile",
         spells.len()
     );
     eprintln!("examples: {examples:?}");
@@ -590,13 +599,16 @@ fn installed_spell_survey_reports_supported_applications_without_running_scripts
         accepted > 0 && applications > 0,
         "at least one real spell must execute effects"
     );
+    assert!(
+        hostile_applications > 0,
+        "at least one authored hostile effect must execute"
+    );
 }
 
 #[test]
 fn lethal_effect_receives_death_events_before_it_is_dispelled() {
-    // Detrimental without hostile exercises the supported direct effect path.
     for duration in [0, 2] {
-        let mut game = fixture(4, 0, 150.0, duration);
+        let mut game = fixture(5, 0, 150.0, duration);
         let observer = ScriptBuilder::new("EffectDeathProbe", "ActiveMagicEffect")
             .variable("sequence", "Int", i(0))
             .variable("killer", "Actor", soe_papyrus::asm::none())
@@ -642,6 +654,185 @@ fn lethal_effect_receives_death_events_before_it_is_dispelled() {
         assert_eq!(
             game.vm.get_var(object, "EffectDeathProbe", "sequence"),
             Some(Value::Int(3))
+        );
+    }
+}
+
+#[test]
+fn mag_01_hostile_hit_damages_only_the_target_with_spell_and_aggressor_arguments() {
+    let mut game = fixture(5, 0, 20.0, 0);
+    let target = game.object_of_form(id(OTHER));
+    let caster = game.object_of_form(id(ACTOR));
+    let spell = game.object_of_form(id(SPELL));
+    game.world_mut().pending.clear();
+    assert_eq!(cast(&mut game, SPELL, OTHER).unwrap().len(), 1);
+    assert_eq!(game.world_mut().actor_value(id(OTHER), "health"), 80.0);
+    assert_eq!(game.world_mut().actor_value(id(ACTOR), "health"), 100.0);
+    let world = game.world();
+    let hits: Vec<_> = world
+        .pending
+        .iter()
+        .filter_map(|pending| match pending {
+            Pending::Event { object, name, args } if name == "OnHit" => {
+                Some((*object, args.clone()))
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        hits,
+        vec![(
+            target,
+            vec![
+                Value::Object(caster),
+                Value::Object(spell),
+                Value::None,
+                Value::Bool(false),
+                Value::Bool(false),
+                Value::Bool(false),
+                Value::Bool(false)
+            ]
+        )]
+    );
+}
+
+#[test]
+fn hostile_no_hit_event_applies_damage_without_hit_callbacks() {
+    let mut game = fixture(5 | (1 << 4), 0, 20.0, 0);
+    game.world_mut().pending.clear();
+    cast(&mut game, SPELL, OTHER).unwrap();
+    assert_eq!(game.world_mut().actor_value(id(OTHER), "health"), 80.0);
+    assert!(!game
+        .world()
+        .pending
+        .iter()
+        .any(|p| matches!(p, Pending::Event { name, .. } if name == "OnHit")));
+}
+
+#[test]
+fn hostile_no_recast_emits_no_second_hit() {
+    let mut game = fixture(5 | (1 << 17), 0, 20.0, 5);
+    cast(&mut game, SPELL, OTHER).unwrap();
+    game.world_mut().pending.clear();
+    assert!(cast(&mut game, SPELL, OTHER).unwrap().is_empty());
+    assert!(game.world().pending.is_empty());
+}
+
+#[test]
+fn hostile_hits_reject_dead_ghost_and_missing_targets_without_events_or_damage() {
+    for mode in 0..3 {
+        let mut game = fixture(5, 0, 20.0, 0);
+        let target = if mode == 2 { 0xBAD } else { OTHER };
+        if mode == 0 {
+            game.world_mut().actor(id(OTHER)).unwrap().dead = true;
+        }
+        if mode == 1 {
+            game.world_mut().actor(id(OTHER)).unwrap().ghost = true;
+        }
+        game.world_mut().pending.clear();
+        assert!(matches!(
+            cast(&mut game, SPELL, target),
+            Err(MagicError::Target)
+        ));
+        assert!(game.world().pending.is_empty());
+        assert_eq!(game.world().active_effects().count(), 0);
+        assert_eq!(game.world_mut().actor_value(id(OTHER), "health"), 100.0);
+    }
+}
+
+#[test]
+fn invalid_second_hostile_effect_rejects_before_first_hit() {
+    let good = effect(5, 0, 24, false);
+    let mut bad = effect(5, 35, 24, false);
+    bad.form_id = EFFECT + 1;
+    let mut efit = 10.0f32.to_le_bytes().to_vec();
+    efit.extend_from_slice(&[0; 8]);
+    let spell = spell(SPELL, 0, false, 20.0, 0)
+        .sub(T(b"EFID"), (EFFECT + 1).to_le_bytes())
+        .sub(T(b"EFIT"), efit);
+    let mut plugin = plugin(good, vec![spell]);
+    plugin.push_top(bad);
+    let mut game = game(plugin);
+    game.world_mut().pending.clear();
+    assert!(matches!(
+        cast(&mut game, SPELL, OTHER),
+        Err(MagicError::Unsupported("effect archetype"))
+    ));
+    assert!(game.world().pending.is_empty());
+    assert_eq!(game.world_mut().actor_value(id(OTHER), "health"), 100.0);
+}
+
+#[test]
+fn remote_hostile_hit_credits_blame_actor_before_lethal_damage() {
+    let mut game = fixture(5, 0, 150.0, 0);
+    let source = game.object_of_form(id(ACTOR));
+    let blame = game.object_of_form(id(OTHER));
+    game.world_mut().pending.clear();
+    let shared = game.shared_world();
+    shared
+        .borrow_mut()
+        .cast_spell(
+            id(SPELL),
+            id(ACTOR),
+            Some(id(OTHER)),
+            Some(id(ACTOR)),
+            &mut |name, class| game.vm.create_object_of(name, class),
+        )
+        .unwrap();
+    let world = game.world();
+    let hit = world
+        .pending
+        .iter()
+        .position(|p| {
+            matches!(p, Pending::Event { object, name, args }
+        if *object == source && name == "OnHit" && args[0] == Value::Object(blame))
+        })
+        .unwrap();
+    let death = world
+        .pending
+        .iter()
+        .position(|p| {
+            matches!(p, Pending::ActorDeath { actor, killer, .. }
+        if *actor == id(ACTOR) && *killer == Some(id(OTHER)))
+        })
+        .unwrap();
+    assert!(hit < death);
+}
+
+#[test]
+fn each_hostile_effect_emits_a_hit_to_existing_effect_and_alias_listeners() {
+    let mut efit = 10.0f32.to_le_bytes().to_vec();
+    efit.extend_from_slice(&0u32.to_le_bytes());
+    efit.extend_from_slice(&5u32.to_le_bytes());
+    let spell = spell(SPELL, 0, false, 20.0, 5)
+        .sub(T(b"EFID"), EFFECT.to_le_bytes())
+        .sub(T(b"EFIT"), efit);
+    let mut plugin = plugin(effect(5, 0, 24, false), vec![spell]);
+    plugin.push_top(Record::new(T(b"QUST"), 0x900));
+    let mut game = game(plugin);
+    let existing = cast(&mut game, SPELL, OTHER).unwrap()[0];
+    let actor = game.object_of_form(id(OTHER));
+    let effect = game.object_of(Handle::ActiveEffect(existing));
+    let alias = game.object_of(Handle::Alias {
+        quest: id(0x900),
+        id: 0,
+    });
+    let mut world = game.world_mut();
+    let quest = world.quest_state(id(0x900)).unwrap();
+    quest.running = true;
+    quest.aliases.insert(0, Some(id(OTHER)));
+    world.pending.clear();
+    drop(world);
+    cast(&mut game, SPELL, OTHER).unwrap();
+    for recipient in [actor, effect, alias] {
+        assert_eq!(
+            game.world()
+                .pending
+                .iter()
+                .filter(|p| matches!(p, Pending::Event { object, name, .. }
+            if *object == recipient && name == "OnHit"))
+                .count(),
+            2
         );
     }
 }

@@ -983,7 +983,7 @@ or complete the broader gameplay goal.
 ## Active magic applications
 
 The runtime provides `World::cast_spell` for direct scripted casts
-of non-hostile Script, Value Modifier and Dual Value Modifier effects. Definitions
+of Script, Value Modifier and Dual Value Modifier effects, including hostile hits. Definitions
 come from winning SPEL and MGEF records, with each FormID resolved in its winning
 plugin. Self and target-actor delivery are supported for constant and fire-and-forget
 casts. `Spell.Cast` credits an actor source. `RemoteCast` credits its explicit
@@ -1017,8 +1017,7 @@ those policies were not reused. `thiserror` is now a direct game dependency for
 typed cast errors. It was already present transitively, with no new package.
 
 Unsupported casts return a typed error before applying any of their effects,
-and Papyrus casts log that error. This includes hostile hit resolution,
-projectiles, contact and location delivery, concentration, conditions, area,
+and Papyrus casts log that error. This includes projectiles, contact and location delivery, concentration, conditions, area,
 taper, perk adjustments, equip abilities, keyword dispelling and other archetypes.
 Actor-value indices above 45 are not yet supported. Recover effects use the temporary modifier domain. Other effects damage or
 restore the damage component without changing permanent modifiers.
@@ -1034,6 +1033,51 @@ The rest returned explicit unsupported reasons. The installed startup still ran
 423 quests through 1,388 native calls with zero unresolved calls. Binding now
 attached 27,563 scripts, with seven missing scripts and 88 missing properties,
 because MGEF script attachments wait until an application exists.
+
+### Direct hostile hits, MAG-01
+
+The `magic-hostile` branch accepts hostile effects on live, non-ghost actor
+references through the direct cast API. Each applied hostile effect queues
+`OnHit` for the target, running reference aliases and its existing active
+effects. The arguments identify the credited caster, spell and an absent
+projectile, with all melee attack flags false. A non-actor source is retained
+as the aggressor when no actor is credited. `RemoteCast` uses its blame actor.
+The MGEF No Hit Event flag suppresses the callback without suppressing damage.
+No Recast skips both repeated application and its hit callback.
+
+All effects are prepared before hit events or actor-value changes. Unsupported
+later effects leave no partial hit. Instant damage uses the shared death path
+and queues OnHit before death notification. Timed damage retains caster
+identity and the existing unpaused clock, expiry and save behavior.
+
+Sources are local `ck-wiki/OnHit_-_ObjectReference.wikitext`,
+`OnMagicEffectApply_-_ObjectReference.wikitext` and the MGEF flags in
+`TES5Edit/Core/wbDefinitionsTES5.pas`. CK describes one magic-effect hit per
+application and a separate projectile contact. Projectile delivery is MAG-02.
+The skymp `ActiveMagicEffectsMap.cpp` was read, but its per-value map and
+wall-clock expiry do not provide the per-application hit or shared death
+lifecycle needed here. Existing World event recipients and actor-value
+mutation are reused. No dependency, host node or save format was added.
+
+The `mag_01_hostile_hit_damages_only_the_target_with_spell_and_aggressor_arguments`
+regression checks the cast result and exact event arguments. Companion tests
+cover hit suppression, No Recast, rejected targets, atomic failure, alias and
+active-effect listeners, RemoteCast attribution and instant/timed death.
+Resistance, absorption, charging, combat targeting and other archetypes keep
+their separate BACKLOG.csv scopes. This step does not establish complete
+hostile spell gameplay or host contact detection.
+
+The dependency audit marks MAG rows blocked when an explicit prerequisite is
+unfinished. Casting cost now names PRG-08 for perk entry points. NPC abilities
+name PRG-11 for leveled spell lists. Command Summoned and Banish name MAG-39
+for summon ownership. Cure Paralysis names MAG-42 for the paralysis lifecycle.
+Werewolf and Vampire Lord transformations name MAG-13 for automatic abilities.
+The CSV remains the task list and stores every item's immediate dependencies.
+
+The installed five-master survey reads 1,354 winning spells. It accepts 179
+and creates 206 applications, including one authored hostile effect. All 24
+magic tests pass with installed data. The other spells remain explicit
+unsupported results, so this measurement covers the direct cast boundary.
 
 ## Host gameplay integration (2026-09-19)
 

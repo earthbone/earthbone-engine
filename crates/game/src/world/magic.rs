@@ -8,7 +8,7 @@
 
 use soe_esm::records::gameplay::{MagicEffect, Spell};
 use soe_esm::GlobalFormId;
-use soe_papyrus::ObjectId;
+use soe_papyrus::{ObjectId, Value};
 
 use super::{Alloc, Handle, Pending, World};
 
@@ -18,6 +18,7 @@ pub(super) use state::read_magic;
 const HOSTILE: u32 = 1;
 const RECOVER: u32 = 1 << 1;
 const DETRIMENTAL: u32 = 1 << 2;
+const NO_HIT_EVENT: u32 = 1 << 4;
 const NO_DURATION: u32 = 1 << 9;
 const NO_MAGNITUDE: u32 = 1 << 10;
 const NO_RECAST: u32 = 1 << 17;
@@ -65,6 +66,7 @@ pub enum MagicError {
 struct PreparedEffect {
     effect: ActiveEffect,
     no_recast: bool,
+    hit_event: bool,
 }
 
 impl World {
@@ -142,7 +144,10 @@ impl World {
                 return Err(MagicError::Unsupported("magic condition evaluation"));
             }
             if data.flags & HOSTILE != 0 {
-                return Err(MagicError::Unsupported("hostile hit resolution"));
+                let actor = self.actor(target).ok_or(MagicError::Target)?;
+                if actor.dead || actor.ghost {
+                    return Err(MagicError::Target);
+                }
             }
             if !matches!(data.archetype, 0 | 1 | 5) {
                 return Err(MagicError::Unsupported("effect archetype"));
@@ -213,6 +218,7 @@ impl World {
                     changes,
                 },
                 no_recast: data.flags & NO_RECAST != 0,
+                hit_event: data.flags & (HOSTILE | NO_HIT_EVENT) == HOSTILE,
             });
         }
         self.next_effect
@@ -233,6 +239,27 @@ impl World {
         for mut prepared in prepared {
             if prepared.no_recast && self.has_magic_effect(target, prepared.effect.effect) {
                 continue;
+            }
+            if prepared.hit_event {
+                let aggressor = self.form_value(caster.or(Some(source)), alloc);
+                let spell_value = self.form_value(Some(spell), alloc);
+                let args = vec![
+                    aggressor,
+                    spell_value,
+                    Value::None,
+                    Value::Bool(false),
+                    Value::Bool(false),
+                    Value::Bool(false),
+                    Value::Bool(false),
+                ];
+                for recipient in self.actor_event_recipients(target) {
+                    let object = self.object_of(recipient, alloc);
+                    self.pending.push(Pending::Event {
+                        object,
+                        name: "OnHit".into(),
+                        args: args.clone(),
+                    });
+                }
             }
             let id = EffectId(self.next_effect);
             self.next_effect += 1;
