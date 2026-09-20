@@ -604,3 +604,13 @@ records with inherited components and applies inline changes to them. Known
 links retain their source namespace through relocation tokens. These bases
 persist in SOEW version 14. Saved Papyrus references to vanilla temporary
 base identities still need rebinding before complete ESS resumption.
+
+## Empty package-state follow-up
+
+The decoder accepts the observed empty kind-18 PackageData variant while
+retaining explicit errors for named procedure state and other unknown layouts.
+The earlier 169-failure reference survey above predates this increment. The
+isolated package survey reduced that count to 81 and recovered 73 additional
+inventory sections. See [saved package runtime state](save-package-data.md) for
+source evidence, boundaries and integration validation. Runtime package
+restoration and complete ESS resumption remain unfinished.

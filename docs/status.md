@@ -337,3 +337,23 @@ then executes 184 supported weapons against synthetic actors. The remaining
 weapons reject unsupported types, templates or enchantments. Real armor records
 were decoded, while armor damage calculations use synthetic fixtures.
 These changes await commit and merge review on `combat-hits`.
+
+## Remaining branch integration
+
+Master e9cc2f9 contains the inventory/NPC, death-lifecycle and ordinary melee
+increments described above. Their old unmerged labels record the review state
+at the time of those measurements. The inventory, NPC and lifecycle worktrees
+are earlier snapshots of that result. All existing branch commits are merged.
+
+The remaining-work-merge candidate brings over the independent empty
+PackageData decoder from ess-package-state. Its original corpus run reduced
+strict reference-content failures from 169 to 81, recovering 88 reference
+sections and 73 inventories. Named procedure states remain unsupported.
+See [saved package runtime state](save-package-data.md) for the integration
+results and remaining limitations. Broader implementation work is paused.
+
+The combined candidate passes 1,165 Rust and 11 Python gate tests, with no
+warnings or skipped optional tools. All 42 installed-data save-restoration
+tests pass. The actor inventory survey now restores 114,769 inventories and
+excludes 53 unsupported records, compared with 126 before this increment.
+The separate strict decoder test remains failing on the 81 named states.

@@ -120,6 +120,64 @@ fn leveled_choice_reader_stops_at_its_declared_extra_without_accepting_later_unk
     assert!(change.leveled_creature(78).unwrap().is_none());
 }
 
+#[test]
+fn empty_custom_package_preserves_following_extra_and_inventory_boundaries() {
+    for package in [vec![108, 255], vec![108, 18, 0, 0, 0]] {
+        let mut change = fixture();
+        change.change_flags |= 1 << 11;
+        let inventory = change.data.clone();
+        change.data = vec![8];
+        change.data.extend(&package);
+        change.data.push(133);
+        reference(0x800900).write(&mut change.data);
+        change.data.extend(&inventory);
+        let decoded = change.reference_contents(78).unwrap().unwrap();
+        assert_eq!(decoded.data_bytes().unwrap(), change.data);
+        assert_eq!(decoded.remaining_bytes, 0);
+        let extra = decoded.extra.unwrap();
+        assert_eq!(extra.entries[0].kind, 108);
+        assert_eq!(extra.entries[1].kind, 133);
+        assert!(
+            matches!(extra.entries[1].fields[0], Field::Reference(id) if id == reference(0x800900))
+        );
+        let items = decoded.inventory.unwrap().entries;
+        assert_eq!(items[0].item, reference(0x400800));
+        assert_eq!(items[0].delta, -3);
+        assert_eq!(items[0].stacks.len(), 2);
+        assert_eq!(items[1].item, reference(0x400801));
+        assert_eq!(items[1].delta, 7);
+        for cut in 0..change.data.len() {
+            let mut truncated = change.clone();
+            truncated.data.truncate(cut);
+            assert!(
+                truncated.reference_contents(78).is_err(),
+                "{package:?} at {cut}"
+            );
+        }
+    }
+}
+
+#[test]
+fn nonempty_or_unknown_packages_cannot_be_mistaken_for_empty_state() {
+    let mut change = fixture();
+    change.change_flags = 1 << 11;
+    for kind in [0, 17, 19, 254] {
+        change.data = vec![4, 108, kind, 0, 0, 0];
+        assert!(change.reference_contents(78).is_err());
+    }
+    for prefix in [1, 128, 255] {
+        change.data = vec![4, 108, 18, prefix, 0, 0];
+        assert!(change.reference_contents(78).is_err());
+    }
+    for name in ["Sequence", "Stacked", "Unknown"] {
+        change.data = vec![4, 108, 18, 0];
+        soe_save::WString::from_text(name).write(&mut change.data);
+        change.data.extend([0; 8]);
+        let error = change.reference_contents(78).unwrap_err().to_string();
+        assert!(error.contains(name), "{error}");
+    }
+}
+
 fn collect(path: &Path, paths: &mut Vec<PathBuf>) {
     for entry in std::fs::read_dir(path).unwrap() {
         let path = entry.unwrap().path();
