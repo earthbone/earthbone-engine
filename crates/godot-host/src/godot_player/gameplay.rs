@@ -75,6 +75,10 @@ impl PlayerNode {
                 }
             }
         }
+        if !self.advance_exterior() {
+            self.auto_step = false;
+            return;
+        }
         if let Some(target) = self.last_activate_reference {
             self.activate_game_reference(target);
         }
@@ -106,25 +110,37 @@ impl PlayerNode {
     }
 
     pub(super) fn sync_game_pose(&mut self) -> bool {
-        let Some(game) = &mut self.game else {
-            return true;
+        let destination = {
+            let Some(game) = &mut self.game else {
+                return true;
+            };
+            let player = game.player();
+            game.world()
+                .reference_ref(player)
+                .and_then(|r| r.cell.map(|cell| (cell, r.position, r.rotation)))
         };
-        let player = game.player();
-        let Some((cell, position, rotation)) = game
-            .world()
-            .reference_ref(player)
-            .and_then(|r| r.cell.map(|cell| (cell, r.position, r.rotation)))
-        else {
+        let Some((cell, position, rotation)) = destination else {
             godot_error!("PlayerNode: game player has no destination cell");
             return false;
         };
         let feet = Vec3::new(position[0], position[1], position[2]);
-        if self.loaded_cell != Some(cell) {
-            self.melee_contact.cancel();
-            self.melee_bodies.clear();
+        let needs_exterior = self.exterior.is_none()
+            && self
+                .data_source
+                .as_ref()
+                .and_then(|source| source.exterior_world(cell))
+                .is_some();
+        if self.loaded_cell != Some(cell) || needs_exterior {
+            // Contacts belong to the cell that is leaving, not to an exterior
+            // ring that is only being attached.
+            if self.loaded_cell != Some(cell) {
+                self.melee_contact.cancel();
+                self.melee_bodies.clear();
+            }
             let Some(source) = self.data_source.as_ref() else {
                 return false;
             };
+            let worldspace = source.exterior_world(cell);
             let location = match source.load_location(cell, position, 1) {
                 Ok(location) => location,
                 Err(error) => {
@@ -152,6 +168,57 @@ impl PlayerNode {
             }
             self.query_collision.free();
             self.query_collision = query_collision;
+            // Door transitions already attach the destination and defer its old focus.
+            // Other cells in an old exterior ring leave with their host resources.
+            if let Some(previous) = self.exterior.take() {
+                let Some(game) = self.game.as_mut() else {
+                    return false;
+                };
+                let mut runtime = game.world_mut();
+                let pending = runtime.pending_unload();
+                let departing: Vec<_> = previous
+                    .cells
+                    .keys()
+                    .copied()
+                    .filter(|id| Some(*id) != pending && *id != cell)
+                    .collect();
+                if !departing.is_empty() {
+                    if let Err(error) = runtime.detach_streaming_cells(&departing) {
+                        godot_error!("PlayerNode: {error}");
+                        return false;
+                    }
+                }
+            }
+            if let Some(worldspace) = worldspace {
+                let mut planner = crate::streaming::CellStreamer::new(super::exterior::config())
+                    .map_err(|error| godot_error!("PlayerNode: {error}"));
+                let Ok(ref mut planner) = planner else {
+                    return false;
+                };
+                planner.settle(crate::units::SkyrimPos::new(
+                    position[0],
+                    position[1],
+                    position[2],
+                ));
+                let entered: Vec<_> = location
+                    .cells
+                    .iter()
+                    .map(|(id, _)| *id)
+                    .filter(|id| *id != cell)
+                    .collect();
+                let Some(game) = self.game.as_mut() else {
+                    return false;
+                };
+                if let Err(error) = game.world_mut().attach_streaming_cells(&entered) {
+                    godot_error!("PlayerNode: {error}");
+                    return false;
+                }
+                self.exterior = Some(super::exterior::ExteriorRuntime {
+                    world: worldspace,
+                    planner: planner.clone(),
+                    cells: location.collision_cells,
+                });
+            }
             let collision = location.collision;
             let mut world = collision.world;
             let id = world.create_character(CharacterSettings::default(), feet);

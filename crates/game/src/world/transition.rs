@@ -56,6 +56,152 @@ pub struct CellTransition {
 }
 
 impl World {
+    /// Apply a host residency delta without detaching retained neighboring cells.
+    /// Entered cells have just acquired host resources, even if their records
+    /// were prefetched. The caller supplies each resource transition once.
+    /// Cell event audiences follow the CK OnCellAttach and OnCellDetach pages.
+    ///
+    /// # Errors
+    /// Rejects invalid cells, overlapping or duplicate transitions, a departed
+    /// focus, and an unsettled load-door transition before changing state.
+    pub fn update_streaming_cells(
+        &mut self,
+        focus: GlobalFormId,
+        entered: &[GlobalFormId],
+        departed: &[GlobalFormId],
+    ) -> soe_esm::Result<CellTransition> {
+        use std::collections::BTreeSet;
+
+        let entering: BTreeSet<_> = entered.iter().copied().collect();
+        let leaving: BTreeSet<_> = departed.iter().copied().collect();
+        let valid = |id| {
+            self.order
+                .winner(id)
+                .is_some_and(|r| r.tag == super::T(b"CELL") && !r.is_deleted())
+        };
+        if self.pending_unload.is_some()
+            || entering.len() != entered.len()
+            || leaving.len() != departed.len()
+            || !entering.is_disjoint(&leaving)
+            || leaving.contains(&focus)
+            || (!self.cell_is_resident(focus) && !entering.contains(&focus))
+            || !valid(focus)
+            || entering.iter().chain(&leaving).any(|id| !valid(*id))
+        {
+            return Err(soe_esm::Error::Invalid(
+                "invalid host cell residency delta".into(),
+            ));
+        }
+        let mut out = CellTransition {
+            from: self.loaded_cell,
+            to: Some(focus),
+            ..CellTransition::default()
+        };
+        for cell in leaving {
+            if self.cell_is_resident(cell) {
+                let targets = self.scripted_in_cell(cell);
+                self.queue_ref_event(&targets, "OnCellDetach", false);
+                self.queue_ref_event(&targets, "OnUnload", true);
+                let (dropped, kept) = self.unload_cell(cell);
+                out.unloaded += dropped;
+                out.kept += kept;
+            }
+        }
+        for cell in entering {
+            let cold = !self.cell_is_resident(cell);
+            out.loaded += self.prefetch_cell(cell);
+            let targets = self.scripted_in_cell(cell);
+            self.queue_ref_event(&targets, "OnCellAttach", false);
+            self.queue_ref_event(&targets, "OnLoad", true);
+            if cold {
+                self.queue_ref_event(&targets, "OnCellLoad", false);
+            }
+        }
+        self.loaded_cell = Some(focus);
+        let player = self.player();
+        if let Some(reference) = self.reference(player) {
+            reference.cell = Some(focus);
+        }
+        Ok(out)
+    }
+
+    /// Attach neighboring cells whose host resources have just become resident.
+    /// The player focus stays unchanged. Each resource arrival must be supplied once.
+    ///
+    /// # Errors
+    /// Rejects duplicate, invalid or focused cells before changing state.
+    pub fn attach_streaming_cells(&mut self, cells: &[GlobalFormId]) -> soe_esm::Result<usize> {
+        let unique: std::collections::BTreeSet<_> = cells.iter().copied().collect();
+        if unique.len() != cells.len()
+            || unique.iter().any(|id| {
+                Some(*id) == self.loaded_cell
+                    || !self
+                        .order
+                        .winner(*id)
+                        .is_some_and(|r| r.tag == super::T(b"CELL") && !r.is_deleted())
+            })
+        {
+            return Err(soe_esm::Error::Invalid(
+                "invalid neighboring cell attachment".into(),
+            ));
+        }
+        // A short door move can bring the departed focus back as a neighbor.
+        // Complete its deferred unload before attaching its new host resources.
+        if self.pending_unload.is_some_and(|id| unique.contains(&id)) {
+            self.settle_unload();
+        }
+        let mut loaded = 0;
+        for cell in unique {
+            let cold = !self.cell_is_resident(cell);
+            loaded += self.prefetch_cell(cell);
+            let targets = self.scripted_in_cell(cell);
+            self.queue_ref_event(&targets, "OnCellAttach", false);
+            self.queue_ref_event(&targets, "OnLoad", true);
+            if cold {
+                self.queue_ref_event(&targets, "OnCellLoad", false);
+            }
+        }
+        Ok(loaded)
+    }
+
+    /// Detach neighboring cells when their host resources leave residency.
+    /// The player focus and deferred load-door unload stay unchanged.
+    ///
+    /// # Errors
+    /// Rejects duplicate, invalid, focused or pending cells before changing state.
+    pub fn detach_streaming_cells(
+        &mut self,
+        cells: &[GlobalFormId],
+    ) -> soe_esm::Result<(usize, usize)> {
+        let unique: std::collections::BTreeSet<_> = cells.iter().copied().collect();
+        if unique.len() != cells.len()
+            || unique.iter().any(|id| {
+                Some(*id) == self.loaded_cell
+                    || Some(*id) == self.pending_unload
+                    || !self
+                        .order
+                        .winner(*id)
+                        .is_some_and(|r| r.tag == super::T(b"CELL") && !r.is_deleted())
+            })
+        {
+            return Err(soe_esm::Error::Invalid(
+                "invalid neighboring cell detachment".into(),
+            ));
+        }
+        let (mut dropped, mut kept) = (0, 0);
+        for cell in unique {
+            if self.cell_is_resident(cell) {
+                let targets = self.scripted_in_cell(cell);
+                self.queue_ref_event(&targets, "OnCellDetach", false);
+                self.queue_ref_event(&targets, "OnUnload", true);
+                let counts = self.unload_cell(cell);
+                dropped += counts.0;
+                kept += counts.1;
+            }
+        }
+        Ok((dropped, kept))
+    }
+
     /// The cell whose temporary references are resident, if a transition has
     /// put one there. `None` before the first one, when references are simply
     /// built on first use.

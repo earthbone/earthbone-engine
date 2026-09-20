@@ -1033,6 +1033,22 @@ reference map. Those differ, and the difference was a real defect: any lookup
 that resolves a form builds that one reference, so an unrelated
 `object_of_form` marked the cell in memory and suppressed the event.
 
+### Exterior attachment deltas
+
+`World::update_streaming_cells` changes the player focus while retaining neighboring
+cells whose host resources remain loaded. It fires attach and load events only for
+arriving cells, and detach and unload events only for departing cells. Invalid or
+overlapping deltas fail before mutation. The host supplies each resource transition
+once, separately from prefetching records.
+
+`attach_streaming_cells` and `detach_streaming_cells` handle neighbors when a load
+door replaces the host location. They preserve the focused cell. When the departed
+door cell becomes a neighbor of the new location, its deferred unload completes
+before it is attached again, so the next tick cannot drop its new resources.
+Tests in `no_load_screen.rs` cover retained-cell events, invalid deltas, neighbor
+validation and this short door move. Event audiences follow the local CK wiki's
+`OnCellAttach` and `OnCellDetach` pages, as for the single-cell path.
+
 ### Door transitions measured on the installed game
 
 `tests/no_load_screen_live.rs`, gated on `SKYRIM_DATA`, release build. The
