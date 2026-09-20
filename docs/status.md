@@ -1,5 +1,11 @@
 # Status, per subsystem
 
+The `ess-quest-state` follow-up decodes QUST objectives, runtime aliases and
+story events, quest instances and global quest-static data. Across 60 saves,
+all 32,256 quest payloads and all quest-static blocks reproduce their original
+bytes from typed fields. Applying this state to live quest execution remains
+unfinished. This is separate from the pending global-restoration milestone.
+
 The combat attribute milestone adds actor-value components, corrected
 NPC stat offsets and race/template attribute sources. Its installed-data
 survey resolved 4,718 of 6,361 NPC bases, with 1,643 leveled templates pending
