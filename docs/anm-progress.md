@@ -1,10 +1,10 @@
 # ANM work review, 2026-09-20
 
 The active goal remains all ANM backlog work. ANM-01, ANM-04, ANM-05,
-ANM-06 and ANM-23 have tested implementation commits on separate branches.
+ANM-06, ANM-07, ANM-08, ANM-12, ANM-23 and ANM-52 have tested implementation
+commits on separate branches.
 None has been merged. The consolidated `BACKLOG.csv` records 53 ANM rows,
-with those five marked `done` on their branches and ANM-07, ANM-08, ANM-12
-and ANM-52 claimed as `wip`.
+with those nine marked `done` on their branches and ANM-51 claimed as `wip`.
 All dependency IDs exist and the complete backlog dependency graph is acyclic.
 The original checkout and its unrelated changes were preserved.
 
@@ -94,7 +94,9 @@ preserves discovered scope instead of hiding it behind successful narrow tests.
 
 The user approved these commits and gave standing approval to commit after
 task completion. Implementation evidence is recorded below and in each
-completed backlog row. No worktree has been removed.
+completed backlog row. The user also requested cleanup after each completed task. Completed worktrees
+and private build caches are removed after commits. Branches, commits and
+validation logs are retained. Active trees are kept until completion.
 
 | Item | Implementation commit |
 | --- | --- |
@@ -103,3 +105,43 @@ completed backlog row. No worktree has been removed.
 | ANM-05 | `5e07169b5eae4f0da4ec7f7c974207c010047535` |
 | ANM-06 | `a021ced54760f1925ea8e6c7b0ac27aef250d8b6` |
 | ANM-23 | `c8248a6d9c715a63abbc0d2180afff66f1103692` |
+
+## Second batch
+
+| Item | Implementation | Full gate | Additional evidence |
+| --- | --- | --- | --- |
+| ANM-07 | `d7ed11a` | 1,171 Rust and 11 Python passes | 37 paired LE/SE files, 10,958 graph nodes and 57 installed HKX tests |
+| ANM-08 | `d2afc43` | 1,175 Rust and 11 Python passes | 10 round-trip tests, 7,699 installed packfiles and 7,219 opaque objects |
+| ANM-12 | `ae11931` | 1,173 Rust and 11 Python passes | 59 installed HKX tests, 6,126 animations and 10,137 float tracks |
+| ANM-52 | `79a7124` | 1,167 Rust and 11 Python passes | Dynamic modifier enable transitions and preservation of a sampled clip pose |
+
+ANM-07 uses serde-hkx paired class layouts and HavokLib packfile readers.
+Independent review checked x86 offsets, inherited fields, pointer-sized user
+data, strides and bounds. Real paired files cover graphs and characters.
+Projects, skeletons, animation clips and bindings use synthetic LE fixtures.
+The new readers from ANM-01, ANM-04, ANM-05 and ANM-06 were absent from its
+base branch and need their LE offsets checked during integration.
+
+ANM-08 follows serde-hkx serialization and HavokLib `format_old.cpp`. Its
+editable document rebuilds section placement and relocation tables while
+preserving opaque payload bytes. Review checked section bounds, overlapping
+pointer fields, class targets and root metadata. Import/export tables are
+rejected. No native Havok runtime load was performed.
+
+ANM-52 follows the serde-hkx modifier-generator layout. Review found and
+corrected an enabled child remaining active after its binding became false.
+Tests cover the enabled to disabled to enabled sequence and an authored
+non-reference clip pose. Concrete modifier effects remain separate rows.
+
+ANM-51 starts from the committed ANM-52 branch and retains that explicit
+dependency. It is assigned to the backlog's recommended Terra medium worker.
+ANM-12 completed scalar float tracks, shared spline block timing and binding
+identity. No combined runtime gate has run.
+
+ANM-12 follows the local Nemesis Havok header's float-mask and offset metadata,
+serde-hkx animation bindings, and the existing GPL spline evaluator. HavokLib
+skips float payloads. The implementation supplies a checked scalar reader.
+Independent review caught shared-frame timing, mismatched container bindings
+and invalid timing metadata. The fixes are covered by regressions and the
+installed corpus. Original Havok sampled-value parity and behavior output
+blending of float slots were not tested by this decoder task.
