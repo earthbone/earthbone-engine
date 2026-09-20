@@ -34,7 +34,9 @@ week 6 to 9 gate.
   fragments and alias scripts. Round-trips through `write`.
 - `npc`: the `NPC_` view. `ACBS` configuration, `DNAM` stats and skills,
   spells, factions, items, race, class and template, with the template flags
-  applied one level. `World::actor` builds actor state from it.
+  applied one level. `World::actor` follows each component's template chain.
+  AIDT supplies its six AI actor values, see [combat AI](combat-ai.md) for
+  sources, validation and the unimplemented engagement boundary.
 - `quest`: the `QUST` view. Flags, stages with log entries, objectives, aliases
   with forced references.
 - `natives`: the base game's natives, closed over the shared world.

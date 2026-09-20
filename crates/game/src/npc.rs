@@ -91,6 +91,48 @@ pub struct Stats {
     pub geared_up_weapons: u8,
 }
 
+/// NPC AIDT fields, from xEdit and UESP. Radii are game units.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct AiData {
+    pub aggression: u8,
+    pub confidence: u8,
+    pub energy: u8,
+    pub morality: u8,
+    pub mood: u8,
+    pub assistance: u8,
+    pub aggro_radius: bool,
+    pub warn_radius: u32,
+    pub warn_attack_radius: u32,
+    pub attack_radius: u32,
+}
+
+impl AiData {
+    /// Decode the serialized layout, which differs from CommonLib's packed runtime data.
+    ///
+    /// # Errors
+    /// Rejects truncated fields and unknown enum or flag values.
+    pub fn from_bytes(data: &[u8]) -> Result<Self> {
+        if data.len() != 20 {
+            return Err(short("AIDT"));
+        }
+        if data[0] > 3 || data[1] > 4 || data[3] > 3 || data[4] > 7 || data[5] > 2 || data[6] > 1 {
+            return Err(Error::Invalid("NPC_: invalid AIDT enum or flags".into()));
+        }
+        Ok(Self {
+            aggression: data[0],
+            confidence: data[1],
+            energy: data[2],
+            morality: data[3],
+            mood: data[4],
+            assistance: data[5],
+            aggro_radius: data[6] != 0,
+            warn_radius: u32_at(data, 8, "AIDT")?,
+            warn_attack_radius: u32_at(data, 12, "AIDT")?,
+            attack_radius: u32_at(data, 16, "AIDT")?,
+        })
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Npc {
     pub form_id: u32,
@@ -98,6 +140,7 @@ pub struct Npc {
     pub name: Option<Text>,
     pub config: Config,
     pub stats: Option<Stats>,
+    pub ai_data: Option<AiData>,
     /// Raw FormIDs, resolve through the load order.
     pub race: Option<u32>,
     pub template: Option<u32>,
@@ -129,6 +172,7 @@ impl Npc {
             name: None,
             config: Config::default(),
             stats: None,
+            ai_data: None,
             race: None,
             template: None,
             class: None,
@@ -148,6 +192,7 @@ impl Npc {
                 b"FULL" => n.name = Some(text(d, localized)),
                 b"ACBS" => n.config = config(d)?,
                 b"DNAM" => n.stats = Some(stats(d)?),
+                b"AIDT" => n.ai_data = Some(AiData::from_bytes(d)?),
                 b"RNAM" => n.race = Some(u32_at(d, 0, "RNAM")?),
                 b"TPLT" => n.template = Some(u32_at(d, 0, "TPLT")?),
                 b"CNAM" => n.class = Some(u32_at(d, 0, "CNAM")?),
@@ -270,6 +315,9 @@ impl Npc {
         }
         if f & template::BASE_DATA != 0 {
             self.name.clone_from(&template.name);
+        }
+        if f & template::AI_DATA != 0 {
+            self.ai_data = template.ai_data;
         }
     }
 }
