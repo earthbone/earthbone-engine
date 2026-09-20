@@ -459,6 +459,25 @@ pose. The synthetic test covers enabled and disabled children, an enabled to
 disabled to enabled transition, explicit deactivation and reactivation, and a
 sampled non-reference pose.
 
+### Modifier lists (2026-09-20)
+
+`hkbModifierList` inherits `hkbModifier.enable` and serializes an ordered
+`hkArray<hkbModifier*>` at offset 80 in the 64-bit layout, from
+`engine-refs/serde-hkx/assets/classes/hkbModifierList.json`. The interpreter
+uses its authored enable value unless a binding overrides it, then activates
+the child modifiers in that serialized order. Nested lists follow the same
+rule. Disabling a list deactivates its full modifier subtree, so every
+`BSIsActiveModifier` output changes to inactive while the wrapping generator
+continues to supply its pose. Modifier output bindings publish in that same
+order, including disabled children, so a later serialized modifier wins when
+two bindings write one variable. Traversal is iterative, rejects cycles and
+stops at 64 nested lists. It deactivates the rejected subtree and records the
+malformed list. The
+synthetic tests cover two direct outputs, an arena order different from the
+serialized order, a shared output with invert, a nested output, list and child
+enable transitions, authored disable, cleanup, malformed cycles and deep
+lists, and pose preservation.
+
 ## 7. Not done and next
 
 - Modifier evaluation. `BSIsActiveModifier` reports its own activity and the
