@@ -18,6 +18,7 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use soe_esm::{plugin::flags, Entry, FileHeader, Group, GroupKind, LoadOrder, Plugin, Record, Tag};
+use soe_game::inventory::{Extra, Field, Stack};
 use soe_game::quest::{self, stage_flags};
 use soe_game::vmad::{AliasScripts, ObjectRef, ScriptEntry, Vmad};
 use soe_game::{Game, Handle};
@@ -48,6 +49,13 @@ const RAGS: u32 = 0x90F;
 const LOOT_LIST: u32 = 0x910;
 const GOLD: u32 = 0x911;
 const SWORD: u32 = 0x912;
+const WEAPON_KEYWORD: u32 = 0x91E;
+const CARRIED_ITEMS: u32 = 0x91F;
+const GOLD_REF: u32 = 0x920;
+const OTHER_GOLD_REF: u32 = 0x921;
+const CHEST_BASE: u32 = 0x922;
+const CHEST: u32 = 0x923;
+const CYCLIC_LIST: u32 = 0x924;
 const ENEMY_LIST: u32 = 0x913;
 const SPELL_LIST: u32 = 0x914;
 const FLAMES: u32 = 0x915;
@@ -171,7 +179,24 @@ fn test_plugin() -> Plugin {
             .zsub(EDID, "Gold001")
             .zsub(T(b"FULL"), "Gold"),
     );
-    p.push_top(Record::new(T(b"WEAP"), SWORD).zsub(EDID, "IronSword"));
+    p.push_top(Record::new(T(b"KYWD"), WEAPON_KEYWORD).zsub(EDID, "WeaponTypeTest"));
+    p.push_top(
+        Record::new(T(b"WEAP"), SWORD)
+            .zsub(EDID, "IronSword")
+            .sub(T(b"KWDA"), le(WEAPON_KEYWORD)),
+    );
+    p.push_top(
+        Record::new(T(b"FLST"), CARRIED_ITEMS)
+            .zsub(EDID, "CarriedItems")
+            .sub(T(b"LNAM"), le(GOLD))
+            .sub(T(b"LNAM"), le(SWORD)),
+    );
+    p.push_top(
+        Record::new(T(b"FLST"), CYCLIC_LIST)
+            .zsub(EDID, "CyclicItems")
+            .sub(T(b"LNAM"), le(CYCLIC_LIST)),
+    );
+    p.push_top(Record::new(T(b"CONT"), CHEST_BASE).zsub(EDID, "QueryChest"));
     p.push_top(Record::new(T(b"SPEL"), FLAMES).zsub(EDID, "Flames"));
     p.push_top(
         Record::new(T(b"LVLI"), LOOT_LIST)
@@ -276,6 +301,18 @@ fn test_plugin() -> Plugin {
                 )
                 .sub(T(b"NAME"), le(MARKER_BASE))
                 .sub(T(b"XOWN"), le(PLAYER_BASE))
+                .sub(T(b"DATA"), zero.clone()),
+            Record::new(T(b"REFR"), GOLD_REF)
+                .zsub(EDID, "GoldReference")
+                .sub(T(b"NAME"), le(GOLD))
+                .sub(T(b"DATA"), zero.clone()),
+            Record::new(T(b"REFR"), OTHER_GOLD_REF)
+                .zsub(EDID, "OtherGoldReference")
+                .sub(T(b"NAME"), le(GOLD))
+                .sub(T(b"DATA"), zero.clone()),
+            Record::new(T(b"REFR"), CHEST)
+                .zsub(EDID, "QueryChestReference")
+                .sub(T(b"NAME"), le(CHEST_BASE))
                 .sub(T(b"DATA"), zero.clone()),
         ],
     );
@@ -483,6 +520,182 @@ fn errors(game: &Game) -> Vec<String> {
         .into_iter()
         .filter(|t| t.contains("no function") || t.contains("no global") || t.contains("error"))
         .collect()
+}
+
+/// CK GetItemCount returns the exact base total, sums every FormList member,
+/// selects all inventory bases with a keyword and selects one concrete
+/// reference through ExtraOriginalReference. The engine supplies keyword
+/// counts for actors and containers despite the CK page's actor caveat.
+#[test]
+fn get_item_count_queries_base_lists_keywords_and_references() {
+    let mut g = game();
+    let guard_id = g.form("GuardRef").unwrap();
+    let gold_id = g.form("Gold001").unwrap();
+    let sword_id = g.form("IronSword").unwrap();
+    let gold_reference_id = g.form("GoldReference").unwrap();
+    let other_gold_reference_id = g.form("OtherGoldReference").unwrap();
+    let chest_id = g.form("QueryChestReference").unwrap();
+    {
+        let mut world = g.world_mut();
+        let inventory = &mut world.reference(guard_id).unwrap().inventory;
+        inventory
+            .restore(
+                gold_id,
+                4,
+                vec![
+                    Stack::new(
+                        1,
+                        vec![Extra {
+                            kind: 32,
+                            fields: vec![Field::Form(Some(gold_reference_id))],
+                        }],
+                    )
+                    .unwrap(),
+                    Stack::new(
+                        5,
+                        vec![Extra {
+                            kind: 32,
+                            fields: vec![Field::Form(Some(gold_reference_id))],
+                        }],
+                    )
+                    .unwrap(),
+                    Stack::new(
+                        1,
+                        vec![Extra {
+                            kind: 32,
+                            fields: vec![Field::Form(Some(other_gold_reference_id))],
+                        }],
+                    )
+                    .unwrap(),
+                    Stack::new(
+                        -2,
+                        vec![
+                            Extra {
+                                kind: 32,
+                                fields: vec![Field::Form(Some(gold_reference_id))],
+                            },
+                            Extra {
+                                kind: 46,
+                                fields: Vec::new(),
+                            },
+                        ],
+                    )
+                    .unwrap(),
+                ],
+            )
+            .unwrap();
+        inventory.add(sword_id, 2).unwrap();
+        world
+            .reference(chest_id)
+            .unwrap()
+            .inventory
+            .add(sword_id, 5)
+            .unwrap();
+    }
+
+    let guard = obj(&mut g, "GuardRef");
+    let gold = obj(&mut g, "Gold001");
+    let list = obj(&mut g, "CarriedItems");
+    let keyword = obj(&mut g, "WeaponTypeTest");
+    let gold_reference = obj(&mut g, "GoldReference");
+    let other_gold_reference = obj(&mut g, "OtherGoldReference");
+    let cyclic = obj(&mut g, "CyclicItems");
+    let chest = obj(&mut g, "QueryChestReference");
+    assert_eq!(call(&mut g, &guard, "GetItemCount", &[gold]), Value::Int(4));
+    assert_eq!(call(&mut g, &guard, "GetItemCount", &[list]), Value::Int(6));
+    assert_eq!(
+        call(&mut g, &guard, "GetItemCount", &[keyword.clone()]),
+        Value::Int(2)
+    );
+    assert_eq!(
+        call(&mut g, &guard, "GetItemCount", &[gold_reference]),
+        Value::Int(4)
+    );
+    assert_eq!(
+        call(&mut g, &guard, "GetItemCount", &[other_gold_reference]),
+        Value::Int(1)
+    );
+    assert_eq!(
+        call(&mut g, &guard, "GetItemCount", &[cyclic]),
+        Value::Int(0)
+    );
+    assert_eq!(
+        call(&mut g, &chest, "GetItemCount", &[keyword]),
+        Value::Int(5)
+    );
+    assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
+#[test]
+fn get_item_count_tracks_reference_pickup_transfer_save_and_consumption() {
+    let mut g = game();
+    let guard = obj(&mut g, "GuardRef");
+    let chest = obj(&mut g, "QueryChestReference");
+    let gold = obj(&mut g, "Gold001");
+    let reference = obj(&mut g, "GoldReference");
+    let other_reference = obj(&mut g, "OtherGoldReference");
+    call(&mut g, &guard, "AddItem", &[gold.clone(), Value::Int(5)]);
+    for stage in 0..4 {
+        match stage {
+            0 => {
+                call(
+                    &mut g,
+                    &guard,
+                    "AddItem",
+                    &[reference.clone(), Value::Int(1)],
+                );
+            }
+            1 => {
+                call(
+                    &mut g,
+                    &chest,
+                    "AddItem",
+                    &[reference.clone(), Value::Int(1)],
+                );
+            }
+            2 => {
+                let bytes = g.world().save_state();
+                g.world_mut().load_state(&bytes).unwrap();
+            }
+            _ => {
+                call(&mut g, &chest, "RemoveItem", &[gold.clone(), Value::Int(1)]);
+            }
+        }
+        for (holder, base_count, reference_count) in [
+            (
+                &guard,
+                if stage == 0 { 6 } else { 5 },
+                i32::from(stage == 0),
+            ),
+            (
+                &chest,
+                i32::from(stage == 1 || stage == 2),
+                i32::from(stage == 1 || stage == 2),
+            ),
+        ] {
+            for (query, expected) in [
+                (&gold, base_count),
+                (&reference, reference_count),
+                (&other_reference, 0),
+            ] {
+                assert_eq!(
+                    call(&mut g, holder, "GetItemCount", std::slice::from_ref(query)),
+                    Value::Int(expected)
+                );
+            }
+        }
+    }
+    call(
+        &mut g,
+        &guard,
+        "AddItem",
+        &[reference.clone(), Value::Int(1)],
+    );
+    assert_eq!(
+        call(&mut g, &guard, "GetItemCount", &[reference]),
+        Value::Int(0)
+    );
+    assert!(errors(&g).is_empty(), "{:?}", errors(&g));
 }
 
 // ----- leveled lists -----

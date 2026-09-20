@@ -872,10 +872,19 @@ ambiguous or nonnumeric values reported as errors. Unavailable targets,
 unsupported flags/functions, nonzero HasPerk parameter 2 and missing tempering
 context are explicit errors. Crafting does not invent a target or quest context.
 Float comparisons are exact and have not been compared against vanilla
-near-equality behavior. Inventory instance queries remain unfinished.
+near-equality behavior. `ObjectReference.GetItemCount` totals an exact base
+form, each FormList member or every carried item whose base has the supplied
+keyword. An item reference selects only stacks whose ExtraOriginalReference
+identity matches it, ignores nonpositive leveled bookkeeping and cannot exceed
+the base form's canonical total. Cyclic FormLists return zero from the native
+and an explicit condition error. The CK page records keyword failures on actor
+inventories and CK-defined reference inventories. The engine uses its shared
+inventory totals for both actors and containers, so keyword queries have the
+same defined result for either holder.
 
 Sources consulted were local xEdit `wbDefinitionsTES5.pas` for CTDA, COBJ and
-FURN WBDT, UESP COBJ notes for missing outputs, skymp `CraftService.cpp` and
+FURN WBDT, CK `GetItemCount_-_ObjectReference.wikitext` for the query forms,
+UESP COBJ notes for missing outputs, skymp `CraftService.cpp` and
 `unit/CraftTest.cpp` for bench matching and DLC cases, Mutagen
 `Skyrim/Constants.cs` for PlayerRef, and CK inventory event/filter pages.
 The skymp evaluator's unknown-function success and unresolved target mapping
