@@ -176,6 +176,84 @@ fn parse_json(text: &str) -> Result<VisemeTrack> {
     })
 }
 
+impl Rhubarb {
+    /// Returns the complete cache setting string for this generation request.
+    ///
+    /// The consumer blend does not appear here because it changes playback
+    /// interpolation, not the track Rhubarb generates.
+    ///
+    /// # Errors
+    ///
+    /// Returns a decode error when Rhubarb cannot report its version.
+    pub fn cache_settings(&self, pcm: &Pcm, dialog: Option<&str>) -> Result<String> {
+        let version = Command::new(&self.program)
+            .arg("--version")
+            .output()
+            .map_err(|error| Error::Decode(format!("could not run {}: {error}", self.program)))?;
+        if !version.status.success() {
+            return Err(Error::Decode(format!(
+                "{} exited with {} while reporting its version",
+                self.program, version.status
+            )));
+        }
+        Ok(
+            self.cache_settings_from_version(
+                &String::from_utf8_lossy(&version.stdout),
+                pcm,
+                dialog,
+            ),
+        )
+    }
+
+    fn cache_settings_from_version(
+        &self,
+        version: &str,
+        pcm: &Pcm,
+        dialog: Option<&str>,
+    ) -> String {
+        let (dialog_present, dialog) = match dialog {
+            Some(dialog) => (true, dialog),
+            None => (false, ""),
+        };
+        let mut pcm_bytes = Vec::with_capacity(8 + pcm.samples.len() * 4);
+        pcm_bytes.extend_from_slice(&pcm.sample_rate.to_le_bytes());
+        pcm_bytes.extend_from_slice(&pcm.channels.to_le_bytes());
+        for sample in &pcm.samples {
+            pcm_bytes.extend_from_slice(&sample.to_bits().to_le_bytes());
+        }
+        format!(
+            "rhubarb-cache-v2\nprogram:{}:{}\nversion:{}:{}\npcm:{:016x}\ndialog-present:{}\ndialog:{}:{}",
+            self.program.len(),
+            self.program,
+            version.len(),
+            version,
+            crate::viseme::cache_hash(&pcm_bytes),
+            usize::from(dialog_present),
+            dialog.len(),
+            dialog
+        )
+    }
+
+    /// Returns a generated track from cache, or asks Rhubarb to generate it.
+    ///
+    /// Asset bytes work for loose files and archive entries. The cache identity
+    /// includes their bytes, the decoded PCM, Rhubarb's reported version, the
+    /// program selection and the dialogue.
+    ///
+    /// # Errors
+    ///
+    /// Returns an I/O error from the cache, or an error from Rhubarb.
+    pub fn visemes_cached(
+        &self,
+        cache: &crate::viseme::VisemeCache,
+        asset: &[u8],
+        pcm: &Pcm,
+        dialog: Option<&str>,
+    ) -> Result<VisemeTrack> {
+        let settings = self.cache_settings(pcm, dialog)?;
+        cache.get_or_generate(asset, &settings, || self.visemes(pcm, dialog))
+    }
+}
 impl VisemeSource for Rhubarb {
     fn visemes(&self, pcm: &Pcm, dialog: Option<&str>) -> Result<VisemeTrack> {
         let wav = Scratch::new("wav");
@@ -277,6 +355,45 @@ mod tests {
         let pcm = Pcm::empty(0, 0);
         let path = std::env::temp_dir().join("soe-never-written.wav");
         assert!(write_wav(&pcm, &path).is_err());
+    }
+
+    #[test]
+    fn cache_settings_include_program_version_pcm_and_dialogue() {
+        let source = Rhubarb::at("controlled-rhubarb");
+        let pcm = Pcm {
+            sample_rate: 16_000,
+            channels: 1,
+            samples: vec![0.0],
+        };
+        let no_dialog = source.cache_settings_from_version("1.14.0", &pcm, None);
+        assert_ne!(
+            no_dialog,
+            source.cache_settings_from_version("1.14.0", &pcm, Some(""))
+        );
+        assert_ne!(
+            source.cache_settings_from_version("1.14.0", &pcm, Some("first line")),
+            source.cache_settings_from_version("1.14.0", &pcm, Some("second line"))
+        );
+        assert_ne!(
+            source.cache_settings_from_version("1.14.0", &pcm, Some("first line")),
+            source.cache_settings_from_version("1.15.0", &pcm, Some("first line"))
+        );
+        let changed_rate = Pcm {
+            sample_rate: 44_100,
+            ..pcm.clone()
+        };
+        assert_ne!(
+            source.cache_settings_from_version("1.14.0", &pcm, Some("first line")),
+            source.cache_settings_from_version("1.14.0", &changed_rate, Some("first line"))
+        );
+        let changed_channels = Pcm {
+            channels: 2,
+            ..pcm.clone()
+        };
+        assert_ne!(
+            source.cache_settings_from_version("1.14.0", &pcm, Some("first line")),
+            source.cache_settings_from_version("1.14.0", &changed_channels, Some("first line"))
+        );
     }
 
     #[test]
