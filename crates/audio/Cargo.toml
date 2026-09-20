@@ -13,7 +13,7 @@ default = ["vorbis", "opus"]
 # Ogg Vorbis through lewton, a pure Rust decoder. On by default because a mod
 # author may ship Vorbis instead of xWMA and the engine has to play it.
 vorbis = ["dep:lewton", "dep:ogg"]
-# Ogg Opus through opus-decoder, also pure Rust and also on by default.
+# Ogg and Switch NX Opus through opus-decoder, pure Rust and on by default.
 opus = ["dep:ogg", "dep:opus-decoder"]
 # Decodes the WMA bitstream inside an xWMA file by running the `ffmpeg`
 # binary. Off by default: the container parse and the packet table never need

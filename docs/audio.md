@@ -32,6 +32,7 @@ so. Where something is ours, it is because nothing packaged existed.
 |---|---|---|---|
 | Ogg Vorbis | `lewton` | Pure Rust, mature, no C toolchain. `symphonia` also decodes Vorbis, but it arrives with a container framework this crate does not need. | 3 (`lewton`, `byteorder`, `tinyvec`) |
 | Ogg Opus | `opus-decoder` plus `ogg` | Pure Rust port of libopus. The alternatives (`opus`, `audiopus`, `symphonia-adapter-libopus`) all bind the C library, which this machine would need a toolchain for. Proven here against a real re-encode, see the numbers below. | 2 (`opus-decoder`, `ogg`, sharing `byteorder` with lewton) |
+| Switch NX Opus | `opus-decoder` plus our container reader | The same codec dependency reads raw packets. Skyrim-NX-Toolkit and VGAudio define the wrapper and packet layout. | 0 |
 | RIFF WAVE | `hound` | Zero transitive dependencies, and the Creation Kit writes WAV. Cheaper than a reader of our own. | 1 |
 | WMA bitstream | ffmpeg, out of process, behind a feature | See below. | 0 |
 | FUZ container | ours, following Skyrim-NX-Toolkit | No crate exists. See the credits. | 0 |
@@ -90,10 +91,14 @@ Out of process, behind a feature that is off by default, is the trade:
   Both clones now sit under `../engine-refs/`. `fuzmanager` is GPL-3.0 and this crate is
   GPL-3.0-or-later, so reading it is fine here, but nothing derived from it may reach the MIT shim
   crates. Skyrim-NX-Toolkit is MIT and carries no such restriction.
-- **The Switch Opus payload** is recognised but not decoded. `NXOPUS2FUZ` in Skyrim-NX-Toolkit
-  gives the header, and [`Thealexbarney/VGAudio`](https://github.com/Thealexbarney/VGAudio)
-  implements the NX Opus stream itself. Decoding it would mean reading VGAudio's `NxOpus` reader,
-  and it is not needed to run the PC game, so `AudioKind::NxOpus` reports it and stops there.
+- **The Switch Opus payload** follows `NXOPUS2FUZ` and `WAV2NXOPUS` in the local
+  `Skyrim-NX-Toolkit/Scripts/convert_sound_zappa-demoted.py`. The latter requests
+  VGAudio's standard NX header. The inner layout follows
+  [`VGAudio's NxOpusReader and NxOpusWriter`](https://github.com/Thealexbarney/VGAudio/tree/9d8f6ea04c83cccccb3dd7851a631bbd53a8dbbe/src/VGAudio/Containers/Opus),
+  with encoder delay semantics checked against `Formats/Opus/OpusFormat.cs`.
+  VGAudio is MIT licensed. It was absent from the local corpus and fetched for this
+  work. Its C# container framework does not fit this Rust crate, so a bounded slice
+  reader handles the container and the existing `opus-decoder` handles packets.
 - **xWMA**: ffmpeg's `libavformat/xwma.c` is the reference for the `dpds` table, and Microsoft's
   `xWMAEncode` is what writes it.
 - **LIP header**: `../engine-refs/FaceFXWrapper/FFXW32/LipSynchAnim.h` declares
@@ -126,6 +131,40 @@ Twelve bytes of header, then two payloads.
 
 `Fuz::split` borrows both halves, `fuz::write` packs them back, and the round trip is exact.
 `audio_kind` reads the RIFF form of the audio half rather than assuming.
+
+### Switch NX Opus
+
+`SoundSource` decodes a FUZ with the Switch signature to `Pcm` and retains its LIP
+bytes. The `opus` feature controls both Ogg Opus and NX Opus and is on by default.
+With that feature off, decoding reports `Unsupported::Opus`.
+
+The 20 byte Skyrim wrapper carries the duration in milliseconds, channel count,
+header size and payload byte count. Inside it, the standard NX header has type
+`0x80000001`, 24 bytes of header fields, version 0, channel count, frame size,
+sample rate, data offset and encoder delay. The data chunk has type `0x80000004`
+and a byte count. Each packet starts with a big endian byte count and a four byte
+encoder range value. Header fields and chunk sizes are little endian.
+
+The decoder accepts mono and stereo at Opus rates of 8, 12, 16, 24 and 48 kHz,
+uses the declared rate, and removes encoder delay in frames at that rate. Packet
+lengths govern packet boundaries, including variable length packets. The range
+value is skipped, as in VGAudio's PCM path. The wrapper's rounded duration does
+not supply an exact frame count, so it does not trim the decoded tail. Other NX
+header variants are outside Skyrim's standard wrapper contract and rejected.
+Decoded PCM is capped at 256 MiB, about 11.6 minutes of 48 kHz stereo, which
+bounds voice decoding even when tiny packets expand into long silent frames.
+Growth uses checked lengths and fallible allocation within that cap.
+
+AUD-03 acceptance fixtures encode synthetic tones with libopus 1.6 and construct
+the NX and FUZ headers in each test. Before the first run, acceptance required
+exact frame counts after delay removal, finite nonzero PCM, preserved LIP bytes,
+and separate stereo tones in the correct channels. Coverage includes 48 kHz mono,
+24 kHz stereo, delay spanning packets, every truncated prefix, invalid offsets,
+sizes and header fields, an invalid Opus packet, and a disabled codec feature.
+Repeated three byte silence packets test the PCM cap with a small test budget,
+including exact capacity at the limit and rejection of the next packet.
+No Switch game archive was available for a corpus survey. The PC archive survey
+below contains xWMA only and does not establish Switch corpus compatibility.
 
 ### xWMA
 
