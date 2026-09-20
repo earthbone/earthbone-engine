@@ -28,6 +28,7 @@ pub mod globals;
 pub mod header;
 pub mod papyrus;
 pub mod quest;
+pub mod reference;
 pub mod table;
 
 pub use change::{ChangeForm, QuestStage};

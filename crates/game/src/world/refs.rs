@@ -15,10 +15,23 @@ use super::{
 };
 
 impl World {
-    /// Build a reference's state from its record, without inserting it.
-    /// `crate::world::transition` uses this to prove that unloading a
-    /// reference loses nothing, by rebuilding it and comparing.
     pub(super) fn load_ref(&mut self, id: GlobalFormId) -> Option<RefState> {
+        let mut st = self.load_ref_record(id)?;
+        if let Some(base) = st.base {
+            if st.is_actor
+                && !self
+                    .prepare_actor_template(id, base, self.player_level)
+                    .ok()?
+            {
+                st.enabled = false;
+            }
+            st.inventory = self.reference_inventory(Some(id), base);
+        }
+        Some(st)
+    }
+
+    /// Read authored placement without choosing templates or touching RNG.
+    pub(super) fn load_ref_record(&self, id: GlobalFormId) -> Option<RefState> {
         let rref = self.order.winner_ref(id)?;
         let rec = self.order.record(rref);
         let file = rref.file;
@@ -112,16 +125,6 @@ impl World {
         // reference is built here rather than at start, which is why the swap
         // is held until now. See `crate::moddata`.
         st.base = st.base.map(|b| self.mod_data.swap(b));
-        if let Some(base) = st.base {
-            if st.is_actor
-                && !self
-                    .prepare_actor_template(id, base, self.player_level)
-                    .ok()?
-            {
-                st.enabled = false;
-            }
-            st.inventory = self.reference_inventory(Some(id), base);
-        }
         Some(st)
     }
 

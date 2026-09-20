@@ -61,6 +61,15 @@ SOEW version 10 persists these choices. Encounter-zone difficulty/reset rules,
 generated ActorBase identity and remaining template consumers are still open.
 See [actor-values.md](actor-values.md#per-reference-actor-templates-2026-09-20).
 
+The reference-placement follow-up decodes REFR/ACHR prefixes and reconstructs
+identities, bases and transforms in a fresh world table. It restores player
+location and reserves created IDs without dispatching events. Inventory, actor
+state, saved masks, extra data and Papyrus execution remain unapplied. This is
+one pass of reconstruction, not a complete ESS loader.
+Across 60 saves it restores 1,154,526 placements. Applying globals and quests
+afterward leaves zero unresolved quest identities. Missing cell lookups and
+unplaced references remain reported, and saved gameplay is not resumed.
+
 ## Earlier baseline, 2026-09-19
 
 Reconciled on 2026-09-19 against engine commit `75cfb55` on `master`.

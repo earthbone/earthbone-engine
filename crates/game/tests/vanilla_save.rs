@@ -4,6 +4,9 @@
 //! Saved identities must survive load-order changes before world state can
 //! be applied. Fixtures exercise distinct owners with the same local ID.
 
+#[path = "vanilla_save/references.rs"]
+mod references;
+
 use std::{
     path::{Path, PathBuf},
     sync::Arc,

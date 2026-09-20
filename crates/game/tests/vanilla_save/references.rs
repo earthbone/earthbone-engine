@@ -1,0 +1,354 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+//! Saved placements must resolve identities before any world mutation.
+
+use super::*;
+use soe_save::{
+    reference::{flags as change_flags, PlayerLocation},
+    ChangeForm,
+};
+
+fn fixture_order() -> LoadOrder {
+    let mut master = Plugin::new(FileHeader::default());
+    for (tag, object) in [
+        (b"NPC_", 7),
+        (b"STAT", 0x900),
+        (b"STAT", 0x901),
+        (b"CELL", 0x800),
+        (b"WRLD", 0x801),
+    ] {
+        let mut record = Record::new(Tag(*tag), object);
+        if object == 7 {
+            record = record.sub(Tag(*b"EDID"), b"Player\0".to_vec());
+        }
+        master.push_top(record);
+    }
+    let mut grid = Record::new(Tag(*b"CELL"), 0x802).sub(
+        Tag(*b"XCLC"),
+        [-1_i32, 0]
+            .into_iter()
+            .flat_map(i32::to_le_bytes)
+            .collect::<Vec<_>>(),
+    );
+    grid.placement.world = Some(0x801);
+    master.push_top(grid);
+    let mut placed =
+        Record::new(Tag(*b"REFR"), 0xA00).sub(Tag(*b"NAME"), 0x900_u32.to_le_bytes().to_vec());
+    placed.placement.cell = Some(0x800);
+    master.push_top(placed);
+    let mut order = LoadOrder::new();
+    order.add("Skyrim.esm", master).unwrap();
+    for (name, light) in [
+        ("Extra.esl", true),
+        ("B.esp", false),
+        ("A.esp", false),
+        ("Light.esl", true),
+    ] {
+        let mut p = plugin(light);
+        p.push_top(Record::new(Tag(*b"STAT"), 0x900));
+        order.add(name, p).unwrap();
+    }
+    order
+}
+
+fn change(
+    raw: u32,
+    actor: bool,
+    flags: u32,
+    parent: u32,
+    position: [f32; 3],
+    base: Option<u32>,
+) -> ChangeForm {
+    let mut data = vec![];
+    if raw >> 22 == 2 || flags & change_flags::MOVE != 0 {
+        reference(parent).write(&mut data);
+        for v in position.into_iter().chain([0.0, 0.5, -0.0]) {
+            data.extend(v.to_le_bytes());
+        }
+    }
+    if raw >> 22 == 2 {
+        data.push(0x12);
+        reference(base.unwrap()).write(&mut data);
+    }
+    if actor {
+        data.extend([0; 8]);
+    }
+    if flags & change_flags::BASE != 0 {
+        reference(base.unwrap()).write(&mut data);
+    }
+    if flags & change_flags::SCALE != 0 {
+        data.extend(1.5_f32.to_le_bytes());
+    }
+    ChangeForm {
+        form: reference(raw),
+        change_flags: flags,
+        type_field: u8::from(actor),
+        version: 0,
+        uncompressed_len: 0,
+        data,
+    }
+}
+
+fn fixture() -> Save {
+    let mut save = save();
+    save.form_id_array = vec![0x0100_0900, 0xFE00_0900];
+    save.table_1.push(GlobalData {
+        kind: 1,
+        data: PlayerLocation {
+            next_object_id: 0xFF000804,
+            world: reference(0),
+            coordinates: [0; 2],
+            cell_or_world: reference(0x400800),
+            position: [1.0, 2.0, 3.0],
+            unknown: 0,
+        }
+        .data_bytes(),
+    });
+    save.change_forms = vec![
+        change(
+            0x400014,
+            true,
+            change_flags::MOVE,
+            0x400800,
+            [1.0, 2.0, 3.0],
+            None,
+        ),
+        change(
+            0x400A00,
+            false,
+            change_flags::MOVE | change_flags::BASE | change_flags::SCALE,
+            0x400801,
+            [-1.0, 0.0, 4.0],
+            Some(1),
+        ),
+        change(0x800800, false, 0, 0x400800, [4.0, 5.0, 6.0], Some(2)),
+    ];
+    save
+}
+
+#[test]
+fn references_restore_positions_bases_cells_and_allocate_without_reusing_saved_ids() {
+    let save = fixture();
+    let mut world = World::new(fixture_order());
+    let report = world.restore_vanilla_reference_placements(&save).unwrap();
+    assert_eq!((report.references, report.created), (3, 1));
+    assert!(
+        report.missing_bases.is_empty()
+            && report.missing_cells.is_empty()
+            && report.unplaced.is_empty()
+    );
+    assert_eq!(world.player(), id(0, 0x14));
+    assert_eq!(world.loaded_cell(), Some(id(0, 0x800)));
+    let moved = world.reference_ref(id(0, 0xA00)).unwrap();
+    assert_eq!(moved.position, [-1.0, 0.0, 4.0]);
+    assert_eq!(moved.cell, Some(id(0, 0x802)));
+    assert_eq!(moved.base, Some(id(3, 0x900)));
+    assert_eq!(moved.scale, 1.5);
+    let created = world.reference_ref(id(DYNAMIC_FILE, 0x800)).unwrap();
+    assert_eq!(created.base, Some(id(4, 0x900)));
+    assert_eq!(created.position, [4.0, 5.0, 6.0]);
+    assert!(world.pending.is_empty());
+    let bytes = world.save_state();
+    let mut restored = World::new(fixture_order());
+    restored.load_state(&bytes).unwrap();
+    assert_eq!(world.state_hash(), restored.state_hash());
+    assert_eq!(
+        restored.reference_ref(id(0, 0xA00)).unwrap().cell,
+        Some(id(0, 0x802))
+    );
+    assert_eq!(
+        restored.place_at(id(0, 0x900), id(0, 0x14), false),
+        id(DYNAMIC_FILE, 0x804)
+    );
+    assert_eq!(
+        world.place_at(id(0, 0x900), id(0, 0x14), false),
+        id(DYNAMIC_FILE, 0x804)
+    );
+}
+
+#[test]
+fn every_saved_created_namespace_entry_reserves_allocation_space() {
+    let mut save = fixture();
+    save.form_id_array.push(0xFF000900);
+    save.change_forms.push(ChangeForm {
+        form: reference(0x800A00),
+        change_flags: 0,
+        type_field: 9,
+        version: 0,
+        uncompressed_len: 0,
+        data: vec![],
+    });
+    let mut world = World::new(fixture_order());
+    world.restore_vanilla_reference_placements(&save).unwrap();
+    assert_eq!(
+        world.place_at(id(0, 0x900), id(0, 0x14), false),
+        id(DYNAMIC_FILE, 0xA01)
+    );
+}
+
+#[test]
+fn missing_placement_dependencies_and_unapplied_state_are_reported() {
+    let mut save = fixture();
+    save.change_forms[2] = change(
+        0x800800,
+        false,
+        0,
+        0x400ABC,
+        [4.0, 5.0, 6.0],
+        Some(0x800FFF),
+    );
+    save.change_forms[2].data.extend([1, 2, 3]);
+    let mut world = World::new(fixture_order());
+    let report = world.restore_vanilla_reference_placements(&save).unwrap();
+    assert!(report.missing_bases.contains(&id(DYNAMIC_FILE, 0xFFF)));
+    assert!(report.unplaced.contains(&id(DYNAMIC_FILE, 0x800)));
+    assert_eq!(report.missing_cells.len(), 1);
+    let remainder = &report.remaining[&id(DYNAMIC_FILE, 0x800)];
+    assert_eq!(remainder.suffix_bytes, 3);
+    assert_eq!(remainder.creation_flags, Some(0x12));
+}
+
+#[test]
+fn malformed_late_entries_and_inconsistent_player_data_leave_whole_game_unchanged() {
+    let original = fixture();
+    let mut cases = vec![];
+    let mut duplicate = original.clone();
+    duplicate
+        .change_forms
+        .push(duplicate.change_forms[2].clone());
+    cases.push(duplicate);
+    let mut truncated = original.clone();
+    truncated.change_forms[2].data.pop();
+    cases.push(truncated);
+    let mut mismatch = original.clone();
+    mismatch.change_forms[0].data[3..7].copy_from_slice(&9_f32.to_le_bytes());
+    cases.push(mismatch);
+    let mut nonfinite = original.clone();
+    nonfinite.change_forms[2].data[3..7].copy_from_slice(&f32::NAN.to_le_bytes());
+    cases.push(nonfinite);
+    let mut bad_parent = original.clone();
+    bad_parent.change_forms[2].data[..3].copy_from_slice(&[0x40, 0x09, 0]);
+    cases.push(bad_parent);
+    let mut exhausted = original.clone();
+    exhausted.form_id_array.push(0xFFFFFFFF);
+    cases.push(exhausted);
+    let mut absent = original.clone();
+    absent.table_1.clear();
+    cases.push(absent);
+    for save in cases {
+        let game = Game::new(fixture_order());
+        let before = game.save_state().unwrap();
+        assert!(game
+            .world_mut()
+            .restore_vanilla_reference_placements(&save)
+            .is_err());
+        assert_eq!(game.save_state().unwrap(), before);
+    }
+    let mut world = World::new(fixture_order());
+    world.player();
+    let before = world.save_state();
+    assert!(world
+        .restore_vanilla_reference_placements(&original)
+        .is_err());
+    assert_eq!(world.save_state(), before);
+}
+
+#[test]
+fn installed_saved_reference_placements_restore_and_persist() {
+    let (Some(data), Some(saves)) = (
+        std::env::var_os("SKYRIM_DATA"),
+        std::env::var_os("SOE_TEST_SAVES"),
+    ) else {
+        eprintln!("SKYRIM_DATA or SOE_TEST_SAVES unset, skipping reference placement survey");
+        return;
+    };
+    let mut order = LoadOrder::new();
+    for name in [
+        "Skyrim.esm",
+        "Update.esm",
+        "Dawnguard.esm",
+        "HearthFires.esm",
+        "Dragonborn.esm",
+    ] {
+        order
+            .add(
+                name,
+                Plugin::parse(&std::fs::read(Path::new(&data).join(name)).unwrap()).unwrap(),
+            )
+            .unwrap();
+    }
+    let order = Arc::new(order);
+    let mut paths = vec![];
+    collect_saves(Path::new(&saves), &mut paths);
+    paths.sort();
+    assert!(paths.len() >= 50);
+    let (mut total, mut created, mut missing_bases, mut missing_cells, mut unplaced) =
+        (0, 0, 0, 0, 0);
+    let (mut quests, mut unresolved_quest_forms) = (0, 0);
+    for path in &paths {
+        let save = Save::open(path).unwrap();
+        let mapping = SavedFormMap::new(&save, &order).unwrap();
+        let mut world = World::from_shared_order(Arc::clone(&order));
+        let report = world
+            .restore_vanilla_reference_placements(&save)
+            .unwrap_or_else(|error| panic!("{}: {error}", path.display()));
+        let mut count = 0;
+        for form in &save.change_forms {
+            let Some(header) = form.reference_header(save.form_version).unwrap() else {
+                continue;
+            };
+            let id = mapping.reference(form.form).unwrap().unwrap();
+            let state = world.reference_ref(id).unwrap();
+            if let Some(placement) = header.initial.placement() {
+                assert_eq!(
+                    state.position.map(f32::to_bits),
+                    placement.position.map(f32::to_bits)
+                );
+                assert_eq!(
+                    state.rotation.map(f32::to_bits),
+                    placement.rotation.map(f32::to_bits)
+                );
+            }
+            if let Some(base) = header.base {
+                assert_eq!(state.base, mapping.reference(base).unwrap());
+            }
+            assert_eq!(report.remaining[&id].suffix_bytes, header.remaining_bytes);
+            count += 1;
+        }
+        assert_eq!(count, report.references);
+        world.restore_vanilla_globals(&save).unwrap();
+        let quest_report = world.restore_vanilla_quests(&save).unwrap();
+        assert!(quest_report
+            .unresolved_forms
+            .iter()
+            .all(|id| id.file == DYNAMIC_FILE));
+        assert!(quest_report
+            .unresolved_forms
+            .iter()
+            .all(|id| !report.remaining.contains_key(id)));
+        quests += quest_report.quests;
+        unresolved_quest_forms += quest_report.unresolved_forms.len();
+        assert!(world.pending.is_empty());
+        let bytes = world.save_state();
+        let mut restored = World::from_shared_order(Arc::clone(&order));
+        restored.load_state(&bytes).unwrap();
+        assert_eq!(restored.state_hash(), world.state_hash());
+        for id in report.remaining.keys() {
+            let old = world.reference_ref(*id).unwrap();
+            let new = restored.reference_ref(*id).unwrap();
+            assert_eq!(
+                old.position.map(f32::to_bits),
+                new.position.map(f32::to_bits)
+            );
+            assert_eq!((old.base, old.cell), (new.base, new.cell));
+        }
+        total += report.references;
+        created += report.created;
+        missing_bases += report.missing_bases.len();
+        missing_cells += report.missing_cells.len();
+        unplaced += report.unplaced.len();
+    }
+    assert!(total > 100000);
+    eprintln!("{} saves: {total} placements, {created} created, {missing_bases} missing bases, {missing_cells} missing cells, {unplaced} unplaced references", paths.len());
+    eprintln!("{quests} quests restored after placement/global passes, {unresolved_quest_forms} remaining unresolved quest identities");
+}

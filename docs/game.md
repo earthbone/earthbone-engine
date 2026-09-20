@@ -1181,3 +1181,13 @@ door lock synchronization and `Lock`'s abAsOwner public/private-cell effect
 remain pending. Lock events currently target reference scripts, without alias
 forwarding. Logical closing does not animate or update the host collision of
 a swinging door. The ordinary unloaded/load-door resource path is unchanged.
+
+## Vanilla reference placement restoration
+
+`World::restore_vanilla_reference_placements` applies saved identities, bases
+and transforms to a fresh reference table, reserves dynamic IDs and restores
+the player location without queuing events. It validates the entire pass
+before changing the world. Its report identifies missing dependencies and
+unapplied state. Inventory, actor values, extra data and saved execution remain
+separate requirements. See [save.md](save.md#reference-placements) for sources,
+validation and the limits of this intermediate reconstruction pass.

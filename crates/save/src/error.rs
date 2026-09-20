@@ -80,6 +80,9 @@ pub enum Error {
     #[error("the Papyrus section is {reason}")]
     Papyrus { reason: String },
 
+    #[error("invalid reference change data: {reason}")]
+    Reference { reason: String },
+
     #[error("invalid quest change data: {reason}")]
     Quest { reason: String },
 

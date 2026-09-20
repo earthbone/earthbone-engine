@@ -110,7 +110,8 @@ Unknown fields are retained without assigning them runtime behavior.
 
 ## What is left raw
 
-Change form payloads other than `QUST` stay as bytes, decoded on demand. The
+Change form payloads other than `QUST` and the REFR/ACHR placement prefixes
+stay as bytes, decoded on demand. The
 Papyrus auxiliary data after the save-file version stays raw, as does the
 original payload used when writing the save body.
 
@@ -311,6 +312,64 @@ This API applies one component of save state. It does not synchronize calendar
 or scheduler clocks, restore quest or actor state, apply change forms, bind
 Papyrus instances or resume execution. Full ESS restoration still needs all
 of those paths and an atomic whole-game load operation.
+
+## Reference placements
+
+`ChangeForm::reference_header` reads the REFR/ACHR placement prefix. It
+decodes moved, created and promoted layouts, opaque Havok bytes, the two ACHR
+header words, form masks, a replacement base and scale. It reports the exact
+unconsumed suffix length. Scale is an integer percentage only in form version
+55. Special Edition form version 78 uses a float.
+
+`Save::player_location` reads the independent type-1 player location block
+and next created-object ID. Duplicate blocks, truncated prefixes and impossible
+Havok lengths fail. Typed diagnostic encoders preserve float bits and count
+widths. They do not encode or validate the unparsed reference suffix.
+
+Sources read were local xEdit `Core/wbDefinitionsTES5Saves.pas`, UESP
+`REFR_Changeform.wikitext`, `ACHR_Changeform.wikitext` and
+`Player_Location.wikitext`, and FallrimTools `ChangeFormInitialData.java`,
+`ChangeFormRefr.java` and `ChangeFormACHR.java`. CommonLibSSE-NG
+`TESObjectREFR.cpp` supplies the integer scale factor. The existing cursor,
+compression, form mapping and cell index are reused. No dependency is added.
+The secondary cell field has conflicting names in these sources, so it keeps
+a neutral name and is not used to override the primary placement.
+
+The decoder survey reproduced all 1,154,526 reference prefixes in 60 saves.
+Of those, 23,571 are created references and 873,419 retain a nonempty suffix.
+Every player primary location and position matches the independent type-1
+block. No decoded transform in this corpus is non-finite.
+
+The installed-data restoration survey applied all 1,154,526 placements and
+verified their positions, base identities and cells through engine save/load.
+World hashes match after reload and no events are queued. Across the saves,
+the reports contain zero missing bases, 142 missing cell lookups and 1,538
+references with no resolved cell. Missing or null locations remain unresolved.
+Synthetic tests cover reordered regular/light plugins, negative cell grids,
+allocation beyond saved IDs and unchanged whole-game bytes after late errors.
+Running placements, globals and quests in that order restores all 32,256 quest
+states with zero unresolved quest identities across the 60 saves, down from
+6,816 when restoring quests without the reference pass. The combined world
+hashes survive engine save/load. This does not resume quest or VM execution.
+
+`World::restore_vanilla_reference_placements` builds a fresh reference table
+atomically. Authored records supply unchanged placement properties, and saved
+headers supply positions, rotations, scales and replacement bases. Saved
+plugin names resolve bases and identities after load-order changes. Exterior
+worldspace positions resolve through the existing 4096-unit cell grid, using
+floor for negative coordinates. Missing bases and cells remain explicit in the
+report. The player keeps its engine identity, and later dynamic allocation
+reserves IDs from the saved counter, all change forms and the FormID array.
+
+The pass refuses an already populated reference or actor table. It queues no
+events and makes no actor-template selections. Restored references have no
+inventory until a later inventory pass applies base contents and saved deltas.
+Actor values, saved enable/delete masks, ownership and other extra data, Havok,
+animation and script bindings are also still unapplied. Created NPC base forms
+need their own restoration pass. The report retains counts and flags for these
+requirements, while the original Save retains the payload bytes. An engine
+save of this intermediate world does not retain the unparsed vanilla payloads.
+This API is reconstruction groundwork, not a complete game-load entry point.
 
 ## Round trip
 

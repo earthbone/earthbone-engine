@@ -37,6 +37,8 @@ pub enum RestoreError {
     DuplicateGlobal(GlobalFormId),
     #[error("cannot restore quest {id}: {reason}")]
     Quest { id: GlobalFormId, reason: String },
+    #[error("cannot restore reference {id}: {reason}")]
+    WorldReference { id: GlobalFormId, reason: String },
 }
 
 /// Plugin positions in a save mapped to positions in the current load order.
