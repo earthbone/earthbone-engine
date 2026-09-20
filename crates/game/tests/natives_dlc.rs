@@ -107,6 +107,15 @@ fn actor_ref(id: u32, edid: &str, base: u32) -> Record {
         .sub(T(b"DATA"), vec![0u8; 24])
 }
 
+fn clothing(id: u32, edid: &str) -> Record {
+    let mut body = le(1 << 2).to_vec();
+    body.extend_from_slice(&le(2));
+    Record::new(T(b"ARMO"), id)
+        .zsub(EDID, edid)
+        .sub(T(b"DNAM"), le(0))
+        .sub(T(b"BOD2"), body)
+}
+
 fn test_plugin() -> Plugin {
     let mut p = Plugin::new(FileHeader {
         flags: flags::MASTER,
@@ -132,12 +141,8 @@ fn test_plugin() -> Plugin {
     p.push_top(Record::new(T(b"SPEL"), DRAIN_SPELL).zsub(EDID, "DrainLife"));
     p.push_top(Record::new(T(b"MISC"), ASH_PILE).zsub(EDID, "AshPileBase"));
     p.push_top(Record::new(T(b"KYWD"), VAMPIRE_KEYWORD).zsub(EDID, "VampireDress"));
-    p.push_top(
-        Record::new(T(b"ARMO"), VAMPIRE_ARMOR)
-            .zsub(EDID, "VampireRobes")
-            .sub(T(b"KWDA"), le(VAMPIRE_KEYWORD)),
-    );
-    p.push_top(Record::new(T(b"ARMO"), PLAIN_ARMOR).zsub(EDID, "FarmClothes"));
+    p.push_top(clothing(VAMPIRE_ARMOR, "VampireRobes").sub(T(b"KWDA"), le(VAMPIRE_KEYWORD)));
+    p.push_top(clothing(PLAIN_ARMOR, "FarmClothes"));
     p.push_top(Record::new(T(b"IDLE"), FEED_IDLE).zsub(EDID, "IdleVampireFeed"));
     p.push_top(Record::new(T(b"KYWD"), LINK_KEYWORD).zsub(EDID, "LinkCoffin"));
     p.push_top(Record::new(T(b"EFSH"), BLOOD_SHADER).zsub(EDID, "BloodShader"));

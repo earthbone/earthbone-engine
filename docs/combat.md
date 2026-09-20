@@ -17,7 +17,13 @@ runtime's low-16-bit armor rating. Transient views read the existing winning
 record database. No parallel authoritative item store was added.
 
 The weapon must be present in the attacker's inventory and equipped. Armor
-must also remain present, and conflicting occupied slots are rejected.
+must also remain present. Equipping armor replaces previously equipped armor
+that overlaps one of the fourteen normal BOD2 biped slots. Other equipment and
+unsupported BOD2 bits remain unchanged during equip resolution. Any overlap,
+including unsupported bits, still rejects the combat contact.
+Malformed armor or an armor type above clothing rejects the equip operation and
+combat contact. A legacy BODT record without an armor type remains equippable,
+then rejects the combat contact because no armor skill is available.
 Clothing does not add armor rating or the hidden category bonus. Item stacks
 retain their existing saved metadata, and unsupported instance modifiers reject
 the contact. Existing actor values supply skills and the non-equipment
@@ -94,6 +100,9 @@ Local sources read before implementation:
 - CommonLibSSE `TESObjectWEAP::templateWeapon` and
   `TESObjectARMO::templateArmor`, which name the runtime pointers for `CNAM`
   and `TNAM`.
+- TES5Edit/Core/wbDefinitionsTES5.pas BOD2/BODT biped mask layout and armor type.
+- CommonLibSSE include/RE/B/BipedObjects.h and BGSBipedObjectForm.h for the
+  fourteen normal biped slots and light, heavy and clothing type values.
 - uesp-modfileformat/WEAP.wikitext and ARMO.wikitext, including the distinction
   between animation type, governing skill and equip slot.
 - ck-wiki/OnHit_-_ObjectReference.wikitext for event arguments and actor
