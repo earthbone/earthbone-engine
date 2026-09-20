@@ -87,8 +87,9 @@ reconciles those branches. The reference-only gate recorded 835 passes,
 with gated tests allowed to return early when their inputs were absent.
 That is historical evidence, not the combined player-host gate.
 
-The registry now reports 345 stateful natives and 191 stubs. SOEV version 2
-retains version 1 reading and distinct wait clocks. SOEW is version 4.
+The registry now reports 345 stateful natives and 191 stubs. SOEV version 3
+retains version 1 and 2 reading, distinct wait clocks and variable slots keyed
+by declaring script. SOEW is version 4.
 Dispel stubs preserve learned and equipped spells. Deterministic fractional
 SPID rules are reported as unsupported. Material keys preserve alpha and
 culling while texture uploads stay shared. See [reference-audit.md](reference-audit.md)

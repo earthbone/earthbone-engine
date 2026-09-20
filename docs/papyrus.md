@@ -195,7 +195,7 @@ written by a small `Writer` and `Reader`, the same shape as `crates/game/src/vma
 same way the VM itself never owns PEX bytes across a save, only the objects
 and threads built from them.
 
-Magic `SOEV`, a `u16` version (2), then an array pool, then the VM body.
+Magic `SOEV`, a `u16` version (3), then an array pool, then the VM body.
 Everything a script variable can hold round trips: objects by id, strings,
 ints, floats, bools, and arrays. An array is a shared reference
 (`Rc<RefCell<Vec<Value>>>`), so it is pooled once by first-seen order and
@@ -220,6 +220,39 @@ Version 1 states still load. Their single clock initializes the real and
 menu clocks and implies game hours at timescale 20. A version 1 save cannot
 recover which old `Sleeping` states originated from the other wait calls.
 Version 2 preserves all three domains and includes them in the state hash.
+
+Version 3 keys instance variables by declaring script and variable name.
+Parent and child scripts can have private variables with the same name.
+Flattening them into one name map discarded a slot, which appeared when
+importing vanilla `defaultOnEnter` and `DefaultSetStageOnEnter` instances.
+Frame variable access now starts at the script defining the function. Auto
+properties use their declaring script's backing variable. Host variable
+queries can name the parent or child declaration through the script argument.
+The internal key prefixes the lowercase script name with its byte length,
+so names cannot collide through separator characters.
+
+Version 1 and 2 files still load. Their flat value is copied into each matching
+declaration. Those files cannot recover a parent value already discarded by
+the old VM. Distinct slots then remain independent in version 3.
+
+This follows the declaring-object resolution in Caprica's
+`PapyrusResolutionContext.cpp`, the inherited slot layout in FallrimTools
+`Script.getExtendedMembers`, and CommonLibSSE-NG's
+`src/RE/O/Object.cpp` variable indexing. The skymp variable holder was also
+read, but its flat name map does not preserve this case. No reference code
+was copied.
+
+`Vm::restore_instances` accepts resolved objects, saved state names and
+variables carrying their declaring scripts. It validates the entire batch
+before replacing instances and runs no initialization or state-change events.
+Existing threads are refused because replacing instance indices would
+invalidate their frames. Saved state names remain valid even when the loaded
+PEX has no body for that state, as the existing `GoToState` path permits.
+Function lookup then uses its normal empty-state fallback.
+
+The save crate supplies the vanilla slot-to-name adapter. This API restores
+instance data only. It does not restore saved stacks, schedule latent calls
+or resolve a vanilla object's game-world identity.
 
 A thread saved mid-`Utility.Wait` is a saved `Sleeping(seconds)` state on a
 frame sitting inside the wait, nothing about the scheduler is special-cased,

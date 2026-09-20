@@ -13,6 +13,7 @@ name = "soe_save"
 path = "src/lib.rs"
 
 [dependencies]
+soe-papyrus = { path = "../papyrus" }
 soe-trace = { path = "../trace" }
 encoding_rs = "0.8"
 flate2 = "1"
@@ -21,3 +22,4 @@ thiserror = "2"
 
 [dev-dependencies]
 lz4_flex = "0.11"
+soe-bsa = { path = "../bsa" }

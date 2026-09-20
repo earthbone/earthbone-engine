@@ -1390,6 +1390,8 @@ dependencies = [
  "encoding_rs",
  "flate2",
  "lz4_flex",
+ "soe-bsa",
+ "soe-papyrus",
  "soe-trace",
  "thiserror 2.0.20",
 ]

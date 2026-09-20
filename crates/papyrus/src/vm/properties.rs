@@ -27,14 +27,15 @@ impl Vm {
         let id = self
             .instance_on(object, script)
             .ok_or_else(|| VmError::UnknownScript(script.to_string()))?;
-        let auto_var = self.instances[id.0]
-            .chain
-            .iter()
-            .find_map(|s| s.object.property(property).and_then(|p| p.auto_var.clone()));
-        if let Some(var) = auto_var {
-            self.instances[id.0]
-                .vars
-                .insert(var.to_ascii_lowercase(), value);
+        let auto_var = self.instances[id.0].chain.iter().find_map(|s| {
+            s.object.property(property).and_then(|p| {
+                p.auto_var
+                    .as_ref()
+                    .map(|var| super::variable_key(&s.name, var))
+            })
+        });
+        if let Some(key) = auto_var {
+            self.instances[id.0].vars.insert(key, value);
             return Ok(());
         }
         // A full property has no backing variable of its own: the game runs
@@ -84,15 +85,15 @@ impl Vm {
         property: &str,
     ) -> Option<Value> {
         let id = self.instance_on(object, script)?;
-        let auto_var = self.instances[id.0]
-            .chain
-            .iter()
-            .find_map(|s| s.object.property(property).and_then(|p| p.auto_var.clone()));
-        if let Some(var) = auto_var {
-            return self.instances[id.0]
-                .vars
-                .get(&var.to_ascii_lowercase())
-                .cloned();
+        let auto_var = self.instances[id.0].chain.iter().find_map(|s| {
+            s.object.property(property).and_then(|p| {
+                p.auto_var
+                    .as_ref()
+                    .map(|var| super::variable_key(&s.name, var))
+            })
+        });
+        if let Some(key) = auto_var {
+            return self.instances[id.0].vars.get(&key).cloned();
         }
         let key = property.to_ascii_lowercase();
         let (owner, getter) = self.instances[id.0]
@@ -182,7 +183,7 @@ impl Vm {
         if let Some(var) = &p.auto_var {
             let v = self.instances[iid.0]
                 .vars
-                .get(&var.to_ascii_lowercase())
+                .get(&super::variable_key(&script.name, var))
                 .cloned()
                 .unwrap_or(Value::None);
             if let Some(d) = dest {
@@ -215,7 +216,7 @@ impl Vm {
         if let Some(var) = &p.auto_var {
             self.instances[iid.0]
                 .vars
-                .insert(var.to_ascii_lowercase(), value);
+                .insert(super::variable_key(&script.name, var), value);
             return;
         }
         match script.setters.get(&prop.to_ascii_lowercase()).cloned() {

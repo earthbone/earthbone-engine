@@ -19,6 +19,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::cursor::{Cursor, RefId};
 use crate::error::{Error, Result};
 
+pub mod restore;
 mod values;
 pub use values::{Value, ValueType};
 
