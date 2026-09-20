@@ -1095,7 +1095,7 @@ rejected instead of reported as inventory base forms. List semantics and
 active-effect recipients remain pending with inventory and magic execution.
 
 The condition evaluator implements functions 47, 56, 58, 59, 72, 74, 136,
-182, 264, 289, 359, 448, 543, 560, 629, 630 and 659. This is a bounded set,
+182, 264, 277, 289, 359, 448, 543, 560, 629, 630 and 659. This is a bounded set,
 not the entire CTDA contract. It supports ordered AND/OR groups, numeric or
 global comparisons, explicit references and caller-supplied quest aliases.
 Reserved PlayerRef resolves to the runtime player even without a placed record.
@@ -1181,7 +1181,7 @@ worktrees, including NPC Player base data when present.
 
 The shared condition evaluator reuses the crafting implementation and adds
 speaker/listener and owning-quest context. Supported function IDs are 1, 18,
-46, 47, 56, 58, 59, 67, 69, 70, 71, 72, 73, 74, 80, 136, 182, 264, 289, 359,
+46, 47, 56, 58, 59, 67, 69, 70, 71, 72, 73, 74, 80, 136, 182, 264, 277, 289, 359,
 403, 448, 543, 560, 566, 606, 629, 630 and 659. Run-on subject, target,
 explicit reference and quest alias are supported when their context exists.
 Conditions use current shared actor, quest, inventory and location state.
@@ -2520,3 +2520,58 @@ LeveledCharacter page also describes XLCM difficulty-specific selection,
 including Easy weighting and Very Hard tier advancement. Those selector rules
 are a separate gap. Zone reset and lock clearing remain owned by PRG-10.
 Importing vanilla ESS encounter-zone changes is outside this selection contract.
+
+## Ordinary perk purchases (PRG-02)
+
+`Game::check_perk_purchase` and `Game::purchase_perk` accept the first PERK
+record of a rank chain. They follow winning NNAM links, select the first
+unowned record and evaluate its top-level CTDA prerequisites on the player.
+Passing a later rank directly returns `NotRoot`. Missing records, deleted
+records, malformed purchase fields and cycles reject the complete chain.
+A preview spends nothing. Purchase checks again, inserts that rank's resolved
+FormID into the canonical actor perk set and consumes exactly one point.
+Failures preserve perk ownership and points. Lower ranks stay owned, and
+externally granted ranks are not charged again. Existing saves and hashes
+already contain both fields, so the save format is unchanged.
+
+Purchase conditions end at the first PRKE effect entry. Effect conditions
+never gate purchase. HasPerk and condition FormIDs use their winning record's
+master namespace. The root-only API is engine policy. CTDA 277, GetBaseActorValue, now reads the existing base
+component, excluding temporary and permanent buffs. Actor-value indices use
+the existing mapping for indices 0 through 45. Unknown indices, unavailable
+actors and unavailable run-on targets return typed errors. Other unsupported
+condition functions keep the shared evaluator's explicit error behavior.
+
+DATA Playable and the record Non-Playable flag gate purchases. The supported
+DATA profile has zero Trait, Level and Hidden, with Num Ranks zero or one.
+xEdit normalizes zero Num Ranks to one. Higher purchased ranks are separate
+NNAM-linked forms, not increments of PRKE's effect rank byte. Non-default
+Trait, Level, Hidden or Num Ranks greater than one return `UnsupportedData`.
+Their Skyrim-specific purchase meaning is tracked separately by PRG-16,
+including mod-authored inputs. Script AddPerk remains a separate grant path.
+This API does not execute entry-point effects, abilities or perk fragments,
+provide a skill menu, or implement beast-form point currencies.
+
+Sources read were local xEdit `wbDefinitionsTES5.pas` PERK, CTDA 277 and
+actor-value definitions, `wbDefinitionsCommon.pas` Num Ranks normalization,
+UESP `PERK.wikitext`, CommonLibSSE-NG `BGSPerk.h`, and CK AddPerk, HasPerk and
+GetBaseActorValue pages. SKSE `PapyrusActorValueInfo.cpp` independently tests
+HasPerk for every NNAM-linked rank. Together with authored HasPerk conditions,
+this supports retaining lower identities. That retention is an inference,
+without a direct original-runtime purchase comparison. NPC PRKR is a separate
+FormID plus rank byte. UESP labels that byte unused, and the existing NPC
+reader retains only its FormID. This purchase path does not reinterpret it.
+The full CK Perk page was absent from the local dump
+and its online fetch was unavailable. Non-default DATA rules therefore remain
+explicitly unsupported. The existing CTDA parser, condition evaluator, actor
+values and ownership/save paths were reused. No package or host node was added.
+
+Synthetic tests cover single-point consumption, false prerequisites, stale
+previews, base skill versus buffs, OR groups, unsupported conditions and
+actor values, effect-condition separation, winning override namespaces,
+missing/cyclic links, root-only requests, externally granted ranks, zero
+Num Ranks, non-playable records and save/load. The installed-data survey
+reads 475 winning perks across five masters. It validates all 397 root chains
+and exercises all five Armsman ranks, including a failed low-skill purchase.
+These tests do not establish original-runtime parity for non-default DATA,
+malformed graph policy, effect execution or menu behavior.

@@ -126,6 +126,7 @@ pub fn supports_function(function: u16) -> bool {
             | 136
             | 182
             | 264
+            | 277
             | 289
             | 359
             | 448
