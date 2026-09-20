@@ -24,6 +24,9 @@ open implementation, so both were read first.
   The Papyrus second pass follows `papyrus/Papyrus.java`,
   `DefinedElement.java`, `ScriptInstance.java`, `Reference.java`,
   `ArrayInfo.java`, `ActiveScript.java`, `Variable.java` and `Type.java`.
+  Execution data follows `StackFrame.java`, `OpcodeData.java`,
+  `Parameter.java`, `FragmentTask.java`, `FunctionMessage.java`,
+  `FunctionMessageData.java`, `SuspendedStack.java` and `QueuedUnbind.java`.
   These supply table order, optional fields, ID widths and value tags. The
   Java reader is not a Rust library, so this crate implements the documented
   layouts locally. No source code was copied.
@@ -72,7 +75,10 @@ when they were wrong and neither announces itself.
 - Type 1001, the Papyrus block: the string table, the script definitions with
   their member descriptors, script instances that bind scripts to forms,
   reference and array headers, runtime ID and active-script headers. The
-  second pass decodes instance and reference variables and array elements.
+  second pass decodes instance and reference variables and array elements,
+  then active-script bodies, saved function bodies and execution positions,
+  queued messages, both suspended-stack tables, unknown ID lists and queued
+  unbinds. Decoding ends after the Skyrim save-file version field.
 
 Papyrus values include null, object and struct references, strings, integers,
 floats, booleans, nested variants and array references. String indices are
@@ -82,13 +88,25 @@ Payloads retain file order, which can differ from header order. Null and boolean
 payloads and float bit patterns survive re-encoding. Unresolved object and
 array references remain IDs, since a dangling reference is readable save data.
 
+Saved frames retain their parameters, locals, instructions, owner, variable
+slots and instruction pointer. Instructions share the opcode table in the
+existing `soe-papyrus` crate. This adds no third-party dependencies, since its
+only runtime dependency is the existing `soe-trace` crate. Saved operands have
+32-bit string references and byte booleans, so the PEX operand reader cannot
+read them directly. Opcode values outside the Skyrim set return an error.
+
+Active bodies must match their headers by ID exactly once, independently of
+file order. Suspended IDs must be unique within each of the two tables, but
+may occur in both. Unresolved message, object and unbind IDs remain readable.
+Fragment tasks retain their discriminator, payload and optional variable.
+Function-message flags retain the signed-byte interpretation in FallrimTools.
+Unknown fields are retained without assigning them runtime behavior.
+
 ## What is left raw
 
 Change form payloads other than `QUST` stay as bytes, decoded on demand. The
-Papyrus block is decoded through array elements. Active-script bodies, stack
-frames, function messages, suspended stacks and the remaining tables stay raw.
-Only active-script headers precede instance variables. Stack bodies follow
-the decoded second-pass values, so they do not block reading those values.
+Papyrus auxiliary data after the save-file version stays raw, as does the
+original payload used when writing the save body.
 
 This is inspection, not VM restoration. Values are not applied to the running
 engine, inherited member descriptors are not joined to variable slots, and
@@ -103,8 +121,10 @@ the whole corpus.
 
 That raw-body check alone cannot validate decoded Papyrus values. The corpus
 also re-encodes the typed second pass with `Papyrus::value_data_bytes` and
-compares it with the original slice from `data_start` to `decoded_len`. This
-method is a diagnostic encoder for the decoded values, not a save editor.
+compares it with the original slice from `data_start` to `execution_start`.
+`Execution::to_bytes` independently re-encodes execution data and compares it
+with `execution_start..decoded_len`. These are diagnostic encoders for typed
+data, not a save editor or a VM scheduler.
 
 The file as a whole is deliberately not compared. Rebuilding it re-runs the
 compressor and nothing promises an encoder reproduces the game's exact output,
@@ -143,6 +163,11 @@ Dragonborn.
 | Papyrus value slots decoded, including array elements | 15,900,669 |
 | Papyrus arrays decoded | 19,194 |
 | Typed second-pass bytes re-encoded | 211,771,719 |
+| Typed Papyrus execution payloads round tripped byte for byte | 60 of 60 |
+| Active threads and stack frames decoded | 170 threads, 375 frames |
+| Saved instructions decoded | 4,900 |
+| Queued messages and suspended stacks decoded | 9 messages, 3 stacks |
+| Typed execution bytes re-encoded | 118,439 |
 | Change forms read | 1,344,172 |
 | Quest stage entries read | 92,077 |
 | Globals per save | 933, the same in every save |
@@ -177,3 +202,9 @@ rules out a misaligned field.
 No save with a mod load order was available, so the light plugin list is
 exercised only as an empty list, and `RefID` resolution through the form id
 array is exercised but not against a case where a mod supplies the form.
+
+Execution decoding is checked with synthetic reordered thread bodies,
+fragment variants, optional messages, malformed instructions and every
+truncated prefix of the execution fixture. The real corpus has few queued
+messages and suspended stacks. It does not establish how to resume latent
+native calls, reconstruct scheduler timing or apply change forms to the world.

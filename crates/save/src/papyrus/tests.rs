@@ -98,7 +98,14 @@ fn fixture() -> (Vec<u8>, usize, usize) {
         out.push(3);
         u32_bytes(&mut out, value);
     }
-    out.extend_from_slice(b"opaque stack and message tail");
+    u32_bytes(&mut out, 0x0102_0304);
+    out.extend_from_slice(&[1, 2, 0, 0, 0, 0, 0, 0, 0, 0]);
+    u32_bytes(&mut out, 0);
+    for _ in 0..6 {
+        u32_bytes(&mut out, 0);
+    }
+    out.extend_from_slice(&1u16.to_le_bytes());
+    out.extend_from_slice(b"opaque auxiliary tail");
     (out, data_start, instance_start)
 }
 
@@ -135,9 +142,13 @@ fn second_pass_ids_values_and_bit_patterns_are_preserved() {
     );
     assert_eq!(
         p.value_data_bytes().unwrap(),
-        bytes[p.data_start..p.decoded_len]
+        bytes[p.data_start..p.execution_start]
     );
-    assert_eq!(&bytes[p.decoded_len..], b"opaque stack and message tail");
+    assert_eq!(
+        p.execution.to_bytes().unwrap(),
+        bytes[p.execution_start..p.decoded_len]
+    );
+    assert_eq!(&bytes[p.decoded_len..], b"opaque auxiliary tail");
 }
 
 #[test]
