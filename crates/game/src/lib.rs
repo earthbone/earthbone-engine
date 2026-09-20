@@ -549,6 +549,28 @@ impl Game {
         ok
     }
 
+    /// Move an inventory item between two references through the same notified
+    /// transaction that Papyrus `RemoveItem` uses. A rejected transfer leaves
+    /// both holders unchanged.
+    pub fn transfer_item(
+        &mut self,
+        source: GlobalFormId,
+        item: GlobalFormId,
+        count: i32,
+        target: GlobalFormId,
+    ) -> i32 {
+        let vm = &mut self.vm;
+        let moved = self.world.borrow_mut().remove_item_notified(
+            source,
+            item,
+            count,
+            Some(target),
+            &mut |name, class| vm.create_object_of(name, class),
+        );
+        self.run_until_idle(64);
+        moved
+    }
+
     /// Deliver an event to a form's scripts and settle.
     pub fn send_event(&mut self, id: GlobalFormId, name: &str, args: &[Value]) -> Vec<ThreadId> {
         let object = self.object_of_form(id);

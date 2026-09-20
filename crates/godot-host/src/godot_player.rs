@@ -39,6 +39,7 @@ use crate::door_fade::DoorFade;
 use crate::input::devices::{godot_mouse_for, godot_pad_for, Devices, PadControl};
 use crate::input::{godot_key_for, Action, Bindings, ControlMap, Driver, InputState};
 
+mod containers;
 mod exterior;
 mod footsteps;
 mod gameplay;
@@ -113,6 +114,7 @@ pub struct PlayerNode {
     menu: crate::ui::MenuState,
     inventory_category: crate::inventory_menu::Category,
     menu_view: Option<menu::MenuView>,
+    container_menu: Option<(GlobalFormId, crate::inventory_menu::Category)>,
     restore_mouse_on_focus: Option<godot::classes::input::MouseMode>,
 }
 
@@ -159,6 +161,7 @@ impl INode3D for PlayerNode {
             menu: crate::ui::MenuState::default(),
             inventory_category: crate::inventory_menu::Category::All,
             menu_view: None,
+            container_menu: None,
             restore_mouse_on_focus: None,
         }
     }

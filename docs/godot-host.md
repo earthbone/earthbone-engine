@@ -1673,7 +1673,6 @@ in the player inventory, with a static floor in WhiterunBanneredMare. On Unix it
 links three installed archives into the output directory. Run it with a fresh
 output directory and the installed Data path, then set SOE_UI_TEST_DATA to that
 output when launching the headless script. No installed records are copied.
-
 Sources read locally were Godot's Control, Theme, Node and SceneTree class
 docs, gdext node ownership, secondary API registration and reentrant signal
 tests, and SkyUI SKI_ConfigBase's page/open/close lifecycle. The SkyUI source

@@ -140,6 +140,7 @@ impl PlayerNode {
         if !self.menu.open(&title.to_string()) {
             return false;
         }
+        self.container_menu = None;
         let previous_focus = self
             .base()
             .get_viewport()
