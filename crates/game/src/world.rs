@@ -67,6 +67,7 @@ pub use quest_restore::QuestRestoreReport;
 mod reference_restore;
 mod refs;
 pub use reference_restore::{MissingPlacementCell, ReferenceRemainder, ReferenceRestoreReport};
+mod leveled_items;
 mod rng;
 pub(crate) mod save;
 mod template_restore;

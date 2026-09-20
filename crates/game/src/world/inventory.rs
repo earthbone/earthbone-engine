@@ -16,6 +16,7 @@ impl World {
                     record.tag.as_bytes(),
                     b"ALCH"
                         | b"AMMO"
+                        | b"APPA"
                         | b"ARMO"
                         | b"BOOK"
                         | b"INGR"

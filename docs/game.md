@@ -162,7 +162,8 @@ Current behavior and compatibility limits:
   plugins included. `GetFormFromFile` takes the low 24 bits and a file name.
 - A leveled list is its `LVLO` entries in record order plus what `AddForm`
   appended. `Revert` truncates back to the record's entries and chance.
-  Nothing rolls a list yet, that is the inventory and spawn work.
+  Actor templates roll LVLN during initialization. The PRG-05 follow-up rolls
+  ordinary LVLI quantities through `World::roll_leveled_items`.
 - Location keyword data is run-time only and starts at zero, the record has
   no field for it. `IsChild` walks `PNAM` upward from the candidate,
   `HasCommonParent` intersects the two ancestor chains and applies the filter
@@ -198,6 +199,36 @@ Current behavior and compatibility limits:
   the class (`ReferenceAlias` or `LocationAlias`) of the VM object.
 
 ## Tests
+
+The `leveled-lists` follow-up adds `World::roll_leveled_items` for ordinary
+LVLI quantities. Callers supply the selection level and requested count.
+Highest eligible level, all eligible levels, per-count rolls, Use All,
+duplicate entry weighting, nested counts and live LVLG chance globals feed
+the saved world RNG. Use All selects every entry. Failed validation or
+overflow preserves RNG state and does not change an inventory or queue events.
+The graph is checked before selection, including unselected branches.
+Expansion is bounded to 128 nested lists, 4,096 distinct lists and 65,536
+list evaluations per call. Exceeding those bounds returns an error.
+
+Sources are local xEdit LVLI/LVLO/LVLG definitions, UESP LVLI flag descriptions,
+CommonLib TESLeveledList flags and the existing actor-template resolver.
+CommonLib's byte-returning GetChanceNone truncates fractional LVLG values.
+skymp LeveledListUtils supplied a recursion comparison. Its highest-level
+omission, global chance fallback and loss of nested entry counts were not
+copied. Existing list state, live globals and save/RNG paths are reused.
+APPA is accepted alongside the other inventory base signatures named by xEdit.
+No package or host node was added.
+
+The 19 leveled-item checks include a five-master survey of 3,835 LVLI records
+at levels 1, 20 and 50. It resolves 10,878 cases and reports 627 cases with
+unsupported flags. Special-loot selection is tracked by PRG-14 and COED
+ownership/condition propagation by PRG-15. Mixed Use All flags require the
+precedence evidence tracked by PRG-16. This quantity API rejects these cases
+before rolling. The survey encountered no COED rejection. AddItem dispatch
+and outfit initialization consume these results in their own backlog items.
+The fixtures also cover owner-relative override links, script list edits,
+save/load reproducibility, cycle rejection, overflow and the expansion bound.
+No comparison of the RNG sequence against Bethesda's runtime was performed.
 
 - Unit tests per module: VMAD round trip, object format 1, version 3, cuts at
   every offset and a hostile array count. QUST view. Clock. Scenario grammar
