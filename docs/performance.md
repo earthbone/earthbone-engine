@@ -427,3 +427,47 @@ Persistent worker pools, lazy archive payload storage and allocation-count
 gates remain unimplemented. They need separate measurements of worker startup,
 first-use latency and peak memory. The failed repeated startup run that retained
 two full archive sets is not included in the table.
+
+## Cold interior texture preparation, 2026-09-20
+
+HST-06 fixed a 50 ms cold texture preparation budget before its first timing
+run. OpenMW's `apps/openmw/mwgui/loadingscreen.cpp` uses the same initial delay
+before drawing a loading screen. The earlier Bannered Mare trace above reported
+44.7 ms of cold texture work, which put the declared boundary just above that
+known sample.
+
+The installed-data test clears `DataSource`'s prepared texture entries before
+each cell while retaining its load order and VFS. Cold therefore means a miss
+in the engine texture cache. It does not mean an empty operating-system page
+cache. The release test used one worker and one allowed CPU because a parallel
+data-source open peaked above the available memory during concurrent project
+work. `preparation` is the sum already recorded by
+`CellStats::texture_decode_time`. It is cumulative preparation work and can
+exceed elapsed wall time when cell work runs in parallel. This corpus fixed
+the worker count at one. `wall` includes the rest of `stream_cell_id`, but
+excludes Godot resource upload and collision building.
+
+| Fixed interior | References | Textures | Preparation ms | Wall ms | Fade |
+|---|---:|---:|---:|---:|---|
+| MarkarthSilverBloodInn | 794 | 114 | 48.417 | 75.657 | no |
+| WhiterunBanneredMare | 690 | 118 | 68.865 | 89.433 | yes |
+| RiftenBeeandBarb | 619 | 111 | 69.926 | 86.826 | yes |
+| FalkreathDeadMansDrink | 349 | 69 | 75.502 | 86.355 | yes |
+| BleakFallsBarrow01 | 2,465 | 143 | 78.721 | 230.207 | yes |
+| SolitudeWinkingSkeever | 975 | 146 | 90.991 | 115.431 | yes |
+| MorthalMoorsideInn | 348 | 81 | 97.145 | 105.614 | yes |
+| WinterholdTheFrozenHearth | 326 | 67 | 98.595 | 106.962 | yes |
+| WindhelmCandlehearthHall | 700 | 134 | 101.570 | 123.862 | yes |
+| DawnstarWindpeakInn | 353 | 83 | 106.797 | 115.210 | yes |
+| WhiterunDragonsreach | 1,432 | 174 | 158.486 | 193.273 | yes |
+| RiverwoodSleepingGiantInn | 481 | 97 | 241.598 | 254.647 | yes |
+
+Nearest-rank preparation percentiles are 90.991 ms at p50 and 158.486 ms at
+p90, with a 241.598 ms maximum. The test completed in 18.65 seconds after the
+release build and asserted the fade decision for every sample. Its monitored
+process peaked at 14,556,104 KiB RSS during data-source open, then exited zero.
+
+The separate headless Godot gameplay acceptance measured 367.029 ms of cold
+outbound preparation and activated the overlay. Warm return and input
+crossings each measured 0 ms and left it inactive. The process exited zero
+after 46.0 seconds, with a peak RSS of 15,273,864 KiB.

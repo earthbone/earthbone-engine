@@ -2,6 +2,7 @@ extends SceneTree
 
 ## Installed-data integration: one shared load, real VM, exterior door and return.
 var failures := 0
+const COLD_TEXTURE_PREPARATION_BUDGET_MS := 50.0
 
 func _initialize() -> void:
 	call_deferred("_run")
@@ -10,6 +11,16 @@ func _check(ok: bool, message: String) -> void:
 	if not ok:
 		failures += 1
 		printerr("FAIL: ", message)
+
+func _check_door_fade(player: Node3D, crossing: String) -> void:
+	var preparation_ms: float = player.call("last_texture_preparation_ms")
+	var expected := preparation_ms > COLD_TEXTURE_PREPARATION_BUDGET_MS
+	_check(player.call("door_fade_active") == expected,
+		crossing + " fade did not match preparation budget: " + str(preparation_ms))
+	var overlay := player.get_node_or_null("DoorFadeLayer/DoorFade")
+	_check(overlay != null, crossing + " fade overlay is missing")
+	if overlay != null:
+		_check(overlay.visible == expected, crossing + " fade overlay visibility is wrong")
 
 func _run() -> void:
 	var data := OS.get_environment("SKYRIM_DATA")
@@ -43,20 +54,24 @@ func _run() -> void:
 		_check(not chosen.is_empty(), "no unlocked load door")
 		if not chosen.is_empty():
 			_check(player.call("activate_reference", chosen.file, chosen.object), "outbound activation failed")
+			_check_door_fade(player, "outbound")
 			var outside: String = player.call("gameplay_cell")
 			_check(outside != start, "player did not leave the interior")
 			_check(streamer.call("instance_count") > 0, "exterior has no draw instances")
 			var landing: Vector3 = player.call("position")
 			for i in range(120):
 				player.call("advance", 1.0 / 60.0)
+			_check(not player.call("door_fade_active"), "outbound fade exceeded its bound")
 			_check(player.call("is_on_ground"), "exterior landing has no supporting collision")
 			var grounded: Vector3 = player.call("position")
 			_check(absf(grounded.z - landing.z) < 256.0, "player fell away from exterior landing")
 			_check(player.call("activate_reference", chosen.far_file, chosen.far_object), "return activation failed")
+			_check_door_fade(player, "return")
 			_check(player.call("gameplay_cell") == start, "return did not restore interior identity")
 			_check(streamer.call("instance_count") > 0, "returned interior has no draw instances")
 			for i in range(120):
 				player.call("advance", 1.0 / 60.0)
+			_check(not player.call("door_fade_active"), "return fade exceeded its bound")
 			_check(player.call("is_on_ground"), "interior landing has no supporting collision")
 			print("GAMEPLAY ROUNDTRIP: ", start, " -> ", outside, " -> ", player.call("gameplay_cell"),
 				" landing=", landing, " grounded=", grounded)
@@ -82,6 +97,7 @@ func _run() -> void:
 				known_door = known_door or picked == "%d:%06X" % [door.file, door.object]
 			_check(known_door, "Activate ray did not identify a load door: " + picked)
 			_check(player.call("gameplay_cell") == outside, "Activate input did not cross the door")
+			_check_door_fade(player, "input")
 			print("GAMEPLAY INPUT: hit=", player.call("last_activate_hit"), " picked=", picked,
 				" facing=", player.call("facing"), " destination=", player.call("gameplay_cell"))
 	player.free()

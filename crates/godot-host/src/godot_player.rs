@@ -20,10 +20,13 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::Path;
 use std::sync::Arc;
+use std::time::Duration;
 
+use godot::classes::control::{LayoutPreset, MouseFilter};
 use godot::classes::{
-    Camera3D, Engine, INode3D, Input, InputEventJoypadButton, InputEventJoypadMotion,
-    InputEventKey, InputEventMouseButton, InputEventMouseMotion, InputMap, Node3D,
+    Camera3D, CanvasLayer, ColorRect, Engine, INode3D, Input, InputEventJoypadButton,
+    InputEventJoypadMotion, InputEventKey, InputEventMouseButton, InputEventMouseMotion, InputMap,
+    Node3D,
 };
 use godot::global::{JoyAxis, JoyButton, Key, MouseButton};
 use godot::prelude::*;
@@ -32,6 +35,7 @@ use soe_physics::{BodyId, CharacterSettings, PhysicsWorld, SimpleWorld, Vec3};
 
 use crate::camera::{CameraMode, CameraMotion, CameraRig, Eye};
 use crate::data_source::DataSource;
+use crate::door_fade::DoorFade;
 use crate::input::devices::{godot_mouse_for, godot_pad_for, Devices, PadControl};
 use crate::input::{godot_key_for, Action, Bindings, ControlMap, Driver, InputState};
 
@@ -44,6 +48,10 @@ mod saves;
 /// vanilla reach is about this, and it is a setting rather than a constant so
 /// a later pass can read `fActivatePickLength` from the INI.
 const ACTIVATE_REACH: f32 = 180.0;
+
+struct DoorFadeView {
+    overlay: Gd<ColorRect>,
+}
 
 /// Drives one character through a cell's collision and places the camera.
 ///
@@ -82,6 +90,8 @@ pub struct PlayerNode {
     footstep_errors: u64,
     game_streamer: Option<Gd<crate::godot_layer::CellStreamerNode>>,
     loaded_cell: Option<GlobalFormId>,
+    door_fade: DoorFade,
+    door_fade_view: Option<DoorFadeView>,
     camera: Option<Gd<Camera3D>>,
     /// Mouse motion accumulated since the last camera or physics update, so a frame that
     /// delivers two motion events turns twice as far rather than once.
@@ -122,6 +132,8 @@ impl INode3D for PlayerNode {
             footstep_errors: 0,
             game_streamer: None,
             loaded_cell: None,
+            door_fade: DoorFade::default(),
+            door_fade_view: None,
             camera: None,
             pending_look: (0.0, 0.0),
             last_activate_hit: false,
@@ -144,6 +156,7 @@ impl INode3D for PlayerNode {
         );
         self.register_actions();
         self.create_camera();
+        self.create_door_fade();
         if self.capture_mouse {
             Input::singleton().set_mouse_mode(godot::classes::input::MouseMode::CAPTURED);
         }
@@ -342,6 +355,8 @@ impl PlayerNode {
         self.character = Some(id);
         self.world = Some(world);
         self.loaded_cell = Some(cell_id);
+        self.door_fade = DoorFade::default();
+        self.refresh_door_fade();
         self.melee_contact.cancel();
         self.melee_bodies.clear();
         self.collision_references = collision.references;
@@ -403,6 +418,7 @@ impl PlayerNode {
             activation_hit.and_then(|hit| self.collision_references.get(&hit.body).copied());
 
         self.advance_game(delta);
+        self.advance_door_fade(delta);
 
         self.motion.step(self.feet(), self.capsule_height());
         if !self.auto_step {
@@ -446,6 +462,24 @@ impl PlayerNode {
     #[func]
     fn footstep_errors(&self) -> i64 {
         self.footstep_errors as i64
+    }
+
+    /// Whether a cold door preparation currently leaves the fade visible.
+    #[func]
+    pub fn door_fade_active(&self) -> bool {
+        self.door_fade.is_active()
+    }
+
+    /// Most recent door texture preparation in milliseconds.
+    #[func]
+    pub fn last_texture_preparation_ms(&self) -> f64 {
+        self.door_fade.last_preparation().as_secs_f64() * 1000.0
+    }
+
+    /// Number of door preparations that exceeded the declared budget.
+    #[func]
+    pub fn door_fade_activations(&self) -> i64 {
+        i64::try_from(self.door_fade.activations()).unwrap_or(i64::MAX)
     }
 
     /// Whether the last activate press found something within reach.
@@ -716,6 +750,42 @@ impl PlayerNode {
             head.z + dir.z * ACTIVATE_REACH,
         );
         world.raycast(head, to)
+    }
+
+    fn create_door_fade(&mut self) {
+        let mut canvas = CanvasLayer::new_alloc();
+        canvas.set_name("DoorFadeLayer");
+        canvas.set_layer(90);
+        let mut overlay = ColorRect::new_alloc();
+        overlay.set_name("DoorFade");
+        overlay.set_color(Color::from_rgba(0.0, 0.0, 0.0, 0.0));
+        overlay.set_mouse_filter(MouseFilter::IGNORE);
+        overlay.hide();
+        canvas.add_child(&overlay);
+        self.base_mut().add_child(&canvas);
+        overlay.set_anchors_and_offsets_preset(LayoutPreset::FULL_RECT);
+        self.door_fade_view = Some(DoorFadeView { overlay });
+    }
+
+    pub(super) fn record_door_texture_preparation(&mut self, elapsed: Duration) {
+        self.door_fade.record_preparation(elapsed);
+        self.refresh_door_fade();
+    }
+
+    fn advance_door_fade(&mut self, delta: f64) {
+        if delta.is_finite() && delta > 0.0 {
+            self.door_fade.advance(Duration::from_secs_f64(delta));
+            self.refresh_door_fade();
+        }
+    }
+
+    fn refresh_door_fade(&mut self) {
+        let opacity = self.door_fade.opacity();
+        if let Some(view) = &mut self.door_fade_view {
+            view.overlay
+                .set_color(Color::from_rgba(0.0, 0.0, 0.0, opacity));
+            view.overlay.set_visible(opacity > 0.0);
+        }
     }
 
     fn create_camera(&mut self) {

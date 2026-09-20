@@ -1321,12 +1321,47 @@ restrictions denied an editor socket. Direct runtime execution succeeded.
 Swing animation remains unwired. Plain doors keep their authored
 mesh pose and immovable collision even when game state marks them open.
 Locked player picks use the shared game's key check. Without the key they
-remain closed, pending lockpicking UI. Resource
-preparation is synchronous, with no fade or measured frame-time bound yet.
+remain closed, pending lockpicking UI. Resource preparation is synchronous.
 Exterior streaming follows door landings only, not subsequent walking across
 grid boundaries. Runtime reference enable, placement and animation changes
 are not yet reflected in all drawn objects. Portal transitions and revised
 AI remain deferred until existing Skyrim gameplay works.
+
+### Cold door fade fallback (2026-09-20)
+
+Door texture preparation now has a 50 ms budget fixed before measurement.
+The source for that boundary is OpenMW's 50 ms delayed loading screen in
+`apps/openmw/mwgui/loadingscreen.cpp`, read beside this repository's earlier
+44.7 ms Bannered Mare cold texture trace. The full fixed-corpus distribution
+is recorded in [performance.md](performance.md#cold-interior-texture-preparation-2026-09-20).
+
+`DoorFade` uses a strict comparison. Preparation equal to 50 ms does not
+activate it, while one nanosecond more does. A trigger shows one black
+`ColorRect` under a fixed `CanvasLayer`, then reaches clear within 150 ms.
+Those are two player-owned control nodes, with no node per world reference.
+The overlay ignores mouse input. GDScript diagnostics expose the last texture
+preparation time, active state and activation count.
+
+The policy sums the existing `CellStats::texture_decode_time` across the
+destination cells. That is cumulative preparation work, so parallel cell work
+can make it larger than elapsed wall time. A warm destination reports no
+texture misses and does not fade. The installed release survey used one worker
+and found one 48.417 ms non-trigger and eleven triggers from 68.865 to 241.598
+ms, so the corpus exercises both decisions.
+Unit tests cover one nanosecond below, exactly at and one nanosecond above the
+budget, plus the 150 ms lifetime. The gameplay harness checks the policy and
+actual overlay visibility after every exterior and interior crossing.
+The installed headless Godot run observed a 367.029 ms cold outbound
+preparation and an active overlay. Its warm return and input crossings each
+reported 0 ms and kept the overlay hidden. All three crossings passed the
+policy check, and both triggered-lifetime checks were inactive after 120
+updates at 60 Hz. The monitored process exited zero after 46.0 seconds and
+peaked at 15,273,864 KiB RSS.
+
+Preparation remains synchronous. The last old-cell frame stays presented
+during that work. The overlay starts only after preparation, so it cannot hide
+or bound the main-thread stall. An over-budget destination enters behind black
+and fades in within 150 ms. Nearby-door prefetch remains HST-07.
 
 ## Footstep audio integration (2026-09-19)
 
