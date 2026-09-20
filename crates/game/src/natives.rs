@@ -632,7 +632,7 @@ fn object_reference(vm: &mut Vm, w: &Shared) {
     method!(vm, w, "ObjectReference", "AddItem", |world, call, me| {
         let count = call.args.get(1).map_or(1, Value::as_int);
         if let Some(item) = world.form_arg(&call.arg(0)) {
-            world.add_item_notified(me, item, count.max(1), &mut |name, class| {
+            world.add_item_notified(me, item, count, &mut |name, class| {
                 call.create_object(name, class)
             });
         }
@@ -692,6 +692,9 @@ fn object_reference(vm: &mut Vm, w: &Shared) {
             let name = text(&call.arg(0));
             match world.reference(me) {
                 Some(r) => {
+                    if let Some(item) = &mut r.item {
+                        item.set_display_name(&name);
+                    }
                     r.display_name = Some(name);
                     b(true)
                 }
@@ -881,6 +884,9 @@ fn object_reference(vm: &mut Vm, w: &Shared) {
             let owner = world.form_arg(&call.arg(0));
             if let Some(r) = world.reference(me) {
                 r.owner = owner;
+                if let Some(item) = &mut r.item {
+                    item.set_owner(owner);
+                }
             }
             none()
         });

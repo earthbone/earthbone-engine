@@ -456,7 +456,7 @@ fn active_effect_natives_distinguish_definition_target_and_blame_actor() {
 fn version_eight_worlds_load_without_active_effects() {
     let mut game = fixture(0, 1, 0.0, 10);
     let mut old = game.world().save_state();
-    old.truncate(old.len() - 28);
+    old.truncate(old.len() - 32);
     old[4..6].copy_from_slice(&8u16.to_le_bytes());
     cast(&mut game, SPELL, OTHER).unwrap();
     game.world_mut().load_state(&old).unwrap();

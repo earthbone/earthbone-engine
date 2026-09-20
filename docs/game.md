@@ -855,10 +855,10 @@ and running quest alias recipients have independent filters, applied when
 events are queued. Filter lists inspect immediate members only. Empty lists
 suppress events, and later filter changes do not cancel pending calls.
 The script-facing AddItem, RemoveItem and RemoveAllItems stack paths now
-queue these events too. Silent removal still notifies scripts. AddItem rejects
-unsupported reference, list and leveled-list inputs instead of reporting them
-as inventory base forms. Their full semantics and active-effect recipients
-remain pending with item-instance and magic execution.
+queue these events too. Silent removal still notifies scripts. AddItem accepts
+concrete item references as described below. List and leveled-list inputs are
+rejected instead of reported as inventory base forms. List semantics and
+active-effect recipients remain pending with inventory and magic execution.
 
 The condition evaluator implements functions 47, 56, 58, 59, 72, 74, 136,
 182, 264, 289, 359, 448, 543, 560, 629, 630 and 659. This is a bounded set,
@@ -1373,3 +1373,47 @@ then executes 184 supported weapons against synthetic actors. The remaining
 weapons reject unsupported types, templates or enchantments. Real armor records
 were decoded, while armor damage calculations use synthetic fixtures.
 These changes await commit and merge review on `combat-hits`.
+
+## Concrete inventory reference moves
+
+INV-01 extends ObjectReference.AddItem to accept a concrete reference with
+count one. A loose reference owns one item stack until pickup. The complete
+quantity and extra-data list move into the destination inventory, while the
+loose reference becomes disabled and leaves its cell. A later AddItem moves
+that same stack between holders. It does not create another copy. Invalid
+counts, container objects, missing destinations, self-transfers and quantity
+overflow leave item quantities and event queues unchanged.
+
+The original reference identity uses mapped ExtraOriginalReference data,
+kind 32. ExtraReferenceHandle, kind 28, is container metadata and cannot claim
+that identity. Ordinary quantity removal consumes plain items first. A partial
+split retains the original identity only on the remainder. Full transfer keeps
+it with the moved stack. Consumption leaves no loose stack to recreate, even
+after save/load. Transfers clear worn flags and preserve the other extras.
+
+OnItemAdded and OnItemRemoved carry the concrete reference and source or target
+container. OnContainerChanged follows a pickup or transfer. Destruction by
+RemoveItem does not queue OnContainerChanged. Inventory filters continue to
+apply to holder and running-alias notifications.
+
+SOEW version 16 adds loose item metadata. It reads older versions by building
+loose metadata from their reference state and authored record. New saves check
+for duplicate contained identities and loose/contained collisions before
+replacing world state. Older saves and imported stacks can name a contained reference that has no
+loaded placement. Load reconstructs that identity from its record or from the
+saved stack base, clears loose placement and reserves dynamic IDs. Item
+metadata participates in the world hash.
+
+Sources read locally were CK AddItem, OnItemAdded and OnContainerChanged,
+CommonLibSSE-NG ExtraOriginalReference, ExtraReferenceHandle and ExtraDataTypes,
+and xEdit wbDefinitionsTES5.pas REFR. The authored loose fields initialized here
+are XCNT, XCHG, XOWN and XRNK. SetActorOwner, SetFactionOwner and SetDisplayName
+update loose metadata before pickup. Runtime stacks retain arbitrary mapped extras,
+including quality, enchantment, poison and text metadata. This does not add
+restoration of general loose-reference ESS extras or dropped-item physics.
+No dependency or per-reference host node was added.
+
+The inventory_references fixtures check loose pickup, quantity-three pickup,
+exact-stack transfer, adjacent plain items, notification identity, consumed
+references, partial splits, overflow, Papyrus calls, legacy-save migration,
+metadata hashing, stable save bytes and atomic rejection of corrupt saves.

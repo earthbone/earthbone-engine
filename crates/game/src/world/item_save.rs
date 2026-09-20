@@ -106,12 +106,7 @@ pub(super) fn write_stacks(w: &mut Writer, inventory: &Inventory) {
         let stacks = inventory.stacks(*id);
         w.len(stacks.len());
         for stack in stacks {
-            w.i32(stack.count());
-            w.len(stack.extras().len());
-            for extra in stack.extras() {
-                w.u8(extra.kind);
-                write_fields(w, &extra.fields);
-            }
+            write_stack(w, stack);
         }
     }
 }
@@ -130,16 +125,7 @@ fn read_stacks(r: &mut Reader<'_>, inventory: &mut Inventory) -> Result<(), VmEr
         }
         let mut stacks = Vec::new();
         for _ in 0..n {
-            let count = r.i32()?;
-            let n = r.len()?;
-            let mut extras = Vec::new();
-            for _ in 0..n {
-                extras.push(Extra {
-                    kind: r.u8()?,
-                    fields: read_fields(r, 0)?,
-                });
-            }
-            stacks.push(Stack::new(count, extras).map_err(bad)?);
+            stacks.push(read_stack(r)?);
         }
         inventory
             .restore(id, inventory.count(id), stacks)
@@ -185,4 +171,116 @@ pub(super) fn read_item_stacks(
         read_stacks(r, &mut state.inventory)?;
     }
     Ok(())
+}
+
+pub(super) fn write_stack(w: &mut Writer, stack: &Stack) {
+    w.i32(stack.count());
+    w.len(stack.extras().len());
+    for extra in stack.extras() {
+        w.u8(extra.kind);
+        write_fields(w, &extra.fields);
+    }
+}
+
+fn read_stack(r: &mut Reader<'_>) -> Result<Stack, VmError> {
+    let count = r.i32()?;
+    let n = r.len()?;
+    let mut extras = Vec::new();
+    for _ in 0..n {
+        extras.push(Extra {
+            kind: r.u8()?,
+            fields: read_fields(r, 0)?,
+        });
+    }
+    Stack::new(count, extras).map_err(bad)
+}
+
+impl World {
+    pub(super) fn write_loose_items(&self, w: &mut Writer) {
+        let items: BTreeMap<_, _> = self
+            .refs
+            .iter()
+            .filter_map(|(id, state)| state.item.as_ref().map(|item| (id, item)))
+            .collect();
+        w.len(items.len());
+        for (id, item) in items {
+            write_form_id(w, *id);
+            write_stack(w, item);
+        }
+    }
+
+    pub(super) fn read_loose_items(
+        &self,
+        r: &mut Reader<'_>,
+        refs: &mut HashMap<GlobalFormId, RefState>,
+    ) -> Result<(), VmError> {
+        let n = r.len()?;
+        let mut seen = BTreeSet::new();
+        for _ in 0..n {
+            let id = read_form_id(r)?;
+            let state = refs
+                .get_mut(&id)
+                .ok_or_else(|| bad("unknown loose reference"))?;
+            if !seen.insert(id) || !state.base.is_some_and(|base| self.is_inventory_base(base)) {
+                return Err(bad("duplicate or non-item loose reference"));
+            }
+            let item = read_stack(r)?;
+            if item.count() <= 0 || item.reference().is_some_and(|reference| reference != id) {
+                return Err(bad("invalid loose item identity or quantity"));
+            }
+            state.item = Some(item);
+        }
+        Ok(())
+    }
+
+    pub(super) fn reconcile_item_references(
+        &self,
+        refs: &mut HashMap<GlobalFormId, RefState>,
+        version: u16,
+    ) -> Result<Option<u32>, VmError> {
+        let mut identities = BTreeMap::new();
+        for (&holder, state) in refs.iter() {
+            for (base, total) in state.inventory.iter() {
+                for stack in state.inventory.stacks(*base) {
+                    let Some(id) = stack.reference() else {
+                        continue;
+                    };
+                    if stack.count() <= 0
+                        || stack.count() > total
+                        || id == holder
+                        || identities.insert(id, *base).is_some()
+                    {
+                        return Err(bad("duplicate or invalid contained reference identity"));
+                    }
+                }
+            }
+        }
+        let mut dynamic = None;
+        for (id, base) in identities {
+            if id.file == super::DYNAMIC_FILE {
+                dynamic = Some(dynamic.unwrap_or(0).max(id.object));
+            }
+            let missing = !refs.contains_key(&id);
+            let state = refs.entry(id).or_insert_with(|| {
+                self.load_ref_record(id)
+                    .unwrap_or_else(|| RefState::new(Some(base)))
+            });
+            if state.base != Some(base)
+                || state.is_actor
+                || (version >= 16 && !missing && state.item.is_some())
+            {
+                return Err(bad("contained reference conflicts with loose identity"));
+            }
+            state.item = None;
+            state.enabled = false;
+            state.cell = None;
+        }
+        Ok(dynamic)
+    }
+
+    pub(super) fn migrate_loose_items(&self, refs: &mut HashMap<GlobalFormId, RefState>) {
+        for (&id, state) in refs {
+            state.item = self.loose_item(state.base, state.owner, self.order.winner(id));
+        }
+    }
 }

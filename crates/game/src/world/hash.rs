@@ -156,6 +156,12 @@ fn ref_state(h: &mut StateHasher, s: &RefState) {
     let mut stacks = soe_papyrus::vm::state::Writer::new();
     super::item_save::write_stacks(&mut stacks, &s.inventory);
     h.bytes(&stacks.out);
+    h.bool(s.item.is_some());
+    if let Some(item) = &s.item {
+        let mut data = soe_papyrus::vm::state::Writer::new();
+        super::item_save::write_stack(&mut data, item);
+        h.bytes(&data.out);
+    }
     h.len(s.linked.len());
     for (keyword, target) in &s.linked {
         opt_form(h, *keyword);

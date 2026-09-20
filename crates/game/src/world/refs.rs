@@ -123,6 +123,7 @@ impl World {
         // reference is built here rather than at start, which is why the swap
         // is held until now. See `crate::moddata`.
         st.base = st.base.map(|b| self.mod_data.swap(b));
+        st.item = self.loose_item(st.base, st.owner, Some(rec));
         Some(st)
     }
 
@@ -227,6 +228,7 @@ impl World {
             st.enabled = false;
         }
         st.inventory = self.reference_inventory(Some(id), base);
+        st.item = self.loose_item(Some(base), None, None);
         self.refs.insert(id, st);
         id
     }
@@ -279,31 +281,46 @@ impl World {
         count: i32,
         target: Option<GlobalFormId>,
     ) -> i32 {
-        let moved = count.min(self.item_count(holder, item)).max(0);
+        self.remove_item_bundle(holder, item, count, target).count()
+    }
+
+    pub(super) fn remove_item_bundle(
+        &mut self,
+        holder: GlobalFormId,
+        item: GlobalFormId,
+        count: i32,
+        target: Option<GlobalFormId>,
+    ) -> crate::inventory::Bundle {
+        let moved = count
+            .min(
+                self.reference(holder)
+                    .map_or(0, |state| state.inventory.count(item)),
+            )
+            .max(0);
         if moved == 0 || target == Some(holder) {
-            return 0;
+            return crate::inventory::Bundle::default();
         }
         if let Some(target) = target {
             let Some(recipient) = self.reference(target) else {
-                return 0;
+                return crate::inventory::Bundle::default();
             };
             if recipient.inventory.count(item).checked_add(moved).is_none() {
-                return 0;
+                return crate::inventory::Bundle::default();
             }
         }
         let Some(source) = self.refs.get_mut(&holder) else {
-            return 0;
+            return crate::inventory::Bundle::default();
         };
         let mut bundle = source.inventory.take(item, moved);
         if let Some(target) = target {
             bundle.unequip();
             // CONTEXT: Both references and recipient capacity were checked above.
             if let Some(recipient) = self.refs.get_mut(&target) {
-                let result = recipient.inventory.receive(item, bundle);
+                let result = recipient.inventory.receive(item, bundle.clone());
                 debug_assert!(result.is_ok());
             }
         }
-        moved
+        bundle
     }
 
     pub fn move_to(&mut self, id: GlobalFormId, target: GlobalFormId, offset: [f32; 3]) -> bool {

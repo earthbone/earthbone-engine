@@ -102,6 +102,47 @@ impl Stack {
         self.extras.iter().find(|extra| extra.kind == kind)
     }
 
+    /// The concrete item identity from CommonLib's ExtraOriginalReference.
+    /// ExtraReferenceHandle names a container and is not an item identity.
+    pub fn reference(&self) -> Option<GlobalFormId> {
+        match self.extra(32)?.fields.as_slice() {
+            [Field::Form(reference)] => *reference,
+            _ => None,
+        }
+    }
+
+    pub(crate) fn with_reference(mut self, reference: GlobalFormId) -> Self {
+        self.extras.retain(|extra| extra.kind != 32);
+        self.extras.push(Extra {
+            kind: 32,
+            fields: vec![Field::Form(Some(reference))],
+        });
+        self
+    }
+
+    pub(crate) fn set_owner(&mut self, owner: Option<GlobalFormId>) {
+        self.extras.retain(|extra| extra.kind != 33);
+        if let Some(owner) = owner {
+            self.extras.push(Extra {
+                kind: 33,
+                fields: vec![Field::Form(Some(owner))],
+            });
+        }
+    }
+
+    pub(crate) fn set_display_name(&mut self, name: &str) {
+        self.extras.retain(|extra| extra.kind != 153);
+        self.extras.push(Extra {
+            kind: 153,
+            fields: vec![
+                Field::Form(None),
+                Field::Form(None),
+                Field::Word(0xffff_fffe),
+                Field::Text(name.as_bytes().to_vec()),
+            ],
+        });
+    }
+
     pub fn worn(&self) -> bool {
         self.extra(22).is_some() || self.extra(23).is_some()
     }
@@ -116,6 +157,13 @@ pub struct Bundle {
 }
 
 impl Bundle {
+    pub(crate) fn from_stack(stack: Stack) -> Self {
+        Self {
+            total: stack.count,
+            stacks: vec![stack],
+        }
+    }
+
     pub fn count(&self) -> i32 {
         self.total
     }
@@ -139,6 +187,51 @@ pub struct Inventory {
 impl Inventory {
     pub fn count(&self, item: GlobalFormId) -> i32 {
         self.entries.get(&item).map_or(0, Bundle::count)
+    }
+
+    /// Quantity carried by a particular original reference, excluding other copies.
+    pub fn reference_count(&self, reference: GlobalFormId) -> i32 {
+        self.entries.values().fold(0_i32, |total, entry| {
+            let count = entry
+                .stacks
+                .iter()
+                .filter(|stack| stack.reference() == Some(reference))
+                .fold(0_i32, |sum, stack| sum.saturating_add(stack.count.max(0)));
+            total.saturating_add(count.min(entry.total))
+        })
+    }
+
+    pub(crate) fn find_reference(&self, reference: GlobalFormId) -> Option<(GlobalFormId, &Stack)> {
+        self.entries.iter().find_map(|(&item, entry)| {
+            entry
+                .stacks
+                .iter()
+                .find(|stack| {
+                    stack.reference() == Some(reference)
+                        && stack.count > 0
+                        && stack.count <= entry.total
+                })
+                .map(|stack| (item, stack))
+        })
+    }
+
+    pub(crate) fn take_reference(
+        &mut self,
+        reference: GlobalFormId,
+    ) -> Option<(GlobalFormId, Bundle)> {
+        let (item, _) = self.find_reference(reference)?;
+        let entry = self.entries.get_mut(&item)?;
+        let index = entry
+            .stacks
+            .iter()
+            .position(|stack| stack.reference() == Some(reference))?;
+        let stack = entry.stacks.remove(index);
+        entry.total -= stack.count;
+        let bundle = Bundle::from_stack(stack);
+        if entry.total == 0 && entry.stacks.is_empty() {
+            self.entries.remove(&item);
+        }
+        Some((item, bundle))
     }
 
     pub fn stacks(&self, item: GlobalFormId) -> &[Stack] {
@@ -225,6 +318,10 @@ impl Inventory {
             let n = remaining.min(stack.count);
             let mut part = stack.clone();
             part.count = n;
+            // CONTEXT: Splitting quantity cannot clone a concrete reference identity.
+            if n < stack.count {
+                part.extras.retain(|extra| extra.kind != 32);
+            }
             taken.stacks.push(part);
             stack.count -= n;
             remaining -= n;
