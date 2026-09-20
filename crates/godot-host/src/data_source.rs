@@ -103,7 +103,7 @@ pub struct CellStats {
     pub meshes_parsed: usize,
     pub meshes_failed: usize,
     pub triangles: usize,
-    /// Distinct (diffuse, normal) texture path pairs seen across the cell's
+    /// Distinct diffuse, normal and glow texture sets seen across the cell's
     /// materials, lowercased. This is the number of `StandardMaterial3D`
     /// instances the Godot layer builds, one per set.
     pub distinct_texture_sets: usize,
@@ -138,7 +138,7 @@ pub struct LoadedSurface {
     pub textures: SurfaceTextures,
 }
 
-/// A surface's diffuse and normal textures, ready to upload. `None` means
+/// A surface's diffuse, normal and glow textures, ready to upload. `None` means
 /// the material named no texture in that slot, or the read or decode
 /// failed, counted in `CellStats` either way. `Arc` because a texture shared
 /// by many statics is read once on whichever worker thread reaches it first
@@ -150,6 +150,7 @@ pub struct SurfaceTextures {
     /// channels alone are the normal map, alpha is not a transparency mask
     /// here even though the decoded form carries one.
     pub normal: Option<Arc<TextureData>>,
+    pub glow: Option<Arc<TextureData>>,
 }
 
 pub struct LoadedCell {
@@ -410,7 +411,7 @@ impl DataSource {
         let results = self.build_all(&work)?;
         let after = self.textures.counters();
         let mut surfaces = Vec::new();
-        let mut texture_sets: HashSet<(Option<String>, Option<String>)> = HashSet::new();
+        let mut texture_sets = HashSet::new();
         for ((model, _, reference), result) in work.iter().zip(results) {
             match result {
                 Ok(built) => {
@@ -420,6 +421,7 @@ impl DataSource {
                         texture_sets.insert((
                             arrays.material.diffuse.as_deref().map(soe_bsa::normalize),
                             arrays.material.normal.as_deref().map(soe_bsa::normalize),
+                            arrays.material.glow_texture().map(soe_bsa::normalize),
                         ));
                         surfaces.push(LoadedSurface {
                             reference: *reference,
@@ -622,6 +624,8 @@ fn material_desc_from(shape: &NifMesh) -> MaterialDesc {
         diffuse: m.diffuse().map(str::to_string),
         normal: m.normal().map(str::to_string),
         glow: m.glow().map(str::to_string),
+        emissive_color: m.emissive_color,
+        emissive_multiple: m.emissive_multiple,
         environment: m.environment().map(str::to_string),
         shader_flags_1: m.flags1,
         shader_flags_2: m.flags2,
@@ -632,3 +636,10 @@ fn material_desc_from(shape: &NifMesh) -> MaterialDesc {
 
 #[cfg(test)]
 mod placement_tests;
+
+#[cfg(test)]
+mod emission_tests;
+
+#[cfg(test)]
+#[path = "../../nif/tests/common/mod.rs"]
+mod fixture;

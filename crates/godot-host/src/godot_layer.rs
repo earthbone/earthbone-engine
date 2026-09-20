@@ -16,7 +16,9 @@ use std::path::Path;
 use std::sync::Arc;
 use std::thread::JoinHandle;
 
-use godot::classes::base_material_3d::{CullMode, Feature, TextureParam, Transparency};
+use godot::classes::base_material_3d::{
+    CullMode, EmissionOperator, Feature, TextureParam, Transparency,
+};
 use godot::classes::image::Format;
 use godot::classes::mesh::{ArrayType, PrimitiveType};
 use godot::classes::{
@@ -704,6 +706,18 @@ fn decal_material(
             material.set_shader_parameter("has_normal", &true.to_variant());
         }
     }
+    let color = Color::from_rgb(
+        desc.emissive_color[0],
+        desc.emissive_color[1],
+        desc.emissive_color[2],
+    );
+    material.set_shader_parameter("emission_color", &color.to_variant());
+    material.set_shader_parameter("emission_strength", &desc.emissive_multiple.to_variant());
+    if let Some(data) = &textures.glow {
+        if let Some(texture) = cached_texture(cache, desc.glow_texture(), data) {
+            material.set_shader_parameter("glow_texture", &texture.to_variant());
+        }
+    }
     material
 }
 
@@ -734,11 +748,15 @@ render_mode {depth}, {cull}{test};
 uniform sampler2D albedo_texture : source_color, hint_default_white, filter_linear_mipmap_anisotropic, repeat_enable;
 uniform sampler2D normal_texture : hint_normal, filter_linear_mipmap_anisotropic, repeat_enable;
 uniform bool has_normal = false;
+uniform sampler2D glow_texture : source_color, hint_default_white, filter_linear_mipmap_anisotropic, repeat_enable;
+uniform vec4 emission_color : source_color = vec4(0.0, 0.0, 0.0, 1.0);
+uniform float emission_strength = 1.0;
 void fragment() {{
     vec4 color = texture(albedo_texture, UV);
     ALBEDO = color.rgb;
     ROUGHNESS = 1.0;
     if (has_normal) {{ NORMAL_MAP = texture(normal_texture, UV).rgb; }}
+    EMISSION = emission_color.rgb * emission_strength * texture(glow_texture, UV).rgb;
     {alpha}
     float slope = max(abs(dFdx(FRAGCOORD.z)), abs(dFdy(FRAGCOORD.z)));
     DEPTH = min(1.0, FRAGCOORD.z + 0.65 * slope + 0.0000001);
@@ -792,6 +810,22 @@ fn material_with_textures(
         if let Some(tex) = cached_texture(cache, material.normal.as_deref(), normal) {
             mat.set_feature(Feature::NORMAL_MAPPING, true);
             mat.set_texture(TextureParam::NORMAL, &tex);
+        }
+    }
+
+    if material.emits_light() {
+        mat.set_feature(Feature::EMISSION, true);
+        mat.set_emission(Color::from_rgb(
+            material.emissive_color[0],
+            material.emissive_color[1],
+            material.emissive_color[2],
+        ));
+        mat.set_emission_energy_multiplier(material.emissive_multiple);
+        if let Some(glow) = &textures.glow {
+            if let Some(texture) = cached_texture(cache, material.glow_texture(), glow) {
+                mat.set_emission_operator(EmissionOperator::MULTIPLY);
+                mat.set_texture(TextureParam::EMISSION, &texture);
+            }
         }
     }
 

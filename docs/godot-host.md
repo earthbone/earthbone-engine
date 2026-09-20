@@ -270,6 +270,50 @@ NIF. Both are closed below. Per-cell triangle and byte budgets, and interior cel
 proximity rather than by editor id, are still unstarted, `stream_cell` loads exactly the one
 cell it is asked for.
 
+## Emissive materials, RND-06 (2026-09-20)
+
+The host carries BSLightingShaderProperty emissive RGB and multiplier into
+Godot materials. Slot two is loaded as a glow texture only when
+`SLSF2_Glow_Map` is set. The slot has other uses on skin and hair shaders,
+so its presence alone does not enable glow. Authored emission without a glow
+map remains a constant color.
+
+The local references are `nifxml/nif.xml` for the slot and flag,
+`OpenMW/components/nifosg/nifloader.cpp` for emissive color and multiplier,
+`community-shaders/package/Shaders/Lighting.hlsl` for their multiplication
+with the glow sample, and `godot-docs/classes/class_basematerial3d.rst` for
+Godot's emission operator and energy multiplier. The NIF reader already
+retains these fields. Only its independent test writer needed an emission
+parameter. No format parser or new dependency was added.
+
+The standard material uses Godot's multiply emission operator when a glow
+texture is bound, and color-only emission otherwise. The decal
+shader receives the same color, multiplier and sRGB texture. Material and
+batch keys include all three so shared diffuse maps cannot combine distinct
+emission states. The existing VFS and source texture cache resolve and share
+glow maps, including loose-file overrides. Production geometry still uses
+RenderingServer instances, with no new per-reference nodes.
+
+`emission_fixture_preserves_authored_material_and_gates_shared_texture_slot`
+constructs eight independent NIF materials through the existing NIF writer,
+loads them through the cell pipeline, and checks authored values, texture
+selection and separate material/batch keys. `SOE_EMISSION_FIXTURE` retains the
+generated five-master, NIF and DDS fixture for `godot/emission_test.gd`.
+The render test uses the production streamer, material cache and texture
+upload. It checks standard and decal paths in both cache orders. Before its
+first run, the limits were set to 0.08 sRGB error for authored linear emission
+strengths 0.25 and 0.5, and 0.03 for dark pixels. A non-emissive control stays
+dark, a black glow texel masks emission, and slot two without the glow flag
+does not mask constant-color emission. No installed game asset is required.
+
+The Godot 4.4.1 Forward+ run passed all sixteen cases on 2026-09-20.
+Readback red values were 0.5373 and 0.7373 for the two authored strengths,
+and zero on dark controls and black glow samples. Explicit `force_draw`
+keeps the automated fixture independent of desktop window visibility. The
+full gate passed 1,197 top-level Rust tests and eleven Python tests, with
+all optional tools present. The determinism tests also run three child
+process checks, which are excluded from that top-level count.
+
 ## Materials (2026-09-17)
 
 `soe-dds` is now a `godot-host` dependency. `data_source.rs` resolves each surface's

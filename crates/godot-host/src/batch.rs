@@ -31,6 +31,9 @@ use crate::mesh::{Aabb, AlphaMode, SurfaceArrays};
 pub struct BatchKey {
     pub diffuse: Option<String>,
     pub normal: Option<String>,
+    pub glow: Option<String>,
+    pub emissive_color: [u32; 3],
+    pub emissive_multiple: u32,
     /// `AlphaMode` flattened to a kind byte and a cutout threshold.
     pub alpha: (u8, u8),
     pub double_sided: bool,
@@ -46,6 +49,9 @@ impl BatchKey {
         BatchKey {
             diffuse: m.diffuse.as_deref().map(str::to_lowercase),
             normal: m.normal.as_deref().map(str::to_lowercase),
+            glow: m.glow_texture().map(str::to_lowercase),
+            emissive_color: m.emissive_color.map(f32::to_bits),
+            emissive_multiple: m.emissive_multiple.to_bits(),
             alpha: match m.alpha {
                 AlphaMode::Opaque => (0, 0),
                 AlphaMode::Cutout(t) => (1, t),

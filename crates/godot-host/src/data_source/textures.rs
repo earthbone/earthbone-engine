@@ -155,6 +155,9 @@ impl TextureCache {
                 .normal
                 .as_deref()
                 .and_then(|p| self.get_or_decode(vfs, p)),
+            glow: material
+                .glow_texture()
+                .and_then(|p| self.get_or_decode(vfs, p)),
         }
     }
 
