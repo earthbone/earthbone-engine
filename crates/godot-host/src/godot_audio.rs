@@ -33,12 +33,7 @@ use soe_audio::{Pcm, SoundSource};
 use soe_bsa::Vfs;
 
 use crate::audio::{to_i16_bytes, to_mono, Kind, VoicePool};
-use crate::data_source::DataSource;
-
-/// The archives a sound can come out of, in load order. Voices are split per
-/// language and only the English set is named here, which is what the
-/// installed game under test ships.
-const SOUND_ARCHIVES: [&str; 2] = ["Skyrim - Sounds.bsa", "Skyrim - Voices_en0.bsa"];
+use crate::data_source::{vfs_from_loadout, DataSource};
 
 /// How many sounds may play at once.
 ///
@@ -110,32 +105,42 @@ impl INode3D for SoundBank {
 
 #[godot_api]
 impl SoundBank {
-    /// Indexes the sound archives under `data_dir`, plus `data_dir` itself as
-    /// a loose overlay so a replacer beats the archive. Returns false and
-    /// records the reason on failure.
+    /// Indexes the resolved vanilla profile for `data_dir`, including only the
+    /// voice archives named by its selected language. Returns false and records
+    /// the reason on failure.
     // gdext hands a `#[func]` its arguments by value, so these three take an
     // owned GString whether or not they consume it.
     #[allow(clippy::needless_pass_by_value)]
     #[func]
     fn open_data(&mut self, data_dir: GString) -> bool {
         let dir = std::path::PathBuf::from(data_dir.to_string());
-        let mut vfs = Vfs::new();
-        for name in SOUND_ARCHIVES {
-            let path = dir.join(name);
-            if !path.exists() {
-                self.last_error =
-                    GString::from(format!("no archive at {}", path.display()).as_str());
-                return false;
-            }
-            if let Err(e) = vfs.add_archive_path(&path) {
-                self.last_error = GString::from(format!("{name}: {e}").as_str());
-                return false;
-            }
-        }
-        if let Err(e) = vfs.add_loose_root(&dir) {
-            self.last_error = GString::from(format!("loose overlay: {e}").as_str());
+        let Some(game_dir) = dir.parent() else {
+            self.last_error = GString::from("data directory has no game directory");
             return false;
-        }
+        };
+        let loadout = match (soe_profile::LoadoutInput {
+            game_dir: game_dir.to_path_buf(),
+            data_roots: vec![dir],
+            plugins_txt: None,
+            loadorder_txt: None,
+            ini_dir: None,
+            ccc: None,
+        })
+        .resolve()
+        {
+            Ok(loadout) => loadout,
+            Err(error) => {
+                self.last_error = GString::from(error.to_string().as_str());
+                return false;
+            }
+        };
+        let vfs = match vfs_from_loadout(&loadout) {
+            Ok(vfs) => vfs,
+            Err(error) => {
+                self.last_error = GString::from(error.to_string().as_str());
+                return false;
+            }
+        };
         self.vfs = Some(vfs);
         self.source = None;
         self.clear_streams();
