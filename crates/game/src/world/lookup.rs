@@ -69,7 +69,7 @@ impl World {
         Some(self.resolve_text(id, T(b"FULL"), &text))
     }
 
-    /// The `DESC` of a form as text, `<string N>` when localized.
+    /// The `DESC` of a form as text, `<string N>` when its table entry is absent.
     pub fn description_of(&self, id: GlobalFormId) -> Option<String> {
         let rref = self.order.winner_ref(id)?;
         let rec = self.order.record(rref);
