@@ -218,7 +218,7 @@ fn function_value(
             let other = resolve_reference(world, context.owner, raw)?;
             world.distance(subject, other)
         }
-        18 => world.clock.game_hours().rem_euclid(24.0) as f32,
+        18 => world.calendar().hour as f32,
         46 => boolean(world.actor(subject).is_some_and(|actor| actor.dead)),
         67 => {
             let cell = resolve(world, context.owner, raw, Some(*b"CELL"))?;

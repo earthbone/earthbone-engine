@@ -269,7 +269,7 @@ Sources were local Quest.psc, UESP QUST_Changeform, xEdit's QUST save definition
 CommonLib TESQuest.h and QuestObjectiveStates.h. Existing form mapping, World,
 VM native and binary state paths are reused. No dependency was added. Type-107
 quest-static state remains decoded inspection data. The remaining work includes
-created/world forms, live Papyrus object bindings, calendar and scheduler state,
+created/world forms, live Papyrus object bindings, scheduler state,
 saved stacks and latent calls, atomic whole-game loading and host resumption.
 
 ## Saved forms and live globals
@@ -290,7 +290,11 @@ engine identity limit remains required for large light-plugin loadouts.
 `World::restore_vanilla_globals` requires one global table and validates all
 targets before applying any value. Each target must be a non-deleted winning
 GLOB record, and duplicate targets fail. Unlisted globals retain their current
-values. Float bits, including signed zero and NaN payloads, are preserved.
+values. Float bits, including signed zero and NaN payloads, are preserved for ordinary
+globals. Calendar globals require finite, valid date and clock values. Their
+import initializes elapsed game days and timescale before execution, with
+date and hour retained as separate globals. See
+[calendar restoration](game.md#vanilla-calendar-restoration).
 The global reader checks that the declared count exactly fits the payload
 before allocating, including when the count uses a wider encoding.
 

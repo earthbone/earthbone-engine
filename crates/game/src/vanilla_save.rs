@@ -39,6 +39,8 @@ pub enum RestoreError {
     GlobalTarget(u32),
     #[error("saved global {0} occurs more than once")]
     DuplicateGlobal(GlobalFormId),
+    #[error("cannot restore calendar: {0}")]
+    Calendar(String),
     #[error("cannot restore quest {id}: {reason}")]
     Quest { id: GlobalFormId, reason: String },
     #[error("cannot restore NPC {id}: {reason}")]
@@ -164,7 +166,8 @@ impl World {
     /// Restore the ESS global-variable table into the live form-backed world.
     /// Validate every entry before applying any of them. Unlisted globals
     /// retain their current values. This neither resumes a save nor restores
-    /// the scheduler, game clock, quests, objects or script instances.
+    /// scheduler deadlines, quests, objects or script instances. Calendar globals
+    /// also initialize the game clock before any execution can observe it.
     ///
     /// # Errors
     /// Invalid plugin mapping, absent or repeated global tables, malformed
@@ -196,10 +199,55 @@ impl World {
                 return Err(RestoreError::DuplicateGlobal(target));
             }
         }
+        self.validate_saved_calendar(&values)?;
         let count = values.len();
         for (id, value) in values {
             self.set_global(id, value);
         }
         Ok(count)
+    }
+
+    fn validate_saved_calendar(
+        &self,
+        values: &BTreeMap<GlobalFormId, f32>,
+    ) -> Result<(), RestoreError> {
+        let fields = crate::clock::CALENDAR_GLOBALS
+            .map(|name| self.form(name).and_then(|id| values.get(&id).copied()));
+        if fields.iter().all(Option::is_none) {
+            return Ok(());
+        }
+        let mut calendar = [0.0; 6];
+        for (index, field) in fields.into_iter().enumerate() {
+            calendar[index] = field.ok_or_else(|| {
+                RestoreError::Calendar(format!(
+                    "missing saved {}",
+                    crate::clock::CALENDAR_GLOBALS[index]
+                ))
+            })?;
+            if !calendar[index].is_finite() {
+                return Err(RestoreError::Calendar(format!(
+                    "non-finite {}",
+                    crate::clock::CALENDAR_GLOBALS[index]
+                )));
+            }
+        }
+        let [year, month, day, hour, days, scale] = calendar;
+        let integral = |v: f32| v.fract() == 0.0;
+        if !integral(year)
+            || !(0.0..u32::MAX as f32).contains(&year)
+            || !integral(month)
+            || !(0.0..12.0).contains(&month)
+            || !integral(day)
+            || day < 1.0
+            || day > crate::clock::DAYS_IN_MONTH[month as usize] as f32
+            || !(0.0..24.0).contains(&hour)
+            || days < 0.0
+            || scale < 0.0
+        {
+            return Err(RestoreError::Calendar(
+                "invalid date, hour, elapsed days or timescale".into(),
+            ));
+        }
+        Ok(())
     }
 }

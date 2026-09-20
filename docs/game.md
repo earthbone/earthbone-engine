@@ -381,9 +381,9 @@ they moved to the implemented column with this section.
 **Schedules.** `hour` `-1` is any time. A window starts at `hour:minute`
 and lasts `duration` minutes, wrapping past midnight, a zero duration
 lasts until midnight. Day of week 0 is Sundas, the day the game starts on,
-7 to 10 are the Creation Kit's weekday groups. The date and month checks
-count 31 day months from the 17th, an approximation no vanilla package
-uses (every shipped `PSDT` says any for both).
+7 to 10 are the Creation Kit's weekday groups. Live date, month and hour
+checks read the calendar globals. Standalone test clocks use the default
+17 Last Seed 201 start date and CommonLib's month lengths.
 
 **Conditions.** `CTDA` is 32 bytes: comparison in the high three bits of
 the type byte and the OR, use aliases, use global, use pack data and swap
@@ -1373,3 +1373,45 @@ then executes 184 supported weapons against synthetic actors. The remaining
 weapons reject unsupported types, templates or enchantments. Real armor records
 were decoded, while armor damage calculations use synthetic fixtures.
 These changes await commit and merge review on `combat-hits`.
+
+## Vanilla calendar restoration
+
+The global import initializes `GameDaysPassed` and `TimeScale` in the live
+clock while retaining `GameYear`, `GameMonth`, `GameDay` and `GameHour` as
+separate form-backed values. `World::calendar` is a read-only view of those
+records, not another authoritative state table. Gameplay time conditions and
+package schedules use its hour and date. Game ticks advance these globals
+before firing timers or evaluating packages. Month rollover uses the fixed
+month lengths in CommonLib Calendar.h, including 28 days in Sun's Dawn.
+Menu pause and a zero timescale leave the calendar unchanged.
+
+Import validates all six values whenever the saved table contains a calendar
+field. Missing fields, non-finite values, invalid dates or hours, negative
+elapsed days and negative timescales fail before any globals change. Ordinary
+non-calendar globals retain their existing bit-preserving import contract.
+Saved hour and elapsed days are not forced into agreement. The global native
+setter also keeps elapsed days and timescale synchronized with the clock.
+The existing global and clock engine-save fields preserve this state, so no
+SOEW version change is needed.
+
+Sources read were UESP `Global_Variables.wikitext`, the local CK
+`Utility_Script.wikitext`, shipped `Utility.psc`, and CommonLibSSE-NG
+`Calendar.h` and `Calendar.cpp`. The backlog's named CK GameHour page is not
+in the local corpus. CommonLib provides the separate global identities and
+month lengths, and CK equates GetCurrentGameTime with GameDaysPassed. Existing
+save decoding, identity mapping, global import, ticking and serialization are
+reused. No parser, dependency or host node was added.
+
+SAV-08 has no backlog prerequisite. It establishes calendar values before
+execution. SAV-18 separately restores scheduler epochs and deadlines. Import
+does not execute queued scripts, fire timers or resume quests. Full ESS loading
+and host resumption remain separate backlog items.
+
+The installed survey passes all 60 saves and all 360 calendar values, with
+exact engine-save bytes and world hashes after reloading. Synthetic checks
+cover plugin remapping, independent saved hour and elapsed days, a queued VM
+call and a due game-time timer left untouched by import, native time queries,
+time conditions, package schedule dates, atomic malformed-value rejection,
+month/year rollover, menu pause and zero timescale. The survey reads the
+external saves in place. No comparison with a running vanilla executable was
+performed for tick-level floating-point rounding or calendar advancement.
