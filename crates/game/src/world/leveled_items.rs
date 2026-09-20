@@ -9,10 +9,14 @@ use std::collections::{BTreeMap, BTreeSet};
 use soe_esm::{Error, GlobalFormId};
 
 use super::{le_u32, LeveledList, World, T};
+use crate::inventory::{Extra, Inventory, Stack};
+
+mod extras;
 
 struct List {
     state: LeveledList,
     chance: u8,
+    extras: Vec<Vec<Extra>>,
 }
 
 impl World {
@@ -22,7 +26,7 @@ impl World {
     /// # Errors
     /// Rejects invalid records, cycles, nonpositive levels, negative quantities,
     /// arithmetic overflow and excessive expansion. Special loot, mixed Use All
-    /// flags and COED metadata require separate handling before rolling.
+    /// flags require separate handling before rolling.
     /// Errors preserve RNG state. Lazy list/global reads may populate caches.
     pub fn roll_leveled_items(
         &mut self,
@@ -30,6 +34,23 @@ impl World {
         level: u32,
         count: i32,
     ) -> Result<BTreeMap<GlobalFormId, i32>, Error> {
+        self.roll_leveled_inventory(list, level, count)
+            .map(|items| items.iter().map(|(item, count)| (*item, count)).collect())
+    }
+
+    /// Resolve LVLI entries into inventory quantities and distinct extra-data stacks.
+    /// Nested lists supply their own leaf metadata. Intermediate COED is not inherited.
+    /// This does not mutate any reference inventory or send inventory events.
+    ///
+    /// # Errors
+    /// Invalid graphs, metadata, flags, levels, counts or excessive expansion.
+    /// Errors preserve RNG state, while lazy record reads may populate caches.
+    pub fn roll_leveled_inventory(
+        &mut self,
+        list: GlobalFormId,
+        level: u32,
+        count: i32,
+    ) -> Result<Inventory, Error> {
         if level == 0 || count < 0 {
             return Err(Error::Invalid("invalid leveled item level or count".into()));
         }
@@ -75,11 +96,7 @@ impl World {
         {
             return Err(Error::Invalid("invalid LVLI entries".into()));
         }
-        if record.find(T(b"COED")).is_some() {
-            return Err(Error::Invalid(
-                "LVLI ownership metadata is unsupported".into(),
-            ));
-        }
+        let mut extras = self.leveled_item_extras(id)?;
         let global = match record.find(T(b"LVLG")) {
             Some(bytes) if bytes.len() == 4 => le_u32(bytes).filter(|raw| *raw != 0),
             Some(_) => return Err(Error::Invalid("invalid LVLI chance global".into())),
@@ -123,7 +140,15 @@ impl World {
             }
         }
         visiting.remove(&id);
-        lists.insert(id, List { state, chance });
+        extras.resize_with(state.entries.len(), Vec::new);
+        lists.insert(
+            id,
+            List {
+                state,
+                chance,
+                extras,
+            },
+        );
         Ok(())
     }
 
@@ -134,11 +159,11 @@ impl World {
         count: i32,
         lists: &BTreeMap<GlobalFormId, List>,
         budget: &mut u32,
-    ) -> Result<BTreeMap<GlobalFormId, i32>, Error> {
+    ) -> Result<Inventory, Error> {
         let list = lists
             .get(&id)
             .ok_or_else(|| Error::Invalid("missing prepared LVLI".into()))?;
-        let mut result = BTreeMap::new();
+        let mut result = Inventory::default();
         if count == 0 {
             return Ok(result);
         }
@@ -155,7 +180,8 @@ impl World {
             .state
             .entries
             .iter()
-            .filter(|entry| {
+            .enumerate()
+            .filter(|(_, entry)| {
                 use_all
                     || (u32::from(entry.level) <= level
                         && (list.state.flags & 1 != 0 || Some(entry.level) == highest))
@@ -181,24 +207,63 @@ impl World {
                 };
                 &eligible[index..=index]
             };
-            for entry in selected {
+            for &(index, entry) in selected {
                 let quantity = i32::from(entry.count);
                 let items = if lists.contains_key(&entry.form) {
                     self.roll_item_list(entry.form, level, quantity, lists, budget)?
                 } else {
-                    BTreeMap::from([(entry.form, quantity)])
+                    let mut items = Inventory::default();
+                    let extra = list.extras.get(index).cloned().unwrap_or_default();
+                    if extra.is_empty() {
+                        items
+                            .add(entry.form, quantity)
+                            .map_err(|error| inventory_error(&error))?;
+                    } else {
+                        items
+                            .add_selected_stack(
+                                entry.form,
+                                Stack::new(quantity, extra)
+                                    .map_err(|error| inventory_error(&error))?,
+                            )
+                            .map_err(|error| inventory_error(&error))?;
+                    }
+                    items
                 };
-                for (item, quantity) in items {
+                for (item, quantity) in items.iter() {
+                    let multiplier = if each { 1 } else { count };
                     let quantity = quantity
-                        .checked_mul(if each { 1 } else { count })
+                        .checked_mul(multiplier)
                         .ok_or_else(|| Error::Invalid("LVLI quantity overflow".into()))?;
-                    let total = result.entry(item).or_insert(0_i32);
-                    *total = total
-                        .checked_add(quantity)
-                        .ok_or_else(|| Error::Invalid("LVLI quantity overflow".into()))?;
+                    if items.stacks(*item).is_empty() {
+                        result
+                            .add(*item, quantity)
+                            .map_err(|error| inventory_error(&error))?;
+                    } else {
+                        for stack in items.stacks(*item) {
+                            let count = stack
+                                .count()
+                                .checked_mul(multiplier)
+                                .ok_or_else(|| Error::Invalid("LVLI quantity overflow".into()))?;
+                            result
+                                .add_selected_stack(
+                                    *item,
+                                    Stack::new(count, stack.extras().to_vec())
+                                        .map_err(|error| inventory_error(&error))?,
+                                )
+                                .map_err(|error| inventory_error(&error))?;
+                        }
+                        let represented: i32 = items.stacks(*item).iter().map(Stack::count).sum();
+                        result
+                            .add(*item, (items.count(*item) - represented) * multiplier)
+                            .map_err(|error| inventory_error(&error))?;
+                    }
                 }
             }
         }
         Ok(result)
     }
+}
+
+fn inventory_error(error: &crate::inventory::Error) -> Error {
+    Error::Invalid(format!("LVLI inventory: {error}"))
 }

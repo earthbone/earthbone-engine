@@ -221,10 +221,10 @@ No package or host node was added.
 
 The 19 leveled-item checks include a five-master survey of 3,835 LVLI records
 at levels 1, 20 and 50. It resolves 10,878 cases and reports 627 cases with
-unsupported flags. Special-loot selection is tracked by PRG-14 and COED
-ownership/condition propagation by PRG-15. Mixed Use All flags require the
-precedence evidence tracked by PRG-16. This quantity API rejects these cases
-before rolling. The survey encountered no COED rejection. AddItem dispatch
+unsupported flags. Special-loot selection is tracked by PRG-14. COED
+ownership and condition support is described below. Mixed Use All flags require
+the precedence evidence tracked by PRG-16. Unsupported flags are rejected
+before rolling. The original survey encountered no COED rejection. AddItem dispatch
 and outfit initialization consume these results in their own backlog items.
 The fixtures also cover owner-relative override links, script list edits,
 save/load reproducibility, cycle rejection, overflow and the expansion bound.
@@ -1404,3 +1404,41 @@ then executes 184 supported weapons against synthetic actors. The remaining
 weapons reject unsupported types, templates or enchantments. Real armor records
 were decoded, while armor damage calculations use synthetic fixtures.
 These changes await commit and merge review on `combat-hits`.
+
+## Leveled item entry extras
+
+`World::roll_leveled_inventory` returns the existing `Inventory` model with
+selected COED ownership and condition extras. `roll_leveled_items` remains the
+quantity-only projection. Neither call mutates a reference or queues events.
+The inventory result can be applied through the existing bundle transfer API.
+Owner and NPC ownership-global links resolve in the winning list's namespace.
+Faction ranks retain signed bits, with rank -1 omitted as in the runtime.
+Weapons and armor retain condition multiplier bits outside the runtime's
+open default interval of 0.9999 to 1.0001. The -1.0 deletion sentinel
+produces no health extra. Other item types ignore condition.
+Selected stacks persist through the existing SOEW inventory extension.
+
+Sources are local xEdit `wbDefinitionsTES5.pas` COED/LVLI declarations,
+Mutagen `ExtraData.cs`, CommonLib `ContainerItemExtra.h` and its ownership,
+global, rank and health extra types, and the public Creation Kit
+[LeveledItem](https://ck.uesp.net/wiki/LeveledItem) documentation. These sources
+declare the layout but do not establish nested metadata precedence.
+A read-only check of the installed SkyrimSE executable supplied that rule.
+The executable SHA256 is
+`846efccf0c1374d71f892907f46549560f2fcb0a75cb87a3eed438baa0f1402f`.
+The multi-item resolver at `0x1401e90f0` recurses without passing intermediate
+COED into the child result. Only selected leaf entries supply inventory extras.
+The separate single-form recursive selector has a different fallback rule,
+so it does not govern this inventory API.
+
+The COED constructor at `0x140155d10` uses multiplier 1.0, its loader at
+`0x140155d30` copies the stored float unchanged, and application at
+`0x140156060` converts owner, global, rank and equipment health to extras.
+This corrects a misleading CommonLib constructor default of 100.0. The CK
+health display uses percentages, while the record and ExtraHealth use the
+same multiplier. No executable bytes or proprietary code were copied.
+
+Synthetic tests cover nested precedence, distinct and identical stacks,
+script-added entries, namespace remapping, signed ranks, health boundaries,
+invalid metadata, RNG preservation and selected-inventory save/load.
+Special-loot selection and Papyrus AddItem integration are separate rows.
