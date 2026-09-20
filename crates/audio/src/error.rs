@@ -17,6 +17,8 @@ pub enum Unsupported {
     WaveFormat(u16),
     /// A file extension the source resolver has no reader for.
     Extension(String),
+    /// LIP flags outside the version 1 little-endian variable-target layout.
+    LipFlags(u32),
 }
 
 impl std::fmt::Display for Unsupported {
@@ -32,6 +34,7 @@ impl std::fmt::Display for Unsupported {
             Self::Opus => write!(f, "Ogg Opus, the opus feature is off"),
             Self::WaveFormat(tag) => write!(f, "WAVEFORMATEX tag {tag:#06x}"),
             Self::Extension(e) => write!(f, "no reader for extension {e:?}"),
+            Self::LipFlags(flags) => write!(f, "LIP body flags {flags:#010x}"),
         }
     }
 }

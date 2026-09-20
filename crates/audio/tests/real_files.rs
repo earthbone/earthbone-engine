@@ -42,7 +42,7 @@ fn every_voice_file_splits_and_its_audio_half_parses() {
     let (mut with_lip, mut empty_lip, mut xwma_kind, mut wave_kind, mut other_kind) =
         (0usize, 0usize, 0usize, 0usize, 0usize);
     let mut lip_words = std::collections::BTreeMap::<u32, usize>::new();
-    let (mut with_targets, mut no_marker) = (0usize, 0usize);
+    let mut with_targets = 0usize;
     let (mut packets, mut seconds) = (0u64, 0f64);
     let mut rates = std::collections::BTreeMap::<u32, usize>::new();
     let mut channels = std::collections::BTreeMap::<u16, usize>::new();
@@ -61,21 +61,13 @@ fn every_voice_file_splits_and_its_audio_half_parses() {
                 lip.compressed() && lip.variable_targets(),
                 "{name}: every shipped block is packed with a stored target count"
             );
-            // The research says the count agrees with the gesture flag in
-            // every block where the marker is found, 70,872 of 74,070. The
-            // rest carry no marker and report nothing.
-            match lip.targets() {
-                Some(n) => {
-                    let want = if lip.has_gestures() {
-                        soe_audio::lip::TARGETS
-                    } else {
-                        soe_audio::lip::TARGETS_NO_GESTURES
-                    };
-                    assert_eq!(n, want, "{name}: target count disagrees with the flags");
-                    with_targets += 1;
-                }
-                None => no_marker += 1,
-            }
+            let want = if lip.has_gestures() {
+                soe_audio::lip::TARGETS
+            } else {
+                soe_audio::lip::TARGETS_NO_GESTURES
+            };
+            assert_eq!(lip.targets(), Some(want), "{name}: decoded target metadata");
+            with_targets += 1;
         } else {
             empty_lip += 1;
         }
@@ -104,7 +96,7 @@ fn every_voice_file_splits_and_its_audio_half_parses() {
     eprintln!("voice files: {}", names.len());
     eprintln!("  with lip {with_lip}, empty lip {empty_lip}");
     eprintln!("  lip flag words {lip_words:?}");
-    eprintln!("  target count read {with_targets}, no marker {no_marker}");
+    eprintln!("  target count read {with_targets}");
     eprintln!("  audio XWMA {xwma_kind}, WAVE {wave_kind}, other {other_kind}");
     eprintln!("  packets {packets}, total audio {seconds:.1} s");
     eprintln!("  sample rates {rates:?}");
