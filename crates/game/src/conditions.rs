@@ -28,6 +28,8 @@ pub enum Error {
     Function(u16),
     #[error("unsupported second parameter {1:#x} for condition function {0}")]
     Parameter(u16, u32),
+    #[error("unsupported actor value index {0}")]
+    ActorValue(u32),
     #[error("unsupported condition flags {0:#x}")]
     Flags(u8),
     #[error("unsupported or unavailable condition run-on target {0}")]
@@ -95,6 +97,7 @@ pub fn supports_function(function: u16) -> bool {
             | 136
             | 182
             | 264
+            | 277
             | 289
             | 359
             | 448
@@ -214,6 +217,14 @@ fn function_value(
 ) -> Result<f32, Error> {
     let raw = c.parameters[0];
     Ok(match c.function {
+        277 => {
+            let name = i32::try_from(raw)
+                .ok()
+                .and_then(crate::world::magic::actor_value_name)
+                .ok_or(Error::ActorValue(raw))?;
+            world.actor(subject).ok_or(Error::Form(subject))?;
+            world.base_actor_value(subject, name)
+        }
         1 => {
             let other = resolve_reference(world, context.owner, raw)?;
             world.distance(subject, other)

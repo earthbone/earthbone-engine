@@ -435,7 +435,7 @@ fn change_values(
 
 /// Actor-value indices from CommonLib ActorValues.h and the xEdit AV enum.
 /// Names use Skyrim's Papyrus spelling, including Marksman and Speechcraft.
-fn actor_value_name(index: i32) -> Option<&'static str> {
+pub(crate) fn actor_value_name(index: i32) -> Option<&'static str> {
     const NAMES: [&str; 46] = [
         "aggression",
         "confidence",
