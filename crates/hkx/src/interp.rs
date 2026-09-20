@@ -290,6 +290,8 @@ enum Target {
     },
     /// Output: whether the state machine is active.
     MachineIsActive,
+    /// Output: the elapsed time of this graph update.
+    TimeStep,
 }
 
 impl Target {
@@ -299,7 +301,10 @@ impl Target {
     /// `SERIALIZE_IGNORED`), so the member decides: these two are node state
     /// with no setter behind them.
     fn is_output(self) -> bool {
-        matches!(self, Target::IsActive { .. } | Target::MachineIsActive)
+        matches!(
+            self,
+            Target::IsActive { .. } | Target::MachineIsActive | Target::TimeStep
+        )
     }
 }
 
@@ -336,6 +341,7 @@ struct Runtime {
     previous_state: Option<i32>,
     time_in_state: f32,
     transition: Option<ActiveTransition>,
+    time_step: f32,
     blend_parameter: Option<f32>,
     child_weights: Vec<Option<f32>>,
     selected: Option<usize>,
@@ -476,6 +482,7 @@ impl<'a> Interpreter<'a> {
                 ("isActive", None, NodeKind::StateMachine(_)) => Some(Target::MachineIsActive),
                 ("startStateId", None, NodeKind::StateMachine(_)) => Some(Target::StartStateId),
                 ("duration", None, NodeKind::BlendingTransition(_)) => Some(Target::Duration),
+                ("timeStep", None, NodeKind::GetTimeStepModifier { .. }) => Some(Target::TimeStep),
                 ("fBlendParameter", None, NodeKind::CyclicBlendTransition { .. }) => {
                     Some(Target::BlendParameter)
                 }
@@ -649,6 +656,7 @@ impl<'a> Interpreter<'a> {
             self.modifier_order.clear();
             let output = self.generate(root, dt);
             self.output = output;
+            self.update_time_step_modifiers(dt);
             for _ in 0..MAX_EVENT_ROUNDS {
                 if self.raised.is_empty() {
                     break;
@@ -662,6 +670,20 @@ impl<'a> Interpreter<'a> {
         }
         self.apply_output_bindings();
         &self.output
+    }
+
+    /// The modifier records the interval supplied to this graph update. It
+    /// runs after generation so only the modifier subtree reached this frame
+    /// can publish it through an output binding.
+    fn update_time_step_modifiers(&mut self, dt: f32) {
+        for node in &self.modifier_order {
+            if matches!(
+                self.graph.node(*node).kind,
+                NodeKind::GetTimeStepModifier { .. }
+            ) {
+                self.nodes[node.0].time_step = if self.nodes[node.0].active { dt } else { 0.0 };
+            }
+        }
     }
 
     /// Write every output binding's node state back into its variable.
@@ -696,6 +718,10 @@ impl<'a> Interpreter<'a> {
         let value = match b.target {
             Target::IsActive { invert, .. } => runtime.active != invert,
             Target::MachineIsActive => runtime.active,
+            Target::TimeStep => {
+                self.variables.set_real(b.variable, runtime.time_step);
+                return;
+            }
             _ => return,
         };
         self.variables.set_word(b.variable, i32::from(value));
@@ -731,7 +757,7 @@ impl<'a> Interpreter<'a> {
                 Target::StartStateId => rt.start_state = Some(value as i32),
                 Target::Duration => rt.duration = Some(value),
                 // Written by apply_output_bindings, skipped above.
-                Target::IsActive { .. } | Target::MachineIsActive => {}
+                Target::IsActive { .. } | Target::MachineIsActive | Target::TimeStep => {}
             }
         }
     }
@@ -746,6 +772,7 @@ impl<'a> Interpreter<'a> {
             NodeKind::ModifierList { enable, .. }
             | NodeKind::EventDrivenModifier { enable, .. }
             | NodeKind::TimerModifier { enable, .. }
+            | NodeKind::GetTimeStepModifier { enable, .. }
             | NodeKind::IsActiveModifier { enable, .. }
             | NodeKind::Modifier { enable } => *enable,
             _ => true,
@@ -894,6 +921,7 @@ impl<'a> Interpreter<'a> {
             | NodeKind::GeneratorTransition(_)
             | NodeKind::EventDrivenModifier { .. }
             | NodeKind::TimerModifier { .. }
+            | NodeKind::GetTimeStepModifier { .. }
             | NodeKind::IsActiveModifier { .. }
             | NodeKind::Modifier { .. }
             | NodeKind::Unknown => {}
@@ -927,6 +955,7 @@ impl<'a> Interpreter<'a> {
                 self.nodes[node_id.0].current_state = None;
             }
             self.nodes[node_id.0].active = false;
+            self.nodes[node_id.0].time_step = 0.0;
             stack.extend(children);
         }
     }
@@ -1254,6 +1283,7 @@ impl<'a> Interpreter<'a> {
             | NodeKind::GeneratorTransition(_)
             | NodeKind::EventDrivenModifier { .. }
             | NodeKind::TimerModifier { .. }
+            | NodeKind::GetTimeStepModifier { .. }
             | NodeKind::IsActiveModifier { .. }
             | NodeKind::Modifier { .. } => self.reference_output(),
         }
@@ -1747,6 +1777,122 @@ mod tests {
         }
     }
 
+    fn time_step_node(id: usize, name: &str, variable: i32, enable: bool) -> Node {
+        Node {
+            id: NodeId(id),
+            offset: u32::try_from(id).unwrap(),
+            class: "BSGetTimeStepModifier".into(),
+            name: name.into(),
+            user_data: 0,
+            bindings: Some(VariableBindingSet {
+                bindings: vec![Binding {
+                    member_path: "timeStep".into(),
+                    variable_index: variable,
+                    bit_index: -1,
+                    binding_type: 0,
+                }],
+                index_of_binding_to_enable: -1,
+            }),
+            kind: NodeKind::GetTimeStepModifier {
+                enable,
+                time_step: 0.0,
+            },
+        }
+    }
+
+    fn time_step_graph(enable: bool) -> BehaviorGraph {
+        BehaviorGraph {
+            name: "time step".into(),
+            variable_mode: 0,
+            root: Some(NodeId(0)),
+            data: BehaviorGraphData {
+                variable_names: vec!["Elapsed".into()],
+                variable_infos: vec![VariableInfo {
+                    ty: VariableType::Real,
+                    ..Default::default()
+                }],
+                ..Default::default()
+            },
+            nodes: vec![
+                Node {
+                    id: NodeId(0),
+                    offset: 0,
+                    class: "hkbModifierGenerator".into(),
+                    name: "wrapper".into(),
+                    user_data: 0,
+                    bindings: None,
+                    kind: NodeKind::ModifierGenerator {
+                        modifier: Some(NodeId(1)),
+                        generator: None,
+                    },
+                },
+                time_step_node(1, "time step", 0, enable),
+            ],
+        }
+    }
+
+    fn nested_time_step_graph() -> BehaviorGraph {
+        BehaviorGraph {
+            name: "nested time step".into(),
+            variable_mode: 0,
+            root: Some(NodeId(0)),
+            data: BehaviorGraphData {
+                variable_names: vec!["OuterElapsed".into(), "NestedElapsed".into()],
+                variable_infos: vec![
+                    VariableInfo {
+                        ty: VariableType::Real,
+                        ..Default::default()
+                    },
+                    VariableInfo {
+                        ty: VariableType::Real,
+                        ..Default::default()
+                    },
+                ],
+                ..Default::default()
+            },
+            nodes: vec![
+                Node {
+                    id: NodeId(0),
+                    offset: 0,
+                    class: "hkbModifierGenerator".into(),
+                    name: "wrapper".into(),
+                    user_data: 0,
+                    bindings: None,
+                    kind: NodeKind::ModifierGenerator {
+                        modifier: Some(NodeId(1)),
+                        generator: None,
+                    },
+                },
+                Node {
+                    id: NodeId(1),
+                    offset: 1,
+                    class: "hkbModifierList".into(),
+                    name: "outer list".into(),
+                    user_data: 0,
+                    bindings: None,
+                    kind: NodeKind::ModifierList {
+                        enable: true,
+                        modifiers: vec![Some(NodeId(2)), Some(NodeId(3))],
+                    },
+                },
+                time_step_node(2, "outer time step", 0, true),
+                Node {
+                    id: NodeId(3),
+                    offset: 3,
+                    class: "hkbModifierList".into(),
+                    name: "nested list".into(),
+                    user_data: 0,
+                    bindings: None,
+                    kind: NodeKind::ModifierList {
+                        enable: true,
+                        modifiers: vec![Some(NodeId(4))],
+                    },
+                },
+                time_step_node(4, "nested time step", 1, true),
+            ],
+        }
+    }
+
     fn modifier_generator_graph() -> BehaviorGraph {
         let mut graph = is_active_graph(false, 0);
         graph.root = Some(NodeId(0));
@@ -2066,6 +2212,47 @@ mod tests {
             [Some(0), Some(0), Some(0)]
         );
         assert_eq!(vm.output().pose[0].translation[0], 4.0);
+    }
+
+    #[test]
+    fn time_step_modifier_writes_each_graph_update_interval() {
+        let graph = time_step_graph(true);
+        let lib = ClipLibrary::new();
+        let mut vm = Interpreter::new(&graph, &lib, Vec::new());
+
+        vm.update(0.0);
+        assert_eq!(vm.variables.real(0), Some(0.0));
+        vm.update(1.0 / 60.0);
+        assert_eq!(vm.variables.real(0), Some(1.0 / 60.0));
+        vm.update(0.125);
+        assert_eq!(vm.variables.real(0), Some(0.125));
+    }
+
+    #[test]
+    fn disabled_time_step_modifier_clears_its_output() {
+        let graph = time_step_graph(false);
+        let lib = ClipLibrary::new();
+        let mut vm = Interpreter::new(&graph, &lib, Vec::new());
+        vm.variables.set_real(0, 4.0);
+
+        vm.update(0.125);
+
+        assert_eq!(vm.variables.real(0), Some(0.0));
+        assert!(!vm.is_active(NodeId(1)));
+    }
+
+    #[test]
+    fn nested_modifier_lists_update_each_time_step_output() {
+        let graph = nested_time_step_graph();
+        let lib = ClipLibrary::new();
+        let mut vm = Interpreter::new(&graph, &lib, Vec::new());
+
+        vm.update(0.2);
+
+        assert_eq!(vm.variables.real(0), Some(0.2));
+        assert_eq!(vm.variables.real(1), Some(0.2));
+        assert!(vm.is_active(NodeId(2)));
+        assert!(vm.is_active(NodeId(4)));
     }
 
     #[test]

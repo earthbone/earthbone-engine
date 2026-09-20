@@ -478,6 +478,20 @@ serialized order, a shared output with invert, a nested output, list and child
 enable transitions, authored disable, cleanup, malformed cycles and deep
 lists, and pose preservation.
 
+### Get time step modifier (2026-09-20)
+
+`BSGetTimeStepModifier` inherits the `hkbModifier` enable field and stores an
+authored `timeStep` real at offset 80 in the 64-bit layout. The layout comes
+from `engine-refs/serde-hkx/assets/classes/BSGetTimeStepModifier.json`, which
+also records the class signature and the 32-bit offset. The interpreter
+decodes the authored value and treats a `timeStep` variable binding as output:
+after an enabled modifier subtree runs, it writes the update interval passed to
+`Interpreter::update`. An inactive modifier writes zero. Nested modifier lists
+preserve the existing serialized traversal order for those outputs. The
+synthetic packfile test checks the class field and binding decode, while the
+interpreter tests check zero, unequal update intervals, disabled output and a
+nested list. No original-runtime capture establishes finer behavior here.
+
 ## 7. Not done and next
 
 - Modifier evaluation. `BSIsActiveModifier` reports its own activity and the
