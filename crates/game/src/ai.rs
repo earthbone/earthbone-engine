@@ -8,6 +8,7 @@
 //! The chosen package's template names a procedure, and three of them move
 //! the actor on the clock: `Travel` walks to a place, `Sandbox` wanders
 //! between idle markers around a place, `Sleep` walks to a bed and holds.
+//! `Wait` uses the non-menu clock and holds until its duration expires.
 //! Walking follows the vanilla navmesh graph (`soe_navmesh::vanilla`)
 //! built once per world, and crossing into another navmesh moves the actor
 //! into that navmesh's cell.
@@ -64,6 +65,10 @@ pub enum Procedure {
     Travel,
     Sandbox,
     Sleep,
+    /// A mental timer. The movement flag is retained for concurrent procedures.
+    Wait {
+        stop_movement: bool,
+    },
     /// A procedure the driver does not run yet, by its template name. The
     /// actor holds where it stands.
     Unsupported(String),
@@ -91,6 +96,8 @@ pub struct AiState {
     pub radius: f32,
     /// Game hours until a sandboxing actor leaves its marker.
     pub dwell_until: f64,
+    /// Finite Wait deadline in non-menu real seconds. None means endless Wait.
+    pub wait_until: Option<f64>,
     pub speed: f32,
     pub start_position: [f32; 3],
     pub reevaluate: bool,
@@ -603,6 +610,7 @@ pub fn evaluate(world: &mut World, actor: GlobalFormId, alloc: Alloc<'_>) -> Opt
     ai.center_cell = None;
     ai.radius = 0.0;
     ai.dwell_until = 0.0;
+    ai.wait_until = None;
     ai.speed = WALK_SPEED;
     ai.start_position = position;
     if let Some(c) = chosen {
@@ -655,6 +663,7 @@ fn begin_procedure(
     ai.center_cell = None;
     ai.radius = 0.0;
     ai.dwell_until = 0.0;
+    ai.wait_until = None;
     let alias = ai.alias.or_else(|| {
         let id = ai.package?;
         let raw = package(world, id)?.owner_quest?;
@@ -693,7 +702,7 @@ fn begin_procedure(
                 .and_then(|b| world.reference(b).and_then(|r| r.cell))
                 .or_else(|| place.and_then(|p| p.cell));
         }
-        Procedure::None | Procedure::Unsupported(_) => {}
+        Procedure::None | Procedure::Wait { .. } | Procedure::Unsupported(_) => {}
     }
 }
 
@@ -971,6 +980,13 @@ fn step(world: &mut World, actor: GlobalFormId, dt: f32) {
     } else {
         tree::enter(world, actor, &mut ai);
     }
+    if matches!(ai.procedure, Procedure::Wait { .. })
+        && ai
+            .wait_until
+            .is_some_and(|until| world.clock.real_seconds >= until)
+    {
+        tree::succeeded(world, &mut ai);
+    }
     let hours = world.clock.game_hours();
     if ai.arrived {
         match ai.procedure {
@@ -1112,6 +1128,14 @@ pub(crate) fn write_legacy_state(w: &mut Writer, a: &AiState) {
         Procedure::Travel => w.u8(1),
         Procedure::Sandbox => w.u8(2),
         Procedure::Sleep => w.u8(3),
+        Procedure::Wait { stop_movement } => {
+            w.u8(5);
+            w.bool(*stop_movement);
+            w.bool(a.wait_until.is_some());
+            if let Some(until) = a.wait_until {
+                w.f64(until);
+            }
+        }
         Procedure::Unsupported(name) => {
             w.u8(4);
             w.str(name);
@@ -1192,6 +1216,17 @@ pub(crate) fn read_legacy_state(r: &mut Reader<'_>) -> Result<AiState, VmError> 
         2 => Procedure::Sandbox,
         3 => Procedure::Sleep,
         4 => Procedure::Unsupported(r.str()?),
+        5 => {
+            let stop_movement = r.bool()?;
+            if r.bool()? {
+                let until = r.f64()?;
+                if !until.is_finite() || until < 0.0 {
+                    return Err(VmError::State("invalid Wait deadline".into()));
+                }
+                a.wait_until = Some(until);
+            }
+            Procedure::Wait { stop_movement }
+        }
         other => return Err(VmError::State(format!("unknown procedure {other}"))),
     };
     if r.bool()? {
@@ -1385,6 +1420,7 @@ mod tests {
             center_cell: None,
             radius: 100.0,
             dwell_until: 12.5,
+            wait_until: None,
             speed: 180.0,
             start_position: [0.5, 0.25, 0.125],
             reevaluate: true,

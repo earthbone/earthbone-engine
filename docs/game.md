@@ -433,7 +433,8 @@ within the radius of the location, walks there, dwells 0.1 to 0.4 game
 hours, and picks the next, or a random point in the radius when the cell
 has no markers. `Sleep` walks to the bed the location names, or the
 nearest furniture in that cell whose base carries a keyword with `bed` in
-its editor id, and holds with `sleeping` set. Every other procedure name
+its editor id, and holds with `sleeping` set. `Wait` holds for its real-time
+duration, with zero meaning indefinite. Every other procedure name
 is `Procedure::Unsupported` and the actor stands where it is. Location
 kinds near reference, in cell, near package start, near editor location,
 near linked reference, alias reference and near self resolve, alias
@@ -469,7 +470,7 @@ package over the base list, switch at once from a script's
 `EvaluatePackage`, and keep walking after a save and load.
 
 **Not done.** Simultaneous and stacked branches (AI-14 and AI-15),
-the other 18 procedures,
+the other 17 procedures,
 package fragments (`VMAD` on `PACK`), the `On Begin`, `On End` and `On
 Change` idles and topics, once per day for packages that end without
 arriving, `Must Complete`, interrupt flags, combat overrides, door
@@ -1428,3 +1429,46 @@ candidate weights. Exact Bethesda RNG output remains unverified.
 Tests extend `package_sequences.rs` with single-child selection, candidate
 conditions, nested sequences, repeat, empty groups, one condition evaluation,
 and save/load equality of both movement and the subsequent RNG draw.
+
+### Wait package procedure
+
+AI-34 resolves ordered Wait parameters through the package template chain.
+The first PKC2 input is ActualSeconds, a float, followed by StopMovement,
+a Boolean. Public input names do not control execution. Package overrides
+take precedence over template defaults. The installed Skyrim.esm survey found
+87 Wait branches, all with this float-then-Boolean order, including renamed
+inputs. Local xEdit PACK ANAM/CNAM and PKC2 definitions supply the value and
+binding layouts. The existing ESM and PACK readers perform the survey.
+
+Positive durations finish on the first driver tick at or after their deadline
+in the saved world real-seconds clock. Menus pause that clock, and game
+timescale does not change it. Entry starts the timer at the current clock,
+so the earlier part of that tick is not counted as waiting. Repeated driver
+calls at the same clock cannot spend the duration again. Zero waits forever.
+Missing, mistyped, negative or nonfinite inputs produce an explicit
+Unsupported procedure rather than silently becoming an endless wait.
+
+The source for positive and zero durations is the primary author's
+[Wait experiment](https://skyrimeasy.blog-rpg.com/ckworks/procedure07).
+The [CK Wait notes reproduced in the Papyrus index](https://papyrus.bellcube.dev/skyrimse/script/utility/function/wait/)
+identify AI Wait's real-world, non-menu clock. These sources provide no
+reusable timer implementation. The world clock and actor state already provide
+the needed timing and ownership. Negative-duration semantics are unverified.
+
+StopMovement is retained as authored. A standalone Wait issues no walking
+commands with either setting. Concurrent movement arbitration belongs to AI-14.
+The flag does not immobilize an actor against external displacement. Branch
+conditions are checked on entry, not polled continuously while waiting.
+Repeating a containing sequence begins a fresh timer. Package cancellation
+clears its timer without reporting success or recording Once Per Day completion.
+
+SOEW version 17 adds the Wait procedure tag, movement flag and optional absolute
+deadline to the actor's procedure state. Existing cursor and world-clock state
+are reused. Versions 4 through 16 remain readable. Saves with an invalid
+deadline or a Wait tag under an older version are rejected before replacing
+the world. This is SOEW persistence, not vanilla ESS Wait-state restoration.
+
+`tests/package_wait.rs` checks timing, menu pause, timescale, repeated driver
+calls, package overrides, finite and endless cancellation, repetition,
+save/load equality, state hashes and invalid state. Its installed-data test
+checks every vanilla Wait branch's parameter types when SKYRIM_DATA is set.

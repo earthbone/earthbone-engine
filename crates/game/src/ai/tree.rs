@@ -61,6 +61,26 @@ impl Tree {
         })
     }
 
+    // CONTEXT: All 87 vanilla Wait branches bind seconds before the movement flag.
+    fn wait_parameters(&self, branch: &Branch) -> Option<(f32, bool)> {
+        let [seconds, stop] = branch.inputs.as_slice() else {
+            return None;
+        };
+        let input = |index: u8| {
+            self.chain
+                .iter()
+                .find_map(|(_, p)| p.input(index as i8).map(|input| input.value))
+        };
+        match (input(*seconds), input(*stop)) {
+            (Some(DataValue::Float(seconds)), Some(DataValue::Bool(stop)))
+                if seconds.is_finite() && seconds >= 0.0 =>
+            {
+                Some((seconds, stop))
+            }
+            _ => None,
+        }
+    }
+
     fn after(&self, mut index: usize, state: &mut TreeState) {
         loop {
             let next = self.ends[index];
@@ -93,6 +113,9 @@ fn procedure(branch: &Branch) -> Procedure {
         Some("travel") => Procedure::Travel,
         Some("sandbox") => Procedure::Sandbox,
         Some("sleep") => Procedure::Sleep,
+        Some("wait") => Procedure::Wait {
+            stop_movement: false,
+        },
         Some(_) => Procedure::Unsupported(branch.procedure.clone().unwrap_or_default()),
         None => Procedure::Unsupported(branch.kind.clone()),
     }
@@ -110,8 +133,15 @@ pub(super) fn first(world: &World, id: GlobalFormId) -> (Procedure, Option<Locat
         if branch.kind.eq_ignore_ascii_case("sequence") && branch.procedure.is_none() {
             continue;
         }
+        let chosen = match procedure(branch) {
+            Procedure::Wait { .. } => tree.wait_parameters(branch).map_or_else(
+                || Procedure::Unsupported("Wait inputs".into()),
+                |(_, stop_movement)| Procedure::Wait { stop_movement },
+            ),
+            other => other,
+        };
         return (
-            procedure(branch),
+            chosen,
             tree.location(branch).map(|(_, l)| l),
             branch.success_completes_package,
         );
@@ -220,7 +250,21 @@ pub(super) fn enter(world: &mut World, actor: GlobalFormId, ai: &mut AiState) {
             continue;
         }
         state.active = true;
-        super::begin_procedure(world, actor, ai, procedure(branch), tree.location(branch));
+        let mut chosen = procedure(branch);
+        let mut wait_until = None;
+        if matches!(chosen, Procedure::Wait { .. }) {
+            match tree.wait_parameters(branch) {
+                Some((seconds, stop_movement)) if world.clock.real_seconds.is_finite() => {
+                    chosen = Procedure::Wait { stop_movement };
+                    if seconds > 0.0 {
+                        wait_until = Some(world.clock.real_seconds + f64::from(seconds));
+                    }
+                }
+                _ => chosen = Procedure::Unsupported("Wait inputs or clock".into()),
+            }
+        }
+        super::begin_procedure(world, actor, ai, chosen, tree.location(branch));
+        ai.wait_until = wait_until;
         break;
     }
     ai.tree = Some(state);

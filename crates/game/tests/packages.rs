@@ -612,11 +612,12 @@ fn the_installed_game_reads_every_package_and_evaluates_the_prisoner() {
             Procedure::Travel => "Travel".to_string(),
             Procedure::Sandbox => "Sandbox".to_string(),
             Procedure::Sleep => "Sleep".to_string(),
+            Procedure::Wait { .. } => "Wait".to_string(),
             Procedure::Unsupported(n) => format!("unsupported {n}"),
         };
         if matches!(
             procedure,
-            Procedure::Travel | Procedure::Sandbox | Procedure::Sleep
+            Procedure::Travel | Procedure::Sandbox | Procedure::Sleep | Procedure::Wait { .. }
         ) {
             supported += 1;
         }
