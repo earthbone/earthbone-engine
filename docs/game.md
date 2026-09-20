@@ -1415,3 +1415,11 @@ then executes 184 supported weapons against synthetic actors. The remaining
 weapons reject unsupported types, templates or enchantments. Real armor records
 were decoded, while armor damage calculations use synthetic fixtures.
 These changes await commit and merge review on `combat-hits`.
+
+## Vanilla actor-value restoration boundary
+
+SOEW version 19 preserves base, permanent, temporary and damage components
+separately. Importing the same components from vanilla ESS remains blocked in
+SAV-06 because their serialized ACHR boundaries are not established. SAV-64
+tracks that source prerequisite. See [saved actor-value modifiers](save-actor-values.md)
+for the source audit, all-save coverage and identity requirements.

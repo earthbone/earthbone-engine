@@ -615,3 +615,13 @@ isolated package survey reduced that count to 81 and recovered 73 additional
 inventory sections. See [saved package runtime state](save-package-data.md) for
 source evidence, boundaries and integration validation. Runtime package
 restoration and complete ESS resumption remain unfinished.
+
+## Actor-value restoration evidence
+
+SAV-06 remains blocked on SAV-64's missing serialized component layout.
+The 60-save ACHR survey accounts for 243,595 records, all without the five
+documented actor-modifier bits. Existing prefix decoding fails on 81 named
+package states and leaves actor data unparsed. These observations do not
+establish zero modifiers or their field order. See
+[saved actor-value modifiers](save-actor-values.md) for pinned sources,
+coverage counts, dependency boundaries and the required completion evidence.
