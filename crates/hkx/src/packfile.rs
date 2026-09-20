@@ -102,72 +102,84 @@ fn c_string(buf: &[u8], at: usize) -> Option<&str> {
     std::str::from_utf8(&rest[..end]).ok()
 }
 
+pub(crate) fn read_headers(bytes: &[u8]) -> Result<(Header, Vec<SectionHeader>, usize)> {
+    need("header", bytes, 0, HEADER_SIZE)?;
+    if le_u32(&bytes[0..4]) != MAGIC0 || le_u32(&bytes[4..8]) != MAGIC1 {
+        return Err(Error::NotAPackfile);
+    }
+    let little_endian = bytes[17] == 1;
+    if !little_endian {
+        return Err(Error::BigEndian);
+    }
+    let version_end = bytes[40..56]
+        .iter()
+        .position(|&b| b == 0 || b == 0xFF)
+        .unwrap_or(16);
+    let header = Header {
+        user_tag: le_i32(&bytes[8..12]),
+        file_version: le_i32(&bytes[12..16]),
+        pointer_size: bytes[16],
+        little_endian,
+        padding_option: bytes[18],
+        base_class: bytes[19],
+        section_count: le_i32(&bytes[20..24]),
+        contents_section_index: le_i32(&bytes[24..28]),
+        contents_section_offset: le_i32(&bytes[28..32]),
+        contents_class_name_section_index: le_i32(&bytes[32..36]),
+        contents_class_name_section_offset: le_i32(&bytes[36..40]),
+        version_string: String::from_utf8_lossy(&bytes[40..40 + version_end]).into_owned(),
+        flags: le_i32(&bytes[56..60]),
+    };
+    if header.pointer_size != 4 && header.pointer_size != 8 {
+        return Err(Error::PointerSize(header.pointer_size));
+    }
+    // The 2010 writer fills section_offset with 0xFFFF, which means zero.
+    let section_offset = i16::from_le_bytes([bytes[62], bytes[63]]);
+    let table_start = HEADER_SIZE
+        + if section_offset < 0 {
+            0
+        } else {
+            section_offset as usize
+        };
+    if header.section_count < 0 || header.section_count > 64 {
+        return Err(Error::Truncated {
+            what: "section table",
+            at: 20,
+            need: 0,
+            have: header.section_count as usize,
+        });
+    }
+    need(
+        "section table",
+        bytes,
+        table_start,
+        header.section_count as usize * SECTION_HEADER_SIZE,
+    )?;
+    let mut sections = Vec::with_capacity(header.section_count as usize);
+    for i in 0..header.section_count as usize {
+        let at = table_start + i * SECTION_HEADER_SIZE;
+        need("section header", bytes, at, SECTION_HEADER_SIZE)?;
+        let s = &bytes[at..at + SECTION_HEADER_SIZE];
+        let tag_end = s[..19].iter().position(|&b| b == 0).unwrap_or(19);
+        sections.push(SectionHeader {
+            tag: String::from_utf8_lossy(&s[..tag_end]).into_owned(),
+            absolute_data_start: le_u32(&s[20..24]),
+            local_fixups_offset: le_u32(&s[24..28]),
+            global_fixups_offset: le_u32(&s[28..32]),
+            virtual_fixups_offset: le_u32(&s[32..36]),
+            exports_offset: le_u32(&s[36..40]),
+            imports_offset: le_u32(&s[40..44]),
+            end_offset: le_u32(&s[44..48]),
+        });
+    }
+
+    Ok((header, sections, table_start))
+}
+
 impl Packfile {
     /// Parse a whole file.
     pub fn parse(bytes: &[u8]) -> Result<Packfile> {
-        need("header", bytes, 0, HEADER_SIZE)?;
-        if le_u32(&bytes[0..4]) != MAGIC0 || le_u32(&bytes[4..8]) != MAGIC1 {
-            return Err(Error::NotAPackfile);
-        }
-        let little_endian = bytes[17] == 1;
-        if !little_endian {
-            return Err(Error::BigEndian);
-        }
-        let version_end = bytes[40..56]
-            .iter()
-            .position(|&b| b == 0 || b == 0xFF)
-            .unwrap_or(16);
-        let header = Header {
-            user_tag: le_i32(&bytes[8..12]),
-            file_version: le_i32(&bytes[12..16]),
-            pointer_size: bytes[16],
-            little_endian,
-            padding_option: bytes[18],
-            base_class: bytes[19],
-            section_count: le_i32(&bytes[20..24]),
-            contents_section_index: le_i32(&bytes[24..28]),
-            contents_section_offset: le_i32(&bytes[28..32]),
-            contents_class_name_section_index: le_i32(&bytes[32..36]),
-            contents_class_name_section_offset: le_i32(&bytes[36..40]),
-            version_string: String::from_utf8_lossy(&bytes[40..40 + version_end]).into_owned(),
-            flags: le_i32(&bytes[56..60]),
-        };
-        if header.pointer_size != 4 && header.pointer_size != 8 {
-            return Err(Error::PointerSize(header.pointer_size));
-        }
-        // The 2010 writer fills section_offset with 0xFFFF, which means zero.
-        let section_offset = i16::from_le_bytes([bytes[62], bytes[63]]);
-        let table_start = HEADER_SIZE
-            + if section_offset < 0 {
-                0
-            } else {
-                section_offset as usize
-            };
-        if header.section_count < 0 || header.section_count > 64 {
-            return Err(Error::Truncated {
-                what: "section table",
-                at: 20,
-                need: 0,
-                have: header.section_count as usize,
-            });
-        }
-        let mut sections = Vec::with_capacity(header.section_count as usize);
-        for i in 0..header.section_count as usize {
-            let at = table_start + i * SECTION_HEADER_SIZE;
-            need("section header", bytes, at, SECTION_HEADER_SIZE)?;
-            let s = &bytes[at..at + SECTION_HEADER_SIZE];
-            let tag_end = s[..19].iter().position(|&b| b == 0).unwrap_or(19);
-            sections.push(SectionHeader {
-                tag: String::from_utf8_lossy(&s[..tag_end]).into_owned(),
-                absolute_data_start: le_u32(&s[20..24]),
-                local_fixups_offset: le_u32(&s[24..28]),
-                global_fixups_offset: le_u32(&s[28..32]),
-                virtual_fixups_offset: le_u32(&s[32..36]),
-                exports_offset: le_u32(&s[36..40]),
-                imports_offset: le_u32(&s[40..44]),
-                end_offset: le_u32(&s[44..48]),
-            });
-        }
+        let (header, sections, _) = read_headers(bytes)?;
 
         let class_section = sections
             .iter()

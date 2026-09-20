@@ -23,8 +23,9 @@
 //!   ticked per frame into a local pose (see `docs/hkx.md`).
 //! - [`character`]: `hkbCharacterData` and `hkbProjectData`, the files that
 //!   tie a rig, a behavior and an animation set together.
-//! - [`writer`]: a packfile builder, used by the tests to make synthetic
-//!   files and usable later for patching.
+//! - [`writer`]: a packfile builder for synthetic files.
+//! - [`document`]: an editable memory image writer preserving opaque classes
+//!   and every section-relative relocation.
 //!
 //! Every parser returns [`Error`] on malformed input rather than panicking,
 //! and every read is bounds-checked against the data section.
@@ -34,6 +35,7 @@
 pub mod animation;
 pub mod behavior;
 pub mod character;
+pub mod document;
 pub mod interp;
 pub mod link;
 pub mod packfile;

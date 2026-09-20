@@ -462,9 +462,6 @@ stored start state in every mode), `hkbBlendingTransitionEffect.duration` and
 - Extracted motion and float tracks in the output.
 - Ragdoll data (`hkaRagdollInstance`, `hkpRigidBody`) in `skeleton.hkx`,
   which the physics layer will want from the same file.
-- A packfile writer that round-trips real files, so Nemesis-style patching
-  can happen in Rust. The builder here writes valid files but does not yet
-  copy unmodelled objects through.
 - Linking currently loads a file per reference, so `SprintBehavior` is
   spliced twice. That is correct, each reference is its own instance with its
   own state, but a shared decode with per-instance run-time state would cost
@@ -506,3 +503,47 @@ and rejection of negative or oversized array counts. The packfile builder's
 The existing unsupported-class and animation-codec boundaries apply equally
 to LE and SE. This change does not add interpreters for classes that the
 behavior model preserves as unknown nodes.
+## 8. Packfile document writer (ANM-08, 2026-09-20)
+
+`document::PackfileDocument` reads every section into editable payload bytes and
+explicit local, global and virtual fixups. It preserves class signatures,
+unknown object bytes, section tags and header extensions. `to_bytes` validates
+all edits and regenerates section placement, section headers and relocation
+tables. It does not retain or return the source file buffer. Section-relative
+payload offsets stay fixed, so unknown class layouts need no guessed sizes.
+Callers may edit fields, append payloads and retarget fixups. Inserting bytes
+inside a payload requires updating every affected address. Typed runtime
+models remain read-only views, they are not serializers.
+
+The implementation follows local `serde-hkx/serde_hkx/src/bytes/ser/mod.rs`,
+`bytes/serde/section_header.rs` and `bytes/de/parser/fixups.rs`, cross-checked
+against `HavokLib/source/format_old.cpp` section loading, linking and writing.
+Their typed serializers do not provide this crate's required opaque-object
+preservation, so the document writer keeps complete section memory images.
+There are no new dependencies.
+
+The writer rejects overlapping sections, reversed or truncated table ranges,
+incomplete records, non-padding bytes after a sentinel, pointer slots that
+cross the payload end, overlapping or repeated pointer slots, invalid section
+indices, out-of-range destinations, repeated virtual records and invalid class
+or root addresses. Reading and writing both perform this validation. Nonempty
+import/export tables and packfile versions other than little-endian Havok
+2010.2 version 8 return `Unsupported`. The container accepts 4-byte and 8-byte
+pointer slots, but this row's live corpus is SE only.
+
+The declared corpus is every HKX in installed `Skyrim - *.bsa`, plus standalone
+Update, Dawnguard, HearthFires and Dragonborn archives when present. This
+installation has no standalone DLC archives. The
+`anm_08_installed_packfiles_roundtrip` check requires zero failures and at least
+7,699 files. It read, wrote and reread 7,699 files, all in the animation archive,
+with equal section payloads and all relocation targets. Modeled equality covers
+6,461 animation containers, 428 behavior graphs, 353 character records, 457
+project records and 6,126 spline animations. The unchanged bytes include 7,219
+opaque `hkp` objects. A separate installed idle-clip edit doubles the modeled
+duration and verifies the reread value. Synthetic cases cover unknown classes,
+nonempty extra sections, scalar and string edits, retargeted pointers, both
+pointer widths, malformed tables and every truncation boundary of a fixture.
+
+Validation does not execute the rewritten files in Havok or Skyrim. It verifies
+the memory-image contract and this crate's modeled values. Object deletion,
+compaction and semantic editing of unknown classes are outside this writer API.
