@@ -614,3 +614,56 @@ isolated package survey reduced that count to 81 and recovered 73 additional
 inventory sections. See [saved package runtime state](save-package-data.md) for
 source evidence, boundaries and integration validation. Runtime package
 restoration and complete ESS resumption remain unfinished.
+
+## Projectile payload source audit
+
+SAV-11 remains blocked. The PMIS, PGRE and PBEA payloads need an established
+subtype layout before a typed decoder can satisfy the original completion
+check. The following local sources were read before considering a parser.
+Paths are relative to `../engine-refs/`.
+
+| Source | Evidence and limit |
+|---|---|
+| `TES5Edit/Core/wbDefinitionsTES5Saves.pas`, `wbChangeFlags002` through `004` | Names the reference change flags for all three types. Flag names alone do not define their payloads. |
+| The same file, `InitialDataTypeDecider` | Explicitly includes change types 2, 3 and 4 in the reference placement-prefix selection. |
+| The same file, `wbChangedProjectile` | Declares a common projectile structure with scalar fields, references, optional inventory, an impact array and a versioned tail. It is never used by a dispatch entry. |
+| The same file, `wbChangedFormData` | PMIS, PGRE and PBEA dispatch entries are empty. They do not bind the common structure or supply subtype fields. |
+| The same file, `ChangedFormProjectileHasInventoryDecider` | Searches for a container named `Change Projectile`, while the unused structure is named `Changed Projectile`. This is another unresolved detail in that candidate definition. |
+| `FallrimTools/src/main/java/resaver/ess/ChangeForm.java`, `getData` | None of these three types has a reader case. They reach `ChangeFormDefault` with a raw body when best-effort parsing is requested. |
+| `uesp-savefile/Save_File_Format.wikitext` | Identifies change types 2, 3 and 4, without defining their payload fields. |
+| `CommonLibSSE-NG/include/RE/P/Projectile.h` and the Missile, Grenade and Beam projectile headers | Declare per-class `SaveGame` and `LoadGame` overrides. The inspected sources contain no serialization implementations. Runtime member offsets are not saved field layouts. |
+
+The xEdit snapshot has SHA-256
+`229cc3df9a8daacf68f0f1da511acff02a96e3803ba158726aac1748a9b7fdec`.
+The FallrimTools `ChangeForm.java` snapshot has SHA-256
+`5e77598928fe3d21017e9df7d199133b6c181753f86806cbcd96f9c5bcd45319`.
+No third-party code, parser dependency or executable disassembly was used.
+
+The external census in `tests/projectile_coverage.rs` visits every change form
+and reports each projectile type, flag word and file/form/change version. It
+checks payload decompression through the existing reader. It does not claim
+typed decoding or typed re-encoding. Before its first run, it required at
+least 50 saves and more than 100,000 inspected change forms. The 60-save run
+inspected 1,344,172 changes and found:
+
+| Type | Change flags | Count | Decompressed payload bytes |
+|---|---|---:|---:|
+| PMIS | `00000002` | 25 | 4,375 |
+| PMIS | `10000002` | 15 | 6,479 |
+| PGRE | `00000001` | 148 | 21,756 |
+| PGRE | `10000000` | 21 | 7,413 |
+| PBEA | None observed | 0 | 0 |
+
+All observed projectile entries use file/form/change versions 12/78/78. The
+census passed, but it is not SAV-11's completion check. There is no PBEA corpus
+coverage, and the four observed flag combinations cannot stand in for every
+source-defined combination. No save was copied or changed.
+
+Unblocking the decoder requires a public format definition or reader/writer
+implementation that binds the common fields and each subtype extension to
+PMIS, PGRE and PBEA, including flag and version conditions. Controlled runtime
+observations could establish those missing boundaries. The typed encoder must
+then reproduce the payloads exactly and reject truncated fields across the
+source-defined combinations. Wiring an unused candidate structure into all
+three dispatch cases without that evidence would not establish compatibility.
+SAV-01's live-record application remains dependent on the completed decoder.
