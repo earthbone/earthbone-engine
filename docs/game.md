@@ -254,6 +254,102 @@ flags 5, 6 and 7, eligibility, chance-none rolls and nested count multiplication
 No executable bytes or proprietary code were copied.
 No comparison of the RNG sequence against Bethesda's runtime was performed.
 
+The leveled-item checks include owner-relative override links, script list
+edits, save/load reproducibility, cycle rejection, overflow and the expansion
+bound. COED ownership/condition propagation is tracked by PRG-15. Mixed Use
+All flags require the precedence implementation tracked by PRG-16. This API
+rejects those cases before rolling. AddItem dispatch and outfit initialization
+consume these results in their own backlog items. No comparison of the RNG
+sequence against Bethesda's runtime was performed.
+
+### Special Loot selection
+
+PRG-14 extends the same quantity API to LVLF bit 3. The caller supplies the
+input level, and the formula independently reads `World::player_level`.
+The nine live GMST values come through `World::game_setting`, including its
+script overlay and winning record lookup. Executable defaults supply settings
+absent from plugins. No duplicate player, inventory or record state is added.
+
+The calculation uses single-precision operations in this order:
+
+```text
+minimum = player * MinPCLevelMult + MinPCLevelBase
+        + MinZoneLevelBase + input * MinZoneLevelMult
+maximum = player * MaxPCLevelMult + MaxPCLevelBase
+        + MaxZoneLevelBase + input * MaxZoneLevelMult
+unit = float(unsigned_random_32) * 2^-32
+used = truncate_to_signed_32(minimum + (maximum - minimum) * powf(unit, Weighting))
+```
+
+Every abbreviated setting has the `fSpecialLoot` prefix. The defaults are:
+
+| Setting suffix | Default |
+|---|---|
+| MinPCLevelBase, MinZoneLevelBase, MaxPCLevelBase, MaxZoneLevelBase | 0 |
+| MinPCLevelMult, MinZoneLevelMult | 0.5 |
+| MaxPCLevelMult | 1 |
+| MaxZoneLevelMult | 1.5 |
+| Weighting | 4 |
+
+The unsigned draw becomes a float before scaling, so float rounding can
+produce exactly 1. Fractional weighting never receives a negative base.
+The result truncates toward zero and is compared as a signed level, without
+a lower clamp. An out-of-range or nonfinite result has the runtime's INT_MIN
+conversion result and selects nothing. Nonfinite or wrongly typed settings
+are rejected during graph preparation, before RNG changes.
+
+Chance-none runs before the formula. Calculate for each item rerolls the
+formula for every requested count. Without it, one selection is multiplied.
+Calculate from all levels caps the formula's input at the list's highest
+entry level. Nested lists receive the original caller input, and apply their
+own flags and formula. Use All bypasses the formula. Mixed Use All flags stay
+with PRG-16 and COED propagation with PRG-15.
+
+Sources first checked were local xEdit `wbDefinitionsTES5.pas` LVLI,
+UESP `LVLI.wikitext`, CommonLibSSE-NG `TESLeveledList.h/.cpp`, skymp and the
+existing item resolver. They describe the fields or call the original engine,
+without implementing this formula. The public
+[LeveledItem page](https://ck.uesp.net/wiki/LeveledItem) and
+[DavidJCobb's July 2024 disassembly notes](https://ck.uesp.net/wiki/Talk:LeveledItem)
+identify the nine settings and separate player and context-dependent input
+levels. Their signed random range differs from the installed Special Edition
+executable. Its directly inspected instructions supply the behavior above.
+
+The inspected file is the installed `Skyrim Special Edition/SkyrimSE.exe`,
+with fixed file/product version `1.7.104.0` and SHA-256
+`846efccf0c1374d71f892907f46549560f2fcb0a75cb87a3eed438baa0f1402f`.
+Addresses below are virtual addresses at image base `0x140000000`:
+
+- `0x1401e8d20` is the single-choice resolver. Chance-none precedes the flag
+  check at `0x1401e8d95`. The formula occupies `0x1401e8dc4` through
+  `0x1401e8ea0`, ending in `CVTTSS2SI`. Signed entry comparison is at
+  `0x1401e8f43`.
+- The scaling constant at `0x1417f7cf0` is exactly `2^-32`. The call at
+  `0x1401e8e7d` resolves through the import table to `powf`.
+- The nine labeled default GMST objects hold values at `0x142078f48` through
+  `0x142079008`, spaced by 24 bytes.
+- `0x1401e90f0` is the count/list resolver. All-level input capping is at
+  `0x1401e914c` through `0x1401e919b`. Per-count calls reach the single-choice
+  resolver at `0x1401e9243`. Use All branches before that calculation at
+  `0x1401e92d4`. Nested calls at `0x1401e9289`, `0x1401e9397` and
+  `0x1401e944e` retain the original input.
+
+Validation adds ten public-API fixtures and one numerical unit test to the
+existing list checks. All 29 integration tests pass with installed data.
+The five-master survey resolves all 11,505 cases across 3,835 lists at levels
+1, 20 and 50, including 324 cases rooted at 108 Special Loot lists. No case
+reached the pending COED or mixed-flag boundary. Fixed-setting fixtures cover
+all eight bound terms, fractional weighting, signed conversion, nested input,
+per-count calculation, live overlays, save reproducibility and RNG rollback.
+
+Only behavioral notes are included here, with no executable bytes. The
+engine continues using its saved xorshift stream, taking a 32-bit draw for
+this formula. It does not claim Bethesda's exact random sequence or identical
+platform `powf` rounding. Encounter-zone input selection belongs to callers,
+including future inventory initialization. No new package or host node is
+added. Static instruction inspection establishes these rules, without a
+running original-game comparison.
+
 - Unit tests per module: VMAD round trip, object format 1, version 3, cuts at
   every offset and a hostile array count. QUST view. Clock. Scenario grammar
   and the log diff. The native registry count against the hand-kept constant.
