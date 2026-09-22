@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! SOEW dialogue cursor and said-once/reset history. Definitions and the
-//! derived topic index are re-read from the same load order after restoration.
+//! SOEW dialogue cursor, INFO eligibility history and DIAL repeat cycles.
+//! Definitions and the derived topic index are re-read after restoration.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
+use soe_esm::GlobalFormId;
 use soe_papyrus::vm::state::Writer;
 use soe_papyrus::VmError;
 
@@ -15,6 +16,19 @@ use crate::world::save::{
 use crate::World;
 
 impl World {
+    /// The do-all repeat history is its own version 28 block at the end of the
+    /// body, so an older reader stops before it rather than mid stream.
+    pub(crate) fn write_dialogue_repeats(&self, w: &mut Writer) {
+        w.len(self.dialogue.repeated.len());
+        for (topic, infos) in &self.dialogue.repeated {
+            write_form_id(w, *topic);
+            w.len(infos.len());
+            for info in infos {
+                write_form_id(w, *info);
+            }
+        }
+    }
+
     pub(crate) fn write_dialogue(&self, w: &mut Writer) {
         w.bool(self.dialogue.session.is_some());
         if let Some(session) = &self.dialogue.session {
@@ -80,5 +94,29 @@ pub(crate) fn read_dialogue(r: &mut FormReader<'_, '_>) -> Result<State, VmError
             return Err(VmError::State("invalid dialogue history".into()));
         }
     }
-    Ok(State { session, said })
+    Ok(State {
+        session,
+        said,
+        repeated: BTreeMap::new(),
+    })
+}
+
+/// Read the version 28 repeat-history block that follows the world body.
+pub(crate) fn read_dialogue_repeats(
+    r: &mut FormReader<'_, '_>,
+) -> Result<BTreeMap<GlobalFormId, BTreeSet<GlobalFormId>>, VmError> {
+    let mut repeated = BTreeMap::new();
+    for _ in 0..r.len()? {
+        let topic = read_form_id(r)?;
+        let mut infos = BTreeSet::new();
+        for _ in 0..r.len()? {
+            if !infos.insert(read_form_id(r)?) {
+                return Err(VmError::State("invalid dialogue repeat history".into()));
+            }
+        }
+        if infos.is_empty() || repeated.insert(topic, infos).is_some() {
+            return Err(VmError::State("invalid dialogue repeat history".into()));
+        }
+    }
+    Ok(repeated)
 }

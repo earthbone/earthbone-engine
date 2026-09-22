@@ -371,7 +371,7 @@ fn patrol_hash_and_save_validation_retain_direction_and_deadline() {
     let original = game.world().save_state();
     let mut old = legacy::without_exclusive_branches(&mut game.world_mut(), &[id(ACTOR)]);
     // Version 22 predates the image-space, loose-item and zone blocks.
-    old.truncate(old.len() - 17);
+    old.truncate(old.len() - 21);
     old[4..6].copy_from_slice(&22u16.to_le_bytes());
     game.world_mut().load_state(&old).unwrap();
     assert_eq!(game.world().save_state(), original);
@@ -389,7 +389,7 @@ fn patrol_hash_and_save_validation_retain_direction_and_deadline() {
     let original = game.world().save_state();
     let mut old = legacy::without_exclusive_branches(&mut game.world_mut(), &[id(ACTOR)]);
     // Version 22 predates the image-space, loose-item and zone blocks.
-    old.truncate(old.len() - 17);
+    old.truncate(old.len() - 21);
     old[4..6].copy_from_slice(&22u16.to_le_bytes());
     assert!(game.world_mut().load_state(&old).is_err());
     assert_eq!(game.world().save_state(), original);

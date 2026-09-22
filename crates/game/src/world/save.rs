@@ -49,7 +49,8 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// Version 25 persists image-space applications and crossfade progress.
 /// Version 26 retains loose item stacks and validates contained reference identities.
 /// Version 27 retains locked encounter-zone selection levels.
-pub const SAVE_VERSION: u16 = 27;
+/// Version 28 retains do-all dialogue cycles.
+pub const SAVE_VERSION: u16 = 28;
 
 #[derive(Clone, Copy)]
 pub(crate) enum FormNamespace {
@@ -397,6 +398,7 @@ impl World {
         self.write_image_space(&mut body);
         self.write_loose_items(&mut body);
         self.write_encounter_levels(&mut body);
+        self.write_dialogue_repeats(&mut body);
         let mut out = Writer::new();
         out.out.extend_from_slice(SAVE_MAGIC);
         out.u16(SAVE_VERSION);
@@ -934,6 +936,11 @@ impl World {
         } else {
             BTreeMap::new()
         };
+        let dialogue_repeats = if version >= 28 {
+            crate::dialogue::read_dialogue_repeats(&mut r)?
+        } else {
+            BTreeMap::new()
+        };
         r.expect_end()?;
         super::death::validate_pending(&actors, &pending)?;
 
@@ -985,6 +992,7 @@ impl World {
         self.next_sound = next_sound;
         self.spell_casts = spell_casts;
         self.dialogue = dialogue;
+        self.dialogue.repeated = dialogue_repeats;
         self.next_effect = next_effect;
         self.active_effects = active_effects;
         self.image_space = image_space;

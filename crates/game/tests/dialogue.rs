@@ -61,6 +61,19 @@ fn topic(form: u32, quest: u32) -> Record {
         .sub(T(b"PNAM"), 50.0f32.to_le_bytes())
 }
 
+fn enable_do_all_before_repeating(plugin: &mut Plugin) {
+    let data = plugin
+        .records
+        .iter_mut()
+        .find(|record| record.tag == T(b"DIAL") && record.form_id == TOPIC)
+        .unwrap()
+        .subrecords
+        .iter_mut()
+        .find(|subrecord| subrecord.tag == T(b"DATA"))
+        .unwrap();
+    data.data[0] = 1;
+}
+
 fn add_topic(plugin: &mut Plugin, topic: Record, infos: Vec<Record>, top_level: bool) {
     let raw = topic.form_id;
     let quest = topic.find(T(b"QNAM")).unwrap().to_vec();
@@ -795,6 +808,39 @@ fn response_reading_and_choice_listing_do_not_advance_world_rng() {
 }
 
 #[test]
+fn do_all_before_repeating_exhausts_eligible_infos_and_survives_a_save() {
+    let fixture = || {
+        let mut plugin = plugin(vec![
+            info(INFO, 2, &["A"], false),
+            info(INFO + 1, 2, &["B"], false),
+            info(INFO + 2, 2 | 32, &["C"], false),
+        ]);
+        enable_do_all_before_repeating(&mut plugin);
+        plugin
+    };
+    let select = |game: &mut Game| {
+        let info = game.choose_dialogue(id(TOPIC)).unwrap().unwrap().info;
+        game.advance_dialogue().unwrap();
+        info
+    };
+
+    let mut original = game(fixture());
+    open(&mut original);
+    let first = select(&mut original);
+    let second = select(&mut original);
+    assert_ne!(first, second);
+    let bytes = original.save_state().unwrap();
+
+    let mut restored = game(fixture());
+    restored.load_state(&bytes).unwrap();
+    assert_eq!(restored.world().state_hash(), original.world().state_hash());
+    let third = select(&mut restored);
+    assert!(![first, second].contains(&third));
+    let repeated = select(&mut restored);
+    assert!([first, second, third].contains(&repeated));
+}
+
+#[test]
 fn actor_dialogue_target_keeps_the_player_native_exception() {
     let mut game = game(plugin(vec![info(INFO, 0, &["Hello"], false)]));
     open(&mut game);
@@ -822,7 +868,7 @@ fn old_world_save_starts_without_dialogue_state() {
     let mut game = game(plugin(vec![info(INFO, 0, &["New conversation"], false)]));
     let mut old = game.world().save_state();
     // CONTEXT: Legacy state ends before the empty dialogue and magic tables.
-    old.truncate(old.len() - 63);
+    old.truncate(old.len() - 67);
     old[4..6].copy_from_slice(&4u16.to_le_bytes());
     open(&mut game);
     game.choose_dialogue(id(TOPIC)).unwrap();
