@@ -4,7 +4,7 @@
 //! DIAL/INFO/DLBR/QUST, UESP VMAD and the shipped TopicInfo fragment contract.
 //! The host acknowledges each response before end fragments or links advance.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use soe_esm::records::gameplay::{DialogueInfo, DialogueTopic, Response};
 use soe_esm::{GlobalFormId, Tag};
@@ -17,7 +17,7 @@ use crate::{Game, World};
 mod index;
 mod state;
 pub(crate) use index::Index;
-pub(crate) use state::read_dialogue;
+pub(crate) use state::{read_dialogue, read_dialogue_repeats};
 
 /// Conversation cursor. Records remain authoritative for text and links.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -35,6 +35,8 @@ pub struct Session {
 pub(crate) struct State {
     pub session: Option<Session>,
     pub said: BTreeMap<GlobalFormId, f64>,
+    /// INFO records selected in the current do-all cycle, keyed by DIAL.
+    pub repeated: BTreeMap<GlobalFormId, BTreeSet<GlobalFormId>>,
 }
 
 const GOODBYE: u16 = 1;
@@ -451,9 +453,6 @@ impl Game {
         if world.record(topic).is_none_or(|r| r.is_deleted()) {
             return Err(Error::Record(topic));
         }
-        if topic_data.do_all_before_repeating.unwrap_or(0) != 0 {
-            return Err(Error::Unsupported("do-all-before-repeating selection"));
-        }
         let quest = world.owning_quest(topic).ok_or(Error::Record(topic))?;
         let state = world.quest_state(quest).ok_or(Error::Record(quest))?;
         if !state.running {
@@ -500,6 +499,17 @@ impl Game {
             }
             if flags & RANDOM_END != 0 && random_group {
                 break;
+            }
+        }
+        if topic_data.do_all_before_repeating.unwrap_or(0) != 0 {
+            let said = world.dialogue.repeated.get(&topic);
+            let unsaid: Vec<_> = candidates
+                .iter()
+                .filter(|(id, _)| !said.is_some_and(|infos| infos.contains(id)))
+                .cloned()
+                .collect();
+            if !unsaid.is_empty() {
+                candidates = unsaid;
             }
         }
         Ok(Candidates {
@@ -634,6 +644,18 @@ impl Game {
             world.dialogue.session = Some(session);
             let time = world.clock.game_days;
             world.dialogue.said.insert(info_id, time);
+            if world
+                .dialogue_topic(topic)?
+                .do_all_before_repeating
+                .unwrap_or(0)
+                != 0
+            {
+                let completed = world.dialogue.repeated.entry(topic).or_default();
+                if infos.iter().all(|(id, _)| completed.contains(id)) {
+                    completed.clear();
+                }
+                completed.insert(info_id);
+            }
         }
         if let Some(fragment) = fragments
             .as_ref()

@@ -271,7 +271,7 @@ fn version_fifteen_migrates_authored_loose_items_and_rejects_truncated_new_exten
     let mut bytes = w.save_state();
     // CONTEXT: One entry: table count, FormID, stack count and three typed extras.
     let extension = 4 + 6 + 4 + 4 + (1 + 4 + 1 + 1 + 6) + 2 * (1 + 4 + 1 + 4);
-    bytes.truncate(bytes.len() - extension - 4);
+    bytes.truncate(bytes.len() - extension - 8);
     let mut loaded = world(3);
     assert!(loaded.load_state(&bytes).is_err());
     bytes[4..6].copy_from_slice(&25_u16.to_le_bytes());
@@ -295,7 +295,7 @@ fn corrupt_loose_metadata_and_duplicate_reference_identity_reject_atomically() {
         assert_eq!(w.state_hash(), hash);
     }
     let mut corrupt = bytes.clone();
-    let last = corrupt.len() - 5;
+    let last = corrupt.len() - 9;
     corrupt[last] ^= 1;
     let mut changed = world(1);
     changed.load_state(&corrupt).unwrap();
@@ -425,7 +425,7 @@ fn legacy_contained_identity_does_not_recreate_its_authored_loose_item() {
             .restore(id(ITEM), 1, vec![stack])
             .unwrap();
         let mut bytes = w.save_state();
-        bytes.truncate(bytes.len() - 8);
+        bytes.truncate(bytes.len() - 12);
         bytes[4..6].copy_from_slice(&25_u16.to_le_bytes());
         let mut loaded = world(1);
         loaded.load_state(&bytes).unwrap();

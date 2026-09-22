@@ -188,22 +188,26 @@ fn old_save_clears_zone_locks_and_corrupt_zone_extension_is_atomic() {
     let mut world = fixture(6, 20, 0);
     world.player_level = 10;
     let mut old = world.save_state();
-    old.truncate(old.len() - 4);
+    old.truncate(old.len() - 8);
     // Version 26 is the last one written without the zone-level block.
     old[4..6].copy_from_slice(&26_u16.to_le_bytes());
     world.enter_encounter_zone(id(ZONE)).unwrap();
     let before = world.save_state();
     let hash = world.state_hash();
+    // The zone block is followed by the version 28 repeat history, so the
+    // zone count, its one entry and that trailing block are sliced apart.
+    let repeats = before.len() - 4;
+    let entry_at = repeats - 8;
+    let count_at = entry_at - 4;
     let mut invalid = before.clone();
-    let n = invalid.len();
-    invalid[n - 2..].fill(0);
+    invalid[repeats - 2..repeats].fill(0);
     assert!(world.load_state(&invalid).is_err());
     assert_eq!(world.state_hash(), hash);
-    let mut duplicate = before.clone();
-    let entry = duplicate[duplicate.len() - 8..].to_vec();
-    let count = duplicate.len() - 12;
-    duplicate[count..count + 4].copy_from_slice(&2_u32.to_le_bytes());
-    duplicate.extend(entry);
+    let mut duplicate = before[..count_at].to_vec();
+    duplicate.extend_from_slice(&2_u32.to_le_bytes());
+    duplicate.extend_from_slice(&before[entry_at..repeats]);
+    duplicate.extend_from_slice(&before[entry_at..repeats]);
+    duplicate.extend_from_slice(&before[repeats..]);
     assert!(world.load_state(&duplicate).is_err());
     assert_eq!(world.state_hash(), hash);
     world.load_state(&old).unwrap();

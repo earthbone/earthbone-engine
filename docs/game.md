@@ -775,7 +775,7 @@ either.
 
 `World::save_state(&self) -> Vec<u8>` and `World::load_state(&mut self,
 bytes) -> Result<(), VmError>` write and read the run-time half of the form
-table, magic `SOEW`, version 20. Versions 4 to 6 use legacy actor values,
+table, magic `SOEW`, version 28. Versions 4 to 6 use legacy actor values,
 version 5 adds active magic, version 6 adds dialogue, version 7 adds actor-value
 components, version 8 adds dialogue to those components, and version 9 adds
 active magic. Version 10 adds per-reference leveled template choices.
@@ -785,14 +785,17 @@ NPC bases and deferred deaths. Version 16 contains difficulty alone, version
 17 weapon hands alone, and version 18 both. Version 19 separates created
 identities from plugin load-order position 255 while retaining both combat fields.
 Version 20 appends restored reference ownership and lock metadata after those fields.
-
-table, magic `SOEW`, version 16. Versions 4 to 6 use legacy actor values,
+Versions 21 to 23 append the package procedure cursor, the Wait tag and the
+walking Patrol cursor. Version 24 adds an actor's exclusive dialogue branch,
+version 25 the image-space stack, versions 26 and 27 loose item stacks and
+locked encounter-zone levels, and version 28 the do-all dialogue cycles.
 version 5 adds active magic, version 6 adds dialogue, version 7 adds actor-value
-components, version 8 adds dialogue to those components, and version 9 adds
+components, version 8 adds dialogue to those components, version 9 adds
 active magic. Version 10 adds per-reference leveled template choices.
 Version 11 adds quest journal instances and mapped runtime metadata. Versions
 12 to 15 add inventory, NPC, identity and deferred-death state. Version 16
-adds an actor's active exclusive dialogue branch.
+adds an actor's active exclusive dialogue branch, and version 17 adds active
+do-all dialogue cycles.
 Older formats load with empty state for absent subsystems.
 Legacy current and base values must agree. Otherwise their modifier domains
 are ambiguous and restoration returns an explicit error.
@@ -1208,6 +1211,21 @@ data without transferring conditions, fragment scripts or quest ownership.
 TCLT supplies follow-up DIAL links. Goodbye closes after response completion.
 Random groups draw from the saved world RNG only during selection. Say Once
 and reset hours use saved history, with reset time measured in game hours.
+Do All Before Repeating is the first byte of the DIAL `DATA` struct. xEdit's
+`wbRecord(DIAL)` declares it as a boolean there, CommonLib names the same bit
+`DIALOGUE_DATA::TopicFlag::kDoAllBeforeRepeating` at `1 << 0`, and UESP's
+`DIAL.wikitext` agrees on the position. UESP reports the byte only on Custom
+and Scene topics and names the behaviour for Scene alone, so the Custom
+subtype's meaning is not established by any of the three. This engine applies
+the same rule wherever the byte is set, which is what xEdit and CommonLib
+describe, and no capture from the game contradicts it.
+
+When a DIAL sets Do All Before Repeating, selection first applies those INFO
+eligibility rules, then suppresses the INFO records already selected for that
+DIAL's current cycle. When every currently eligible INFO has been selected,
+the next committed choice clears that DIAL cycle and starts another. This
+history is shared by all speakers and listeners because the setting belongs to
+the DIAL record.
 Original-engine comparison of random-group selection remains open.
 
 INFO VMAD begin/end fragments run on their named script attachment through
@@ -1234,7 +1252,8 @@ Conditions use current shared actor, quest, inventory and location state.
 Papyrus variable queries require conditional flags and reject ambiguous names.
 The evaluator does not complete missing actor-value, alias or package systems.
 
-SOEW version 16 stores an actor's active exclusive DLBR. Speaking any topic
+SOEW version 28 stores the active do-all DIAL cycles. SOEW version 24 stores
+an actor's active exclusive DLBR. Speaking any topic
 owned by an exclusive branch retains that branch after the conversation
 closes. It enters blocking arbitration on the next root choices, including
 when the prior INFO has no links. Speaking a topic from another exclusive

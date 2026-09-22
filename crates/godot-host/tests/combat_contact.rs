@@ -414,7 +414,9 @@ fn combined_save_reads_both_branch_layouts_without_confusing_their_extensions() 
     suffix.extend_from_slice(&0_u32.to_le_bytes());
     suffix.extend_from_slice(&0_u32.to_le_bytes());
     suffix.push(0);
-    // The empty version 26 loose items and version 27 zone levels.
+    // The empty version 26 loose items, version 27 zone levels and the
+    // version 28 do-all repeat history.
+    suffix.extend_from_slice(&0_u32.to_le_bytes());
     suffix.extend_from_slice(&0_u32.to_le_bytes());
     suffix.extend_from_slice(&0_u32.to_le_bytes());
     assert!(bytes.ends_with(&suffix));
