@@ -282,6 +282,14 @@ impl World {
             body.bool(f.player_enemy);
             body.bool(f.tracks_crime);
         }
+        // Persisted whole, including entries `World::actor_base` populated
+        // only to answer a protected/essential/invulnerable check during a
+        // hit that was then rejected (docs/combat.md, "Application and
+        // events"). The map carries mutable native state (SetProtected,
+        // SetEssential, dead_count) alongside record-derived fields with no
+        // separate marker for which entries came from which, and every
+        // other lazy World cache saves the same way, so there is no
+        // rejected-only subset to exclude here.
         body.len(self.actor_bases.len());
         for (id, a) in self.actor_bases.iter().collect::<BTreeMap<_, _>>() {
             write_form_id(&mut body, *id);

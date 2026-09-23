@@ -94,7 +94,20 @@ weapon enchantment execution.
 
 The calculation prepares a changed health component before emitting events.
 A rejected hit does not apply damage or queue events. Lazy reference/actor
-initialization may still populate record-derived state. Accepted contacts queue
+initialization may still populate record-derived state, and that state is
+part of saved state: `World::actor_base` caches into the same
+`actor_bases` map that natives such as `SetProtected` and `SetEssential`
+write, and `World::save_state` serializes the whole map unconditionally
+(`crates/game/src/world/save.rs`). A rejected first melee hit that reads
+`protected`, `essential` or `invulnerable` through `actor_base` therefore
+persists that actor's base into `save_state` even though the hit itself is
+never applied, the same contract crafting already documents for rejected
+transactions that still read records ("Crafting execution, first
+increment" in `docs/game.md`). There is no separate rejected-only cache to
+omit from persistence, and every other lazy World cache (globals, leveled
+lists, factions, cells) follows the identical read-through, save-whole-map
+pattern, so carving out actor bases alone would be an inconsistent special
+case rather than a fix. Accepted contacts queue
 OnHit to the actor, its running aliases and active-effect scripts. Ordinary
 melee reports the selected weapon, a None projectile and four false special-hit
 flags. A lethal hit then uses the existing death transition with the attacker
