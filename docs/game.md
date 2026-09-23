@@ -1296,10 +1296,32 @@ outside this test.
 
 Remaining dialogue work includes missing conditions, automatic greetings and
 ForceGreet, refusal/invisible continuation,
-favor spending, do-all-before-repeating, walk-away behavior, scenes, persuasion,
+favor spending, do-all-before-repeating, walk-away behavior, scenes,
 services, complete alias behavior and interruption rules. Godot activation,
 menus, voice assets, LIP and idle playback are not connected to this API. This increment does not establish playable dialogue
 or complete the broader gameplay goal.
+
+DLG-07 adds the persuasion and intimidation CTDA functions: IsIntimidatedbyPlayer
+(116), GetPersuasionNumber (225), GetTotalPersuasionNumber (315) and
+GetIntimidateSuccess (655). All four take no parameter in `wbDefinitionsTES5.pas`
+and `Raw_Function_Data.wikitext`, so an INFO condition using one of them just
+compares the returned number against a threshold. A nonzero value in either
+parameter slot is rejected with `Error::Parameter`, the way functions 70 and
+448 reject a slot they do not use. Neither source documents the
+exact encoding vanilla used, so the engine reads state it already has: the
+persuasion pair returns the subject's current Speechcraft (base plus permanent
+plus temporary plus damage, so a perk or effect bonus is felt). No source
+separates the plain number from the total, so both return the same value, and
+the total does not add the permanent component a second time. The intimidated
+flag reads the
+LastBribedIntimidated actor value that also backs SetBribed, and the success
+check compares the player's Speechcraft against the subject's Confidence
+(AIDT, 0 Cowardly to 4 Foolhardy) scaled onto the skill range. This is an
+approximation of the CK wiki's "Mod Player Intimidation" perk entry point
+formula, which the engine does not run yet. The Papyrus native
+`WillIntimidateSucceed` is still a stub in `natives.rs`. No engine state sets
+LastBribedIntimidated yet either, so `IsIntimidatedbyPlayer` reads false until
+a bribe or intimidate native writes it.
 
 ## Active magic applications
 

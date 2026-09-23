@@ -332,6 +332,14 @@ impl Values {
         Ok(values)
     }
 
+    /// Whether `name` has an explicit entry, as opposed to `get`'s fallback
+    /// default for a name that was never set (used to tell "declared zero"
+    /// apart from "never declared" where that distinction matters, such as
+    /// a source record with no AIDT subrecord).
+    pub fn contains(&self, name: &str) -> bool {
+        self.entries.contains_key(&name.to_ascii_lowercase())
+    }
+
     pub fn get(&self, name: &str) -> Components {
         self.entries
             .get(&name.to_ascii_lowercase())
