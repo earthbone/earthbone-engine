@@ -354,15 +354,14 @@ replacement do not call. Actor registration alone would therefore permit
 contact through walls. Static and actor query resources must follow the same
 location lifecycle, with owned RIDs released on replacement.
 
-## Bleedout investigation, CMB-13 in progress
+## Bleedout entry and recovery, CMB-13
 
 The threshold query reads the selected STATS template source through the
 existing actor-template resolver. ACBS Bleedout Override supplies absolute
 health. Otherwise CLAS DATA's Bleedout Default multiplies permanent health,
 which includes the base and permanent modifier, without damage or temporary
 effects. A missing class link uses fBleedoutDefault. An invalid class record
-returns an error. Zero is a valid threshold. This is preparation for the
-transition, and does not yet make protected or essential contacts executable.
+returns an error. Zero is a valid threshold.
 
 The local xEdit NPC_ and CLAS definitions supply the record layouts.
 CommonLibSSE-NG ActorValueOwner.h identifies the permanent-health virtual call,
@@ -408,11 +407,58 @@ are authored record counts, not a survey of live actors entering bleedout.
 Run the survey with SKYRIM_DATA set and
 `cargo run -p soe-game --example bleedout_survey`.
 
+Entry and the health-driven recovery path are implemented. `melee_hit` no
+longer rejects a protected or essential target outright. It clamps the
+target's health at `actor_bleedout_threshold` instead of letting a hit carry
+it lower, matching the comparison at 0x1406cf330, sets `unconscious`, stops
+combat and clears the target's `combat_target`, and dispatches
+`OnEnterBleedout` to the same recipients `OnHit` reaches. The hit is never
+lethal for a bleedout target: `melee_hit` never calls `kill_actor` on one, so
+a scripted `Kill()` remains the only way to finish off a protected-but-not-
+essential actor, matching the unchanged `request_actor_death` guard. Both
+`melee_hit` targets and attackers are also rejected by
+`validate_combat_actor` while `unconscious`, so a repeat hit on a downed
+actor is out of scope here rather than silently re-entering bleedout.
+
+Recovery runs through the same choke point every health change already goes
+through. `World::change_actor_value` calls the new
+`World::resolve_bleedout_recovery` right after `resolve_health_death` on
+every named-health change. It clears `unconscious` once current health is
+carried back above the cached threshold by a restore, a heal spell or a
+potion, unless `SetNoBleedoutRecovery` holds the actor down.
+`unconscious` and `no_bleedout_recovery` already round-tripped through save
+and the determinism hash before this row, so no save-format change was
+needed.
+
+Three items stay out of scope for this row, each with a concrete next step:
+
+- The player-only exception for a merely protected, non-essential actor is
+  not modeled. Vanilla lets the player kill a protected NPC once combat with
+  them has ended, and the engine has no player-attacker special case here.
+  No local CK wiki page grounds the exact rule the way `SetUnconscious` and
+  `GetNoBleedoutRecovery` do. Next step: fetch the CK wiki `IsProtected` and
+  `SetProtected` pages into `../engine-refs/ck-wiki/` and read them before
+  writing that branch, rather than inferring it from the two existing pages.
+- The `essentialDownTimer` path at 0x1406e9690, 0x1406e96a0 and 0x14067a5eb,
+  which brings an unhealed actor back up on its own after a duration with no
+  health change involved, is not modeled. `game` has no per-actor tick or
+  timer scheduler to hang a countdown on yet. Next step: a follow-up row once
+  such a facility exists elsewhere in the crate, so this one is not the first
+  caller of a new scheduling primitive built to fit it.
+- Only `melee_hit`'s health-damage path applies the clamp. The scripted
+  `DamageActorValue` native and any future active-effect magnitude
+  application reach `change_actor_value` too, and so still call
+  `resolve_bleedout_recovery` on the way up, but nothing on the way down
+  clamps them at the threshold: a large enough magic hit still kills a
+  protected or essential actor outright. Next step: thread the same
+  threshold clamp through the magic-damage call sites once CMB's magic-damage
+  rows land, reusing `resolve_bleedout_recovery`'s threshold read rather than
+  duplicating it.
+
 The focused combat_bleedout tests cover winning class overrides, permanent
 health scaling, inherited absolute overrides, live settings and malformed
 inputs. The runtime evidence has not yet been checked through an interactive
-vanilla comparison. Entry, automatic recovery, NoBleedoutRecovery behavior,
-OnEnterBleedout and persistence are still required before CMB-13 is done.
+vanilla comparison.
 
 ## Combat actor-value modifiers, CMB-15 in progress
 

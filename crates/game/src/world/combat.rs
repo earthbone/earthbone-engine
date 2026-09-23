@@ -130,9 +130,7 @@ impl World {
         self.validate_combat_actor(hit.attacker)?;
         self.validate_combat_actor(hit.target)?;
         let target = self.actor_ref(hit.target).ok_or(Error::Actor(hit.target))?;
-        if target.protected || target.essential {
-            return Err(Error::Unsupported("protected or essential combat/bleedout"));
-        }
+        let bleedout_target = target.protected || target.essential;
         if self
             .reference_ref(hit.target)
             .is_some_and(|reference| reference.base.is_some())
@@ -218,6 +216,22 @@ impl World {
             .values
             .clone();
         values.damage("health", health_damage)?;
+        // A protected or essential target's health is clamped at its bleedout
+        // threshold instead of falling through it, matching the installed
+        // runtime's comparison at 0x1406cf330 (docs/combat.md, CMB-13).
+        // validate_combat_actor already rejects a target that is already
+        // unconscious, so entry is the only transition handled here.
+        let threshold = bleedout_target
+            .then(|| self.actor_bleedout_threshold(hit.target))
+            .transpose()?;
+        let entering_bleedout = match threshold {
+            Some(threshold) if values.get("health").current() <= threshold => {
+                let clamp = threshold - values.get("health").current();
+                values.restore("health", clamp)?;
+                true
+            }
+            _ => false,
+        };
         let lethal = values.get("health").current() <= 0.0;
         let aggressor = self.form_value(Some(hit.attacker), alloc);
         let source = self.form_value(Some(hit.weapon), alloc);
@@ -238,10 +252,25 @@ impl World {
                 args: args.clone(),
             });
         }
+        if entering_bleedout {
+            for recipient in self.actor_event_recipients(hit.target) {
+                let object = self.object_of(recipient, alloc);
+                self.pending.push(Pending::Event {
+                    object,
+                    name: "OnEnterBleedout".into(),
+                    args: Vec::new(),
+                });
+            }
+        }
         if let Some(target) = self.actors.get_mut(&hit.target) {
             target.values = values;
+            if entering_bleedout {
+                target.unconscious = true;
+                target.in_combat = false;
+                target.combat_target = None;
+            }
         }
-        let killed = lethal && self.kill_actor(hit.target, Some(hit.attacker));
+        let killed = !bleedout_target && lethal && self.kill_actor(hit.target, Some(hit.attacker));
         Ok(HitResult {
             weapon_damage,
             armor_rating,
@@ -255,7 +284,7 @@ impl World {
 
     fn validate_combat_actor(&mut self, id: GlobalFormId) -> Result<(), Error> {
         let actor = self.actor(id).ok_or(Error::Actor(id))?;
-        if actor.dead || actor.ghost {
+        if actor.dead || actor.ghost || actor.unconscious {
             return Err(Error::Actor(id));
         }
         if !actor.perks.is_empty() {

@@ -1867,3 +1867,8 @@ job, a nonempty payload within 128 MiB, a cache hit on return, draw instances
 and supporting collision. Its predeclared foreground-step budget is 50 ms,
 and its preparation deadline is 30 seconds. The limits are specific to this
 acceptance run, not a claim about every authored cell or machine.
+
+On 2026-09-23 the script failed on master `9ae933b` under Godot 4.7.2 with
+installed data. No prefetch job started (`started` 0, `payload_bytes` 0), one
+gameplay step took 497,919 us, and the transition rebuilt its resources. HST-07
+is open again until this script passes on master.
