@@ -1359,6 +1359,7 @@ dependencies = [
 name = "soe-nif"
 version = "0.1.0"
 dependencies = [
+ "encoding_rs",
  "soe-bsa",
  "soe-trace",
 ]

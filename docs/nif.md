@@ -134,5 +134,3 @@ The archived mesh test is the one that exercises real content on a plain install
 - Controllers, particles, `BSLODTriShape` levels, `BSDynamicTriShape`
   dynamic positions, multiple UV sets beyond the first in the mesh output
   (the block layer keeps them all).
-- The 0x80 to 0x9F range of Windows-1252 in texture paths is decoded as
-  Latin-1.

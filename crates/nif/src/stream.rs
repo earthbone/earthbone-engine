@@ -166,12 +166,11 @@ impl<'a> Stream<'a> {
     }
 
     /// SizedString: u32 length then bytes. Bethesda paths are Windows-1252,
-    /// which is decoded as Latin-1 here since the two only differ in the
-    /// 0x80 to 0x9F range that never appears in asset paths.
+    /// matching the decoding the bsa crate uses for archive file paths.
     pub fn sized_string(&mut self) -> Result<String> {
         let n = self.u32()?;
         let n = self.count(n, 1)?;
-        Ok(latin1(self.take(n)?))
+        Ok(windows1252(self.take(n)?))
     }
 
     /// ExportString: u8 length including the terminating NUL.
@@ -179,7 +178,7 @@ impl<'a> Stream<'a> {
         let n = self.u8()? as usize;
         let bytes = self.take(n)?;
         let trimmed = bytes.strip_suffix(&[0]).unwrap_or(bytes);
-        Ok(latin1(trimmed))
+        Ok(windows1252(trimmed))
     }
 
     /// The header line, up to and including the newline.
@@ -190,7 +189,7 @@ impl<'a> Stream<'a> {
             let b = self.data[self.pos];
             self.pos += 1;
             if b == b'\n' {
-                return Ok(latin1(&self.data[start..self.pos - 1]));
+                return Ok(windows1252(&self.data[start..self.pos - 1]));
             }
         }
         Err(Error::BadMagic)
@@ -210,8 +209,9 @@ impl<'a> Stream<'a> {
     }
 }
 
-pub fn latin1(bytes: &[u8]) -> String {
-    bytes.iter().map(|&b| b as char).collect()
+pub fn windows1252(bytes: &[u8]) -> String {
+    let (s, _) = encoding_rs::WINDOWS_1252.decode_without_bom_handling(bytes);
+    s.into_owned()
 }
 
 /// IEEE half precision to f32, including subnormals, infinities and NaN.

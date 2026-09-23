@@ -16,3 +16,4 @@ name = "soe_nif"
 
 [dependencies]
 soe-trace = { path = "../trace" }
+encoding_rs = "0.8"
