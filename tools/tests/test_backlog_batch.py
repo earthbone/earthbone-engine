@@ -11,9 +11,10 @@ batch = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(batch)
 
 
-def row(row_id, area, crates, status="open", depends_on="-", done_check="Planned check"):
-    return {"id": row_id, "area": area, "crates": crates, "status": status,
-            "depends_on": depends_on, "done_check": done_check}
+def row(row_id, area, crates, status="open", depends_on="-", done_check="Planned check",
+        difficulty="high", title="Title"):
+    return {"id": row_id, "area": area, "crates": crates, "status": status, "title": title,
+            "depends_on": depends_on, "done_check": done_check, "difficulty": difficulty}
 
 
 class RoutingTests(unittest.TestCase):
@@ -39,10 +40,38 @@ class ReadinessTests(unittest.TestCase):
         ]
         self.assertEqual([r["id"] for r in batch.ready_rows(rows)], ["A-02"])
 
-    def test_original_runtime_checks_are_flagged(self):
-        self.assertTrue(batch.needs_runtime(row("PRG-21", "PRG", "game",
-                                                done_check="Authored isolated original-runtime traces")))
-        self.assertFalse(batch.needs_runtime(row("CMB-10", "CMB", "game")))
+    def test_checks_only_the_user_can_run_are_flagged(self):
+        self.assertTrue(batch.needs_user(row("PRG-21", "PRG", "game",
+                                             done_check="Authored isolated original-runtime traces")))
+        self.assertTrue(batch.needs_user(row("HST-05", "HST", "godot-host",
+                                             title="Verify audio reaches a physical speaker")))
+        self.assertFalse(batch.needs_user(row("CMB-10", "CMB", "game")))
+
+    def test_cheaper_rows_come_first_then_rows_that_unlock_more(self):
+        rows = [
+            row("A-01", "CMB", "game", difficulty="high"),
+            row("A-02", "CMB", "game", difficulty="medium"),
+            row("A-03", "DLG", "game", difficulty="medium"),
+            row("A-04", "DLG", "game", status="blocked", depends_on="A-03"),
+        ]
+        self.assertEqual([r["id"] for r in batch.ready_rows(rows)], ["A-03", "A-02", "A-01"])
+
+
+class PlanTests(unittest.TestCase):
+    def test_a_batch_takes_one_row_per_area_and_one_host_row(self):
+        rows = [
+            row("C-01", "CMB", "game", difficulty="medium"),
+            row("C-02", "CMB", "game", difficulty="medium"),
+            row("U-01", "UI", "godot-host,game", difficulty="medium"),
+            row("R-01", "RND", "godot-host", difficulty="medium"),
+            row("F-01", "FMT", "esm", difficulty="high"),
+            row("P-01", "PRG", "game", difficulty="high", done_check="original-runtime traces"),
+        ]
+        self.assertEqual([r["id"] for r in batch.plan_batch(rows, 4)], ["C-01", "U-01", "F-01"])
+
+    def test_skipped_rows_are_left_out(self):
+        rows = [row("C-01", "CMB", "game"), row("C-02", "CMB", "game")]
+        self.assertEqual([r["id"] for r in batch.plan_batch(rows, 4, {"C-01"})], ["C-02"])
 
 
 if __name__ == "__main__":

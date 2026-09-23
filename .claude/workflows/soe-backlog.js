@@ -177,22 +177,30 @@ const JUDGE = {
 }
 
 const A = args || {}
-const P = PROFILES[A.type]
-if (!P) throw new Error(`args.type must be one of ${Object.keys(PROFILES).join(', ')}`)
 if (!Array.isArray(A.rows) || A.rows.length === 0) throw new Error('args.rows is empty, run tools/backlog_batch.py prepare')
-if (A.rows.length > 3) throw new Error('at most three code forks run at once')
+if (A.rows.length > 4) throw new Error('at most four rows run at once')
 const ENGINE = A.engine
+const profileOf = row => {
+  const p = PROFILES[row.type || A.type]
+  if (!p) throw new Error(`${row.id}: type must be one of ${Object.keys(PROFILES).join(', ')}`)
+  return p
+}
+A.rows.forEach(profileOf)
 
+// Effort follows difficulty. Opus only writes very_high rows and runs second fix rounds.
+const cheap = row => row.difficulty === 'low' || row.difficulty === 'medium'
 const writerModel = row => (row.difficulty === 'very_high' ? 'opus' : 'sonnet')
-const writerEffort = row => (row.effort === 'medium' ? 'medium' : 'high')
-const breakerEffort = row => (row.difficulty === 'medium' ? 'medium' : 'high')
-const skillPaths = () => P.skills.map(s => `${SKILLS}/${s}/SKILL.md`).join(', ')
-const releaseDir = row => `${ENGINE}/target/host-${row.branch}`
+const writerEffort = row => (row.difficulty === 'low' ? 'low' : row.effort === 'medium' ? 'medium' : 'high')
+const checkEffort = row => (cheap(row) ? 'low' : 'medium')
+const breakerEffort = row => (cheap(row) ? 'medium' : 'high')
+const skillPaths = row => profileOf(row).skills.map(s => `${SKILLS}/${s}/SKILL.md`).join(', ')
+const targetDir = row => row.target_dir || `${ENGINE}/target`
+const releaseDir = row => `${targetDir(row)}/host`
 
 function rules(row) {
   return `Worktree: ${row.worktree} on branch ${row.branch}. Work only there.
-Permission rules, nobody answers prompts during this run: never cd. Never &&, || or ; in a Bash command, one command per call. Absolute paths only, git -C ${row.worktree}, cargo --manifest-path ${row.worktree}/Cargo.toml. Never change files through Bash (no sed -i, mv, cp, rm, redirects or scripted edits), use Read, Edit and Write. Never use EnterWorktree. Never commit, stage, stash, reset or checkout: the lead reviews and commits.
-Every cargo command is prefixed with CARGO_TARGET_DIR=${ENGINE}/target so the batch reuses one build directory.
+Permission rules, nobody answers prompts during this run: never cd. Never &&, || or ; in a Bash command, and never put two commands on separate lines of one call: one command per call. Never delete anything, not even build cache under target (no rm, no cargo clean). A stale build fixes itself on the next cargo run. Absolute paths only, git -C ${row.worktree}, cargo --manifest-path ${row.worktree}/Cargo.toml. Never change files through Bash (no sed -i, mv, cp, rm, redirects or scripted edits), use Read, Edit and Write. Never use EnterWorktree. Never commit, stage, stash, reset or checkout: the lead reviews and commits.
+Every cargo command is prefixed with CARGO_TARGET_DIR=${targetDir(row)}, this row's own build directory.
 Serena and rust-analyzer are available. Load Serena with ToolSearch (query "serena"), call activate_project with ${row.worktree}, then prefer find_symbol, find_referencing_symbols and get_diagnostics_for_file over reading whole files.`
 }
 
@@ -207,7 +215,7 @@ function scoutPrompt(row) {
   return `You map the codebase for one backlog row so the writer starts with a small context pack instead of exploring.
 ${rowText(row)}
 ${rules(row)}
-Read ${skillPaths()} for where answers live. Then find: the files and symbols the change touches (with line ranges), the nearest existing implementation to copy the pattern from, the existing tests to mirror, and every ../engine-refs source (absolute path under ${ENGINE}/../engine-refs) that declares the format, record layout or semantics. Grep the corpus before anything else.
+Read ${skillPaths(row)} for where answers live. Then find: the files and symbols the change touches (with line ranges), the nearest existing implementation to copy the pattern from, the existing tests to mirror, and every ../engine-refs source (absolute path under ${ENGINE}/../engine-refs) that declares the format, record layout or semantics. Grep the corpus before anything else.
 Write the pack with Write to ${row.worktree}/target/task-pack/${row.id}.md: the row, a file list with line ranges and one line on why each matters, corpus sources with the exact file and section, test files to mirror, and open questions. Keep it under 250 lines. Do not propose code.
 Set feasible to false only when the done check cannot be met from this repository and the corpus, for example when it needs observations from the original game, and put the reason in blocker. Otherwise blocker is empty.`
 }
@@ -216,7 +224,7 @@ function writerPrompt(row, scout) {
   return `You implement one backlog row. A verifier and a breaker test your work afterwards, so write no new tests. Update existing tests only where your change breaks them, and say so.
 ${rowText(row)}
 ${rules(row)}
-Start with the context pack at ${scout.pack_path}, then the skills at ${skillPaths()}. ${P.write}
+Start with the context pack at ${scout.pack_path}, then the skills at ${skillPaths(row)}. ${profileOf(row).write}
 Update docs/<crate>.md for each crate you touch: what the code does, which sources you read, what remains open. House prose: no em dashes, no semicolons between clauses, no AI vocabulary.
 Before returning, run cargo fmt on the workspace, cargo clippy -p <crate> --all-targets -- -D warnings for each touched crate, and get_diagnostics_for_file on every touched Rust file. build_ok is true only if those pass. List every gap between your change and the done check in known_gaps.`
 }
@@ -227,9 +235,9 @@ ${rowText(row)}
 ${rules(row)}
 Context pack: ${scout.pack_path}. Writer summary: ${write.summary}
 Files changed: ${write.files_changed.join(', ')}
-${P.verify}
+${profileOf(row).verify}
 Name the test functions after the check id, for example ${row.id.toLowerCase().replace('-', '_')}_..., and keep them in files the breaker does not use (the breaker writes files ending in _adversarial).
-${P.godot ? `Godot: build the extension with CARGO_TARGET_DIR=${releaseDir(row)} cargo build --release -p soe-godot-host. Make a disposable project under ${row.worktree}/target/godot-check with Write: project.godot copied from ${row.worktree}/godot, a soe.gdextension whose linux keys point at ${releaseDir(row)}/release/libsoe_godot_host.so, and the test script. Run ${GODOT} --headless --path <project> --import once, then --script <test>.gd. Installed-data runs take minutes, give them a 20 minute timeout. Run the same script once on ${GODOT_FLOOR} for the API floor. Put each Godot command in tests[].command.` : ''}
+${profileOf(row).godot ? `Godot: build the extension with CARGO_TARGET_DIR=${releaseDir(row)} cargo build --release -p soe-godot-host. Make a disposable project under ${row.worktree}/target/godot-check with Write: project.godot copied from ${row.worktree}/godot, a soe.gdextension whose linux keys point at ${releaseDir(row)}/release/libsoe_godot_host.so, and the test script. Run ${GODOT} --headless --path <project> --import once, then --script <test>.gd. Installed-data runs take minutes, give them a 20 minute timeout. Run the same script once on ${GODOT_FLOOR} for the API floor. Put each Godot command in tests[].command.` : ''}
 Run every test you added. Report each file with the exact command that runs it, and each failing test with its failure. done_check_covered is true only if a passing test exercises every clause of the done check.`
 }
 
@@ -239,15 +247,15 @@ ${rowText(row)}
 ${rules(row)}
 Context pack: ${scout.pack_path}. Writer summary: ${write.summary}
 Files changed: ${write.files_changed.join(', ')}. Writer's known gaps: ${write.known_gaps.join('; ') || 'none'}
-Aim at: ${P.break}
-Every bug must be a failing test with the expected behaviour and its source (a corpus file, a CK wiki page, or the done check). A test whose expectation you cannot source is not a bug, leave it out. Report each file with the exact command that runs it.`
+Aim at: ${profileOf(row).break}
+Write at most ${cheap(row) ? 6 : 12} adversarial tests, the ones most likely to expose a real defect first. Every bug must be a failing test with the expected behaviour and its source (a corpus file, a CK wiki page, or the done check). A test whose expectation you cannot source is not a bug, leave it out. Report each file with the exact command that runs it.`
 }
 
 function fixerPrompt(row, scout, write, failures, round) {
   return `You are the fixer, round ${round}. Tests written by a verifier and a breaker fail against the writer's change. First check the written code against the context pack and the skills, and correct any deviation. Then make the failing tests pass by fixing the implementation. Never weaken, delete, skip or rewrite a test. If a test's expectation contradicts its cited source, leave it failing and list it under disputed with the source that contradicts it. A judge rules on disputes.
 ${rowText(row)}
 ${rules(row)}
-Context pack: ${scout.pack_path}. Skills: ${skillPaths()}
+Context pack: ${scout.pack_path}. Skills: ${skillPaths(row)}
 Failing tests:
 ${failures.map(f => `- ${f.test}: ${f.failure}`).join('\n')}
 Keep the change inside the crates the row names. Run cargo fmt, clippy -p <crate> --all-targets -- -D warnings and the failing tests before returning.`
@@ -269,7 +277,7 @@ Writer summary: ${s.write.summary}. Writer's known gaps: ${s.write.known_gaps.jo
 Tests added: ${[...s.verify.tests, ...s.breakr.tests].map(t => t.command).join(' | ')}
 Remaining failures after fixing: ${s.remaining.map(f => f.test).join(', ') || 'none'}
 Disputed tests: ${disputes.map(d => `${d.test} (${d.reason})`).join('; ') || 'none'}
-Run: git -C ${row.worktree} diff master --stat and read the diff. Then cargo fmt --all --check, cargo clippy -p <crate> --all-targets -- -D warnings per touched crate, comment-lint on the touched crates/<crate> and docs paths, cargo test -p <crate> per touched crate, and every command in tests added.${P.godot ? ' Run the Godot acceptance script yourself and copy its RESULT line into godot_result.' : ' Set godot_result to "n/a".'}
+Run: git -C ${row.worktree} diff master --stat and read the diff. Then cargo fmt --all --check, cargo clippy -p <crate> --all-targets -- -D warnings per touched crate, comment-lint on the touched crates/<crate> and docs paths, cargo test --workspace (dependent crates such as soe-godot-host carry tests that encode game behaviour, so a change in game can break them), and every command in tests added.${profileOf(row).godot ? ' Run the Godot acceptance script yourself and copy its RESULT line into godot_result.' : ' Set godot_result to "n/a".'}
 For each disputed test, read its cited source and rule test_correct or test_wrong.
 Write your reasoning into analysis first. verdict is done only if every clause of the done check is exercised by a passing test you ran, the gate steps pass, and no test ruled correct still fails. Use partial when some clauses are met, failed when the change does not work. evidence is one line in the BACKLOG.csv style: what ran and the counts.`
 }
@@ -294,7 +302,7 @@ const results = await pipeline(
     if (s.stopped) return s
     const [verify, breakr] = await parallel([
       () => agent(verifierPrompt(s.row, s.scout, s.write), {
-        label: labelOf('verify', s.row), phase: 'Check', model: 'sonnet', effort: 'medium', schema: VERIFY,
+        label: labelOf('verify', s.row), phase: 'Check', model: 'sonnet', effort: checkEffort(s.row), schema: VERIFY,
       }),
       () => agent(breakerPrompt(s.row, s.scout, s.write), {
         label: labelOf('break', s.row), phase: 'Check', model: 'sonnet', effort: breakerEffort(s.row), schema: BREAK,
@@ -316,7 +324,7 @@ const results = await pipeline(
         label: labelOf(`fix${round}`, s.row),
         phase: 'Fix',
         model: round === 2 || s.row.difficulty === 'very_high' ? 'opus' : 'sonnet',
-        effort: 'high',
+        effort: cheap(s.row) && round === 1 ? 'medium' : 'high',
         schema: FIX,
       })
       const recheck = await agent(recheckPrompt(s.row, commands), {
@@ -333,7 +341,7 @@ const results = await pipeline(
   async s => {
     if (s.stopped) return s
     const judge = await agent(judgePrompt(s.row, s), {
-      label: labelOf('judge', s.row), phase: 'Judge', model: 'sonnet', effort: 'high', schema: JUDGE,
+      label: labelOf('judge', s.row), phase: 'Judge', model: 'sonnet', effort: checkEffort(s.row), schema: JUDGE,
     })
     return { ...s, judge }
   },
