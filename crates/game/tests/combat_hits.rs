@@ -1273,3 +1273,70 @@ fn reequipping_armor_preserves_worn_metadata_and_saved_state() {
     equip(&game, 0x901, 0xB00);
     assert_eq!(game.save_state().unwrap(), before);
 }
+
+#[test]
+fn cmb_05_block_reduction_uses_record_backed_multipliers_and_survives_save_load() {
+    // DNAM stores the rating in hundredths, so 1000 decodes to a 10.0 rating.
+    let extra = vec![armor(0xB00, 1000, 1 << 9, 2)];
+    let mut game = fixture(extra.clone());
+    equip(&game, 0x901, 0xB00);
+    game.world_mut()
+        .set_actor_value(id(0x901), "block", 50.)
+        .unwrap();
+
+    // A shield in the BOD2 shield slot contributes nothing while the target
+    // is not in a block stance.
+    let unblocked = game.melee_hit(hit(0x14, 0x901)).unwrap();
+    assert!(!unblocked.blocked);
+    close(unblocked.block_reduction, 0.);
+    close(unblocked.health_damage, 15.);
+
+    // Blocking with a shield equipped: Block record-backed multipliers apply.
+    game.world_mut().set_blocking(id(0x901), true).unwrap();
+    let blocked = game.melee_hit(hit(0x14, 0x901)).unwrap();
+    assert!(blocked.blocked);
+    close(blocked.block_reduction, 0.48);
+    close(blocked.health_damage, 7.8);
+
+    // Weapon-only blocking, with no shield in the BOD2 shield slot, is not
+    // evaluated: the flag stays clear and no reduction applies.
+    game.world_mut()
+        .actor(id(0x901))
+        .unwrap()
+        .equipped
+        .remove(&id(0xB00));
+    let weapon_only = game.melee_hit(hit(0x14, 0x901)).unwrap();
+    assert!(!weapon_only.blocked);
+    close(weapon_only.block_reduction, 0.);
+    game.world_mut()
+        .actor(id(0x901))
+        .unwrap()
+        .equipped
+        .insert(id(0xB00));
+
+    // Save/load continuation: the Block skill and the equipped shield are
+    // saved state and come back unchanged. The live block stance is not
+    // saved state, so the host re-signals it after load through
+    // `World::set_blocking`, matching docs/combat.md.
+    let saved = game.save_state().unwrap();
+    let mut loaded = fixture(extra);
+    loaded.load_state(&saved).unwrap();
+    close(
+        loaded
+            .world()
+            .actor_ref(id(0x901))
+            .unwrap()
+            .values
+            .get("block")
+            .current(),
+        50.,
+    );
+    let not_yet_reblocked = loaded.melee_hit(hit(0x14, 0x901)).unwrap();
+    assert!(!not_yet_reblocked.blocked);
+    close(not_yet_reblocked.block_reduction, 0.);
+    loaded.world_mut().set_blocking(id(0x901), true).unwrap();
+    let reblocked = loaded.melee_hit(hit(0x14, 0x901)).unwrap();
+    assert!(reblocked.blocked);
+    close(reblocked.block_reduction, 0.48);
+    close(reblocked.health_damage, 7.8);
+}

@@ -67,6 +67,12 @@ pub struct HitResult {
     pub weapon_damage: f32,
     pub armor_rating: f32,
     pub armor_reduction: f32,
+    /// The target held a block stance with a shield equipped. Weapon-only
+    /// blocking (no shield) is not evaluated, see docs/combat.md.
+    pub blocked: bool,
+    /// Fraction of damage the shield block removed, 0 when `blocked` is false.
+    /// Stacks multiplicatively with `armor_reduction`.
+    pub block_reduction: f32,
     pub health_damage: f32,
     pub killed: bool,
 }
