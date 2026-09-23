@@ -1967,7 +1967,13 @@ fn a_redeclared_native_resolves_on_the_parent_class() {
     g.start();
     assert!(errors(&g).is_empty(), "{:?}", errors(&g));
     let guard = g.form("GuardRef").unwrap();
-    let wanted = Value::Object(g.object_of_form(guard)).to_string();
+    let object = g.object_of_form(guard);
+    // SCR-07: Debug.Trace carries the object's runtime form id alongside
+    // its handle, not just the bare `Value::Object` display.
+    let wanted = match g.world().form_of(object) {
+        Some(id) => format!("[Object <{}> {:08X}]", object.0, g.world().runtime_id(id)),
+        None => Value::Object(object).to_string(),
+    };
     assert!(
         g.traces().contains(&wanted),
         "GetReference through the alias chain: {:?}",
