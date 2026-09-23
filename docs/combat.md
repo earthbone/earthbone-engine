@@ -185,11 +185,84 @@ engine save/load. Ordinary weapons retain their shared template resolver.
 ## Remaining execution work
 
 Host attack input, timing/contact detection, hand-specific selection, ranged
-weapons/ammunition, bashing, sneak and power attacks, blocking,
+weapons/ammunition, bashing, sneak and power attacks, weapon-only blocking,
 perk entry points, tempering, enchantments, bleedout,
 stagger, crime and combat AI remain unfinished. The API is an execution
 increment and does not establish playable combat or completion of the broader
 gameplay-foundations goal.
+
+## Block damage reduction, CMB-05
+
+Shield block reduces incoming ordinary melee damage when the target holds a
+block stance and has armor occupying the shield BOD2 slot, bit 9. The stance
+comes from `World::set_blocking`, a host-driven flag on `ActorState` set from
+the animation graph, not from the plugin database. The shield itself, its
+DNAM rating and the target's Block actor value are the record-backed inputs,
+resolved through the same armor-record and template path CMB-01 already
+established for equipped armor.
+
+The reduction follows the shield term UESP's Block page and its talk archive
+describe: `fShieldBaseFactor + fShieldScalingFactor / 100 * shieldRating *
+(fBlockSkillMult - (100 - blockSkill) / 100)`, capped at `fBlockMax` and
+clamped to `[0, 1]`, mirroring the read/resolve/scale/clamp shape CMB-01 uses
+for armor. It stacks with armor reduction multiplicatively,
+`(1 - armor_reduction) * (1 - block_reduction)`, rather than by addition.
+Vanilla's exact ordering is not stated in any local or online source found,
+so multiplicative stacking is this increment's design choice, chosen because
+it cannot itself push total reduction past 100 percent and matches how
+Skyrim layers other percentage-based reductions. `HitResult` reports both
+`blocked` and `block_reduction` for callers that need the breakdown. The
+`OnHit` event's `abHitBlocked` argument, previously hardcoded false, now
+carries the same flag.
+
+The Block actor value and the equipped shield already round-trip through the
+existing generic actor-value store and equipment set, so no SOEW change was
+needed for the record-backed multipliers to persist. The block stance flag
+itself is intentionally not part of saved state. It is analogous to the
+animation-driven `alerted`/`sneaking`/`weapon_drawn` flags that are, but
+adding it to the fixed-position, version-gated `write_actor_state`/
+`read_actor_state` sequence would need a SOEW version bump this increment
+did not attempt, and blocking, unlike those flags, has no meaning unless the
+host actively re-asserts it after load from the live animation graph anyway.
+
+Open gaps, not attempted by this increment:
+
+- Blocking with a weapon and no shield. UESP's talk archive names
+  `fBlockWeaponBase`/`fBlockWeaponScaling` but flags the formula as
+  possibly reflecting an engine bug (it appears to use the attacker's
+  weapon damage rather than the defender's), so it was not ported.
+- The Shield Wall perk family and other block-related perks. Perked actors
+  are already globally rejected by `validate_combat_actor`, ahead of and
+  independent from this row.
+- Fortify Block enchantments and potions.
+- `fBlockPowerAttackMult`. `MeleeHit` carries no power-attack input yet, so
+  no attenuation term exists to apply it to.
+- Bash attacks (`abBashAttack`), which read BIDS/BAMT rather than the
+  block-reduction path and are unrelated to this row's done check.
+- `fBlockMax`'s value. UESP's talk archive gives 0.7 as the documented
+  engine default, and this increment uses that value, but its own testers
+  report an observed cap closer to 85 percent with no written explanation
+  for the gap. The documented default is used here rather than the
+  observed number, pending an original-engine measurement.
+
+Sources read for this increment, beyond the CMB-01 sources this section
+builds on:
+
+- [UESP Skyrim:Block](https://en.uesp.net/wiki/Skyrim:Block) for the shield
+  base and scaling factors and the general shape of the formula.
+- [UESP Skyrim talk:Block, Archive 3](https://en.uesp.net/wiki/Skyrim_talk:Block/Archive_3)
+  for the full game-setting default values and the community-derived
+  formula, including the weapon-block ambiguity and the `fBlockMax`
+  discrepancy noted above.
+- `uesp-modfileformat/ARMO.wikitext` lines 64 to 68 confirm ETYP, BIDS and
+  BAMT are shield-only fields. BIDS and BAMT govern bash impact sound and
+  material, not the damage-reduction magnitude this row implements, so they
+  were not added to the `Armor` record view.
+- `CommonLibSSE-NG/include/RE/B/BGSBipedObjectForm.h` names the shield biped
+  slot as bit 9 (`kShield`), matching the bit `combat_armor` already reads
+  into its hidden category bonus.
+- `ck-wiki/OnHit_-_ObjectReference.wikitext` for the `abHitBlocked` event
+  argument position.
 
 ## Authored contact bridge, CMB-03
 

@@ -220,6 +220,11 @@ pub struct ActorState {
     pub alerted: bool,
     pub sneaking: bool,
     pub weapon_drawn: bool,
+    /// The host animation graph's current block stance. Unlike the other
+    /// combat stance flags above, this is not part of saved state: the host
+    /// re-signals it from the live graph after load, through
+    /// `World::set_blocking`.
+    pub blocking: bool,
     pub restrained: bool,
     pub arrested: bool,
     pub attack_on_sight: bool,

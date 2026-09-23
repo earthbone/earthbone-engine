@@ -89,6 +89,21 @@ impl World {
         Ok(())
     }
 
+    /// Set whether an actor currently holds a block stance, matching the
+    /// host's animation graph. Ordinary melee contacts read this flag to
+    /// decide whether shield block reduction applies. It is not part of
+    /// saved state, see `ActorState::blocking`.
+    ///
+    /// # Errors
+    /// Missing actor.
+    pub fn set_blocking(&mut self, actor: GlobalFormId, blocking: bool) -> Result<(), Error> {
+        self.actors
+            .get_mut(&actor)
+            .ok_or(Error::Actor(actor))?
+            .blocking = blocking;
+        Ok(())
+    }
+
     fn equip_armor(&self, item: GlobalFormId) -> Result<Option<Armor>, Error> {
         let Some(_) = self
             .record(item)
@@ -179,6 +194,9 @@ impl World {
             + f64::from(categories) * self.combat_setting("fArmorBaseFactor")?)
         .min(self.combat_setting("fMaxArmorRating")? / 100.0)
         .clamp(0.0, 1.0);
+        let block = self.combat_block(hit.target)?;
+        let blocked = block.is_some();
+        let block_reduction = block.unwrap_or(0.0);
         let (from_player, to_player) = self.difficulty.gmst_names();
         let difficulty = if self.player == Some(hit.attacker) {
             self.combat_setting(from_player)?
@@ -187,7 +205,12 @@ impl World {
         } else {
             1.0
         };
-        let health_damage = finite(f64::from(weapon_damage) * (1.0 - reduction) * difficulty)?;
+        // Armor and shield block are independent reductions on the same base
+        // damage, so they stack multiplicatively rather than adding. Sources
+        // do not state vanilla's exact ordering, see docs/combat.md.
+        let health_damage = finite(
+            f64::from(weapon_damage) * (1.0 - reduction) * (1.0 - block_reduction) * difficulty,
+        )?;
         // Prepare damage before allocating events, so overflow cannot leave a partial hit.
         let mut values = self
             .actor_ref(hit.target)
@@ -205,7 +228,7 @@ impl World {
             Value::Bool(false),
             Value::Bool(false),
             Value::Bool(false),
-            Value::Bool(false),
+            Value::Bool(blocked),
         ];
         for recipient in self.actor_event_recipients(hit.target) {
             let object = self.object_of(recipient, alloc);
@@ -223,6 +246,8 @@ impl World {
             weapon_damage,
             armor_rating,
             armor_reduction: reduction as f32,
+            blocked,
+            block_reduction: block_reduction as f32,
             health_damage,
             killed,
         })
@@ -358,6 +383,44 @@ impl World {
             categories |= armor.slots & ((1 << 0) | (1 << 2) | (1 << 3) | (1 << 7) | (1 << 9));
         }
         Ok((finite(rating.max(0.0))?, categories.count_ones()))
+    }
+
+    /// Shield block reduction for a target holding a block stance, or `None`
+    /// when not blocking or no equipped armor occupies the shield slot
+    /// (BOD2 bit 9). Weapon-only blocking without a shield is not evaluated.
+    /// UESP's Block page and its talk-page defaults describe the shield
+    /// term, sources and open gaps are in docs/combat.md.
+    fn combat_block(&self, actor: GlobalFormId) -> Result<Option<f64>, Error> {
+        let state = self.actor_ref(actor).ok_or(Error::Actor(actor))?;
+        if !state.blocking {
+            return Ok(None);
+        }
+        let mut shield_rating = None;
+        for &item in &state.equipped {
+            if self
+                .record(item)
+                .is_none_or(|record| record.tag != Tag(*b"ARMO"))
+            {
+                continue;
+            }
+            let armor = self.combat_armor_record(item)?;
+            if armor.slots & (1 << 9) != 0 {
+                shield_rating = Some(armor.rating);
+                break;
+            }
+        }
+        let Some(shield_rating) = shield_rating else {
+            return Ok(None);
+        };
+        let skill = f64::from(state.values.get("block").current()).max(0.0);
+        let skill_term = self.combat_setting("fBlockSkillMult")? - (100.0 - skill) / 100.0;
+        let reduction = (self.combat_setting("fShieldBaseFactor")?
+            + self.combat_setting("fShieldScalingFactor")? / 100.0
+                * f64::from(shield_rating)
+                * skill_term)
+            .min(self.combat_setting("fBlockMax")?)
+            .clamp(0.0, 1.0);
+        Ok(Some(reduction))
     }
 
     fn combat_weapon(&self, id: GlobalFormId) -> Result<Weapon, Error> {

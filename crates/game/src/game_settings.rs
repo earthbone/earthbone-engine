@@ -4,6 +4,8 @@
 //! SkyEdit's author documented missing GMSTs and editor-ID overrides. Published
 //! SkyTweak/Vigor measurements supply combat values, linked in docs/combat.md.
 //! Special Loot defaults come from the installed runtime, detailed in game.md.
+//! Block defaults come from UESP's Block page and its talk archive, also
+//! linked in docs/combat.md.
 
 pub(crate) fn engine_default(name: &str) -> Option<f32> {
     Some(match name.to_ascii_lowercase().as_str() {
@@ -14,7 +16,7 @@ pub(crate) fn engine_default(name: &str) -> Option<f32> {
         | "fdiffmulthpbypcn"
         | "fdiffmulthptopcn"
         | "fspeciallootmaxpclevelmult" => 1.0,
-        "fdiffmulthpbypcve" | "fdiffmulthptopcvh" => 2.0,
+        "fdiffmulthpbypcve" | "fdiffmulthptopcvh" | "fblockskillmult" => 2.0,
         "fdiffmulthptopcve"
         | "fdiffmulthpbypcvh"
         | "fspeciallootminpclevelmult"
@@ -31,13 +33,16 @@ pub(crate) fn engine_default(name: &str) -> Option<f32> {
         "farmorscalingfactor" => 0.12,
         "farmorbasefactor" => 0.03,
         "fmaxarmorrating" => 80.0,
+        "fshieldbasefactor" => 0.45,
+        "fblockmax" => 0.7,
         "fspeciallootminpclevelbase"
         | "fspeciallootminzonelevelbase"
         | "fspeciallootmaxpclevelbase"
         | "fspeciallootmaxzonelevelbase" => 0.0,
         "fspeciallootweighting" => 4.0,
-        // Installed runtime Setting data, with the address evidence in combat.md.
-        "fbleedoutdefault" => 0.2,
+        // fbleedoutdefault comes from installed runtime Setting data, with the
+        // address evidence in combat.md.
+        "fshieldscalingfactor" | "fbleedoutdefault" => 0.2,
         _ => return None,
     })
 }
