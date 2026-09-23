@@ -326,6 +326,7 @@ impl World {
         operation(&mut actor.values, name, amount)?;
         if name.eq_ignore_ascii_case("health") {
             self.resolve_health_death(id);
+            self.resolve_bleedout_recovery(id);
         }
         Ok(())
     }
