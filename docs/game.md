@@ -775,7 +775,7 @@ either.
 
 `World::save_state(&self) -> Vec<u8>` and `World::load_state(&mut self,
 bytes) -> Result<(), VmError>` write and read the run-time half of the form
-table, magic `SOEW`, version 28. Versions 4 to 6 use legacy actor values,
+table, magic `SOEW`, version 29. Versions 4 to 6 use legacy actor values,
 version 5 adds active magic, version 6 adds dialogue, version 7 adds actor-value
 components, version 8 adds dialogue to those components, and version 9 adds
 active magic. Version 10 adds per-reference leveled template choices.
@@ -788,7 +788,8 @@ Version 20 appends restored reference ownership and lock metadata after those fi
 Versions 21 to 23 append the package procedure cursor, the Wait tag and the
 walking Patrol cursor. Version 24 adds an actor's exclusive dialogue branch,
 version 25 the image-space stack, versions 26 and 27 loose item stacks and
-locked encounter-zone levels, and version 28 the do-all dialogue cycles.
+locked encounter-zone levels, version 28 the do-all dialogue cycles, and
+version 29 an actor's stagger end time.
 version 5 adds active magic, version 6 adds dialogue, version 7 adds actor-value
 components, version 8 adds dialogue to those components, version 9 adds
 active magic. Version 10 adds per-reference leveled template choices.

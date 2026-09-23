@@ -50,7 +50,8 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// Version 26 retains loose item stacks and validates contained reference identities.
 /// Version 27 retains locked encounter-zone selection levels.
 /// Version 28 retains do-all dialogue cycles.
-pub const SAVE_VERSION: u16 = 28;
+/// Version 29 retains an actor's stagger end time.
+pub const SAVE_VERSION: u16 = 29;
 
 #[derive(Clone, Copy)]
 pub(crate) enum FormNamespace {
@@ -1364,6 +1365,10 @@ fn write_actor_state(w: &mut Writer, a: &ActorState) {
     write_opt_form_id(w, a.ash_pile);
     write_form_set(w, &a.shouts);
     write_opt_form_id(w, a.equipped_shout);
+    w.bool(a.stagger_end_time.is_some());
+    if let Some(until) = a.stagger_end_time {
+        w.f64(until);
+    }
 }
 
 fn write_form_set(w: &mut Writer, set: &BTreeSet<GlobalFormId>) {
@@ -1477,6 +1482,9 @@ fn read_actor_state(r: &mut FormReader<'_, '_>, version: u16) -> Result<ActorSta
     a.ash_pile = read_opt_form_id(r)?;
     a.shouts = read_form_set(r)?;
     a.equipped_shout = read_opt_form_id(r)?;
+    if version >= 29 && r.bool()? {
+        a.stagger_end_time = Some(r.f64()?);
+    }
     Ok(a)
 }
 
