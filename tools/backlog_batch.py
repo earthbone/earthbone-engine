@@ -1,15 +1,14 @@
 #!/usr/bin/env python3
 """Pick ready BACKLOG.csv rows and prepare worktrees for the soe-backlog workflow.
 
-`ready` lists open rows whose dependencies are done, cheapest first. `plan` picks a batch
-with at most one row per area and one host row, so parallel rows rarely touch the same
-files. `prepare` checks the chosen rows, creates one worktree and branch per row under
-target/, and prints the JSON that the soe-backlog workflow takes as its args. Each row
-builds in its own target directory. A shared one is unsafe across worktrees, because cargo
-fingerprints workspace crates by relative path and links a library built from another
-worktree's source. The slim flag turns off incremental state and full debug info, which
-kept those directories at 6 to 18 GiB. The CSV is not edited here. The lead records a row
-as done only after checking the finished worktree.
+`ready` lists open rows whose dependencies are done, cheapest first. `plan` picks a batch:
+with `--area` every ready row of that area, otherwise at most one row per area and one host
+row. `prepare` checks the chosen rows, creates one worktree and branch per row under target/,
+and prints the JSON that the soe-backlog workflow takes as its args. The workflow runs the
+rows in lanes, each lane with one reusable build directory that it cleans of workspace
+packages between rows, because cargo fingerprints workspace crates by relative path and
+would otherwise link a library built from another worktree's source. The CSV is not edited
+here. The lead records a row as done only after checking the finished worktree.
 """
 
 import argparse
@@ -27,9 +26,15 @@ TYPES = ("native", "gameplay", "format", "host", "shim", "tooling")
 DIFFICULTY = ("low", "medium", "high", "very_high")
 # Cheaper profiles first when difficulty ties. Host rows build a release extension and run Godot.
 TYPE_COST = {"tooling": 0, "format": 1, "native": 2, "gameplay": 3, "shim": 4, "host": 5}
-MAX_ROWS = 4
-# Builds, coverage runs and Godot exports all land on this disk. Stop before it fills.
-MIN_FREE_GIB = 20
+MAX_ROWS = 100
+LANES = 9
+CARGO_JOBS = 6
+# Each lane's build directory takes about 4 GiB, plus room for the lead's master gate.
+LANE_GIB = 4
+MIN_FREE_GIB = 15
+# The repository has no git identity, so commits and merges set it in the environment.
+IDENTITY = ("GIT_AUTHOR_NAME=pengolodh GIT_AUTHOR_EMAIL=lysander.deloore@gmail.com "
+            "GIT_COMMITTER_NAME=pengolodh GIT_COMMITTER_EMAIL=lysander.deloore@gmail.com")
 USER_ONLY = ("original-runtime", "original runtime", "physical speaker", "windowed")
 
 
@@ -80,13 +85,19 @@ def ready_rows(rows):
     )
 
 
-def plan_batch(rows, count, skip=()):
-    """Take ready rows in order, at most one per area and one host row."""
+def plan_batch(rows, count, skip=(), area=None):
+    """Take ready rows in order. With an area, every ready row of it, otherwise one per area and one host row."""
     chosen, areas, hosts = [], set(), 0
     for row in ready_rows(rows):
         if len(chosen) == count:
             break
-        if row["id"] in skip or needs_user(row) or row["area"] in areas:
+        if row["id"] in skip or needs_user(row):
+            continue
+        if area:
+            if row["area"] == area:
+                chosen.append(row)
+            continue
+        if row["area"] in areas:
             continue
         if task_type(row) == "host":
             if hosts:
@@ -95,6 +106,30 @@ def plan_batch(rows, count, skip=()):
         areas.add(row["area"])
         chosen.append(row)
     return chosen
+
+
+def plan_area(rows, area, skip=(), count=MAX_ROWS):
+    """Every row of an area that can finish in one run: ready rows first, then rows whose
+    unmet dependencies are all earlier in the list. The order is topological, which the
+    workflow's lanes rely on."""
+    status = {r["id"]: r["status"] for r in rows}
+    chosen = [r for r in ready_rows(rows) if r["area"] == area and r["id"] not in skip and not needs_user(r)]
+    ids = {r["id"] for r in chosen}
+    waiting = [
+        r for r in rows
+        if r["area"] == area and r["status"] in ("open", "blocked") and r["id"] not in ids
+        and r["id"] not in skip and not needs_user(r)
+    ]
+    grew = True
+    while grew and len(chosen) < count:
+        grew = False
+        for r in list(waiting):
+            if all(d in ids for d in unmet(r, status)):
+                chosen.append(r)
+                ids.add(r["id"])
+                waiting.remove(r)
+                grew = True
+    return chosen[:count]
 
 
 def git(*args):
@@ -111,6 +146,17 @@ def branch_for(row_id):
         n += 1
         name = f"{base}-r{n}"
     return name
+
+
+def workspace_crates():
+    """Package names of every crate under crates/, for cleaning a lane between rows."""
+    names = []
+    for manifest in sorted((ENGINE / "crates").glob("*/Cargo.toml")):
+        for line in manifest.read_text().splitlines():
+            if line.startswith("name = "):
+                names.append(line.split('"')[1])
+                break
+    return names
 
 
 def free_gib():
@@ -133,15 +179,22 @@ def cmd_ready(args):
 
 
 def cmd_plan(args):
-    for row in plan_batch(load(args.csv), args.count, set(args.skip)):
+    rows = load(args.csv)
+    if args.area:
+        chosen = plan_area(rows, args.area, set(args.skip), args.count)
+    else:
+        chosen = plan_batch(rows, args.count, set(args.skip))
+    for row in chosen:
         print(row["id"])
 
 
 def cmd_prepare(args):
     if len(args.ids) > MAX_ROWS:
         sys.exit(f"{len(args.ids)} rows requested, at most {MAX_ROWS} run at once")
-    if not args.dry_run and free_gib() < MIN_FREE_GIB:
-        sys.exit(f"{free_gib():.0f} GiB free, below {MIN_FREE_GIB} GiB, remove merged worktrees first")
+    lanes = min(args.lanes, len(args.ids))
+    need = MIN_FREE_GIB + LANE_GIB * lanes
+    if not args.dry_run and free_gib() < need:
+        sys.exit(f"{free_gib():.0f} GiB free, {lanes} lanes need {need} GiB, remove merged worktrees first")
     rows = load(args.csv)
     by_id = {r["id"]: r for r in rows}
     status = {r["id"]: r["status"] for r in rows}
@@ -150,11 +203,12 @@ def cmd_prepare(args):
         row = by_id.get(row_id)
         if row is None:
             sys.exit(f"{row_id} is not in {args.csv}")
-        if row["status"] != "open":
-            sys.exit(f"{row_id} is {row['status']}, only open rows are prepared")
-        missing = unmet(row, status)
+        earlier = {r["id"] for r in chosen}
+        missing = [d for d in unmet(row, status) if d not in earlier]
+        if row["status"] not in ("open", "blocked") or (row["status"] == "blocked" and missing):
+            sys.exit(f"{row_id} is {row['status']}, only open rows or rows waiting on earlier rows are prepared")
         if missing and not args.allow_unmet:
-            sys.exit(f"{row_id} depends on unfinished {', '.join(missing)}")
+            sys.exit(f"{row_id} depends on unfinished {', '.join(missing)} that is not earlier in this run")
         if needs_user(row):
             sys.exit(f"{row_id} needs the user: original runtime, a speaker or a watched window")
         chosen.append(row)
@@ -179,10 +233,18 @@ def cmd_prepare(args):
                 "depends_on": row["depends_on"],
                 "branch": branch,
                 "worktree": str(worktree),
-                "target_dir": str(worktree / "target"),
             }
         )
-    payload = {"engine": str(ENGINE), "slim": True, "rows": out_rows}
+    payload = {
+        "engine": str(ENGINE),
+        "concurrency": args.lanes,
+        "jobs": args.jobs,
+        "sccache": shutil.which("sccache") is not None,
+        "workspace_crates": workspace_crates(),
+        "merge": args.merge,
+        "identity": IDENTITY,
+        "rows": out_rows,
+    }
     text = json.dumps(payload, indent=2)
     if args.out:
         Path(args.out).write_text(text + "\n")
@@ -198,15 +260,20 @@ def main():
     ready.add_argument("--limit", type=int, default=0)
     ready.add_argument("--include-user", action="store_true")
     ready.set_defaults(func=cmd_ready)
-    plan = sub.add_parser("plan", help="pick the next batch, one row per area")
+    plan = sub.add_parser("plan", help="pick the next batch, a whole area or one row per area")
     plan.add_argument("--count", type=int, default=MAX_ROWS)
     plan.add_argument("--skip", nargs="*", default=[], help="row ids to leave out, such as partial rows")
+    plan.add_argument("--area", help="every ready row of one area, such as AI")
     plan.set_defaults(func=cmd_plan)
     prepare = sub.add_parser("prepare", help="create worktrees and print workflow args")
     prepare.add_argument("--type", choices=TYPES, help="override the profile for every row")
     prepare.add_argument("--out")
     prepare.add_argument("--allow-unmet", action="store_true")
     prepare.add_argument("--dry-run", action="store_true")
+    prepare.add_argument("--lanes", type=int, default=LANES, help="rows the workflow runs at once")
+    prepare.add_argument("--jobs", type=int, default=CARGO_JOBS, help="cargo jobs per lane")
+    prepare.add_argument("--no-merge", dest="merge", action="store_false",
+                         help="leave finished rows in their worktrees instead of merging them")
     prepare.add_argument("ids", nargs="+")
     prepare.set_defaults(func=cmd_prepare)
     args = parser.parse_args()
