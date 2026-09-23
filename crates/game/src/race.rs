@@ -18,6 +18,15 @@ pub struct Attributes {
     pub stamina_rate: f32,
     pub unarmed_damage: f32,
     pub unarmed_reach: f32,
+    /// Height multiplier, male and female, `DATA` offsets 16 and 20. Used
+    /// with an NPC_'s own `NAM6` the same way `TESNPC::GetHeight()` does,
+    /// `race->data.height[sex] * npc.height`, for a runtime-generated actor
+    /// controller capsule when the skeleton has no authored one.
+    pub height_male: f32,
+    pub height_female: f32,
+    /// Weight multiplier, male and female, `DATA` offsets 24 and 28.
+    pub weight_male: f32,
+    pub weight_female: f32,
 }
 
 impl Attributes {
@@ -60,6 +69,10 @@ impl Attributes {
             stamina_rate: field(92)?,
             unarmed_damage: field(96)?,
             unarmed_reach: field(100)?,
+            height_male: field(16)?,
+            height_female: field(20)?,
+            weight_male: field(24)?,
+            weight_female: field(28)?,
         }))
     }
 }

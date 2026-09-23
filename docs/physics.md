@@ -468,3 +468,48 @@ The installed physics suite passed 50 tests, including the skeleton survey
 and the 22,047-mesh regression. The HKX metadata survey read 353 character
 objects. Synthetic checks cover filter preservation, capsule extent and
 transform conversion, truncation, malformed values and incomplete compounds.
+
+## Runtime-generated actor controller geometry, CMB-33
+
+`shape::generated_controller_shape(scale)` builds a capsule for a skeleton with
+no authored `CHAR_CONTROLLER` phantom. The template height and radius, 1.7 and
+0.4 metres, are the values `character_metadata_survey` found on all 353
+installed `hkbCharacterData` objects (CMB-29, above): Bethesda ships one
+uniform template and relies on runtime scale to size it per actor, so the
+generator reproduces the template and lets the caller supply the scale rather
+than inventing its own constant. `shape::controller_shape(collected, scale)`
+is the entry point: it returns the largest authored phantom's transform and
+shape by AABB diagonal when `collected.phantoms` is non-empty, or the
+identity transform with a generated capsule otherwise.
+`Collected::has_authored_controller` exposes the same non-empty check for a
+caller that only needs to know which path will run.
+
+Picking the largest phantom by extent, rather than by Havok material, is a
+known gap. The [Dynamic Collision Adjustment
+source](https://github.com/ersh1/DynamicCollisionAdjustment/blob/main/src/AdjustmentHandler.cpp)
+cited under CMB-29 separates the character bumper from the main hit shape by
+material ID, but no numeric bumper material ID turned up anywhere in the local
+corpus (`MaterialIDs.h`, `nifxml/nif.xml`, `nifly` were all checked). The
+human skeleton's survey result, one bumper and no main shape, means the
+extent heuristic and a material check would agree on every skeleton observed
+so far, but a skeleton that authors both a bumper and a larger non-controller
+shape under the same phantom list could pick the wrong one. Finding the
+bumper material ID and switching the selection to it is follow-up work, not
+done here.
+
+Scale comes from `game::World::actor_controller_scale`, documented in
+`docs/game.md`. This crate takes scale as a plain `f32` and does not read
+NPC or RACE records itself, keeping `soe_physics` free of game-state
+dependencies as the crate split in the module doc above requires. A
+non-finite or non-positive scale falls back to 1.0 inside
+`generated_controller_shape` rather than producing degenerate geometry.
+
+`godot_host::DataSource::actor_controller_shape` is the only caller, and it
+has no caller of its own yet. CMB-28, host body installation, has not
+started, so a generated capsule does not currently reach a running actor.
+Verification against a subset of installed skeletons, called for by CMB-33's
+done check, is left to the verifier and breaker that test this change, since
+this session added no new tests per its task instructions. The existing
+`controller_geometry_survey` and `character_metadata_survey` tests, both
+described above, remain the tests that exercise the source data these
+functions build from.

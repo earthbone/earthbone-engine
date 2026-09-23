@@ -1915,3 +1915,25 @@ On 2026-09-23 the script failed on master `9ae933b` under Godot 4.7.2 with
 installed data. No prefetch job started (`started` 0, `payload_bytes` 0), one
 gameplay step took 497,919 us, and the transition rebuilt its resources. HST-07
 is open again until this script passes on master.
+
+## Actor controller geometry resolver, CMB-33
+
+`DataSource::actor_controller_shape(skeleton_path, scale)` in `collision.rs`
+reads a skeleton NIF straight through `soe_nif::parse` and
+`soe_physics::collect`, then calls `soe_physics::controller_shape` to return
+either the skeleton's largest authored `CHAR_CONTROLLER` phantom or a
+generated capsule sized by `scale`. It reads the skeleton file directly
+rather than through `data_source::placed_model`, since that helper rewrites
+a placed reference's root transform for scene placement and a standalone
+skeleton has no reference to place. This mirrors the pattern the existing
+`actor.rs` skeleton loading and the CMB-29 test already use.
+
+This method resolves geometry only, and nothing in `godot-host` calls it
+yet. CMB-28, installing an actor's controller body into the Godot physics
+server and keeping it synchronized with the actor's live transform, has not
+started: a search of `godot-host/src` for existing actor or skeleton
+collision wiring found only `.hkx` animation-skeleton loading in `actor.rs`,
+unrelated to the `.nif` collision phantoms this method reads. When CMB-28
+adds the actor body pipeline, this is the function it resolves shape and
+transform from, with `game::World::actor_controller_scale` (`docs/game.md`)
+supplying the scale argument.
