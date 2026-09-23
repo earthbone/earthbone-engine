@@ -11,7 +11,10 @@ mod magic;
 
 pub use condition::{Comparison, Condition};
 pub use crafting::{Ingredient, ItemOwnership, Recipe};
-pub use dialogue::{DialogueInfo, DialogueTopic, InfoData, Response, TopicSubtype};
+pub use dialogue::{
+    DialogueBranch, DialogueInfo, DialogueTopic, InfoData, Response, Scene, SceneAction,
+    SceneActionData, SceneActor, ScenePhase, TopicSubtype,
+};
 pub use magic::{
     Effect, EffectData, Ingestible, IngestibleData, MagicEffect, MagicEffectData, Spell, SpellData,
 };

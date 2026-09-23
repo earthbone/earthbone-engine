@@ -330,9 +330,70 @@ retains absence and does not claim these definitions can craft an item. Counts
 are measurements of this install, not limits imposed on another load order.
 
 No dialogue selection or playback, spell casting, active-effect lifecycle,
-crafting consumption, UI or progression is implemented by these readers. DLBR,
-SCEN, fragment decoding, full MGEF fields and function-specific condition
-semantics still need their own scopes.
+crafting consumption, UI or progression is implemented by these readers.
+Fragment decoding, full MGEF fields and function-specific condition semantics
+still need their own scopes.
+
+## DLBR and SCEN views (2026-09-23, FMT-04)
+
+`DialogueBranch` reads DLBR: owning quest, numeric category, numeric flags
+and the starting topic. All four fields are required by xEdit's schema but
+stay `Option` here, matching every other view in this module, since a
+malformed or partial file should still produce a readable snapshot.
+
+`Scene` reads SCEN's flat field list and its three repeated, uncounted lists:
+
+- Phases (`ScenePhase`): name, start conditions and completion conditions
+  split at the phase's first NEXT marker, and display width.
+- Actors (`SceneActor`): alias ID, flags and behavior flags.
+- Actions (`SceneAction`): type, name, alias ID, index, flags, start and end
+  phase, plus `SceneActionData`, the type-specific union. Dialogue actions
+  keep their topic FormID, Package actions their ordered package FormIDs,
+  Timer actions their duration. SNAM is the shared start-phase index for
+  every action type, and a Timer action carries a second SNAM after it for
+  the type-specific duration float, as UESP's SCEN page notes. On a Timer
+  action a SNAM followed by ENAM or by a second SNAM is the start phase, and
+  a SNAM after those is the duration. A Timer with a single SNAM and no ENAM
+  after it keeps that value as the duration, since the union field is what
+  makes it a Timer, and leaves start_phase unset.
+
+VMAD stays raw, its INFO and SCEN fragment sections belong to FMT-03. Parent
+quest, last action index, the four actor-behavior "set all" settings and
+scene-level conditions follow the actions list.
+
+None of DLBR, Phases, Actors or Actions carry an explicit count. Reading
+walks the record once, tracking which of five sections (header, phases,
+actors, actions, trailer) the current subrecord tag belongs to, since a few
+tags are shared: ANAM starts an action with data and ends one when empty,
+ALID appears on both actors and actions, INAM and PNAM close out an open
+action or, once no action is open, belong to the trailer instead. Every
+transition is driven by a field only the next section defines, per
+`SCEN.wikitext`'s "no terminator, each list ends where the next begins" note.
+
+Unused, pre-SE leftover subrecords inside phases and actions (SCHR, SCDA,
+SCTX, SCRO, a leftover QNAM) are read past and dropped, as is a second CK
+scripting leftover block after Actions and before PNAM. HTID, DMAX, DMIN,
+DEMO and DEVA, the head-tracking and looping extras on Dialogue actions, are
+not decoded. A SCEN with an unclosed phase, actor or action group at record
+end (a truncated file, since the three lists have no length prefix to
+validate against) still surfaces that last, partial entry: the reader flushes
+whichever of phase, actor and action is still open once the subrecord loop
+ends, instead of dropping it. An unclosed phase followed by ALID, ANAM or
+PNAM is closed at that field, and the next section starts there. PNAM counts
+as package data only inside a Package action (type 1), matching TES5Edit's
+wbRUnion, and a stray PNAM inside any other open action is ignored.
+
+Sources read before implementation: `wbDefinitionsTES5.pas` lines 7114 to
+7130 for DLBR and 7232 to 7428 for SCEN, and `uesp-modfileformat/DLBR.wikitext`
+and `SCEN.wikitext` for the Phases, Actors and Actions field tables and the
+no-terminator note. No source code was copied, both are schema references.
+No existing crate in `engine-refs` was reused, wrye-bash's `skyrimse/records.py`
+SCEN reader was consulted for confirmation of the phase and action boundaries
+and led to the same section split UESP already documents.
+
+`tests/gameplay_views.rs` covers DLBR and SCEN round trips (`fmt_04_dlbr_branch_fields_round_trip`,
+`fmt_04_scen_phases_survive_the_next_marker_split`,
+`fmt_04_scen_actions_keep_type_specific_data_by_action_type`).
 
 ## Localized strings, 2026-09-20
 

@@ -105,6 +105,102 @@ fn spell_conditions_stay_with_their_effect_and_parameter_strings() {
 }
 
 #[test]
+fn fmt_04_dlbr_branch_fields_round_trip() {
+    let rec = Record::new(b"DLBR", 3)
+        .sub(b"QNAM", 0x500u32.to_le_bytes())
+        .sub(b"TNAM", 1u32.to_le_bytes())
+        .sub(b"DNAM", 0x5u32.to_le_bytes())
+        .sub(b"SNAM", 0x501u32.to_le_bytes());
+    let branch = DialogueBranch::from_record(&rec).unwrap();
+    assert_eq!(branch.form_id, 3);
+    assert_eq!(branch.quest, Some(0x500));
+    assert_eq!(branch.category, Some(1));
+    assert_eq!(branch.flags, Some(0x5));
+    assert_eq!(branch.starting_topic, Some(0x501));
+}
+
+#[test]
+fn fmt_04_scen_phases_survive_the_next_marker_split() {
+    let rec = Record::new(b"SCEN", 4)
+        .sub(b"FNAM", 0x3u32.to_le_bytes())
+        .sub(b"HNAM", Vec::new())
+        .zsub(b"NAM0", "Opening")
+        .sub(b"CTDA", condition(0, 1f32.to_bits(), 1, 0))
+        .sub(b"NEXT", Vec::new())
+        .sub(b"CTDA", condition(0, 2f32.to_bits(), 2, 0))
+        .sub(b"WNAM", 12u32.to_le_bytes())
+        .sub(b"HNAM", Vec::new())
+        .sub(b"HNAM", Vec::new())
+        .zsub(b"NAM0", "Closing")
+        .sub(b"HNAM", Vec::new())
+        .sub(b"ALID", (-1i32).to_le_bytes())
+        .sub(b"LNAM", 0x10u32.to_le_bytes())
+        .sub(b"PNAM", 0x600u32.to_le_bytes());
+    let scene = Scene::from_record(&rec).unwrap();
+    assert_eq!(scene.flags, Some(0x3));
+    assert_eq!(scene.phases.len(), 2);
+    assert_eq!(scene.phases[0].name.as_deref(), Some("Opening"));
+    assert_eq!(scene.phases[0].start_conditions.len(), 1);
+    assert_eq!(scene.phases[0].completion_conditions.len(), 1);
+    assert_eq!(
+        scene.phases[0].completion_conditions[0].comparison,
+        Comparison::Number(2.0)
+    );
+    assert_eq!(scene.phases[0].width, Some(12));
+    assert_eq!(scene.phases[1].name.as_deref(), Some("Closing"));
+    assert!(scene.phases[1].start_conditions.is_empty());
+    assert_eq!(scene.actors.len(), 1);
+    assert_eq!(scene.actors[0].alias_id, -1);
+    assert_eq!(scene.actors[0].flags, Some(0x10));
+    assert_eq!(scene.quest, Some(0x600));
+}
+
+#[test]
+fn fmt_04_scen_actions_keep_type_specific_data_by_action_type() {
+    let rec = Record::new(b"SCEN", 5)
+        .sub(b"ANAM", 0u16.to_le_bytes())
+        .zsub(b"NAM0", "Say hello")
+        .sub(b"ALID", 2i32.to_le_bytes())
+        .sub(b"INAM", 0u32.to_le_bytes())
+        .sub(b"FNAM", 0x8000u32.to_le_bytes())
+        .sub(b"SNAM", 1u32.to_le_bytes())
+        .sub(b"ENAM", 2u32.to_le_bytes())
+        .sub(b"DATA", 0x700u32.to_le_bytes())
+        .sub(b"ANAM", 2u16.to_le_bytes())
+        .zsub(b"NAM0", "Wait a bit")
+        .sub(b"INAM", 1u32.to_le_bytes())
+        .sub(b"SNAM", 2.5f32.to_le_bytes())
+        .sub(b"ANAM", Vec::new())
+        .sub(b"INAM", 1u32.to_le_bytes())
+        .sub(b"VNAM", words(&[1, 0, 2, 0]));
+    let scene = Scene::from_record(&rec).unwrap();
+    assert_eq!(scene.actions.len(), 2);
+    let dialogue = &scene.actions[0];
+    assert_eq!(dialogue.action_type, 0);
+    assert_eq!(dialogue.name.as_deref(), Some("Say hello"));
+    assert_eq!(dialogue.alias_id, Some(2));
+    assert_eq!(dialogue.index, Some(0));
+    assert_eq!(dialogue.flags, Some(0x8000));
+    assert_eq!(dialogue.start_phase, Some(1));
+    assert_eq!(dialogue.end_phase, Some(2));
+    assert_eq!(
+        dialogue.data,
+        SceneActionData::Dialogue { topic: Some(0x700) }
+    );
+    let timer = &scene.actions[1];
+    assert_eq!(timer.action_type, 2);
+    assert_eq!(timer.name.as_deref(), Some("Wait a bit"));
+    assert_eq!(
+        timer.data,
+        SceneActionData::Timer {
+            duration: Some(2.5)
+        }
+    );
+    assert_eq!(scene.last_action_index, Some(1));
+    assert_eq!(scene.behavior_settings, Some([1, 0, 2, 0]));
+}
+
+#[test]
 fn dialogue_subtype_follows_subrecord_order() {
     let rec = Record::new(b"DIAL", 1)
         .sub(b"DATA", [1, 2, 0xfe, 0x01])
