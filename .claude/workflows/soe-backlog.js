@@ -256,7 +256,7 @@ ${rules(row)}
 Context pack: ${scout.pack_path}. Writer summary: ${write.summary}
 Files changed: ${write.files_changed.join(', ')}. Writer's known gaps: ${write.known_gaps.join('; ') || 'none'}
 Aim at: ${profileOf(row).break}
-Write at most ${cheap(row) ? 6 : 12} adversarial tests, the ones most likely to expose a real defect first. Every bug must be a failing test with the expected behaviour and its source (a corpus file, a CK wiki page, or the done check). A test whose expectation you cannot source is not a bug, leave it out. Report each file with the exact command that runs it.`
+Write at most ${cheap(row) ? 6 : 12} adversarial tests, the ones most likely to expose a real defect first. Every bug must be a failing test with the expected behaviour and its source (a corpus file, a CK wiki page, or the done check). Assert the correct behaviour, never the current one: a test that passes by pinning the defect ("current reader", "documents the bug") is wrong, because the fix then breaks it. Write comments that describe what must hold, not what the code does today. A test whose expectation you cannot source is not a bug, leave it out. Report each file with the exact command that runs it.`
 }
 
 function fixerPrompt(row, scout, write, failures, round) {
@@ -266,7 +266,7 @@ ${rules(row)}
 Context pack: ${scout.pack_path}. Skills: ${skillPaths(row)}
 Failing tests:
 ${failures.map(f => `- ${f.test}: ${f.failure}`).join('\n')}
-Keep the change inside the crates the row names. Run cargo fmt, clippy -p <crate> --all-targets -- -D warnings, comment-lint on every file you or the test writers touched, and the failing tests before returning.`
+Keep the change inside the crates the row names. Run cargo fmt, clippy -p <crate> --all-targets -- -D warnings, comment-lint on every file you or the test writers touched, and the failing tests before returning. Then run every test file the verifier and breaker added: a test that asserted the pre-fix behaviour now fails, so correct its assertion and comment to the fixed contract and list it under fixed.`
 }
 
 function recheckPrompt(row, commands) {
