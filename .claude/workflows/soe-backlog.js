@@ -193,14 +193,22 @@ const writerModel = row => (row.difficulty === 'very_high' ? 'opus' : 'sonnet')
 const writerEffort = row => (row.difficulty === 'low' ? 'low' : row.effort === 'medium' ? 'medium' : 'high')
 const checkEffort = row => (cheap(row) ? 'low' : 'medium')
 const breakerEffort = row => (cheap(row) ? 'medium' : 'high')
+// Low-effort judges returned only their analysis and never the verdict fields, four times out of four.
+const judgeEffort = row => (cheap(row) ? 'medium' : 'high')
 const skillPaths = row => profileOf(row).skills.map(s => `${SKILLS}/${s}/SKILL.md`).join(', ')
 const targetDir = row => row.target_dir || `${ENGINE}/target`
 const releaseDir = row => `${targetDir(row)}/host`
+const SHARED = () => `${ENGINE}/target`
+// A shared build directory is unsafe across worktrees: cargo fingerprints workspace crates by
+// workspace-relative path, so one worktree can link a library built from another's source.
+// Per-row directories without incremental state or full debug info stay a few GiB.
+const SLIM = 'CARGO_INCREMENTAL=0 CARGO_PROFILE_DEV_DEBUG=line-tables-only'
+const cargoEnv = (row, dir, slim = A.slim) => (slim ? `${SLIM} CARGO_TARGET_DIR=${dir}` : `CARGO_TARGET_DIR=${dir}`)
 
-function rules(row) {
+function rules(row, dir = targetDir(row), slim = A.slim) {
   return `Worktree: ${row.worktree} on branch ${row.branch}. Work only there.
 Permission rules, nobody answers prompts during this run: never cd. Never &&, || or ; in a Bash command, and never put two commands on separate lines of one call: one command per call. Never delete anything, not even build cache under target (no rm, no cargo clean). A stale build fixes itself on the next cargo run. Absolute paths only, git -C ${row.worktree}, cargo --manifest-path ${row.worktree}/Cargo.toml. Never change files through Bash (no sed -i, mv, cp, rm, redirects or scripted edits), use Read, Edit and Write. Never use EnterWorktree. Never commit, stage, stash, reset or checkout: the lead reviews and commits.
-Every cargo command is prefixed with CARGO_TARGET_DIR=${targetDir(row)}, this row's own build directory.
+Every cargo command is prefixed with ${cargoEnv(row, dir, slim)}${dir === SHARED() ? ', the build directory every row shares. Cargo runs one build at a time on it, so a wait on its lock is normal' : ", this row's own build directory"}.
 Serena and rust-analyzer are available. Load Serena with ToolSearch (query "serena"), call activate_project with ${row.worktree}, then prefer find_symbol, find_referencing_symbols and get_diagnostics_for_file over reading whole files.`
 }
 
@@ -226,7 +234,7 @@ ${rowText(row)}
 ${rules(row)}
 Start with the context pack at ${scout.pack_path}, then the skills at ${skillPaths(row)}. ${profileOf(row).write}
 Update docs/<crate>.md for each crate you touch: what the code does, which sources you read, what remains open. House prose: no em dashes, no semicolons between clauses, no AI vocabulary.
-Before returning, run cargo fmt on the workspace, cargo clippy -p <crate> --all-targets -- -D warnings for each touched crate, and get_diagnostics_for_file on every touched Rust file. build_ok is true only if those pass. List every gap between your change and the done check in known_gaps.`
+Before returning, run cargo fmt on the workspace, cargo clippy -p <crate> --all-targets -- -D warnings for each touched crate, comment-lint on every touched crates/<crate> and docs file (new untracked files included), and get_diagnostics_for_file on every touched Rust file. build_ok is true only if those pass. List every gap between your change and the done check in known_gaps.`
 }
 
 function verifierPrompt(row, scout, write) {
@@ -258,7 +266,7 @@ ${rules(row)}
 Context pack: ${scout.pack_path}. Skills: ${skillPaths(row)}
 Failing tests:
 ${failures.map(f => `- ${f.test}: ${f.failure}`).join('\n')}
-Keep the change inside the crates the row names. Run cargo fmt, clippy -p <crate> --all-targets -- -D warnings and the failing tests before returning.`
+Keep the change inside the crates the row names. Run cargo fmt, clippy -p <crate> --all-targets -- -D warnings, comment-lint on every file you or the test writers touched, and the failing tests before returning.`
 }
 
 function recheckPrompt(row, commands) {
@@ -269,17 +277,19 @@ passed is the total number of passing tests across all commands.`
 }
 
 function judgePrompt(row, s) {
+  // Judges always build in the row's own directory with the slim settings.
+  const dir = targetDir(row)
   const disputes = s.fixes.flatMap(f => (f.fix ? f.fix.disputed : []))
   return `You are the judge. Decide from your own runs whether this row meets its done check. Agents in this project have reported passing gates over code that did not compile, so trust nothing below that you have not rerun.
 ${rowText(row)}
-${rules(row)}
+${rules(row, dir, true)}
 Writer summary: ${s.write.summary}. Writer's known gaps: ${s.write.known_gaps.join('; ') || 'none'}
 Tests added: ${[...s.verify.tests, ...s.breakr.tests].map(t => t.command).join(' | ')}
 Remaining failures after fixing: ${s.remaining.map(f => f.test).join(', ') || 'none'}
 Disputed tests: ${disputes.map(d => `${d.test} (${d.reason})`).join('; ') || 'none'}
-Run: git -C ${row.worktree} diff master --stat and read the diff. Then run the project gate exactly as the lead will: CARGO_TARGET_DIR=${targetDir(row)} ${row.worktree}/tools/lint.sh with a 30 minute timeout. It switches to the worktree root itself, so no cd is needed. It covers formatting, three clippy passes, comment-lint over all of crates and docs (including new untracked files), prose checks and the workspace tests. The redundant-function lines it prints about sibling checkouts are informational. Only its exit status and its first failing step count. Then run every command in tests added.${profileOf(row).godot ? ' Run the Godot acceptance script yourself and copy its RESULT line into godot_result.' : ' Set godot_result to "n/a".'}
+Run: git -C ${row.worktree} diff master --stat and read the diff. Then run the project gate exactly as the lead will: ${cargoEnv(row, dir, true)} ${row.worktree}/tools/lint.sh with a 30 minute timeout. It switches to the worktree root itself, so no cd is needed. It covers formatting, three clippy passes, comment-lint over all of crates and docs (including new untracked files), prose checks and the workspace tests. The redundant-function lines it prints about sibling checkouts are informational. Only its exit status and its first failing step count. Then run every command in tests added.${profileOf(row).godot ? ' Run the Godot acceptance script yourself and copy its RESULT line into godot_result.' : ' Set godot_result to "n/a".'}
 For each disputed test, read its cited source and rule test_correct or test_wrong.
-Write your reasoning into analysis first. verdict is done only if every clause of the done check is exercised by a passing test you ran, the gate steps pass, and no test ruled correct still fails. Use partial when some clauses are met, failed when the change does not work. evidence is one line in the BACKLOG.csv style: what ran and the counts.`
+Write your reasoning into analysis first, in at most 250 words, then fill every other field. A reply with analysis alone is rejected. verdict is done only if every clause of the done check is exercised by a passing test you ran, the gate steps pass, and no test ruled correct still fails. A passing test whose assertion contradicts its cited source locks in a bug: rule it test_wrong and the verdict can be at most partial. Use partial when some clauses are met, failed when the change does not work. evidence is one line in the BACKLOG.csv style: what ran and the counts.`
 }
 
 const labelOf = (stage, row) => `${stage}:${row.id}`
@@ -341,7 +351,7 @@ const results = await pipeline(
   async s => {
     if (s.stopped) return s
     const judge = await agent(judgePrompt(s.row, s), {
-      label: labelOf('judge', s.row), phase: 'Judge', model: 'sonnet', effort: checkEffort(s.row), schema: JUDGE,
+      label: labelOf('judge', s.row), phase: 'Judge', model: 'sonnet', effort: judgeEffort(s.row), schema: JUDGE,
     })
     return { ...s, judge }
   },

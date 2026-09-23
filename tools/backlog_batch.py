@@ -5,9 +5,11 @@
 with at most one row per area and one host row, so parallel rows rarely touch the same
 files. `prepare` checks the chosen rows, creates one worktree and branch per row under
 target/, and prints the JSON that the soe-backlog workflow takes as its args. Each row
-builds in its own target directory inside its worktree, so rows do not wait on one cargo
-lock. The CSV is not edited here. The lead records a row as done only after checking the
-finished worktree.
+builds in its own target directory. A shared one is unsafe across worktrees, because cargo
+fingerprints workspace crates by relative path and links a library built from another
+worktree's source. The slim flag turns off incremental state and full debug info, which
+kept those directories at 6 to 18 GiB. The CSV is not edited here. The lead records a row
+as done only after checking the finished worktree.
 """
 
 import argparse
@@ -26,7 +28,7 @@ DIFFICULTY = ("low", "medium", "high", "very_high")
 # Cheaper profiles first when difficulty ties. Host rows build a release extension and run Godot.
 TYPE_COST = {"tooling": 0, "format": 1, "native": 2, "gameplay": 3, "shim": 4, "host": 5}
 MAX_ROWS = 4
-# A fresh debug build per worktree takes several GiB. Stop before the disk fills.
+# Builds, coverage runs and Godot exports all land on this disk. Stop before it fills.
 MIN_FREE_GIB = 20
 USER_ONLY = ("original-runtime", "original runtime", "physical speaker", "windowed")
 
@@ -180,7 +182,7 @@ def cmd_prepare(args):
                 "target_dir": str(worktree / "target"),
             }
         )
-    payload = {"engine": str(ENGINE), "rows": out_rows}
+    payload = {"engine": str(ENGINE), "slim": True, "rows": out_rows}
     text = json.dumps(payload, indent=2)
     if args.out:
         Path(args.out).write_text(text + "\n")
