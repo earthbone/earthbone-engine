@@ -432,13 +432,6 @@ needed.
 
 Three items stay out of scope for this row, each with a concrete next step:
 
-- The player-only exception for a merely protected, non-essential actor is
-  not modeled. Vanilla lets the player kill a protected NPC once combat with
-  them has ended, and the engine has no player-attacker special case here.
-  No local CK wiki page grounds the exact rule the way `SetUnconscious` and
-  `GetNoBleedoutRecovery` do. Next step: fetch the CK wiki `IsProtected` and
-  `SetProtected` pages into `../engine-refs/ck-wiki/` and read them before
-  writing that branch, rather than inferring it from the two existing pages.
 - The `essentialDownTimer` path at 0x1406e9690, 0x1406e96a0 and 0x14067a5eb,
   which brings an unhealed actor back up on its own after a duration with no
   health change involved, is not modeled. `game` has no per-actor tick or
@@ -459,6 +452,50 @@ The focused combat_bleedout tests cover winning class overrides, permanent
 health scaling, inherited absolute overrides, live settings and malformed
 inputs. The runtime evidence has not yet been checked through an interactive
 vanilla comparison.
+
+## Player-only kill exception for protected actors, CMB-34
+
+`melee_hit` now lets the player kill a merely protected, non-essential
+actor instead of always clamping them into bleedout. `World::melee_hit`
+computes `player_exception` from `self.player == Some(hit.attacker)` and
+the target's `protected`/`essential` flags, the same attacker check the
+difficulty and skill-scale branches above already use, and folds it into
+`bleedout_target`. With the exception set, the hit skips the threshold
+clamp entirely and falls through to the ordinary lethal/`kill_actor` path,
+so a lethal player hit kills the actor outright and a non-lethal one just
+damages them normally. An NPC attacker still always sees the clamp and
+enters the target into bleedout, since `player_exception` only ever holds
+for `self.player == Some(hit.attacker)`.
+
+`protected`/`essential` are read from the target's actor base fresh on
+every hit, the same live lookup the invulnerable check just below already
+uses, rather than from the value `ActorState` cached at its own first
+build. `ActorBase.SetProtected` and `ActorBase.SetEssential`
+(`crates/game/src/natives.rs`) can run before or after that build, so a
+cached copy would let a script's call land on one and miss the other. The
+World::actor build path also derives `protected` through the same
+`actor_bases` override `essential` already used, so the two stay
+consistent for a target that is never touched again after the script call.
+`World::set_actor_base_protected` (`crates/game/src/world/death.rs`)
+mirrors `set_actor_base_essential` and additionally propagates the change
+to every already-built `ActorState` sharing that base, keeping
+`Actor.IsProtected` and saved state in step even though `melee_hit`
+itself no longer depends on that propagation.
+
+Per the ck-wiki `ActorBase_Script` page, `SetProtected` and `SetEssential`
+are mutually exclusive, so `target.essential` alone is enough to rule out
+the exception without a separate check. Essential actors stay gated for
+every attacker including the player, matching the unchanged
+`request_actor_death` guard: no local source grounds a player exception
+for essential actors the way the protected case is grounded.
+
+CMB-13 flagged a "once combat with them has ended" qualifier from the
+original playtesting note, but no local CK wiki page pins that detail.
+Rather than track a formal combat-ended transition with no ground truth,
+the exception here keys on the attacker alone, like every other
+player/NPC branch already in `melee_hit`. If a source surfaces the
+combat-ended condition later, narrowing `player_exception` to it is a
+small, local change confined to this one field.
 
 ## Combat actor-value modifiers, CMB-15 in progress
 
