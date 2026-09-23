@@ -73,7 +73,212 @@ impl Loadout {
             .map(|r| r.join(rel))
             .find(|p| p.exists())
     }
+
+    /// Write this loadout to `dest` as a standalone install the engine reads
+    /// without a mod manager in the loop: `Data` merges every root in order,
+    /// a later one shadowing an earlier one file by file, the same rule
+    /// `find` uses. `plugins.txt` and `loadorder.txt` carry the resolved
+    /// order, `Skyrim.ccc` the Creation Club names this loadout treated as
+    /// early loaders, and `Skyrim.ini`, `SkyrimCustom.ini`, `SkyrimPrefs.ini`
+    /// the settings layered above the game's own defaults.
+    ///
+    /// A plugin's own INI travels with it, since it already sits next to the
+    /// plugin in a data root and is copied along with everything else there.
+    /// `Skyrim_Default.ini` and whatever it sets are not written here, that
+    /// file belongs to the game install the package lands in, not to the
+    /// profile. Reload the result with a `LoadoutInput` whose `data_roots` is
+    /// `[dest.join("Data")]`, `plugins_txt` and `loadorder_txt` point at the
+    /// files here, `ini_dir` is `dest`, and `game_dir` and `ccc` point at
+    /// wherever `Skyrim_Default.ini` and the game's own `Skyrim.ccc` live
+    /// (`dest` itself, for a fully standalone copy).
+    pub fn package(&self, dest: &Path) -> Result<()> {
+        let data_dir = dest.join("Data");
+        for root in &self.data_roots {
+            copy_tree(root, &data_dir)?;
+        }
+
+        write_text(
+            &dest.join("plugins.txt"),
+            &plugins_txt::render_plugins_txt(&self.load_order.plugins_txt_lines()),
+        )?;
+        write_text(
+            &dest.join("loadorder.txt"),
+            &plugins_txt::render_loadorder_txt(&self.load_order.loadorder_txt_names()),
+        )?;
+
+        let hardcoded: std::collections::HashSet<String> = ccc::HARDCODED_SE
+            .iter()
+            .map(|s| s.to_ascii_lowercase())
+            .collect();
+        let creations: Vec<&str> = self
+            .load_order
+            .entries
+            .iter()
+            .filter(|e| e.early && !hardcoded.contains(&e.name.to_ascii_lowercase()))
+            .map(|e| e.name.as_str())
+            .collect();
+        if !creations.is_empty() {
+            let mut text = String::new();
+            for name in &creations {
+                text.push_str(name);
+                text.push_str("\r\n");
+            }
+            write_text(&dest.join("Skyrim.ccc"), &text)?;
+        }
+
+        for (name, layer) in INI_NAMES
+            .iter()
+            .zip([Layer::Base, Layer::Custom, Layer::Prefs])
+        {
+            let ini = settings_for_layer(&self.settings, &layer);
+            if !ini.sections.is_empty() {
+                write_text(&dest.join(name), &ini.render())?;
+            }
+        }
+
+        Ok(())
+    }
 }
+
+/// The values one layer carries, grouped back into sections for `Ini::render`.
+/// Section and key names come back lowercased, `Settings` keeps only the
+/// normalized form, the game reads both case-insensitively.
+fn settings_for_layer(settings: &Settings, layer: &Layer) -> Ini {
+    let mut sections: std::collections::BTreeMap<String, Vec<(String, String)>> =
+        std::collections::BTreeMap::new();
+    for (id, value) in settings.iter() {
+        if value.layer == *layer {
+            let (section, key) = id;
+            sections
+                .entry(section.clone())
+                .or_default()
+                .push((key.clone(), value.value.clone()));
+        }
+    }
+    Ini {
+        sections: sections
+            .into_iter()
+            .map(|(name, entries)| ini::Section { name, entries })
+            .collect(),
+    }
+}
+
+fn write_text(path: &Path, text: &str) -> Result<()> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| Error::Io {
+            path: parent.to_path_buf(),
+            source: e,
+        })?;
+    }
+    std::fs::write(path, text).map_err(|e| Error::Io {
+        path: path.to_path_buf(),
+        source: e,
+    })
+}
+
+/// Copy every file under `src` into `dest`, recreating the directory
+/// structure. A file already at the destination is overwritten, so calling
+/// this for each data root in low to high order reproduces the shadowing
+/// `Loadout::find` does. Symlinks are skipped rather than followed or copied
+/// as links, since a packaged install should not depend on the source tree
+/// staying where it was.
+fn copy_tree(src: &Path, dest: &Path) -> Result<()> {
+    let entries = match std::fs::read_dir(src) {
+        Ok(e) => e,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(source) => {
+            return Err(Error::Io {
+                path: src.to_path_buf(),
+                source,
+            })
+        }
+    };
+    for entry in entries {
+        let entry = entry.map_err(|e| Error::Io {
+            path: src.to_path_buf(),
+            source: e,
+        })?;
+        let file_type = entry.file_type().map_err(|e| Error::Io {
+            path: entry.path(),
+            source: e,
+        })?;
+        let dest_path = dest.join(entry.file_name());
+        if file_type.is_dir() {
+            // A lower root may have left a plain file at this path. The
+            // higher root's directory shadows it, so clear the file first.
+            if dest_path.is_file() {
+                std::fs::remove_file(&dest_path).map_err(|e| Error::Io {
+                    path: dest_path.clone(),
+                    source: e,
+                })?;
+            }
+            copy_tree(&entry.path(), &dest_path)?;
+        } else if file_type.is_file() {
+            copy_file_preserving(&entry.path(), &dest_path)?;
+        }
+    }
+    Ok(())
+}
+
+/// Copy one file, keeping the source's permission bits (`fs::copy` already
+/// does this on Unix) and modification time, so a mod's own timestamps do
+/// not change just because it was packaged.
+fn copy_file_preserving(src: &Path, dest: &Path) -> Result<()> {
+    if let Some(parent) = dest.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| Error::Io {
+            path: parent.to_path_buf(),
+            source: e,
+        })?;
+    }
+    // A lower root may have left a directory at this path (recursed into by
+    // an earlier copy_tree call); the higher root's file shadows it, so
+    // clear the directory first.
+    if dest.is_dir() {
+        std::fs::remove_dir_all(dest).map_err(|e| Error::Io {
+            path: dest.to_path_buf(),
+            source: e,
+        })?;
+    }
+    // A file already at this path may be read-only, either a shadowed lower
+    // root's file that kept its own read-only bit (mods and BSA-extracted
+    // assets are often shipped that way) or this same package() call's own
+    // prior output, which carries the read-only bit for the same reason.
+    // Restore write access before overwriting it. fs::copy below reapplies
+    // the new source's own permission bits right after, so the result still
+    // ends up read-only when the source is, matching the doc comment above.
+    restore_write_access(dest);
+    std::fs::copy(src, dest).map_err(|e| Error::Io {
+        path: dest.to_path_buf(),
+        source: e,
+    })?;
+    if let Ok(meta) = std::fs::metadata(src) {
+        if let Ok(modified) = meta.modified() {
+            if let Ok(f) = std::fs::File::open(dest) {
+                let _ = f.set_modified(modified);
+            }
+        }
+    }
+    Ok(())
+}
+
+/// If `path` exists and is not writable by its owner, add the owner-write
+/// bit back. A no-op when the path is missing or already writable, so this
+/// is safe to call before every overwrite rather than only the read-only
+/// case.
+#[cfg(unix)]
+fn restore_write_access(path: &Path) {
+    use std::os::unix::fs::PermissionsExt;
+    if let Ok(meta) = std::fs::metadata(path) {
+        let mut perms = meta.permissions();
+        if perms.mode() & 0o200 == 0 {
+            perms.set_mode(perms.mode() | 0o200);
+            let _ = std::fs::set_permissions(path, perms);
+        }
+    }
+}
+
+#[cfg(not(unix))]
+fn restore_write_access(_path: &Path) {}
 
 /// Everything `resolve` needs, filled by a manager adapter or by hand.
 #[derive(Debug, Clone)]
