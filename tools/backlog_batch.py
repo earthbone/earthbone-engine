@@ -109,15 +109,16 @@ def plan_batch(rows, count, skip=(), area=None):
 
 
 def plan_area(rows, area, skip=(), count=MAX_ROWS):
-    """Every row of an area that can finish in one run: ready rows first, then rows whose
-    unmet dependencies are all earlier in the list. The order is topological, which the
-    workflow's lanes rely on."""
+    """Every row of one or more areas (comma separated) that can finish in one run: ready rows
+    first, then rows whose unmet dependencies are all earlier in the list. The order is
+    topological, which the workflow's lanes rely on."""
+    areas = set(area.split(","))
     status = {r["id"]: r["status"] for r in rows}
-    chosen = [r for r in ready_rows(rows) if r["area"] == area and r["id"] not in skip and not needs_user(r)]
+    chosen = [r for r in ready_rows(rows) if r["area"] in areas and r["id"] not in skip and not needs_user(r)]
     ids = {r["id"] for r in chosen}
     waiting = [
         r for r in rows
-        if r["area"] == area and r["status"] in ("open", "blocked") and r["id"] not in ids
+        if r["area"] in areas and r["status"] in ("open", "blocked") and r["id"] not in ids
         and r["id"] not in skip and not needs_user(r)
     ]
     grew = True
@@ -263,7 +264,7 @@ def main():
     plan = sub.add_parser("plan", help="pick the next batch, a whole area or one row per area")
     plan.add_argument("--count", type=int, default=MAX_ROWS)
     plan.add_argument("--skip", nargs="*", default=[], help="row ids to leave out, such as partial rows")
-    plan.add_argument("--area", help="every ready row of one area, such as AI")
+    plan.add_argument("--area", help="every row of one or more areas that can finish in one run, such as AI or PRG,CMB")
     plan.set_defaults(func=cmd_plan)
     prepare = sub.add_parser("prepare", help="create worktrees and print workflow args")
     prepare.add_argument("--type", choices=TYPES, help="override the profile for every row")
