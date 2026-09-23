@@ -851,7 +851,10 @@ fn decal_shader(desc: &MaterialDesc) -> String {
     let alpha = match desc.alpha {
         AlphaMode::Opaque => String::new(),
         AlphaMode::Blend => "ALPHA = color.a;".into(),
-        AlphaMode::Cutout(t) => format!("if (color.a < {}) {{ discard; }}", f32::from(t) / 255.0),
+        // Debug keeps the decimal point on whole values. Display prints a
+        // threshold of 255 as `1`, an int literal the shader compiler rejects
+        // against the float alpha.
+        AlphaMode::Cutout(t) => format!("if (color.a < {:?}) {{ discard; }}", f32::from(t) / 255.0),
     };
     let offset = if desc.decal_depth().is_some() {
         "float slope = max(abs(dFdx(FRAGCOORD.z)), abs(dFdy(FRAGCOORD.z)));
@@ -1126,6 +1129,24 @@ pub fn heightmap_image_from(region: &RegionHeightmap) -> Option<Gd<Image>> {
 mod decal_tests {
     use super::*;
     use soe_nif::blocks::{flags1, flags2};
+
+    /// A threshold of 255 printed as `1` once, an int literal Godot rejects
+    /// against the float alpha, and the Whiterun exterior benchmark reported
+    /// a shader compilation failure for it.
+    #[test]
+    fn cutout_threshold_is_a_float_literal_at_every_value() {
+        for (threshold, literal) in [(0, "0.0"), (128, "0.5019608"), (255, "1.0")] {
+            let material = MaterialDesc {
+                alpha: AlphaMode::Cutout(threshold),
+                ..MaterialDesc::default()
+            };
+            let shader = decal_shader(&material);
+            assert!(
+                shader.contains(&format!("if (color.a < {literal}) {{ discard; }}")),
+                "threshold {threshold} must print as {literal}"
+            );
+        }
+    }
 
     #[test]
     fn export_decal_shaders_for_rendered_regression() {
