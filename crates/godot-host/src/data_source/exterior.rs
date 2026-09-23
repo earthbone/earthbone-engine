@@ -8,8 +8,8 @@ use soe_esm::{tag, GlobalFormId, Record};
 use std::collections::HashMap;
 
 use super::{
-    DataSource, DataSourceError, ExteriorBlock, ExteriorCell, LoadedExterior, LoadedSurface,
-    SurfaceTextures,
+    DataSource, DataSourceError, ExteriorBlock, ExteriorCell, LoadedCell, LoadedExterior,
+    LoadedSurface, SurfaceTextures,
 };
 use crate::mesh::{build_surface, MaterialDesc, MeshData, MeshError, MeshOptions, SurfaceArrays};
 
@@ -84,12 +84,17 @@ impl DataSource {
     /// then west to east. Radius 2 is the game's `uGridsToLoad=5`. One pass
     /// over the winning `CELL` records, which is cheap next to the reference
     /// scan since there are about fifty thousand cells against a million
-    /// references. Fails when the editor id names no exterior cell.
+    /// references. Fails when the editor id names no exterior cell, or when
+    /// `radius` is negative. A negative radius is invalid input, and is
+    /// rejected here with `DataSourceError::InvalidRadius`.
     pub fn resolve_exterior_block(
         &self,
         editor_id: &str,
         radius: i32,
     ) -> Result<ExteriorBlock, DataSourceError> {
+        if radius < 0 {
+            return Err(DataSourceError::InvalidRadius(radius));
+        }
         let _span = soe_trace::Span::new("host.scan_cells", "host");
         let mut exteriors: Vec<(GlobalFormId, i32, i32, GlobalFormId)> = Vec::new();
         let mut origin: Option<(GlobalFormId, i32, i32)> = None;
@@ -211,10 +216,60 @@ impl DataSource {
     }
 
     /// Stream an already resolved exterior selection, including inherited terrain.
+    ///
+    /// Materializes every cell's `LoadedCell` into one `Vec` before
+    /// returning, which is what the CPU benchmark and the integration test
+    /// need to inspect the whole block at once. `stream_exterior_each`
+    /// below is the low-peak-memory sibling: it hands each cell to a
+    /// callback and drops it before moving to the next, which is what the
+    /// Godot host uses since it converts and uploads each cell right away
+    /// and has no reason to hold all of them in Rust memory at once.
     pub(super) fn stream_exterior_block(
         &self,
         block: ExteriorBlock,
     ) -> Result<LoadedExterior, DataSourceError> {
+        let mut land_cells = 0;
+        let mut cells = Vec::with_capacity(block.cells.len());
+        let result = self.stream_exterior_each(&block, |cell, loaded, has_land| {
+            if has_land {
+                land_cells += 1;
+            }
+            cells.push((cell, loaded));
+        });
+        result.map(|()| LoadedExterior {
+            block,
+            cells,
+            land_cells,
+        })
+    }
+
+    /// Streams the cells of `block` one at a time, in grid order, calling
+    /// `on_cell` with each `ExteriorCell`, its `LoadedCell` (terrain surface
+    /// included when the cell has one) and whether a terrain surface was
+    /// added, as soon as the cell is ready, then dropping it. The caller
+    /// decides what "done with a cell" means, immediate conversion and
+    /// RenderingServer upload for the Godot host, so the block's raw
+    /// geometry and texture buffers never all sit in memory at the same
+    /// time. This is the fix for PRF-02: the previous `stream_exterior_block`
+    /// built the whole 9-cell `Vec` first and the Godot layer only read it
+    /// afterward, so a full block's decoded meshes and textures (roughly
+    /// 700 MiB for the Whiterun radius 1 block, measured headless) stayed
+    /// resident throughout the RenderingServer upload loop on top of
+    /// whatever the upload itself held.
+    ///
+    /// Public, not `pub(crate)`, so a headless integration test can call
+    /// it directly: `CellStreamerNode::stream_exterior` in `godot_layer.rs`
+    /// is a GDExtension `#[func]` reachable only from a live Godot process
+    /// and cannot be exercised by this crate's test suite, but it is a
+    /// thin wrapper over this method plus the RenderingServer upload. This
+    /// keeps the streaming contract itself (call order, one cell alive at
+    /// a time, totals matching the non-streaming path) under test even
+    /// though the RenderingServer half stays untested outside a live run.
+    pub fn stream_exterior_each(
+        &self,
+        block: &ExteriorBlock,
+        mut on_cell: impl FnMut(ExteriorCell, LoadedCell, bool),
+    ) -> Result<(), DataSourceError> {
         let mut wanted = block.cells.clone();
         wanted.extend_from_slice(&block.parent_cells);
         let land = self.land_for_cells(&wanted);
@@ -225,10 +280,9 @@ impl DataSource {
                 .find(|c| c.x == x && c.y == y)
                 .map(|c| c.id)
         };
-        let mut cells = Vec::with_capacity(block.cells.len());
-        let mut land_cells = 0;
         for cell in &block.cells {
             let mut loaded = self.stream_cell_id(cell.id)?;
+            let mut has_land = false;
             let own_or_parent = land
                 .get(&cell.id)
                 .or_else(|| parent_at(cell.x, cell.y).and_then(|id| land.get(&id)));
@@ -236,7 +290,7 @@ impl DataSource {
                 let _terrain = soe_trace::Span::new("host.terrain_surface", "host");
                 match terrain_surface(cell, land) {
                     Ok(Some(arrays)) => {
-                        land_cells += 1;
+                        has_land = true;
                         loaded.stats.triangles += arrays.triangle_count();
                         loaded.surfaces.push(LoadedSurface {
                             reference: *land_id,
@@ -248,13 +302,9 @@ impl DataSource {
                     Err(e) => eprintln!("stream_exterior: LAND {land_id}: {e}"),
                 }
             }
-            cells.push((*cell, loaded));
+            on_cell(*cell, loaded, has_land);
         }
-        Ok(LoadedExterior {
-            block,
-            cells,
-            land_cells,
-        })
+        Ok(())
     }
 }
 

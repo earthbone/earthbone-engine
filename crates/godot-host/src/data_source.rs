@@ -101,6 +101,8 @@ pub enum DataSourceError {
     NoVoiceArchives,
     #[error("cell '{0}' was not found in the load order")]
     CellNotFound(String),
+    #[error("radius {0} is negative, an exterior block needs a radius of 0 or more")]
+    InvalidRadius(i32),
     #[error("a data source worker panicked")]
     WorkerPanicked,
     #[error("collision: {0}")]
