@@ -619,6 +619,49 @@ files under `meshes/terrain`, to be consumed, never generated), not loaded, so n
 the requested ring exists. No water plane. `WhiterunWorld` lists grid (0, 0) twice among its
 winners, both streamed. Interior streaming by proximity is still unstarted.
 
+### PRF-02: streaming a block one cell at a time
+
+`docs/performance-limits.md` (Recorded validation, 2026-09-19) reports the real exterior
+benchmark (`WhiterunOrigin`, radius 1, 3x3 block) stopping during startup at 8,232 MiB RSS
+against its 8,192 MiB budget, before a single frame sample was taken. `DataSource::stream_exterior`
+built the whole block first (`Vec<(ExteriorCell, LoadedCell)>` for all nine cells) and only then
+handed it to `CellStreamerNode::stream_exterior`, which converted and uploaded each cell to
+`RenderingServer` in a second pass. The whole block's decoded meshes and textures stayed
+resident through that second pass on top of whatever the RenderingServer upload itself held,
+so the peak fell where both were alive at once.
+
+Measured headless (`cargo run --example`, a scratch probe read against `/proc/self/status`
+`VmRSS`, deleted before this change was committed): opening the data source (five base
+masters plus load order and cell index) reaches about 1.3 GiB RSS, and streaming the nine-cell
+Whiterun block on top of that reaches about 2.1 GiB, so the block's own raw geometry and
+texture data is roughly 700 to 800 MiB. Two other candidate causes named in
+`docs/performance-limits.md` and `docs/performance.md` were measured and ruled out: lazy
+archive indexing (deferring `Archive::open`'s index read) costs about 0 MiB across all 21
+non-voice archives (97,417 files) in this load order, so it only helps wall-clock open time,
+not RSS, and the block carries 160 unique BC-compressed textures (about 325 MiB) with zero
+RGBA8 fallback decodes, so texture decode bloat is not the driver either.
+
+`DataSource::stream_exterior_block` (used by `crates/bench` and the `real_exterior` test,
+which read the whole block at once to report per-cell totals) is unchanged. A new sibling,
+`DataSource::stream_exterior_each`, streams the same cells in the same order but calls a
+closure with each `ExteriorCell`, its `LoadedCell` and whether it carries a terrain surface,
+one cell at a time, instead of collecting them. `CellStreamerNode::stream_exterior` now calls
+`stream_exterior_each` and does the RenderingServer conversion and upload inside that closure,
+so each cell's raw CPU-side buffers are dropped before the next cell is read. Peak RSS during
+the streaming pass now holds at most one cell's raw data (roughly 80 to 90 MiB average for
+this block) instead of all nine (roughly 700 to 800 MiB), a reduction on the order of 600 MiB
+against a budget the run was missing by 40 MiB.
+
+This closes the CPU-side half of the gap between the headless baseline (about 2.1 to 3.3 GiB,
+the higher figure from the `real_exterior` integration test's own harness overhead under
+`/usr/bin/time -v`) and the reported 8,232 MiB windowed failure. The remainder is the Godot
+process itself: renderer and driver baseline, `RenderingServer` GPU-side uploads, and
+`ArrayMesh`/`StandardMaterial3D`/`ImageTexture` resource overhead, none of which this change
+touches. Whether the fix closes the 40 MiB gap in practice can only be confirmed by the
+windowed run itself (`tools/performance.py --backend godot --scenario exterior`), which is
+reserved for the lead measuring on an idle machine, not for an agent. See `docs/performance-limits.md`
+for the pass or breach result and the frame-time percentiles once that run has been made.
+
 ### Numbers
 
 Frame time is the wall clock between two `_process` calls, presentation included, at 1600 by

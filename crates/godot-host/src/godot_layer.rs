@@ -456,6 +456,14 @@ impl CellStreamerNode {
     /// statics and its terrain, batched per cell so Godot still culls per
     /// cell. Returns the instances created, -1 on failure, and fills
     /// `last_stats` with the block's totals and the cell list.
+    ///
+    /// Streams and converts one cell at a time (`stream_exterior_each`)
+    /// instead of collecting the whole block into a `Vec` first: each
+    /// `LoadedCell`'s decoded meshes and textures are handed to `add_cell`
+    /// for RenderingServer upload and then dropped before the next cell is
+    /// read, so the block's raw CPU-side geometry never all sits in memory
+    /// at once. This is the PRF-02 fix for the real exterior benchmark's
+    /// startup RSS budget (docs/performance-limits.md).
     #[allow(clippy::needless_pass_by_value)]
     #[func]
     pub fn stream_exterior(&mut self, editor_id: GString, radius: i32) -> i32 {
@@ -463,8 +471,8 @@ impl CellStreamerNode {
             godot_error!("CellStreamerNode::stream_exterior: load_data was not called");
             return -1;
         };
-        let loaded = match source.stream_exterior(&editor_id.to_string(), radius) {
-            Ok(loaded) => loaded,
+        let block = match source.resolve_exterior_block(&editor_id.to_string(), radius) {
+            Ok(block) => block,
             Err(e) => {
                 godot_error!("CellStreamerNode::stream_exterior: {e}");
                 return -1;
@@ -475,13 +483,20 @@ impl CellStreamerNode {
         };
         let materials_before = self.materials.len();
         let mut totals = StreamTotals {
-            land_cells: loaded.land_cells,
-            world: loaded.block.world_editor_id.clone().unwrap_or_default(),
+            world: block.world_editor_id.clone().unwrap_or_default(),
             ..StreamTotals::default()
         };
-        for (cell, loaded_cell) in &loaded.cells {
+        let source = Arc::clone(source);
+        let result = source.stream_exterior_each(&block, |cell, loaded_cell, has_land| {
+            if has_land {
+                totals.land_cells += 1;
+            }
             totals.cell_list.push(format!("({},{})", cell.x, cell.y));
-            self.add_cell(cell.id, loaded_cell, scenario, &mut totals);
+            self.add_cell(cell.id, &loaded_cell, scenario, &mut totals);
+        });
+        if let Err(e) = result {
+            godot_error!("CellStreamerNode::stream_exterior: {e}");
+            return -1;
         }
         self.last_stats = totals.to_dictionary(self.materials.len() - materials_before);
         totals.instances as i32
