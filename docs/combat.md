@@ -497,6 +497,154 @@ player/NPC branch already in `melee_hit`. If a source surfaces the
 combat-ended condition later, narrowing `player_exception` to it is a
 small, local change confined to this one field.
 
+## Magic and scripted damage bleedout clamp, CMB-35
+
+CMB-13 flagged the gap this row closes: only `melee_hit`'s health-damage path
+clamped at the bleedout threshold, so a scripted `DamageActorValue` call or a
+magic effect's health damage still killed a protected or essential actor
+outright, or in `change_actor_value`'s case left an essential actor's health
+at or below zero and fully conscious, since `request_actor_death` already
+refuses to kill an essential actor and nothing set `unconscious` either.
+
+`World::clamp_health_at_bleedout` (`crates/game/src/world/bleedout.rs`) is the
+new shared entry point. It takes the actor, the caller's own eligibility
+decision and a post-damage health value, reads
+`World::actor_bleedout_threshold` and returns the health to commit plus
+whether the actor is entering bleedout. An unreadable threshold is skipped
+rather than propagated, the same way `resolve_bleedout_recovery` already
+skips: many callers reach actors without a full NPC record backing them
+(tests, synthetic actors), and CMB-13's own next-step note recommended
+reusing that read rather than duplicating it. This is a deliberate deviation
+from `melee_hit`'s `.transpose()?`, which does propagate the error, since
+`melee_hit` targets are validated combat actors by the time it runs and
+`change_actor_value`/`apply_effect_values` are not.
+
+`World::change_actor_value` (`crates/game/src/world/actors.rs`) now clones
+the actor's `Values`, applies the operation to the clone, and for a health
+change checks whether the result is a decrease for a protected or essential
+actor before writing back, matching `melee_hit`'s clone-then-clamp order so
+the clamp always sees the change before it reaches the live actor. Every
+`Values` setter already validates or rolls back internally without changing
+state, so the clone costs nothing a direct call did not already risk: a
+setter that fails now leaves the live actor completely untouched instead of
+possibly partially applied, which the original direct-mutation code did not
+guarantee. Entering bleedout sets `unconscious`, clears `in_combat` and
+`combat_target` the same way `melee_hit` does, and skips
+`resolve_health_death` for that change, so `kill_actor`'s own essential
+guard is not what stops the death, the clamp is. `DamageActorValue`
+(`crates/game/src/natives.rs`) and the five other actor-value natives all
+share this through `change_actor_value`, per the ck-wiki `DamageActorValue`
+page's own note that the native "modifies the current value" and converts a
+negative argument to positive, i.e. it is always a `Values::damage` call
+through the existing operation dispatch.
+
+`World::apply_effect_values` (`crates/game/src/world/magic.rs`) follows the
+same clone-then-clamp shape and now takes an `Alloc<'_>` to dispatch
+`OnEnterBleedout` to `actor_event_recipients`, mirroring `melee_hit`'s event
+dispatch exactly. Its three call sites (`apply_prepared_effects`,
+`dispel_effect`, `tick_magic`) already carry `alloc` in scope, so no new
+plumbing was needed above them.
+
+The one real difference between the two paths, and the only difference from
+melee, is player-exception scope, per this row's task pack: a scripted
+`DamageActorValue` call carries no caster identity at all, so
+`change_actor_value` never grants the merely-protected exception CMB-34 gave
+`melee_hit`, a script can down a protected actor but never kill them
+outright. `apply_effect_values` does have a caster on `ActiveEffect`, so it
+grants the same exception `melee_hit` does, keyed on `effect.caster ==
+self.player`, with essential actors staying gated for every caster exactly
+as CMB-34 already established for melee.
+
+`validate_combat_actor` rejects an already-unconscious actor as a melee
+attacker or target, but neither `change_actor_value` nor
+`apply_effect_values` carries an equivalent gate, so a script or a ticking
+effect can still reach an already-downed actor. No new gate was added: the
+clamp is idempotent, re-damaging an actor already sitting at the threshold
+computes the same threshold and the same clamped health, so a repeat hit is
+a no-op on health and never flips `unconscious` a second time. A dispelled
+temporary effect's own reversal (`dispel_effect`'s `apply_effect_values(...,
+-1.0, ...)` call) only ever raises health back toward its pre-effect value,
+so it can never itself trigger the clamp, which only fires on a measured
+decrease.
+
+Reusing `resolve_bleedout_recovery` for both new call sites means the same
+existing focused tests and the `combat_bleedout_recovery*` suites already
+exercise the recovery half of this row unchanged. The writer added no tests,
+the verifier and breaker suites named below cover entry. The existing `health_damage_respects_essential_and_deferred_kill_flags`
+test in `crates/game/tests/actor_values.rs` still passes unchanged: its
+synthetic actor has no backing NPC record, so `actor_bleedout_threshold`
+fails and the clamp silently skips, leaving the test's own assertions
+untouched.
+
+### Round 1 fix: the clamp commit must not assume `Values::damage`
+
+The first round's clamp commit in both `change_actor_value` and
+`apply_effect_values` called `Values::restore("health", clamped - after)`
+(`crates/game/src/actor_values.rs`). `restore` only ever raises the `damage`
+component toward zero, capped at its floor. That correctly undoes a decrease
+that itself went through `Values::damage`, the path `DamageActorValue` and a
+non-RECOVER detrimental magic effect both take, so `cmb_35_magic_scripted_bleedout.rs`
+and the reference cases in the adversarial suites passed from the start. It
+is a silent no-op for any decrease that lands somewhere else: `SetActorValue`
+writes `base`, `ModActorValue` and `ForceActorValue` write `permanent`,
+`ModTemporaryActorValue` writes `temporary`, and a RECOVER-flagged magic
+effect writes `temporary` through the same `modify_temporary` branch
+`change_values` (`crates/game/src/world/magic.rs`) takes for it. For all of
+these, `damage` was already at its floor of 0, so `restore` changed nothing
+and the actor's committed health stayed at whatever the underlying operation
+produced, tens to hundreds of points below the threshold. The three adversarial
+test files under `crates/game/tests/` (`cmb_35_script_damage_bleedout_adversarial.rs`,
+`cmb_35_magic_recover_bleedout_adversarial.rs`) drove each of these paths and
+recorded the exact miss.
+
+Round 1 made both commits call `Values::force("health", clamped)`. `force`
+solves for `permanent` so that `current()` equals its argument directly,
+independent of which component the preceding operation touched, so it lands
+on the threshold for every path above the same way it already did for
+`Values::damage`. This also restores the idempotency this section already
+claimed: forcing current health to the same threshold on a second call is
+a true no-op on the committed value, not just on the component `restore`
+happened to touch, so the no-new-gate reasoning above holds for every
+actor-value native, not only `DamageActorValue`.
+
+`apply_effect_values`'s `dies` check had a second, independent defect: it
+read `values.get("health").current() <= 0.0` after the clamp commit instead
+of checking `entering_bleedout` directly. With the `restore` no-op above, a
+RECOVER-flagged detrimental effect left `current()` deeply negative even
+though `entering_bleedout` was `true`, so `dies` came out `true` and
+`kill_actor` ran anyway, killing a protected or essential actor the clamp
+had just flagged as spared and leaving `unconscious` and `dead` set at the
+same time. `dies` is now `touches_health && !entering_bleedout && ...`, so a
+successful bleedout entry can never also be read as lethal, regardless of
+what the health reading is.
+
+### Round 2 fix: keep the maximum when damage can carry the clamp
+
+The round 1 `force` commit landed on the threshold but moved the wrong
+component on the path that already worked. After `DamageActorValue` for 500
+on a 100 health actor, `damage` sits at -500 and `force("health", 20)` set
+`permanent` to 420, so `maximum()` read 520 and a later full
+`RestoreActorValue` healed the actor to 520. `melee_hit` never had this
+problem because it corrects `damage` through `restore`.
+
+Both commits now go through `commit_bleedout_health`
+(`crates/game/src/world/bleedout.rs`). When the threshold is at or under the
+current maximum, it raises `damage` with `restore`, the melee correction, so
+the maximum is unchanged. Only when the operation pulled the maximum itself
+under the threshold (a large negative `SetActorValue`, `ModActorValue`,
+`ForceActorValue`, `ModTemporaryActorValue` or RECOVER effect) does it clear
+`damage` and call `force`, since `damage` cannot be positive. Both branches
+commit exactly the threshold, so the idempotency argument above still holds.
+Two unit tests in `bleedout.rs` pin the maximum on the damage path and the
+threshold on the maximum path.
+
+Seven tests in `cmb_35_script_damage_bleedout_adversarial.rs` and
+`cmb_35_magic_recover_bleedout_adversarial.rs` still assert the pre-fix
+values (committed health of -400, -500 or -700, and a protected target that
+dies to a non-player caster). Their own comments name the threshold, 20, and
+bleedout without death as the documented contract, which the implementation
+now meets, so they fail against it and are left for review unchanged.
+
 ## Combat actor-value modifiers, CMB-15 in progress
 
 The intrinsic AttackDamageMult milestone uses the shared actor-value store,

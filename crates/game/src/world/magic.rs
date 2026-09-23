@@ -474,7 +474,7 @@ impl World {
                 self.dispel_effect(victim, alloc);
             }
             if prepared.effect.recover || prepared.effect.duration == Some(0.0) {
-                self.apply_effect_values(&prepared.effect, 1.0)?;
+                self.apply_effect_values(&prepared.effect, 1.0, alloc)?;
             }
             applied.push(id);
         }
@@ -636,7 +636,7 @@ impl World {
         let Some(effect) = self.active_effects.get(&id).cloned() else {
             return false;
         };
-        if effect.recover && self.apply_effect_values(&effect, -1.0).is_err() {
+        if effect.recover && self.apply_effect_values(&effect, -1.0, alloc).is_err() {
             return false;
         }
         self.active_effects.remove(&id);
@@ -684,7 +684,7 @@ impl World {
                 seconds.min((duration - effect.elapsed).max(0.0))
             });
             if !effect.recover && effect.duration != Some(0.0) {
-                if let Err(error) = self.apply_effect_values(&effect, dt) {
+                if let Err(error) = self.apply_effect_values(&effect, dt, alloc) {
                     errors.push(error);
                     continue;
                 }
@@ -701,13 +701,72 @@ impl World {
         errors
     }
 
-    fn apply_effect_values(&mut self, effect: &ActiveEffect, scale: f64) -> Result<(), MagicError> {
+    fn apply_effect_values(
+        &mut self,
+        effect: &ActiveEffect,
+        scale: f64,
+        alloc: Alloc<'_>,
+    ) -> Result<(), MagicError> {
         let actor = self.actor(effect.target).ok_or(MagicError::Target)?;
+        let (protected, essential) = (actor.protected, actor.essential);
+        let before = actor.values.get("health").current();
         let mut values = actor.values.clone();
         change_values(&mut values, effect, scale)?;
-        let dies = effect.changes.iter().any(|(name, _)| name == "health")
-            && values.get("health").current() <= 0.0;
-        actor.values = values;
+        let touches_health = effect.changes.iter().any(|(name, _)| name == "health");
+        // The caster stands in for melee_hit's attacker (combat.rs,
+        // CMB-13/CMB-34): a merely protected, non-essential actor still
+        // dies to the player's own magic, but a caster-less or NPC-cast
+        // effect clamps like any other source. World::change_actor_value
+        // (actors.rs, CMB-35) has no caster to check at all, so it never
+        // grants this exception.
+        let player_exception =
+            protected && !essential && self.player.is_some() && effect.caster == self.player;
+        let bleedout_target = touches_health
+            && (protected || essential)
+            && !player_exception
+            && values.get("health").current() < before;
+        let (clamped, entering_bleedout) = self.clamp_health_at_bleedout(
+            effect.target,
+            bleedout_target,
+            values.get("health").current(),
+        );
+        if entering_bleedout {
+            // `Values::restore` alone only raises the `damage` component, so
+            // it silently no-ops for a RECOVER-flagged effect, which
+            // `change_values` above writes through `modify_temporary`
+            // instead. The shared commit helper uses `damage` when the
+            // maximum allows it and `permanent` only when the maximum fell
+            // below the threshold, matching `World::change_actor_value`
+            // (bleedout.rs, CMB-35 round 2).
+            super::bleedout::commit_bleedout_health(&mut values, clamped)
+                .map_err(|_| MagicError::Number)?;
+        }
+        // Gated on `entering_bleedout`, not read fresh from `values`: before
+        // the fix above, a failed clamp commit could leave `current()` deeply
+        // negative even though the actor was already flagged as entering
+        // bleedout, and this reading alone would then call `kill_actor`
+        // right below, killing a protected or essential actor the clamp was
+        // supposed to spare. A successful bleedout entry must never be a
+        // death, no matter what `current()` reads afterward.
+        let dies = touches_health && !entering_bleedout && values.get("health").current() <= 0.0;
+        if let Some(actor) = self.actors.get_mut(&effect.target) {
+            actor.values = values;
+            if entering_bleedout {
+                actor.unconscious = true;
+                actor.in_combat = false;
+                actor.combat_target = None;
+            }
+        }
+        if entering_bleedout {
+            for recipient in self.actor_event_recipients(effect.target) {
+                let object = self.object_of(recipient, alloc);
+                self.pending.push(Pending::Event {
+                    object,
+                    name: "OnEnterBleedout".into(),
+                    args: Vec::new(),
+                });
+            }
+        }
         if dies {
             self.kill_actor(effect.target, effect.caster);
         }

@@ -326,9 +326,50 @@ impl World {
         let actor = self
             .actor(id)
             .ok_or(crate::actor_values::Error::Actor(id))?;
-        operation(&mut actor.values, name, amount)?;
-        if name.eq_ignore_ascii_case("health") {
-            self.resolve_health_death(id);
+        let is_health = name.eq_ignore_ascii_case("health");
+        let (protected, essential) = (actor.protected, actor.essential);
+        // Apply to a copy first, matching melee_hit's clone-then-clamp
+        // pattern (combat.rs, CMB-13): the clamp below must see the health
+        // change before it reaches the live actor, and every `Values`
+        // setter already validates "without changing state" on its own, so
+        // cloning costs nothing a direct call would not already pay.
+        let mut values = actor.values.clone();
+        let before = values.get("health").current();
+        operation(&mut values, name, amount)?;
+        let mut entering_bleedout = false;
+        if is_health {
+            let after = values.get("health").current();
+            // A scripted DamageActorValue call carries no caster identity,
+            // so unlike melee_hit's player_exception (combat.rs, CMB-34)
+            // and apply_effect_values's caster check (magic.rs, CMB-35), a
+            // merely protected actor is always clamped here rather than
+            // left killable by an unidentified script.
+            let bleedout_target = (protected || essential) && after < before;
+            let (clamped, entering) = self.clamp_health_at_bleedout(id, bleedout_target, after);
+            if entering {
+                // `Values::restore` alone only raises the `damage` component,
+                // so it silently no-ops for `SetActorValue`, `ModActorValue`,
+                // `ForceActorValue` and `ModTemporaryActorValue`, which write
+                // `base`, `permanent` or `temporary` instead. The commit
+                // helper uses `damage` when the maximum allows it and falls
+                // back to `permanent` only when the maximum itself fell below
+                // the threshold (bleedout.rs, CMB-35 round 2).
+                super::bleedout::commit_bleedout_health(&mut values, clamped)?;
+                entering_bleedout = true;
+            }
+        }
+        if let Some(actor) = self.actor(id) {
+            actor.values = values;
+            if entering_bleedout {
+                actor.unconscious = true;
+                actor.in_combat = false;
+                actor.combat_target = None;
+            }
+        }
+        if is_health {
+            if !entering_bleedout {
+                self.resolve_health_death(id);
+            }
             self.resolve_bleedout_recovery(id);
         }
         Ok(())
