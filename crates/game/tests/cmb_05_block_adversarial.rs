@@ -153,9 +153,9 @@ fn close(actual: f32, expected: f32) {
 #[test]
 fn cmb_05_block_gmsts_are_record_backed_not_hardcoded() {
     let mut extra = vec![shield_raw(0xB00, 1000, 2)];
-    // Every non-overridden block GMST still needs a value; supply the
-    // engine defaults explicitly for the two this test does not override,
-    // so the numbers below are traceable to one formula evaluation.
+    // Every non-overridden block GMST still needs a value. The test supplies
+    // the engine defaults explicitly for the two it does not override, so
+    // the numbers below are traceable to one formula evaluation.
     extra.push(gmst(0x2000, "fBlockSkillMult", 2.0));
     extra.push(gmst(0x2001, "fShieldScalingFactor", 0.2));
     // The override under test: a plugin record for fBlockMax at 0.1, far
