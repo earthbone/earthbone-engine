@@ -614,7 +614,10 @@ its own is not settled here, the override wins.
 
 What the exterior still lacks, none of it needed for the block benchmark: the `LAND` quadrant
 layers (`LTEX` base plus alpha layers) need a splat material, so terrain draws in the
-untextured white material. Distant geometry is Bethesda's precomputed LOD (the `BTO` and `BTR`
+untextured white material. `godot/pan_capture.gd` orbits and pans that block through 25
+shots for a quick visual sweep. On 2026-09-23 it showed thin sky-coloured gaps along a few
+terrain cell edges from four of the angles, which RND-15 tracks. Distant geometry is
+Bethesda's precomputed LOD (the `BTO` and `BTR`
 files under `meshes/terrain`, to be consumed, never generated), not loaded, so nothing beyond
 the requested ring exists. No water plane. `WhiterunWorld` lists grid (0, 0) twice among its
 winners, both streamed. Interior streaming by proximity is still unstarted.

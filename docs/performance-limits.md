@@ -199,10 +199,11 @@ large mod-loadout survey or complete gameplay stress was run.
 
 ## Recorded validation, 2026-09-23
 
-Master after `c14d37f`, with cell-by-cell exterior streaming (PRF-02) and the
-cutout shader literal fix. Release `soe-godot-host` build on the same Ryzen 9
-7900X and RTX 5070 Ti machine, Godot 4.7.2, Forward+, windowed on X11, with
-nothing else compiling. Command:
+Master `79a3d44`, with cell-by-cell exterior streaming (PRF-02) and the cutout
+shader literal fix. Release `soe-godot-host` build on the Ryzen 9 7900X and
+RTX 5070 Ti machine, Godot 4.7.2, Forward+, windowed. A one-second sampler ran
+alongside: no `rustc` process overlapped any run, peak load was 8.1 on 24
+threads, and the only other GPU client was a browser. Command:
 `python3 tools/performance.py check --backend godot --scenario exterior
 --start 1 --repeats 3 --max-rss-mib 8192`, with `SKYRIM_DATA` set to the
 installed game.
@@ -212,16 +213,19 @@ triangles, and reached frame sampling in every run.
 
 | Run | p50 | p99 | p99.9 | Worst | Peak RSS | Result |
 |---|---|---|---|---|---|---|
-| 1 | 0.383 ms | 1.729 ms | 2.214 ms | 108.085 ms | 3,708 MiB | Breach, worst above 33 ms |
-| 2 | 0.372 ms | 1.498 ms | 2.303 ms | 94.336 ms | 3,535 MiB | Breach, worst above 33 ms |
-| 3 | 0.670 ms | 1.807 ms | 2.223 ms | 2.836 ms | 3,564 MiB | Pass |
+| 1 | 0.432 ms | 1.646 ms | 3.693 ms | 69.089 ms | 3,536 MiB | Breach, worst above 33 ms |
+| 2 | 0.376 ms | 1.256 ms | 2.420 ms | 5.186 ms | 3,549 MiB | Pass |
+| 3 | 0.393 ms | 1.389 ms | 2.447 ms | 4.507 ms | 3,550 MiB | Pass |
 
 Every percentile through p99.9 sits far below the 16.7 ms bar, and peak RSS
-fell from the 8,232 MiB startup failure of 2026-09-19 to about 3.6 GiB. The
-runner reports the check as unstable because two of three runs had a single
-frame near 100 ms. PRF-08 tracks finding and removing that hitch.
+fell from the 8,232 MiB startup failure of 2026-09-19 to about 3.5 GiB. Only
+the first run had a frame above 33 ms, which suggests a cold shader or
+pipeline cache, not yet confirmed. PRF-08 tracks it.
 
-The first attempt at this run surfaced a shader compilation failure: a cutout
+An earlier run the same day shared the GPU with a game and showed two frames
+near 100 ms. It is discarded, and this table replaces it.
+
+That earlier attempt also surfaced a shader compilation failure: a cutout
 threshold of 255 printed as the int literal `1`, which Godot rejects against
 the float alpha. Every material with that threshold rendered without its
 shader until the fix.
