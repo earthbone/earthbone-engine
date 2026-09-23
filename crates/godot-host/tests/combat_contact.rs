@@ -247,7 +247,9 @@ fn equipment_changes_and_rejected_contacts_cannot_retry() {
         .unwrap()
         .is_none());
     contact.begin(&game, id(0x14), Hand::Right).unwrap();
-    game.world_mut().actor(id(0x900)).unwrap().essential = true;
+    // Essential targets now enter bleedout (CMB-13), so a target already down
+    // supplies the rejected hit.
+    game.world_mut().actor(id(0x900)).unwrap().unconscious = true;
     assert!(contact
         .event(&mut game, "HitFrame", |_| Ok(Some(id(0x900))))
         .is_err());

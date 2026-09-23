@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 //! Bleedout thresholds follow xEdit ACBS/CLAS layouts and the installed runtime
-//! calculation identified in docs/combat.md. Inputs stay in the shared records.
+//! calculation identified in docs/combat.md. Entry and the health-driven
+//! recovery path reuse the existing `unconscious` and `no_bleedout_recovery`
+//! actor state, so both already round trip through save and hash.
 
 use soe_esm::{cursor::Fields, GlobalFormId, Tag};
 use soe_papyrus::Value;
@@ -53,6 +55,40 @@ impl World {
             .get("health");
         let permanent = nonnegative(health.base() + health.permanent())?;
         nonnegative(permanent * fraction)
+    }
+
+    /// Recover a bleeding-out actor once a health change (a restore, a heal
+    /// spell, a potion) carries current health back above the cached
+    /// threshold, unless `SetNoBleedoutRecovery` holds them down.
+    ///
+    /// This is the health-driven recovery path the installed runtime takes
+    /// at 0x1406cf330 (docs/combat.md, CMB-13): comparing changed health
+    /// against the threshold and checking `NoBleedoutRecovery`. Per the
+    /// ck-wiki GetNoBleedoutRecovery/SetNoBleedoutRecovery pages, that flag
+    /// alone gates recovery. `protected` and `essential` only gate entry
+    /// into bleedout (`World::melee_hit`, combat.rs) and must not be
+    /// re-read here: a script can lift essential status on an actor while
+    /// they are still unconscious (a common "scene is over" pattern), and
+    /// that must not strand them down for good. The separate
+    /// `essentialDownTimer` path that gets an unhealed actor back up on its
+    /// own after a duration remains unverified and is not modeled here.
+    pub(super) fn resolve_bleedout_recovery(&mut self, id: GlobalFormId) {
+        let Some(state) = self.actor_ref(id) else {
+            return;
+        };
+        if !state.unconscious || state.no_bleedout_recovery {
+            return;
+        }
+        let current = state.values.get("health").current();
+        let Ok(threshold) = self.actor_bleedout_threshold(id) else {
+            return;
+        };
+        if current <= threshold {
+            return;
+        }
+        if let Some(state) = self.actor(id) {
+            state.unconscious = false;
+        }
     }
 }
 
