@@ -91,6 +91,42 @@ impl World {
         self.npc_race(source)
     }
 
+    /// Overall linear scale for an actor's runtime-generated controller
+    /// capsule: `race.height[sex] * npc.height`, following
+    /// `TESNPC::GetHeight()` (CommonLibSSE-NG `src/RE/T/TESNPC.cpp`). Sex
+    /// and height both come from the NPC that supplies the Traits template
+    /// group, the same source [`Self::actor_base_race`] reads: the Creation
+    /// Kit groups race, sex, height and weight together under "Use Traits".
+    /// An actor base with no race or no RACE `DATA` uses scale 1.0.
+    ///
+    /// # Errors
+    /// Rejects invalid templates, an unresolved race link, or a non-finite
+    /// or non-positive resulting scale.
+    pub fn actor_controller_scale(&self, base: GlobalFormId) -> Result<f32, Error> {
+        let traits = self.npc_component_source(base, npc::template::TRAITS)?;
+        let npc = self.npc_record(traits)?;
+        let race_height = self
+            .npc_race(traits)?
+            .and_then(|id| self.record(id))
+            .map(Attributes::from_record)
+            .transpose()?
+            .flatten()
+            .map_or(1.0, |race| {
+                if npc.is_female() {
+                    race.height_female
+                } else {
+                    race.height_male
+                }
+            });
+        let scale = race_height * npc.height;
+        if !scale.is_finite() || scale <= 0.0 {
+            return Err(Error::Invalid(
+                "non-finite or non-positive actor controller scale".into(),
+            ));
+        }
+        Ok(scale)
+    }
+
     pub(super) fn npc_race(&self, source: GlobalFormId) -> Result<Option<GlobalFormId>, Error> {
         let npc = self.npc_record(source)?;
         let Some(raw) = npc.race.filter(|raw| *raw != 0) else {
