@@ -28,6 +28,27 @@ impl World {
         }
     }
 
+    /// Update the source base and every initialized actor inheriting its protected flag.
+    /// Mirrors `set_actor_base_essential` (CMB-34): `World::melee_hit` also
+    /// reads the base fresh on every hit, so this propagation is a
+    /// consistency fix for `Actor.IsProtected` and saved state, not the
+    /// path combat correctness depends on.
+    pub fn set_actor_base_protected(&mut self, base: GlobalFormId, protected: bool) {
+        let Some(state) = self.actor_base(base) else {
+            return;
+        };
+        state.protected = protected;
+        let mut actors: Vec<_> = self.actors.keys().copied().collect();
+        actors.sort_unstable();
+        for actor in actors {
+            if self.actor_component_source(actor, crate::npc::template::BASE_DATA) == Ok(base) {
+                if let Some(state) = self.actors.get_mut(&actor) {
+                    state.protected = protected;
+                }
+            }
+        }
+    }
+
     /// Kill an actor, or retain the request while death is deferred.
     /// Essential and already-dead actors do not begin another death transition.
     /// Returns true only when death occurs during this call.

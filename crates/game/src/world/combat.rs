@@ -130,7 +130,40 @@ impl World {
         self.validate_combat_actor(hit.attacker)?;
         self.validate_combat_actor(hit.target)?;
         let target = self.actor_ref(hit.target).ok_or(Error::Actor(hit.target))?;
-        let bleedout_target = target.protected || target.essential;
+        let (record_protected, record_essential) = (target.protected, target.essential);
+        // `ActorBase.SetProtected` and `ActorBase.SetEssential`
+        // (crates/game/src/natives.rs) write the base's own cache, and
+        // `World::actor_base` lazily derives it from the winning record the
+        // same way `World::actor` derives `ActorState`. A target already
+        // built before either native ran still carries the value its own
+        // build cached, so read the base fresh here instead of trusting
+        // that cache, the same pattern the invulnerable check below already
+        // uses for the same target.
+        let (protected, essential) = if self
+            .reference_ref(hit.target)
+            .is_some_and(|reference| reference.base.is_some())
+        {
+            let base = self.actor_component_source(hit.target, crate::npc::template::BASE_DATA)?;
+            self.actor_base(base)
+                .map_or((record_protected, record_essential), |base| {
+                    (base.protected, base.essential)
+                })
+        } else {
+            (record_protected, record_essential)
+        };
+        // Vanilla lets the player kill a merely protected, non-essential
+        // actor outright instead of only ever dropping them into bleedout
+        // (docs/combat.md, CMB-34). No local CK wiki page pins the exact
+        // "combat has ended" qualifier the engine's own notes flagged as
+        // unverified, so the exception is keyed on the attacker alone,
+        // matching every other player/NPC branch already in this function
+        // (see the difficulty and skill-scale checks above). An essential
+        // actor stays gated for every attacker, including the player: the
+        // wiki's SetProtected/SetEssential pages state the two flags are
+        // mutually exclusive, and nothing grounds a player exception for
+        // essential actors the way it does for protected ones.
+        let player_exception = self.player == Some(hit.attacker) && protected && !essential;
+        let bleedout_target = (protected || essential) && !player_exception;
         if self
             .reference_ref(hit.target)
             .is_some_and(|reference| reference.base.is_some())

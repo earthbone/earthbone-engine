@@ -2307,12 +2307,13 @@ fn actor_base(vm: &mut Vm, w: &Shared) {
     ] {
         method!(vm, w, "ActorBase", name, |world, call, me| {
             let on = call.args.first().is_none_or(Value::as_bool);
-            if field == 0 {
-                world.set_actor_base_essential(me, on);
-            } else if let Some(a) = world.actor_base(me) {
-                match field {
-                    1 => a.protected = on,
-                    _ => a.invulnerable = on,
+            match field {
+                0 => world.set_actor_base_essential(me, on),
+                1 => world.set_actor_base_protected(me, on),
+                _ => {
+                    if let Some(a) = world.actor_base(me) {
+                        a.invulnerable = on;
+                    }
                 }
             }
             none()

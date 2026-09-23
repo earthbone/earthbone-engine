@@ -112,7 +112,10 @@ impl World {
                     .actor_bases
                     .get(&flags_source)
                     .map_or_else(|| flags.is_essential(), |base| base.essential);
-                a.protected = flags.is_protected();
+                a.protected = self
+                    .actor_bases
+                    .get(&flags_source)
+                    .map_or_else(|| flags.is_protected(), |base| base.protected);
                 a.ghost = flags.config.flags & crate::npc::flags::GHOST != 0;
                 a.race = self.npc_race(traits_source).ok()?;
                 a.perks = spells
