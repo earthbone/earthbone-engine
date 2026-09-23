@@ -20,6 +20,10 @@ pub struct Weapon {
     pub resist: i32,
     pub flags: u16,
     pub flags2: u32,
+    /// DNAM's trailing Stagger float, 0.0 to 1.0 in vanilla data. Zero means
+    /// the weapon never staggers, matching `ProcessTrapHit`'s afStagger
+    /// convention for that same 0.0 to 1.0 range.
+    pub stagger: f32,
     pub template: Option<u32>,
     pub enchantment: Option<u32>,
 }
@@ -49,6 +53,8 @@ impl Weapon {
         let skill = data.i32()?;
         data.skip(8)?;
         let resist = data.i32()?;
+        data.skip(4)?;
+        let stagger = number(data.f32()?)?;
         Ok(Self {
             damage,
             weight,
@@ -59,6 +65,7 @@ impl Weapon {
             resist,
             flags,
             flags2,
+            stagger,
             template: link(record, T(b"CNAM"))?,
             enchantment: link(record, T(b"EITM"))?,
         })

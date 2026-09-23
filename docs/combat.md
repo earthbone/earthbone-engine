@@ -691,3 +691,76 @@ existing plugin reader, without copying installed assets.
 CMB-15 now depends on CMB-09 so those modifiers will execute through the perk
 path. They continue to reject pending that work. `docs/combat-perks.md`
 records the dispatch prerequisites and the ordering evidence still needed.
+
+## Stagger from hit magnitude, CMB-14
+
+`melee_hit` now sets a target's stagger window from the same post-armor,
+post-block health damage that already feeds bleedout and death. The
+magnitude is that health damage scaled by the weapon's own DNAM Stagger
+fraction, `health_damage * weapon.stagger`. A hit above `fStaggerThreshold`
+sets `ActorState::stagger_end_time` to `World::clock.real_seconds` plus
+`fStaggerDuration`, the same real-time clock `ai::wait_until` uses for its
+own deadlines, not the calendar `game_days` clock. `World::is_staggered(id)`
+reads that deadline lazily against the current clock, mirroring the
+`is_player` and `is_reference` query methods rather than adding an active
+per-tick clear. `HitResult::staggered` reports whether this particular hit
+crossed the threshold.
+
+The local `TES5Edit/Core/wbDefinitionsTES5.pas` WEAP definition places the
+Stagger float as DNAM's last field, the four bytes at offset 96 to 100 of
+the 100-byte struct, right after an unparsed four-byte resist gap. The task
+pack's own citation names this field under CRIT DATA. That is not what the
+local pas file or a direct read of the record layout shows: CRIT DATA holds
+the critical-hit damage and multiplier, DNAM holds Stagger. `Weapon::stagger`
+now parses it, 0.0 to 1.0 in vanilla data, matching the 0.0 to 1.0
+`afStagger` convention `ProcessTrapHit` documents in the CK wiki natives
+survey. Unarmed contacts carry no WEAP record, so `melee_hit` gives them a
+stagger fraction of 0.0 and they never stagger. No corpus source states what
+an unarmed stagger contribution should be instead.
+
+No local or UESP source states a vanilla `fStaggerThreshold` or
+`fStaggerDuration` value. Both are engineering estimates in
+`game_settings.rs`, documented there and here rather than left silent:
+3.5 for the threshold, so a low-Stagger dagger needs a heavy hit while a
+high-Stagger warhammer staggers on an ordinary one, and 1.2 seconds for the
+duration, the midpoint of the 0.5 to 2.0 second animation lengths the task
+pack observed. Both stay overridable through the existing plugin and
+live-setting GMST precedence `World::combat_setting` already gives every
+other engine default here.
+
+No vanilla Papyrus event announces a stagger. A search of the local
+`ck-wiki` corpus, both `HTML_FALLBACK.txt` and `FAILED.txt`, found no
+stagger-related event anywhere. Host and render code reads
+`ActorState::stagger_end_time` or calls `World::is_staggered` directly
+instead of waiting on a fabricated event.
+
+`validate_combat_actor` already rejects any actor carrying a non-empty
+`perks` set before `melee_hit` reaches the stagger computation, so a perked
+actor's stagger immunity or resistance is out of scope the same way every
+other perk-gated combat modifier is, pending CMB-09's perk dispatch path.
+
+`ActorState::stagger_end_time` is a new `Option<f64>` field, so SOEW moved
+from version 28 to 29. `write_actor_state` writes it unconditionally and
+`read_actor_state` only reads it past version 29, so older saves load with
+no stagger window rather than a version error. `save_tests.rs`'s and the
+shared `tests/common/legacy.rs`'s `without_exclusive_branches` fixtures both
+had to learn to strip the new field's bytes alongside the exclusive dialogue
+branch they already stripped, since the writer is unconditional and the
+fixtures simulate a pre-version-29 stream by cutting real bytes back out.
+
+Left out of this row, each a concrete next step rather than a silent gap:
+
+- Physical recoil and knockback, an actual push on the target's collision
+  body, belongs to the physics crate once it drives combat contacts.
+  `ActorState::stagger_end_time` only gates animation and input on the
+  `game` side, it moves nothing.
+- Vanilla's Light, Medium and Heavy stagger tiers are not modeled. Every
+  qualifying hit uses the same `fStaggerDuration`, not a duration keyed to
+  hit strength.
+- Power attacks are not implemented yet (they are not part of CMB-01), so
+  their documented longer stagger is not modeled either. The next step is
+  the same clamp this row uses, read against whatever multiplier CMB gives
+  power attacks when that row lands.
+- No live or installed-data comparison against `SKYRIM_DATA` has been run
+  for stagger specifically, since no source pins the vanilla threshold or
+  duration to compare against.
