@@ -56,6 +56,21 @@ fn text(v: &Value) -> String {
     }
 }
 
+/// Like [`text`], but an object argument carries its form id the way the
+/// game's own log does, `[Object <handle> <formid>]`, the real 8-hex-digit
+/// runtime FormID from [`World::runtime_id`], not the engine's internal
+/// `{file}:{object}` load order notation. Aliases and active effects have no
+/// form id, so they fall back to the bare handle.
+fn text_world(world: &World, v: &Value) -> String {
+    match v {
+        Value::Object(o) => match world.form_of(*o) {
+            Some(id) => format!("[Object <{}> {:08X}]", o.0, world.runtime_id(id)),
+            None => v.to_string(),
+        },
+        other => text(other),
+    }
+}
+
 /// The object allocator a native hands the world: `NativeCall::create_object`.
 macro_rules! alloc {
     ($call:ident) => {
@@ -1801,11 +1816,11 @@ fn game(vm: &mut Vm, w: &Shared) {
 
 fn debug(vm: &mut Vm, w: &Shared) {
     for name in ["Trace", "TraceUser", "TraceConditional", "TraceStack"] {
-        global!(vm, w, "Debug", name, |_world, call| {
+        global!(vm, w, "Debug", name, |world, call| {
             let msg = match name {
-                "TraceUser" => text(&call.arg(1)),
+                "TraceUser" => text_world(world, &call.arg(1)),
                 "TraceConditional" if !call.arg(1).as_bool() => return none(),
-                _ => text(&call.arg(0)),
+                _ => text_world(world, &call.arg(0)),
             };
             call.log.push(call.time, msg);
             none()
