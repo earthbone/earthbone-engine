@@ -304,7 +304,7 @@ fn without_exclusive_branches(world: &mut World) -> Vec<u8> {
         stagger_marker.extend_from_slice(&stagger_sentinel.to_le_bytes());
         markers.push(stagger_marker);
 
-        // `witnessed_crimes` (version 30) is written unconditionally, even
+        // `witnessed_crimes` (version 31) is written unconditionally, even
         // when empty, so an emulated pre-30 save must strip it same as the
         // two optional fields above. A one-element set gives a marker as
         // locatable as `exclusive_branch`'s.
@@ -434,7 +434,7 @@ fn sav_07_unknown_version_and_mixed_legacy_namespaces_are_rejected() {
     let mut world = rich_world(DYNAMIC_FILE);
     let before = world.save_state();
     for (version, message) in [
-        (31_u16, "world state version 31"),
+        (32_u16, "world state version 32"),
         (18, "created namespace in a legacy world state"),
     ] {
         let mut bytes = before.clone();

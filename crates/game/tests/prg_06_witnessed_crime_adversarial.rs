@@ -10,7 +10,7 @@
 //! including the shipped `MS08AlikrFaction` record, which sets the Track
 //! Crime flag but carries no `CRVA` subrecord at all. Save format source:
 //! `crates/game/src/world/save.rs`'s own version log, which documents
-//! version 30 as the one that added `witnessed_crimes`.
+//! version 31 as the one that added `witnessed_crimes`.
 
 use soe_esm::plugin::flags;
 use soe_esm::{Entry, FileHeader, GlobalFormId, Group, GroupKind, LoadOrder, Plugin, Record, Tag};

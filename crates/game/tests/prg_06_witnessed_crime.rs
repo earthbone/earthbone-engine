@@ -7,7 +7,7 @@
 //! `World::record_witnessed_crime` (`crates/game/src/world/crime.rs`) prices
 //! a crime against the perpetrator's own crime faction only (`Actor.GetCrimeFaction`,
 //! ck-wiki) and records the witness's knowledge in `ActorState::witnessed_crimes`
-//! (`crates/game/src/world.rs`), carried through save version 30
+//! (`crates/game/src/world.rs`), carried through save version 31
 //! (`crates/game/src/world/save.rs`). This file checks both halves through
 //! the real API: a second, unrelated faction must stay untouched, and the
 //! witness state must round trip through an actual `save_state`/`load_state`

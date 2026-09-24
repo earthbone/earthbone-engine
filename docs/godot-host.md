@@ -598,9 +598,11 @@ once, finds the named cell's grid position and worldspace, and returns every cel
 worldspace within `radius` grid steps, sorted south to north then west to east (radius 2 is
 the game's `uGridsToLoad=5`). `stream_exterior` streams each cell through `stream_cell_id` and
 appends the cell's terrain as one more `LoadedSurface`: `land_for_cells` walks the `LAND`
-winners once for the whole block, and `terrain_surface` turns the 33 by 33 `VHGT` heights into
-32 by 32 quads in Skyrim units, `VNML` normals when present, wound counter-clockwise from above
-so `build_surface`'s flip lands them like a NIF's faces. `CellStreamerNode::stream_exterior`
+winners once for the whole block, `decode_land_heights` turns each cell's 33 by 33 `VHGT`
+into world-unit heights, `reconcile_seams` stitches the block's shared edges (see RND-15
+below), and `terrain_surface_from_heights` turns the reconciled heights into 32 by 32 quads
+in Skyrim units, `VNML` normals when present, wound counter-clockwise from above so
+`build_surface`'s flip lands them like a NIF's faces. `CellStreamerNode::stream_exterior`
 is the GDScript entry point and `last_stats` carries the block's totals, the worldspace's
 editor id and the cell list.
 
@@ -615,12 +617,43 @@ its own is not settled here, the override wins.
 What the exterior still lacks, none of it needed for the block benchmark: the `LAND` quadrant
 layers (`LTEX` base plus alpha layers) need a splat material, so terrain draws in the
 untextured white material. `godot/pan_capture.gd` orbits and pans that block through 25
-shots for a quick visual sweep. On 2026-09-23 it showed thin sky-coloured gaps along a few
-terrain cell edges from four of the angles, which RND-15 tracks. Distant geometry is
-Bethesda's precomputed LOD (the `BTO` and `BTR`
-files under `meshes/terrain`, to be consumed, never generated), not loaded, so nothing beyond
-the requested ring exists. No water plane. `WhiterunWorld` lists grid (0, 0) twice among its
-winners, both streamed. Interior streaming by proximity is still unstarted.
+shots for a quick visual sweep. Distant geometry is Bethesda's precomputed LOD (the `BTO` and
+`BTR` files under `meshes/terrain`, to be consumed, never generated), not loaded, so nothing
+beyond the requested ring exists. No water plane. `WhiterunWorld` lists grid (0, 0) twice among
+its winners, both streamed. Interior streaming by proximity is still unstarted.
+
+**RND-15, the 2026-09-23 sky gaps.** `pan_capture.gd` showed thin sky-coloured gaps along a
+few terrain cell edges from four of its 25 angles. Cause: each cell's terrain used to mesh on
+its own from its own decoded `VHGT`, so two neighbouring cells only met exactly where their
+height data already agreed, and Bethesda's own `LAND` agrees at every edge inside one
+worldspace by construction. The gap sat at the boundary between the block's three
+`WhiterunWorld` cells and the six cells falling back to Tamriel's `LAND` at the same grid
+position: Tamriel's landform there was never sculpted to meet WhiterunWorld's city terrain, so
+the two data sources left a height mismatch of a few world units at the cells where they meet,
+wide enough to show sky through from a shallow angle. The fix, `reconcile_seams` in
+`crates/godot-host/src/data_source/exterior.rs`, decodes every block cell's effective heights
+(own or parent) first, keyed by grid position rather than cell id, then groups every array
+index across the block that stands for the same physical vertex, up to 4 of them at an
+interior block corner, and sets the whole group to its members' average before any cell's mesh
+is built. A vertex the data already agrees on averages to the value it already had, so an edge
+already agreeing is left unchanged in practice. Averaging moves both sides of a real mismatch
+an equal small amount rather than picking a "correct" worldspace, since nothing here says
+WhiterunWorld's authored terrain should win over Tamriel's at a border neither one owns.
+
+An earlier version of `reconcile_seams` closed the parent-worldspace gap with two sequential
+passes per cell, east-west against the east neighbour then north-south against the north
+neighbour, both mutating the same heights map. A cell with both an east and a north neighbour
+inside the block, 4 of the 9 `WhiterunOrigin` cells, has its north-east corner sample on both
+edges, so the north-south pass re-read a value the east-west pass had already moved and
+overwrote it again, leaving the east neighbour's own copy of that same corner stale. Since the
+two passes read their processing order from a `HashMap`'s key iteration, which the standard
+library gives no cross-run guarantee for, which corner won could also change between two
+`DataSource::open` calls against the same install. That compounded the sky gaps at exactly the
+point most likely to show one, a mesh corner every touching triangle shares, and broke
+reproducibility for anything that diffs or caches streamed terrain, `pan_capture.gd`'s own
+regression captures included. The current fix resolves each physical vertex from all of its
+copies at once, up to 4 at an interior block corner, instead of from whichever pairwise pass
+happens to run last, so the result no longer depends on iteration order.
 
 ### PRF-02: streaming a block one cell at a time
 
@@ -1940,3 +1973,44 @@ unrelated to the `.nif` collision phantoms this method reads. When CMB-28
 adds the actor body pipeline, this is the function it resolves shape and
 transform from, with `game::World::actor_controller_scale` (`docs/game.md`)
 supplying the scale argument.
+
+## Repeated rock instancing, RND-04 (2026-09-24)
+
+The batching versus instancing decision above was reasoned, not measured, at
+the time it was written. `src/batch.rs` already carried the full instancing
+path from an earlier round: `INSTANCE_MIN_PLACEMENTS`, `instancing_candidates`,
+`InstanceGroup`, and `godot_layer.rs` already tries instancing first and falls
+back to `batch_surfaces` for the remainder. None of that changed here. What
+was missing, and what `INSTANCE_MIN_PLACEMENTS`'s own doc comment named as
+outstanding, was a benchmark comparing the two paths on memory and time
+instead of judgment.
+
+`crates/godot-host/tests/whiterun_bench.rs` adds
+`repeated_rock_benchmark_measures_batching_vs_instancing`, next to the
+existing Whiterun streaming benchmark and under the same constraint: Rust
+only, no Godot binary. It builds one small rock mesh (300 triangles) placed
+40 times at scattered positions, once as 40 already baked `LoadedSurface`
+values (the batched path) and once as 40 surfaces sharing one unbaked mesh
+identity with per-instance transforms (the instancing path), then runs
+`batch_surfaces` and `instancing_candidates` on each and times both over 300
+calls. Memory is a CPU-side buffer-byte count (positions, normals, tangents,
+UVs, indices, bone data), the same proxy this document already used for an
+earlier ad hoc RSS probe, chosen because it is deterministic and needs no
+Godot process. Measured on this lane:
+
+- Batched: 530,560 bytes (518.1 KiB) for one merged `Batch`.
+- Instanced: 15,184 bytes (14.8 KiB) for one `InstanceGroup` plus 40 stored
+  transforms, about 35 times smaller.
+- `batch_surfaces` over the 40 placements: p50 544.7 microseconds, p99 649.2
+  microseconds.
+- `instancing_candidates` over the same 40 placements: p50 10.0 microseconds,
+  p99 15.8 microseconds, about 55 times faster at p50.
+
+Instancing wins on both axes at this repeat count, so `INSTANCE_MIN_PLACEMENTS
+= 4` and the instancing-first routing in `godot_layer.rs` stay as they are.
+This closes the row's done check on the Rust side. It does not measure
+Godot's own `MultiMesh` upload and draw cost, or a real exterior's frame p99
+with the RenderingServer running, both of which need a windowed Godot run
+against a live scene, same as the rest of this document's frame-time numbers.
+That measurement is still open and belongs with the other "Numbers" table
+entries once someone runs one.

@@ -6,7 +6,7 @@ use soe_game::world::World;
 /// Strip uniquely marked actor fields before a fixture applies its older layout.
 /// Callers supply every initialized actor and restore the requested old header.
 /// Strips the exclusive dialogue branch version 24 added, the stagger end time
-/// version 29 added and the witnessed crime set version 30 added, so fixtures
+/// version 29 added and the witnessed crime set version 31 added, so fixtures
 /// built against any older header see none of those fields' bytes.
 pub fn without_exclusive_branches(world: &mut World, actors: &[GlobalFormId]) -> Vec<u8> {
     let hash = world.state_hash();

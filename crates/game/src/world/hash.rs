@@ -640,6 +640,19 @@ impl World {
             form(&mut h, *id);
             h.u16(*level);
         }
+        h.len(self.detection.pools.len());
+        for (target, pool) in &self.detection.pools {
+            form(&mut h, *target);
+            h.f32(pool.points);
+            h.f32(pool.alert_wait);
+            h.len(pool.observers.len());
+            for (observer, a) in &pool.observers {
+                form(&mut h, *observer);
+                h.u8(a.level as u8);
+                h.f32(a.detection);
+                h.f32(a.lost_timer);
+            }
+        }
         let forms = h.finish();
 
         let mut h = StateHasher::new();
