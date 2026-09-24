@@ -173,8 +173,12 @@ impl World {
                 return Err(Error::Unsupported("invulnerable target"));
             }
         }
-        let weapon_damage = if hit.weapon.file == 0 && hit.weapon.object == UNARMED_ATTACK {
-            self.unarmed_damage(hit.attacker, hit.weapon)?
+        // Unarmed contacts have no WEAP record to carry a Stagger fraction,
+        // so they never stagger. No corpus source states an unarmed default.
+        let (weapon_damage, stagger_fraction) = if hit.weapon.file == 0
+            && hit.weapon.object == UNARMED_ATTACK
+        {
+            (self.unarmed_damage(hit.attacker, hit.weapon)?, 0.0_f32)
         } else {
             let weapon = self.combat_weapon(hit.weapon)?;
             if !matches!(weapon.animation, 1..=6) || !matches!(weapon.skill, 6..=8 | -1) {
@@ -209,7 +213,12 @@ impl World {
                 };
                 self.combat_skill_scale(hit.attacker, skill, min, max)?
             };
-            finite(f64::from(weapon.damage) * scale * self.combat_setting("fDamageWeaponMult")?)?
+            (
+                finite(
+                    f64::from(weapon.damage) * scale * self.combat_setting("fDamageWeaponMult")?,
+                )?,
+                weapon.stagger,
+            )
         };
         let attack_multiplier = finite(f64::from(
             self.actor_ref(hit.attacker)
@@ -242,6 +251,28 @@ impl World {
         let health_damage = finite(
             f64::from(weapon_damage) * (1.0 - reduction) * (1.0 - block_reduction) * difficulty,
         )?;
+        // Stagger magnitude scales the damage that actually lands (post
+        // armor and block, matching the row's "hit magnitude") by the
+        // weapon's own Stagger fraction, so a fully absorbed hit and a
+        // zero-Stagger weapon both leave the target unstaggered. No local
+        // or UESP source states a vanilla stagger threshold or duration,
+        // see docs/combat.md CMB-14 for the estimated defaults this uses.
+        let stagger_magnitude = f64::from(health_damage) * f64::from(stagger_fraction);
+        // A zero Stagger fraction (unarmed, or a weapon whose DNAM carries
+        // 0.0) makes stagger_magnitude 0.0 regardless of health_damage, so
+        // this hit can never cross any finite positive threshold. Skip the
+        // fStaggerThreshold lookup entirely in that case: a malformed value
+        // for it anywhere in the load order must not block a hit that could
+        // never have qualified.
+        let staggered = stagger_fraction != 0.0
+            && stagger_magnitude > self.combat_setting("fStaggerThreshold")?;
+        // fStaggerDuration only feeds the deadline stored below once a hit
+        // is already known to cross the threshold, so fetch it only then. A
+        // malformed duration must not block a hit that never needed one.
+        let stagger_deadline = staggered
+            .then(|| self.combat_setting("fStaggerDuration"))
+            .transpose()?
+            .map(|duration| self.clock.real_seconds + duration);
         // Prepare damage before allocating events, so overflow cannot leave a partial hit.
         let mut values = self
             .actor_ref(hit.target)
@@ -302,6 +333,9 @@ impl World {
                 target.in_combat = false;
                 target.combat_target = None;
             }
+            if staggered {
+                target.stagger_end_time = stagger_deadline;
+            }
         }
         let killed = !bleedout_target && lethal && self.kill_actor(hit.target, Some(hit.attacker));
         Ok(HitResult {
@@ -312,6 +346,20 @@ impl World {
             block_reduction: block_reduction as f32,
             health_damage,
             killed,
+            staggered,
+        })
+    }
+
+    /// Whether an actor is inside its stagger window right now. Lazily
+    /// derived from `ActorState::stagger_end_time` against the real-time
+    /// clock, the same expiry pattern `ai::wait_until` uses, so nothing
+    /// needs to actively clear the field once the deadline passes.
+    #[must_use]
+    pub fn is_staggered(&self, id: GlobalFormId) -> bool {
+        self.actor_ref(id).is_some_and(|state| {
+            state
+                .stagger_end_time
+                .is_some_and(|until| self.clock.real_seconds < until)
         })
     }
 

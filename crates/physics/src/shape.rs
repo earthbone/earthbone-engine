@@ -182,6 +182,23 @@ pub struct Collected {
     pub skipped: Vec<(BlockRef, String)>,
 }
 
+impl Collected {
+    /// Whether the skeleton carries at least one authored `CHAR_CONTROLLER`
+    /// phantom, the same test `crates/physics/tests/controller_geometry.rs`
+    /// (CMB-29) uses to count a skeleton as having controller geometry.
+    ///
+    /// This does not separate a full body hit capsule from a small pushing
+    /// bumper. No corpus source under `engine-refs/` names a numeric
+    /// material ID for the bumper (`docs/physics.md` records the search:
+    /// `MaterialIDs.h`, `nifxml/nif.xml` and `nifly` were checked), so a
+    /// skeleton that carries only a bumper still counts as authored here.
+    /// [`controller_shape`] resolves the same question when picking which
+    /// authored phantom to use.
+    pub fn has_authored_controller(&self) -> bool {
+        !self.phantoms.is_empty()
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Phantom {
     pub node: BlockRef,
@@ -193,6 +210,97 @@ pub struct Phantom {
     pub transform: Iso,
     /// Local geometry, game units. Capsule endpoints are centres of the caps.
     pub shape: Shape,
+}
+
+/// Template capsule height, Havok metres, before an actor's scale.
+///
+/// Source: `docs/physics.md`, "HKX character metadata survey". Every
+/// installed `hkbCharacterData` object under `characters/*.hkx` (353
+/// checked) carries the same `characterControllerInfo.capsuleHeight`, the
+/// same value `crates/godot-host/examples/character_metadata_survey.rs`
+/// reads at that struct's offset 16. Bethesda ships one template capsule
+/// and relies on the actor's runtime scale to size it, the pattern
+/// `DynamicCollisionAdjustment` follows too:
+/// `AdjustmentHandler::AdjustScale` clones an existing wrapper shape scaled
+/// by `actor->GetScale()` rather than deriving new dimensions
+/// (github.com/ersh1/DynamicCollisionAdjustment, `src/AdjustmentHandler.cpp`).
+const TEMPLATE_CAPSULE_HEIGHT: f32 = 1.7;
+
+/// Template capsule radius, Havok metres, before an actor's scale. Same
+/// source as [`TEMPLATE_CAPSULE_HEIGHT`], `characterControllerInfo.capsuleRadius`.
+const TEMPLATE_CAPSULE_RADIUS: f32 = 0.4;
+
+/// Largest `scale` for which [`generated_controller_shape`]'s capsule
+/// coordinates stay finite in `f32`, all the way through the final
+/// `.scaled(UNITS_PER_METER)`. `top` (the dominant coordinate, since
+/// `TEMPLATE_CAPSULE_HEIGHT` exceeds `2 * TEMPLATE_CAPSULE_RADIUS`) is
+/// `(TEMPLATE_CAPSULE_HEIGHT - TEMPLATE_CAPSULE_RADIUS) * scale`, then
+/// multiplied by `UNITS_PER_METER`. Dividing `f32::MAX` by that whole
+/// per-scale factor, then again by a safety margin of 8 to cover the
+/// intermediate `height` and `radius` products computed before the final
+/// scaling, bounds every product in the function well under `f32::MAX`.
+const MAX_GENERATED_SCALE: f32 = f32::MAX / (TEMPLATE_CAPSULE_HEIGHT * UNITS_PER_METER * 8.0);
+
+/// A runtime-generated character controller capsule for an actor whose
+/// skeleton carries no usable authored `CHAR_CONTROLLER` phantom. `scale`
+/// is the actor's overall linear scale, `race.height[sex] * npc.height` in
+/// CommonLibSSE-NG's `TESNPC::GetHeight()` (`src/RE/T/TESNPC.cpp`), which
+/// `crates/game` resolves from the winning RACE and NPC_ records.
+///
+/// The capsule stands on the local Z axis with the lower cap's centre at
+/// `scale * TEMPLATE_CAPSULE_RADIUS` above the local origin, matching the
+/// vanilla convention that an actor's root node sits at its feet.
+/// Endpoints are the centres of the hemispherical caps, in game units, the
+/// same convention [`Phantom::shape`] documents for authored capsules. A
+/// non-finite or non-positive `scale` falls back to 1.0 rather than
+/// producing degenerate geometry. A finite, positive `scale` too large for
+/// the result to stay finite through `UNITS_PER_METER` is clamped to
+/// [`MAX_GENERATED_SCALE`] for the same reason: this function returns
+/// finite geometry for any finite, positive input, never `inf` or `NaN`
+/// coordinates, since a corrupted or crafted RACE or NPC_ height field only
+/// ever passes a finiteness check (`crates/game/src/race.rs`'s
+/// `Attributes::from_record`, `crates/game/src/npc.rs`'s `f32_at`), never a
+/// magnitude one.
+pub fn generated_controller_shape(scale: f32) -> Shape {
+    let scale = if scale.is_finite() && scale > 0.0 {
+        scale.min(MAX_GENERATED_SCALE)
+    } else {
+        1.0
+    };
+    let height = TEMPLATE_CAPSULE_HEIGHT * scale;
+    let radius = TEMPLATE_CAPSULE_RADIUS * scale;
+    let top = height.max(radius * 2.0) - radius;
+    Shape::Capsule {
+        a: Vec3::new(0.0, 0.0, radius),
+        b: Vec3::new(0.0, 0.0, top),
+        radius,
+    }
+    .scaled(UNITS_PER_METER)
+}
+
+/// Local placement and geometry for an actor's controller capsule: the
+/// largest authored `CHAR_CONTROLLER` phantom's transform and shape when
+/// `collected` has one, or identity and [`generated_controller_shape`]
+/// otherwise.
+///
+/// "Largest" is an extent heuristic (the phantom whose local bounding box
+/// has the greatest diagonal), not a material lookup: see
+/// [`Collected::has_authored_controller`] for why no material ID
+/// distinguishes a bumper from a main hit shape here. A skeleton with a
+/// single phantom, authored or generated, is unaffected by the heuristic.
+pub fn controller_shape(collected: &Collected, scale: f32) -> (Iso, Shape) {
+    let extent = |shape: &Shape| {
+        let aabb = shape.aabb(&Iso::IDENTITY);
+        (aabb.max - aabb.min).length()
+    };
+    let authored = collected
+        .phantoms
+        .iter()
+        .max_by(|a, b| extent(&a.shape).total_cmp(&extent(&b.shape)));
+    match authored {
+        Some(phantom) => (phantom.transform, phantom.shape.clone()),
+        None => (Iso::IDENTITY, generated_controller_shape(scale)),
+    }
 }
 
 fn finite_point(v: Vec3) -> bool {

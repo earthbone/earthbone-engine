@@ -792,9 +792,10 @@ Version 20 appends restored reference ownership and lock metadata after those fi
 Versions 21 to 23 append the package procedure cursor, the Wait tag and the
 walking Patrol cursor. Version 24 adds an actor's exclusive dialogue branch,
 version 25 the image-space stack, versions 26 and 27 loose item stacks and
-locked encounter-zone levels, and version 28 the do-all dialogue cycles.
-Version 29 appends shared stealth-point pools with each observer's detection
-level and timers, written only when a pool exists.
+locked encounter-zone levels, version 28 the do-all dialogue cycles, and
+version 29 an actor's stagger end time. Version 30 appends shared stealth-point
+pools with each observer's detection level and timers, written only when a pool
+exists.
 version 5 adds active magic, version 6 adds dialogue, version 7 adds actor-value
 components, version 8 adds dialogue to those components, version 9 adds
 active magic. Version 10 adds per-reference leveled template choices.
@@ -2878,3 +2879,35 @@ both the actor's equipped entry and the inventory's worn markers. The menu
 requires a carried weapon or armor before calling these operations, so a stale
 selection cannot create an item. The host's inventory_menu tests cover shared
 armor slots, worn-marker cleanup and rejected missing or unowned selections.
+
+## Actor controller scale, CMB-33
+
+`race::Attributes` reads two more pairs from `RACE`'s `DATA` prefix,
+`height_male`/`height_female` at offsets 16 and 20 and `weight_male`/
+`weight_female` at offsets 24 and 28, from `wbDefinitionsTES5.pas`. `npc::Npc`
+reads the matching per-actor multipliers from `NPC_`'s `NAM6` (height) and
+`NAM7` (weight) subrecords, both a single finite `f32`, defaulting to 1.0
+when absent. A malformed or non-finite value in either rejects the record,
+matching the existing RACE attribute fields.
+
+`World::actor_controller_scale` combines them as `race.height[sex] *
+npc.height`, the same formula `TESNPC::GetHeight()` uses in
+CommonLibSSE-NG's `src/RE/T/TESNPC.cpp`. Both inputs come from the NPC that
+supplies the Traits template group, the same source `actor_base_race` reads:
+the Creation Kit's "Use Traits" flag groups race, sex, height and weight
+together, so resolving all four from one template source keeps them
+consistent with each other. An actor base with no race, or a race with no
+`DATA`, uses scale 1.0. A non-finite or non-positive result rejects rather
+than handing degenerate geometry to a caller.
+
+This is the scale `soe_physics::generated_controller_shape` sizes a fallback
+capsule with when a skeleton carries no authored controller phantom. See
+`docs/physics.md`, "Runtime-generated actor controller geometry, CMB-33", for
+the capsule generator itself and its open gaps. `npc::with_height_weight` is
+a new test-record builder mirroring the existing `with_faction`/`with_spell`/
+`with_item` helpers, kept separate from `build_record` rather than added as
+a sixth positional argument, since roughly twenty existing test files across
+`crates/game/tests/` depend on `build_record`'s current signature. No test in
+this crate calls the new helper yet, matching the task's no-new-tests
+instruction. `cargo clippy -p soe-game --all-targets` confirms every
+dependent test file still compiles against the unchanged signature.

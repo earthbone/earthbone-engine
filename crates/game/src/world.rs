@@ -263,6 +263,11 @@ pub struct ActorState {
     pub ash_pile: Option<GlobalFormId>,
     pub shouts: BTreeSet<GlobalFormId>,
     pub equipped_shout: Option<GlobalFormId>,
+    /// Real-time deadline for the stagger animation and input lock a melee
+    /// hit above `fStaggerThreshold` sets, `None` when not staggered.
+    /// Compared against `World::clock.real_seconds`, the lazy expiry
+    /// `ai::AiState::wait_until` also uses, see `World::is_staggered`.
+    pub stagger_end_time: Option<f64>,
 }
 
 /// One `LVLO` entry of a leveled list.

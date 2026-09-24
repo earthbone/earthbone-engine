@@ -40,6 +40,32 @@ class ReadinessTests(unittest.TestCase):
         ]
         self.assertEqual([r["id"] for r in batch.ready_rows(rows)], ["A-02"])
 
+    def test_area_batch_takes_every_ready_row_of_that_area(self):
+        rows = [
+            row("AI-01", "AI", "game"),
+            row("AI-02", "AI", "game"),
+            row("AI-03", "AI", "game", depends_on="AI-01"),
+            row("CMB-01", "CMB", "game"),
+        ]
+        chosen = [r["id"] for r in batch.plan_batch(rows, 60, area="AI")]
+        self.assertEqual(sorted(chosen), ["AI-01", "AI-02"])
+
+    def test_area_run_adds_rows_waiting_only_on_earlier_rows(self):
+        rows = [
+            row("AI-01", "AI", "game"),
+            row("AI-02", "AI", "game", status="blocked", depends_on="AI-01"),
+            row("AI-03", "AI", "game", status="blocked", depends_on="AI-02"),
+            row("AI-04", "AI", "game", status="blocked", depends_on="CMB-09"),
+            row("CMB-09", "CMB", "game", status="blocked"),
+        ]
+        chosen = [r["id"] for r in batch.plan_area(rows, "AI")]
+        self.assertEqual(chosen, ["AI-01", "AI-02", "AI-03"])
+
+    def test_workspace_crates_lists_every_package(self):
+        names = batch.workspace_crates()
+        self.assertIn("soe-game", names)
+        self.assertEqual(len(names), len(set(names)))
+
     def test_checks_only_the_user_can_run_are_flagged(self):
         self.assertTrue(batch.needs_user(row("PRG-21", "PRG", "game",
                                              done_check="Authored isolated original-runtime traces")))

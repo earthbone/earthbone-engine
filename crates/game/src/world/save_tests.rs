@@ -280,9 +280,10 @@ fn rich_world(namespace: u16) -> World {
 }
 
 /// Save `world` the way a version 23 engine would, without the exclusive
-/// dialogue branch field that version 24 added inside every actor record.
-/// Each branch is set to a unique sentinel so its serialized bytes can be
-/// located exactly, then cut back out.
+/// dialogue branch field that version 24 added and the stagger end time
+/// field that version 29 added, both inside every actor record. Each is
+/// set to a unique sentinel so its serialized bytes can be located
+/// exactly, then cut back out.
 fn without_exclusive_branches(world: &mut World) -> Vec<u8> {
     let ids: Vec<_> = world.actors.keys().copied().collect();
     let mut markers = Vec::new();
@@ -296,16 +297,24 @@ fn without_exclusive_branches(world: &mut World) -> Vec<u8> {
         marker.extend_from_slice(&sentinel.file.to_le_bytes());
         marker.extend_from_slice(&sentinel.object.to_le_bytes());
         markers.push(marker);
+
+        let stagger_sentinel = 1_000_000.0 + f64::from(index as u32);
+        world.actors.get_mut(id).unwrap().stagger_end_time = Some(stagger_sentinel);
+        let mut stagger_marker = vec![1];
+        stagger_marker.extend_from_slice(&stagger_sentinel.to_le_bytes());
+        markers.push(stagger_marker);
     }
     let mut bytes = world.save_state();
     for id in &ids {
-        world.actors.get_mut(id).unwrap().exclusive_branch = None;
+        let actor = world.actors.get_mut(id).unwrap();
+        actor.exclusive_branch = None;
+        actor.stagger_end_time = None;
     }
     for marker in markers {
         let at = bytes
             .windows(marker.len())
             .position(|window| window == marker)
-            .expect("sentinel exclusive branch is serialized");
+            .expect("sentinel field is serialized");
         bytes.drain(at..at + marker.len());
     }
     bytes
@@ -410,7 +419,7 @@ fn sav_07_unknown_version_and_mixed_legacy_namespaces_are_rejected() {
     let mut world = rich_world(DYNAMIC_FILE);
     let before = world.save_state();
     for (version, message) in [
-        (30_u16, "world state version 30"),
+        (31_u16, "world state version 31"),
         (18, "created namespace in a legacy world state"),
     ] {
         let mut bytes = before.clone();

@@ -5,9 +5,9 @@
 //!
 //! Sources: the done check ("timers that survive save/load") and
 //! `crates/game/src/world/detection.rs`, whose doc comments state the SOEW
-//! version 29 block is written when a pool exists and "An absent block is
+//! version 30 block is written when a pool exists and "An absent block is
 //! an empty state". `docs/combat-ai.md`: "The pools and each observer's
-//! state and timers are written in SOEW version 29 and read back with the
+//! state and timers are written in SOEW version 30 and read back with the
 //! same checks."
 //!
 //! Both tests drive the shared pool through `World::evaluate_detection`
@@ -174,7 +174,7 @@ fn load_state_restores_saved_stealth_pools_and_observer_timers() {
     loaded.load_state(&saved).unwrap();
 
     let pool = loaded.stealth_pool(target).expect(
-        "crates/game/src/world/save.rs: load_state must restore the version 29 detection \
+        "crates/game/src/world/save.rs: load_state must restore the version 30 detection \
          block into self.detection (docs/combat-ai.md: 'read back with the same checks'); \
          a freshly built world has no pool until the save is applied",
     );

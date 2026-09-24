@@ -75,6 +75,10 @@ pub struct HitResult {
     pub block_reduction: f32,
     pub health_damage: f32,
     pub killed: bool,
+    /// Post armor and block damage crossed `fStaggerThreshold` scaled by the
+    /// weapon's DNAM Stagger fraction, setting the target's
+    /// `ActorState::stagger_end_time`. See docs/combat.md CMB-14.
+    pub staggered: bool,
 }
 
 #[derive(Debug, thiserror::Error)]

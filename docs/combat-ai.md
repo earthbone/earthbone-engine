@@ -100,7 +100,7 @@ The batch is validated before anything changes. A non-actor, an observer
 equal to its target, a dead actor, a repeated pair, or a non-finite or
 negative distance, light level or step rejects the whole batch and leaves every
 pool as it was. The pools and each observer's state and timers are written in
-SOEW version 29 and read back with the same checks. An empty set is not
+SOEW version 30 and read back with the same checks. An empty set is not
 written, so older layouts stay byte for byte. Loading a save replaces the
 world's detection state with the saved one, and a save without the block
 loads as an empty state.

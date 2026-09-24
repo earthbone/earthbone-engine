@@ -159,6 +159,12 @@ pub struct Npc {
     /// `DOFT` and `SOFT`, the default and sleep outfits.
     pub outfit: Option<u32>,
     pub sleep_outfit: Option<u32>,
+    /// `NAM6`, the height multiplier applied on top of the race's own,
+    /// `TESNPC::GetHeight()`'s `height`. Defaults to 1.0 when absent, the
+    /// same default CommonLibSSE-NG's runtime field carries.
+    pub height: f32,
+    /// `NAM7`, the weight multiplier. Defaults to 1.0 when absent.
+    pub weight: f32,
 }
 
 impl Npc {
@@ -185,6 +191,8 @@ impl Npc {
             crime_faction: None,
             outfit: None,
             sleep_outfit: None,
+            height: 1.0,
+            weight: 1.0,
         };
         for sub in &rec.subrecords {
             let d = sub.data.as_slice();
@@ -196,6 +204,8 @@ impl Npc {
                 b"RNAM" => n.race = Some(u32_at(d, 0, "RNAM")?),
                 b"TPLT" => n.template = Some(u32_at(d, 0, "TPLT")?),
                 b"CNAM" => n.class = Some(u32_at(d, 0, "CNAM")?),
+                b"NAM6" => n.height = f32_at(d, 0, "NAM6")?,
+                b"NAM7" => n.weight = f32_at(d, 0, "NAM7")?,
                 b"SPLO" => n.spells.push(u32_at(d, 0, "SPLO")?),
                 b"PKID" => n.packages.push(u32_at(d, 0, "PKID")?),
                 b"PRKR" => n.perks.push(u32_at(d, 0, "PRKR")?),
@@ -365,6 +375,14 @@ fn u32_at(d: &[u8], i: usize, tag: &str) -> Result<u32> {
     Ok(u32::from_le_bytes([d[i], d[i + 1], d[i + 2], d[i + 3]]))
 }
 
+fn f32_at(d: &[u8], i: usize, tag: &str) -> Result<f32> {
+    let value = f32::from_bits(u32_at(d, i, tag)?);
+    if !value.is_finite() {
+        return Err(Error::Invalid(format!("NPC_: non-finite {tag}")));
+    }
+    Ok(value)
+}
+
 fn short(tag: &str) -> Error {
     Error::Invalid(format!("NPC_: {tag} is too short"))
 }
@@ -428,6 +446,14 @@ pub fn with_item(rec: Record, item: u32, count: i32) -> Record {
     let mut d = item.to_le_bytes().to_vec();
     d.extend_from_slice(&count.to_le_bytes());
     rec.sub(Tag::new(b"CNTO"), d)
+}
+
+/// Attach `NAM6`/`NAM7`, the per-NPC height and weight multipliers. Absent
+/// from [`build_record`] itself since most existing fixtures do not care
+/// about scale and rely on the 1.0 default.
+pub fn with_height_weight(rec: Record, height: f32, weight: f32) -> Record {
+    rec.sub(Tag::new(b"NAM6"), height.to_le_bytes())
+        .sub(Tag::new(b"NAM7"), weight.to_le_bytes())
 }
 
 #[cfg(test)]

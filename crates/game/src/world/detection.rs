@@ -173,8 +173,8 @@ impl World {
         })
     }
 
-    /// Writes the version 29 block, which is omitted while no pool exists
-    /// so a world without detection keeps the version 28 body bytes.
+    /// Writes the version 30 block, which is omitted while no pool exists
+    /// so a world without detection keeps the version 29 body bytes.
     pub(super) fn write_detection(&self, out: &mut Writer) {
         if self.detection.pools.is_empty() {
             return;
@@ -195,7 +195,7 @@ impl World {
     }
 }
 
-/// Read the version 29 detection block. An absent block is an empty state,
+/// Read the version 30 detection block. An absent block is an empty state,
 /// and a present one must hold at least one pool so each state has a single
 /// encoding. Actor identities are checked by the caller once references are
 /// known.
