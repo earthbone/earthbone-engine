@@ -102,7 +102,7 @@ fn installed_winning_model_signatures_keep_editor_markers_out_of_draws() {
             .filter(|mesh| !marker_blocks.contains(&mesh.block))
             .collect();
         let actual = source
-            .load_static_surfaces(model, &neutral_reference())
+            .load_static_surfaces(model, &neutral_reference(), false)
             .expect("production model load");
         let LoadedStatic::Surfaces { built, .. } = actual;
         assert_eq!(

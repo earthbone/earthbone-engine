@@ -415,6 +415,7 @@ fn actor_state(h: &mut StateHasher, a: &ActorState) {
     opt_form(h, a.equipped_shout);
     opt_form(h, a.left_weapon);
     opt_form(h, a.right_weapon);
+    form_set(h, &a.witnessed_crimes);
 }
 
 fn quest_state(h: &mut StateHasher, q: &QuestState) {
@@ -638,6 +639,19 @@ impl World {
         for (id, level) in &self.encounter_levels {
             form(&mut h, *id);
             h.u16(*level);
+        }
+        h.len(self.detection.pools.len());
+        for (target, pool) in &self.detection.pools {
+            form(&mut h, *target);
+            h.f32(pool.points);
+            h.f32(pool.alert_wait);
+            h.len(pool.observers.len());
+            for (observer, a) in &pool.observers {
+                form(&mut h, *observer);
+                h.u8(a.level as u8);
+                h.f32(a.detection);
+                h.f32(a.lost_timer);
+            }
         }
         let forms = h.finish();
 
