@@ -115,6 +115,7 @@ impl DataSource {
                 reference: world,
                 arrays,
                 textures,
+                placement: soe_physics::Iso::IDENTITY,
                 instance_transform: None,
                 mesh_identity: None,
             });

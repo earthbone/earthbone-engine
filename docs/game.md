@@ -91,6 +91,19 @@ wikitext pages as of 2026-09-19. When an individual page is absent, class pages
 and `engine-refs/skse64/scripts/vanilla` can establish the contract.
 [The reference audit](reference-audit.md) records missed contracts and gaps.
 
+**World reads out, host never writes back.** `World::ref_placement` (in
+`world/refs.rs`) is the read-only view a host uses to keep its own rendering
+and collision resources in step with a reference's runtime state: current
+position, rotation, scale and enable, in the small, `Copy` `RefPlacement`
+struct, not the mutable `RefState` a native or VM path uses to change that
+state. It returns `None` for a reference never instantiated, its
+record-authored placement is still current and there is nothing to sync, and
+for a deleted one. The host side of this contract, and the split it takes
+between collision and rendering change detection, is documented in
+[godot-host.md](godot-host.md#runtime-enable-and-placement-reflection-hst-04).
+`World` stays the only writer of reference state either way, so no host code
+takes the mutable `reference` accessor.
+
 **Witnessed crime.** `crime.rs` decodes `FACT.CRVA`, the bounty table a
 faction charges for murder, assault, trespass, pickpocketing, theft
 (scaled by a steal multiplier against the stolen item's value), escape
