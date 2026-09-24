@@ -73,6 +73,12 @@ pub struct HitResult {
     /// Fraction of damage the shield block removed, 0 when `blocked` is false.
     /// Stacks multiplicatively with `armor_reduction`.
     pub block_reduction: f32,
+    /// Fraction of damage the target's matching resistance actor value
+    /// removed, from the weapon's DNAM Resist field. 0 when the field is -1
+    /// or the weapon's "Ignores Normal Weapon Resistance" flag suppressed
+    /// it. Stacks multiplicatively with `armor_reduction` and
+    /// `block_reduction`. See docs/combat.md CMB-26.
+    pub resistance_reduction: f32,
     pub health_damage: f32,
     pub killed: bool,
     /// Post armor and block damage crossed `fStaggerThreshold` scaled by the

@@ -65,12 +65,13 @@ do not use those multipliers. Novice uses 2.0 damage by the player and 0.5 to
 the player. Apprentice uses 1.5 and 0.75. Adept uses 1.0 and 1.0. Expert uses
 0.75 and 1.5. Master uses 0.5 and 2.0. Legendary uses 0.25 and 3.0. Plugin
 records and runtime overrides for the selected GMST pair take precedence over
-these defaults. It rejects all perked
-actors, enchantments, item poison, special
-resistance flags and unsupported weapon skills/types. Tempered item quality
-scales damage instead of rejecting, CMB-10. These are open execution
-requirements, not silently omitted modifiers. Protected and essential targets
-are rejected pending bleedout handling. Ghosts and dead actors are rejected.
+these defaults. It rejects all perked actors, enchantments, item poison and
+unsupported weapon skills/types. Tempered item quality scales damage instead
+of rejecting, CMB-10. A weapon's resistance flags scale damage instead of
+rejecting too, CMB-26: only a reserved DNAM Resist index still rejects. These
+are open execution requirements, not silently omitted modifiers. Protected
+and essential targets are rejected pending bleedout handling. Ghosts and dead
+actors are rejected.
 An essential attacker can still attack an ordinary target.
 
 Weapon `CNAM` and armor `TNAM` template links resolve through their source
@@ -851,3 +852,51 @@ Left out of this row:
 - No live or installed-data comparison against `SKYRIM_DATA` has been run,
   since no vanilla save in the local corpus was checked for its equipped
   weapons' quality extras specifically.
+
+## Weapon resistance flags, CMB-26
+
+`melee_hit` used to reject any weapon whose DNAM Resist field was not -1
+outright, folded into the same check as the non-hostile flags. It now honors
+the field instead: a resist index of 39 DamageResist through 44 MagicResist
+(`combat/records.rs`'s `Weapon::resist`) names a further target actor value
+that reduces this weapon's damage, read the same way `combat_armor` already
+reads DamageResist and applied as its own multiplicative term alongside armor
+reduction and shield block, before the difficulty multiplier. DNAM flags bit
+0x01, "Ignores Normal Weapon Resistance", suppresses the term instead of
+rejecting the weapon, matching its documented meaning. -1, the value every
+original vanilla record carries, keeps this row a no-op for ordinary weapons.
+An index outside -1 and 39 through 44 is reserved and still rejects the
+contact, now with its own `"unsupported weapon resistance value"` error
+instead of the old combined message. The unarmed attack form (CMB-01) carries
+its own DNAM the same way, so `unarmed_damage` reads its resist index and
+ignoring flag and applies them identically, an unarmed contact is not a
+special case.
+
+Sources read: `uesp-modfileformat/WEAP.wikitext` line 58 for the ignoring
+flag and line 123 for the Resist field's documented range, and
+`TES5Edit/Core/wbDefinitionsTES5.pas` lines 3344 to 3349 for the six actor
+value names at indices 39 through 44 (already present in
+`actor_values.rs`'s `ACTOR_VALUE_NAMES`, confirmed matching rather than
+re-derived) and line 10532 for the field's own `wbActorValueEnum` typing.
+Neither source states an exact reduction formula. This row treats the actor
+value the same way `combat_armor` treats DamageResist, a percentage divided
+by 100 and clamped to 0.0 to 1.0, rather than invent an unverified formula
+shaped differently from the one already established in this file for the
+same actor-value family.
+
+No persisted state changed: the resist index and ignoring flag are read from
+the WEAP record on every hit, not cached on `ActorState` or written to saved
+data, so SOEW's version did not move for this row.
+
+Left out of this row:
+
+- The exact vanilla reduction formula and its ordering against armor and
+  shield block are unverified. This mirrors `combat_armor`'s own DamageResist
+  treatment rather than adding a second, differently sourced guess.
+- No live or installed-data comparison against `SKYRIM_DATA` has been run,
+  since no local source names a weapon record carrying a non-default Resist
+  value to check against, matching the task pack's note that all original
+  files use -1.
+- Perked resistance modifiers (Mod Target Damage Resistance, actor value 37)
+  are out of scope pending CMB-09's perk dispatch path, the same gap
+  CMB-15's armor-side perk modifiers document above.
