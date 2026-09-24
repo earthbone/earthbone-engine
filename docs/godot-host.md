@@ -1940,3 +1940,44 @@ unrelated to the `.nif` collision phantoms this method reads. When CMB-28
 adds the actor body pipeline, this is the function it resolves shape and
 transform from, with `game::World::actor_controller_scale` (`docs/game.md`)
 supplying the scale argument.
+
+## Repeated rock instancing, RND-04 (2026-09-24)
+
+The batching versus instancing decision above was reasoned, not measured, at
+the time it was written. `src/batch.rs` already carried the full instancing
+path from an earlier round: `INSTANCE_MIN_PLACEMENTS`, `instancing_candidates`,
+`InstanceGroup`, and `godot_layer.rs` already tries instancing first and falls
+back to `batch_surfaces` for the remainder. None of that changed here. What
+was missing, and what `INSTANCE_MIN_PLACEMENTS`'s own doc comment named as
+outstanding, was a benchmark comparing the two paths on memory and time
+instead of judgment.
+
+`crates/godot-host/tests/whiterun_bench.rs` adds
+`repeated_rock_benchmark_measures_batching_vs_instancing`, next to the
+existing Whiterun streaming benchmark and under the same constraint: Rust
+only, no Godot binary. It builds one small rock mesh (300 triangles) placed
+40 times at scattered positions, once as 40 already baked `LoadedSurface`
+values (the batched path) and once as 40 surfaces sharing one unbaked mesh
+identity with per-instance transforms (the instancing path), then runs
+`batch_surfaces` and `instancing_candidates` on each and times both over 300
+calls. Memory is a CPU-side buffer-byte count (positions, normals, tangents,
+UVs, indices, bone data), the same proxy this document already used for an
+earlier ad hoc RSS probe, chosen because it is deterministic and needs no
+Godot process. Measured on this lane:
+
+- Batched: 530,560 bytes (518.1 KiB) for one merged `Batch`.
+- Instanced: 15,184 bytes (14.8 KiB) for one `InstanceGroup` plus 40 stored
+  transforms, about 35 times smaller.
+- `batch_surfaces` over the 40 placements: p50 544.7 microseconds, p99 649.2
+  microseconds.
+- `instancing_candidates` over the same 40 placements: p50 10.0 microseconds,
+  p99 15.8 microseconds, about 55 times faster at p50.
+
+Instancing wins on both axes at this repeat count, so `INSTANCE_MIN_PLACEMENTS
+= 4` and the instancing-first routing in `godot_layer.rs` stay as they are.
+This closes the row's done check on the Rust side. It does not measure
+Godot's own `MultiMesh` upload and draw cost, or a real exterior's frame p99
+with the RenderingServer running, both of which need a windowed Godot run
+against a live scene, same as the rest of this document's frame-time numbers.
+That measurement is still open and belongs with the other "Numbers" table
+entries once someone runs one.

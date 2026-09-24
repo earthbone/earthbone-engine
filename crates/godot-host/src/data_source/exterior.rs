@@ -296,6 +296,8 @@ impl DataSource {
                             reference: *land_id,
                             arrays,
                             textures: SurfaceTextures::default(),
+                            instance_transform: None,
+                            mesh_identity: None,
                         });
                     }
                     Ok(None) => {}
