@@ -5,7 +5,8 @@
 //! SkyTweak/Vigor measurements supply combat values, linked in docs/combat.md.
 //! Special Loot defaults come from the installed runtime, detailed in game.md.
 //! Block defaults come from UESP's Block page and its talk archive, also
-//! linked in docs/combat.md.
+//! linked in docs/combat.md. Detection and stealth-point defaults come from a
+//! runtime listing of every TES5 GMST, cited in docs/combat-ai.md.
 
 pub(crate) fn engine_default(name: &str) -> Option<f32> {
     Some(match name.to_ascii_lowercase().as_str() {
@@ -16,11 +17,15 @@ pub(crate) fn engine_default(name: &str) -> Option<f32> {
         | "fdiffmulthpbypcn"
         | "fdiffmulthptopcn"
         | "fspeciallootmaxpclevelmult" => 1.0,
-        "fdiffmulthpbypcve" | "fdiffmulthptopcvh" | "fblockskillmult" => 2.0,
+        "fdiffmulthpbypcve"
+        | "fdiffmulthptopcvh"
+        | "fblockskillmult"
+        | "fsneakdistanceattenuationexponent" => 2.0,
         "fdiffmulthptopcve"
         | "fdiffmulthpbypcvh"
         | "fspeciallootminpclevelmult"
-        | "fspeciallootminzonelevelmult" => 0.5,
+        | "fspeciallootminzonelevelmult"
+        | "fsneakequippedweightmult" => 0.5,
         "fdiffmulthpbypce"
         | "fdiffmulthptopch"
         | "fdamagepcskillmax"
@@ -38,11 +43,20 @@ pub(crate) fn engine_default(name: &str) -> Option<f32> {
         "fspeciallootminpclevelbase"
         | "fspeciallootminzonelevelbase"
         | "fspeciallootmaxpclevelbase"
-        | "fspeciallootmaxzonelevelbase" => 0.0,
+        | "fspeciallootmaxzonelevelbase"
+        | "fsneakstealthboymult" => 0.0,
         "fspeciallootweighting" => 4.0,
         // fbleedoutdefault comes from installed runtime Setting data, with the
         // address evidence in combat.md.
-        "fshieldscalingfactor" | "fbleedoutdefault" => 0.2,
+        "fshieldscalingfactor" | "fbleedoutdefault" | "fsneaklightrunmult" => 0.2,
+        "fcombatstealthpointmax" => 100.0,
+        "fcombatstealthpointregenalertwaittime" => 30.0,
+        "fcombatstealthpointregenlostwaittime" => 10.0,
+        "fsneakequippedweightbase" => 12.0,
+        "fsneaklightmovemult" => 0.01,
+        "fsneakcombatmod" => -0.4,
+        // Integer setting, returned as a float like every engine default here.
+        "icombatstealthpointsneakdetectionthreshold" => 70.0,
         _ => return None,
     })
 }

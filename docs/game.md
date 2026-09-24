@@ -38,6 +38,10 @@ week 6 to 9 gate.
   applied one level. `World::actor` follows each component's template chain.
   AIDT supplies its six AI actor values, see [combat AI](combat-ai.md) for
   sources, validation and the unimplemented engagement boundary.
+- `detection`: the detection value from sneak GMSTs, and stealth-point pools
+  shared by every observer of one target. `World::evaluate_detection` checks a
+  whole batch of observations before it changes any pool. See
+  [combat AI](combat-ai.md) for the formula sources and what remains.
 - `quest`: the `QUST` view. Flags, stages with log entries, objectives, aliases
   with forced references.
 - `natives`: the base game's natives, closed over the shared world.
@@ -775,7 +779,7 @@ either.
 
 `World::save_state(&self) -> Vec<u8>` and `World::load_state(&mut self,
 bytes) -> Result<(), VmError>` write and read the run-time half of the form
-table, magic `SOEW`, version 28. Versions 4 to 6 use legacy actor values,
+table, magic `SOEW`, version 29. Versions 4 to 6 use legacy actor values,
 version 5 adds active magic, version 6 adds dialogue, version 7 adds actor-value
 components, version 8 adds dialogue to those components, and version 9 adds
 active magic. Version 10 adds per-reference leveled template choices.
@@ -789,6 +793,8 @@ Versions 21 to 23 append the package procedure cursor, the Wait tag and the
 walking Patrol cursor. Version 24 adds an actor's exclusive dialogue branch,
 version 25 the image-space stack, versions 26 and 27 loose item stacks and
 locked encounter-zone levels, and version 28 the do-all dialogue cycles.
+Version 29 appends shared stealth-point pools with each observer's detection
+level and timers, written only when a pool exists.
 version 5 adds active magic, version 6 adds dialogue, version 7 adds actor-value
 components, version 8 adds dialogue to those components, version 9 adds
 active magic. Version 10 adds per-reference leveled template choices.
