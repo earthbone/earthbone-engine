@@ -2656,38 +2656,76 @@ the existing mapping for indices 0 through 45. Unknown indices, unavailable
 actors and unavailable run-on targets return typed errors. Other unsupported
 condition functions keep the shared evaluator's explicit error behavior.
 
-DATA Playable and the record Non-Playable flag gate purchases. The supported
-DATA profile has zero Trait, Level and Hidden, with Num Ranks zero or one.
-xEdit normalizes zero Num Ranks to one. Higher purchased ranks are separate
-NNAM-linked forms, not increments of PRKE's effect rank byte. Non-default
-Trait, Level, Hidden or Num Ranks greater than one return `UnsupportedData`.
-Their Skyrim-specific purchase meaning is tracked separately by PRG-16,
-including mod-authored inputs. Script AddPerk remains a separate grant path.
-This API does not execute entry-point effects, abilities or perk fragments,
-provide a skill menu, or implement beast-form point currencies.
+DATA Playable and the record Non-Playable flag gate purchases. Trait, Level,
+Num Ranks and Hidden are accepted at any value (PRG-16). Higher purchased
+ranks are separate NNAM-linked forms, not increments of PRKE's effect rank
+byte, so Num Ranks (a Creation Kit display field) is read from nowhere in the
+purchase path, the chain walked by `rank_chain` is the count that matters.
+Script AddPerk remains a separate grant path. This API does not execute
+entry-point effects, abilities or perk fragments, provide a skill menu, or
+implement beast-form point currencies.
+
+DATA also accepts the two truncated lengths wrye-bash's
+`MelPerkData(MelTruncatedStruct)` declares as `old_versions={'4B', '3B'}`
+(`Mopy/bash/brec/common_subrecords.py`, reused unmodified for Skyrim's
+`MrePerk` in `Mopy/bash/game/skyrim/records.py`): a 4-byte DATA carries
+Trait, Level, Num Ranks and Playable with Hidden zero-padded, and a 3-byte
+DATA carries only Trait, Level and Num Ranks with Playable and Hidden both
+zero-padded, matching `MelTruncatedStruct`'s own default fill. Since Hidden
+carries no purchase meaning here and a zero-padded Playable reads as false,
+a 3-byte record purchases only if some other well-formed record grants
+Playable, otherwise it fails with `NotPlayable`, never with the malformed-
+record error. Only lengths outside 3 to 5 bytes, or a second DATA subrecord
+on the same record, are reported as malformed.
+
+PRG-16 verified Trait and Level have no purchase meaning here. Both bytes are
+zero on every one of the 475 winning PERK records across the installed base
+game and its three DLC, so nothing in the current load order exercises a
+non-zero value. No source in the corpus describes a runtime consumer for
+either byte: not `wbDefinitionsTES5.pas`, not UESP `PERK.wikitext`, not
+CommonLibSSE-NG `BGSPerk.h`, not wrye-bash's `MelPerkData`, not Mutagen's
+`Perk.xml`. The perceived level requirement on perks such as Armsman is a
+per-skill prerequisite expressed as a top-level CTDA against the relevant
+actor value and, where a literal character level gates a perk, against
+GetLevel (function 80, already implemented), confirmed against UESP's
+`Skyrim:Perk` page, never the DATA Level byte. Hidden only ever hid a perk
+from the CK or an SKSE UI list, this API has no UI layer for that flag to
+affect, so a hidden perk purchases exactly as a shown one does. 62 installed
+winning records set Hidden and remain purchasable under this rule.
 
 Sources read were local xEdit `wbDefinitionsTES5.pas` PERK, CTDA 277 and
 actor-value definitions, `wbDefinitionsCommon.pas` Num Ranks normalization,
-UESP `PERK.wikitext`, CommonLibSSE-NG `BGSPerk.h`, and CK AddPerk, HasPerk and
-GetBaseActorValue pages. SKSE `PapyrusActorValueInfo.cpp` independently tests
-HasPerk for every NNAM-linked rank. Together with authored HasPerk conditions,
-this supports retaining lower identities. That retention is an inference,
-without a direct original-runtime purchase comparison. NPC PRKR is a separate
-FormID plus rank byte. UESP labels that byte unused, and the existing NPC
-reader retains only its FormID. This purchase path does not reinterpret it.
-The full CK Perk page was absent from the local dump
-and its online fetch was unavailable. Non-default DATA rules therefore remain
-explicitly unsupported. The existing CTDA parser, condition evaluator, actor
-values and ownership/save paths were reused. No package or host node was added.
+UESP `PERK.wikitext` and (PRG-16) `Skyrim:Perk`, CommonLibSSE-NG `BGSPerk.h`,
+wrye-bash `common_subrecords.py` `MelPerkData`, Mutagen's `Perk.xml`, and CK
+AddPerk, HasPerk and GetBaseActorValue pages. SKSE `PapyrusActorValueInfo.cpp`
+independently tests HasPerk for every NNAM-linked rank. Together with
+authored HasPerk conditions, this supports retaining lower identities. That
+retention is an inference, without a direct original-runtime purchase
+comparison. NPC PRKR is a separate FormID plus rank byte. UESP labels that
+byte unused, and the existing NPC reader retains only its FormID. This
+purchase path does not reinterpret it. The full CK Perk page was absent from
+the local dump and its online fetch was unavailable for PRG-02, PRG-16 did
+not need it since the installed corpus and the sources above settle all four
+bytes. The existing CTDA parser, condition evaluator, actor values and
+ownership/save paths were reused. No package or host node was added.
 
 Synthetic tests cover single-point consumption, false prerequisites, stale
 previews, base skill versus buffs, OR groups, unsupported conditions and
 actor values, effect-condition separation, winning override namespaces,
 missing/cyclic links, root-only requests, externally granted ranks, zero
-Num Ranks, non-playable records and save/load. The installed-data survey
-reads 475 winning perks across five masters. It validates all 397 root chains
-and exercises all five Armsman ranks, including a failed low-skill purchase.
-These tests do not establish original-runtime parity for non-default DATA,
+Num Ranks, non-playable records, non-default Trait, Level, Num Ranks and
+Hidden, and save/load.
+
+**Live run (2026-09-24, PRG-16).** The installed-data survey reads 475
+winning perks across five masters. Trait and Level are zero on every one. Of
+the Num Ranks 1 records, 13 are not playable and shown, 21 are not playable
+and Hidden, 374 are playable and shown, and 40 are playable and Hidden. Of
+the Num Ranks 5 records, 26 are playable and shown and 1 is playable and
+Hidden. It validates all 397 root chains, none of which raise an unmapped
+condition function, and exercises all five Armsman ranks, including a failed
+low-skill purchase. Root eligibility across the installed corpus is 11
+already owned, 154 eligible, 32 not playable and 200 with a false
+prerequisite. These tests do not establish original-runtime parity for
 malformed graph policy, effect execution or menu behavior.
 
 ## Leveled item entry extras
