@@ -29,10 +29,13 @@ use godot::prelude::*;
 use soe_esm::GlobalFormId;
 
 use crate::batch::{batch_surfaces, BatchMember};
-use crate::data_source::{BlockFormat, DataSource, LoadedCell, SurfaceTextures, TextureData};
+use crate::data_source::{
+    BlockFormat, DataSource, LoadedCell, LoadedSurface, SurfaceTextures, TextureData,
+};
 use crate::mesh::{AlphaMode, MaterialDesc, SurfaceArrays};
 use crate::streaming::{CellCoord, CellStreamer, StreamConfig};
 use crate::terrain::RegionHeightmap;
+use crate::terrain_lod::{LodBlockCoord, LodLevel, TerrainLodConfig, TerrainLodStreamer};
 use crate::units::GodotPos;
 
 /// Keeps a square of exterior cells requested around `focus`. Connect
@@ -85,6 +88,39 @@ pub struct CellStreamerNode {
     /// scene that only draws needs no collision.
     collision: crate::godot_physics::CellBodies,
     last_collision_stats: VarDictionary,
+    /// Distant-terrain LOD blocks standing in for full resolution terrain
+    /// beyond the streamed cells. `None` until `stream_terrain_lod`.
+    terrain_lod: Option<TerrainLodState>,
+}
+
+/// The node's distant-terrain LOD: the streamer that decides which blocks
+/// are resident and records their bytes, the worldspace the blocks are read
+/// from, and each resident block's drawn instances, freed when the streamer
+/// releases the block. Kept apart from `instances` so `cell_instances`
+/// keeps reporting full resolution cells only.
+struct TerrainLodState {
+    streamer: TerrainLodStreamer,
+    world: GlobalFormId,
+    world_editor_id: String,
+    blocks: std::collections::HashMap<LodBlockCoord, Vec<LodInstance>>,
+    last_step: LodStepCounts,
+}
+
+/// One drawn LOD surface. The mesh is held so the instance's mesh RID stays
+/// valid while it draws.
+struct LodInstance {
+    rid: Rid,
+    mesh: Gd<ArrayMesh>,
+    triangles: usize,
+}
+
+/// What the last `stream_terrain_lod` or `update_terrain_lod` call did.
+#[derive(Default)]
+struct LodStepCounts {
+    loaded: usize,
+    missing: usize,
+    failed: usize,
+    released: usize,
 }
 
 /// One drawn batch: its instance and mesh RIDs and the side table that maps
@@ -199,6 +235,7 @@ impl INode3D for CellStreamerNode {
             last_stats: VarDictionary::new(),
             collision: crate::godot_physics::CellBodies::default(),
             last_collision_stats: VarDictionary::new(),
+            terrain_lod: None,
         }
     }
 
@@ -208,6 +245,7 @@ impl INode3D for CellStreamerNode {
 
     fn exit_tree(&mut self) {
         self.free_instances();
+        self.clear_terrain_lod();
         self.collision.free();
     }
 
@@ -607,12 +645,175 @@ impl CellStreamerNode {
         self.last_collision_stats.clone()
     }
 
-    /// Frees every instance and mesh this node created and forgets the
-    /// bounds. Materials stay cached.
+    /// Starts distant-terrain LOD for the worldspace named
+    /// `world_editor_id` around cell (`cell_x`, `cell_y`) and settles it:
+    /// every BTR block whose nearest cell lies beyond `full_res_radius` and
+    /// within `lod_radius` (ring distance in cells) is read, drawn as
+    /// `RenderingServer` instances in this node's scenario, and its built
+    /// bytes recorded against `budget_bytes`, 0 for no cap. Over the cap the
+    /// farthest blocks are released until the recorded usage fits.
+    ///
+    /// Pass the radius `stream_exterior` drew full resolution cells at as
+    /// `full_res_radius`. A block is planned only when all of its cells lie
+    /// beyond that radius, so LOD takes over where full resolution LAND
+    /// stops and never draws over it. The block grid and level come from the
+    /// worldspace's `lodsettings` file, a grid anchored at cell (0, 0) at
+    /// level 4 when there is none. Replaces any earlier LOD state. Returns
+    /// the resident block count, or -1 on failure with the reason in the
+    /// Godot error log.
+    #[allow(clippy::needless_pass_by_value)]
+    #[func]
+    pub fn stream_terrain_lod(
+        &mut self,
+        world_editor_id: GString,
+        cell_x: i32,
+        cell_y: i32,
+        full_res_radius: i32,
+        lod_radius: i32,
+        budget_bytes: i64,
+    ) -> i32 {
+        self.clear_terrain_lod();
+        let Some(source) = self.data_source.clone() else {
+            godot_error!("CellStreamerNode::stream_terrain_lod: load_data was not called");
+            return -1;
+        };
+        let Ok(budget_bytes) = u64::try_from(budget_bytes) else {
+            godot_error!("CellStreamerNode::stream_terrain_lod: budget {budget_bytes} is negative");
+            return -1;
+        };
+        let Some((world, world_editor_id)) = source.resolve_world(&world_editor_id.to_string())
+        else {
+            godot_error!("CellStreamerNode::stream_terrain_lod: no worldspace {world_editor_id}");
+            return -1;
+        };
+        let settings = match source.lod_settings(&world_editor_id) {
+            Ok(settings) => settings,
+            Err(e) => {
+                godot_error!("CellStreamerNode::stream_terrain_lod: {e}");
+                return -1;
+            }
+        };
+        let config = TerrainLodConfig {
+            level: settings
+                .and_then(|s| s.finest_level())
+                .unwrap_or(LodLevel::L4),
+            full_res_radius,
+            lod_radius,
+            budget_bytes,
+            ..TerrainLodConfig::default()
+        };
+        let anchor = settings.map_or(CellCoord::new(0, 0), |s| s.sw_cell);
+        let streamer = match TerrainLodStreamer::with_anchor(config, anchor) {
+            Ok(streamer) => streamer,
+            Err(e) => {
+                godot_error!("CellStreamerNode::stream_terrain_lod: {e}");
+                return -1;
+            }
+        };
+        self.terrain_lod = Some(TerrainLodState {
+            streamer,
+            world,
+            world_editor_id,
+            blocks: std::collections::HashMap::new(),
+            last_step: LodStepCounts::default(),
+        });
+        let focus = CellCoord::new(cell_x, cell_y);
+        if self
+            .terrain_lod_cycle(focus, true, "stream_terrain_lod")
+            .is_none()
+        {
+            return -1;
+        }
+        self.terrain_lod_resident_count()
+    }
+
+    /// One incremental LOD step for a focus at cell (`cell_x`, `cell_y`),
+    /// with the settings the last `stream_terrain_lod` call gave: at most
+    /// one block read and two released, then the budget enforced. Call it
+    /// when the focus changes cell, alongside the cell streamer, to keep
+    /// the LOD ring following the player without a long frame. Returns the
+    /// blocks drawn by this call, or -1 when `stream_terrain_lod` has not
+    /// run or the node is outside a world.
+    #[func]
+    pub fn update_terrain_lod(&mut self, cell_x: i32, cell_y: i32) -> i32 {
+        self.terrain_lod_cycle(CellCoord::new(cell_x, cell_y), false, "update_terrain_lod")
+            .map_or(-1, |drawn| drawn as i32)
+    }
+
+    /// LOD blocks resident now, each drawn in this node's scenario.
+    #[func]
+    pub fn terrain_lod_resident_count(&self) -> i32 {
+        self.terrain_lod
+            .as_ref()
+            .map_or(0, |lod| lod.streamer.resident_count() as i32)
+    }
+
+    /// Recorded bytes across resident LOD blocks, the residency budget's
+    /// current reading.
+    #[func]
+    pub fn terrain_lod_usage_bytes(&self) -> i64 {
+        self.terrain_lod
+            .as_ref()
+            .map_or(0, |lod| lod.streamer.usage_bytes() as i64)
+    }
+
+    /// The LOD state as a dictionary: world, level, anchor_x, anchor_y,
+    /// full_res_radius, lod_radius, budget_bytes, usage_bytes, over_budget,
+    /// resident, absent, instances, triangles, and from the last call
+    /// loaded, missing, failed and released. Empty before
+    /// `stream_terrain_lod`.
+    #[func]
+    pub fn terrain_lod_stats(&self) -> VarDictionary {
+        let mut d = VarDictionary::new();
+        let Some(lod) = self.terrain_lod.as_ref() else {
+            return d;
+        };
+        let config = lod.streamer.config();
+        let anchor = lod.streamer.anchor();
+        let drawn = lod.blocks.values().flatten();
+        d.set("world", lod.world_editor_id.as_str());
+        d.set("level", i64::from(config.level.cells()));
+        d.set("anchor_x", i64::from(anchor.x));
+        d.set("anchor_y", i64::from(anchor.y));
+        d.set("full_res_radius", i64::from(config.full_res_radius));
+        d.set("lod_radius", i64::from(config.lod_radius));
+        d.set("budget_bytes", config.budget_bytes as i64);
+        d.set("usage_bytes", lod.streamer.usage_bytes() as i64);
+        d.set("over_budget", lod.streamer.over_budget());
+        d.set("resident", lod.streamer.resident_count() as i64);
+        d.set("absent", lod.streamer.absent_count() as i64);
+        d.set("instances", drawn.clone().count() as i64);
+        d.set(
+            "triangles",
+            drawn.map(|i| i.triangles).sum::<usize>() as i64,
+        );
+        d.set("loaded", lod.last_step.loaded as i64);
+        d.set("missing", lod.last_step.missing as i64);
+        d.set("failed", lod.last_step.failed as i64);
+        d.set("released", lod.last_step.released as i64);
+        d
+    }
+
+    /// Frees every LOD block this node drew and forgets the LOD settings.
+    #[func]
+    pub fn clear_terrain_lod(&mut self) {
+        let Some(lod) = self.terrain_lod.take() else {
+            return;
+        };
+        let mut server = RenderingServer::singleton();
+        for instance in lod.blocks.into_values().flatten() {
+            server.free_rid(instance.rid);
+            drop(instance.mesh);
+        }
+    }
+
+    /// Frees every instance and mesh this node created, terrain LOD
+    /// included, and forgets the bounds. Materials stay cached.
     #[func]
     pub fn clear(&mut self) {
         self.collision.free();
         self.free_instances();
+        self.clear_terrain_lod();
         self.bounds = None;
     }
 
@@ -731,6 +932,93 @@ impl CellStreamerNode {
         for instance in self.instances.drain(..) {
             server.free_rid(instance.rid);
             drop(instance.mesh);
+        }
+    }
+
+    /// One `TerrainLodStreamer::step` against the loaded data: reads each
+    /// planned block through `DataSource::load_lod_block`, records its
+    /// built bytes, frees every block the step released, then draws the
+    /// blocks that survived the budget. A block loaded and evicted in the
+    /// same step is never uploaded. Returns the blocks drawn, `None` when
+    /// the call cannot run, with the reason in the Godot error log.
+    fn terrain_lod_cycle(&mut self, focus: CellCoord, settle: bool, caller: &str) -> Option<usize> {
+        let Some(source) = self.data_source.clone() else {
+            godot_error!("CellStreamerNode::{caller}: load_data was not called");
+            return None;
+        };
+        if self.terrain_lod.is_none() {
+            godot_error!("CellStreamerNode::{caller}: stream_terrain_lod was not called");
+            return None;
+        }
+        let scenario = self.scenario()?;
+        let mut lod = self.terrain_lod.take()?;
+        let mut built = std::collections::HashMap::new();
+        let world = lod.world;
+        let world_editor_id = lod.world_editor_id.as_str();
+        let step = lod.streamer.step(focus, settle, |block| {
+            source
+                .load_lod_block(world, world_editor_id, block)
+                .map(|found| {
+                    found.map(|loaded| {
+                        let bytes = loaded.approx_bytes;
+                        built.insert(block, loaded);
+                        bytes
+                    })
+                })
+        });
+        let mut server = RenderingServer::singleton();
+        for block in step.released() {
+            built.remove(&block);
+            for instance in lod.blocks.remove(&block).into_iter().flatten() {
+                server.free_rid(instance.rid);
+                drop(instance.mesh);
+            }
+        }
+        for (block, e) in &step.failed {
+            godot_error!(
+                "CellStreamerNode::{caller}: LOD block {} {} {}: {e}",
+                block.level.cells(),
+                block.x,
+                block.y
+            );
+        }
+        let drawn = built.len();
+        for (block, loaded) in built {
+            let instances = loaded
+                .surfaces
+                .iter()
+                .map(|surface| self.lod_instance(surface, scenario))
+                .collect();
+            lod.blocks.insert(block, instances);
+        }
+        lod.last_step = LodStepCounts {
+            loaded: drawn,
+            missing: step.missing.len(),
+            failed: step.failed.len(),
+            released: step.unloaded.len() + step.evicted.len(),
+        };
+        self.terrain_lod = Some(lod);
+        Some(drawn)
+    }
+
+    /// One LOD surface as an `ArrayMesh` and a `RenderingServer` instance
+    /// at identity, since `load_lod_block` bakes the block's placement into
+    /// the vertices the same way a reference's placement is baked.
+    fn lod_instance(&mut self, surface: &LoadedSurface, scenario: Rid) -> LodInstance {
+        let material = material_for(
+            &mut self.materials,
+            &surface.arrays.material,
+            &surface.textures,
+        );
+        let mesh = array_mesh_from(&surface.arrays);
+        let mut server = RenderingServer::singleton();
+        let rid = server.instance_create2(mesh.get_rid(), scenario);
+        server.instance_set_transform(rid, Transform3D::IDENTITY);
+        server.instance_geometry_set_material_override(rid, material.get_rid());
+        LodInstance {
+            rid,
+            mesh,
+            triangles: surface.arrays.triangle_count(),
         }
     }
 }
