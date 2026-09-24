@@ -83,6 +83,34 @@ class ReadinessTests(unittest.TestCase):
         self.assertEqual([r["id"] for r in batch.ready_rows(rows)], ["A-03", "A-02", "A-01"])
 
 
+class ClusterTests(unittest.TestCase):
+    def ids(self, clusters):
+        return [[r["id"] for r in c] for c in clusters]
+
+    def test_rows_naming_one_subsystem_share_a_writer_up_to_the_size(self):
+        rows = [row(f"AI-0{i}", "AI", "game", title=f"Implement location conditions batch {i}")
+                for i in range(1, 6)]
+        rows.append(row("AI-09", "AI", "game", title="Fill quest aliases from condition searches"))
+        self.assertEqual(self.ids(batch.cluster_rows(rows, 4)),
+                         [["AI-01", "AI-02", "AI-03", "AI-04"], ["AI-05"], ["AI-09"]])
+
+    def test_batches_of_one_stem_stay_together(self):
+        rows = [
+            row("AI-01", "AI", "game", title="Implement location conditions batch 1"),
+            row("AI-02", "AI", "game", title="Implement motion conditions batch 1"),
+            row("AI-03", "AI", "game", title="Implement location conditions batch 2"),
+        ]
+        self.assertEqual(self.ids(batch.cluster_rows(rows, 2)), [["AI-01", "AI-03"], ["AI-02"]])
+
+    def test_clusters_never_wait_on_each_other(self):
+        rows = [
+            row("AI-01", "AI", "game", title="Implement location conditions batch 1"),
+            row("AI-02", "AI", "game", title="Execute the Hover package procedure", depends_on="AI-01"),
+            row("AI-03", "AI", "game", title="Implement location conditions batch 2", depends_on="AI-02"),
+        ]
+        self.assertEqual(self.ids(batch.cluster_rows(rows, 4)), [["AI-01"], ["AI-02"], ["AI-03"]])
+
+
 class PlanTests(unittest.TestCase):
     def test_a_batch_takes_one_row_per_area_and_one_host_row(self):
         rows = [

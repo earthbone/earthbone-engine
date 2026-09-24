@@ -104,6 +104,31 @@ between collision and rendering change detection, is documented in
 `World` stays the only writer of reference state either way, so no host code
 takes the mutable `reference` accessor.
 
+**Witnessed crime.** `crime.rs` decodes `FACT.CRVA`, the bounty table a
+faction charges for murder, assault, trespass, pickpocketing, theft
+(scaled by a steal multiplier against the stolen item's value), escape
+and being seen as a werewolf. Layout came from `wbRecord(FACT` in
+`TES5Edit/Core/wbDefinitionsTES5.pas` and `uesp-modfileformat/FACT.wikitext`.
+The struct grew across record versions, 12, 16 or 20 bytes, and earlier
+fields stay at the same offset as later ones are appended, so a short
+struct still lines up with the start of a long one.
+`World::record_witnessed_crime` (`world/crime.rs`) prices a crime against
+the perpetrator's own crime faction, the one `Actor.GetCrimeFaction` and
+`SetCrimeFaction` name (ck-wiki, same page titles), and adds the result to
+that faction's bounty and infamy, split violent or nonviolent the same way
+`Faction.ModCrimeGold` already does. It also records that the witness saw
+that perpetrator do it, in the new `ActorState::witnessed_crimes` set,
+carried in SOEW version 31. Every check, witness is an actor, perpetrator
+is an actor with a crime faction, that faction tracks crime, runs before
+anything is mutated, so a bad call changes nothing. `CRGR`, the crime
+group that would let one faction's bounty spread to its allies, is not
+parsed. A faction outside the perpetrator's own never gets charged, which
+is narrower than vanilla when a `CRGR` link exists. A `FACT` with no
+`CRVA` subrecord prices every crime at zero rather than failing, since a
+faction can legally exist without one. No Papyrus native calls this
+function yet, `SendAssaultAlarm` and similar witness-driven natives are
+later work that can build on it.
+
 ## Conformance table
 
 Counts from `natives::register`: 364 natives with state behind them and 177
@@ -808,7 +833,8 @@ version 25 the image-space stack, versions 26 and 27 loose item stacks and
 locked encounter-zone levels, version 28 the do-all dialogue cycles, and
 version 29 an actor's stagger end time. Version 30 appends shared stealth-point
 pools with each observer's detection level and timers, written only when a pool
-exists.
+exists. Version 31 adds the set of perpetrators an actor witnessed committing a
+tracked crime.
 version 5 adds active magic, version 6 adds dialogue, version 7 adds actor-value
 components, version 8 adds dialogue to those components, version 9 adds
 active magic. Version 10 adds per-reference leveled template choices.
