@@ -169,6 +169,7 @@ fn hit(attacker: u32, target: u32) -> MeleeHit {
         attacker: id(attacker),
         target: id(target),
         weapon: id(0xA00),
+        is_bash: false,
         is_power_attack: false,
     }
 }

@@ -110,6 +110,7 @@ fn hit(attacker: u32, target: u32, weapon_id: u32, is_power_attack: bool) -> Mel
         attacker: id(attacker),
         target: id(target),
         weapon: id(weapon_id),
+        is_bash: false,
         is_power_attack,
     }
 }

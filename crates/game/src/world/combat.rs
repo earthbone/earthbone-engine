@@ -203,7 +203,8 @@ impl World {
         // Unarmed contacts have no WEAP record to carry a Stagger fraction,
         // so they never stagger. No corpus source states an unarmed default.
         let mut bash_stamina_cost = None;
-        let (weapon_damage, stagger_fraction, quality_multiplier, power_stamina_cost) = if hit.is_bash
+        let (weapon_damage, stagger_fraction, quality_multiplier, power_stamina_cost) = if hit
+            .is_bash
         {
             let armor = self.combat_armor_record(hit.weapon)?;
             // UESP's ARMO layout ties BIDS/BAMT to the shield slot (BOD2 bit
