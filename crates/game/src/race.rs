@@ -8,6 +8,11 @@ use soe_esm::{Error, Record, Tag};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Attributes {
+    /// Up to 7 `(skill actor value index, boost)` pairs, `DATA` bytes 0 to
+    /// 13. The index is a full actor value (xEdit `wbActorValueEnum`), where
+    /// skills occupy 6 to 23, 6 lower than [`crate::npc::SKILLS`]'s own
+    /// order. An unused slot carries a zero boost and is skipped by callers.
+    pub skill_boosts: [(i8, i8); 7],
     pub health: f32,
     pub magicka: f32,
     pub stamina: f32,
@@ -58,7 +63,13 @@ impl Attributes {
             }
             Ok(value)
         };
+        let mut skill_boosts = [(0i8, 0i8); 7];
+        for (i, slot) in skill_boosts.iter_mut().enumerate() {
+            let base = i * 2;
+            *slot = (data[base] as i8, data[base + 1] as i8);
+        }
         Ok(Some(Self {
+            skill_boosts,
             health: field(36)?,
             magicka: field(40)?,
             stamina: field(44)?,
