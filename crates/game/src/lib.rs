@@ -30,6 +30,7 @@ pub mod combat;
 pub mod conditions;
 pub mod coverage;
 pub mod crafting;
+pub mod crime;
 pub mod debug;
 pub mod determinism;
 pub mod dialogue;
