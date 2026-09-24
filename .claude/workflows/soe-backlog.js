@@ -4,7 +4,7 @@ export const meta = {
   whenToUse: 'After tools/backlog_batch.py prepare created one worktree per cluster. Pass its JSON as args. Runs args.concurrency lanes, each with its own reusable build directory.',
   phases: [
     { title: 'Write', detail: 'one opus writer explores the subsystem once and implements the cluster rows in turn, committing each', model: 'opus' },
-    { title: 'Break', detail: 'breaker writes adversarial tests across the cluster' },
+    { title: 'Break', detail: 'one opus breaker writes adversarial tests across the cluster', model: 'opus' },
     { title: 'Judge', detail: 'opus fixes what the tests expose, writes the planned checks, runs the gate, rules per row', model: 'opus' },
     { title: 'Merge', detail: 'one cluster at a time: merge master in, gate, merge, clean up' },
   ],
@@ -195,12 +195,12 @@ const profileOf = c => {
 A.clusters.forEach(profileOf)
 
 // Opus writes a whole cluster and judges it at medium effort. The judge also fixes, so the code
-// it read to judge is the code it repairs, without a fresh agent reading it again. Sonnet breaks,
-// so the tests come from a different model than the code they attack.
+// it read to judge is the code it repairs, without a fresh agent reading it again. One opus
+// breaker per cluster attacks every row of the set, so its reading of the subsystem is paid once.
 const cheap = c => c.rows.every(r => r.difficulty === 'low' || r.difficulty === 'medium')
 const writerModel = () => 'opus'
 const writerEffort = c => (c.rows.some(r => r.difficulty === 'very_high') ? 'high' : 'medium')
-const breakerEffort = c => (cheap(c) ? 'medium' : 'high')
+const breakerEffort = () => 'medium'
 const skillPaths = c => profileOf(c).skills.map(s => `${SKILLS}/${s}/SKILL.md`).join(', ')
 const checkName = id => id.toLowerCase().replace('-', '_')
 
@@ -330,7 +330,7 @@ async function runCluster(c, lane) {
   })
   if (!write || !write.build_ok || !write.rows.some(r => r.implemented)) return { c, stopped: 'write', write }
   const breakr = await agent(breakerPrompt(c, write, dir), {
-    label: labelOf('break', c), phase: 'Break', model: 'sonnet', effort: breakerEffort(c), schema: BREAK,
+    label: labelOf('break', c), phase: 'Break', model: 'opus', effort: breakerEffort(c), schema: BREAK,
   })
   if (!breakr) return { c, stopped: 'break', write }
   const judge = await agent(judgePrompt(c, write, breakr, dir), {
