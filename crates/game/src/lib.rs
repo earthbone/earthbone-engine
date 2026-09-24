@@ -31,6 +31,7 @@ pub mod conditions;
 pub mod coverage;
 pub mod crafting;
 pub mod debug;
+pub mod detection;
 pub mod determinism;
 pub mod dialogue;
 pub mod footsteps;
