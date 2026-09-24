@@ -42,6 +42,7 @@ use crate::mesh::{
 
 mod exterior;
 mod location;
+mod lod;
 mod models;
 mod textures;
 mod workers;
@@ -52,6 +53,7 @@ mod marker_survey_tests;
 pub use location::LoadedLocation;
 #[cfg(feature = "godot")]
 pub(crate) use location::PreparedCell;
+pub use lod::LoadedLodBlock;
 pub(crate) use models::{is_editor_marker_name, model_for};
 use textures::TextureCache;
 pub use textures::{BlockFormat, TextureData};
