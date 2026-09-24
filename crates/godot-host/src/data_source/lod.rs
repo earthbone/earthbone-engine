@@ -115,6 +115,8 @@ impl DataSource {
                 reference: world,
                 arrays,
                 textures,
+                instance_transform: None,
+                mesh_identity: None,
             });
         }
         Ok(Some(LoadedLodBlock {
