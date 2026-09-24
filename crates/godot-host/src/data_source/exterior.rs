@@ -408,6 +408,8 @@ impl DataSource {
                                 reference: *land_id,
                                 arrays,
                                 textures: SurfaceTextures::default(),
+                                instance_transform: None,
+                                mesh_identity: None,
                             });
                         }
                         Err(e) => eprintln!("stream_exterior: LAND {land_id}: {e}"),
