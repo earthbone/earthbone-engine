@@ -326,6 +326,8 @@ mod tests {
                     environment_mask: None,
                     glow: None,
                 },
+                instance_transform: None,
+                mesh_identity: None,
             });
         assert!(
             payload_bytes(&data) < MAX_PAYLOAD_BYTES + 1024,

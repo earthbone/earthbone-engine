@@ -21,14 +21,15 @@ use godot::classes::base_material_3d::{
 };
 use godot::classes::image::Format;
 use godot::classes::mesh::{ArrayType, PrimitiveType};
+use godot::classes::multi_mesh::TransformFormat;
 use godot::classes::{
-    ArrayMesh, Cubemap, INode3D, Image, ImageTexture, Material, Node3D, RenderingServer, Shader,
-    ShaderMaterial, StandardMaterial3D,
+    ArrayMesh, Cubemap, INode3D, Image, ImageTexture, Material, MultiMesh, Node3D, RenderingServer,
+    Shader, ShaderMaterial, StandardMaterial3D,
 };
 use godot::prelude::*;
 use soe_esm::GlobalFormId;
 
-use crate::batch::{batch_surfaces, BatchMember};
+use crate::batch::{batch_surfaces, instancing_candidates, BatchMember, InstanceGroup};
 use crate::data_source::{
     BlockFormat, DataSource, LoadedCell, LoadedSurface, SurfaceTextures, TextureData,
 };
@@ -36,7 +37,7 @@ use crate::mesh::{AlphaMode, MaterialDesc, SurfaceArrays};
 use crate::streaming::{CellCoord, CellStreamer, StreamConfig};
 use crate::terrain::RegionHeightmap;
 use crate::terrain_lod::{LodBlockCoord, LodLevel, TerrainLodConfig, TerrainLodStreamer};
-use crate::units::GodotPos;
+use crate::units::{GodotPos, GodotTransform};
 
 /// Keeps a square of exterior cells requested around `focus`. Connect
 /// `cell_load_requested` and `cell_unload_requested` to whatever builds
@@ -129,8 +130,26 @@ struct Instance {
     cell: GlobalFormId,
     bounds: crate::mesh::Aabb,
     rid: Rid,
-    mesh: Gd<ArrayMesh>,
+    mesh: InstanceMesh,
     table: BatchTable,
+}
+
+/// The mesh resource an [`Instance`] drew: a merged or unbatched `ArrayMesh`
+/// with the placement already baked into its vertices, or a `MultiMesh`
+/// sharing one local-space `ArrayMesh` across a `Transform3D` per placement.
+/// Both keep the `RenderingServer` instance's own transform at identity, so
+/// freeing either only needs the enum, never a second lookup.
+///
+/// Neither payload is read again after construction: each variant exists to
+/// hold the strong `Gd` reference the underlying `RefCounted` resource needs
+/// to stay alive, since the `RenderingServer` instance's mesh RID does not
+/// itself keep the resource from being freed. `free_instances` drops the
+/// whole enum, which is enough, so `#[allow(dead_code)]` here documents an
+/// RAII field rather than hiding an unused one.
+#[allow(dead_code)]
+enum InstanceMesh {
+    Array(Gd<ArrayMesh>),
+    Multi(Gd<MultiMesh>),
 }
 
 impl Drop for CellStreamerNode {
@@ -143,17 +162,28 @@ impl Drop for CellStreamerNode {
     }
 }
 
-/// The side table for one instance: which form owns each triangle range.
-struct BatchTable {
-    members: Vec<(GlobalFormId, BatchMember)>,
+/// The side table for one instance: which form owns each triangle range, or,
+/// for a `MultiMesh` instance, which forms placed it (by placement index,
+/// since a raycast hit resolves to a triangle in the shared local geometry,
+/// not to a placement). `reference_at` cannot answer a `MultiMesh` triangle
+/// today, see the module doc and `docs/godot-host.md`: `Instances` carries
+/// the reference list for a picking path that would resolve a placement
+/// index some other way (a per-instance collider, most likely), which is why
+/// `#[allow(dead_code)]` sits on it rather than dropping data `reference_at`
+/// cannot use yet.
+#[allow(dead_code)]
+enum BatchTable {
+    Triangles(Vec<(GlobalFormId, BatchMember)>),
+    Instances(Vec<GlobalFormId>),
 }
 
 impl BatchTable {
     fn reference_of_triangle(&self, triangle: usize) -> Option<GlobalFormId> {
-        let at = self
-            .members
-            .partition_point(|(_, m)| m.first_triangle + m.triangle_count <= triangle);
-        self.members
+        let Self::Triangles(members) = self else {
+            return None;
+        };
+        let at = members.partition_point(|(_, m)| m.first_triangle + m.triangle_count <= triangle);
+        members
             .get(at)
             .filter(|(_, m)| triangle >= m.first_triangle)
             .map(|(id, _)| *id)
@@ -842,6 +872,12 @@ impl CellStreamerNode {
     }
 
     /// Draws one loaded cell's geometry as instances, batched or not.
+    /// `instancing_candidates` runs first and unconditionally: a repeated
+    /// model draws as a `MultiMesh` whether or not `batch_surfaces` is on,
+    /// since instancing and merging answer different questions (one draw
+    /// call sharing a geometry buffer, versus one draw call sharing a merged
+    /// buffer) and `batch_surfaces` off is meant to stay the one-node-per-
+    /// shape baseline for the surfaces instancing did not already take.
     fn add_cell(
         &mut self,
         cell: GlobalFormId,
@@ -851,43 +887,50 @@ impl CellStreamerNode {
     ) {
         let _span = soe_trace::Span::new("host.add_cell", "host");
         totals.add_cell(loaded);
+        let (groups, remainder) = instancing_candidates(&loaded.surfaces);
+        for group in &groups {
+            self.add_multimesh(cell, group, scenario);
+            totals.instances += 1;
+        }
+        let remainder: Vec<LoadedSurface> = remainder
+            .into_iter()
+            .map(|i| loaded.surfaces[i].clone())
+            .collect();
         if self.batch_surfaces {
-            let (batches, stats) = batch_surfaces(&loaded.surfaces);
+            let (batches, stats) = batch_surfaces(&remainder);
             totals.largest_batch = totals.largest_batch.max(stats.largest_batch_surfaces);
             for batch in &batches {
-                let first = &loaded.surfaces[batch.members[0].surface];
+                let first = &remainder[batch.members[0].surface];
                 let material =
                     material_for(&mut self.materials, &first.arrays.material, &batch.textures);
-                let table = BatchTable {
-                    members: batch
+                let table = BatchTable::Triangles(
+                    batch
                         .members
                         .iter()
-                        .map(|m| (loaded.surfaces[m.surface].reference, *m))
+                        .map(|m| (remainder[m.surface].reference, *m))
                         .collect(),
-                };
+                );
                 self.add_instance(cell, &batch.arrays, &material, scenario, table);
                 totals.instances += 1;
             }
         } else {
             totals.largest_batch = totals.largest_batch.max(1);
-            for surface in &loaded.surfaces {
+            for surface in &remainder {
                 let material = material_for(
                     &mut self.materials,
                     &surface.arrays.material,
                     &surface.textures,
                 );
-                let table = BatchTable {
-                    members: vec![(
-                        surface.reference,
-                        BatchMember {
-                            surface: 0,
-                            first_vertex: 0,
-                            vertex_count: surface.arrays.positions.len(),
-                            first_triangle: 0,
-                            triangle_count: surface.arrays.triangle_count(),
-                        },
-                    )],
-                };
+                let table = BatchTable::Triangles(vec![(
+                    surface.reference,
+                    BatchMember {
+                        surface: 0,
+                        first_vertex: 0,
+                        vertex_count: surface.arrays.positions.len(),
+                        first_triangle: 0,
+                        triangle_count: surface.arrays.triangle_count(),
+                    },
+                )]);
                 self.add_instance(cell, &surface.arrays, &material, scenario, table);
                 totals.instances += 1;
             }
@@ -922,7 +965,38 @@ impl CellStreamerNode {
             cell,
             bounds: arrays.bounds,
             rid,
-            mesh,
+            mesh: InstanceMesh::Array(mesh),
+            table,
+        });
+    }
+
+    /// One `MultiMesh` and one `RenderingServer` instance for a mesh
+    /// identity repeated often enough in this cell: one local-space geometry
+    /// buffer, one `Transform3D` per placement, set on the `MultiMesh`
+    /// itself rather than baked into a copy of the vertex data.
+    fn add_multimesh(&mut self, cell: GlobalFormId, group: &InstanceGroup, scenario: Rid) {
+        let _span = soe_trace::Span::with_payload(
+            "host.upload_multimesh",
+            "host",
+            group.arrays.positions.len() as u64,
+        );
+        let material = material_for(&mut self.materials, &group.arrays.material, &group.textures);
+        let multi = multimesh_from_group(group);
+        let mut server = RenderingServer::singleton();
+        let rid = server.instance_create2(multi.get_rid(), scenario);
+        server.instance_set_transform(rid, Transform3D::IDENTITY);
+        server.instance_geometry_set_material_override(rid, material.get_rid());
+        let bounds = group_bounds(group);
+        self.bounds = Some(match self.bounds {
+            Some(b) => crate::batch::merge_bounds(b, bounds),
+            None => bounds,
+        });
+        let table = BatchTable::Instances(group.members.iter().map(|m| m.reference).collect());
+        self.instances.push(Instance {
+            cell,
+            bounds,
+            rid,
+            mesh: InstanceMesh::Multi(multi),
             table,
         });
     }
@@ -1398,6 +1472,65 @@ pub fn array_mesh_from(surface: &SurfaceArrays) -> Gd<ArrayMesh> {
     let mut mesh = ArrayMesh::new_gd();
     mesh.add_surface_from_arrays(PrimitiveType::TRIANGLES, &arrays);
     mesh
+}
+
+/// A `MultiMesh` sharing `group`'s local-space geometry across a
+/// `Transform3D` per member, in the order `group.members` carries them
+/// (the same order `InstanceGroup::reference_of_instance` indexes). Godot
+/// applies each transform at draw time, unlike `array_mesh_from`, whose
+/// caller already baked one placement into the vertex data.
+pub fn multimesh_from_group(group: &InstanceGroup) -> Gd<MultiMesh> {
+    let mesh = array_mesh_from(&group.arrays);
+    let mut multi = MultiMesh::new_gd();
+    // The transform format has to be set before the instance count: Godot
+    // sizes the per-instance buffer from the format in effect at that call,
+    // the same ordering `use_colors` and `use_custom_data` document.
+    multi.set_transform_format(TransformFormat::TRANSFORM_3D);
+    multi.set_mesh(&mesh);
+    multi.set_instance_count(group.members.len() as i32);
+    for (index, member) in group.members.iter().enumerate() {
+        multi.set_instance_transform(index as i32, transform3d_from(member.transform));
+    }
+    multi
+}
+
+fn transform3d_from(t: GodotTransform) -> Transform3D {
+    let b = t.basis;
+    Transform3D::new(
+        Basis::from_rows(
+            Vector3::new(b[0][0], b[0][1], b[0][2]),
+            Vector3::new(b[1][0], b[1][1], b[1][2]),
+            Vector3::new(b[2][0], b[2][1], b[2][2]),
+        ),
+        Vector3::new(t.origin.x, t.origin.y, t.origin.z),
+    )
+}
+
+/// An approximate world bound for a `MultiMesh` group: each member's origin
+/// expanded by the local shape's own extent. It ignores rotation, so it can
+/// run a little wide for a shape that is not roughly cubic. That only
+/// affects the camera-framing bound this node keeps, never anything
+/// gameplay reads, unlike a batch's bounds, which are exact because they
+/// come from placement-baked vertices.
+fn group_bounds(group: &InstanceGroup) -> crate::mesh::Aabb {
+    let local = group.arrays.bounds;
+    let extent = GodotPos::new(
+        (local.max.x - local.min.x).abs(),
+        (local.max.y - local.min.y).abs(),
+        (local.max.z - local.min.z).abs(),
+    );
+    group
+        .members
+        .iter()
+        .map(|member| {
+            let o = member.transform.origin;
+            crate::mesh::Aabb {
+                min: GodotPos::new(o.x - extent.x, o.y - extent.y, o.z - extent.z),
+                max: GodotPos::new(o.x + extent.x, o.y + extent.y, o.z + extent.z),
+            }
+        })
+        .reduce(crate::batch::merge_bounds)
+        .unwrap_or(local)
 }
 
 /// A `FORMAT_RF` height image for `Terrain3DData.import_images`, or for
