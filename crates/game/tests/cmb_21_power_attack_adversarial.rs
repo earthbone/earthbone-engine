@@ -111,6 +111,7 @@ fn power_hit(attacker: u32, target: u32, is_power_attack: bool) -> MeleeHit {
         attacker: id(attacker),
         target: id(target),
         weapon: id(0xA00),
+        is_bash: false,
         is_power_attack,
     }
 }
@@ -119,6 +120,7 @@ fn unarmed_power_hit(attacker: u32, target: u32) -> MeleeHit {
         attacker: id(attacker),
         target: id(target),
         weapon: id(0x1F4),
+        is_bash: false,
         is_power_attack: true,
     }
 }

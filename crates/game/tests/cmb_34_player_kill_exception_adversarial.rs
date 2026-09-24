@@ -100,6 +100,7 @@ fn player_hit() -> MeleeHit {
         attacker: id(0x14),
         target: id(0x900),
         weapon: id(0xA00),
+        is_bash: false,
         is_power_attack: false,
     }
 }
@@ -109,6 +110,7 @@ fn npc_hit() -> MeleeHit {
         attacker: id(0x901),
         target: id(0x900),
         weapon: id(0xA00),
+        is_bash: false,
         is_power_attack: false,
     }
 }

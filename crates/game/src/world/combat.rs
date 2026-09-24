@@ -198,14 +198,61 @@ impl World {
                 return Err(Error::Unsupported("invulnerable target"));
             }
         }
+        // A bash reads the attacker's equipped shield instead of a weapon
+        // record, the row summary's "shield becomes the weapon" reading.
         // Unarmed contacts have no WEAP record to carry a Stagger fraction,
         // so they never stagger. No corpus source states an unarmed default.
-        // They also carry no inventory stack, so no quality extra can apply.
-        // Unarmed power attacks are a documented gap, see docs/combat.md
-        // CMB-21: the vanilla damage and stamina multipliers for them
-        // conflict between UESP's own Combat and Damage pages, so nothing
-        // is guessed here.
-        let (weapon_damage, stagger_fraction, quality_multiplier, power_stamina_cost) = if unarmed {
+        let mut bash_stamina_cost = None;
+        let (weapon_damage, stagger_fraction, quality_multiplier, power_stamina_cost) = if hit
+            .is_bash
+        {
+            let armor = self.combat_armor_record(hit.weapon)?;
+            // UESP's ARMO layout ties BIDS/BAMT to the shield slot (BOD2 bit
+            // 9), so a bash source is rejected here rather than trusting the
+            // caller to have picked a shield. See docs/combat.md CMB-20.
+            if armor.slots & (1 << 9) == 0 {
+                return Err(Error::Unsupported("bash source is not a shield"));
+            }
+            let attacker = self
+                .actor_ref(hit.attacker)
+                .ok_or(Error::Actor(hit.attacker))?;
+            if !attacker.equipped.contains(&hit.weapon) {
+                return Err(Error::Equipment);
+            }
+            if self.item_count(hit.attacker, hit.weapon) <= 0 {
+                return Err(Error::Equipment);
+            }
+            self.check_combat_stack(hit.attacker, hit.weapon)?;
+            let cost = finite(self.combat_setting("fBashStaminaCost")?)?;
+            let stamina = self
+                .actor_ref(hit.attacker)
+                .ok_or(Error::Actor(hit.attacker))?
+                .values
+                .get("stamina")
+                .current();
+            if stamina < cost {
+                return Err(Error::Unsupported("insufficient stamina for bash"));
+            }
+            // Deferred, not deducted here: the commit below only applies once
+            // every later fallible step (armor, block, difficulty, health
+            // and stagger math) has already succeeded, so a bash that fails
+            // partway through never spends stamina. See docs/combat.md CMB-20.
+            bash_stamina_cost = Some(cost);
+            // A shield carries no WEAP DNAM Stagger fraction of its own, and
+            // bashing exists to interrupt, so a bash always contributes its
+            // full post-reduction damage to the stagger check. Damage reuses
+            // the shield's DNAM rating through the same post-armor,
+            // post-block, post-difficulty pipeline every other hit uses,
+            // rather than a separate GMST or the attacker's other-hand
+            // weapon. No corpus source pins a vanilla bash damage formula,
+            // this is an engineering estimate, see docs/combat.md CMB-20.
+            (finite(f64::from(armor.rating))?, 1.0_f32, 1.0_f32, None)
+        } else if unarmed {
+            // They also carry no inventory stack, so no quality extra can
+            // apply. Unarmed power attacks are a documented gap, see
+            // docs/combat.md CMB-21: the vanilla damage and stamina
+            // multipliers for them conflict between UESP's own Combat and
+            // Damage pages, so nothing is guessed here.
             if hit.is_power_attack {
                 return Err(Error::Unsupported("unarmed power attack"));
             }
@@ -380,7 +427,7 @@ impl World {
             Value::None,
             Value::Bool(hit.is_power_attack),
             Value::Bool(false),
-            Value::Bool(false),
+            Value::Bool(hit.is_bash),
             Value::Bool(blocked),
         ];
         for recipient in self.actor_event_recipients(hit.target) {
@@ -412,6 +459,13 @@ impl World {
                 target.stagger_end_time = stagger_deadline;
             }
         }
+        // Committed last, alongside the target's own state, so a bash that
+        // errors anywhere above never reaches this line.
+        if let Some(cost) = bash_stamina_cost {
+            if let Some(attacker) = self.actors.get_mut(&hit.attacker) {
+                attacker.values.damage("stamina", -cost)?;
+            }
+        }
         if let Some(values) = attacker_stamina {
             if let Some(attacker) = self.actors.get_mut(&hit.attacker) {
                 attacker.values = values;
@@ -427,6 +481,7 @@ impl World {
             health_damage,
             killed,
             staggered,
+            bashed: hit.is_bash,
         })
     }
 
