@@ -3,8 +3,8 @@ export const meta = {
   description: 'Implement prepared BACKLOG.csv clusters: one writer per cluster, a breaker, an opus judge that fixes and gates, and a serial merge queue',
   whenToUse: 'After tools/backlog_batch.py prepare created one worktree per cluster. Pass its JSON as args. Runs args.concurrency lanes, each with its own reusable build directory.',
   phases: [
-    { title: 'Write', detail: 'one opus writer explores the subsystem once and implements the cluster rows in turn, committing each', model: 'opus' },
-    { title: 'Break', detail: 'one opus breaker writes adversarial tests across the cluster', model: 'opus' },
+    { title: 'Write', detail: 'one writer explores the subsystem once and implements the set in turn, committing each row' },
+    { title: 'Break', detail: 'one sonnet breaker writes adversarial tests across the set' },
     { title: 'Judge', detail: 'opus fixes what the tests expose, writes the planned checks, runs the gate, rules per row', model: 'opus' },
     { title: 'Merge', detail: 'one cluster at a time: merge master in, gate, merge, clean up' },
   ],
@@ -194,12 +194,14 @@ const profileOf = c => {
 }
 A.clusters.forEach(profileOf)
 
-// Opus writes a whole cluster and judges it at medium effort. The judge also fixes, so the code
-// it read to judge is the code it repairs, without a fresh agent reading it again. One opus
-// breaker per cluster attacks every row of the set, so its reading of the subsystem is paid once.
+// Cache reads cost the same on both models, writes and output cost twice as much on opus, and
+// wave 1 showed no drop in turns for opus writers. Sonnet writes and breaks each set, opus only
+// writes very_high sets. One opus judge per set also fixes, so the code it read to judge is the
+// code it repairs, without a fresh agent reading it again. Four rows per set costs about a
+// quarter less per row than one, larger sets save little more and block more rows on a failure.
 const cheap = c => c.rows.every(r => r.difficulty === 'low' || r.difficulty === 'medium')
-const writerModel = () => 'opus'
-const writerEffort = c => (c.rows.some(r => r.difficulty === 'very_high') ? 'high' : 'medium')
+const writerModel = c => (c.rows.some(r => r.difficulty === 'very_high') ? 'opus' : 'sonnet')
+const writerEffort = c => (cheap(c) ? 'medium' : 'high')
 const breakerEffort = () => 'medium'
 const skillPaths = c => profileOf(c).skills.map(s => `${SKILLS}/${s}/SKILL.md`).join(', ')
 const checkName = id => id.toLowerCase().replace('-', '_')
@@ -224,7 +226,7 @@ function rules(c, dir) {
   return `Worktree: ${c.worktree} on branch ${c.branch}. Work only there.
 Permission rules, nobody answers prompts during this run: never cd. Never &&, || or ; in a Bash command, and never put two commands on separate lines of one call: one command per call. Never delete anything (no rm, no cargo clean) beyond a command this prompt spells out. Absolute paths only, git -C ${c.worktree}, cargo --manifest-path ${c.worktree}/Cargo.toml. Never change files through Bash (no sed -i, mv, cp, rm, redirects or scripted edits), use Read, Edit and Write. Never use EnterWorktree. Never stash, reset, rebase or checkout. Commit only where this prompt says, always as ${IDENTITY} git -C ${c.worktree} commit, with no trailer of any kind.
 Every cargo command is prefixed with ${buildEnv(dir)}, this lane's build directory. Build and test only the crates you touch (cargo clippy -p <crate>, cargo test -p <crate> --test <file>). Only the judge and the merge run tools/lint.sh.
-Serena and rust-analyzer are available. Load Serena with ToolSearch (query "serena"), call activate_project with ${c.worktree}, then prefer find_symbol, find_referencing_symbols and get_diagnostics_for_file over reading whole files.
+Keep command output short, every line you read is paid for again on each later turn: cut test and build output to failures and summaries with tail or grep, and read symbols rather than whole files. Serena and rust-analyzer are available. Load Serena with ToolSearch (query "serena"), call activate_project with ${c.worktree}, then prefer find_symbol, find_referencing_symbols and get_diagnostics_for_file over reading whole files.
 House prose in comments, docs and commit messages: no em dashes, no semicolons between clauses, no AI vocabulary.`
 }
 
@@ -330,7 +332,7 @@ async function runCluster(c, lane) {
   })
   if (!write || !write.build_ok || !write.rows.some(r => r.implemented)) return { c, stopped: 'write', write }
   const breakr = await agent(breakerPrompt(c, write, dir), {
-    label: labelOf('break', c), phase: 'Break', model: 'opus', effort: breakerEffort(c), schema: BREAK,
+    label: labelOf('break', c), phase: 'Break', model: 'sonnet', effort: breakerEffort(c), schema: BREAK,
   })
   if (!breakr) return { c, stopped: 'break', write }
   const judge = await agent(judgePrompt(c, write, breakr, dir), {
