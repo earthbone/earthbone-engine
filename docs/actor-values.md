@@ -30,6 +30,10 @@ The local corpus supplied these contracts:
 - skymp GetBaseActorValues and EvaluateTemplate supplied comparison points
   for race starting attributes plus ACBS offsets and template groups.
   Its unfinished auto-calculation was not adopted as a runtime formula.
+- xEdit `wbDefinitionsTES5.pas` CLAS DATA and RACE Skill Boosts, UESP
+  `CLAS.wikitext` and CommonLibSSE-NG `TESClass.h` supplied the class skill
+  weight layout, the race skill boost pairs and the Weight Calculations
+  formula an auto-calculated actor's skills now use.
 
 The new race view only reads the DATA attributes needed here. Stats and
 traits follow independent NPC template chains, with cycle detection and
@@ -79,8 +83,13 @@ These values have not been checked against a running vanilla game.
 ## Remaining gameplay work
 
 Leveled templates now retain a selection per reference, as detailed below.
-Encounter-zone difficulty and reset integration, class/level calculations and
-race skill bonuses are missing. Missing RACE
+Encounter-zone difficulty and reset integration are still missing. Skills now
+follow RACE Skill Boosts for a manual actor's DNAM base, and CLAS.wikitext's
+Weight Calculations for a fixed-level auto-calculated actor with a resolvable
+class. A `PC_LEVEL_MULT` actor's skills keep the DNAM cache, since this store
+does not track a live player level. Health, magicka and stamina still lack
+the matching class attribute weight formula and keep the existing DNAM cache
+or race start plus ACBS offset. Missing RACE
 DATA retains the previous synthetic-record fallback. Runtime flags, inventory, spells, perks, factions, outfits and packages now
 resolve their owning template groups. Script, keyword, AI-data and attack-data
 inheritance still need the corresponding runtime consumers.

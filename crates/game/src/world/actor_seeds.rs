@@ -3,13 +3,19 @@
 //! Attribute sources follow NPC ACBS template groups, resolving each TPLT
 //! in its winning file. RACE starting values plus NPC offsets follow the
 //! skymp GetBaseActorValues comparison and UESP NPC/RACE layouts. DNAM's
-//! auto-calculated fields are cached inputs, not a live level-scaling formula.
+//! auto-calculated health, magicka and stamina remain cached inputs, not a
+//! live level-scaling formula. Skills follow UESP CLAS.wikitext's "Weight
+//! Calculations": the class weighted formula for a fixed-level auto-calculated
+//! actor with a resolvable class, RACE Skill Boosts added to a manual actor's
+//! DNAM base, and DNAM's own cache otherwise (no class, or `PC_LEVEL_MULT`,
+//! whose player-scaled level this store does not track).
 
 use std::collections::BTreeSet;
 
 use soe_esm::{Error, GlobalFormId, Tag};
 
 use crate::{
+    class::Class,
     npc::{self, Npc},
     race::Attributes,
     World,
@@ -144,8 +150,36 @@ impl World {
         Ok(Some(race))
     }
 
+    /// Resolve the class an NPC's `CNAM` names, or `None` for no class, an
+    /// unresolved link, or a link that does not land on a `CLAS` record.
+    /// Unlike [`Self::npc_race`], a bad class link is not an error: the
+    /// skill formula that reads it already falls back to DNAM's cache, and a
+    /// stale or wrong `CNAM` is a real condition in shipped plugins, not a
+    /// malformed store.
+    ///
+    /// # Errors
+    /// Rejects a missing or deleted NPC at `source`.
+    pub(super) fn npc_class(&self, source: GlobalFormId) -> Result<Option<GlobalFormId>, Error> {
+        let npc = self.npc_record(source)?;
+        let Some(raw) = npc.class.filter(|raw| *raw != 0) else {
+            return Ok(None);
+        };
+        let Some(class) = self.resolve_from(source, raw) else {
+            return Ok(None);
+        };
+        if self
+            .record(class)
+            .is_none_or(|record| record.is_deleted() || record.tag != Tag(*b"CLAS"))
+        {
+            return Ok(None);
+        }
+        Ok(Some(class))
+    }
+
     /// Initial values for the shared actor store, from winning race and NPC inputs.
-    /// Cached DNAM auto-calculation is retained until class/level calculation exists.
+    /// Health, magicka and stamina keep the cached DNAM auto-calculation until
+    /// a class/level formula exists for them. Skills compute from the winning
+    /// class and race where the formula applies, see the module documentation.
     ///
     /// # Errors
     /// Rejects invalid templates, race attributes and overflowing attribute sums.
@@ -168,11 +202,27 @@ impl World {
             .map(Attributes::from_record)
             .transpose()?
             .flatten();
+        // A class that fails to resolve or to parse is not a store error:
+        // the skill formula below already falls back to DNAM's cache, see
+        // `npc_class`.
+        let class = self
+            .npc_class(source)?
+            .and_then(|id| self.record(id))
+            .and_then(|record| Class::from_record(record).ok().flatten());
         if npc.config.flags & npc::flags::AUTO_CALC_STATS != 0 {
             if let Some(stats) = npc.stats {
                 values[0].1 = f32::from(stats.health);
                 values[1].1 = f32::from(stats.magicka);
                 values[2].1 = f32::from(stats.stamina);
+            }
+            if npc.config.flags & npc::flags::PC_LEVEL_MULT == 0 {
+                if let Some(skills) =
+                    class.and_then(|class| class_skill_values(npc.level_for(0), attributes, &class))
+                {
+                    for (i, value) in skills.into_iter().enumerate() {
+                        values[3 + i].1 = value;
+                    }
+                }
             }
         } else if let Some(race) = attributes {
             for (index, start, offset) in [
@@ -185,6 +235,10 @@ impl World {
                     return Err(Error::Invalid("overflowing NPC attribute".into()));
                 }
                 values[index].1 = value;
+            }
+            for i in 0..18 {
+                let boost = race_skill_boost(&race, i);
+                values[3 + i].1 = (values[3 + i].1 + f32::from(boost)).clamp(0.0, 100.0);
             }
         }
         values.push(("speedmult".into(), f32::from(npc.config.speed)));
@@ -210,4 +264,72 @@ impl World {
         }
         Npc::from_record(record, self.record_text_localized(id, Tag(*b"FULL")))
     }
+}
+
+/// Local skill index (0 to 17, [`npc::SKILLS`] order) for a RACE `Skill
+/// Boosts` full actor value index. `None` for an unused slot's zero pair or
+/// any actor value outside the skill range (6 to 23).
+fn race_skill_index(full_actor_value: i8) -> Option<usize> {
+    let local = full_actor_value.checked_sub(6)?;
+    usize::try_from(local).ok().filter(|index| *index < 18)
+}
+
+/// The race's boost for one local skill index, 0 when the race carries none.
+fn race_skill_boost(race: &Attributes, local: usize) -> i8 {
+    race.skill_boosts
+        .iter()
+        .find_map(|&(full, boost)| (race_skill_index(full) == Some(local)).then_some(boost))
+        .unwrap_or(0)
+}
+
+/// Skill values from UESP CLAS.wikitext's "Weight Calculations" formula for
+/// a fixed-level auto-calculated actor: `15 + racial bonus + complete sets +
+/// leftover points`. Complete sets come from integer division of the level's
+/// point pool by the class' summed weights. Leftover points go one at a time
+/// to skills ordered by weight descending then actor value index ascending,
+/// each capped at its own weight, repeating until none remain. `None` when
+/// the class has no weighted skill to distribute to.
+fn class_skill_values(level: u32, race: Option<Attributes>, class: &Class) -> Option<[f32; 18]> {
+    let total_weight: u32 = class
+        .skill_weights
+        .iter()
+        .map(|&weight| u32::from(weight))
+        .sum();
+    if total_weight == 0 {
+        return None;
+    }
+    let points = 8 * level.saturating_sub(1);
+    let per_set = points / total_weight;
+    let mut remaining = points % total_weight;
+    let mut extra = [0u32; 18];
+    let mut order: Vec<usize> = (0..18).filter(|&i| class.skill_weights[i] > 0).collect();
+    order.sort_by(|&a, &b| {
+        class.skill_weights[b]
+            .cmp(&class.skill_weights[a])
+            .then(a.cmp(&b))
+    });
+    while remaining > 0 {
+        let mut moved = false;
+        for &i in &order {
+            if remaining == 0 {
+                break;
+            }
+            if extra[i] < u32::from(class.skill_weights[i]) {
+                extra[i] += 1;
+                remaining -= 1;
+                moved = true;
+            }
+        }
+        if !moved {
+            break;
+        }
+    }
+    let mut skills = [0.0f32; 18];
+    for (i, skill) in skills.iter_mut().enumerate() {
+        let racial = race.map_or(0, |race| i32::from(race_skill_boost(&race, i)));
+        let weight = u32::from(class.skill_weights[i]);
+        let raw = 15 + racial + (per_set * weight) as i32 + extra[i] as i32;
+        *skill = raw.clamp(0, 100) as f32;
+    }
+    Some(skills)
 }
