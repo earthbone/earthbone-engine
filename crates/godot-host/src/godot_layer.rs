@@ -33,7 +33,8 @@ use crate::data_source::{BlockFormat, DataSource, LoadedCell, SurfaceTextures, T
 use crate::mesh::{AlphaMode, MaterialDesc, SurfaceArrays};
 use crate::streaming::{CellCoord, CellStreamer, StreamConfig};
 use crate::terrain::RegionHeightmap;
-use crate::units::GodotPos;
+use crate::units::{direction_to_godot, direction_to_skyrim, GodotPos, SkyrimPos};
+use soe_physics::{Iso, Vec3};
 
 /// Keeps a square of exterior cells requested around `focus`. Connect
 /// `cell_load_requested` and `cell_unload_requested` to whatever builds
@@ -85,6 +86,15 @@ pub struct CellStreamerNode {
     /// scene that only draws needs no collision.
     collision: crate::godot_physics::CellBodies,
     last_collision_stats: VarDictionary,
+    /// The physics space `stream_cell_collision` last resolved, kept so
+    /// `sync_reference_changes` can push moves and hides on the tick after,
+    /// without re-resolving `get_world_3d` itself.
+    collision_space: Option<Rid>,
+    /// Every reference's last observed visibility and placement, gating the
+    /// rendering rebake so an untouched cell costs one map lookup per
+    /// reference per tick rather than a mesh rebuild. Collision has no such
+    /// cache, see `CellBodies::sync_placements` for why.
+    ref_cache: std::collections::HashMap<GlobalFormId, (bool, Iso)>,
 }
 
 /// One drawn batch: its instance and mesh RIDs and the side table that maps
@@ -95,6 +105,12 @@ struct Instance {
     rid: Rid,
     mesh: Gd<ArrayMesh>,
     table: BatchTable,
+    /// The batch's arrays as first uploaded, kept so
+    /// `CellStreamerNode::sync_reference_changes` recomputes a moved or
+    /// hidden member's vertex range from this baseline every time, instead
+    /// of composing a delta onto an already patched copy. Same reasoning as
+    /// `StaticEntry::source` in `godot_physics`.
+    arrays: SurfaceArrays,
 }
 
 impl Drop for CellStreamerNode {
@@ -107,20 +123,32 @@ impl Drop for CellStreamerNode {
     }
 }
 
-/// The side table for one instance: which form owns each triangle range.
+/// One source surface's place in a batch, plus its load-time placement so a
+/// runtime move or hide can be diffed against a known baseline. `origin` is
+/// `LoadedSurface::placement`, the reference's transform at load time, in
+/// Skyrim space: LAND terrain carries `Iso::IDENTITY` since it has no
+/// separate placement.
+struct BatchTableMember {
+    reference: GlobalFormId,
+    member: BatchMember,
+    origin: Iso,
+}
+
+/// The side table for one instance: which form owns each triangle range, and
+/// where each member started, for `CellStreamerNode::sync_reference_changes`.
 struct BatchTable {
-    members: Vec<(GlobalFormId, BatchMember)>,
+    members: Vec<BatchTableMember>,
 }
 
 impl BatchTable {
     fn reference_of_triangle(&self, triangle: usize) -> Option<GlobalFormId> {
         let at = self
             .members
-            .partition_point(|(_, m)| m.first_triangle + m.triangle_count <= triangle);
+            .partition_point(|m| m.member.first_triangle + m.member.triangle_count <= triangle);
         self.members
             .get(at)
-            .filter(|(_, m)| triangle >= m.first_triangle)
-            .map(|(id, _)| *id)
+            .filter(|m| triangle >= m.member.first_triangle)
+            .map(|m| m.reference)
     }
 }
 
@@ -199,6 +227,8 @@ impl INode3D for CellStreamerNode {
             last_stats: VarDictionary::new(),
             collision: crate::godot_physics::CellBodies::default(),
             last_collision_stats: VarDictionary::new(),
+            collision_space: None,
+            ref_cache: std::collections::HashMap::new(),
         }
     }
 
@@ -209,6 +239,8 @@ impl INode3D for CellStreamerNode {
     fn exit_tree(&mut self) {
         self.free_instances();
         self.collision.free();
+        self.collision_space = None;
+        self.ref_cache.clear();
     }
 
     fn process(&mut self, _delta: f64) {
@@ -285,6 +317,70 @@ impl CellStreamerNode {
         }
         self.last_stats = totals.to_dictionary(self.materials.len() - before);
         true
+    }
+
+    /// Pushes every tracked reference's current enabled state and placement
+    /// into rendering and collision, so a `Game`-side change (activation, a
+    /// script `MoveTo`, an editor drag) shows up at the next host tick.
+    /// `Game`/`World` stay the source of truth throughout, this only reads
+    /// `world` and presents what it says, per `docs/godot-host.md`.
+    ///
+    /// Collision is pushed unconditionally through
+    /// `CellBodies::sync_placements`, see that method for why. Rendering
+    /// instead diffs each member against `ref_cache` and only rebakes a
+    /// batch's `ArrayMesh` when something in it actually changed, since a
+    /// batch can hold hundreds of members and reuploading one every tick
+    /// would cost more than the streaming it replaced.
+    ///
+    /// A disabled reference is collapsed to a degenerate, zero-area patch
+    /// rather than dropped from the batch: the batch is one shared
+    /// `RenderingServer` instance and index buffer, and removing vertices
+    /// would renumber every triangle after it. A moved reference gets a
+    /// fresh vertex range computed from `Instance::arrays`, the pristine
+    /// upload, never from an already patched copy, matching
+    /// `StaticEntry::source` on the collision side.
+    pub(crate) fn sync_reference_changes(&mut self, world: &soe_game::World) {
+        if let Some(space) = self.collision_space {
+            self.collision.sync_placements(world, space);
+        }
+        let mut server = RenderingServer::singleton();
+        for instance in &mut self.instances {
+            let mut touched = false;
+            let mut targets: Vec<(usize, bool, Iso)> = Vec::new();
+            for (index, member) in instance.table.members.iter().enumerate() {
+                let Some(placement) = world.ref_placement(member.reference) else {
+                    continue;
+                };
+                let target_iso =
+                    Iso::placement(placement.position, placement.rotation, placement.scale);
+                let key = (placement.visible, target_iso);
+                if self.ref_cache.get(&member.reference) != Some(&key) {
+                    self.ref_cache.insert(member.reference, key);
+                    touched = true;
+                }
+                targets.push((index, placement.visible, target_iso));
+            }
+            if !touched {
+                continue;
+            }
+            // Rebuilt fresh from `instance.arrays`, the pristine upload,
+            // every time: reapplying every live member's current placement
+            // rather than composing this tick's delta onto the previous
+            // rebuild's output keeps a reference that moves every tick from
+            // drifting off its true position.
+            let mut patched = instance.arrays.clone();
+            for (index, visible, target_iso) in targets {
+                apply_member_patch(
+                    &mut patched,
+                    &instance.table.members[index],
+                    visible,
+                    &target_iso,
+                );
+            }
+            let new_mesh = array_mesh_from(&patched);
+            server.instance_set_base(instance.rid, new_mesh.get_rid());
+            instance.mesh = new_mesh;
+        }
     }
 }
 
@@ -567,7 +663,7 @@ impl CellStreamerNode {
             godot_error!("stream_cell_collision: no cell named {editor_id}");
             return -1;
         };
-        let (colliders, read) = match source.cell_colliders(cell_id) {
+        let (colliders, read) = match source.placed_cell_colliders(cell_id) {
             Ok(pair) => pair,
             Err(e) => {
                 godot_error!("stream_cell_collision: {e}");
@@ -584,7 +680,8 @@ impl CellStreamerNode {
             return -1;
         };
         self.collision.free();
-        self.collision = crate::godot_physics::add_statics(space, &colliders);
+        self.collision = crate::godot_physics::add_placed_statics(space, &colliders);
+        self.collision_space = Some(space);
         let built = &self.collision.stats;
         self.last_collision_stats = {
             let mut d = VarDictionary::new();
@@ -612,7 +709,9 @@ impl CellStreamerNode {
     #[func]
     pub fn clear(&mut self) {
         self.collision.free();
+        self.collision_space = None;
         self.free_instances();
+        self.ref_cache.clear();
         self.bounds = None;
     }
 
@@ -661,7 +760,11 @@ impl CellStreamerNode {
                     members: batch
                         .members
                         .iter()
-                        .map(|m| (loaded.surfaces[m.surface].reference, *m))
+                        .map(|m| BatchTableMember {
+                            reference: loaded.surfaces[m.surface].reference,
+                            member: *m,
+                            origin: loaded.surfaces[m.surface].placement,
+                        })
                         .collect(),
                 };
                 self.add_instance(cell, &batch.arrays, &material, scenario, table);
@@ -676,16 +779,17 @@ impl CellStreamerNode {
                     &surface.textures,
                 );
                 let table = BatchTable {
-                    members: vec![(
-                        surface.reference,
-                        BatchMember {
+                    members: vec![BatchTableMember {
+                        reference: surface.reference,
+                        member: BatchMember {
                             surface: 0,
                             first_vertex: 0,
                             vertex_count: surface.arrays.positions.len(),
                             first_triangle: 0,
                             triangle_count: surface.arrays.triangle_count(),
                         },
-                    )],
+                        origin: surface.placement,
+                    }],
                 };
                 self.add_instance(cell, &surface.arrays, &material, scenario, table);
                 totals.instances += 1;
@@ -723,6 +827,7 @@ impl CellStreamerNode {
             rid,
             mesh,
             table,
+            arrays: arrays.clone(),
         });
     }
 
@@ -1110,6 +1215,72 @@ pub fn array_mesh_from(surface: &SurfaceArrays) -> Gd<ArrayMesh> {
     let mut mesh = ArrayMesh::new_gd();
     mesh.add_surface_from_arrays(PrimitiveType::TRIANGLES, &arrays);
     mesh
+}
+
+/// Patches one batch member's vertex range in `arrays` in place, for
+/// `CellStreamerNode::sync_reference_changes`.
+///
+/// A hidden reference collapses its whole range to its first vertex, a
+/// zero-area triangle fan that draws nothing while leaving the batch's
+/// shared index buffer valid, since removing vertices would renumber every
+/// triangle after them. A moved reference gets `target.then(&member.origin
+/// .inverse())` applied to its baked position and, where present, its
+/// normal and tangent, the same Skyrim-space delta construction as
+/// `godot_physics::CellBodies::sync_placements` uses for collision.
+fn apply_member_patch(
+    arrays: &mut SurfaceArrays,
+    member: &BatchTableMember,
+    visible: bool,
+    target: &Iso,
+) {
+    let range = member.member.first_vertex..member.member.first_vertex + member.member.vertex_count;
+    if range.is_empty() {
+        return;
+    }
+    if !visible {
+        let anchor = arrays.positions[range.start];
+        for p in &mut arrays.positions[range.clone()] {
+            *p = anchor;
+        }
+        return;
+    }
+    let delta = target.then(&member.origin.inverse());
+    for p in &mut arrays.positions[range.clone()] {
+        *p = moved_position(*p, &delta);
+    }
+    if !arrays.normals.is_empty() {
+        for n in &mut arrays.normals[range.clone()] {
+            *n = moved_direction(*n, &delta);
+        }
+    }
+    if !arrays.tangents.is_empty() {
+        let tangent_range = (range.start * 4)..(range.end * 4);
+        for chunk in arrays.tangents[tangent_range].as_chunks_mut::<4>().0 {
+            let d = moved_direction([chunk[0], chunk[1], chunk[2]], &delta);
+            chunk[0] = d[0];
+            chunk[1] = d[1];
+            chunk[2] = d[2];
+        }
+    }
+}
+
+/// A baked vertex position, round tripped through Skyrim space so `delta`
+/// (built in Skyrim space, like every other placement in this crate) can be
+/// applied to it.
+fn moved_position(p: [f32; 3], delta: &Iso) -> [f32; 3] {
+    let sky = GodotPos::new(p[0], p[1], p[2]).to_skyrim();
+    let moved = delta.apply(Vec3::new(sky.x, sky.y, sky.z));
+    let g = SkyrimPos::new(moved.x, moved.y, moved.z).to_godot();
+    [g.x, g.y, g.z]
+}
+
+/// A baked normal or tangent direction, round tripped the same way as
+/// [`moved_position`] but with no scale or translation, matching
+/// `Iso::apply_direction`.
+fn moved_direction(d: [f32; 3], delta: &Iso) -> [f32; 3] {
+    let sky = direction_to_skyrim(d);
+    let moved = delta.apply_direction(Vec3::new(sky[0], sky[1], sky[2]));
+    direction_to_godot([moved.x, moved.y, moved.z])
 }
 
 /// A `FORMAT_RF` height image for `Terrain3DData.import_images`, or for

@@ -42,6 +42,12 @@ on interruption. The audit made no host runtime changes, added no scene nodes
 and performed no Godot run. It therefore supplies no motion, collision-cost or
 cleanup measurement.
 
+HST-04 is implemented, see "Runtime enable and placement reflection, HST-04"
+below: a script-driven or editor-driven change to `World` now reaches both
+rendering and collision at the next tick. That direction (World to host) is
+separate from what HST-12 still owns, physics-driven rigid bodies pushing a
+pose back into World, and this row does not narrow HST-12's remaining scope.
+
 ### Spawn Hazard prerequisites, MAG-61
 
 The MAG-61 audit on 2026-09-20 found no host path for HAZD or PHZD.
@@ -562,6 +568,82 @@ The `StandardMaterial3D` cache moved from a per-call local to the node. It now i
 alpha and culling state in its key, with a separate path-keyed texture upload cache,
 so a texture uploaded for one cell serves every later cell that names it. `last_stats`
 reports the materials a call created, not the cache size.
+
+### Runtime enable and placement reflection, HST-04
+
+A batch bakes each source surface's placement into its vertices once, at load
+time. Nothing updated a batch again after that, so a script-driven move,
+disable or Creation Kit style drag never reached the mesh or its collision
+after the first tick. `CellStreamerNode::sync_reference_changes(&World)`
+closes that gap and is called once a tick from `PlayerNode::advance_game`,
+before anything that frame reads geometry or collision, so an enable or
+placement change lands the same tick it is written to `World`. `World` stays
+the sole source of truth throughout, satisfying the record-backed authority
+rule from the HST-12 section above: the host reads `World::ref_placement`
+every tick and never writes a pose back into it.
+
+Collision and rendering both gate their expensive path on a per-reference
+cache of the last applied `(visible, Iso)`, called every tick but doing real
+work only on an actual change:
+
+- Collision (`CellBodies::sync_placements`, in `godot_physics.rs`) keeps
+  the cache on each `StaticEntry`. An unchanged reference costs one
+  comparison. A changed one either moves the body between `space` and
+  `Rid::Invalid` (cheap, so this part runs even for a reference this cache
+  has never seen), or, for an actual placement change, frees the body and
+  its shapes and rebuilds them through the same `flatten`/`build_body` path
+  `add_placed_statics` used, since a Godot static body's collision shapes
+  bake their world placement into their own data or local transform and
+  cannot be nudged by moving the body alone.
+- Rendering (the new method above) keeps its cache on the `CellStreamerNode`
+  instead, keyed by reference across every batch, and only rebuilds a
+  batch's `ArrayMesh` when one of its members' cached value disagrees with
+  `World`. A batch can hold hundreds of members sharing one mesh, one
+  `RenderingServer` instance and one index buffer, so rebuilding every
+  batch every tick regardless of change would cost far more than the map
+  lookups the cache adds.
+
+Either side's delta is always computed against the reference's placement at
+load time, never against the last placement applied, so a reference moved
+many times over many ticks accumulates no drift. An earlier version of
+`sync_placements` reassigned its baseline to the latest placement after each
+move, which is exactly the composing-onto-an-already-moved-copy mistake the
+"always rebuild from an immutable baseline" rule above exists to avoid, and
+was caught and fixed before any external run exercised a second move of the
+same reference.
+
+Hiding a reference also differs by side, because each side's resource model
+differs. Collision removes the body from the physics space
+(`body_set_space(body, Rid::Invalid)`), matching vanilla's "not present in
+the simulation" contract, and a later re-enable puts it back with
+`body_set_space(body, space)`. Rendering cannot remove vertices, since every
+reference after the hidden one in the shared index buffer would need
+renumbering, so a hidden member's whole vertex range collapses onto its first
+vertex instead, a zero-area triangle fan that draws nothing and costs no
+buffer resize.
+
+Both sides rebuild from an immutable, never-mutated baseline recorded at load
+time (`StaticEntry::source` for collision, the new `Instance::arrays` for
+rendering) rather than composing a move onto an already-moved copy, so a
+sequence of small edits cannot drift from what `World` actually holds. The
+move itself is a delta against that baseline's own placement:
+`delta = target_iso.then(&origin.inverse())`, where `origin` is the
+reference's placement as first loaded (`BatchTableMember::origin`, sourced
+from `LoadedSurface::placement`, `Iso::IDENTITY` for LAND) and `target_iso`
+comes from `World::ref_placement`. Applying `delta` to a baked point or
+direction reproduces the moved result directly, with no hand-derived
+world-space transform to keep in sync with the loader's own placement math.
+Position, normal and tangent arrays each round trip through `units.rs`'s
+Skyrim/Godot converters before and after the delta applies, since `delta` is
+built in Skyrim space like every other placement in this crate.
+
+This is the World-to-host direction only: a reference `World` already knows
+about, moved or hidden by a script, activation or the editor. HST-12's
+physics-driven rigid bodies, their host-to-World pose sync and their
+despawn/unload cleanup remain open, as does a per-reference prune of the
+render cache on cell unload (it is cleared wholesale on `clear`/`exit_tree`
+today, so a reference's cache entry outlives the cell it belonged to until
+the whole streamer resets).
 
 ### Compressed textures as they are
 

@@ -12,6 +12,19 @@ use super::{
     le_f32, le_u32, Alloc, Handle, Pending, RefState, World, DYNAMIC_FILE, PLAYER_OBJECT, T,
 };
 
+/// A reference's runtime placement and visibility, in Skyrim space. This is
+/// the state a host diffs each tick to reflect an enable or placement
+/// change in its rendering and collision instances (`HST-04`). Read-only:
+/// the fields already exist on `RefState`, this is only a stable, narrow
+/// view of the ones a host needs.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct RefPlacement {
+    pub position: [f32; 3],
+    pub rotation: [f32; 3],
+    pub scale: f32,
+    pub visible: bool,
+}
+
 impl World {
     pub(super) fn load_ref(&mut self, id: GlobalFormId) -> Option<RefState> {
         let mut st = self.load_ref_record(id)?;
@@ -193,6 +206,26 @@ impl World {
 
     pub fn reference_ref(&self, id: GlobalFormId) -> Option<&RefState> {
         self.refs.get(&id)
+    }
+
+    /// The current runtime placement and visibility of a loaded reference,
+    /// for a host to compare against what it last drew or collided. `None`
+    /// only when the reference has never been instantiated, so its
+    /// record-authored placement is still current and there is nothing to
+    /// sync. A deleted reference still yields `Some`, with `visible: false`
+    /// at its last known placement, the same hide signal `Disable()` alone
+    /// produces: `Delete()` sets both `deleted` and `enabled`
+    /// (`crate::natives::object_reference`), and the host has no other way
+    /// to learn it must stop drawing and colliding with it.
+    #[must_use]
+    pub fn ref_placement(&self, id: GlobalFormId) -> Option<RefPlacement> {
+        let state = self.reference_ref(id)?;
+        Some(RefPlacement {
+            position: state.position,
+            rotation: state.rotation,
+            scale: state.scale,
+            visible: state.enabled,
+        })
     }
 
     pub fn base_of(&mut self, id: GlobalFormId) -> Option<GlobalFormId> {

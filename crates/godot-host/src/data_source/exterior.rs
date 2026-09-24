@@ -296,6 +296,7 @@ impl DataSource {
                             reference: *land_id,
                             arrays,
                             textures: SurfaceTextures::default(),
+                            placement: soe_physics::Iso::IDENTITY,
                         });
                     }
                     Ok(None) => {}
