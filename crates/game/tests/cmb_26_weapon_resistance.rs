@@ -183,6 +183,8 @@ fn unarmed_hit(attacker: u32, target: u32) -> MeleeHit {
         attacker: id(attacker),
         target: id(target),
         weapon: id(0x1F4),
+        is_bash: false,
+        is_power_attack: false,
     }
 }
 
@@ -191,6 +193,8 @@ fn hit_with(attacker: u32, target: u32, weapon: u32) -> MeleeHit {
         attacker: id(attacker),
         target: id(target),
         weapon: id(weapon),
+        is_bash: false,
+        is_power_attack: false,
     }
 }
 

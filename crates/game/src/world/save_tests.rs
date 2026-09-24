@@ -303,12 +303,27 @@ fn without_exclusive_branches(world: &mut World) -> Vec<u8> {
         let mut stagger_marker = vec![1];
         stagger_marker.extend_from_slice(&stagger_sentinel.to_le_bytes());
         markers.push(stagger_marker);
+
+        // `witnessed_crimes` (version 31) is written unconditionally, even
+        // when empty, so an emulated pre-30 save must strip it same as the
+        // two optional fields above. A one-element set gives a marker as
+        // locatable as `exclusive_branch`'s.
+        let crime_sentinel = GlobalFormId {
+            file: u16::MAX,
+            object: 0xD000_0000 + index as u32,
+        };
+        world.actors.get_mut(id).unwrap().witnessed_crimes = BTreeSet::from([crime_sentinel]);
+        let mut crime_marker = 1_u32.to_le_bytes().to_vec();
+        crime_marker.extend_from_slice(&crime_sentinel.file.to_le_bytes());
+        crime_marker.extend_from_slice(&crime_sentinel.object.to_le_bytes());
+        markers.push(crime_marker);
     }
     let mut bytes = world.save_state();
     for id in &ids {
         let actor = world.actors.get_mut(id).unwrap();
         actor.exclusive_branch = None;
         actor.stagger_end_time = None;
+        actor.witnessed_crimes.clear();
     }
     for marker in markers {
         let at = bytes
@@ -419,7 +434,7 @@ fn sav_07_unknown_version_and_mixed_legacy_namespaces_are_rejected() {
     let mut world = rich_world(DYNAMIC_FILE);
     let before = world.save_state();
     for (version, message) in [
-        (31_u16, "world state version 31"),
+        (32_u16, "world state version 32"),
         (18, "created namespace in a legacy world state"),
     ] {
         let mut bytes = before.clone();

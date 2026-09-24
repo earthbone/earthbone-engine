@@ -200,8 +200,8 @@ engine save/load. Ordinary weapons retain their shared template resolver.
 ## Remaining execution work
 
 Host attack input, timing/contact detection, hand-specific selection, ranged
-weapons/ammunition, bashing, sneak and power attacks, weapon-only blocking,
-perk entry points, enchantments, poison, bleedout,
+weapons/ammunition, bashing, sneak attacks, dual-wield and bash power
+attacks, weapon-only blocking, perk entry points, enchantments, poison, bleedout,
 stagger, crime and combat AI remain unfinished. The API is an execution
 increment and does not establish playable combat or completion of the broader
 gameplay-foundations goal.
@@ -250,8 +250,9 @@ Open gaps, not attempted by this increment:
   are already globally rejected by `validate_combat_actor`, ahead of and
   independent from this row.
 - Fortify Block enchantments and potions.
-- `fBlockPowerAttackMult`. `MeleeHit` carries no power-attack input yet, so
-  no attenuation term exists to apply it to.
+- `fBlockPowerAttackMult`. `MeleeHit.is_power_attack` exists now (CMB-21),
+  but `combat_block`'s reduction formula still does not read it, so no
+  attenuation term applies it yet.
 - Bash attacks (`abBashAttack`), which read BIDS/BAMT rather than the
   block-reduction path and are unrelated to this row's done check.
 - `fBlockMax`'s value. UESP's talk archive gives 0.7 as the documented
@@ -762,13 +763,192 @@ Left out of this row, each a concrete next step rather than a silent gap:
 - Vanilla's Light, Medium and Heavy stagger tiers are not modeled. Every
   qualifying hit uses the same `fStaggerDuration`, not a duration keyed to
   hit strength.
-- Power attacks are not implemented yet (they are not part of CMB-01), so
-  their documented longer stagger is not modeled either. The next step is
-  the same clamp this row uses, read against whatever multiplier CMB gives
-  power attacks when that row lands.
+- Power attacks apply their damage and stamina multipliers as of CMB-21, but
+  stagger still uses the weapon's own DNAM Stagger fraction unchanged. UESP's
+  per-attack-type table gives a single-weapon power attack's stagger
+  multiplier as x1, the identity, so this happens to match for the one entry
+  CMB-21 reads. Dual-wield and bash power attacks, whose table entries are
+  not x1, are not selected by `PowerAttack::from_race` and so never reach
+  this path.
 - No live or installed-data comparison against `SKYRIM_DATA` has been run
   for stagger specifically, since no source pins the vanilla threshold or
   duration to compare against.
+
+## Bash attacks, CMB-20
+
+A bash is a variant `MeleeHit` where `is_bash` is true and `weapon` names the
+attacker's equipped shield ARMO instead of a WEAP record, the row summary's
+own "shield becomes the weapon" reading. `melee_hit` resolves that ARMO
+through the existing `combat_armor_record` template chain, the same one
+`combat_armor` and `combat_block` already use, and rejects a bash source
+that does not occupy the shield slot (BOD2 bit 9) with
+`Error::Unsupported("bash source is not a shield")`. The attacker must have
+the shield equipped and counted in inventory, checked the same way an
+ordinary weapon swing checks its WEAP source.
+
+BIDS and BAMT, the shield's impact data set and alternate material, are now
+on `Armor` rather than `Weapon`. The CMB-05 section above already found that
+UESP's ARMO layout (lines 64 to 68) ties both fields to shields, and deferred
+adding them pending this row. `TES5Edit`'s WEAP layout (lines 10444-10445)
+places the same two subrecords on WEAP for hand-to-hand bash sources, out of
+scope here since this row restricts bashing to shields, open question 3.
+`Armor::from_sources` reads both through `inherited`, following the TNAM
+template chain the way every other physical ARMO field already does, using
+the same `link()` helper `template`/`enchantment` use. No engine code reads
+`bash_impact`/`bash_material` yet, an audio and impact-effect gap this row
+does not close.
+
+Stamina cost is `fBashStaminaCost` from game settings, queried through the
+existing `combat_setting` lookup that validates it finite and non-negative.
+No local or UESP source pins a vanilla bash stamina cost, so 25.0 is an
+engineering estimate placed inside the general power-attack stamina range
+Skyrim wikis document, roughly 10 to 30. The check happens before any of the
+hit's later fallible steps (armor, block, difficulty, health and stagger),
+but the deduction itself is deferred to the same late commit block that
+writes the target's health and stagger state, so a bash that errors out
+anywhere after the stamina check never spends stamina, and one that succeeds
+spends it exactly once. Insufficient stamina returns
+`Error::Unsupported("insufficient stamina for bash")`, favoring the row
+summary's own prose over the task pack's Tests-to-write section, which named
+an Equipment error for the same case. `Error::Equipment` already means
+missing or unequipped gear here and in every other branch of `melee_hit`,
+not an exhausted resource, so `Unsupported` is the closer fit and this
+deviation is called out explicitly rather than left implicit.
+
+Bash damage reuses the shield's DNAM `rating` as the base input, then flows
+through the same post-armor, post-block, post-difficulty pipeline every
+other hit uses, mirroring how `unarmed_damage` already injects a base value
+into that shared pipeline instead of a parallel one. This is the open
+question the task pack itself flagged as the highest design uncertainty:
+no source states whether vanilla scales bash damage from the shield's
+rating, a separate GMST, or the attacker's other-hand weapon. Shield rating
+was chosen because it is already loaded, already scaled by the same armor
+math a shield contributes defensively, and needs no new unverified GMST.
+Stagger fraction for a bash is a fixed 1.0, full pass-through of
+post-reduction damage into the stagger magnitude check the same way CMB-14
+already computes it for a weapon swing. A shield's DNAM carries no Stagger
+field of its own to read instead, and a shield bash's core purpose is
+interruption, so a bash that lands at all is meant to threaten stagger the
+way a high-Stagger weapon does. Both choices are engineering estimates, not
+sourced defaults, and belong alongside `fStaggerThreshold` and
+`fStaggerDuration` as the kind of value a five-master survey or live
+`SKYRIM_DATA` comparison should refine once bash records are enumerated.
+
+OnHit's sixth boolean argument, `abBashAttack`, now carries `hit.is_bash`
+instead of a hardcoded false. The CK wiki's OnHit page (lines 8, 22, 41)
+documents the event's seven-argument signature and notes `akSource` can be
+None for a bash from a light object such as a torch, but a shield bash
+always has one, the shield itself. `HitResult::bashed` reports the same flag
+back to callers that do not want to re-inspect the original `MeleeHit`.
+
+`crates/godot-host/src/combat.rs`'s `MeleeContact::event` now sets
+`is_bash: false` on every contact it delivers, a mechanical fix for the new
+required field, not new behavior. That bridge has no shield-bash gesture
+detection yet, so every host-driven contact remains an ordinary weapon swing
+until CMB-03's own future work adds one, exactly as the task pack's own
+"Lines of evidence" section anticipated.
+
+Left out of this row, each a concrete next step rather than a silent gap:
+
+- Host-side bash gesture detection. `MeleeContact` has no shield-bash
+  trigger, so `is_bash` is only reachable today through a direct
+  `melee_hit` call, not through the animation bridge.
+- Power bash (higher damage and stagger on a held or charged bash) is out
+  of scope pending power-attack infrastructure, open question 3.
+- Physical knockback belongs to the physics crate and CMB-28's collision
+  work, the same boundary CMB-14 draws for stagger versus recoil.
+- Bash interaction with an incoming weapon-shield block is not evaluated,
+  open question 5.
+- No SOEW version bump: stamina is an existing persisted actor value and
+  the bash path writes it through the same `Values::damage` every other
+  actor-value mutation already uses, so no new field needed a schema
+  change here.
+- No live or installed-data comparison against `SKYRIM_DATA` has been run
+  for bash specifically, so `fBashStaminaCost` and the bash damage and
+  stagger-fraction choices above are unverified against vanilla play.
+
+Sources read for this increment: `TES5Edit/Core/wbDefinitionsTES5.pas`
+(lines 10431+, 10444-10445), `uesp-modfileformat/WEAP.wikitext` (lines
+12-14), `uesp-modfileformat/ARMO.wikitext` (lines 64-68),
+`CommonLibSSE/include/RE/B/BGSBlockBashData.h` (lines 21-22), and
+`ck-wiki/OnHit_-_ObjectReference.wikitext` (lines 8, 22, 41), all cited in
+the CMB-20 task pack. This section's stagger-fraction and damage-formula
+choices build on the CMB-14 section above and the CMB-05 section's own
+documented deferral of BIDS/BAMT to this row.
+
+## Power attack damage and stamina, CMB-21
+
+`MeleeHit` carries a new `is_power_attack: bool` field, host-confirmed by the
+attacker's animation graph the same way `World::set_blocking` already
+confirms the target's block stance. `melee_hit` does not derive it from an
+actor value such as `IsPowerAttacking`.
+
+When set, and the swing is not unarmed, `World::combat_power_attack` reads
+the attacker's `ActorState::race` (already cached at actor-build time by
+`World::actor`) and re-reads the winning RACE record fresh through
+`self.record`, matching the "never an engine-private copy" rule. The new
+`PowerAttack::from_race` (`crates/game/src/combat/records.rs`) walks the
+RACE's uncounted `ATKD`/`ATKE` Attacks array and returns the first entry
+whose Attack Flags has Power Attack set and Bash, Left and Rotating clear,
+the default single-weapon forward power attack. Each `ATKD` is a fixed 44
+byte struct (xEdit `wbAttackData`, `wbDefinitionsTES5.pas`, confirmed
+against the source directly). Only Damage Mult and Stamina Mult are read,
+every other field including the per-entry Stagger fraction is skipped.
+
+The multiplier is applied to `weapon_damage` before the existing armor,
+block and difficulty scaling, so it composes with every reduction CMB-01 and
+CMB-05 already established rather than bypassing them.
+
+Stamina cost has no named GMST on either UESP `Skyrim:Combat` or UESP
+`Skyrim:Damage`, both pages state the same formula in prose:
+`power attack stamina cost = (40 + weapon weight * 2) * attack cost multiplier * (1 - perk effect)`. `POWER_ATTACK_STAMINA_BASE` (40.0) and
+`POWER_ATTACK_STAMINA_PER_WEIGHT` (2.0) in `world/combat.rs` are that
+formula's two plain numeric constants, cited at their declaration rather
+than invented GMST names. `validate_combat_actor` already rejects an
+attacker carrying any perk entry ahead of this row, so the perk term is
+always 1 here and is not itself computed. "Attack cost multiplier" is the
+selected `ATKD` entry's Stamina Mult, read as `PowerAttack::stamina_mult`.
+
+The cost is deducted from the attacker's Stamina actor value through the
+same unclamped `Values::damage` path `health_damage` already uses on the
+target, prepared alongside the target's health change so a malformed
+attacker Stamina entry cannot leave a partially-applied hit, and committed
+into `self.actors` right after the target's own commit. The done check
+("a power attack applies its damage multiplier and consumes the recorded
+stamina once") is met: both happen exactly once per accepted power attack
+hit, and not at all when the hit is rejected earlier (invulnerable target,
+non-melee weapon, missing equipment, and so on).
+
+Sources read: `engine-refs/TES5Edit/Core/wbDefinitionsTES5.pas` (`ATKD`
+layout, Attack Flags bit values), UESP `Skyrim:Combat` and `Skyrim:Damage`
+(stamina cost formula, per-attack-type damage/stagger/stamina multiplier
+table). `engine-refs/activeragdoll/src/main.cpp` and
+`engine-refs/skymp/skymp5-client/.../sweetTaffyPlayerCombatService.ts` were
+also checked and confirmed no named-GMST stamina formula exists in either:
+activeragdoll calls an opaque `ActorValueOwner_GetStaminaCostForAttackData`
+and applies it directly to the Stamina actor value.
+
+Open gaps, not attempted by this increment:
+
+- Unarmed power attacks. UESP's Combat and Damage pages give conflicting
+  unarmed multipliers (damage x2/stagger x0.5 versus damage x1/stagger x0.5),
+  so `melee_hit` rejects an unarmed power attack with
+  `Error::Unsupported("unarmed power attack")` rather than guess between them.
+- Dual-wield, bash, off-hand and other non-default `ATKD` entries.
+  `PowerAttack::from_race` only selects the default single-weapon entry.
+  Bash power attacks in particular read BIDS/BAMT, not this path, matching
+  the same scoping CMB-05's block section already applies to ordinary bash.
+- An `NPC_` record's own override Attacks array. Only the RACE's array is
+  read, an NPC-level override (when present) is not consulted.
+- `fBlockPowerAttackMult`, the block-side attenuation for a power attack
+  landing on a blocking target. See the CMB-05 section's gap list.
+- No stamina floor or insufficient-stamina fallback. Vanilla is understood
+  to fall back to a regular attack when the attacker lacks enough stamina to
+  power attack, `melee_hit` never rechecks stamina before applying the
+  swing, since `is_power_attack` is host-confirmed input the host is assumed
+  to have already gated on available stamina.
+- No live or installed-data comparison against `SKYRIM_DATA` for the
+  selected RACE Attacks entry or the stamina formula's constants.
 
 ## Tempered item quality, CMB-10
 

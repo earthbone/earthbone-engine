@@ -199,6 +199,8 @@ fn unarmed_hit(attacker: u32, target: u32) -> MeleeHit {
         attacker: id(attacker),
         target: id(target),
         weapon: id(0x1F4),
+        is_bash: false,
+        is_power_attack: false,
     }
 }
 
@@ -207,6 +209,8 @@ fn hit_with(attacker: u32, target: u32, weapon: u32) -> MeleeHit {
         attacker: id(attacker),
         target: id(target),
         weapon: id(weapon),
+        is_bash: false,
+        is_power_attack: false,
     }
 }
 
@@ -356,7 +360,10 @@ fn armed_weapon_reserved_resist_index_rejects_without_changing_target_health_or_
         let equipped_before = game.world_mut().actor(id(0x901)).unwrap().equipped.clone();
         let result = game.melee_hit(hit_with(0x900, 0x901, 0xA10));
         assert!(
-            matches!(result, Err(Error::Unsupported("unsupported weapon resistance value"))),
+            matches!(
+                result,
+                Err(Error::Unsupported("unsupported weapon resistance value"))
+            ),
             "resist {resist}: {result:?}"
         );
         close(
@@ -383,7 +390,9 @@ fn armed_weapon_reserved_resist_index_rejects_without_changing_target_health_or_
 /// damage past the full hit or reducing it below zero.
 #[test]
 fn weapon_resistance_reduction_clamps_out_of_range_actor_values() {
-    for (value, expected_reduction, expected_damage) in [(500.0_f32, 1.0_f32, 0.0_f32), (-80.0, 0.0, 30.0)] {
+    for (value, expected_reduction, expected_damage) in
+        [(500.0_f32, 1.0_f32, 0.0_f32), (-80.0, 0.0, 30.0)]
+    {
         let mut game = fixture(vec![patch_dnam(weapon(0xA10, 10, 6), 44, 0)]);
         equip(&game, 0x900, 0xA10);
         game.world_mut()
@@ -416,6 +425,8 @@ fn armed_weapon_resistance_reads_the_terminal_template_record() {
             attacker: id(0x14),
             target: id(0x901),
             weapon: weapon_item,
+            is_bash: false,
+            is_power_attack: false,
         })
         .unwrap();
     close(result.resistance_reduction, 0.4);
@@ -443,6 +454,8 @@ fn armed_weapon_resistance_uses_the_winning_cross_plugin_override() {
             attacker: id(0x14),
             target: id(0x901),
             weapon: weapon_item,
+            is_bash: false,
+            is_power_attack: false,
         })
         .unwrap();
     close(result.resistance_reduction, 0.6);
@@ -458,7 +471,8 @@ fn armed_weapon_resistance_uses_the_winning_cross_plugin_override() {
 /// untested.
 #[test]
 fn unarmed_contact_applies_and_the_ignoring_flag_suppresses_resistance() {
-    for (flags, expected_reduction, expected_damage) in [(0_u16, 0.7_f32, 3.0_f32), (1, 0.0, 10.0)] {
+    for (flags, expected_reduction, expected_damage) in [(0_u16, 0.7_f32, 3.0_f32), (1, 0.0, 10.0)]
+    {
         let source = patch_dnam(unarmed_weapon(), 41, flags);
         let mut game = ready_unarmed_game_with_source(race(0x700, 10.), Some(source));
         game.world_mut()
