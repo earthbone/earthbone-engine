@@ -154,6 +154,10 @@ impl MeleeContact {
             attacker: swing.attacker,
             target,
             weapon: swing.weapon,
+            // Shield-bash gesture detection is not wired up on the host side
+            // yet. Every contact this bridge delivers is an ordinary weapon
+            // swing until that lands. See docs/combat.md CMB-20.
+            is_bash: false,
         })
         .map(Some)
     }

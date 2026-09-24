@@ -119,6 +119,7 @@ fn player_hit() -> MeleeHit {
         attacker: id(0x14),
         target: id(0x900),
         weapon: id(0xA00),
+        is_bash: false,
     }
 }
 
@@ -127,6 +128,7 @@ fn npc_hit() -> MeleeHit {
         attacker: id(0x901),
         target: id(0x900),
         weapon: id(0xA00),
+        is_bash: false,
     }
 }
 
@@ -247,6 +249,7 @@ fn cmb_34_rejected_hit_leaves_protected_target_state_untouched() {
         attacker: id(0x14),
         target: id(0x900),
         weapon: bad_weapon,
+        is_bash: false,
     });
 
     assert!(

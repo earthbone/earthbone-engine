@@ -59,6 +59,10 @@ pub struct MeleeHit {
     pub attacker: GlobalFormId,
     pub target: GlobalFormId,
     pub weapon: GlobalFormId,
+    /// The contact is a shield bash rather than an ordinary weapon swing.
+    /// `weapon` then names the attacker's equipped shield ARMO instead of a
+    /// WEAP record. See docs/combat.md CMB-20.
+    pub is_bash: bool,
 }
 
 /// Components of one applied physical hit, before any later script effects.
@@ -79,6 +83,9 @@ pub struct HitResult {
     /// weapon's DNAM Stagger fraction, setting the target's
     /// `ActorState::stagger_end_time`. See docs/combat.md CMB-14.
     pub staggered: bool,
+    /// This hit was a shield bash, reported for OnHit's abBashAttack
+    /// argument. See docs/combat.md CMB-20.
+    pub bashed: bool,
 }
 
 #[derive(Debug, thiserror::Error)]

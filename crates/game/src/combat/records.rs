@@ -94,6 +94,12 @@ pub struct Armor {
     pub kind: Option<u32>,
     pub template: Option<u32>,
     pub enchantment: Option<u32>,
+    /// BIDS, the impact data set a shield bash plays. UESP's ARMO layout
+    /// (lines 64 to 68) documents BIDS/BAMT as shield-only fields, absent
+    /// from every other armor piece. See docs/combat.md CMB-20.
+    pub bash_impact: Option<u32>,
+    /// BAMT, the alternate material a shield bash reports to its impact effect.
+    pub bash_material: Option<u32>,
 }
 
 /// The records that supply an armor's Creation Kit template fields.
@@ -179,6 +185,13 @@ impl Armor {
             kind,
             template: link(child, T(b"TNAM"))?,
             enchantment: link(child, T(b"EITM"))?,
+            // BIDS/BAMT follow the TNAM template chain like the rest of a
+            // shield's physical fields, so they come from `inherited` rather
+            // than `child`. TES5Edit's WEAP layout (lines 10444-10445) shows
+            // the same two subrecords on WEAP for hand-to-hand bash sources,
+            // out of scope here since this row restricts bashing to shields.
+            bash_impact: link(inherited, T(b"BIDS"))?,
+            bash_material: link(inherited, T(b"BAMT"))?,
         })
     }
 
