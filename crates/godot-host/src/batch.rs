@@ -5,24 +5,51 @@
 //! shape. The Bannered Mare went from 763 nodes to a few dozen this way, and
 //! Godot's frame time follows the object count.
 //!
-//! Merging into one `ArrayMesh` was chosen over a `MultiMesh` per repeated
-//! NIF because `data_source::mesh_data_from` has already baked each
-//! reference's placement into the vertex data, so a `MultiMesh` would need
-//! that transform undone and re-applied per instance, and because the two
-//! surfaces of a cell that share a NIF share its material too, so they land
-//! in the same batch either way. A `MultiMesh` pays off where one NIF is
-//! placed hundreds of times with a heavy vertex buffer, which is the
-//! exterior rock and tree case, and is the next step once that shows in a
-//! trace.
+//! Merging into one `ArrayMesh` is the default for two surfaces sharing a
+//! material, since the vertex data is already placement baked and there is
+//! no per-instance transform to keep. A NIF model placed often enough takes
+//! a different path instead: [`instancing_candidates`] pulls those surfaces
+//! out before batching and groups them by mesh identity for a `MultiMesh`,
+//! one shared geometry buffer plus a transform per placement, which is
+//! cheaper than repeating the vertex data once per placement for a model
+//! with a heavy buffer and dozens of copies in a cell. `data_source` decides
+//! which surfaces qualify (`stream_cell_id` counts placements per model
+//! before it builds anything) and keeps their vertex data in the shape's own
+//! local space rather than baking the reference placement in, so the
+//! `GodotTransform` this module carries per member is the only place that
+//! placement lives.
 //!
 //! Every source surface keeps its place in the merged buffers as a
 //! [`BatchMember`], so a triangle index from a raycast maps back to the
-//! reference that placed it.
+//! reference that placed it. A `MultiMesh` group cannot offer that: Godot
+//! resolves a hit against its shared geometry to a triangle index, not to
+//! which placement drew it, so [`InstanceGroup::reference_of_instance`]
+//! answers by placement index instead, and a triangle-based raycast against
+//! an instanced group has no member to find. `docs/godot-host.md` lists this
+//! as an open item alongside the collision path such picking would need.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use crate::data_source::{LoadedSurface, SurfaceTextures};
 use crate::mesh::{Aabb, AlphaMode, SurfaceArrays};
+use crate::units::GodotTransform;
+use soe_esm::GlobalFormId;
+
+/// The fewest placements of one mesh identity (model path plus shape index)
+/// that make a `MultiMesh` worth its own draw call and buffer instead of
+/// batching those surfaces into a merged `ArrayMesh` with the rest of the
+/// cell. Reasoned, not measured: a `MultiMesh` adds a mesh RID, an instance
+/// RID and a 48 byte `Transform3D` per placement (12 floats), against a
+/// batched copy of the shape's full vertex buffer per placement. A small
+/// exterior rock is on the order of a few hundred vertices at roughly 32
+/// bytes each (position, normal, tangent, one UV) plus its share of index
+/// data, several kilobytes a copy, so even a handful of repeats already cost
+/// more merged than instanced. Four is deliberately low: it costs one
+/// `MultiMesh` and one draw call to try, and the breaker's benchmark
+/// (`docs/godot-host.md` names it) is what tunes this against a measured
+/// p99 and memory trace rather than this estimate.
+pub const INSTANCE_MIN_PLACEMENTS: usize = 4;
 
 /// What has to agree for two surfaces to share one draw: the texture set,
 /// the alpha mode, the cull mode, and which vertex attributes are present,
@@ -194,11 +221,125 @@ pub fn merge_bounds(a: Aabb, b: Aabb) -> Aabb {
     }
 }
 
+/// One placement of an instanced mesh: which reference put it there and
+/// where, in Godot space. The geometry itself lives once in the owning
+/// [`InstanceGroup`], local to the shape, not baked to this placement.
+#[derive(Debug, Clone, Copy)]
+pub struct InstanceMember {
+    /// Index into the surface list `instancing_candidates` was called with.
+    pub surface: usize,
+    pub reference: GlobalFormId,
+    pub transform: GodotTransform,
+}
+
+/// One mesh identity's surfaces, repeated often enough to draw as a
+/// `MultiMesh`: one shared geometry buffer and texture set, one transform
+/// per placement.
+#[derive(Debug, Clone)]
+pub struct InstanceGroup {
+    /// The model path and shape index the members share, only used to group
+    /// them here, the Godot layer does not need it again.
+    pub identity: Arc<str>,
+    /// Local-space geometry, one shape, shared by every member.
+    pub arrays: SurfaceArrays,
+    pub textures: SurfaceTextures,
+    pub members: Vec<InstanceMember>,
+}
+
+impl InstanceGroup {
+    /// The reference that placed the `index`th member, in the order they
+    /// were pushed, which is the order the Godot layer sets `MultiMesh`
+    /// instance transforms in.
+    pub fn reference_of_instance(&self, index: usize) -> Option<GlobalFormId> {
+        self.members.get(index).map(|m| m.reference)
+    }
+}
+
+/// What makes two candidate surfaces the same `MultiMesh`: the mesh
+/// identity `data_source` assigned (model path plus shape index) and the
+/// [`BatchKey`] its material and vertex layout produce. A `MultiMesh` draws
+/// its whole instance set with one shared mesh and one material, so two
+/// placements of the same model with a different diffuse texture, the base
+/// versus a snow variant for example, need two groups the same way
+/// `batch_surfaces` already keeps them in two batches.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct InstanceKey {
+    identity: Arc<str>,
+    material: BatchKey,
+}
+
+/// Splits `surfaces` into groups worth drawing as a `MultiMesh` and the
+/// indices of the remainder, which still goes through [`batch_surfaces`].
+///
+/// Only surfaces `data_source` already marked with both a `mesh_identity`
+/// and an `instance_transform` are candidates. `data_source` sets both only
+/// when it decided, before building any geometry, that the model clears
+/// [`INSTANCE_MIN_PLACEMENTS`] in that cell, so this function counts
+/// nothing itself, it groups what is already marked. Within that, members
+/// are grouped by [`InstanceKey`], mesh identity plus material, since one
+/// `MultiMesh` has exactly one material for every instance it draws.
+/// Skinned surfaces never become instancing candidates: a `MultiMesh`
+/// instance carries only a rigid `Transform3D`, with no per-instance
+/// skeleton pose for their bone indices to bind to, the same reason
+/// `batch_surfaces` keeps skinned surfaces out of a merged `ArrayMesh`. A
+/// candidate whose key turns out to have fewer than `INSTANCE_MIN_PLACEMENTS`
+/// members once grouped (two different shapes or materials of the same
+/// model can carry the same count from `data_source` but split across keys)
+/// falls back to the remainder, since a `MultiMesh` of one or two instances
+/// has no case for its own draw call.
+pub fn instancing_candidates(surfaces: &[LoadedSurface]) -> (Vec<InstanceGroup>, Vec<usize>) {
+    let mut by_key: HashMap<InstanceKey, usize> = HashMap::new();
+    let mut groups: Vec<InstanceGroup> = Vec::new();
+    let mut remainder: Vec<usize> = Vec::new();
+    for (index, surface) in surfaces.iter().enumerate() {
+        let (Some(identity), Some(transform)) =
+            (surface.mesh_identity.as_ref(), surface.instance_transform)
+        else {
+            remainder.push(index);
+            continue;
+        };
+        if surface.arrays.is_skinned() {
+            remainder.push(index);
+            continue;
+        }
+        let key = InstanceKey {
+            identity: Arc::clone(identity),
+            material: BatchKey::of(&surface.arrays),
+        };
+        let member = InstanceMember {
+            surface: index,
+            reference: surface.reference,
+            transform,
+        };
+        match by_key.get(&key) {
+            Some(&slot) => groups[slot].members.push(member),
+            None => {
+                by_key.insert(key, groups.len());
+                groups.push(InstanceGroup {
+                    identity: Arc::clone(identity),
+                    arrays: surface.arrays.clone(),
+                    textures: surface.textures.clone(),
+                    members: vec![member],
+                });
+            }
+        }
+    }
+    let (groups, short): (Vec<_>, Vec<_>) = groups
+        .into_iter()
+        .partition(|g| g.members.len() >= INSTANCE_MIN_PLACEMENTS);
+    remainder.extend(
+        short
+            .iter()
+            .flat_map(|g| g.members.iter().map(|m| m.surface)),
+    );
+    remainder.sort_unstable();
+    (groups, remainder)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::mesh::{build_surface, MaterialDesc, MeshData, MeshOptions};
-    use soe_esm::GlobalFormId;
 
     fn quad(offset: f32, diffuse: &str) -> LoadedSurface {
         let data = MeshData {
@@ -224,6 +365,8 @@ mod tests {
             arrays: build_surface(&data, MeshOptions::default()).unwrap(),
             textures: SurfaceTextures::default(),
             placement: soe_physics::Iso::IDENTITY,
+            instance_transform: None,
+            mesh_identity: None,
         }
     }
 

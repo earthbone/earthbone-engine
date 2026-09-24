@@ -25,12 +25,14 @@
 pub mod actor_values;
 pub mod ai;
 pub mod appearance;
+pub mod class;
 pub mod clock;
 pub mod combat;
 pub mod conditions;
 pub mod coverage;
 pub mod crafting;
 pub mod debug;
+pub mod detection;
 pub mod determinism;
 pub mod dialogue;
 pub mod footsteps;

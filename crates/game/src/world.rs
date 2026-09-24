@@ -45,6 +45,7 @@ mod bleedout;
 mod calendar;
 mod combat;
 mod death;
+mod detection;
 mod doorway;
 mod driver;
 mod encounter_zones;
@@ -517,6 +518,8 @@ pub struct World {
     pub(crate) active_effects: BTreeMap<magic::EffectId, magic::ActiveEffect>,
     pub(crate) next_effect: u64,
     pub(crate) image_space: image_space::ImageSpaceState,
+    /// Stealth-point pools by target, each with its observers' awareness.
+    pub(crate) detection: crate::detection::DetectionState,
 }
 
 impl World {
@@ -605,6 +608,7 @@ impl World {
             active_effects: BTreeMap::new(),
             next_effect: 1,
             image_space: image_space::ImageSpaceState::default(),
+            detection: crate::detection::DetectionState::default(),
         }
     }
 
