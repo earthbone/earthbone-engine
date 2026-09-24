@@ -134,6 +134,7 @@ fn hit(attacker: u32, target: u32) -> soe_game::combat::MeleeHit {
         attacker: id(attacker),
         target: id(target),
         weapon: id(0xA00),
+        is_power_attack: false,
     }
 }
 

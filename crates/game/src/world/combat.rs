@@ -11,13 +11,23 @@ use soe_papyrus::Value;
 
 use super::{Alloc, Pending, World};
 use crate::combat::{
-    records::{Armor, Weapon},
+    records::{Armor, PowerAttack, Weapon},
     Difficulty, Error, HitResult, MeleeHit,
 };
 
 const UNARMED_ATTACK: u32 = 0x1F4;
 
 const SUPPORTED_ARMOR_SLOTS: u32 = (1 << 14) - 1;
+
+/// UESP's Combat and Damage pages give power attack stamina cost as an
+/// unnamed formula, no GMST is named on either page: "power attack stamina
+/// cost = (40 + weapon weight * 2) * attack cost multiplier * (1 - perk
+/// effect)". `validate_combat_actor` already rejects an attacker carrying
+/// any perk entry, so the perk term is always 1 here. "Attack cost
+/// multiplier" is the race's Attacks entry Stamina Mult field, read through
+/// `PowerAttack`. See docs/combat.md CMB-21.
+const POWER_ATTACK_STAMINA_BASE: f32 = 40.0;
+const POWER_ATTACK_STAMINA_PER_WEIGHT: f32 = 2.0;
 
 impl World {
     /// Return the selected difficulty tier.
@@ -191,11 +201,19 @@ impl World {
         // Unarmed contacts have no WEAP record to carry a Stagger fraction,
         // so they never stagger. No corpus source states an unarmed default.
         // They also carry no inventory stack, so no quality extra can apply.
-        let (weapon_damage, stagger_fraction, quality_multiplier) = if unarmed {
+        // Unarmed power attacks are a documented gap, see docs/combat.md
+        // CMB-21: the vanilla damage and stamina multipliers for them
+        // conflict between UESP's own Combat and Damage pages, so nothing
+        // is guessed here.
+        let (weapon_damage, stagger_fraction, quality_multiplier, power_stamina_cost) = if unarmed {
+            if hit.is_power_attack {
+                return Err(Error::Unsupported("unarmed power attack"));
+            }
             (
                 self.unarmed_damage(hit.attacker, hit.weapon)?,
                 0.0_f32,
                 1.0_f32,
+                None,
             )
         } else {
             let weapon = self.combat_weapon(hit.weapon)?;
@@ -233,12 +251,25 @@ impl World {
                 };
                 self.combat_skill_scale(hit.attacker, skill, min, max)?
             };
+            let mut weapon_damage = finite(
+                f64::from(weapon.damage) * scale * self.combat_setting("fDamageWeaponMult")?,
+            )?;
+            let mut power_stamina_cost = None;
+            if hit.is_power_attack {
+                let power_attack = self.combat_power_attack(hit.attacker)?;
+                weapon_damage =
+                    finite(f64::from(weapon_damage) * f64::from(power_attack.damage_mult))?;
+                power_stamina_cost = Some(finite(
+                    (f64::from(POWER_ATTACK_STAMINA_BASE)
+                        + f64::from(weapon.weight) * f64::from(POWER_ATTACK_STAMINA_PER_WEIGHT))
+                        * f64::from(power_attack.stamina_mult),
+                )?);
+            }
             (
-                finite(
-                    f64::from(weapon.damage) * scale * self.combat_setting("fDamageWeaponMult")?,
-                )?,
+                weapon_damage,
                 weapon.stagger,
                 quality_multiplier,
+                power_stamina_cost,
             )
         };
         let attack_multiplier = finite(f64::from(
@@ -300,6 +331,24 @@ impl World {
             .transpose()?
             .map(|duration| self.clock.real_seconds + duration);
         // Prepare damage before allocating events, so overflow cannot leave a partial hit.
+        // A power attack's stamina cost is prepared here too, so a
+        // malformed attacker Stamina entry cannot leave a partial hit
+        // either. No floor applies, matching health_damage below, so an
+        // attacker who started the swing with too little stamina still
+        // pays the cost. Nothing here re-checks stamina before the swing:
+        // this function only runs once the host has already confirmed the
+        // power attack, see docs/combat.md CMB-21.
+        let attacker_stamina = power_stamina_cost
+            .map(|cost| -> Result<_, Error> {
+                let mut values = self
+                    .actor_ref(hit.attacker)
+                    .ok_or(Error::Actor(hit.attacker))?
+                    .values
+                    .clone();
+                values.damage("stamina", cost)?;
+                Ok(values)
+            })
+            .transpose()?;
         let mut values = self
             .actor_ref(hit.target)
             .ok_or(Error::Actor(hit.target))?
@@ -329,7 +378,7 @@ impl World {
             aggressor,
             source,
             Value::None,
-            Value::Bool(false),
+            Value::Bool(hit.is_power_attack),
             Value::Bool(false),
             Value::Bool(false),
             Value::Bool(blocked),
@@ -361,6 +410,11 @@ impl World {
             }
             if staggered {
                 target.stagger_end_time = stagger_deadline;
+            }
+        }
+        if let Some(values) = attacker_stamina {
+            if let Some(attacker) = self.actors.get_mut(&hit.attacker) {
+                attacker.values = values;
             }
         }
         let killed = !bleedout_target && lethal && self.kill_actor(hit.target, Some(hit.attacker));
@@ -435,6 +489,28 @@ impl World {
             .ok_or(Error::Unsupported("missing race unarmed damage"))?
             .current();
         finite(f64::from(value))
+    }
+
+    /// Attacker's default single-weapon power attack entry, from the
+    /// winning RACE record their `ActorState::race` already resolved.
+    /// `ActorState::race` only caches which record wins, the record itself
+    /// is still read fresh through the shared `World` here.
+    ///
+    /// # Errors
+    /// Missing actor, race or matching Attacks entry, or a malformed RACE record.
+    fn combat_power_attack(&self, actor: GlobalFormId) -> Result<PowerAttack, Error> {
+        let race = self
+            .actor_ref(actor)
+            .ok_or(Error::Actor(actor))?
+            .race
+            .ok_or(Error::Unsupported(
+                "attacker has no race for power attack data",
+            ))?;
+        let record = self
+            .record(race)
+            .ok_or(Error::Unsupported("missing attacker race record"))?;
+        PowerAttack::from_race(record)?
+            .ok_or(Error::Unsupported("race has no default power attack entry"))
     }
 
     /// Rejects an equipped item that carries a poisoned or enchanted stack,

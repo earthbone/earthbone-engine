@@ -116,6 +116,7 @@ fn hit() -> MeleeHit {
         attacker: id(0x900),
         target: id(0x901),
         weapon: id(0xA00),
+        is_power_attack: false,
     }
 }
 

@@ -154,6 +154,9 @@ impl MeleeContact {
             attacker: swing.attacker,
             target,
             weapon: swing.weapon,
+            // `begin` arms ordinary swings only. The host has no power
+            // attack trigger yet, so no stamina cost applies here.
+            is_power_attack: false,
         })
         .map(Some)
     }
