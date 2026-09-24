@@ -66,8 +66,9 @@ the player. Apprentice uses 1.5 and 0.75. Adept uses 1.0 and 1.0. Expert uses
 0.75 and 1.5. Master uses 0.5 and 2.0. Legendary uses 0.25 and 3.0. Plugin
 records and runtime overrides for the selected GMST pair take precedence over
 these defaults. It rejects all perked
-actors, enchantments, item tempering/poison, special
-resistance flags and unsupported weapon skills/types. These are open execution
+actors, enchantments, item poison, special
+resistance flags and unsupported weapon skills/types. Tempered item quality
+scales damage instead of rejecting, CMB-10. These are open execution
 requirements, not silently omitted modifiers. Protected and essential targets
 are rejected pending bleedout handling. Ghosts and dead actors are rejected.
 An essential attacker can still attack an ordinary target.
@@ -198,8 +199,8 @@ engine save/load. Ordinary weapons retain their shared template resolver.
 ## Remaining execution work
 
 Host attack input, timing/contact detection, hand-specific selection, ranged
-weapons/ammunition, bashing, sneak and power attacks, weapon-only blocking,
-perk entry points, tempering, enchantments, bleedout,
+weapons/ammunition, bashing, sneak attacks, dual-wield and bash power
+attacks, weapon-only blocking, perk entry points, enchantments, poison, bleedout,
 stagger, crime and combat AI remain unfinished. The API is an execution
 increment and does not establish playable combat or completion of the broader
 gameplay-foundations goal.
@@ -248,8 +249,9 @@ Open gaps, not attempted by this increment:
   are already globally rejected by `validate_combat_actor`, ahead of and
   independent from this row.
 - Fortify Block enchantments and potions.
-- `fBlockPowerAttackMult`. `MeleeHit` carries no power-attack input yet, so
-  no attenuation term exists to apply it to.
+- `fBlockPowerAttackMult`. `MeleeHit.is_power_attack` exists now (CMB-21),
+  but `combat_block`'s reduction formula still does not read it, so no
+  attenuation term applies it yet.
 - Bash attacks (`abBashAttack`), which read BIDS/BAMT rather than the
   block-reduction path and are unrelated to this row's done check.
 - `fBlockMax`'s value. UESP's talk archive gives 0.7 as the documented
@@ -294,7 +296,10 @@ hands. Version 17 retains its hands and defaults to Adept. Version 18 retains
 both fields. The integration checks all four extension layouts and rejects
 invalid difficulty bytes before replacing world state.
 This does not infer item-instance selection from a form-only equipment set.
-Instance quality, poison and enchantment continue to reject as described above.
+Poison and enchantment continue to reject as described above. Tempered item
+quality reads instead of rejecting, CMB-10, but the same form-only equipment
+set still cannot name which physical stack a hit swung: when an item's
+stacks disagree on quality, `check_combat_stack` rejects rather than guess.
 
 Hand selection and armor slot replacement use the same template resolution
 as hit calculation. Terminal weapon ETYP supplies the slot choices. The child
@@ -757,10 +762,13 @@ Left out of this row, each a concrete next step rather than a silent gap:
 - Vanilla's Light, Medium and Heavy stagger tiers are not modeled. Every
   qualifying hit uses the same `fStaggerDuration`, not a duration keyed to
   hit strength.
-- Power attacks are not implemented yet (they are not part of CMB-01), so
-  their documented longer stagger is not modeled either. The next step is
-  the same clamp this row uses, read against whatever multiplier CMB gives
-  power attacks when that row lands.
+- Power attacks apply their damage and stamina multipliers as of CMB-21, but
+  stagger still uses the weapon's own DNAM Stagger fraction unchanged. UESP's
+  per-attack-type table gives a single-weapon power attack's stagger
+  multiplier as x1, the identity, so this happens to match for the one entry
+  CMB-21 reads. Dual-wield and bash power attacks, whose table entries are
+  not x1, are not selected by `PowerAttack::from_race` and so never reach
+  this path.
 - No live or installed-data comparison against `SKYRIM_DATA` has been run
   for stagger specifically, since no source pins the vanilla threshold or
   duration to compare against.
@@ -866,3 +874,160 @@ Sources read for this increment: `TES5Edit/Core/wbDefinitionsTES5.pas`
 the CMB-20 task pack. This section's stagger-fraction and damage-formula
 choices build on the CMB-14 section above and the CMB-05 section's own
 documented deferral of BIDS/BAMT to this row.
+
+## Power attack damage and stamina, CMB-21
+
+`MeleeHit` carries a new `is_power_attack: bool` field, host-confirmed by the
+attacker's animation graph the same way `World::set_blocking` already
+confirms the target's block stance. `melee_hit` does not derive it from an
+actor value such as `IsPowerAttacking`.
+
+When set, and the swing is not unarmed, `World::combat_power_attack` reads
+the attacker's `ActorState::race` (already cached at actor-build time by
+`World::actor`) and re-reads the winning RACE record fresh through
+`self.record`, matching the "never an engine-private copy" rule. The new
+`PowerAttack::from_race` (`crates/game/src/combat/records.rs`) walks the
+RACE's uncounted `ATKD`/`ATKE` Attacks array and returns the first entry
+whose Attack Flags has Power Attack set and Bash, Left and Rotating clear,
+the default single-weapon forward power attack. Each `ATKD` is a fixed 44
+byte struct (xEdit `wbAttackData`, `wbDefinitionsTES5.pas`, confirmed
+against the source directly). Only Damage Mult and Stamina Mult are read,
+every other field including the per-entry Stagger fraction is skipped.
+
+The multiplier is applied to `weapon_damage` before the existing armor,
+block and difficulty scaling, so it composes with every reduction CMB-01 and
+CMB-05 already established rather than bypassing them.
+
+Stamina cost has no named GMST on either UESP `Skyrim:Combat` or UESP
+`Skyrim:Damage`, both pages state the same formula in prose:
+`power attack stamina cost = (40 + weapon weight * 2) * attack cost multiplier * (1 - perk effect)`. `POWER_ATTACK_STAMINA_BASE` (40.0) and
+`POWER_ATTACK_STAMINA_PER_WEIGHT` (2.0) in `world/combat.rs` are that
+formula's two plain numeric constants, cited at their declaration rather
+than invented GMST names. `validate_combat_actor` already rejects an
+attacker carrying any perk entry ahead of this row, so the perk term is
+always 1 here and is not itself computed. "Attack cost multiplier" is the
+selected `ATKD` entry's Stamina Mult, read as `PowerAttack::stamina_mult`.
+
+The cost is deducted from the attacker's Stamina actor value through the
+same unclamped `Values::damage` path `health_damage` already uses on the
+target, prepared alongside the target's health change so a malformed
+attacker Stamina entry cannot leave a partially-applied hit, and committed
+into `self.actors` right after the target's own commit. The done check
+("a power attack applies its damage multiplier and consumes the recorded
+stamina once") is met: both happen exactly once per accepted power attack
+hit, and not at all when the hit is rejected earlier (invulnerable target,
+non-melee weapon, missing equipment, and so on).
+
+Sources read: `engine-refs/TES5Edit/Core/wbDefinitionsTES5.pas` (`ATKD`
+layout, Attack Flags bit values), UESP `Skyrim:Combat` and `Skyrim:Damage`
+(stamina cost formula, per-attack-type damage/stagger/stamina multiplier
+table). `engine-refs/activeragdoll/src/main.cpp` and
+`engine-refs/skymp/skymp5-client/.../sweetTaffyPlayerCombatService.ts` were
+also checked and confirmed no named-GMST stamina formula exists in either:
+activeragdoll calls an opaque `ActorValueOwner_GetStaminaCostForAttackData`
+and applies it directly to the Stamina actor value.
+
+Open gaps, not attempted by this increment:
+
+- Unarmed power attacks. UESP's Combat and Damage pages give conflicting
+  unarmed multipliers (damage x2/stagger x0.5 versus damage x1/stagger x0.5),
+  so `melee_hit` rejects an unarmed power attack with
+  `Error::Unsupported("unarmed power attack")` rather than guess between them.
+- Dual-wield, bash, off-hand and other non-default `ATKD` entries.
+  `PowerAttack::from_race` only selects the default single-weapon entry.
+  Bash power attacks in particular read BIDS/BAMT, not this path, matching
+  the same scoping CMB-05's block section already applies to ordinary bash.
+- An `NPC_` record's own override Attacks array. Only the RACE's array is
+  read, an NPC-level override (when present) is not consulted.
+- `fBlockPowerAttackMult`, the block-side attenuation for a power attack
+  landing on a blocking target. See the CMB-05 section's gap list.
+- No stamina floor or insufficient-stamina fallback. Vanilla is understood
+  to fall back to a regular attack when the attacker lacks enough stamina to
+  power attack, `melee_hit` never rechecks stamina before applying the
+  swing, since `is_power_attack` is host-confirmed input the host is assumed
+  to have already gated on available stamina.
+- No live or installed-data comparison against `SKYRIM_DATA` for the
+  selected RACE Attacks entry or the stamina formula's constants.
+
+## Tempered item quality, CMB-10
+
+`check_combat_stack` used to reject any weapon stack carrying an extra of
+kind 37 (CommonLib `ExtraHealth`, poison 62 and enchantment 155) outright.
+It now separates the three: poison and enchantment still reject the contact
+unconditionally, unchanged from CMB-03. Quality is read instead, and
+`melee_hit` applies it as a multiplier on `weapon_damage` right after
+AttackDamageMult (CMB-01) and before armor and shield block reduction
+(CMB-05). A weapon with no quality extra on any of its stacks leaves damage
+unchanged, matching CMB-01's existing untempered path exactly.
+
+`ExtraHealth` carries a single float, `health`, which the CK's
+`SetItemHealthPercent`/`GetItemHealthPercent` pages document as the item's
+"health (tempering state)" as a fraction: 1.0 is the untempered baseline
+and values above it are a tempered percentage. `damage * health` is what
+this row ports, the same direct scaling the task pack specifies and the
+one CK page in the local corpus that names the field's semantics supports.
+No local or UESP source enumerates the five tempering tier multipliers
+(Fine, Superior, Exquisite, Flawless, Legendary in the perked tempering
+chain) as fixed numbers, those come from the smithing perks and the
+tempering recipe's quality slider at craft time, not from a table this row
+could port. `check_combat_stack` reads whatever value smithing wrote, it
+does not compute or validate against a tier table.
+
+CMB-03 already established that the equipped set is form-only,
+`BTreeSet<GlobalFormId>`, and cannot name which physical `ExtraDataList`
+instance a hit swung when an item has more than one stack. This row cannot
+add that tracking without changing the equip model CMB-03 shipped, which is
+out of scope here. Instead, `check_combat_stack` reads quality from every
+stack of the equipped item: no stack carrying kind 37 returns `None`
+(no adjustment), every stack that carries it agreeing on one finite,
+non-negative value returns that value, and stacks that disagree return
+`Error::Unsupported` rather than pick one arbitrarily. A tempered stack
+next to a plain, unmodified stack of the same item is unambiguous under
+this rule, since only one candidate value exists. Two stacks of the same
+item tempered to different levels are not resolvable from the equipped set
+alone and reject the contact, a concrete gap the equip model would need to
+close, not a silent one.
+
+Quality bits are read with the same `finite()` helper CMB-01 already uses
+for every other combat float, rejecting a nonfinite or negative value the
+same way a malformed game setting rejects. `Inventory::update_selected`
+(CRF-04) already validates finite, non-negative quality before writing it,
+so this only matters for stacks assembled outside that path, such as
+synthetic fixtures or saved data the crafting API never touched.
+
+`melee_hit` runs the quality read once more, read-only, before it reads the
+target's actor base. That read may initialize the base lazily, and
+`save_state` persists the entry (CMB-36). Validating an equipped weapon's
+quality first means a malformed, nonfinite or ambiguous quality rejects the
+contact with the saved state unchanged, not only with no damage applied.
+The early pass skips unarmed contacts, unequipped weapons and attackers
+without a reference, so their existing errors keep their order.
+
+Sources read: local CommonLib `ExtraHealth.h` (single `float health`
+member, `ExtraDataType::kHealth`) and `ExtraEnchantment.h` (a distinct
+`EnchantmentItem*` field, confirming quality and enchantment are unrelated
+per-instance extras), the CK wiki's `SetItemHealthPercent_-_ObjectReference`
+and `GetItemHealthPercent_-_ObjectReference` pages for the health-as-
+tempering-percentage semantics, and this repository's `docs/game.md` CRF-04
+section for the extra-data field layout and validation already in place.
+No new dependency or record view was needed, the extra was already decoded
+by the inventory model CRF-04 built.
+
+Left out of this row:
+
+- The fixed vanilla tempering tier multipliers (Fine through Legendary) are
+  not modeled as a table, since no corpus source states them as constants
+  independent of the smithing skill and perk formula that produces them.
+  `docs/game.md`'s crafting sections own that formula when it lands.
+- Two or more stacks of the same equipped item carrying different quality
+  values reject the contact instead of resolving to one, see above. Fixing
+  this needs instance-level equip tracking beyond CMB-03's form-only set.
+- Unarmed contacts hold no WEAP record or inventory stack, so quality never
+  applies to them, matching the existing unarmed-modifier rejection CMB-01
+  already documents.
+- Enchanted-and-tempered weapons still reject on the enchantment extra
+  alone, so quality's interaction with an active enchantment is untested
+  and unimplemented pending the enchantment row.
+- No live or installed-data comparison against `SKYRIM_DATA` has been run,
+  since no vanilla save in the local corpus was checked for its equipped
+  weapons' quality extras specifically.

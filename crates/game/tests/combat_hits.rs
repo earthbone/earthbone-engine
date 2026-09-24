@@ -191,6 +191,7 @@ fn hit(attacker: u32, target: u32) -> MeleeHit {
         target: id(target),
         weapon: id(0xA00),
         is_bash: false,
+        is_power_attack: false,
     }
 }
 fn unarmed_hit(attacker: u32, target: u32) -> MeleeHit {
@@ -199,6 +200,7 @@ fn unarmed_hit(attacker: u32, target: u32) -> MeleeHit {
         target: id(target),
         weapon: id(0x1F4),
         is_bash: false,
+        is_power_attack: false,
     }
 }
 fn equip(game: &Game, actor: u32, item: u32) {
@@ -566,6 +568,7 @@ fn installed_race_backed_unarmed_hits_execute() {
                 target,
                 weapon: id(0x1F4),
                 is_bash: false,
+                is_power_attack: false,
             })
             .unwrap();
         assert!(result.health_damage.is_finite());
@@ -644,6 +647,7 @@ fn a_fieldless_cross_plugin_weapon_template_uses_the_winning_master_record() {
             target: id(0x901),
             weapon,
             is_bash: false,
+            is_power_attack: false,
         })
         .unwrap();
     close(result.weapon_damage, 37.5);
@@ -679,6 +683,7 @@ fn a_fieldless_cross_plugin_armor_template_uses_the_winning_master_record() {
             target: id(0x901),
             weapon,
             is_bash: false,
+            is_power_attack: false,
         })
         .unwrap();
     close(result.armor_rating, 300.);
@@ -996,6 +1001,7 @@ fn installed_weapon_and_armor_fields_decode_and_ordinary_weapons_execute() {
             target,
             weapon: *form,
             is_bash: false,
+            is_power_attack: false,
         }) {
             Ok(result) => {
                 assert!(result.health_damage.is_finite());

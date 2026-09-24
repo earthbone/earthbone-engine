@@ -63,6 +63,11 @@ pub struct MeleeHit {
     /// `weapon` then names the attacker's equipped shield ARMO instead of a
     /// WEAP record. See docs/combat.md CMB-20.
     pub is_bash: bool,
+    /// The attacker's animation graph confirmed a power attack for this
+    /// swing, the same host-confirmed pattern `World::set_blocking` uses
+    /// for the target's block stance. Not derived here from an actor value
+    /// such as `IsPowerAttacking`, see docs/combat.md CMB-21.
+    pub is_power_attack: bool,
 }
 
 /// Components of one applied physical hit, before any later script effects.

@@ -140,6 +140,7 @@ fn npc_hit() -> MeleeHit {
         target: id(0x900),
         weapon: id(0xA00),
         is_bash: false,
+        is_power_attack: false,
     }
 }
 
@@ -209,6 +210,7 @@ fn cmb_36_protected_lazy_actor_base_persists_through_unrelated_equipment_rejecti
         target: id(0x900),
         weapon: id(0xBAD),
         is_bash: false,
+        is_power_attack: false,
     });
     assert!(
         matches!(result, Err(Error::Equipment)),

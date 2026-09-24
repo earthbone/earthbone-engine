@@ -158,6 +158,9 @@ impl MeleeContact {
             // yet. Every contact this bridge delivers is an ordinary weapon
             // swing until that lands. See docs/combat.md CMB-20.
             is_bash: false,
+            // `begin` arms ordinary swings only. The host has no power
+            // attack trigger yet, so no stamina cost applies here.
+            is_power_attack: false,
         })
         .map(Some)
     }

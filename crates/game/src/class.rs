@@ -11,8 +11,8 @@
 //!
 //! `teaches` and `maximum_training_level` govern trainer dialogue, not level
 //! up skill point distribution, and stay unconsumed here. `attribute_weights`
-//! is the input to the class health, magicka and stamina weighting formula,
-//! also not consumed yet, see `docs/actor-values.md`.
+//! is the input to the class health, magicka and stamina weighting formula
+//! in `crates/game/src/world/actor_seeds.rs`, see `docs/actor-values.md`.
 
 use soe_esm::{Error, Record, Tag};
 

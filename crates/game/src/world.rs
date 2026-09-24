@@ -44,6 +44,7 @@ mod actors;
 mod bleedout;
 mod calendar;
 mod combat;
+mod crime;
 mod death;
 mod detection;
 mod doorway;
@@ -268,6 +269,11 @@ pub struct ActorState {
     /// Compared against `World::clock.real_seconds`, the lazy expiry
     /// `ai::AiState::wait_until` also uses, see `World::is_staggered`.
     pub stagger_end_time: Option<f64>,
+    /// Perpetrators this actor has witnessed committing a crime against a
+    /// faction that tracks crime. The bounty itself lives on
+    /// `FactionState`, this is the actor's own memory of who it saw do it.
+    /// See `World::record_witnessed_crime`.
+    pub witnessed_crimes: BTreeSet<GlobalFormId>,
 }
 
 /// One `LVLO` entry of a leveled list.

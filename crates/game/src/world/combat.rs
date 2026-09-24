@@ -11,13 +11,23 @@ use soe_papyrus::Value;
 
 use super::{Alloc, Pending, World};
 use crate::combat::{
-    records::{Armor, Weapon},
+    records::{Armor, PowerAttack, Weapon},
     Difficulty, Error, HitResult, MeleeHit,
 };
 
 const UNARMED_ATTACK: u32 = 0x1F4;
 
 const SUPPORTED_ARMOR_SLOTS: u32 = (1 << 14) - 1;
+
+/// UESP's Combat and Damage pages give power attack stamina cost as an
+/// unnamed formula, no GMST is named on either page: "power attack stamina
+/// cost = (40 + weapon weight * 2) * attack cost multiplier * (1 - perk
+/// effect)". `validate_combat_actor` already rejects an attacker carrying
+/// any perk entry, so the perk term is always 1 here. "Attack cost
+/// multiplier" is the race's Attacks entry Stamina Mult field, read through
+/// `PowerAttack`. See docs/combat.md CMB-21.
+const POWER_ATTACK_STAMINA_BASE: f32 = 40.0;
+const POWER_ATTACK_STAMINA_PER_WEIGHT: f32 = 2.0;
 
 impl World {
     /// Return the selected difficulty tier.
@@ -129,6 +139,21 @@ impl World {
         }
         self.validate_combat_actor(hit.attacker)?;
         self.validate_combat_actor(hit.target)?;
+        // Reading the target's actor base below may initialize it lazily, and
+        // save_state persists that entry (CMB-36). Validate the equipped
+        // weapon's quality extras first (CMB-10), a read-only pass, so a
+        // malformed, nonfinite or ambiguous quality rejects with the saved
+        // state untouched. Unequipped weapons, attackers without a reference
+        // and unarmed contacts skip it and keep their existing errors.
+        let unarmed = hit.weapon.file == 0 && hit.weapon.object == UNARMED_ATTACK;
+        if !unarmed
+            && self.refs.contains_key(&hit.attacker)
+            && self
+                .actor_ref(hit.attacker)
+                .is_some_and(|attacker| attacker.equipped.contains(&hit.weapon))
+        {
+            self.combat_stack_quality(hit.attacker, hit.weapon)?;
+        }
         let target = self.actor_ref(hit.target).ok_or(Error::Actor(hit.target))?;
         let (record_protected, record_essential) = (target.protected, target.essential);
         // `ActorBase.SetProtected` and `ActorBase.SetEssential`
@@ -178,7 +203,8 @@ impl World {
         // Unarmed contacts have no WEAP record to carry a Stagger fraction,
         // so they never stagger. No corpus source states an unarmed default.
         let mut bash_stamina_cost = None;
-        let (weapon_damage, stagger_fraction) = if hit.is_bash {
+        let (weapon_damage, stagger_fraction, quality_multiplier, power_stamina_cost) = if hit.is_bash
+        {
             let armor = self.combat_armor_record(hit.weapon)?;
             // UESP's ARMO layout ties BIDS/BAMT to the shield slot (BOD2 bit
             // 9), so a bash source is rejected here rather than trusting the
@@ -219,9 +245,22 @@ impl World {
             // rather than a separate GMST or the attacker's other-hand
             // weapon. No corpus source pins a vanilla bash damage formula,
             // this is an engineering estimate, see docs/combat.md CMB-20.
-            (finite(f64::from(armor.rating))?, 1.0_f32)
-        } else if hit.weapon.file == 0 && hit.weapon.object == UNARMED_ATTACK {
-            (self.unarmed_damage(hit.attacker, hit.weapon)?, 0.0_f32)
+            (finite(f64::from(armor.rating))?, 1.0_f32, 1.0_f32, None)
+        } else if unarmed {
+            // They also carry no inventory stack, so no quality extra can
+            // apply. Unarmed power attacks are a documented gap, see
+            // docs/combat.md CMB-21: the vanilla damage and stamina
+            // multipliers for them conflict between UESP's own Combat and
+            // Damage pages, so nothing is guessed here.
+            if hit.is_power_attack {
+                return Err(Error::Unsupported("unarmed power attack"));
+            }
+            (
+                self.unarmed_damage(hit.attacker, hit.weapon)?,
+                0.0_f32,
+                1.0_f32,
+                None,
+            )
         } else {
             let weapon = self.combat_weapon(hit.weapon)?;
             if !matches!(weapon.animation, 1..=6) || !matches!(weapon.skill, 6..=8 | -1) {
@@ -239,7 +278,9 @@ impl World {
             if self.item_count(hit.attacker, hit.weapon) <= 0 {
                 return Err(Error::Equipment);
             }
-            self.check_combat_stack(hit.attacker, hit.weapon)?;
+            let quality_multiplier = self
+                .check_combat_stack(hit.attacker, hit.weapon)?
+                .unwrap_or(1.0);
             let skill = match weapon.skill {
                 6 => "onehanded",
                 7 => "twohanded",
@@ -256,11 +297,25 @@ impl World {
                 };
                 self.combat_skill_scale(hit.attacker, skill, min, max)?
             };
+            let mut weapon_damage = finite(
+                f64::from(weapon.damage) * scale * self.combat_setting("fDamageWeaponMult")?,
+            )?;
+            let mut power_stamina_cost = None;
+            if hit.is_power_attack {
+                let power_attack = self.combat_power_attack(hit.attacker)?;
+                weapon_damage =
+                    finite(f64::from(weapon_damage) * f64::from(power_attack.damage_mult))?;
+                power_stamina_cost = Some(finite(
+                    (f64::from(POWER_ATTACK_STAMINA_BASE)
+                        + f64::from(weapon.weight) * f64::from(POWER_ATTACK_STAMINA_PER_WEIGHT))
+                        * f64::from(power_attack.stamina_mult),
+                )?);
+            }
             (
-                finite(
-                    f64::from(weapon.damage) * scale * self.combat_setting("fDamageWeaponMult")?,
-                )?,
+                weapon_damage,
                 weapon.stagger,
+                quality_multiplier,
+                power_stamina_cost,
             )
         };
         let attack_multiplier = finite(f64::from(
@@ -271,6 +326,11 @@ impl World {
                 .current(),
         ))?;
         let weapon_damage = finite(f64::from(weapon_damage) * f64::from(attack_multiplier))?;
+        // Tempered item quality (CMB-10) scales the same way SetItemHealthPercent's
+        // "health" percentage is documented, applied after AttackDamageMult and
+        // before armor/block reduction. Unarmed contacts hold quality_multiplier
+        // at 1.0, see above.
+        let weapon_damage = finite(f64::from(weapon_damage) * f64::from(quality_multiplier))?;
         let (armor_rating, categories) = self.combat_armor(hit.target)?;
         let reduction = (f64::from(armor_rating) * self.combat_setting("fArmorScalingFactor")?
             / 100.0
@@ -317,6 +377,24 @@ impl World {
             .transpose()?
             .map(|duration| self.clock.real_seconds + duration);
         // Prepare damage before allocating events, so overflow cannot leave a partial hit.
+        // A power attack's stamina cost is prepared here too, so a
+        // malformed attacker Stamina entry cannot leave a partial hit
+        // either. No floor applies, matching health_damage below, so an
+        // attacker who started the swing with too little stamina still
+        // pays the cost. Nothing here re-checks stamina before the swing:
+        // this function only runs once the host has already confirmed the
+        // power attack, see docs/combat.md CMB-21.
+        let attacker_stamina = power_stamina_cost
+            .map(|cost| -> Result<_, Error> {
+                let mut values = self
+                    .actor_ref(hit.attacker)
+                    .ok_or(Error::Actor(hit.attacker))?
+                    .values
+                    .clone();
+                values.damage("stamina", cost)?;
+                Ok(values)
+            })
+            .transpose()?;
         let mut values = self
             .actor_ref(hit.target)
             .ok_or(Error::Actor(hit.target))?
@@ -346,7 +424,7 @@ impl World {
             aggressor,
             source,
             Value::None,
-            Value::Bool(false),
+            Value::Bool(hit.is_power_attack),
             Value::Bool(false),
             Value::Bool(hit.is_bash),
             Value::Bool(blocked),
@@ -385,6 +463,11 @@ impl World {
         if let Some(cost) = bash_stamina_cost {
             if let Some(attacker) = self.actors.get_mut(&hit.attacker) {
                 attacker.values.damage("stamina", -cost)?;
+            }
+        }
+        if let Some(values) = attacker_stamina {
+            if let Some(attacker) = self.actors.get_mut(&hit.attacker) {
+                attacker.values = values;
             }
         }
         let killed = !bleedout_target && lethal && self.kill_actor(hit.target, Some(hit.attacker));
@@ -462,7 +545,39 @@ impl World {
         finite(f64::from(value))
     }
 
-    fn check_combat_stack(&self, actor: GlobalFormId, item: GlobalFormId) -> Result<(), Error> {
+    /// Attacker's default single-weapon power attack entry, from the
+    /// winning RACE record their `ActorState::race` already resolved.
+    /// `ActorState::race` only caches which record wins, the record itself
+    /// is still read fresh through the shared `World` here.
+    ///
+    /// # Errors
+    /// Missing actor, race or matching Attacks entry, or a malformed RACE record.
+    fn combat_power_attack(&self, actor: GlobalFormId) -> Result<PowerAttack, Error> {
+        let race = self
+            .actor_ref(actor)
+            .ok_or(Error::Actor(actor))?
+            .race
+            .ok_or(Error::Unsupported(
+                "attacker has no race for power attack data",
+            ))?;
+        let record = self
+            .record(race)
+            .ok_or(Error::Unsupported("missing attacker race record"))?;
+        PowerAttack::from_race(record)?
+            .ok_or(Error::Unsupported("race has no default power attack entry"))
+    }
+
+    /// Rejects an equipped item that carries a poisoned or enchanted stack,
+    /// regardless of item quality (kind 37, CMB-10). Shared by the weapon
+    /// and armor call sites: both still reject poison and enchantment
+    /// unconditionally (docs/combat.md, CMB-03), but only the weapon reads
+    /// quality, so armor stacks never need `check_combat_stack` itself.
+    /// A missing reference or an item count of zero or less rejects too.
+    fn check_no_poison_or_enchant(
+        &self,
+        actor: GlobalFormId,
+        item: GlobalFormId,
+    ) -> Result<(), Error> {
         let reference = self.refs.get(&actor).ok_or(Error::Actor(actor))?;
         if reference.inventory.count(item) <= 0 {
             return Err(Error::Equipment);
@@ -471,13 +586,61 @@ impl World {
             stack
                 .extras()
                 .iter()
-                .any(|extra| matches!(extra.kind, 37 | 62 | 155))
+                .any(|extra| matches!(extra.kind, 62 | 155))
         }) {
-            return Err(Error::Unsupported(
-                "tempered, poisoned or enchanted item instances",
-            ));
+            return Err(Error::Unsupported("poisoned or enchanted item instances"));
         }
         Ok(())
+    }
+
+    /// Read the equipped item's tempered quality (CMB-10) after the poison and
+    /// enchantment check. Quality (37, CommonLib `ExtraHealth`) is read instead
+    /// of rejected: `None` when no stack of the item carries it,
+    /// `Some(multiplier)` when every stack that does carry it agrees on the
+    /// same finite, non-negative value.
+    ///
+    /// The equipped set is form-only (docs/combat.md, CMB-03: "does not infer
+    /// item-instance selection from a form-only equipment set"), so a hit cannot
+    /// name which physical stack the attacker swung. When the item's stacks
+    /// disagree on quality, the selected stack cannot be determined, so the
+    /// contact rejects instead of guessing.
+    fn check_combat_stack(
+        &self,
+        actor: GlobalFormId,
+        item: GlobalFormId,
+    ) -> Result<Option<f32>, Error> {
+        self.check_no_poison_or_enchant(actor, item)?;
+        self.combat_stack_quality(actor, item)
+    }
+
+    /// Read-only quality pass shared by `check_combat_stack` and the early
+    /// validation in `melee_hit`. It never touches poison, enchantment or the
+    /// item count, so it can run ahead of the checks that own those errors.
+    fn combat_stack_quality(
+        &self,
+        actor: GlobalFormId,
+        item: GlobalFormId,
+    ) -> Result<Option<f32>, Error> {
+        let reference = self.refs.get(&actor).ok_or(Error::Actor(actor))?;
+        let mut quality: Option<f32> = None;
+        for stack in reference.inventory.stacks(item) {
+            let Some(extra) = stack.extra(37) else {
+                continue;
+            };
+            let [crate::inventory::Field::FloatBits(bits)] = extra.fields.as_slice() else {
+                return Err(Error::Unsupported("malformed item quality extra"));
+            };
+            let value = finite(f64::from(f32::from_bits(*bits)))?;
+            match quality {
+                Some(existing) if existing != value => {
+                    return Err(Error::Unsupported(
+                        "ambiguous item quality across equipped stacks",
+                    ));
+                }
+                _ => quality = Some(value),
+            }
+        }
+        Ok(quality)
     }
 
     fn combat_setting(&self, name: &'static str) -> Result<f64, Error> {
@@ -522,7 +685,7 @@ impl World {
             {
                 continue;
             }
-            self.check_combat_stack(actor, item)?;
+            self.check_no_poison_or_enchant(actor, item)?;
             let armor = self.combat_armor_record(item)?;
             if armor.slots & occupied != 0 {
                 return Err(Error::Unsupported("overlapping equipped armor"));

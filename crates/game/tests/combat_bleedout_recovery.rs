@@ -98,6 +98,7 @@ fn hit() -> MeleeHit {
         target: id(0x900),
         weapon: id(0xA00),
         is_bash: false,
+        is_power_attack: false,
     }
 }
 
