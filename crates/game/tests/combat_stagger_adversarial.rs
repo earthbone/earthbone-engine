@@ -416,8 +416,9 @@ fn cmb_14_version_28_save_loads_with_no_actor_staggered() {
         bytes.drain(positions[0]..positions[0] + marker.len());
     }
     assert_eq!(
-        bytes[4], 29,
-        "world state version low byte must still read 29 before the patch"
+        u16::from_le_bytes([bytes[4], bytes[5]]),
+        soe_game::world::SAVE_VERSION,
+        "the save must carry the current world state version before the patch"
     );
     bytes[4..6].copy_from_slice(&28_u16.to_le_bytes());
 

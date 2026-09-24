@@ -419,7 +419,7 @@ fn sav_07_unknown_version_and_mixed_legacy_namespaces_are_rejected() {
     let mut world = rich_world(DYNAMIC_FILE);
     let before = world.save_state();
     for (version, message) in [
-        (30_u16, "world state version 30"),
+        (31_u16, "world state version 31"),
         (18, "created namespace in a legacy world state"),
     ] {
         let mut bytes = before.clone();

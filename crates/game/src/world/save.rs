@@ -51,7 +51,8 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// Version 27 retains locked encounter-zone selection levels.
 /// Version 28 retains do-all dialogue cycles.
 /// Version 29 retains an actor's stagger end time.
-pub const SAVE_VERSION: u16 = 29;
+/// Version 30 retains shared stealth-point pools and observer awareness.
+pub const SAVE_VERSION: u16 = 30;
 
 #[derive(Clone, Copy)]
 pub(crate) enum FormNamespace {
@@ -408,6 +409,7 @@ impl World {
         self.write_loose_items(&mut body);
         self.write_encounter_levels(&mut body);
         self.write_dialogue_repeats(&mut body);
+        self.write_detection(&mut body);
         let mut out = Writer::new();
         out.out.extend_from_slice(SAVE_MAGIC);
         out.u16(SAVE_VERSION);
@@ -950,7 +952,24 @@ impl World {
         } else {
             BTreeMap::new()
         };
+        let detection = if version >= 30 {
+            super::detection::read_detection(&mut r)?
+        } else {
+            crate::detection::DetectionState::default()
+        };
         r.expect_end()?;
+        for id in super::detection::detection_actors(&detection) {
+            let actor = refs.get(&id).map_or_else(
+                || {
+                    self.record(id)
+                        .is_some_and(|rec| rec.tag == super::T(b"ACHR"))
+                },
+                |r| r.is_actor,
+            );
+            if !actor {
+                return Err(VmError::State("detection state names a non-actor".into()));
+            }
+        }
         super::death::validate_pending(&actors, &pending)?;
 
         for (&id, value) in &record_overrides {
@@ -980,6 +999,7 @@ impl World {
         self.actor_bases = actor_bases;
         self.cells = cells;
         self.encounter_levels = encounter_levels;
+        self.detection = detection;
         self.settings = settings;
         self.inventory_filters = inventory_filters;
         self.sleep_listeners = sleep_listeners;
