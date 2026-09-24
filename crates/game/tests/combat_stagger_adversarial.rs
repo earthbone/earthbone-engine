@@ -413,7 +413,16 @@ fn cmb_14_version_28_save_loads_with_no_actor_staggered() {
             1,
             "stagger sentinel {value} must be unique in the save byte stream"
         );
-        bytes.drain(positions[0]..positions[0] + marker.len());
+        // Version 31 writes each actor's witnessed crime set right after the
+        // stagger slot. This fixture witnessed nothing, so the set is a zero
+        // count, which a version 28 layout never carried either.
+        let end = positions[0] + marker.len();
+        assert_eq!(
+            bytes[end..end + 4],
+            [0, 0, 0, 0],
+            "an actor with no witnessed crimes must write an empty set after its stagger slot"
+        );
+        bytes.drain(positions[0]..end + 4);
     }
     assert_eq!(
         u16::from_le_bytes([bytes[4], bytes[5]]),
