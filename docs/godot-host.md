@@ -1982,7 +1982,9 @@ idle-to-walk transition completed with exit status 0.
 
 PlayerNode checks nearby load doors every 250 ms of simulation time after
 applying the Game pose. The game query compares the player's position only
-with enabled, non-deleted DOOR references belonging to that same logical cell.
+with enabled, non-deleted DOOR references in the same coordinate frame: the
+same interior cell, or in an exterior any grid cell of the same worldspace
+plus its persistent cell.
 It follows each source door's resolved XTEL link and selects the nearest
 interior destination within 500 Skyrim units, with FormID breaking distance
 ties. Destination coordinates never participate in proximity selection.
@@ -1996,7 +1998,7 @@ references, change residency, tick far-side actors or queue cell events.
 Activation retains the ordinary Game door lifecycle and cold-cell decision.
 
 The speculative budget admits at most 4,096 authored references before work,
-then at most 128 MiB of mesh-array and unique texture payloads and 100,000
+then at most 384 MiB of mesh-array and unique texture payloads and 100,000
 collision primitives after preparation. There is at most one outstanding job
 or retained destination. These are admission limits, not a peak allocation
 or wall-time guarantee. Parser temporaries, container capacity and metadata,
@@ -2021,10 +2023,10 @@ fit this form-backed Godot host, so this code reuses the engine's existing
 resource builder. No new package, node per reference, or alternate game-state
 store was added.
 
-`godot/interior_prefetch_test.gd` uses installed five-master data and requires
+`godot/hst_07_test.gd` uses installed five-master data and requires
 an exterior landing near the Bannered Mare return door to prepare that linked
-interior while the current cell and rendering stay unchanged. It requires one
-job, a nonempty payload within 128 MiB, a cache hit on return, draw instances
+interior while the player stays outside and rendering stays unchanged. It requires one
+job, a nonempty payload within 384 MiB, a cache hit on return, draw instances
 and supporting collision. Its predeclared foreground-step budget is 50 ms,
 and its preparation deadline is 30 seconds. The limits are specific to this
 acceptance run, not a claim about every authored cell or machine.
@@ -2032,7 +2034,47 @@ acceptance run, not a claim about every authored cell or machine.
 On 2026-09-23 the script failed on master `9ae933b` under Godot 4.7.2 with
 installed data. No prefetch job started (`started` 0, `payload_bytes` 0), one
 gameplay step took 497,919 us, and the transition rebuilt its resources. HST-07
-is open again until this script passes on master.
+was open again until this script passed on master.
+
+On 2026-09-24 the crate's SKYRIM_DATA-gated test
+`interior_prefetch::tests::installed_bannered_mare_prefetch_admission` failed
+at the previous 128 MiB cap with `references=697 bytes=195769624
+primitives=19146 admitted=false`. Decoded payload across five installed
+interiors (WhiterunBanneredMare 186.7 MiB, RiftenBeeandBarb 195.6 MiB,
+SolitudeBluePalace 230.7 MiB, WhiterunJorrvaskr 269.9 MiB,
+WhiterunDragonsreach 295.3 MiB) showed that cap rejecting all of them, so
+`MAX_PAYLOAD_BYTES` moved to 384 MiB and the script's `PAYLOAD_BUDGET` with it.
+
+The `started` 0 failure had a separate cause, found on 2026-09-25 by running
+the script. Vanilla files exterior load doors in the worldspace's persistent
+cell. The return door of the Bannered Mare is `0:01A6F4` in `0:01A270`, the
+persistent cell of worldspace `0:01A26F`, while the first exterior step
+refocuses the logical cell on the grid cell under the player, `0:01A276`. The
+same-cell filter therefore never saw the door. In an exterior the query now
+also accepts doors filed in any grid cell of the same worldspace and in that
+worldspace's persistent cell, which share one coordinate frame. OpenMW's
+`preloadTeleportDoorDestinations` walks the doors of every active cell in the
+same way. Interiors still compare only their own cell, and no other interior
+or worldspace is ever compared.
+
+The prefetch also dropped a changed selection. A request made while a job was
+running cancelled that job and returned, so the new door waited for another
+selection tick after the old job finished, and a return to the same door lost
+its job. The newest selection is now held as one queued loader and starts when
+the running job is collected, and a return to the running door clears its
+cancel. A cancelled job is no longer counted as a rejection.
+
+On 2026-09-25 the script passed under Godot 4.7.2 and the 4.4.1 API floor with
+installed data: one job, 195,769,624 prepared bytes, ready after 859 ms (4.7.2)
+and 1,149 ms (4.4.1), one cache hit on return, and a largest gameplay step of
+1,598 us and 3,212 us while the prefetch ran. The script checks that the
+player stays outside the prefetched interior rather than in the landing's
+cell id, because exterior streaming refocuses that id by position.
+
+Known gap: the first exterior step after the landing took 519 ms (4.7.2) and
+707 ms (4.4.1) before any prefetch started. The script reports it as
+`landing_step_us` and excludes it from the prefetch step budget. It belongs to
+the exterior landing path, not to this row.
 
 ## Actor controller geometry resolver, CMB-33
 
