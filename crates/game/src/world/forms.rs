@@ -12,6 +12,7 @@ use super::{
     le_f32, le_u32, ActorBaseState, CellState, FactionState, LeveledEntry, LeveledList,
     LocationState, World, T,
 };
+use crate::crime::CrimeValues;
 use crate::quest::zstring;
 
 impl World {
@@ -228,6 +229,23 @@ impl World {
             self.factions.insert(id, st);
         }
         self.factions.get_mut(&id)
+    }
+
+    /// `FACT.CRVA`, the bounty table `record_witnessed_crime` prices a
+    /// crime against. Read straight from the winning record on every call:
+    /// unlike `crime_gold_violent`, it never changes at runtime, so caching
+    /// it in `FactionState` would only add a save version to keep it in
+    /// step with the record. Defaults to all zero when `id` is not a `FACT`
+    /// record, `CRVA` is absent (one vanilla record, `MS08AlikrFaction`,
+    /// has none, per UESP) or malformed, the same silent-default treatment
+    /// `tracks_crime` gives a malformed `DATA`.
+    #[must_use]
+    pub fn crime_values(&self, id: GlobalFormId) -> CrimeValues {
+        self.record(id)
+            .filter(|r| r.tag == T(b"FACT"))
+            .and_then(|r| r.find(T(b"CRVA")))
+            .and_then(|d| CrimeValues::from_bytes(d).ok())
+            .unwrap_or_default()
     }
 
     pub fn actor_base(&mut self, id: GlobalFormId) -> Option<&mut ActorBaseState> {

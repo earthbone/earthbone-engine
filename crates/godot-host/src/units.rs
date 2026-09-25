@@ -75,6 +75,12 @@ pub fn direction_to_godot(v: [f32; 3]) -> [f32; 3] {
     [v[0], v[2], -v[1]]
 }
 
+/// The inverse of [`direction_to_godot`], for patching a baked Godot-space
+/// normal or tangent back into Skyrim space before applying a runtime delta.
+pub fn direction_to_skyrim(v: [f32; 3]) -> [f32; 3] {
+    [v[0], -v[2], v[1]]
+}
+
 /// A rotation, uniform scale and origin in Godot space, laid out the way
 /// `Transform3D` wants it: `basis` is row major with the scale folded in,
 /// `origin` is the translation.
@@ -141,6 +147,15 @@ mod tests {
     #[test]
     fn a_cell_is_about_58_metres() {
         assert!((CELL_METRES - 58.52).abs() < 0.01, "{CELL_METRES}");
+    }
+
+    #[test]
+    fn direction_round_trip_is_identity() {
+        let v = [1.0, -2.5, 3.25];
+        let back = direction_to_skyrim(direction_to_godot(v));
+        assert!((back[0] - v[0]).abs() < 1e-6);
+        assert!((back[1] - v[1]).abs() < 1e-6);
+        assert!((back[2] - v[2]).abs() < 1e-6);
     }
 
     #[test]

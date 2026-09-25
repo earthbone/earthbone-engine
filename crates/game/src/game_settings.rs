@@ -9,7 +9,8 @@
 //! runtime listing of every TES5 GMST, cited in docs/combat-ai.md.
 //! No local or UESP source states a vanilla stagger threshold or duration,
 //! so fStaggerThreshold and fStaggerDuration are engineering estimates,
-//! documented as such in docs/combat.md CMB-14.
+//! documented as such in docs/combat.md CMB-14. fBashStaminaCost is the
+//! same kind of estimate, documented in docs/combat.md CMB-20.
 
 pub(crate) fn engine_default(name: &str) -> Option<f32> {
     Some(match name.to_ascii_lowercase().as_str() {
@@ -69,6 +70,10 @@ pub(crate) fn engine_default(name: &str) -> Option<f32> {
         // observed (0.5 to 2.0 seconds). No corpus source pins a vanilla
         // value.
         "fstaggerduration" => 1.2,
+        // Estimated. No local or UESP source pins a vanilla shield bash
+        // stamina cost, this sits inside the general power-attack range
+        // Skyrim wikis document (roughly 10 to 30). See docs/combat.md CMB-20.
+        "fbashstaminacost" => 25.0,
         _ => return None,
     })
 }

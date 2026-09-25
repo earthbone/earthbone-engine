@@ -42,6 +42,7 @@ use crate::mesh::{
 
 mod exterior;
 mod location;
+mod lod;
 mod models;
 mod textures;
 mod workers;
@@ -52,6 +53,7 @@ mod marker_survey_tests;
 pub use location::LoadedLocation;
 #[cfg(feature = "godot")]
 pub(crate) use location::PreparedCell;
+pub use lod::LoadedLodBlock;
 pub(crate) use models::{is_editor_marker_name, model_for};
 use textures::TextureCache;
 pub use textures::{BlockFormat, TextureData};
@@ -155,6 +157,13 @@ pub struct LoadedSurface {
     pub reference: GlobalFormId,
     pub arrays: SurfaceArrays,
     pub textures: SurfaceTextures,
+    /// The reference's placement at load time, in Skyrim space, already
+    /// baked into `arrays` unless `instance_transform` is set, when `arrays`
+    /// holds the shape's local geometry instead. A terrain surface carries
+    /// identity here since `LAND` has no separate placement. Kept so a
+    /// runtime placement change can be expressed as a delta against this
+    /// baseline instead of the world-space vertices themselves.
+    pub placement: soe_physics::Iso,
     /// The reference's placement in Godot space, set only when
     /// `stream_cell_id` decided this surface's model repeats often enough in
     /// the cell to draw as a `MultiMesh` instead of batching it. When set,
@@ -513,7 +522,7 @@ impl DataSource {
         let after = self.textures.counters();
         let mut surfaces = Vec::new();
         let mut texture_sets = HashSet::new();
-        for ((model, _, reference), result) in work.iter().zip(results) {
+        for ((model, refr, reference), result) in work.iter().zip(results) {
             match result {
                 Ok(LoadedStatic::Surfaces {
                     built,
@@ -524,6 +533,7 @@ impl DataSource {
                     stats.editor_markers_filtered += marker_shapes_filtered;
                     stats.editor_marker_only_models += usize::from(marker_only);
                     stats.meshes_parsed += 1;
+                    let placement = placement_iso(refr);
                     let identity_base = instance_transform.is_some().then(|| model.to_lowercase());
                     for (shape_index, (arrays, textures)) in built.into_iter().enumerate() {
                         stats.triangles += arrays.triangle_count();
@@ -548,6 +558,7 @@ impl DataSource {
                             reference: *reference,
                             arrays,
                             textures,
+                            placement,
                             instance_transform,
                             mesh_identity,
                         });

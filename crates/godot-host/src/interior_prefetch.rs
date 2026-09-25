@@ -327,6 +327,7 @@ mod tests {
             .push(crate::data_source::LoadedSurface {
                 reference: CELL,
                 arrays,
+                placement: soe_physics::Iso::IDENTITY,
                 textures: crate::data_source::SurfaceTextures {
                     diffuse: Some(Arc::clone(&texture)),
                     normal: Some(texture),

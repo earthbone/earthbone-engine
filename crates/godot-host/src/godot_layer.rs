@@ -36,7 +36,9 @@ use crate::data_source::{
 use crate::mesh::{AlphaMode, MaterialDesc, SurfaceArrays};
 use crate::streaming::{CellCoord, CellStreamer, StreamConfig};
 use crate::terrain::RegionHeightmap;
-use crate::units::{GodotPos, GodotTransform};
+use crate::terrain_lod::{LodBlockCoord, LodLevel, TerrainLodConfig, TerrainLodStreamer};
+use crate::units::{direction_to_godot, direction_to_skyrim, GodotPos, GodotTransform, SkyrimPos};
+use soe_physics::{Iso, Vec3};
 
 /// Keeps a square of exterior cells requested around `focus`. Connect
 /// `cell_load_requested` and `cell_unload_requested` to whatever builds
@@ -88,6 +90,48 @@ pub struct CellStreamerNode {
     /// scene that only draws needs no collision.
     collision: crate::godot_physics::CellBodies,
     last_collision_stats: VarDictionary,
+    /// The physics space `stream_cell_collision` last resolved, kept so
+    /// `sync_reference_changes` can push moves and hides on the tick after,
+    /// without re-resolving `get_world_3d` itself.
+    collision_space: Option<Rid>,
+    /// Every reference's last observed visibility and placement, gating the
+    /// rendering rebake so an untouched cell costs one map lookup per
+    /// reference per tick rather than a mesh rebuild. Collision has no such
+    /// cache, see `CellBodies::sync_placements` for why.
+    ref_cache: std::collections::HashMap<GlobalFormId, (bool, Iso)>,
+    /// Distant-terrain LOD blocks standing in for full resolution terrain
+    /// beyond the streamed cells. `None` until `stream_terrain_lod`.
+    terrain_lod: Option<TerrainLodState>,
+}
+
+/// The node's distant-terrain LOD: the streamer that decides which blocks
+/// are resident and records their bytes, the worldspace the blocks are read
+/// from, and each resident block's drawn instances, freed when the streamer
+/// releases the block. Kept apart from `instances` so `cell_instances`
+/// keeps reporting full resolution cells only.
+struct TerrainLodState {
+    streamer: TerrainLodStreamer,
+    world: GlobalFormId,
+    world_editor_id: String,
+    blocks: std::collections::HashMap<LodBlockCoord, Vec<LodInstance>>,
+    last_step: LodStepCounts,
+}
+
+/// One drawn LOD surface. The mesh is held so the instance's mesh RID stays
+/// valid while it draws.
+struct LodInstance {
+    rid: Rid,
+    mesh: Gd<ArrayMesh>,
+    triangles: usize,
+}
+
+/// What the last `stream_terrain_lod` or `update_terrain_lod` call did.
+#[derive(Default)]
+struct LodStepCounts {
+    loaded: usize,
+    missing: usize,
+    failed: usize,
+    released: usize,
 }
 
 /// One drawn batch: its instance and mesh RIDs and the side table that maps
@@ -98,6 +142,12 @@ struct Instance {
     rid: Rid,
     mesh: InstanceMesh,
     table: BatchTable,
+    /// The batch's arrays as first uploaded, kept so
+    /// `CellStreamerNode::sync_reference_changes` recomputes a moved or
+    /// hidden member's vertex range from this baseline every time, instead
+    /// of composing a delta onto an already patched copy. Same reasoning as
+    /// `StaticEntry::source` in `godot_physics`.
+    arrays: SurfaceArrays,
 }
 
 /// The mesh resource an [`Instance`] drew: a merged or unbatched `ArrayMesh`
@@ -128,18 +178,32 @@ impl Drop for CellStreamerNode {
     }
 }
 
-/// The side table for one instance: which form owns each triangle range, or,
-/// for a `MultiMesh` instance, which forms placed it (by placement index,
+/// One source surface's place in a batch, plus its load-time placement so a
+/// runtime move or hide can be diffed against a known baseline. `origin` is
+/// `LoadedSurface::placement`, the reference's transform at load time, in
+/// Skyrim space: LAND terrain carries `Iso::IDENTITY` since it has no
+/// separate placement.
+struct BatchTableMember {
+    reference: GlobalFormId,
+    member: BatchMember,
+    origin: Iso,
+}
+
+/// The side table for one instance: which form owns each triangle range and
+/// where each member started, for `CellStreamerNode::sync_reference_changes`,
+/// or, for a `MultiMesh` instance, which forms placed it (by placement index,
 /// since a raycast hit resolves to a triangle in the shared local geometry,
 /// not to a placement). `reference_at` cannot answer a `MultiMesh` triangle
 /// today, see the module doc and `docs/godot-host.md`: `Instances` carries
 /// the reference list for a picking path that would resolve a placement
 /// index some other way (a per-instance collider, most likely), which is why
 /// `#[allow(dead_code)]` sits on it rather than dropping data `reference_at`
-/// cannot use yet.
+/// cannot use yet. `sync_reference_changes` likewise only patches
+/// `Triangles`, a `MultiMesh` instance's placement sync is future work, see
+/// `docs/godot-host.md`.
 #[allow(dead_code)]
 enum BatchTable {
-    Triangles(Vec<(GlobalFormId, BatchMember)>),
+    Triangles(Vec<BatchTableMember>),
     Instances(Vec<GlobalFormId>),
 }
 
@@ -148,11 +212,12 @@ impl BatchTable {
         let Self::Triangles(members) = self else {
             return None;
         };
-        let at = members.partition_point(|(_, m)| m.first_triangle + m.triangle_count <= triangle);
+        let at = members
+            .partition_point(|m| m.member.first_triangle + m.member.triangle_count <= triangle);
         members
             .get(at)
-            .filter(|(_, m)| triangle >= m.first_triangle)
-            .map(|(id, _)| *id)
+            .filter(|m| triangle >= m.member.first_triangle)
+            .map(|m| m.reference)
     }
 }
 
@@ -231,6 +296,9 @@ impl INode3D for CellStreamerNode {
             last_stats: VarDictionary::new(),
             collision: crate::godot_physics::CellBodies::default(),
             last_collision_stats: VarDictionary::new(),
+            collision_space: None,
+            ref_cache: std::collections::HashMap::new(),
+            terrain_lod: None,
         }
     }
 
@@ -240,7 +308,10 @@ impl INode3D for CellStreamerNode {
 
     fn exit_tree(&mut self) {
         self.free_instances();
+        self.clear_terrain_lod();
         self.collision.free();
+        self.collision_space = None;
+        self.ref_cache.clear();
     }
 
     fn process(&mut self, _delta: f64) {
@@ -317,6 +388,70 @@ impl CellStreamerNode {
         }
         self.last_stats = totals.to_dictionary(self.materials.len() - before);
         true
+    }
+
+    /// Pushes every tracked reference's current enabled state and placement
+    /// into rendering and collision, so a `Game`-side change (activation, a
+    /// script `MoveTo`, an editor drag) shows up at the next host tick.
+    /// `Game`/`World` stay the source of truth throughout, this only reads
+    /// `world` and presents what it says, per `docs/godot-host.md`.
+    ///
+    /// Collision is pushed unconditionally through
+    /// `CellBodies::sync_placements`, see that method for why. Rendering
+    /// instead diffs each member against `ref_cache` and only rebakes a
+    /// batch's `ArrayMesh` when something in it actually changed, since a
+    /// batch can hold hundreds of members and reuploading one every tick
+    /// would cost more than the streaming it replaced.
+    ///
+    /// A disabled reference is collapsed to a degenerate, zero-area patch
+    /// rather than dropped from the batch: the batch is one shared
+    /// `RenderingServer` instance and index buffer, and removing vertices
+    /// would renumber every triangle after it. A moved reference gets a
+    /// fresh vertex range computed from `Instance::arrays`, the pristine
+    /// upload, never from an already patched copy, matching
+    /// `StaticEntry::source` on the collision side.
+    pub(crate) fn sync_reference_changes(&mut self, world: &soe_game::World) {
+        if let Some(space) = self.collision_space {
+            self.collision.sync_placements(world, space);
+        }
+        let mut server = RenderingServer::singleton();
+        for instance in &mut self.instances {
+            let BatchTable::Triangles(members) = &instance.table else {
+                // MultiMesh instances are not patched here yet, see the
+                // BatchTable doc comment.
+                continue;
+            };
+            let mut touched = false;
+            let mut targets: Vec<(usize, bool, Iso)> = Vec::new();
+            for (index, member) in members.iter().enumerate() {
+                let Some(placement) = world.ref_placement(member.reference) else {
+                    continue;
+                };
+                let target_iso =
+                    Iso::placement(placement.position, placement.rotation, placement.scale);
+                let key = (placement.visible, target_iso);
+                if self.ref_cache.get(&member.reference) != Some(&key) {
+                    self.ref_cache.insert(member.reference, key);
+                    touched = true;
+                }
+                targets.push((index, placement.visible, target_iso));
+            }
+            if !touched {
+                continue;
+            }
+            // Rebuilt fresh from `instance.arrays`, the pristine upload,
+            // every time: reapplying every live member's current placement
+            // rather than composing this tick's delta onto the previous
+            // rebuild's output keeps a reference that moves every tick from
+            // drifting off its true position.
+            let mut patched = instance.arrays.clone();
+            for (index, visible, target_iso) in targets {
+                apply_member_patch(&mut patched, &members[index], visible, &target_iso);
+            }
+            let new_mesh = array_mesh_from(&patched);
+            server.instance_set_base(instance.rid, new_mesh.get_rid());
+            instance.mesh = InstanceMesh::Array(new_mesh);
+        }
     }
 }
 
@@ -599,7 +734,7 @@ impl CellStreamerNode {
             godot_error!("stream_cell_collision: no cell named {editor_id}");
             return -1;
         };
-        let (colliders, read) = match source.cell_colliders(cell_id) {
+        let (colliders, read) = match source.placed_cell_colliders(cell_id) {
             Ok(pair) => pair,
             Err(e) => {
                 godot_error!("stream_cell_collision: {e}");
@@ -616,7 +751,8 @@ impl CellStreamerNode {
             return -1;
         };
         self.collision.free();
-        self.collision = crate::godot_physics::add_statics(space, &colliders);
+        self.collision = crate::godot_physics::add_placed_statics(space, &colliders);
+        self.collision_space = Some(space);
         let built = &self.collision.stats;
         self.last_collision_stats = {
             let mut d = VarDictionary::new();
@@ -639,12 +775,177 @@ impl CellStreamerNode {
         self.last_collision_stats.clone()
     }
 
-    /// Frees every instance and mesh this node created and forgets the
-    /// bounds. Materials stay cached.
+    /// Starts distant-terrain LOD for the worldspace named
+    /// `world_editor_id` around cell (`cell_x`, `cell_y`) and settles it:
+    /// every BTR block whose nearest cell lies beyond `full_res_radius` and
+    /// within `lod_radius` (ring distance in cells) is read, drawn as
+    /// `RenderingServer` instances in this node's scenario, and its built
+    /// bytes recorded against `budget_bytes`, 0 for no cap. Over the cap the
+    /// farthest blocks are released until the recorded usage fits.
+    ///
+    /// Pass the radius `stream_exterior` drew full resolution cells at as
+    /// `full_res_radius`. A block is planned only when all of its cells lie
+    /// beyond that radius, so LOD takes over where full resolution LAND
+    /// stops and never draws over it. The block grid and level come from the
+    /// worldspace's `lodsettings` file, a grid anchored at cell (0, 0) at
+    /// level 4 when there is none. Replaces any earlier LOD state. Returns
+    /// the resident block count, or -1 on failure with the reason in the
+    /// Godot error log.
+    #[allow(clippy::needless_pass_by_value)]
+    #[func]
+    pub fn stream_terrain_lod(
+        &mut self,
+        world_editor_id: GString,
+        cell_x: i32,
+        cell_y: i32,
+        full_res_radius: i32,
+        lod_radius: i32,
+        budget_bytes: i64,
+    ) -> i32 {
+        self.clear_terrain_lod();
+        let Some(source) = self.data_source.clone() else {
+            godot_error!("CellStreamerNode::stream_terrain_lod: load_data was not called");
+            return -1;
+        };
+        let Ok(budget_bytes) = u64::try_from(budget_bytes) else {
+            godot_error!("CellStreamerNode::stream_terrain_lod: budget {budget_bytes} is negative");
+            return -1;
+        };
+        let Some((world, world_editor_id)) = source.resolve_world(&world_editor_id.to_string())
+        else {
+            godot_error!("CellStreamerNode::stream_terrain_lod: no worldspace {world_editor_id}");
+            return -1;
+        };
+        let settings = match source.lod_settings(&world_editor_id) {
+            Ok(settings) => settings,
+            Err(e) => {
+                godot_error!("CellStreamerNode::stream_terrain_lod: {e}");
+                return -1;
+            }
+        };
+        let config = TerrainLodConfig {
+            level: settings
+                .and_then(|s| s.finest_level())
+                .unwrap_or(LodLevel::L4),
+            full_res_radius,
+            lod_radius,
+            budget_bytes,
+            ..TerrainLodConfig::default()
+        };
+        let anchor = settings.map_or(CellCoord::new(0, 0), |s| s.sw_cell);
+        let streamer = match TerrainLodStreamer::with_anchor(config, anchor) {
+            Ok(streamer) => streamer,
+            Err(e) => {
+                godot_error!("CellStreamerNode::stream_terrain_lod: {e}");
+                return -1;
+            }
+        };
+        self.terrain_lod = Some(TerrainLodState {
+            streamer,
+            world,
+            world_editor_id,
+            blocks: std::collections::HashMap::new(),
+            last_step: LodStepCounts::default(),
+        });
+        let focus = CellCoord::new(cell_x, cell_y);
+        if self
+            .terrain_lod_cycle(focus, true, "stream_terrain_lod")
+            .is_none()
+        {
+            return -1;
+        }
+        self.terrain_lod_resident_count()
+    }
+
+    /// One incremental LOD step for a focus at cell (`cell_x`, `cell_y`),
+    /// with the settings the last `stream_terrain_lod` call gave: at most
+    /// one block read and two released, then the budget enforced. Call it
+    /// when the focus changes cell, alongside the cell streamer, to keep
+    /// the LOD ring following the player without a long frame. Returns the
+    /// blocks drawn by this call, or -1 when `stream_terrain_lod` has not
+    /// run or the node is outside a world.
+    #[func]
+    pub fn update_terrain_lod(&mut self, cell_x: i32, cell_y: i32) -> i32 {
+        self.terrain_lod_cycle(CellCoord::new(cell_x, cell_y), false, "update_terrain_lod")
+            .map_or(-1, |drawn| drawn as i32)
+    }
+
+    /// LOD blocks resident now, each drawn in this node's scenario.
+    #[func]
+    pub fn terrain_lod_resident_count(&self) -> i32 {
+        self.terrain_lod
+            .as_ref()
+            .map_or(0, |lod| lod.streamer.resident_count() as i32)
+    }
+
+    /// Recorded bytes across resident LOD blocks, the residency budget's
+    /// current reading.
+    #[func]
+    pub fn terrain_lod_usage_bytes(&self) -> i64 {
+        self.terrain_lod
+            .as_ref()
+            .map_or(0, |lod| lod.streamer.usage_bytes() as i64)
+    }
+
+    /// The LOD state as a dictionary: world, level, anchor_x, anchor_y,
+    /// full_res_radius, lod_radius, budget_bytes, usage_bytes, over_budget,
+    /// resident, absent, instances, triangles, and from the last call
+    /// loaded, missing, failed and released. Empty before
+    /// `stream_terrain_lod`.
+    #[func]
+    pub fn terrain_lod_stats(&self) -> VarDictionary {
+        let mut d = VarDictionary::new();
+        let Some(lod) = self.terrain_lod.as_ref() else {
+            return d;
+        };
+        let config = lod.streamer.config();
+        let anchor = lod.streamer.anchor();
+        let drawn = lod.blocks.values().flatten();
+        d.set("world", lod.world_editor_id.as_str());
+        d.set("level", i64::from(config.level.cells()));
+        d.set("anchor_x", i64::from(anchor.x));
+        d.set("anchor_y", i64::from(anchor.y));
+        d.set("full_res_radius", i64::from(config.full_res_radius));
+        d.set("lod_radius", i64::from(config.lod_radius));
+        d.set("budget_bytes", config.budget_bytes as i64);
+        d.set("usage_bytes", lod.streamer.usage_bytes() as i64);
+        d.set("over_budget", lod.streamer.over_budget());
+        d.set("resident", lod.streamer.resident_count() as i64);
+        d.set("absent", lod.streamer.absent_count() as i64);
+        d.set("instances", drawn.clone().count() as i64);
+        d.set(
+            "triangles",
+            drawn.map(|i| i.triangles).sum::<usize>() as i64,
+        );
+        d.set("loaded", lod.last_step.loaded as i64);
+        d.set("missing", lod.last_step.missing as i64);
+        d.set("failed", lod.last_step.failed as i64);
+        d.set("released", lod.last_step.released as i64);
+        d
+    }
+
+    /// Frees every LOD block this node drew and forgets the LOD settings.
+    #[func]
+    pub fn clear_terrain_lod(&mut self) {
+        let Some(lod) = self.terrain_lod.take() else {
+            return;
+        };
+        let mut server = RenderingServer::singleton();
+        for instance in lod.blocks.into_values().flatten() {
+            server.free_rid(instance.rid);
+            drop(instance.mesh);
+        }
+    }
+
+    /// Frees every instance and mesh this node created, terrain LOD
+    /// included, and forgets the bounds. Materials stay cached.
     #[func]
     pub fn clear(&mut self) {
         self.collision.free();
+        self.collision_space = None;
         self.free_instances();
+        self.ref_cache.clear();
+        self.clear_terrain_lod();
         self.bounds = None;
     }
 
@@ -708,7 +1009,11 @@ impl CellStreamerNode {
                     batch
                         .members
                         .iter()
-                        .map(|m| (remainder[m.surface].reference, *m))
+                        .map(|m| BatchTableMember {
+                            reference: remainder[m.surface].reference,
+                            member: *m,
+                            origin: remainder[m.surface].placement,
+                        })
                         .collect(),
                 );
                 self.add_instance(cell, &batch.arrays, &material, scenario, table);
@@ -722,16 +1027,17 @@ impl CellStreamerNode {
                     &surface.arrays.material,
                     &surface.textures,
                 );
-                let table = BatchTable::Triangles(vec![(
-                    surface.reference,
-                    BatchMember {
+                let table = BatchTable::Triangles(vec![BatchTableMember {
+                    reference: surface.reference,
+                    member: BatchMember {
                         surface: 0,
                         first_vertex: 0,
                         vertex_count: surface.arrays.positions.len(),
                         first_triangle: 0,
                         triangle_count: surface.arrays.triangle_count(),
                     },
-                )]);
+                    origin: surface.placement,
+                }]);
                 self.add_instance(cell, &surface.arrays, &material, scenario, table);
                 totals.instances += 1;
             }
@@ -768,6 +1074,7 @@ impl CellStreamerNode {
             rid,
             mesh: InstanceMesh::Array(mesh),
             table,
+            arrays: arrays.clone(),
         });
     }
 
@@ -799,6 +1106,7 @@ impl CellStreamerNode {
             rid,
             mesh: InstanceMesh::Multi(multi),
             table,
+            arrays: group.arrays.clone(),
         });
     }
 
@@ -807,6 +1115,93 @@ impl CellStreamerNode {
         for instance in self.instances.drain(..) {
             server.free_rid(instance.rid);
             drop(instance.mesh);
+        }
+    }
+
+    /// One `TerrainLodStreamer::step` against the loaded data: reads each
+    /// planned block through `DataSource::load_lod_block`, records its
+    /// built bytes, frees every block the step released, then draws the
+    /// blocks that survived the budget. A block loaded and evicted in the
+    /// same step is never uploaded. Returns the blocks drawn, `None` when
+    /// the call cannot run, with the reason in the Godot error log.
+    fn terrain_lod_cycle(&mut self, focus: CellCoord, settle: bool, caller: &str) -> Option<usize> {
+        let Some(source) = self.data_source.clone() else {
+            godot_error!("CellStreamerNode::{caller}: load_data was not called");
+            return None;
+        };
+        if self.terrain_lod.is_none() {
+            godot_error!("CellStreamerNode::{caller}: stream_terrain_lod was not called");
+            return None;
+        }
+        let scenario = self.scenario()?;
+        let mut lod = self.terrain_lod.take()?;
+        let mut built = std::collections::HashMap::new();
+        let world = lod.world;
+        let world_editor_id = lod.world_editor_id.as_str();
+        let step = lod.streamer.step(focus, settle, |block| {
+            source
+                .load_lod_block(world, world_editor_id, block)
+                .map(|found| {
+                    found.map(|loaded| {
+                        let bytes = loaded.approx_bytes;
+                        built.insert(block, loaded);
+                        bytes
+                    })
+                })
+        });
+        let mut server = RenderingServer::singleton();
+        for block in step.released() {
+            built.remove(&block);
+            for instance in lod.blocks.remove(&block).into_iter().flatten() {
+                server.free_rid(instance.rid);
+                drop(instance.mesh);
+            }
+        }
+        for (block, e) in &step.failed {
+            godot_error!(
+                "CellStreamerNode::{caller}: LOD block {} {} {}: {e}",
+                block.level.cells(),
+                block.x,
+                block.y
+            );
+        }
+        let drawn = built.len();
+        for (block, loaded) in built {
+            let instances = loaded
+                .surfaces
+                .iter()
+                .map(|surface| self.lod_instance(surface, scenario))
+                .collect();
+            lod.blocks.insert(block, instances);
+        }
+        lod.last_step = LodStepCounts {
+            loaded: drawn,
+            missing: step.missing.len(),
+            failed: step.failed.len(),
+            released: step.unloaded.len() + step.evicted.len(),
+        };
+        self.terrain_lod = Some(lod);
+        Some(drawn)
+    }
+
+    /// One LOD surface as an `ArrayMesh` and a `RenderingServer` instance
+    /// at identity, since `load_lod_block` bakes the block's placement into
+    /// the vertices the same way a reference's placement is baked.
+    fn lod_instance(&mut self, surface: &LoadedSurface, scenario: Rid) -> LodInstance {
+        let material = material_for(
+            &mut self.materials,
+            &surface.arrays.material,
+            &surface.textures,
+        );
+        let mesh = array_mesh_from(&surface.arrays);
+        let mut server = RenderingServer::singleton();
+        let rid = server.instance_create2(mesh.get_rid(), scenario);
+        server.instance_set_transform(rid, Transform3D::IDENTITY);
+        server.instance_geometry_set_material_override(rid, material.get_rid());
+        LodInstance {
+            rid,
+            mesh,
+            triangles: surface.arrays.triangle_count(),
         }
     }
 }
@@ -1186,6 +1581,72 @@ pub fn array_mesh_from(surface: &SurfaceArrays) -> Gd<ArrayMesh> {
     let mut mesh = ArrayMesh::new_gd();
     mesh.add_surface_from_arrays(PrimitiveType::TRIANGLES, &arrays);
     mesh
+}
+
+/// Patches one batch member's vertex range in `arrays` in place, for
+/// `CellStreamerNode::sync_reference_changes`.
+///
+/// A hidden reference collapses its whole range to its first vertex, a
+/// zero-area triangle fan that draws nothing while leaving the batch's
+/// shared index buffer valid, since removing vertices would renumber every
+/// triangle after them. A moved reference gets `target.then(&member.origin
+/// .inverse())` applied to its baked position and, where present, its
+/// normal and tangent, the same Skyrim-space delta construction as
+/// `godot_physics::CellBodies::sync_placements` uses for collision.
+fn apply_member_patch(
+    arrays: &mut SurfaceArrays,
+    member: &BatchTableMember,
+    visible: bool,
+    target: &Iso,
+) {
+    let range = member.member.first_vertex..member.member.first_vertex + member.member.vertex_count;
+    if range.is_empty() {
+        return;
+    }
+    if !visible {
+        let anchor = arrays.positions[range.start];
+        for p in &mut arrays.positions[range.clone()] {
+            *p = anchor;
+        }
+        return;
+    }
+    let delta = target.then(&member.origin.inverse());
+    for p in &mut arrays.positions[range.clone()] {
+        *p = moved_position(*p, &delta);
+    }
+    if !arrays.normals.is_empty() {
+        for n in &mut arrays.normals[range.clone()] {
+            *n = moved_direction(*n, &delta);
+        }
+    }
+    if !arrays.tangents.is_empty() {
+        let tangent_range = (range.start * 4)..(range.end * 4);
+        for chunk in arrays.tangents[tangent_range].as_chunks_mut::<4>().0 {
+            let d = moved_direction([chunk[0], chunk[1], chunk[2]], &delta);
+            chunk[0] = d[0];
+            chunk[1] = d[1];
+            chunk[2] = d[2];
+        }
+    }
+}
+
+/// A baked vertex position, round tripped through Skyrim space so `delta`
+/// (built in Skyrim space, like every other placement in this crate) can be
+/// applied to it.
+fn moved_position(p: [f32; 3], delta: &Iso) -> [f32; 3] {
+    let sky = GodotPos::new(p[0], p[1], p[2]).to_skyrim();
+    let moved = delta.apply(Vec3::new(sky.x, sky.y, sky.z));
+    let g = SkyrimPos::new(moved.x, moved.y, moved.z).to_godot();
+    [g.x, g.y, g.z]
+}
+
+/// A baked normal or tangent direction, round tripped the same way as
+/// [`moved_position`] but with no scale or translation, matching
+/// `Iso::apply_direction`.
+fn moved_direction(d: [f32; 3], delta: &Iso) -> [f32; 3] {
+    let sky = direction_to_skyrim(d);
+    let moved = delta.apply_direction(Vec3::new(sky[0], sky[1], sky[2]));
+    direction_to_godot([moved.x, moved.y, moved.z])
 }
 
 /// A `MultiMesh` sharing `group`'s local-space geometry across a
