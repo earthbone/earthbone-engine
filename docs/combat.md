@@ -1080,3 +1080,85 @@ Left out of this row:
 - Perked resistance modifiers (Mod Target Damage Resistance, actor value 37)
   are out of scope pending CMB-09's perk dispatch path, the same gap
   CMB-15's armor-side perk modifiers document above.
+
+## Weapon poison consumption, CMB-25
+
+An ordinary weapon swing now reads the equipped weapon's stacks for a
+CommonLib `ExtraPoison` extra (kind 62, `[Field::Form(Some(poison_item)),
+Field::Word(count)]`) and, when exactly one stack carries one, applies the
+poison's magic effects to the target once and clears that stack's coating.
+Quality (CMB-10) and poison are two separate extras on the same stack model,
+so `check_combat_weapon` now reads both together after `check_no_enchant`
+rejects an enchanted stack, and `combat_stack_poison` mirrors
+`combat_stack_quality`'s read shape while applying its own stricter
+ambiguity rule below.
+
+The equipped set is form-only (CMB-03), so a hit cannot name which physical
+stack instance the attacker swung. When more than one stack of the equipped
+weapon carries a kind-62 extra, `combat_stack_poison` rejects with
+`Error::Unsupported("ambiguous poisoned item instances")` rather than guess,
+the same shape as quality's ambiguity rule with one difference: two stacks
+that agree on the same poison form and count still reject here, unlike
+quality's agreement exception. Quality only needs a value to multiply
+damage by, so an agreed value is unambiguous even split across stacks.
+Poison needs a physical stack index to clear after application, and
+agreement on the form does not tell `melee_hit` which index that is. A
+kind-62 extra whose fields are not exactly `[Field::Form(Some(_)),
+Field::Word(count)]`, or whose count is 0, is "malformed weapon poison
+extra", the same fail-closed treatment CMB-10 gives a malformed quality
+extra.
+
+Poison is read twice, both read-only. `melee_hit`'s early validation pass
+calls `combat_stack_poison` right after `combat_stack_quality`, ahead of the
+target's lazy actor-base initialization CMB-36 documents, so a malformed or
+ambiguous poisoned stack rejects with the saved state untouched, not only
+with no damage applied. The ordinary-weapon branch then calls
+`check_combat_weapon` again to bind the selected stack's index and poison
+item for the deferred application step. A bash never reaches either call
+since `check_no_poison_or_enchant` rejects a poisoned or enchanted equipped
+item unconditionally before the branch, the same as CMB-03's original bash
+rule, and `HitResult::poisoned` is `false` for every bash and unarmed
+contact.
+
+Application happens last, after every other part of the hit has already
+committed, the same deferred placement `bash_stamina_cost` and
+`attacker_stamina` already use in this function: the physical hit's damage,
+armor, block and resistance terms commit first, then the poison's magic
+effects apply through the same `apply_prepared_effects` pipeline
+`drink_ingestible` and `cast_spell` share, then the stack's kind-62 extra
+clears through `Inventory::clear_stack_extra`. A poison error partway
+through can leave the physical hit committed with the coating still on the
+weapon, the same accepted partial-commit risk those two already carry.
+
+No corpus source pins an exact vanilla dose or reapplication count for a
+poisoned weapon: local CommonLib `ExtraPoison.h` stores only
+`AlchemyItem* poison; uint32_t count;` with no decrement semantics
+documented alongside it, and `PoisonedWeapon.h`'s helpers only read and
+clear the extra, they do not describe a per-hit dose curve. This row applies
+the poison's full effect list once per hit against the done check's literal
+wording, "applies its poison once and clears the consumed coating," rather
+than invent an unverified decrementing-dose formula. `apply_poison` does not
+itself check the ALCH record's `INGESTIBLE_POISON` ENIT flag (bit 17): a
+kind-62 extra already only ever points at a poison item by construction (the
+crafting path that writes it, CRF-04, only accepts a poison ALCH), so the
+flag read would be redundant here the same way `Inventory::update_selected`
+already validates the extra before it reaches combat.
+
+Sources read: local CommonLib `ExtraDataTypes.h` for the kind-62
+`ExtraPoison` tag, `ExtraPoison.h` and `ExtraPoison.cpp` for the
+`AlchemyItem*`/`uint32_t` field pair, and `PoisonedWeapon.h` for the
+read-and-clear helper shape this row's deferred clear step mirrors.
+
+Left out of this row:
+
+- No vanilla dose or reapplication count is sourced. A single full
+  application per hit is this row's reading of the done check's own
+  wording, not a measured vanilla behavior.
+- No corpus source confirms whether a real poisoned-weapon animation event
+  gates the consumption the way `OnHit`'s `abBashAttack` gates CMB-20's bash
+  reporting. `melee_hit` applies and clears on every successful ordinary
+  swing that carries a matching stack, host-side animation timing is out of
+  scope here the same way it already is for the rest of this function.
+- Perked poison modifiers (Deadly Poisons and similar) are out of scope
+  pending CMB-09's perk dispatch path, the same gap CMB-26 leaves open for
+  weapon resistance.

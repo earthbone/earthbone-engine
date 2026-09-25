@@ -97,6 +97,11 @@ pub struct HitResult {
     /// This hit was a shield bash, reported for OnHit's abBashAttack
     /// argument. See docs/combat.md CMB-20.
     pub bashed: bool,
+    /// The equipped weapon carried a poisoned stack (CommonLib ExtraPoison,
+    /// kind 62) and this hit applied its effects and cleared the coating.
+    /// Always false for a bash or an unarmed contact. See docs/combat.md
+    /// CMB-25.
+    pub poisoned: bool,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -107,6 +112,8 @@ pub enum Error {
     Value(#[from] crate::actor_values::Error),
     #[error(transparent)]
     Inventory(#[from] crate::inventory::Error),
+    #[error(transparent)]
+    Magic(#[from] crate::world::magic::MagicError),
     #[error("invalid combat actor {0}")]
     Actor(GlobalFormId),
     #[error("weapon is not equipped or present in the attacker's inventory")]
