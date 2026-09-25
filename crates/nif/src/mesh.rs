@@ -641,3 +641,33 @@ pub fn meshes(file: &NifFile) -> Result<Vec<Mesh>> {
     }
     Ok(w.out)
 }
+
+/// Meshes under `node`'s children, walked from the identity transform
+/// instead of `node`'s own transform.
+///
+/// A host driving `node` live through a [`crate::controller`] transform
+/// controller wants its child geometry in `node`'s own local space, not
+/// baked with `node`'s default pose, so it can apply the evaluated
+/// transform itself every frame instead of double counting it. `meshes`
+/// bakes every ancestor including `node`, which is right for a static shape
+/// but wrong for one this function's caller repositions each frame.
+pub fn meshes_under_children(file: &NifFile, node: BlockRef) -> Result<Vec<Mesh>> {
+    let Some(idx) = node.get() else {
+        return Ok(Vec::new());
+    };
+    let Some(Block::Node(n)) = file.blocks.get(idx) else {
+        return Err(Error::InvalidData {
+            block: idx,
+            reason: "meshes_under_children: block is not an NiNode".into(),
+        });
+    };
+    let mut w = Walker {
+        file,
+        out: Vec::new(),
+        stack: vec![idx],
+    };
+    for &child in &n.children {
+        w.walk(child, &Transform::IDENTITY)?;
+    }
+    Ok(w.out)
+}
