@@ -331,6 +331,7 @@ fn repeated_rock_benchmark_measures_batching_vs_instancing() {
                 reference: reference(i),
                 arrays,
                 textures: SurfaceTextures::default(),
+                placement: soe_physics::Iso::translation(soe_physics::Vec3::new(x, y, 0.0)),
                 instance_transform: None,
                 mesh_identity: None,
             }
@@ -349,6 +350,7 @@ fn repeated_rock_benchmark_measures_batching_vs_instancing() {
                 reference: reference(i),
                 arrays: local_arrays.clone(),
                 textures: SurfaceTextures::default(),
+                placement: soe_physics::Iso::translation(soe_physics::Vec3::new(x, y, 0.0)),
                 instance_transform: Some(GodotTransform {
                     basis: [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
                     origin,

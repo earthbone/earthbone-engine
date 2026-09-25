@@ -364,6 +364,7 @@ mod tests {
             },
             arrays: build_surface(&data, MeshOptions::default()).unwrap(),
             textures: SurfaceTextures::default(),
+            placement: soe_physics::Iso::IDENTITY,
             instance_transform: None,
             mesh_identity: None,
         }

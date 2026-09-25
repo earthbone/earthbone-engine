@@ -63,6 +63,10 @@ pub struct CellCollision {
 pub struct PlacedCollider {
     pub reference: GlobalFormId,
     pub collider: Collider,
+    /// The reference's placement at load time, in Skyrim space. Lets a
+    /// runtime move be expressed as a delta against this baseline rather
+    /// than against `collider.transform`, which already has it baked in.
+    pub original: Iso,
 }
 
 impl DataSource {
@@ -155,6 +159,7 @@ impl DataSource {
                     }
                     stats.with_collision += 1;
                     stats.colliders += collected.colliders.len();
+                    let original = collected.placement;
                     out.extend(
                         collected
                             .colliders
@@ -162,6 +167,7 @@ impl DataSource {
                             .map(|collider| PlacedCollider {
                                 reference: id,
                                 collider,
+                                original,
                             }),
                     );
                 }
@@ -219,6 +225,7 @@ impl DataSource {
         Ok(RefColliders {
             colliders,
             skipped: collected.skipped.len(),
+            placement,
         })
     }
 }
@@ -226,4 +233,5 @@ impl DataSource {
 struct RefColliders {
     colliders: Vec<Collider>,
     skipped: usize,
+    placement: Iso,
 }

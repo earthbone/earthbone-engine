@@ -2,13 +2,14 @@
 
 //! Attribute sources follow NPC ACBS template groups, resolving each TPLT
 //! in its winning file. RACE starting values plus NPC offsets follow the
-//! skymp GetBaseActorValues comparison and UESP NPC/RACE layouts. DNAM's
-//! auto-calculated health, magicka and stamina remain cached inputs, not a
-//! live level-scaling formula. Skills follow UESP CLAS.wikitext's "Weight
-//! Calculations": the class weighted formula for a fixed-level auto-calculated
-//! actor with a resolvable class, RACE Skill Boosts added to a manual actor's
-//! DNAM base, and DNAM's own cache otherwise (no class, or `PC_LEVEL_MULT`,
-//! whose player-scaled level this store does not track).
+//! skymp GetBaseActorValues comparison and UESP NPC/RACE layouts. Health,
+//! magicka and stamina, and skills, both follow UESP CLAS.wikitext's
+//! "Weight Calculations": the class weighted formula for a fixed-level
+//! auto-calculated actor with a resolvable class, RACE starts plus the
+//! ACBS offset (attributes) or RACE Skill Boosts (skills) for a manual
+//! actor, and DNAM's own cache otherwise (no class, a class with a zero
+//! weight sum, or `PC_LEVEL_MULT`, whose player-scaled level this store
+//! does not track).
 
 use std::collections::BTreeSet;
 
@@ -177,9 +178,8 @@ impl World {
     }
 
     /// Initial values for the shared actor store, from winning race and NPC inputs.
-    /// Health, magicka and stamina keep the cached DNAM auto-calculation until
-    /// a class/level formula exists for them. Skills compute from the winning
-    /// class and race where the formula applies, see the module documentation.
+    /// Health, magicka, stamina and skills compute from the winning class and
+    /// race where the formula applies, see the module documentation.
     ///
     /// # Errors
     /// Rejects invalid templates, race attributes and overflowing attribute sums.
@@ -216,11 +216,27 @@ impl World {
                 values[2].1 = f32::from(stats.stamina);
             }
             if npc.config.flags & npc::flags::PC_LEVEL_MULT == 0 {
-                if let Some(skills) =
-                    class.and_then(|class| class_skill_values(npc.level_for(0), attributes, &class))
-                {
-                    for (i, value) in skills.into_iter().enumerate() {
-                        values[3 + i].1 = value;
+                if let Some(class) = class {
+                    let level = npc.level_for(0);
+                    if let Some(attribute_values) =
+                        class_attribute_values(level, attributes, &class)
+                    {
+                        for (index, value, offset) in [
+                            (0, attribute_values[0], npc.config.health_offset),
+                            (1, attribute_values[1], npc.config.magicka_offset),
+                            (2, attribute_values[2], npc.config.stamina_offset),
+                        ] {
+                            let value = (f64::from(value) + f64::from(offset)) as f32;
+                            if !value.is_finite() {
+                                return Err(Error::Invalid("overflowing NPC attribute".into()));
+                            }
+                            values[index].1 = value;
+                        }
+                    }
+                    if let Some(skills) = class_skill_values(level, attributes, &class) {
+                        for (i, value) in skills.into_iter().enumerate() {
+                            values[3 + i].1 = value;
+                        }
                     }
                 }
             }
@@ -332,4 +348,70 @@ fn class_skill_values(level: u32, race: Option<Attributes>, class: &Class) -> Op
         *skill = raw.clamp(0, 100) as f32;
     }
     Some(skills)
+}
+
+/// Health, magicka and stamina from UESP CLAS.wikitext's "Weight
+/// Calculations" formula for a fixed-level auto-calculated actor: `racial
+/// start + 10*(Level-1) distributed by attribute weight`, with an extra
+/// `5*(Level-1)` folded into health regardless of the class weights. Complete
+/// sets come from integer division of the level's point pool by the class'
+/// summed attribute weights. Leftover points go one at a time to attributes
+/// ordered by weight descending then actor value index descending (stamina,
+/// magicka, then health), each capped at its own weight, repeating until
+/// none remain. Indices follow [`Class::attribute_weights`]: 0 health, 1
+/// magicka, 2 stamina. `None` when the class has no weighted attribute to
+/// distribute to, so the caller keeps the DNAM cache. The caller adds the
+/// NPC's own ACBS offset, the same as the manual (non auto-calculated)
+/// branch, since this formula only covers the class-weighted racial start.
+fn class_attribute_values(level: u32, race: Option<Attributes>, class: &Class) -> Option<[f32; 3]> {
+    let total_weight: u32 = class
+        .attribute_weights
+        .iter()
+        .map(|&weight| u32::from(weight))
+        .sum();
+    if total_weight == 0 {
+        return None;
+    }
+    let level_steps = level.saturating_sub(1);
+    let points = 10 * level_steps;
+    let per_set = points / total_weight;
+    let mut remaining = points % total_weight;
+    let mut extra = [0u32; 3];
+    let mut order: Vec<usize> = (0..3).filter(|&i| class.attribute_weights[i] > 0).collect();
+    order.sort_by(|&a, &b| {
+        class.attribute_weights[b]
+            .cmp(&class.attribute_weights[a])
+            .then(b.cmp(&a))
+    });
+    while remaining > 0 {
+        let mut moved = false;
+        for &i in &order {
+            if remaining == 0 {
+                break;
+            }
+            if extra[i] < u32::from(class.attribute_weights[i]) {
+                extra[i] += 1;
+                remaining -= 1;
+                moved = true;
+            }
+        }
+        if !moved {
+            break;
+        }
+    }
+    let racial = race.map_or([0.0, 0.0, 0.0], |race| {
+        [race.health, race.magicka, race.stamina]
+    });
+    let mut values = [0.0f32; 3];
+    for (i, value) in values.iter_mut().enumerate() {
+        let weight = u32::from(class.attribute_weights[i]);
+        let weighted = (per_set * weight + extra[i]) as f32;
+        let health_bonus = if i == 0 {
+            5.0 * level_steps as f32
+        } else {
+            0.0
+        };
+        *value = racial[i] + health_bonus + weighted;
+    }
+    Some(values)
 }

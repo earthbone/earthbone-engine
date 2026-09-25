@@ -92,6 +92,8 @@ fn hit_from(attacker: GlobalFormId) -> MeleeHit {
         attacker,
         target: id(0x900),
         weapon: id(0xA00),
+        is_bash: false,
+        is_power_attack: false,
     }
 }
 
@@ -267,6 +269,8 @@ fn cmb_34_installed_protected_npc_takes_the_player_exception() {
             attacker: player,
             target,
             weapon: survey_weapon,
+            is_bash: false,
+            is_power_attack: false,
         })
         .unwrap();
 
