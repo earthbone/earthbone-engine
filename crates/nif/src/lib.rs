@@ -24,6 +24,7 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
 pub mod blocks;
+pub mod controller;
 pub mod error;
 pub mod header;
 pub mod mesh;

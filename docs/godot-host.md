@@ -1899,6 +1899,36 @@ Rows scroll, and category selection survives equipment changes. Closed or other
 menus reject stale inventory actions. Scene-tree edits use the same reentrant
 guard as the shell so focus callbacks can inspect PlayerNode safely.
 
+The magic presenter (UI-03) reuses the same shell. It lists the holder's
+known, player-castable spells (SPIT spell type 0, the "Spell" entry in
+xEdit's SPEL enum) in FormID order, each row showing name, base magicka cost
+and any hand it already occupies. Powers, Lesser Powers and Abilities are
+read from the same known-spell set but never occupy a hand, so they are
+filtered out, matching the CK wiki EquipSpell/UnequipSpell hand argument
+(0 left, 1 right, 2 other/voice). Two always-visible hand buttons pick the
+active hand before a spell click sends it there, rather than gating the list
+behind a hand choice. Clicking a spell calls World::equip_hand_spell through
+the new magic_menu reader, which mirrors inventory_menu's Game-plus-holder
+shape. The active hand is presenter-only UI state and resets on reopen, but
+both equip slots live in ActorState's `left_spell`/`right_spell` and survive
+an engine save and load from `SAVE_VERSION` 32 onward (`docs/game.md`), so a
+reload keeps the on-screen indicator matching what the actor last had
+equipped.
+
+The native M shortcut opens the magic menu the same way I opens inventory,
+gated on an active Game. No shortcut is yet remapped through controlmap.txt.
+
+Sources read for UI-03: `ck-wiki` for the EquipSpell/UnequipSpell hand
+argument and the SPEL spell type enum, `TES5Edit/Core/wbDefinitionsTES5.pas`
+for the SPIT subrecord layout, and `skyui/src/ItemMenus/magicmenu.fla` plus
+`skyui/src/Common/` for the known/equipped split this presenter mirrors. Now
+`godot-host/tests/ui_03_magic_menu_adversarial.rs` covers `magic_menu`
+against an unbuilt actor and a deleted-but-undeleted SPEL record, both fixed
+during UI-03 (`magic_menu::entries` now forces the actor to build before
+reading its known spells, and `World::spell` rejects a deleted winning
+override). The existing inventory_menu and menu shell tests were left
+unchanged since neither exercises spell state.
+
 inventory_runtime.gd clicks categories and item controls against the shared Game,
 checks equipment indicators and preserves the selected filter. It also checks
 missing-game rejection, focus callbacks and stale handlers. The
@@ -2054,7 +2084,9 @@ idle-to-walk transition completed with exit status 0.
 
 PlayerNode checks nearby load doors every 250 ms of simulation time after
 applying the Game pose. The game query compares the player's position only
-with enabled, non-deleted DOOR references belonging to that same logical cell.
+with enabled, non-deleted DOOR references in the same coordinate frame: the
+same interior cell, or in an exterior any grid cell of the same worldspace
+plus its persistent cell.
 It follows each source door's resolved XTEL link and selects the nearest
 interior destination within 500 Skyrim units, with FormID breaking distance
 ties. Destination coordinates never participate in proximity selection.
@@ -2068,7 +2100,7 @@ references, change residency, tick far-side actors or queue cell events.
 Activation retains the ordinary Game door lifecycle and cold-cell decision.
 
 The speculative budget admits at most 4,096 authored references before work,
-then at most 128 MiB of mesh-array and unique texture payloads and 100,000
+then at most 384 MiB of mesh-array and unique texture payloads and 100,000
 collision primitives after preparation. There is at most one outstanding job
 or retained destination. These are admission limits, not a peak allocation
 or wall-time guarantee. Parser temporaries, container capacity and metadata,
@@ -2093,10 +2125,10 @@ fit this form-backed Godot host, so this code reuses the engine's existing
 resource builder. No new package, node per reference, or alternate game-state
 store was added.
 
-`godot/interior_prefetch_test.gd` uses installed five-master data and requires
+`godot/hst_07_test.gd` uses installed five-master data and requires
 an exterior landing near the Bannered Mare return door to prepare that linked
-interior while the current cell and rendering stay unchanged. It requires one
-job, a nonempty payload within 128 MiB, a cache hit on return, draw instances
+interior while the player stays outside and rendering stays unchanged. It requires one
+job, a nonempty payload within 384 MiB, a cache hit on return, draw instances
 and supporting collision. Its predeclared foreground-step budget is 50 ms,
 and its preparation deadline is 30 seconds. The limits are specific to this
 acceptance run, not a claim about every authored cell or machine.
@@ -2104,7 +2136,47 @@ acceptance run, not a claim about every authored cell or machine.
 On 2026-09-23 the script failed on master `9ae933b` under Godot 4.7.2 with
 installed data. No prefetch job started (`started` 0, `payload_bytes` 0), one
 gameplay step took 497,919 us, and the transition rebuilt its resources. HST-07
-is open again until this script passes on master.
+was open again until this script passed on master.
+
+On 2026-09-24 the crate's SKYRIM_DATA-gated test
+`interior_prefetch::tests::installed_bannered_mare_prefetch_admission` failed
+at the previous 128 MiB cap with `references=697 bytes=195769624
+primitives=19146 admitted=false`. Decoded payload across five installed
+interiors (WhiterunBanneredMare 186.7 MiB, RiftenBeeandBarb 195.6 MiB,
+SolitudeBluePalace 230.7 MiB, WhiterunJorrvaskr 269.9 MiB,
+WhiterunDragonsreach 295.3 MiB) showed that cap rejecting all of them, so
+`MAX_PAYLOAD_BYTES` moved to 384 MiB and the script's `PAYLOAD_BUDGET` with it.
+
+The `started` 0 failure had a separate cause, found on 2026-09-25 by running
+the script. Vanilla files exterior load doors in the worldspace's persistent
+cell. The return door of the Bannered Mare is `0:01A6F4` in `0:01A270`, the
+persistent cell of worldspace `0:01A26F`, while the first exterior step
+refocuses the logical cell on the grid cell under the player, `0:01A276`. The
+same-cell filter therefore never saw the door. In an exterior the query now
+also accepts doors filed in any grid cell of the same worldspace and in that
+worldspace's persistent cell, which share one coordinate frame. OpenMW's
+`preloadTeleportDoorDestinations` walks the doors of every active cell in the
+same way. Interiors still compare only their own cell, and no other interior
+or worldspace is ever compared.
+
+The prefetch also dropped a changed selection. A request made while a job was
+running cancelled that job and returned, so the new door waited for another
+selection tick after the old job finished, and a return to the same door lost
+its job. The newest selection is now held as one queued loader and starts when
+the running job is collected, and a return to the running door clears its
+cancel. A cancelled job is no longer counted as a rejection.
+
+On 2026-09-25 the script passed under Godot 4.7.2 and the 4.4.1 API floor with
+installed data: one job, 195,769,624 prepared bytes, ready after 859 ms (4.7.2)
+and 1,149 ms (4.4.1), one cache hit on return, and a largest gameplay step of
+1,598 us and 3,212 us while the prefetch ran. The script checks that the
+player stays outside the prefetched interior rather than in the landing's
+cell id, because exterior streaming refocuses that id by position.
+
+Known gap: the first exterior step after the landing took 519 ms (4.7.2) and
+707 ms (4.4.1) before any prefetch started. The script reports it as
+`landing_step_us` and excludes it from the prefetch step budget. It belongs to
+the exterior landing path, not to this row.
 
 ## Actor controller geometry resolver, CMB-33
 
@@ -2287,3 +2359,168 @@ with the RenderingServer running, both of which need a windowed Godot run
 against a live scene, same as the rest of this document's frame-time numbers.
 That measurement is still open and belongs with the other "Numbers" table
 entries once someone runs one.
+
+## Water planes, RND-02 (2026-09-24)
+
+A cell with water now streams one extra `LoadedSurface`: a flat quad at the
+cell's recorded `XCLW` height, sized to the exterior grid square or, for an
+interior cell, to the union of the cell's own already-built surface bounds.
+`DataSource::water_surface` reads the cell's own `CELL` record after the
+reference scan in `stream_cell_id` finishes, rather than from a `REFR`, since
+an interior lake has no placed reference carrying it, only the cell's `XCLW`
+and `XCWT`. `esm::records::cell::Cell` already parsed both fields, so no `esm`
+change was needed.
+
+Sources read: `TES5Edit/Core/wbDefinitionsTES5.pas` (WATR, lines 10304 to
+10429) and the UESP `WATR.wikitext` page for the record layout, both agreeing
+that DNAM is a 228 (base game) or 232 (Special Edition) byte block with three
+four-byte `wbByteColors` structs (Shallow, Deep, Reflection) at offsets 40,
+44 and 48. `openmw/components/nifosg/nifloader.cpp`'s water construction
+confirmed a single flat plane with no runtime deformation is the right
+starting shape, matching this task pack's own reading of the vanilla engine.
+No `esm` record module exists for WATR yet, so `data_source/water.rs` reads
+ANAM, DNAM and NAM2 with the same generic `Record::find` pattern
+`data_source/models.rs` already uses for FURN and DOOR's `MODL`, rather than
+adding a dedicated view for one record type touched by one surface builder.
+
+`mesh::WaterMaterial` (opacity, shallow/deep/reflection colors, one noise
+texture path) sits on a new `Option<WaterMaterial>` field on `MaterialDesc`,
+left `None` on every ordinary NIF-sourced surface. `MaterialDesc` was the
+right extension point over `LoadedSurface`: every non-defaulted
+`MaterialDesc { .. }` construction site in the crate is the single
+`material_desc_from` call in `data_source.rs`, while `LoadedSurface`'s
+construction sites are more numerous and not all defaulted. `batch::BatchKey`
+reads only the material fields that already existed, so water surfaces batch
+by their (empty) diffuse and normal paths like any other untextured surface,
+with no batching code changed. `CellStats::water_plane_count` counts 0 or 1
+per cell, matching `statics_with_model`'s style, since a cell has exactly one
+water plane no matter how many things could in principle reference its WATR.
+
+An exterior cell whose `XCLW` is absent or holds the reserved `0x7F7FFFFF`
+value takes its worldspace's water. UESP's `CELL` page reserves that value,
+and xEdit's `wbCELLAfterLoad` shows it as "Default". The height comes from
+the worldspace's `DNAM` default water height and the type from its `NAM2`,
+both inherited from the `WNAM` parent when `PNAM` sets "Use Water Data".
+OpenMW's `mwworld/cell.cpp` makes the same choice for ESM4 cells.
+`DLC1VampireCastleExterior01` records the marker and draws at the
+`DLC1VampireCastleWorld` height of -14000 units, which is -200.025 metres.
+Interior cells never fall back, they need their own `XCLW`.
+
+`godot_layer::water_material` maps `WaterMaterial` onto a
+`StandardMaterial3D`: the shallow color is the albedo, `ANAM` over 255 is
+its alpha with alpha blending below full opacity, and culling is off so
+the plane shows from underneath. `MaterialKey` covers the water fields so
+two water types never share a cached material. `CellStreamerNode` gains
+`water_planes()`, one dictionary per drawn water instance with its cell,
+RID, height, override material, opacity and shallow color, and
+`last_stats` gains `water_planes`.
+
+`godot/rnd_02_water_planes_check.gd` streams `DLC1VampireCastleExterior01`
+and fails unless one plane sits at the recorded height with a material whose
+albedo and alpha match the `WATR` record. It passed headless on Godot 4.7.2
+and on 4.4.1, the API floor, against the installed game.
+
+Left open, listed here rather than silently dropped:
+
+- **TNAM (MATT material) is not read.** WATR's `TNAM` names a `MATT` record,
+  which itself names shader textures, not a plain diffuse and normal pair.
+  No `esm` view or `godot-host` reader for `MATT` exists yet. `WaterMaterial`
+  carries only ANAM's opacity and DNAM's three colors, so a water plane's
+  authored material beyond flat color is not represented.
+- **NAM3 and NAM4 are not carried.** WATR names three noise texture layers,
+  only NAM2 is read onto `WaterMaterial::noise_texture`. One layer is enough
+  to prove the plane streams and renders before the shader mapping that would
+  use any of them exists.
+- **No per-instance shading.** One `MaterialDesc` per cell's water plane,
+  built once from the cell's resolved WATR winner. Wave animation and other
+  per-reference shader parameters were out of scope for this row's starting
+  point and remain so.
+- **The interior footprint is a heuristic, not an authored bound.** Skyrim
+  records no interior water boundary in `esm`'s current CELL view. This
+  implementation unions the bounds of whatever the cell already streamed
+  before the water lookup runs, in Skyrim units, and falls back to a fixed
+  exterior-cell-sized square at the origin for a cell whose only content is
+  its water. A dungeon lake's plane can therefore be sized larger or smaller
+  than the authored water's true extent, since nothing here reads a specific
+  water boundary shape.
+- **Deep and reflection colors, noise layers, fog and waves are not
+  shaded.** The material is a flat blended color. They wait for a water
+  shader.
+
+## Grass placement, RND-11 (2026-09-24)
+
+Vanilla never places grass through a `REFR`. A cell's `LAND` quadrants paint
+`LTEX` textures over a 17 by 17 alpha grid, an `LTEX` names the `GRAS`
+records it may grow through a repeated `GNAM`, and the shipped engine
+scatters instances over the painted area filtered by each `GRAS` record's
+density and slope range (`docs/esm.md`, "GRAS and LTEX views"). No corpus
+source read for this row (`TES5Edit`, `Mutagen`, OpenMW's
+`groundcoverstore.cpp`, which implements a different, non `ESM4` system)
+publishes the exact vanilla scatter pattern, so `src/data_source/grass.rs`
+places on a deterministic hashed grid instead of reproducing it bit for bit.
+
+`DataSource::grass_surfaces_for_cell` walks each quadrant's 16 by 16 alpha
+quads, resolves the painted `LTEX` and its `GNAM` grass list through the
+load order, filters by ground slope (`quad_slope_degrees`, a bilinear
+gradient over the cell's already decoded height grid) against the `GRAS`
+record's declared range, and scatters a bounded, deterministic number of
+instances per quad. `instance_count` divides the record's density by the
+layer's local opacity into a small per-quad count, backstopped by
+`MAX_INSTANCES_PER_QUAD = 6` so an edited or unusually dense record cannot
+make one quad's batch unbounded, and `MAX_GRASS_PLACEMENTS_PER_CELL = 512`
+caps the whole cell. Each placement's seed comes from `mix`, SplitMix64's
+finalizer (Sebastiano Vigna, public domain) applied to stable coordinates
+only, the cell's own grid position, the quadrant, the height grid cell and
+the instance index, never wall-clock time or shared random state, so
+streaming the same cell twice produces the same batch. That determinism is
+what the release-on-unload path and this row's done check both rely on.
+
+Placement itself is a synthetic `Refr` built at the placement's world
+position and yaw, fed straight into the existing
+`DataSource::load_static_surfaces(&model, &refr, true)`, the same private
+method STAT, FURN, DOOR and CONT already share, with instancing forced on.
+The placements of one cell are collected first, in `ATXT` order, and built
+through `build_all` like the cell's statics, so the per-cell
+`INSTANCE_MIN_PLACEMENTS` test in `src/batch.rs` (RND-04) sees every copy of a
+grass model at once and `instancing_candidates` folds them into one
+`MultiMesh` per model and material. `stream_exterior_each` in
+`src/data_source/exterior.rs` calls `grass_surfaces_for_cell` right after
+building each cell's terrain surface, using the same reconciled height grid,
+and folds the instance count into `CellStats::grass_placements`, which
+`stream_exterior` reports as the `grass_placements` key.
+
+Release follows the cell. `stream_exterior` records which `CELL` each grid
+position resolved to, and `release_exterior_cell(cell_x, cell_y)` frees that
+cell's instances, grass `MultiMesh` batches included, so a
+`cell_unload_requested(cell_x, cell_y)` from `CellStreamer` can be wired
+straight to it. `release_exterior_cell` returns how many instances it freed,
+and `cell_instances` drops the cell's key afterwards.
+
+`data_source::grass_tests` drives this on a synthetic `LAND`, `LTEX`, `GRAS`
+and `STAT` plugin written by the test: `rnd_11_...` checks that two streams
+produce identical placements, that neighbouring cells with the same paint
+differ, that a fully painted cell stops at `MAX_GRASS_PLACEMENTS_PER_CELL`
+and forms one `MultiMesh`, and that moving a `CellStreamer` focus away emits
+the unload of the grass cell and restreaming the new set leaves it out.
+`godot/rnd_11_test.gd` runs the same path inside Godot through
+`stream_exterior` and `release_exterior_cell`.
+
+Open gaps, none closed by this row:
+
+- Only the alpha layers (`ATXT`/`VTXT`) are read as grass sources. A
+  quadrant's base texture (`BTXT`) can also carry a `GNAM` list, but its
+  effective opacity is whatever the alpha layers leave uncovered rather than
+  a value the record states outright, so it is left out of this pass.
+- `instance_count`'s divisor is a self-designed heuristic, not a published
+  vanilla density curve. No corpus source states one.
+- Water-level filtering is unimplemented. `Grass` parses the `DATA` block's
+  water fields but `grass_surfaces_for_cell` does not read them.
+- REGN grass overrides (`RDGS`) are unimplemented, only `LAND`-painted
+  `LTEX` grass is placed.
+- The `GRAS` `UniformScaling` and `FitToSlope` flags are parsed but not
+  applied. Every placement draws upright with yaw-only rotation and uniform
+  scale from the height-range jitter alone.
+- `wave_period`, the wind-sway parameter, has no shader consumer yet.
+- The `CellStreamer` release path in the Godot layer only follows
+  `stream_exterior` grid positions. `stream_cell` by editor id does not
+  record one, so `release_exterior_cell` cannot drop a cell loaded that way.

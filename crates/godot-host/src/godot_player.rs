@@ -43,6 +43,7 @@ mod containers;
 mod exterior;
 mod footsteps;
 mod gameplay;
+mod magic;
 mod melee;
 mod menu;
 mod saves;
@@ -118,6 +119,7 @@ pub struct PlayerNode {
     input_focused: bool,
     menu: crate::ui::MenuState,
     inventory_category: crate::inventory_menu::Category,
+    magic_hand: soe_game::combat::Hand,
     menu_view: Option<menu::MenuView>,
     container_menu: Option<(GlobalFormId, crate::inventory_menu::Category)>,
     restore_mouse_on_focus: Option<godot::classes::input::MouseMode>,
@@ -167,6 +169,7 @@ impl INode3D for PlayerNode {
             input_focused: true,
             menu: crate::ui::MenuState::default(),
             inventory_category: crate::inventory_menu::Category::All,
+            magic_hand: soe_game::combat::Hand::Right,
             menu_view: None,
             container_menu: None,
             restore_mouse_on_focus: None,
@@ -213,6 +216,17 @@ impl INode3D for PlayerNode {
                 && !key.is_echo()
                 && !self.menu.is_open()
                 && self.open_inventory_menu()
+            {
+                if let Some(mut viewport) = self.base().get_viewport() {
+                    viewport.set_input_as_handled();
+                }
+                return;
+            }
+            if key.get_keycode() == Key::M
+                && key.is_pressed()
+                && !key.is_echo()
+                && !self.menu.is_open()
+                && self.open_magic_menu()
             {
                 if let Some(mut viewport) = self.base().get_viewport() {
                     viewport.set_input_as_handled();

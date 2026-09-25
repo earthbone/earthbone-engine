@@ -201,7 +201,15 @@ fn a_genuine_pre_prg_06_save_loads_cleanly_with_no_witnessed_crimes() {
         1,
         "witnessed_crimes sentinel marker is not unique in the buffer"
     );
-    bytes.drain(offsets[0]..offsets[0] + marker.len());
+    let end = offsets[0] + marker.len();
+    // Version 32 writes the left and right hand spell presence bytes right
+    // after witnessed_crimes, both unset for this witness.
+    assert_eq!(
+        bytes[end..end + 2],
+        [0, 0],
+        "an actor with no hand spells must write two unset presence bytes after its crime set"
+    );
+    bytes.drain(offsets[0]..end + 2);
     // Roll the header back to a real pre-witness-tracking version.
     bytes[4..6].copy_from_slice(&29u16.to_le_bytes());
 

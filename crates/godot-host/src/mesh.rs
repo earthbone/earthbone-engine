@@ -32,6 +32,10 @@ pub struct MaterialDesc {
     pub alpha: AlphaMode,
     /// Two-sided rendering, from the shader flags or an NiStencilProperty.
     pub double_sided: bool,
+    /// Set only on the synthetic surface a cell's water plane builds, from
+    /// its WATR record. Every ordinary NIF-sourced surface leaves this
+    /// `None`.
+    pub water: Option<WaterMaterial>,
 }
 
 impl Default for MaterialDesc {
@@ -49,7 +53,40 @@ impl Default for MaterialDesc {
             shader_flags_2: 0,
             alpha: AlphaMode::default(),
             double_sided: false,
+            water: None,
         }
+    }
+}
+
+/// Shading data read from a WATR record, carried by a water plane's
+/// `MaterialDesc`, which `godot_layer::water_material` maps onto a Godot
+/// material. Colors are normalised 0.0 to 1.0, `opacity` is the
+/// record's own 0 to 255 byte.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct WaterMaterial {
+    pub opacity: u8,
+    pub shallow_color: [f32; 3],
+    pub deep_color: [f32; 3],
+    pub reflection_color: [f32; 3],
+    /// The first of WATR's three noise texture layers (NAM2). NAM3 and
+    /// NAM4 are not carried yet, nothing shades with noise until a water
+    /// shader exists.
+    pub noise_texture: Option<String>,
+}
+
+impl WaterMaterial {
+    /// Opacity as the 0.0 to 1.0 alpha a blended material draws with.
+    pub fn alpha(&self) -> f32 {
+        f32::from(self.opacity) / 255.0
+    }
+
+    fn key(&self) -> (u8, [u32; 9]) {
+        let mut bits = [0; 9];
+        let colors = [self.shallow_color, self.deep_color, self.reflection_color];
+        for (slot, value) in bits.iter_mut().zip(colors.iter().flatten()) {
+            *slot = value.to_bits();
+        }
+        (self.opacity, bits)
     }
 }
 
@@ -106,6 +143,9 @@ pub struct MaterialKey {
     alpha: AlphaMode,
     double_sided: bool,
     decal_depth: Option<(bool, bool)>,
+    /// Opacity, then the shallow, deep and reflection colors as float
+    /// bits, so two water types never share one material.
+    water: Option<(u8, [u32; 9])>,
 }
 
 impl From<&MaterialDesc> for MaterialKey {
@@ -122,6 +162,7 @@ impl From<&MaterialDesc> for MaterialKey {
             alpha: material.alpha,
             double_sided: material.double_sided,
             decal_depth: material.decal_depth(),
+            water: material.water.as_ref().map(WaterMaterial::key),
         }
     }
 }
@@ -571,6 +612,40 @@ mod material_key_tests {
             }
         }
         assert_eq!(keys.len(), 5);
+    }
+
+    #[test]
+    fn rnd_02_each_water_type_keeps_its_own_material() {
+        let plain = MaterialDesc::default();
+        let water = |opacity, shallow| MaterialDesc {
+            water: Some(WaterMaterial {
+                opacity,
+                shallow_color: shallow,
+                ..WaterMaterial::default()
+            }),
+            ..MaterialDesc::default()
+        };
+        let keys = std::collections::HashSet::from([
+            MaterialKey::from(&plain),
+            MaterialKey::from(&water(255, [0.1, 0.2, 0.3])),
+            MaterialKey::from(&water(128, [0.1, 0.2, 0.3])),
+            MaterialKey::from(&water(128, [0.1, 0.2, 0.4])),
+        ]);
+        assert_eq!(keys.len(), 4);
+        assert_eq!(
+            MaterialKey::from(&water(128, [0.1, 0.2, 0.3])),
+            MaterialKey::from(&water(128, [0.1, 0.2, 0.3]))
+        );
+        assert!(
+            (WaterMaterial {
+                opacity: 51,
+                ..Default::default()
+            }
+            .alpha()
+                - 0.2)
+                .abs()
+                < 1e-6
+        );
     }
 
     #[test]

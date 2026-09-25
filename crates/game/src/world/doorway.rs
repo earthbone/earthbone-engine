@@ -140,10 +140,14 @@ pub struct InteriorDestination {
 }
 
 impl World {
-    /// Select the nearest enabled load door in the player's current cell.
-    /// Distances only compare source coordinates within that cell. Destination
-    /// coordinates are used for loading, never for proximity selection.
-    /// Follows OpenMW's scene.cpp teleport-door preload selection.
+    /// Select the nearest enabled load door that shares the player's
+    /// coordinate frame. In an interior that is the current cell only. In an
+    /// exterior it is every resident grid cell of the same worldspace plus
+    /// that worldspace's persistent cell, where vanilla files most exterior
+    /// load doors. Coordinates from any other cell are never compared, and
+    /// destination coordinates are used for loading, never for selection.
+    /// Follows OpenMW's scene.cpp teleport-door preload selection, which
+    /// walks the doors of every active cell.
     pub fn nearby_interior_destination(
         &self,
         cell: GlobalFormId,
@@ -154,10 +158,22 @@ impl World {
             return None;
         }
         let index = self.order.cell_index()?;
+        let world = index.grid_of(cell).map(|grid| grid.world);
+        let persistent = world.and_then(|world| index.world_persistent_cell(world));
+        let shares_frame = |other: GlobalFormId| {
+            other == cell
+                || world.is_some_and(|world| {
+                    Some(other) == persistent
+                        || index.grid_of(other).is_some_and(|grid| grid.world == world)
+                })
+        };
         self.refs
             .iter()
             .filter_map(|(&id, reference)| {
-                if reference.cell != Some(cell) || !reference.enabled || reference.deleted {
+                if !reference.cell.is_some_and(shares_frame)
+                    || !reference.enabled
+                    || reference.deleted
+                {
                     return None;
                 }
                 if self.tag_of(reference.base?) != Some(super::T(b"DOOR")) {

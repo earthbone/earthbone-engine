@@ -37,6 +37,7 @@ base's, so the prefix read is exact.
 - `blocks`: one struct per parsed block type, in the order nif.xml gives.
   Enum `Block` holds them in file order.
 - `vertex`: the packed `BSVertexData` layout and its 64-bit descriptor.
+- `controller`: `NiTransformController` and its interpolators, see below.
 - `mesh`: the neutral output, see below, and the scene walk that produces
   it. Cycle protection and a depth limit make the walk safe on any input.
 
@@ -78,6 +79,45 @@ Two layouts exist and both are normalised to the per-vertex form above.
   corrected by the actor-mesh survey recorded in `docs/status.md`: 564 of
   846 partitions across 400 meshes reorder the bone list. Use the
   `NiSkinPartition` bone tables declared in `nifxml/nif.xml`.
+
+## Transform controllers (2026-09-24, in progress)
+
+`controller` parses `NiTimeController` and the transform family
+(`NiTransformController`, the deprecated `NiKeyframeController` name folds to
+the same reader since nif.xml gives it no extra fields at our version),
+`NiTransformInterpolator`, `NiTransformData` (`NiKeyframeData`), `NiPosData`
+and `NiFloatData`. `NiPathInterpolator` is parsed too but its curve-follow
+evaluation is not implemented, so a path-driven controller reads cleanly and
+falls back to its interpolator default rather than moving along the path.
+
+Two entry points cover evaluation. `evaluate_time` maps a game clock reading
+through a controller's frequency, phase and start and stop time window,
+honouring `CycleType`: clamp holds the edge pose, loop wraps the window, and
+reverse ping-pongs across it. The mapping matches OpenMW's
+`ControllerFunction::calculate`, read in `../engine-refs/openmw` before
+writing it, since nif.xml has no field describing the wrap behaviour itself.
+`evaluate_transform` takes a mapped time and returns the full transform for
+that instant, blending rotation, translation and scale key tracks with a
+cubic Hermite for quadratic keys and slerp for rotation, falling back per
+channel to the interpolator's default value when a track has no keys.
+
+Open items, read against `../engine-refs/openmw`'s `components/nif`:
+
+- TBC (Kochanek-Bartels) tangent generation is not implemented. A
+  Tbc-interpolated key falls back to linear interpolation between its
+  neighbours instead of a true Kochanek-Bartels spline. TBC keys are rare on
+  Skyrim SE statics, a legacy 3ds Max and Blender authoring feature, so this
+  is scoped out rather than built and left unverified.
+- `XyzRotation` tracks compose the three per-axis key groups in a fixed X
+  then Y then Z order. nif.xml carries no field for axis composition order at
+  our version, so this follows OpenMW's own fallback case rather than a
+  documented source. Unverified against a real Skyrim SE static that actually
+  uses Euler rather than quaternion keys.
+- The `godot-host` side that calls `evaluate_transform` once per frame and
+  applies the result to a scene node is not wired yet. Today the host bakes a
+  static's transform into its vertex world space at streaming time, so an
+  animated static needs its node kept separate from that bake before this
+  evaluator has anywhere to write its output.
 
 ## Tests
 

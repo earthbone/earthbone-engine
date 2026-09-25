@@ -11,6 +11,11 @@
 //! as their base type and the rest of the block is skipped by size, which
 //! is safe because every subtype appends its fields after the base's.
 
+use crate::controller::{
+    read_float_data, read_path_interpolator, read_pos_data, read_transform_controller,
+    read_transform_data, read_transform_interpolator, KeyGroup, PathInterpolator,
+    TransformController, TransformData, TransformInterpolator,
+};
 use crate::error::{Error, Result};
 use crate::header::{Header, BS_FALLOUT_4, BS_SKYRIM_SE};
 use crate::stream::Stream;
@@ -481,6 +486,23 @@ pub enum Block {
     SkinInstance(SkinInstance),
     SkinData(SkinData),
     SkinPartition(SkinPartition),
+    /// `NiTransformController` and `NiKeyframeController`: drives a target
+    /// node's transform through an interpolator.
+    TransformController(TransformController),
+    /// `NiTransformInterpolator`: default transform plus an optional key
+    /// track.
+    TransformInterpolator(TransformInterpolator),
+    /// `NiPathInterpolator`: follows a position curve, parsed but not yet
+    /// evaluated, see `docs/nif.md`.
+    PathInterpolator(PathInterpolator),
+    /// `NiTransformData` and `NiKeyframeData`: the rotation, translation and
+    /// scale key tracks a `TransformInterpolator` plays back.
+    TransformData(TransformData),
+    /// `NiPosData`: a position key track, used by `NiPathInterpolator`.
+    PosData(KeyGroup<Vec3>),
+    /// `NiFloatData`: a float key track, used by `NiPathInterpolator` and by
+    /// XYZ Euler rotation channels inlined in `TransformData` instead.
+    FloatData(KeyGroup<f32>),
     /// bhk* Havok collision, kept opaque for the physics layer.
     Collision {
         type_name: String,
@@ -507,6 +529,12 @@ impl Block {
             Block::SkinInstance(_) => "NiSkinInstance",
             Block::SkinData(_) => "NiSkinData",
             Block::SkinPartition(_) => "NiSkinPartition",
+            Block::TransformController(_) => "NiTransformController",
+            Block::TransformInterpolator(_) => "NiTransformInterpolator",
+            Block::PathInterpolator(_) => "NiPathInterpolator",
+            Block::TransformData(_) => "NiTransformData",
+            Block::PosData(_) => "NiPosData",
+            Block::FloatData(_) => "NiFloatData",
             Block::Collision { type_name, .. } | Block::Unknown { type_name, .. } => type_name,
         }
     }
@@ -571,6 +599,12 @@ enum Kind {
     DismemberSkinInstance,
     SkinData,
     SkinPartition,
+    TransformController,
+    TransformInterpolator,
+    PathInterpolator,
+    TransformData,
+    PosData,
+    FloatData,
     Collision,
     Unknown,
 }
@@ -596,6 +630,17 @@ fn kind_of(type_name: &str) -> Kind {
         "BSDismemberSkinInstance" => Kind::DismemberSkinInstance,
         "NiSkinData" => Kind::SkinData,
         "NiSkinPartition" => Kind::SkinPartition,
+        // `NiTransformController` is the current name. `NiKeyframeController`
+        // is the pre-10.2 name it was renamed from, and both have the same
+        // fields at our fixed file version (nif.xml lines 3600-3665).
+        "NiTransformController" | "NiKeyframeController" => Kind::TransformController,
+        "NiTransformInterpolator" => Kind::TransformInterpolator,
+        "NiPathInterpolator" => Kind::PathInterpolator,
+        // Likewise `NiTransformData` renamed from `NiKeyframeData`, same
+        // layout at our version (nif.xml lines 4327-4337).
+        "NiTransformData" | "NiKeyframeData" => Kind::TransformData,
+        "NiPosData" => Kind::PosData,
+        "NiFloatData" => Kind::FloatData,
         t if t.starts_with("bhk") => Kind::Collision,
         _ => Kind::Unknown,
     }
@@ -1169,6 +1214,14 @@ pub fn read_blocks(s: &mut Stream<'_>, h: &Header) -> Result<Vec<Block>> {
                 | "BSDismemberSkinInstance"
                 | "NiSkinData"
                 | "NiSkinPartition"
+                | "NiTransformController"
+                | "NiKeyframeController"
+                | "NiTransformInterpolator"
+                | "NiPathInterpolator"
+                | "NiTransformData"
+                | "NiKeyframeData"
+                | "NiPosData"
+                | "NiFloatData"
         ) || (type_name == "BSLightingShaderProperty" && h.bs_version < BS_FALLOUT_4);
         let block = match kind_of(&type_name) {
             Kind::Node => Block::Node(read_node(s, &c)?),
@@ -1184,6 +1237,14 @@ pub fn read_blocks(s: &mut Stream<'_>, h: &Header) -> Result<Vec<Block>> {
             Kind::DismemberSkinInstance => Block::SkinInstance(read_skin_instance(s, &c, true)?),
             Kind::SkinData => Block::SkinData(read_skin_data(s, &c)?),
             Kind::SkinPartition => Block::SkinPartition(read_skin_partition(s, &c)?),
+            Kind::TransformController => Block::TransformController(read_transform_controller(s)?),
+            Kind::TransformInterpolator => {
+                Block::TransformInterpolator(read_transform_interpolator(s)?)
+            }
+            Kind::PathInterpolator => Block::PathInterpolator(read_path_interpolator(s)?),
+            Kind::TransformData => Block::TransformData(read_transform_data(s, i)?),
+            Kind::PosData => Block::PosData(read_pos_data(s, i)?),
+            Kind::FloatData => Block::FloatData(read_float_data(s, i)?),
             Kind::Collision | Kind::Unknown => {
                 if size == 0 {
                     return Err(c.invalid(format!(

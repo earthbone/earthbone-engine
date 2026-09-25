@@ -32,19 +32,23 @@ use std::sync::Arc;
 
 use soe_audio::{VoiceArchiveError, VoiceLocale};
 use soe_bsa::{Archive, Vfs};
+use soe_esm::records::cell::Cell;
 use soe_esm::records::refr::Refr;
 use soe_esm::{tag, CellIndex, GlobalFormId, LoadOrder};
 use soe_nif::{Mat33, Mesh as NifMesh, NifFile, Transform as NifTransform, Vec3 as NifVec3};
 
 use crate::mesh::{
     build_surface, AlphaMode, MaterialDesc, MeshData, MeshError, MeshOptions, SurfaceArrays,
+    WaterMaterial,
 };
 
 mod exterior;
+mod grass;
 mod location;
 mod lod;
 mod models;
 mod textures;
+mod water;
 mod workers;
 
 #[cfg(test)]
@@ -57,6 +61,7 @@ pub use lod::LoadedLodBlock;
 pub(crate) use models::{is_editor_marker_name, model_for};
 use textures::TextureCache;
 pub use textures::{BlockFormat, TextureData};
+use water::water_material_from;
 use workers::ordered_map;
 
 /// The base masters every Skyrim SE install ships, in the order the game
@@ -120,6 +125,14 @@ pub struct CellStats {
     pub furniture_with_model: usize,
     pub containers_with_model: usize,
     pub doors_with_model: usize,
+    /// 1 when the cell has water and its plane was built, 0 otherwise. A
+    /// count rather than a bool since every other field here counts, and a
+    /// cell has at most one water plane no matter how many WATR-carrying
+    /// references or XCWT overrides it has.
+    pub water_plane_count: usize,
+    /// Grass instances placed from LAND texture layers, see `data_source::grass`.
+    /// Not a `REFR` count, grass has none.
+    pub grass_placements: usize,
     pub editor_markers_filtered: usize,
     pub editor_marker_only_models: usize,
     pub meshes_parsed: usize,
@@ -576,7 +589,75 @@ impl DataSource {
         stats.texture_decode_failures = after.failures - before.failures;
         stats.texture_decode_time =
             std::time::Duration::from_nanos(after.decode_ns - before.decode_ns);
+        if let Some(water) = self.water_surface(cell_id, &surfaces) {
+            stats.water_plane_count += 1;
+            surfaces.push(water);
+        }
         Ok(LoadedCell { stats, surfaces })
+    }
+
+    /// The cell's water plane, built from its own `CELL` record rather than
+    /// the reference scan above: interior cells with water (a dungeon lake)
+    /// carry no `REFR` for it, `XCLW` and `XCWT` sit on the cell itself.
+    /// An exterior cell without its own `XCLW`, or with xEdit's "Default"
+    /// marker there, takes its worldspace's `DNAM` height and `NAM2` water,
+    /// which is how the open sea gets its plane.
+    /// `None` for a cell with no water flag, no height from either, or whose
+    /// own record cannot be resolved, in which case the cell still streams
+    /// normally with no water surface rather than failing the whole call.
+    fn water_surface(
+        &self,
+        cell_id: GlobalFormId,
+        surfaces: &[LoadedSurface],
+    ) -> Option<LoadedSurface> {
+        let rref = self.order.winner_ref(cell_id)?;
+        let rec = self.order.record(rref);
+        if rec.tag != tag::CELL {
+            return None;
+        }
+        let localized = self.order.file(rref.file).plugin.header.is_localized();
+        let view = Cell::from_record(rec, localized).ok()?;
+        if !view.has_water() {
+            return None;
+        }
+        let cell_height = view.water_height.filter(|h| water::is_recorded_height(*h));
+        let world_water = match (view.grid, view.world) {
+            (Some(_), Some(raw)) => {
+                water::world_water(&self.order, self.order.resolve(rref.file, raw))
+            }
+            _ => water::WorldWater::default(),
+        };
+        let height = cell_height.or(world_water.height)?;
+        let water_id = view
+            .water
+            .map(|raw| self.order.resolve(rref.file, raw))
+            .or(world_water.water);
+        let material = water_id
+            .and_then(|id| self.order.winner(id))
+            .map(water_material_from);
+        let footprint = match view.grid {
+            Some(grid) => {
+                let min_x = grid.x as f32 * crate::units::CELL_UNITS;
+                let min_y = grid.y as f32 * crate::units::CELL_UNITS;
+                (
+                    min_x,
+                    min_y,
+                    min_x + crate::units::CELL_UNITS,
+                    min_y + crate::units::CELL_UNITS,
+                )
+            }
+            None => interior_water_footprint(surfaces),
+        };
+        let data = water_plane_mesh(footprint, height, material);
+        let arrays = build_surface(&data, MeshOptions::default()).ok()?;
+        Some(LoadedSurface {
+            reference: water_id.unwrap_or(cell_id),
+            arrays,
+            textures: SurfaceTextures::default(),
+            placement: soe_physics::Iso::IDENTITY,
+            instance_transform: None,
+            mesh_identity: None,
+        })
     }
 
     /// Parse and build every model, in order, on `threads` workers over
@@ -915,6 +996,68 @@ fn material_desc_from(shape: &NifMesh) -> MaterialDesc {
         shader_flags_2: m.flags2,
         alpha,
         double_sided: m.double_sided,
+        water: None,
+    }
+}
+
+/// An interior cell's water has no `XCLC` grid to size a plane from, so the
+/// footprint comes from the cell's own geometry instead: the union, in
+/// Skyrim units, of the bounds every surface already built for this cell
+/// reports in Godot space. A cell whose only content is its water (nothing
+/// streamed before this call, or every reference failed to build) falls
+/// back to one exterior-cell-sized square centred on the origin, wide
+/// enough to be visible and cheap enough that it never distorts a stats
+/// count meaningfully.
+fn interior_water_footprint(surfaces: &[LoadedSurface]) -> (f32, f32, f32, f32) {
+    let bounds = surfaces
+        .iter()
+        .map(|s| s.arrays.bounds)
+        .reduce(crate::batch::merge_bounds);
+    match bounds {
+        Some(b) => {
+            let min = b.min.to_skyrim();
+            let max = b.max.to_skyrim();
+            let (min_x, max_x) = (min.x.min(max.x), min.x.max(max.x));
+            let (min_y, max_y) = (min.y.min(max.y), min.y.max(max.y));
+            (min_x, min_y, max_x, max_y)
+        }
+        None => {
+            let half = crate::units::CELL_UNITS / 2.0;
+            (-half, -half, half, half)
+        }
+    }
+}
+
+/// A single flat quad at `height`, covering `(min_x, min_y, max_x, max_y)`
+/// in Skyrim units, with a `MaterialDesc` carrying `material` for the
+/// Godot layer to draw with once it maps `WaterMaterial` onto a shader.
+/// Winding matches `terrain_surface_from_heights`'s row-major quad so
+/// `MeshOptions::default`'s `flip_winding` produces the same up-facing
+/// result as terrain and every other NIF-sourced surface.
+fn water_plane_mesh(
+    (min_x, min_y, max_x, max_y): (f32, f32, f32, f32),
+    height: f32,
+    material: Option<WaterMaterial>,
+) -> MeshData {
+    let positions = vec![
+        [min_x, min_y, height],
+        [max_x, min_y, height],
+        [min_x, max_y, height],
+        [max_x, max_y, height],
+    ];
+    let uvs = Some(vec![[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [1.0, 1.0]]);
+    MeshData {
+        positions,
+        normals: None,
+        tangents: None,
+        uvs,
+        indices: vec![0, 1, 3, 0, 3, 2],
+        bone_indices: None,
+        bone_weights: None,
+        material: MaterialDesc {
+            water: material,
+            ..MaterialDesc::default()
+        },
     }
 }
 
@@ -932,4 +1075,10 @@ mod fixture;
 mod environment_tests;
 
 #[cfg(test)]
+mod grass_tests;
+
+#[cfg(test)]
 mod marker_shape_tests;
+
+#[cfg(test)]
+mod animated_static_mesh_tests;

@@ -163,3 +163,116 @@ pub struct Bound {
     pub center: Vec3,
     pub radius: f32,
 }
+
+/// A unit quaternion, `w` first as the file stores it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Quat {
+    pub w: f32,
+    pub x: f32,
+    pub y: f32,
+    pub z: f32,
+}
+
+impl Default for Quat {
+    fn default() -> Self {
+        Quat::IDENTITY
+    }
+}
+
+impl Quat {
+    pub const IDENTITY: Quat = Quat {
+        w: 1.0,
+        x: 0.0,
+        y: 0.0,
+        z: 0.0,
+    };
+
+    pub fn dot(self, o: Quat) -> f32 {
+        self.w * o.w + self.x * o.x + self.y * o.y + self.z * o.z
+    }
+
+    pub fn length(self) -> f32 {
+        self.dot(self).sqrt()
+    }
+
+    /// Normalized, falling back to identity when the length is too small to
+    /// divide by, which only happens for a malformed key.
+    pub fn normalized(self) -> Quat {
+        let len = self.length();
+        if len < 1e-8 {
+            return Quat::IDENTITY;
+        }
+        Quat {
+            w: self.w / len,
+            x: self.x / len,
+            y: self.y / len,
+            z: self.z / len,
+        }
+    }
+
+    fn negate(self) -> Quat {
+        Quat {
+            w: -self.w,
+            x: -self.x,
+            y: -self.y,
+            z: -self.z,
+        }
+    }
+
+    /// The rotation matrix a unit quaternion represents, in the same
+    /// row-major, row-times-vector convention as [`Mat33::apply`].
+    pub fn to_mat33(self) -> Mat33 {
+        let Quat { w, x, y, z } = self.normalized();
+        Mat33 {
+            rows: [
+                [
+                    1.0 - 2.0 * (y * y + z * z),
+                    2.0 * (x * y - w * z),
+                    2.0 * (x * z + w * y),
+                ],
+                [
+                    2.0 * (x * y + w * z),
+                    1.0 - 2.0 * (x * x + z * z),
+                    2.0 * (y * z - w * x),
+                ],
+                [
+                    2.0 * (x * z - w * y),
+                    2.0 * (y * z + w * x),
+                    1.0 - 2.0 * (x * x + y * y),
+                ],
+            ],
+        }
+    }
+
+    /// Shortest-path spherical interpolation. Falls back to a normalized
+    /// linear blend when the two keys are close enough that the great-circle
+    /// path is numerically unstable, the usual guard for this formula.
+    pub fn slerp(self, mut b: Quat, t: f32) -> Quat {
+        let a = self;
+        let mut dot = a.dot(b);
+        if dot < 0.0 {
+            b = b.negate();
+            dot = -dot;
+        }
+        if dot > 0.9995 {
+            return Quat {
+                w: a.w + (b.w - a.w) * t,
+                x: a.x + (b.x - a.x) * t,
+                y: a.y + (b.y - a.y) * t,
+                z: a.z + (b.z - a.z) * t,
+            }
+            .normalized();
+        }
+        let theta_0 = dot.clamp(-1.0, 1.0).acos();
+        let theta = theta_0 * t;
+        let sin_theta_0 = theta_0.sin();
+        let s0 = (theta_0 - theta).sin() / sin_theta_0;
+        let s1 = theta.sin() / sin_theta_0;
+        Quat {
+            w: a.w * s0 + b.w * s1,
+            x: a.x * s0 + b.x * s1,
+            y: a.y * s0 + b.y * s1,
+            z: a.z * s0 + b.z * s1,
+        }
+    }
+}

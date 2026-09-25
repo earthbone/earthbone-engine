@@ -6,8 +6,9 @@ use soe_game::world::World;
 /// Strip uniquely marked actor fields before a fixture applies its older layout.
 /// Callers supply every initialized actor and restore the requested old header.
 /// Strips the exclusive dialogue branch version 24 added, the stagger end time
-/// version 29 added and the witnessed crime set version 31 added, so fixtures
-/// built against any older header see none of those fields' bytes.
+/// version 29 added, the witnessed crime set version 31 added and the hand
+/// spell fields version 32 added, so fixtures built against any older header
+/// see none of those fields' bytes.
 pub fn without_exclusive_branches(world: &mut World, actors: &[GlobalFormId]) -> Vec<u8> {
     let hash = world.state_hash();
     let mut saved = Vec::new();
@@ -32,6 +33,18 @@ pub fn without_exclusive_branches(world: &mut World, actors: &[GlobalFormId]) ->
         };
         let prior_witnessed =
             std::mem::replace(&mut actor.witnessed_crimes, [witness_sentinel].into());
+        let prior_left_spell = actor.left_spell;
+        let left_spell_sentinel = GlobalFormId {
+            file: u16::MAX,
+            object: 0xD000_0000 + index as u32,
+        };
+        actor.left_spell = Some(left_spell_sentinel);
+        let prior_right_spell = actor.right_spell;
+        let right_spell_sentinel = GlobalFormId {
+            file: u16::MAX,
+            object: 0xC000_0000 + index as u32,
+        };
+        actor.right_spell = Some(right_spell_sentinel);
         saved.push(Saved {
             id: *id,
             prior_branch,
@@ -40,6 +53,10 @@ pub fn without_exclusive_branches(world: &mut World, actors: &[GlobalFormId]) ->
             stagger_sentinel,
             prior_witnessed,
             witness_sentinel,
+            prior_left_spell,
+            left_spell_sentinel,
+            prior_right_spell,
+            right_spell_sentinel,
         });
     }
     let mut bytes = world.save_state();
@@ -48,6 +65,8 @@ pub fn without_exclusive_branches(world: &mut World, actors: &[GlobalFormId]) ->
         actor.exclusive_branch = entry.prior_branch;
         actor.stagger_end_time = entry.prior_stagger;
         actor.witnessed_crimes = std::mem::take(&mut entry.prior_witnessed);
+        actor.left_spell = entry.prior_left_spell;
+        actor.right_spell = entry.prior_right_spell;
     }
     assert_eq!(
         world.state_hash(),
@@ -59,6 +78,8 @@ pub fn without_exclusive_branches(world: &mut World, actors: &[GlobalFormId]) ->
         sentinel,
         stagger_sentinel,
         witness_sentinel,
+        left_spell_sentinel,
+        right_spell_sentinel,
         ..
     } in saved
     {
@@ -93,6 +114,36 @@ pub fn without_exclusive_branches(world: &mut World, actors: &[GlobalFormId]) ->
             .collect();
         assert_eq!(witness_offsets.len(), 1, "witness sentinel is not unique");
         fields.push((witness_offsets[0], witness_marker.len()));
+
+        let mut left_spell_marker = vec![1];
+        left_spell_marker.extend_from_slice(&left_spell_sentinel.file.to_le_bytes());
+        left_spell_marker.extend_from_slice(&left_spell_sentinel.object.to_le_bytes());
+        let left_spell_offsets: Vec<_> = bytes
+            .windows(left_spell_marker.len())
+            .enumerate()
+            .filter_map(|(offset, window)| (window == left_spell_marker).then_some(offset))
+            .collect();
+        assert_eq!(
+            left_spell_offsets.len(),
+            1,
+            "left spell sentinel is not unique"
+        );
+        fields.push((left_spell_offsets[0], left_spell_marker.len()));
+
+        let mut right_spell_marker = vec![1];
+        right_spell_marker.extend_from_slice(&right_spell_sentinel.file.to_le_bytes());
+        right_spell_marker.extend_from_slice(&right_spell_sentinel.object.to_le_bytes());
+        let right_spell_offsets: Vec<_> = bytes
+            .windows(right_spell_marker.len())
+            .enumerate()
+            .filter_map(|(offset, window)| (window == right_spell_marker).then_some(offset))
+            .collect();
+        assert_eq!(
+            right_spell_offsets.len(),
+            1,
+            "right spell sentinel is not unique"
+        );
+        fields.push((right_spell_offsets[0], right_spell_marker.len()));
     }
     fields.sort_by_key(|(offset, _)| std::cmp::Reverse(*offset));
     for (offset, len) in fields {
@@ -110,4 +161,8 @@ struct Saved {
     stagger_sentinel: f64,
     prior_witnessed: std::collections::BTreeSet<GlobalFormId>,
     witness_sentinel: GlobalFormId,
+    prior_left_spell: Option<GlobalFormId>,
+    left_spell_sentinel: GlobalFormId,
+    prior_right_spell: Option<GlobalFormId>,
+    right_spell_sentinel: GlobalFormId,
 }

@@ -179,15 +179,16 @@ impl NifWriter {
 
     // Block builders. Each returns the block's bytes for `add`.
 
-    pub fn object_net(&mut self, b: &mut Buf, name: &str, extra: &[i32]) {
+    pub fn object_net(&mut self, b: &mut Buf, name: &str, extra: &[i32], controller: i32) {
         let idx = if name.is_empty() {
             u32::MAX
         } else {
             self.string(name)
         };
-        b.u32(idx).refs(extra).i32(-1);
+        b.u32(idx).refs(extra).i32(controller);
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn av_object(
         &mut self,
         b: &mut Buf,
@@ -196,8 +197,9 @@ impl NifWriter {
         rotation: [[f32; 3]; 3],
         scale: f32,
         collision: i32,
+        controller: i32,
     ) {
-        self.object_net(b, name, &[]);
+        self.object_net(b, name, &[], controller);
         b.u32(0xE).vec3(translation).mat33(rotation).f32(scale);
         b.i32(collision);
     }
@@ -211,10 +213,114 @@ impl NifWriter {
         children: &[i32],
     ) -> Vec<u8> {
         let mut b = Buf::default();
-        self.av_object(&mut b, name, translation, rotation, scale, -1);
+        self.av_object(&mut b, name, translation, rotation, scale, -1, -1);
         b.refs(children);
         if self.bs_version < 130 {
             b.u32(0);
+        }
+        b.0
+    }
+
+    /// An `NiNode` whose `ObjectNet.controller` ref points at a
+    /// `NiTimeController` chain (for example an `NiTransformController`),
+    /// the shape an authored animated static uses.
+    #[allow(clippy::too_many_arguments)]
+    pub fn ni_node_with_controller(
+        &mut self,
+        name: &str,
+        translation: [f32; 3],
+        rotation: [[f32; 3]; 3],
+        scale: f32,
+        children: &[i32],
+        controller: i32,
+    ) -> Vec<u8> {
+        let mut b = Buf::default();
+        self.av_object(&mut b, name, translation, rotation, scale, -1, controller);
+        b.refs(children);
+        if self.bs_version < 130 {
+            b.u32(0);
+        }
+        b.0
+    }
+
+    /// `NiTransformController` / `NiKeyframeController`: a `TimeController`
+    /// plus the interpolator ref. `flags` is the raw `TimeControllerFlags`
+    /// bitfield (cycle type in bits 1 to 2, active in bit 3), matching
+    /// `ControllerFlags::from_bits` in `src/controller.rs`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn transform_controller(
+        &self,
+        next_controller: i32,
+        flags: u16,
+        frequency: f32,
+        phase: f32,
+        start_time: f32,
+        stop_time: f32,
+        target: i32,
+        interpolator: i32,
+    ) -> Vec<u8> {
+        let mut b = Buf::default();
+        b.i32(next_controller).u16(flags);
+        b.f32(frequency).f32(phase).f32(start_time).f32(stop_time);
+        b.i32(target);
+        b.i32(interpolator);
+        b.0
+    }
+
+    /// `NiTransformInterpolator`: the default pose plus the `NiTransformData`
+    /// ref. `rotation` is `w, x, y, z` in file order.
+    pub fn transform_interpolator(
+        &self,
+        translation: [f32; 3],
+        rotation: [f32; 4],
+        scale: f32,
+        data: i32,
+    ) -> Vec<u8> {
+        let mut b = Buf::default();
+        b.vec3(translation);
+        b.f32(rotation[0])
+            .f32(rotation[1])
+            .f32(rotation[2])
+            .f32(rotation[3]);
+        b.f32(scale);
+        b.i32(data);
+        b.0
+    }
+
+    /// `NiTransformData` / `NiKeyframeData` with linearly interpolated
+    /// quaternion rotation, translation and scale tracks, the shape Skyrim
+    /// SE's animated statics author. Any of the three key lists may be
+    /// empty, which the reader treats as "hold the interpolator's default
+    /// value for that channel" (`controller::evaluate_transform`).
+    pub fn transform_data_linear(
+        &self,
+        rotation_keys: &[(f32, [f32; 4])],
+        translation_keys: &[(f32, [f32; 3])],
+        scale_keys: &[(f32, f32)],
+    ) -> Vec<u8> {
+        const LINEAR: u32 = 1;
+        let mut b = Buf::default();
+        b.u32(rotation_keys.len() as u32);
+        if !rotation_keys.is_empty() {
+            b.u32(LINEAR);
+            for (t, q) in rotation_keys {
+                b.f32(*t);
+                b.f32(q[0]).f32(q[1]).f32(q[2]).f32(q[3]);
+            }
+        }
+        b.u32(translation_keys.len() as u32);
+        if !translation_keys.is_empty() {
+            b.u32(LINEAR);
+            for (t, v) in translation_keys {
+                b.f32(*t).vec3(*v);
+            }
+        }
+        b.u32(scale_keys.len() as u32);
+        if !scale_keys.is_empty() {
+            b.u32(LINEAR);
+            for (t, s) in scale_keys {
+                b.f32(*t).f32(*s);
+            }
         }
         b.0
     }
@@ -260,7 +366,7 @@ impl NifWriter {
     ) -> Vec<u8> {
         let mut b = Buf::default();
         b.u32(shader_type);
-        self.object_net(&mut b, "", &[]);
+        self.object_net(&mut b, "", &[], -1);
         b.u32(flags1).u32(flags2);
         b.floats(&[0.0, 0.0, 1.0, 1.0]);
         b.i32(texture_set);
@@ -288,7 +394,7 @@ impl NifWriter {
         base_color: [f32; 4],
     ) -> Vec<u8> {
         let mut b = Buf::default();
-        self.object_net(&mut b, "", &[]);
+        self.object_net(&mut b, "", &[], -1);
         b.u32(flags1).u32(flags2);
         b.floats(&[0.0, 0.0, 1.0, 1.0]);
         b.sized_string(source);
@@ -302,7 +408,7 @@ impl NifWriter {
 
     pub fn alpha_property(&mut self, flags: u16, threshold: u8) -> Vec<u8> {
         let mut b = Buf::default();
-        self.object_net(&mut b, "", &[]);
+        self.object_net(&mut b, "", &[], -1);
         b.u16(flags).u8(threshold);
         b.0
     }
@@ -371,7 +477,7 @@ impl NifWriter {
         inline_data: bool,
     ) -> Vec<u8> {
         let mut b = Buf::default();
-        self.av_object(&mut b, name, translation, IDENTITY, 1.0, -1);
+        self.av_object(&mut b, name, translation, IDENTITY, 1.0, -1, -1);
         b.vec3([0.0, 0.0, 0.0]).f32(1.0);
         b.i32(skin).i32(shader).i32(alpha);
         let desc = VertexDesc::from_attributes(attrs, self.bs_version);
@@ -408,7 +514,7 @@ impl NifWriter {
         alpha: i32,
     ) -> Vec<u8> {
         let mut b = Buf::default();
-        self.av_object(&mut b, name, [0.0; 3], IDENTITY, 1.0, -1);
+        self.av_object(&mut b, name, [0.0; 3], IDENTITY, 1.0, -1, -1);
         b.i32(data).i32(skin);
         b.u32(0).i32(-1).u8(0);
         b.i32(shader).i32(alpha);
