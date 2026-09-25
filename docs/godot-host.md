@@ -2257,3 +2257,81 @@ with the RenderingServer running, both of which need a windowed Godot run
 against a live scene, same as the rest of this document's frame-time numbers.
 That measurement is still open and belongs with the other "Numbers" table
 entries once someone runs one.
+
+## Grass placement, RND-11 (2026-09-24)
+
+Vanilla never places grass through a `REFR`. A cell's `LAND` quadrants paint
+`LTEX` textures over a 17 by 17 alpha grid, an `LTEX` names the `GRAS`
+records it may grow through a repeated `GNAM`, and the shipped engine
+scatters instances over the painted area filtered by each `GRAS` record's
+density and slope range (`docs/esm.md`, "GRAS and LTEX views"). No corpus
+source read for this row (`TES5Edit`, `Mutagen`, OpenMW's
+`groundcoverstore.cpp`, which implements a different, non `ESM4` system)
+publishes the exact vanilla scatter pattern, so `src/data_source/grass.rs`
+places on a deterministic hashed grid instead of reproducing it bit for bit.
+
+`DataSource::grass_surfaces_for_cell` walks each quadrant's 16 by 16 alpha
+quads, resolves the painted `LTEX` and its `GNAM` grass list through the
+load order, filters by ground slope (`quad_slope_degrees`, a bilinear
+gradient over the cell's already decoded height grid) against the `GRAS`
+record's declared range, and scatters a bounded, deterministic number of
+instances per quad. `instance_count` divides the record's density by the
+layer's local opacity into a small per-quad count, backstopped by
+`MAX_INSTANCES_PER_QUAD = 6` so an edited or unusually dense record cannot
+make one quad's batch unbounded, and `MAX_GRASS_PLACEMENTS_PER_CELL = 512`
+caps the whole cell. Each placement's seed comes from `mix`, SplitMix64's
+finalizer (Sebastiano Vigna, public domain) applied to stable coordinates
+only, the cell's own grid position, the quadrant, the height grid cell and
+the instance index, never wall-clock time or shared random state, so
+streaming the same cell twice produces the same batch. That determinism is
+what the release-on-unload path and this row's done check both rely on.
+
+Placement itself is a synthetic `Refr` built at the placement's world
+position and yaw, fed straight into the existing
+`DataSource::load_static_surfaces(&model, &refr, true)`, the same private
+method STAT, FURN, DOOR and CONT already share, with instancing forced on.
+The placements of one cell are collected first, in `ATXT` order, and built
+through `build_all` like the cell's statics, so the per-cell
+`INSTANCE_MIN_PLACEMENTS` test in `src/batch.rs` (RND-04) sees every copy of a
+grass model at once and `instancing_candidates` folds them into one
+`MultiMesh` per model and material. `stream_exterior_each` in
+`src/data_source/exterior.rs` calls `grass_surfaces_for_cell` right after
+building each cell's terrain surface, using the same reconciled height grid,
+and folds the instance count into `CellStats::grass_placements`, which
+`stream_exterior` reports as the `grass_placements` key.
+
+Release follows the cell. `stream_exterior` records which `CELL` each grid
+position resolved to, and `release_exterior_cell(cell_x, cell_y)` frees that
+cell's instances, grass `MultiMesh` batches included, so a
+`cell_unload_requested(cell_x, cell_y)` from `CellStreamer` can be wired
+straight to it. `release_exterior_cell` returns how many instances it freed,
+and `cell_instances` drops the cell's key afterwards.
+
+`data_source::grass_tests` drives this on a synthetic `LAND`, `LTEX`, `GRAS`
+and `STAT` plugin written by the test: `rnd_11_...` checks that two streams
+produce identical placements, that neighbouring cells with the same paint
+differ, that a fully painted cell stops at `MAX_GRASS_PLACEMENTS_PER_CELL`
+and forms one `MultiMesh`, and that moving a `CellStreamer` focus away emits
+the unload of the grass cell and restreaming the new set leaves it out.
+`godot/rnd_11_test.gd` runs the same path inside Godot through
+`stream_exterior` and `release_exterior_cell`.
+
+Open gaps, none closed by this row:
+
+- Only the alpha layers (`ATXT`/`VTXT`) are read as grass sources. A
+  quadrant's base texture (`BTXT`) can also carry a `GNAM` list, but its
+  effective opacity is whatever the alpha layers leave uncovered rather than
+  a value the record states outright, so it is left out of this pass.
+- `instance_count`'s divisor is a self-designed heuristic, not a published
+  vanilla density curve. No corpus source states one.
+- Water-level filtering is unimplemented. `Grass` parses the `DATA` block's
+  water fields but `grass_surfaces_for_cell` does not read them.
+- REGN grass overrides (`RDGS`) are unimplemented, only `LAND`-painted
+  `LTEX` grass is placed.
+- The `GRAS` `UniformScaling` and `FitToSlope` flags are parsed but not
+  applied. Every placement draws upright with yaw-only rotation and uniform
+  scale from the height-range jitter alone.
+- `wave_period`, the wind-sway parameter, has no shader consumer yet.
+- The `CellStreamer` release path in the Godot layer only follows
+  `stream_exterior` grid positions. `stream_cell` by editor id does not
+  record one, so `release_exterior_cell` cannot drop a cell loaded that way.
