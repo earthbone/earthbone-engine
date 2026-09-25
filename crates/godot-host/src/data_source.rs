@@ -41,6 +41,7 @@ use crate::mesh::{
 };
 
 mod exterior;
+mod grass;
 mod location;
 mod lod;
 mod models;
@@ -120,6 +121,9 @@ pub struct CellStats {
     pub furniture_with_model: usize,
     pub containers_with_model: usize,
     pub doors_with_model: usize,
+    /// Grass instances placed from LAND texture layers, see `data_source::grass`.
+    /// Not a `REFR` count, grass has none.
+    pub grass_placements: usize,
     pub editor_markers_filtered: usize,
     pub editor_marker_only_models: usize,
     pub meshes_parsed: usize,
@@ -930,6 +934,9 @@ mod fixture;
 
 #[cfg(test)]
 mod environment_tests;
+
+#[cfg(test)]
+mod grass_tests;
 
 #[cfg(test)]
 mod marker_shape_tests;

@@ -78,6 +78,10 @@ pub struct CellStreamerNode {
     /// sees them: a batch is a mesh RID and an instance RID in this node's
     /// scenario, freed in `exit_tree`, so a cell costs no `Node3D` at all.
     instances: Vec<Instance>,
+    /// The `CELL` each streamed exterior grid position resolved to, so
+    /// `release_exterior_cell` can find that cell's instances by the grid
+    /// coordinate `cell_unload_requested` carries.
+    exterior_cells: std::collections::HashMap<CellCoord, GlobalFormId>,
     /// `StandardMaterial3D` per texture set, kept across stream calls so a
     /// texture uploaded for one cell serves every later cell that names it.
     materials: MaterialMap,
@@ -237,6 +241,7 @@ struct StreamTotals {
     instances: usize,
     largest_batch: usize,
     land_cells: usize,
+    grass_placements: usize,
     world: String,
     cell_list: Vec<String>,
 }
@@ -252,6 +257,7 @@ impl StreamTotals {
         self.meshes_failed += loaded.stats.meshes_failed;
         self.triangles += loaded.stats.triangles;
         self.surfaces += loaded.surfaces.len();
+        self.grass_placements += loaded.stats.grass_placements;
     }
 
     fn to_dictionary(&self, materials: usize) -> VarDictionary {
@@ -269,6 +275,7 @@ impl StreamTotals {
         d.set("largest_batch", self.largest_batch as i64);
         d.set("materials", materials as i64);
         d.set("land_cells", self.land_cells as i64);
+        d.set("grass_placements", self.grass_placements as i64);
         d.set("world", self.world.as_str());
         d.set("cell_list", self.cell_list.join(" ").as_str());
         d
@@ -291,6 +298,7 @@ impl INode3D for CellStreamerNode {
             data_source: None,
             data_load: None,
             instances: Vec::new(),
+            exterior_cells: std::collections::HashMap::new(),
             materials: MaterialMap::new(),
             bounds: None,
             last_stats: VarDictionary::new(),
@@ -659,6 +667,8 @@ impl CellStreamerNode {
                 totals.land_cells += 1;
             }
             totals.cell_list.push(format!("({},{})", cell.x, cell.y));
+            self.exterior_cells
+                .insert(CellCoord::new(cell.x, cell.y), cell.id);
             self.add_cell(cell.id, &loaded_cell, scenario, &mut totals);
         });
         if let Err(e) = result {
@@ -702,6 +712,65 @@ impl CellStreamerNode {
             );
         }
         result
+    }
+
+    /// What the exterior cell at grid `cell_x`, `cell_y` currently draws:
+    /// `instances` (every batch), `multimeshes` (instanced batches, where
+    /// grass lands) and `multimesh_members` (placements across them). All
+    /// zero when the cell is not resident.
+    #[func]
+    pub fn exterior_cell_batches(&self, cell_x: i32, cell_y: i32) -> VarDictionary {
+        let owner = self
+            .exterior_cells
+            .get(&CellCoord::new(cell_x, cell_y))
+            .copied();
+        let mut instances = 0_i64;
+        let mut multimeshes = 0_i64;
+        let mut members = 0_i64;
+        for instance in self.instances.iter().filter(|i| Some(i.cell) == owner) {
+            instances += 1;
+            if let BatchTable::Instances(refs) = &instance.table {
+                multimeshes += 1;
+                members += refs.len() as i64;
+            }
+        }
+        let mut result = VarDictionary::new();
+        result.set("instances", instances);
+        result.set("multimeshes", multimeshes);
+        result.set("multimesh_members", members);
+        result
+    }
+
+    /// Frees every batch the exterior cell at grid `cell_x`, `cell_y` drew,
+    /// grass `MultiMesh` batches included, and marks the cell unloaded in
+    /// the streamer. This is the answer to `cell_unload_requested`: without
+    /// it a streamed cell's batches stay in the scenario until `clear`.
+    /// Returns the number of batches freed, 0 when the cell is not resident.
+    #[func]
+    pub fn release_exterior_cell(&mut self, cell_x: i32, cell_y: i32) -> i32 {
+        let coord = CellCoord::new(cell_x, cell_y);
+        if let Some(s) = self.streamer.as_mut() {
+            s.mark_unloaded(coord);
+        }
+        let Some(owner) = self.exterior_cells.remove(&coord) else {
+            return 0;
+        };
+        let (released, kept): (Vec<Instance>, Vec<Instance>) = std::mem::take(&mut self.instances)
+            .into_iter()
+            .partition(|i| i.cell == owner);
+        self.instances = kept;
+        let mut server = RenderingServer::singleton();
+        let count = released.len();
+        for instance in released {
+            server.free_rid(instance.rid);
+            drop(instance.mesh);
+        }
+        self.bounds = self
+            .instances
+            .iter()
+            .map(|i| i.bounds)
+            .reduce(crate::batch::merge_bounds);
+        count as i32
     }
 
     /// Merged bounds of everything streamed so far, in Godot metres. An
@@ -944,6 +1013,7 @@ impl CellStreamerNode {
         self.collision.free();
         self.collision_space = None;
         self.free_instances();
+        self.exterior_cells.clear();
         self.ref_cache.clear();
         self.clear_terrain_lod();
         self.bounds = None;

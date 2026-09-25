@@ -91,6 +91,17 @@ heights in world units, using the row-start plus running-sum rule OpenMW uses.
 the packed `NVNM` block, refuses counts that cannot fit in the remaining bytes before
 allocating, and writes itself back byte for byte.
 
+`records::gras::Grass::from_record` reads a `GRAS` record's `EDID`, generic `MODL`
+and 32-byte `DATA` block (density, min and max slope, water fields, position and
+height range, wave period, flags), and `fits_slope` filters a candidate placement's
+ground slope against the record's declared range. `records::ltex::LandTexture::from_record`
+reads an `LTEX` record's `EDID`, `TNAM` texture set FormID through the existing
+`form_id` helper, and its repeated `GNAM` grass FormIDs through `form_id_list`, in
+record order. Field layout for both from `TES5Edit/Core/wbDefinitionsTES5.pas`, cross
+checked against OpenMW's `components/esm4/loadltex.cpp` for `GNAM`'s repeated single
+FormID shape. `godot-host` resolves a cell's `LAND` alpha layers through `LTEX` to
+`GRAS` for procedural grass placement (`docs/godot-host.md`, "Grass placement").
+
 ## Tests
 
 - Unit tests in every module: round trips, compressed and `XXXX` records, truncation
@@ -405,3 +416,17 @@ For SE, English uses Windows-1252. Other languages try UTF-8 first and then
 their language-specific fallback. Japanese and Chinese require UTF-8.
 Tests cover all three layouts, invalid offsets and termination, UTF-8 text,
 and a legacy French fallback.
+
+## GRAS and LTEX views, RND-11 (2026-09-24)
+
+`records::gras` and `records::ltex` are new typed views, added so `godot-host`
+can scatter grass from a cell's `LAND` texture layers rather than from a
+placed `REFR`, which vanilla never uses for grass. `records::ltex::from_record`
+was rewritten during this change to call the crate's existing `form_id`
+helper for `TNAM` instead of a hand-written length match, which also fixes a
+latent gap: a malformed `TNAM` now returns a size error like every other
+fixed-length subrecord in the crate, instead of being silently read as
+absent. Both views are exercised by `godot-host`'s cell streaming path, not
+by a unit test added here, since this row's instructions withhold new tests
+for a later breaker and judge pass. See `docs/godot-host.md`, "Grass
+placement", for the placement algorithm and its open gaps.
