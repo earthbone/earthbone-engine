@@ -1683,6 +1683,57 @@ and installed survey. The host examples `controller_geometry_survey` and
 copying assets. CMB-28 installs and synchronizes actor bodies, and CMB-33
 supplies generated controller geometry when authored geometry is absent.
 
+## Actor contact bodies and pose segments, CMB-28
+
+`godot_physics::ActorBodies` gives every resident actor one kinematic body on
+the PhysicsServer3D space, with no scene node per reference. PlayerNode keeps
+one store and rebuilds it from `World::contact_actors` after each auto-stepped
+physics tick, and again before an armed HitFrame queries. The pure
+`combat::plan_body_sync` decides the work: an actor already holding a body at
+the same scale only moves, a scale change rebuilds its capsule, and an actor no
+longer listed loses its body. A cell change, a disabled reference or a loaded
+save therefore empties or refills the store on the next tick without a
+separate teardown path. `exit_tree` frees every RID. A new physics space frees
+the old bodies before building new ones.
+
+Each body carries the capsule from `soe_physics::generated_controller_shape`
+at the actor's controller scale, flattened with the same primitive conversion
+the static location bodies use. The body transform is the reference position
+converted to Godot metres and axes. Rotation is not applied, because the
+capsule is upright.
+
+The contact query now reads two owner maps: bodies registered through
+`register_melee_body` and the synchronized actor bodies. Every RID of the
+attacker in either map is excluded. `intersect_ray` returns the nearest hit
+along the segment, so the first actor or unmapped obstruction wins.
+
+Pose-derived segments come from two new entry points.
+`melee_pose_contact(name, skeleton)` finds the armed hand's weapon node in a
+Skeleton3D (`WEAPON` then `Weapon` then `NPC R Hand [RHnd]` for the right hand,
+`SHIELD` then `Shield` then `NPC L Hand [LHnd]` for the left) and takes its
+global pose. `melee_bone_contact(name, transform)` takes that world transform
+directly. Both run the segment from the node origin along its negated basis Z
+column, which is Skyrim local +Y after the axis map in `units.rs`. The length
+is `World::melee_reach` converted to metres. `sync_contact_actors` and
+`contact_actor_body` expose the store for diagnostics.
+
+Sources read: `godot-docs` PhysicsServer3D and PhysicsDirectSpaceState3D for
+body state, kinematic mode and ray exclusion. `activeragdoll/src/utils.cpp`
+`GetWeaponNode` for the `WEAPON` and `SHIELD` node names, and
+`activeragdoll/include/math_utils.h` `ForwardVector` for the blade axis.
+`CommonLibSSE` `MiddleHighProcessData::weaponBone` confirms the engine keeps
+a weapon node per actor process.
+
+Open: the capsule is the generated template for every race. The authored
+`CHAR_CONTROLLER` phantom path in `DataSource::actor_controller_shape` needs a
+race to skeleton path lookup the World does not expose yet. Actor bodies
+follow `RefState::position`, so an NPC is only as current as the system that
+writes its placement. No NPC pose is sampled yet: `SkinnedActorNode` renders
+through a RenderingServer skeleton RID, not a Skeleton3D, so a scene has to
+call `melee_bone_contact` with a pose it computed itself. The fallback to the
+hand bone keeps the WEAPON node's axis, which is only approximate for a hand.
+No live Godot run has exercised the new bodies or entry points.
+
 ## Native save generations
 
 `PlayerNode::save_game_generation(directory, retained)` writes the shared

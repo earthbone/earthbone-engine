@@ -87,6 +87,9 @@ pub struct PlayerNode {
     game: Option<soe_game::Game>,
     melee_contact: crate::combat::MeleeContact,
     melee_bodies: HashMap<Rid, GlobalFormId>,
+    /// One server body per loaded actor, rebuilt from the shared World on
+    /// each physics tick. No scene node is allocated per reference.
+    actor_bodies: crate::godot_physics::ActorBodies,
     image_space: crate::image_space::ImageSpaceStack,
     sound_bank: Option<Gd<crate::godot_audio::SoundBank>>,
     footstep_cadence: crate::audio::FootstepCadence,
@@ -138,6 +141,7 @@ impl INode3D for PlayerNode {
             game: None,
             melee_contact: crate::combat::MeleeContact::default(),
             melee_bodies: HashMap::new(),
+            actor_bodies: crate::godot_physics::ActorBodies::default(),
             image_space: crate::image_space::ImageSpaceStack::default(),
             sound_bank: None,
             footstep_cadence: crate::audio::FootstepCadence::default(),
@@ -259,6 +263,7 @@ impl INode3D for PlayerNode {
     fn physics_process(&mut self, delta: f64) {
         if self.auto_step {
             self.advance(delta);
+            self.sync_actor_bodies();
         }
     }
 
@@ -276,6 +281,7 @@ impl INode3D for PlayerNode {
     fn exit_tree(&mut self) {
         self.interior_prefetch = crate::interior_prefetch::InteriorPrefetch::default();
         self.query_collision.free();
+        self.actor_bodies.free();
 
         self.close_menu();
         self.menu_view = None;
