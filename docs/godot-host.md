@@ -1837,9 +1837,11 @@ filtered out, matching the CK wiki EquipSpell/UnequipSpell hand argument
 active hand before a spell click sends it there, rather than gating the list
 behind a hand choice. Clicking a spell calls World::equip_hand_spell through
 the new magic_menu reader, which mirrors inventory_menu's Game-plus-holder
-shape. The active hand and both equip slots persist only in the runtime
-ActorState, not across a save, so a reload clears the on-screen indicator
-even though the actor still knows the spell.
+shape. The active hand is presenter-only UI state and resets on reopen, but
+both equip slots live in ActorState's `left_spell`/`right_spell` and survive
+an engine save and load from `SAVE_VERSION` 32 onward (`docs/game.md`), so a
+reload keeps the on-screen indicator matching what the actor last had
+equipped.
 
 The native M shortcut opens the magic menu the same way I opens inventory,
 gated on an active Game. No shortcut is yet remapped through controlmap.txt.
@@ -1847,7 +1849,7 @@ gated on an active Game. No shortcut is yet remapped through controlmap.txt.
 Sources read for UI-03: `ck-wiki` for the EquipSpell/UnequipSpell hand
 argument and the SPEL spell type enum, `TES5Edit/Core/wbDefinitionsTES5.pas`
 for the SPIT subrecord layout, and `skyui/src/ItemMenus/magicmenu.fla` plus
-`skyui/src/Common/` for the known/equipped split this presenter mirrors. No
+`skyui/src/Common/` for the known/equipped split this presenter mirrors. Now
 `godot-host/tests/ui_03_magic_menu_adversarial.rs` covers `magic_menu`
 against an unbuilt actor and a deleted-but-undeleted SPEL record, both fixed
 during UI-03 (`magic_menu::entries` now forces the actor to build before

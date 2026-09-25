@@ -661,14 +661,21 @@ fn ui_03_equip_spell_native_and_the_magic_menu_share_one_hand_state() {
     let spell_id = form(&g, "TestFlames");
 
     call(&mut g, &vampire, "AddSpell", &[spell.clone()]);
-    call(&mut g, &vampire, "EquipSpell", &[spell.clone(), Value::Int(1)]);
+    call(
+        &mut g,
+        &vampire,
+        "EquipSpell",
+        &[spell.clone(), Value::Int(1)],
+    );
 
     assert_eq!(
         call(&mut g, &vampire, "GetEquippedSpell", &[Value::Int(1)]),
         spell,
         "the native getter must read back what EquipSpell just wrote"
     );
-    let via_menu = g.world_mut().hand_spell(vampire_id, soe_game::combat::Hand::Right);
+    let via_menu = g
+        .world_mut()
+        .hand_spell(vampire_id, soe_game::combat::Hand::Right);
     assert_eq!(
         via_menu,
         Some(spell_id),
@@ -681,7 +688,9 @@ fn ui_03_equip_spell_native_and_the_magic_menu_share_one_hand_state() {
     );
 
     call(&mut g, &vampire, "UnequipSpell", &[spell, Value::Int(1)]);
-    let via_menu_after_unequip = g.world_mut().hand_spell(vampire_id, soe_game::combat::Hand::Right);
+    let via_menu_after_unequip = g
+        .world_mut()
+        .hand_spell(vampire_id, soe_game::combat::Hand::Right);
     assert_eq!(
         via_menu_after_unequip, None,
         "UnequipSpell must clear the same hand state EquipSpell set"
