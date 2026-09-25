@@ -47,6 +47,38 @@ later root shadows an earlier one file by file (`Loadout::find`). `settings.ini`
 carries `LocalSettings` (the profile holds its own three INIs) and `LocalSaves`
 (`profile/saves`). MO2 publishes no format, this follows what `profile.cpp` writes.
 
+## Packaging
+
+`Loadout::package(dest)` writes a resolved loadout to `dest` as a standalone
+install, playable without MO2, Vortex or another manager reading the profile
+at run time. Every mod manager stays a build-time step, not a runtime one.
+
+The output:
+
+- `dest/Data`, every data root merged in low to high order, a later root
+  shadowing an earlier one file by file, the same rule `Loadout::find` uses.
+  This is where mod files, plugin files and archives all land, since they
+  already sit inside the data roots.
+- `dest/plugins.txt` and `dest/loadorder.txt`, the resolved order rendered
+  back with the same conventions they were read with.
+- `dest/Skyrim.ccc`, the Creation Club names this loadout treated as early
+  loaders, hardcoded masters excluded, so a reload sees the same early group.
+- `dest/Skyrim.ini`, `dest/SkyrimCustom.ini`, `dest/SkyrimPrefs.ini`, the
+  settings this loadout carries at the `Base`, `Custom` and `Prefs` layers.
+
+A plugin's own INI is not serialized separately, it already sits next to the
+plugin in a data root and is copied along with the plugin. `Skyrim_Default.ini`
+and whatever it sets are not written either, that file belongs to the game
+install the package lands in, not to the profile. Reload the package with a
+`LoadoutInput` whose `data_roots` is `[dest.join("Data")]`, `plugins_txt` and
+`loadorder_txt` point at the files above, `ini_dir` is `dest`, and `game_dir`
+and `ccc` point at wherever `Skyrim_Default.ini` and the install's own
+`Skyrim.ccc` live, `dest` itself for a fully standalone copy.
+
+Use case: a headless engine run, a CI job, or a build step that turns a
+manager profile into a folder the engine opens directly, closing round 4's
+packaging row.
+
 ## API
 
 - `PluginHeader::read(path)` reads only the TES4 record: masters, flags, kind.

@@ -50,7 +50,13 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// Version 26 retains loose item stacks and validates contained reference identities.
 /// Version 27 retains locked encounter-zone selection levels.
 /// Version 28 retains do-all dialogue cycles.
-pub const SAVE_VERSION: u16 = 28;
+/// Version 29 retains an actor's stagger end time.
+/// Version 30 retains shared stealth-point pools and observer awareness.
+/// Version 31 retains which perpetrators an actor witnessed committing a
+/// tracked crime.
+/// Version 32 retains each hand's explicitly assigned spell, so a menu or
+/// script equip survives a reload the way a hand weapon selection already did.
+pub const SAVE_VERSION: u16 = 32;
 
 #[derive(Clone, Copy)]
 pub(crate) enum FormNamespace {
@@ -282,6 +288,14 @@ impl World {
             body.bool(f.player_enemy);
             body.bool(f.tracks_crime);
         }
+        // Persisted whole, including entries `World::actor_base` populated
+        // only to answer a protected/essential/invulnerable check during a
+        // hit that was then rejected (docs/combat.md, "Application and
+        // events"). The map carries mutable native state (SetProtected,
+        // SetEssential, dead_count) alongside record-derived fields with no
+        // separate marker for which entries came from which, and every
+        // other lazy World cache saves the same way, so there is no
+        // rejected-only subset to exclude here.
         body.len(self.actor_bases.len());
         for (id, a) in self.actor_bases.iter().collect::<BTreeMap<_, _>>() {
             write_form_id(&mut body, *id);
@@ -399,6 +413,7 @@ impl World {
         self.write_loose_items(&mut body);
         self.write_encounter_levels(&mut body);
         self.write_dialogue_repeats(&mut body);
+        self.write_detection(&mut body);
         let mut out = Writer::new();
         out.out.extend_from_slice(SAVE_MAGIC);
         out.u16(SAVE_VERSION);
@@ -941,7 +956,24 @@ impl World {
         } else {
             BTreeMap::new()
         };
+        let detection = if version >= 30 {
+            super::detection::read_detection(&mut r)?
+        } else {
+            crate::detection::DetectionState::default()
+        };
         r.expect_end()?;
+        for id in super::detection::detection_actors(&detection) {
+            let actor = refs.get(&id).map_or_else(
+                || {
+                    self.record(id)
+                        .is_some_and(|rec| rec.tag == super::T(b"ACHR"))
+                },
+                |r| r.is_actor,
+            );
+            if !actor {
+                return Err(VmError::State("detection state names a non-actor".into()));
+            }
+        }
         super::death::validate_pending(&actors, &pending)?;
 
         for (&id, value) in &record_overrides {
@@ -971,6 +1003,7 @@ impl World {
         self.actor_bases = actor_bases;
         self.cells = cells;
         self.encounter_levels = encounter_levels;
+        self.detection = detection;
         self.settings = settings;
         self.inventory_filters = inventory_filters;
         self.sleep_listeners = sleep_listeners;
@@ -1356,6 +1389,13 @@ fn write_actor_state(w: &mut Writer, a: &ActorState) {
     write_opt_form_id(w, a.ash_pile);
     write_form_set(w, &a.shouts);
     write_opt_form_id(w, a.equipped_shout);
+    w.bool(a.stagger_end_time.is_some());
+    if let Some(until) = a.stagger_end_time {
+        w.f64(until);
+    }
+    write_form_set(w, &a.witnessed_crimes);
+    write_opt_form_id(w, a.left_spell);
+    write_opt_form_id(w, a.right_spell);
 }
 
 fn write_form_set(w: &mut Writer, set: &BTreeSet<GlobalFormId>) {
@@ -1469,6 +1509,16 @@ fn read_actor_state(r: &mut FormReader<'_, '_>, version: u16) -> Result<ActorSta
     a.ash_pile = read_opt_form_id(r)?;
     a.shouts = read_form_set(r)?;
     a.equipped_shout = read_opt_form_id(r)?;
+    if version >= 29 && r.bool()? {
+        a.stagger_end_time = Some(r.f64()?);
+    }
+    if version >= 31 {
+        a.witnessed_crimes = read_form_set(r)?;
+    }
+    if version >= 32 {
+        a.left_spell = read_opt_form_id(r)?;
+        a.right_spell = read_opt_form_id(r)?;
+    }
     Ok(a)
 }
 

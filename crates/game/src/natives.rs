@@ -17,6 +17,7 @@ use soe_esm::{GlobalFormId, Tag};
 use soe_papyrus::{NativeCall, NativeReturn, ObjectId, Value, Vm};
 
 use crate::clock::GameClock;
+use crate::combat::Hand;
 use crate::conditions;
 use crate::world::{reaction, AnimationListener, Handle, LeveledEntry, LosListener, World};
 
@@ -53,6 +54,21 @@ fn text(v: &Value) -> String {
         Value::Str(s) => s.to_string(),
         Value::None => String::new(),
         other => other.to_string(),
+    }
+}
+
+/// Like [`text`], but an object argument carries its form id the way the
+/// game's own log does, `[Object <handle> <formid>]`, the real 8-hex-digit
+/// runtime FormID from [`World::runtime_id`], not the engine's internal
+/// `{file}:{object}` load order notation. Aliases and active effects have no
+/// form id, so they fall back to the bare handle.
+fn text_world(world: &World, v: &Value) -> String {
+    match v {
+        Value::Object(o) => match world.form_of(*o) {
+            Some(id) => format!("[Object <{}> {:08X}]", o.0, world.runtime_id(id)),
+            None => v.to_string(),
+        },
+        other => text(other),
     }
 }
 
@@ -1338,6 +1354,19 @@ fn actor(vm: &mut Vm, w: &Shared) {
         };
         b(world.actor(me).is_some_and(|a| a.equipped.contains(&item)))
     });
+    // "Gets the spell the actor currently has equipped in the specified
+    // source", 0 left hand, 1 right hand (ck-wiki GetEquippedSpell - Actor).
+    // Sources 2 (other) and 3 (instant) have no per-hand state here, the
+    // same gap EquipSpell/UnequipSpell leave for those two sources below.
+    method!(vm, w, "Actor", "GetEquippedSpell", |world, call, me| {
+        let hand = match call.arg(0).as_int() {
+            0 => Hand::Left,
+            1 => Hand::Right,
+            _ => return form_value(world, call, None),
+        };
+        let spell = world.hand_spell(me, hand);
+        form_value(world, call, spell)
+    });
     method!(vm, w, "Actor", "IsInFaction", |world, call, me| {
         let Some(faction) = world.form_arg(&call.arg(0)) else {
             return b(false);
@@ -1801,11 +1830,11 @@ fn game(vm: &mut Vm, w: &Shared) {
 
 fn debug(vm: &mut Vm, w: &Shared) {
     for name in ["Trace", "TraceUser", "TraceConditional", "TraceStack"] {
-        global!(vm, w, "Debug", name, |_world, call| {
+        global!(vm, w, "Debug", name, |world, call| {
             let msg = match name {
-                "TraceUser" => text(&call.arg(1)),
+                "TraceUser" => text_world(world, &call.arg(1)),
                 "TraceConditional" if !call.arg(1).as_bool() => return none(),
-                _ => text(&call.arg(0)),
+                _ => text_world(world, &call.arg(0)),
             };
             call.log.push(call.time, msg);
             none()
@@ -2307,12 +2336,13 @@ fn actor_base(vm: &mut Vm, w: &Shared) {
     ] {
         method!(vm, w, "ActorBase", name, |world, call, me| {
             let on = call.args.first().is_none_or(Value::as_bool);
-            if field == 0 {
-                world.set_actor_base_essential(me, on);
-            } else if let Some(a) = world.actor_base(me) {
-                match field {
-                    1 => a.protected = on,
-                    _ => a.invulnerable = on,
+            match field {
+                0 => world.set_actor_base_essential(me, on),
+                1 => world.set_actor_base_protected(me, on),
+                _ => {
+                    if let Some(a) = world.actor_base(me) {
+                        a.invulnerable = on;
+                    }
                 }
             }
             none()
@@ -2645,9 +2675,31 @@ fn dlc(vm: &mut Vm, w: &Shared) {
         none()
     });
     // "Forces this actor to equip thes spell, in the specified source."
-    // The source is the hand, which the engine does not model yet.
+    // Sources 0 and 1 are the two casting hands (ck-wiki EquipSpell -
+    // Actor), routed through the same `World::equip_hand_spell` the native
+    // magic menu uses (`crates/godot-host/src/magic_menu.rs`), so a script
+    // equip and a menu equip are one state. Sources 2 (other) and 3
+    // (instant) have no per-hand slot here.
+    //
+    // `Actor.equipped` still gets the generic insert or remove on every
+    // source, matching the pre-hand-routing contract other natives
+    // (`IsEquipped`, dispel immunity) already read. A source of 0 or 1 also
+    // tries the per-hand slot, best effort: a spell the hand rejects (wrong
+    // type, not known, no cost data) still counts as equipped for those
+    // generic readers, it just never shows up in a hand.
     method!(vm, w, "Actor", "EquipSpell", |world, call, me| {
         if let Some(spell) = world.form_arg(&call.arg(0)) {
+            let hand = match call.arg(1).as_int() {
+                0 => Some(Hand::Left),
+                1 => Some(Hand::Right),
+                _ => None,
+            };
+            if let Some(hand) = hand {
+                if let Err(error) = world.equip_hand_spell(me, hand, spell) {
+                    call.log
+                        .push(call.time, format!("Actor.EquipSpell: {error}"));
+                }
+            }
             if let Some(a) = world.actor(me) {
                 a.equipped.insert(spell);
             }
@@ -2656,6 +2708,15 @@ fn dlc(vm: &mut Vm, w: &Shared) {
     });
     method!(vm, w, "Actor", "UnequipSpell", |world, call, me| {
         if let Some(spell) = world.form_arg(&call.arg(0)) {
+            match call.arg(1).as_int() {
+                0 => {
+                    let _ = world.unequip_hand_spell(me, Hand::Left, spell);
+                }
+                1 => {
+                    let _ = world.unequip_hand_spell(me, Hand::Right, spell);
+                }
+                _ => {}
+            }
             if let Some(a) = world.actor(me) {
                 a.equipped.remove(&spell);
             }
@@ -3211,7 +3272,6 @@ fn stubs(vm: &mut Vm) -> usize {
         ("Actor", "SetForcedLandingMarker"),
         ("Actor", "GetEquippedWeapon"),
         ("Actor", "GetEquippedShield"),
-        ("Actor", "GetEquippedSpell"),
         ("Actor", "GetVoiceRecoveryTime"),
         ("Faction", "SendAssaultAlarm"),
         ("Faction", "SendPlayerToJail"),

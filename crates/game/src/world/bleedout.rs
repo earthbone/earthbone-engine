@@ -90,6 +90,72 @@ impl World {
             state.unconscious = false;
         }
     }
+
+    /// Clamp a post-damage health value at the actor's bleedout threshold,
+    /// mirroring the inline clamp `World::melee_hit` applies before
+    /// committing a hit (combat.rs, CMB-13). `World::change_actor_value`
+    /// and `World::apply_effect_values` (magic.rs) share this so the
+    /// scripted DamageActorValue and magic damage paths enter bleedout the
+    /// same way a melee hit does instead of killing a protected or
+    /// essential actor outright (CMB-35).
+    ///
+    /// `eligible` carries the caller's own protected/essential and player
+    /// exception decision, since melee, script and magic sources key that
+    /// exception on different identities. An unreadable threshold is
+    /// skipped rather than propagated, the same way `resolve_bleedout_recovery`
+    /// above already skips: many callers reach actors with no full NPC
+    /// record (tests, synthetic actors) and a missing threshold there must
+    /// not block a health change that would otherwise succeed.
+    ///
+    /// Returns the health to commit and whether the actor is entering
+    /// bleedout. Not eligible, an unreadable threshold, or health already
+    /// above the threshold returns `current` unchanged and `false`.
+    pub(super) fn clamp_health_at_bleedout(
+        &mut self,
+        actor: GlobalFormId,
+        eligible: bool,
+        current: f32,
+    ) -> (f32, bool) {
+        if !eligible {
+            return (current, false);
+        }
+        let Ok(threshold) = self.actor_bleedout_threshold(actor) else {
+            return (current, false);
+        };
+        if current > threshold {
+            return (current, false);
+        }
+        (threshold, true)
+    }
+}
+
+/// Commit a bleedout clamp so health reads exactly `clamped`, choosing the
+/// component that keeps the actor's maximum honest (CMB-35).
+///
+/// When `clamped` fits under the maximum, only the `damage` component moves,
+/// the same `Values::restore` correction `World::melee_hit` applies
+/// (combat.rs, CMB-13). That covers `DamageActorValue` and ordinary magic
+/// damage, and leaves `maximum()` untouched so a later full heal lands on the
+/// real maximum rather than one inflated by the clamp. A decrease that went
+/// through `base`, `permanent` or `temporary` (`SetActorValue`,
+/// `ModActorValue`, `ForceActorValue`, `ModTemporaryActorValue`, a RECOVER
+/// magic effect) can leave the maximum itself below the threshold. Damage
+/// cannot be positive, so there the damage is cleared and `Values::force`
+/// raises `permanent` until the current value equals `clamped`.
+///
+/// # Errors
+/// Rejects non-finite or overflowing totals. Callers commit a clone, so a
+/// failure leaves the live actor untouched.
+pub(super) fn commit_bleedout_health(
+    values: &mut crate::actor_values::Values,
+    clamped: f32,
+) -> Result<(), crate::actor_values::Error> {
+    let health = values.get("health");
+    if clamped <= health.maximum() {
+        return values.restore("health", clamped - health.current());
+    }
+    values.restore("health", f32::MAX)?;
+    values.force("health", clamped)
 }
 
 fn nonnegative(value: f32) -> Result<f32, Error> {
@@ -97,5 +163,42 @@ fn nonnegative(value: f32) -> Result<f32, Error> {
         Ok(value)
     } else {
         Err(Error::Number)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::commit_bleedout_health;
+    use crate::actor_values::{Error, Values};
+
+    /// A damage-path clamp moves only `damage`, so a full heal afterward
+    /// returns to the original maximum instead of one the clamp inflated.
+    #[test]
+    fn damage_path_clamp_keeps_maximum() -> Result<(), Error> {
+        let mut values = Values::default();
+        values.set_base("health", 100.0)?;
+        values.damage("health", 500.0)?;
+        commit_bleedout_health(&mut values, 20.0)?;
+        assert_eq!(values.get("health").current(), 20.0);
+        assert_eq!(values.get("health").maximum(), 100.0);
+        values.restore("health", f32::MAX)?;
+        assert_eq!(values.get("health").current(), 100.0);
+        Ok(())
+    }
+
+    /// A decrease that pulled the maximum under the threshold clears damage
+    /// and raises `permanent`, the only way to reach the threshold there.
+    #[test]
+    fn maximum_path_clamp_lands_on_threshold() -> Result<(), Error> {
+        let mut values = Values::default();
+        values.set_base("health", 100.0)?;
+        values.damage("health", 30.0)?;
+        values.modify("health", -500.0)?;
+        commit_bleedout_health(&mut values, 20.0)?;
+        let health = values.get("health");
+        assert_eq!(health.current(), 20.0);
+        assert_eq!(health.damage(), 0.0);
+        assert_eq!(health.maximum(), 20.0);
+        Ok(())
     }
 }

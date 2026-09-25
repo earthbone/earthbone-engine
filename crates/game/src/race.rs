@@ -8,6 +8,11 @@ use soe_esm::{Error, Record, Tag};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Attributes {
+    /// Up to 7 `(skill actor value index, boost)` pairs, `DATA` bytes 0 to
+    /// 13. The index is a full actor value (xEdit `wbActorValueEnum`), where
+    /// skills occupy 6 to 23, 6 lower than [`crate::npc::SKILLS`]'s own
+    /// order. An unused slot carries a zero boost and is skipped by callers.
+    pub skill_boosts: [(i8, i8); 7],
     pub health: f32,
     pub magicka: f32,
     pub stamina: f32,
@@ -18,6 +23,15 @@ pub struct Attributes {
     pub stamina_rate: f32,
     pub unarmed_damage: f32,
     pub unarmed_reach: f32,
+    /// Height multiplier, male and female, `DATA` offsets 16 and 20. Used
+    /// with an NPC_'s own `NAM6` the same way `TESNPC::GetHeight()` does,
+    /// `race->data.height[sex] * npc.height`, for a runtime-generated actor
+    /// controller capsule when the skeleton has no authored one.
+    pub height_male: f32,
+    pub height_female: f32,
+    /// Weight multiplier, male and female, `DATA` offsets 24 and 28.
+    pub weight_male: f32,
+    pub weight_female: f32,
 }
 
 impl Attributes {
@@ -49,7 +63,13 @@ impl Attributes {
             }
             Ok(value)
         };
+        let mut skill_boosts = [(0i8, 0i8); 7];
+        for (i, slot) in skill_boosts.iter_mut().enumerate() {
+            let base = i * 2;
+            *slot = (data[base] as i8, data[base + 1] as i8);
+        }
         Ok(Some(Self {
+            skill_boosts,
             health: field(36)?,
             magicka: field(40)?,
             stamina: field(44)?,
@@ -60,6 +80,10 @@ impl Attributes {
             stamina_rate: field(92)?,
             unarmed_damage: field(96)?,
             unarmed_reach: field(100)?,
+            height_male: field(16)?,
+            height_female: field(20)?,
+            weight_male: field(24)?,
+            weight_female: field(28)?,
         }))
     }
 }

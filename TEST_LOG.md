@@ -377,3 +377,103 @@ limitations.
 These probes cannot establish combat, crowd collision, animation or complete
 modded gameplay capacity. GPU acceptance requires a windowed machine. Long
 soaks are implemented but no 24-hour run is claimed. No new dependencies.
+
+## 9. Workspace, line coverage baseline
+
+Tier 2, nightly, no gate, per `TEST_PLAN.md` section 1 row "coverage".
+`cargo-llvm-cov 0.9.1` over the full workspace with `SKYRIM_DATA` unset, so
+this baseline covers only the synthetic and unit test suites, not the gated
+real-file and save-corpus runs.
+
+```text
+cargo llvm-cov --workspace --summary-only
+```
+
+**A PATH problem, same shape as entry 8's, with one more wrinkle.**
+`cargo-llvm-cov` first failed with "failed to find llvm-tools-preview",
+although `rustup component list --installed` shows it present for the active
+toolchain. The cause is the same as entry 8's Homebrew shadowing: this
+machine's `PATH` puts `/home/linuxbrew/.linuxbrew/bin/cargo` ahead of the
+rustup shim, so `cargo-llvm-cov`, itself invoked through that `cargo`, could
+not see the rustup-managed component. Entry 8's literal fix, `PATH=$HOME/
+.cargo/bin:/usr/bin:/bin`, does not reproduce here: this session runs inside
+the `personal-DEV` distrobox container, where `$HOME` is the container's own
+home and its `.cargo/bin` holds only the `cargo-fuzz` and `cargo-llvm-cov`
+subcommand binaries, no `cargo` shim at all, so that `PATH` leaves `cargo`
+unresolved. The host user's rustup shims, including the `cargo` symlink that
+resolves the active toolchain, sit under the host home instead:
+
+```text
+PATH=/home/pengolodh/.cargo/bin:/usr/bin:/bin cargo llvm-cov ...
+```
+
+**Added.** One coverage run, `--summary-only`, then `cargo llvm-cov report`
+reused against the same profile data to get the untruncated per-file table
+(the first run's output was piped through `tail` and lost the alphabetically
+earliest crates, a tooling mistake worth naming so it does not repeat).
+
+**What it found.** Workspace line coverage is **83.62%** (61,548 lines,
+10,079 missed), region coverage 81.39%, function coverage 81.64%. By crate,
+line coverage ranges from `moddata` at 96.88% down to two clear outliers:
+
+| Crate | Line coverage | Note |
+|---|---|---|
+| `godot-host` | 50.54% | dominated by GDExtension entry points, see below |
+| `bench` | 41.82% | the benchmark CLI binary, driven by hand, not unit tests |
+| `physics` | 85.91% | lowest of the parser and simulation crates |
+| `nif` | 87.01% | |
+| `papyrus` | 88.55% | |
+| `game` | 88.74% | largest crate, 21,501 lines |
+| `hkx` | 89.44% | |
+| all others | 90 to 97% | |
+
+Every file at exactly 0.00% line coverage in `godot-host` is a `godot_*`
+module or `collision.rs` and `data_source/location.rs`: code that calls into
+a live Godot engine (nodes, the physics bridge, save UI) and is reached only
+through `soe-godot-host`'s headless and windowed walkthroughs, never through
+`cargo test`. That matches TEST_PLAN section 1.2's foreign code category
+exactly, it is not a gap this baseline can see, since the walkthroughs are
+not instrumented for coverage. `godot-host/src/godot_layer.rs` sits at
+0.54%, one line short of the same story. `godot-host/src/actor.rs` (19.42%)
+and `data_source/exterior.rs` (6.39%) are the two files in that crate that
+mix engine calls with logic worth a synthetic test and are not covered by
+one yet.
+
+Below 80% line coverage outside `godot-host` and `bench`, the parsers this
+row's context pack asks about:
+
+- `save/src/reference/extra.rs`, 35.98%. The least covered parser file in
+  the workspace. Named as open in entry 3, "the Papyrus tail past the
+  reference table is still handed back raw", so this number is consistent
+  with a known, already documented gap, not a new one.
+- `save/src/reference/fields.rs`, 59.41%.
+- `dds/src/error.rs`, 50.00%, and `moddata/src/error.rs`, 50.00%: error enum
+  `Display` arms mostly unreached by the current fixtures, low line count so
+  low leverage.
+- `physics/src/shape.rs`, 67.67%.
+- `esm/src/tag.rs`, 74.07%.
+- `dds/src/format.rs`, 75.36%.
+- `papyrus/src/vm.rs`, 73.07%, the largest low-coverage parser file
+  (1,035 lines), consistent with entry 2's note that `fuzz-vm-run` never
+  reaches inheritance, property dispatch, latent calls or the scheduler.
+
+**On the three TEST_PLAN section 1.2 categories.** Only one unsafe block
+exists, in `godot-host`'s gdext layer, and its file is among the 0% ones
+above for the reason already given, coverage says nothing about it either
+way. `std::thread::scope` fan-outs live in `bsa/src/archive.rs` (93.58%
+file coverage), `godot-host/src/data_source/{textures,workers}.rs` (89.58%
+and 99.04%) and `trace/src/lib.rs` (95.22%): the lines inside the scope run
+and are counted, but line coverage cannot show whether the fan-out's
+ordering or thread safety is asserted, which is the actual risk TEST_PLAN
+names. Foreign code (gdext, Jolt, Godot calls) is what makes `godot-host`
+the lowest-covered crate, for the reason given above.
+
+**What it cannot catch.** A line executing is not a line asserted on. This
+run says nothing about whether the 88.74% of `game` that ran computed the
+right answer, whether a covered branch in `papyrus/src/vm.rs` reached the
+correct VM state, or whether an equivalence mutant in a well covered file
+would be caught. It also says nothing about the gated real-file and
+save-corpus paths, since `SKYRIM_DATA` was unset for this run, an instrumented
+build under `SKYRIM_DATA` would raise the numbers above without proving the
+gated assertions themselves are strong. That gap is entry 5's mutation score
+row, still not started because `cargo-mutants` is not installed here.

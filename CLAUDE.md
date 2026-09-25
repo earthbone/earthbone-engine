@@ -136,66 +136,11 @@ GPL tool is fine there, but no GPL derived code may reach the MIT shim crates.
   binary invoked out of process, run `cargo tree` on anything new and report
   what it drags in. A credited vendored routine can beat a dependency that
   pulls in eighty crates.
-- Code forks at most three at a time. Progress is read from branch commits and
-  the master gate, never from an agent's own report.
+- Code forks run up to nine at a time (user, 2026-09-23). Progress is read
+  from branch commits and the master gate, never from an agent's report.
 
-## Status, integrated execution milestones, 2026-09-20
+## Status
 
-The 2026-09-20 integration combines actor-value components and corrected
-race/template sources, crafting transactions and inventory events, dialogue
-selection and fragments, direct non-hostile magic, host doors and footsteps,
-and vanilla-save execution parsing and object/array import groundwork.
-The native registry has 361 stateful entries and 180 stubs. SOEW version 9
-combines actor-value components, dialogue and active effects. SOEV version 3
-retains declaring-script variable identity.
-
-PlayerNode now drives Game/VM activation, locked-door key checks and the
-load-door lifecycle with rendering/collision replacement. Grounded movement
-selects footstep sounds from records and reaches the Godot mixer. Physical
-speaker output, swinging-door collision and exterior walking streaming remain
-unverified or unfinished. Portal city transitions and revised AI are deferred.
-
-Weapon combat, complete magic/crafting/dialogue, player UI and full vanilla-save
-restoration remain open. ESS import requires explicit object mapping and does
-not resume saved stacks or restore all world change forms. The CommonLib shim
-is a skeleton and the editor is a design. Read docs/status.md and
-docs/execution-plan.md for current evidence and the remaining scopes.
-
-## Reference-correction checkpoint, 2026-09-19
-
-Based on master `75cfb55`, with the reference fixes in this change. The full
-gate reports 835 test passes and every lint tool ran. The runtime registers
-345 stateful natives and 191 stubs. Waits have distinct gameplay, menu and
-game-hour clocks, persisted in SOEV version 2 with version 1 reading retained.
-Quest getters agree on the highest stage. Dispel calls preserve learned and
-equipped spells pending active effects. SPID deterministic fractional rules
-are reported as unsupported, with their percentage and marker preserved.
-
-The host keeps alpha and culling in material identity while sharing uploads,
-and sends transformed native collision shapes to Jolt. The installed-game
-startup check and Bannered Mare contact tests pass. Detailed evidence and
-limits are in `docs/reference-audit.md` and `docs/physics.md`.
-
-`docs/status.md` carries subsystem detail. `ENGINE-PLAN.md` and the reference
-map now scope missing gameplay work and original-runtime probes. Those future
-systems are pending, not delivered by the reference fixes.
-
-Adversarial testing has reached phase 3. The archive decompression-size
-mismatch and the PEX assembler's acceptance of duplicate function names
-were fixed. Evidence, limits and repros remain in `TEST_LOG.md`.
-
-A number falling can be a fix. Reading `XLKR` on actor references closed a
-real gap, the `ACHR` reader had ignored linked references, and the first
-start's native calls fell from 1,560 to 1,388 because scripts that used to
-get `None` from `GetLinkedRef` now get the reference and take a shorter
-branch. Same quests, same log lines. Check the cause before reading a drop
-as a regression.
-
-Known gaps: no player UI or MCM layer, no complete combat, magic or dialogue,
-no LOD consumption, no terrain texture layers or water. The CommonLib shim
-is a Rust skeleton without generated C++ headers or a compiled plugin.
-The editor remains a design. The reference audit scopes pending gameplay
-work, with combat, crafting and progression still requiring separate items.
-No Proton launch has been reported.
-Audio exists with the integration limits above. Open risks are in map section
-12, read together with the later decisions in `ENGINE-PLAN.md`.
+Current evidence per subsystem is in `docs/status.md`, including the dated
+checkpoints of 2026-09-19 and 2026-09-20 that used to sit here. Remaining work
+is in `BACKLOG.csv`, and `ENGINE-PLAN.md` holds the rounds and decisions.

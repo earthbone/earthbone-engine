@@ -26,7 +26,7 @@
 //! 2026-09-18 had a per-call cache decoding every texture on the calling
 //! thread after the workers joined, at 97 percent of the stream time.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -42,6 +42,7 @@ use crate::mesh::{
 
 mod exterior;
 mod location;
+mod lod;
 mod models;
 mod textures;
 mod workers;
@@ -52,6 +53,7 @@ mod marker_survey_tests;
 pub use location::LoadedLocation;
 #[cfg(feature = "godot")]
 pub(crate) use location::PreparedCell;
+pub use lod::LoadedLodBlock;
 pub(crate) use models::{is_editor_marker_name, model_for};
 use textures::TextureCache;
 pub use textures::{BlockFormat, TextureData};
@@ -101,6 +103,8 @@ pub enum DataSourceError {
     NoVoiceArchives,
     #[error("cell '{0}' was not found in the load order")]
     CellNotFound(String),
+    #[error("radius {0} is negative, an exterior block needs a radius of 0 or more")]
+    InvalidRadius(i32),
     #[error("a data source worker panicked")]
     WorkerPanicked,
     #[error("collision: {0}")]
@@ -153,6 +157,24 @@ pub struct LoadedSurface {
     pub reference: GlobalFormId,
     pub arrays: SurfaceArrays,
     pub textures: SurfaceTextures,
+    /// The reference's placement at load time, in Skyrim space, already
+    /// baked into `arrays` unless `instance_transform` is set, when `arrays`
+    /// holds the shape's local geometry instead. A terrain surface carries
+    /// identity here since `LAND` has no separate placement. Kept so a
+    /// runtime placement change can be expressed as a delta against this
+    /// baseline instead of the world-space vertices themselves.
+    pub placement: soe_physics::Iso,
+    /// The reference's placement in Godot space, set only when
+    /// `stream_cell_id` decided this surface's model repeats often enough in
+    /// the cell to draw as a `MultiMesh` instead of batching it. When set,
+    /// `arrays` holds the shape's local geometry, not baked to this
+    /// placement, and `batch::instancing_candidates` is what reads this
+    /// field back out.
+    pub instance_transform: Option<crate::units::GodotTransform>,
+    /// The model path and shape index this surface came from, lowercased,
+    /// set together with `instance_transform`. Surfaces that share this
+    /// group into one `MultiMesh`.
+    pub mesh_identity: Option<Arc<str>>,
 }
 
 /// A surface's 2D textures and environment cubemap, ready to upload. `None` means
@@ -486,22 +508,34 @@ impl DataSource {
             work
         };
 
+        // Counted before building anything, so `build_all` can decide per
+        // model whether it clears `batch::INSTANCE_MIN_PLACEMENTS` and is
+        // worth keeping in local space for a `MultiMesh`, rather than baking
+        // the reference placement in like every other static.
+        let mut model_counts: HashMap<String, usize> = HashMap::new();
+        for (model, _, _) in &work {
+            *model_counts.entry(model.to_lowercase()).or_insert(0) += 1;
+        }
+
         let before = self.textures.counters();
-        let results = self.build_all(&work)?;
+        let results = self.build_all(&work, &model_counts)?;
         let after = self.textures.counters();
         let mut surfaces = Vec::new();
         let mut texture_sets = HashSet::new();
-        for ((model, _, reference), result) in work.iter().zip(results) {
+        for ((model, refr, reference), result) in work.iter().zip(results) {
             match result {
                 Ok(LoadedStatic::Surfaces {
                     built,
                     marker_shapes_filtered,
                     marker_only,
+                    instance_transform,
                 }) => {
                     stats.editor_markers_filtered += marker_shapes_filtered;
                     stats.editor_marker_only_models += usize::from(marker_only);
                     stats.meshes_parsed += 1;
-                    for (arrays, textures) in built {
+                    let placement = placement_iso(refr);
+                    let identity_base = instance_transform.is_some().then(|| model.to_lowercase());
+                    for (shape_index, (arrays, textures)) in built.into_iter().enumerate() {
                         stats.triangles += arrays.triangle_count();
                         texture_sets.insert((
                             arrays.material.diffuse.as_deref().map(soe_bsa::normalize),
@@ -517,10 +551,16 @@ impl DataSource {
                                 .as_deref()
                                 .map(soe_bsa::normalize),
                         ));
+                        let mesh_identity = identity_base
+                            .as_ref()
+                            .map(|base| Arc::<str>::from(format!("{base}#{shape_index}")));
                         surfaces.push(LoadedSurface {
                             reference: *reference,
                             arrays,
                             textures,
+                            placement,
+                            instance_transform,
+                            mesh_identity,
                         });
                     }
                 }
@@ -545,14 +585,28 @@ impl DataSource {
     fn build_all(
         &self,
         work: &[(String, Refr, GlobalFormId)],
+        model_counts: &HashMap<String, usize>,
     ) -> Result<Vec<BuiltStatic>, DataSourceError> {
         let _span = soe_trace::Span::with_payload("host.build_all", "host", work.len() as u64);
         ordered_map(work, self.threads, |(model, refr, _)| {
-            self.load_static_surfaces(model, refr)
+            let instancing = model_counts
+                .get(&model.to_lowercase())
+                .copied()
+                .unwrap_or(0)
+                >= crate::batch::INSTANCE_MIN_PLACEMENTS;
+            self.load_static_surfaces(model, refr, instancing)
         })
     }
 
-    fn load_static_surfaces(&self, model: &str, refr: &Refr) -> BuiltStatic {
+    /// Reads and builds every shape of `model` at `refr`'s placement.
+    /// `instancing` comes from a placement count `build_all` already took
+    /// over the whole cell: when true, the shapes keep their own local
+    /// transform only, dropping the reference placement, and the caller
+    /// gets that placement back out through `LoadedStatic::Surfaces`'s
+    /// `instance_transform` to apply per instance through a `MultiMesh`
+    /// instead. Every other static keeps baking the full placement into its
+    /// vertex data, unchanged.
+    fn load_static_surfaces(&self, model: &str, refr: &Refr, instancing: bool) -> BuiltStatic {
         let _span = soe_trace::Span::new("host.static", "host");
         let path = format!("meshes/{model}");
         let bytes = self.vfs.read(&path)?;
@@ -570,7 +624,11 @@ impl DataSource {
         for shape in &meshes {
             let arrays = {
                 let _surface = soe_trace::Span::new("host.build_surface", "host");
-                let combined = refr_transform.then(&shape.transform);
+                let combined = if instancing {
+                    shape.transform
+                } else {
+                    refr_transform.then(&shape.transform)
+                };
                 let data = mesh_data_from(shape, &combined);
                 build_surface(&data, MeshOptions::default())?
             };
@@ -580,10 +638,18 @@ impl DataSource {
             };
             out.push((arrays, textures));
         }
+        let instance_transform = instancing.then(|| {
+            crate::units::placement_to_godot(
+                refr_transform.rotation.rows,
+                refr_transform.translation.to_array(),
+                refr_transform.scale,
+            )
+        });
         Ok(LoadedStatic::Surfaces {
             built: out,
             marker_shapes_filtered,
             marker_only,
+            instance_transform,
         })
     }
 }
@@ -643,6 +709,10 @@ enum LoadedStatic {
         built: Vec<(SurfaceArrays, SurfaceTextures)>,
         marker_shapes_filtered: usize,
         marker_only: bool,
+        /// The reference's placement, in Godot space, when `load_static_surfaces`
+        /// left `built`'s vertex data in local space for a `MultiMesh`. `None`
+        /// means the usual path: the placement is already baked into `built`.
+        instance_transform: Option<crate::units::GodotTransform>,
     },
 }
 

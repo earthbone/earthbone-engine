@@ -231,6 +231,10 @@ impl DataSource {
             let arrays = &surface.arrays;
             placed.push(PlacedCollider {
                 reference: surface.reference,
+                // LAND has no separate reference placement, matching the
+                // `Iso::IDENTITY` `LoadedSurface::placement` its own draw
+                // path carries.
+                original: Iso::IDENTITY,
                 collider: Collider {
                     node: soe_nif::BlockRef(-1),
                     node_name: String::new(),

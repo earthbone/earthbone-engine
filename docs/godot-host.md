@@ -42,6 +42,12 @@ on interruption. The audit made no host runtime changes, added no scene nodes
 and performed no Godot run. It therefore supplies no motion, collision-cost or
 cleanup measurement.
 
+HST-04 is implemented, see "Runtime enable and placement reflection, HST-04"
+below: a script-driven or editor-driven change to `World` now reaches both
+rendering and collision at the next tick. That direction (World to host) is
+separate from what HST-12 still owns, physics-driven rigid bodies pushing a
+pose back into World, and this row does not narrow HST-12's remaining scope.
+
 ### Spawn Hazard prerequisites, MAG-61
 
 The MAG-61 audit on 2026-09-20 found no host path for HAZD or PHZD.
@@ -563,6 +569,82 @@ alpha and culling state in its key, with a separate path-keyed texture upload ca
 so a texture uploaded for one cell serves every later cell that names it. `last_stats`
 reports the materials a call created, not the cache size.
 
+### Runtime enable and placement reflection, HST-04
+
+A batch bakes each source surface's placement into its vertices once, at load
+time. Nothing updated a batch again after that, so a script-driven move,
+disable or Creation Kit style drag never reached the mesh or its collision
+after the first tick. `CellStreamerNode::sync_reference_changes(&World)`
+closes that gap and is called once a tick from `PlayerNode::advance_game`,
+before anything that frame reads geometry or collision, so an enable or
+placement change lands the same tick it is written to `World`. `World` stays
+the sole source of truth throughout, satisfying the record-backed authority
+rule from the HST-12 section above: the host reads `World::ref_placement`
+every tick and never writes a pose back into it.
+
+Collision and rendering both gate their expensive path on a per-reference
+cache of the last applied `(visible, Iso)`, called every tick but doing real
+work only on an actual change:
+
+- Collision (`CellBodies::sync_placements`, in `godot_physics.rs`) keeps
+  the cache on each `StaticEntry`. An unchanged reference costs one
+  comparison. A changed one either moves the body between `space` and
+  `Rid::Invalid` (cheap, so this part runs even for a reference this cache
+  has never seen), or, for an actual placement change, frees the body and
+  its shapes and rebuilds them through the same `flatten`/`build_body` path
+  `add_placed_statics` used, since a Godot static body's collision shapes
+  bake their world placement into their own data or local transform and
+  cannot be nudged by moving the body alone.
+- Rendering (the new method above) keeps its cache on the `CellStreamerNode`
+  instead, keyed by reference across every batch, and only rebuilds a
+  batch's `ArrayMesh` when one of its members' cached value disagrees with
+  `World`. A batch can hold hundreds of members sharing one mesh, one
+  `RenderingServer` instance and one index buffer, so rebuilding every
+  batch every tick regardless of change would cost far more than the map
+  lookups the cache adds.
+
+Either side's delta is always computed against the reference's placement at
+load time, never against the last placement applied, so a reference moved
+many times over many ticks accumulates no drift. An earlier version of
+`sync_placements` reassigned its baseline to the latest placement after each
+move, which is exactly the composing-onto-an-already-moved-copy mistake the
+"always rebuild from an immutable baseline" rule above exists to avoid, and
+was caught and fixed before any external run exercised a second move of the
+same reference.
+
+Hiding a reference also differs by side, because each side's resource model
+differs. Collision removes the body from the physics space
+(`body_set_space(body, Rid::Invalid)`), matching vanilla's "not present in
+the simulation" contract, and a later re-enable puts it back with
+`body_set_space(body, space)`. Rendering cannot remove vertices, since every
+reference after the hidden one in the shared index buffer would need
+renumbering, so a hidden member's whole vertex range collapses onto its first
+vertex instead, a zero-area triangle fan that draws nothing and costs no
+buffer resize.
+
+Both sides rebuild from an immutable, never-mutated baseline recorded at load
+time (`StaticEntry::source` for collision, the new `Instance::arrays` for
+rendering) rather than composing a move onto an already-moved copy, so a
+sequence of small edits cannot drift from what `World` actually holds. The
+move itself is a delta against that baseline's own placement:
+`delta = target_iso.then(&origin.inverse())`, where `origin` is the
+reference's placement as first loaded (`BatchTableMember::origin`, sourced
+from `LoadedSurface::placement`, `Iso::IDENTITY` for LAND) and `target_iso`
+comes from `World::ref_placement`. Applying `delta` to a baked point or
+direction reproduces the moved result directly, with no hand-derived
+world-space transform to keep in sync with the loader's own placement math.
+Position, normal and tangent arrays each round trip through `units.rs`'s
+Skyrim/Godot converters before and after the delta applies, since `delta` is
+built in Skyrim space like every other placement in this crate.
+
+This is the World-to-host direction only: a reference `World` already knows
+about, moved or hidden by a script, activation or the editor. HST-12's
+physics-driven rigid bodies, their host-to-World pose sync and their
+despawn/unload cleanup remain open, as does a per-reference prune of the
+render cache on cell unload (it is cleared wholesale on `clear`/`exit_tree`
+today, so a reference's cache entry outlives the cell it belonged to until
+the whole streamer resets).
+
 ### Compressed textures as they are
 
 The 2026-09-18 trace on `master` had `host.material` at 97 percent of a cell's stream time:
@@ -598,9 +680,11 @@ once, finds the named cell's grid position and worldspace, and returns every cel
 worldspace within `radius` grid steps, sorted south to north then west to east (radius 2 is
 the game's `uGridsToLoad=5`). `stream_exterior` streams each cell through `stream_cell_id` and
 appends the cell's terrain as one more `LoadedSurface`: `land_for_cells` walks the `LAND`
-winners once for the whole block, and `terrain_surface` turns the 33 by 33 `VHGT` heights into
-32 by 32 quads in Skyrim units, `VNML` normals when present, wound counter-clockwise from above
-so `build_surface`'s flip lands them like a NIF's faces. `CellStreamerNode::stream_exterior`
+winners once for the whole block, `decode_land_heights` turns each cell's 33 by 33 `VHGT`
+into world-unit heights, `reconcile_seams` stitches the block's shared edges (see RND-15
+below), and `terrain_surface_from_heights` turns the reconciled heights into 32 by 32 quads
+in Skyrim units, `VNML` normals when present, wound counter-clockwise from above so
+`build_surface`'s flip lands them like a NIF's faces. `CellStreamerNode::stream_exterior`
 is the GDScript entry point and `last_stats` carries the block's totals, the worldspace's
 editor id and the cell list.
 
@@ -614,10 +698,87 @@ its own is not settled here, the override wins.
 
 What the exterior still lacks, none of it needed for the block benchmark: the `LAND` quadrant
 layers (`LTEX` base plus alpha layers) need a splat material, so terrain draws in the
-untextured white material. Distant geometry is Bethesda's precomputed LOD (the `BTO` and `BTR`
-files under `meshes/terrain`, to be consumed, never generated), not loaded, so nothing beyond
-the requested ring exists. No water plane. `WhiterunWorld` lists grid (0, 0) twice among its
-winners, both streamed. Interior streaming by proximity is still unstarted.
+untextured white material. `godot/pan_capture.gd` orbits and pans that block through 25
+shots for a quick visual sweep. Distant geometry is Bethesda's precomputed LOD (the `BTO` and
+`BTR` files under `meshes/terrain`, to be consumed, never generated), not loaded, so nothing
+beyond the requested ring exists. No water plane. `WhiterunWorld` lists grid (0, 0) twice among
+its winners, both streamed. Interior streaming by proximity is still unstarted.
+
+**RND-15, the 2026-09-23 sky gaps.** `pan_capture.gd` showed thin sky-coloured gaps along a
+few terrain cell edges from four of its 25 angles. Cause: each cell's terrain used to mesh on
+its own from its own decoded `VHGT`, so two neighbouring cells only met exactly where their
+height data already agreed, and Bethesda's own `LAND` agrees at every edge inside one
+worldspace by construction. The gap sat at the boundary between the block's three
+`WhiterunWorld` cells and the six cells falling back to Tamriel's `LAND` at the same grid
+position: Tamriel's landform there was never sculpted to meet WhiterunWorld's city terrain, so
+the two data sources left a height mismatch of a few world units at the cells where they meet,
+wide enough to show sky through from a shallow angle. The fix, `reconcile_seams` in
+`crates/godot-host/src/data_source/exterior.rs`, decodes every block cell's effective heights
+(own or parent) first, keyed by grid position rather than cell id, then groups every array
+index across the block that stands for the same physical vertex, up to 4 of them at an
+interior block corner, and sets the whole group to its members' average before any cell's mesh
+is built. A vertex the data already agrees on averages to the value it already had, so an edge
+already agreeing is left unchanged in practice. Averaging moves both sides of a real mismatch
+an equal small amount rather than picking a "correct" worldspace, since nothing here says
+WhiterunWorld's authored terrain should win over Tamriel's at a border neither one owns.
+
+An earlier version of `reconcile_seams` closed the parent-worldspace gap with two sequential
+passes per cell, east-west against the east neighbour then north-south against the north
+neighbour, both mutating the same heights map. A cell with both an east and a north neighbour
+inside the block, 4 of the 9 `WhiterunOrigin` cells, has its north-east corner sample on both
+edges, so the north-south pass re-read a value the east-west pass had already moved and
+overwrote it again, leaving the east neighbour's own copy of that same corner stale. Since the
+two passes read their processing order from a `HashMap`'s key iteration, which the standard
+library gives no cross-run guarantee for, which corner won could also change between two
+`DataSource::open` calls against the same install. That compounded the sky gaps at exactly the
+point most likely to show one, a mesh corner every touching triangle shares, and broke
+reproducibility for anything that diffs or caches streamed terrain, `pan_capture.gd`'s own
+regression captures included. The current fix resolves each physical vertex from all of its
+copies at once, up to 4 at an interior block corner, instead of from whichever pairwise pass
+happens to run last, so the result no longer depends on iteration order.
+
+### PRF-02: streaming a block one cell at a time
+
+`docs/performance-limits.md` (Recorded validation, 2026-09-19) reports the real exterior
+benchmark (`WhiterunOrigin`, radius 1, 3x3 block) stopping during startup at 8,232 MiB RSS
+against its 8,192 MiB budget, before a single frame sample was taken. `DataSource::stream_exterior`
+built the whole block first (`Vec<(ExteriorCell, LoadedCell)>` for all nine cells) and only then
+handed it to `CellStreamerNode::stream_exterior`, which converted and uploaded each cell to
+`RenderingServer` in a second pass. The whole block's decoded meshes and textures stayed
+resident through that second pass on top of whatever the RenderingServer upload itself held,
+so the peak fell where both were alive at once.
+
+Measured headless (`cargo run --example`, a scratch probe read against `/proc/self/status`
+`VmRSS`, deleted before this change was committed): opening the data source (five base
+masters plus load order and cell index) reaches about 1.3 GiB RSS, and streaming the nine-cell
+Whiterun block on top of that reaches about 2.1 GiB, so the block's own raw geometry and
+texture data is roughly 700 to 800 MiB. Two other candidate causes named in
+`docs/performance-limits.md` and `docs/performance.md` were measured and ruled out: lazy
+archive indexing (deferring `Archive::open`'s index read) costs about 0 MiB across all 21
+non-voice archives (97,417 files) in this load order, so it only helps wall-clock open time,
+not RSS, and the block carries 160 unique BC-compressed textures (about 325 MiB) with zero
+RGBA8 fallback decodes, so texture decode bloat is not the driver either.
+
+`DataSource::stream_exterior_block` (used by `crates/bench` and the `real_exterior` test,
+which read the whole block at once to report per-cell totals) is unchanged. A new sibling,
+`DataSource::stream_exterior_each`, streams the same cells in the same order but calls a
+closure with each `ExteriorCell`, its `LoadedCell` and whether it carries a terrain surface,
+one cell at a time, instead of collecting them. `CellStreamerNode::stream_exterior` now calls
+`stream_exterior_each` and does the RenderingServer conversion and upload inside that closure,
+so each cell's raw CPU-side buffers are dropped before the next cell is read. Peak RSS during
+the streaming pass now holds at most one cell's raw data (roughly 80 to 90 MiB average for
+this block) instead of all nine (roughly 700 to 800 MiB), a reduction on the order of 600 MiB
+against a budget the run was missing by 40 MiB.
+
+This closes the CPU-side half of the gap between the headless baseline (about 2.1 to 3.3 GiB,
+the higher figure from the `real_exterior` integration test's own harness overhead under
+`/usr/bin/time -v`) and the reported 8,232 MiB windowed failure. The remainder is the Godot
+process itself: renderer and driver baseline, `RenderingServer` GPU-side uploads, and
+`ArrayMesh`/`StandardMaterial3D`/`ImageTexture` resource overhead, none of which this change
+touches. Whether the fix closes the 40 MiB gap in practice can only be confirmed by the
+windowed run itself (`tools/performance.py --backend godot --scenario exterior`), which is
+reserved for the lead measuring on an idle machine, not for an agent. See `docs/performance-limits.md`
+for the pass or breach result and the frame-time percentiles once that run has been made.
 
 ### Numbers
 
@@ -1900,3 +2061,185 @@ On 2026-09-23 the script failed on master `9ae933b` under Godot 4.7.2 with
 installed data. No prefetch job started (`started` 0, `payload_bytes` 0), one
 gameplay step took 497,919 us, and the transition rebuilt its resources. HST-07
 is open again until this script passes on master.
+
+## Actor controller geometry resolver, CMB-33
+
+`DataSource::actor_controller_shape(skeleton_path, scale)` in `collision.rs`
+reads a skeleton NIF straight through `soe_nif::parse` and
+`soe_physics::collect`, then calls `soe_physics::controller_shape` to return
+either the skeleton's largest authored `CHAR_CONTROLLER` phantom or a
+generated capsule sized by `scale`. It reads the skeleton file directly
+rather than through `data_source::placed_model`, since that helper rewrites
+a placed reference's root transform for scene placement and a standalone
+skeleton has no reference to place. This mirrors the pattern the existing
+`actor.rs` skeleton loading and the CMB-29 test already use.
+
+This method resolves geometry only, and nothing in `godot-host` calls it
+yet. CMB-28, installing an actor's controller body into the Godot physics
+server and keeping it synchronized with the actor's live transform, has not
+started: a search of `godot-host/src` for existing actor or skeleton
+collision wiring found only `.hkx` animation-skeleton loading in `actor.rs`,
+unrelated to the `.nif` collision phantoms this method reads. When CMB-28
+adds the actor body pipeline, this is the function it resolves shape and
+transform from, with `game::World::actor_controller_scale` (`docs/game.md`)
+supplying the scale argument.
+
+## Distant-terrain LOD residency, RND-03
+
+`crate::terrain_lod` decides which BTR terrain LOD blocks should stand in
+for full resolution LAND terrain (`exterior.rs::terrain_surface`) beyond the
+cells the cell streamer keeps loaded, and tracks a recorded byte budget for
+them. `data_source::lod::DataSource::load_lod_block` reads and builds one
+block's BTR file. `CellStreamerNode` drives both, see "The node" below.
+
+### BTR format and naming
+
+Mutagen's `SkyrimModelAssetType.cs` states BTR is "the same file format as
+.nif", and TES5Edit's `wbBSArchive.pas` lists `.btr` in the same `atMesh`
+asset class as `.nif`. `data_source::lod` reads a BTR file through
+`soe_nif::parse` and the same `mesh_data_from` and `build_surface` pipeline
+`load_static_surfaces` already uses for placed statics. A BTR's vertices are
+local to its block, a real level 4 Tamriel block builds to 0 to 4 cells on
+x and y under an identity NIF transform (`tests/terrain_lod_placement.rs`),
+so `load_lod_block` composes each shape's transform under a translation to
+the block's south-west cell, the part a `REFR` placement plays for a static.
+
+The file path, `meshes/terrain/<world editor id>/<world lowercase>.<level>.<x>.<y>.btr`,
+is confirmed against one real shipped file, `meshes\terrain\Vyn\vyn.32.-5.9.btr`
+in Wrye Bash's Enderal SE vanilla file list
+(`engine-refs/wrye-bash/Mopy/bash/game/enderalse/vanilla_files.py`, line 198),
+and against TES5Edit's `miWorldspaceFilterLODClick`
+(`engine-refs/TES5Edit/Build/Edit Scripts/Worldspace browser.pas`, lines
+895 to 935), which builds a block's LOD texture and mesh from the same base
+name and swaps only the extension. Only the level 32 case is an attested
+real file name. Levels 4, 8 and 16 follow the same pattern by construction,
+not by a second attested example.
+
+The LOD block sizes themselves, 4, 8, 16 and 32 cells to a side, come from
+TES5Edit's tree and object LOD generator (`Core/wbLOD.pas`,
+`LODLevelMin`/`LODLevelMax`), the only LOD block sizes the corpus documents.
+No corpus source documents landscape LOD generation the way `wbLOD.pas`
+documents tree and object LOD, so `LodBlockCoord`'s block alignment mirrors
+`TwbLodSettings.BlockForCell` and this crate's own
+`terrain::RegionSpec::region_of` rather than a landscape-specific reference.
+
+### Residency and budget
+
+`TerrainLodStreamer` mirrors `streaming::CellStreamer`'s hysteresis: blocks
+between `full_res_radius` and `lod_radius` (ring distance in cells) are
+wanted, nearer or farther blocks are stale, loads and unloads are capped per
+tick and sorted nearest first or farthest first. `full_res_radius` should
+match the cell streamer's own `load_radius` so the two never disagree about
+which cells are near. One streamer covers one LOD level, a caller that wants
+more than one level resident at once runs one streamer per level with
+disjoint radius bands, finer levels nearer the focus. Picking a level by
+distance automatically is left to that caller, unstarted here.
+
+The residency budget is recorded, not estimated ahead of the read.
+`Mesh::approx_bytes()` (new in `soe_nif`, see `docs/nif.md`) sums each
+vertex's natural width plus four bytes an index. It charges normals
+unconditionally, since this crate's own `build_surface` generates a full
+normals buffer for a shape with none whenever `generate_missing_normals` is
+on (the default), and never charges vertex colors, since neither
+`MeshSource`, `MeshData` nor `SurfaceArrays` carries a color field for one
+to reach. Close enough to weigh a mesh against a budget without claiming to
+match any one renderer's exact buffer layout. `DataSource::load_lod_block`
+sums this across a block's shapes into `LoadedLodBlock::approx_bytes`, and a
+caller passes that to `TerrainLodStreamer::record_bytes` once the block is
+actually built, so `usage_bytes`, `over_budget` and `evict_to_budget` (hard
+cap, farthest first) reflect what was loaded rather than a guess made before
+the read.
+
+A missing BTR file is `Ok(None)`, not an error: a worldspace's LOD coverage
+rarely fills every block at every level, Tamriel's edges and any level above
+the one an area was baked at are the ordinary case. `load_lod_block` matches
+`soe_bsa::Error::NotFound` the same way `Vfs::read`'s other callers already
+do for a missing texture.
+
+### The node
+
+`CellStreamerNode.stream_terrain_lod(world, cell_x, cell_y, full_res_radius,
+lod_radius, budget_bytes)` resolves the worldspace by editor id, reads its
+`lodsettings` file for the block grid anchor and finest level (level 4 on a
+grid at cell (0, 0) when the file is missing), then settles a
+`TerrainLodStreamer` around the focus cell. Each planned block is read with
+`load_lod_block`, its bytes recorded, the budget enforced, and the blocks
+that survive are drawn as `RenderingServer` instances in the node's
+scenario, one per surface, kept apart from the cell instances so
+`cell_instances` still reports full resolution cells only. A block loaded
+and evicted in the same step is never uploaded. Pass the radius
+`stream_exterior` drew at as `full_res_radius`: a block is planned only when
+all of its cells lie beyond it, so LOD starts where full resolution LAND
+stops and the two never overlap.
+
+`update_terrain_lod(cell_x, cell_y)` is the per-frame form: one block read
+and two released a call, then the budget. `terrain_lod_resident_count`,
+`terrain_lod_usage_bytes` and `terrain_lod_stats` report residency, recorded
+bytes, the budget and what the last call loaded, found missing, failed and
+released. `clear_terrain_lod` frees the blocks, and `clear` and `exit_tree`
+free them with everything else.
+
+On this machine's install, Tamriel's `lodsettings` anchors the grid at
+(-96, -96) at level 4. Around cell (0, 0) with a full resolution radius of 2
+and a LOD radius of 12, the node draws 45 blocks, 66 instances and 93,065
+triangles for 2,659,852 recorded bytes in 61 ms, with no block missing or
+failing. With the budget set to half of that, 1,329,926 bytes, 22 blocks
+stay resident at 1,298,612 bytes and 23 are released. Checked headless on
+Godot 4.7.2 against the release build.
+
+### Open items
+
+- The node does not drive `update_terrain_lod` from `process`. The caller
+  calls it when the focus changes cell, the same way it answers the cell
+  signals, so a BTR read never lands on a frame the caller did not choose.
+- `TerrainLodStreamer` covers one LOD level. Picking a level by distance and
+  running several streamers at once (mentioned above) is unstarted.
+- `evict_to_budget` is a hard farthest-first cutoff with no hysteresis of
+  its own, so a focus that sits exactly on a budget boundary could evict and
+  reload the same farthest block repeatedly. The cell streamer's own
+  load/unload radius gap avoids this for full resolution cells, the same
+  gap is not yet given to eviction here.
+- No LOD texture or splat handling, `data_source::lod` builds surfaces with
+  whatever material the BTR's shapes carry, same as any other NIF, but nothing
+  here addresses a LOD-specific low-resolution texture atlas if one exists.
+
+## Repeated rock instancing, RND-04 (2026-09-24)
+
+The batching versus instancing decision above was reasoned, not measured, at
+the time it was written. `src/batch.rs` already carried the full instancing
+path from an earlier round: `INSTANCE_MIN_PLACEMENTS`, `instancing_candidates`,
+`InstanceGroup`, and `godot_layer.rs` already tries instancing first and falls
+back to `batch_surfaces` for the remainder. None of that changed here. What
+was missing, and what `INSTANCE_MIN_PLACEMENTS`'s own doc comment named as
+outstanding, was a benchmark comparing the two paths on memory and time
+instead of judgment.
+
+`crates/godot-host/tests/whiterun_bench.rs` adds
+`repeated_rock_benchmark_measures_batching_vs_instancing`, next to the
+existing Whiterun streaming benchmark and under the same constraint: Rust
+only, no Godot binary. It builds one small rock mesh (300 triangles) placed
+40 times at scattered positions, once as 40 already baked `LoadedSurface`
+values (the batched path) and once as 40 surfaces sharing one unbaked mesh
+identity with per-instance transforms (the instancing path), then runs
+`batch_surfaces` and `instancing_candidates` on each and times both over 300
+calls. Memory is a CPU-side buffer-byte count (positions, normals, tangents,
+UVs, indices, bone data), the same proxy this document already used for an
+earlier ad hoc RSS probe, chosen because it is deterministic and needs no
+Godot process. Measured on this lane:
+
+- Batched: 530,560 bytes (518.1 KiB) for one merged `Batch`.
+- Instanced: 15,184 bytes (14.8 KiB) for one `InstanceGroup` plus 40 stored
+  transforms, about 35 times smaller.
+- `batch_surfaces` over the 40 placements: p50 544.7 microseconds, p99 649.2
+  microseconds.
+- `instancing_candidates` over the same 40 placements: p50 10.0 microseconds,
+  p99 15.8 microseconds, about 55 times faster at p50.
+
+Instancing wins on both axes at this repeat count, so `INSTANCE_MIN_PLACEMENTS
+= 4` and the instancing-first routing in `godot_layer.rs` stay as they are.
+This closes the row's done check on the Rust side. It does not measure
+Godot's own `MultiMesh` upload and draw cost, or a real exterior's frame p99
+with the RenderingServer running, both of which need a windowed Godot run
+against a live scene, same as the rest of this document's frame-time numbers.
+That measurement is still open and belongs with the other "Numbers" table
+entries once someone runs one.

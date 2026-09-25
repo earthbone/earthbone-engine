@@ -118,3 +118,62 @@ fn ui_03_a_power_is_not_a_hand_castable_spell() {
     assert!(result.is_err());
     assert_eq!(world.hand_spell(id(ACTOR), Hand::Right), None);
 }
+
+#[test]
+fn ui_03_unequip_hand_spell_clears_only_the_matching_hand() {
+    let mut world = world();
+    world
+        .actor(id(ACTOR))
+        .unwrap()
+        .spells
+        .insert(id(CASTABLE_SPELL));
+    world
+        .equip_hand_spell(id(ACTOR), Hand::Left, id(CASTABLE_SPELL))
+        .unwrap();
+    world
+        .equip_hand_spell(id(ACTOR), Hand::Right, id(CASTABLE_SPELL))
+        .unwrap();
+
+    world
+        .unequip_hand_spell(id(ACTOR), Hand::Right, id(CASTABLE_SPELL))
+        .unwrap();
+
+    assert_eq!(
+        world.hand_spell(id(ACTOR), Hand::Left),
+        Some(id(CASTABLE_SPELL)),
+        "unequipping the right hand must not clear the left"
+    );
+    assert_eq!(world.hand_spell(id(ACTOR), Hand::Right), None);
+}
+
+/// UI-03's third missing piece: a hand equip must survive an engine save
+/// and load, the way a hand weapon already does (`docs/save.md`, version 32).
+#[test]
+fn ui_03_a_hand_spell_equip_survives_an_engine_save_and_load() {
+    let mut before = world();
+    before
+        .actor(id(ACTOR))
+        .unwrap()
+        .spells
+        .insert(id(CASTABLE_SPELL));
+    before
+        .equip_hand_spell(id(ACTOR), Hand::Right, id(CASTABLE_SPELL))
+        .unwrap();
+
+    let bytes = before.save_state();
+
+    let mut loaded = world();
+    loaded
+        .actor(id(ACTOR))
+        .unwrap()
+        .spells
+        .insert(id(CASTABLE_SPELL));
+    loaded.load_state(&bytes).unwrap();
+
+    assert_eq!(
+        loaded.hand_spell(id(ACTOR), Hand::Right),
+        Some(id(CASTABLE_SPELL)),
+        "a loaded save must restore the equipped hand spell"
+    );
+    assert_eq!(loaded.hand_spell(id(ACTOR), Hand::Left), None);
+}

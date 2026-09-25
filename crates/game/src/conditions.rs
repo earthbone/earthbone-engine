@@ -120,6 +120,9 @@ pub fn supports_function(function: u16) -> bool {
             | 71
             | 73
             | 80
+            | 116
+            | 225
+            | 315
             | 403
             | 566
             | 74
@@ -134,6 +137,7 @@ pub fn supports_function(function: u16) -> bool {
             | 606
             | 629
             | 630
+            | 655
             | 659
     )
 }
@@ -205,6 +209,15 @@ fn boolean(value: bool) -> f32 {
         1.0
     } else {
         0.0
+    }
+}
+
+/// Rejects a value in either parameter slot of a function that takes none,
+/// the same way functions 70 and 448 reject a slot they do not use.
+fn no_parameter(c: &Condition) -> Result<(), Error> {
+    match c.parameters {
+        [0, 0] => Ok(()),
+        [0, other] | [other, _] => Err(Error::Parameter(c.function, other)),
     }
 }
 
@@ -307,6 +320,43 @@ fn function_value(
             }
         }
         80 => world.actor(subject).map_or(0.0, |actor| actor.level as f32),
+        116 => {
+            // IsIntimidatedbyPlayer takes no parameter (wbDefinitionsTES5.pas:286,
+            // Raw_Function_Data.wikitext 0x1074). CK ties it to SetIntimidated
+            // (ck-wiki/IsIntimidated_-_Actor.wikitext,
+            // ck-wiki/SetIntimidated_-_Actor.wikitext), a persistent per-actor
+            // flag. No setter exists yet, so this reads the LastBribedIntimidated
+            // actor value that backs both the bribe and intimidate flags: a
+            // nonzero value means an attempt against this actor already landed.
+            no_parameter(c)?;
+            boolean(
+                world
+                    .actor(subject)
+                    .ok_or(Error::Form(subject))?
+                    .values
+                    .get("lastbribedintimidated")
+                    .current()
+                    != 0.0,
+            )
+        }
+        225 | 315 => {
+            // GetPersuasionNumber and GetTotalPersuasionNumber take no parameter
+            // either (wbDefinitionsTES5.pas:340,385, Raw_Function_Data.wikitext
+            // 0x10E1, 0x113B). Neither source documents the returned encoding, so
+            // both read the subject's current Speechcraft and let the INFO
+            // condition branch on the skill value, matching the done check and
+            // docs/game.md. Current is base plus permanent plus temporary plus
+            // damage, so an active perk or effect bonus is felt. Current already
+            // holds the permanent component, adding it again would count a perk
+            // twice. No source separates the two functions, so they agree.
+            no_parameter(c)?;
+            world
+                .actor(subject)
+                .ok_or(Error::Form(subject))?
+                .values
+                .get("speechcraft")
+                .current()
+        }
         403 => {
             let other = resolve_reference(world, context.owner, raw)?;
             world
@@ -410,6 +460,37 @@ fn function_value(
                 [Value::Float(value)] => *value,
                 [Value::Bool(value)] => boolean(*value),
                 _ => return Err(Error::Variable(name.into())),
+            }
+        }
+        655 => {
+            // GetIntimidateSuccess takes no parameter either (wbDefinitionsTES5.pas:562,
+            // Raw_Function_Data.wikitext 0x128F). Its wiki page for the matching
+            // native, WillIntimidateSucceed, points at the "Mod Player Intimidation"
+            // perk entry point for the real formula, which this engine does not run
+            // yet (the native is still a stub in natives.rs). This approximates the
+            // same shape without the entry point: the player's Speechcraft against
+            // the subject's Confidence (AIDT 0 Cowardly to 4 Foolhardy), scaled onto
+            // the 0 to 100 skill range.
+            no_parameter(c)?;
+            let player = world.player();
+            let speechcraft = world
+                .actor(player)
+                .ok_or(Error::Form(player))?
+                .values
+                .get("speechcraft")
+                .current();
+            let subject_actor = world.actor(subject).ok_or(Error::Form(subject))?;
+            if subject_actor.values.contains("confidence") {
+                let confidence = subject_actor.values.get("confidence").current();
+                boolean(speechcraft >= confidence * 25.0)
+            } else {
+                // No AIDT subrecord on the speaker's NPC_ record: the
+                // source has made no claim about Confidence at all, so
+                // reading the unset default (0.0, Cowardly) would treat a
+                // record silent on the point as the easiest possible
+                // target to intimidate. Fail closed instead (see
+                // dlg_07_missing_aidt_adversarial.rs).
+                boolean(false)
             }
         }
         659 => boolean(context.tempering_enchanted.ok_or(Error::TemperingContext)?),

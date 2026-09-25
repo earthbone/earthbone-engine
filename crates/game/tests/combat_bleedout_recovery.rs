@@ -62,14 +62,20 @@ fn settings(plugin: &mut Plugin) {
     }
 }
 
-/// One protected/essential target actor, plus the player attacker, sharing
-/// the same weapon fixture the combat hit tests use.
+/// One protected/essential target actor, plus a baseless NPC attacker (0x901)
+/// and the player, sharing the same weapon fixture the combat hit tests use.
+/// The NPC attacker, not the player, exercises the entry/recovery path here:
+/// since CMB-34 gives the player an outright-kill exception for a merely
+/// protected, non-essential target, only a non-player attacker keeps
+/// clamping every flagged target into bleedout the way this fixture checks.
 fn fixture(target_flags: u32) -> Game {
     let mut acbs = vec![0; 24];
     acbs[..4].copy_from_slice(&target_flags.to_le_bytes());
     let mut plugin = Plugin::new(FileHeader::default());
     plugin.push_top(Record::new(Tag(*b"NPC_"), 0x800).sub(Tag(*b"ACBS"), acbs));
     plugin.push_top(Record::new(Tag(*b"ACHR"), 0x900).sub(Tag(*b"NAME"), 0x800_u32.to_le_bytes()));
+    plugin.push_top(Record::new(Tag(*b"NPC_"), 0x801));
+    plugin.push_top(Record::new(Tag(*b"ACHR"), 0x901).sub(Tag(*b"NAME"), 0x801_u32.to_le_bytes()));
     plugin.push_top(weapon(0xA00, 10, 6));
     settings(&mut plugin);
     let mut order = LoadOrder::new();
@@ -77,7 +83,7 @@ fn fixture(target_flags: u32) -> Game {
     let mut game = Game::new(order);
     let player = game.player();
     assert_eq!(player, id(0x14));
-    for actor in [player, id(0x900)] {
+    for actor in [player, id(0x900), id(0x901)] {
         let mut world = game.world_mut();
         world.set_actor_value(actor, "onehanded", 100.).unwrap();
         world.add_item(actor, id(0xA00), 1);
@@ -88,9 +94,11 @@ fn fixture(target_flags: u32) -> Game {
 
 fn hit() -> MeleeHit {
     MeleeHit {
-        attacker: id(0x14),
+        attacker: id(0x901),
         target: id(0x900),
         weapon: id(0xA00),
+        is_bash: false,
+        is_power_attack: false,
     }
 }
 

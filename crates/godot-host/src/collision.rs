@@ -19,7 +19,7 @@ use std::collections::HashMap;
 use crate::data_source::{model_for, placement_iso, DataSource, DataSourceError};
 use soe_esm::records::refr::Refr;
 use soe_esm::{tag, GlobalFormId};
-use soe_physics::{BodyId, Collider, PhysicsWorld, SimpleWorld};
+use soe_physics::{BodyId, Collider, Iso, PhysicsWorld, Shape, SimpleWorld};
 
 #[cfg(test)]
 mod furniture_tests;
@@ -63,6 +63,10 @@ pub struct CellCollision {
 pub struct PlacedCollider {
     pub reference: GlobalFormId,
     pub collider: Collider,
+    /// The reference's placement at load time, in Skyrim space. Lets a
+    /// runtime move be expressed as a delta against this baseline rather
+    /// than against `collider.transform`, which already has it baked in.
+    pub original: Iso,
 }
 
 impl DataSource {
@@ -155,6 +159,7 @@ impl DataSource {
                     }
                     stats.with_collision += 1;
                     stats.colliders += collected.colliders.len();
+                    let original = collected.placement;
                     out.extend(
                         collected
                             .colliders
@@ -162,6 +167,7 @@ impl DataSource {
                             .map(|collider| PlacedCollider {
                                 reference: id,
                                 collider,
+                                original,
                             }),
                     );
                 }
@@ -172,6 +178,32 @@ impl DataSource {
             }
         }
         Ok((out, stats))
+    }
+
+    /// The controller capsule for an actor base, local to its skeleton's
+    /// root: the skeleton's largest authored `CHAR_CONTROLLER` phantom when
+    /// it has one, or a generated capsule sized by `scale` otherwise. See
+    /// `docs/physics.md`, "Runtime-generated actor controller geometry,
+    /// CMB-33", for what "authored" means here and its known gaps.
+    ///
+    /// This resolves geometry only. CMB-28 (not yet done) installs the
+    /// result into the Godot physics server and keeps it synchronized with
+    /// the actor's live transform. This method has no caller in the
+    /// streamed-cell path yet.
+    ///
+    /// # Errors
+    /// Propagates a missing or unparsable skeleton mesh.
+    pub fn actor_controller_shape(
+        &self,
+        skeleton_path: &str,
+        scale: f32,
+    ) -> Result<(Iso, Shape), DataSourceError> {
+        let bytes = self.vfs().read(skeleton_path)?;
+        let file = soe_nif::parse(&bytes)
+            .map_err(|e| DataSourceError::Collision(format!("{skeleton_path}: {e}")))?;
+        let collected = soe_physics::collect(&file)
+            .map_err(|e| DataSourceError::Collision(format!("{skeleton_path}: {e}")))?;
+        Ok(soe_physics::controller_shape(&collected, scale))
     }
 
     /// One reference's colliders, in world space.
@@ -193,6 +225,7 @@ impl DataSource {
         Ok(RefColliders {
             colliders,
             skipped: collected.skipped.len(),
+            placement,
         })
     }
 }
@@ -200,4 +233,5 @@ impl DataSource {
 struct RefColliders {
     colliders: Vec<Collider>,
     skipped: usize,
+    placement: Iso,
 }

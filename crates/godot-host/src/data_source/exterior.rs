@@ -2,14 +2,23 @@
 
 //! Exterior block selection and LAND construction, from CELL and WRLD
 //! records in the load order. Parent terrain follows CommonLib's kUseLandData.
+//!
+//! Each cell's terrain is meshed on its own, so two neighbouring cells only
+//! meet exactly where their VHGT data already agrees. Bethesda's own LAND
+//! agrees at every edge inside one worldspace by construction, but
+//! `land_parent_of`'s fallback pulls a *different* worldspace's LAND in for
+//! cells that have none of their own, and nothing sculpted that worldspace's
+//! terrain to meet the child's. `reconcile_seams` closes the resulting gap
+//! by averaging the disagreeing edge before any mesh is built. See
+//! `docs/godot-host.md`'s exterior section (RND-15) for the case this fixes.
 
 use soe_esm::records::{cell::Cell, land::Land, wrld::World};
 use soe_esm::{tag, GlobalFormId, Record};
 use std::collections::HashMap;
 
 use super::{
-    DataSource, DataSourceError, ExteriorBlock, ExteriorCell, LoadedExterior, LoadedSurface,
-    SurfaceTextures,
+    DataSource, DataSourceError, ExteriorBlock, ExteriorCell, LoadedCell, LoadedExterior,
+    LoadedSurface, SurfaceTextures,
 };
 use crate::mesh::{build_surface, MaterialDesc, MeshData, MeshError, MeshOptions, SurfaceArrays};
 
@@ -19,22 +28,108 @@ fn within_radius(position: (i32, i32), origin: (i32, i32), radius: i32) -> bool 
     })
 }
 
-/// A cell's LAND heights as one surface in Skyrim units, with 32 by 32 quads.
-/// Faces are wound counter-clockwise from above so build_surface's winding
-/// flip matches NIF faces. VNML normals are used when present and generated
-/// otherwise. Returns None when the record has no height block.
-fn terrain_surface(cell: &ExteriorCell, land: &Land) -> Result<Option<SurfaceArrays>, MeshError> {
+/// A cell's decoded VHGT heights in world units, row-major from the south
+/// edge, or `None` when the record has no height block.
+fn decode_land_heights(land: &Land) -> Option<Vec<f32>> {
+    land.heights
+        .as_ref()
+        .map(soe_esm::records::land::Heights::decode)
+}
+
+/// One physical vertex's copies: a cell position paired with that copy's
+/// index into the cell's height array.
+type VertexCopy = ((i32, i32), usize);
+
+/// Force every shared edge between the block's loaded cells to agree
+/// exactly, averaging the copies wherever they differ. Keyed by grid
+/// position rather than cell id, since a cell drawing its parent
+/// worldspace's LAND still needs to meet its neighbours at its own grid
+/// position.
+///
+/// On 2026-09-23 `pan_capture.gd` showed thin sky-coloured gaps along a few
+/// terrain cell edges of the `WhiterunOrigin` radius 1 block. Two causes,
+/// found in that order:
+///
+/// 1. Only three of the block's nine cells carry their own `WhiterunWorld`
+///    LAND, `land_parent_of`'s fallback fills the other six with
+///    `Tamriel`'s LAND at the same grid position, and Tamriel's landform
+///    there was never authored to meet WhiterunWorld's city terrain at the
+///    cells where the two worldspaces' data meets.
+/// 2. An earlier version of this function closed that gap with two
+///    sequential passes per cell, east-west against the east neighbour then
+///    north-south against the north neighbour, both mutating the same
+///    `heights` map. A cell with both an east and a north neighbour has its
+///    north-east corner sample on both edges, so the north-south pass would
+///    re-read a value the east-west pass had already moved and overwrite it
+///    again, leaving the east neighbour's own copy of that corner stale.
+///    Because the two passes ran in `heights.keys()` order, an unseeded
+///    `HashMap` iteration order with no cross-run guarantee, which corner
+///    ended up right and which stayed wrong could also change between two
+///    otherwise identical `DataSource::open` calls.
+///
+/// The fix groups every array index that represents the same physical
+/// vertex, up to four of them at an interior block corner, before writing
+/// anything, and sets the whole group to its members' average in one pass.
+/// A vertex two cells already agree on averages to the same value it
+/// started at, so an edge internal to one worldspace's own LAND is left
+/// unchanged in practice, and a group's members never overlap another
+/// group's, so the order groups are visited in cannot change the result.
+fn reconcile_seams(heights: &mut HashMap<(i32, i32), Vec<f32>>) {
+    use soe_esm::records::land::VERTS_PER_SIDE as SIDE;
+    let side = SIDE as i64;
+
+    // Every array index, across every present cell, that stands for the
+    // same physical vertex, keyed by that vertex's coordinate in the
+    // block's shared sample grid. Cell (x, y)'s local (row, col) sample
+    // maps to global (x * (SIDE - 1) + col, y * (SIDE - 1) + row): the
+    // shared column between (x, y) and (x + 1, y) computes the same global
+    // x from both sides, and likewise for the shared row between (x, y)
+    // and (x, y + 1), so a corner where both a horizontal and a vertical
+    // neighbour exist collects contributions from all cells that carry it.
+    let mut groups: HashMap<(i64, i64), Vec<VertexCopy>> = HashMap::new();
+    for &(x, y) in heights.keys() {
+        for row in 0..SIDE {
+            for col in 0..SIDE {
+                let gx = i64::from(x) * (side - 1) + col as i64;
+                let gy = i64::from(y) * (side - 1) + row as i64;
+                groups
+                    .entry((gx, gy))
+                    .or_default()
+                    .push(((x, y), row * SIDE + col));
+            }
+        }
+    }
+
+    for members in groups.values() {
+        if members.len() < 2 {
+            continue;
+        }
+        let sum: f32 = members.iter().map(|&(pos, idx)| heights[&pos][idx]).sum();
+        let mean = sum / members.len() as f32;
+        for &(pos, idx) in members {
+            if let Some(cell) = heights.get_mut(&pos) {
+                cell[idx] = mean;
+            }
+        }
+    }
+}
+
+/// One cell's already-decoded, seam-reconciled heights as one surface in
+/// Skyrim units, with 32 by 32 quads. Faces are wound counter-clockwise
+/// from above so build_surface's winding flip matches NIF faces. `normals`
+/// are VNML triples when the record has them and are generated otherwise.
+fn terrain_surface_from_heights(
+    cell: &ExteriorCell,
+    heights: &[f32],
+    normals: Option<&[[i8; 3]]>,
+) -> Result<SurfaceArrays, MeshError> {
     use soe_esm::records::land::VERTS_PER_SIDE;
-    let Some(heights) = &land.heights else {
-        return Ok(None);
-    };
     let step = crate::units::CELL_UNITS / (VERTS_PER_SIDE - 1) as f32;
     let base_x = cell.x as f32 * crate::units::CELL_UNITS;
     let base_y = cell.y as f32 * crate::units::CELL_UNITS;
-    let decoded = heights.decode();
-    let mut positions = Vec::with_capacity(decoded.len());
-    let mut uvs = Vec::with_capacity(decoded.len());
-    for (i, &h) in decoded.iter().enumerate() {
+    let mut positions = Vec::with_capacity(heights.len());
+    let mut uvs = Vec::with_capacity(heights.len());
+    for (i, &h) in heights.iter().enumerate() {
         let row = i / VERTS_PER_SIDE;
         let col = i % VERTS_PER_SIDE;
         positions.push([base_x + col as f32 * step, base_y + row as f32 * step, h]);
@@ -43,7 +138,7 @@ fn terrain_surface(cell: &ExteriorCell, land: &Land) -> Result<Option<SurfaceArr
             1.0 - row as f32 / (VERTS_PER_SIDE - 1) as f32,
         ]);
     }
-    let normals = land.normals.as_ref().map(|n| {
+    let normals = normals.map(|n| {
         n.iter()
             .map(|&[x, y, z]| {
                 [
@@ -75,7 +170,7 @@ fn terrain_surface(cell: &ExteriorCell, land: &Land) -> Result<Option<SurfaceArr
         bone_weights: None,
         material: MaterialDesc::default(),
     };
-    build_surface(&data, MeshOptions::default()).map(Some)
+    build_surface(&data, MeshOptions::default())
 }
 
 impl DataSource {
@@ -84,12 +179,17 @@ impl DataSource {
     /// then west to east. Radius 2 is the game's `uGridsToLoad=5`. One pass
     /// over the winning `CELL` records, which is cheap next to the reference
     /// scan since there are about fifty thousand cells against a million
-    /// references. Fails when the editor id names no exterior cell.
+    /// references. Fails when the editor id names no exterior cell, or when
+    /// `radius` is negative. A negative radius is invalid input, and is
+    /// rejected here with `DataSourceError::InvalidRadius`.
     pub fn resolve_exterior_block(
         &self,
         editor_id: &str,
         radius: i32,
     ) -> Result<ExteriorBlock, DataSourceError> {
+        if radius < 0 {
+            return Err(DataSourceError::InvalidRadius(radius));
+        }
         let _span = soe_trace::Span::new("host.scan_cells", "host");
         let mut exteriors: Vec<(GlobalFormId, i32, i32, GlobalFormId)> = Vec::new();
         let mut origin: Option<(GlobalFormId, i32, i32)> = None;
@@ -211,10 +311,60 @@ impl DataSource {
     }
 
     /// Stream an already resolved exterior selection, including inherited terrain.
+    ///
+    /// Materializes every cell's `LoadedCell` into one `Vec` before
+    /// returning, which is what the CPU benchmark and the integration test
+    /// need to inspect the whole block at once. `stream_exterior_each`
+    /// below is the low-peak-memory sibling: it hands each cell to a
+    /// callback and drops it before moving to the next, which is what the
+    /// Godot host uses since it converts and uploads each cell right away
+    /// and has no reason to hold all of them in Rust memory at once.
     pub(super) fn stream_exterior_block(
         &self,
         block: ExteriorBlock,
     ) -> Result<LoadedExterior, DataSourceError> {
+        let mut land_cells = 0;
+        let mut cells = Vec::with_capacity(block.cells.len());
+        let result = self.stream_exterior_each(&block, |cell, loaded, has_land| {
+            if has_land {
+                land_cells += 1;
+            }
+            cells.push((cell, loaded));
+        });
+        result.map(|()| LoadedExterior {
+            block,
+            cells,
+            land_cells,
+        })
+    }
+
+    /// Streams the cells of `block` one at a time, in grid order, calling
+    /// `on_cell` with each `ExteriorCell`, its `LoadedCell` (terrain surface
+    /// included when the cell has one) and whether a terrain surface was
+    /// added, as soon as the cell is ready, then dropping it. The caller
+    /// decides what "done with a cell" means, immediate conversion and
+    /// RenderingServer upload for the Godot host, so the block's raw
+    /// geometry and texture buffers never all sit in memory at the same
+    /// time. This is the fix for PRF-02: the previous `stream_exterior_block`
+    /// built the whole 9-cell `Vec` first and the Godot layer only read it
+    /// afterward, so a full block's decoded meshes and textures (roughly
+    /// 700 MiB for the Whiterun radius 1 block, measured headless) stayed
+    /// resident throughout the RenderingServer upload loop on top of
+    /// whatever the upload itself held.
+    ///
+    /// Public, not `pub(crate)`, so a headless integration test can call
+    /// it directly: `CellStreamerNode::stream_exterior` in `godot_layer.rs`
+    /// is a GDExtension `#[func]` reachable only from a live Godot process
+    /// and cannot be exercised by this crate's test suite, but it is a
+    /// thin wrapper over this method plus the RenderingServer upload. This
+    /// keeps the streaming contract itself (call order, one cell alive at
+    /// a time, totals matching the non-streaming path) under test even
+    /// though the RenderingServer half stays untested outside a live run.
+    pub fn stream_exterior_each(
+        &self,
+        block: &ExteriorBlock,
+        mut on_cell: impl FnMut(ExteriorCell, LoadedCell, bool),
+    ) -> Result<(), DataSourceError> {
         let mut wanted = block.cells.clone();
         wanted.extend_from_slice(&block.parent_cells);
         let land = self.land_for_cells(&wanted);
@@ -225,36 +375,51 @@ impl DataSource {
                 .find(|c| c.x == x && c.y == y)
                 .map(|c| c.id)
         };
-        let mut cells = Vec::with_capacity(block.cells.len());
-        let mut land_cells = 0;
+        // Resolve each block cell's effective LAND (its own, or the parent
+        // worldspace's at the same grid position) once, decode its heights,
+        // and reconcile shared edges across the whole block before any mesh
+        // is built. See `reconcile_seams` for why this block needs it.
+        let mut land_ref: HashMap<(i32, i32), (GlobalFormId, &Land)> = HashMap::new();
+        let mut heights: HashMap<(i32, i32), Vec<f32>> = HashMap::new();
         for cell in &block.cells {
-            let mut loaded = self.stream_cell_id(cell.id)?;
             let own_or_parent = land
                 .get(&cell.id)
                 .or_else(|| parent_at(cell.x, cell.y).and_then(|id| land.get(&id)));
             if let Some((land_id, land)) = own_or_parent {
-                let _terrain = soe_trace::Span::new("host.terrain_surface", "host");
-                match terrain_surface(cell, land) {
-                    Ok(Some(arrays)) => {
-                        land_cells += 1;
-                        loaded.stats.triangles += arrays.triangle_count();
-                        loaded.surfaces.push(LoadedSurface {
-                            reference: *land_id,
-                            arrays,
-                            textures: SurfaceTextures::default(),
-                        });
-                    }
-                    Ok(None) => {}
-                    Err(e) => eprintln!("stream_exterior: LAND {land_id}: {e}"),
+                land_ref.insert((cell.x, cell.y), (*land_id, land));
+                if let Some(h) = decode_land_heights(land) {
+                    heights.insert((cell.x, cell.y), h);
                 }
             }
-            cells.push((*cell, loaded));
         }
-        Ok(LoadedExterior {
-            block,
-            cells,
-            land_cells,
-        })
+        reconcile_seams(&mut heights);
+
+        for cell in &block.cells {
+            let mut loaded = self.stream_cell_id(cell.id)?;
+            let mut has_land = false;
+            if let Some((land_id, land)) = land_ref.get(&(cell.x, cell.y)) {
+                if let Some(h) = heights.get(&(cell.x, cell.y)) {
+                    let _terrain = soe_trace::Span::new("host.terrain_surface", "host");
+                    match terrain_surface_from_heights(cell, h, land.normals.as_deref()) {
+                        Ok(arrays) => {
+                            has_land = true;
+                            loaded.stats.triangles += arrays.triangle_count();
+                            loaded.surfaces.push(LoadedSurface {
+                                reference: *land_id,
+                                arrays,
+                                textures: SurfaceTextures::default(),
+                                placement: soe_physics::Iso::IDENTITY,
+                                instance_transform: None,
+                                mesh_identity: None,
+                            });
+                        }
+                        Err(e) => eprintln!("stream_exterior: LAND {land_id}: {e}"),
+                    }
+                }
+            }
+            on_cell(*cell, loaded, has_land);
+        }
+        Ok(())
     }
 }
 

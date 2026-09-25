@@ -39,9 +39,14 @@ sound magnitude.
 The [CK detection reference](https://ck.uesp.net/wiki/Category:Detection)
 describes score terms for sound, visibility and skills, then Normal, Alert,
 Combat and Lost states. The score text repeats attenuation in both the total
-and component formulas. It is not sufficient evidence to choose whether that
-factor is applied once or twice. It also does not define every skill term.
-No approximate score calculation has been added from that text.
+and component formulas. UESP's
+[Sneak page](https://en.uesp.net/wiki/Skyrim:Sneak) substitutes the vanilla
+constants and writes `-15 + (sound + visual + noticer skill) * (1 -
+distance/2500)^2 + (noticer skill - sneaker skill)`, so the factor is applied
+once, and `crates/game/src/detection.rs` follows that reading. Neither page
+defines the sneaker skill factor. The engine applies the observer's perception
+scale to the target's Sneak without the observer's state modifiers, and names
+that choice at the function.
 
 [Stealth Points](https://ck.uesp.net/w/index.php?title=Stealth_Points&mobileaction=toggle_view_desktop)
 states that an actor's pool follows the highest detection value among
@@ -62,6 +67,48 @@ threshold settings. That table does not establish their exact update formula.
 Its lighting notes also distinguish detection lighting from final screen
 brightness. CMB-32 must produce physical observations and record-derived
 lighting, not a caller's precomputed detection result.
+
+## Shared stealth points (CMB-31)
+
+`World::evaluate_detection` takes one batch of observations, each an observer,
+a target, a distance, a measured light level, line of sight, motion and an
+action-sound magnitude. Sound, visual and skill terms come from the formula
+above. Sneak, Blindness, Invisibility and `MovementNoiseMult` come from actor
+values, and armor weight comes from the worn `ARMO` records. The GMSTs come
+from the load order. Skyrim.esm omits eighteen of them, and
+`game_settings.rs` supplies their runtime defaults from a listing of every
+TES5 GMST
+([pastebin pKz1u9Fg](https://pastebin.com/raw/pKz1u9Fg), the same values the
+RAID table names as vanilla).
+
+One pool exists per target, shared by every observer of that target, as the
+CK page and `CombatGroup::targets` describe. The pool drains at
+`fCombatStealthPointDrainMult` times the highest positive detection, and
+refills at `fCombatStealthPointRegenMult` times the lowest negative one, at
+least `fCombatStealthPointRegenMin` per second. After the last positive
+detection the pool does not refill until
+`fCombatStealthPointRegenAlertWaitTime` has passed. A Combat observer whose
+detection stays at or below zero for `fCombatStealthPointRegenLostWaitTime`
+drops to Lost, and the pool starts to refill at once. An observer whose
+detection passes `iCombatStealthPointSneakDetectionThreshold` (sneaking) or
+`iCombatStealthPointDetectionThreshold` enters Combat without waiting for the
+pool. Combat holds the pool at zero, starting in the step an observer enters
+Combat. Each observer then walks Normal, Alert,
+Combat and Lost by the CK transition list.
+
+The batch is validated before anything changes. A non-actor, an observer
+equal to its target, a dead actor, a repeated pair, or a non-finite or
+negative distance, light level or step rejects the whole batch and leaves every
+pool as it was. The pools and each observer's state and timers are written in
+SOEW version 30 and read back with the same checks. An empty set is not
+written, so older layouts stay byte for byte. Loading a save replaces the
+world's detection state with the saved one, and a save without the block
+loads as an empty state.
+
+Not done here: the sleep bonus and ambush modifiers, `fSneakSkillMult`,
+per-size detection multipliers, detection events and the alert list, target
+list timeouts, `fSneakLightExteriorMult`, and theft witnessing. No live-host
+observation feeds this yet, CMB-32 owns that.
 
 ## Source boundary
 

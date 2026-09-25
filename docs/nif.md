@@ -125,6 +125,28 @@ with geometry, 42128269 triangles, 0 failures. The loose file test
 ships packed in the two mesh archives, so that test prints its skip message here.
 The archived mesh test is the one that exercises real content on a plain install.
 
+## Residency estimate
+
+`Mesh::approx_bytes()` sums each vertex's natural width, 12 bytes for
+positions plus 12 for normals charged unconditionally, plus 16 for tangents,
+8 for UVs, 16 for bone weights and 4 for bone indices when each is present,
+and adds 4 bytes an index. Colors are never charged. Added for RND-03's
+terrain LOD residency budget in `godot-host`, which needs a recorded byte
+cost per loaded block to weigh against a budget.
+
+Normals are charged whether or not the shape carries them: `godot-host`'s
+`build_surface` generates a full normals buffer from a shape with none
+whenever `generate_missing_normals` is on, its default, and a BTR shape with
+no baked normals is the ordinary case for space-saving distant LOD geometry.
+An estimate that only charged normals when present would read low against
+every such block once built. Colors are dropped instead: `godot-host`'s
+`MeshSource`, `MeshData` and `SurfaceArrays` carry no color field at all, so
+a shape's vertex colors never reach a built surface and charging for them
+would count bytes nothing allocates. It is a rough estimate for weighing a
+mesh against a residency budget, not a claim about any one renderer's exact
+buffer layout, an upload can pad, align or drop an unused attribute
+differently.
+
 ## Not yet
 
 - DDS loading (round 2).
@@ -134,5 +156,3 @@ The archived mesh test is the one that exercises real content on a plain install
 - Controllers, particles, `BSLODTriShape` levels, `BSDynamicTriShape`
   dynamic positions, multiple UV sets beyond the first in the mesh output
   (the block layer keeps them all).
-- The 0x80 to 0x9F range of Windows-1252 in texture paths is decoded as
-  Latin-1.

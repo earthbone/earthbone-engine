@@ -38,6 +38,10 @@ week 6 to 9 gate.
   applied one level. `World::actor` follows each component's template chain.
   AIDT supplies its six AI actor values, see [combat AI](combat-ai.md) for
   sources, validation and the unimplemented engagement boundary.
+- `detection`: the detection value from sneak GMSTs, and stealth-point pools
+  shared by every observer of one target. `World::evaluate_detection` checks a
+  whole batch of observations before it changes any pool. See
+  [combat AI](combat-ai.md) for the formula sources and what remains.
 - `quest`: the `QUST` view. Flags, stages with log entries, objectives, aliases
   with forced references.
 - `natives`: the base game's natives, closed over the shared world.
@@ -86,6 +90,44 @@ wrappers before implementing natives. `engine-refs/ck-wiki/` contains 402
 wikitext pages as of 2026-09-19. When an individual page is absent, class pages
 and `engine-refs/skse64/scripts/vanilla` can establish the contract.
 [The reference audit](reference-audit.md) records missed contracts and gaps.
+
+**World reads out, host never writes back.** `World::ref_placement` (in
+`world/refs.rs`) is the read-only view a host uses to keep its own rendering
+and collision resources in step with a reference's runtime state: current
+position, rotation, scale and enable, in the small, `Copy` `RefPlacement`
+struct, not the mutable `RefState` a native or VM path uses to change that
+state. It returns `None` for a reference never instantiated, its
+record-authored placement is still current and there is nothing to sync, and
+for a deleted one. The host side of this contract, and the split it takes
+between collision and rendering change detection, is documented in
+[godot-host.md](godot-host.md#runtime-enable-and-placement-reflection-hst-04).
+`World` stays the only writer of reference state either way, so no host code
+takes the mutable `reference` accessor.
+
+**Witnessed crime.** `crime.rs` decodes `FACT.CRVA`, the bounty table a
+faction charges for murder, assault, trespass, pickpocketing, theft
+(scaled by a steal multiplier against the stolen item's value), escape
+and being seen as a werewolf. Layout came from `wbRecord(FACT` in
+`TES5Edit/Core/wbDefinitionsTES5.pas` and `uesp-modfileformat/FACT.wikitext`.
+The struct grew across record versions, 12, 16 or 20 bytes, and earlier
+fields stay at the same offset as later ones are appended, so a short
+struct still lines up with the start of a long one.
+`World::record_witnessed_crime` (`world/crime.rs`) prices a crime against
+the perpetrator's own crime faction, the one `Actor.GetCrimeFaction` and
+`SetCrimeFaction` name (ck-wiki, same page titles), and adds the result to
+that faction's bounty and infamy, split violent or nonviolent the same way
+`Faction.ModCrimeGold` already does. It also records that the witness saw
+that perpetrator do it, in the new `ActorState::witnessed_crimes` set,
+carried in SOEW version 31. Every check, witness is an actor, perpetrator
+is an actor with a crime faction, that faction tracks crime, runs before
+anything is mutated, so a bad call changes nothing. `CRGR`, the crime
+group that would let one faction's bounty spread to its allies, is not
+parsed. A faction outside the perpetrator's own never gets charged, which
+is narrower than vanilla when a `CRGR` link exists. A `FACT` with no
+`CRVA` subrecord prices every crime at zero rather than failing, since a
+faction can legally exist without one. No Papyrus native calls this
+function yet, `SendAssaultAlarm` and similar witness-driven natives are
+later work that can build on it.
 
 ## Conformance table
 
@@ -775,7 +817,7 @@ either.
 
 `World::save_state(&self) -> Vec<u8>` and `World::load_state(&mut self,
 bytes) -> Result<(), VmError>` write and read the run-time half of the form
-table, magic `SOEW`, version 28. Versions 4 to 6 use legacy actor values,
+table, magic `SOEW`, version 29. Versions 4 to 6 use legacy actor values,
 version 5 adds active magic, version 6 adds dialogue, version 7 adds actor-value
 components, version 8 adds dialogue to those components, and version 9 adds
 active magic. Version 10 adds per-reference leveled template choices.
@@ -788,7 +830,11 @@ Version 20 appends restored reference ownership and lock metadata after those fi
 Versions 21 to 23 append the package procedure cursor, the Wait tag and the
 walking Patrol cursor. Version 24 adds an actor's exclusive dialogue branch,
 version 25 the image-space stack, versions 26 and 27 loose item stacks and
-locked encounter-zone levels, and version 28 the do-all dialogue cycles.
+locked encounter-zone levels, version 28 the do-all dialogue cycles, and
+version 29 an actor's stagger end time. Version 30 appends shared stealth-point
+pools with each observer's detection level and timers, written only when a pool
+exists. Version 31 adds the set of perpetrators an actor witnessed committing a
+tracked crime.
 version 5 adds active magic, version 6 adds dialogue, version 7 adds actor-value
 components, version 8 adds dialogue to those components, version 9 adds
 active magic. Version 10 adds per-reference leveled template choices.
@@ -1296,10 +1342,32 @@ outside this test.
 
 Remaining dialogue work includes missing conditions, automatic greetings and
 ForceGreet, refusal/invisible continuation,
-favor spending, do-all-before-repeating, walk-away behavior, scenes, persuasion,
+favor spending, do-all-before-repeating, walk-away behavior, scenes,
 services, complete alias behavior and interruption rules. Godot activation,
 menus, voice assets, LIP and idle playback are not connected to this API. This increment does not establish playable dialogue
 or complete the broader gameplay goal.
+
+DLG-07 adds the persuasion and intimidation CTDA functions: IsIntimidatedbyPlayer
+(116), GetPersuasionNumber (225), GetTotalPersuasionNumber (315) and
+GetIntimidateSuccess (655). All four take no parameter in `wbDefinitionsTES5.pas`
+and `Raw_Function_Data.wikitext`, so an INFO condition using one of them just
+compares the returned number against a threshold. A nonzero value in either
+parameter slot is rejected with `Error::Parameter`, the way functions 70 and
+448 reject a slot they do not use. Neither source documents the
+exact encoding vanilla used, so the engine reads state it already has: the
+persuasion pair returns the subject's current Speechcraft (base plus permanent
+plus temporary plus damage, so a perk or effect bonus is felt). No source
+separates the plain number from the total, so both return the same value, and
+the total does not add the permanent component a second time. The intimidated
+flag reads the
+LastBribedIntimidated actor value that also backs SetBribed, and the success
+check compares the player's Speechcraft against the subject's Confidence
+(AIDT, 0 Cowardly to 4 Foolhardy) scaled onto the skill range. This is an
+approximation of the CK wiki's "Mod Player Intimidation" perk entry point
+formula, which the engine does not run yet. The Papyrus native
+`WillIntimidateSucceed` is still a stub in `natives.rs`. No engine state sets
+LastBribedIntimidated yet either, so `IsIntimidatedbyPlayer` reads false until
+a bribe or intimidate native writes it.
 
 ## Active magic applications
 
@@ -2627,38 +2695,76 @@ the existing mapping for indices 0 through 45. Unknown indices, unavailable
 actors and unavailable run-on targets return typed errors. Other unsupported
 condition functions keep the shared evaluator's explicit error behavior.
 
-DATA Playable and the record Non-Playable flag gate purchases. The supported
-DATA profile has zero Trait, Level and Hidden, with Num Ranks zero or one.
-xEdit normalizes zero Num Ranks to one. Higher purchased ranks are separate
-NNAM-linked forms, not increments of PRKE's effect rank byte. Non-default
-Trait, Level, Hidden or Num Ranks greater than one return `UnsupportedData`.
-Their Skyrim-specific purchase meaning is tracked separately by PRG-16,
-including mod-authored inputs. Script AddPerk remains a separate grant path.
-This API does not execute entry-point effects, abilities or perk fragments,
-provide a skill menu, or implement beast-form point currencies.
+DATA Playable and the record Non-Playable flag gate purchases. Trait, Level,
+Num Ranks and Hidden are accepted at any value (PRG-16). Higher purchased
+ranks are separate NNAM-linked forms, not increments of PRKE's effect rank
+byte, so Num Ranks (a Creation Kit display field) is read from nowhere in the
+purchase path, the chain walked by `rank_chain` is the count that matters.
+Script AddPerk remains a separate grant path. This API does not execute
+entry-point effects, abilities or perk fragments, provide a skill menu, or
+implement beast-form point currencies.
+
+DATA also accepts the two truncated lengths wrye-bash's
+`MelPerkData(MelTruncatedStruct)` declares as `old_versions={'4B', '3B'}`
+(`Mopy/bash/brec/common_subrecords.py`, reused unmodified for Skyrim's
+`MrePerk` in `Mopy/bash/game/skyrim/records.py`): a 4-byte DATA carries
+Trait, Level, Num Ranks and Playable with Hidden zero-padded, and a 3-byte
+DATA carries only Trait, Level and Num Ranks with Playable and Hidden both
+zero-padded, matching `MelTruncatedStruct`'s own default fill. Since Hidden
+carries no purchase meaning here and a zero-padded Playable reads as false,
+a 3-byte record purchases only if some other well-formed record grants
+Playable, otherwise it fails with `NotPlayable`, never with the malformed-
+record error. Only lengths outside 3 to 5 bytes, or a second DATA subrecord
+on the same record, are reported as malformed.
+
+PRG-16 verified Trait and Level have no purchase meaning here. Both bytes are
+zero on every one of the 475 winning PERK records across the installed base
+game and its three DLC, so nothing in the current load order exercises a
+non-zero value. No source in the corpus describes a runtime consumer for
+either byte: not `wbDefinitionsTES5.pas`, not UESP `PERK.wikitext`, not
+CommonLibSSE-NG `BGSPerk.h`, not wrye-bash's `MelPerkData`, not Mutagen's
+`Perk.xml`. The perceived level requirement on perks such as Armsman is a
+per-skill prerequisite expressed as a top-level CTDA against the relevant
+actor value and, where a literal character level gates a perk, against
+GetLevel (function 80, already implemented), confirmed against UESP's
+`Skyrim:Perk` page, never the DATA Level byte. Hidden only ever hid a perk
+from the CK or an SKSE UI list, this API has no UI layer for that flag to
+affect, so a hidden perk purchases exactly as a shown one does. 62 installed
+winning records set Hidden and remain purchasable under this rule.
 
 Sources read were local xEdit `wbDefinitionsTES5.pas` PERK, CTDA 277 and
 actor-value definitions, `wbDefinitionsCommon.pas` Num Ranks normalization,
-UESP `PERK.wikitext`, CommonLibSSE-NG `BGSPerk.h`, and CK AddPerk, HasPerk and
-GetBaseActorValue pages. SKSE `PapyrusActorValueInfo.cpp` independently tests
-HasPerk for every NNAM-linked rank. Together with authored HasPerk conditions,
-this supports retaining lower identities. That retention is an inference,
-without a direct original-runtime purchase comparison. NPC PRKR is a separate
-FormID plus rank byte. UESP labels that byte unused, and the existing NPC
-reader retains only its FormID. This purchase path does not reinterpret it.
-The full CK Perk page was absent from the local dump
-and its online fetch was unavailable. Non-default DATA rules therefore remain
-explicitly unsupported. The existing CTDA parser, condition evaluator, actor
-values and ownership/save paths were reused. No package or host node was added.
+UESP `PERK.wikitext` and (PRG-16) `Skyrim:Perk`, CommonLibSSE-NG `BGSPerk.h`,
+wrye-bash `common_subrecords.py` `MelPerkData`, Mutagen's `Perk.xml`, and CK
+AddPerk, HasPerk and GetBaseActorValue pages. SKSE `PapyrusActorValueInfo.cpp`
+independently tests HasPerk for every NNAM-linked rank. Together with
+authored HasPerk conditions, this supports retaining lower identities. That
+retention is an inference, without a direct original-runtime purchase
+comparison. NPC PRKR is a separate FormID plus rank byte. UESP labels that
+byte unused, and the existing NPC reader retains only its FormID. This
+purchase path does not reinterpret it. The full CK Perk page was absent from
+the local dump and its online fetch was unavailable for PRG-02, PRG-16 did
+not need it since the installed corpus and the sources above settle all four
+bytes. The existing CTDA parser, condition evaluator, actor values and
+ownership/save paths were reused. No package or host node was added.
 
 Synthetic tests cover single-point consumption, false prerequisites, stale
 previews, base skill versus buffs, OR groups, unsupported conditions and
 actor values, effect-condition separation, winning override namespaces,
 missing/cyclic links, root-only requests, externally granted ranks, zero
-Num Ranks, non-playable records and save/load. The installed-data survey
-reads 475 winning perks across five masters. It validates all 397 root chains
-and exercises all five Armsman ranks, including a failed low-skill purchase.
-These tests do not establish original-runtime parity for non-default DATA,
+Num Ranks, non-playable records, non-default Trait, Level, Num Ranks and
+Hidden, and save/load.
+
+**Live run (2026-09-24, PRG-16).** The installed-data survey reads 475
+winning perks across five masters. Trait and Level are zero on every one. Of
+the Num Ranks 1 records, 13 are not playable and shown, 21 are not playable
+and Hidden, 374 are playable and shown, and 40 are playable and Hidden. Of
+the Num Ranks 5 records, 26 are playable and shown and 1 is playable and
+Hidden. It validates all 397 root chains, none of which raise an unmapped
+condition function, and exercises all five Armsman ranks, including a failed
+low-skill purchase. Root eligibility across the installed corpus is 11
+already owned, 154 eligible, 32 not playable and 200 with a false
+prerequisite. These tests do not establish original-runtime parity for
 malformed graph policy, effect execution or menu behavior.
 
 ## Leveled item entry extras
@@ -2862,14 +2968,70 @@ in xEdit's SPEL enum), the CK wiki's EquipSpell/UnequipSpell hand argument
 convention (0 left, 1 right). `hand_spell` reads back the assigned spell only
 while the actor still knows it, mirroring `weapon_hands::hand_weapon`'s
 stale-entry handling. Both new fields are covered by `state_hash` alongside
-the existing weapon-hand fields, for World/replay determinism, but neither
-field is written into the `.ess`-compatible save format yet: a reload through
-`save.rs` clears both hands even though the actor's known-spell set survives.
-`natives.rs`'s `EquipSpell`/`UnequipSpell`/`GetEquippedSpell` natives still
-read and write the separate `a.equipped` set from script calls, so a script
-equip and a menu equip are not yet the same state. `game/tests/
-ui_03_magic_menu.rs` covers `equip_hand_spell` and `hand_spell` directly:
-equipping to a hand, the opposite hand staying untouched, an unknown spell
-rejected and a Power rejected as not hand-castable. The existing `world.rs`
-and `hash.rs` suites were left unchanged since neither exercised the two new
-fields before this change.
+the existing weapon-hand fields, for World/replay determinism.
+
+`save.rs` carries `left_spell`/`right_spell` from `SAVE_VERSION` 32 onward,
+written unconditionally (the writer always emits the current format) and read
+behind `if version >= 32`, the same pattern `witnessed_crimes` used for
+version 31. An older save simply loads with both hands empty, matching how a
+pre-31 save loads with no witnessed crimes. The version-31 unknown-version
+probe in `save_tests.rs` moved to 33 so it still names a version past the
+current one.
+
+`natives.rs`'s `EquipSpell`/`UnequipSpell`/`GetEquippedSpell` now share
+`equip_hand_spell`/`unequip_hand_spell`/`hand_spell` with the menu for source
+0 and 1 (left and right hand), so a script equip and a menu equip are the
+same state and either can see the other's result. `equip_hand_spell` also
+keeps the actor's generic `equipped` set in sync (inserting on equip, removing
+once neither hand holds a form) so `IsEquipped` and other `equipped`-set
+readers agree with the hand slots. Sources 2 and 3 (voice and instant, used
+for Powers and Lesser Powers) fall back to the old direct `equipped` set
+write, since those spell types are rejected by `equip_hand_spell` and have no
+hand to occupy.
+
+`godot-host/src/magic_menu.rs` builds the known-spell list through the same
+force-build-then-read path `inventory_menu.rs` uses (`World::actor` once,
+then `World::actor_ref`), and `godot_player/magic.rs` wires it to the host's
+open/select/equip calls, so the Godot-side magic menu equips through
+`equip_hand_spell` too. `game/tests/ui_03_magic_menu.rs` covers
+`equip_hand_spell`, `unequip_hand_spell`, `hand_spell` and the save round
+trip: equipping to a hand, the opposite hand staying untouched, an unknown
+spell rejected, a Power rejected as not hand-castable, a deleted SPEL record
+rejected, and a hand spell surviving a `save_state`/`load_state` cycle.
+`godot-host/tests/ui_03_magic_menu_adversarial.rs` covers the menu path: a
+cold actor still listing its spells, a deleted record excluded from the list
+and rejected on equip, and `EquipSpell`/menu equip agreeing on
+`GetEquippedSpell`. The existing `world.rs` and `hash.rs` suites were left
+unchanged since neither exercised the two new fields before this change.
+
+## Actor controller scale, CMB-33
+
+`race::Attributes` reads two more pairs from `RACE`'s `DATA` prefix,
+`height_male`/`height_female` at offsets 16 and 20 and `weight_male`/
+`weight_female` at offsets 24 and 28, from `wbDefinitionsTES5.pas`. `npc::Npc`
+reads the matching per-actor multipliers from `NPC_`'s `NAM6` (height) and
+`NAM7` (weight) subrecords, both a single finite `f32`, defaulting to 1.0
+when absent. A malformed or non-finite value in either rejects the record,
+matching the existing RACE attribute fields.
+
+`World::actor_controller_scale` combines them as `race.height[sex] *
+npc.height`, the same formula `TESNPC::GetHeight()` uses in
+CommonLibSSE-NG's `src/RE/T/TESNPC.cpp`. Both inputs come from the NPC that
+supplies the Traits template group, the same source `actor_base_race` reads:
+the Creation Kit's "Use Traits" flag groups race, sex, height and weight
+together, so resolving all four from one template source keeps them
+consistent with each other. An actor base with no race, or a race with no
+`DATA`, uses scale 1.0. A non-finite or non-positive result rejects rather
+than handing degenerate geometry to a caller.
+
+This is the scale `soe_physics::generated_controller_shape` sizes a fallback
+capsule with when a skeleton carries no authored controller phantom. See
+`docs/physics.md`, "Runtime-generated actor controller geometry, CMB-33", for
+the capsule generator itself and its open gaps. `npc::with_height_weight` is
+a new test-record builder mirroring the existing `with_faction`/`with_spell`/
+`with_item` helpers, kept separate from `build_record` rather than added as
+a sixth positional argument, since roughly twenty existing test files across
+`crates/game/tests/` depend on `build_record`'s current signature. No test in
+this crate calls the new helper yet, matching the task's no-new-tests
+instruction. `cargo clippy -p soe-game --all-targets` confirms every
+dependent test file still compiles against the unchanged signature.
