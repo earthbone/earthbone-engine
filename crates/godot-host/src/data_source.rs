@@ -595,7 +595,10 @@ impl DataSource {
     /// The cell's water plane, built from its own `CELL` record rather than
     /// the reference scan above: interior cells with water (a dungeon lake)
     /// carry no `REFR` for it, `XCLW` and `XCWT` sit on the cell itself.
-    /// `None` for a cell with no water flag, no recorded height, or whose
+    /// An exterior cell without its own `XCLW`, or with xEdit's "Default"
+    /// marker there, takes its worldspace's `DNAM` height and `NAM2` water,
+    /// which is how the open sea gets its plane.
+    /// `None` for a cell with no water flag, no height from either, or whose
     /// own record cannot be resolved, in which case the cell still streams
     /// normally with no water surface rather than failing the whole call.
     fn water_surface(
@@ -613,8 +616,18 @@ impl DataSource {
         if !view.has_water() {
             return None;
         }
-        let height = view.water_height?;
-        let water_id = view.water.map(|raw| self.order.resolve(rref.file, raw));
+        let cell_height = view.water_height.filter(|h| water::is_recorded_height(*h));
+        let world_water = match (view.grid, view.world) {
+            (Some(_), Some(raw)) => {
+                water::world_water(&self.order, self.order.resolve(rref.file, raw))
+            }
+            _ => water::WorldWater::default(),
+        };
+        let height = cell_height.or(world_water.height)?;
+        let water_id = view
+            .water
+            .map(|raw| self.order.resolve(rref.file, raw))
+            .or(world_water.water);
         let material = water_id
             .and_then(|id| self.order.winner(id))
             .map(water_material_from);
@@ -637,6 +650,7 @@ impl DataSource {
             reference: water_id.unwrap_or(cell_id),
             arrays,
             textures: SurfaceTextures::default(),
+            placement: soe_physics::Iso::IDENTITY,
             instance_transform: None,
             mesh_identity: None,
         })

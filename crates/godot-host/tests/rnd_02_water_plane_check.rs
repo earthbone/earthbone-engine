@@ -35,6 +35,7 @@ use std::path::PathBuf;
 
 use soe_esm::cursor::Fields;
 use soe_esm::records::cell::Cell;
+use soe_esm::records::wrld::World;
 use soe_esm::{tag, GlobalFormId, LoadOrder, Record, Tag};
 use soe_godot_host::data_source::DataSource;
 use soe_godot_host::units::METRES_PER_UNIT;
@@ -268,12 +269,33 @@ fn rnd_02_the_named_dawnguard_fixture_cell_the_godot_script_streams_has_water() 
         .is_localized();
     let view = Cell::from_record(rec, localized)
         .unwrap_or_else(|e| panic!("Cell::from_record({cell_id}): {e}"));
-    if !view.has_water() || view.water_height.is_none() {
+    if !view.has_water() {
         drop(order);
-        eprintln!("{EDITOR_ID} ({cell_id}) has no HAS_WATER/XCLW in this load order, skipping");
+        eprintln!("{EDITOR_ID} ({cell_id}) has no HAS_WATER in this load order, skipping");
         return;
     }
-    let want_y = view.water_height.expect("checked is_none above") * METRES_PER_UNIT;
+    // This cell records XCLW as 0x7F7FFFFF, which UESP's CELL page reserves
+    // and xEdit's wbCELLAfterLoad writes as "Default": the height then comes
+    // from the worldspace's DNAM, not from the float itself.
+    let recorded = view
+        .water_height
+        .filter(|h| h.is_finite() && h.abs() < 1.0e30);
+    let want_units = match recorded {
+        Some(h) => h,
+        None => {
+            let world_raw = view.world.expect("an exterior cell names its worldspace");
+            let file = usize::from(cell_id.file);
+            let world_id = order.resolve(file, world_raw);
+            let world_rec = order.winner(world_id).expect("worldspace resolves");
+            let world = World::from_record(world_rec, localized)
+                .unwrap_or_else(|e| panic!("World::from_record: {e}"));
+            world
+                .default_water_height
+                .expect("the worldspace carries a DNAM default water height")
+        }
+    };
+    println!("{EDITOR_ID} ({cell_id}) water height {want_units} units, XCLW {recorded:?}");
+    let want_y = want_units * METRES_PER_UNIT;
     drop(order);
 
     let loaded = source

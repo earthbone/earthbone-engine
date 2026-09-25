@@ -2252,12 +2252,29 @@ with no batching code changed. `CellStats::water_plane_count` counts 0 or 1
 per cell, matching `statics_with_model`'s style, since a cell has exactly one
 water plane no matter how many things could in principle reference its WATR.
 
-The Godot layer's `MaterialDesc` to `StandardMaterial3D` mapping was already
-deferred before this row (see "Skinned characters" above, "materials are
-still unwired, so they are unlit grey"), and stays deferred here. A water
-plane renders with the batch's grey unlit fallback like every other surface
-that mapping has not reached yet, same as the acceptance criteria for this
-row explicitly allow.
+An exterior cell whose `XCLW` is absent or holds the reserved `0x7F7FFFFF`
+value takes its worldspace's water. UESP's `CELL` page reserves that value,
+and xEdit's `wbCELLAfterLoad` shows it as "Default". The height comes from
+the worldspace's `DNAM` default water height and the type from its `NAM2`,
+both inherited from the `WNAM` parent when `PNAM` sets "Use Water Data".
+OpenMW's `mwworld/cell.cpp` makes the same choice for ESM4 cells.
+`DLC1VampireCastleExterior01` records the marker and draws at the
+`DLC1VampireCastleWorld` height of -14000 units, which is -200.025 metres.
+Interior cells never fall back, they need their own `XCLW`.
+
+`godot_layer::water_material` maps `WaterMaterial` onto a
+`StandardMaterial3D`: the shallow color is the albedo, `ANAM` over 255 is
+its alpha with alpha blending below full opacity, and culling is off so
+the plane shows from underneath. `MaterialKey` covers the water fields so
+two water types never share a cached material. `CellStreamerNode` gains
+`water_planes()`, one dictionary per drawn water instance with its cell,
+RID, height, override material, opacity and shallow color, and
+`last_stats` gains `water_planes`.
+
+`godot/rnd_02_water_planes_check.gd` streams `DLC1VampireCastleExterior01`
+and fails unless one plane sits at the recorded height with a material whose
+albedo and alpha match the `WATR` record. It passed headless on Godot 4.7.2
+and on 4.4.1, the API floor, against the installed game.
 
 Left open, listed here rather than silently dropped:
 
@@ -2266,7 +2283,7 @@ Left open, listed here rather than silently dropped:
   No `esm` view or `godot-host` reader for `MATT` exists yet. `WaterMaterial`
   carries only ANAM's opacity and DNAM's three colors, so a water plane's
   authored material beyond flat color is not represented.
-- **NAM3 and NAM4 are not carried.** WATR names three noise texture layers;
+- **NAM3 and NAM4 are not carried.** WATR names three noise texture layers,
   only NAM2 is read onto `WaterMaterial::noise_texture`. One layer is enough
   to prove the plane streams and renders before the shader mapping that would
   use any of them exists.
@@ -2282,11 +2299,6 @@ Left open, listed here rather than silently dropped:
   its water. A dungeon lake's plane can therefore be sized larger or smaller
   than the authored water's true extent, since nothing here reads a specific
   water boundary shape.
-- **No headless or windowed Godot run has verified this against the
-  installed game.** The synthetic crate tests (229 passing, `--no-default-features`)
-  exercise the existing suite unchanged, none of them build a `CELL` with
-  `XCLW`/`XCWT` through the full `DataSource` path, so nothing in this
-  session's run confirms `WhiterunBanneredMare` or another real cell reports
-  `water_plane_count: 1` or draws a visible plane at the correct height. That
-  is the next step: a gated run against `SKYRIM_DATA` reporting the new stat,
-  the way `real_cell.rs` already reports `meshes_parsed` and friends.
+- **Deep and reflection colors, noise layers, fog and waves are not
+  shaded.** The material is a flat blended color. They wait for a water
+  shader.
