@@ -3035,3 +3035,33 @@ a sixth positional argument, since roughly twenty existing test files across
 this crate calls the new helper yet, matching the task's no-new-tests
 instruction. `cargo clippy -p soe-game --all-targets` confirms every
 dependent test file still compiles against the unchanged signature.
+
+## Contact actors and melee reach, CMB-28
+
+`world/contact.rs` gives a host the shared state it needs to present actor
+collision without owning any of it.
+
+`World::contact_actors` lists every resident actor reference (`is_actor`)
+that is enabled, not deleted, has a base and a cell, and whose cell is the
+loaded cell or a streamed one (`cell_is_resident`). Each entry carries the
+reference's position and rotation in game units and radians, and a scale
+equal to `actor_controller_scale` times the reference scale. An actor whose
+controller scale cannot be derived keeps 1.0 for that factor, so a template
+error never drops a body. Dead actors stay listed because a corpse still
+blocks a blade. The list is sorted by form so a host sync is deterministic.
+Because it reads the placement tables directly, the list follows cell
+changes, streaming, enable state and scripted moves with no extra hook.
+
+`World::melee_reach` returns the reach in game units for the weapon an
+attacker holds in one hand: `fCombatDistance` times the weapon's DNAM reach
+times the attacker's reference scale. The formula is the one UESP's WEAP page
+gives (`engine-refs/uesp-modfileformat/WEAP.wikitext`) and the one skymp's
+`GetReach` computes (`engine-refs/skymp/skymp5-server/cpp/server_guest_lib/ActionListener.cpp`).
+A load order without the setting falls back to `DEFAULT_COMBAT_DISTANCE`,
+141, the vanilla value skymp's `unit/HitTest.cpp` uses. A present but
+invalid setting is an error. A missing hand weapon is `Error::Equipment`.
+
+Open: unarmed reach, which reads the race's unarmed reach instead of a
+weapon, is not handled, so a fist swing reports `Error::Equipment`. The
+reach scale uses the reference scale only, the UESP formula's `NPCScale`,
+and not the race height.

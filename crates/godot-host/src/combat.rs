@@ -121,6 +121,13 @@ impl MeleeContact {
         self.swing = None;
     }
 
+    /// The armed swing's attacker and hand, so a host can read that hand's
+    /// weapon bone from the attacker's pose before the contact marker.
+    #[must_use]
+    pub fn armed(&self) -> Option<(GlobalFormId, Hand)> {
+        self.swing.map(|swing| (swing.attacker, swing.hand))
+    }
+
     /// Consume a named animation event. Only HitFrame can query and apply damage.
     /// The query returns the first obstruction's actor identity, or None for
     /// empty space and non-actor obstructions. It must exclude the attacker.
@@ -164,4 +171,99 @@ impl MeleeContact {
         })
         .map(Some)
     }
+}
+
+/// Skeleton nodes a hand's weapon hangs from, most specific first. The
+/// vanilla skeleton parents `WEAPON` under the right hand and `SHIELD` under
+/// the left, the nodes activeragdoll's `GetWeaponNode` resolves
+/// (`engine-refs/activeragdoll/src/utils.cpp`). The hand bones follow as a
+/// fallback for skeletons without those nodes.
+#[must_use]
+pub fn weapon_bones(hand: Hand) -> &'static [&'static str] {
+    match hand {
+        Hand::Right => &["WEAPON", "Weapon", "NPC R Hand [RHnd]"],
+        Hand::Left => &["SHIELD", "Shield", "NPC L Hand [LHnd]"],
+    }
+}
+
+/// A swing's blade as a segment from the weapon node's origin along its
+/// blade axis, `reach` long, in whatever unit the caller works in.
+///
+/// activeragdoll measures the blade along the weapon node's local +Y
+/// (`ForwardVector`, the matrix's second column). Skyrim +Y maps to Godot
+/// -Z under `units::SkyrimPos::to_godot`, so a Godot caller passes the node's
+/// negated basis Z column as `blade_axis`.
+///
+/// # Errors
+/// Non-finite input, a zero axis, or a non-positive reach.
+pub fn weapon_segment(
+    origin: [f32; 3],
+    blade_axis: [f32; 3],
+    reach: f32,
+) -> Result<([f32; 3], [f32; 3]), Error> {
+    let length = blade_axis.iter().map(|c| c * c).sum::<f32>().sqrt();
+    if !origin.iter().all(|c| c.is_finite())
+        || !length.is_finite()
+        || length <= f32::EPSILON
+        || !reach.is_finite()
+        || reach <= 0.0
+    {
+        return Err(Error::Number);
+    }
+    let tip = [
+        origin[0] + blade_axis[0] / length * reach,
+        origin[1] + blade_axis[1] / length * reach,
+        origin[2] + blade_axis[2] / length * reach,
+    ];
+    Ok((origin, tip))
+}
+
+/// What one synchronization pass has to do to the host's actor bodies.
+#[derive(Debug, Default, Clone, PartialEq)]
+pub struct BodySyncPlan {
+    /// Actors without a body, or whose shape no longer fits their scale.
+    pub create: Vec<soe_game::world::ContactActor>,
+    /// Actors that keep their body and only move.
+    pub moved: Vec<soe_game::world::ContactActor>,
+    /// Bodies whose actor left the resident cells, was disabled or unloaded.
+    pub removed: Vec<GlobalFormId>,
+}
+
+/// Scale difference below which a body keeps its shape.
+const SCALE_TOLERANCE: f32 = 1e-4;
+
+/// Diff the bodies a host holds, keyed by actor with the scale their shape
+/// was built for, against the actors the shared World reports now. A scale
+/// change removes and recreates the body, since a capsule's size is fixed
+/// at creation.
+#[must_use]
+pub fn plan_body_sync<S: std::hash::BuildHasher>(
+    current: &std::collections::HashMap<GlobalFormId, f32, S>,
+    wanted: &[soe_game::world::ContactActor],
+) -> BodySyncPlan {
+    let mut plan = BodySyncPlan::default();
+    let mut seen = std::collections::HashSet::with_capacity(wanted.len());
+    for actor in wanted {
+        if !seen.insert(actor.actor) {
+            continue;
+        }
+        match current.get(&actor.actor) {
+            Some(scale) if (scale - actor.scale).abs() <= SCALE_TOLERANCE => {
+                plan.moved.push(*actor);
+            }
+            Some(_) => {
+                plan.removed.push(actor.actor);
+                plan.create.push(*actor);
+            }
+            None => plan.create.push(*actor),
+        }
+    }
+    let mut gone: Vec<GlobalFormId> = current
+        .keys()
+        .filter(|form| !seen.contains(*form))
+        .copied()
+        .collect();
+    gone.sort();
+    plan.removed.extend(gone);
+    plan
 }

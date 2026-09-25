@@ -15,13 +15,18 @@
 //! that. So this is the collision the renderer and the player see, while
 //! [`soe_physics::SimpleWorld`] is what the simulation and the tests step.
 
+use std::collections::HashMap;
+
+use godot::classes::physics_server_3d::{BodyMode, BodyState};
 use godot::classes::PhysicsServer3D;
 use godot::prelude::*;
 
 use soe_esm::GlobalFormId;
+use soe_game::world::ContactActor;
 use soe_physics::{Collider, Iso, Shape, Vec3};
 
 use crate::collision::PlacedCollider;
+use crate::combat::{plan_body_sync, BodySyncPlan};
 use crate::units::{SkyrimPos, METRES_PER_UNIT};
 
 /// What went into the space, so a caller can report it the way the cell
@@ -390,6 +395,162 @@ fn flatten(shape: &Shape, t: &Iso, out: &mut Vec<GodotPrim>) {
             }
         }
     }
+}
+
+/// One actor's server body and the scale its capsule was built for.
+#[derive(Debug)]
+struct ActorBody {
+    body: Rid,
+    shapes: Vec<Rid>,
+    scale: f32,
+}
+
+/// Query bodies in the controller capsule shape for the actors the shared
+/// World reports as resident. Each actor owns a `PhysicsServer3D` body RID,
+/// so no scene node exists per reference. [`ActorBodies::sync`] follows the
+/// World every call: it creates bodies for new actors, moves kept ones and
+/// frees the rest, which is how a cell change drops the leaving cell's
+/// actors.
+///
+/// The bodies are STATIC, not KINEMATIC. Godot's Jolt backend stores a
+/// kinematic body's new transform and applies it with `MoveKinematic` on the
+/// next physics step, so a HitFrame query in the same tick would see the
+/// previous pose, and a body created that tick would still sit at the
+/// origin. A static body is repositioned at once. Nothing simulates against
+/// these bodies, they exist for contact queries.
+#[derive(Debug, Default)]
+pub struct ActorBodies {
+    space: Option<Rid>,
+    bodies: HashMap<GlobalFormId, ActorBody>,
+    owners: HashMap<Rid, GlobalFormId>,
+}
+
+impl ActorBodies {
+    /// Bring the server bodies in line with `actors`. A different `space`
+    /// frees every body first, since a body belongs to one space.
+    pub fn sync(&mut self, space: Rid, actors: &[ContactActor]) -> BodySyncPlan {
+        if self.space.is_some_and(|held| held != space) {
+            self.free();
+        }
+        self.space = Some(space);
+        let scales: HashMap<GlobalFormId, f32> = self
+            .bodies
+            .iter()
+            .map(|(form, body)| (*form, body.scale))
+            .collect();
+        let plan = plan_body_sync(&scales, actors);
+        let mut server = PhysicsServer3D::singleton();
+        for form in &plan.removed {
+            if let Some(body) = self.bodies.remove(form) {
+                self.owners.remove(&body.body);
+                release(&mut server, body);
+            }
+        }
+        for actor in &plan.create {
+            let body = create_actor_body(&mut server, space, actor);
+            self.owners.insert(body.body, actor.actor);
+            self.bodies.insert(actor.actor, body);
+        }
+        for actor in &plan.moved {
+            if let Some(body) = self.bodies.get(&actor.actor) {
+                place(&mut server, body.body, actor);
+            }
+        }
+        plan
+    }
+
+    /// Body RID to actor, for contact queries.
+    #[must_use]
+    pub fn owners(&self) -> &HashMap<Rid, GlobalFormId> {
+        &self.owners
+    }
+
+    /// The body presenting `actor`, if it is resident.
+    #[must_use]
+    pub fn body(&self, actor: GlobalFormId) -> Option<Rid> {
+        self.bodies.get(&actor).map(|body| body.body)
+    }
+
+    /// Number of actor bodies held.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.bodies.len()
+    }
+
+    /// Whether no actor body is held.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.bodies.is_empty()
+    }
+
+    /// Release every body and shape. The server does not reclaim them.
+    pub fn free(&mut self) {
+        let mut server = PhysicsServer3D::singleton();
+        for (_, body) in self.bodies.drain() {
+            release(&mut server, body);
+        }
+        self.owners.clear();
+        self.space = None;
+    }
+}
+
+fn release(server: &mut Gd<PhysicsServer3D>, body: ActorBody) {
+    server.free_rid(body.body);
+    for shape in body.shapes {
+        server.free_rid(shape);
+    }
+}
+
+/// The CMB-33 generated controller capsule, feet at the body origin.
+fn create_actor_body(
+    server: &mut Gd<PhysicsServer3D>,
+    space: Rid,
+    actor: &ContactActor,
+) -> ActorBody {
+    let body = server.body_create();
+    server.body_set_mode(body, BodyMode::STATIC);
+    server.body_set_space(body, space);
+    let mut prims = Vec::new();
+    flatten(
+        &soe_physics::generated_controller_shape(actor.scale),
+        &Iso::IDENTITY,
+        &mut prims,
+    );
+    let mut shapes = Vec::with_capacity(prims.len());
+    for prim in prims {
+        let GodotPrim::Capsule {
+            height,
+            radius,
+            placement,
+        } = prim
+        else {
+            continue;
+        };
+        let shape = server.capsule_shape_create();
+        let mut data: Dictionary<Variant, Variant> = Dictionary::new();
+        data.set("height", height);
+        data.set("radius", radius);
+        server.shape_set_data(shape, &data.to_variant());
+        server
+            .body_add_shape_ex(body, shape)
+            .transform(placement)
+            .done();
+        shapes.push(shape);
+    }
+    place(server, body, actor);
+    ActorBody {
+        body,
+        shapes,
+        scale: actor.scale,
+    }
+}
+
+/// Move a body to the actor's feet. The capsule is upright and round, so
+/// only the position matters.
+fn place(server: &mut Gd<PhysicsServer3D>, body: Rid, actor: &ContactActor) {
+    let [x, y, z] = actor.position;
+    let transform = Transform3D::new(Basis::IDENTITY, godot_point(Vec3::new(x, y, z)));
+    server.body_set_state(body, BodyState::TRANSFORM, &transform.to_variant());
 }
 
 /// One game unit point in Godot world space, metres and Godot's axes.

@@ -44,6 +44,7 @@ mod actors;
 mod bleedout;
 mod calendar;
 mod combat;
+mod contact;
 mod crime;
 mod death;
 mod detection;
@@ -91,6 +92,7 @@ pub use template_restore::TemplateRestoreReport;
 mod timers;
 mod transition;
 
+pub use contact::{ContactActor, DEFAULT_COMBAT_DISTANCE};
 pub use doorway::{Doorway, InteriorDestination, Side, Threshold, THRESHOLD_BAND, UNITS_PER_METRE};
 pub use reference_extras::{ReferenceExtrasRestoreReport, ReferenceLock};
 pub use save::{SAVE_MAGIC, SAVE_VERSION};
