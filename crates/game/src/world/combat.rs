@@ -203,9 +203,14 @@ impl World {
         // Unarmed contacts have no WEAP record to carry a Stagger fraction,
         // so they never stagger. No corpus source states an unarmed default.
         let mut bash_stamina_cost = None;
-        let (weapon_damage, stagger_fraction, quality_multiplier, power_stamina_cost) = if hit
-            .is_bash
-        {
+        let (
+            weapon_damage,
+            stagger_fraction,
+            quality_multiplier,
+            power_stamina_cost,
+            resist,
+            ignores_resistance,
+        ) = if hit.is_bash {
             let armor = self.combat_armor_record(hit.weapon)?;
             // UESP's ARMO layout ties BIDS/BAMT to the shield slot (BOD2 bit
             // 9), so a bash source is rejected here rather than trusting the
@@ -246,7 +251,14 @@ impl World {
             // rather than a separate GMST or the attacker's other-hand
             // weapon. No corpus source pins a vanilla bash damage formula,
             // this is an engineering estimate, see docs/combat.md CMB-20.
-            (finite(f64::from(armor.rating))?, 1.0_f32, 1.0_f32, None)
+            (
+                finite(f64::from(armor.rating))?,
+                1.0_f32,
+                1.0_f32,
+                None,
+                -1,
+                false,
+            )
         } else if unarmed {
             // They also carry no inventory stack, so no quality extra can
             // apply. Unarmed power attacks are a documented gap, see
@@ -256,19 +268,19 @@ impl World {
             if hit.is_power_attack {
                 return Err(Error::Unsupported("unarmed power attack"));
             }
-            (
-                self.unarmed_damage(hit.attacker, hit.weapon)?,
-                0.0_f32,
-                1.0_f32,
-                None,
-            )
+            let (damage, resist, ignores_resistance) =
+                self.unarmed_damage(hit.attacker, hit.weapon)?;
+            (damage, 0.0_f32, 1.0_f32, None, resist, ignores_resistance)
         } else {
             let weapon = self.combat_weapon(hit.weapon)?;
             if !matches!(weapon.animation, 1..=6) || !matches!(weapon.skill, 6..=8 | -1) {
                 return Err(Error::Unsupported("non-melee weapon or governing skill"));
             }
-            if weapon.flags & 1 != 0 || weapon.flags2 & 0x1000 != 0 || weapon.resist != -1 {
-                return Err(Error::Unsupported("weapon resistance or non-hostile flags"));
+            if weapon.flags2 & 0x1000 != 0 {
+                return Err(Error::Unsupported("weapon non-hostile flags"));
+            }
+            if !matches!(weapon.resist, -1 | 39..=44) {
+                return Err(Error::Unsupported("unsupported weapon resistance value"));
             }
             let attacker = self
                 .actor_ref(hit.attacker)
@@ -317,6 +329,8 @@ impl World {
                 weapon.stagger,
                 quality_multiplier,
                 power_stamina_cost,
+                weapon.resist,
+                weapon.flags & 1 != 0,
             )
         };
         let attack_multiplier = finite(f64::from(
@@ -341,6 +355,14 @@ impl World {
         let block = self.combat_block(hit.target)?;
         let blocked = block.is_some();
         let block_reduction = block.unwrap_or(0.0);
+        // The weapon's DNAM Resist field (CMB-26) names a further target
+        // actor value that reduces this weapon's damage, independent of
+        // armor and shield block. `melee_hit` already rejected any resist
+        // index outside -1 or 39 through 44 before this point, and unarmed
+        // contacts carry the unarmed attack form's own resist field the
+        // same way.
+        let resistance_reduction =
+            self.combat_resistance(hit.target, resist, ignores_resistance)?;
         let (from_player, to_player) = self.difficulty.gmst_names();
         let difficulty = if self.player == Some(hit.attacker) {
             self.combat_setting(from_player)?
@@ -349,11 +371,16 @@ impl World {
         } else {
             1.0
         };
-        // Armor and shield block are independent reductions on the same base
-        // damage, so they stack multiplicatively rather than adding. Sources
-        // do not state vanilla's exact ordering, see docs/combat.md.
+        // Armor, shield block and weapon resistance are independent
+        // reductions on the same base damage, so they stack multiplicatively
+        // rather than adding. Sources do not state vanilla's exact ordering,
+        // see docs/combat.md.
         let health_damage = finite(
-            f64::from(weapon_damage) * (1.0 - reduction) * (1.0 - block_reduction) * difficulty,
+            f64::from(weapon_damage)
+                * (1.0 - reduction)
+                * (1.0 - block_reduction)
+                * (1.0 - resistance_reduction)
+                * difficulty,
         )?;
         // Stagger magnitude scales the damage that actually lands (post
         // armor and block, matching the row's "hit magnitude") by the
@@ -478,6 +505,7 @@ impl World {
             armor_reduction: reduction as f32,
             blocked,
             block_reduction: block_reduction as f32,
+            resistance_reduction: resistance_reduction as f32,
             health_damage,
             killed,
             staggered,
@@ -525,7 +553,15 @@ impl World {
         Ok(())
     }
 
-    fn unarmed_damage(&self, attacker: GlobalFormId, source: GlobalFormId) -> Result<f32, Error> {
+    /// Returns the unarmed base damage plus the unarmed attack form's own
+    /// DNAM Resist index and "Ignores Normal Weapon Resistance" flag, so
+    /// `melee_hit` applies weapon resistance (CMB-26) the same way for an
+    /// unarmed contact as for an equipped one.
+    fn unarmed_damage(
+        &self,
+        attacker: GlobalFormId,
+        source: GlobalFormId,
+    ) -> Result<(f32, i32, bool), Error> {
         // The base-game attack form chooses race damage, but remains a live WEAP
         // record. This keeps deleted, malformed, and modifier-bearing overrides
         // from becoming a bypass around ordinary combat record validation.
@@ -533,8 +569,11 @@ impl World {
         if weapon.template.is_some() || weapon.enchantment.is_some() {
             return Err(Error::Unsupported("weapon template or enchantment"));
         }
-        if weapon.flags & 1 != 0 || weapon.flags2 & 0x1000 != 0 || weapon.resist != -1 {
-            return Err(Error::Unsupported("weapon resistance or non-hostile flags"));
+        if weapon.flags2 & 0x1000 != 0 {
+            return Err(Error::Unsupported("weapon non-hostile flags"));
+        }
+        if !matches!(weapon.resist, -1 | 39..=44) {
+            return Err(Error::Unsupported("unsupported weapon resistance value"));
         }
         let attacker = self.actor_ref(attacker).ok_or(Error::Actor(attacker))?;
         let value = attacker
@@ -543,7 +582,11 @@ impl World {
             .get("unarmeddamage")
             .ok_or(Error::Unsupported("missing race unarmed damage"))?
             .current();
-        finite(f64::from(value))
+        Ok((
+            finite(f64::from(value))?,
+            weapon.resist,
+            weapon.flags & 1 != 0,
+        ))
     }
 
     /// Attacker's default single-weapon power attack entry, from the
@@ -649,6 +692,45 @@ impl World {
             Some(Value::Float(value)) if value.is_finite() && value >= 0.0 => Ok(f64::from(value)),
             _ => Err(Error::Setting(name)),
         }
+    }
+
+    /// Additional multiplicative reduction from the weapon's DNAM Resist
+    /// field (offset 0x58/88, `uesp-modfileformat/WEAP.wikitext` line 123),
+    /// the target actor value this weapon's damage is measured against. CK
+    /// allows 39 DamageResist through 44 MagicResist or -1 for none, always
+    /// -1 in original files. DNAM flags bit 0x01, "Ignores Normal Weapon
+    /// Resistance" (`WEAP.wikitext` line 58), suppresses the term instead of
+    /// rejecting the weapon, matching its documented meaning. `melee_hit`
+    /// and `unarmed_damage` already reject any other resist index before
+    /// calling this, so a value outside that range here is defensive, not
+    /// the primary check.
+    ///
+    /// No local or UESP source pins the exact reduction formula, so this
+    /// treats the actor value as a percentage the same way `combat_armor`
+    /// treats DamageResist, applied as its own multiplicative term alongside
+    /// armor and shield block. See docs/combat.md CMB-26.
+    fn combat_resistance(
+        &self,
+        target: GlobalFormId,
+        resist: i32,
+        ignores_resistance: bool,
+    ) -> Result<f64, Error> {
+        if resist == -1 || ignores_resistance {
+            return Ok(0.0);
+        }
+        let name = crate::actor_values::actor_value_name(resist)
+            .ok_or(Error::Unsupported("unsupported weapon resistance value"))?;
+        let value = f64::from(
+            self.actor_ref(target)
+                .ok_or(Error::Actor(target))?
+                .values
+                .get(name)
+                .current(),
+        );
+        if !value.is_finite() {
+            return Err(Error::Number);
+        }
+        Ok((value / 100.0).clamp(0.0, 1.0))
     }
 
     fn combat_skill_scale(

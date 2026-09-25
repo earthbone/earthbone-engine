@@ -470,16 +470,21 @@ fn unarmed_rejects_unsupported_canonical_weapon_modifiers() {
         88,
         0,
     );
+    // CMB-26: the "Ignores Normal Weapon Resistance" flag no longer rejects
+    // the weapon, it only suppresses the resistance reduction term, so
+    // `flagged` (an otherwise ordinary unarmed contact) now succeeds instead
+    // of joining the rejection loop below.
+    let mut ignoring = ready_unarmed_game_with_source(race(0x700, 10.), Some(flagged));
+    assert!(ignoring.melee_hit(unarmed_hit(0x900, 0x901)).is_ok());
     for source in [
         unarmed_weapon().sub(Tag(*b"EITM"), 0x123_u32.to_le_bytes()),
-        flagged,
         resistant,
     ] {
         let mut game = ready_unarmed_game_with_source(race(0x700, 10.), Some(source));
         assert!(matches!(
             game.melee_hit(unarmed_hit(0x900, 0x901)),
             Err(Error::Unsupported(
-                "weapon template or enchantment" | "weapon resistance or non-hostile flags"
+                "weapon template or enchantment" | "unsupported weapon resistance value"
             ))
         ));
     }
