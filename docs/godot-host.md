@@ -2014,3 +2014,78 @@ with the RenderingServer running, both of which need a windowed Godot run
 against a live scene, same as the rest of this document's frame-time numbers.
 That measurement is still open and belongs with the other "Numbers" table
 entries once someone runs one.
+
+## Water planes, RND-02 (2026-09-24)
+
+A cell with water now streams one extra `LoadedSurface`: a flat quad at the
+cell's recorded `XCLW` height, sized to the exterior grid square or, for an
+interior cell, to the union of the cell's own already-built surface bounds.
+`DataSource::water_surface` reads the cell's own `CELL` record after the
+reference scan in `stream_cell_id` finishes, rather than from a `REFR`, since
+an interior lake has no placed reference carrying it, only the cell's `XCLW`
+and `XCWT`. `esm::records::cell::Cell` already parsed both fields, so no `esm`
+change was needed.
+
+Sources read: `TES5Edit/Core/wbDefinitionsTES5.pas` (WATR, lines 10304 to
+10429) and the UESP `WATR.wikitext` page for the record layout, both agreeing
+that DNAM is a 228 (base game) or 232 (Special Edition) byte block with three
+four-byte `wbByteColors` structs (Shallow, Deep, Reflection) at offsets 40,
+44 and 48. `openmw/components/nifosg/nifloader.cpp`'s water construction
+confirmed a single flat plane with no runtime deformation is the right
+starting shape, matching this task pack's own reading of the vanilla engine.
+No `esm` record module exists for WATR yet, so `data_source/water.rs` reads
+ANAM, DNAM and NAM2 with the same generic `Record::find` pattern
+`data_source/models.rs` already uses for FURN and DOOR's `MODL`, rather than
+adding a dedicated view for one record type touched by one surface builder.
+
+`mesh::WaterMaterial` (opacity, shallow/deep/reflection colors, one noise
+texture path) sits on a new `Option<WaterMaterial>` field on `MaterialDesc`,
+left `None` on every ordinary NIF-sourced surface. `MaterialDesc` was the
+right extension point over `LoadedSurface`: every non-defaulted
+`MaterialDesc { .. }` construction site in the crate is the single
+`material_desc_from` call in `data_source.rs`, while `LoadedSurface`'s
+construction sites are more numerous and not all defaulted. `batch::BatchKey`
+reads only the material fields that already existed, so water surfaces batch
+by their (empty) diffuse and normal paths like any other untextured surface,
+with no batching code changed. `CellStats::water_plane_count` counts 0 or 1
+per cell, matching `statics_with_model`'s style, since a cell has exactly one
+water plane no matter how many things could in principle reference its WATR.
+
+The Godot layer's `MaterialDesc` to `StandardMaterial3D` mapping was already
+deferred before this row (see "Skinned characters" above, "materials are
+still unwired, so they are unlit grey"), and stays deferred here. A water
+plane renders with the batch's grey unlit fallback like every other surface
+that mapping has not reached yet, same as the acceptance criteria for this
+row explicitly allow.
+
+Left open, listed here rather than silently dropped:
+
+- **TNAM (MATT material) is not read.** WATR's `TNAM` names a `MATT` record,
+  which itself names shader textures, not a plain diffuse and normal pair.
+  No `esm` view or `godot-host` reader for `MATT` exists yet. `WaterMaterial`
+  carries only ANAM's opacity and DNAM's three colors, so a water plane's
+  authored material beyond flat color is not represented.
+- **NAM3 and NAM4 are not carried.** WATR names three noise texture layers;
+  only NAM2 is read onto `WaterMaterial::noise_texture`. One layer is enough
+  to prove the plane streams and renders before the shader mapping that would
+  use any of them exists.
+- **No per-instance shading.** One `MaterialDesc` per cell's water plane,
+  built once from the cell's resolved WATR winner. Wave animation and other
+  per-reference shader parameters were out of scope for this row's starting
+  point and remain so.
+- **The interior footprint is a heuristic, not an authored bound.** Skyrim
+  records no interior water boundary in `esm`'s current CELL view. This
+  implementation unions the bounds of whatever the cell already streamed
+  before the water lookup runs, in Skyrim units, and falls back to a fixed
+  exterior-cell-sized square at the origin for a cell whose only content is
+  its water. A dungeon lake's plane can therefore be sized larger or smaller
+  than the authored water's true extent, since nothing here reads a specific
+  water boundary shape.
+- **No headless or windowed Godot run has verified this against the
+  installed game.** The synthetic crate tests (229 passing, `--no-default-features`)
+  exercise the existing suite unchanged, none of them build a `CELL` with
+  `XCLW`/`XCWT` through the full `DataSource` path, so nothing in this
+  session's run confirms `WhiterunBanneredMare` or another real cell reports
+  `water_plane_count: 1` or draws a visible plane at the correct height. That
+  is the next step: a gated run against `SKYRIM_DATA` reporting the new stat,
+  the way `real_cell.rs` already reports `meshes_parsed` and friends.

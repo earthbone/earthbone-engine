@@ -32,6 +32,10 @@ pub struct MaterialDesc {
     pub alpha: AlphaMode,
     /// Two-sided rendering, from the shader flags or an NiStencilProperty.
     pub double_sided: bool,
+    /// Set only on the synthetic surface a cell's water plane builds, from
+    /// its WATR record. Every ordinary NIF-sourced surface leaves this
+    /// `None`.
+    pub water: Option<WaterMaterial>,
 }
 
 impl Default for MaterialDesc {
@@ -49,8 +53,25 @@ impl Default for MaterialDesc {
             shader_flags_2: 0,
             alpha: AlphaMode::default(),
             double_sided: false,
+            water: None,
         }
     }
+}
+
+/// Shading data read from a WATR record, carried by a water plane's
+/// `MaterialDesc` for the Godot layer to map onto a material once that
+/// mapping exists. Colors are normalised 0.0 to 1.0, `opacity` is the
+/// record's own 0 to 255 byte.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct WaterMaterial {
+    pub opacity: u8,
+    pub shallow_color: [f32; 3],
+    pub deep_color: [f32; 3],
+    pub reflection_color: [f32; 3],
+    /// The first of WATR's three noise texture layers (NAM2). NAM3 and
+    /// NAM4 are not carried yet, one layer is enough to prove the plane
+    /// renders before the material mapping itself exists.
+    pub noise_texture: Option<String>,
 }
 
 impl MaterialDesc {
