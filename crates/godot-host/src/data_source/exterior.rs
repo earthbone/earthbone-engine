@@ -408,6 +408,7 @@ impl DataSource {
                                 reference: *land_id,
                                 arrays,
                                 textures: SurfaceTextures::default(),
+                                placement: soe_physics::Iso::IDENTITY,
                                 instance_transform: None,
                                 mesh_identity: None,
                             });

@@ -64,6 +64,7 @@ fn instanced_surface(
         },
         arrays,
         textures: SurfaceTextures::default(),
+        placement: soe_physics::Iso::IDENTITY,
         instance_transform: Some(identity_transform(x)),
         mesh_identity: Some(Arc::clone(identity)),
     }
@@ -339,6 +340,7 @@ fn instancing_candidates_returns_short_groups_and_plain_surfaces_together() {
             reference: GlobalFormId { file: 1, object: i },
             arrays: quad_arrays("textures\\plain.dds"),
             textures: SurfaceTextures::default(),
+            placement: soe_physics::Iso::IDENTITY,
             instance_transform: None,
             mesh_identity: None,
         });
@@ -412,6 +414,7 @@ fn repeated_rock_benchmark_at_threshold_still_favors_instancing() {
                 },
                 arrays,
                 textures: SurfaceTextures::default(),
+                placement: soe_physics::Iso::IDENTITY,
                 instance_transform: None,
                 mesh_identity: None,
             }

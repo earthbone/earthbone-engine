@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! WEAP DATA/DNAM and ARMO DNAM/BOD2/BODT from local xEdit and UESP layouts.
-//! These are transient record views, not another authoritative item database.
+//! WEAP DATA/DNAM, ARMO DNAM/BOD2/BODT and RACE ATKD/ATKE from local xEdit
+//! and UESP layouts. These are transient record views, not another
+//! authoritative item or race database.
 
 use std::collections::BTreeSet;
 
@@ -84,6 +85,65 @@ impl Weapon {
     }
 }
 
+/// Attack Flags bits from xEdit `wbAttackData`. Only the four this view
+/// needs to pick the default single-weapon power attack are named, the rest
+/// stay unread.
+const ATTACK_FLAG_BASH: u32 = 0x02;
+const ATTACK_FLAG_POWER: u32 = 0x04;
+const ATTACK_FLAG_LEFT: u32 = 0x08;
+const ATTACK_FLAG_ROTATING: u32 = 0x10;
+
+/// One RACE `ATKD` entry, the multipliers a power attack applies.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PowerAttack {
+    pub damage_mult: f32,
+    pub stamina_mult: f32,
+}
+
+impl PowerAttack {
+    /// Read a RACE's default single-weapon power attack from its uncounted
+    /// `ATKD`/`ATKE` Attacks array (xEdit `wbAttackData`, UESP
+    /// `RACE.wikitext`). Each `ATKD` is a fixed 44 byte struct, `ATKE`
+    /// carries only an animation event name that is not read here. Selects
+    /// the first entry with the Power Attack flag set and none of Bash,
+    /// Left or Rotating set, matching an ordinary forward power attack with
+    /// an equipped weapon. Bash, dual-wield, off-hand and unarmed entries,
+    /// and an NPC_ record's own override Attacks array, are not read here,
+    /// see docs/combat.md CMB-21.
+    ///
+    /// # Errors
+    /// Wrong/deleted forms, a short `ATKD` entry or a non-finite decoded float.
+    pub fn from_race(record: &Record) -> Result<Option<Self>, Error> {
+        check_record(record, T(b"RACE"))?;
+        for subrecord in &record.subrecords {
+            if subrecord.tag != T(b"ATKD") {
+                continue;
+            }
+            let mut data = Fields::new(record.tag, T(b"ATKD"), &subrecord.data);
+            data.exact(44)?;
+            let damage_mult = number(data.f32()?)?;
+            data.skip(4)?; // Attack Chance
+            data.skip(4)?; // Attack Spell formid
+            let flags = data.u32()?;
+            data.skip(4)?; // Attack Angle
+            data.skip(4)?; // Strike Angle
+            data.skip(4)?; // Stagger
+            data.skip(4)?; // Attack Type formid
+            data.skip(4)?; // Knockdown
+            data.skip(4)?; // Recovery Time
+            let stamina_mult = number(data.f32()?)?;
+            let power_only = ATTACK_FLAG_BASH | ATTACK_FLAG_LEFT | ATTACK_FLAG_ROTATING;
+            if flags & ATTACK_FLAG_POWER != 0 && flags & power_only == 0 {
+                return Ok(Some(Self {
+                    damage_mult,
+                    stamina_mult,
+                }));
+            }
+        }
+        Ok(None)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Armor {
     pub value: Option<i32>,
@@ -94,6 +154,12 @@ pub struct Armor {
     pub kind: Option<u32>,
     pub template: Option<u32>,
     pub enchantment: Option<u32>,
+    /// BIDS, the impact data set a shield bash plays. UESP's ARMO layout
+    /// (lines 64 to 68) documents BIDS/BAMT as shield-only fields, absent
+    /// from every other armor piece. See docs/combat.md CMB-20.
+    pub bash_impact: Option<u32>,
+    /// BAMT, the alternate material a shield bash reports to its impact effect.
+    pub bash_material: Option<u32>,
 }
 
 /// The records that supply an armor's Creation Kit template fields.
@@ -179,6 +245,13 @@ impl Armor {
             kind,
             template: link(child, T(b"TNAM"))?,
             enchantment: link(child, T(b"EITM"))?,
+            // BIDS/BAMT follow the TNAM template chain like the rest of a
+            // shield's physical fields, so they come from `inherited` rather
+            // than `child`. TES5Edit's WEAP layout (lines 10444-10445) shows
+            // the same two subrecords on WEAP for hand-to-hand bash sources,
+            // out of scope here since this row restricts bashing to shields.
+            bash_impact: link(inherited, T(b"BIDS"))?,
+            bash_material: link(inherited, T(b"BAMT"))?,
         })
     }
 

@@ -32,14 +32,23 @@ The local corpus supplied these contracts:
   Its unfinished auto-calculation was not adopted as a runtime formula.
 - xEdit `wbDefinitionsTES5.pas` CLAS DATA and RACE Skill Boosts, UESP
   `CLAS.wikitext` and CommonLibSSE-NG `TESClass.h` supplied the class skill
-  weight layout, the race skill boost pairs and the Weight Calculations
-  formula an auto-calculated actor's skills now use.
+  and attribute weight layout, the race skill boost pairs and the Weight
+  Calculations formula an auto-calculated actor's skills, health, magicka
+  and stamina now use. The attribute half of the formula adds a flat
+  `5*(Level-1)` to health on top of its own weighted share and, unlike
+  skills, has no upper clamp, matching the wikitext note that health,
+  magicka and stamina carry no cap once the weighted formula runs.
 
 The new race view only reads the DATA attributes needed here. Stats and
 traits follow independent NPC template chains, with cycle detection and
 winning-file link resolution. Manual attributes use race starts plus ACBS
-offsets. Auto-calculated attributes use DNAM's authored cache without adding
-the offsets again. This does not implement level-dependent recalculation.
+offsets. Auto-calculated attributes with a resolvable class and a non-zero
+attribute weight sum use the CLAS.wikitext Weight Calculations formula
+(class-weighted racial start plus the ACBS offset), the same as skills. An
+auto-calculated actor with no class, an unresolvable class, or a class whose
+attribute weights sum to zero keeps DNAM's authored cache without adding the
+offsets again. A `PC_LEVEL_MULT` actor also keeps the DNAM cache, matching
+skills, since this store does not track a live player level.
 The existing ESM Race view was checked, but it reads FaceFX PHTN/PHWT rather
 than DATA attributes. The game view therefore adds the missing prefix only.
 
@@ -80,16 +89,28 @@ The remaining 1,643 lead to LVLN templates. No other source errors occurred.
 Player resolved to 100/100/100, Hulda to 75/60/60 and MQ101Alduin to 2355/50/80.
 These values have not been checked against a running vanilla game.
 
+### Live run (2026-09-24)
+
+The class attribute weight formula (health, magicka, stamina) reran the same
+survey after landing: 161 races, 6,361 NPC bases, 4,718 resolved sources,
+4,265 cached auto-calculated values, 1,643 LVLN templates, no other source
+errors. Player, Hulda and MQ101Alduin still resolve to 100/100/100, 75/60/60
+and 2355/50/80, unchanged from the 2026-09-20 run, so none of the three
+examples carries a resolvable class with a non-zero attribute weight sum.
+`prg_15_actor_skills.rs`'s installed survey, which now also exercises this
+path, still finds every attribute-eligible auto-calculated skill value inside
+0 to 100 across the full 6,361 base population. These values have not been
+checked against a running vanilla game.
+
 ## Remaining gameplay work
 
 Leveled templates now retain a selection per reference, as detailed below.
-Encounter-zone difficulty and reset integration are still missing. Skills now
-follow RACE Skill Boosts for a manual actor's DNAM base, and CLAS.wikitext's
-Weight Calculations for a fixed-level auto-calculated actor with a resolvable
-class. A `PC_LEVEL_MULT` actor's skills keep the DNAM cache, since this store
-does not track a live player level. Health, magicka and stamina still lack
-the matching class attribute weight formula and keep the existing DNAM cache
-or race start plus ACBS offset. Missing RACE
+Encounter-zone difficulty and reset integration are still missing. Skills,
+health, magicka and stamina all follow RACE Skill Boosts or RACE starts for
+a manual actor's DNAM base, and CLAS.wikitext's Weight Calculations for a
+fixed-level auto-calculated actor with a resolvable class and a non-zero
+weight sum. A `PC_LEVEL_MULT` actor keeps the DNAM cache for both, since this
+store does not track a live player level. Missing RACE
 DATA retains the previous synthetic-record fallback. Runtime flags, inventory, spells, perks, factions, outfits and packages now
 resolve their owning template groups. Script, keyword, AI-data and attack-data
 inheritance still need the corresponding runtime consumers.
