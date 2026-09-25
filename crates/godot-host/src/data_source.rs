@@ -933,3 +933,6 @@ mod environment_tests;
 
 #[cfg(test)]
 mod marker_shape_tests;
+
+#[cfg(test)]
+mod animated_static_mesh_tests;

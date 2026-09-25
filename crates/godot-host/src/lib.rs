@@ -14,6 +14,7 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
 pub mod actor;
+pub mod animated_static;
 pub mod audio;
 pub mod batch;
 pub mod camera;
@@ -35,6 +36,8 @@ pub mod units;
 
 #[cfg(feature = "godot")]
 pub mod godot_actor;
+#[cfg(feature = "godot")]
+pub mod godot_animated_static;
 #[cfg(feature = "godot")]
 pub mod godot_audio;
 #[cfg(feature = "godot")]
