@@ -405,11 +405,19 @@ struct ActorBody {
     scale: f32,
 }
 
-/// Kinematic controller bodies for the actors the shared World reports as
-/// resident. Each actor owns a `PhysicsServer3D` body RID, so no scene node
-/// exists per reference. [`ActorBodies::sync`] follows the World every call:
-/// it creates bodies for new actors, moves kept ones and frees the rest,
-/// which is how a cell change drops the leaving cell's actors.
+/// Query bodies in the controller capsule shape for the actors the shared
+/// World reports as resident. Each actor owns a `PhysicsServer3D` body RID,
+/// so no scene node exists per reference. [`ActorBodies::sync`] follows the
+/// World every call: it creates bodies for new actors, moves kept ones and
+/// frees the rest, which is how a cell change drops the leaving cell's
+/// actors.
+///
+/// The bodies are STATIC, not KINEMATIC. Godot's Jolt backend stores a
+/// kinematic body's new transform and applies it with `MoveKinematic` on the
+/// next physics step, so a HitFrame query in the same tick would see the
+/// previous pose, and a body created that tick would still sit at the
+/// origin. A static body is repositioned at once. Nothing simulates against
+/// these bodies, they exist for contact queries.
 #[derive(Debug, Default)]
 pub struct ActorBodies {
     space: Option<Rid>,
@@ -500,7 +508,7 @@ fn create_actor_body(
     actor: &ContactActor,
 ) -> ActorBody {
     let body = server.body_create();
-    server.body_set_mode(body, BodyMode::KINEMATIC);
+    server.body_set_mode(body, BodyMode::STATIC);
     server.body_set_space(body, space);
     let mut prims = Vec::new();
     flatten(

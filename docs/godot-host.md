@@ -1767,8 +1767,13 @@ supplies generated controller geometry when authored geometry is absent.
 
 ## Actor contact bodies and pose segments, CMB-28
 
-`godot_physics::ActorBodies` gives every resident actor one kinematic body on
-the PhysicsServer3D space, with no scene node per reference. PlayerNode keeps
+`godot_physics::ActorBodies` gives every resident actor one static query body
+on the PhysicsServer3D space, with no scene node per reference. Static, not
+kinematic: Godot's Jolt backend (`modules/jolt_physics/objects/jolt_body_3d.cpp`,
+`set_transform`) only stores a kinematic body's new transform and applies it
+with `MoveKinematic` on the next step, so a HitFrame query in the same tick
+missed a moved actor and a body created that tick sat at the origin. The
+headless check below failed that way before the change. PlayerNode keeps
 one store and rebuilds it from `World::contact_actors` after each auto-stepped
 physics tick, and again before an armed HitFrame queries. The pure
 `combat::plan_body_sync` decides the work: an actor already holding a body at
@@ -1797,10 +1802,14 @@ global pose. `melee_bone_contact(name, transform)` takes that world transform
 directly. Both run the segment from the node origin along its negated basis Z
 column, which is Skyrim local +Y after the axis map in `units.rs`. The length
 is `World::melee_reach` converted to metres. `sync_contact_actors` and
-`contact_actor_body` expose the store for diagnostics.
+`contact_actor_body` expose the store for diagnostics, `contact_actor_bodies`
+lists every body with its owner and World position in Godot space,
+`last_melee_target` names the actor the last HitFrame query reached, and
+`equip_melee_weapon` gives and equips a weapon so a headless script can arm
+the player.
 
 Sources read: `godot-docs` PhysicsServer3D and PhysicsDirectSpaceState3D for
-body state, kinematic mode and ray exclusion. `activeragdoll/src/utils.cpp`
+body state, body modes and ray exclusion. `activeragdoll/src/utils.cpp`
 `GetWeaponNode` for the `WEAPON` and `SHIELD` node names, and
 `activeragdoll/include/math_utils.h` `ForwardVector` for the blade axis.
 `CommonLibSSE` `MiddleHighProcessData::weaponBone` confirms the engine keeps
@@ -1814,7 +1823,19 @@ writes its placement. No NPC pose is sampled yet: `SkinnedActorNode` renders
 through a RenderingServer skeleton RID, not a Skeleton3D, so a scene has to
 call `melee_bone_contact` with a pose it computed itself. The fallback to the
 hand bone keeps the WEAPON node's axis, which is only approximate for a hand.
-No live Godot run has exercised the new bodies or entry points.
+Checks: `crates/game/tests/cmb_28_contact_actors.rs` covers the World list
+and the reach formula across a cell change, and
+`crates/godot-host/tests/cmb_28_body_sync.rs` covers the body sync plan and
+the segment. `godot/cmb_28_contact_test.gd` runs on installed data from the
+Bannered Mare through its load door on Godot 4.7.2. Every body sits at its
+World position, bodies carry across the door with unchanged RIDs, an armed
+HitFrame reaches the NPC beside the pose, a HitFrame pointed at the floor
+reports no actor, and teardown removes every body from its space. On that
+data `Game::melee_hit` then refuses the contact with "unsupported combat
+behavior: perk entry points", so hit resolution is still open and belongs to
+the combat rows, not to this one. Actor bodies are static query bodies, not
+kinematic: Jolt applies a kinematic transform only on the next physics step,
+so a body placed and queried in the same tick sat at the origin.
 
 ## Native save generations
 

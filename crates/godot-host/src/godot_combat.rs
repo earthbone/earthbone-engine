@@ -62,7 +62,9 @@ pub fn weapon_bone_pose(skeleton: &Gd<Skeleton3D>, hand: Hand) -> Result<Transfo
         .iter()
         .map(|name| skeleton.find_bone(*name))
         .find(|index| *index >= 0)
-        .ok_or(Error::Unsupported("skeleton has no weapon bone for the swing hand"))?;
+        .ok_or(Error::Unsupported(
+            "skeleton has no weapon bone for the swing hand",
+        ))?;
     Ok(skeleton.get_global_transform() * skeleton.get_bone_global_pose(bone))
 }
 

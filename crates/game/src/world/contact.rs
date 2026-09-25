@@ -64,7 +64,11 @@ impl World {
             let position = reference.position;
             let rotation = reference.rotation;
             let placed = reference.scale;
-            if !position.iter().chain(rotation.iter()).all(|v| v.is_finite()) {
+            if !position
+                .iter()
+                .chain(rotation.iter())
+                .all(|v| v.is_finite())
+            {
                 continue;
             }
             let race = self.actor_controller_scale(base).unwrap_or(1.0);
