@@ -280,10 +280,11 @@ fn rich_world(namespace: u16) -> World {
 }
 
 /// Save `world` the way a version 23 engine would, without the exclusive
-/// dialogue branch field that version 24 added and the stagger end time
-/// field that version 29 added, both inside every actor record. Each is
-/// set to a unique sentinel so its serialized bytes can be located
-/// exactly, then cut back out.
+/// dialogue branch field that version 24 added, the stagger end time field
+/// that version 29 added, the witnessed crimes set that version 31 added,
+/// and the hand spell fields that version 32 added, all inside every actor
+/// record. Each is set to a unique sentinel so its serialized bytes can be
+/// located exactly, then cut back out.
 fn without_exclusive_branches(world: &mut World) -> Vec<u8> {
     let ids: Vec<_> = world.actors.keys().copied().collect();
     let mut markers = Vec::new();
@@ -317,6 +318,27 @@ fn without_exclusive_branches(world: &mut World) -> Vec<u8> {
         crime_marker.extend_from_slice(&crime_sentinel.file.to_le_bytes());
         crime_marker.extend_from_slice(&crime_sentinel.object.to_le_bytes());
         markers.push(crime_marker);
+
+        // `left_spell` and `right_spell` (version 32) are likewise written
+        // unconditionally, so a pre-32 emulated save must strip both.
+        let left_spell_sentinel = GlobalFormId {
+            file: u16::MAX,
+            object: 0xE000_0000 + index as u32,
+        };
+        let right_spell_sentinel = GlobalFormId {
+            file: u16::MAX,
+            object: 0xE100_0000 + index as u32,
+        };
+        world.actors.get_mut(id).unwrap().left_spell = Some(left_spell_sentinel);
+        world.actors.get_mut(id).unwrap().right_spell = Some(right_spell_sentinel);
+        let mut left_spell_marker = vec![1];
+        left_spell_marker.extend_from_slice(&left_spell_sentinel.file.to_le_bytes());
+        left_spell_marker.extend_from_slice(&left_spell_sentinel.object.to_le_bytes());
+        markers.push(left_spell_marker);
+        let mut right_spell_marker = vec![1];
+        right_spell_marker.extend_from_slice(&right_spell_sentinel.file.to_le_bytes());
+        right_spell_marker.extend_from_slice(&right_spell_sentinel.object.to_le_bytes());
+        markers.push(right_spell_marker);
     }
     let mut bytes = world.save_state();
     for id in &ids {
@@ -324,6 +346,8 @@ fn without_exclusive_branches(world: &mut World) -> Vec<u8> {
         actor.exclusive_branch = None;
         actor.stagger_end_time = None;
         actor.witnessed_crimes.clear();
+        actor.left_spell = None;
+        actor.right_spell = None;
     }
     for marker in markers {
         let at = bytes
@@ -434,7 +458,7 @@ fn sav_07_unknown_version_and_mixed_legacy_namespaces_are_rejected() {
     let mut world = rich_world(DYNAMIC_FILE);
     let before = world.save_state();
     for (version, message) in [
-        (32_u16, "world state version 32"),
+        (33_u16, "world state version 33"),
         (18, "created namespace in a legacy world state"),
     ] {
         let mut bytes = before.clone();

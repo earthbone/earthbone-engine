@@ -101,8 +101,12 @@ impl World {
     /// Read the current winning SPEL definition.
     pub fn spell(&self, id: GlobalFormId) -> Result<Spell, MagicError> {
         let rref = self.order.winner_ref(id).ok_or(MagicError::Missing(id))?;
+        let record = self.order.record(rref);
+        if record.is_deleted() {
+            return Err(MagicError::Missing(id));
+        }
         Ok(Spell::from_record(
-            self.order.record(rref),
+            record,
             self.order.file(rref.file).plugin.header.is_localized(),
         )?)
     }

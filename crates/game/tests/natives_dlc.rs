@@ -59,9 +59,18 @@ const SOUL_CAIRN_MUSIC: u32 = 0xA16;
 const TURN_QUEST: u32 = 0xA17;
 const FEED_SCENE: u32 = 0xA18;
 const HUNT_PACKAGE: u32 = 0xA19;
+const HAND_SPELL: u32 = 0xA1A;
 
 fn le(v: u32) -> [u8; 4] {
     v.to_le_bytes()
+}
+
+/// A minimal `SPIT` block with the spell type at byte 8, matching
+/// `crates/game/tests/ui_03_magic_menu.rs`. Type 0 is a hand-castable Spell.
+fn spit(spell_type: u32) -> Vec<u8> {
+    let mut data = vec![0_u8; 36];
+    data[8..12].copy_from_slice(&le(spell_type));
+    data
 }
 
 fn acbs(actor_flags: u32) -> Vec<u8> {
@@ -139,6 +148,11 @@ fn test_plugin() -> Plugin {
     p.push_top(Record::new(T(b"TXST"), EYES).zsub(EDID, "VampireEyes"));
     p.push_top(Record::new(T(b"RACE"), VAMPIRE_RACE).zsub(EDID, "VampireLordRace"));
     p.push_top(Record::new(T(b"SPEL"), DRAIN_SPELL).zsub(EDID, "DrainLife"));
+    p.push_top(
+        Record::new(T(b"SPEL"), HAND_SPELL)
+            .zsub(EDID, "TestFlames")
+            .sub(T(b"SPIT"), spit(0)),
+    );
     p.push_top(Record::new(T(b"MISC"), ASH_PILE).zsub(EDID, "AshPileBase"));
     p.push_top(Record::new(T(b"KYWD"), VAMPIRE_KEYWORD).zsub(EDID, "VampireDress"));
     p.push_top(clothing(VAMPIRE_ARMOR, "VampireRobes").sub(T(b"KWDA"), le(VAMPIRE_KEYWORD)));
@@ -629,6 +643,57 @@ fn dispelling_never_removes_known_or_equipped_spells() {
     assert_eq!(
         call(&mut g, &vampire, "HasSpell", &[drain]),
         Value::Bool(false)
+    );
+    assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
+/// UI-03: EquipSpell with a hand source (0 left, 1 right) and the magic
+/// menu's `World::equip_hand_spell` land in the same state. A script that
+/// calls EquipSpell sees the change through GetEquippedSpell, and the menu
+/// reading `World::hand_spell` after a script equip sees it too, so neither
+/// can equip a hand the other does not know about.
+#[test]
+fn ui_03_equip_spell_native_and_the_magic_menu_share_one_hand_state() {
+    let mut g = game();
+    let vampire = obj(&mut g, "VampireRef");
+    let spell = obj(&mut g, "TestFlames");
+    let vampire_id = form(&g, "VampireRef");
+    let spell_id = form(&g, "TestFlames");
+
+    call(&mut g, &vampire, "AddSpell", &[spell.clone()]);
+    call(
+        &mut g,
+        &vampire,
+        "EquipSpell",
+        &[spell.clone(), Value::Int(1)],
+    );
+
+    assert_eq!(
+        call(&mut g, &vampire, "GetEquippedSpell", &[Value::Int(1)]),
+        spell,
+        "the native getter must read back what EquipSpell just wrote"
+    );
+    let via_menu = g
+        .world_mut()
+        .hand_spell(vampire_id, soe_game::combat::Hand::Right);
+    assert_eq!(
+        via_menu,
+        Some(spell_id),
+        "the menu reads the same hand state the native equip just set"
+    );
+    assert_eq!(
+        call(&mut g, &vampire, "GetEquippedSpell", &[Value::Int(0)]),
+        Value::None,
+        "the left hand was never equipped"
+    );
+
+    call(&mut g, &vampire, "UnequipSpell", &[spell, Value::Int(1)]);
+    let via_menu_after_unequip = g
+        .world_mut()
+        .hand_spell(vampire_id, soe_game::combat::Hand::Right);
+    assert_eq!(
+        via_menu_after_unequip, None,
+        "UnequipSpell must clear the same hand state EquipSpell set"
     );
     assert!(errors(&g).is_empty(), "{:?}", errors(&g));
 }
