@@ -54,7 +54,9 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// Version 30 retains shared stealth-point pools and observer awareness.
 /// Version 31 retains which perpetrators an actor witnessed committing a
 /// tracked crime.
-pub const SAVE_VERSION: u16 = 31;
+/// Version 32 retains each hand's explicitly assigned spell, so a menu or
+/// script equip survives a reload the way a hand weapon selection already did.
+pub const SAVE_VERSION: u16 = 32;
 
 #[derive(Clone, Copy)]
 pub(crate) enum FormNamespace {
@@ -1392,6 +1394,8 @@ fn write_actor_state(w: &mut Writer, a: &ActorState) {
         w.f64(until);
     }
     write_form_set(w, &a.witnessed_crimes);
+    write_opt_form_id(w, a.left_spell);
+    write_opt_form_id(w, a.right_spell);
 }
 
 fn write_form_set(w: &mut Writer, set: &BTreeSet<GlobalFormId>) {
@@ -1510,6 +1514,10 @@ fn read_actor_state(r: &mut FormReader<'_, '_>, version: u16) -> Result<ActorSta
     }
     if version >= 31 {
         a.witnessed_crimes = read_form_set(r)?;
+    }
+    if version >= 32 {
+        a.left_spell = read_opt_form_id(r)?;
+        a.right_spell = read_opt_form_id(r)?;
     }
     Ok(a)
 }

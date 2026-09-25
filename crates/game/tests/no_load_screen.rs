@@ -471,7 +471,7 @@ fn the_crossing_test_is_the_thing_that_decides_when_events_fire() {
 }
 
 #[test]
-fn nearby_prefetch_uses_only_source_cell_coordinates_without_residency_changes() {
+fn hst_07_approaching_a_load_door_selects_its_link_without_unrelated_cell_coordinates() {
     let g = staged();
     let before = g.world().loaded_reference_count();
     let selected = g

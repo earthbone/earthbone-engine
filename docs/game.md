@@ -2957,6 +2957,53 @@ requires a carried weapon or armor before calling these operations, so a stale
 selection cannot create an item. The host's inventory_menu tests cover shared
 armor slots, worn-marker cleanup and rejected missing or unowned selections.
 
+UI-03 adds `World::equip_hand_spell` and `World::hand_spell` in
+`world/spell_hand.rs`, following the existing `weapon_hands.rs` split of
+explicit-slot state from the known-item set. `ActorState` gains `left_spell`
+and `right_spell`, independent of `left_weapon`/`right_weapon` so a weapon
+and a spell can occupy the same named hand at once, matching vanilla dual
+wield of a one-handed weapon against a spell. `equip_hand_spell` rejects a
+spell the actor does not know and any SPIT spell type other than 0 ("Spell"
+in xEdit's SPEL enum), the CK wiki's EquipSpell/UnequipSpell hand argument
+convention (0 left, 1 right). `hand_spell` reads back the assigned spell only
+while the actor still knows it, mirroring `weapon_hands::hand_weapon`'s
+stale-entry handling. Both new fields are covered by `state_hash` alongside
+the existing weapon-hand fields, for World/replay determinism.
+
+`save.rs` carries `left_spell`/`right_spell` from `SAVE_VERSION` 32 onward,
+written unconditionally (the writer always emits the current format) and read
+behind `if version >= 32`, the same pattern `witnessed_crimes` used for
+version 31. An older save simply loads with both hands empty, matching how a
+pre-31 save loads with no witnessed crimes. The version-31 unknown-version
+probe in `save_tests.rs` moved to 33 so it still names a version past the
+current one.
+
+`natives.rs`'s `EquipSpell`/`UnequipSpell`/`GetEquippedSpell` now share
+`equip_hand_spell`/`unequip_hand_spell`/`hand_spell` with the menu for source
+0 and 1 (left and right hand), so a script equip and a menu equip are the
+same state and either can see the other's result. `equip_hand_spell` also
+keeps the actor's generic `equipped` set in sync (inserting on equip, removing
+once neither hand holds a form) so `IsEquipped` and other `equipped`-set
+readers agree with the hand slots. Sources 2 and 3 (voice and instant, used
+for Powers and Lesser Powers) fall back to the old direct `equipped` set
+write, since those spell types are rejected by `equip_hand_spell` and have no
+hand to occupy.
+
+`godot-host/src/magic_menu.rs` builds the known-spell list through the same
+force-build-then-read path `inventory_menu.rs` uses (`World::actor` once,
+then `World::actor_ref`), and `godot_player/magic.rs` wires it to the host's
+open/select/equip calls, so the Godot-side magic menu equips through
+`equip_hand_spell` too. `game/tests/ui_03_magic_menu.rs` covers
+`equip_hand_spell`, `unequip_hand_spell`, `hand_spell` and the save round
+trip: equipping to a hand, the opposite hand staying untouched, an unknown
+spell rejected, a Power rejected as not hand-castable, a deleted SPEL record
+rejected, and a hand spell surviving a `save_state`/`load_state` cycle.
+`godot-host/tests/ui_03_magic_menu_adversarial.rs` covers the menu path: a
+cold actor still listing its spells, a deleted record excluded from the list
+and rejected on equip, and `EquipSpell`/menu equip agreeing on
+`GetEquippedSpell`. The existing `world.rs` and `hash.rs` suites were left
+unchanged since neither exercised the two new fields before this change.
+
 ## Actor controller scale, CMB-33
 
 `race::Attributes` reads two more pairs from `RACE`'s `DATA` prefix,

@@ -55,6 +55,7 @@ mod forms;
 pub mod hash;
 mod inventory;
 mod inventory_restore;
+mod spell_hand;
 mod weapon_hands;
 pub use inventory_restore::InventoryRestoreReport;
 pub mod image_space;
@@ -217,6 +218,11 @@ pub struct ActorState {
     /// Explicit weapon slots. The equipment set retains armor and spell membership.
     pub left_weapon: Option<GlobalFormId>,
     pub right_weapon: Option<GlobalFormId>,
+    /// Explicit casting-hand spell slots, set through `World::equip_hand_spell`.
+    /// Independent of `left_weapon`/`right_weapon`, both a weapon and a spell
+    /// slot may hold a value for the same hand at once.
+    pub left_spell: Option<GlobalFormId>,
+    pub right_spell: Option<GlobalFormId>,
     /// The package driver's state, see `crate::ai`.
     pub ai: crate::ai::AiState,
     pub perks: BTreeSet<GlobalFormId>,

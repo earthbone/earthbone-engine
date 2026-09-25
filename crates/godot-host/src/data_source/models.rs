@@ -28,6 +28,10 @@ pub(crate) fn model_for(record: &Record) -> Option<String> {
         || record.tag == Tag::new(b"CONT")
     {
         soe_esm::cursor::zstring(record.find(Tag::new(b"MODL"))?)
+    } else if record.tag == tag::GRAS {
+        soe_esm::records::gras::Grass::from_record(record)
+            .ok()?
+            .model?
     } else {
         return None;
     };

@@ -78,6 +78,10 @@ pub struct CellStreamerNode {
     /// sees them: a batch is a mesh RID and an instance RID in this node's
     /// scenario, freed in `exit_tree`, so a cell costs no `Node3D` at all.
     instances: Vec<Instance>,
+    /// The `CELL` each streamed exterior grid position resolved to, so
+    /// `release_exterior_cell` can find that cell's instances by the grid
+    /// coordinate `cell_unload_requested` carries.
+    exterior_cells: std::collections::HashMap<CellCoord, GlobalFormId>,
     /// `StandardMaterial3D` per texture set, kept across stream calls so a
     /// texture uploaded for one cell serves every later cell that names it.
     materials: MaterialMap,
@@ -237,6 +241,8 @@ struct StreamTotals {
     instances: usize,
     largest_batch: usize,
     land_cells: usize,
+    water_planes: usize,
+    grass_placements: usize,
     world: String,
     cell_list: Vec<String>,
 }
@@ -244,6 +250,7 @@ struct StreamTotals {
 impl StreamTotals {
     fn add_cell(&mut self, loaded: &LoadedCell) {
         self.cells += 1;
+        self.water_planes += loaded.stats.water_plane_count;
         self.references += loaded.stats.references;
         self.statics += loaded.stats.statics_with_model;
         self.furniture += loaded.stats.furniture_with_model;
@@ -252,6 +259,7 @@ impl StreamTotals {
         self.meshes_failed += loaded.stats.meshes_failed;
         self.triangles += loaded.stats.triangles;
         self.surfaces += loaded.surfaces.len();
+        self.grass_placements += loaded.stats.grass_placements;
     }
 
     fn to_dictionary(&self, materials: usize) -> VarDictionary {
@@ -269,6 +277,8 @@ impl StreamTotals {
         d.set("largest_batch", self.largest_batch as i64);
         d.set("materials", materials as i64);
         d.set("land_cells", self.land_cells as i64);
+        d.set("water_planes", self.water_planes as i64);
+        d.set("grass_placements", self.grass_placements as i64);
         d.set("world", self.world.as_str());
         d.set("cell_list", self.cell_list.join(" ").as_str());
         d
@@ -291,6 +301,7 @@ impl INode3D for CellStreamerNode {
             data_source: None,
             data_load: None,
             instances: Vec::new(),
+            exterior_cells: std::collections::HashMap::new(),
             materials: MaterialMap::new(),
             bounds: None,
             last_stats: VarDictionary::new(),
@@ -659,6 +670,8 @@ impl CellStreamerNode {
                 totals.land_cells += 1;
             }
             totals.cell_list.push(format!("({},{})", cell.x, cell.y));
+            self.exterior_cells
+                .insert(CellCoord::new(cell.x, cell.y), cell.id);
             self.add_cell(cell.id, &loaded_cell, scenario, &mut totals);
         });
         if let Err(e) = result {
@@ -676,6 +689,41 @@ impl CellStreamerNode {
     #[func]
     pub fn last_stats(&self) -> VarDictionary {
         self.last_stats.clone()
+    }
+
+    /// One dictionary per drawn instance that carries a water plane:
+    /// `cell` (the owning cell's form id as text), `rid` (the
+    /// RenderingServer instance), `height` (the plane's Godot y in metres),
+    /// `material` (the material set as the instance's override),
+    /// `opacity` (the WATR `ANAM` byte) and `shallow_color`. Lets a scene
+    /// script check what is drawn against the record it came from.
+    #[func]
+    pub fn water_planes(&mut self) -> Array<VarDictionary> {
+        let mut out = Array::new();
+        let drawn: Vec<(GlobalFormId, Rid, MaterialDesc, f32)> = self
+            .instances
+            .iter()
+            .filter(|i| i.arrays.material.water.is_some())
+            .map(|i| (i.cell, i.rid, i.arrays.material.clone(), i.bounds.min.y))
+            .collect();
+        for (cell, rid, desc, height) in drawn {
+            let Some(water) = desc.water.as_ref() else {
+                continue;
+            };
+            // The cache hands back the same material `add_cell` set as the
+            // override, the key covers every water field it reads.
+            let material = material_for(&mut self.materials, &desc, &SurfaceTextures::default());
+            let [r, g, b] = water.shallow_color;
+            let mut d = VarDictionary::new();
+            d.set("cell", cell.to_string().as_str());
+            d.set("rid", rid);
+            d.set("height", height);
+            d.set("material", &material);
+            d.set("opacity", i64::from(water.opacity));
+            d.set("shallow_color", Color::from_rgb(r, g, b));
+            out.push(&d);
+        }
+        out
     }
 
     /// Instances alive in this node's scenario.
@@ -702,6 +750,65 @@ impl CellStreamerNode {
             );
         }
         result
+    }
+
+    /// What the exterior cell at grid `cell_x`, `cell_y` currently draws:
+    /// `instances` (every batch), `multimeshes` (instanced batches, where
+    /// grass lands) and `multimesh_members` (placements across them). All
+    /// zero when the cell is not resident.
+    #[func]
+    pub fn exterior_cell_batches(&self, cell_x: i32, cell_y: i32) -> VarDictionary {
+        let owner = self
+            .exterior_cells
+            .get(&CellCoord::new(cell_x, cell_y))
+            .copied();
+        let mut instances = 0_i64;
+        let mut multimeshes = 0_i64;
+        let mut members = 0_i64;
+        for instance in self.instances.iter().filter(|i| Some(i.cell) == owner) {
+            instances += 1;
+            if let BatchTable::Instances(refs) = &instance.table {
+                multimeshes += 1;
+                members += refs.len() as i64;
+            }
+        }
+        let mut result = VarDictionary::new();
+        result.set("instances", instances);
+        result.set("multimeshes", multimeshes);
+        result.set("multimesh_members", members);
+        result
+    }
+
+    /// Frees every batch the exterior cell at grid `cell_x`, `cell_y` drew,
+    /// grass `MultiMesh` batches included, and marks the cell unloaded in
+    /// the streamer. This is the answer to `cell_unload_requested`: without
+    /// it a streamed cell's batches stay in the scenario until `clear`.
+    /// Returns the number of batches freed, 0 when the cell is not resident.
+    #[func]
+    pub fn release_exterior_cell(&mut self, cell_x: i32, cell_y: i32) -> i32 {
+        let coord = CellCoord::new(cell_x, cell_y);
+        if let Some(s) = self.streamer.as_mut() {
+            s.mark_unloaded(coord);
+        }
+        let Some(owner) = self.exterior_cells.remove(&coord) else {
+            return 0;
+        };
+        let (released, kept): (Vec<Instance>, Vec<Instance>) = std::mem::take(&mut self.instances)
+            .into_iter()
+            .partition(|i| i.cell == owner);
+        self.instances = kept;
+        let mut server = RenderingServer::singleton();
+        let count = released.len();
+        for instance in released {
+            server.free_rid(instance.rid);
+            drop(instance.mesh);
+        }
+        self.bounds = self
+            .instances
+            .iter()
+            .map(|i| i.bounds)
+            .reduce(crate::batch::merge_bounds);
+        count as i32
     }
 
     /// Merged bounds of everything streamed so far, in Godot metres. An
@@ -944,6 +1051,7 @@ impl CellStreamerNode {
         self.collision.free();
         self.collision_space = None;
         self.free_instances();
+        self.exterior_cells.clear();
         self.ref_cache.clear();
         self.clear_terrain_lod();
         self.bounds = None;
@@ -1231,15 +1339,37 @@ fn material_for(
     if let Some(existing) = cache.materials.get(&key) {
         return existing.clone();
     }
-    let material: Gd<Material> =
-        if desc.decal_depth().is_some() || desc.environment_texture().is_some() {
-            decal_material(desc, textures, &mut cache.textures, &mut cache.cubemaps).upcast()
-        } else {
-            material_with_textures(desc, textures, &mut cache.textures).upcast()
-        };
+    let material: Gd<Material> = if let Some(water) = &desc.water {
+        water_material(water).upcast()
+    } else if desc.decal_depth().is_some() || desc.environment_texture().is_some() {
+        decal_material(desc, textures, &mut cache.textures, &mut cache.cubemaps).upcast()
+    } else {
+        material_with_textures(desc, textures, &mut cache.textures).upcast()
+    };
     cache.materials.insert(key, material.clone());
     material
 }
+
+/// A water plane's material from its `WATR` shading data: the shallow
+/// color as albedo, `ANAM` opacity as its alpha, blended when below full,
+/// and visible from below as well as above since the camera can swim under
+/// it. Deep and reflection colors, the noise layers and the fog ranges wait
+/// for a water shader, `docs/godot-host.md` lists them.
+pub fn water_material(water: &crate::mesh::WaterMaterial) -> Gd<StandardMaterial3D> {
+    let mut mat = StandardMaterial3D::new_gd();
+    let [r, g, b] = water.shallow_color;
+    mat.set_albedo(Color::from_rgba(r, g, b, water.alpha()));
+    if water.opacity < u8::MAX {
+        mat.set_transparency(Transparency::ALPHA);
+    }
+    mat.set_cull_mode(CullMode::DISABLED);
+    mat.set_roughness(WATER_ROUGHNESS);
+    mat
+}
+
+/// Low roughness keeps a sharp highlight, closer to calm water than the
+/// default matte finish.
+const WATER_ROUGHNESS: f32 = 0.05;
 
 /// Shader materials add authored cubemap reflection or mesh decal depth state.
 /// Community Shaders supplies the cubemap, red mask and normal alpha contract.

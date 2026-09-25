@@ -29,6 +29,11 @@ const SUPPORTED_ARMOR_SLOTS: u32 = (1 << 14) - 1;
 const POWER_ATTACK_STAMINA_BASE: f32 = 40.0;
 const POWER_ATTACK_STAMINA_PER_WEIGHT: f32 = 2.0;
 
+/// A poisoned stack's index in `Inventory::stacks` alongside its poison
+/// item, threaded from `combat_stack_poison` through `check_combat_weapon`
+/// to `melee_hit`'s deferred consumption step (CMB-25).
+type PoisonStack = Option<(usize, GlobalFormId)>;
+
 impl World {
     /// Return the selected difficulty tier.
     #[must_use]
@@ -153,6 +158,15 @@ impl World {
                 .is_some_and(|attacker| attacker.equipped.contains(&hit.weapon))
         {
             self.combat_stack_quality(hit.attacker, hit.weapon)?;
+            // Poison (CMB-25) only ever applies to an ordinary weapon swing,
+            // never a bash: the bash branch still rejects it unconditionally
+            // through `check_no_poison_or_enchant`. Reading it here too,
+            // ahead of the target's lazy initialization, gives an ambiguous
+            // or malformed poisoned stack the same fail-fast treatment
+            // quality already gets.
+            if !hit.is_bash {
+                self.combat_stack_poison(hit.attacker, hit.weapon)?;
+            }
         }
         let target = self.actor_ref(hit.target).ok_or(Error::Actor(hit.target))?;
         let (record_protected, record_essential) = (target.protected, target.essential);
@@ -203,6 +217,7 @@ impl World {
         // Unarmed contacts have no WEAP record to carry a Stagger fraction,
         // so they never stagger. No corpus source states an unarmed default.
         let mut bash_stamina_cost = None;
+        let mut poison_stack: PoisonStack = None;
         let (
             weapon_damage,
             stagger_fraction,
@@ -291,9 +306,9 @@ impl World {
             if self.item_count(hit.attacker, hit.weapon) <= 0 {
                 return Err(Error::Equipment);
             }
-            let quality_multiplier = self
-                .check_combat_stack(hit.attacker, hit.weapon)?
-                .unwrap_or(1.0);
+            let (quality, poison) = self.check_combat_weapon(hit.attacker, hit.weapon)?;
+            poison_stack = poison;
+            let quality_multiplier = quality.unwrap_or(1.0);
             let skill = match weapon.skill {
                 6 => "onehanded",
                 7 => "twohanded",
@@ -498,6 +513,22 @@ impl World {
                 attacker.values = values;
             }
         }
+        // Poison (CMB-25) applies and clears last, after every other part of
+        // the hit has already committed, the same deferred placement
+        // bash_stamina_cost and attacker_stamina above use. A poison error
+        // here can leave the physical hit committed with the coating still
+        // on the weapon, the same accepted partial-commit risk those two
+        // already carry for this function.
+        let mut poisoned = false;
+        if let Some((index, poison_item)) = poison_stack {
+            self.apply_poison(hit.attacker, poison_item, hit.target, alloc)?;
+            if let Some(reference) = self.reference(hit.attacker) {
+                reference
+                    .inventory
+                    .clear_stack_extra(hit.weapon, index, 62)?;
+            }
+            poisoned = true;
+        }
         let killed = !bleedout_target && lethal && self.kill_actor(hit.target, Some(hit.attacker));
         Ok(HitResult {
             weapon_damage,
@@ -510,6 +541,7 @@ impl World {
             killed,
             staggered,
             bashed: hit.is_bash,
+            poisoned,
         })
     }
 
@@ -655,6 +687,87 @@ impl World {
     ) -> Result<Option<f32>, Error> {
         self.check_no_poison_or_enchant(actor, item)?;
         self.combat_stack_quality(actor, item)
+    }
+
+    /// Rejects an equipped weapon stack that carries an enchantment (kind
+    /// 155), but allows poison (kind 62): CMB-25 lets an ordinary weapon
+    /// swing read and consume a poisoned stack instead of rejecting it
+    /// outright. Bash and armor still reject poison unconditionally through
+    /// `check_no_poison_or_enchant`, only the ordinary weapon branch of
+    /// `melee_hit` calls this. A missing reference or an item count of zero
+    /// or less rejects too.
+    fn check_no_enchant(&self, actor: GlobalFormId, item: GlobalFormId) -> Result<(), Error> {
+        let reference = self.refs.get(&actor).ok_or(Error::Actor(actor))?;
+        if reference.inventory.count(item) <= 0 {
+            return Err(Error::Equipment);
+        }
+        if reference
+            .inventory
+            .stacks(item)
+            .iter()
+            .any(|stack| stack.extras().iter().any(|extra| extra.kind == 155))
+        {
+            return Err(Error::Unsupported("enchanted item instances"));
+        }
+        Ok(())
+    }
+
+    /// Read the equipped weapon's quality and poisoned stack together for an
+    /// ordinary melee swing, after rejecting an enchanted stack. Poison is
+    /// read instead of rejected, unlike `check_combat_stack`. See
+    /// `combat_stack_quality` and `combat_stack_poison`.
+    fn check_combat_weapon(
+        &self,
+        actor: GlobalFormId,
+        item: GlobalFormId,
+    ) -> Result<(Option<f32>, PoisonStack), Error> {
+        self.check_no_enchant(actor, item)?;
+        let quality = self.combat_stack_quality(actor, item)?;
+        let poison = self.combat_stack_poison(actor, item)?;
+        Ok((quality, poison))
+    }
+
+    /// Read-only poison pass shared by `check_combat_weapon` and the early
+    /// validation in `melee_hit` (CMB-25, CommonLib `ExtraPoison`, kind 62).
+    /// Returns the stack's index in `Inventory::stacks` alongside the poison
+    /// item, so the caller can clear that exact stack's coating without
+    /// touching any other stack of the same item. `None` when no stack
+    /// carries poison.
+    ///
+    /// The equipped set is form-only (docs/combat.md, CMB-03: "does not
+    /// infer item-instance selection from a form-only equipment set"), so a
+    /// hit cannot name which physical stack the attacker swung. When more
+    /// than one stack of the item carries poison, the selected stack cannot
+    /// be determined, so the contact rejects instead of guessing, the same
+    /// rule `combat_stack_quality` applies to tempered value. Unlike
+    /// quality, agreement across stacks does not help here: consumption
+    /// needs one physical index, not just an agreeing value, so any second
+    /// poisoned stack rejects even if it names the same poison and count.
+    fn combat_stack_poison(
+        &self,
+        actor: GlobalFormId,
+        item: GlobalFormId,
+    ) -> Result<PoisonStack, Error> {
+        let reference = self.refs.get(&actor).ok_or(Error::Actor(actor))?;
+        let mut poison: PoisonStack = None;
+        for (index, stack) in reference.inventory.stacks(item).iter().enumerate() {
+            let Some(extra) = stack.extra(62) else {
+                continue;
+            };
+            let [crate::inventory::Field::Form(Some(form)), crate::inventory::Field::Word(count)] =
+                extra.fields.as_slice()
+            else {
+                return Err(Error::Unsupported("malformed weapon poison extra"));
+            };
+            if *count == 0 {
+                return Err(Error::Unsupported("malformed weapon poison extra"));
+            }
+            if poison.is_some() {
+                return Err(Error::Unsupported("ambiguous poisoned item instances"));
+            }
+            poison = Some((index, *form));
+        }
+        Ok(poison)
     }
 
     /// Read-only quality pass shared by `check_combat_stack` and the early

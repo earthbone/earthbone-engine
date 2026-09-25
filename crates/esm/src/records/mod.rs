@@ -10,8 +10,10 @@
 
 pub mod cell;
 pub mod gameplay;
+pub mod gras;
 pub mod land;
 pub mod lctn;
+pub mod ltex;
 pub mod navm;
 pub mod race;
 pub mod refr;

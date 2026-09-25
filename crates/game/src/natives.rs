@@ -17,6 +17,7 @@ use soe_esm::{GlobalFormId, Tag};
 use soe_papyrus::{NativeCall, NativeReturn, ObjectId, Value, Vm};
 
 use crate::clock::GameClock;
+use crate::combat::Hand;
 use crate::conditions;
 use crate::world::{reaction, AnimationListener, Handle, LeveledEntry, LosListener, World};
 
@@ -1353,6 +1354,19 @@ fn actor(vm: &mut Vm, w: &Shared) {
         };
         b(world.actor(me).is_some_and(|a| a.equipped.contains(&item)))
     });
+    // "Gets the spell the actor currently has equipped in the specified
+    // source", 0 left hand, 1 right hand (ck-wiki GetEquippedSpell - Actor).
+    // Sources 2 (other) and 3 (instant) have no per-hand state here, the
+    // same gap EquipSpell/UnequipSpell leave for those two sources below.
+    method!(vm, w, "Actor", "GetEquippedSpell", |world, call, me| {
+        let hand = match call.arg(0).as_int() {
+            0 => Hand::Left,
+            1 => Hand::Right,
+            _ => return form_value(world, call, None),
+        };
+        let spell = world.hand_spell(me, hand);
+        form_value(world, call, spell)
+    });
     method!(vm, w, "Actor", "IsInFaction", |world, call, me| {
         let Some(faction) = world.form_arg(&call.arg(0)) else {
             return b(false);
@@ -2661,9 +2675,31 @@ fn dlc(vm: &mut Vm, w: &Shared) {
         none()
     });
     // "Forces this actor to equip thes spell, in the specified source."
-    // The source is the hand, which the engine does not model yet.
+    // Sources 0 and 1 are the two casting hands (ck-wiki EquipSpell -
+    // Actor), routed through the same `World::equip_hand_spell` the native
+    // magic menu uses (`crates/godot-host/src/magic_menu.rs`), so a script
+    // equip and a menu equip are one state. Sources 2 (other) and 3
+    // (instant) have no per-hand slot here.
+    //
+    // `Actor.equipped` still gets the generic insert or remove on every
+    // source, matching the pre-hand-routing contract other natives
+    // (`IsEquipped`, dispel immunity) already read. A source of 0 or 1 also
+    // tries the per-hand slot, best effort: a spell the hand rejects (wrong
+    // type, not known, no cost data) still counts as equipped for those
+    // generic readers, it just never shows up in a hand.
     method!(vm, w, "Actor", "EquipSpell", |world, call, me| {
         if let Some(spell) = world.form_arg(&call.arg(0)) {
+            let hand = match call.arg(1).as_int() {
+                0 => Some(Hand::Left),
+                1 => Some(Hand::Right),
+                _ => None,
+            };
+            if let Some(hand) = hand {
+                if let Err(error) = world.equip_hand_spell(me, hand, spell) {
+                    call.log
+                        .push(call.time, format!("Actor.EquipSpell: {error}"));
+                }
+            }
             if let Some(a) = world.actor(me) {
                 a.equipped.insert(spell);
             }
@@ -2672,6 +2708,15 @@ fn dlc(vm: &mut Vm, w: &Shared) {
     });
     method!(vm, w, "Actor", "UnequipSpell", |world, call, me| {
         if let Some(spell) = world.form_arg(&call.arg(0)) {
+            match call.arg(1).as_int() {
+                0 => {
+                    let _ = world.unequip_hand_spell(me, Hand::Left, spell);
+                }
+                1 => {
+                    let _ = world.unequip_hand_spell(me, Hand::Right, spell);
+                }
+                _ => {}
+            }
             if let Some(a) = world.actor(me) {
                 a.equipped.remove(&spell);
             }
@@ -3227,7 +3272,6 @@ fn stubs(vm: &mut Vm) -> usize {
         ("Actor", "SetForcedLandingMarker"),
         ("Actor", "GetEquippedWeapon"),
         ("Actor", "GetEquippedShield"),
-        ("Actor", "GetEquippedSpell"),
         ("Actor", "GetVoiceRecoveryTime"),
         ("Faction", "SendAssaultAlarm"),
         ("Faction", "SendPlayerToJail"),
