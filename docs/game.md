@@ -2850,3 +2850,26 @@ both the actor's equipped entry and the inventory's worn markers. The menu
 requires a carried weapon or armor before calling these operations, so a stale
 selection cannot create an item. The host's inventory_menu tests cover shared
 armor slots, worn-marker cleanup and rejected missing or unowned selections.
+
+UI-03 adds `World::equip_hand_spell` and `World::hand_spell` in
+`world/spell_hand.rs`, following the existing `weapon_hands.rs` split of
+explicit-slot state from the known-item set. `ActorState` gains `left_spell`
+and `right_spell`, independent of `left_weapon`/`right_weapon` so a weapon
+and a spell can occupy the same named hand at once, matching vanilla dual
+wield of a one-handed weapon against a spell. `equip_hand_spell` rejects a
+spell the actor does not know and any SPIT spell type other than 0 ("Spell"
+in xEdit's SPEL enum), the CK wiki's EquipSpell/UnequipSpell hand argument
+convention (0 left, 1 right). `hand_spell` reads back the assigned spell only
+while the actor still knows it, mirroring `weapon_hands::hand_weapon`'s
+stale-entry handling. Both new fields are covered by `state_hash` alongside
+the existing weapon-hand fields, for World/replay determinism, but neither
+field is written into the `.ess`-compatible save format yet: a reload through
+`save.rs` clears both hands even though the actor's known-spell set survives.
+`natives.rs`'s `EquipSpell`/`UnequipSpell`/`GetEquippedSpell` natives still
+read and write the separate `a.equipped` set from script calls, so a script
+equip and a menu equip are not yet the same state. `game/tests/
+ui_03_magic_menu.rs` covers `equip_hand_spell` and `hand_spell` directly:
+equipping to a hand, the opposite hand staying untouched, an unknown spell
+rejected and a Power rejected as not hand-castable. The existing `world.rs`
+and `hash.rs` suites were left unchanged since neither exercised the two new
+fields before this change.
