@@ -2248,15 +2248,31 @@ Placement itself is a synthetic `Refr` built at the placement's world
 position and yaw, fed straight into the existing
 `DataSource::load_static_surfaces(&model, &refr, true)`, the same private
 method STAT, FURN, DOOR and CONT already share, with instancing forced on.
-No new rendering path was needed: `src/batch.rs`'s `MultiMesh` instancing
-from RND-04 (`INSTANCE_MIN_PLACEMENTS`, `instancing_candidates`) groups any
-repeated `mesh_identity` across a cell regardless of what placed it, and
-`CellStreamerNode`'s cell-tagged instance table already frees every
-instance, grass included, when its cell leaves the streamed set
-(`apply_cell_delta`). Both were exercised unchanged. `stream_exterior_each`
-in `src/data_source/exterior.rs` calls `grass_surfaces_for_cell` right after
+The placements of one cell are collected first, in `ATXT` order, and built
+through `build_all` like the cell's statics, so the per-cell
+`INSTANCE_MIN_PLACEMENTS` test in `src/batch.rs` (RND-04) sees every copy of a
+grass model at once and `instancing_candidates` folds them into one
+`MultiMesh` per model and material. `stream_exterior_each` in
+`src/data_source/exterior.rs` calls `grass_surfaces_for_cell` right after
 building each cell's terrain surface, using the same reconciled height grid,
-and folds the instance count into `CellStats::grass_placements`.
+and folds the instance count into `CellStats::grass_placements`, which
+`stream_exterior` reports as the `grass_placements` key.
+
+Release follows the cell. `stream_exterior` records which `CELL` each grid
+position resolved to, and `release_exterior_cell(cell_x, cell_y)` frees that
+cell's instances, grass `MultiMesh` batches included, so a
+`cell_unload_requested(cell_x, cell_y)` from `CellStreamer` can be wired
+straight to it. `release_exterior_cell` returns how many instances it freed,
+and `cell_instances` drops the cell's key afterwards.
+
+`data_source::grass_tests` drives this on a synthetic `LAND`, `LTEX`, `GRAS`
+and `STAT` plugin written by the test: `rnd_11_...` checks that two streams
+produce identical placements, that neighbouring cells with the same paint
+differ, that a fully painted cell stops at `MAX_GRASS_PLACEMENTS_PER_CELL`
+and forms one `MultiMesh`, and that moving a `CellStreamer` focus away emits
+the unload of the grass cell and restreaming the new set leaves it out.
+`godot/rnd_11_test.gd` runs the same path inside Godot through
+`stream_exterior` and `release_exterior_cell`.
 
 Open gaps, none closed by this row:
 
@@ -2274,12 +2290,6 @@ Open gaps, none closed by this row:
   applied. Every placement draws upright with yaw-only rotation and uniform
   scale from the height-range jitter alone.
 - `wave_period`, the wind-sway parameter, has no shader consumer yet.
-- Each placement reparses its model's NIF, the same per-reference cost every
-  other static already pays through `load_static_surfaces`. The placement
-  caps bound this, but a densely painted cell with many distinct grass
-  models still reparses each one once per instance rather than once per
-  model, unlike a NIF-level mesh cache would.
-- No live-data validation. Confirming the fixture-level claim (a `LAND`
-  grass fixture creates deterministic placement batches and releases them on
-  unload) against a real painted cell needs a Godot run with `SKYRIM_DATA`
-  set, which this row's instructions withhold along with any new test.
+- The `CellStreamer` release path in the Godot layer only follows
+  `stream_exterior` grid positions. `stream_cell` by editor id does not
+  record one, so `release_exterior_cell` cannot drop a cell loaded that way.

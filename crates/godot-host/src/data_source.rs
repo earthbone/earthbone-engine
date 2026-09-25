@@ -936,4 +936,7 @@ mod fixture;
 mod environment_tests;
 
 #[cfg(test)]
+mod grass_tests;
+
+#[cfg(test)]
 mod marker_shape_tests;

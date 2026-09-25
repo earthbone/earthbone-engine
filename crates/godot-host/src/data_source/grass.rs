@@ -24,6 +24,9 @@
 //! than a value the record states outright, so it is left out of this pass.
 //! `docs/godot-host.md` carries this as an open gap.
 
+use std::collections::HashMap;
+use std::sync::Arc;
+
 use soe_esm::records::gras::Grass;
 use soe_esm::records::land::{Land, ALPHA_GRID_SIDE, VERTS_PER_SIDE};
 use soe_esm::records::ltex::LandTexture;
@@ -44,7 +47,7 @@ const MAX_INSTANCES_PER_QUAD: usize = 6;
 /// cost every other static already pays in `load_static_surfaces`, so this
 /// also keeps a densely painted cell's streaming time reasonable until
 /// placements share one decoded mesh instead of one each.
-const MAX_GRASS_PLACEMENTS_PER_CELL: usize = 512;
+pub(super) const MAX_GRASS_PLACEMENTS_PER_CELL: usize = 512;
 
 /// Quadrant row and column offsets into the cell's 33 by 33 height grid.
 /// `Land::quadrants` is documented "Bottom left, bottom right, top left,
@@ -123,22 +126,21 @@ impl DataSource {
     /// quadrant texture FormIDs and, downstream, `LTEX` `GNAM` FormIDs
     /// resolve against. `heights` is the cell's own decoded, seam
     /// reconciled height grid, the same array `stream_exterior_each` builds
-    /// for the terrain surface. Returns the built surfaces alongside the
-    /// number of instances placed, which can differ from the surface count
-    /// when a grass model has more than one shape.
+    /// for the terrain surface. Placements are collected in a fixed order
+    /// (quadrant, row, column, layer, `GNAM` entry, instance) before any
+    /// model is built, so the surface order is the same on every stream.
     pub(super) fn grass_surfaces_for_cell(
         &self,
         cell: &ExteriorCell,
         land_id: GlobalFormId,
         land: &Land,
         heights: &[f32],
-    ) -> (Vec<LoadedSurface>, usize) {
+    ) -> GrassBuild {
         let Some(land_file) = self.order().winner_ref(land_id).map(|r| r.file) else {
-            return (Vec::new(), 0);
+            return GrassBuild::default();
         };
         let step = crate::units::CELL_UNITS / (VERTS_PER_SIDE - 1) as f32;
-        let mut out = Vec::new();
-        let mut placed = 0usize;
+        let mut work: Vec<(String, Refr, GlobalFormId)> = Vec::new();
 
         'cell: for (q, quadrant) in land.quadrants.iter().enumerate() {
             let (row_off, col_off) = QUADRANT_OFFSETS[q];
@@ -189,7 +191,7 @@ impl DataSource {
                             }
                             let count = instance_count(grass.density, alpha.opacity);
                             for instance in 0..count {
-                                if placed >= MAX_GRASS_PLACEMENTS_PER_CELL {
+                                if work.len() >= MAX_GRASS_PLACEMENTS_PER_CELL {
                                     break 'cell;
                                 }
                                 let s = seed(cell, q, row, col, instance);
@@ -233,38 +235,77 @@ impl DataSource {
                                     world: None,
                                     in_persistent_group: false,
                                 };
-                                match self.load_static_surfaces(&model, &refr, true) {
-                                    Ok(LoadedStatic::Surfaces {
-                                        built,
-                                        instance_transform,
-                                        ..
-                                    }) => {
-                                        let identity_base = model.to_lowercase();
-                                        for (shape_index, (arrays, textures)) in
-                                            built.into_iter().enumerate()
-                                        {
-                                            out.push(LoadedSurface {
-                                                reference: grass_id,
-                                                arrays,
-                                                textures,
-                                                instance_transform,
-                                                mesh_identity: Some(std::sync::Arc::<str>::from(
-                                                    format!("{identity_base}#{shape_index}"),
-                                                )),
-                                            });
-                                        }
-                                    }
-                                    Err(e) => {
-                                        eprintln!("stream_exterior: grass {grass_id}: {e}");
-                                    }
-                                }
-                                placed += 1;
+                                work.push((model.clone(), refr, grass_id));
                             }
                         }
                     }
                 }
             }
         }
-        (out, placed)
+        self.build_grass(&work)
     }
+
+    /// Builds the collected placements through the same `build_all` path a
+    /// cell's statics take, so the per-cell `INSTANCE_MIN_PLACEMENTS` count
+    /// decides instancing here too. A model placed fewer times than that
+    /// keeps its placement baked into its vertices, the way a rarely used
+    /// static does, since `instancing_candidates` hands short groups back to
+    /// the merged batches, which expect world-space geometry.
+    fn build_grass(&self, work: &[(String, Refr, GlobalFormId)]) -> GrassBuild {
+        let mut model_counts: HashMap<String, usize> = HashMap::new();
+        for (model, _, _) in work {
+            *model_counts.entry(model.to_lowercase()).or_insert(0) += 1;
+        }
+        let results = match self.build_all(work, &model_counts) {
+            Ok(results) => results,
+            Err(e) => {
+                eprintln!("stream_exterior: grass build: {e}");
+                return GrassBuild::default();
+            }
+        };
+        let mut build = GrassBuild::default();
+        for ((model, refr, grass_id), result) in work.iter().zip(results) {
+            match result {
+                Ok(LoadedStatic::Surfaces {
+                    built,
+                    instance_transform,
+                    ..
+                }) => {
+                    build.placed += 1;
+                    let placement = super::placement_iso(refr);
+                    let identity_base = instance_transform.is_some().then(|| model.to_lowercase());
+                    for (shape_index, (arrays, textures)) in built.into_iter().enumerate() {
+                        let mesh_identity = identity_base
+                            .as_ref()
+                            .map(|base| Arc::<str>::from(format!("{base}#{shape_index}")));
+                        build.surfaces.push(LoadedSurface {
+                            reference: *grass_id,
+                            arrays,
+                            textures,
+                            placement,
+                            instance_transform,
+                            mesh_identity,
+                        });
+                    }
+                }
+                Err(e) => {
+                    eprintln!("stream_exterior: grass {grass_id}: {e}");
+                    build.failed += 1;
+                }
+            }
+        }
+        build
+    }
+}
+
+/// One cell's grass, built and ready to append to its `LoadedCell`.
+#[derive(Default)]
+pub(super) struct GrassBuild {
+    /// Surfaces for every placement that built, one per model shape.
+    pub(super) surfaces: Vec<LoadedSurface>,
+    /// Placements whose model built, which can differ from the surface
+    /// count when a grass model has more than one shape.
+    pub(super) placed: usize,
+    /// Placements whose model failed to read or parse.
+    pub(super) failed: usize,
 }
