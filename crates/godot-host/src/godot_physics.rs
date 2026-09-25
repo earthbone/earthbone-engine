@@ -25,6 +25,7 @@ use soe_esm::GlobalFormId;
 use soe_game::world::ContactActor;
 use soe_physics::{Collider, Iso, Shape, Vec3};
 
+use crate::collision::PlacedCollider;
 use crate::combat::{plan_body_sync, BodySyncPlan};
 use crate::units::{SkyrimPos, METRES_PER_UNIT};
 
@@ -41,28 +42,121 @@ pub struct GodotCollisionStats {
     pub skipped: usize,
 }
 
+/// One collider's live server state, grouped so a reference's body and
+/// shapes can be freed and rebuilt together when it moves. `reference` and
+/// `original` are `None` for a body [`add_statics`] created, which has no
+/// per-reference identity to sync against.
+struct StaticEntry {
+    reference: Option<GlobalFormId>,
+    /// The reference's placement at load time, the baseline a runtime move
+    /// is diffed against. `source.transform` already has this baked in.
+    /// Never reassigned: every rebuild recomputes its delta against this
+    /// same value, never against the last placement applied, or a second
+    /// move of the same reference would drift.
+    original: Option<Iso>,
+    /// The unmoved collider, in Skyrim space, never mutated. A move
+    /// recomputes a fresh top-level transform from this, so repeated moves
+    /// never drift from composing deltas onto an already-moved copy.
+    source: Collider,
+    /// The last visibility and placement `sync_placements` applied, so an
+    /// unchanged reference costs one comparison instead of a body rebuild.
+    /// `None` until the first sync.
+    synced: Option<(bool, Iso)>,
+    body: Rid,
+    shapes: Vec<Rid>,
+}
+
 /// The server side handles for one cell's collision, so a caller can free
 /// them when the cell unloads. Dropping this does not free anything, the
 /// server owns the ids, call [`CellBodies::free`].
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub struct CellBodies {
-    pub bodies: Vec<Rid>,
-    pub shapes: Vec<Rid>,
+    entries: Vec<StaticEntry>,
     pub stats: GodotCollisionStats,
 }
 
 impl CellBodies {
+    /// Every static body's RID, in insertion order. Diagnostic callers may
+    /// inspect these handles, but must not free them, `free` owns that.
+    pub fn body_rids(&self) -> impl Iterator<Item = Rid> + '_ {
+        self.entries.iter().map(|entry| entry.body)
+    }
+
     /// Releases every id back to the server. A cell that unloads must call
     /// this, the server does not reclaim ids on its own.
     pub fn free(&mut self) {
         let mut server = PhysicsServer3D::singleton();
-        for body in self.bodies.drain(..) {
-            server.free_rid(body);
-        }
-        for shape in self.shapes.drain(..) {
-            server.free_rid(shape);
+        for entry in self.entries.drain(..) {
+            server.free_rid(entry.body);
+            for shape in entry.shapes {
+                server.free_rid(shape);
+            }
         }
         self.stats = GodotCollisionStats::default();
+    }
+
+    /// Pushes a tracked reference's current placement and visibility to the
+    /// physics server, once per distinct change. Called every host tick, but
+    /// `entry.synced` makes an unmoved reference cost one comparison: a body
+    /// rebuild is real work, not a cheap idempotent server call (contrast
+    /// `body_set_space` below, which stays unconditional in its own branches
+    /// since re-issuing it costs nothing).
+    ///
+    /// A disabled reference has its body pulled out of `space`, matching
+    /// vanilla's "not present in the simulation" contract rather than a
+    /// visual-only hide (`docs/godot-host.md`, "Runtime reference sync").
+    /// A moved reference has its body and shapes freed and rebuilt from
+    /// `source` through [`flatten`], the same Skyrim-space path
+    /// [`add_placed_statics`] used to build them, so no world-space
+    /// transform is hand-derived here, and the delta is always taken
+    /// against `entry.original`, never against a previous move, so a
+    /// reference moved many times over many ticks never drifts. Entries
+    /// [`add_statics`] created (`reference: None`) are left untouched.
+    pub fn sync_placements(&mut self, world: &soe_game::World, space: Rid) {
+        let mut server = PhysicsServer3D::singleton();
+        for entry in &mut self.entries {
+            let (Some(reference), Some(original)) = (entry.reference, entry.original) else {
+                continue;
+            };
+            let Some(target) = world.ref_placement(reference) else {
+                continue;
+            };
+            let target_iso = Iso::placement(target.position, target.rotation, target.scale);
+            let key = (target.visible, target_iso);
+            if entry.synced == Some(key) {
+                continue;
+            }
+            entry.synced = Some(key);
+            if !target.visible {
+                server.body_set_space(entry.body, Rid::Invalid);
+                continue;
+            }
+            if target_iso == original {
+                server.body_set_space(entry.body, space);
+                continue;
+            }
+            let delta = target_iso.then(&original.inverse());
+            let mut moved = entry.source.clone();
+            moved.transform = delta.then(&entry.source.transform);
+            server.free_rid(entry.body);
+            self.stats.bodies = self.stats.bodies.saturating_sub(1);
+            self.stats.shapes = self.stats.shapes.saturating_sub(entry.shapes.len());
+            for shape in entry.shapes.drain(..) {
+                server.free_rid(shape);
+            }
+            match build_body(&mut server, space, &moved, &mut self.stats) {
+                Some((body, shapes)) => {
+                    entry.body = body;
+                    entry.shapes = shapes;
+                }
+                None => {
+                    // Flattened to nothing, a degenerate scale. Leave an
+                    // empty body rather than a dangling freed one.
+                    entry.body = server.body_create();
+                    entry.shapes = Vec::new();
+                }
+            }
+        }
     }
 }
 
@@ -76,74 +170,124 @@ pub fn add_statics(space: Rid, colliders: &[Collider]) -> CellBodies {
     let mut out = CellBodies::default();
 
     for collider in colliders.iter().filter(|c| c.is_static()) {
-        let mut prims = Vec::new();
-        flatten(&collider.shape, &collider.transform, &mut prims);
-        if prims.is_empty() {
-            out.stats.skipped += 1;
-            continue;
+        if let Some((body, shapes)) = build_body(&mut server, space, collider, &mut out.stats) {
+            out.entries.push(StaticEntry {
+                reference: None,
+                original: None,
+                source: collider.clone(),
+                synced: None,
+                body,
+                shapes,
+            });
         }
-        let body = server.body_create();
-        server.body_set_mode(body, godot::classes::physics_server_3d::BodyMode::STATIC);
-        server.body_set_space(body, space);
-        for prim in prims {
-            let mut transform = Transform3D::IDENTITY;
-            let shape = match prim {
-                GodotPrim::Trimesh(faces) => {
-                    out.stats.triangles += faces.len() / 3;
-                    let rid = server.concave_polygon_shape_create();
-                    let mut data: Dictionary<Variant, Variant> = Dictionary::new();
-                    let packed: PackedVector3Array = faces.into_iter().collect();
-                    data.set("faces", &packed);
-                    data.set("backface_collision", true);
-                    server.shape_set_data(rid, &data.to_variant());
-                    rid
-                }
-                GodotPrim::Box {
-                    half_extents,
-                    placement,
-                } => {
-                    transform = placement;
-                    let rid = server.box_shape_create();
-                    server.shape_set_data(rid, &half_extents.to_variant());
-                    rid
-                }
-                GodotPrim::Convex(points) => {
-                    let rid = server.convex_polygon_shape_create();
-                    let packed: PackedVector3Array = points.into_iter().collect();
-                    server.shape_set_data(rid, &packed.to_variant());
-                    rid
-                }
-                GodotPrim::Sphere { radius, centre } => {
-                    transform.origin = centre;
-                    let rid = server.sphere_shape_create();
-                    server.shape_set_data(rid, &radius.to_variant());
-                    rid
-                }
-                GodotPrim::Capsule {
-                    height,
-                    radius,
-                    placement,
-                } => {
-                    transform = placement;
-                    let rid = server.capsule_shape_create();
-                    let mut data: Dictionary<Variant, Variant> = Dictionary::new();
-                    data.set("height", height);
-                    data.set("radius", radius);
-                    server.shape_set_data(rid, &data.to_variant());
-                    rid
-                }
-            };
-            server
-                .body_add_shape_ex(body, shape)
-                .transform(transform)
-                .done();
-            out.shapes.push(shape);
-            out.stats.shapes += 1;
-        }
-        out.bodies.push(body);
-        out.stats.bodies += 1;
     }
     out
+}
+
+/// Adds every static collider to `space`, keeping each body's owning
+/// reference and load-time placement so [`CellBodies::sync_placements`] can
+/// later hide or move it. The reference-tracked sibling of [`add_statics`].
+pub fn add_placed_statics(space: Rid, colliders: &[PlacedCollider]) -> CellBodies {
+    let _span = soe_trace::Span::new("host.godot_physics", "host");
+    let mut server = PhysicsServer3D::singleton();
+    let mut out = CellBodies::default();
+
+    for placed in colliders.iter().filter(|p| p.collider.is_static()) {
+        if let Some((body, shapes)) =
+            build_body(&mut server, space, &placed.collider, &mut out.stats)
+        {
+            out.entries.push(StaticEntry {
+                reference: Some(placed.reference),
+                original: Some(placed.original),
+                source: placed.collider.clone(),
+                synced: None,
+                body,
+                shapes,
+            });
+        }
+    }
+    out
+}
+
+/// Flattens `collider` and builds one static body with one shape per
+/// primitive. `None` when it flattens to nothing, the caller counts that as
+/// skipped. Shared by [`add_statics`], [`add_placed_statics`] and
+/// [`CellBodies::sync_placements`], so a moved reference's rebuilt body goes
+/// through exactly the same Skyrim-space-to-Godot conversion as its first
+/// build.
+fn build_body(
+    server: &mut Gd<PhysicsServer3D>,
+    space: Rid,
+    collider: &Collider,
+    stats: &mut GodotCollisionStats,
+) -> Option<(Rid, Vec<Rid>)> {
+    let mut prims = Vec::new();
+    flatten(&collider.shape, &collider.transform, &mut prims);
+    if prims.is_empty() {
+        stats.skipped += 1;
+        return None;
+    }
+    let body = server.body_create();
+    server.body_set_mode(body, godot::classes::physics_server_3d::BodyMode::STATIC);
+    server.body_set_space(body, space);
+    let mut shapes = Vec::with_capacity(prims.len());
+    for prim in prims {
+        let mut transform = Transform3D::IDENTITY;
+        let shape = match prim {
+            GodotPrim::Trimesh(faces) => {
+                stats.triangles += faces.len() / 3;
+                let rid = server.concave_polygon_shape_create();
+                let mut data: Dictionary<Variant, Variant> = Dictionary::new();
+                let packed: PackedVector3Array = faces.into_iter().collect();
+                data.set("faces", &packed);
+                data.set("backface_collision", true);
+                server.shape_set_data(rid, &data.to_variant());
+                rid
+            }
+            GodotPrim::Box {
+                half_extents,
+                placement,
+            } => {
+                transform = placement;
+                let rid = server.box_shape_create();
+                server.shape_set_data(rid, &half_extents.to_variant());
+                rid
+            }
+            GodotPrim::Convex(points) => {
+                let rid = server.convex_polygon_shape_create();
+                let packed: PackedVector3Array = points.into_iter().collect();
+                server.shape_set_data(rid, &packed.to_variant());
+                rid
+            }
+            GodotPrim::Sphere { radius, centre } => {
+                transform.origin = centre;
+                let rid = server.sphere_shape_create();
+                server.shape_set_data(rid, &radius.to_variant());
+                rid
+            }
+            GodotPrim::Capsule {
+                height,
+                radius,
+                placement,
+            } => {
+                transform = placement;
+                let rid = server.capsule_shape_create();
+                let mut data: Dictionary<Variant, Variant> = Dictionary::new();
+                data.set("height", height);
+                data.set("radius", radius);
+                server.shape_set_data(rid, &data.to_variant());
+                rid
+            }
+        };
+        server
+            .body_add_shape_ex(body, shape)
+            .transform(transform)
+            .done();
+        shapes.push(shape);
+        stats.shapes += 1;
+    }
+    stats.bodies += 1;
+    Some((body, shapes))
 }
 
 /// Primitive dimensions are in metres, following PhysicsServer3D's shape data.

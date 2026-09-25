@@ -52,7 +52,9 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// Version 28 retains do-all dialogue cycles.
 /// Version 29 retains an actor's stagger end time.
 /// Version 30 retains shared stealth-point pools and observer awareness.
-pub const SAVE_VERSION: u16 = 30;
+/// Version 31 retains which perpetrators an actor witnessed committing a
+/// tracked crime.
+pub const SAVE_VERSION: u16 = 31;
 
 #[derive(Clone, Copy)]
 pub(crate) enum FormNamespace {
@@ -1389,6 +1391,7 @@ fn write_actor_state(w: &mut Writer, a: &ActorState) {
     if let Some(until) = a.stagger_end_time {
         w.f64(until);
     }
+    write_form_set(w, &a.witnessed_crimes);
 }
 
 fn write_form_set(w: &mut Writer, set: &BTreeSet<GlobalFormId>) {
@@ -1504,6 +1507,9 @@ fn read_actor_state(r: &mut FormReader<'_, '_>, version: u16) -> Result<ActorSta
     a.equipped_shout = read_opt_form_id(r)?;
     if version >= 29 && r.bool()? {
         a.stagger_end_time = Some(r.f64()?);
+    }
+    if version >= 31 {
+        a.witnessed_crimes = read_form_set(r)?;
     }
     Ok(a)
 }

@@ -190,6 +190,8 @@ fn hit(attacker: u32, target: u32) -> MeleeHit {
         attacker: id(attacker),
         target: id(target),
         weapon: id(0xA00),
+        is_bash: false,
+        is_power_attack: false,
     }
 }
 fn unarmed_hit(attacker: u32, target: u32) -> MeleeHit {
@@ -197,6 +199,8 @@ fn unarmed_hit(attacker: u32, target: u32) -> MeleeHit {
         attacker: id(attacker),
         target: id(target),
         weapon: id(0x1F4),
+        is_bash: false,
+        is_power_attack: false,
     }
 }
 fn equip(game: &Game, actor: u32, item: u32) {
@@ -466,16 +470,21 @@ fn unarmed_rejects_unsupported_canonical_weapon_modifiers() {
         88,
         0,
     );
+    // CMB-26: the "Ignores Normal Weapon Resistance" flag no longer rejects
+    // the weapon, it only suppresses the resistance reduction term, so
+    // `flagged` (an otherwise ordinary unarmed contact) now succeeds instead
+    // of joining the rejection loop below.
+    let mut ignoring = ready_unarmed_game_with_source(race(0x700, 10.), Some(flagged));
+    assert!(ignoring.melee_hit(unarmed_hit(0x900, 0x901)).is_ok());
     for source in [
         unarmed_weapon().sub(Tag(*b"EITM"), 0x123_u32.to_le_bytes()),
-        flagged,
         resistant,
     ] {
         let mut game = ready_unarmed_game_with_source(race(0x700, 10.), Some(source));
         assert!(matches!(
             game.melee_hit(unarmed_hit(0x900, 0x901)),
             Err(Error::Unsupported(
-                "weapon template or enchantment" | "weapon resistance or non-hostile flags"
+                "weapon template or enchantment" | "unsupported weapon resistance value"
             ))
         ));
     }
@@ -563,6 +572,8 @@ fn installed_race_backed_unarmed_hits_execute() {
                 attacker,
                 target,
                 weapon: id(0x1F4),
+                is_bash: false,
+                is_power_attack: false,
             })
             .unwrap();
         assert!(result.health_damage.is_finite());
@@ -640,6 +651,8 @@ fn a_fieldless_cross_plugin_weapon_template_uses_the_winning_master_record() {
             attacker: id(0x14),
             target: id(0x901),
             weapon,
+            is_bash: false,
+            is_power_attack: false,
         })
         .unwrap();
     close(result.weapon_damage, 37.5);
@@ -674,6 +687,8 @@ fn a_fieldless_cross_plugin_armor_template_uses_the_winning_master_record() {
             attacker: id(0x14),
             target: id(0x901),
             weapon,
+            is_bash: false,
+            is_power_attack: false,
         })
         .unwrap();
     close(result.armor_rating, 300.);
@@ -990,6 +1005,8 @@ fn installed_weapon_and_armor_fields_decode_and_ordinary_weapons_execute() {
             attacker,
             target,
             weapon: *form,
+            is_bash: false,
+            is_power_attack: false,
         }) {
             Ok(result) => {
                 assert!(result.health_damage.is_finite());

@@ -16,13 +16,13 @@ impl PlayerNode {
     /// Diagnostic callers may inspect these handles, but must not free them.
     #[func]
     pub fn contact_collision_bodies(&self) -> Array<Rid> {
-        self.query_collision.bodies.iter().copied().collect()
+        self.query_collision.body_rids().collect()
     }
 
     /// Shape count for the current query location, for host resource diagnostics.
     #[func]
     pub fn contact_collision_shape_count(&self) -> i64 {
-        self.query_collision.shapes.len() as i64
+        self.query_collision.stats.shapes as i64
     }
 
     /// Register an existing actor physics body without allocating a host node.

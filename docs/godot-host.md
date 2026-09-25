@@ -42,6 +42,12 @@ on interruption. The audit made no host runtime changes, added no scene nodes
 and performed no Godot run. It therefore supplies no motion, collision-cost or
 cleanup measurement.
 
+HST-04 is implemented, see "Runtime enable and placement reflection, HST-04"
+below: a script-driven or editor-driven change to `World` now reaches both
+rendering and collision at the next tick. That direction (World to host) is
+separate from what HST-12 still owns, physics-driven rigid bodies pushing a
+pose back into World, and this row does not narrow HST-12's remaining scope.
+
 ### Spawn Hazard prerequisites, MAG-61
 
 The MAG-61 audit on 2026-09-20 found no host path for HAZD or PHZD.
@@ -562,6 +568,82 @@ The `StandardMaterial3D` cache moved from a per-call local to the node. It now i
 alpha and culling state in its key, with a separate path-keyed texture upload cache,
 so a texture uploaded for one cell serves every later cell that names it. `last_stats`
 reports the materials a call created, not the cache size.
+
+### Runtime enable and placement reflection, HST-04
+
+A batch bakes each source surface's placement into its vertices once, at load
+time. Nothing updated a batch again after that, so a script-driven move,
+disable or Creation Kit style drag never reached the mesh or its collision
+after the first tick. `CellStreamerNode::sync_reference_changes(&World)`
+closes that gap and is called once a tick from `PlayerNode::advance_game`,
+before anything that frame reads geometry or collision, so an enable or
+placement change lands the same tick it is written to `World`. `World` stays
+the sole source of truth throughout, satisfying the record-backed authority
+rule from the HST-12 section above: the host reads `World::ref_placement`
+every tick and never writes a pose back into it.
+
+Collision and rendering both gate their expensive path on a per-reference
+cache of the last applied `(visible, Iso)`, called every tick but doing real
+work only on an actual change:
+
+- Collision (`CellBodies::sync_placements`, in `godot_physics.rs`) keeps
+  the cache on each `StaticEntry`. An unchanged reference costs one
+  comparison. A changed one either moves the body between `space` and
+  `Rid::Invalid` (cheap, so this part runs even for a reference this cache
+  has never seen), or, for an actual placement change, frees the body and
+  its shapes and rebuilds them through the same `flatten`/`build_body` path
+  `add_placed_statics` used, since a Godot static body's collision shapes
+  bake their world placement into their own data or local transform and
+  cannot be nudged by moving the body alone.
+- Rendering (the new method above) keeps its cache on the `CellStreamerNode`
+  instead, keyed by reference across every batch, and only rebuilds a
+  batch's `ArrayMesh` when one of its members' cached value disagrees with
+  `World`. A batch can hold hundreds of members sharing one mesh, one
+  `RenderingServer` instance and one index buffer, so rebuilding every
+  batch every tick regardless of change would cost far more than the map
+  lookups the cache adds.
+
+Either side's delta is always computed against the reference's placement at
+load time, never against the last placement applied, so a reference moved
+many times over many ticks accumulates no drift. An earlier version of
+`sync_placements` reassigned its baseline to the latest placement after each
+move, which is exactly the composing-onto-an-already-moved-copy mistake the
+"always rebuild from an immutable baseline" rule above exists to avoid, and
+was caught and fixed before any external run exercised a second move of the
+same reference.
+
+Hiding a reference also differs by side, because each side's resource model
+differs. Collision removes the body from the physics space
+(`body_set_space(body, Rid::Invalid)`), matching vanilla's "not present in
+the simulation" contract, and a later re-enable puts it back with
+`body_set_space(body, space)`. Rendering cannot remove vertices, since every
+reference after the hidden one in the shared index buffer would need
+renumbering, so a hidden member's whole vertex range collapses onto its first
+vertex instead, a zero-area triangle fan that draws nothing and costs no
+buffer resize.
+
+Both sides rebuild from an immutable, never-mutated baseline recorded at load
+time (`StaticEntry::source` for collision, the new `Instance::arrays` for
+rendering) rather than composing a move onto an already-moved copy, so a
+sequence of small edits cannot drift from what `World` actually holds. The
+move itself is a delta against that baseline's own placement:
+`delta = target_iso.then(&origin.inverse())`, where `origin` is the
+reference's placement as first loaded (`BatchTableMember::origin`, sourced
+from `LoadedSurface::placement`, `Iso::IDENTITY` for LAND) and `target_iso`
+comes from `World::ref_placement`. Applying `delta` to a baked point or
+direction reproduces the moved result directly, with no hand-derived
+world-space transform to keep in sync with the loader's own placement math.
+Position, normal and tangent arrays each round trip through `units.rs`'s
+Skyrim/Godot converters before and after the delta applies, since `delta` is
+built in Skyrim space like every other placement in this crate.
+
+This is the World-to-host direction only: a reference `World` already knows
+about, moved or hidden by a script, activation or the editor. HST-12's
+physics-driven rigid bodies, their host-to-World pose sync and their
+despawn/unload cleanup remain open, as does a per-reference prune of the
+render cache on cell unload (it is cleared wholesale on `clear`/`exit_tree`
+today, so a reference's cache entry outlives the cell it belonged to until
+the whole streamer resets).
 
 ### Compressed textures as they are
 
@@ -2024,6 +2106,125 @@ unrelated to the `.nif` collision phantoms this method reads. When CMB-28
 adds the actor body pipeline, this is the function it resolves shape and
 transform from, with `game::World::actor_controller_scale` (`docs/game.md`)
 supplying the scale argument.
+
+## Distant-terrain LOD residency, RND-03
+
+`crate::terrain_lod` decides which BTR terrain LOD blocks should stand in
+for full resolution LAND terrain (`exterior.rs::terrain_surface`) beyond the
+cells the cell streamer keeps loaded, and tracks a recorded byte budget for
+them. `data_source::lod::DataSource::load_lod_block` reads and builds one
+block's BTR file. `CellStreamerNode` drives both, see "The node" below.
+
+### BTR format and naming
+
+Mutagen's `SkyrimModelAssetType.cs` states BTR is "the same file format as
+.nif", and TES5Edit's `wbBSArchive.pas` lists `.btr` in the same `atMesh`
+asset class as `.nif`. `data_source::lod` reads a BTR file through
+`soe_nif::parse` and the same `mesh_data_from` and `build_surface` pipeline
+`load_static_surfaces` already uses for placed statics. A BTR's vertices are
+local to its block, a real level 4 Tamriel block builds to 0 to 4 cells on
+x and y under an identity NIF transform (`tests/terrain_lod_placement.rs`),
+so `load_lod_block` composes each shape's transform under a translation to
+the block's south-west cell, the part a `REFR` placement plays for a static.
+
+The file path, `meshes/terrain/<world editor id>/<world lowercase>.<level>.<x>.<y>.btr`,
+is confirmed against one real shipped file, `meshes\terrain\Vyn\vyn.32.-5.9.btr`
+in Wrye Bash's Enderal SE vanilla file list
+(`engine-refs/wrye-bash/Mopy/bash/game/enderalse/vanilla_files.py`, line 198),
+and against TES5Edit's `miWorldspaceFilterLODClick`
+(`engine-refs/TES5Edit/Build/Edit Scripts/Worldspace browser.pas`, lines
+895 to 935), which builds a block's LOD texture and mesh from the same base
+name and swaps only the extension. Only the level 32 case is an attested
+real file name. Levels 4, 8 and 16 follow the same pattern by construction,
+not by a second attested example.
+
+The LOD block sizes themselves, 4, 8, 16 and 32 cells to a side, come from
+TES5Edit's tree and object LOD generator (`Core/wbLOD.pas`,
+`LODLevelMin`/`LODLevelMax`), the only LOD block sizes the corpus documents.
+No corpus source documents landscape LOD generation the way `wbLOD.pas`
+documents tree and object LOD, so `LodBlockCoord`'s block alignment mirrors
+`TwbLodSettings.BlockForCell` and this crate's own
+`terrain::RegionSpec::region_of` rather than a landscape-specific reference.
+
+### Residency and budget
+
+`TerrainLodStreamer` mirrors `streaming::CellStreamer`'s hysteresis: blocks
+between `full_res_radius` and `lod_radius` (ring distance in cells) are
+wanted, nearer or farther blocks are stale, loads and unloads are capped per
+tick and sorted nearest first or farthest first. `full_res_radius` should
+match the cell streamer's own `load_radius` so the two never disagree about
+which cells are near. One streamer covers one LOD level, a caller that wants
+more than one level resident at once runs one streamer per level with
+disjoint radius bands, finer levels nearer the focus. Picking a level by
+distance automatically is left to that caller, unstarted here.
+
+The residency budget is recorded, not estimated ahead of the read.
+`Mesh::approx_bytes()` (new in `soe_nif`, see `docs/nif.md`) sums each
+vertex's natural width plus four bytes an index. It charges normals
+unconditionally, since this crate's own `build_surface` generates a full
+normals buffer for a shape with none whenever `generate_missing_normals` is
+on (the default), and never charges vertex colors, since neither
+`MeshSource`, `MeshData` nor `SurfaceArrays` carries a color field for one
+to reach. Close enough to weigh a mesh against a budget without claiming to
+match any one renderer's exact buffer layout. `DataSource::load_lod_block`
+sums this across a block's shapes into `LoadedLodBlock::approx_bytes`, and a
+caller passes that to `TerrainLodStreamer::record_bytes` once the block is
+actually built, so `usage_bytes`, `over_budget` and `evict_to_budget` (hard
+cap, farthest first) reflect what was loaded rather than a guess made before
+the read.
+
+A missing BTR file is `Ok(None)`, not an error: a worldspace's LOD coverage
+rarely fills every block at every level, Tamriel's edges and any level above
+the one an area was baked at are the ordinary case. `load_lod_block` matches
+`soe_bsa::Error::NotFound` the same way `Vfs::read`'s other callers already
+do for a missing texture.
+
+### The node
+
+`CellStreamerNode.stream_terrain_lod(world, cell_x, cell_y, full_res_radius,
+lod_radius, budget_bytes)` resolves the worldspace by editor id, reads its
+`lodsettings` file for the block grid anchor and finest level (level 4 on a
+grid at cell (0, 0) when the file is missing), then settles a
+`TerrainLodStreamer` around the focus cell. Each planned block is read with
+`load_lod_block`, its bytes recorded, the budget enforced, and the blocks
+that survive are drawn as `RenderingServer` instances in the node's
+scenario, one per surface, kept apart from the cell instances so
+`cell_instances` still reports full resolution cells only. A block loaded
+and evicted in the same step is never uploaded. Pass the radius
+`stream_exterior` drew at as `full_res_radius`: a block is planned only when
+all of its cells lie beyond it, so LOD starts where full resolution LAND
+stops and the two never overlap.
+
+`update_terrain_lod(cell_x, cell_y)` is the per-frame form: one block read
+and two released a call, then the budget. `terrain_lod_resident_count`,
+`terrain_lod_usage_bytes` and `terrain_lod_stats` report residency, recorded
+bytes, the budget and what the last call loaded, found missing, failed and
+released. `clear_terrain_lod` frees the blocks, and `clear` and `exit_tree`
+free them with everything else.
+
+On this machine's install, Tamriel's `lodsettings` anchors the grid at
+(-96, -96) at level 4. Around cell (0, 0) with a full resolution radius of 2
+and a LOD radius of 12, the node draws 45 blocks, 66 instances and 93,065
+triangles for 2,659,852 recorded bytes in 61 ms, with no block missing or
+failing. With the budget set to half of that, 1,329,926 bytes, 22 blocks
+stay resident at 1,298,612 bytes and 23 are released. Checked headless on
+Godot 4.7.2 against the release build.
+
+### Open items
+
+- The node does not drive `update_terrain_lod` from `process`. The caller
+  calls it when the focus changes cell, the same way it answers the cell
+  signals, so a BTR read never lands on a frame the caller did not choose.
+- `TerrainLodStreamer` covers one LOD level. Picking a level by distance and
+  running several streamers at once (mentioned above) is unstarted.
+- `evict_to_budget` is a hard farthest-first cutoff with no hysteresis of
+  its own, so a focus that sits exactly on a budget boundary could evict and
+  reload the same farthest block repeatedly. The cell streamer's own
+  load/unload radius gap avoids this for full resolution cells, the same
+  gap is not yet given to eviction here.
+- No LOD texture or splat handling, `data_source::lod` builds surfaces with
+  whatever material the BTR's shapes carry, same as any other NIF, but nothing
+  here addresses a LOD-specific low-resolution texture atlas if one exists.
 
 ## Repeated rock instancing, RND-04 (2026-09-24)
 
