@@ -20,18 +20,27 @@ pub const MAX_REFERENCES: usize = 4096;
 // WhiterunBanneredMare 186.7 MiB, RiftenBeeandBarb 195.6 MiB,
 // SolitudeBluePalace 230.7 MiB, WhiterunJorrvaskr 269.9 MiB,
 // WhiterunDragonsreach 295.3 MiB. The previous 128 MiB cap rejected every
-// one of them, so the walkthrough acceptance never saw a prefetch start.
+// one of them, so no prepared interior could ever become ready.
 // 384 MiB keeps a real, enforced ceiling while clearing all five with
 // headroom above the largest.
 pub const MAX_PAYLOAD_BYTES: usize = 384 * 1024 * 1024;
 pub const MAX_COLLISION_PRIMITIVES: usize = 100_000;
 
 type Prepared = Result<Option<LoadedLocation>, DataSourceError>;
+type Loader = Box<dyn FnOnce() -> Prepared + Send + 'static>;
+
+/// What a finished worker hands back, so a cancelled job is never counted
+/// as a budget rejection.
+enum Outcome {
+    Ready(Box<LoadedLocation>),
+    Rejected,
+    Cancelled,
+}
 
 struct Job {
     destination: GlobalFormId,
     cancel: Arc<AtomicBool>,
-    worker: JoinHandle<Prepared>,
+    worker: JoinHandle<Result<Outcome, DataSourceError>>,
 }
 
 /// A single outstanding job or completed destination, never an unbounded queue.
@@ -39,6 +48,10 @@ struct Job {
 pub struct InteriorPrefetch {
     wanted: Option<GlobalFormId>,
     job: Option<Job>,
+    // The newest selection made while a job was still running. At most one is
+    // held, it replaces any earlier one, and it starts once that job is
+    // collected, so a changed selection is delayed rather than dropped.
+    queued: Option<(GlobalFormId, Loader)>,
     ready: Option<(GlobalFormId, LoadedLocation)>,
     pub started: u64,
     pub hits: u64,
@@ -50,6 +63,7 @@ impl InteriorPrefetch {
     /// Forget a stale destination without joining an unfinished worker.
     pub fn invalidate(&mut self) {
         self.wanted = None;
+        self.queued = None;
         self.ready = None;
         self.payload_bytes = 0;
         if let Some(job) = &self.job {
@@ -58,6 +72,7 @@ impl InteriorPrefetch {
     }
 
     /// Collect finished work only. An unfinished decode never blocks a frame.
+    /// A selection queued behind the collected job starts here.
     pub fn poll(&mut self) {
         if !self
             .job
@@ -67,26 +82,41 @@ impl InteriorPrefetch {
             return;
         }
         let Some(job) = self.job.take() else { return };
-        let cancelled = job.cancel.load(Ordering::Relaxed);
         match job.worker.join() {
-            Ok(Ok(Some(location))) if !cancelled && self.wanted == Some(job.destination) => {
+            Ok(Ok(Outcome::Ready(location))) if self.wanted == Some(job.destination) => {
                 self.payload_bytes = payload_bytes(&location);
-                self.ready = Some((job.destination, location));
+                self.ready = Some((job.destination, *location));
+                self.queued = None;
             }
-            Ok(Ok(_)) if cancelled => {}
-            _ => self.rejected += 1,
+            Ok(Ok(Outcome::Ready(_) | Outcome::Cancelled)) => {}
+            Ok(Ok(Outcome::Rejected) | Err(_)) | Err(_) => {
+                self.rejected += 1;
+                // A destination that just failed is not retried until the
+                // selection changes.
+                if self
+                    .queued
+                    .as_ref()
+                    .is_some_and(|(queued, _)| *queued == job.destination)
+                {
+                    self.queued = None;
+                }
+            }
+        }
+        if let Some((destination, load)) = self.queued.take() {
+            if self.wanted == Some(destination) {
+                self.start(destination, load);
+            }
         }
     }
 
     /// Schedule one eligible interior, with an authored-reference admission cap.
+    /// While a job runs, the newest selection waits for it instead of spawning
+    /// a second worker.
     pub fn request(&mut self, source: Arc<DataSource>, destination: GlobalFormId) {
         if self.wanted == Some(destination) {
             return;
         }
         self.invalidate();
-        if self.job.is_some() {
-            return;
-        }
         self.wanted = Some(destination);
         if !source.cell_index().is_interior(destination)
             || source.cell_index().references(destination).len() > MAX_REFERENCES
@@ -94,26 +124,40 @@ impl InteriorPrefetch {
             self.rejected += 1;
             return;
         }
-        self.start(destination, move || {
-            let source = source.speculative_view();
-            let location = source.load_location(destination, [0.0; 3], 0)?;
-            if !admitted(&location) {
-                eprintln!(
-                    "interior_prefetch: rejected {destination} payload={} primitives={}",
-                    payload_bytes(&location),
-                    location.collision.stats.primitives
-                );
-                return Ok(None);
-            }
-            Ok(Some(location))
-        });
+        self.schedule(
+            destination,
+            Box::new(move || {
+                let source = source.speculative_view();
+                let location = source.load_location(destination, [0.0; 3], 0)?;
+                if !admitted(&location) {
+                    eprintln!(
+                        "interior_prefetch: rejected {destination} payload={} primitives={}",
+                        payload_bytes(&location),
+                        location.collision.stats.primitives
+                    );
+                    return Ok(None);
+                }
+                Ok(Some(location))
+            }),
+        );
     }
 
-    fn start(
-        &mut self,
-        destination: GlobalFormId,
-        load: impl FnOnce() -> Prepared + Send + 'static,
-    ) {
+    /// Start `load` now, or hold it as the single queued selection while a
+    /// job runs.
+    fn schedule(&mut self, destination: GlobalFormId, load: Loader) {
+        if let Some(job) = &self.job {
+            // Returning to the door whose job is still running keeps that
+            // job. If the worker already saw the cancel, the queue restarts it.
+            if job.destination == destination {
+                job.cancel.store(false, Ordering::Relaxed);
+            }
+            self.queued = Some((destination, load));
+            return;
+        }
+        self.start(destination, load);
+    }
+
+    fn start(&mut self, destination: GlobalFormId, load: Loader) {
         if self.job.is_some() || self.ready.is_some() {
             return;
         }
@@ -124,9 +168,11 @@ impl InteriorPrefetch {
             .spawn(move || {
                 let prepared = load();
                 if worker_cancel.load(Ordering::Relaxed) {
-                    Ok(None)
+                    Ok(Outcome::Cancelled)
                 } else {
-                    prepared
+                    prepared.map(|location| {
+                        location.map_or(Outcome::Rejected, |l| Outcome::Ready(Box::new(l)))
+                    })
                 }
             }) {
             Ok(worker) => {
@@ -267,11 +313,14 @@ mod tests {
     fn unfinished_worker_never_blocks_poll_or_stale_transition() {
         let (release, wait) = std::sync::mpsc::channel();
         let mut prefetch = InteriorPrefetch::default();
-        prefetch.start(CELL, move || {
-            wait.recv().unwrap();
-            Ok(Some(location()))
-        });
-        prefetch.start(CELL, || panic!("a second worker must not start"));
+        prefetch.start(
+            CELL,
+            Box::new(move || {
+                wait.recv().unwrap();
+                Ok(Some(location()))
+            }),
+        );
+        prefetch.start(CELL, Box::new(|| panic!("a second worker must not start")));
         assert_eq!(prefetch.started, 1);
         prefetch.poll();
         assert!(prefetch.pending());
@@ -288,7 +337,7 @@ mod tests {
     #[test]
     fn completed_destination_is_consumed_once_and_only_for_matching_cell() {
         let mut prefetch = InteriorPrefetch::default();
-        prefetch.start(CELL, || Ok(Some(location())));
+        prefetch.start(CELL, Box::new(|| Ok(Some(location()))));
         finish(&mut prefetch);
         assert!(prefetch.take(GlobalFormId { file: 0, object: 2 }).is_none());
         assert!(prefetch.take(CELL).is_some());
@@ -297,7 +346,7 @@ mod tests {
     }
 
     #[test]
-    fn payload_and_collision_limits_reject_oversized_destinations() {
+    fn hst_07_bounded_budget_rejects_oversized_destinations() {
         let mut data = location();
         data.collision.stats.primitives = MAX_COLLISION_PRIMITIVES;
         assert!(admitted(&data));
@@ -348,17 +397,84 @@ mod tests {
     #[test]
     fn panicked_worker_is_collected_and_shutdown_joins_an_active_job() {
         let mut prefetch = InteriorPrefetch::default();
-        prefetch.start(CELL, || panic!("injected worker failure"));
+        prefetch.start(CELL, Box::new(|| panic!("injected worker failure")));
         finish(&mut prefetch);
         assert_eq!(prefetch.rejected, 1);
         let completed = Arc::new(AtomicBool::new(false));
         let worker_completed = Arc::clone(&completed);
-        prefetch.start(CELL, move || {
-            worker_completed.store(true, Ordering::SeqCst);
-            Ok(Some(location()))
-        });
+        prefetch.start(
+            CELL,
+            Box::new(move || {
+                worker_completed.store(true, Ordering::SeqCst);
+                Ok(Some(location()))
+            }),
+        );
         drop(prefetch);
         assert!(completed.load(Ordering::SeqCst));
+    }
+
+    /// What `request` does after its reference-count admission.
+    fn select(prefetch: &mut InteriorPrefetch, destination: GlobalFormId, load: Loader) {
+        if prefetch.wanted == Some(destination) {
+            return;
+        }
+        prefetch.invalidate();
+        prefetch.wanted = Some(destination);
+        prefetch.schedule(destination, load);
+    }
+
+    fn gated(
+        cell: GlobalFormId,
+        wait: std::sync::mpsc::Receiver<()>,
+    ) -> impl FnOnce() -> Prepared + Send + 'static {
+        move || {
+            let _ = wait.recv();
+            let mut prepared = location();
+            prepared.cells[0].0 = cell;
+            Ok(Some(prepared))
+        }
+    }
+
+    #[test]
+    fn hst_07_a_changed_selection_waits_for_the_running_job_and_then_starts() {
+        const OTHER: GlobalFormId = GlobalFormId { file: 0, object: 2 };
+        let (release, wait) = std::sync::mpsc::channel();
+        let mut prefetch = InteriorPrefetch::default();
+        select(&mut prefetch, CELL, Box::new(gated(CELL, wait)));
+        select(&mut prefetch, OTHER, Box::new(|| Ok(Some(location()))));
+        assert_eq!(prefetch.started, 1, "a second worker ran beside the first");
+        release.send(()).unwrap();
+        finish(&mut prefetch);
+        assert_eq!(prefetch.started, 2, "the newer selection was dropped");
+        assert_eq!(prefetch.ready_cell(), Some(OTHER));
+        assert!(prefetch.take(CELL).is_none(), "the stale job was published");
+        assert_eq!(prefetch.rejected, 0, "a cancel was counted as a rejection");
+    }
+
+    #[test]
+    fn hst_07_returning_to_the_running_door_keeps_its_job() {
+        let (release, wait) = std::sync::mpsc::channel();
+        let mut prefetch = InteriorPrefetch::default();
+        select(&mut prefetch, CELL, Box::new(gated(CELL, wait)));
+        prefetch.invalidate();
+        select(&mut prefetch, CELL, Box::new(|| Ok(Some(location()))));
+        release.send(()).unwrap();
+        finish(&mut prefetch);
+        assert!(prefetch.started <= 2);
+        assert!(
+            prefetch.take(CELL).is_some(),
+            "the returned-to door was lost"
+        );
+    }
+
+    #[test]
+    fn hst_07_a_rejected_destination_is_not_retried_for_the_same_selection() {
+        let mut prefetch = InteriorPrefetch::default();
+        select(&mut prefetch, CELL, Box::new(|| Ok(None)));
+        finish(&mut prefetch);
+        select(&mut prefetch, CELL, Box::new(|| panic!("retried")));
+        assert_eq!((prefetch.started, prefetch.rejected), (1, 1));
+        assert!(!prefetch.pending());
     }
     #[test]
     fn installed_bannered_mare_prefetch_admission() {

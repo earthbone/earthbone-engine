@@ -71,7 +71,10 @@ fn re_approaching_the_same_door_before_the_first_job_finishes_still_gets_prefetc
 
     let mut prefetch = InteriorPrefetch::default();
     prefetch.request(Arc::clone(&source), destination);
-    assert_eq!(prefetch.started, 1, "the first approach did not start a job");
+    assert_eq!(
+        prefetch.started, 1,
+        "the first approach did not start a job"
+    );
 
     // The player stepped back out of the approach radius (gameplay.rs
     // invalidates every tick the selection is empty) and returned to the
@@ -125,7 +128,8 @@ fn switching_to_a_different_destination_while_the_previous_job_is_still_running_
         "destination_a's cancelled job never finished within the 30 s budget"
     );
     assert_eq!(
-        prefetch.started, 2,
+        prefetch.started,
+        2,
         "the door the player is now standing at was never prefetched: \
          rejected={}, ready={:?}",
         prefetch.rejected,

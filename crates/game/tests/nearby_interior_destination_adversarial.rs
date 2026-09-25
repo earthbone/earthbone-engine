@@ -40,8 +40,10 @@ fn real_game(data: &std::path::Path) -> Game {
 }
 
 /// The Bannered Mare, loaded, with its own load doors (id, far door).
-fn bannered_mare(data: &std::path::Path) -> (Game, GlobalFormId, Vec<(GlobalFormId, GlobalFormId)>) {
-    let mut game = real_game(data);
+fn bannered_mare(
+    data: &std::path::Path,
+) -> (Game, GlobalFormId, Vec<(GlobalFormId, GlobalFormId)>) {
+    let game = real_game(data);
     let cell = game
         .world_mut()
         .cell_by_editor_id("WhiterunBanneredMare")
@@ -66,13 +68,75 @@ fn is_interior_cell(game: &Game, cell: GlobalFormId) -> bool {
         .is_interior(cell)
 }
 
+/// The walkthrough case: step out of the Bannered Mare, land in Whiterun,
+/// and the return door has to be selected from the grid cell the player
+/// stands in, even though vanilla files that door in another cell of the
+/// same worldspace.
+#[test]
+fn hst_07_an_exterior_landing_selects_the_return_door_across_its_worldspace() {
+    let Some(data) = data_dir() else {
+        eprintln!("skipping: SKYRIM_DATA is not set");
+        return;
+    };
+    let (game, cell, doors) = bannered_mare(&data);
+    let (far_door, far_cell) = doors
+        .iter()
+        .find_map(|&(_, far)| {
+            let far_cell = game.world_mut().reference(far).and_then(|r| r.cell)?;
+            (!is_interior_cell(&game, far_cell)).then_some((far, far_cell))
+        })
+        .expect("the Bannered Mare has an exterior-leading door");
+    game.world_mut().load_cell(far_cell);
+    let position = game
+        .world_mut()
+        .reference(far_door)
+        .expect("far door")
+        .position;
+    let (world, standing) = {
+        let world = game.world_mut();
+        let index = world.order().cell_index().expect("cell index");
+        let owner = index
+            .grid_of(far_cell)
+            .map(|grid| grid.world)
+            .or_else(|| {
+                index
+                    .cells()
+                    .filter_map(|(id, _)| index.grid_of(id))
+                    .map(|grid| grid.world)
+                    .find(|&w| index.world_persistent_cell(w) == Some(far_cell))
+            })
+            .expect("the far door's cell belongs to a worldspace");
+        let x = (position[0] / 4096.0).floor() as i32;
+        let y = (position[1] / 4096.0).floor() as i32;
+        let standing = index
+            .exterior_cell(owner, x, y)
+            .expect("grid cell under the door");
+        (owner, standing)
+    };
+    game.world_mut().load_cell(standing);
+    eprintln!("HST-07 world={world} far_cell={far_cell} standing={standing} door={far_door}");
+
+    let found = game
+        .world_mut()
+        .nearby_interior_destination(standing, position, 500.0)
+        .expect("no return door selected from the exterior landing");
+    assert_eq!(found.cell, cell, "the return door leads somewhere else");
+
+    // The same coordinates asked from inside an interior compare nothing
+    // outside that interior.
+    assert!(game
+        .world_mut()
+        .nearby_interior_destination(cell, position, 1.0)
+        .is_none_or(|d| d.door != found.door));
+}
+
 #[test]
 fn an_exterior_destination_is_never_selected_as_an_interior_prefetch_target() {
     let Some(data) = data_dir() else {
         eprintln!("skipping: SKYRIM_DATA is not set");
         return;
     };
-    let (mut game, cell, doors) = bannered_mare(&data);
+    let (game, cell, doors) = bannered_mare(&data);
 
     // Ground truth is read from the same data the function would read,
     // never assumed from prose: find a door whose far side genuinely
@@ -87,10 +151,13 @@ fn an_exterior_destination_is_never_selected_as_an_interior_prefetch_target() {
             }
         }
     }
-    let (door, far_cell) = exterior.expect(
-        "the Bannered Mare has no exterior-leading door in this install to test against",
-    );
-    let door_position = game.world_mut().reference(door).expect("door resolves").position;
+    let (door, far_cell) = exterior
+        .expect("the Bannered Mare has no exterior-leading door in this install to test against");
+    let door_position = game
+        .world_mut()
+        .reference(door)
+        .expect("door resolves")
+        .position;
 
     let found = game
         .world_mut()
@@ -108,7 +175,7 @@ fn a_disabled_or_deleted_door_is_excluded_even_with_a_valid_interior_link_in_ran
         eprintln!("skipping: SKYRIM_DATA is not set");
         return;
     };
-    let (mut game, cell, doors) = bannered_mare(&data);
+    let (game, cell, doors) = bannered_mare(&data);
     let (door, far_door) = doors[0];
 
     // A second interior cell, distinct from the Bannered Mare, taken
@@ -139,7 +206,11 @@ fn a_disabled_or_deleted_door_is_excluded_even_with_a_valid_interior_link_in_ran
         .reference(far_door)
         .expect("far door resolves")
         .cell = Some(other_interior);
-    let door_position = game.world_mut().reference(door).expect("door resolves").position;
+    let door_position = game
+        .world_mut()
+        .reference(door)
+        .expect("door resolves")
+        .position;
 
     let found = game
         .world_mut()
@@ -153,7 +224,10 @@ fn a_disabled_or_deleted_door_is_excluded_even_with_a_valid_interior_link_in_ran
     // The door goes dark, e.g. a scripted secondary entrance shut for a
     // quest stage: must never be offered as a prefetch target even though
     // the authored link is otherwise identical to the baseline above.
-    game.world_mut().reference(door).expect("door resolves").enabled = false;
+    game.world_mut()
+        .reference(door)
+        .expect("door resolves")
+        .enabled = false;
     let found = game
         .world_mut()
         .nearby_interior_destination(cell, door_position, 1.0);
@@ -185,9 +259,13 @@ fn a_door_in_an_unrelated_cell_at_the_same_coordinates_is_never_selected() {
         eprintln!("skipping: SKYRIM_DATA is not set");
         return;
     };
-    let (mut game, cell, doors) = bannered_mare(&data);
+    let (game, cell, doors) = bannered_mare(&data);
     let (door, _far_door) = doors[0];
-    let door_position = game.world_mut().reference(door).expect("door resolves").position;
+    let door_position = game
+        .world_mut()
+        .reference(door)
+        .expect("door resolves")
+        .position;
 
     // An unrelated interior cell that has at least one door of its own,
     // found by walking the load order's cell index rather than a second
@@ -215,8 +293,8 @@ fn a_door_in_an_unrelated_cell_at_the_same_coordinates_is_never_selected() {
             break;
         }
     }
-    let other_door =
-        chosen.expect("no unrelated interior cell with a door was found among the first 60 candidates");
+    let other_door = chosen
+        .expect("no unrelated interior cell with a door was found among the first 60 candidates");
 
     // Give the unrelated cell's own door the exact absolute coordinates of
     // the Bannered Mare's door, and a valid teleport link, so the only
