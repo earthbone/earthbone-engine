@@ -160,21 +160,70 @@ impl World {
         if definition.data.flags & INGESTIBLE_POISON != 0 {
             return Err(MagicError::Unsupported("poison application to a weapon"));
         }
-        if self.actor(drinker).is_none() {
+        let prepared = self.ingestible_prepared_effects(
+            ingestible,
+            &definition.effects,
+            Some(drinker),
+            drinker,
+        )?;
+        let applied = self.apply_prepared_effects(prepared, drinker, alloc)?;
+        self.remove_item_notified(drinker, ingestible, 1, None, alloc);
+        Ok(applied)
+    }
+
+    /// Apply a weapon poison coating's effects to a melee target
+    /// (`crates/game/src/world/combat.rs`, CMB-25). The poisoning actor
+    /// stands in for `drink_ingestible`'s drinker as caster and source, the
+    /// hit's target is the one actor the coating ever reaches. No corpus
+    /// source describes the closed-source runtime's exact dose or
+    /// reapplication behavior (`ExtraPoison.h`/`.cpp` only carry the item
+    /// and a count, no consumption logic), so this always applies the full
+    /// effect list once, matching the done check's own wording rather than
+    /// a decrementing dose count. The caller clears the consumed extra.
+    ///
+    /// # Errors
+    /// Missing or malformed poison record, a dead or ghost target when an
+    /// effect is hostile, or an effect this world cannot apply.
+    pub(super) fn apply_poison(
+        &mut self,
+        attacker: GlobalFormId,
+        poison: GlobalFormId,
+        target: GlobalFormId,
+        alloc: Alloc<'_>,
+    ) -> Result<Vec<EffectId>, MagicError> {
+        let definition = self.ingestible(poison)?;
+        let prepared =
+            self.ingestible_prepared_effects(poison, &definition.effects, Some(attacker), target)?;
+        self.apply_prepared_effects(prepared, target, alloc)
+    }
+
+    /// Shared ALCH effect-entry validation and `PreparedEffect` construction
+    /// for `drink_ingestible` and `apply_poison`. `item` is the ALCH record
+    /// both the caster and source fields report, `effects` its already-read
+    /// effect list, `caster` the actor credited with the application and
+    /// `target` the actor whose values change.
+    fn ingestible_prepared_effects(
+        &mut self,
+        item: GlobalFormId,
+        effects: &[soe_esm::records::gameplay::Effect],
+        caster: Option<GlobalFormId>,
+        target: GlobalFormId,
+    ) -> Result<Vec<PreparedEffect>, MagicError> {
+        if self.actor(target).is_none() {
             return Err(MagicError::Target);
         }
         let mut prepared = Vec::new();
-        for (index, entry) in definition.effects.iter().enumerate() {
+        for (index, entry) in effects.iter().enumerate() {
             let effect = self
-                .resolve_from(ingestible, entry.base_effect)
-                .ok_or(MagicError::Missing(ingestible))?;
+                .resolve_from(item, entry.base_effect)
+                .ok_or(MagicError::Missing(item))?;
             let base = self.magic_effect(effect)?;
             let data = &base.data;
             if !entry.conditions.is_empty() || !base.conditions.is_empty() {
                 return Err(MagicError::Unsupported("magic condition evaluation"));
             }
             if data.flags & HOSTILE != 0 {
-                let actor = self.actor(drinker).ok_or(MagicError::Target)?;
+                let actor = self.actor(target).ok_or(MagicError::Target)?;
                 if actor.dead || actor.ghost {
                     return Err(MagicError::Target);
                 }
@@ -236,12 +285,12 @@ impl World {
             prepared.push(PreparedEffect {
                 effect: ActiveEffect {
                     id: EffectId(0),
-                    spell: ingestible,
+                    spell: item,
                     effect,
                     effect_index: index as u32,
-                    source: ingestible,
-                    caster: Some(drinker),
-                    target: drinker,
+                    source: item,
+                    caster,
+                    target,
                     magnitude,
                     duration: Some(if data.flags & NO_DURATION != 0 {
                         0.0
@@ -258,9 +307,7 @@ impl World {
                 dispel: Vec::new(),
             });
         }
-        let applied = self.apply_prepared_effects(prepared, drinker, alloc)?;
-        self.remove_item_notified(drinker, ingestible, 1, None, alloc);
-        Ok(applied)
+        Ok(prepared)
     }
 
     /// Execute a direct scripted cast. This bypasses player charging and cost.
