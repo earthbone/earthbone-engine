@@ -162,6 +162,13 @@ impl Stack {
     pub fn worn(&self) -> bool {
         self.extra(22).is_some() || self.extra(23).is_some()
     }
+
+    /// Remove one extra-data kind after it has been fully consumed, such as
+    /// a weapon poison coating spent on a successful hit. A no-op if the
+    /// stack does not carry that kind.
+    pub(crate) fn clear_extra(&mut self, kind: u8) {
+        self.extras.retain(|extra| extra.kind != kind);
+    }
 }
 
 /// One authoritative item total and its ordered stack descriptions.
@@ -394,6 +401,26 @@ impl Inventory {
         }
         self.revision = Arc::new(());
         taken
+    }
+
+    /// Clear one extra-data kind from exactly the stack at `index`, leaving
+    /// its count and every other stack of this item untouched. Used to
+    /// consume a spent weapon poison coating without disturbing unrelated
+    /// instances that share the same base item.
+    ///
+    /// # Errors
+    /// Missing item or an out-of-range stack index.
+    pub(crate) fn clear_stack_extra(
+        &mut self,
+        item: GlobalFormId,
+        index: usize,
+        kind: u8,
+    ) -> Result<(), Error> {
+        let entry = self.entries.get_mut(&item).ok_or(Error::Selection)?;
+        let stack = entry.stacks.get_mut(index).ok_or(Error::Selection)?;
+        stack.clear_extra(kind);
+        self.revision = Arc::new(());
+        Ok(())
     }
 
     /// Receive a bundle without flattening distinct item data.
