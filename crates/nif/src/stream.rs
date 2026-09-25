@@ -6,7 +6,7 @@
 //! length field cannot make the reader allocate more than the input holds.
 
 use crate::error::{Error, Result};
-use crate::types::{BlockRef, Bound, Mat33, Transform, Vec3};
+use crate::types::{BlockRef, Bound, Mat33, Quat, Transform, Vec3};
 
 pub struct Stream<'a> {
     data: &'a [u8],
@@ -146,6 +146,16 @@ impl<'a> Stream<'a> {
 
     pub fn block_ref(&mut self) -> Result<BlockRef> {
         Ok(BlockRef(self.i32()?))
+    }
+
+    /// Quaternion: w, x, y, z, in that file order.
+    pub fn quat(&mut self) -> Result<Quat> {
+        Ok(Quat {
+            w: self.f32()?,
+            x: self.f32()?,
+            y: self.f32()?,
+            z: self.f32()?,
+        })
     }
 
     /// Read a u32 count and validate it, see `count`.
