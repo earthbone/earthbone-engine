@@ -1914,7 +1914,7 @@ references, change residency, tick far-side actors or queue cell events.
 Activation retains the ordinary Game door lifecycle and cold-cell decision.
 
 The speculative budget admits at most 4,096 authored references before work,
-then at most 128 MiB of mesh-array and unique texture payloads and 100,000
+then at most 384 MiB of mesh-array and unique texture payloads and 100,000
 collision primitives after preparation. There is at most one outstanding job
 or retained destination. These are admission limits, not a peak allocation
 or wall-time guarantee. Parser temporaries, container capacity and metadata,
@@ -1942,7 +1942,7 @@ store was added.
 `godot/interior_prefetch_test.gd` uses installed five-master data and requires
 an exterior landing near the Bannered Mare return door to prepare that linked
 interior while the current cell and rendering stay unchanged. It requires one
-job, a nonempty payload within 128 MiB, a cache hit on return, draw instances
+job, a nonempty payload within 384 MiB, a cache hit on return, draw instances
 and supporting collision. Its predeclared foreground-step budget is 50 ms,
 and its preparation deadline is 30 seconds. The limits are specific to this
 acceptance run, not a claim about every authored cell or machine.
@@ -1950,7 +1950,46 @@ acceptance run, not a claim about every authored cell or machine.
 On 2026-09-23 the script failed on master `9ae933b` under Godot 4.7.2 with
 installed data. No prefetch job started (`started` 0, `payload_bytes` 0), one
 gameplay step took 497,919 us, and the transition rebuilt its resources. HST-07
-is open again until this script passes on master.
+was open again until this script passes on master.
+
+On 2026-09-24 the root cause was traced with the crate's own SKYRIM_DATA-gated
+test, `interior_prefetch::tests::installed_bannered_mare_prefetch_admission`,
+which exercises the same `admitted()` check the walkthrough depends on. The
+test failed at the previous 128 MiB cap with `references=697 bytes=195769624
+primitives=19146 admitted=false`, so `request()` rejected the Bannered Mare
+return destination inside the worker thread before it could ever reach `ready`.
+`started` still increments synchronously in `start()` before the worker's
+admission check runs, so a budget rejection is not the `started` 0 case the
+2026-09-23 note describes. That earlier failure most likely reflects an
+imprecise paraphrase of a rejected run, or a separate trigger issue on that
+build that this session could not reproduce without a Godot binary.
+
+Measuring decoded payload size across five real Whiterun, Riften and Solitude
+interiors (WhiterunBanneredMare 186.7 MiB, RiftenBeeandBarb 195.6 MiB,
+SolitudeBluePalace 230.7 MiB, WhiterunJorrvaskr 269.9 MiB,
+WhiterunDragonsreach 295.3 MiB) showed the 128 MiB cap rejecting every one of
+them. The cap was sized without checking it against installed game data.
+`MAX_PAYLOAD_BYTES` in `crates/godot-host/src/interior_prefetch.rs` moved to
+384 MiB, clearing all five measured interiors with headroom above the
+largest, and `godot/interior_prefetch_test.gd`'s matching `PAYLOAD_BUDGET`
+constant moved with it so the walkthrough's own assertion stays consistent.
+`installed_bannered_mare_prefetch_admission` now passes.
+
+Ruled out along the way, by reading rather than by rerunning the walkthrough:
+a coordinate mismatch between `advance_exterior`'s recomputed cell and
+`sync_game_pose`'s authored cell, a texture deduplication gap in
+`payload_bytes`/`TextureCache` (textures are cached per `DataSource` behind a
+pointer-keyed set, so a shared texture across many statics decodes once), and
+a regression from the exterior streaming, door fade, created-form identity or
+measured instancing commits merged onto master since the original HST-07
+work. None of those changed the admission path.
+
+What remains open: this worktree has no Godot binary, so the fix is verified
+against the Rust-level admission test that the walkthrough depends on, not
+against a live run of `godot/interior_prefetch_test.gd` itself. Its step
+timing, draw instance count and collision-landing assertions are unexercised
+by this change. HST-07 stays open until the actual walkthrough passes on a
+machine with Godot 4.7.2 installed.
 
 ## Actor controller geometry resolver, CMB-33
 

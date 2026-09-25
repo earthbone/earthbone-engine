@@ -3,7 +3,10 @@ extends SceneTree
 ## Installed host acceptance for authored-door CPU prefetch and resource reuse.
 const STEP_BUDGET_US := 50000
 const READY_TIMEOUT_MS := 30000
-const PAYLOAD_BUDGET := 128 * 1024 * 1024
+# Matches crate::interior_prefetch::MAX_PAYLOAD_BYTES. WhiterunBanneredMare's
+# real payload measured 186.7 MiB on 2026-09-24, above the previous 128 MiB
+# budget, so the Rust-side cap moved to 384 MiB and this check follows it.
+const PAYLOAD_BUDGET := 384 * 1024 * 1024
 var failures := 0
 
 func _initialize() -> void:

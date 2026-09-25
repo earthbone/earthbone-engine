@@ -15,7 +15,15 @@ use crate::data_source::{DataSource, DataSourceError, LoadedLocation, TextureDat
 pub const APPROACH_RADIUS: f32 = 500.0;
 pub const SELECTION_INTERVAL: f64 = 0.25;
 pub const MAX_REFERENCES: usize = 4096;
-pub const MAX_PAYLOAD_BYTES: usize = 128 * 1024 * 1024;
+// Measured against installed Special Edition data on 2026-09-24 (HST-07
+// regression), decoded texture and mesh payload per interior:
+// WhiterunBanneredMare 186.7 MiB, RiftenBeeandBarb 195.6 MiB,
+// SolitudeBluePalace 230.7 MiB, WhiterunJorrvaskr 269.9 MiB,
+// WhiterunDragonsreach 295.3 MiB. The previous 128 MiB cap rejected every
+// one of them, so the walkthrough acceptance never saw a prefetch start.
+// 384 MiB keeps a real, enforced ceiling while clearing all five with
+// headroom above the largest.
+pub const MAX_PAYLOAD_BYTES: usize = 384 * 1024 * 1024;
 pub const MAX_COLLISION_PRIMITIVES: usize = 100_000;
 
 type Prepared = Result<Option<LoadedLocation>, DataSourceError>;
