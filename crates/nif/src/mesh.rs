@@ -63,6 +63,29 @@ impl Mesh {
     pub fn triangle_count(&self) -> usize {
         self.indices.len() / 3
     }
+
+    /// Rough resident size in bytes: each present vertex attribute at its
+    /// natural width, plus the index buffer at 4 bytes an index. Normals
+    /// are charged whether or not this shape carries them, since a host
+    /// with `generate_missing_normals` on (the default) builds a full
+    /// normals buffer from a shape with none, the ordinary case for a
+    /// space-saving distant LOD mesh, and a residency estimate taken before
+    /// that generation must not read low against what actually gets
+    /// uploaded. Vertex colors are never charged: nothing downstream of
+    /// this struct keeps a color buffer past the decoded shape (the host's
+    /// mesh source and built surface carry no color field), so counting
+    /// them would charge for bytes nothing ever allocates. Close enough to
+    /// weigh a mesh against a residency budget, not a byte-exact account of
+    /// any one renderer's buffer layout.
+    pub fn approx_bytes(&self) -> u64 {
+        let per_vertex = 12 // positions
+            + 12 // normals, present or generated downstream
+            + if self.tangents.is_empty() { 0 } else { 16 }
+            + if self.uvs.is_empty() { 0 } else { 8 }
+            + if self.bone_weights.is_empty() { 0 } else { 16 }
+            + if self.bone_indices.is_empty() { 0 } else { 4 };
+        self.positions.len() as u64 * per_vertex + self.indices.len() as u64 * 4
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]

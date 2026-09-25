@@ -25,12 +25,15 @@
 pub mod actor_values;
 pub mod ai;
 pub mod appearance;
+pub mod class;
 pub mod clock;
 pub mod combat;
 pub mod conditions;
 pub mod coverage;
 pub mod crafting;
+pub mod crime;
 pub mod debug;
+pub mod detection;
 pub mod determinism;
 pub mod dialogue;
 pub mod footsteps;
@@ -61,7 +64,7 @@ use soe_papyrus::{ArrayRef, ObjectId, ThreadId, Value, Vm, VmError};
 
 pub use clock::GameClock;
 pub use natives::Registered;
-pub use world::{Handle, Pending, World};
+pub use world::{Handle, Pending, RefPlacement, World};
 
 use vmad::{ObjectRef, PropertyValue, ScriptEntry, Vmad};
 

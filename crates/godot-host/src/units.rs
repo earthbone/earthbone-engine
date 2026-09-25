@@ -75,6 +75,54 @@ pub fn direction_to_godot(v: [f32; 3]) -> [f32; 3] {
     [v[0], v[2], -v[1]]
 }
 
+/// The inverse of [`direction_to_godot`], for patching a baked Godot-space
+/// normal or tangent back into Skyrim space before applying a runtime delta.
+pub fn direction_to_skyrim(v: [f32; 3]) -> [f32; 3] {
+    [v[0], -v[2], v[1]]
+}
+
+/// A rotation, uniform scale and origin in Godot space, laid out the way
+/// `Transform3D` wants it: `basis` is row major with the scale folded in,
+/// `origin` is the translation.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct GodotTransform {
+    pub basis: [[f32; 3]; 3],
+    pub origin: GodotPos,
+}
+
+/// Convert a Skyrim placement (a row major rotation, a translation in Skyrim
+/// units, and a uniform scale) to the Godot equivalent, for `MultiMesh`
+/// instance transforms. `mesh_data_from` bakes the same rotation into vertex
+/// data by calling `Mat33::apply` on positions already read as Skyrim-space
+/// vectors, so `rotation` here is expected in that same row major layout.
+///
+/// Positions convert through `SkyrimPos::to_godot`, a linear map with no
+/// translation offset (metres-per-unit times the axis permutation
+/// `direction_to_godot`), so it distributes over the placement's rotate,
+/// scale and translate. Writing the axis map as a matrix `A` with rows
+/// `(1,0,0)`, `(0,0,1)`, `(0,-1,0)`, the same algebra that carries a Skyrim
+/// direction through `direction_to_godot` carries a Skyrim rotation matrix
+/// `R` through `A * R * A^-1` (`A` is orthogonal, so `A^-1` is `A`'s
+/// transpose). Multiplying that out row by row: Godot basis row 0 is Skyrim
+/// row 0 with the axis map applied, basis row 1 is Skyrim row 2, and basis
+/// row 2 is Skyrim row 1 negated, each of those three rows itself axis
+/// mapped the same way `direction_to_godot` maps a single vector. The
+/// translation converts with the ordinary position map.
+pub fn placement_to_godot(
+    rotation: [[f32; 3]; 3],
+    translation: [f32; 3],
+    scale: f32,
+) -> GodotTransform {
+    let mapped = |row: [f32; 3]| direction_to_godot(row);
+    let basis = [
+        mapped(rotation[0]).map(|v| v * scale),
+        mapped(rotation[2]).map(|v| v * scale),
+        mapped(rotation[1]).map(|v| -v * scale),
+    ];
+    let origin = SkyrimPos::new(translation[0], translation[1], translation[2]).to_godot();
+    GodotTransform { basis, origin }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -99,6 +147,15 @@ mod tests {
     #[test]
     fn a_cell_is_about_58_metres() {
         assert!((CELL_METRES - 58.52).abs() < 0.01, "{CELL_METRES}");
+    }
+
+    #[test]
+    fn direction_round_trip_is_identity() {
+        let v = [1.0, -2.5, 3.25];
+        let back = direction_to_skyrim(direction_to_godot(v));
+        assert!((back[0] - v[0]).abs() < 1e-6);
+        assert!((back[1] - v[1]).abs() < 1e-6);
+        assert!((back[2] - v[2]).abs() < 1e-6);
     }
 
     #[test]

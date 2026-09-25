@@ -4,7 +4,11 @@
 //! PERK purchase transactions, NNAM rank identities and installed-data survey.
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
-use soe_game::{conditions, perks::Error, Game};
+use soe_game::{
+    conditions,
+    perks::{Error, Purchase},
+    Game,
+};
 use std::collections::{BTreeMap, BTreeSet};
 
 const FIRST: u32 = 0x800;
@@ -194,30 +198,39 @@ fn effect_conditions_do_not_become_purchase_prerequisites() {
 }
 
 #[test]
-fn points_playability_and_unknown_data_are_checked_before_spending() {
+fn points_and_playability_are_checked_before_spending() {
+    let mut game = game(vec![
+        Record::new(Tag(*b"PERK"), FIRST).sub(Tag(*b"DATA"), [0, 0, 1, 0, 0])
+    ]);
+    let before = state(&game);
+    assert_eq!(
+        game.purchase_perk(id(FIRST)),
+        Err(Error::NotPlayable(id(FIRST)))
+    );
+    assert_eq!(state(&game), before);
+
+    // PRG-16: non-default Trait, Level, Num Ranks and Hidden no longer reject
+    // a playable, conditionless purchase, see crates/game/src/perks.rs.
     for data in [
-        [0, 0, 1, 0, 0],
         [1, 0, 1, 1, 0],
         [0, 5, 1, 1, 0],
         [0, 0, 2, 1, 0],
         [0, 0, 1, 1, 1],
     ] {
-        let mut game = game(vec![
+        let mut game = self::game(vec![
             Record::new(Tag(*b"PERK"), FIRST).sub(Tag(*b"DATA"), data)
         ]);
-        let before = state(&game);
-        let error = if data[3] == 0 {
-            Error::NotPlayable(id(FIRST))
-        } else {
-            Error::UnsupportedData {
+        assert_eq!(
+            game.purchase_perk(id(FIRST)),
+            Ok(Purchase {
                 perk: id(FIRST),
-                data,
-            }
-        };
-        assert_eq!(game.purchase_perk(id(FIRST)), Err(error));
-        assert_eq!(state(&game), before);
+                rank: 1
+            })
+        );
+        assert_eq!(state(&game), (4, BTreeSet::from([id(FIRST)])));
     }
-    let mut game = game(vec![perk(FIRST)]);
+
+    let mut game = self::game(vec![perk(FIRST)]);
     for points in [0, -1] {
         game.world_mut().perk_points = points;
         assert_eq!(game.purchase_perk(id(FIRST)), Err(Error::NoPoints));
@@ -381,7 +394,6 @@ fn installed_perk_purchase_survey() {
             Ok(_) => "eligible",
             Err(Error::Complete) => "already owned",
             Err(Error::NotPlayable(_)) => "not playable",
-            Err(Error::UnsupportedData { .. }) => "unsupported DATA",
             Err(Error::Ineligible) => "prerequisites false",
             Err(error) => panic!("unexpected installed purchase error for {root}: {error}"),
         };

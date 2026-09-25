@@ -319,6 +319,7 @@ mod tests {
             .push(crate::data_source::LoadedSurface {
                 reference: CELL,
                 arrays,
+                placement: soe_physics::Iso::IDENTITY,
                 textures: crate::data_source::SurfaceTextures {
                     diffuse: Some(Arc::clone(&texture)),
                     normal: Some(texture),
@@ -326,6 +327,8 @@ mod tests {
                     environment_mask: None,
                     glow: None,
                 },
+                instance_transform: None,
+                mesh_identity: None,
             });
         assert!(
             payload_bytes(&data) < MAX_PAYLOAD_BYTES + 1024,

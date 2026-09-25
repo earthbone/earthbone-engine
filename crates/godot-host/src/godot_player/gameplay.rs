@@ -75,6 +75,14 @@ impl PlayerNode {
                 }
             }
         }
+        // Reflect the frame's enable and placement changes (activation,
+        // scripted moves, editor drags) into the streamed geometry and its
+        // collision before anything else reads either this tick. World stays
+        // the source of truth, the streamer only presents it (HST-04).
+        if let (Some(game), Some(streamer)) = (&self.game, self.game_streamer.as_mut()) {
+            let world = game.world();
+            streamer.bind_mut().sync_reference_changes(&world);
+        }
         if !self.advance_exterior() {
             self.auto_step = false;
             return;

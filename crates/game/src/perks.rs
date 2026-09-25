@@ -3,6 +3,25 @@
 //! Player PERK purchases using xEdit's top-level CTDA and NNAM rank chain.
 //! Existing actor perk identities remain authoritative. Effect entries have
 //! separate conditions and are outside the purchase transaction.
+//!
+//! DATA Trait, Level and Num Ranks are accepted at any value (PRG-16). Trait
+//! and Level are never set on an installed winning PERK record and no source
+//! in the corpus describes a runtime consumer for either byte, so they carry
+//! no purchase meaning here. Num Ranks is a Creation Kit display field kept
+//! in sync with the actual NNAM chain, so the chain walked by [`rank_chain`]
+//! is the count that matters, not the byte. Hidden perks purchase the same
+//! as shown ones, this API has no UI layer for the hidden flag to affect.
+//!
+//! DATA also accepts the two truncated encodings wrye-bash's
+//! `MelPerkData(MelTruncatedStruct)` declares in `old_versions={'4B', '3B'}`
+//! (`Mopy/bash/brec/common_subrecords.py`, reused unmodified for Skyrim in
+//! `Mopy/bash/game/skyrim/records.py`): a 4-byte DATA carries Trait, Level,
+//! Num Ranks and Playable with Hidden defaulted to 0, and a 3-byte DATA
+//! carries only Trait, Level and Num Ranks with Playable and Hidden both
+//! defaulted to 0, matching `MelTruncatedStruct`'s zero-padding of the
+//! fields a shorter format omits. A record in either shorter, documented
+//! encoding is readable, not malformed.
+//! See docs/game.md, "Ordinary perk purchases", for the sources read.
 
 use crate::{conditions, Game, World};
 use soe_esm::{records::gameplay::Condition, GlobalFormId, Tag};
@@ -15,8 +34,6 @@ pub enum Error {
     Perk(GlobalFormId),
     #[error("perk {0} is not playable")]
     NotPlayable(GlobalFormId),
-    #[error("perk {perk} has unsupported purchase DATA {data:?}")]
-    UnsupportedData { perk: GlobalFormId, data: [u8; 5] },
     #[error("perk {0} is not the first record in a rank chain")]
     NotRoot(GlobalFormId),
     #[error("perk rank chain contains a cycle at {0}")]
@@ -43,7 +60,6 @@ pub struct Purchase {
 }
 
 struct Perk {
-    data: [u8; 5],
     playable: bool,
     next: Option<GlobalFormId>,
     conditions: Vec<Condition>,
@@ -62,10 +78,10 @@ impl Perk {
             match sub.tag.as_bytes() {
                 b"PRKE" => break,
                 b"DATA" => {
-                    if data.is_some() || sub.data.len() != 5 {
+                    if data.is_some() {
                         return Err(Error::Perk(id));
                     }
-                    data = Some(&sub.data);
+                    data = Some(pad_legacy_data(&sub.data).ok_or(Error::Perk(id))?);
                 }
                 b"NNAM" => {
                     if next.is_some() {
@@ -89,7 +105,6 @@ impl Perk {
             .map(|raw| world.resolve_from(id, raw).ok_or(Error::Perk(id)))
             .transpose()?;
         Ok(Self {
-            data: data.as_slice().try_into().map_err(|_| Error::Perk(id))?,
             playable: data[3] != 0 && record.flags & 4 == 0,
             next,
             conditions,
@@ -104,7 +119,7 @@ impl Game {
     /// # Errors
     ///
     /// Rejects non-root inputs, invalid chains, exhausted points, completed
-    /// chains, non-playable ranks and false or unsupported prerequisites.
+    /// chains, non-playable ranks and false prerequisites.
     pub fn check_perk_purchase(&mut self, root: GlobalFormId) -> Result<Purchase, Error> {
         let mut world = self.world.borrow_mut();
         let chain = rank_chain(&world, root)?;
@@ -120,12 +135,6 @@ impl Game {
             .ok_or(Error::Complete)?;
         if !perk.playable {
             return Err(Error::NotPlayable(*id));
-        }
-        if perk.data[0] != 0 || perk.data[1] != 0 || perk.data[2] > 1 || perk.data[4] != 0 {
-            return Err(Error::UnsupportedData {
-                perk: *id,
-                data: perk.data,
-            });
         }
         let context = conditions::Context {
             owner: *id,
@@ -190,4 +199,19 @@ fn rank_chain(world: &World, root: GlobalFormId) -> Result<Vec<(GlobalFormId, Pe
         }
     }
     Ok(chain)
+}
+
+/// Accepts PERK DATA's full 5-byte encoding (Trait, Level, Num Ranks,
+/// Playable, Hidden) plus the two truncated encodings wrye-bash's
+/// `MelPerkData` declares as `old_versions={'4B', '3B'}`: a 4-byte DATA
+/// omits Hidden and a 3-byte DATA omits Playable and Hidden too. Missing
+/// trailing bytes are zero-padded, matching `MelTruncatedStruct`'s default.
+/// Any other length is not a documented encoding and is rejected.
+fn pad_legacy_data(bytes: &[u8]) -> Option<[u8; 5]> {
+    if bytes.len() < 3 || bytes.len() > 5 {
+        return None;
+    }
+    let mut padded = [0u8; 5];
+    padded[..bytes.len()].copy_from_slice(bytes);
+    Some(padded)
 }
