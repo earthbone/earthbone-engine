@@ -414,6 +414,12 @@ impl DataSource {
                         }
                         Err(e) => eprintln!("stream_exterior: LAND {land_id}: {e}"),
                     }
+                    let (grass, placements) = self.grass_surfaces_for_cell(cell, *land_id, land, h);
+                    loaded.stats.grass_placements += placements;
+                    for surface in &grass {
+                        loaded.stats.triangles += surface.arrays.triangle_count();
+                    }
+                    loaded.surfaces.extend(grass);
                 }
             }
             on_cell(*cell, loaded, has_land);

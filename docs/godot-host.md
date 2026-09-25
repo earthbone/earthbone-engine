@@ -2014,3 +2014,71 @@ with the RenderingServer running, both of which need a windowed Godot run
 against a live scene, same as the rest of this document's frame-time numbers.
 That measurement is still open and belongs with the other "Numbers" table
 entries once someone runs one.
+
+## Grass placement, RND-11 (2026-09-24)
+
+Vanilla never places grass through a `REFR`. A cell's `LAND` quadrants paint
+`LTEX` textures over a 17 by 17 alpha grid, an `LTEX` names the `GRAS`
+records it may grow through a repeated `GNAM`, and the shipped engine
+scatters instances over the painted area filtered by each `GRAS` record's
+density and slope range (`docs/esm.md`, "GRAS and LTEX views"). No corpus
+source read for this row (`TES5Edit`, `Mutagen`, OpenMW's
+`groundcoverstore.cpp`, which implements a different, non `ESM4` system)
+publishes the exact vanilla scatter pattern, so `src/data_source/grass.rs`
+places on a deterministic hashed grid instead of reproducing it bit for bit.
+
+`DataSource::grass_surfaces_for_cell` walks each quadrant's 16 by 16 alpha
+quads, resolves the painted `LTEX` and its `GNAM` grass list through the
+load order, filters by ground slope (`quad_slope_degrees`, a bilinear
+gradient over the cell's already decoded height grid) against the `GRAS`
+record's declared range, and scatters a bounded, deterministic number of
+instances per quad. `instance_count` divides the record's density by the
+layer's local opacity into a small per-quad count, backstopped by
+`MAX_INSTANCES_PER_QUAD = 6` so an edited or unusually dense record cannot
+make one quad's batch unbounded, and `MAX_GRASS_PLACEMENTS_PER_CELL = 512`
+caps the whole cell. Each placement's seed comes from `mix`, SplitMix64's
+finalizer (Sebastiano Vigna, public domain) applied to stable coordinates
+only, the cell's own grid position, the quadrant, the height grid cell and
+the instance index, never wall-clock time or shared random state, so
+streaming the same cell twice produces the same batch. That determinism is
+what the release-on-unload path and this row's done check both rely on.
+
+Placement itself is a synthetic `Refr` built at the placement's world
+position and yaw, fed straight into the existing
+`DataSource::load_static_surfaces(&model, &refr, true)`, the same private
+method STAT, FURN, DOOR and CONT already share, with instancing forced on.
+No new rendering path was needed: `src/batch.rs`'s `MultiMesh` instancing
+from RND-04 (`INSTANCE_MIN_PLACEMENTS`, `instancing_candidates`) groups any
+repeated `mesh_identity` across a cell regardless of what placed it, and
+`CellStreamerNode`'s cell-tagged instance table already frees every
+instance, grass included, when its cell leaves the streamed set
+(`apply_cell_delta`). Both were exercised unchanged. `stream_exterior_each`
+in `src/data_source/exterior.rs` calls `grass_surfaces_for_cell` right after
+building each cell's terrain surface, using the same reconciled height grid,
+and folds the instance count into `CellStats::grass_placements`.
+
+Open gaps, none closed by this row:
+
+- Only the alpha layers (`ATXT`/`VTXT`) are read as grass sources. A
+  quadrant's base texture (`BTXT`) can also carry a `GNAM` list, but its
+  effective opacity is whatever the alpha layers leave uncovered rather than
+  a value the record states outright, so it is left out of this pass.
+- `instance_count`'s divisor is a self-designed heuristic, not a published
+  vanilla density curve. No corpus source states one.
+- Water-level filtering is unimplemented. `Grass` parses the `DATA` block's
+  water fields but `grass_surfaces_for_cell` does not read them.
+- REGN grass overrides (`RDGS`) are unimplemented, only `LAND`-painted
+  `LTEX` grass is placed.
+- The `GRAS` `UniformScaling` and `FitToSlope` flags are parsed but not
+  applied. Every placement draws upright with yaw-only rotation and uniform
+  scale from the height-range jitter alone.
+- `wave_period`, the wind-sway parameter, has no shader consumer yet.
+- Each placement reparses its model's NIF, the same per-reference cost every
+  other static already pays through `load_static_surfaces`. The placement
+  caps bound this, but a densely painted cell with many distinct grass
+  models still reparses each one once per instance rather than once per
+  model, unlike a NIF-level mesh cache would.
+- No live-data validation. Confirming the fixture-level claim (a `LAND`
+  grass fixture creates deterministic placement batches and releases them on
+  unload) against a real painted cell needs a Godot run with `SKYRIM_DATA`
+  set, which this row's instructions withhold along with any new test.
