@@ -27,6 +27,15 @@ pub struct ListRecordExtra {
     pub entry_chances: Vec<u8>,
 }
 
+/// Saved APPA and IDLM change fields with no subrecord equivalent.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct BaseObjectRecordExtra {
+    /// The optional mask-invert flags and following unknown word.
+    pub form_flags: Option<(u32, u16)>,
+    /// The complete saved change-flags word.
+    pub change_flags: u32,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct RecordOverride {
     pub origin: GlobalFormId,
@@ -37,6 +46,7 @@ pub(super) struct RecordOverride {
     pub plain_full: bool,
     pub npc: NpcRecordExtra,
     pub list: Option<ListRecordExtra>,
+    pub base_object: Option<BaseObjectRecordExtra>,
 }
 
 pub(super) fn raw_words(record: &Record) -> BTreeSet<u32> {
@@ -61,6 +71,7 @@ impl RecordOverride {
             plain_full: false,
             npc: NpcRecordExtra::default(),
             list: None,
+            base_object: None,
         }
     }
 
@@ -120,5 +131,10 @@ impl World {
 
     pub fn restored_list_extra(&self, id: GlobalFormId) -> Option<&ListRecordExtra> {
         self.record_overrides.get(&id)?.list.as_ref()
+    }
+
+    /// Return saved APPA or IDLM change metadata for an overridden record.
+    pub fn restored_base_object_extra(&self, id: GlobalFormId) -> Option<&BaseObjectRecordExtra> {
+        self.record_overrides.get(&id)?.base_object.as_ref()
     }
 }

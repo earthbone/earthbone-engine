@@ -7,7 +7,9 @@ use std::collections::BTreeMap;
 use soe_esm::{plugin::Subrecord, GlobalFormId, Slot, Tag};
 use soe_papyrus::{vm::state::Writer, VmError};
 
-use super::record_overrides::{raw_words, ListRecordExtra, NpcRecordExtra, RecordOverride};
+use super::record_overrides::{
+    raw_words, BaseObjectRecordExtra, ListRecordExtra, NpcRecordExtra, RecordOverride,
+};
 use super::save::{read_form_id, read_opt_form_id, write_form_id, write_opt_form_id, FormReader};
 use super::{World, T};
 
@@ -65,6 +67,14 @@ impl World {
                 w.bool(list.section_present);
                 w.bytes(&list.entry_chances);
             }
+            if let Some(extra) = &value.base_object {
+                w.bool(extra.form_flags.is_some());
+                if let Some((flags, unknown)) = extra.form_flags {
+                    w.u32(flags);
+                    w.u16(unknown);
+                }
+                w.u32(extra.change_flags);
+            }
             w.len(value.links.len());
             for (raw, link) in &value.links {
                 w.u32(*raw);
@@ -103,7 +113,14 @@ impl World {
                 || self.order.winner(text_origin).is_none_or(|r| {
                     !matches!(
                         &r.tag.0,
-                        b"NPC_" | b"RACE" | b"FLST" | b"LVLN" | b"LVLI" | b"LVSP"
+                        b"NPC_"
+                            | b"RACE"
+                            | b"FLST"
+                            | b"LVLN"
+                            | b"LVLI"
+                            | b"LVSP"
+                            | b"APPA"
+                            | b"IDLM"
                     )
                 })
             {
@@ -115,7 +132,14 @@ impl World {
                 .filter(|rec| {
                     matches!(
                         &rec.tag.0,
-                        b"NPC_" | b"RACE" | b"FLST" | b"LVLN" | b"LVLI" | b"LVSP"
+                        b"NPC_"
+                            | b"RACE"
+                            | b"FLST"
+                            | b"LVLN"
+                            | b"LVLI"
+                            | b"LVSP"
+                            | b"APPA"
+                            | b"IDLM"
                     ) && !rec.is_deleted()
                 })
                 .ok_or_else(|| bad("missing record origin"))?;
@@ -159,6 +183,23 @@ impl World {
             } else {
                 None
             };
+            let base_object =
+                if version >= 37 && (record.tag == T(b"APPA") || record.tag == T(b"IDLM")) {
+                    let form_flags = if r.bool()? {
+                        Some((r.u32()?, r.u16()?))
+                    } else {
+                        None
+                    };
+                    Some(BaseObjectRecordExtra {
+                        form_flags,
+                        change_flags: r.u32()?,
+                    })
+                } else {
+                    None
+                };
+            if let Some((mask, _)) = base_object.as_ref().and_then(|extra| extra.form_flags) {
+                record.flags ^= mask;
+            }
             let mut links = BTreeMap::new();
             let used = raw_words(original);
             let count = r.len()?;
@@ -196,6 +237,9 @@ impl World {
                     .order
                     .winner_ref(text_origin)
                     .is_some_and(|owner| self.order.file(owner.file).plugin.header.is_localized());
+            if base_object.is_some() && record.tag != T(b"APPA") && record.tag != T(b"IDLM") {
+                return Err(bad("base-object metadata has the wrong record type"));
+            }
             if record.tag == T(b"NPC_") {
                 if list.is_some() {
                     return Err(bad("NPC has list metadata"));
@@ -252,6 +296,22 @@ impl World {
                     || links.keys().any(|token| *token != raw)
                 {
                     return Err(bad("invalid race skin link"));
+                }
+            } else if let Some(extra) = &base_object {
+                let mask = extra.form_flags.map_or(0, |(flags, _)| flags);
+                let unchanged = |record: &soe_esm::Record| record.subrecords.clone();
+                if list.is_some()
+                    || temporary_for.is_some()
+                    || text_origin != id
+                    || plain_full
+                    || original_race.is_some()
+                    || body_tint.is_some()
+                    || pending_form_flags.is_some()
+                    || unchanged(original) != unchanged(&record)
+                    || record.flags != (original.flags ^ mask)
+                    || (extra.form_flags.is_some() != (extra.change_flags & 1 != 0))
+                {
+                    return Err(bad("invalid saved base-object override"));
                 }
             } else {
                 let tag = if record.tag == T(b"FLST") {
@@ -318,6 +378,7 @@ impl World {
                     pending_form_flags,
                 },
                 list,
+                base_object,
             };
             if values.insert(id, value).is_some() {
                 return Err(bad("duplicate NPC record"));

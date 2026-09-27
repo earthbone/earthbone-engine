@@ -59,6 +59,7 @@ mod inventory_restore;
 mod spell_hand;
 mod weapon_hands;
 pub use inventory_restore::InventoryRestoreReport;
+mod base_object_restore;
 pub mod image_space;
 mod item_save;
 mod list_restore;
