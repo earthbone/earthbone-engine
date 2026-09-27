@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+#![allow(dead_code, unused_imports)]
 
 //! Spell execution through the world and Papyrus, using xEdit-shaped records.
 //! CK lifecycle, recover, expiry and dispel contracts are asserted independently
 //! of whether a spell remains learned or equipped.
 
 #[path = "common/legacy.rs"]
+#[allow(dead_code)]
 mod legacy;
 
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -32,12 +34,6 @@ const ITEM: u32 = 0x600;
 const OTHER_ITEM: u32 = 0x601;
 const SUMMON_BASE: u32 = 0x501;
 const LIGHT_BASE: u32 = 0x502;
-
-
-
-
-
-
 
 fn retain_effect(game: &mut Game, effect: soe_papyrus::ObjectId) {
     let script = ScriptBuilder::new("EffectHolder", "Actor")
@@ -299,9 +295,15 @@ fn fixture(flags: u32, archetype: u32, magnitude: f32, duration: u32) -> Game {
 fn mag_35_light_record_absence_rejects_before_creating_an_effect_or_reference() {
     let light = effect_with_associated_item(0, 12, 24, false, LIGHT_BASE);
     let mut game = game(plugin(light, vec![spell(SPELL, 0, false, 0.0, 5)]));
-    assert!(matches!(cast(&mut game, SPELL, OTHER), Err(MagicError::Unsupported("light record"))));
+    assert!(matches!(
+        cast(&mut game, SPELL, OTHER),
+        Err(MagicError::Unsupported("light record"))
+    ));
     assert_eq!(game.world().active_effects().count(), 0);
-    assert_eq!(game.world().reference_ref(id(OTHER)).unwrap().base, Some(id(0x500)));
+    assert_eq!(
+        game.world().reference_ref(id(OTHER)).unwrap().base,
+        Some(id(0x500))
+    );
 }
 
 #[test]
@@ -314,8 +316,17 @@ fn mag_35_light_spawns_at_target_and_removes_the_same_reference_on_expiry_after_
     world.reference(id(OTHER)).unwrap().position = [12.0, 34.0, 56.0];
     drop(world);
     cast(&mut original, SPELL, OTHER).unwrap();
-    let spawned = original.world().active_effects().next().unwrap().summoned.unwrap();
-    assert_eq!(original.world().reference_ref(spawned).unwrap().position, [12.0, 34.0, 56.0]);
+    let spawned = original
+        .world()
+        .active_effects()
+        .next()
+        .unwrap()
+        .summoned
+        .unwrap();
+    assert_eq!(
+        original.world().reference_ref(spawned).unwrap().position,
+        [12.0, 34.0, 56.0]
+    );
     let bytes = original.save_state().unwrap();
     let mut restored = game(records);
     restored.load_state(&bytes).unwrap();
@@ -326,7 +337,10 @@ fn mag_35_light_spawns_at_target_and_removes_the_same_reference_on_expiry_after_
 fn cast(game: &mut Game, spell: u32, target: u32) -> Result<Vec<EffectId>, MagicError> {
     let shared = game.shared_world();
     let result = shared.borrow_mut().cast_spell(
-        id(spell), id(ACTOR), Some(id(ACTOR)), Some(id(target)),
+        id(spell),
+        id(ACTOR),
+        Some(id(ACTOR)),
+        Some(id(target)),
         &mut |name, class| game.vm.create_object_of(name, class),
     );
     result

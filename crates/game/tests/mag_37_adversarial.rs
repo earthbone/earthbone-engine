@@ -151,7 +151,7 @@ fn mag_37_open_and_owner_state_survive_world_save_load() {
     let mut original = fixture(4.0);
     cast(&mut original, DOOR).unwrap();
     let saved = original.world().save_state();
-    let mut restored = fixture(4.0);
+    let restored = fixture(4.0);
     restored.world_mut().load_state(&saved).unwrap();
     let mut world = restored.world_mut();
     let door = world.reference(id(DOOR)).unwrap();

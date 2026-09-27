@@ -33,7 +33,6 @@ const OTHER_ITEM: u32 = 0x601;
 const SUMMON_BASE: u32 = 0x501;
 const LIGHT_BASE: u32 = 0x502;
 
-
 fn retain_effect(game: &mut Game, effect: soe_papyrus::ObjectId) {
     let script = ScriptBuilder::new("EffectHolder", "Actor")
         .variable("held", "ActiveMagicEffect", soe_papyrus::asm::none())
@@ -293,11 +292,19 @@ fn fixture(flags: u32, archetype: u32, magnitude: f32, duration: u32) -> Game {
 #[test]
 fn mag_28_absorb_restores_caster_only_as_target_loses_the_authored_value() {
     let mut absorb = effect(1, 4, 25, false);
-    let data = absorb.subrecords.iter_mut().find(|subrecord| subrecord.tag == T(b"DATA")).unwrap();
+    let data = absorb
+        .subrecords
+        .iter_mut()
+        .find(|subrecord| subrecord.tag == T(b"DATA"))
+        .unwrap();
     put(&mut data.data, 88, 24);
     let mut game = game(plugin(absorb, vec![spell(SPELL, 0, false, 4.0, 2)]));
-    game.world_mut().damage_actor_value(id(OTHER), "magicka", 60.0).unwrap();
-    game.world_mut().damage_actor_value(id(ACTOR), "magicka", 90.0).unwrap();
+    game.world_mut()
+        .damage_actor_value(id(OTHER), "magicka", 60.0)
+        .unwrap();
+    game.world_mut()
+        .damage_actor_value(id(ACTOR), "magicka", 90.0)
+        .unwrap();
     cast(&mut game, SPELL, OTHER).unwrap();
     game.tick(1.0);
     assert_eq!(game.world_mut().actor_value(id(OTHER), "magicka"), 36.0);
@@ -307,12 +314,22 @@ fn mag_28_absorb_restores_caster_only_as_target_loses_the_authored_value() {
 #[test]
 fn mag_28_absorb_elapsed_time_and_transfer_resume_after_save_load() {
     let mut absorb = effect(1, 4, 25, false);
-    let data = absorb.subrecords.iter_mut().find(|subrecord| subrecord.tag == T(b"DATA")).unwrap();
+    let data = absorb
+        .subrecords
+        .iter_mut()
+        .find(|subrecord| subrecord.tag == T(b"DATA"))
+        .unwrap();
     put(&mut data.data, 88, 24);
     let records = plugin(absorb, vec![spell(SPELL, 0, false, 4.0, 2)]);
     let mut original = game(records.clone());
-    original.world_mut().damage_actor_value(id(OTHER), "magicka", 60.0).unwrap();
-    original.world_mut().damage_actor_value(id(ACTOR), "magicka", 90.0).unwrap();
+    original
+        .world_mut()
+        .damage_actor_value(id(OTHER), "magicka", 60.0)
+        .unwrap();
+    original
+        .world_mut()
+        .damage_actor_value(id(ACTOR), "magicka", 90.0)
+        .unwrap();
     cast(&mut original, SPELL, OTHER).unwrap();
     original.tick(1.0);
     let saved = original.save_state().unwrap();

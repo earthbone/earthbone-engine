@@ -371,11 +371,17 @@ fn mag_34_invisibility_ends_when_actor_activates_a_reference() {
 
 #[test]
 fn mag_34_invisibility_survives_save_load_until_activation_break() {
-    let records = plugin(effect(0, 11, 0, false), vec![spell(SPELL, 0, false, 1.0, 20)]);
+    let records = plugin(
+        effect(0, 11, 0, false),
+        vec![spell(SPELL, 0, false, 1.0, 20)],
+    );
     let mut original = game(records.clone());
     let shared = original.shared_world();
     let result = shared.borrow_mut().cast_spell(
-        id(SPELL), id(SOURCE), Some(id(ACTOR)), Some(id(ACTOR)),
+        id(SPELL),
+        id(SOURCE),
+        Some(id(ACTOR)),
+        Some(id(ACTOR)),
         &mut |name, class| original.vm.create_object_of(name, class),
     );
     result.unwrap();

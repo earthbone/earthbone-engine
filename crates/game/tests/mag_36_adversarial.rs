@@ -146,7 +146,7 @@ fn mag_36_lock_level_and_locked_state_survive_world_save_load() {
     let mut original = fixture(12.0);
     cast(&mut original, DOOR_REF).unwrap();
     let saved = original.world().save_state();
-    let mut restored = fixture(12.0);
+    let restored = fixture(12.0);
     restored.world_mut().load_state(&saved).unwrap();
     let mut world = restored.world_mut();
     let door = world.reference(id(DOOR_REF)).unwrap();

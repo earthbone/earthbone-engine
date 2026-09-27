@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+#![allow(dead_code, unused_imports)]
 
 //! Spell execution through the world and Papyrus, using xEdit-shaped records.
 //! CK lifecycle, recover, expiry and dispel contracts are asserted independently
 //! of whether a spell remains learned or equipped.
 
 #[path = "common/legacy.rs"]
+#[allow(dead_code)]
 mod legacy;
 
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -32,7 +34,6 @@ const ITEM: u32 = 0x600;
 const OTHER_ITEM: u32 = 0x601;
 const SUMMON_BASE: u32 = 0x501;
 const LIGHT_BASE: u32 = 0x502;
-
 
 fn retain_effect(game: &mut Game, effect: soe_papyrus::ObjectId) {
     let script = ScriptBuilder::new("EffectHolder", "Actor")
@@ -290,7 +291,6 @@ fn fixture(flags: u32, archetype: u32, magnitude: f32, duration: u32) -> Game {
     ))
 }
 
-
 use soe_game::combat::Hand;
 const BOUND_WEAPON: u32 = 0x700;
 const RIGHT_SLOT: u32 = 0x701;
@@ -431,16 +431,30 @@ fn mag_38_saved_bound_weapon_expires_without_regranting_or_leaving_equipment() {
     };
     let mut restored = bound_weapon_fixture();
     restored.load_state(&bytes).unwrap();
-    assert_eq!(restored.world_mut().item_count(id(ACTOR), id(BOUND_WEAPON)), 1);
-    restored.world_mut().tick_magic(10.0, &mut |_, _| soe_papyrus::ObjectId(999));
-    assert_eq!(restored.world_mut().item_count(id(ACTOR), id(BOUND_WEAPON)), 0);
-    assert_eq!(restored.world_mut().hand_weapon(id(ACTOR), Hand::Right), None);
+    assert_eq!(
+        restored.world_mut().item_count(id(ACTOR), id(BOUND_WEAPON)),
+        1
+    );
+    restored
+        .world_mut()
+        .tick_magic(10.0, &mut |_, _| soe_papyrus::ObjectId(999));
+    assert_eq!(
+        restored.world_mut().item_count(id(ACTOR), id(BOUND_WEAPON)),
+        0
+    );
+    assert_eq!(
+        restored.world_mut().hand_weapon(id(ACTOR), Hand::Right),
+        None
+    );
 }
 
 fn cast(game: &mut Game, spell: u32, target: u32) -> Result<Vec<EffectId>, MagicError> {
     let shared = game.shared_world();
     let result = shared.borrow_mut().cast_spell(
-        id(spell), id(SOURCE), Some(id(ACTOR)), Some(id(target)),
+        id(spell),
+        id(SOURCE),
+        Some(id(ACTOR)),
+        Some(id(target)),
         &mut |name, class| game.vm.create_object_of(name, class),
     );
     result

@@ -33,7 +33,6 @@ const OTHER_ITEM: u32 = 0x601;
 const SUMMON_BASE: u32 = 0x501;
 const LIGHT_BASE: u32 = 0x502;
 
-
 fn retain_effect(game: &mut Game, effect: soe_papyrus::ObjectId) {
     let script = ScriptBuilder::new("EffectHolder", "Actor")
         .variable("held", "ActiveMagicEffect", soe_papyrus::asm::none())
@@ -290,7 +289,6 @@ fn fixture(flags: u32, archetype: u32, magnitude: f32, duration: u32) -> Game {
     ))
 }
 
-
 use soe_game::combat::Hand;
 use soe_game::world::DYNAMIC_FILE;
 const WEAPON: u32 = 0x700;
@@ -389,15 +387,25 @@ fn mag_32_disarmed_loose_reference_survives_save_load_and_can_be_recovered_once(
     let mut original = disarm_fixture(5.0);
     original.world_mut().actor(id(ACTOR)).unwrap().level = 5;
     original.world_mut().add_item(id(ACTOR), id(WEAPON), 2);
-    original.world_mut().equip_hand_weapon(id(ACTOR), Hand::Right, id(WEAPON)).unwrap();
+    original
+        .world_mut()
+        .equip_hand_weapon(id(ACTOR), Hand::Right, id(WEAPON))
+        .unwrap();
     cast(&mut original, SPELL, ACTOR).unwrap();
     let dropped = dropped_reference(&original).unwrap();
     let saved = original.save_state().unwrap();
     let mut restored = disarm_fixture(5.0);
     restored.load_state(&saved).unwrap();
     assert_eq!(restored.world_mut().item_count(id(ACTOR), id(WEAPON)), 1);
-    assert_eq!(restored.world().reference_ref(dropped).unwrap().base, Some(id(WEAPON)));
-    assert!(restored.world_mut().add_item_notified(id(ACTOR), dropped, 1, &mut |_, _| soe_papyrus::ObjectId(999)));
+    assert_eq!(
+        restored.world().reference_ref(dropped).unwrap().base,
+        Some(id(WEAPON))
+    );
+    assert!(restored
+        .world_mut()
+        .add_item_notified(id(ACTOR), dropped, 1, &mut |_, _| soe_papyrus::ObjectId(
+            999
+        )));
     assert_eq!(restored.world_mut().item_count(id(ACTOR), id(WEAPON)), 2);
 }
 
@@ -434,7 +442,10 @@ fn mag_32_disarm_without_an_equipped_hand_weapon_does_not_drop_inventory() {
 fn cast(game: &mut Game, spell: u32, target: u32) -> Result<Vec<EffectId>, MagicError> {
     let shared = game.shared_world();
     let result = shared.borrow_mut().cast_spell(
-        id(spell), id(ACTOR), Some(id(ACTOR)), Some(id(target)),
+        id(spell),
+        id(ACTOR),
+        Some(id(ACTOR)),
+        Some(id(target)),
         &mut |name, class| game.vm.create_object_of(name, class),
     );
     result

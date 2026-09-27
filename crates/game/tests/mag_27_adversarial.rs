@@ -33,7 +33,6 @@ const OTHER_ITEM: u32 = 0x601;
 const SUMMON_BASE: u32 = 0x501;
 const LIGHT_BASE: u32 = 0x502;
 
-
 fn retain_effect(game: &mut Game, effect: soe_papyrus::ObjectId) {
     let script = ScriptBuilder::new("EffectHolder", "Actor")
         .variable("held", "ActiveMagicEffect", soe_papyrus::asm::none())
@@ -309,7 +308,11 @@ fn mag_27_cure_disease_removes_every_disease_but_keeps_ordinary_effects_after_re
     records.push_top(disease);
     records.push_top(ordinary);
     records.push_top(cure);
-    for (form, effect_id) in [(DISEASE_SPELL, DISEASE), (NORMAL_SPELL, NORMAL), (CURE_SPELL, CURE)] {
+    for (form, effect_id) in [
+        (DISEASE_SPELL, DISEASE),
+        (NORMAL_SPELL, NORMAL),
+        (CURE_SPELL, CURE),
+    ] {
         records.push_top(spell_with_base_effect(form, 0, false, 0.0, 0, 0, effect_id));
     }
     let mut original = game(records.clone());
@@ -319,7 +322,9 @@ fn mag_27_cure_disease_removes_every_disease_but_keeps_ordinary_effects_after_re
     let mut restored = game(records);
     restored.load_state(&saved).unwrap();
     cast(&mut restored, CURE_SPELL, OTHER).unwrap();
-    assert!(!restored.world_mut().has_magic_effect_with_keyword(id(OTHER), id(DISEASE_KEYWORD)));
+    assert!(!restored
+        .world_mut()
+        .has_magic_effect_with_keyword(id(OTHER), id(DISEASE_KEYWORD)));
     assert!(restored.world().has_magic_effect(id(OTHER), id(NORMAL)));
 }
 
