@@ -1,3 +1,4 @@
+#![allow(clippy::unwrap_used)]
 
 use soe_esm::{
     records::gameplay::{Comparison, Condition},
@@ -294,7 +295,9 @@ fn player_faction_attack_result_is_stable_across_repeated_condition_reads() {
         world.set_actor_value(player, "health", 100.0).unwrap();
         world.set_actor_value(player, "onehanded", 100.0).unwrap();
         world.set_actor_value(id(0x900), "health", 100.0).unwrap();
-        world.set_actor_value(id(0x900), "onehanded", 100.0).unwrap();
+        world
+            .set_actor_value(id(0x900), "onehanded", 100.0)
+            .unwrap();
         world.add_item(player, id(0xA00), 1);
         world.actor(player).unwrap().equipped.insert(id(0xA00));
     }

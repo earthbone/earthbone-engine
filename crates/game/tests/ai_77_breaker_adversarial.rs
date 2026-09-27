@@ -1,4 +1,3 @@
-
 use soe_esm::{
     records::gameplay::{Comparison, Condition},
     FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag,
@@ -112,6 +111,12 @@ fn ai_77_unmodeled_condition_state_returns_function_diagnostics() {
 #[test]
 fn closer_condition_is_false_for_equal_distance_and_identical_references() {
     let game = fixture();
-    assert_eq!(evaluate(&game, 0x900, &condition(577, 0x901, 0x901, 1.0)), Ok(false));
-    assert_eq!(evaluate(&game, 0x900, &condition(577, 0x901, 0x901, 0.0)), Ok(true));
+    assert_eq!(
+        evaluate(&game, 0x900, &condition(577, 0x901, 0x901, 1.0)),
+        Ok(false)
+    );
+    assert_eq!(
+        evaluate(&game, 0x900, &condition(577, 0x901, 0x901, 0.0)),
+        Ok(true)
+    );
 }

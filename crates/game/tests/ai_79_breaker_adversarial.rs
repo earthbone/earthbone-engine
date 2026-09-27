@@ -1,3 +1,4 @@
+#![allow(clippy::unwrap_used)]
 
 use soe_esm::{
     records::gameplay::{Comparison, Condition},

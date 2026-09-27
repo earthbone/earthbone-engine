@@ -1,3 +1,4 @@
+#![allow(clippy::unwrap_used)]
 
 use soe_esm::{
     records::gameplay::{Comparison, Condition},
@@ -189,5 +190,8 @@ fn owner_condition_is_stable_when_repeated_and_does_not_mutate_reference() {
     for _ in 0..3 {
         assert_eq!(evaluate(&game, subject, &condition), Ok(true));
     }
-    assert_eq!(game.world_mut().reference(subject).unwrap().owner, Some(id(0x801)));
+    assert_eq!(
+        game.world_mut().reference(subject).unwrap().owner,
+        Some(id(0x801))
+    );
 }
