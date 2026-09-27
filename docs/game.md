@@ -1686,6 +1686,21 @@ SOEW version 9 stores identity, source, caster, target, magnitude, elapsed time,
 duration and value deltas, including pending script attachment. Loading never
 reapplies a saved modifier. The deterministic scenes hash includes this state.
 
+An active MGEF's `Equip Ability` link grants that spell for the lifetime of the
+application. `Actor.HasSpell` and condition function 264 see the grant while the
+effect is active. The grant is derived from the saved active effect, so expiry
+or dispel removes only that application's grant and preserves a spell the actor
+knows independently. The link is resolved in the MGEF's winning plugin context
+and must name a live SPEL. MGEF `Perk to Apply` remains unsupported. xEdit's
+MGEF schema identifies these as separate SPEL and PERK links, and CK
+`DispelSpell_-_Actor.wikitext` documents spell-wide removal independently of
+the active effect's equip ability.
+
+`mag_20_effect_grants_its_authored_equip_ability`,
+`mag_20_expiry_removes_its_equip_ability_grant` and
+`mag_20_expiring_grant_preserves_independently_owned_spell` cover grant
+visibility and ownership through expiry.
+
 The source contracts are CK [Magic Effect](https://ck.uesp.net/wiki/Magic_Effect),
 local `ck-wiki/AddInventoryEventFilter_-_ObjectReference.wikitext`,
 `DispelSpell_-_Actor.wikitext` and

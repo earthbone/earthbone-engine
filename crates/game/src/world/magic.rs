@@ -243,9 +243,10 @@ impl World {
             if entry.data.area != 0 || data.area != 0 || data.taper_duration != 0.0 {
                 return Err(MagicError::Unsupported("area or taper"));
             }
-            if data.perk != 0 || data.equip_ability != 0 {
-                return Err(MagicError::Unsupported("perk or equip ability"));
+            if data.perk != 0 {
+                return Err(MagicError::Unsupported("perk application"));
             }
+            self.validate_equip_ability(effect, data.equip_ability)?;
             let magnitude = if data.flags & NO_MAGNITUDE != 0 {
                 0.0
             } else {
@@ -482,9 +483,10 @@ impl World {
             if data.taper_duration != 0.0 {
                 return Err(MagicError::Unsupported("taper"));
             }
-            if data.perk != 0 || data.equip_ability != 0 {
-                return Err(MagicError::Unsupported("perk or equip ability"));
+            if data.perk != 0 {
+                return Err(MagicError::Unsupported("perk application"));
             }
+            self.validate_equip_ability(effect, data.equip_ability)?;
             if data.cast_type != definition.data.cast_type
                 || data.delivery != definition.data.delivery
             {
@@ -758,6 +760,45 @@ impl World {
         self.active_effects
             .values()
             .any(|e| e.target == target && e.effect == effect)
+    }
+
+    /// Check an actor's known spells and active MGEF equip-ability grants.
+    pub fn has_spell(&mut self, actor: GlobalFormId, spell: GlobalFormId) -> bool {
+        if self
+            .actor(actor)
+            .is_some_and(|state| state.spells.contains(&spell))
+        {
+            return true;
+        }
+        let effects: Vec<_> = self
+            .active_effects
+            .values()
+            .filter(|effect| effect.target == actor)
+            .map(|effect| effect.effect)
+            .collect();
+        effects.into_iter().any(|effect| {
+            self.magic_effect(effect).is_ok_and(|definition| {
+                self.resolve_from(effect, definition.data.equip_ability) == Some(spell)
+            })
+        })
+    }
+
+    fn validate_equip_ability(&self, effect: GlobalFormId, raw: u32) -> Result<(), MagicError> {
+        if raw == 0 {
+            return Ok(());
+        }
+        let ability = self
+            .resolve_from(effect, raw)
+            .ok_or(MagicError::Missing(effect))?;
+        let rref = self
+            .order
+            .winner_ref(ability)
+            .ok_or(MagicError::Missing(ability))?;
+        if self.order.record(rref).is_deleted() || self.tag_of(ability) != Some(super::T(b"SPEL")) {
+            return Err(MagicError::Missing(ability));
+        }
+        self.spell(ability)?;
+        Ok(())
     }
 
     /// Match keywords on each active effect's winning definition.

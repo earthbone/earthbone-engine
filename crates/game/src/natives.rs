@@ -1317,7 +1317,7 @@ fn actor(vm: &mut Vm, w: &Shared) {
         let Some(spell) = world.form_arg(&call.arg(0)) else {
             return b(false);
         };
-        b(world.actor(me).is_some_and(|a| a.spells.contains(&spell)))
+        b(world.has_spell(me, spell))
     });
     method!(vm, w, "Actor", "EquipItem", |world, call, me| {
         if let Some(item) = world.form_arg(&call.arg(0)) {
