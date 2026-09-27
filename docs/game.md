@@ -1280,8 +1280,18 @@ iron ingot and produced ten nails. Explicit PlayerRef inventory conditions
 also passed. Predicate presence across the survey does not establish that
 every recipe is executable or that all predicate contexts match vanilla.
 
-Tempering, alchemy, enchanting, skill advancement, crafting story events,
-item instance state and host menus remain unfinished. The full requested
+Alchemy currently combines exactly two INGR forms at a FURN alchemy station.
+It selects shared effects whose ingredient-level CTDAs pass, creates a
+dynamic ALCH inventory form with the first ingredient's effect data, and
+consumes one of each input in the same inventory transaction. Brewed potion
+definitions and resolved MGEF links persist in SOEW version 37. A CK wiki
+Ingredient page is absent. The shipped `Ingredient.psc` defines `LearnEffect`,
+`LearnNextEffect` and `LearnAllEffects`, which remain outside this transaction.
+Ingredient and effect layouts follow xEdit `wbDefinitionsTES5.pas` and UESP
+ALCH/INGR format pages.
+
+Tempering, enchanting, skill advancement, crafting story events, item
+instance state and host menus remain unfinished. The full requested
 execution scope is tracked in [execution-plan.md](execution-plan.md).
 
 The game crate now directly uses the workspace's existing thiserror 2.0.20

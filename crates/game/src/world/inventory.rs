@@ -190,6 +190,9 @@ impl World {
 
     /// Base forms supported by inventory stacks, from xEdit's item lists.
     pub(crate) fn is_inventory_base(&self, item: GlobalFormId) -> bool {
+        if self.brewed_potions.contains_key(&item) {
+            return true;
+        }
         self.record(item).is_some_and(|record| {
             !record.is_deleted()
                 && matches!(

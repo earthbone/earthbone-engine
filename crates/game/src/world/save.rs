@@ -60,7 +60,8 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// Version 34 retains last-visit game days for resettable encounter zones.
 /// Version 35 retains saved list flags and per-entry chance bytes in record overrides.
 /// Version 36 retains the active phase and completed action slots for each scene.
-pub const SAVE_VERSION: u16 = 36;
+/// Version 37 retains dynamically brewed potion definitions.
+pub const SAVE_VERSION: u16 = 37;
 
 #[derive(Clone, Copy)]
 pub(crate) enum FormNamespace {
@@ -425,6 +426,17 @@ impl World {
             body.len(run.completed_actions.len());
             for slot in &run.completed_actions {
                 body.u32(*slot);
+            }
+        }
+        body.len(self.brewed_potions.len());
+        for (id, effects) in &self.brewed_potions {
+            write_form_id(&mut body, *id);
+            body.len(effects.len());
+            for (effect, magnitude, area, duration) in effects {
+                write_form_id(&mut body, *effect);
+                body.f32(*magnitude);
+                body.u32(*area);
+                body.u32(*duration);
             }
         }
         self.write_detection(&mut body);
@@ -1046,6 +1058,42 @@ impl World {
                 .map(|id| (*id, super::SceneRunState::default()))
                 .collect()
         };
+        let mut brewed_potions = BTreeMap::new();
+        if version >= 37 {
+            let count = r.len()?;
+            for _ in 0..count {
+                let id = read_form_id(&mut r)?;
+                if id.file != super::DYNAMIC_FILE
+                    || id.object == 0
+                    || id.object > next_dynamic
+                    || refs.contains_key(&id)
+                    || record_overrides.contains_key(&id)
+                {
+                    return Err(VmError::State("invalid brewed potion identity".into()));
+                }
+                let effect_count = r.len()?;
+                if effect_count == 0 {
+                    return Err(VmError::State("brewed potion has no effects".into()));
+                }
+                let mut effects = Vec::with_capacity(effect_count);
+                for _ in 0..effect_count {
+                    let effect = read_form_id(&mut r)?;
+                    let magnitude = r.f32()?;
+                    let area = r.u32()?;
+                    let duration = r.u32()?;
+                    if self.tag_of(effect) != Some(super::T(b"MGEF"))
+                        || !magnitude.is_finite()
+                        || magnitude < 0.0
+                    {
+                        return Err(VmError::State("invalid brewed potion effect".into()));
+                    }
+                    effects.push((effect, magnitude, area, duration));
+                }
+                if brewed_potions.insert(id, effects).is_some() {
+                    return Err(VmError::State("duplicate brewed potion identity".into()));
+                }
+            }
+        }
         let detection = if version >= 30 {
             super::detection::read_detection(&mut r)?
         } else {
@@ -1095,6 +1143,7 @@ impl World {
         self.encounter_levels = encounter_levels;
         self.encounter_zone_visits = encounter_zone_visits;
         self.detection = detection;
+        self.brewed_potions = brewed_potions;
         self.settings = settings;
         self.inventory_filters = inventory_filters;
         self.sleep_listeners = sleep_listeners;
