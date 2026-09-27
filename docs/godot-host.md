@@ -125,13 +125,14 @@ record carries the deleted flag out of the drawn list and files it under
 reference still resolves through the load order and the game starts it disabled,
 so the host never draws one and never has to test for it.
 
-Budget design for the Whiterun gate: the `StreamPlan` is the unit the host schedules. The
-intended loop is one `update` per frame, loads handed to a worker pool that decodes NIF and
-builds `SurfaceArrays` off the main thread, and only `array_mesh_from` plus scene insertion
-on the main thread, capped by `max_loads_per_tick`. Triangle and byte budgets per tick are
-not in the streamer yet because nothing measures the real per-cell cost until the `nif` and
-`esm` crates land. `SurfaceArrays` carries bounds and a triangle count so that budget can be
-added without changing the plan shape.
+`StreamPlan` is the unit the host schedules. `update_with_budget` caps its selected loads by
+triangle and byte totals when the caller supplies a `StreamCost` for each candidate cell.
+Costs may be measured or estimated. Loads stay nearest first, and a cell that does not fit
+either remaining limit is deferred while later smaller cells may be selected. A zero limit
+is unlimited. The ordinary `update` keeps its cell-count behavior and does not apply mesh
+budgets. `SurfaceArrays` exposes triangle counts and its vertex and index buffers, which
+callers can use to calculate or estimate costs. The walking player path still uses `update`,
+so it does not yet schedule by measured mesh cost.
 
 ## Mesh
 
