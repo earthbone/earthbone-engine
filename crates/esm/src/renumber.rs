@@ -23,6 +23,8 @@ pub(crate) fn remap_plugin(plugin: &mut Plugin, mapping: &HashMap<u32, u32>) -> 
                 remap_vmad(&mut subrecord.data, mapping)?;
             } else if record.tag == Tag::new(b"HAZD") && subrecord.tag == Tag::new(b"DATA") {
                 remap_hazd_data(&mut subrecord.data, mapping)?;
+            } else if record.tag == Tag::new(b"MGEF") && subrecord.tag == Tag::new(b"DATA") {
+                remap_mgef_data(&mut subrecord.data, mapping)?;
             } else if form_id_field(record.tag, subrecord.tag) {
                 map_words(&mut subrecord.data, mapping);
             }
@@ -59,6 +61,33 @@ fn remap_hazd_data(data: &mut [u8], mapping: &HashMap<u32, u32>) -> Result<()> {
         let old = u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
         if let Some(new) = mapping.get(&old) {
             chunk.copy_from_slice(&new.to_le_bytes());
+        }
+    }
+    Ok(())
+}
+
+fn remap_mgef_data(data: &mut [u8], mapping: &HashMap<u32, u32>) -> Result<()> {
+    if data.len() != 152 {
+        return Err(Error::SubrecordSize {
+            record: Tag::new(b"MGEF"),
+            tag: Tag::new(b"DATA"),
+            len: data.len(),
+            expected: "152".into(),
+        });
+    }
+    for offset in [
+        8, 24, 32, 36, 72, 76, 92, 96, 100, 108, 116, 120, 124, 128, 132, 136,
+    ] {
+        let value = u32::from_le_bytes(data[offset..offset + 4].try_into().map_err(|_| {
+            Error::SubrecordSize {
+                record: Tag::new(b"MGEF"),
+                tag: Tag::new(b"DATA"),
+                len: data.len(),
+                expected: "152".into(),
+            }
+        })?);
+        if let Some(mapped) = mapping.get(&value) {
+            data[offset..offset + 4].copy_from_slice(&mapped.to_le_bytes());
         }
     }
     Ok(())

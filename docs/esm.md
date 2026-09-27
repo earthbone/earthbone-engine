@@ -100,10 +100,10 @@ space, music, acoustic space, encounter zone, weather and region links;
 worldspace parent, climate, water, location, encounter zone and music links;
 location parents and markers; placed reference base, owner, location, layer,
 encounter zone and emittance; texture set and grass links; navmesh base object
-lists; magic effect keyword and counter effect lists; SCEN and DIAL quest
-links; INFO topic, response and topic-list links; and HAZD image-space and
-DATA links at their documented offsets, without interpreting scalar values as
-FormIDs. VMAD object properties
+lists; magic effect DATA links, keywords and counter effect lists; SCEN and DIAL
+quest links; INFO topic, response and topic-list links; and HAZD image-space
+and DATA links at their documented offsets, without interpreting scalar values
+as FormIDs. VMAD object properties
 and arrays in object formats 1 and 2 are remapped while trailing fragment
 bytes are preserved. An invalid or
 unsupported VMAD property makes the operation fail without changing the
@@ -308,12 +308,13 @@ and do not create another form database. They introduce no dependencies.
 | `MagicEffect`, MGEF | Name, description, keywords, counter effects, conditions and the DATA subset below |
 | `Recipe`, COBJ | Declared ingredient count, ordered signed ingredient quantities, per-ingredient COED owner/union/condition, conditions, optional output object/count and workbench keyword |
 
-The MGEF DATA subset is flags, base cost, associated item, magic skill,
-resistance, declared counter-effect count, minimum skill, area, casting time,
-taper curve and duration, secondary actor-value weight, archetype, both actor
-values, cast type, delivery, skill usage multiplier, equip ability and perk.
-Taper weight, projectile/explosion links, dual-cast scale, AI score/delay and
-visual/audio fields remain in the source record. This is not a full MGEF API.
+The MGEF DATA view reads flags, base cost, associated item, magic skill,
+resistance, declared counter-effect count, taper weight, minimum skill, area,
+casting time, taper curve and duration, secondary actor-value weight, archetype,
+both actor values, projectile and explosion links, cast type, delivery, skill
+usage multiplier, dual-cast scale, equip ability, perk, and script AI score and
+delay. Other DATA fields remain in the source record. This is not a full MGEF
+API.
 
 `Condition` preserves CTDA flags, comparison number or GLOB FormID, function,
 raw parameter unions, run-on fields and following CIS1/CIS2 strings. Conditions
