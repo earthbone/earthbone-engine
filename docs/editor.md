@@ -273,16 +273,27 @@ year or more or blocked.
 
 `soe-editor` opens plugin paths in load-order order through `soe-esm`, keeps one active
 plugin, and updates the resolved order when an edit is applied or undone. A subrecord edit
-to a supported winning top-level `STAT` record creates an active-plugin override. Undo
+to a supported winning top-level `STAT` or DIAL record creates an active-plugin override. Undo
 restores the prior active plugin. Saving writes the active plugin bytes and parses those
 bytes again before returning the saved plugin. The TES4 record count is updated with edits.
 
+Dialogue topic edits remap DIAL's BNAM branch and QNAM quest links into the active
+plugin's master order. INFO response text edits select the response by TRDT order, retain
+the other responses, and write an INFO override in its TopicChildren group under the
+owning DIAL. The topic group label uses the active plugin's local DIAL FormID. This scope
+edits existing fields, it does not create dialogue records or change quest ownership.
+
+The placement and field rules follow `engine-refs/TES5Edit/Core/wbDefinitionsTES5.pas`
+DIAL and INFO definitions and `engine-refs/uesp-modfileformat/{DIAL,INFO,QUST}.wikitext`.
+xEdit declares the DIAL branch and quest link types, and UESP documents INFO records as
+children of their DIAL topic. No source code was copied.
+
 Copying a winning record whose owner differs from the active plugin requires relocating
-FormIDs in the record and its group path. The editor currently rejects nested records and
-supports copied top-level `STAT` records only. The FMT-15 FormID renumbering and FMT-26
-master relocation rows remain open. The Spriggit output guide describes separate text files
-per record, while the current editor writes plugin files only. No text plugin translation
-or `.spriggit` configuration reader is implemented.
+FormIDs in the record and its group path. This editor scope supports nested INFO placement
+and the two DIAL owner links, while other nested records remain rejected. The FMT-15
+FormID renumbering and FMT-26 master relocation rows remain open. The Spriggit output guide
+describes separate text files per record, while the current editor writes plugin files
+only. No text plugin translation or `.spriggit` configuration reader is implemented.
 
 `EditorDocument::search_forms` filters the load order's winning forms by an optional record
 signature and a case-insensitive substring of `EDID`. It yields `GlobalFormId` values, so a
