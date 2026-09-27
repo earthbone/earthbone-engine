@@ -57,8 +57,9 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// Version 32 retains each hand's explicitly assigned spell, so a menu or
 /// script equip survives a reload the way a hand weapon selection already did.
 /// Version 33 retains the spawned reference owned by each Summon Creature effect.
-/// Version 34 retains the active phase and completed action slots for each scene.
-pub const SAVE_VERSION: u16 = 34;
+/// Version 34 retains last-visit game days for resettable encounter zones.
+/// Version 35 retains the active phase and completed action slots for each scene.
+pub const SAVE_VERSION: u16 = 35;
 
 #[derive(Clone, Copy)]
 pub(crate) enum FormNamespace {
@@ -414,6 +415,7 @@ impl World {
         self.write_image_space(&mut body);
         self.write_loose_items(&mut body);
         self.write_encounter_levels(&mut body);
+        self.write_encounter_zone_visits(&mut body);
         self.write_dialogue_repeats(&mut body);
         body.len(self.scene_runs.len());
         for (id, run) in &self.scene_runs {
@@ -983,12 +985,17 @@ impl World {
         } else {
             BTreeMap::new()
         };
+        let encounter_zone_visits = if version >= 34 {
+            self.read_encounter_zone_visits(&mut r)?
+        } else {
+            BTreeMap::new()
+        };
         let dialogue_repeats = if version >= 28 {
             crate::dialogue::read_dialogue_repeats(&mut r)?
         } else {
             BTreeMap::new()
         };
-        let scene_runs = if version >= 34 {
+        let scene_runs = if version >= 35 {
             let count = r.len()?;
             let mut runs = BTreeMap::new();
             for _ in 0..count {
@@ -1085,6 +1092,7 @@ impl World {
         self.actor_bases = actor_bases;
         self.cells = cells;
         self.encounter_levels = encounter_levels;
+        self.encounter_zone_visits = encounter_zone_visits;
         self.detection = detection;
         self.settings = settings;
         self.inventory_filters = inventory_filters;

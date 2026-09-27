@@ -470,6 +470,7 @@ pub struct World {
     actor_bases: HashMap<GlobalFormId, ActorBaseState>,
     cells: HashMap<GlobalFormId, CellState>,
     encounter_levels: BTreeMap<GlobalFormId, u16>,
+    encounter_zone_visits: BTreeMap<GlobalFormId, f64>,
     /// The cell whose temporary references are resident, set by a transition.
     /// See `crate::world::transition`.
     loaded_cell: Option<GlobalFormId>,
@@ -587,6 +588,7 @@ impl World {
             actor_bases: HashMap::new(),
             cells: HashMap::new(),
             encounter_levels: BTreeMap::new(),
+            encounter_zone_visits: BTreeMap::new(),
             loaded_cell: None,
             streamed_cells: std::collections::HashSet::new(),
             pending_unload: None,

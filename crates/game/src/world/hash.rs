@@ -642,6 +642,11 @@ impl World {
             form(&mut h, *id);
             h.u16(*level);
         }
+        h.len(self.encounter_zone_visits.len());
+        for (id, day) in &self.encounter_zone_visits {
+            form(&mut h, *id);
+            h.f64(*day);
+        }
         h.len(self.detection.pools.len());
         for (target, pool) in &self.detection.pools {
             form(&mut h, *target);

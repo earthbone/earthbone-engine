@@ -433,12 +433,15 @@ fn cmb_14_version_28_save_loads_with_no_actor_staggered() {
         );
         bytes.drain(positions[0]..end + 6);
     }
-    bytes.truncate(bytes.len() - 4);
     assert_eq!(
         u16::from_le_bytes([bytes[4], bytes[5]]),
         soe_game::world::SAVE_VERSION,
         "the save must carry the current world state version before the patch"
     );
+    bytes.truncate(bytes.len() - 4);
+    let visit_count = bytes.len() - 12;
+    assert_eq!(bytes[visit_count..visit_count + 4], [0; 4]);
+    bytes.drain(visit_count..visit_count + 4);
     bytes[4..6].copy_from_slice(&28_u16.to_le_bytes());
 
     let loaded = fixture(

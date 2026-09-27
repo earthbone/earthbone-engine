@@ -211,6 +211,9 @@ fn a_genuine_pre_prg_06_save_loads_cleanly_with_no_witnessed_crimes() {
     );
     bytes.drain(offsets[0]..end + 2);
     bytes.truncate(bytes.len() - 4);
+    let visit_count = bytes.len() - 12;
+    assert_eq!(bytes[visit_count..visit_count + 4], [0; 4]);
+    bytes.drain(visit_count..visit_count + 4);
     // Roll the header back to a real pre-witness-tracking version.
     bytes[4..6].copy_from_slice(&29u16.to_le_bytes());
 
