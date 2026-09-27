@@ -3251,3 +3251,18 @@ filters and chooses each rule using its entry value seed, the player runtime
 FormID and the actor runtime FormID. The chosen actor additions enter the same
 actor state and inventory paths as ordinary distributions. The rules are part
 of the mod-data determinism hash.
+
+# KID exclusive groups and chance
+
+`Game::apply_mod_data` resolves KID exclusive groups across all discovered KID
+files before applying keyword rules. Repeated group names accumulate keyword
+members, and a later exclusion removes its keyword from that group. A rule
+cannot add a group member when another member is already present on the target,
+including a plugin keyword or an earlier KID addition.
+
+KID chance uses FNV-1a 32 of the keyword editor ID paired with the target
+runtime FormID using the Szudzik formula from
+`Keyword-Item-Distributor/src/Data/BaseFilters.cpp`. A stable local random
+conversion evaluates each keyword and target pair without consuming the world
+RNG. The seed inputs match upstream, though the random generator output is not
+claimed bit for bit.

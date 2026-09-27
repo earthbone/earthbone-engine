@@ -15,7 +15,7 @@ reimplement the workaround.
 | Format | Plugin | What it does | Files |
 |---|---|---|---|
 | `_DISTR.ini` | Spell Perk Item Distributor | Hands spells, perks, items, shouts, packages, outfits and skins to actors by filter | `src/spid.rs` |
-| `_KID.ini` | Keyword Item Distributor | Attaches keywords to records by filter | `src/kid.rs` |
+| `_KID.ini` | Keyword Item Distributor | Attaches keywords to records by filter and enforces exclusive keyword groups | `src/kid.rs` |
 | `_SWAP.ini` | Base Object Swapper | Swaps base objects on placed references, and overrides their properties | `src/bos.rs` |
 | directory tree | Open Animation Replacer | Picks animations by condition, and the older Dynamic Animation Replacer layout | `src/oar.rs` |
 
@@ -142,14 +142,12 @@ them, but no shipped mod has been run through them yet.
 
 | Test suite | Count | What it covers |
 |---|---|---|
-| `src/*` unit | 60 | Each grammar, each filter rule, the ini dialect, the form reference ambiguity |
+| `src/*` unit | 63 | Each grammar, KID exclusive group entries, each filter rule, the ini dialect, the form reference ambiguity |
 | `tests/resolve.rs` | 11 | Resolution against a synthetic load order, including absent forms |
 
 ## Not done
 
 - No real mod has been parsed, see above.
-- Keyword Item Distributor's exclusive groups, which share the file under other
-  keys and are currently reported as skipped lines.
 - The two fields left as written, and Open Animation Replacer's `user.json`
   override layer.
 - Exact chance selection and actor lifecycle compatibility, detailed below.
@@ -182,6 +180,12 @@ from a shipped one. A side table this module alone consulted would have passed
 a weaker test and failed a real mod, which is why the lookup changed rather
 than gaining a neighbour.
 
+KID `ExclusiveGroup` entries are gathered across all discovered KID files
+before keyword rules run. Lines with the same group name add included keywords
+and remove excluded keywords. When a rule would add a keyword, the engine skips
+it if another member of any shared group is already on the target record,
+including a keyword from the plugin or an earlier KID rule.
+
 Ordinary SPID distribution results are keyed by `NPC_` base because actor
 state is built from its base on first use. Fractional deterministic rules
 marked with `!` instead wait for an actor reference, where the same base can
@@ -212,11 +216,13 @@ selection rule without relying on an implementation-defined C++ string hash
 or claiming bit-for-bit output from SPID's RNG.
 `world.mod_data` includes the retained actor rules and their selection inputs.
 
-KID uses a different deterministic seed in `src/Data/BaseFilters.cpp`, based
-on keyword editor ID and target form. Our KID application still rolls once
-per rule with the world RNG. Neither distributor should be described as
-matching upstream chance selection. The `world.mod_data` hash covers the
-resulting keywords, distributions and swaps for engine replay.
+KID chance uses the upstream seed inputs from
+`Keyword-Item-Distributor/src/Data/BaseFilters.cpp`: FNV-1a 32 of the keyword
+editor ID paired with the target runtime FormID using Szudzik pairing. The
+engine derives a stable unit value from that seed for each keyword and target,
+so KID chance does not consume the world RNG. Its random generator is not
+claimed to reproduce upstream output bit for bit. The `world.mod_data` hash
+covers the resulting keywords, distributions and swaps for engine replay.
 
 ### What is applied and what is only carried
 
@@ -241,4 +247,4 @@ every fixture is still authored.
 | Test suite | Count | What it covers |
 |---|---|---|
 | `crates/game/src/moddata.rs` unit | 3 | The item type to record tag map, swap fallthrough, empty distribution |
-| `crates/game/tests/moddata_apply.rs` | 9 | Each format through the game's own query paths, the skip direction, chance, determinism, and the gated scan |
+| `crates/game/tests/moddata_apply.rs` | 15 | Each format through the game's own query paths, KID group merging and exclusions, seeded chance, the skip direction, determinism, and the gated scan |

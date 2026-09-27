@@ -19,6 +19,9 @@ const T: fn(&[u8; 4]) -> Tag = Tag::new;
 const EDID: Tag = Tag::new(b"EDID");
 
 const KEYWORD: u32 = 0x800;
+const KEYWORD_TWO: u32 = 0x814;
+const KEYWORD_THREE: u32 = 0x815;
+const PRETAGGED_HELMET: u32 = 0x816;
 const SPELL: u32 = 0x801;
 const GOLD: u32 = 0x802;
 const HELMET: u32 = 0x803;
@@ -72,6 +75,8 @@ fn master() -> Plugin {
         ..Default::default()
     });
     p.push_top(Record::new(T(b"KYWD"), KEYWORD).zsub(EDID, "MyKeyword"));
+    p.push_top(Record::new(T(b"KYWD"), KEYWORD_TWO).zsub(EDID, "AnotherKeyword"));
+    p.push_top(Record::new(T(b"KYWD"), KEYWORD_THREE).zsub(EDID, "ThirdKeyword"));
     p.push_top(Record::new(T(b"SPEL"), SPELL).zsub(EDID, "MySpell"));
     p.push_top(Record::new(T(b"MISC"), GOLD).zsub(EDID, "Gold001"));
     p.push_top(
@@ -118,6 +123,21 @@ fn master() -> Plugin {
 fn game() -> Game {
     let mut order = LoadOrder::new();
     let bytes = master().to_bytes();
+    order
+        .add("Master.esm", Plugin::parse(&bytes).unwrap())
+        .unwrap();
+    Game::new(order)
+}
+
+fn game_with_pretagged_helmet() -> Game {
+    let mut plugin = master();
+    plugin.push_top(
+        Record::new(T(b"ARMO"), PRETAGGED_HELMET)
+            .zsub(EDID, "PreTaggedHelmet")
+            .sub(T(b"KWDA"), KEYWORD.to_le_bytes()),
+    );
+    let mut order = LoadOrder::new();
+    let bytes = plugin.to_bytes();
     order
         .add("Master.esm", Plugin::parse(&bytes).unwrap())
         .unwrap();
@@ -174,6 +194,79 @@ fn a_keyword_file_leaves_a_form_its_filter_misses_alone() {
     assert_eq!(report.keyword_rules, 1);
     assert_eq!(report.keywords_attached, 0);
     assert!(!g.world_mut().has_keyword(id(HELMET), id(KEYWORD)));
+}
+
+#[test]
+fn mod_02_exclusive_group_adds_only_one_matching_keyword_to_an_item() {
+    let dir = Dir::new("kid-exclusive");
+    dir.write(
+        "First_KID.ini",
+        "ExclusiveGroup = Equipment|MyKeyword,AnotherKeyword\nKeyword = MyKeyword|Armor|GuardHelmet\nKeyword = AnotherKeyword|Armor|GuardHelmet\n",
+    );
+    let mut g = game();
+    let report = g.apply_mod_data(&dir.roots());
+    assert_eq!(report.keywords_attached, 1);
+    assert_eq!(
+        g.world()
+            .keywords(id(HELMET))
+            .iter()
+            .filter(|keyword| { **keyword == id(KEYWORD) || **keyword == id(KEYWORD_TWO) })
+            .count(),
+        1,
+        "a KID exclusive group allows only one member on the item"
+    );
+}
+
+#[test]
+fn mod_02_exclusive_group_merges_files_and_applies_later_exclusions() {
+    let dir = Dir::new("kid-exclusive-merge");
+    dir.write(
+        "A_KID.ini",
+        "ExclusiveGroup = Equipment|MyKeyword,AnotherKeyword\nKeyword = AnotherKeyword|Armor|GuardHelmet\n",
+    );
+    dir.write(
+        "B_KID.ini",
+        "ExclusiveGroup = Equipment|ThirdKeyword,-AnotherKeyword\nKeyword = ThirdKeyword|Armor|GuardHelmet\n",
+    );
+    let mut g = game();
+    let report = g.apply_mod_data(&dir.roots());
+    assert_eq!(report.keywords_attached, 2);
+    assert!(g.world().keywords(id(HELMET)).contains(&id(KEYWORD_THREE)));
+    assert!(g.world().keywords(id(HELMET)).contains(&id(KEYWORD_TWO)));
+    assert!(!g.world().keywords(id(HELMET)).contains(&id(KEYWORD)));
+}
+
+#[test]
+fn mod_02_exclusive_group_respects_keywords_already_on_the_record() {
+    let dir = Dir::new("kid-exclusive-existing");
+    dir.write(
+        "Existing_KID.ini",
+        "ExclusiveGroup = Equipment|MyKeyword,AnotherKeyword\nKeyword = AnotherKeyword|Armor|PreTaggedHelmet\n",
+    );
+    let mut g = game_with_pretagged_helmet();
+    let report = g.apply_mod_data(&dir.roots());
+    assert_eq!(report.keywords_attached, 0);
+    assert!(g
+        .world()
+        .keywords(id(PRETAGGED_HELMET))
+        .contains(&id(KEYWORD)));
+    assert!(!g
+        .world()
+        .keywords(id(PRETAGGED_HELMET))
+        .contains(&id(KEYWORD_TWO)));
+}
+
+#[test]
+fn mod_02_kid_chance_uses_keyword_and_target_seed() {
+    let dir = Dir::new("kid-seeded-chance");
+    dir.write(
+        "Seeded_KID.ini",
+        "Keyword = MyKeyword|Armor|GuardHelmet|NONE|75\n",
+    );
+    let mut g = game();
+    let report = g.apply_mod_data(&dir.roots());
+    assert_eq!(report.keywords_attached, 1);
+    assert!(g.world().keywords(id(HELMET)).contains(&id(KEYWORD)));
 }
 
 #[test]
