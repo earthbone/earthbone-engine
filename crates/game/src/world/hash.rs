@@ -370,6 +370,9 @@ fn actor_state(h: &mut StateHasher, a: &ActorState) {
     for flag in [
         a.alerted,
         a.sneaking,
+        a.swimming,
+        a.running,
+        a.riding_mount,
         a.weapon_drawn,
         a.restrained,
         a.arrested,

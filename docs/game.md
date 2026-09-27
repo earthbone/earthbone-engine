@@ -2387,6 +2387,31 @@ for the documented sleep states and `GetSleeping` loading-idle note. The
 degree conversion, supported sleep states, invalid inputs and unavailable
 motion flags.
 
+## Motion condition batch AI-64
+
+`IsSwimming`, `IsSneaking`, `IsRunning` and `IsRidingMount` return the
+subject actor's current modeled movement flags. The running flag means running
+as opposed to walking or sprinting, matching CK's `IsRunning` page. These
+flags default to false and persist with actor state. `IsPlayersLastRiddenMount`
+compares the subject actor with the world's recorded last ridden horse.
+Non-actor subjects and nonzero parameters return form and parameter errors.
+
+`GetAnimAction`, `GetPairedAnimation` and `GetIdleDoneOnce` accept no
+parameters, validate a live reference, then return an unavailable-state
+diagnostic because no current animation action or completion state is tracked.
+Their CK condition contracts are absent from the local CK corpus. The local
+xEdit table and UESP raw function table confirm their IDs and no-argument
+signatures. The UESP note for paired animation names a query but does not
+define its condition result.
+
+The contracts follow local xEdit `wbDefinitionsTES5.pas`, UESP
+`Raw_Function_Data.wikitext`, and CK's actor pages for `IsRunning`,
+`IsSwimming`, `IsSneaking`, `IsOnMount` and
+`IsPlayersLastRiddenHorse`. `ai_64_motion_conditions` covers true and false
+results, actor and non-actor contexts, both invalid parameter slots and the
+three unavailable animation queries. SOEW version 36 stores the swimming,
+running and mount flags, with older saves loading them as false.
+
 ### Sequential package validation
 
 AI-02 has synthetic tests for child order, nested and root repeats, early

@@ -189,6 +189,14 @@ pub fn supports_function(function: u16) -> bool {
             | 626
             | 651
             | 718
+            | 185
+            | 219
+            | 286
+            | 287
+            | 313
+            | 318
+            | 327
+            | 339
     )
 }
 
@@ -492,7 +500,7 @@ fn function_value(
             };
             values[axis]
         }
-        25 | 26 | 81 => {
+        25 | 26 | 81 | 219 | 313 | 318 => {
             no_parameter(c)?;
             let reference = world.reference(subject).ok_or(Error::Form(subject))?;
             if reference.deleted {
@@ -509,6 +517,18 @@ fn function_value(
                 2.0
             } else {
                 0.0
+            }
+        }
+        185 | 286 | 287 | 327 | 339 => {
+            no_parameter(c)?;
+            let actor = world.actor(subject).ok_or(Error::Form(subject))?;
+            match c.function {
+                185 => boolean(actor.swimming),
+                286 => boolean(actor.sneaking),
+                287 => boolean(actor.running),
+                327 => boolean(actor.riding_mount),
+                339 => boolean(world.last_ridden_horse == Some(subject)),
+                _ => unreachable!(),
             }
         }
         14 | 128 | 277 | 408 | 430 | 494 => {

@@ -59,7 +59,8 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// Version 33 retains the spawned reference owned by each Summon Creature effect.
 /// Version 34 retains last-visit game days for resettable encounter zones.
 /// Version 35 retains each reference's current destruction stage.
-pub const SAVE_VERSION: u16 = 35;
+/// Version 36 retains actor swimming, running and mount state.
+pub const SAVE_VERSION: u16 = 36;
 
 #[derive(Clone, Copy)]
 pub(crate) enum FormNamespace {
@@ -1404,6 +1405,9 @@ fn write_actor_state(w: &mut Writer, a: &ActorState) {
     for flag in [
         a.alerted,
         a.sneaking,
+        a.swimming,
+        a.running,
+        a.riding_mount,
         a.weapon_drawn,
         a.restrained,
         a.arrested,
@@ -1533,6 +1537,11 @@ fn read_actor_state(r: &mut FormReader<'_, '_>, version: u16) -> Result<ActorSta
     a.perks = read_form_set(r)?;
     a.alerted = r.bool()?;
     a.sneaking = r.bool()?;
+    if version >= 36 {
+        a.swimming = r.bool()?;
+        a.running = r.bool()?;
+        a.riding_mount = r.bool()?;
+    }
     a.weapon_drawn = r.bool()?;
     a.restrained = r.bool()?;
     a.arrested = r.bool()?;

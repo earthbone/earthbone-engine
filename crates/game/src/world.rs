@@ -233,6 +233,12 @@ pub struct ActorState {
     pub perks: BTreeSet<GlobalFormId>,
     pub alerted: bool,
     pub sneaking: bool,
+    /// The actor's current swimming state, supplied by runtime movement.
+    pub swimming: bool,
+    /// The actor's current running state, supplied by runtime movement.
+    pub running: bool,
+    /// Whether the actor is currently riding a mount.
+    pub riding_mount: bool,
     pub weapon_drawn: bool,
     /// The host animation graph's current block stance. Unlike the other
     /// combat stance flags above, this is not part of saved state: the host
