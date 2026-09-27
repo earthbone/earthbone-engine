@@ -26,13 +26,14 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 
 use godot::classes::{
-    audio_stream_player_3d, audio_stream_wav, AudioStreamPlayer3D, AudioStreamWav, INode3D, Node3D,
+    audio_stream_player_3d, audio_stream_wav, AudioStreamPlayer, AudioStreamPlayer3D,
+    AudioStreamWav, INode3D, Node3D,
 };
 use godot::prelude::*;
 use soe_audio::{Pcm, SoundSource};
 use soe_bsa::Vfs;
 
-use crate::audio::{to_i16_bytes, to_mono, Kind, VoicePool};
+use crate::audio::{to_i16_bytes, to_mono, Kind, MusicFade, VoicePool};
 use crate::data_source::{vfs_from_loadout, DataSource};
 
 /// How many sounds may play at once.
@@ -42,6 +43,13 @@ use crate::data_source::{vfs_from_loadout, DataSource};
 /// rather than theoretical.
 const SLOTS: usize = 16;
 const CACHE_BYTES: usize = 64 * 1024 * 1024;
+
+#[derive(Debug)]
+struct MusicFadeState {
+    from: Option<usize>,
+    to: Option<usize>,
+    fade: MusicFade,
+}
 
 /// Plays sounds resolved out of a load order, positioned in the world.
 #[derive(GodotClass)]
@@ -59,6 +67,11 @@ pub struct SoundBank {
     decoded_count: u64,
     pool: VoicePool,
     players: Vec<Gd<AudioStreamPlayer3D>>,
+    music_players: Vec<Gd<AudioStreamPlayer>>,
+    music_paths: [Option<String>; 2],
+    music_current: Option<usize>,
+    music_current_fade_out: f32,
+    music_fade: Option<MusicFadeState>,
     last_error: GString,
 }
 
@@ -76,6 +89,11 @@ impl INode3D for SoundBank {
             decoded_count: 0,
             pool: VoicePool::new(SLOTS),
             players: Vec::new(),
+            music_players: Vec::new(),
+            music_paths: [None, None],
+            music_current: None,
+            music_current_fade_out: 0.0,
+            music_fade: None,
             last_error: GString::new(),
         }
     }
@@ -89,6 +107,12 @@ impl INode3D for SoundBank {
             self.base_mut().add_child(&player);
             self.players.push(player);
         }
+        for _ in 0..2 {
+            let mut player = AudioStreamPlayer::new_alloc();
+            player.set_volume_db(-80.0);
+            self.base_mut().add_child(&player);
+            self.music_players.push(player);
+        }
     }
 
     fn process(&mut self, _delta: f64) {
@@ -100,6 +124,7 @@ impl INode3D for SoundBank {
                 self.pool.release(i);
             }
         }
+        self.advance_music_fade(_delta as f32);
     }
 }
 
@@ -230,6 +255,40 @@ impl SoundBank {
         self.play(&data_path.to_string(), position, Kind::Voice)
     }
 
+    /// Play a decoded music file with the supplied record fade durations.
+    /// A new request cancels the older outgoing slot before starting its own.
+    #[allow(clippy::needless_pass_by_value)]
+    #[func]
+    fn play_music_track(
+        &mut self,
+        data_path: GString,
+        fade_in: f64,
+        fade_out: f64,
+        abrupt: bool,
+    ) -> bool {
+        self.begin_music(
+            &data_path.to_string(),
+            fade_in as f32,
+            fade_out as f32,
+            abrupt,
+        )
+    }
+
+    /// Queue a selection produced by `soe_game::music::select` on the shared
+    /// game. Kept as a Rust entry point because Game is owned by PlayerNode.
+    pub(crate) fn play_selected_music(&mut self, track: &soe_game::music::MusicTrack) -> bool {
+        let Some(path) = track.path.as_deref() else {
+            self.stop_music();
+            return true;
+        };
+        self.begin_music(
+            path,
+            track.fade_in,
+            track.fade_out,
+            track.flags.abrupt_transition,
+        )
+    }
+
     /// How many slots are playing right now.
     #[func]
     fn playing_count(&self) -> i32 {
@@ -250,6 +309,119 @@ impl SoundBank {
         self.streams.clear();
         self.stream_order.clear();
         self.stream_bytes = 0;
+    }
+
+    fn begin_music(&mut self, data_path: &str, fade_in: f32, fade_out: f32, abrupt: bool) -> bool {
+        if self.music_players.len() != 2 {
+            self.last_error = "SoundBank must be inside the scene tree".into();
+            return false;
+        }
+        if !fade_in.is_finite() || !fade_out.is_finite() || fade_in < 0.0 || fade_out < 0.0 {
+            self.last_error = "music fade durations must be finite and nonnegative".into();
+            return false;
+        }
+        let stream = match self.music_stream(data_path) {
+            Ok(stream) => stream,
+            Err(error) => {
+                self.last_error = error.as_str().into();
+                return false;
+            }
+        };
+        if self
+            .music_current
+            .is_some_and(|slot| self.music_paths[slot].as_deref() == Some(data_path))
+        {
+            return true;
+        }
+        let from = self.music_current;
+        let outgoing_fade = self.music_current_fade_out;
+        let to = from.map_or(0, |slot| 1 - slot);
+        // This is the older outgoing player from an interrupted crossfade.
+        // Stop it before reusing the slot so rapid requests never leave stale
+        // music playing behind the latest selection.
+        self.music_players[to].stop();
+        self.music_paths[to] = Some(data_path.to_owned());
+        let from_level = from.map_or(0.0, |slot| {
+            10.0_f32.powf(self.music_players[slot].get_volume_db() / 20.0)
+        });
+        let target = &mut self.music_players[to];
+        target.set_stream(&stream);
+        target.set_volume_db(-80.0);
+        target.play();
+        self.music_current = Some(to);
+        self.music_current_fade_out = fade_out;
+        self.music_fade = Some(MusicFadeState {
+            from,
+            to: Some(to),
+            fade: MusicFade::new(from_level, fade_in, outgoing_fade, abrupt),
+        });
+        if abrupt {
+            self.advance_music_fade(0.0);
+        }
+        self.last_error = GString::new();
+        true
+    }
+
+    fn stop_music(&mut self) {
+        if self.music_players.len() != 2 {
+            return;
+        }
+        let from = self.music_current;
+        let from_level = from.map_or(0.0, |slot| {
+            10.0_f32.powf(self.music_players[slot].get_volume_db() / 20.0)
+        });
+        self.music_current = None;
+        self.music_current_fade_out = 0.0;
+        self.music_fade = Some(MusicFadeState {
+            from,
+            to: None,
+            fade: MusicFade::new(from_level, 0.0, self.music_current_fade_out, false),
+        });
+    }
+
+    fn advance_music_fade(&mut self, seconds: f32) {
+        let Some(state) = self.music_fade.as_mut() else {
+            return;
+        };
+        let (from_level, to_level, finished) = state.fade.advance(seconds);
+        if let Some(slot) = state.from {
+            self.music_players[slot].set_volume_db(linear_to_db(from_level));
+        }
+        if let Some(slot) = state.to {
+            self.music_players[slot].set_volume_db(linear_to_db(to_level));
+        }
+        if finished {
+            if let Some(slot) = state.from {
+                self.music_players[slot].stop();
+                self.music_paths[slot] = None;
+            }
+            if let Some(slot) = state.to {
+                self.music_players[slot].set_volume_db(0.0);
+            }
+            self.music_fade = None;
+        }
+    }
+
+    fn music_stream(&self, data_path: &str) -> Result<Gd<AudioStreamWav>, String> {
+        let vfs = self
+            .source
+            .as_ref()
+            .map(|source| source.vfs())
+            .or(self.vfs.as_ref())
+            .ok_or_else(|| "no audio data source".to_owned())?;
+        #[cfg(feature = "xwma-ffmpeg")]
+        let wma = soe_audio::wma::Ffmpeg::new();
+        #[cfg(feature = "xwma-ffmpeg")]
+        let decoder = SoundSource::new(vfs).with_wma_decoder(&wma);
+        #[cfg(not(feature = "xwma-ffmpeg"))]
+        let decoder = SoundSource::new(vfs);
+        let sound = decoder
+            .read(data_path)
+            .map_err(|error| format!("{data_path}: {error}"))?;
+        if sound.pcm.is_empty() {
+            return Err(format!("{data_path}: decoded to no samples"));
+        }
+        Ok(wav_from_stereo(&sound.pcm))
     }
 
     fn stream(&mut self, data_path: &str) -> Result<Gd<AudioStreamWav>, String> {
@@ -370,4 +542,21 @@ fn wav_from(pcm: &Pcm) -> Gd<AudioStreamWav> {
     wav.set_mix_rate(mono.sample_rate as i32);
     wav.set_stereo(false);
     wav
+}
+
+fn wav_from_stereo(pcm: &Pcm) -> Gd<AudioStreamWav> {
+    let mut wav = AudioStreamWav::new_gd();
+    wav.set_data(&PackedByteArray::from(to_i16_bytes(pcm).as_slice()));
+    wav.set_format(audio_stream_wav::Format::FORMAT_16_BITS);
+    wav.set_mix_rate(pcm.sample_rate as i32);
+    wav.set_stereo(pcm.channels > 1);
+    wav
+}
+
+fn linear_to_db(gain: f32) -> f32 {
+    if gain <= 0.0001 {
+        -80.0
+    } else {
+        20.0 * gain.log10()
+    }
 }
