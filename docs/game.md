@@ -1259,7 +1259,8 @@ earlier member can change inventory or queue events.
 Active-effect recipients remain pending with magic execution.
 
 The condition evaluator implements functions 47, 56, 58, 59, 72, 74, 136,
-182, 264, 277, 289, 359, 448, 543, 560, 629, 630 and 659. This is a bounded set,
+182, 264, 277, 289, 312, 314, 329, 353, 354, 359, 362, 448, 543, 560, 629,
+630 and 659. This is a bounded set,
 not the entire CTDA contract. It supports ordered AND/OR groups, numeric or
 global comparisons, explicit references and caller-supplied quest aliases.
 Reserved PlayerRef resolves to the runtime player even without a placed record.
@@ -1279,6 +1280,26 @@ and an explicit condition error. The CK page records keyword failures on actor
 inventories and CK-defined reference inventories. The engine uses its shared
 inventory totals for both actors and containers, so keyword queries have the
 same defined result for either holder.
+
+AI-74 adds `GetPCMiscStat` (312), `IsActorAVictim` (314), `IsFleeing` (329),
+`IsActor` (353), `IsEssential` (354) and `HasLinkedRef` (362). Misc-stat
+parameter values and names follow xEdit's `wbMiscStatEnum`, and values read
+the same tracked-stat table as `Game.QueryStat`. Victim state uses the saved
+`witnessed_crimes` relation: an actor is reported as a victim when any actor
+has recorded witnessing a crime by that actor. Fleeing reads the active package
+procedure, essential reads live actor state, and linked-reference checks match
+the requested keyword. The xEdit and UESP tables identify 367 and 368 as
+player-action queries, but the local CK references do not define their result
+or state semantics, so evaluation returns an explicit unsupported-function
+error for both.
+
+AI-74 also consults local xEdit `TES5Edit/Core/wbDefinitionsTES5.pas` for the
+condition function IDs, parameter types, miscellaneous-stat enum and player
+action enum, UESP `Raw_Function_Data.wikitext` for function names, and CK
+`ActorBase_Script.wikitext`, `Actor_Script.wikitext` and
+`ObjectReference_Script.wikitext` for the related essential and linked-ref
+contracts. Existing witnessed-crime state comes from
+`World::record_witnessed_crime`.
 
 Sources consulted were local xEdit `wbDefinitionsTES5.pas` for CTDA, COBJ and
 FURN WBDT, CK `GetItemCount_-_ObjectReference.wikitext` for the query forms,
