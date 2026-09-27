@@ -1342,7 +1342,7 @@ outside this test.
 
 Remaining dialogue work includes missing conditions, automatic greetings and
 ForceGreet, refusal/invisible continuation,
-favor spending, do-all-before-repeating, walk-away behavior, scenes,
+do-all-before-repeating, walk-away behavior, scenes,
 services, complete alias behavior and interruption rules. Godot activation,
 menus, voice assets, LIP and idle playback are not connected to this API. This increment does not establish playable dialogue
 or complete the broader gameplay goal.
@@ -1368,6 +1368,43 @@ formula, which the engine does not run yet. The Papyrus native
 `WillIntimidateSucceed` is still a stub in `natives.rs`. No engine state sets
 LastBribedIntimidated yet either, so `IsIntimidatedbyPlayer` reads false until
 a bribe or intimidate native writes it.
+
+DLG-04 implements favor spending, INFO response DATA/ENAM flag bit 14 in
+`wbDefinitionsTES5.pas` ("Spends Favor Points"). `info_eligible` now only
+rejects the refusal and invisible-continuation bits with `Error::Unsupported`.
+A favor-spending response instead reads the INFO's CNAM favor level (0 None,
+1 Small, 2 Medium, 3 Large) and drops the topic from `dialogue_choices`
+(`Ok(false)`, no error) once the speaker's balance cannot cover that level's
+cost. `choose_dialogue` debits the same amount when the response is actually
+picked, after the session state is recorded, using the existing generic
+`ModActorValue` path so nothing beyond the running session changes. Costs
+resolve through the Default Object Manager the CK also uses: the CNAM level
+picks one of the `FPCS`/`FPCM`/`FPCL` keys (`wbDefinitionsTES5.pas` DOBJ sig
+list, matching CommonLibSSE-NG's `BGSDefaultObjectManager.h`
+`kFavorCostSmall/Medium/Large`), `Footsteps::default_object` resolves the key
+to a GLOB form through the load order, and `World::global_value` reads it. No
+corpus source pins the vanilla globals' actual values, so a load order with no
+override falls back to an engineering estimate (10, 25, 50), the same caveat
+already carried by the `game_settings` defaults.
+
+The spendable balance is the existing `FavorPointsBonus` actor value (CK wiki
+AVIF index 89, already in `actor_values::ACTOR_VALUE_NAMES`) rather than a new
+field, so a quest funds a speaker through the same generic
+`SetActorValue`/`ModActorValue` surface scripts already use, and the balance
+rides the existing wholesale `ActorState.values` save and hash without new
+code. Vanilla instead persists the spend on the placed reference (`XFVC`
+"Favor Cost", `ExtraFavorCost.h`, `REFR.wikitext`), which this engine does not
+parse from saves yet. That gap means a favor balance funded on one NPC
+reference does not yet distinguish between two placed references of the same
+base actor the way vanilla's per-REFR `XFVC` would.
+
+`crates/game/tests/dlg_04_favor_spending.rs` covers both done_check
+clauses: `dlg_04_favor_topic_unavailable_when_balance_empty` (an unfunded
+speaker never offers the topic) and
+`dlg_04_favor_topic_decrements_and_exhausts` (funding the speaker, choosing
+the response, checking the balance dropped by exactly the Small cost, and
+confirming the topic drops out again once the remainder can no longer cover
+another Small favor).
 
 ## Active magic applications
 
