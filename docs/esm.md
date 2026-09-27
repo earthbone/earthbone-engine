@@ -118,6 +118,17 @@ bit 2 for leveled locks. They are distinct from the runtime locked bit.
 Sources are local xEdit's REFR XLOC, UESP REFR, Mutagen PlacedObject.xml and
 OpenMW's esm4 loadrefr.cpp. A bounds-checked Rust view fits the existing parser.
 
+`Refr::primitive` decodes XPRM's 32 bytes as three bounds floats, four color
+floats and a raw 32-bit kind. It preserves float bit patterns when encoded,
+including values it does not interpret. xEdit names kinds 0 through 4 as none,
+box, sphere, portal box and line. UESP describes 1 through 3 as box, sphere and
+portal box, and lists 4 as unknown, so the view keeps the numeric kind. XPRM
+must occur at most once and must have exactly 32 bytes. The layout follows local
+xEdit `Core/wbDefinitionsTES5.pas` and UESP `REFR.wikitext`, cross-checked with
+UESP `Raw_Data.wikitext`. `tests/fmt_16_reference_primitives.rs` checks field
+decoding, exact encoding, invalid sizes, duplicates and the installed winning
+REFR XPRM survey when `SKYRIM_DATA` is set.
+
 `Land::heights` keeps the gradient form and `decode` produces the 33 by 33 absolute
 heights in world units, using the row-start plus running-sum rule OpenMW uses.
 `Heights::encode` is the inverse, quantised to the byte grid. `navm::Geometry` parses
