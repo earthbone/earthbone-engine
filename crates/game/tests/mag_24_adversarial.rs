@@ -30,7 +30,9 @@ fn mag_24_rejects_rfct_data_with_trailing_bytes() {
 #[test]
 fn mag_24_stop_is_idempotent_and_only_removes_the_requested_pair() {
     let mut plugin = Plugin::new(FileHeader::default());
-    for target in [2, 4] { plugin.push_top(Record::new(Tag::new(b"ACHR"), target)); }
+    for target in [2, 4] {
+        plugin.push_top(Record::new(Tag::new(b"ACHR"), target));
+    }
     let mut data = Vec::new();
     data.extend_from_slice(&0_u32.to_le_bytes());
     data.extend_from_slice(&0_u32.to_le_bytes());

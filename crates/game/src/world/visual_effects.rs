@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! Transient `RFCT` visual effects attached to references.
+//! Transient `RFCT` visual effects attached to references. The three `DATA`
+//! fields follow `TES5Edit/Core/wbDefinitionsTES5.pas` (`ARTO`, `EFSH`, flags).
 
 use soe_esm::GlobalFormId;
 
@@ -32,7 +33,7 @@ impl World {
             return None;
         }
         let data = record.find(T(b"DATA"))?;
-        if data.len() < 12 {
+        if data.len() != 12 {
             return None;
         }
         let resolve = |offset| {
