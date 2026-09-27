@@ -124,6 +124,26 @@ Open items, read against `../engine-refs/openmw`'s `components/nif`:
   animated static needs its node kept separate from that bake before this
   evaluator has anywhere to write its output.
 
+## Material color controller evaluation (RND-13)
+
+`controller::evaluate_material_color` samples a `NiMaterialColorController`
+color key group using the shared time-controller clock and updates exactly one
+of the ambient, diffuse, specular or self-illumination channels in
+`MaterialColors`. The track evaluator leaves the channels unchanged when it
+has no keys, while `NifFile::apply_material_color_controller` uses the
+interpolator's default value when its track is absent or empty.
+`MaterialColorTarget` uses the four values declared by `MaterialColor` in
+`nifxml/nif.xml`; the sampling and cycle mapping use the existing track and
+clock evaluators grounded on OpenMW's `components/nifosg/controller.cpp`.
+The block reader decodes `NiMaterialColorController` and
+`NiPoint3Interpolator`, and `NifFile::apply_material_color_controller`
+resolves their `NiPosData` track and applies a sampled value or interpolator
+default to the selected channel.
+
+The Godot host does not yet call this evaluator or apply the result to a live
+material. Host cell rendering continues to build static materials from mesh
+properties.
+
 ## Tests
 
 `tests/common/mod.rs` is a NIF writer built from nif.xml independently of

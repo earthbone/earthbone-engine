@@ -74,6 +74,46 @@ impl NifFile {
     pub fn block_types(&self) -> Vec<&str> {
         self.blocks.iter().map(Block::type_name).collect()
     }
+
+    /// Sample an authored material color controller and update its selected
+    /// channel in `colors`.
+    pub fn apply_material_color_controller(
+        &self,
+        controller_ref: BlockRef,
+        colors: &mut controller::MaterialColors,
+        game_time: f32,
+    ) -> bool {
+        let Some(Block::MaterialColorController(controller)) = self.get(controller_ref) else {
+            return false;
+        };
+        let Some(Block::Point3Interpolator(interpolator)) = self.get(controller.interpolator)
+        else {
+            return false;
+        };
+        let track = interpolator
+            .data
+            .get()
+            .and_then(|index| self.blocks.get(index))
+            .and_then(|block| match block {
+                Block::PosData(keys) => Some(keys),
+                _ => None,
+            });
+        let applied = track.is_some_and(|track| {
+            controller::evaluate_material_color(
+                &controller.time,
+                controller.target_color,
+                colors,
+                track,
+                game_time,
+            )
+        });
+        if applied {
+            true
+        } else {
+            colors.set(controller.target_color, interpolator.value);
+            true
+        }
+    }
 }
 
 /// Parse a whole file from memory.

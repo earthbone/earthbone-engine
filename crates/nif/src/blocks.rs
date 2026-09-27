@@ -12,9 +12,10 @@
 //! is safe because every subtype appends its fields after the base's.
 
 use crate::controller::{
-    read_float_data, read_path_interpolator, read_pos_data, read_transform_controller,
-    read_transform_data, read_transform_interpolator, KeyGroup, PathInterpolator,
-    TransformController, TransformData, TransformInterpolator,
+    read_float_data, read_material_color_controller, read_path_interpolator,
+    read_point3_interpolator, read_pos_data, read_transform_controller, read_transform_data,
+    read_transform_interpolator, KeyGroup, MaterialColorController, PathInterpolator,
+    Point3Interpolator, TransformController, TransformData, TransformInterpolator,
 };
 use crate::error::{Error, Result};
 use crate::header::{Header, BS_FALLOUT_4, BS_SKYRIM_SE};
@@ -489,6 +490,10 @@ pub enum Block {
     /// `NiTransformController` and `NiKeyframeController`: drives a target
     /// node's transform through an interpolator.
     TransformController(TransformController),
+    /// `NiMaterialColorController`: animates one material color channel.
+    MaterialColorController(MaterialColorController),
+    /// `NiPoint3Interpolator`: default color plus an optional key track.
+    Point3Interpolator(Point3Interpolator),
     /// `NiTransformInterpolator`: default transform plus an optional key
     /// track.
     TransformInterpolator(TransformInterpolator),
@@ -530,6 +535,8 @@ impl Block {
             Block::SkinData(_) => "NiSkinData",
             Block::SkinPartition(_) => "NiSkinPartition",
             Block::TransformController(_) => "NiTransformController",
+            Block::MaterialColorController(_) => "NiMaterialColorController",
+            Block::Point3Interpolator(_) => "NiPoint3Interpolator",
             Block::TransformInterpolator(_) => "NiTransformInterpolator",
             Block::PathInterpolator(_) => "NiPathInterpolator",
             Block::TransformData(_) => "NiTransformData",
@@ -600,6 +607,8 @@ enum Kind {
     SkinData,
     SkinPartition,
     TransformController,
+    MaterialColorController,
+    Point3Interpolator,
     TransformInterpolator,
     PathInterpolator,
     TransformData,
@@ -634,6 +643,8 @@ fn kind_of(type_name: &str) -> Kind {
         // is the pre-10.2 name it was renamed from, and both have the same
         // fields at our fixed file version (nif.xml lines 3600-3665).
         "NiTransformController" | "NiKeyframeController" => Kind::TransformController,
+        "NiMaterialColorController" => Kind::MaterialColorController,
+        "NiPoint3Interpolator" => Kind::Point3Interpolator,
         "NiTransformInterpolator" => Kind::TransformInterpolator,
         "NiPathInterpolator" => Kind::PathInterpolator,
         // Likewise `NiTransformData` renamed from `NiKeyframeData`, same
@@ -1216,6 +1227,8 @@ pub fn read_blocks(s: &mut Stream<'_>, h: &Header) -> Result<Vec<Block>> {
                 | "NiSkinPartition"
                 | "NiTransformController"
                 | "NiKeyframeController"
+                | "NiMaterialColorController"
+                | "NiPoint3Interpolator"
                 | "NiTransformInterpolator"
                 | "NiPathInterpolator"
                 | "NiTransformData"
@@ -1238,6 +1251,10 @@ pub fn read_blocks(s: &mut Stream<'_>, h: &Header) -> Result<Vec<Block>> {
             Kind::SkinData => Block::SkinData(read_skin_data(s, &c)?),
             Kind::SkinPartition => Block::SkinPartition(read_skin_partition(s, &c)?),
             Kind::TransformController => Block::TransformController(read_transform_controller(s)?),
+            Kind::MaterialColorController => {
+                Block::MaterialColorController(read_material_color_controller(s, i)?)
+            }
+            Kind::Point3Interpolator => Block::Point3Interpolator(read_point3_interpolator(s)?),
             Kind::TransformInterpolator => {
                 Block::TransformInterpolator(read_transform_interpolator(s)?)
             }

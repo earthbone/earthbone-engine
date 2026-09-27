@@ -79,12 +79,76 @@ pub struct TimeController {
     pub target: BlockRef,
 }
 
+/// Material channel selected by a `NiMaterialColorController`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum MaterialColorTarget {
+    #[default]
+    Ambient,
+    Diffuse,
+    Specular,
+    SelfIllumination,
+}
+
+/// The material channels evaluated by one authored material controller.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct MaterialColors {
+    pub ambient: Vec3,
+    pub diffuse: Vec3,
+    pub specular: Vec3,
+    pub self_illumination: Vec3,
+}
+
+impl MaterialColors {
+    /// Apply one sampled color while preserving all other material channels.
+    pub fn set(&mut self, target: MaterialColorTarget, value: Vec3) {
+        match target {
+            MaterialColorTarget::Ambient => self.ambient = value,
+            MaterialColorTarget::Diffuse => self.diffuse = value,
+            MaterialColorTarget::Specular => self.specular = value,
+            MaterialColorTarget::SelfIllumination => self.self_illumination = value,
+        }
+    }
+}
+
+/// Sample an authored `NiMaterialColorController` track and update its one
+/// selected color channel. `None` means the track has no keys and the
+/// material remains unchanged.
+pub fn evaluate_material_color(
+    time: &TimeController,
+    target: MaterialColorTarget,
+    colors: &mut MaterialColors,
+    track: &KeyGroup<Vec3>,
+    game_time: f32,
+) -> bool {
+    let local_time = evaluate_time(time, game_time);
+    let Some(value) = evaluate_track(track, local_time) else {
+        return false;
+    };
+    colors.set(target, value);
+    true
+}
+
 /// `NiTransformController` / `NiKeyframeController`: a `TimeController` that
 /// drives one node's transform through an interpolator.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct TransformController {
     pub time: TimeController,
     pub interpolator: BlockRef,
+}
+
+/// `NiMaterialColorController`, selecting one `NiMaterialProperty` color.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct MaterialColorController {
+    pub time: TimeController,
+    pub interpolator: BlockRef,
+    pub target_color: MaterialColorTarget,
+}
+
+/// `NiPoint3Interpolator`, which supplies a material color track.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct Point3Interpolator {
+    pub value: Vec3,
+    pub data: BlockRef,
 }
 
 pub(crate) fn read_time_controller(s: &mut Stream<'_>) -> Result<TimeController> {
@@ -103,6 +167,38 @@ pub(crate) fn read_transform_controller(s: &mut Stream<'_>) -> Result<TransformC
     Ok(TransformController {
         time: read_time_controller(s)?,
         interpolator: s.block_ref()?,
+    })
+}
+
+pub(crate) fn read_material_color_controller(
+    s: &mut Stream<'_>,
+    block: usize,
+) -> Result<MaterialColorController> {
+    let time = read_time_controller(s)?;
+    let interpolator = s.block_ref()?;
+    let target_color = match s.u16()? {
+        0 => MaterialColorTarget::Ambient,
+        1 => MaterialColorTarget::Diffuse,
+        2 => MaterialColorTarget::Specular,
+        3 => MaterialColorTarget::SelfIllumination,
+        value => {
+            return Err(Error::InvalidData {
+                block,
+                reason: format!("unknown material color target {value}"),
+            });
+        }
+    };
+    Ok(MaterialColorController {
+        time,
+        interpolator,
+        target_color,
+    })
+}
+
+pub(crate) fn read_point3_interpolator(s: &mut Stream<'_>) -> Result<Point3Interpolator> {
+    Ok(Point3Interpolator {
+        value: s.vec3()?,
+        data: s.block_ref()?,
     })
 }
 
