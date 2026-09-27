@@ -684,8 +684,16 @@ has no markers. `Sleep` walks to the bed the location names, or the
 nearest furniture in that cell whose base carries a keyword with `bed` in
 its editor id, and holds with `sleeping` set. `Wait` holds for its real-time
 duration, with zero meaning indefinite. Walking `Patrol` follows linked markers,
-including their arrival radius and idle time. Every other procedure name
-is `Procedure::Unsupported` and the actor stands where it is. Location
+including their arrival radius and idle time. `UseMagic` takes its target from
+the procedure's `PTDA` input and accepts reference, self, linked reference or
+the selected alias reference. It reads the actor's assigned right hand spell,
+then left hand spell, and casts the first known type-0 spell through
+`World::cast_charged_spell`. The shared path validates effects and target,
+charges magicka, and applies the effects before the package branch completes.
+An unresolved target or an ineligible or unaffordable spell leaves the branch
+active as `Procedure::Unsupported`. The procedure adds no saved cast state.
+Every other procedure name is `Procedure::Unsupported` and the actor stands
+where it is. Location
 kinds near reference, in cell, near package start, near editor location,
 near linked reference, alias reference, alias location and near self resolve.
 An alias location uses its filled `LCTN` form's `MNAM` world marker as its
@@ -706,10 +714,10 @@ skips the player, the dead and the unconscious.
 
 **Live run (2026-09-18).** Every one of the 5,961 `PACK` records in
 `Skyrim.esm` parses (104 templates, 2,384 with conditions, 1,545 with a
-scheduled hour) in 7.9 s including the plugin parse. 4,635 packages
+scheduled hour) in 7.9 s including the plugin parse. 4,687 packages
 resolve to a procedure the driver runs: 2,467 `Travel`, 1,841 `Sandbox`,
-327 `Sleep`. The rest by template procedure: Patrol 378, Sit 300,
-HoldPosition 141, Follow 128, UseIdleMarker 61, UseMagic 52, Orbit 47,
+327 `Sleep`, 52 `UseMagic`. The rest by template procedure: Patrol 378, Sit 300,
+HoldPosition 141, Follow 128, UseIdleMarker 61, Orbit 47,
 Escort 45, Activate 40, ForceGreet 31, Shout 26, Guard 24, Hover 14, Flee
 13, Find 11, Wait 11, DialogueActivate 2, UseWeapon 2. The `Prisoner`
 base carries no `PKID` list at all, so the innkeeper `Hulda` stands in:

@@ -276,7 +276,7 @@ fn ai_state(h: &mut StateHasher, a: &AiState) {
         }
     }
     match &a.procedure {
-        Procedure::None => h.u8(0),
+        Procedure::None | Procedure::UseMagic => h.u8(0),
         Procedure::Travel => h.u8(1),
         Procedure::Sandbox => h.u8(2),
         Procedure::Sleep => h.u8(3),

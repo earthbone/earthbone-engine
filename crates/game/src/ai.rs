@@ -9,6 +9,8 @@
 //! the actor on the clock: `Travel` walks to a place, `Sandbox` wanders
 //! between idle markers around a place, `Sleep` walks to a bed and holds.
 //! `Wait` uses the non-menu clock and holds until its duration expires.
+//! `UseMagic` resolves a package target and casts an assigned hand spell once
+//! through the charged magic path.
 //! Walking follows the vanilla navmesh graph (`soe_navmesh::vanilla`)
 //! built once per world, and crossing into another navmesh moves the actor
 //! into that navmesh's cell. Its rates come from the actor race's `WKMV` and
@@ -73,6 +75,7 @@ pub enum Procedure {
     Sandbox,
     Sleep,
     Patrol,
+    UseMagic,
     /// A mental timer. The movement flag is retained for concurrent procedures.
     Wait {
         stop_movement: bool,
@@ -675,7 +678,7 @@ pub fn evaluate(world: &mut World, actor: GlobalFormId, alloc: Alloc<'_>) -> Opt
                 },
             );
         }
-        tree::start(world, actor, &mut ai);
+        tree::start(world, actor, &mut ai, &mut *alloc);
         let new_value = world.form_value(Some(c.package), alloc);
         world.pending.push(Pending::Event {
             object,
@@ -755,6 +758,7 @@ fn begin_procedure(
         Procedure::None
         | Procedure::Wait { .. }
         | Procedure::Patrol
+        | Procedure::UseMagic
         | Procedure::Unsupported(_) => {}
     }
 }
@@ -1002,9 +1006,9 @@ pub fn tick(world: &mut World, dt: f64, alloc: Alloc<'_>) {
             || a.ai.reevaluate
             || now - a.ai.last_evaluation >= EVALUATION_INTERVAL;
         if due {
-            evaluate(world, actor, alloc);
+            evaluate(world, actor, &mut *alloc);
         }
-        step(world, actor, dt as f32);
+        step(world, actor, dt as f32, &mut *alloc);
     }
 }
 
@@ -1037,7 +1041,7 @@ fn plan(
     (vec![to], vec![to_cell])
 }
 
-fn step(world: &mut World, actor: GlobalFormId, dt: f32) {
+fn step(world: &mut World, actor: GlobalFormId, dt: f32, alloc: Alloc<'_>) {
     let Some((position, cell)) = world.reference(actor).map(|r| (r.position, r.cell)) else {
         return;
     };
@@ -1045,9 +1049,9 @@ fn step(world: &mut World, actor: GlobalFormId, dt: f32) {
         return;
     };
     if ai.tree.is_none() && ai.package.is_some() {
-        tree::start(world, actor, &mut ai);
+        tree::start(world, actor, &mut ai, &mut *alloc);
     } else {
-        tree::enter(world, actor, &mut ai);
+        tree::enter(world, actor, &mut ai, &mut *alloc);
     }
     if ai.procedure == Procedure::Patrol && ai.tree.as_ref().is_some_and(|tree| tree.active) {
         patrol::prepare(world, &mut ai);
@@ -1223,7 +1227,7 @@ pub(crate) fn write_record_state(w: &mut Writer, a: &AiState) {
         None => w.bool(false),
     }
     match &a.procedure {
-        Procedure::None => w.u8(0),
+        Procedure::None | Procedure::UseMagic => w.u8(0),
         Procedure::Travel => w.u8(1),
         Procedure::Sandbox => w.u8(2),
         Procedure::Sleep => w.u8(3),
