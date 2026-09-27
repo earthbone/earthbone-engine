@@ -3,8 +3,9 @@
 //! Active spell applications, following CK Magic Effect, DispelSpell and
 //! DispelAllSpells contracts, xEdit SPEL/MGEF fields and CommonLib MagicSystem
 //! enums. Invisibility follows xEdit's MGEF archetype table and UESP's MGEF
-//! layout. Definitions stay in the winning records. Per-cast magnitudes,
-//! elapsed time and reversible actor-value deltas belong to the world.
+//! layout. Lock effects update eligible door and container references through
+//! the shared lock state. Definitions stay in the winning records. Per-cast
+//! magnitudes, elapsed time and reversible actor-value deltas belong to the world.
 //! Cure Disease removes active MGEFs marked with MagicDisease. Disarm drops
 //! one eligible hand weapon as a loose reference. Unsupported delivery and
 //! archetypes return errors before applying effects.
@@ -37,6 +38,7 @@ pub(super) const DISPEL_WITH_KEYWORDS: u32 = 1 << 8;
 const INGESTIBLE_POISON: u32 = 1 << 17;
 const INVISIBILITY: u32 = 11;
 const LIGHT: u32 = 12;
+const LOCK: u32 = 15;
 
 /// Identity of one effect application, independent of its MGEF FormID.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -93,6 +95,7 @@ struct PreparedEffect {
     summon_base: Option<GlobalFormId>,
     light_base: Option<GlobalFormId>,
     bound_weapon: Option<GlobalFormId>,
+    lock_level: Option<i32>,
     disarm: bool,
     no_recast: bool,
     hit_event: bool,
@@ -356,6 +359,7 @@ impl World {
                 summon_base: None,
                 light_base: None,
                 bound_weapon: None,
+                lock_level: None,
                 disarm: false,
                 hit_event: false,
                 dispel_rules,
@@ -411,6 +415,15 @@ impl World {
         selected.into_iter().collect()
     }
 
+    /// A Lock effect accepts only references whose base form can carry an
+    /// attached lock in the record format.
+    fn lockable_reference(&self, reference: GlobalFormId) -> bool {
+        self.reference_ref(reference)
+            .and_then(|state| state.base)
+            .and_then(|base| self.tag_of(base))
+            .is_some_and(|tag| tag == super::T(b"DOOR") || tag == super::T(b"CONT"))
+    }
+
     /// Execute a direct scripted cast. This bypasses player charging and cost.
     /// The caller supplies the source reference and the actor credited as caster.
     ///
@@ -439,7 +452,7 @@ impl World {
                 ))
             }
         };
-        if self.reference(source).is_none() || self.actor(target).is_none() {
+        if self.reference(source).is_none() || self.reference(target).is_none() {
             return Err(MagicError::Target);
         }
         let caster = caster.filter(|id| self.actor(*id).is_some());
@@ -475,9 +488,19 @@ impl World {
             }
             if !matches!(
                 data.archetype,
-                0 | 1 | 2 | 3 | 4 | 5 | 9 | 11 | 12 | 17 | 18
+                0 | 1 | 2 | 3 | 4 | 5 | 9 | 11 | 12 | LOCK | 17 | 18
             ) {
                 return Err(MagicError::Unsupported("effect archetype"));
+            }
+            if data.archetype == LOCK {
+                if !self.lockable_reference(target) {
+                    return Err(MagicError::Target);
+                }
+                if entry.data.area != 0 || data.area != 0 {
+                    return Err(MagicError::Unsupported("lock area"));
+                }
+            } else if self.actor(target).is_none() {
+                return Err(MagicError::Target);
             }
             if data.taper_duration != 0.0 {
                 return Err(MagicError::Unsupported("taper"));
@@ -566,6 +589,7 @@ impl World {
             } else {
                 None
             };
+            let lock_level = (data.archetype == LOCK).then(|| magnitude.round() as i32);
             let disarm = data.archetype == 9;
             let duration = if definition.data.cast_type == 0 {
                 None
@@ -597,7 +621,11 @@ impl World {
             } else {
                 entry.data.area as f32
             };
-            let mut recipients = self.area_targets(target, radius);
+            let mut recipients = if data.archetype == LOCK {
+                vec![target]
+            } else {
+                self.area_targets(target, radius)
+            };
             if data.flags & HOSTILE != 0 {
                 recipients.retain(|&id| {
                     self.actor(id)
@@ -625,6 +653,7 @@ impl World {
                     summon_base,
                     light_base,
                     bound_weapon,
+                    lock_level,
                     disarm,
                     hit_event: data.flags & (HOSTILE | NO_HIT_EVENT) == HOSTILE,
                     dispel_rules: dispel_rules.clone(),
@@ -643,7 +672,15 @@ impl World {
         prepared: Vec<PreparedEffect>,
         alloc: Alloc<'_>,
     ) -> Result<Vec<EffectId>, MagicError> {
-        let prepared = self.prepare_effect_actions(prepared)?;
+        let (locks, ordinary): (Vec<_>, Vec<_>) = prepared
+            .into_iter()
+            .partition(|effect| effect.lock_level.is_some());
+        let prepared = self.prepare_effect_actions(ordinary)?;
+        for effect in locks {
+            if let Some(level) = effect.lock_level {
+                self.set_lock_level(effect.effect.target, level, alloc);
+            }
+        }
         let disarms: Vec<_> = prepared
             .iter()
             .filter(|prepared| prepared.disarm)

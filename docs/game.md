@@ -1707,6 +1707,24 @@ runtime's explicit interaction contract. `mag_34_*` tests cover duration,
 spell and activation breaks, detection state derivation and host visibility
 mapping.
 
+#### Lock archetype, MAG-36
+
+MGEF archetype 15 applies its rounded magnitude as the lock level on one
+target reference whose base form is a `DOOR` or `CONT`. The level change goes
+through `World::set_lock_level`, preserving the reference's locked state and
+queuing `OnLockStateChanged` only when the level changes. Actor and other
+reference targets, plus area Lock effects, return a typed error before an
+effect is applied. Lock effects are immediate and do not create an
+actor-targeted active-effect entry. The level setter clamps to the byte range
+used by Skyrim's lock data.
+
+Local `TES5Edit/Core/wbDefinitionsTES5.pas` names archetype 15 Lock, and the
+CK `Lock` and `GetLockLevel` pages describe reference lock behavior and levels.
+The CK corpus has no Magic Effect page with further Lock-specific execution
+rules. The shared state path is `world/locks.rs`. `mag_36_lock_*` covers level
+changes on doors and containers, preservation of locked state, lock-change
+events, and rejection of actor and non-lockable reference targets.
+
 #### Light archetype, MAG-35
 
 MGEF archetype 12 resolves its Associated Item as a winning `LIGH` record and
