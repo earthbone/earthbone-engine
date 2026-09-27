@@ -79,6 +79,17 @@ The FURN field layout follows local xEdit `wbRecord(FURN)` and
 from those definitions. Marker transforms are not read from the furniture
 model by this path.
 
+Patrol marker data reads `XPRD`, `INAM` and typed `PDTO` entries from each
+linked `REFR`, as defined by xEdit `wbRecord(REFR)` and Mutagen `Patrol.xml`. A
+resolved `INAM` IDLE form emits its editor ID through the actor's animation
+event path once when the actor arrives. A marker whose base is FURN uses the
+existing Sit-marker reservation. The reservation is released before the route
+advances, and the Patrol dwell deadline prevents the idle event from firing
+again after save and restore. PDTO references and subtype fields are
+validated, but they do not start a conversation. AI-23's UseIdleMarker
+reservation and interruption behavior is not in this worktree, and its
+reservation contract remains separate from Patrol's FURN reservation.
+
 `vanilla_save::SavedFormMap` remaps ESS references through saved plugin names,
 including regular and light slots. `World::restore_vanilla_globals` atomically
 applies the global table to winning GLOB forms. Values reach the existing
