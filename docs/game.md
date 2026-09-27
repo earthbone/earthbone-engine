@@ -205,12 +205,14 @@ Current behavior and compatibility limits:
   GetActorValueMax/GetAVMax includes permanent and temporary modifiers.
   GetActorValuePercentage uses that maximum and follows the CK exceptions
   for zero maximum and CarryWeight.
-- Health, magicka and stamina use race starting values plus NPC offsets for
-  manual stats. Auto-calculated actors use their authored DNAM cache pending
-  live class/level calculation. Stats and traits follow separate template
-  chains with links resolved in each winning file. Leveled templates return
-  an error pending spawn selection. Missing race DATA retains the old
-  DNAM-plus-offset fallback for synthetic records. See [actor values](actor-values.md).
+- Actor initialization resolves separate stats and traits template chains.
+  Manual attributes use race starting values plus NPC offsets. Manual skills
+  use DNAM plus each RACE skill boost. Fixed-level auto-calculated skills
+  use class weights, actor level and race boosts. `PC_LEVEL_MULT`, missing
+  class and zero-weight cases keep the authored DNAM skill cache. SOEW saves
+  initialized actor values, so reload does not seed bonuses again. Leveled
+  templates return an error pending spawn selection. Missing race DATA
+  retains the synthetic-record fallback. See [actor values](actor-values.md).
 - PlayerRef keeps form 0x14 and binds to the Player NPC base when available.
   A base-less synthetic player starts at 100 for the three main values.
   Health reaching zero uses the shared death lifecycle, including essential

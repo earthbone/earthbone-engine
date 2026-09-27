@@ -52,6 +52,14 @@ skills, since this store does not track a live player level.
 The existing ESM Race view was checked, but it reads FaceFX PHTN/PHWT rather
 than DATA attributes. The game view therefore adds the missing prefix only.
 
+`World::actor` seeds a spawned actor's values from the resolved stats and
+traits sources once. Manual NPC skills add each valid RACE boost to DNAM;
+fixed-level auto-calculated skills use the class weight formula with that
+boost. The resulting actor values are saved in SOEW, so loading an existing
+actor restores its initialized values without running the seed calculation
+again. `prg_09_race_skill_initialization.rs` checks both paths with a synthetic
+spawn and an installed-data sample.
+
 The store rejects non-finite inputs and overflowing components or totals
 before mutation. Resurrection clears health damage and death identity while
 retaining modifiers. Essential actors reject death. Deferred kills retain the first lethal request
