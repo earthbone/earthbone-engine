@@ -1312,6 +1312,15 @@ an eligible INFO marked Info Refusal (INFO response flag bit 4). The refusal
 INFO's own conditions still apply. It is a fallback and does not replace an
 accepted INFO whose conditions pass.
 
+When an INFO has Invisible Continue (response flag bit 6) and its response
+finishes, the conversation automatically selects the first ranked eligible
+linked topic and starts its response. Conditions and other INFO eligibility
+rules still apply. The host receives the next response directly, without a
+choice prompt. Each INFO's begin and end fragments run once for its own
+selection and completion. The flag and linked-topic fields follow xEdit
+`wbDefinitionsTES5.pas` and UESP `INFO.wikitext`. The available CK dialogue
+pages document dialogue target state, but not this continuation lifecycle.
+
 When a DIAL sets Do All Before Repeating, selection first applies those INFO
 eligibility rules, then suppresses the INFO records already selected for that
 DIAL's current cycle. When every currently eligible INFO has been selected,
@@ -1388,8 +1397,7 @@ text through the conversation API. Subtitle widgets and audible lines remain
 outside this test.
 
 Remaining dialogue work includes missing conditions, automatic greetings and
-ForceGreet, refusal/invisible continuation,
-do-all-before-repeating, walk-away topic selection, scenes,
+ForceGreet, do-all-before-repeating, walk-away topic selection, scenes,
 barter transactions, complete alias behavior and interruption rules. Godot activation,
 menus, voice assets, LIP and idle playback are not connected to this API. This increment does not establish playable dialogue
 or complete the broader gameplay goal.
@@ -1440,8 +1448,9 @@ LastBribedIntimidated yet either, so `IsIntimidatedbyPlayer` reads false until
 a bribe or intimidate native writes it.
 
 DLG-04 implements favor spending, INFO response DATA/ENAM flag bit 14 in
-`wbDefinitionsTES5.pas` ("Spends Favor Points"). `info_eligible` now only
-rejects the refusal and invisible-continuation bits with `Error::Unsupported`.
+`wbDefinitionsTES5.pas` ("Spends Favor Points"). `info_eligible` now treats
+refusal records as fallback responses. Invisible continuation runs after an
+INFO response completes.
 A favor-spending response instead reads the INFO's CNAM favor level (0 None,
 1 Small, 2 Medium, 3 Large) and drops the topic from `dialogue_choices`
 (`Ok(false)`, no error) once the speaker's balance cannot cover that level's

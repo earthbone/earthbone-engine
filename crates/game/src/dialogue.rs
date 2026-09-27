@@ -48,6 +48,7 @@ const RANDOM: u16 = 1 << 1;
 const SAY_ONCE: u16 = 1 << 2;
 const INFO_REFUSAL: u16 = 1 << 4;
 const RANDOM_END: u16 = 1 << 5;
+const INVISIBLE_CONTINUE: u16 = 1 << 6;
 const SPENDS_FAVOR: u16 = 1 << 14;
 const TOP_LEVEL: u32 = 1;
 const BLOCKING: u32 = 2;
@@ -809,9 +810,6 @@ impl Game {
         if !conditions::evaluate(world, vm, context, &info.conditions)? {
             return Ok(false);
         }
-        if flags & (1 << 6) != 0 {
-            return Err(Error::Unsupported("invisible continuation"));
-        }
         if flags & SPENDS_FAVOR != 0 {
             let level = info.favor_level.unwrap_or(0);
             let cost = favor_cost(world, level);
@@ -1008,8 +1006,47 @@ impl Game {
             }
             self.dialogue_line()
         } else {
+            let invisible_continue = {
+                let world = self.world.borrow();
+                let info = world
+                    .dialogue
+                    .session
+                    .as_ref()
+                    .and_then(|session| session.current_info)
+                    .ok_or(Error::State("no response playing"))?;
+                world
+                    .dialogue_info(info)?
+                    .data
+                    .as_ref()
+                    .is_some_and(|data| data.flags() & INVISIBLE_CONTINUE != 0)
+            };
             self.finish_dialogue_info()?;
-            Ok(None)
+            if invisible_continue {
+                self.advance_invisible_continue()
+            } else {
+                Ok(None)
+            }
+        }
+    }
+
+    fn advance_invisible_continue(&mut self) -> Result<Option<Line>, Error> {
+        let has_links = {
+            let world = self.world.borrow();
+            let Some(session) = &world.dialogue.session else {
+                return Ok(None);
+            };
+            let Some(last_info) = session.last_info else {
+                return Ok(None);
+            };
+            !world.dialogue_info(last_info)?.topic_links.is_empty()
+        };
+        if !has_links {
+            return Ok(None);
+        }
+        let choice = self.dialogue_choices()?.available.first().cloned();
+        match choice {
+            Some(choice) => self.choose_dialogue(choice.topic),
+            None => Ok(None),
         }
     }
 

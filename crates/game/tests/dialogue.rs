@@ -420,6 +420,52 @@ fn shared_response_data_does_not_transfer_fragments_or_ownership() {
     );
 }
 
+#[test]
+fn dlg_15_invisible_continue_chains_to_eligible_link_without_menu_or_replay() {
+    let first = info(INFO, 1 << 6, &["Continue"], true).sub(T(b"TCLT"), LINKED_TOPIC.to_le_bytes());
+    let ineligible =
+        info(INFO + 1, 0, &["Hidden"], true).sub(T(b"CTDA"), condition(72, BASE, 0.0, 0));
+    let eligible =
+        info(INFO + 2, 0, &["Follow-up"], true).sub(T(b"CTDA"), condition(72, BASE, 1.0, 0));
+    let mut plugin = plugin(vec![first]);
+    add_topic(
+        &mut plugin,
+        topic(LINKED_TOPIC, QUEST),
+        vec![ineligible, eligible],
+        false,
+    );
+    let mut game = game(plugin);
+    open(&mut game);
+
+    let line = game.choose_dialogue(id(TOPIC)).unwrap().unwrap();
+    assert_eq!(line.info, id(INFO));
+    let continuation = game.advance_dialogue().unwrap().unwrap();
+    assert_eq!(continuation.info, id(INFO + 2));
+    assert_eq!(continuation.text.as_deref(), Some("Follow-up"));
+    assert!(matches!(
+        game.dialogue_choices().unwrap_err(),
+        Error::State("response still playing")
+    ));
+
+    let fragment_count = |game: &mut Game, info: u32, variable: &str| {
+        let object = game.object_of_form(id(info));
+        game.vm
+            .get_var(object, "TopicFragments", variable)
+            .unwrap()
+            .as_int()
+    };
+    assert_eq!(fragment_count(&mut game, INFO, "begins"), 1);
+    assert_eq!(fragment_count(&mut game, INFO, "ends"), 1);
+    assert_eq!(fragment_count(&mut game, INFO + 2, "begins"), 1);
+    assert_eq!(fragment_count(&mut game, INFO + 2, "ends"), 0);
+
+    assert!(game.advance_dialogue().unwrap().is_none());
+    assert_eq!(fragment_count(&mut game, INFO, "begins"), 1);
+    assert_eq!(fragment_count(&mut game, INFO, "ends"), 1);
+    assert_eq!(fragment_count(&mut game, INFO + 2, "begins"), 1);
+    assert_eq!(fragment_count(&mut game, INFO + 2, "ends"), 1);
+}
+
 fn localized_table(text: &str, prefixed: bool) -> Vec<u8> {
     let mut data = Vec::new();
     if prefixed {
