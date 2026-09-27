@@ -273,9 +273,14 @@ year or more or blocked.
 
 `soe-editor` opens plugin paths in load-order order through `soe-esm`, keeps one active
 plugin, and updates the resolved order when an edit is applied or undone. A subrecord edit
-to a supported winning top-level `STAT` record creates an active-plugin override. Undo
-restores the prior active plugin. Saving writes the active plugin bytes and parses those
-bytes again before returning the saved plugin. The TES4 record count is updated with edits.
+to a supported winning top-level `STAT` record creates an active-plugin override. Scene
+edits can rename a SCEN phase or set a Dialogue action's DIAL topic. A copied top-level
+SCEN override relocates its parent QUST, dialogue DIAL and package PACK links from the
+source plugin's master table into the active plugin's master table. The editor checks those
+link types and each action's zero-based phase indexes before accepting the edit, and keeps
+the other SCEN subrecords in order. Undo restores the prior active plugin. Saving writes the
+active plugin bytes and parses those bytes again before returning the saved plugin. The TES4
+record count is updated with edits.
 
 Copying a winning record whose owner differs from the active plugin requires relocating
 FormIDs in the record and its group path. The editor currently rejects nested records and
