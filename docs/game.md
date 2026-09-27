@@ -3242,3 +3242,24 @@ synthetic scripted conversation. It does not execute a shipped quest fragment.
 The row's range-exit and recorded-end checks are covered. TWAT reply selection,
 walk-away menu flags, voice cancellation and original-engine timing comparison
 are outside this range-exit implementation.
+
+## Saved list changes, SAV-52
+
+`World::restore_vanilla_lists` applies decoded FLST, LVLN, LVLI and LVSP
+changes to record overrides. Saved references map through plugin names before
+any override is installed. The method preserves addition order, duplicates,
+null entries, form flag words, optional section presence and leveled entry
+chance bytes. Leveled additions
+become twelve-byte LVLO subrecords and update LLCT when present. Form-list and
+leveled-list caches already read by a caller receive the same additions.
+Malformed changes, duplicate targets, missing records and count overflow leave
+all four list types unchanged.
+
+The record overrides feed form-list queries, leveled selection and other
+record readers. SOEW version 34 stores the saved flag words and entry chance
+bytes alongside the overridden records. The chance byte remains available as
+saved data without altering leveled selection probability. The implementation
+follows local xEdit `Core/wbDefinitionsTES5Saves.pas` change types 43 to 46 and
+FallrimTools `ChangeFormFLST.java`, `ChangeFormLeveled.java` and
+`LeveledEntry.java`. Their Java readers cannot serve as Rust runtime code, so
+the existing typed save decoder and record override layer perform the mapping.

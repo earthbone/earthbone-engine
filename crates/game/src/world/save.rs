@@ -57,7 +57,8 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// Version 32 retains each hand's explicitly assigned spell, so a menu or
 /// script equip survives a reload the way a hand weapon selection already did.
 /// Version 33 retains the spawned reference owned by each Summon Creature effect.
-pub const SAVE_VERSION: u16 = 33;
+/// Version 34 retains saved list flags and per-entry chance bytes in record overrides.
+pub const SAVE_VERSION: u16 = 34;
 
 #[derive(Clone, Copy)]
 pub(crate) enum FormNamespace {

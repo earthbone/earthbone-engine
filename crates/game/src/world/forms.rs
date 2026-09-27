@@ -42,15 +42,17 @@ impl World {
 
     pub fn form_list(&mut self, id: GlobalFormId) -> Option<&mut Vec<GlobalFormId>> {
         if !self.form_lists.contains_key(&id) {
-            let rref = self.order.winner_ref(id)?;
-            let rec = self.order.record(rref);
+            let rec = self.record(id)?;
             if rec.tag != T(b"FLST") {
                 return None;
             }
             let items = rec
                 .all(T(b"LNAM"))
                 .filter_map(le_u32)
-                .map(|raw| self.order.resolve(rref.file, raw))
+                .map(|raw| {
+                    self.resolve_from(id, raw)
+                        .unwrap_or(GlobalFormId { file: 0, object: 0 })
+                })
                 .collect();
             self.form_lists.insert(id, items);
         }
@@ -62,8 +64,7 @@ impl World {
     /// form, count `u16`, per `wbLeveledListEntry`).
     pub fn leveled_list(&mut self, id: GlobalFormId) -> Option<&mut LeveledList> {
         if !self.leveled_lists.contains_key(&id) {
-            let rref = self.order.winner_ref(id)?;
-            let rec = self.order.record(rref);
+            let rec = self.record(id)?;
             if !matches!(rec.tag.as_bytes(), b"LVLI" | b"LVLN" | b"LVSP") {
                 return None;
             }
@@ -74,7 +75,9 @@ impl World {
                 .filter(|d| d.len() >= 8)
                 .map(|d| LeveledEntry {
                     level: u16::from_le_bytes([d[0], d[1]]),
-                    form: self.order.resolve(rref.file, le_u32(&d[4..]).unwrap_or(0)),
+                    form: self
+                        .resolve_from(id, le_u32(&d[4..]).unwrap_or(0))
+                        .unwrap_or(GlobalFormId { file: 0, object: 0 }),
                     count: if d.len() >= 10 {
                         u16::from_le_bytes([d[8], d[9]])
                     } else {

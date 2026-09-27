@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 use soe_esm::{plugin::Subrecord, GlobalFormId, Slot, Tag};
 use soe_papyrus::{vm::state::Writer, VmError};
 
-use super::record_overrides::{raw_words, NpcRecordExtra, RecordOverride};
+use super::record_overrides::{raw_words, ListRecordExtra, NpcRecordExtra, RecordOverride};
 use super::save::{read_form_id, read_opt_form_id, write_form_id, write_opt_form_id, FormReader};
 use super::{World, T};
 
@@ -55,6 +55,16 @@ impl World {
                 w.u32(flags);
                 w.u16(unknown);
             }
+            w.bool(value.list.is_some());
+            if let Some(list) = &value.list {
+                w.bool(list.form_flags.is_some());
+                if let Some((flags, unknown)) = list.form_flags {
+                    w.u32(flags);
+                    w.u16(unknown);
+                }
+                w.bool(list.section_present);
+                w.bytes(&list.entry_chances);
+            }
             w.len(value.links.len());
             for (raw, link) in &value.links {
                 w.u32(*raw);
@@ -90,18 +100,25 @@ impl World {
             };
             if (temporary_for.is_some() && id.file != super::DYNAMIC_FILE)
                 || (temporary_for.is_none() && origin != id)
-                || self
-                    .order
-                    .winner(text_origin)
-                    .is_none_or(|r| !matches!(&r.tag.0, b"NPC_" | b"RACE"))
+                || self.order.winner(text_origin).is_none_or(|r| {
+                    !matches!(
+                        &r.tag.0,
+                        b"NPC_" | b"RACE" | b"FLST" | b"LVLN" | b"LVLI" | b"LVSP"
+                    )
+                })
             {
                 return Err(bad("invalid NPC origin or temporary identity"));
             }
             let original = self
                 .order
                 .winner(origin)
-                .filter(|rec| matches!(&rec.tag.0, b"NPC_" | b"RACE") && !rec.is_deleted())
-                .ok_or_else(|| bad("missing NPC or race origin"))?;
+                .filter(|rec| {
+                    matches!(
+                        &rec.tag.0,
+                        b"NPC_" | b"RACE" | b"FLST" | b"LVLN" | b"LVLI" | b"LVSP"
+                    ) && !rec.is_deleted()
+                })
+                .ok_or_else(|| bad("missing record origin"))?;
             if self
                 .order
                 .winner(text_origin)
@@ -125,6 +142,20 @@ impl World {
             };
             let pending_form_flags = if r.bool()? {
                 Some((r.u32()?, r.u16()?))
+            } else {
+                None
+            };
+            let list = if version >= 34 && r.bool()? {
+                let form_flags = if r.bool()? {
+                    Some((r.u32()?, r.u16()?))
+                } else {
+                    None
+                };
+                Some(ListRecordExtra {
+                    form_flags,
+                    section_present: r.bool()?,
+                    entry_chances: r.bytes()?.to_vec(),
+                })
             } else {
                 None
             };
@@ -166,9 +197,15 @@ impl World {
                     .winner_ref(text_origin)
                     .is_some_and(|owner| self.order.file(owner.file).plugin.header.is_localized());
             if record.tag == T(b"NPC_") {
+                if list.is_some() {
+                    return Err(bad("NPC has list metadata"));
+                }
                 crate::npc::Npc::from_record(&record, localized)
                     .map_err(|e| VmError::State(e.to_string()))?;
-            } else {
+            } else if record.tag == T(b"RACE") {
+                if list.is_some() {
+                    return Err(bad("race has list metadata"));
+                }
                 // Race overrides currently expose only WNAM. Reject other
                 // fields instead of admitting opaque mutable race state.
                 let unchanged = |record: &soe_esm::Record| {
@@ -216,6 +253,57 @@ impl World {
                 {
                     return Err(bad("invalid race skin link"));
                 }
+            } else {
+                let tag = if record.tag == T(b"FLST") {
+                    T(b"LNAM")
+                } else {
+                    T(b"LVLO")
+                };
+                let old: Vec<_> = original
+                    .subrecords
+                    .iter()
+                    .filter(|sub| sub.tag == tag)
+                    .collect();
+                let new: Vec<_> = record
+                    .subrecords
+                    .iter()
+                    .filter(|sub| sub.tag == tag)
+                    .collect();
+                let unchanged = |record: &soe_esm::Record| {
+                    record
+                        .subrecords
+                        .iter()
+                        .filter(|sub| {
+                            sub.tag != tag && (tag == T(b"LNAM") || sub.tag != T(b"LLCT"))
+                        })
+                        .cloned()
+                        .collect::<Vec<_>>()
+                };
+                let extra = list.as_ref().ok_or_else(|| bad("list metadata missing"))?;
+                if temporary_for.is_some()
+                    || text_origin != id
+                    || plain_full
+                    || original_race.is_some()
+                    || body_tint.is_some()
+                    || pending_form_flags.is_some()
+                    || unchanged(original) != unchanged(&record)
+                    || !new.starts_with(&old)
+                    || new
+                        .iter()
+                        .any(|sub| sub.data.len() != if tag == T(b"LNAM") { 4 } else { 12 })
+                    || (tag == T(b"LNAM") && !extra.entry_chances.is_empty())
+                    || (tag == T(b"LVLO") && extra.entry_chances.len() != new.len() - old.len())
+                    || (!extra.section_present && new.len() != old.len())
+                    || (tag == T(b"LVLO") && new.len() > 255)
+                    || (tag == T(b"LVLO")
+                        && original.find(T(b"LLCT")).is_none()
+                        && record.find(T(b"LLCT")).is_some())
+                    || (tag == T(b"LVLO")
+                        && original.find(T(b"LLCT")).is_some()
+                        && record.find(T(b"LLCT")) != Some(&[new.len() as u8][..]))
+                {
+                    return Err(bad("invalid saved list override"));
+                }
             }
             let value = RecordOverride {
                 origin,
@@ -229,6 +317,7 @@ impl World {
                     body_tint,
                     pending_form_flags,
                 },
+                list,
             };
             if values.insert(id, value).is_some() {
                 return Err(bad("duplicate NPC record"));

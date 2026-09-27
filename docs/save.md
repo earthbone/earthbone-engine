@@ -882,8 +882,8 @@ The 2026-09-20 run read 60 external saves in place and reproduced all 42,696
 payload bytes from 1,401 FLST, 1,620 LVLI and 60 LVLN changes. File form version
 and change version were both 78. No LVSP change occurred in the corpus, so
 LVSP and shared form-mask combinations have synthetic coverage only. No save
-bytes were copied into the repository. Applying these changes to the live
-record database is the separate SAV-52 row.
+bytes were copied into the repository. `World::restore_vanilla_lists` in the
+game crate applies decoded changes to live record overrides.
 
 ## Reference ownership and locks, SAV-16, blocked
 
