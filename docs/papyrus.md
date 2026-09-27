@@ -189,6 +189,21 @@ handle. Casts follow the declared type of the destination variable, which is
 why locals and script variables keep their type names. Floats print with six
 decimals, as in the game's log.
 
+**Fallout 4 array mutation opcodes.** The VM executes `ArrayAdd`, `ArrayInsert`,
+`ArrayRemoveLast`, `ArrayRemove` and `ArrayClear` on the existing shared array
+reference. Add appends the requested number of typed copies, Insert accepts an
+index from zero through the current length, Remove deletes up to the requested
+count starting at a valid index, and RemoveLast and Clear are safe on empty
+arrays. Nonpositive counts do nothing. Invalid insertion and removal indexes
+are logged and leave the array unchanged. Mutations that would exceed
+`MAX_ARRAY_LEN` are logged and leave it unchanged. A None array logs an error.
+The PEX opcode names and operand layout follow Champollion's
+`Pex/Instruction.cpp` and Caprica's `pex/PexFunctionBuilder.h`; Caprica's
+`PapyrusFunctionCallExpression.cpp` shows the default Add and Remove count is
+one and that these mutation calls do not produce a result value. The state
+format already saves array identity and contents through the shared array pool,
+so these mutations need no save version change.
+
 **Object reclamation.** `Vm::collect_objects` traces a host-supplied candidate set
 from non-candidate objects, frame locals and owners, thread results and explicit
 host roots. It follows instance variables and shared arrays, including cycles.

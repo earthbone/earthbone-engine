@@ -364,12 +364,16 @@ pub fn compile(source_name: &str, source: &str) -> Result<Vec<u8>, CompileError>
             byte_order: ByteOrder::Big,
         },
         user_flags,
+        property_groups: Vec::new(),
+        struct_orders: Vec::new(),
         objects: vec![Object {
             name: name.to_string(),
             parent,
             docstring: String::new(),
             user_flags: flags,
+            is_const: false,
             auto_state: String::new(),
+            structs: Vec::new(),
             variables: Vec::new(),
             properties: Vec::new(),
             states: vec![State {

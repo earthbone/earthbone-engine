@@ -290,6 +290,77 @@ impl Vm {
                     }
                 }
             }
+            ArrayAdd => match vals[0].as_array() {
+                None => self.err(t, "cannot add to a None array"),
+                Some(array) => {
+                    let count = vals[2].as_int();
+                    let mut items = array.items.borrow_mut();
+                    if count > 0 {
+                        let count = count as usize;
+                        if count > MAX_ARRAY_LEN.saturating_sub(items.len()) {
+                            self.err(t, "array length limit exceeded by Add");
+                        } else {
+                            let value = self.cast_to_kind(&vals[1], array.kind);
+                            let new_len = items.len() + count;
+                            items.resize(new_len, value);
+                        }
+                    }
+                }
+            },
+            ArrayInsert => match vals[0].as_array() {
+                None => self.err(t, "cannot insert into a None array"),
+                Some(array) => {
+                    let index = vals[2].as_int();
+                    let mut items = array.items.borrow_mut();
+                    match usize::try_from(index).ok().filter(|i| *i <= items.len()) {
+                        Some(index) if items.len() < MAX_ARRAY_LEN => {
+                            let value = self.cast_to_kind(&vals[1], array.kind);
+                            items.insert(index, value);
+                        }
+                        Some(_) => self.err(t, "array length limit exceeded by Insert"),
+                        None => self.err(
+                            t,
+                            &format!(
+                                "array insert index {index} out of range, length {}",
+                                items.len()
+                            ),
+                        ),
+                    }
+                }
+            },
+            ArrayRemoveLast => match vals[0].as_array() {
+                None => self.err(t, "cannot remove from a None array"),
+                Some(array) => {
+                    array.items.borrow_mut().pop();
+                }
+            },
+            ArrayRemove => match vals[0].as_array() {
+                None => self.err(t, "cannot remove from a None array"),
+                Some(array) => {
+                    let index = vals[1].as_int();
+                    let count = vals[2].as_int();
+                    let mut items = array.items.borrow_mut();
+                    if count > 0 {
+                        match usize::try_from(index).ok().filter(|i| *i < items.len()) {
+                            Some(index) => {
+                                let end = index.saturating_add(count as usize).min(items.len());
+                                items.drain(index..end);
+                            }
+                            None => self.err(
+                                t,
+                                &format!(
+                                    "array remove index {index} out of range, length {}",
+                                    items.len()
+                                ),
+                            ),
+                        }
+                    }
+                }
+            },
+            ArrayClear => match vals[0].as_array() {
+                None => self.err(t, "cannot clear a None array"),
+                Some(array) => array.items.borrow_mut().clear(),
+            },
             ArrayFindElement | ArrayRFindElement => {
                 let reverse = op == ArrayRFindElement;
                 let found = match vals[0].as_array() {
@@ -323,11 +394,6 @@ impl Vm {
             | StructSet
             | ArrayFindStruct
             | ArrayRFindStruct
-            | ArrayAdd
-            | ArrayInsert
-            | ArrayRemoveLast
-            | ArrayRemove
-            | ArrayClear
             | ArrayGetAllMatchingStructs => {
                 self.err(
                     t,
