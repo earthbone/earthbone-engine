@@ -170,6 +170,7 @@ pub fn supports_function(function: u16) -> bool {
             | 617
             | 618
             | 641
+            | 170
     )
 }
 
@@ -322,6 +323,28 @@ fn function_value(
             boolean(world.distance(subject, first) < world.distance(subject, second))
         }
         18 => world.calendar().hour as f32,
+        170 => {
+            no_parameter(c)?;
+            let calendar = world.calendar();
+            let month = usize::try_from(calendar.month).map_err(|_| Error::Form(subject))?;
+            if month >= crate::clock::DAYS_IN_MONTH.len() || calendar.day == 0 {
+                return Err(Error::Form(subject));
+            }
+            let days_before_year = i64::from(calendar.year).saturating_sub(201) * 365;
+            let days_before_month = crate::clock::DAYS_IN_MONTH[..month]
+                .iter()
+                .map(|days| i64::from(*days))
+                .sum::<i64>()
+                - crate::clock::DAYS_IN_MONTH[..7]
+                    .iter()
+                    .map(|days| i64::from(*days))
+                    .sum::<i64>();
+            let days = days_before_year
+                .saturating_add(days_before_month)
+                .saturating_add(i64::from(calendar.day))
+                .saturating_sub(17);
+            days.rem_euclid(7) as f32
+        }
         46 => boolean(world.actor(subject).is_some_and(|actor| actor.dead)),
         42 | 43 | 44 | 60 => {
             if world.actor(subject).is_none() {
@@ -380,6 +403,14 @@ fn function_value(
                     (i64::from(subject_rank) - i64::from(other_rank)) as f32
                 }
             }
+        }
+        12 | 62 | 75 | 148 | 153 | 154 => {
+            no_parameter(c)?;
+            return Err(Error::Function(c.function));
+        }
+        149 => {
+            resolve(world, context.owner, raw, Some(*b"WTHR"))?;
+            return Err(Error::Function(c.function));
         }
         64 | 228 | 449 | 454 | 637 | 703 | 715 => {
             return Err(Error::Function(c.function));

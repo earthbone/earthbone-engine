@@ -688,6 +688,17 @@ with the gameplay evaluator. Any other function fails its condition and is
 counted in `World::ai.unsupported_functions` by index, so a live run
 prints what the next round should add.
 
+Condition function 170, `GetDayOfWeek`, reads the live calendar and returns
+zero for Sundas, with the starting date 17 Last Seed 4E 201 as day zero.
+Functions 12 `GetSecondsPassed`, 62 `IsRaining`, 75 `IsSnowing`, 148
+`GetCurrentWeatherPercent`, 149 `GetIsCurrentWeather`, 153 `CanHaveFlames` and
+154 `HasFlames` return explicit unsupported-function diagnostics. The local
+xEdit table supplies their identities and parameter types, but the CK corpus
+has no usable condition contracts for these queries. The runtime also has no
+condition state for elapsed evaluation time, current weather or reference
+flames. The evaluator checks the required `WTHR` parameter for function 149
+and rejects nonzero unused parameter slots on the parameterless functions.
+
 **Procedures.** AI-02 walks sequential branches in authored preorder. The
 actor retains the active child and its completion state. A completed Travel
 starts the next child on the next driver tick. Nested `Sequence` branches
