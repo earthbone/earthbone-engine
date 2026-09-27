@@ -87,6 +87,8 @@ pub enum Procedure {
     },
     Hover,
     Follow,
+    /// Escort a resolved target to the package branch location.
+    Escort,
     /// Circle a resolved location inside the authored radii at a fixed height.
     Orbit {
         height: f32,
@@ -845,6 +847,26 @@ fn begin_procedure(
                 ai.procedure = Procedure::Unsupported("Follow inputs".into());
             }
         }
+        Procedure::Escort => {
+            match tree::escort_target(world, ai).and_then(|(owner, target, radius)| {
+                let target = resolve_follow_target(world, actor, ai, (owner, target))?;
+                world.reference(target).map(|_| (target, radius))
+            }) {
+                Some((_, radius)) if radius < 0 => {
+                    ai.procedure = Procedure::Unsupported("Escort distance".into());
+                }
+                Some((_, radius)) => match place {
+                    Some(place) => {
+                        ai.destination = Some(place.position);
+                        ai.center = Some(place.position);
+                        ai.center_cell = place.cell;
+                        ai.radius = radius as f32;
+                    }
+                    None => ai.procedure = Procedure::Unsupported("Escort location".into()),
+                },
+                None => ai.procedure = Procedure::Unsupported("Escort target".into()),
+            }
+        }
         Procedure::ForceGreet => {
             if let Some((target, _)) = tree::force_greet_parameters(world, ai) {
                 if let Some(target) = resolve_follow_target(world, actor, ai, target) {
@@ -924,6 +946,32 @@ fn resolve_follow_target(
         Target::Itself => Some(actor),
         _ => None,
     }
+}
+
+fn escort_target_arrived(world: &mut World, actor: GlobalFormId, ai: &AiState) -> bool {
+    tree::escort_target(world, ai)
+        .and_then(|(owner, target, _)| resolve_follow_target(world, actor, ai, (owner, target)))
+        .and_then(|target| world.reference(target).map(|reference| reference.position))
+        .is_some_and(|target| {
+            distance(target, ai.destination.unwrap_or_default()) <= ARRIVAL_DISTANCE
+        })
+}
+
+fn escort_can_advance(
+    world: &mut World,
+    actor: GlobalFormId,
+    ai: &AiState,
+    position: [f32; 3],
+) -> bool {
+    let Some(goal) = ai.center else {
+        return false;
+    };
+    let target = tree::escort_target(world, ai)
+        .and_then(|(owner, target, _)| resolve_follow_target(world, actor, ai, (owner, target)))
+        .and_then(|target| world.reference(target).map(|reference| reference.position));
+    target.is_some_and(|target| {
+        distance(position, target) <= ai.radius || distance(target, goal) < distance(position, goal)
+    })
 }
 
 /// Where a package location input points for this actor.
@@ -1287,6 +1335,19 @@ fn step(world: &mut World, actor: GlobalFormId, dt: f32) {
     {
         tree::succeeded(world, &mut ai);
     }
+    if ai.procedure == Procedure::Escort && !ai.arrived {
+        if escort_can_advance(world, actor, &ai, position) {
+            if ai.destination.is_none() {
+                ai.destination = ai.center;
+                ai.path.clear();
+                ai.path_cells.clear();
+            }
+        } else {
+            ai.destination = None;
+            ai.path.clear();
+            ai.path_cells.clear();
+        }
+    }
     let hours = world.clock.game_hours();
     if ai.arrived {
         match ai.procedure {
@@ -1431,6 +1492,9 @@ fn step(world: &mut World, actor: GlobalFormId, dt: f32) {
     }
     if ai.procedure == Procedure::Patrol {
         patrol::tick(world, &mut ai);
+    }
+    if ai.arrived && ai.procedure == Procedure::Escort && escort_target_arrived(world, actor, &ai) {
+        tree::succeeded(world, &mut ai);
     }
     if let Some(a) = world.actor(actor) {
         a.ai = ai;
@@ -1624,6 +1688,7 @@ pub(crate) fn write_record_state(w: &mut Writer, a: &AiState) {
             w.u8(12);
             w.f32(*height);
         }
+        Procedure::Escort => w.u8(13),
         Procedure::UseIdleMarker { marker } => {
             w.u8(9);
             match marker {
@@ -1707,6 +1772,7 @@ pub fn read_state(r: &mut Reader<'_>) -> Result<AiState, VmError> {
         true,
         true,
         true,
+        crate::world::SAVE_VERSION,
     )?;
     a.tree = read_tree_state(r)?;
     Ok(a)
@@ -1717,6 +1783,7 @@ pub(crate) fn read_state_mapped(
     has_force_greet_state: bool,
     has_hold_position: bool,
     has_orbit: bool,
+    world_version: u16,
 ) -> Result<AiState, VmError> {
     let mut a = AiState {
         package: read_opt_form_id(r)?,
@@ -1773,6 +1840,12 @@ pub(crate) fn read_state_mapped(
         12 => {
             return Err(VmError::State(
                 "Orbit procedure requires world version 39".into(),
+            ));
+        }
+        13 if world_version >= 40 => Procedure::Escort,
+        13 => {
+            return Err(VmError::State(
+                "Escort procedure requires world version 40".into(),
             ));
         }
         9 => {

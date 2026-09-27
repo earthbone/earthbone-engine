@@ -312,6 +312,7 @@ fn ai_state(h: &mut StateHasher, a: &AiState) {
             h.u8(12);
             h.f32(*height);
         }
+        Procedure::Escort => h.u8(13),
         Procedure::UseIdleMarker { marker } => {
             h.u8(9);
             if let Some(marker) = marker {

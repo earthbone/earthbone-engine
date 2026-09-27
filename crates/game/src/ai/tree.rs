@@ -175,6 +175,7 @@ fn procedure(branch: &Branch) -> Procedure {
         },
         Some("hover") => Procedure::Hover,
         Some("follow") => Procedure::Follow,
+        Some("escort") => Procedure::Escort,
         Some("orbit") => Procedure::Orbit { height: 0.0 },
         Some("forcegreet") => Procedure::ForceGreet,
         Some("useidlemarker") => Procedure::UseIdleMarker { marker: None },
@@ -226,6 +227,23 @@ pub(super) fn follow_parameters(
         catch_up_radius,
         follow_radius,
     ))
+}
+
+pub(super) fn escort_target(
+    world: &World,
+    ai: &AiState,
+) -> Option<(GlobalFormId, crate::package::Target, i32)> {
+    let package_id = ai.package?;
+    let tree = Tree::load(world, package_id)?;
+    let branch = tree.branches.get(ai.tree.as_ref()?.branch as usize)?;
+    branch.inputs.iter().find_map(|&index| {
+        tree.chain.iter().find_map(|(owner, package)| {
+            match package.input(index as i8).map(|input| input.value) {
+                Some(DataValue::Target(target)) => Some((*owner, target.target, target.count)),
+                _ => None,
+            }
+        })
+    })
 }
 
 pub(super) fn orbit_parameters(

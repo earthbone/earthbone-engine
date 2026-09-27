@@ -720,6 +720,22 @@ unsupported procedure. The package input names and radius meanings follow the
 Creation Kit `Orbit (Procedure)` page. SOEW version 39 saves the active Orbit
 height.
 
+`Escort` resolves its assigned placed-reference target and the branch's
+authored location. The escorting actor routes to that location while keeping
+within the target's authored distance when the target is behind. It waits when
+the target falls outside that distance, and can keep advancing when the target
+is closer to the destination. It completes when both the actor and target are
+within the driver's four unit arrival tolerance of the destination. Missing or
+unresolved target and location inputs, negative distances and non-reference
+target selectors leave an unsupported procedure. Object search, pickup and
+carrying are not implemented. Local CK package pages do not describe Escort
+procedure behavior. The PACK target and location input layouts follow xEdit's
+`wbRecord(PACK)`. The destination, target distance and actor escort behavior
+follow the GECK Escort package page, since the local CK dump has no Escort
+procedure page. No existing local implementation covered this procedure. The
+actor's Escort procedure tag is saved in SOEW version 40, and earlier world
+saves reject that tag.
+
 **Walking.** `ai::nav_graph` builds `soe_navmesh::vanilla` over every
 winning `NAVM` on first use and remembers which cell each mesh sits in.
 A route is `find_path_between` from the actor to the place. The actor follows
@@ -894,7 +910,7 @@ either.
 
 `World::save_state(&self) -> Vec<u8>` and `World::load_state(&mut self,
 bytes) -> Result<(), VmError>` write and read the run-time half of the form
-table, magic `SOEW`, version 39. Versions 4 to 6 use legacy actor values,
+table, magic `SOEW`, version 40. Versions 4 to 6 use legacy actor values,
 version 5 adds active magic, version 6 adds dialogue, version 7 adds actor-value
 components, version 8 adds dialogue to those components, and version 9 adds
 active magic. Version 10 adds per-reference leveled template choices.
@@ -912,8 +928,8 @@ version 29 an actor's stagger end time. Version 30 appends shared stealth-point
 pools with each observer's detection level and timers, written only when a pool
 exists. Version 31 adds the set of perpetrators an actor witnessed committing a
 tracked crime. Versions 32 and 33 retain assigned hand spells and summoned
-references. Versions 34 to 39 add Hover, Follow, UseIdleMarker, ForceGreet,
-HoldPosition and Orbit procedure state.
+references. Versions 34 to 40 add Hover, Follow, UseIdleMarker, ForceGreet,
+HoldPosition, Orbit and Escort procedure state.
 version 5 adds active magic, version 6 adds dialogue, version 7 adds actor-value
 components, version 8 adds dialogue to those components, version 9 adds
 active magic. Version 10 adds per-reference leveled template choices.
