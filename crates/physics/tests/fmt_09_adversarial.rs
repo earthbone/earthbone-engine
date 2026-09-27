@@ -9,9 +9,15 @@ fn header(version: u32) -> Header {
         version,
         user_version: 12,
         bs_version: soe_nif::header::BS_SKYRIM_SE,
-        author: String::new(), process_script: String::new(), export_script: String::new(),
-        max_filepath: String::new(), block_types: Vec::new(), block_type_index: Vec::new(),
-        block_sizes: Vec::new(), strings: Vec::new(), groups: Vec::new(),
+        author: String::new(),
+        process_script: String::new(),
+        export_script: String::new(),
+        max_filepath: String::new(),
+        block_types: Vec::new(),
+        block_type_index: Vec::new(),
+        block_sizes: Vec::new(),
+        strings: Vec::new(),
+        groups: Vec::new(),
     }
 }
 
@@ -22,7 +28,9 @@ fn payload(versioned_scale: bool) -> Vec<u8> {
     out.extend_from_slice(&[0; 20]);
     out.extend_from_slice(&1u32.to_le_bytes());
     if versioned_scale {
-        for value in [2.0f32, 3.0, 4.0, 0.0] { out.extend_from_slice(&value.to_le_bytes()); }
+        for value in [2.0f32, 3.0, 4.0, 0.0] {
+            out.extend_from_slice(&value.to_le_bytes());
+        }
     }
     out.extend_from_slice(&1u32.to_le_bytes());
     out.extend_from_slice(&7i32.to_le_bytes());
@@ -33,14 +41,12 @@ fn payload(versioned_scale: bool) -> Vec<u8> {
 
 #[test]
 fn fmt_09_pre_10_1_layout_omits_scale_and_keeps_filter_cardinality() {
-    let block = bhk::decode(
-        "bhkNiTriStripsShape",
-        &payload(false),
-        &header(0x0A00_0000),
-    ).unwrap();
-    assert!(matches!(block, Bhk::NiTriStrips { material: 9, scale, strips, filters }
+    let block = bhk::decode("bhkNiTriStripsShape", &payload(false), &header(0x0A00_0000)).unwrap();
+    assert!(
+        matches!(block, Bhk::NiTriStrips { material: 9, scale, strips, filters }
         if scale == soe_physics::Vec3::new(1.0, 1.0, 1.0)
-            && strips == [soe_nif::BlockRef(7)] && filters.len() == 1));
+            && strips == [soe_nif::BlockRef(7)] && filters.len() == 1)
+    );
 
     let mut malformed = payload(false);
     let count = malformed.len() - 8;

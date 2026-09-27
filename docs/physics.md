@@ -353,10 +353,8 @@ code change was needed.
 - Rigid bodies, constraints and ragdolls in the headless world. Godot's side
   has them through Jolt already, `SimpleWorld` has statics, one capsule and
   rays, which is what the simulation needs so far.
-- The convex shell radius (0.05 m on most shapes) is not added to boxes
-  and hulls, so their surfaces sit 3.5 units inside where Havok puts them.
-- `bhkNiTriStripsShape`, AABB and caching phantoms,
-  constraints (hinge and ragdoll data are parsed as `Other`).
+- AABB and caching phantoms are not decoded. Limited hinge fields are decoded,
+  but constraints and ragdolls are not simulated by `SimpleWorld`.
 - Keyframed and animated statics (doors, drawbridges) are loaded at their
   rest pose only.
 - Skyrim LE files are decoded by the same layouts but were not run
