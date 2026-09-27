@@ -48,6 +48,8 @@ pub enum Error {
     TemperingContext,
     #[error("condition count overflow or cyclic form list")]
     Inventory,
+    #[error("condition function {0} has no usable query contract")]
+    NoConditionContract(u16),
 }
 
 /// AND groups of OR-linked predicates, evaluated in file order with short circuiting.
@@ -140,6 +142,11 @@ pub fn supports_function(function: u16) -> bool {
             | 630
             | 655
             | 659
+            | 1024
+            | 1025
+            | 1026
+            | 1027
+            | 1028
     )
 }
 
@@ -339,6 +346,14 @@ fn function_value(
                     .current()
                     != 0.0,
             )
+        }
+        1024..=1027 => {
+            no_parameter(c)?;
+            0.0
+        }
+        1028 => {
+            no_parameter(c)?;
+            return Err(Error::NoConditionContract(c.function));
         }
         123 => {
             // IsGreetingPlayer (wbDefinitionsTES5.pas:290) takes no parameters.
