@@ -2,7 +2,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use soe_esm::{
-    plugin::{FileHeader, Plugin}, GlobalFormId, LoadOrder, Record, Tag,
+    plugin::{FileHeader, Plugin},
+    GlobalFormId, LoadOrder, Record, Tag,
 };
 use soe_game::{vanilla_save::RestoreError, World};
 use soe_save::{Compression, Header, RefId, Save, WString};
@@ -71,9 +72,7 @@ fn save() -> Save {
 
 fn list_order() -> LoadOrder {
     let mut plugin = Plugin::new(FileHeader::default());
-    plugin.push_top(
-        Record::new(Tag(*b"FLST"), 0x800).sub(Tag(*b"LNAM"), 0x820_u32.to_le_bytes()),
-    );
+    plugin.push_top(Record::new(Tag(*b"FLST"), 0x800).sub(Tag(*b"LNAM"), 0x820_u32.to_le_bytes()));
     for (object, tag, base) in [
         (0x801, *b"LVLN", 0x830),
         (0x802, *b"LVLI", 0x820),
@@ -173,7 +172,10 @@ fn saved_additions_reach_warm_queries_and_rolls_after_engine_reload() {
     for (list, target) in [(0x801, 0x831), (0x802, 0x821), (0x803, 0x841)] {
         let entries = &loaded.leveled_list(id(list)).unwrap().entries;
         assert_eq!(entries.len(), 2);
-        assert_eq!((entries[1].form, entries[1].level, entries[1].count), (id(target), 2, 3));
+        assert_eq!(
+            (entries[1].form, entries[1].level, entries[1].count),
+            (id(target), 2, 3)
+        );
         assert_eq!(
             loaded.restored_list_extra(id(list)).unwrap().entry_chances,
             [255]
@@ -198,12 +200,7 @@ fn missing_list_record_rejects_the_batch_without_changing_warm_state() {
         world.leveled_list(id(list)).unwrap();
     }
     let before = world.save_state();
-    let mut saved = changes(
-        &[0x400821],
-        &[0x400831],
-        &[0x400821],
-        &[0x400841],
-    );
+    let mut saved = changes(&[0x400821], &[0x400831], &[0x400821], &[0x400841]);
     saved.change_forms[3].form = reference(0x400999);
 
     assert!(matches!(

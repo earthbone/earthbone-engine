@@ -3,8 +3,15 @@
 
 use soe_esm::LoadOrder;
 use soe_game::{save_generations::GenerationStore, Game};
-use soe_papyrus::{asm::{i, ScriptBuilder}, Value};
-use std::{fs, path::PathBuf, sync::atomic::{AtomicU64, Ordering}};
+use soe_papyrus::{
+    asm::{i, ScriptBuilder},
+    Value,
+};
+use std::{
+    fs,
+    path::PathBuf,
+    sync::atomic::{AtomicU64, Ordering},
+};
 
 struct Directory(PathBuf);
 
@@ -89,7 +96,10 @@ fn damaged_latest_after_partial_rotation_recovers_and_retry_keeps_fallback() {
         recovered.save_state().unwrap(),
         game(4).save_state().unwrap()
     );
-    assert_eq!(fs::read(directory.generation(4)).unwrap(), verified_fallback);
+    assert_eq!(
+        fs::read(directory.generation(4)).unwrap(),
+        verified_fallback
+    );
 
     let report = game(6)
         .write_generation(&GenerationStore::new(&directory.0, 2).unwrap())
