@@ -666,7 +666,13 @@ destination. Location alias fill rules remain separate quest work.
 
 **Walking.** `ai::nav_graph` builds `soe_navmesh::vanilla` over every
 winning `NAVM` on first use and remembers which cell each mesh sits in.
-A route is `find_path_between` from the actor to the place. The actor follows
+Callers can add an explicit cylinder or axis-aligned box with
+`ai::add_nav_obstacle` and remove it with `ai::remove_nav_obstacle`. Both
+operations clear loaded actors' cached routes for replanning. Door footprint
+geometry is not inferred from the NAVM door-link triangle and reference.
+A route is `find_path_between` from the actor to the place. When both endpoints
+are on the graph but no route connects them, the actor waits instead of taking
+the off-graph straight-line fallback. Otherwise the actor follows
 the waypoints at its race's forward walk or run rate: `WKMV` supplies walk and
 fast walk, `RNMV` supplies jog and run, and a matching `MTYP`/`SPED` pair on
 the race overrides the selected movement type. Missing or unusable data falls

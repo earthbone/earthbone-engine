@@ -25,7 +25,7 @@ use std::collections::{BTreeMap, HashMap};
 use soe_esm::records::navm::NavMesh;
 use soe_esm::{GlobalFormId, Tag};
 use soe_navmesh::vanilla::{key_of, Builder};
-use soe_navmesh::NavGraph;
+use soe_navmesh::{NavGraph, ObstacleId, ObstacleShape};
 use soe_papyrus::vm::state::{Reader, Writer};
 use soe_papyrus::VmError;
 
@@ -951,6 +951,52 @@ pub fn nav_graph(world: &mut World) -> &NavGraph {
     world.ai.nav.get_or_insert_with(NavGraph::default)
 }
 
+/// Register an explicit obstacle in the world's cached navigation graph.
+///
+/// Loaded actor routes are cleared so their next movement step replans.
+/// Geometry is supplied by the caller because vanilla NAVM door links identify
+/// a triangle and reference but do not describe a door footprint or edge.
+///
+/// # Errors
+/// Returns `None` when the shape is invalid or navigation graph cannot assign
+/// an obstacle id.
+///
+/// # Panics
+/// This function does not panic.
+pub fn add_nav_obstacle(world: &mut World, shape: ObstacleShape) -> Option<ObstacleId> {
+    ensure_nav_graph(world);
+    let id = world.ai.nav.as_mut()?.add_obstacle(shape)?;
+    invalidate_actor_paths(world);
+    Some(id)
+}
+
+/// Remove a registered obstacle and clear loaded actor routes for replanning.
+///
+/// # Errors
+/// Returns `false` when the world has no navigation graph or the id is unknown.
+///
+/// # Panics
+/// This function does not panic.
+pub fn remove_nav_obstacle(world: &mut World, id: ObstacleId) -> bool {
+    let Some(graph) = world.ai.nav.as_mut() else {
+        return false;
+    };
+    if !graph.remove_obstacle(id) {
+        return false;
+    }
+    invalidate_actor_paths(world);
+    true
+}
+
+fn invalidate_actor_paths(world: &mut World) {
+    for actor in world.loaded_actors() {
+        if let Some(state) = world.actor(actor) {
+            state.ai.path.clear();
+            state.ai.path_cells.clear();
+        }
+    }
+}
+
 fn ensure_nav_graph(world: &mut World) {
     if world.ai.nav.is_none() {
         let _span = soe_trace::Span::new("ai.nav_graph", "game");
@@ -1033,6 +1079,9 @@ fn plan(
             .map(|node| nav_cells.get(node.mesh as usize).copied().flatten())
             .collect();
         return (path.points[1..].to_vec(), cells);
+    }
+    if graph.contains_point(from) && graph.contains_point(to) {
+        return (Vec::new(), Vec::new());
     }
     (vec![to], vec![to_cell])
 }

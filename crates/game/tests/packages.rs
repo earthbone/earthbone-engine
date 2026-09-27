@@ -16,6 +16,7 @@ use soe_game::quest;
 use soe_game::vmad::{ScriptEntry, Vmad};
 use soe_game::Game;
 use soe_navmesh::vanilla::flags as nav_flags;
+use soe_navmesh::ObstacleShape;
 use soe_papyrus::asm::{ident, s, FunctionBuilder, ScriptBuilder};
 use soe_papyrus::Opcode::*;
 
@@ -518,6 +519,54 @@ fn a_travel_package_walks_the_navmesh_into_the_next_cell() {
     let a = w.actor(guard).unwrap();
     assert!(a.ai.arrived);
     assert!(a.ai.completed.contains_key(&travel));
+}
+
+#[test]
+fn ai_17_runtime_obstacles_invalidate_loaded_actor_routes() {
+    let mut game = game_at_hour(12.0);
+    let guard = game.form("GuardRef").unwrap();
+    let quest = game.form("GuardQuest").unwrap();
+    game.set_stage(quest, 10);
+    tick(&mut game, 0.1);
+    assert!(
+        !game.world().actor_ref(guard).unwrap().ai.path.is_empty(),
+        "the travel package has a planned route"
+    );
+
+    let obstacle = {
+        let mut world = game.world_mut();
+        let id = ai::add_nav_obstacle(
+            &mut world,
+            ObstacleShape::Box {
+                min: [60.0, 25.0, -1.0],
+                max: [75.0, 40.0, 1.0],
+            },
+        )
+        .unwrap();
+        assert!(
+            world.actor_ref(guard).unwrap().ai.path.is_empty(),
+            "adding an obstacle invalidates the cached route"
+        );
+        id
+    };
+    tick(&mut game, 0.1);
+    assert!(
+        game.world().actor_ref(guard).unwrap().ai.path.is_empty(),
+        "a disconnected on-mesh route does not fall back through the obstacle"
+    );
+
+    let mut world = game.world_mut();
+    assert!(ai::remove_nav_obstacle(&mut world, obstacle));
+    assert!(
+        world.actor_ref(guard).unwrap().ai.path.is_empty(),
+        "removing an obstacle invalidates the route for replanning"
+    );
+    drop(world);
+    tick(&mut game, 0.1);
+    assert!(
+        !game.world().actor_ref(guard).unwrap().ai.path.is_empty(),
+        "removing the obstacle restores a route"
+    );
 }
 
 #[test]
