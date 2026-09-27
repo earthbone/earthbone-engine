@@ -62,7 +62,8 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// Version 36 retains the active phase and completed action slots for each scene.
 /// Version 37 accompanies the provenance-aware native game save envelope.
 /// Version 38 retains opaque records by plugin name outside the live form table.
-pub const SAVE_VERSION: u16 = 38;
+/// Version 39 carries the Papyrus saved-script fingerprint table.
+pub const SAVE_VERSION: u16 = 39;
 
 #[derive(Clone, Copy)]
 pub(crate) enum FormNamespace {

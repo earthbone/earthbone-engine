@@ -497,10 +497,11 @@ impl Game {
         Ok(out.out)
     }
 
-    /// Replace the world and VM state with a saved one. The `Game` must
-    /// already carry the same scripts the save was written with, and
-    /// should not have been bound or started, `load_state` overwrites
-    /// object and instance state wholesale rather than merging it.
+    /// Replace the world and VM state with a saved one. Compatible scripts
+    /// should be loaded first. Missing or changed Papyrus definitions suspend
+    /// the saved VM state until compatible scripts load. The game should not
+    /// have been bound or started, `load_state` overwrites object and instance
+    /// state wholesale rather than merging it.
     ///
     /// # Errors
     ///

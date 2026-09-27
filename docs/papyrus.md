@@ -243,11 +243,16 @@ inventory, and package evaluation, before combat or magic.
 -> Result<Vec<u8>, VmError>` and `Vm::load_state(&mut self, bytes) ->
 Result<(), VmError>`. No serde, an own little-endian binary format read and
 written by a small `Writer` and `Reader`, the same shape as `crates/game/src/vmad.rs`.
-`load_state` expects the caller to have loaded the same scripts first, the
-same way the VM itself never owns PEX bytes across a save, only the objects
-and threads built from them.
+`load_state` resolves saved script names against definitions already loaded.
+The VM itself does not store PEX bytes across a save, only objects and threads
+built from them.
 
-Magic `SOEV`, a `u16` version (3), then an array pool, then the VM body.
+Magic `SOEV`, a `u16` version (4), then an array pool, a sorted table of
+script source fingerprints, and the VM body. Version 4 checks that a saved
+instance or frame still refers to the same PEX bytes. A missing or changed
+definition parks the original state until compatible PEX bytes are loaded.
+Version 3 and earlier states have no source fingerprints and continue to use
+name and frame-function checks.
 Everything a script variable can hold round trips: objects by id, strings,
 ints, floats, bools, and arrays. An array is a shared reference
 (`Rc<RefCell<Vec<Value>>>`), so it is pooled once by first-seen order and
@@ -301,6 +306,15 @@ Existing threads are refused because replacing instance indices would
 invalidate their frames. Saved state names remain valid even when the loaded
 PEX has no body for that state, as the existing `GoToState` path permits.
 Function lookup then uses its normal empty-state fallback.
+
+If `Vm::load_state` finds a missing script, changed PEX fingerprint or saved
+frame function absent from the loaded PEX, it parks the original SOEV bytes
+and clears the live objects and threads. `save_state` returns those bytes
+unchanged while parked, and the scheduler executes no work. Loading definitions
+retries restoration.
+The state becomes live only when all named scripts and frame functions resolve.
+The parked state keeps array identity, frames, latent waiters and pending return
+destinations without substituting null values.
 
 The save crate supplies the vanilla slot-to-name adapter and converts decoded
 active frames into VM frames after object identities and instances are mapped.

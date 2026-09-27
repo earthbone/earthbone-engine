@@ -884,7 +884,7 @@ either.
 
 `World::save_state(&self) -> Vec<u8>` and `World::load_state(&mut self,
 bytes) -> Result<(), VmError>` write and read the run-time half of the form
-table, magic `SOEW`, version 38. Versions 4 to 6 use legacy actor values,
+table, magic `SOEW`, version 39. Versions 4 to 6 use legacy actor values,
 version 5 adds active magic, version 6 adds dialogue, version 7 adds actor-value
 components, version 8 adds dialogue to those components, and version 9 adds
 active magic. Version 10 adds per-reference leveled template choices.
@@ -906,6 +906,9 @@ Versions 32 to 37 add assigned hand spells, summoned actors, encounter-zone
 visit days, list metadata, scene progress and the provenance-aware game envelope.
 Version 38 stores opaque unresolved record payloads and plugin-relative links.
 These records are not installed into the live form table.
+Version 39 accompanies Papyrus SOEV version 4, which carries script source
+fingerprints so missing or changed definitions keep the saved VM state
+suspended.
 version 5 adds active magic, version 6 adds dialogue, version 7 adds actor-value
 components, version 8 adds dialogue to those components, version 9 adds
 active magic. Version 10 adds per-reference leveled template choices.
