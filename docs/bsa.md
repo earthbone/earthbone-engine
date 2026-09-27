@@ -71,14 +71,19 @@ should call the same function.
 ## Hash
 
 `tes4_hash`, `file_name_hash` and `folder_hash` compute the value stored next
-to every BSA name. The reader does not verify hashes, since names are present
-in every archive the game ships, but a writer or a repair tool needs the exact
-value, including the reference implementation's quirk of stopping the middle
-loop two bytes short of the end of the name.
+to every BSA name. The BSA reader checks each file hash against its filename
+and, when directory names are stored, checks each directory hash against its
+path. A mismatch returns a format error naming the path and stored and
+calculated values. Archives without directory names still have their file
+hashes checked. Hashing follows Wabbajack's `GetBSAHash` behavior and the
+independent `bsa` reference vectors, including the quirk where the middle
+loop stops two bytes short of the end of the name. Names are encoded as
+Windows-1252 bytes for hashing, including accented Skyrim SE names.
 
 ## Tests
 
-Synthetic archives cover every format and both compression paths, a name
+Synthetic archives cover every format and both compression paths, valid and
+invalid BSA path hashes, a name
 with a non-ASCII byte, a truncated payload, absurd header counts, a DX10
 texture rebuilt into a DDS file, concurrent disk reads, a sparse 64 MiB
 payload that stays off heap at open time, and the override rules of the view.
