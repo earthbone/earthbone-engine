@@ -1976,19 +1976,21 @@ post-processing through the host stack, including renderer resource cleanup.
 
 ## Image-space renderer prerequisites, MAG-71
 
-The MAG-71 source audit confirms that the host needs the MAG-72 base IMGS
-pipeline before the complete modifier renderer can be accepted. PlayerNode
-currently synchronizes identity, age and strength only. No Environment,
-CameraAttributes or Compositor consumes that snapshot. `godot/walkthrough.gd`
-constructs a fixed background, ambient light and directional light. Those
-constants are not the cell or weather's authored image space. Substituting
-them for IMGS values would change multiply curves and restoration after a
-modifier ends.
+PlayerNode synchronizes modifier identity, age and strength plus the winning
+base IMGS for the loaded cell or selected weather. It maps authored HDR white,
+bloom scale and eye-adapt strength to camera Environment controls, cinematic
+saturation, brightness and contrast to adjustments, tint to a screen ColorRect,
+and depth strength, distance and range to CameraAttributesPractical. The
+camera Environment starts as a copy of the WorldEnvironment when one exists.
+Clearing the source removes the camera resources and tint overlay. The host's
+weather selection method accepts a WTHR editor id, two slots and a blend. An empty id
+returns to CELL/XCIM. `godot/walkthrough.gd` still supplies background and
+ambient light through its WorldEnvironment.
 
-MAG-72 owns resolution and rendering of base IMGS HDR, cinematic, tint and
-depth fields for CELL/XCIM and explicitly selected WTHR/IMSP inputs. Its
-observable check includes rendered fixtures and cleanup when the selected
-source changes. It does not own autonomous weather or climate simulation.
+The base reader retains all authored HNAM, CNAM, TNAM and DNAM values in its
+snapshot. The host maps the listed subset to stock Godot controls. Its
+`mag_72_...` Rust fixture checks source-derived render parameters and clearing
+when the loaded cell changes. A Godot pixel readback is not part of that test.
 MAG-71 retains animated curves, active-stack composition, all authored blur
 modes and modifier renderer cleanup. Both rows require rendered evidence.
 

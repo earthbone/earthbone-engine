@@ -173,12 +173,8 @@ impl World {
         })
     }
 
-    /// Writes the version 30 block, which is omitted while no pool exists
-    /// so a world without detection keeps the version 29 body bytes.
+    /// Writes a count even for an empty state in version 35 and later.
     pub(super) fn write_detection(&self, out: &mut Writer) {
-        if self.detection.pools.is_empty() {
-            return;
-        }
         out.len(self.detection.pools.len());
         for (target, pool) in &self.detection.pools {
             write_form_id(out, *target);
@@ -199,13 +195,19 @@ impl World {
 /// and a present one must hold at least one pool so each state has a single
 /// encoding. Actor identities are checked by the caller once references are
 /// known.
-pub(super) fn read_detection(input: &mut FormReader<'_, '_>) -> Result<DetectionState, VmError> {
+pub(super) fn read_detection(
+    input: &mut FormReader<'_, '_>,
+    framed: bool,
+) -> Result<DetectionState, VmError> {
     let bad = || VmError::State("invalid detection state".into());
     let mut state = DetectionState::default();
     if input.remaining() == 0 {
         return Ok(state);
     }
     let pools = input.len()?;
+    if pools == 0 && framed {
+        return Ok(state);
+    }
     if pools == 0 {
         return Err(bad());
     }

@@ -58,7 +58,8 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// script equip survives a reload the way a hand weapon selection already did.
 /// Version 33 retains the spawned reference owned by each Summon Creature effect.
 /// Version 34 retains last-visit game days for resettable encounter zones.
-pub const SAVE_VERSION: u16 = 34;
+/// Version 35 retains the explicit weather and time image-space selection.
+pub const SAVE_VERSION: u16 = 35;
 
 #[derive(Clone, Copy)]
 pub(crate) enum FormNamespace {
@@ -417,6 +418,7 @@ impl World {
         self.write_encounter_zone_visits(&mut body);
         self.write_dialogue_repeats(&mut body);
         self.write_detection(&mut body);
+        self.write_weather_image_space(&mut body);
         let mut out = Writer::new();
         out.out.extend_from_slice(SAVE_MAGIC);
         out.u16(SAVE_VERSION);
@@ -986,9 +988,14 @@ impl World {
             BTreeMap::new()
         };
         let detection = if version >= 30 {
-            super::detection::read_detection(&mut r)?
+            super::detection::read_detection(&mut r, version >= 35)?
         } else {
             crate::detection::DetectionState::default()
+        };
+        let weather_image_space = if version >= 35 {
+            self.read_weather_image_space(&mut r)?
+        } else {
+            None
         };
         r.expect_end()?;
         for id in super::detection::detection_actors(&detection) {
@@ -1059,6 +1066,7 @@ impl World {
         self.next_effect = next_effect;
         self.active_effects = active_effects;
         self.image_space = image_space;
+        self.weather_image_space = weather_image_space;
 
         self.objects = objects;
         self.handles = handles;

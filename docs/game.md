@@ -2544,10 +2544,16 @@ curves occur in 74 bloom-scale records, 29 sky-scale records, 15 sunlight-scale
 records and 70 brightness records. The survey resolves 875 CELL/XCIM links
 to 49 distinct IMGS records and 432 WTHR/IMSP links from 108 weather records
 to 227 distinct IMGS records. xEdit defines the four weather image spaces as
-sunrise, day, sunset and night. The game and host currently have no consumer
-for these selected base values. MAG-72 must resolve winning records through
-their owning load-order namespace and expose the resulting shared base state.
-Its weather input is an explicitly selected weather and time blend.
+sunrise, day, sunset and night. `World::base_image_space` reads the winning
+IMGS for the loaded CELL/XCIM or an explicitly selected WTHR/IMSP pair. It
+resolves both links through the record's owning load-order namespace.
+HNAM, CNAM, TNAM and DNAM become typed HDR, cinematic, tint and depth
+values. An ENAM record supplies the older compact layout when those fields
+are absent.
+Missing weather slots fall back to the loaded cell, and a missing cell source
+returns no base image space. Malformed authored fields return a state error.
+The selected weather, slots and blend survive SOEW version 35 save/load.
+Invalid selection leaves the previous one intact.
 Autonomous climate selection, weather scheduling and Papyrus weather natives
 are outside that row. SCR-54 needs the owning weather API before binding
 `Weather.SetActive`, which is still a quiet stub.

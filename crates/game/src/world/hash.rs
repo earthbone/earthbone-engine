@@ -752,6 +752,7 @@ impl World {
         let mut magic = soe_papyrus::vm::state::Writer::new();
         self.write_magic(&mut magic);
         self.write_image_space(&mut magic);
+        self.write_weather_image_space(&mut magic);
         h.bytes(&magic.out);
         let mut records = soe_papyrus::vm::state::Writer::new();
         self.write_record_overrides(&mut records);

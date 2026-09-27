@@ -533,6 +533,7 @@ pub struct World {
     pub(crate) active_effects: BTreeMap<magic::EffectId, magic::ActiveEffect>,
     pub(crate) next_effect: u64,
     pub(crate) image_space: image_space::ImageSpaceState,
+    pub(crate) weather_image_space: Option<image_space::WeatherSelection>,
     /// Stealth-point pools by target, each with its observers' awareness.
     pub(crate) detection: crate::detection::DetectionState,
 }
@@ -624,6 +625,7 @@ impl World {
             active_effects: BTreeMap::new(),
             next_effect: 1,
             image_space: image_space::ImageSpaceState::default(),
+            weather_image_space: None,
             detection: crate::detection::DetectionState::default(),
         }
     }

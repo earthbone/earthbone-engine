@@ -57,6 +57,10 @@ struct DoorFadeView {
     overlay: Gd<ColorRect>,
 }
 
+struct ImageSpaceTintView {
+    overlay: Gd<ColorRect>,
+}
+
 /// Drives one character through a cell's collision and places the camera.
 ///
 /// Call `load_data` then `enter_cell` from GDScript, and the node takes over
@@ -94,6 +98,8 @@ pub struct PlayerNode {
     /// The form the last HitFrame contact query struck, for diagnostics.
     last_melee_target: Option<GlobalFormId>,
     image_space: crate::image_space::ImageSpaceStack,
+    image_space_renderer: crate::image_space::renderer::BaseRenderer,
+    image_space_tint: Option<ImageSpaceTintView>,
     sound_bank: Option<Gd<crate::godot_audio::SoundBank>>,
     footstep_cadence: crate::audio::FootstepCadence,
     footstep_count: u64,
@@ -148,6 +154,8 @@ impl INode3D for PlayerNode {
             actor_bodies: crate::godot_physics::ActorBodies::default(),
             last_melee_target: None,
             image_space: crate::image_space::ImageSpaceStack::default(),
+            image_space_renderer: crate::image_space::renderer::BaseRenderer::default(),
+            image_space_tint: None,
             sound_bank: None,
             footstep_cadence: crate::audio::FootstepCadence::default(),
             footstep_count: 0,
@@ -187,6 +195,7 @@ impl INode3D for PlayerNode {
         );
         self.register_actions();
         self.create_camera();
+        self.create_image_space_tint();
         self.create_door_fade();
 
         self.create_menu();
@@ -398,6 +407,7 @@ impl PlayerNode {
                 self.data_source = Some(Arc::new(source));
                 self.game = None;
                 self.image_space = crate::image_space::ImageSpaceStack::default();
+                self.refresh_image_space();
                 self.exterior = None;
                 self.game_streamer = None;
                 true
@@ -405,6 +415,9 @@ impl PlayerNode {
             Err(e) => {
                 godot_error!("PlayerNode::load_data: {e}");
                 self.data_source = None;
+                self.game = None;
+                self.image_space = crate::image_space::ImageSpaceStack::default();
+                self.refresh_image_space();
                 false
             }
         }
@@ -429,6 +442,7 @@ impl PlayerNode {
         self.data_source = Some(source);
         self.game = None;
         self.image_space = crate::image_space::ImageSpaceStack::default();
+        self.refresh_image_space();
         self.exterior = None;
         self.game_streamer = Some(streamer);
         true
@@ -646,6 +660,49 @@ impl PlayerNode {
             result.push(&row);
         }
         result
+    }
+
+    /// Select a WTHR editor id and its zero-based sunrise, day, sunset, night slots.
+    /// An empty id restores the loaded cell's XCIM source.
+    #[allow(clippy::needless_pass_by_value)]
+    #[func]
+    pub fn select_weather_image_space(
+        &mut self,
+        weather: GString,
+        from: i32,
+        to: i32,
+        blend: f32,
+    ) -> bool {
+        let Some(game) = self.game.as_mut() else {
+            return false;
+        };
+        let selection = if weather.is_empty() {
+            None
+        } else {
+            let Some(id) = game.world().form(&weather.to_string()) else {
+                return false;
+            };
+            let (Ok(from), Ok(to)) = (u8::try_from(from), u8::try_from(to)) else {
+                return false;
+            };
+            Some(soe_game::world::image_space::WeatherSelection {
+                weather: id,
+                from,
+                to,
+                blend,
+            })
+        };
+        if let Err(error) = game.world_mut().select_weather_image_space(selection) {
+            godot_error!("PlayerNode: {error}");
+            return false;
+        }
+        let result = self.image_space.sync(&game.world());
+        self.refresh_image_space();
+        if let Err(error) = result {
+            godot_error!("PlayerNode: {error}");
+            return false;
+        }
+        true
     }
 
     /// Logical cell currently represented by the host.
@@ -943,6 +1000,44 @@ impl PlayerNode {
         self.base_mut().add_child(&canvas);
         overlay.set_anchors_and_offsets_preset(LayoutPreset::FULL_RECT);
         self.door_fade_view = Some(DoorFadeView { overlay });
+    }
+
+    fn create_image_space_tint(&mut self) {
+        let mut canvas = CanvasLayer::new_alloc();
+        canvas.set_name("ImageSpaceTintLayer");
+        canvas.set_layer(1);
+        let mut overlay = ColorRect::new_alloc();
+        overlay.set_name("ImageSpaceTint");
+        overlay.set_color(Color::from_rgba(0.0, 0.0, 0.0, 0.0));
+        overlay.set_mouse_filter(MouseFilter::IGNORE);
+        overlay.hide();
+        canvas.add_child(&overlay);
+        self.base_mut().add_child(&canvas);
+        overlay.set_anchors_and_offsets_preset(LayoutPreset::FULL_RECT);
+        self.image_space_tint = Some(ImageSpaceTintView { overlay });
+    }
+
+    fn refresh_image_space(&mut self) {
+        let rendered = self
+            .image_space
+            .base()
+            .map(crate::image_space::RenderedBase::from);
+        if let Some(camera) = &mut self.camera {
+            self.image_space_renderer.apply(camera, rendered.as_ref());
+        }
+        if let Some(tint) = &mut self.image_space_tint {
+            if let Some(values) = rendered.filter(|values| values.tint[0] > 0.0) {
+                tint.overlay.set_color(Color::from_rgba(
+                    values.tint[1].clamp(0.0, 1.0),
+                    values.tint[2].clamp(0.0, 1.0),
+                    values.tint[3].clamp(0.0, 1.0),
+                    values.tint[0].clamp(0.0, 1.0),
+                ));
+                tint.overlay.show();
+            } else {
+                tint.overlay.hide();
+            }
+        }
     }
 
     pub(super) fn record_door_texture_preparation(&mut self, elapsed: Duration) {
