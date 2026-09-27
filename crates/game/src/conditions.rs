@@ -129,6 +129,7 @@ pub fn supports_function(function: u16) -> bool {
             | 74
             | 136
             | 182
+            | 244
             | 264
             | 289
             | 359
@@ -140,6 +141,7 @@ pub fn supports_function(function: u16) -> bool {
             | 630
             | 655
             | 659
+            | 716
     )
 }
 
@@ -364,6 +366,11 @@ fn function_value(
                 .get("speechcraft")
                 .current()
         }
+        244 => {
+            no_parameter(c)?;
+            let actor = world.actor(subject).ok_or(Error::Form(subject))?;
+            boolean(actor.restrained && !actor.unconscious)
+        }
         403 => {
             let other = resolve_reference(world, context.owner, raw)?;
             world
@@ -501,6 +508,10 @@ fn function_value(
             }
         }
         659 => boolean(context.tempering_enchanted.ok_or(Error::TemperingContext)?),
+        716 => {
+            no_parameter(c)?;
+            (world.clock.real_seconds / 3600.0) as f32
+        }
         other => return Err(Error::Function(other)),
     })
 }

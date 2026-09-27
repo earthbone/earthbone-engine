@@ -1234,7 +1234,7 @@ earlier member can change inventory or queue events.
 Active-effect recipients remain pending with magic execution.
 
 The condition evaluator implements functions 47, 56, 58, 59, 72, 74, 136,
-182, 264, 277, 289, 359, 448, 543, 560, 629, 630 and 659. This is a bounded set,
+182, 244, 264, 277, 289, 359, 448, 543, 560, 629, 630, 659 and 716. This is a bounded set,
 not the entire CTDA contract. It supports ordered AND/OR groups, numeric or
 global comparisons, explicit references and caller-supplied quest aliases.
 Reserved PlayerRef resolves to the runtime player even without a placed record.
@@ -1254,6 +1254,20 @@ and an explicit condition error. The CK page records keyword failures on actor
 inventories and CK-defined reference inventories. The engine uses its shared
 inventory totals for both actors and containers, so keyword queries have the
 same defined result for either holder.
+
+Condition functions 244 and 716 implement `GetRestrained` and
+`GetRealHoursPassed`. `GetRestrained` reads actor state, rejects either parameter,
+and reports false when an actor is unconscious because the CK's `SetRestrained`
+contract excludes the restrained and unconscious states. `GetRealHoursPassed`
+returns `GameClock.real_seconds` in hours and rejects either parameter. xEdit's
+`wbConditionFunctions` declares both functions parameterless. The UESP raw function
+table describes real hours as elapsed real-life play time and identifies
+`IsWaterObject` as a drinking-animation query. No usable local CK behavior contract
+was found for functions 255, 265, 266, 267, 304 or 332. Those function IDs remain
+unsupported and return `conditions::Error::Function`, rather than inventing vendor,
+weather or water state. Sources: `TES5Edit/Core/wbDefinitionsTES5.pas`,
+`uesp-modfileformat/Raw_Function_Data.wikitext`, CK
+`SetRestrained_-_Actor.wikitext` and `Game_Script.wikitext`.
 
 Sources consulted were local xEdit `wbDefinitionsTES5.pas` for CTDA, COBJ and
 FURN WBDT, CK `GetItemCount_-_ObjectReference.wikitext` for the query forms,
