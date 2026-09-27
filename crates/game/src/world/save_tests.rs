@@ -9,10 +9,20 @@ use crate::world::magic::{ActiveEffect, EffectId};
 use crate::world::record_overrides::{raw_words, RecordOverride};
 use crate::world::templates::TemplateChoice;
 use crate::world::DYNAMIC_FILE;
+use crate::world::{UnresolvedRecord, UnresolvedRecordId};
 use soe_esm::{plugin::flags, FileHeader, LoadOrder, Plugin, Record, Slot, Tag};
+use soe_papyrus::vm::state::{ArrayTable, Reader};
 
 fn id(file: u16, object: u32) -> GlobalFormId {
     GlobalFormId { file, object }
+}
+
+fn strip_sav_58_empty_extension(bytes: &mut Vec<u8>) {
+    let mut reader = Reader::new(&bytes[6..]);
+    let _pool = ArrayTable::read_pool(&mut reader).unwrap();
+    let extension_at = bytes.len() - reader.remaining();
+    assert_eq!(&bytes[extension_at..extension_at + 4], &[0, 0, 0, 0]);
+    bytes.drain(extension_at..extension_at + 4);
 }
 
 fn full_order(regular_at_255: bool) -> LoadOrder {
@@ -74,6 +84,109 @@ fn sav_07_full_load_order_and_created_references_round_trip_without_aliases() {
             id(DYNAMIC_FILE, 0x802)
         );
         assert!(loaded.exists(id(255, 0x802)));
+    }
+}
+
+#[test]
+fn sav_58_unresolved_regular_and_light_records_keep_payload_links_and_unrelated_state() {
+    let mut source_order = LoadOrder::new();
+    source_order
+        .add("MissingRegular.esp", Plugin::new(FileHeader::default()))
+        .unwrap();
+    source_order
+        .add(
+            "MissingLight.esl",
+            Plugin::new(FileHeader {
+                flags: flags::LIGHT_MASTER,
+                ..FileHeader::default()
+            }),
+        )
+        .unwrap();
+    let mut live = Plugin::new(FileHeader::default());
+    live.push_top(Record::new(Tag(*b"STAT"), 0x800));
+    source_order.add("Live.esp", live.clone()).unwrap();
+
+    let regular_id = UnresolvedRecordId {
+        plugin: "missingregular.esp".into(),
+        light: false,
+        object: 0x800,
+    };
+    let light_id = UnresolvedRecordId {
+        plugin: "missinglight.esl".into(),
+        light: true,
+        object: 0x800,
+    };
+    let regular = UnresolvedRecord {
+        id: regular_id.clone(),
+        payload: vec![0x10, 0x00, 0xFE, 0xFF, 0x3A],
+        links: vec![light_id.clone()],
+    };
+    let light = UnresolvedRecord {
+        id: light_id.clone(),
+        payload: vec![0xFE, 0x00, 0x10, 0xFF],
+        links: vec![regular_id],
+    };
+    let mut source = World::new(source_order);
+    source.notifications.push("unrelated state".into());
+    source.retain_unresolved_record(regular.clone()).unwrap();
+    source.retain_unresolved_record(light.clone()).unwrap();
+    assert!(source.retain_unresolved_record(regular.clone()).is_err());
+    let first = source.save_state();
+
+    let mut without_plugins = LoadOrder::new();
+    without_plugins.add("Live.esp", live).unwrap();
+    let mut loaded = World::new(without_plugins);
+    loaded.load_state(&first).unwrap();
+    assert_eq!(loaded.unresolved_records().get(&regular.id), Some(&regular));
+    assert_eq!(loaded.unresolved_records().get(&light.id), Some(&light));
+    assert_eq!(loaded.notifications, ["unrelated state"]);
+    assert_eq!(
+        loaded
+            .record(GlobalFormId {
+                file: 0,
+                object: 0x800
+            })
+            .unwrap()
+            .tag,
+        Tag(*b"STAT")
+    );
+
+    let second = loaded.save_state();
+    let mut loaded_again = World::new({
+        let mut order = LoadOrder::new();
+        let mut current = Plugin::new(FileHeader::default());
+        current.push_top(Record::new(Tag(*b"STAT"), 0x800));
+        order.add("Live.esp", current).unwrap();
+        order
+    });
+    loaded_again.load_state(&second).unwrap();
+    assert_eq!(
+        loaded_again.unresolved_records().get(&regular.id),
+        Some(&regular)
+    );
+    assert_eq!(
+        loaded_again.unresolved_records().get(&light.id),
+        Some(&light)
+    );
+    assert_eq!(loaded_again.notifications, ["unrelated state"]);
+    assert_eq!(loaded_again.save_state(), second);
+}
+
+#[test]
+fn sav_58_unresolved_record_identity_rejects_invalid_numbers() {
+    let mut world = World::new(LoadOrder::new());
+    for (light, object) in [(false, 0x1000000), (true, 0x1000), (false, 0)] {
+        let record = UnresolvedRecord {
+            id: UnresolvedRecordId {
+                plugin: "missing.esp".into(),
+                light,
+                object,
+            },
+            payload: vec![1],
+            links: vec![],
+        };
+        assert!(world.retain_unresolved_record(record).is_err());
+        assert!(world.unresolved_records().is_empty());
     }
 }
 
@@ -376,6 +489,7 @@ fn without_exclusive_branches(world: &mut World) -> Vec<u8> {
         .expect("record override is serialized");
     // CONTEXT: This fixture has one override with no list fields in version 23.
     bytes.remove(at + 39);
+    strip_sav_58_empty_extension(&mut bytes);
     bytes
 }
 
@@ -496,10 +610,13 @@ fn sav_07_unknown_version_and_mixed_legacy_namespaces_are_rejected() {
     let mut world = rich_world(DYNAMIC_FILE);
     let before = world.save_state();
     for (version, message) in [
-        (38_u16, "world state version 38"),
+        (39_u16, "world state version 39"),
         (18, "created namespace in a legacy world state"),
     ] {
         let mut bytes = before.clone();
+        if version < 38 {
+            strip_sav_58_empty_extension(&mut bytes);
+        }
         bytes[4..6].copy_from_slice(&version.to_le_bytes());
         assert!(world
             .load_state(&bytes)

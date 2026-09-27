@@ -4,7 +4,16 @@
 
 use super::*;
 use soe_game::Handle;
+use soe_papyrus::vm::state::{ArrayTable, Reader};
 use soe_save::{reference::Field, ChangeForm};
+
+fn strip_empty_unresolved_extension(bytes: &mut Vec<u8>) {
+    let mut reader = Reader::new(&bytes[6..]);
+    let _pool = ArrayTable::read_pool(&mut reader).unwrap();
+    let extension_at = bytes.len() - reader.remaining();
+    assert_eq!(&bytes[extension_at..extension_at + 4], &[0, 0, 0, 0]);
+    bytes.drain(extension_at..extension_at + 4);
+}
 
 #[test]
 fn installed_lock_byte_mapping_matches_authored_levels() {
@@ -290,6 +299,7 @@ fn engine_extras_reject_truncation_duplicates_and_bad_flags_atomically_and_read_
     world.reference(id(0, 0x100)).unwrap();
     world.reference(id(0, 0x101)).unwrap();
     let mut legacy = world.save_state();
+    strip_empty_unresolved_extension(&mut legacy);
     legacy.truncate(legacy.len() - 37);
     legacy[4..6].copy_from_slice(&19_u16.to_le_bytes());
     let mut save = save();
@@ -299,7 +309,7 @@ fn engine_extras_reject_truncation_duplicates_and_bad_flags_atomically_and_read_
     let mut bad_flags = before.clone();
     let at = bad_flags.len() - 42;
     bad_flags[at] |= 1;
-    let start = legacy.len();
+    let start = legacy.len() + 4;
     // The extras block is followed by the package cursor block, so repeat the
     // entry inside the extras block rather than past the end of the save.
     let entry = &before[start + 4..before.len() - 33];

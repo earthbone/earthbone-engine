@@ -884,7 +884,7 @@ either.
 
 `World::save_state(&self) -> Vec<u8>` and `World::load_state(&mut self,
 bytes) -> Result<(), VmError>` write and read the run-time half of the form
-table, magic `SOEW`, version 29. Versions 4 to 6 use legacy actor values,
+table, magic `SOEW`, version 38. Versions 4 to 6 use legacy actor values,
 version 5 adds active magic, version 6 adds dialogue, version 7 adds actor-value
 components, version 8 adds dialogue to those components, and version 9 adds
 active magic. Version 10 adds per-reference leveled template choices.
@@ -902,6 +902,10 @@ version 29 an actor's stagger end time. Version 30 appends shared stealth-point
 pools with each observer's detection level and timers, written only when a pool
 exists. Version 31 adds the set of perpetrators an actor witnessed committing a
 tracked crime.
+Versions 32 to 37 add assigned hand spells, summoned actors, encounter-zone
+visit days, list metadata, scene progress and the provenance-aware game envelope.
+Version 38 stores opaque unresolved record payloads and plugin-relative links.
+These records are not installed into the live form table.
 version 5 adds active magic, version 6 adds dialogue, version 7 adds actor-value
 components, version 8 adds dialogue to those components, version 9 adds
 active magic. Version 10 adds per-reference leveled template choices.
@@ -930,6 +934,15 @@ at most 255 loaded plugins. At 256 or more, the old namespace is ambiguous
 and loading fails before world or VM mutation. Engine saves still require
 the identical load order used to write them. This change does not infer a
 missing or reordered plugin list from the legacy format.
+
+`World::retain_unresolved_record` stores opaque bytes under a normalized plugin
+filename, regular/light kind and local object number. Link identities use the
+same fields. SOEW version 38 preserves these values without resolving them
+through the current load order, so removed plugins and compacted slots cannot
+alias these retained records. This storage API does not populate itself from
+ESS change forms. Whole-game `Game::load_state` still requires matching plugin
+provenance, and ordinary world state does not yet remap identities for removed
+plugins.
 
 The local UESP `Save_File_Format.wikitext` created RefID rule and Mutagen
 `Plugins/FormID.cs` and `docs/plugins/Compaction.md` informed this change.
