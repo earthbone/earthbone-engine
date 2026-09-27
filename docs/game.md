@@ -2901,6 +2901,24 @@ already owned, 154 eligible, 32 not playable and 200 with a false
 prerequisite. These tests do not establish original-runtime parity for
 malformed graph policy, effect execution or menu behavior.
 
+## Perk entry-point dispatch (PRG-08)
+
+`EntryPointDispatcher` registers handlers by entry-point ID and visits an
+actor's owned winning PERK records in load-order order, then each record's
+complex entry sections in file order. It passes the PRKE rank as a one-based
+value, so a stored zero is rank one, and includes priority and EPFT/EPFD data
+for the handler. The dispatcher does not sort by priority. The local sources
+do not establish equal-priority execution order or exact versus cumulative
+effect-rank selection.
+
+Each PRKC tab evaluates its own CTDA conditions against the matching supplied
+tab subject. Conditions within a tab use the shared evaluator's file-order
+AND/OR behavior. A matching entry without a registered handler returns a
+typed error. Malformed data, missing tab subjects and unsupported conditions
+also return errors before that entry's handler runs. Non-complex PRKE sections
+are not dispatched. Handler changes are applied as the dispatcher reaches
+each eligible section.
+
 ## Leveled item entry extras
 
 `World::roll_leveled_inventory` returns the existing `Inventory` model with
