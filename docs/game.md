@@ -668,6 +668,18 @@ with the gameplay evaluator. Any other function fails its condition and is
 counted in `World::ai.unsupported_functions` by index, so a live run
 prints what the next round should add.
 
+AI-66 adds `GetWithinDistance` (639), using the run-on subject's position,
+the parameter reference's position and the parameter float as an inclusive
+distance threshold. xEdit's `wbConditionFunctions` and UESP's
+`Raw_Function_Data.wikitext` define its reference and float parameters.
+Furniture entry state (614), path target state (619 to 622), movement speed
+(623) and flying state (633) remain explicit unsupported-function diagnostics.
+The shared world has no current entry choice, path target values or flight
+state. The AI-31 Hover drafts are absent from this worktree, so those states
+cannot be read from the runtime yet. The CK `GetFlyingState` page defines
+states 0 to 4, but that contract alone does not provide the missing runtime
+state.
+
 **Procedures.** AI-02 walks sequential branches in authored preorder. The
 actor retains the active child and its completion state. A completed Travel
 starts the next child on the next driver tick. Nested `Sequence` branches

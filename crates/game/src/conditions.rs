@@ -138,6 +138,7 @@ pub fn supports_function(function: u16) -> bool {
             | 606
             | 629
             | 630
+            | 639
             | 655
             | 659
     )
@@ -445,6 +446,23 @@ fn function_value(
                 .location(location)
                 .and_then(|state| state.keyword_data.get(&keyword).copied())
                 .unwrap_or(0.0)
+        }
+        639 => {
+            if world
+                .reference(subject)
+                .is_none_or(|reference| reference.deleted)
+            {
+                return Err(Error::Form(subject));
+            }
+            let other = resolve_reference(world, context.owner, raw)?;
+            let maximum_distance = f32::from_bits(c.parameters[1]);
+            if !maximum_distance.is_finite() {
+                return Err(Error::NonFinite);
+            }
+            if maximum_distance < 0.0 {
+                return Err(Error::Parameter(c.function, c.parameters[1]));
+            }
+            boolean(world.distance(subject, other) <= maximum_distance)
         }
         629 | 630 => {
             let form = if c.function == 629 {
