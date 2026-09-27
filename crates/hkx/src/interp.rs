@@ -22,8 +22,9 @@ use std::collections::HashMap;
 use crate::animation::{Animation, SplineCompressedAnimation};
 use crate::behavior::{
     transition_flags, BehaviorGraph, BehaviorGraphData, BlenderGenerator, ClipGenerator, Condition,
-    NodeId, NodeKind, StateMachine, TimeInterval, TransitionInfo, VariableBindingSet, VariableInfo,
-    VariableType, FALSE_TO_TRUE_SLOTS, IS_ACTIVE_SLOTS,
+    NodeId, NodeKind, PoweredRagdollControlData, StateMachine, TimeInterval, TransitionInfo,
+    VariableBindingSet, VariableInfo, VariableType, WorldFromModelModeData, FALSE_TO_TRUE_SLOTS,
+    IS_ACTIVE_SLOTS,
 };
 use crate::expression::{Expression, ExpressionError};
 use crate::skeleton::AnimationContainer;
@@ -442,6 +443,17 @@ pub struct Output {
     /// Contribution per bone, retained through nested blends and transitions.
     pub bone_weights: Vec<f32>,
     pub weight: f32,
+    /// Powered ragdoll controls emitted by active modifiers, with blend weight applied.
+    pub ragdoll_controls: Vec<RagdollControlOutput>,
+}
+
+/// One bone's powered ragdoll control contribution.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct RagdollControlOutput {
+    pub bone: i16,
+    pub control: PoweredRagdollControlData,
+    pub world_from_model: WorldFromModelModeData,
+    pub weight: f32,
 }
 
 /// Counts of what the graph asked for that the interpreter could not do.
@@ -550,6 +562,7 @@ impl<'a> Interpreter<'a> {
                 pose: reference_pose.clone(),
                 bone_weights: vec![0.0; reference_pose.len()],
                 weight: 0.0,
+                ragdoll_controls: Vec::new(),
             },
             reference_pose,
             frame: 0,
@@ -1030,6 +1043,7 @@ impl<'a> Interpreter<'a> {
             | NodeKind::IsActiveModifier { enable, .. }
             | NodeKind::FalseToTrueModifier { enable, .. }
             | NodeKind::DecomposeVector { enable, .. }
+            | NodeKind::PoweredRagdollControls { enable, .. }
             | NodeKind::Modifier { enable } => *enable,
             _ => true,
         };
@@ -1202,6 +1216,7 @@ impl<'a> Interpreter<'a> {
             | NodeKind::GetTimeStepModifier { .. }
             | NodeKind::IsActiveModifier { .. }
             | NodeKind::DecomposeVector { .. }
+            | NodeKind::PoweredRagdollControls { .. }
             | NodeKind::Modifier { .. }
             | NodeKind::Unknown => {}
         }
@@ -1580,6 +1595,7 @@ impl<'a> Interpreter<'a> {
             pose: self.reference_pose.clone(),
             bone_weights: vec![0.0; self.reference_pose.len()],
             weight: 0.0,
+            ragdoll_controls: Vec::new(),
         }
     }
 
@@ -1620,18 +1636,45 @@ impl<'a> Interpreter<'a> {
                 modifier,
                 generator,
             } => {
+                let start = self.modifier_order.len();
                 if let Some(modifier) = modifier {
-                    let start = self.modifier_order.len();
                     self.sync_modifier(*modifier);
                     for index in start..self.modifier_order.len() {
                         let node = self.modifier_order[index];
                         self.update_modifier(node);
                     }
                 }
-                match generator {
+                let mut output = match generator {
                     Some(generator) => self.generate(*generator, dt),
                     None => self.reference_output(),
+                };
+                if modifier.is_some() {
+                    for modifier in self.modifier_order.iter().skip(start) {
+                        if !self.nodes[modifier.0].active {
+                            continue;
+                        }
+                        if let NodeKind::PoweredRagdollControls {
+                            control,
+                            bones,
+                            world_from_model,
+                            bone_weights,
+                            ..
+                        } = &self.graph.node(*modifier).kind
+                        {
+                            output
+                                .ragdoll_controls
+                                .extend(bones.iter().zip(bone_weights).map(|(&bone, &weight)| {
+                                    RagdollControlOutput {
+                                        bone,
+                                        control: *control,
+                                        world_from_model: *world_from_model,
+                                        weight,
+                                    }
+                                }));
+                        }
+                    }
                 }
+                output
             }
             NodeKind::IStateTagging {
                 default_generator: generator,
@@ -1688,6 +1731,7 @@ impl<'a> Interpreter<'a> {
             | NodeKind::IsActiveModifier { .. }
             | NodeKind::FalseToTrueModifier { .. }
             | NodeKind::DecomposeVector { .. }
+            | NodeKind::PoweredRagdollControls { .. }
             | NodeKind::Modifier { .. } => self.reference_output(),
         }
     }
@@ -1792,6 +1836,7 @@ impl<'a> Interpreter<'a> {
             bone_weights: vec![1.0; pose.len()],
             pose,
             weight: 1.0,
+            ragdoll_controls: Vec::new(),
         }
     }
 
@@ -1870,6 +1915,7 @@ impl<'a> Interpreter<'a> {
         }
         let mut pose = self.reference_pose.clone();
         let mut bone_weights = vec![0.0; pose.len()];
+        let mut ragdoll_controls = Vec::new();
         let mut acc_weight = 0.0;
         for (i, child) in b.children.iter().enumerate() {
             let Some(g) = child.generator else {
@@ -1888,10 +1934,16 @@ impl<'a> Interpreter<'a> {
             }
             self.activate(g);
             let out = self.generate(g, dt);
+            let w = w / total;
+            ragdoll_controls.extend(out.ragdoll_controls.iter().map(|control| {
+                RagdollControlOutput {
+                    weight: control.weight * w,
+                    ..*control
+                }
+            }));
             if out.weight <= 0.0 {
                 continue;
             }
-            let w = w / total;
             acc_weight += w;
             for (bone, (acc, next)) in pose.iter_mut().zip(&out.pose).enumerate() {
                 let mask = child
@@ -1915,6 +1967,7 @@ impl<'a> Interpreter<'a> {
             pose,
             bone_weights,
             weight: acc_weight.min(1.0),
+            ragdoll_controls,
         }
     }
 
@@ -2110,13 +2163,19 @@ pub fn blend_outputs(from: &Output, to: &Output, alpha: f32) -> Output {
         return to.clone();
     }
     if from.weight <= 0.0 && to.weight <= 0.0 {
-        return from.clone();
+        let mut output = from.clone();
+        output.ragdoll_controls = blend_ragdoll_controls(from, to, alpha);
+        return output;
     }
     if from.weight <= 0.0 {
-        return to.clone();
+        let mut output = to.clone();
+        output.ragdoll_controls = blend_ragdoll_controls(from, to, alpha);
+        return output;
     }
     if to.weight <= 0.0 {
-        return from.clone();
+        let mut output = from.clone();
+        output.ragdoll_controls = blend_ragdoll_controls(from, to, alpha);
+        return output;
     }
     let mut pose = from.pose.clone();
     let mut bone_weights = vec![0.0; pose.len()];
@@ -2133,7 +2192,26 @@ pub fn blend_outputs(from: &Output, to: &Output, alpha: f32) -> Output {
         pose,
         bone_weights,
         weight: from.weight + (to.weight - from.weight) * alpha,
+        ragdoll_controls: blend_ragdoll_controls(from, to, alpha),
     }
+}
+
+fn blend_ragdoll_controls(from: &Output, to: &Output, alpha: f32) -> Vec<RagdollControlOutput> {
+    from.ragdoll_controls
+        .iter()
+        .map(|control| RagdollControlOutput {
+            weight: control.weight * (1.0 - alpha),
+            ..*control
+        })
+        .chain(
+            to.ragdoll_controls
+                .iter()
+                .map(|control| RagdollControlOutput {
+                    weight: control.weight * alpha,
+                    ..*control
+                }),
+        )
+        .collect()
 }
 
 #[cfg(test)]
@@ -3051,6 +3129,105 @@ mod tests {
     }
 
     #[test]
+    fn anm_45_modifier_outputs_each_authored_bone_weight() {
+        let control = PoweredRagdollControlData {
+            max_force: 80.0,
+            tau: 0.6,
+            damping: 0.1,
+            proportional_recovery_velocity: 2.0,
+            constant_recovery_velocity: 0.4,
+        };
+        let world_from_model = WorldFromModelModeData {
+            pose_matching_bones: [1, 2, 3],
+            mode: 4,
+        };
+        let mut graph = BehaviorGraph {
+            name: "anm45".into(),
+            variable_mode: 0,
+            root: Some(NodeId(0)),
+            data: BehaviorGraphData::default(),
+            nodes: vec![
+                Node {
+                    id: NodeId(0),
+                    offset: 0,
+                    class: "hkbModifierGenerator".into(),
+                    name: "wrapper".into(),
+                    user_data: 0,
+                    bindings: None,
+                    kind: NodeKind::ModifierGenerator {
+                        modifier: Some(NodeId(1)),
+                        generator: None,
+                    },
+                },
+                Node {
+                    id: NodeId(1),
+                    offset: 1,
+                    class: "hkbPoweredRagdollControlsModifier".into(),
+                    name: "ragdoll".into(),
+                    user_data: 0,
+                    bindings: None,
+                    kind: NodeKind::PoweredRagdollControls {
+                        enable: true,
+                        control,
+                        bones: vec![4, 9],
+                        world_from_model,
+                        bone_weights: vec![0.2, 0.85],
+                    },
+                },
+            ],
+        };
+        let output = Interpreter::new(&graph, &ClipLibrary::new(), Vec::new())
+            .update(1.0 / 60.0)
+            .clone();
+        assert_eq!(output.ragdoll_controls.len(), 2);
+        assert_eq!(output.ragdoll_controls[0].bone, 4);
+        assert_eq!(output.ragdoll_controls[0].weight, 0.2);
+        assert_eq!(output.ragdoll_controls[1].bone, 9);
+        assert_eq!(output.ragdoll_controls[1].weight, 0.85);
+        assert_eq!(output.ragdoll_controls[1].control, control);
+        assert_eq!(
+            output.ragdoll_controls[1].world_from_model,
+            world_from_model
+        );
+        if let NodeKind::PoweredRagdollControls { enable, .. } = &mut graph.nodes[1].kind {
+            *enable = false;
+        }
+        let library = ClipLibrary::new();
+        let mut vm = Interpreter::new(&graph, &library, Vec::new());
+        let disabled = vm.update(1.0 / 60.0);
+        assert!(disabled.ragdoll_controls.is_empty());
+    }
+
+    #[test]
+    fn anm_45_ragdoll_control_weights_are_scaled_by_blend_contributions() {
+        let control = RagdollControlOutput {
+            bone: 5,
+            control: PoweredRagdollControlData {
+                max_force: 10.0,
+                tau: 0.5,
+                damping: 0.2,
+                proportional_recovery_velocity: 1.0,
+                constant_recovery_velocity: 0.1,
+            },
+            world_from_model: WorldFromModelModeData {
+                pose_matching_bones: [0, 1, 2],
+                mode: 4,
+            },
+            weight: 0.8,
+        };
+        let output = Output {
+            pose: vec![QsTransform::IDENTITY],
+            bone_weights: vec![1.0],
+            weight: 1.0,
+            ragdoll_controls: vec![control],
+        };
+        let blended = blend_outputs(&output, &output, 0.25);
+        assert_eq!(blended.ragdoll_controls.len(), 2);
+        assert_eq!(blended.ragdoll_controls[0].weight, 0.6);
+        assert_eq!(blended.ragdoll_controls[1].weight, 0.2);
+    }
+
+    #[test]
     fn parametric_weights_bracket_the_parameter() {
         let w = parametric_weights(&[0.0, 1.0, 2.0], 0.25);
         assert!((w[0] - 0.75).abs() < 1e-6);
@@ -3093,6 +3270,7 @@ mod tests {
             pose: vec![QsTransform::IDENTITY],
             bone_weights: vec![0.0],
             weight: 0.0,
+            ragdoll_controls: Vec::new(),
         };
         let b = Output {
             pose: vec![QsTransform {
@@ -3101,6 +3279,7 @@ mod tests {
             }],
             bone_weights: vec![1.0],
             weight: 1.0,
+            ragdoll_controls: Vec::new(),
         };
         assert_eq!(blend_outputs(&a, &b, 0.1), b);
         assert_eq!(blend_outputs(&b, &a, 0.9), b);
