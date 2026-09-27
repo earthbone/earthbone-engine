@@ -629,7 +629,7 @@ gated `installed_behavior_passthrough_modifier_inventory` test parses every
 `hkbBehaviorGraph` object and fails if any graph cannot decode. It counts every
 modifier path that the interpreter does not execute: generic `NodeKind::Modifier`,
 `ModifierGenerator`, `ModifierList`, `EventDrivenModifier` and `TimerModifier`.
-It found 4,176 nodes across 32 classes. `BSIsActiveModifier` is excluded because
+It found 4,175 nodes across 31 classes. `BSIsActiveModifier` is excluded because
 its bound activity slots already write their output variables. The test freezes
 the sorted names and counts, and checks that every class has a bounded backlog
 row whose title names that class.
@@ -644,7 +644,6 @@ row whose title names that class.
 | `BSGetTimeStepModifier` | 1 | [ANM-28](../BACKLOG.csv) |
 | `BSIStateManagerModifier` | 3 | [ANM-29](../BACKLOG.csv) |
 | `BSInterpValueModifier` | 36 | [ANM-30](../BACKLOG.csv) |
-| `BSLimbIKModifier` | 1 | [ANM-31](../BACKLOG.csv) |
 | `BSLookAtModifier` | 128 | [ANM-32](../BACKLOG.csv) |
 | `BSModifyOnceModifier` | 26 | [ANM-33](../BACKLOG.csv) |
 | `BSPassByTargetTriggerModifier` | 1 | [ANM-34](../BACKLOG.csv) |
@@ -774,12 +773,32 @@ Linked behavior references currently preserve word defaults only. A
 by the parent graph until the linker imports quad defaults and remaps their
 word-table slots. ANM-57 owns that linker work.
 
+### BSLimbIKModifier (ANM-31)
+
+The class fields come from
+`engine-refs/serde-hkx/assets/classes/BSLimbIKModifier.json`: the enable flag,
+maximum angle in degrees, signed start and end bone indices, gain, bone radius
+and cast offset. The reader rejects non-finite real fields, negative limits or
+radii, negative start indices and end indices that do not follow the start.
+`currentAngle`, `timeStep` and `pSkeletonMemory` are runtime-only serialized
+fields and are ignored.
+
+The interpreter accepts a model-space target from its host through
+`set_limb_ik_target`. With an enabled modifier and a valid target, it rotates
+the local bone rotations from `startBoneIndex` through `endBoneIndex` toward
+the target. The angular correction is scaled by gain and capped at
+`limitAngleDegrees`. Bones outside that range and all transform translations
+remain unchanged. A missing target leaves the pose unchanged. The host owns
+collision casts because the HKX interpreter has no world query.
+
+The two authored-field tests check x86 and x64 class layout values and ignored
+runtime fields. The four other
+`anm_31_` tests cover movement inside the declared range, the angular cap,
+disabled and absent targets, and invalid authored ranges.
+
 ## 7. Not done and next
 
-- Modifier evaluation beyond the four the interpreter runs:
-  `BSIsActiveModifier`, `BSEventOnFalseToTrueModifier`,
-  `BSDecomposeVectorModifier` and `BSGetTimeStepModifier`. Dynamic bone weight
-  masks on a blender, `hkbRotateCharacterModifier` and
+- Dynamic bone weight masks on a blender, `hkbRotateCharacterModifier` and
   `hkbEventsFromRangeModifier` still pass through. Their layouts are in
   `serde-hkx` like the rest.
 - Transition details: equal-priority arbitration, the `abut at end` flag,

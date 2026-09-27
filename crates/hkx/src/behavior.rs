@@ -21,7 +21,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::packfile::{root_variant_of, Obj};
-use crate::{Packfile, Result};
+use crate::{Error, Packfile, Result};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct NodeId(pub usize);
@@ -612,6 +612,17 @@ pub enum NodeKind {
         enable: bool,
         vector: [f32; 4],
     },
+    /// `BSLimbIKModifier`: solve the authored limb toward a host-supplied
+    /// model-space target, bounded by its authored angular limit.
+    LimbIk {
+        enable: bool,
+        limit_angle_degrees: f32,
+        start_bone_index: i16,
+        end_bone_index: i16,
+        gain: f32,
+        bone_radius: f32,
+        cast_offset: f32,
+    },
     /// Any other `hkbModifier` subclass: only the enable flag is read.
     Modifier {
         enable: bool,
@@ -688,6 +699,7 @@ impl Node {
             | NodeKind::IsActiveModifier { .. }
             | NodeKind::FalseToTrueModifier { .. }
             | NodeKind::DecomposeVector { .. }
+            | NodeKind::LimbIk { .. }
             | NodeKind::Modifier { .. }
             | NodeKind::Unknown => {}
         }
@@ -1126,6 +1138,41 @@ impl<'a> Loader<'a> {
                 enable: o.bool(o.layout_offset(40, 72))?,
                 vector: o.vec4(o.layout_offset(48, 80))?,
             },
+            "BSLimbIKModifier" => {
+                let read_finite = |offset| {
+                    let value = o.f32(offset)?;
+                    if value.is_finite() {
+                        Ok(value)
+                    } else {
+                        Err(Error::Unsupported(
+                            "non-finite BSLimbIKModifier field".into(),
+                        ))
+                    }
+                };
+                let limit_angle_degrees = read_finite(o.layout_offset(44, 80))?;
+                let start_bone_index = o.i16(o.layout_offset(52, 88))?;
+                let end_bone_index = o.i16(o.layout_offset(54, 90))?;
+                let gain = read_finite(o.layout_offset(56, 92))?;
+                let bone_radius = read_finite(o.layout_offset(60, 96))?;
+                let cast_offset = read_finite(o.layout_offset(64, 100))?;
+                if limit_angle_degrees < 0.0
+                    || gain < 0.0
+                    || bone_radius < 0.0
+                    || start_bone_index < 0
+                    || end_bone_index <= start_bone_index
+                {
+                    return Err(Error::Unsupported("invalid BSLimbIKModifier fields".into()));
+                }
+                NodeKind::LimbIk {
+                    enable: o.bool(o.layout_offset(40, 72))?,
+                    limit_angle_degrees,
+                    start_bone_index,
+                    end_bone_index,
+                    gain,
+                    bone_radius,
+                    cast_offset,
+                }
+            }
             c if c.ends_with("Modifier") => NodeKind::Modifier {
                 enable: o.bool(o.layout_offset(40, 72))?,
             },

@@ -432,6 +432,8 @@ struct Runtime {
 
     /// A bound vector input for `BSDecomposeVectorModifier`.
     vector: Option<[f32; 4]>,
+    /// A target supplied by the host for `BSLimbIKModifier`.
+    limb_ik_target: Option<[f32; 3]>,
 }
 
 /// A generator's result for one frame: a local pose and how much of it
@@ -478,6 +480,39 @@ fn false_to_true_slot(path: &str, prefix: &str) -> Option<usize> {
 fn push_unique(list: &mut Vec<String>, item: String) {
     if !list.contains(&item) {
         list.push(item);
+    }
+}
+
+fn dot(a: [f32; 3], b: [f32; 3]) -> f32 {
+    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+}
+
+fn cross(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
+    [
+        a[1] * b[2] - a[2] * b[1],
+        a[2] * b[0] - a[0] * b[2],
+        a[0] * b[1] - a[1] * b[0],
+    ]
+}
+
+fn normalize(vector: [f32; 3]) -> Option<[f32; 3]> {
+    let length = dot(vector, vector).sqrt();
+    (length.is_finite() && length > f32::EPSILON)
+        .then(|| [vector[0] / length, vector[1] / length, vector[2] / length])
+}
+
+fn multiply_quaternions(a: [f32; 4], b: [f32; 4]) -> [f32; 4] {
+    let result = [
+        a[3] * b[0] + a[0] * b[3] + a[1] * b[2] - a[2] * b[1],
+        a[3] * b[1] - a[0] * b[2] + a[1] * b[3] + a[2] * b[0],
+        a[3] * b[2] + a[0] * b[1] - a[1] * b[0] + a[2] * b[3],
+        a[3] * b[3] - a[0] * b[0] - a[1] * b[1] - a[2] * b[2],
+    ];
+    let length = result.iter().map(|value| value * value).sum::<f32>().sqrt();
+    if length > f32::EPSILON && length.is_finite() {
+        result.map(|value| value / length)
+    } else {
+        b
     }
 }
 
@@ -864,6 +899,20 @@ impl<'a> Interpreter<'a> {
         self.frame
     }
 
+    /// Set the model-space cast target for a limb IK modifier. The host owns
+    /// the cast query because the HKX interpreter has no collision world.
+    pub fn set_limb_ik_target(&mut self, id: NodeId, target: Option<[f32; 3]>) -> bool {
+        let Some(node) = self.graph.nodes.get(id.0) else {
+            return false;
+        };
+        if !matches!(node.kind, NodeKind::LimbIk { .. }) {
+            return false;
+        }
+        self.nodes[id.0].limb_ik_target =
+            target.filter(|point| point.iter().all(|v| v.is_finite()));
+        true
+    }
+
     /// One frame: bindings, activation, events, generate, raised events.
     pub fn update(&mut self, dt: f32) -> &Output {
         self.frame += 1;
@@ -1030,6 +1079,7 @@ impl<'a> Interpreter<'a> {
             | NodeKind::IsActiveModifier { enable, .. }
             | NodeKind::FalseToTrueModifier { enable, .. }
             | NodeKind::DecomposeVector { enable, .. }
+            | NodeKind::LimbIk { enable, .. }
             | NodeKind::Modifier { enable } => *enable,
             _ => true,
         };
@@ -1202,6 +1252,7 @@ impl<'a> Interpreter<'a> {
             | NodeKind::GetTimeStepModifier { .. }
             | NodeKind::IsActiveModifier { .. }
             | NodeKind::DecomposeVector { .. }
+            | NodeKind::LimbIk { .. }
             | NodeKind::Modifier { .. }
             | NodeKind::Unknown => {}
         }
@@ -1620,18 +1671,23 @@ impl<'a> Interpreter<'a> {
                 modifier,
                 generator,
             } => {
+                let start = self.modifier_order.len();
                 if let Some(modifier) = modifier {
-                    let start = self.modifier_order.len();
                     self.sync_modifier(*modifier);
                     for index in start..self.modifier_order.len() {
                         let node = self.modifier_order[index];
                         self.update_modifier(node);
                     }
                 }
-                match generator {
+                let mut output = match generator {
                     Some(generator) => self.generate(*generator, dt),
                     None => self.reference_output(),
+                };
+                for index in start..self.modifier_order.len() {
+                    let node = self.modifier_order[index];
+                    self.apply_limb_ik(node, &mut output);
                 }
+                output
             }
             NodeKind::IStateTagging {
                 default_generator: generator,
@@ -1688,7 +1744,78 @@ impl<'a> Interpreter<'a> {
             | NodeKind::IsActiveModifier { .. }
             | NodeKind::FalseToTrueModifier { .. }
             | NodeKind::DecomposeVector { .. }
+            | NodeKind::LimbIk { .. }
             | NodeKind::Modifier { .. } => self.reference_output(),
+        }
+    }
+
+    /// Rotate the authored limb's local bone rotations toward the host cast
+    /// target. The whole correction is bounded by `limitAngleDegrees` and
+    /// scaled by gain. Other bones and translations remain unchanged.
+    fn apply_limb_ik(&self, id: NodeId, output: &mut Output) {
+        let node = &self.graph.nodes[id.0];
+        let NodeKind::LimbIk {
+            limit_angle_degrees,
+            start_bone_index,
+            end_bone_index,
+            gain,
+            ..
+        } = &node.kind
+        else {
+            return;
+        };
+        let Some(target) = self.nodes[id.0].limb_ik_target else {
+            return;
+        };
+        if !self.nodes[id.0].active || *gain == 0.0 || *limit_angle_degrees == 0.0 {
+            return;
+        }
+        let start = usize::try_from(*start_bone_index).unwrap_or(usize::MAX);
+        let end = usize::try_from(*end_bone_index).unwrap_or(usize::MAX);
+        let Some(pivot) = output.pose.get(start).map(|t| t.translation) else {
+            return;
+        };
+        let Some(endpoint) = output.pose.get(end).map(|t| t.translation) else {
+            return;
+        };
+        let from = [
+            endpoint[0] - pivot[0],
+            endpoint[1] - pivot[1],
+            endpoint[2] - pivot[2],
+        ];
+        let to = [
+            target[0] - pivot[0],
+            target[1] - pivot[1],
+            target[2] - pivot[2],
+        ];
+        let (Some(from), Some(to)) = (normalize(from), normalize(to)) else {
+            return;
+        };
+        let cosine = dot(from, to).clamp(-1.0, 1.0);
+        let axis = normalize(cross(from, to)).or_else(|| {
+            if cosine < 0.0 {
+                let basis = if from[0].abs() < 0.8 {
+                    [1.0, 0.0, 0.0]
+                } else {
+                    [0.0, 1.0, 0.0]
+                };
+                normalize(cross(from, basis))
+            } else {
+                None
+            }
+        });
+        let Some(axis) = axis else {
+            return;
+        };
+        let angle = (cosine.acos() * gain).min(limit_angle_degrees.to_radians());
+        if !angle.is_finite() || angle <= f32::EPSILON {
+            return;
+        }
+        let bone_count = (end - start + 1) as f32;
+        let (sin, cos) = (angle / bone_count * 0.5).sin_cos();
+        let correction = [axis[0] * sin, axis[1] * sin, axis[2] * sin, cos];
+        for transform in output.pose.iter_mut().take(end + 1).skip(start) {
+            transform.rotation = multiply_quaternions(correction, transform.rotation);
         }
     }
 
