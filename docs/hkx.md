@@ -728,10 +728,14 @@ values so property bindings can be populated by the caller. Events keep slot
 and modifier-list order and enter the existing raised-event
 queue. A failed list emits no partial modifier effects.
 
-Graph linking remaps each slot event and preserves appended scalar defaults
-when the parent has no initial-value table. Quad and variant default linking
-is tracked separately by ANM-57. Event payload presence is decoded, while the
-interpreter's existing event queue carries IDs only. The eleven `false_to_true`
+Graph linking remaps each slot event and preserves appended variable defaults.
+New child variables keep their word values, and vector and pointer defaults
+retain their values when the child's quad and variant tables are appended.
+Their table indexes are shifted past the parent's entries to avoid collisions.
+The value table layout follows `serde-hkx`'s `hkbVariableValueSet` class
+metadata, which declares `hkVector4` quad entries and object-pointer variant
+entries. Event payload presence is decoded, while the interpreter's existing
+event queue carries IDs only. The eleven `false_to_true`
 regressions cover three independent slots, enable transitions, malformed binding
 names, shared visits, list rejection, symbol remapping and a parent-machine
 transition caused by a modifier event. The installed survey decodes every

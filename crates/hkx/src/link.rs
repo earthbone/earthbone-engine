@@ -160,25 +160,70 @@ fn merge_symbols(parent: &mut BehaviorGraphData, sub: &BehaviorGraphData) -> Sym
         });
         values.word_values.resize(existing, 0);
     }
+    let (quad_offset, variant_offset) = if appended.is_empty() {
+        (0, 0)
+    } else {
+        let values = parent.variable_initial_values.get_or_insert_with(|| {
+            crate::behavior::VariableValueSet {
+                word_values: Vec::new(),
+                quad_values: Vec::new(),
+                variant_values: Vec::new(),
+            }
+        });
+        let quad_offset = values.quad_values.len();
+        let variant_offset = values.variant_values.len();
+        if let Some(sub_values) = &sub.variable_initial_values {
+            values
+                .quad_values
+                .extend_from_slice(&sub_values.quad_values);
+            values
+                .variant_values
+                .extend_from_slice(&sub_values.variant_values);
+        }
+        (quad_offset, variant_offset)
+    };
     for &i in &appended {
-        parent.variable_infos.push(
-            sub.variable_infos
-                .get(i)
-                .copied()
-                .unwrap_or(VariableInfo::default()),
-        );
+        let info = sub
+            .variable_infos
+            .get(i)
+            .copied()
+            .unwrap_or(VariableInfo::default());
+        parent.variable_infos.push(info);
         parent
             .word_min_variable_values
             .push(sub.word_min_variable_values.get(i).copied().unwrap_or(0));
         parent
             .word_max_variable_values
             .push(sub.word_max_variable_values.get(i).copied().unwrap_or(0));
-        let initial = sub
+        let mut initial = sub
             .variable_initial_values
             .as_ref()
             .and_then(|v| v.word_values.get(i))
             .copied()
             .unwrap_or(0);
+        let table_len = sub
+            .variable_initial_values
+            .as_ref()
+            .map(|values| match info.ty {
+                crate::behavior::VariableType::Vector3
+                | crate::behavior::VariableType::Vector4
+                | crate::behavior::VariableType::Quaternion => values.quad_values.len(),
+                crate::behavior::VariableType::Pointer => values.variant_values.len(),
+                _ => 0,
+            })
+            .unwrap_or(0);
+        let offset = match info.ty {
+            crate::behavior::VariableType::Vector3
+            | crate::behavior::VariableType::Vector4
+            | crate::behavior::VariableType::Quaternion => quad_offset,
+            crate::behavior::VariableType::Pointer => variant_offset,
+            _ => 0,
+        };
+        if offset != 0 {
+            if let Some(index) = usize::try_from(initial).ok().filter(|&i| i < table_len) {
+                initial = i32::try_from(index.saturating_add(offset)).unwrap_or(i32::MAX);
+            }
+        }
         if let Some(values) = parent.variable_initial_values.as_mut() {
             values.word_values.push(initial);
         }
@@ -619,6 +664,42 @@ mod tests {
                 .len(),
             n
         );
+    }
+
+    #[test]
+    fn anm_57_linked_quad_and_variant_defaults_keep_distinct_table_indices() {
+        let mut parent = reference_graph();
+        parent.data.variable_infos[0].ty = crate::behavior::VariableType::Vector4;
+        let parent_values = parent.data.variable_initial_values.as_mut().unwrap();
+        parent_values.word_values[0] = 0;
+        parent_values.quad_values = vec![[9.0, 8.0, 7.0, 6.0]];
+        parent_values.variant_values = vec![Some(700)];
+
+        let mut sub = sub_graph();
+        sub.data.variable_names = vec!["childQuad".into(), "childPointer".into()];
+        sub.data.variable_infos = vec![
+            VariableInfo {
+                ty: crate::behavior::VariableType::Vector4,
+                ..Default::default()
+            },
+            VariableInfo {
+                ty: crate::behavior::VariableType::Pointer,
+                ..Default::default()
+            },
+        ];
+        sub.data.variable_initial_values = Some(VariableValueSet {
+            word_values: vec![1, 1],
+            quad_values: vec![[0.0; 4], [1.0, 2.0, 3.0, 4.0]],
+            variant_values: vec![Some(600), Some(800)],
+        });
+
+        parent.link_reference(NodeId(0), sub).unwrap();
+
+        let values = parent.data.variable_initial_values.as_ref().unwrap();
+        assert_eq!(values.word_values, [0, 2, 2]);
+        assert_eq!(values.quad_values[0], [9.0, 8.0, 7.0, 6.0]);
+        assert_eq!(values.quad_values[2], [1.0, 2.0, 3.0, 4.0]);
+        assert_eq!(values.variant_values, [Some(700), Some(600), Some(800)]);
     }
 
     #[test]
