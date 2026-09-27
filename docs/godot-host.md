@@ -1,5 +1,31 @@
 # godot-host: streaming, mesh and terrain for the Godot 4 host
 
+## Live detection observations, CMB-32
+
+PlayerNode samples each ordered pair of resident, living actors in the same
+cell after the player's pose reaches Game. Their FormIDs come from
+`World::contact_actors`. A Godot physics ray from eye to eye reports the first
+body, including an intervening actor or static obstruction. The query uses
+the existing RID-backed actor bodies and allocates no reference nodes.
+
+`detection::light_level` reads the winning CELL/XCLL ambient RGB, LGTM
+inheritance, and enabled authored or runtime placed LIGH/DATA radius, color,
+negative and off-by-default flags with FNAM fade. It samples current reference
+placement and enable state, including `PlaceAtMe` references, and bounds the
+resulting record-derived light estimate to 0 to 150. The host sends that
+value, sight, motion and queued detection sounds to
+`World::evaluate_detection` each step.
+A sound event uses its source position and owning actor FormID. Footsteps emit
+a detection sound after successful playback. World keeps the stealth pool and
+observer state across cell resource replacement.
+
+The estimate does not yet select a live WTHR from climate or apply WTHR
+ambient, sunlight and image-space sunlight scale. The current sound path
+covers `CreateDetectionEvent` and played player footsteps. The focused tests
+exercise record light, occlusion inputs, cross-cell identity and sound source
+ownership. The `SKYRIM_DATA` case reads a populated vanilla interior. No
+interactive Godot sight run or frame-cost measurement is recorded here.
+
 The [large world physics survey](physics.md#large-world-boundary-survey-2026-09-19)
 records the signed cell offsets, tolerances and Jolt measurements for the
 `large-world-physics` branch. Its Rust mesh conversion test and Godot server
@@ -1077,6 +1103,13 @@ Only its gameplay context supplies gameplay actions. The hold-to-walk action
 is named `Run` in that file, and Toggle Always Run uses Caps Lock. Camera
 offsets remain this engine's choices, as `camera` documents separately.
 
+The `Right Attack/Block` gameplay event is also registered from the PC control
+map. Its press edge arms one right-hand melee contact in PlayerNode. The
+authored animation's `HitFrame` marker still supplies the contact pose and
+reaches the same shared Game path as other melee contacts. A single-key or
+single-button action can also be pressed through Godot's Input action API,
+while chorded bindings continue to require every device input.
+
 ### The camera basis
 
 Skyrim's yaw is zero facing north and grows clockwise from above, so forward is
@@ -1819,7 +1852,9 @@ attacker. It reads the weapon attachment from the rig's model-space pose, the
 same buffer used for skinning, and resolves the segment using the armed hand's
 reach. For a bound rig, position, rotation and scale come from the actor's
 current shared World placement. A rig without a matching weapon or hand bone
-rejects the contact.
+rejects the contact. CMB-04's `Right Attack/Block` press arms this contact for
+the right hand, and the authored `HitFrame` remains the only event that queries
+and applies damage.
 `last_melee_obstruction` exposes the first unmapped body RID when an
 obstruction stops a swing. It is invalid for an actor contact or a miss.
 

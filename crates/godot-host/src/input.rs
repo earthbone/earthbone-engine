@@ -365,6 +365,7 @@ pub enum Action {
     Activate,
     TogglePov,
     ReadyWeapon,
+    RightAttack,
 }
 
 impl Action {
@@ -385,11 +386,12 @@ impl Action {
             Action::Activate => "Activate",
             Action::TogglePov => "Toggle POV",
             Action::ReadyWeapon => "Ready Weapon",
+            Action::RightAttack => "Right Attack/Block",
         }
     }
 
     #[must_use]
-    pub fn all() -> [Action; 12] {
+    pub fn all() -> [Action; 13] {
         [
             Action::Forward,
             Action::Back,
@@ -403,6 +405,7 @@ impl Action {
             Action::Activate,
             Action::TogglePov,
             Action::ReadyWeapon,
+            Action::RightAttack,
         ]
     }
 }
@@ -447,7 +450,9 @@ impl Bindings {
                 .into_iter()
                 .map(|(a, k)| (a, Binding::key(k)))
                 .collect(),
-            mouse: BTreeMap::new(),
+            // The PC fallback uses the same primary button as Skyrim's
+            // Right Attack action. A loaded control map replaces this value.
+            mouse: BTreeMap::from([(Action::RightAttack, Binding::key(0))]),
             gamepad: BTreeMap::new(),
             movement: Binding::unmapped(),
             look: Binding::unmapped(),
@@ -491,14 +496,13 @@ impl Bindings {
         self.gamepad.get(&action)
     }
 
-    /// InputMap can represent simple keyboard actions without extra gating.
+    /// InputMap can represent bindings made only of single input codes.
     #[must_use]
     pub fn uses_action_state(&self, action: Action) -> bool {
-        self.mouse(action).is_none_or(Binding::is_unmapped)
-            && self.gamepad(action).is_none_or(Binding::is_unmapped)
-            && !self
-                .get(action)
-                .is_some_and(|b| b.0.iter().any(|c| c.0.len() > 1))
+        [self.get(action), self.mouse(action), self.gamepad(action)]
+            .into_iter()
+            .flatten()
+            .all(|binding| binding.0.iter().all(|chord| chord.0.len() == 1))
     }
 
     /// Whether the action's keys are down under the caller's key probe.
@@ -527,6 +531,8 @@ pub struct InputState {
     pub activate_pressed: bool,
     pub toggle_pov_pressed: bool,
     pub toggle_always_run_pressed: bool,
+    /// Edge triggered press for Skyrim's right-hand attack action.
+    pub right_attack_pressed: bool,
 }
 
 impl InputState {
@@ -562,6 +568,7 @@ impl InputState {
             activate_pressed: pressed(Action::Activate),
             toggle_pov_pressed: pressed(Action::TogglePov),
             toggle_always_run_pressed: pressed(Action::ToggleAlwaysRun),
+            right_attack_pressed: pressed(Action::RightAttack),
         }
     }
 
