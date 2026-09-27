@@ -1566,11 +1566,22 @@ Morrowind's extended activation distance, so that policy is not reused here.
 The local skymp search found enum declarations, without a Telekinesis runtime
 implementation to reuse.
 
-The host now installs movable rigid bodies and synchronizes their simulated
+The host installs movable rigid bodies and synchronizes their simulated
 placement with the shared World and rendered references.
 [The host implementation](godot-host.md#movable-reference-physics-hst-12)
-records that path. Telekinesis grab events, object eligibility, force policy
-and release motion are not implemented here.
+records that path. The Telekinesis state API checks actor and reference
+eligibility, while resident-body confirmation and movement use the host API.
+The solver moves the kinematic body to a supplied position and does not model
+vanilla range or force policy.
+
+`World::grab_telekinesis_reference` now accepts one enabled, non-deleted,
+non-actor reference while that caster holds a concentration spell containing
+archetype 20. A second grab is rejected. Releasing the concentration cast,
+magicka exhaustion or a cast error clears the transient reference. The World
+does not serialize the grab because the host body is transient. The host must
+also confirm that the reference has a resident movable body. The MAG-20
+equip-ability grant is absent in this worktree, so the shipped spell's
+Telekinesis actor-value bonus is not applied.
 
 Repeat the survey with `SKYRIM_DATA` set:
 

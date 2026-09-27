@@ -542,7 +542,60 @@ impl World {
 
     /// Release the currently held concentration spell.
     pub fn release_concentration_cast(&mut self) -> bool {
-        self.concentration_cast.take().is_some()
+        let released = self.concentration_cast.take().is_some();
+        if released {
+            self.telekinesis_grab = None;
+        }
+        released
+    }
+
+    /// Begin holding one enabled, non-actor reference during a Telekinesis
+    /// concentration cast. The host separately confirms that it has a
+    /// movable physics body for the reference.
+    pub fn grab_telekinesis_reference(
+        &mut self,
+        caster: GlobalFormId,
+        reference: GlobalFormId,
+    ) -> bool {
+        let is_telekinesis = self.concentration_cast.as_ref().is_some_and(|cast| {
+            cast.caster == caster
+                && self.spell(cast.spell).is_ok_and(|spell| {
+                    spell.effects.iter().any(|entry| {
+                        self.resolve_from(cast.spell, entry.base_effect)
+                            .and_then(|id| self.magic_effect(id).ok())
+                            .is_some_and(|effect| effect.data.archetype == 20)
+                    })
+                })
+        });
+        let eligible = self
+            .reference(reference)
+            .is_some_and(|state| state.enabled && !state.deleted && !state.is_actor);
+        if !is_telekinesis || !eligible || self.telekinesis_grab.is_some() {
+            return false;
+        }
+        self.telekinesis_grab = Some((caster, reference));
+        true
+    }
+
+    /// The reference currently held by the caster's Telekinesis effect.
+    #[must_use]
+    pub fn telekinesis_reference(&self, caster: GlobalFormId) -> Option<GlobalFormId> {
+        self.telekinesis_grab
+            .filter(|(owner, _)| *owner == caster)
+            .map(|(_, reference)| reference)
+    }
+
+    /// Release the held reference without changing its World placement.
+    pub fn release_telekinesis_reference(&mut self, caster: GlobalFormId) -> bool {
+        if self
+            .telekinesis_grab
+            .is_some_and(|(owner, _)| owner == caster)
+        {
+            self.telekinesis_grab = None;
+            true
+        } else {
+            false
+        }
     }
 
     /// Whether the caster currently has a held concentration spell.
@@ -567,6 +620,7 @@ impl World {
             .map_or(0.0, |actor| actor.values.get("magicka").current());
         if cast.cost_per_second > 0.0 && available <= 0.0 {
             self.concentration_cast = None;
+            self.telekinesis_grab = None;
             return errors;
         }
         let duration = if cast.cost_per_second > 0.0 {
@@ -587,6 +641,7 @@ impl World {
                 Err(error) => {
                     errors.push(error);
                     self.concentration_cast = None;
+                    self.telekinesis_grab = None;
                     return errors;
                 }
             };
@@ -600,6 +655,7 @@ impl World {
             if let Err(error) = self.apply_prepared_effects(prepared, alloc) {
                 errors.push(error);
                 self.concentration_cast = None;
+                self.telekinesis_grab = None;
                 return errors;
             }
             let resource_cost = (cast.cost_per_second * slice) as f32;
@@ -608,11 +664,13 @@ impl World {
                     if actor.values.damage("magicka", resource_cost).is_err() {
                         errors.push(MagicError::Number);
                         self.concentration_cast = None;
+                        self.telekinesis_grab = None;
                         return errors;
                     }
                 } else {
                     errors.push(MagicError::Target);
                     self.concentration_cast = None;
+                    self.telekinesis_grab = None;
                     return errors;
                 }
             }
@@ -624,6 +682,7 @@ impl World {
                 .is_none_or(|actor| actor.values.get("magicka").current() <= 0.0);
         if exhausted {
             self.concentration_cast = None;
+            self.telekinesis_grab = None;
         }
         errors
     }
@@ -682,7 +741,7 @@ impl World {
                     return Err(MagicError::Target);
                 }
             }
-            if !matches!(data.archetype, 0 | 1 | 2 | 5 | 18) {
+            if !matches!(data.archetype, 0 | 1 | 2 | 5 | 18 | 20) {
                 return Err(MagicError::Unsupported("effect archetype"));
             }
             if data.taper_duration != 0.0 {
