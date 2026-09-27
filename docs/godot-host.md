@@ -2103,6 +2103,15 @@ The existing `godot/skinned_test.gd` passed on Godot 4.7.2 with the changed
 surface ownership: two shapes, 2,948 triangles and 29 matched mesh bones. Its
 idle-to-walk transition completed with exit status 0.
 
+Skinned actor meshes resolve each shape's NIF material textures through the
+same VFS and DDS loader as streamed meshes. `SkinnedActorNode` opens the nine
+vanilla texture archives alongside its mesh and animation archives, creates a
+`StandardMaterial3D` from each shape's material and decoded textures, and
+attaches it to the uploaded mesh surface. The installed-data check
+`rnd_05_vanilla_skinned_body_resolves_its_authored_diffuse_textures` verifies
+that the vanilla male body has authored diffuse paths and that each path
+resolves to image data. This verifies material inputs, not a rendered capture.
+
 ## Nearby interior prefetch, HST-07
 
 PlayerNode checks nearby load doors every 250 ms of simulation time after

@@ -25,6 +25,9 @@
 //! across many cells is read once for the source's lifetime. The trace of
 //! 2026-09-18 had a per-call cache decoding every texture on the calling
 //! thread after the workers joined, at 97 percent of the stream time.
+//!
+//! Skinned character surfaces resolve their material textures through the
+//! same DDS loader, using the character archives supplied to their VFS.
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -64,6 +67,18 @@ use textures::TextureCache;
 pub use textures::{BlockFormat, TextureData};
 use water::water_material_from;
 use workers::ordered_map;
+
+/// Resolve material textures through the same VFS path as streamed meshes.
+pub(crate) fn resolve_material_textures(
+    vfs: &Vfs,
+    materials: &[MaterialDesc],
+) -> Vec<SurfaceTextures> {
+    let cache = TextureCache::default();
+    materials
+        .iter()
+        .map(|material| cache.resolve(vfs, material))
+        .collect()
+}
 
 /// The base masters every Skyrim SE install ships, in the order the game
 /// itself loads them.

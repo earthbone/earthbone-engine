@@ -19,7 +19,7 @@ use soe_hkx::Packfile;
 use soe_nif::mesh::Skin;
 use soe_nif::types::Transform as NifTransform;
 
-use crate::data_source::mesh_data_from;
+use crate::data_source::{mesh_data_from, SurfaceTextures};
 use crate::mesh::{build_surface, MeshOptions, SurfaceArrays};
 use crate::skinned::BoneMap;
 
@@ -77,6 +77,8 @@ pub struct ActorSurface {
     /// The shape's name in the `NIF`, for reporting.
     pub name: String,
     pub arrays: SurfaceArrays,
+    /// Textures resolved from the material paths in the mesh.
+    pub textures: SurfaceTextures,
     /// The shape's own bone list, carrying the inverse bind transforms.
     pub skin: Skin,
     /// That list resolved against the skeleton.
@@ -352,6 +354,7 @@ impl ActorAssets {
             out.push(ActorSurface {
                 name: mesh.name.clone(),
                 arrays,
+                textures: SurfaceTextures::default(),
                 skin,
                 map,
                 node_offset: [
@@ -367,6 +370,18 @@ impl ActorAssets {
             return Err(ActorError::NotSkinned {
                 path: mesh_path.to_string(),
             });
+        }
+        let materials: Vec<_> = out
+            .iter()
+            .map(|surface| surface.arrays.material.clone())
+            .collect();
+        for (surface, textures) in
+            out.iter_mut()
+                .zip(crate::data_source::resolve_material_textures(
+                    vfs, &materials,
+                ))
+        {
+            surface.textures = textures;
         }
         Ok(out)
     }
