@@ -34,6 +34,9 @@ const SUMMON_BASE: u32 = 0x501;
 #[path = "magic/collection.rs"]
 mod collection;
 
+#[path = "magic/cure_addiction.rs"]
+mod cure_addiction;
+
 fn retain_effect(game: &mut Game, effect: soe_papyrus::ObjectId) {
     let script = ScriptBuilder::new("EffectHolder", "Actor")
         .variable("held", "ActiveMagicEffect", soe_papyrus::asm::none())
