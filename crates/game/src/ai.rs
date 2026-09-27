@@ -580,6 +580,7 @@ fn function_value(
         }
         170 => (world.clock.game_days.floor() as i64).rem_euclid(7) as f32,
         286 => 0.0,
+        309 if c.param1 == 0 && c.param2 == 0 => 0.0,
         289 => bool_f(world.actor(subject).is_some_and(|a| a.in_combat)),
         300 => {
             let cell = cell_of(world, subject)?;

@@ -103,6 +103,7 @@ pub fn supports_function(function: u16) -> bool {
         function,
         1 | 14
             | 123
+            | 309
             | 128
             | 277
             | 408
@@ -345,6 +346,13 @@ fn function_value(
             // Its subject is true during automatic ForceGreet selection.
             no_parameter(c)?;
             boolean(world.dialogue.greeting_actor == Some(subject))
+        }
+        309 => {
+            // CONTEXT: xEdit declares no parameters. The CK corpus has no page
+            // for this legacy platform predicate. This runtime targets PC, so
+            // its Xbox query is false.
+            no_parameter(c)?;
+            0.0
         }
         225 | 315 => {
             // GetPersuasionNumber and GetTotalPersuasionNumber take no parameter
