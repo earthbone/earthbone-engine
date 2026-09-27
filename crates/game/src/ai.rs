@@ -5,6 +5,9 @@
 //! `PKID` list of its base record, and the first package whose schedule and
 //! conditions hold wins, the way the Creation Kit wiki describes the stack
 //! and `EvaluatePackage` (`engine-refs/ck-wiki/EvaluatePackage_-_Actor`).
+//! PACK begin, end and change fragments follow xEdit's
+//! `wbVMADFragmentedPACK` order, with the actor argument described by the CK
+//! wiki's Papyrus Fragments section.
 //! The chosen package's template names a procedure, and three of them move
 //! the actor on the clock: `Travel` walks to a place, `Sandbox` wanders
 //! between idle markers around a place, `Sleep` walks to a bed and holds.
@@ -27,13 +30,14 @@ use soe_esm::{GlobalFormId, Tag};
 use soe_navmesh::vanilla::{key_of, Builder};
 use soe_navmesh::NavGraph;
 use soe_papyrus::vm::state::{Reader, Writer};
-use soe_papyrus::VmError;
+use soe_papyrus::{Value, VmError};
 
 use crate::actor_values::actor_value_name;
 use crate::clock::GameClock;
 use crate::package::{
     condition, flags, speed, CompValue, Condition, Location, LocationData, Package, Schedule,
 };
+use crate::vmad::Vmad;
 use crate::world::save::{read_form_id, read_opt_form_id, FormNamespace, FormReader};
 use crate::world::{Alloc, Handle, Pending, World};
 
@@ -630,8 +634,10 @@ pub fn evaluate(world: &mut World, actor: GlobalFormId, alloc: Alloc<'_>) -> Opt
     if let Some(old) = current {
         let old_value = world.form_value(Some(old), alloc);
         let name = if chosen.is_some() {
+            queue_pack_fragment(world, old, actor, PackBoundary::Change, alloc);
             "OnPackageChange"
         } else {
+            queue_pack_fragment(world, old, actor, PackBoundary::End, alloc);
             "OnPackageEnd"
         };
         world.pending.push(Pending::Event {
@@ -664,6 +670,7 @@ pub fn evaluate(world: &mut World, actor: GlobalFormId, alloc: Alloc<'_>) -> Opt
     ai.speed = movement_speed(world, actor, speed::WALK);
     ai.start_position = position;
     if let Some(c) = chosen {
+        queue_pack_fragment(world, c.package, actor, PackBoundary::Begin, alloc);
         if let Some(p) = package(world, c.package) {
             ai.speed = movement_speed(
                 world,
@@ -688,6 +695,43 @@ pub fn evaluate(world: &mut World, actor: GlobalFormId, alloc: Alloc<'_>) -> Opt
         a.ai = ai;
     }
     running
+}
+
+#[derive(Clone, Copy)]
+enum PackBoundary {
+    Begin,
+    End,
+    Change,
+}
+
+fn queue_pack_fragment(
+    world: &mut World,
+    package: GlobalFormId,
+    actor: GlobalFormId,
+    boundary: PackBoundary,
+    alloc: Alloc<'_>,
+) {
+    let fragment = world
+        .record(package)
+        .and_then(|record| record.find(Tag::new(b"VMAD")))
+        .and_then(|raw| Vmad::parse(raw, Tag::new(b"PACK")).ok())
+        .and_then(|vmad| vmad.pack_fragments)
+        .and_then(|fragments| match boundary {
+            PackBoundary::Begin => fragments.begin,
+            PackBoundary::End => fragments.end,
+            PackBoundary::Change => fragments.change,
+        });
+    let Some(fragment) = fragment else {
+        return;
+    };
+    let object = world.object_of(Handle::Form(package), alloc);
+    let actor = Value::Object(world.object_of(Handle::Form(actor), alloc));
+    world.pending.push(Pending::CallScript {
+        object,
+        script: fragment.script,
+        function: fragment.function,
+        args: vec![actor],
+    });
 }
 
 fn begin_procedure(

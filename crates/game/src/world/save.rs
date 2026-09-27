@@ -60,7 +60,8 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// Version 34 retains last-visit game days for resettable encounter zones.
 /// Version 35 retains saved list flags and per-entry chance bytes in record overrides.
 /// Version 36 retains the active phase and completed action slots for each scene.
-pub const SAVE_VERSION: u16 = 36;
+/// Version 37 retains script-qualified package fragment calls in the pending queue.
+pub const SAVE_VERSION: u16 = 37;
 
 #[derive(Clone, Copy)]
 pub(crate) enum FormNamespace {
@@ -208,6 +209,21 @@ impl World {
                 } => {
                     body.u8(1);
                     body.u64(object.0);
+                    body.str(function);
+                    body.len(args.len());
+                    for v in args {
+                        pool.write_value(&mut body, v);
+                    }
+                }
+                Pending::CallScript {
+                    object,
+                    script,
+                    function,
+                    args,
+                } => {
+                    body.u8(5);
+                    body.u64(object.0);
+                    body.str(script);
                     body.str(function);
                     body.len(args.len());
                     for v in args {
@@ -628,6 +644,22 @@ impl World {
                     }
                     pending.push(Pending::Call {
                         object,
+                        function,
+                        args,
+                    });
+                }
+                5 if version >= 37 => {
+                    let object = ObjectId(r.u64()?);
+                    let script = r.str()?;
+                    let function = r.str()?;
+                    let k = r.len()?;
+                    let mut args = Vec::with_capacity(k);
+                    for _ in 0..k {
+                        args.push(table.read_value(&mut r)?);
+                    }
+                    pending.push(Pending::CallScript {
+                        object,
+                        script,
                         function,
                         args,
                     });

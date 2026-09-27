@@ -431,6 +431,12 @@ pub enum Pending {
         function: String,
         args: Vec<Value>,
     },
+    CallScript {
+        object: ObjectId,
+        script: String,
+        function: String,
+        args: Vec<Value>,
+    },
     /// Attach the winning MGEF's scripts before delivering its lifecycle events.
     BindEffect {
         object: ObjectId,

@@ -10,6 +10,7 @@ use crate::world::record_overrides::{raw_words, RecordOverride};
 use crate::world::templates::TemplateChoice;
 use crate::world::DYNAMIC_FILE;
 use soe_esm::{plugin::flags, FileHeader, LoadOrder, Plugin, Record, Slot, Tag};
+use soe_papyrus::Value;
 
 fn id(file: u16, object: u32) -> GlobalFormId {
     GlobalFormId { file, object }
@@ -477,7 +478,7 @@ fn sav_07_unknown_version_and_mixed_legacy_namespaces_are_rejected() {
     let mut world = rich_world(DYNAMIC_FILE);
     let before = world.save_state();
     for (version, message) in [
-        (37_u16, "world state version 37"),
+        (38_u16, "world state version 38"),
         (18, "created namespace in a legacy world state"),
     ] {
         let mut bytes = before.clone();
@@ -489,6 +490,33 @@ fn sav_07_unknown_version_and_mixed_legacy_namespaces_are_rejected() {
             .contains(message));
         assert_eq!(world.save_state(), before);
     }
+}
+
+#[test]
+fn sav_37_script_qualified_pending_fragment_round_trips() {
+    let mut world = rich_world(DYNAMIC_FILE);
+    world.pending.push(Pending::CallScript {
+        object: ObjectId(1),
+        script: "PackFragments".into(),
+        function: "OnBegin".into(),
+        args: vec![Value::Object(ObjectId(2))],
+    });
+    let saved = world.save_state();
+    let mut loaded = World::new(legacy_order());
+    loaded.load_state(&saved).unwrap();
+    assert_eq!(loaded.pending.len(), world.pending.len());
+    assert!(matches!(
+        loaded.pending.last().unwrap(),
+        Pending::CallScript {
+            object: ObjectId(1),
+            script,
+            function,
+            args,
+        } if script == "PackFragments"
+            && function == "OnBegin"
+            && args == &[Value::Object(ObjectId(2))]
+    ));
+    assert_eq!(loaded.save_state(), saved);
 }
 
 #[test]

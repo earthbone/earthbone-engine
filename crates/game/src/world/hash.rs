@@ -570,6 +570,21 @@ impl World {
                         h.value(a);
                     }
                 }
+                Pending::CallScript {
+                    object,
+                    script,
+                    function,
+                    args,
+                } => {
+                    h.u8(5);
+                    h.u64(object.0);
+                    h.str(script);
+                    h.str(function);
+                    h.len(args.len());
+                    for a in args {
+                        h.value(a);
+                    }
+                }
             }
         }
         let pending = h.finish();

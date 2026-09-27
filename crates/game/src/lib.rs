@@ -719,6 +719,18 @@ impl Game {
                             .push(self.vm.time(), format!("fragment {function}: {e}"));
                     }
                 }
+                Pending::CallScript {
+                    object,
+                    script,
+                    function,
+                    args,
+                } => {
+                    if let Err(e) = self.vm.call_script(object, &script, &function, &args) {
+                        self.vm
+                            .log
+                            .push(self.vm.time(), format!("fragment {script}.{function}: {e}"));
+                    }
+                }
             }
         }
         n
