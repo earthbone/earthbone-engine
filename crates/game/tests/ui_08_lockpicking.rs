@@ -22,6 +22,7 @@ fn load_order() -> LoadOrder {
         Record::new(T(b"NPC_"), 7).zsub(T(b"EDID"), "Player"),
         Record::new(T(b"DOOR"), 0x10),
         Record::new(T(b"MISC"), PICK).zsub(T(b"EDID"), "Lockpick"),
+        Record::new(T(b"MISC"), PICK + 1).zsub(T(b"EDID"), "OtherItem"),
         Record::new(T(b"REFR"), DOOR)
             .sub(T(b"NAME"), 0x10_u32.to_le_bytes())
             .sub(T(b"XLOC"), lock.clone()),
@@ -77,5 +78,19 @@ fn ui_08_key_only_lock_rejects_pick_without_consuming_it() {
     game.world_mut().reference(target).unwrap().lock_level = 255;
     assert!(!game.attempt_lockpick(target, player, pick, 46.2));
     assert_eq!(game.world_mut().item_count(player, pick), 1);
+    assert!(game.world_mut().reference(target).unwrap().locked);
+}
+
+#[test]
+fn ui_08_invalid_input_does_not_spend_an_item_or_unlock() {
+    let (mut game, player) = game_with_pick();
+    let pick = id(PICK);
+    let other = id(PICK + 1);
+    let target = id(DOOR);
+    game.world_mut().add_item(player, other, 1);
+    assert!(!game.attempt_lockpick(target, player, pick, f32::NAN));
+    assert!(!game.attempt_lockpick(target, player, other, 46.2));
+    assert_eq!(game.world_mut().item_count(player, pick), 1);
+    assert_eq!(game.world_mut().item_count(player, other), 1);
     assert!(game.world_mut().reference(target).unwrap().locked);
 }

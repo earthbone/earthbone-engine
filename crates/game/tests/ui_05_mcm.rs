@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-//! UI-05 lifecycle checks against an ordinary script extending SKI_ConfigBase.
+//! UI-05 lifecycle checks against a hand-built SKI_ConfigBase model.
 
 use soe_esm::{plugin::flags, FileHeader, GlobalFormId, LoadOrder, Plugin, Tag};
 use soe_game::quest::{self, flags as quest_flags};
@@ -167,7 +167,7 @@ fn variable(game: &mut Game, name: &str) -> Value {
 }
 
 #[test]
-fn ui_05_initializes_and_registers_unmodified_config_once() {
+fn ui_05_initializes_and_registers_modeled_config_once() {
     let mut game = fixture();
     assert_eq!(variable(&mut game, "register_count"), Value::Int(1));
     let configs = game.mcm_configs();

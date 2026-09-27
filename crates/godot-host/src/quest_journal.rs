@@ -11,6 +11,7 @@ use soe_game::Game;
 
 const MISCELLANEOUS_QUEST_TYPE: u32 = 6;
 
+/// One displayed objective in a quest journal entry.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ObjectiveEntry {
     pub index: u16,
@@ -19,6 +20,7 @@ pub struct ObjectiveEntry {
     pub failed: bool,
 }
 
+/// One active quest shown in the journal.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Entry {
     pub quest: GlobalFormId,

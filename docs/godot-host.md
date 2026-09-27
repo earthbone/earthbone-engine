@@ -1946,7 +1946,7 @@ own.
 The QUST layout rules come from `uesp-modfileformat/QUST.wikitext` and
 `TES5Edit/Core/wbDefinitionsTES5.pas`. The local CK `Quest_Script.wikitext`
 lists the objective display, completion and failure operations. The presenter
-reads the existing `World::QuestState`; it adds no save fields.
+reads the existing `World::QuestState`. It adds no save fields.
 
 The objective map presenter resolves each QUST target through its runtime
 quest alias. Reference aliases point to their placed reference, while
@@ -1958,6 +1958,8 @@ current Game and VM, and a target is omitted when its conditions are false or
 cannot be evaluated. The presenter reads the shared world and adds no saved
 state. QSTA layout rules come from `uesp-modfileformat/QUST.wikitext` and
 `TES5Edit/Core/wbDefinitionsTES5.pas`.
+No Godot map control currently consumes these markers, so their on-screen
+display and spatial projection remain unverified.
 
 The lockpicking presenter (UI-08) opens when player activation reaches a
 locked, non-key-only reference and the player has a lockpick but no matching

@@ -79,6 +79,9 @@ session UI state, while page labels remain script properties. This bridge
 does not execute SkyUI's Scaleform panel or its option APIs. The lifecycle
 order and limit come from the local SkyUI `SKI_ConfigBase.psc` and
 `SKI_ConfigManager.psc` sources.
+The tests assemble equivalent lifecycle methods in Papyrus bytecode. They do
+not execute an unmodified SkyUI script, so full script compatibility is
+unverified.
 
 `vanilla_save::SavedFormMap` remaps ESS references through saved plugin names,
 including regular and light slots. `World::restore_vanilla_globals` atomically
@@ -1997,8 +2000,9 @@ Chest 0:016DB7 refused activation without its key, then unlocked with key
 flags in that survey. Their level scaling is not executed yet.
 
 UI-08 adds `Game::attempt_lockpick`. It checks for a locked non-key-only
-reference and a carried pick. A successful turn unlocks through `set_locked`;
-a miss removes one pick through the notified inventory transaction. The host
+reference, the loaded Lockpick form and a carried pick. Invalid angles leave
+the lock and inventory unchanged. A successful turn unlocks through `set_locked`.
+A miss removes one pick through the notified inventory transaction. The host
 then runs ordinary activation after success. The sweet spot is derived from
 the reference FormID. XLOC level narrows the angle window and Lockpicking skill
 increases it, with a two-degree minimum. CK lock pages and xEdit's XLOC layout

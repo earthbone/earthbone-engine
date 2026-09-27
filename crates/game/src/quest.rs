@@ -66,6 +66,7 @@ pub struct Objective {
     pub targets: Vec<ObjectiveTarget>,
 }
 
+/// One QSTA alias and its conditions for an objective marker.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ObjectiveTarget {
     pub alias: i32,

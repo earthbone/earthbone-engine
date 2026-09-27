@@ -16,8 +16,14 @@ impl super::Game {
         pick: GlobalFormId,
         angle: f32,
     ) -> bool {
+        if !angle.is_finite() || !(0.0..=90.0).contains(&angle) {
+            return false;
+        }
         let level = {
             let mut world = self.world.borrow_mut();
+            if world.form("Lockpick") != Some(pick) {
+                return false;
+            }
             let Some(level) = world
                 .reference(target)
                 .map(|reference| reference.lock_level)
