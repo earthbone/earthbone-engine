@@ -82,6 +82,8 @@ pub fn voice_asset(game: &mut Game, line: &Line) -> Option<VoiceAsset> {
     let raw_voice = u32::from_le_bytes(raw_voice.try_into().ok()?);
     let voice_id = world.resolve_from(voice_owner, raw_voice)?;
     let voice_name = world.record(voice_id)?.editor_id()?;
+    let quest_name: String = quest_name.chars().take(10).collect();
+    let topic_name: String = topic_name.chars().take(15).collect();
     let position = crate::units::SkyrimPos::new(
         speaker_position[0],
         speaker_position[1],

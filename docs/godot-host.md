@@ -1696,6 +1696,8 @@ asset from the response and current speaker. An explicit TRDT sound override
 does not use the generated voice path. Otherwise the path uses the response
 INFO's owning plugin filename, the DIAL and QUST editor IDs, the response
 INFO's local FormID, its response number and the speaker's VTYP editor ID.
+The quest and topic editor IDs are limited to 10 and 15 characters in the
+voice filename, following Mutagen's `GetQuestAndTopicStrings` rule.
 NPC speakers take VTCK from their Traits template source. Talking activators
 take VNAM. The current speaker reference position is converted from Skyrim
 units to Godot metres and passed to `AudioStreamPlayer3D`. The filename rule

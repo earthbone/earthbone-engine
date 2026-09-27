@@ -100,7 +100,7 @@ fn dlg_11_long_quest_and_topic_editor_ids_follow_voice_filename_limit() {
     let voice = voice_asset(&mut game, &line).unwrap();
     assert_eq!(
         voice.path,
-        "Sound/Voice/Dialogue.esm/VoiceHuman/QuestIden_TopicIdentifierI_00000A00_3.fuz"
+        "Sound/Voice/Dialogue.esm/VoiceHuman/QuestIdent_TopicIdentifier_00000A00_3.fuz"
     );
 }
 
