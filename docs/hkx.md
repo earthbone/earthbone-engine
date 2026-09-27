@@ -365,9 +365,14 @@ What each node does:
   short arc.
 - `hkbManualSelectorGenerator`: plays the selected child, switching when
   the index changes.
+- `BSOffsetAnimationGenerator`: samples its default and offset generators
+  each frame. `fOffsetVariable`, from its input binding when present, maps
+  through `fOffsetRangeStart` and `fOffsetRangeEnd` to a clamped 0 to 1
+  amount. The offset pose adds scaled translation, composes a scaled
+  rotation, and multiplies a scaled scale into the default pose.
 - `hkbModifierGenerator` and Skyrim's `BS*` wrappers (`BSiStateTagging`,
-  `BSBoneSwitch`, `BSOffsetAnimation`, `BSSynchronizedClip`,
-  `BSCyclicBlendTransition`) pass their generator child through.
+  `BSBoneSwitch`, `BSSynchronizedClip`, `BSCyclicBlendTransition`) pass
+  their generator child through.
   `hkbModifierGenerator` also gives an enabled modifier child activation and
   deactivation lifecycle.
 - `hkbBehaviorReferenceGenerator` and unmodelled classes yield the
@@ -375,9 +380,15 @@ What each node does:
 
 Bindings resolve at construction to typed setters: `playbackSpeed`,
 `userControlledTimeFraction`, `blendParameter`, `weight` on a blender
-child (also `children:N/weight`), `selectedGeneratorIndex`, `enable`. Any
-other member path is reported in `Unsupported::unbound`. Reals live in the
-word table as their bit pattern, which is how the file stores them.
+child (also `children:N/weight`), `selectedGeneratorIndex`,
+`fOffsetVariable` on `BSOffsetAnimationGenerator`, and `enable`. Any other
+member path is reported in `Unsupported::unbound`. Reals live in the word
+table as their bit pattern, which is how the file stores them.
+
+The `BSOffsetAnimationGenerator` fields follow serde-hkx's generated
+`BSOffsetAnimationGenerator` declaration and the local hkxcmd class table.
+Those sources establish the serialized members and offsets. The interpreter
+uses the input binding and authored range to scale the sampled offset pose.
 
 ### Checked against the sampler (2026-09-18)
 
