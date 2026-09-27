@@ -137,6 +137,48 @@ fn a_sequence_runs_each_destination_once_and_only_finishes_after_the_last() {
 }
 
 #[test]
+fn sav_13_engine_save_resumes_saved_sequence_procedure_without_restart() {
+    let tree = travel(
+        travel(branch(template(), "Sequence", 2, false), 0, false),
+        1,
+        false,
+    );
+    let mut original = game(tree.clone(), 0);
+    original.tick(0.1);
+    let saved_cursor = original
+        .world()
+        .actor_ref(id(ACTOR))
+        .unwrap()
+        .ai
+        .tree
+        .clone();
+    assert_eq!(saved_cursor.as_ref().unwrap().branch, 1);
+    assert!(saved_cursor.as_ref().unwrap().active);
+
+    let bytes = original.save_state().unwrap();
+    let mut restored = Game::new(order(tree, 0));
+    restored.load_state(&bytes).unwrap();
+    assert_eq!(
+        restored.world().actor_ref(id(ACTOR)).unwrap().ai.tree,
+        saved_cursor,
+        "engine save retains the active procedure branch"
+    );
+
+    original.tick(0.1);
+    restored.tick(0.1);
+    assert_eq!(
+        restored.world().actor_ref(id(ACTOR)).unwrap().ai.tree,
+        original.world().actor_ref(id(ACTOR)).unwrap().ai.tree,
+        "restored driver continues the same branch"
+    );
+    assert_eq!(
+        position(&mut restored),
+        position(&mut original),
+        "restored actor continues toward the saved procedure target"
+    );
+}
+
+#[test]
 fn nested_sequences_and_root_repeat_keep_their_own_order() {
     let tree = branch(template(), "Sequence", 2, true);
     let tree = travel(branch(tree, "Sequence", 1, false), 0, false);

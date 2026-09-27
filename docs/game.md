@@ -887,6 +887,13 @@ Version 32 stores assigned hand spells, version 33 retains summoned actors,
 version 34 retains encounter-zone visit days, version 35 retains list change
 metadata, version 36 retains scene progress, and version 37 retains PACK and
 NAVM change markers in record overrides.
+
+SOEW versions 21 and later retain each driven actor's package procedure
+cursor, including the owning procedure tree, branch index and active or
+finished state. Loading an engine save lets the driver continue that branch.
+Vanilla ESS package state is not connected to this cursor: named Sequence and
+Stacked procedure payloads are not decoded, so a saved actor cannot yet resume
+its vanilla procedure.
 version 5 adds active magic, version 6 adds dialogue, version 7 adds actor-value
 components, version 8 adds dialogue to those components, version 9 adds
 active magic. Version 10 adds per-reference leveled template choices.
