@@ -24,6 +24,12 @@ open implementation, so both were read first.
   the top level layout, `File_Format_Conventions.wikitext` defines `wstring`,
   `vsval` and `RefID`, and one page per change form and global data type covers
   the rest. Rerunning the script picks up pages added since.
+- xEdit's `TES5Edit/Core/wbDefinitionsTES5Saves.pas` defines WOOP and MGEF
+  change flags. Bit zero carries the six-byte form flags, bits one and two
+  select payload-free sections, and bits three through thirty-one are unnamed.
+  FallrimTools has no typed reader for either record and keeps them as default
+  payload data, so their typed layout follows xEdit while retaining unnamed
+  flag bits.
 - `../engine-refs/FallrimTools/` is ReSaver, Apache 2.0, the save editor the
   modding community uses to repair broken saves. Its `resaver.ess` package is
   the authority used here for everything the wiki states loosely: which fields
@@ -106,6 +112,9 @@ does not claim runtime support for opaque payloads.
   factions, spells, AI data, names, skills, class, race, face, gender and outfits.
 - `ChangeForm::class_change`, `faction_change` and `relationship_change` decode
   CLAS, FACT and RELA change sections on demand.
+- `ChangeForm::word_of_power_change` and `magic_effect_change` decode WOOP and
+  MGEF form flags, the two payload-free base-object change markers, and retain
+  unnamed flag bits. Only the form-flags marker contributes payload bytes.
 - Type 107, quest static data, including its two event arrays, three reference
   arrays, reference-keyed values and final byte.
 - Type 1001, the Papyrus block: the string table, the script definitions with
