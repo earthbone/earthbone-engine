@@ -429,6 +429,7 @@ struct Runtime {
     edge_enabled: [Option<bool>; FALSE_TO_TRUE_SLOTS],
     edge_value: [Option<bool>; FALSE_TO_TRUE_SLOTS],
     edge_previous: [bool; FALSE_TO_TRUE_SLOTS],
+    event_modifier_active: bool,
 
     /// A bound vector input for `BSDecomposeVectorModifier`.
     vector: Option<[f32; 4]>,
@@ -1076,11 +1077,30 @@ impl<'a> Interpreter<'a> {
                 self.deactivate(node_id);
             }
             self.modifier_order.push(node_id);
-            if let NodeKind::ModifierList { modifiers, .. } = &node.kind {
+            let modifier_children = match &node.kind {
+                NodeKind::ModifierList { modifiers, .. } => modifiers
+                    .iter()
+                    .flatten()
+                    .copied()
+                    .map(|child| (child, enabled))
+                    .collect::<Vec<_>>(),
+                NodeKind::EventDrivenModifier { modifier, .. } => modifier
+                    .iter()
+                    .copied()
+                    .map(|child| {
+                        (
+                            child,
+                            enabled && self.nodes[node_id.0].event_modifier_active,
+                        )
+                    })
+                    .collect(),
+                _ => Vec::new(),
+            };
+            if !modifier_children.is_empty() {
                 path[node_id.0] = true;
                 stack.push((node_id, depth, true, enabled));
-                for child in modifiers.iter().rev().flatten().copied() {
-                    stack.push((child, depth + 1, false, enabled));
+                for (child, child_enabled) in modifier_children.into_iter().rev() {
+                    stack.push((child, depth + 1, false, child_enabled));
                 }
             }
         }
@@ -1129,6 +1149,11 @@ impl<'a> Interpreter<'a> {
                 if let Some(start) = start {
                     self.enter_state(id, sm, start, None);
                 }
+            }
+            NodeKind::EventDrivenModifier {
+                active_by_default, ..
+            } => {
+                self.nodes[id.0].event_modifier_active = *active_by_default;
             }
             NodeKind::Blender(b) => {
                 let keep_zero = b.flags & 8 != 0;
@@ -1197,7 +1222,6 @@ impl<'a> Interpreter<'a> {
             NodeKind::ModifierList { .. }
             | NodeKind::BlendingTransition(_)
             | NodeKind::GeneratorTransition(_)
-            | NodeKind::EventDrivenModifier { .. }
             | NodeKind::TimerModifier { .. }
             | NodeKind::GetTimeStepModifier { .. }
             | NodeKind::IsActiveModifier { .. }
@@ -1329,6 +1353,32 @@ impl<'a> Interpreter<'a> {
                     consumed |= self.handle_event(g, ev);
                 }
                 consumed
+            }
+            NodeKind::EventDrivenModifier {
+                modifier,
+                activate_event_id,
+                deactivate_event_id,
+                ..
+            } => {
+                if ev.id == *activate_event_id {
+                    self.nodes[id.0].event_modifier_active = true;
+                } else if ev.id == *deactivate_event_id {
+                    self.nodes[id.0].event_modifier_active = false;
+                }
+                let Some(child) = modifier else {
+                    return ev.id == *activate_event_id || ev.id == *deactivate_event_id;
+                };
+                if self.nodes[id.0].event_modifier_active {
+                    self.sync_modifier(*child);
+                    if self.nodes[child.0].active {
+                        self.handle_event(*child, ev)
+                    } else {
+                        false
+                    }
+                } else {
+                    self.deactivate(*child);
+                    false
+                }
             }
             NodeKind::Clip(_) => false,
             _ => {
