@@ -54,8 +54,10 @@ from a wiki page and nothing was copied.
   a swap.
 - **Open Animation Replacer**, `../engine-refs/OpenAnimationReplacer/`.
   `Parsing.cpp` gives the directory layout, that `priority` is required rather
-  than defaulted, and that `user.json` is read after `config.json`. GPL-3.0 with
-  modding and linking exceptions.
+  than defaulted, and that a submod `user.json` replaces its config data while
+  retaining the author config name. Legacy numbered submods also accept a
+  `user.json` priority and condition list. GPL-3.0 with modding and linking
+  exceptions.
 - **dargh**, `../engine-refs/dargh/`, MIT, documents the older condition and
   priority scheme that the legacy layout still uses.
 
@@ -108,6 +110,13 @@ open ended and no fixed list would stay correct. Each condition keeps its name,
 its negation, the plugin it needs and its raw parameters, which is enough to
 report what a mod asks for and to implement the common ones later.
 
+For a modern submod, `user.json` replaces its priority and condition list. The
+author `config.json` still supplies the required name. The priority in either
+data file must fit an `i32`, since it orders the scanned submods. A legacy
+numbered directory with `_conditions.txt` accepts `user.json` as an OAR
+override, using its priority and condition list instead of the directory number
+and text conditions. The scan sorts both layouts by the resulting priority.
+
 ## Conflicts resolve by file name
 
 All three ini formats resolve a conflict the same way: the file whose name sorts
@@ -150,8 +159,7 @@ them, but no shipped mod has been run through them yet.
 - No real mod has been parsed, see above.
 - Keyword Item Distributor's exclusive groups, which share the file under other
   keys and are currently reported as skipped lines.
-- The two fields left as written, and Open Animation Replacer's `user.json`
-  override layer.
+- The two fields left as written.
 - Exact chance selection and actor lifecycle compatibility, detailed below.
 
 ## Applying, added 2026-09-18
