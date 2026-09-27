@@ -2,9 +2,9 @@
 
 Reads Skyrim SE plugin files (`.esm`, `.esp`, `.esl`) into a group tree of records,
 resolves FormIDs across a load order, and answers "which record wins" for any form.
-Typed views cover the initial world records, race phonemes and scoped dialogue,
-magic and crafting fields. Other data stays in raw subrecords and is written
-back unchanged.
+Typed views cover the initial world records, race phonemes, scoped dialogue,
+magic, crafting fields and HAZD hazards. Other data stays in raw subrecords and
+is written back unchanged.
 
 ## What the file format is
 
@@ -71,7 +71,7 @@ not the complete set of Skyrim hardcoded forms.
 
 ## Typed views
 
-`records::{cell, refr, wrld, land, lctn, navm, stat, race}` and `records::gameplay`
+`records::{cell, refr, wrld, land, lctn, navm, stat, race, hazd}` and `records::gameplay`
 expose `from_record`. Views copy
 the named fields and leave the record intact, so an unknown subrecord is never lost.
 FormIDs inside views are raw, as written in the file, so a view can be built without a
@@ -80,13 +80,15 @@ load order and resolved later.
 `Plugin::remap_form_ids` applies a caller-provided map to record identities,
 group labels that contain FormIDs and the TES4 ONAM override list. It also
 updates the FormID fields currently decoded by the CELL, WRLD, LCTN, REFR,
-LTEX, NAVM, MGEF and selected INFO views: cell water, owner, location, image
+LTEX, NAVM, MGEF, HAZD and selected INFO views: cell water, owner, location, image
 space, music, acoustic space, encounter zone, weather and region links;
 worldspace parent, climate, water, location, encounter zone and music links;
 location parents and markers; placed reference base, owner, location, layer,
 encounter zone and emittance; texture set and grass links; navmesh base object
 lists; magic effect keyword and counter effect lists; SCEN and DIAL quest
-links; and INFO topic, response and topic-list links. VMAD object properties
+links; INFO topic, response and topic-list links; and HAZD image-space and
+DATA links at their documented offsets, without interpreting scalar values as
+FormIDs. VMAD object properties
 and arrays in object formats 1 and 2 are remapped while trailing fragment
 bytes are preserved. An invalid or
 unsupported VMAD property makes the operation fail without changing the
@@ -432,6 +434,25 @@ For SE, English uses Windows-1252. Other languages try UTF-8 first and then
 their language-specific fallback. Japanese and Chinese require UTF-8.
 Tests cover all three layouts, invalid offsets and termination, UTF-8 text,
 and a legacy French fallback.
+
+## HAZD view, FMT-28 (2026-09-27)
+
+`records::hazd::Hazard::from_record` reads HAZD's required 40-byte DATA block:
+limit, radius, lifetime, image-space radius, target interval, flags, spell,
+light, impact data set and sound. It also reads the optional MNAM image-space
+modifier. DATA and MNAM links remain raw FormIDs for resolution with the file
+that supplied the winning override. Unknown flag bits and unknown subrecords
+are retained. Missing or repeated DATA, repeated MNAM and incorrect fixed
+field sizes return errors.
+
+`Plugin::remap_form_ids` remaps MNAM and only the four FormID words at the end
+of DATA. It preserves the scalar values and flag word. The field sizes and
+link types follow local xEdit `wbDefinitionsTES5.pas` HAZD, UESP
+`HAZD.wikitext`, Mutagen `Hazard.xml` and CommonLibSSE-NG `BGSHazard.h`.
+These sources describe the format and runtime structure rather than a Rust
+reader, so the implementation uses the existing bounds-checked `Fields` API.
+The gated HAZD survey checks all non-deleted winners in the five installed
+masters and resolves each non-null link relative to the winning plugin.
 
 ## GRAS and LTEX views, RND-11 (2026-09-24)
 

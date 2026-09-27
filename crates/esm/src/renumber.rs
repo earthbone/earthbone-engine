@@ -21,6 +21,8 @@ pub(crate) fn remap_plugin(plugin: &mut Plugin, mapping: &HashMap<u32, u32>) -> 
         for subrecord in &mut record.subrecords {
             if subrecord.tag == Tag::new(b"VMAD") {
                 remap_vmad(&mut subrecord.data, mapping)?;
+            } else if record.tag == Tag::new(b"HAZD") && subrecord.tag == Tag::new(b"DATA") {
+                remap_hazd_data(&mut subrecord.data, mapping)?;
             } else if form_id_field(record.tag, subrecord.tag) {
                 map_words(&mut subrecord.data, mapping);
             }
@@ -41,6 +43,24 @@ pub(crate) fn remap_plugin(plugin: &mut Plugin, mapping: &HashMap<u32, u32>) -> 
         .map(|id| remap(*id, mapping))
         .collect();
     *plugin = updated;
+    Ok(())
+}
+
+fn remap_hazd_data(data: &mut [u8], mapping: &HashMap<u32, u32>) -> Result<()> {
+    if data.len() != 40 {
+        return Err(Error::SubrecordSize {
+            record: Tag::new(b"HAZD"),
+            tag: Tag::new(b"DATA"),
+            len: data.len(),
+            expected: "40".into(),
+        });
+    }
+    for chunk in data[24..].as_chunks_mut::<4>().0 {
+        let old = u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
+        if let Some(new) = mapping.get(&old) {
+            chunk.copy_from_slice(&new.to_le_bytes());
+        }
+    }
     Ok(())
 }
 
@@ -115,6 +135,7 @@ fn form_id_field(record: Tag, field: Tag) -> bool {
         (b"INFO", b"LNAM"),
         (b"MGEF", b"KWDA"),
         (b"MGEF", b"ESCE"),
+        (b"HAZD", b"MNAM"),
         (b"INFO", b"TCLT"),
     ];
     scalar
