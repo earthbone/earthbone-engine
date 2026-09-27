@@ -46,6 +46,8 @@ pub enum Error {
     NonFinite,
     #[error("condition requires tempering item context")]
     TemperingContext,
+    #[error("condition function {0} has no usable Creation Kit contract")]
+    Contract(u16),
     #[error("condition count overflow or cyclic form list")]
     Inventory,
 }
@@ -140,6 +142,12 @@ pub fn supports_function(function: u16) -> bool {
             | 630
             | 655
             | 659
+            | 263
+            | 306
+            | 398
+            | 465
+            | 597
+            | 624
     )
 }
 
@@ -408,6 +416,58 @@ fn function_value(
                     .is_some_and(|actor| actor.equipped.contains(&item)),
             )
         }
+        263 => {
+            no_parameter(c)?;
+            boolean(
+                world
+                    .actor(subject)
+                    .ok_or(Error::Form(subject))?
+                    .weapon_drawn,
+            )
+        }
+        306 => {
+            no_parameter(c)?;
+            let equipped = world
+                .actor(subject)
+                .ok_or(Error::Form(subject))?
+                .equipped
+                .iter()
+                .copied()
+                .collect::<Vec<_>>();
+            boolean(
+                equipped
+                    .into_iter()
+                    .any(|item| is_equipped_torch(world, item)),
+            )
+        }
+        398 => {
+            let list = resolve(world, context.owner, raw, Some(*b"FLST"))?;
+            let weapons = world.actor(subject).ok_or(Error::Form(subject))?;
+            let hands = [weapons.left_weapon, weapons.right_weapon];
+            let forms = world.form_list(list).cloned().ok_or(Error::Form(list))?;
+            boolean(
+                hands
+                    .into_iter()
+                    .flatten()
+                    .any(|weapon| forms.contains(&weapon)),
+            )
+        }
+        465 => {
+            let keyword = resolve(world, context.owner, raw, Some(*b"KYWD"))?;
+            inventory_count(world, subject, keyword, &mut Vec::new())? as f32
+        }
+        479 | 487 => return Err(Error::Contract(c.function)),
+        597 => {
+            if raw > 1 {
+                return Err(Error::Parameter(c.function, raw));
+            }
+            equipped_item_type(world, subject, raw == 0)? as f32
+        }
+        624 => {
+            let container = resolve_reference(world, context.owner, raw)?;
+            let base = world.base_of(subject).unwrap_or(subject);
+            boolean(world.item_count(container, base) > 0)
+        }
         264 => {
             let spell = resolve(world, context.owner, raw, Some(*b"SPEL"))?;
             boolean(
@@ -503,6 +563,82 @@ fn function_value(
         659 => boolean(context.tempering_enchanted.ok_or(Error::TemperingContext)?),
         other => return Err(Error::Function(other)),
     })
+}
+
+fn is_equipped_torch(world: &World, item: GlobalFormId) -> bool {
+    let Some(record) = world
+        .record(item)
+        .filter(|record| record.tag == Tag(*b"LIGH"))
+    else {
+        return false;
+    };
+    let Some(flags) = record
+        .find(Tag(*b"DATA"))
+        .and_then(|data| data.get(12..16))
+        .and_then(|data| data.try_into().ok())
+        .map(u32::from_le_bytes)
+    else {
+        return false;
+    };
+    flags & 2 != 0
+}
+
+fn equipped_item_type(
+    world: &mut World,
+    actor: GlobalFormId,
+    left_hand: bool,
+) -> Result<u8, Error> {
+    let state = world.actor(actor).ok_or(Error::Form(actor))?;
+    let (spell, weapon) = if left_hand {
+        (state.left_spell, state.left_weapon)
+    } else {
+        (state.right_spell, state.right_weapon)
+    };
+    if spell.is_some() {
+        return Ok(9);
+    }
+    let Some(weapon) = weapon else {
+        return Ok(0);
+    };
+    let Some(record) = world.record(weapon).filter(|record| !record.is_deleted()) else {
+        return Err(Error::Form(weapon));
+    };
+    match record.tag.as_bytes() {
+        b"WEAP" => {
+            let animation = record
+                .find(Tag(*b"DNAM"))
+                .and_then(|data| data.first())
+                .copied()
+                .ok_or(Error::Form(weapon))?;
+            match animation {
+                0 => Ok(0),
+                1..=4 => Ok(animation),
+                5 => Ok(5),
+                6 => Ok(6),
+                7 => Ok(7),
+                8 => Ok(8),
+                9 => Ok(12),
+                _ => Err(Error::Form(weapon)),
+            }
+        }
+        b"ARMO" => {
+            let slots = record
+                .find(Tag(*b"BOD2"))
+                .or_else(|| record.find(Tag(*b"BODT")))
+                .and_then(|data| data.get(..4))
+                .and_then(|data| data.try_into().ok())
+                .map(u32::from_le_bytes)
+                .ok_or(Error::Form(weapon))?;
+            Ok(if slots & (1 << 8) != 0 { 10 } else { 0 })
+        }
+        b"LIGH" => Ok(if is_equipped_torch(world, weapon) {
+            11
+        } else {
+            0
+        }),
+        b"SCRL" | b"SPEL" => Ok(9),
+        _ => Err(Error::Form(weapon)),
+    }
 }
 
 /// Shared actor queries keep package and gameplay predicates on the same state.

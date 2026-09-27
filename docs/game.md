@@ -1234,8 +1234,9 @@ earlier member can change inventory or queue events.
 Active-effect recipients remain pending with magic execution.
 
 The condition evaluator implements functions 47, 56, 58, 59, 72, 74, 136,
-182, 264, 277, 289, 359, 448, 543, 560, 629, 630 and 659. This is a bounded set,
-not the entire CTDA contract. It supports ordered AND/OR groups, numeric or
+182, 263, 264, 277, 289, 306, 359, 398, 448, 465, 543, 560, 597, 624, 629,
+630 and 659. This is a bounded set, not the entire CTDA contract. It supports
+ordered AND/OR groups, numeric or
 global comparisons, explicit references and caller-supplied quest aliases.
 Reserved PlayerRef resolves to the runtime player even without a placed record.
 New runtime players retain reserved FormID 00000014 and use the Player NPC
@@ -1254,6 +1255,19 @@ and an explicit condition error. The CK page records keyword failures on actor
 inventories and CK-defined reference inventories. The engine uses its shared
 inventory totals for both actors and containers, so keyword queries have the
 same defined result for either holder.
+
+AI-50 adds `IsWeaponOut` from actor draw state, `IsActorUsingATorch` from an
+equipped carryable `LIGH`, `IsWeaponInList` from assigned weapon hands,
+`GetKeywordItemCount` from the shared inventory totals, `GetEquippedItemType`
+from the CK hand values, and `GetInContainer` from an item's base-form count in
+the referenced container. The CK `GetEquippedItemType_-_Actor.wikitext` page
+defines hand arguments 0 and 1 and return values 0 through 12. xEdit's
+`wbDefinitionsTES5.pas` supplies the CTDA function ids and parameter types.
+The CK corpus has no usable semantic contract for conditions 479
+`GetIsUsedItemEquipType` and 487 `IsCarryable`, so evaluation returns a typed
+condition contract diagnostic for those ids. AI-50 fixtures cover true, false,
+and invalid form or hand contexts for the implemented functions, and the
+diagnostic paths for both source gaps.
 
 Sources consulted were local xEdit `wbDefinitionsTES5.pas` for CTDA, COBJ and
 FURN WBDT, CK `GetItemCount_-_ObjectReference.wikitext` for the query forms,
