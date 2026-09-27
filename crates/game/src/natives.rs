@@ -19,7 +19,7 @@ use soe_papyrus::{NativeCall, NativeReturn, ObjectId, Value, Vm};
 use crate::clock::GameClock;
 use crate::combat::Hand;
 use crate::conditions;
-use crate::world::{AnimationListener, Handle, LeveledEntry, LosListener, World, reaction};
+use crate::world::{reaction, AnimationListener, Handle, LeveledEntry, LosListener, World};
 
 pub type Shared = Rc<RefCell<World>>;
 
