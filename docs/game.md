@@ -32,7 +32,8 @@ week 6 to 9 gate.
   (what the package driver reads), `save` (the `SOEW` format) and `hash`
   (the determinism hash).
 - `vmad`: the `VMAD` subrecord. Scripts, their filled properties, quest stage
-  fragments, INFO and PACK begin, end and change fragments, and alias
+  fragments, INFO and PACK begin, end and change fragments, SCEN begin, end
+  and phase fragments, and alias
   scripts. Round-trips through `write` at the version and object format the
   record was authored with, not a fixed one, since installed Skyrim.esm and
   DLC records mix object format 1 and 2 and VMAD versions 4 and 5.
@@ -411,6 +412,16 @@ running original-game comparison.
   covering object format 1 and 2 and versions 4 and 5 among installed
   records. QUST view. Clock. Scenario grammar and the log diff. The native
   registry count against the hand-kept constant.
+- `tests/fmt_18_scene_vmad.rs` checks SCEN begin, end and phase fragments
+  against independently authored VMAD bytes, all begin/end flag combinations,
+  truncation, unknown flags and trailing data. With `SKYRIM_DATA`, it checks
+  every winning SCEN VMAD in Skyrim.esm, Update.esm and the three DLC masters
+  and requires each fragment kind to occur. The decoder retains phase order,
+  phase flags, 32-bit indices and marker bytes. xEdit's
+  `wbVMADFragmentedSCEN` defines the fields and FallrimTools' `FragmentScen`
+  confirms the counted phase list. Champollion describes PEX functions but
+  does not define this record tail, so its fragment names did not supply a
+  reusable VMAD reader. Scene execution remains in DLG-09.
 - `tests/quest_flow.rs`: a synthetic master with a start-game-enabled quest,
   a lever whose script sets stage 10, a fragment on stage 10 that completes the
   objective, gives the player gold and sets stage 20 which completes the quest,
