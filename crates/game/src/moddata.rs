@@ -167,22 +167,101 @@ fn subject_of(world: &World, id: GlobalFormId) -> Subject {
     }
 }
 
-/// True when a distribution carries a filter this module cannot evaluate yet.
-/// Skipping is the safe direction: applying a level filtered rule to every
-/// actor would be worse than not applying it, and the report counts it.
-fn has_unsupported_filter(d: &spid::Distribution) -> bool {
-    let l = &d.levels;
-    let t = &d.traits;
-    l.actor_level.is_some()
-        || !l.skill_levels.is_empty()
-        || !l.skill_weights.is_empty()
-        || t.female.is_some()
-        || t.unique.is_some()
-        || t.summonable.is_some()
-        || t.child.is_some()
-        || t.leveled.is_some()
-        || t.teammate.is_some()
-        || t.starts_dead.is_some()
+fn in_range(value: u32, range: spid::Range) -> bool {
+    range.min <= value && value <= range.max
+}
+
+/// Match SPID level and base traits that can be read from an NPC record.
+fn matches_spid_actor_filters(world: &World, base: GlobalFormId, d: &spid::Distribution) -> bool {
+    let Some(npc) = world.npc(base) else {
+        return false;
+    };
+    let levels = &d.levels;
+    let actor_level = npc.level_for(world.player_level);
+    if levels
+        .actor_level
+        .is_some_and(|range| !in_range(actor_level, range))
+    {
+        return false;
+    }
+    let skills = npc.stats.unwrap_or_default();
+    for filter in &levels.skill_levels {
+        let Some(value) = skills
+            .skills
+            .get(filter.skill as usize)
+            .zip(skills.skill_offsets.get(filter.skill as usize))
+            .map(|(value, offset)| u32::from(*value) + u32::from(*offset))
+        else {
+            return false;
+        };
+        if !in_range(value, filter.range) {
+            return false;
+        }
+    }
+    if !levels.skill_weights.is_empty() {
+        let Some(raw_class) = npc.class else {
+            return false;
+        };
+        let class_id = world.order().resolve(usize::from(base.file), raw_class);
+        let Some(class_record) = world.record(class_id) else {
+            return false;
+        };
+        let Ok(Some(class)) = crate::class::Class::from_record(class_record) else {
+            return false;
+        };
+        for filter in &levels.skill_weights {
+            let Some(value) = class.skill_weights.get(filter.skill as usize) else {
+                return false;
+            };
+            if !in_range(u32::from(*value), filter.range) {
+                return false;
+            }
+        }
+    }
+
+    let traits = &d.traits;
+    if traits
+        .female
+        .is_some_and(|expected| npc.is_female() != expected)
+        || traits
+            .unique
+            .is_some_and(|expected| (npc.config.flags & crate::npc::flags::UNIQUE != 0) != expected)
+        || traits.summonable.is_some_and(|expected| {
+            (npc.config.flags & crate::npc::flags::SUMMONABLE != 0) != expected
+        })
+        || traits.leveled.is_some_and(|expected| {
+            (npc.config.flags & crate::npc::flags::PC_LEVEL_MULT != 0) != expected
+        })
+    {
+        return false;
+    }
+    if traits.child.is_some_and(|expected| {
+        let is_child = npc
+            .race
+            .map(|raw| world.order().resolve(usize::from(base.file), raw))
+            .and_then(|race| world.editor_id(race))
+            .is_some_and(|editor_id| editor_id.contains("RaceChild"));
+        is_child != expected
+    }) {
+        return false;
+    }
+    if traits.teammate.is_some_and(|expected| {
+        let potential_follower_faction = GlobalFormId {
+            file: 0,
+            object: 0x0005_C84D,
+        };
+        let is_teammate = npc.factions.iter().any(|(raw, _)| {
+            world.order().resolve(usize::from(base.file), *raw) == potential_follower_faction
+        });
+        is_teammate != expected
+    }) {
+        return false;
+    }
+    true
+}
+
+fn has_actor_only_filter(d: &spid::Distribution) -> bool {
+    d.traits.starts_dead.is_some()
 }
 
 /// Reads, resolves and applies every configuration file under `roots`, lowest
@@ -288,7 +367,7 @@ fn apply_spid(world: &mut World, path: &Path, report: &mut ModDataReport) {
         let Some(what) = d.form.resolve(world.order()) else {
             continue;
         };
-        if has_unsupported_filter(d) {
+        if has_actor_only_filter(d) {
             report.skipped_unsupported_filter += 1;
             continue;
         }
@@ -306,6 +385,9 @@ fn apply_spid(world: &mut World, path: &Path, report: &mut ModDataReport) {
                 continue;
             }
             if !d.forms.matches(world.order(), &subject) {
+                continue;
+            }
+            if !matches_spid_actor_filters(world, *base, d) {
                 continue;
             }
             if !roll(world, d.chance) {
