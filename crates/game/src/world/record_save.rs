@@ -7,7 +7,9 @@ use std::collections::BTreeMap;
 use soe_esm::{plugin::Subrecord, GlobalFormId, Slot, Tag};
 use soe_papyrus::{vm::state::Writer, VmError};
 
-use super::record_overrides::{raw_words, ListRecordExtra, NpcRecordExtra, RecordOverride};
+use super::record_overrides::{
+    raw_words, ItemRecordExtra, ListRecordExtra, NpcRecordExtra, RecordOverride,
+};
 use super::save::{read_form_id, read_opt_form_id, write_form_id, write_opt_form_id, FormReader};
 use super::{World, T};
 
@@ -65,6 +67,18 @@ impl World {
                 w.bool(list.section_present);
                 w.bytes(&list.entry_chances);
             }
+            w.bool(value.item.is_some());
+            if let Some(item) = &value.item {
+                w.bool(item.form_flags.is_some());
+                if let Some((flags, unknown)) = item.form_flags {
+                    w.u32(flags);
+                    w.u16(unknown);
+                }
+                w.bool(item.value_changed);
+                w.bool(item.full_name_changed);
+                w.u32(item.unnamed_flags);
+                w.bytes(&item.trailing_data);
+            }
             w.len(value.links.len());
             for (raw, link) in &value.links {
                 w.u32(*raw);
@@ -103,7 +117,15 @@ impl World {
                 || self.order.winner(text_origin).is_none_or(|r| {
                     !matches!(
                         &r.tag.0,
-                        b"NPC_" | b"RACE" | b"FLST" | b"LVLN" | b"LVLI" | b"LVSP"
+                        b"NPC_"
+                            | b"RACE"
+                            | b"FLST"
+                            | b"LVLN"
+                            | b"LVLI"
+                            | b"LVSP"
+                            | b"ARMO"
+                            | b"WEAP"
+                            | b"AMMO"
                     )
                 })
             {
@@ -115,7 +137,15 @@ impl World {
                 .filter(|rec| {
                     matches!(
                         &rec.tag.0,
-                        b"NPC_" | b"RACE" | b"FLST" | b"LVLN" | b"LVLI" | b"LVSP"
+                        b"NPC_"
+                            | b"RACE"
+                            | b"FLST"
+                            | b"LVLN"
+                            | b"LVLI"
+                            | b"LVSP"
+                            | b"ARMO"
+                            | b"WEAP"
+                            | b"AMMO"
                     ) && !rec.is_deleted()
                 })
                 .ok_or_else(|| bad("missing record origin"))?;
@@ -155,6 +185,22 @@ impl World {
                     form_flags,
                     section_present: r.bool()?,
                     entry_chances: r.bytes()?.to_vec(),
+                })
+            } else {
+                None
+            };
+            let item = if version >= 37 && r.bool()? {
+                let form_flags = if r.bool()? {
+                    Some((r.u32()?, r.u16()?))
+                } else {
+                    None
+                };
+                Some(ItemRecordExtra {
+                    form_flags,
+                    value_changed: r.bool()?,
+                    full_name_changed: r.bool()?,
+                    unnamed_flags: r.u32()?,
+                    trailing_data: r.bytes()?.to_vec(),
                 })
             } else {
                 None
@@ -200,6 +246,9 @@ impl World {
                 if list.is_some() {
                     return Err(bad("NPC has list metadata"));
                 }
+                if item.is_some() {
+                    return Err(bad("NPC has item metadata"));
+                }
                 crate::npc::Npc::from_record(&record, localized)
                     .map_err(|e| VmError::State(e.to_string()))?;
             } else if record.tag == T(b"RACE") {
@@ -222,6 +271,7 @@ impl World {
                     || original_race.is_some()
                     || body_tint.is_some()
                     || pending_form_flags.is_some()
+                    || item.is_some()
                     || unchanged(&record) != unchanged(original)
                     || record.all(T(b"WNAM")).count() != 1
                 {
@@ -252,6 +302,19 @@ impl World {
                     || links.keys().any(|token| *token != raw)
                 {
                     return Err(bad("invalid race skin link"));
+                }
+            } else if matches!(record.tag.as_bytes(), b"ARMO" | b"WEAP" | b"AMMO") {
+                if item.is_none()
+                    || temporary_for.is_some()
+                    || text_origin != id
+                    || plain_full
+                    || original_race.is_some()
+                    || body_tint.is_some()
+                    || pending_form_flags.is_some()
+                    || list.is_some()
+                    || record != *original
+                {
+                    return Err(bad("invalid saved item override"));
                 }
             } else {
                 let tag = if record.tag == T(b"FLST") {
@@ -286,6 +349,7 @@ impl World {
                     || original_race.is_some()
                     || body_tint.is_some()
                     || pending_form_flags.is_some()
+                    || item.is_some()
                     || unchanged(original) != unchanged(&record)
                     || !new.starts_with(&old)
                     || new
@@ -318,6 +382,7 @@ impl World {
                     pending_form_flags,
                 },
                 list,
+                item,
             };
             if values.insert(id, value).is_some() {
                 return Err(bad("duplicate NPC record"));

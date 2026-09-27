@@ -732,6 +732,17 @@ section. An installed-data test checks that Skyrim.esm contains all three
 vanilla record types. Decoding does not assign meaning to unnamed flag bits or
 remaining bytes, and the external corpus currently has no item change forms.
 
+`World::restore_vanilla_items` in the game crate attaches each decoded item
+change to the matching live record override after validating the entire pass.
+This keeps `World::record`, name queries and other record-backed readers on the
+shared form table. SOEW version 37 retains the form mask, value and full-name
+markers, unnamed flags and trailing bytes across engine save/load. xEdit labels
+the first word Mask Invert Flags and the second word unknown, but provides no
+application rule. The runtime preserves both without applying a guessed flag
+operation. Value and full-name alternatives are `wbNull`, so they carry no
+replacement value or name in these payloads. SAV-34 covers all three item
+types, atomic failure, post-load queries and installed Skyrim records.
+
 ## Projectile payload source audit
 
 SAV-11 remains blocked. The PMIS, PGRE and PBEA payloads need an established

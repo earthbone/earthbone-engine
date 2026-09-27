@@ -27,6 +27,21 @@ pub struct ListRecordExtra {
     pub entry_chances: Vec<u8>,
 }
 
+/// Saved base-object fields retained for ARMO, WEAP and AMMO records.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ItemRecordExtra {
+    /// The 32-bit mask and following 16-bit word from the saved form flags.
+    pub form_flags: Option<(u32, u16)>,
+    /// Whether the zero-byte object-value field is marked changed.
+    pub value_changed: bool,
+    /// Whether the zero-byte full-name field is marked changed.
+    pub full_name_changed: bool,
+    /// Change flags without a named xEdit field.
+    pub unnamed_flags: u32,
+    /// Payload bytes after the defined saved fields.
+    pub trailing_data: Vec<u8>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct RecordOverride {
     pub origin: GlobalFormId,
@@ -37,6 +52,7 @@ pub(super) struct RecordOverride {
     pub plain_full: bool,
     pub npc: NpcRecordExtra,
     pub list: Option<ListRecordExtra>,
+    pub item: Option<ItemRecordExtra>,
 }
 
 pub(super) fn raw_words(record: &Record) -> BTreeSet<u32> {
@@ -61,6 +77,7 @@ impl RecordOverride {
             plain_full: false,
             npc: NpcRecordExtra::default(),
             list: None,
+            item: None,
         }
     }
 
@@ -120,5 +137,11 @@ impl World {
 
     pub fn restored_list_extra(&self, id: GlobalFormId) -> Option<&ListRecordExtra> {
         self.record_overrides.get(&id)?.list.as_ref()
+    }
+
+    /// Return the decoded saved fields attached to an item record.
+    #[must_use]
+    pub fn restored_item_extra(&self, id: GlobalFormId) -> Option<&ItemRecordExtra> {
+        self.record_overrides.get(&id)?.item.as_ref()
     }
 }
