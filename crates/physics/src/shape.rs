@@ -175,8 +175,8 @@ impl Collider {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Collected {
     pub colliders: Vec<Collider>,
-    /// Authored character-controller phantoms. These
-    /// are never inserted into the static collision world automatically.
+    /// Decoded simple-shape phantoms. These are never inserted into the
+    /// static collision world automatically.
     pub phantoms: Vec<Phantom>,
     /// Blocks that were referenced but not decoded, with the reason.
     pub skipped: Vec<(BlockRef, String)>,
@@ -195,7 +195,9 @@ impl Collected {
     /// [`controller_shape`] resolves the same question when picking which
     /// authored phantom to use.
     pub fn has_authored_controller(&self) -> bool {
-        !self.phantoms.is_empty()
+        self.phantoms
+            .iter()
+            .any(|phantom| phantom.layer == Layer::CHAR_CONTROLLER)
     }
 }
 
@@ -441,6 +443,7 @@ pub fn controller_shape(collected: &Collected, scale: f32) -> (Iso, Shape) {
     let authored = collected
         .phantoms
         .iter()
+        .filter(|phantom| phantom.layer == Layer::CHAR_CONTROLLER)
         .max_by(|a, b| extent(&a.shape).total_cmp(&extent(&b.shape)));
     match authored {
         Some(phantom) => (phantom.transform, phantom.shape.clone()),
@@ -583,12 +586,6 @@ impl<'a> Walker<'a> {
         };
         let body = match self.bhk(body_ref)? {
             Some(Bhk::SimpleShapePhantom(body)) => {
-                if body.layer != Layer::CHAR_CONTROLLER {
-                    self.out
-                        .skipped
-                        .push((body_ref, "non-controller phantom".into()));
-                    return Ok(());
-                }
                 let previous_skips = self.out.skipped.len();
                 if let Some(shape) = self.shape(body.shape, 0)? {
                     let local = Iso {

@@ -81,8 +81,12 @@ fn collision_object(body: i32) -> Block {
 }
 
 fn simple_phantom(shape: i32) -> Block {
+    simple_phantom_on_layer(shape, 30)
+}
+
+fn simple_phantom_on_layer(shape: i32, layer: u8) -> Block {
     let mut w = W::new();
-    w.i32(shape).u8(30).u8(0x42).u16(0x1234).zeros(28);
+    w.i32(shape).u8(layer).u8(0x42).u16(0x1234).zeros(28);
     for column in [
         [0.0, 1.0, 0.0, 0.0],
         [-1.0, 0.0, 0.0, 0.0],
@@ -147,6 +151,43 @@ fn cmb_29_authored_controller_keeps_filter_geometry_and_transform() {
     assert_eq!(*b, Vec3::new(0.0, 0.0, 1.25) * UNITS_PER_METER);
     let bounds = phantom.shape.aabb(&phantom.transform);
     assert!((bounds.max.z - bounds.min.z - 1.5 * UNITS_PER_METER).abs() < 0.0001);
+}
+
+#[test]
+fn fmt_22_named_trigger_phantom_keeps_volume_and_filter_without_solid_body() {
+    let mut blocks = controller_blocks();
+    if let Block::Node(node) = &mut blocks[0] {
+        node.av.net.name = "TriggerVolume".into();
+    }
+    blocks[2] = simple_phantom_on_layer(3, Layer::TRIGGER.0);
+
+    let collected = collect_blocks(&header(), &blocks, &[BlockRef(0)]).unwrap();
+
+    assert!(collected.colliders.is_empty());
+    assert!(collected.skipped.is_empty());
+    assert_eq!(collected.phantoms.len(), 1);
+    let phantom = &collected.phantoms[0];
+    assert_eq!(phantom.node_name, "TriggerVolume");
+    assert_eq!(phantom.layer, Layer::TRIGGER);
+    assert_eq!(phantom.filter_flags, 0x42);
+    assert_eq!(phantom.group, 0x1234);
+    assert_eq!(
+        phantom.transform.translation,
+        Vec3::new(10.0, 20.0, 30.0) + Vec3::new(1.0, 2.0, 3.0) * UNITS_PER_METER
+    );
+    let Shape::Material { id, shape } = &phantom.shape else {
+        panic!("missing phantom material");
+    };
+    assert_eq!(*id, 1591009235);
+    let Shape::Capsule { radius, .. } = shape.as_ref() else {
+        panic!("missing phantom volume");
+    };
+    assert_eq!(*radius, 0.25 * UNITS_PER_METER);
+    assert!(!collected.has_authored_controller());
+    assert_eq!(
+        soe_physics::controller_shape(&collected, 1.0).1,
+        soe_physics::generated_controller_shape(1.0)
+    );
 }
 
 #[test]

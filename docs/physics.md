@@ -337,7 +337,7 @@ code change was needed.
   rays, which is what the simulation needs so far.
 - The convex shell radius (0.05 m on most shapes) is not added to boxes
   and hulls, so their surfaces sit 3.5 units inside where Havok puts them.
-- `bhkNiTriStripsShape`, phantoms,
+- `bhkNiTriStripsShape`, AABB and caching phantoms,
   constraints (hinge and ragdoll data are parsed as `Other`).
 - Keyframed and animated statics (doors, drawbridges) are loaded at their
   rest pose only.
@@ -510,18 +510,29 @@ routes and render-camera interpolation are covered in `docs/godot-host.md`.
 ## Authored actor controller geometry, CMB-29
 
 `bhkSimpleShapePhantom` decodes the published shape reference, Havok filter
-(layer, flags and group), and matrix. `shape::collect` retains controller-layer
-phantoms in `Collected::phantoms`, separate from static rigid bodies. Each
-entry carries its node, material-bearing shape tree and root-space transform.
-Lengths are converted from Havok metres to game units once. Capsule endpoints
-are cap centres, so total axial extent includes two radii.
+(layer, flags and group), and matrix. `shape::collect` retains these phantoms
+in `Collected::phantoms`, separate from static rigid bodies. Each entry carries
+its node, material-bearing shape tree and root-space transform. Lengths are
+converted from Havok metres to game units once. Capsule endpoints are cap
+centres, so total axial extent includes two radii. Trigger and other non-
+controller layers keep their volume and filter data but are not static
+colliders. The controller-shape helpers consider only `CHAR_CONTROLLER`
+phantoms.
 
 The layout comes from local `nifxml/nif.xml` (`bhkWorldObject` and
 `bhkSimpleShapePhantom`) and `nifly/src/bhk.cpp`. The reader reuses the existing
-shape-tree decoder and matrix conversion. Non-controller phantoms retain the
-previous skipped behavior. Truncation, non-finite geometry, invalid capsule
-radii, singular transforms and incomplete controller shape trees reject.
-No phantom is automatically installed as a static body.
+shape-tree decoder and matrix conversion. Truncation, non-finite geometry,
+invalid capsule radii, singular transforms and incomplete phantom shape trees
+reject. Nif.xml describes phantoms as non-physical objects that report overlap
+transitions. This decoder preserves their data only. No phantom is
+automatically installed as a static body or treated as a solid contact body.
+
+`fmt_22_named_trigger_phantom_keeps_volume_and_filter_without_solid_body` in
+`crates/physics/tests/synthetic.rs` builds a named trigger phantom from the
+published layout. It checks the volume, transform and filter fields, and that
+the controller resolver does not use it as an actor controller. Jolt's sensor
+API likewise separates overlap notifications from collision response, but
+this decoder does not create a Jolt sensor.
 
 The source choice was corrected using the published
 [Dynamic Collision Adjustment implementation](https://github.com/ersh1/DynamicCollisionAdjustment/blob/main/src/AdjustmentHandler.cpp)
