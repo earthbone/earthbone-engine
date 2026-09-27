@@ -1,25 +1,34 @@
 # Saved base-object value and name fields
 
-SAV-53 is blocked as of 2026-09-20. The inspected public sources identify
-`CHANGE_BASE_OBJECT_VALUE` and `CHANGE_BASE_OBJECT_FULLNAME`, but do not
-establish their Skyrim Special Edition payload encodings. No controlled
-reference-game fixtures isolating those flags were available. This research
-checkpoint does not satisfy the row's completion check and adds no decoder.
+SAV-53 is established from xEdit's public Skyrim save definitions. The
+`CHANGE_BASE_OBJECT_VALUE` field uses mask `0x00000002`, and
+`CHANGE_BASE_OBJECT_FULLNAME` uses mask `0x00000004`. Both flags select a
+zero-byte field. The optional generic form-flags field comes first and uses six
+bytes. This fixes the boundary before later type-specific fields without
+claiming that the value or name is serialized in the save.
 
 ## Established and missing boundaries
 
 | Section | Source evidence | Boundary |
 |---|---|---|
 | Generic form flags, bit 0 | xEdit `wbUnionCHANGE_FORM_FLAGS` and UESP ChangeFlags | One 32-bit word followed by one 16-bit word, six bytes in total |
-| Base-object value, bit 1, mask `0x00000002` | xEdit flag declarations and UESP ChangeFlags | Payload presence, width and interpretation remain unestablished |
-| Base-object full name, bit 2, mask `0x00000004` | xEdit flag declarations and UESP ChangeFlags | Payload presence, length encoding, string encoding and terminator rules remain unestablished |
+| Base-object value, bit 1, mask `0x00000002` | xEdit `wbUnionCHANGE_BASE_OBJECT_VALUE` | Zero bytes |
+| Base-object full name, bit 2, mask `0x00000004` | xEdit `wbUnionCHANGE_BASE_OBJECT_FULLNAME` | Zero bytes |
 
 xEdit orders the generic flags, value and name unions in that sequence for
 the base-object types it describes. Both alternatives of each value/name
-union are `wbNull`. The enclosing `wbChangedFormData` retains undecoded data.
-That sequence is a source-declared skeleton, not proof that either flagged
-field consumes zero bytes or that the following field begins at a known
-offset. The six-byte generic section does not establish the other boundaries.
+union are `wbNull`. In the same file, `wbNull` is defined as
+`wbByteArray('Unused', -255)`. xEdit's `TwbByteArrayDef.GetSize` maps `-255`
+to zero with the comment `Explicitly null for wbNull`. Thus the flags consume
+no payload bytes, and the next field begins directly after the optional
+generic form-flags section. `ChangedFlag01Decider` selects the value union
+from bit 1, while `ChangedFlag02Decider` selects the name union from bit 2.
+
+The save crate exposes this boundary through
+`ChangeForm::base_object_fields`. It reads the optional six-byte form-flags
+section, reports whether either zero-byte field is flagged, and returns the
+remaining byte count for the dependent decoder. It does not claim to recover
+the value or name themselves.
 
 The same skeleton appears for ACTI, TACT, ARMO, BOOK, CONT, DOOR, LIGH, MISC,
 APPA, STAT, MSTT, FURN, WEAP, AMMO, KEYM, ALCH, IDLM, NAVM, WOOP, MGEF and
@@ -40,8 +49,9 @@ repository was modified and no external implementation was copied.
 
 | Source and exact revision | Files or symbols inspected | Finding |
 |---|---|---|
-| xEdit, `6dbbed51d92456e39ffb916eece56040e91114b5` | `Core/wbDefinitionsTES5Saves.pas`, `wbChangeFlags012`, `wbUnionCHANGE_FORM_FLAGS`, `wbUnionCHANGE_BASE_OBJECT_VALUE`, `wbUnionCHANGE_BASE_OBJECT_FULLNAME`, `wbChangedFormData` | Names the flags and the generic six-byte section. Both target unions are placeholders. |
-| xEdit public file revision, `973b80ec555f2fbdc5ee8c1a15113d23ecb6ea2d` | [Skyrim save definitions](https://github.com/TES5Edit/TES5Edit/blob/973b80ec555f2fbdc5ee8c1a15113d23ecb6ea2d/Core/wbDefinitionsTES5Saves.pas#L5526), plus the five most recent file-history entries | The latest returned file revision has the same two placeholders. Recent save-loader changes do not supply the fields. |
+| xEdit, `6dbbed51d92456e39ffb916eece56040e91114b5` | `Core/wbDefinitionsTES5Saves.pas`, `wbChangeFlags012`, both target unions, `wbNull` | Defines masks 2 and 4, the field sequence, and zero-byte alternatives. |
+| xEdit, `6dbbed51d92456e39ffb916eece56040e91114b5` | `Core/wbInterface.pas`, `TwbByteArrayDef.GetSize` | Defines `-255` as zero bytes explicitly for `wbNull`. |
+| xEdit public file revision, `973b80ec555f2fbdc5ee8c1a15113d23ecb6ea2d` | [Skyrim save definitions](https://github.com/TES5Edit/TES5Edit/blob/973b80ec555f2fbdc5ee8c1a15113d23ecb6ea2d/Core/wbDefinitionsTES5Saves.pas#L5526), plus the five most recent file-history entries | The latest returned file revision retains the same zero-byte alternatives. Recent save-loader changes do not add serialized values or names. |
 | xEdit, `6dbbed51d92456e39ffb916eece56040e91114b5` | `Core/wbDefinitionsFNVSaves.pas`, the two corresponding unions | Defines a 32-bit value and a length-prefixed name for Fallout New Vegas. These definitions are not Skyrim evidence. |
 | FallrimTools, `61bb57d895f023617cb55045a4907849fd1ff566` | `src/main/java/resaver/ess/ChangeForm.java::getData` and `ChangeFormDefault.java` | No typed decoder for these base-object fields. The fallback retains uninterpreted bytes. |
 | skymp, `756fb86b05ab5c2fae4f9bc3c6d52ca580b8bdd3` | `savefile/include/savefile/SFStructure.h::ChangeForm` and the `SFChangeFormNPC`/`SFChangeFormACHR` source inventory | Generic payload is a byte vector. Specialized change-form classes cover NPC and ACHR, not the target fields. |
@@ -88,11 +98,11 @@ zero ARMO, WEAP or AMMO change forms. Its test is
 recorded result and did not rerun or extend the survey. It does not establish
 coverage for the other base-object types. No user save was copied or changed.
 
-SAV-53 requires either a public Skyrim field definition that specifies exact
-boundaries, or controlled reference-game fixtures that isolate both flag
-payloads. Search results and source inventories alone cannot satisfy it.
-A controlled fixture set must establish the following before a decoder can
-use its observations:
+The public xEdit definitions now satisfy SAV-53's field-boundary requirement.
+Controlled reference-game fixtures would be needed to establish serialized
+value or name content if a future source changes either field from `wbNull`.
+Such fixtures must establish the following before a decoder can consume such
+content:
 
 1. Record game build, save version, change-form version, load order, source
    form identity, authored probe and original/new values. Preserve the
@@ -115,4 +125,5 @@ use its observations:
 Only sanitized observations and authored probe material belong in this
 repository. No fixtures with this provenance were located during the audit.
 SAV-31, SAV-33, SAV-35, SAV-37, SAV-39, SAV-41, SAV-43, SAV-47 and SAV-49
-retain their dependency on this unresolved research contract.
+can use the established zero-byte boundaries. Their type-specific payload
+decoders still need their own field evidence and corpus checks.
