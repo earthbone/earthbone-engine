@@ -45,6 +45,16 @@ pub enum EditorError {
         /// Subrecord tag that was repeated.
         tag: Tag,
     },
+    /// A typed field value cannot be represented in its plugin subrecord.
+    #[error("invalid value for {field} on form {form}: {reason}")]
+    InvalidFieldValue {
+        /// Form being edited.
+        form: GlobalFormId,
+        /// Typed field being edited.
+        field: &'static str,
+        /// Reason the value cannot be represented.
+        reason: &'static str,
+    },
     /// Saving the active plugin failed.
     #[error("could not write plugin {path}: {source}")]
     Save {
@@ -54,6 +64,16 @@ pub enum EditorError {
         #[source]
         source: std::io::Error,
     },
+}
+
+/// The typed model path on a winning STAT record and the plugin that supplies
+/// that record.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StatModelField {
+    /// NIF path from the STAT `MODL` field, when present.
+    pub value: Option<String>,
+    /// File name of the plugin that currently supplies the winning record.
+    pub winning_source: String,
 }
 
 /// An opened load order and its editable active plugin.
@@ -147,6 +167,81 @@ impl EditorDocument {
     /// Return the active plugin being edited.
     pub fn active_plugin(&self) -> &Plugin {
         &self.active_plugin
+    }
+
+    /// Inspect the winning STAT model field through the typed ESM view.
+    ///
+    /// The source is the plugin that supplies the winning record, including
+    /// after an override is created in the active plugin.
+    ///
+    /// # Errors
+    /// Returns an error if the form is missing, is not a STAT record, or its
+    /// typed fields are malformed.
+    pub fn stat_model_field(&self, form: GlobalFormId) -> Result<StatModelField, EditorError> {
+        let record_ref = self
+            .load_order
+            .winner_ref(form)
+            .ok_or(EditorError::MissingForm(form))?;
+        let record = self.load_order.record(record_ref);
+        if record.tag != Tag(*b"STAT") {
+            return Err(EditorError::UnsupportedEdit {
+                form,
+                reason: "the typed model field is available only for STAT records",
+            });
+        }
+        let typed = soe_esm::records::stat::Static::from_record(record).map_err(|error| {
+            EditorError::Plugin {
+                name: self.load_order.file(record_ref.file).name.clone(),
+                message: error.to_string(),
+            }
+        })?;
+        Ok(StatModelField {
+            value: typed.model,
+            winning_source: self.load_order.file(record_ref.file).name.clone(),
+        })
+    }
+
+    /// Set a STAT model path, creating an active-plugin override as needed.
+    ///
+    /// This is a typed field edit. The path is stored as the NUL-terminated
+    /// `MODL` string used by the plugin record, and undo restores the prior
+    /// active plugin and winning source.
+    ///
+    /// # Errors
+    /// Returns an error if the form is missing, is not a STAT record, its
+    /// typed fields are malformed, or the value contains a NUL byte.
+    pub fn set_stat_model_field(
+        &mut self,
+        form: GlobalFormId,
+        value: &str,
+    ) -> Result<(), EditorError> {
+        let record_ref = self
+            .load_order
+            .winner_ref(form)
+            .ok_or(EditorError::MissingForm(form))?;
+        let record = self.load_order.record(record_ref);
+        if record.tag != Tag(*b"STAT") {
+            return Err(EditorError::UnsupportedEdit {
+                form,
+                reason: "the typed model field is available only for STAT records",
+            });
+        }
+        soe_esm::records::stat::Static::from_record(record).map_err(|error| {
+            EditorError::Plugin {
+                name: self.load_order.file(record_ref.file).name.clone(),
+                message: error.to_string(),
+            }
+        })?;
+        if value.as_bytes().contains(&0) {
+            return Err(EditorError::InvalidFieldValue {
+                form,
+                field: "STAT.MODL",
+                reason: "model paths cannot contain NUL bytes",
+            });
+        }
+        let mut encoded = value.as_bytes().to_vec();
+        encoded.push(0);
+        self.set_subrecord(form, Tag(*b"MODL"), encoded)
     }
 
     /// Replace or append one subrecord, creating an active-plugin override.

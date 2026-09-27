@@ -291,3 +291,12 @@ every form. The query walks `soe-esm::LoadOrder::winners`. The Godot editor's
 `tutorials/plugins/editor/making_plugins.rst` and `inspector_plugins.rst` describe the dock
 and inspector controls that can display those results. This row implements the Rust search
 operation only, not the Godot dock or inspector controls.
+
+`EditorDocument::stat_model_field` reads `STAT.MODL` through the typed
+`soe-esm::records::stat::Static` view and returns the value with the file name of the winning
+record. `set_stat_model_field` accepts a NIF path without embedded NUL bytes, stores it as the
+record's NUL-terminated `MODL` string, and creates or updates the active-plugin record through
+the undoable edit log. Undo restores both the prior field value and the prior winning plugin.
+The typed access uses xEdit's `STAT` definition, where the generic model data is part of the
+record, and follows Godot's inspector plugin guidance to route property edits through the
+document model. It does not add a Godot inspector control.
