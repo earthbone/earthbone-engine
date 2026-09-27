@@ -211,6 +211,15 @@ impl Context<'_, '_> {
             q.failed = flags & 0x40 != 0;
             q.active = flags & 0x800 != 0;
             q.runtime.other_flags = flags & !STATE_FLAGS;
+            q.lifecycle_task = if flags & !1 == !1 {
+                Some(if flags & 1 != 0 {
+                    crate::quest::state::LifecycleTask::Starting
+                } else {
+                    crate::quest::state::LifecycleTask::Stopping
+                })
+            } else {
+                None
+            };
             if flags & 0x80 != 0 {
                 self.report.stage_wait.insert(id);
             }
