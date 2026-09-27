@@ -188,8 +188,9 @@ bindings, and the classes an interpreter needs are decoded into
 clip generators with their triggers, blenders with their weighted
 children, manual selectors, modifier generators and lists, behavior
 references, blending and generator transition effects, the Skyrim `BS*`
-generators listed above, and event-driven and timer modifiers. Any other
-class is kept as `NodeKind::Unknown` (or `NodeKind::Modifier` with its
+generators listed above, and event-driven, timer and deactivation-event
+modifiers. Any other class is kept as `NodeKind::Unknown` (or
+`NodeKind::Modifier` with its
 enable flag when the class name ends in `Modifier`), so a vanilla or
 Nemesis-patched graph never fails to load because of an unmodelled node.
 The `0_master.hkx` test prints which classes are still unknown, which is
@@ -225,7 +226,8 @@ track by track. That is the model to reproduce.
   are raised from outside (`SendAnimationEvent`, the game's AI and input
   code), from clip triggers (`hkbClipTrigger` at a local time, relative to
   the clip's end when flagged), from state enter and exit notify lists,
-  from modifiers (timer, events-from-range, event-driven), and from the
+  from modifiers (timer, events-from-range, event-driven, and
+  `BSEventOnDeactivateModifier` when it becomes inactive), and from the
   state machine itself (`eventToSendWhenStateOrTransitionChanges`).
 - Delivery is a queue drained during the graph update. State machines
   consume events by matching `TransitionInfo::event_id` against the queue
@@ -369,7 +371,9 @@ What each node does:
   `BSBoneSwitch`, `BSOffsetAnimation`, `BSSynchronizedClip`,
   `BSCyclicBlendTransition`) pass their generator child through.
   `hkbModifierGenerator` also gives an enabled modifier child activation and
-  deactivation lifecycle.
+  deactivation lifecycle. `BSEventOnDeactivateModifier` reads its authored
+  event property and raises that event once when an active instance is
+  deactivated.
 - `hkbBehaviorReferenceGenerator` and unmodelled classes yield the
   reference pose at weight zero and are listed in `Unsupported`.
 
@@ -388,6 +392,10 @@ ends on the walk, the wildcard cuts back to a restarted idle, a bound
 `Speed` doubles the walk's advance, a looping clip fires its end trigger
 on every wrap and its acyclic trigger once, both blender modes and the
 selector follow their bound variables, a missing clip is reported.
+
+`tests/anm_27_deactivation.rs` parses a synthetic SE packfile containing a
+`BSEventOnDeactivateModifier`, disables it through its bound `enable` value,
+and checks that its authored event is emitted once.
 
 `tests/real_files.rs` runs the same graph over the vanilla human skeleton
 (`character assets/skeleton.hkx`, 99 bones) and the clips `mt_behavior`

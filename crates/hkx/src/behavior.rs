@@ -587,6 +587,12 @@ pub enum NodeKind {
         alarm_time_seconds: f32,
         alarm_event: EventProperty,
     },
+    /// `BSEventOnDeactivateModifier`: raises its authored event when the
+    /// active modifier transitions to inactive.
+    EventOnDeactivateModifier {
+        enable: bool,
+        event: EventProperty,
+    },
     /// `BSGetTimeStepModifier`: writes the current graph update interval to
     /// its `timeStep` output binding.
     GetTimeStepModifier {
@@ -684,6 +690,7 @@ impl Node {
             NodeKind::Clip(_)
             | NodeKind::BlendingTransition(_)
             | NodeKind::TimerModifier { .. }
+            | NodeKind::EventOnDeactivateModifier { .. }
             | NodeKind::GetTimeStepModifier { .. }
             | NodeKind::IsActiveModifier { .. }
             | NodeKind::FalseToTrueModifier { .. }
@@ -1081,6 +1088,10 @@ impl<'a> Loader<'a> {
                 enable: o.bool(o.layout_offset(40, 72))?,
                 alarm_time_seconds: o.f32(o.layout_offset(44, 80))?,
                 alarm_event: EventProperty::read(o, o.layout_offset(48, 88))?,
+            },
+            "BSEventOnDeactivateModifier" => NodeKind::EventOnDeactivateModifier {
+                enable: o.bool(o.layout_offset(40, 72))?,
+                event: EventProperty::read(o, o.layout_offset(44, 80))?,
             },
             "BSGetTimeStepModifier" => NodeKind::GetTimeStepModifier {
                 enable: o.bool(o.layout_offset(40, 72))?,
