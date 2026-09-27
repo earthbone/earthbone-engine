@@ -385,6 +385,32 @@ struct ActiveTransition {
     elapsed: f32,
     duration: f32,
     curve: i8,
+    generator_transition: Option<GeneratorTransitionRuntime>,
+}
+
+enum ActiveEffect {
+    Blend(f32, i8),
+    Generator {
+        generator: NodeId,
+        blend_in_duration: f32,
+        blend_out_duration: f32,
+    },
+}
+
+#[derive(Debug, Clone, Copy)]
+struct GeneratorTransitionRuntime {
+    generator: NodeId,
+    blend_in_duration: f32,
+    blend_out_duration: f32,
+    elapsed: f32,
+    stage: GeneratorTransitionStage,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum GeneratorTransitionStage {
+    BlendIn,
+    Playing,
+    BlendOut,
 }
 
 #[derive(Debug, Clone)]
@@ -821,7 +847,7 @@ impl<'a> Interpreter<'a> {
             .is_some_and(|n| !n.transitions.is_empty())
     }
 
-    /// Number of blending effects currently retained by a state machine.
+    /// Number of transition effects currently retained by a state machine.
     pub fn active_transition_count(&self, machine: NodeId) -> usize {
         self.nodes
             .get(machine.0)
@@ -1346,9 +1372,15 @@ impl<'a> Interpreter<'a> {
     fn active_generators_of_machine(&self, id: NodeId, sm: &StateMachine) -> Vec<NodeId> {
         let mut out = Vec::new();
         for transition in &self.nodes[id.0].transitions {
-            for generator in [transition.from_generator, transition.to_generator]
-                .into_iter()
-                .flatten()
+            for generator in [
+                transition.from_generator,
+                transition.to_generator,
+                transition
+                    .generator_transition
+                    .map(|active| active.generator),
+            ]
+            .into_iter()
+            .flatten()
             {
                 if !out.contains(&generator) {
                     out.push(generator);
@@ -1527,13 +1559,25 @@ impl<'a> Interpreter<'a> {
                 // variable.
                 NodeKind::BlendingTransition(b) => {
                     let d = self.nodes[e.0].duration.unwrap_or(b.duration);
-                    Some((d, b.blend_curve))
+                    Some(ActiveEffect::Blend(d, b.blend_curve))
+                }
+                NodeKind::GeneratorTransition(effect) => {
+                    effect
+                        .transition_generator
+                        .map(|generator| ActiveEffect::Generator {
+                            generator,
+                            blend_in_duration: effect.blend_in_duration.max(0.0),
+                            blend_out_duration: effect.blend_out_duration.max(0.0),
+                        })
                 }
                 _ => None,
             })
-            .filter(|(d, _)| *d > 0.0);
+            .filter(|effect| match effect {
+                ActiveEffect::Blend(duration, _) => *duration > 0.0,
+                ActiveEffect::Generator { .. } => true,
+            });
         match effect {
-            Some((duration, curve))
+            Some(ActiveEffect::Blend(duration, curve))
                 if from_generator != to_generator && sm.max_simultaneous_transitions > 0 =>
             {
                 let capacity = sm.max_simultaneous_transitions as usize;
@@ -1549,6 +1593,39 @@ impl<'a> Interpreter<'a> {
                     elapsed: 0.0,
                     duration,
                     curve,
+                    generator_transition: None,
+                });
+            }
+            Some(ActiveEffect::Generator {
+                generator,
+                blend_in_duration,
+                blend_out_duration,
+            }) if from_generator != to_generator && sm.max_simultaneous_transitions > 0 => {
+                let capacity = sm.max_simultaneous_transitions as usize;
+                let length = self.nodes[id.0].transitions.len();
+                if length >= capacity {
+                    self.end_transitions(id, sm, length - capacity + 1);
+                }
+                self.activate(generator);
+                self.nodes[id.0].transitions.push(ActiveTransition {
+                    priority: info.priority,
+                    flags: info.flags,
+                    from_generator,
+                    to_generator,
+                    elapsed: 0.0,
+                    duration: 0.0,
+                    curve: 1,
+                    generator_transition: Some(GeneratorTransitionRuntime {
+                        generator,
+                        blend_in_duration,
+                        blend_out_duration,
+                        elapsed: 0.0,
+                        stage: if blend_in_duration > 0.0 {
+                            GeneratorTransitionStage::BlendIn
+                        } else {
+                            GeneratorTransitionStage::Playing
+                        },
+                    }),
                 });
             }
             _ => {
@@ -1803,7 +1880,11 @@ impl<'a> Interpreter<'a> {
             .and_then(|s| s.generator);
         if !self.nodes[id.0].transitions.is_empty() {
             for transition in &mut self.nodes[id.0].transitions {
-                transition.elapsed += dt;
+                if let Some(generator_transition) = &mut transition.generator_transition {
+                    generator_transition.elapsed += dt;
+                } else {
+                    transition.elapsed += dt;
+                }
             }
             let transitions = self.nodes[id.0].transitions.clone();
             let generators = self.active_generators_of_machine(id, sm);
@@ -1819,9 +1900,48 @@ impl<'a> Interpreter<'a> {
             };
             let mut output = sample(transitions[0].from_generator);
             let mut completed = 0;
+            let mut generator_transition_updates = Vec::new();
             for (index, transition) in transitions.iter().enumerate() {
                 let target = sample(transition.to_generator);
-                if transition.elapsed >= transition.duration {
+                if let Some(mut generator_transition) = transition.generator_transition {
+                    let transition_output = sample(Some(generator_transition.generator));
+                    match generator_transition.stage {
+                        GeneratorTransitionStage::BlendIn => {
+                            let alpha = (generator_transition.elapsed
+                                / generator_transition.blend_in_duration)
+                                .clamp(0.0, 1.0);
+                            output = blend_outputs(&output, &transition_output, alpha);
+                            if alpha >= 1.0 {
+                                generator_transition.stage = GeneratorTransitionStage::Playing;
+                                generator_transition.elapsed = 0.0;
+                            }
+                        }
+                        GeneratorTransitionStage::Playing => {
+                            output = transition_output;
+                            if self.nodes[generator_transition.generator.0].at_end {
+                                generator_transition.stage = GeneratorTransitionStage::BlendOut;
+                                generator_transition.elapsed = 0.0;
+                                if generator_transition.blend_out_duration == 0.0 {
+                                    output = target;
+                                    completed = index + 1;
+                                }
+                            }
+                        }
+                        GeneratorTransitionStage::BlendOut => {
+                            let alpha = (generator_transition.elapsed
+                                / generator_transition.blend_out_duration)
+                                .clamp(0.0, 1.0);
+                            output = blend_outputs(&transition_output, &target, alpha);
+                            if alpha >= 1.0 {
+                                output = target;
+                                completed = index + 1;
+                            }
+                        }
+                    }
+                    if completed <= index {
+                        generator_transition_updates.push((index, generator_transition));
+                    }
+                } else if transition.elapsed >= transition.duration {
                     output = target;
                     completed = index + 1;
                 } else {
@@ -1831,6 +1951,10 @@ impl<'a> Interpreter<'a> {
                     );
                     output = blend_outputs(&output, &target, alpha);
                 }
+            }
+            for (index, generator_transition) in generator_transition_updates {
+                self.nodes[id.0].transitions[index].generator_transition =
+                    Some(generator_transition);
             }
             if completed > 0 {
                 self.end_transitions(id, sm, completed);
