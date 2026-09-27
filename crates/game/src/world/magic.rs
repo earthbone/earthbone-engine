@@ -30,6 +30,7 @@ const NO_RECAST: u32 = 1 << 17;
 const NO_DEATH_DISPEL: u32 = 1 << 28;
 pub(super) const DISPEL_WITH_KEYWORDS: u32 = 1 << 8;
 const INGESTIBLE_POISON: u32 = 1 << 17;
+const SLOW_TIME: u32 = 37;
 
 /// Identity of one effect application, independent of its MGEF FormID.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -90,6 +91,19 @@ struct PreparedEffect {
 }
 
 impl World {
+    pub(crate) fn slow_time_scale(&self) -> f64 {
+        let slow_percent = self
+            .active_effects
+            .values()
+            .filter_map(|active| {
+                let definition = self.magic_effect(active.effect).ok()?;
+                (definition.data.archetype == SLOW_TIME).then_some(active.magnitude)
+            })
+            .fold(0.0_f32, f32::max)
+            .min(100.0);
+        f64::from(100.0 - slow_percent) / 100.0
+    }
+
     /// All currently applied effects, in application order.
     pub fn active_effects(&self) -> impl Iterator<Item = &ActiveEffect> {
         self.active_effects.values()
@@ -427,7 +441,7 @@ impl World {
                     return Err(MagicError::Target);
                 }
             }
-            if !matches!(data.archetype, 0 | 1 | 2 | 5 | 18) {
+            if !matches!(data.archetype, 0 | 1 | 2 | 5 | 18 | SLOW_TIME) {
                 return Err(MagicError::Unsupported("effect archetype"));
             }
             if data.taper_duration != 0.0 {

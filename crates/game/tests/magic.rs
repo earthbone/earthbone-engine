@@ -15,9 +15,9 @@ use soe_game::vmad::{ScriptEntry, Vmad};
 use soe_game::world::magic::{EffectId, MagicError};
 use soe_game::world::{Handle, Pending};
 use soe_game::Game;
-use soe_papyrus::asm::{i, ident, s, FunctionBuilder, ScriptBuilder};
+use soe_papyrus::asm::{f, i, ident, s, FunctionBuilder, ScriptBuilder};
 use soe_papyrus::Opcode::{Assign, CallMethod, IAdd, Return};
-use soe_papyrus::Value;
+use soe_papyrus::{ThreadState, Value};
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
 const ACTOR: u32 = 0x100;
@@ -372,6 +372,84 @@ fn cast(game: &mut Game, spell: u32, target: u32) -> Result<Vec<EffectId>, Magic
         &mut |name, class| game.vm.create_object_of(name, class),
     );
     result
+}
+
+#[test]
+fn mag_58_slow_time_scales_game_time_without_slowing_real_time_waits() {
+    let mut game = fixture(0, 37, 90.0, 10);
+    assert_eq!(cast(&mut game, SPELL, ACTOR).unwrap().len(), 1);
+    let wait_script = ScriptBuilder::new("SlowTimeClockProbe", "").function(
+        FunctionBuilder::new("Wait", "Int")
+            .global()
+            .ins(
+                soe_papyrus::Opcode::CallStatic,
+                vec![s("Utility"), s("Wait"), ident("::nonevar"), f(1.0)],
+            )
+            .ins(Return, vec![i(1)])
+            .build(),
+    );
+    game.load_script(&wait_script.bytes()).unwrap();
+    let wait = game
+        .vm
+        .call_global("SlowTimeClockProbe", "Wait", &[])
+        .unwrap();
+    game.run_until_idle(64);
+    game.tick(1.0);
+
+    let world = game.world();
+    assert_eq!(world.clock.real_seconds, 1.0);
+    assert!((world.clock.game_days - (20.0 / 10.0 / 86_400.0)).abs() < 1e-12);
+    assert_eq!(game.vm.thread_result(wait), Some(Value::Int(1)));
+}
+
+#[test]
+fn mag_58_menu_pause_preserves_slow_time_state_and_advances_real_time_waits() {
+    let mut game = fixture(0, 37, 90.0, 10);
+    assert_eq!(cast(&mut game, SPELL, ACTOR).unwrap().len(), 1);
+    game.tick(1.0);
+    let game_days = game.world().clock.game_days;
+    let real_seconds = game.world().clock.real_seconds;
+    let wait_script = ScriptBuilder::new("SlowTimeMenuClockProbe", "")
+        .function(
+            FunctionBuilder::new("Wait", "Int")
+                .global()
+                .ins(
+                    soe_papyrus::Opcode::CallStatic,
+                    vec![s("Utility"), s("Wait"), ident("::nonevar"), f(1.0)],
+                )
+                .ins(Return, vec![i(1)])
+                .build(),
+        )
+        .function(
+            FunctionBuilder::new("WaitMenuMode", "Int")
+                .global()
+                .ins(
+                    soe_papyrus::Opcode::CallStatic,
+                    vec![s("Utility"), s("WaitMenuMode"), ident("::nonevar"), f(1.0)],
+                )
+                .ins(Return, vec![i(2)])
+                .build(),
+        );
+    game.load_script(&wait_script.bytes()).unwrap();
+    let real_wait = game
+        .vm
+        .call_global("SlowTimeMenuClockProbe", "Wait", &[])
+        .unwrap();
+    let menu_wait = game
+        .vm
+        .call_global("SlowTimeMenuClockProbe", "WaitMenuMode", &[])
+        .unwrap();
+    game.run_until_idle(64);
+
+    game.tick_menu_mode(2.0, true);
+
+    assert_eq!(game.world().clock.game_days, game_days);
+    assert_eq!(game.world().clock.real_seconds, real_seconds);
+    assert_eq!(
+        game.vm.thread_state(real_wait),
+        Some(ThreadState::Sleeping(2.0))
+    );
+    assert_eq!(game.vm.thread_result(menu_wait), Some(Value::Int(2)));
 }
 
 #[test]

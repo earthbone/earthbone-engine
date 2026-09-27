@@ -1769,6 +1769,25 @@ save state. The check names no vanilla records, so it has no
 `SKYRIM_DATA`-gated case. Summon combat behavior, command and banish effects,
 visuals, sounds, and host presentation remain outside this check.
 
+### Slow Time, MAG-58
+
+Direct casts execute MGEF archetype 37. The active effect magnitude is treated
+as a percentage of time removed, clamped to 100 percent. When multiple Slow
+Time effects are active, the strongest one sets the rate. The resulting rate
+scales game-calendar advancement and NPC package movement. The real-seconds
+clock, its update timers, active-effect durations and Papyrus real-time clock
+continue at the supplied tick duration. Menu ticks pause world clocks and
+movement while the Papyrus real-time clock continues.
+
+Local xEdit `wbDefinitionsTES5.pas` names archetype 37 Slow Time. Local UESP
+`MGEF.wikitext` says it has no archetype-specific extra data. The CK wiki dump
+has no page describing this archetype's execution formula, so the percentage
+interpretation uses the effect entry magnitude. `mag_58_slow_time_scales_game_time_without_slowing_real_time_waits`
+checks calendar progression and completion of an ordinary Papyrus wait. The
+menu test checks that menu pause preserves world clocks, completes a Papyrus
+menu wait and leaves an ordinary wait asleep. Both use synthetic records, and
+the check names no vanilla records.
+
 Validation on the installed five-master load order found 1,354 non-deleted
 SPEL winners. The direct path accepted 178 spells and created 205 applications.
 The survey checks definitions, identity and removal without running their scripts.
