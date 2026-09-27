@@ -630,6 +630,13 @@ impl World {
             .is_some_and(|cast| cast.caster == caster)
     }
 
+    pub(crate) fn concentration_spell(&self, caster: GlobalFormId) -> Option<GlobalFormId> {
+        self.concentration_cast
+            .as_ref()
+            .filter(|cast| cast.caster == caster)
+            .map(|cast| cast.spell)
+    }
+
     /// Advance the held cast in unpaused simulation seconds, applying its
     /// effects in bounded slices and stopping when magicka is exhausted.
     pub fn tick_concentration(&mut self, seconds: f64, alloc: Alloc<'_>) -> Vec<MagicError> {

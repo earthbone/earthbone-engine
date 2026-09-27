@@ -148,6 +148,16 @@ The location check supports near-reference, in-cell, near-editor-location and
 near-self modes. Other PLVD modes return a typed error. The 32-bit radius and
 location modes follow CommonLibSSE `TESFaction.h` and UESP `FACT.wikitext`.
 
+**Magic conditions.** CTDA function 571 returns the cast type when its selected
+left or right spell is the actor's held concentration cast. Function 595 checks
+that same current spell, while 596 checks the selected spell's magic effect
+keywords. Function 579 compares the equipped shout, and 632 reports a held
+concentration cast. Casting source values outside Left, Right, Voice and
+Instant return a parameter error. Voice and Instant have no selected spell in
+this runtime, so spell comparisons return false and casting type returns zero.
+Functions 602, 627 and 676 return an unavailable-state diagnostic because ward
+state, dual-cast animation state and active voice variation are not tracked.
+
 ## Conformance table
 
 Counts from `natives::register`: 364 natives with state behind them and 177
