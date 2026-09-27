@@ -144,6 +144,13 @@ impl World {
         let effects = match self.tag_of(item).map(|tag| *tag.as_bytes()) {
             Some(tag) if tag == *b"SPEL" => self.spell(item)?.effects,
             Some(tag) if tag == *b"ALCH" => self.ingestible(item)?.effects,
+            Some(tag) if tag == *b"ENCH" => {
+                let record = self
+                    .record(item)
+                    .filter(|record| !record.is_deleted() && record.tag == super::T(b"ENCH"))
+                    .ok_or(MagicError::Missing(item))?;
+                weapon_enchantment_effects(record)?
+            }
             _ => return Err(MagicError::Missing(item)),
         };
         effects

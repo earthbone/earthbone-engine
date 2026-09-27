@@ -49,14 +49,14 @@ fn fixture() -> Game {
     put(&mut enit, 12, 100);
     put(&mut enit, 16, 1);
     put(&mut enit, 20, 6);
-    let mut efit = 7_f32.to_le_bytes().to_vec();
-    efit.extend_from_slice(&0_u32.to_le_bytes());
-    efit.extend_from_slice(&0_u32.to_le_bytes());
+    let mut effect_item = 7_f32.to_le_bytes().to_vec();
+    effect_item.extend_from_slice(&0_u32.to_le_bytes());
+    effect_item.extend_from_slice(&0_u32.to_le_bytes());
     p.push_top(
         Record::new(T(b"ENCH"), ENCH)
             .sub(T(b"ENIT"), enit)
             .sub(T(b"EFID"), EFFECT.to_le_bytes())
-            .sub(T(b"EFIT"), efit),
+            .sub(T(b"EFIT"), effect_item),
     );
     let mut ed = vec![0; 152];
     put(&mut ed, 0, (1 << 2) | (1 << 9));
@@ -158,6 +158,7 @@ fn instance_charge_and_effect_count_survive_engine_save_load() {
     let bytes = game.save_state().unwrap();
     game.load_state(&bytes).unwrap();
     assert_eq!(charge(&game), 7.);
+    assert_eq!(game.world_mut().active_effects().count(), 1);
     game.melee_hit(hit()).unwrap();
     assert_eq!(charge(&game), 4.);
     assert_eq!(
