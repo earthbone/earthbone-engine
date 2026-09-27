@@ -464,13 +464,13 @@ fn prg_10_saved_visit_time_expires_zone_after_reload() {
     world.clock.game_days = 2.0;
     world.enter_encounter_zone(id(ZONE)).unwrap();
     let current = world.save_state();
-    for version in [34_u16, 35] {
+    for version in [34_u16, 35, 36] {
         let mut saved = current.clone();
-        if version == 34 {
-            // CONTEXT: Version 34 ends after dialogue repeats, before scene runs.
+        if version < 36 {
+            // CONTEXT: Versions 34 and 35 end before the scene-run table.
             saved.truncate(saved.len() - 4);
-            saved[4..6].copy_from_slice(&version.to_le_bytes());
         }
+        saved[4..6].copy_from_slice(&version.to_le_bytes());
         let mut loaded = reset_fixture(0);
         loaded.player_level = 20;
         loaded.load_state(&saved).unwrap();

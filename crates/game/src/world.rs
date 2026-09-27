@@ -61,6 +61,7 @@ mod weapon_hands;
 pub use inventory_restore::InventoryRestoreReport;
 pub mod image_space;
 mod item_save;
+mod list_restore;
 mod localization;
 mod locks;
 mod lookup;

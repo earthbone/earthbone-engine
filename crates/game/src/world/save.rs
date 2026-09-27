@@ -58,8 +58,9 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// script equip survives a reload the way a hand weapon selection already did.
 /// Version 33 retains the spawned reference owned by each Summon Creature effect.
 /// Version 34 retains last-visit game days for resettable encounter zones.
-/// Version 35 retains the active phase and completed action slots for each scene.
-pub const SAVE_VERSION: u16 = 35;
+/// Version 35 retains saved list flags and per-entry chance bytes in record overrides.
+/// Version 36 retains the active phase and completed action slots for each scene.
+pub const SAVE_VERSION: u16 = 36;
 
 #[derive(Clone, Copy)]
 pub(crate) enum FormNamespace {
@@ -995,7 +996,7 @@ impl World {
         } else {
             BTreeMap::new()
         };
-        let scene_runs = if version >= 35 {
+        let scene_runs = if version >= 36 {
             let count = r.len()?;
             let mut runs = BTreeMap::new();
             for _ in 0..count {
