@@ -17,6 +17,9 @@ const TEMPLATE: u32 = 0x802;
 const PACKAGE: u32 = 0x803;
 const MARKER: u32 = 0x804;
 const NAV: u32 = 0x805;
+const SANDBOX_BASE: u32 = 0x806;
+const SANDBOX_TEMPLATE: u32 = 0x807;
+const SANDBOX_PACKAGE: u32 = 0x808;
 const ACTOR: u32 = 0x1000;
 const FAR: f32 = 100_000_000.0;
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
@@ -66,6 +69,14 @@ pub(super) fn actors(count: usize) -> Result<(Game, Vec<GlobalFormId>), String> 
     let template = package::with_procedure(template, "Travel", &[0], true);
     let template = package::with_input_name(template, 0, "Place to Travel", true);
     plugin.push_top(package::with_actions(template));
+    let sandbox_template = package::build_template(SANDBOX_TEMPLATE, "StressSandboxTemplate");
+    let sandbox_template = package::close_header(sandbox_template, None);
+    let sandbox_template =
+        package::with_location_input(sandbox_template, 0, package::Location::NearSelf, 200);
+    let sandbox_template = package::finish(sandbox_template);
+    let sandbox_template = package::with_procedure(sandbox_template, "Sandbox", &[0], true);
+    let sandbox_template = package::with_input_name(sandbox_template, 0, "Location", true);
+    plugin.push_top(package::with_actions(sandbox_template));
     let travel = package::build_record(PACKAGE, "StressTravel", 0, package::Schedule::default());
     let travel = package::close_header(travel, Some(TEMPLATE));
     let travel =
@@ -81,6 +92,25 @@ pub(super) fn actors(count: usize) -> Result<(Game, Vec<GlobalFormId>), String> 
         )
         .sub(T(b"PKID"), PACKAGE.to_le_bytes()),
     );
+    plugin.push_top(
+        npc::build_record(
+            SANDBOX_BASE,
+            "StressSandboxActor",
+            "Stress sandbox actor",
+            npc::Config::default(),
+            npc::Stats::default(),
+        )
+        .sub(T(b"PKID"), SANDBOX_PACKAGE.to_le_bytes()),
+    );
+    let sandbox = package::build_record(
+        SANDBOX_PACKAGE,
+        "StressSandbox",
+        0,
+        package::Schedule::default(),
+    );
+    let sandbox = package::close_header(sandbox, Some(SANDBOX_TEMPLATE));
+    let sandbox = package::with_location_input(sandbox, 0, package::Location::NearSelf, 200);
+    plugin.push_top(package::with_actions(package::finish(sandbox)));
     let cell = plugin.push_record(Record::new(T(b"CELL"), CELL).sub(T(b"DATA"), [1, 0]));
     let mut temporary = Group::new(GroupKind::CellTemporary(CELL));
     let geometry = Geometry {
@@ -133,7 +163,7 @@ pub(super) fn actors(count: usize) -> Result<(Game, Vec<GlobalFormId>), String> 
             .push(Entry::Record(plugin.push_record(placed(
                 *b"ACHR",
                 ACTOR + n as u32,
-                BASE,
+                if n % 2 == 0 { BASE } else { SANDBOX_BASE },
                 [10.0, 100.0 + (n % 800) as f32, 0.0],
             ))));
     }

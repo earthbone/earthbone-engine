@@ -176,14 +176,32 @@ impl Workload {
             return Err("stress VM logged errors".into());
         }
         let world = self.game.world();
-        for &actor in &self.actors {
+        for (index, &actor) in self.actors.iter().enumerate() {
             let reference = world
                 .reference_ref(actor)
                 .ok_or("stress actor disappeared")?;
-            if reference.position[0] <= 10.0 || !reference.position.iter().all(|x| x.is_finite()) {
+            if !reference.position.iter().all(|x| x.is_finite()) {
+                return Err(format!("actor {actor} has a non-finite position"));
+            }
+            let state = world
+                .actor_ref(actor)
+                .ok_or("stress actor state disappeared")?;
+            let expected_procedure = if index % 2 == 0 {
+                soe_game::ai::Procedure::Travel
+            } else {
+                soe_game::ai::Procedure::Sandbox
+            };
+            if state.ai.procedure != expected_procedure {
                 return Err(format!(
-                    "actor {actor} did not move along its travel package"
+                    "actor {actor} selected {:?}, expected {:?}",
+                    state.ai.procedure, expected_procedure
                 ));
+            }
+            if index % 2 == 0 && reference.position[0] <= 10.0 {
+                return Err(format!("travel actor {actor} did not advance"));
+            }
+            if index % 2 == 1 && state.ai.destination.is_none() && !state.ai.arrived {
+                return Err(format!("sandbox actor {actor} has no active destination"));
             }
         }
         if self.cells.len() != self.streamer.resident_count() || self.cells.len() > 49 {
@@ -324,5 +342,31 @@ mod tests {
                 Config::parse(&args.into_iter().map(str::to_string).collect::<Vec<_>>()).is_err()
             );
         }
+    }
+
+    #[test]
+    fn prf_07_thousand_travel_and_sandbox_actors_meet_frame_and_memory_budgets() {
+        let config = config("actors", 1_000);
+        let mut workload = Workload::new(&config).unwrap();
+        for _ in 0..config.warmup {
+            workload.step(&config).unwrap();
+        }
+
+        let mut samples = Vec::with_capacity(config.samples);
+        for _ in 0..config.samples {
+            let started = Instant::now();
+            workload.step(&config).unwrap();
+            samples.push(started.elapsed().as_secs_f64() * 1000.0);
+        }
+        workload.verify().unwrap();
+
+        samples.sort_by(f64::total_cmp);
+        let p99 = percentile(&samples, 99, 100);
+        let worst = samples[samples.len() - 1];
+        let rss = rss_mib().expect("Linux process RSS is available for this check");
+        assert!(p99 <= 16.7, "p99 {p99:.3} ms exceeds 16.7 ms");
+        assert!(worst <= 33.0, "worst {worst:.3} ms exceeds 33 ms");
+        assert!(rss < 2_048.0, "RSS {rss:.1} MiB exceeds 2,048 MiB");
+        assert_eq!(workload.actors.len(), 1_000);
     }
 }

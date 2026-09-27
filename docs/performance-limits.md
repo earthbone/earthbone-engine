@@ -9,7 +9,7 @@ not claim the capacity of a complete Skyrim gameplay loop.
 | Scenario | Load means | Work measured each tick or frame |
 |---|---|---|
 | CPU `scripts` | Script objects receiving one call per tick | Enqueue calls, advance clocks, execute a 100,000-instruction VM slice. Each call does 32 additions and increments a completion counter. |
-| CPU `actors` | Active actors | `Game::tick` over record-backed travel packages and a NAVM corridor. Every actor must move. No animation or collision. |
+| CPU `actors` | Active actors | `Game::tick` over record-backed Travel and Sandbox packages and a NAVM corridor. Travel actors must advance and both groups must select their package procedure. No animation or collision. |
 | CPU `navigation` | Path requests per tick | Connected queries across at least 128 triangles of a fixed 256-triangle graph. Failed queries fail the run. |
 | CPU `streaming` | Statics per loaded cell | Walk a bounded route, unload stale cells, build and retain 64-triangle surfaces for new cells. The actual streaming ring stays below 50 cells. |
 | CPU `mixed` | The same load in each of the four workloads | Script arrivals, actor ticks, path requests and streaming in one process. Uses Game's tick scheduling, which differs from the standalone VM slice. |
@@ -17,9 +17,11 @@ not claim the capacity of a complete Skyrim gameplay loop.
 | Godot `geometry` | Visible server instances | A shared 512-triangle plane per instance, arranged in a visible grid. Isolates the host renderer, without NIF decoding. |
 | Godot `textures` | Unique visible textures | One mipmapped 512 by 512 RGBA8 texture per server instance, one quad each. Isolates allocation and texture residency. |
 
-Synthetic actor records use the existing package, NPC and NAVM builders.
-Actors travel toward a distant target so the workload keeps moving during a
-long run. This simple path does not represent dense crowd avoidance or combat.
+Synthetic actor records use the existing package, NPC and NAVM builders. The
+actor workload splits actors evenly between Travel toward a distant target and
+Sandbox around each actor's starting point. Travel actors must advance and all
+actors must select the expected package procedure. These simple paths do not
+represent dense crowd avoidance or combat.
 Synthetic renderer workloads use RenderingServer RIDs, with zero per-instance
 scene nodes. They do not exercise the engine's material cache or mesh batching.
 The real exterior benchmark exercises those paths separately.
@@ -164,6 +166,17 @@ CI gate is supplied. The real exterior benchmark uses the current host's
 supported record types and rendering features. Missing host features remain
 missing from its measured cost. Recorded runs below distinguish what was
 executed from what the harness merely supports.
+
+## Recorded validation, 2026-09-28
+
+PRF-07 runs 1,000 synthetic actors, split evenly between Travel and Sandbox,
+for 10 warm-up ticks and 120 measured ticks in each of three fresh optimized
+processes. The predeclared limits are p99 16.7 ms, worst 33 ms and process RSS
+2,048 MiB. All three runs passed. p99 ranged from 0.998 to 1.017 ms, worst
+from 1.047 to 1.808 ms, and sampled peak RSS from 11.35 to 11.50 MiB. The
+runner report is `performance-results/prf-07-final-20260928/report.json` in the
+worktree. This is a synthetic package workload, not a claim about combat,
+collision, animation or full gameplay.
 
 ## Recorded validation, 2026-09-19
 
