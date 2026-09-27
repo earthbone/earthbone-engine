@@ -30,6 +30,38 @@ def sample(**overrides):
 
 
 class CapacityTests(unittest.TestCase):
+    def test_prf_03_texture_sweep_completes_rungs_and_reports_capacity_conditions(self):
+        visited = []
+
+        def measure(load):
+            visited.append(load)
+            return "pass" if load <= 4 else "breach"
+
+        conditions = {"backend": "godot", "scenario": "textures", "max_video_mib": 4096}
+        result = perf.texture_capacity_sweep(measure, 1, 8, 3, conditions)
+
+        self.assertEqual(visited, [1, 2, 4, 8])
+        self.assertEqual(result["capacity_textures"], 4)
+        self.assertEqual(result["status"], "boundary_found")
+        self.assertEqual([rung["load"] for rung in result["completed_rungs"]], visited)
+        self.assertEqual(result["conditions"]["max_video_mib"], 4096)
+        self.assertEqual(result["conditions"]["repeats_per_rung"], 3)
+        self.assertIn("every repeat passed", result["capacity_definition"])
+
+    def test_prf_03_texture_sweep_reports_zero_confirmed_capacity_when_first_rung_is_unstable(self):
+        visited = []
+
+        def measure(load):
+            visited.append(load)
+            return "unstable" if load == 1 else "pass"
+
+        result = perf.texture_capacity_sweep(measure, 1, 4, 3, {})
+
+        self.assertEqual(visited, [1, 2, 4])
+        self.assertEqual(result["status"], "unstable")
+        self.assertEqual(result["capacity_textures"], 0)
+        self.assertEqual(len(result["completed_rungs"]), 3)
+
     def test_sweep_repeats_boundary_measurement_and_refines_bracket(self):
         visited = []
 

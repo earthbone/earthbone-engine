@@ -37,6 +37,12 @@ These are workload budgets, not claims about every machine.
   After the first confirmed breach, it bisects the last passing and first
   failing loads, with repeated fresh processes at every point. This is a
   local budget boundary, not proof of monotonic behavior at every load.
+- The Godot `textures` sweep runs every doubling rung through its configured
+  maximum, including rungs after a breach or unstable result. Its reported
+  `capacity_textures` is the highest contiguous rung for which every repeat
+  passed. A zero value means no rung was confirmed. The result records all
+  rung outcomes and the frame, memory, resolution, workload, seed and repeat
+  conditions, so a later non-monotonic pass cannot raise the capacity claim.
 - Mixed pass/fail repeats produce `unstable`. Crashes, invalid output and
   timeouts produce `error`, not a fabricated performance limit.
 - Reaching the configured maximum without a breach reports `limit_not_found`.
@@ -102,6 +108,11 @@ The real exterior path needs the built GDExtension and an imported Godot
 project, as described in [godot-host.md](godot-host.md). Synthetic renderer
 workloads use stock Godot and do not need the extension. An isolated writable
 `XDG_DATA_HOME` is needed when the default Godot data directory is read-only.
+For texture capacity, each rung creates one unique, mipmapped 512 by 512 RGBA8
+texture per visible server instance at a fixed 1600 by 900 render resolution.
+Every repeat runs in a fresh Godot process. The capacity is conditional on the
+recorded p99 and worst-frame budgets and the RSS and video-memory limits. It
+does not measure Skyrim DDS upload capacity or cold storage IO.
 
 The original `godot/bench.gd` also enforces budgets when invoked directly.
 `SOE_BENCH_P99_MS` and `SOE_BENCH_WORST_MS` override its 16.7/33 ms defaults.

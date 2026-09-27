@@ -259,6 +259,44 @@ def sweep(measure, start, maximum, refine):
     return {"status": "boundary_found", "last_pass": passed, "first_breach": failed}
 
 
+def texture_capacity_sweep(measure, start, maximum, repeats, conditions):
+    """Run every configured texture rung and report the confirmed prefix."""
+    loads = []
+    load = start
+    while True:
+        status = measure(load)
+        loads.append({"load": load, "status": status})
+        if load == maximum:
+            break
+        load = min(maximum, load * 2)
+
+    capacity = 0
+    first_nonpass = None
+    for rung in loads:
+        if rung["status"] != "pass":
+            first_nonpass = rung
+            break
+        capacity = rung["load"]
+
+    if first_nonpass is None:
+        status = "limit_not_found"
+    elif first_nonpass["status"] == "error":
+        status = "error"
+    elif first_nonpass["status"] == "unstable":
+        status = "unstable"
+    else:
+        status = "boundary_found"
+
+    return {
+        "status": status,
+        "capacity_textures": capacity,
+        "capacity_definition": "highest contiguous rung where every repeat passed",
+        "first_nonpass": first_nonpass,
+        "completed_rungs": loads,
+        "conditions": {**conditions, "repeats_per_rung": repeats},
+    }
+
+
 def write_report(path, report):
     temporary = path.with_suffix(".tmp")
     temporary.write_text(json.dumps(report, indent=2, allow_nan=False) + "\n")
@@ -308,7 +346,31 @@ def main(argv=None):
                 break
         return classify(runs)
 
-    if args.mode == "sweep":
+    if args.mode == "sweep" and args.backend == "godot" and args.scenario == "textures":
+        report["result"] = texture_capacity_sweep(
+            measure,
+            args.start,
+            args.max_load,
+            args.repeats,
+            {
+                "backend": args.backend,
+                "scenario": args.scenario,
+                "texture_size": "512x512 RGBA8 with mipmaps",
+                "resolution": "1600x900",
+                "p99_ms": args.p99_ms,
+                "worst_ms": args.worst_ms,
+                "max_rss_mib": args.max_rss_mib,
+                "max_video_mib": args.max_video_mib,
+                "vsync": "disabled",
+                "warmup_frames": 10,
+                "minimum_samples": 600,
+                "minimum_seconds": 5,
+                "start": args.start,
+                "max_load": args.max_load,
+                "seed": args.seed,
+            },
+        )
+    elif args.mode == "sweep":
         report["result"] = sweep(measure, args.start, args.max_load, args.refine)
     else:
         report["result"] = {"status": measure(args.start), "load": args.start}
