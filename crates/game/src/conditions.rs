@@ -149,6 +149,13 @@ pub fn supports_function(function: u16) -> bool {
             | 261
             | 365
             | 410
+            | 42
+            | 43
+            | 44
+            | 60
+            | 68
+            | 129
+            | 130
             | 577
     )
 }
@@ -303,6 +310,94 @@ fn function_value(
         }
         18 => world.calendar().hour as f32,
         46 => boolean(world.actor(subject).is_some_and(|actor| actor.dead)),
+        42 | 43 | 44 | 60 => {
+            if world.actor(subject).is_none() {
+                return Err(Error::Form(subject));
+            }
+            match c.function {
+                42..=44 => {
+                    let other = resolve_reference(world, context.owner, raw)?;
+                    if world.actor(other).is_none() {
+                        return Err(Error::Form(other));
+                    }
+                    match c.function {
+                        42 => {
+                            let first = world
+                                .actor(subject)
+                                .ok_or(Error::Form(subject))?
+                                .factions
+                                .clone();
+                            let second = world
+                                .actor(other)
+                                .ok_or(Error::Form(other))?
+                                .factions
+                                .clone();
+                            boolean(first.keys().any(|faction| second.contains_key(faction)))
+                        }
+                        43 => {
+                            let first = world.actor(subject).and_then(|actor| actor.race);
+                            let second = world.actor(other).and_then(|actor| actor.race);
+                            boolean(first.is_some() && first == second)
+                        }
+                        _ => {
+                            let (_, first) = world
+                                .actor_npc_part(subject, crate::npc::template::TRAITS)
+                                .map_err(|_| Error::Form(subject))?;
+                            let (_, second) = world
+                                .actor_npc_part(other, crate::npc::template::TRAITS)
+                                .map_err(|_| Error::Form(other))?;
+                            boolean(first.is_female() == second.is_female())
+                        }
+                    }
+                }
+                _ => {
+                    let faction = resolve(world, context.owner, raw, Some(*b"FACT"))?;
+                    let actor = resolve_reference(world, context.owner, c.parameters[1])?;
+                    if world.actor(actor).is_none() {
+                        return Err(Error::Form(actor));
+                    }
+                    let subject_rank = world
+                        .actor(subject)
+                        .and_then(|state| state.factions.get(&faction).copied())
+                        .unwrap_or(-2);
+                    let other_rank = world
+                        .actor(actor)
+                        .and_then(|state| state.factions.get(&faction).copied())
+                        .unwrap_or(-2);
+                    (i64::from(subject_rank) - i64::from(other_rank)) as f32
+                }
+            }
+        }
+        64 => return Err(Error::Function(c.function)),
+        68 => {
+            let class = resolve(world, context.owner, raw, Some(*b"CLAS"))?;
+            if world.actor(subject).is_none() {
+                return Err(Error::Form(subject));
+            }
+            let base = world.base_of(subject).ok_or(Error::Form(subject))?;
+            boolean(world.actor_base(base).and_then(|data| data.class) == Some(class))
+        }
+        129 | 130 => {
+            let expected_tag = if c.function == 129 {
+                *b"CLAS"
+            } else {
+                *b"RACE"
+            };
+            let expected = resolve(world, context.owner, raw, Some(expected_tag))?;
+            let player = world.player();
+            if world.actor(player).is_none() {
+                return Err(Error::Form(player));
+            }
+            let base = world.base_of(player).ok_or(Error::Form(player))?;
+            let actual = world.actor_base(base).and_then(|data| {
+                if c.function == 129 {
+                    data.class
+                } else {
+                    data.race
+                }
+            });
+            boolean(actual == Some(expected))
+        }
         237 | 242 => {
             no_parameter(c)?;
             let actor = world.actor(subject).ok_or(Error::Form(subject))?;

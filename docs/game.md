@@ -124,6 +124,14 @@ function diagnostic because the local CK corpus provides no usable condition
 semantics and the required alias keyword, package or actor-process state is
 not represented. The reference conditions are covered by
 `ai_73_reference_conditions.rs` and `ai_77_reference_conditions.rs`.
+`ai_79_relationship_conditions.rs` covers condition functions 42 `SameFaction`,
+43 `SameRace`, 44 `SameSex`, 60 `GetFactionRankDifference`, 68 `GetIsClass`,
+129 `GetPCIsClass` and 130 `GetPCIsRace`. These read actor factions, race,
+sex and class from the runtime actor and its winning NPC_ base. Function 60
+subtracts the parameter actor's rank in the requested faction from the tested
+actor's rank, treating an absent faction as rank -2 and preserving authored
+rank -1 membership. Function 64 `GetIsCreature` remains unsupported because
+the local CK corpus does not define a usable condition contract.
 [The reference audit](reference-audit.md) records missed contracts and gaps.
 
 **World reads out, host never writes back.** `World::ref_placement` (in
