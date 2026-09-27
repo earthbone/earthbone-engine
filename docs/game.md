@@ -626,6 +626,17 @@ driver re-evaluates every actor once a real second and whenever it has no
 package. The natives table rows above still list both natives as stubbed,
 they moved to the implemented column with this section.
 
+An unfinished package with `Must Complete` stays selected ahead of higher
+priority candidates until its procedure tree finishes. Combat can interrupt
+it when `Interrupt Override` is Combat or `Observe combat behavior` is set in
+the PKDT interrupt flags. `Ignore Combat` leaves package movement in control
+instead of acquiring or pursuing a combat target. `No Combat Alert` records
+combat engagement without setting the actor's alerted state. `At Package Start
+Unlock Doors` unlocks locked doors in the actor's current cell when that
+package starts. `On Package Change Unlock Doors` does the same when leaving the
+flagged package. Unlocking uses the shared reference lock state and emits the
+ordinary lock state event.
+
 **Schedules.** `hour` `-1` is any time. A window starts at `hour:minute`
 and lasts `duration` minutes, wrapping past midnight, a zero duration
 lasts until midnight. Day of week 0 is Sundas, the day the game starts on,
@@ -671,7 +682,10 @@ selected package starts its tree from the beginning on its first driver tick.
 Empty repeating branches yield each tick without running later siblings.
 
 The layout follows local xEdit `wbRecord(PACK)`, `PRCB`, `FNAM`, and `PKC2`,
-plus the local UESP PACK page. CommonLib's sequence header supplies a type
+plus the local UESP PACK page. xEdit names the PKDT interrupt override values
+and interrupt bits, including `Observe combat behavior`. The CK
+`EvaluatePackage` page documents explicit package-stack reevaluation.
+CommonLib's sequence header supplies a type
 but no implementation. The nested-repeat behavior follows the mod author's
 [repeat experiment](https://forums.nexusmods.com/topic/11591393-ai-package-wont-repeat/).
 No reusable interpreter exists in those sources, so this interpreter uses the
