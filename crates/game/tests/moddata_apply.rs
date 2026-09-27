@@ -25,6 +25,8 @@ const HELMET: u32 = 0x803;
 const ROCK: u32 = 0x804;
 const TREE: u32 = 0x805;
 const GUARD_BASE: u32 = 0x806;
+const SHOUT: u32 = 0x807;
+const PACKAGE: u32 = 0x808;
 const CELL: u32 = 0x810;
 const ROCK_REF: u32 = 0x811;
 const GUARD_REF: u32 = 0x812;
@@ -80,6 +82,8 @@ fn master() -> Plugin {
     );
     p.push_top(Record::new(T(b"STAT"), ROCK).zsub(EDID, "RockPile01"));
     p.push_top(Record::new(T(b"STAT"), TREE).zsub(EDID, "TreePine01"));
+    p.push_top(Record::new(T(b"SHOU"), SHOUT).zsub(EDID, "MyShout"));
+    p.push_top(Record::new(T(b"PACK"), PACKAGE).zsub(EDID, "MyPackage"));
     p.push_top(npc::build_record(
         GUARD_BASE,
         "WhiterunGuard",
@@ -172,6 +176,111 @@ fn a_distribution_file_hands_an_actor_a_spell() {
         actor.spells.contains(&id(SPELL)),
         "a distributed spell must sit beside the base's own"
     );
+}
+
+#[test]
+fn mod_10_explicit_shout_reaches_actor_shout_state() {
+    let dir = Dir::new("mod-10-shout");
+    dir.write("Test_DISTR.ini", "Shout = MyShout|WhiterunGuard\n");
+    let mut g = game();
+    let report = g.apply_mod_data(&dir.roots());
+    assert_eq!(report.skipped_unsupported_consumer, 0);
+    assert!(g
+        .world_mut()
+        .actor(id(GUARD_REF))
+        .expect("the guard is an actor")
+        .shouts
+        .contains(&id(SHOUT)));
+}
+
+#[test]
+fn mod_10_shout_with_non_shout_signature_is_rejected() {
+    let dir = Dir::new("mod-10-invalid-shout");
+    dir.write("Test_DISTR.ini", "Shout = GuardHelmet|WhiterunGuard\n");
+    let mut g = game();
+    let report = g.apply_mod_data(&dir.roots());
+    assert_eq!(report.distributions_applied, 0);
+    assert_eq!(report.skipped_unsupported_consumer, 1);
+}
+
+#[test]
+fn mod_10_generic_form_infers_shout_consumer_from_signature() {
+    let dir = Dir::new("mod-10-inferred-shout");
+    dir.write("Test_DISTR.ini", "Form = MyShout|WhiterunGuard\n");
+    let mut g = game();
+    let report = g.apply_mod_data(&dir.roots());
+    assert_eq!(report.skipped_unsupported_consumer, 0);
+    assert!(g
+        .world_mut()
+        .actor(id(GUARD_REF))
+        .expect("the guard is an actor")
+        .shouts
+        .contains(&id(SHOUT)));
+}
+
+#[test]
+fn mod_10_generic_form_infers_keyword_consumer_from_signature() {
+    let dir = Dir::new("mod-10-inferred-keyword");
+    dir.write("Test_DISTR.ini", "Form = MyKeyword|WhiterunGuard\n");
+    let mut g = game();
+    let report = g.apply_mod_data(&dir.roots());
+    assert_eq!(report.skipped_unsupported_consumer, 0);
+    assert!(g.world_mut().has_keyword(id(GUARD_BASE), id(KEYWORD)));
+}
+
+#[test]
+fn mod_10_skin_distribution_updates_npc_base_skin() {
+    let dir = Dir::new("mod-10-skin");
+    dir.write("Test_DISTR.ini", "Skin = GuardHelmet|WhiterunGuard\n");
+    let mut g = game();
+    let report = g.apply_mod_data(&dir.roots());
+    assert_eq!(report.skipped_unsupported_consumer, 0);
+    let mut world = g.world_mut();
+    let _ = world.actor(id(GUARD_REF)).expect("the guard is an actor");
+    assert_eq!(
+        world.skin(id(GUARD_BASE)).expect("NPC base skin query"),
+        Some(id(HELMET))
+    );
+}
+
+#[test]
+fn mod_10_skin_with_non_armor_signature_is_rejected() {
+    let dir = Dir::new("mod-10-invalid-skin");
+    dir.write("Test_DISTR.ini", "Skin = MySpell|WhiterunGuard\n");
+    let mut g = game();
+    let report = g.apply_mod_data(&dir.roots());
+    assert_eq!(report.distributions_applied, 0);
+    assert_eq!(report.skipped_unsupported_consumer, 1);
+}
+
+#[test]
+fn mod_10_package_distribution_is_counted_as_unsupported() {
+    let dir = Dir::new("mod-10-package");
+    dir.write("Test_DISTR.ini", "Package = MyPackage|WhiterunGuard\n");
+    let mut g = game();
+    let report = g.apply_mod_data(&dir.roots());
+    assert_eq!(report.distribution_rules, 1);
+    assert_eq!(report.distributions_applied, 0);
+    assert_eq!(report.skipped_unsupported_consumer, 1);
+    assert_eq!(
+        g.world_mut()
+            .actor(id(GUARD_REF))
+            .expect("the guard is an actor")
+            .ai
+            .package,
+        None
+    );
+}
+
+#[test]
+fn mod_10_generic_form_with_unknown_signature_is_counted_as_unsupported() {
+    let dir = Dir::new("mod-10-unknown-form");
+    dir.write("Test_DISTR.ini", "Form = RockPile01|WhiterunGuard\n");
+    let mut g = game();
+    let report = g.apply_mod_data(&dir.roots());
+    assert_eq!(report.distribution_rules, 1);
+    assert_eq!(report.distributions_applied, 0);
+    assert_eq!(report.skipped_unsupported_consumer, 1);
 }
 
 #[test]

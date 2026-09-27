@@ -27,14 +27,12 @@ fn apply_distributed(a: &mut ActorState, d: Distributed) {
         RecordType::Faction => {
             a.factions.entry(d.what).or_insert(0);
         }
-        // Items reach the reference's inventory in `base_inventory`, not the
-        // actor state. A package would need a third source in the driver's
-        // stack and a save format change, and shouts, skins and bare forms
-        // have no actor state at all yet. Each is held in `mod_data` and
-        // counted, never silently dropped, and `docs/moddata.md` lists them.
+        // Items reach the reference's inventory in `base_inventory`.
+        RecordType::Shout => {
+            a.shouts.insert(d.what);
+        }
         RecordType::Item
         | RecordType::Package
-        | RecordType::Shout
         | RecordType::Skin
         | RecordType::Keyword
         | RecordType::Form => {}
@@ -184,7 +182,11 @@ impl World {
             // was given. See `crate::moddata`.
             if let Some(base) = base {
                 for d in self.mod_data.for_base(base).to_vec() {
-                    apply_distributed(&mut a, d);
+                    if d.record_type == RecordType::Skin {
+                        self.set_actor_base_skin(base, Some(d.what)).ok()?;
+                    } else {
+                        apply_distributed(&mut a, d);
+                    }
                 }
             }
             a.spells = self.expand_actor_spell_lists(&a.spells, a.level).ok()?;

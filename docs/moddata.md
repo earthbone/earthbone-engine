@@ -213,11 +213,21 @@ resulting keywords, distributions and swaps for engine replay.
 
 ### What is applied and what is only carried
 
-Spells, levelled spells, perks, outfits, sleep outfits and factions reach the
-actor. Items reach the inventory. Packages, shouts, skins and bare forms are
-resolved, held in `mod_data` and counted in the report, but nothing consumes
-them yet: a package needs a third source in the driver's stack and a save format
-change, and the other three are not yet connected to distribution.
+Spells, levelled spells, perks, outfits, sleep outfits, factions and shouts
+reach actor state. Items reach the inventory. SPID `Skin` rules update the
+NPC base's `WNAM` skin override. Generic `Form` rules infer the supported type
+from the resolved record signature and use that type's consumer. Following
+SPID's schema, generic inference treats armor as `Item` and outfits as
+`Outfit`, since `Skin` and `SleepOutfit` cannot be inferred from signatures.
+Package rules and generic forms with an unsupported signature are skipped and
+counted in `skipped_unsupported_consumer`. Explicit types with a signature
+outside SPID's declared schema are rejected through the same counter. The
+package driver does not consume SPID package rules yet.
+
+The type list, type inference limits and generic signature groups come from
+Spell Perk Item Distributor's `resources/SPID Complete Reference.txt` and
+`SPID/src/LookupConfigs.h`. Shout state semantics follow the CK `AddShout -
+Actor` page. NPC skin distribution uses the existing `WNAM` override path.
 
 A distribution carrying a level or trait filter is **skipped** and counted in
 `skipped_unsupported_filter`, never applied. Those filters are not evaluated
@@ -234,4 +244,4 @@ every fixture is still authored.
 | Test suite | Count | What it covers |
 |---|---|---|
 | `crates/game/src/moddata.rs` unit | 3 | The item type to record tag map, swap fallthrough, empty distribution |
-| `crates/game/tests/moddata_apply.rs` | 9 | Each format through the game's own query paths, the skip direction, chance, determinism, and the gated scan |
+| `crates/game/tests/moddata_apply.rs` | 18 | Each format through the game's own query paths, the skip direction, chance, determinism, and the gated scan |
