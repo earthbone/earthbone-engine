@@ -2,8 +2,8 @@
 #![allow(clippy::unwrap_used)]
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
-use soe_godot_host::inventory_menu::{self, Category};
 use soe_game::Game;
+use soe_godot_host::inventory_menu::{self, Category};
 
 fn id(object: u32) -> GlobalFormId {
     GlobalFormId { file: 0, object }
@@ -16,7 +16,10 @@ fn game() -> Game {
         Record::new(Tag(*b"CONT"), 0x101)
             .zsub(Tag(*b"FULL"), "Chest")
             .sub(Tag(*b"COCT"), 1_u32.to_le_bytes())
-            .sub(Tag(*b"CNTO"), [0x100_u32.to_le_bytes(), 2_i32.to_le_bytes()].concat()),
+            .sub(
+                Tag(*b"CNTO"),
+                [0x100_u32.to_le_bytes(), 2_i32.to_le_bytes()].concat(),
+            ),
     );
     plugin.push_top(Record::new(Tag(*b"REFR"), 0x102).sub(Tag(*b"NAME"), 0x101_u32.to_le_bytes()));
     let mut order = LoadOrder::new();
@@ -37,5 +40,8 @@ fn inv_04_stale_item_row_cannot_transfer_after_container_was_emptied() {
     assert_eq!(game.transfer_item(chest, coin, 2, player), 2);
     assert!(inventory_menu::entries(&game, chest, Category::All).is_empty());
     assert_eq!(game.transfer_item(chest, coin, 1, player), 0);
-    assert_eq!(inventory_menu::entries(&game, player, Category::All)[0].count, 2);
+    assert_eq!(
+        inventory_menu::entries(&game, player, Category::All)[0].count,
+        2
+    );
 }

@@ -33,5 +33,7 @@ fn edt_16_opaque_diffuse_discards_source_transparency() {
     let dds = Dds::parse(&encoded).unwrap();
     assert_eq!(dds.format(), Format::Bc1);
     let decoded = dds.decode(0, 0).unwrap();
-    assert!(decoded.rgba.chunks_exact(4).all(|pixel| pixel[3] == 255));
+    let (pixels, remainder) = decoded.rgba.as_chunks::<4>();
+    assert!(remainder.is_empty());
+    assert!(pixels.iter().all(|pixel| pixel[3] == 255));
 }
