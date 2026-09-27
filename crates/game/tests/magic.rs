@@ -73,12 +73,25 @@ fn effect(flags: u32, archetype: u32, av: u32, constant: bool) -> Record {
 }
 
 fn spell(form: u32, kind: u32, constant: bool, magnitude: f32, duration: u32) -> Record {
+    spell_with_area(form, kind, constant, magnitude, duration, 0)
+}
+
+/// Like [`spell`], with the EFIT `Area` field set to `area` game units
+/// instead of the point-effect default of 0.
+fn spell_with_area(
+    form: u32,
+    kind: u32,
+    constant: bool,
+    magnitude: f32,
+    duration: u32,
+    area: u32,
+) -> Record {
     let mut data = vec![0; 36];
     put(&mut data, 8, kind);
     put(&mut data, 16, u32::from(!constant));
     put(&mut data, 20, 3);
     let mut efit = magnitude.to_le_bytes().to_vec();
-    efit.extend_from_slice(&0u32.to_le_bytes());
+    efit.extend_from_slice(&area.to_le_bytes());
     efit.extend_from_slice(&duration.to_le_bytes());
     Record::new(T(b"SPEL"), form)
         .sub(T(b"SPIT"), data)
@@ -377,6 +390,82 @@ fn magic_conditions_use_credited_caster_and_delivery_target() {
         .unwrap();
     assert!(skipped.is_empty());
     assert_eq!(game.world_mut().actor_value(id(OTHER), "health"), 100.0);
+}
+
+/// mag_06: an area hit selects each eligible actor once using the spell
+/// effect's authored radius, and an actor outside that radius takes no
+/// effect. OTHER shares the explicit target's default position (distance
+/// 0), SOURCE is moved outside the authored area.
+#[test]
+fn mag_06_area_hit_selects_each_eligible_actor_once_in_radius() {
+    let effect = effect(1 | 4, 0, 24, false);
+    let spell = spell_with_area(SPELL, 0, false, 15.0, 0, 500);
+    let mut game = game(plugin(effect, vec![spell]));
+    assert!(game
+        .world_mut()
+        .move_to(id(SOURCE), id(ACTOR), [2_000.0, 0.0, 0.0]));
+
+    let shared = game.shared_world();
+    let applied = shared
+        .borrow_mut()
+        .cast_spell(
+            id(SPELL),
+            id(SOURCE),
+            Some(id(SOURCE)),
+            Some(id(ACTOR)),
+            &mut |name, class| game.vm.create_object_of(name, class),
+        )
+        .unwrap();
+
+    assert_eq!(
+        applied.len(),
+        2,
+        "the explicit target and the bystander in radius are each selected once"
+    );
+    assert_eq!(game.world_mut().actor_value(id(ACTOR), "health"), 85.0);
+    assert_eq!(game.world_mut().actor_value(id(OTHER), "health"), 85.0);
+    assert_eq!(
+        game.world_mut().actor_value(id(SOURCE), "health"),
+        100.0,
+        "an actor outside the authored radius takes no effect"
+    );
+}
+
+/// mag_06: eligibility still applies inside the authored radius. A dead
+/// actor is not a valid recipient of a hostile effect even when the blast
+/// reaches it, so it is skipped while a living actor at the same distance
+/// still takes the hit.
+#[test]
+fn mag_06_area_hit_skips_ineligible_actors_in_radius() {
+    let effect = effect(1 | 4, 0, 24, false);
+    let spell = spell_with_area(SPELL, 0, false, 15.0, 0, 500);
+    let mut game = game(plugin(effect, vec![spell]));
+    game.world_mut().actor(id(OTHER)).unwrap().dead = true;
+
+    let shared = game.shared_world();
+    let applied = shared
+        .borrow_mut()
+        .cast_spell(
+            id(SPELL),
+            id(SOURCE),
+            Some(id(SOURCE)),
+            Some(id(ACTOR)),
+            &mut |name, class| game.vm.create_object_of(name, class),
+        )
+        .unwrap();
+
+    assert_eq!(
+        applied.len(),
+        2,
+        "the dead bystander is skipped, the target and the living caster in radius are not"
+    );
+    assert_eq!(game.world_mut().actor_value(id(ACTOR), "health"), 85.0);
+    assert_eq!(
+        game.world_mut().actor_value(id(OTHER), "health"),
+        100.0,
+        "a dead actor is not an eligible recipient of a hostile effect"
+    );
+    assert_eq!(game.world_mut().actor_value(id(SOURCE), "health"), 85.0);
 }
 
 #[test]

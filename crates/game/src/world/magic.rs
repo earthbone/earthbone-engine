@@ -25,6 +25,7 @@ const DETRIMENTAL: u32 = 1 << 2;
 const NO_HIT_EVENT: u32 = 1 << 4;
 const NO_DURATION: u32 = 1 << 9;
 const NO_MAGNITUDE: u32 = 1 << 10;
+const NO_AREA: u32 = 1 << 11;
 const NO_RECAST: u32 = 1 << 17;
 const NO_DEATH_DISPEL: u32 = 1 << 28;
 pub(super) const DISPEL_WITH_KEYWORDS: u32 = 1 << 8;
@@ -71,6 +72,7 @@ pub enum MagicError {
     Identity,
 }
 
+#[derive(Clone)]
 enum DispelRule {
     Timed,
     Keywords(Vec<GlobalFormId>),
@@ -170,7 +172,7 @@ impl World {
             Some(drinker),
             drinker,
         )?;
-        let applied = self.apply_prepared_effects(prepared, drinker, alloc)?;
+        let applied = self.apply_prepared_effects(prepared, alloc)?;
         self.remove_item_notified(drinker, ingestible, 1, None, alloc);
         Ok(applied)
     }
@@ -198,7 +200,7 @@ impl World {
         let definition = self.ingestible(poison)?;
         let prepared =
             self.ingestible_prepared_effects(poison, &definition.effects, Some(attacker), target)?;
-        self.apply_prepared_effects(prepared, target, alloc)
+        self.apply_prepared_effects(prepared, alloc)
     }
 
     /// Shared ALCH effect-entry validation and `PreparedEffect` construction
@@ -314,6 +316,52 @@ impl World {
         Ok(prepared)
     }
 
+    /// The actors an area effect selects around `anchor`: every enabled,
+    /// undeleted actor reference with a finite position within `radius` game
+    /// units of the anchor's own position, anchor included, each named once.
+    /// A non-positive or non-finite radius, or an anchor with no finite
+    /// position, selects only the anchor, so a point effect behaves exactly
+    /// as before area was supported.
+    ///
+    /// `radius` is the authored EFIT `Area` (TES5Edit's per-effect area
+    /// field, in game units), already zeroed by the caller when the effect's
+    /// `No Area` flag is set. Distance ignores cell boundaries, the same
+    /// convention `World::distance` uses for `GetDistance`: a hit near an
+    /// exterior cell seam still reaches an actor across it, and `self.refs`
+    /// holds only references the world has already loaded nearby, so no
+    /// further residency check is needed here.
+    fn area_targets(&mut self, anchor: GlobalFormId, radius: f32) -> Vec<GlobalFormId> {
+        let anchor_position = self.reference_ref(anchor).map(|r| r.position);
+        let Some(center) = anchor_position.filter(|p| p.iter().all(|v| v.is_finite())) else {
+            return vec![anchor];
+        };
+        if !(radius.is_finite() && radius > 0.0) {
+            return vec![anchor];
+        }
+        let mut selected = std::collections::BTreeSet::new();
+        selected.insert(anchor);
+        for (&candidate, reference) in &self.refs {
+            if candidate == anchor
+                || !reference.is_actor
+                || !reference.enabled
+                || reference.deleted
+                || !reference.position.iter().all(|v| v.is_finite())
+            {
+                continue;
+            }
+            let offset = [
+                reference.position[0] - center[0],
+                reference.position[1] - center[1],
+                reference.position[2] - center[2],
+            ];
+            let distance = offset.iter().map(|v| v * v).sum::<f32>().sqrt();
+            if distance <= radius {
+                selected.insert(candidate);
+            }
+        }
+        selected.into_iter().collect()
+    }
+
     /// Execute a direct scripted cast. This bypasses player charging and cost.
     /// The caller supplies the source reference and the actor credited as caster.
     ///
@@ -379,8 +427,8 @@ impl World {
             if !matches!(data.archetype, 0 | 1 | 2 | 5) {
                 return Err(MagicError::Unsupported("effect archetype"));
             }
-            if entry.data.area != 0 || data.area != 0 || data.taper_duration != 0.0 {
-                return Err(MagicError::Unsupported("area or taper"));
+            if data.taper_duration != 0.0 {
+                return Err(MagicError::Unsupported("taper"));
             }
             if data.perk != 0 || data.equip_ability != 0 {
                 return Err(MagicError::Unsupported("perk or equip ability"));
@@ -440,37 +488,50 @@ impl World {
                 }
                 dispel_rules.push(DispelRule::Keywords(keywords));
             }
-            prepared.push(PreparedEffect {
-                effect: ActiveEffect {
-                    id: EffectId(0),
-                    spell,
-                    effect,
-                    effect_index: index as u32,
-                    source,
-                    caster,
-                    target,
-                    magnitude,
-                    duration,
-                    elapsed: 0.0,
-                    recover: data.flags & RECOVER != 0,
-                    changes,
-                },
-                no_recast: data.flags & NO_RECAST != 0,
-                hit_event: data.flags & (HOSTILE | NO_HIT_EVENT) == HOSTILE,
-                dispel_rules,
-                dispel: Vec::new(),
-            });
+            let radius = if data.flags & NO_AREA != 0 {
+                0.0
+            } else {
+                entry.data.area as f32
+            };
+            let mut recipients = self.area_targets(target, radius);
+            if data.flags & HOSTILE != 0 {
+                recipients.retain(|&id| {
+                    self.actor(id)
+                        .is_some_and(|actor| !actor.dead && !actor.ghost)
+                });
+            }
+            for recipient in recipients {
+                prepared.push(PreparedEffect {
+                    effect: ActiveEffect {
+                        id: EffectId(0),
+                        spell,
+                        effect,
+                        effect_index: index as u32,
+                        source,
+                        caster,
+                        target: recipient,
+                        magnitude,
+                        duration,
+                        elapsed: 0.0,
+                        recover: data.flags & RECOVER != 0,
+                        changes: changes.clone(),
+                    },
+                    no_recast: data.flags & NO_RECAST != 0,
+                    hit_event: data.flags & (HOSTILE | NO_HIT_EVENT) == HOSTILE,
+                    dispel_rules: dispel_rules.clone(),
+                    dispel: Vec::new(),
+                });
+            }
         }
-        self.apply_prepared_effects(prepared, target, alloc)
+        self.apply_prepared_effects(prepared, alloc)
     }
 
     fn apply_prepared_effects(
         &mut self,
         prepared: Vec<PreparedEffect>,
-        target: GlobalFormId,
         alloc: Alloc<'_>,
     ) -> Result<Vec<EffectId>, MagicError> {
-        let prepared = self.prepare_effect_actions(prepared, target)?;
+        let prepared = self.prepare_effect_actions(prepared)?;
         let mut applied = Vec::new();
         for prepared in prepared {
             if prepared.hit_event {
@@ -533,21 +594,39 @@ impl World {
     }
 
     /// Validate authored action order before events or live actor values change.
+    ///
+    /// An area hit prepares one `PreparedEffect` per selected actor, each
+    /// carrying its own `target`. Live effects and actor values are tracked
+    /// per target here, so one recipient's dispels and value changes never
+    /// leak into another's.
     fn prepare_effect_actions(
         &mut self,
         prepared: Vec<PreparedEffect>,
-        target: GlobalFormId,
     ) -> Result<Vec<PreparedEffect>, MagicError> {
-        let mut live: Vec<_> = self
-            .active_effects
-            .values()
-            .filter(|effect| effect.target == target)
-            .cloned()
-            .collect();
-        let mut values = self.actor(target).ok_or(MagicError::Target)?.values.clone();
+        let mut live_by_target: std::collections::HashMap<GlobalFormId, Vec<ActiveEffect>> =
+            std::collections::HashMap::new();
+        let mut values_by_target: std::collections::HashMap<
+            GlobalFormId,
+            crate::actor_values::Values,
+        > = std::collections::HashMap::new();
         let mut next = self.next_effect;
         let mut plan = Vec::new();
         for mut prepared in prepared {
+            let target = prepared.effect.target;
+            let live = live_by_target.entry(target).or_insert_with(|| {
+                self.active_effects
+                    .values()
+                    .filter(|effect| effect.target == target)
+                    .cloned()
+                    .collect()
+            });
+            let values = match values_by_target.entry(target) {
+                std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut(),
+                std::collections::hash_map::Entry::Vacant(entry) => {
+                    let base = self.actor(target).ok_or(MagicError::Target)?.values.clone();
+                    entry.insert(base)
+                }
+            };
             if prepared.no_recast
                 && live
                     .iter()
@@ -580,15 +659,15 @@ impl World {
                     }
                 }
             }
-            for effect in &live {
+            for effect in live.iter() {
                 if selected.contains(&effect.id) && effect.recover {
-                    change_values(&mut values, effect, -1.0)?;
+                    change_values(values, effect, -1.0)?;
                 }
             }
             live.retain(|effect| !selected.contains(&effect.id));
             prepared.dispel = selected.into_iter().collect();
             if prepared.effect.recover || prepared.effect.duration == Some(0.0) {
-                change_values(&mut values, &prepared.effect, 1.0)?;
+                change_values(values, &prepared.effect, 1.0)?;
             }
             live.push(prepared.effect.clone());
             plan.push(prepared);
