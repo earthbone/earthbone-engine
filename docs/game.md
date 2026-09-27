@@ -1204,15 +1204,27 @@ held reference identity against its materialized or authored state before an
 earlier member can change inventory or queue events.
 Active-effect recipients remain pending with magic execution.
 
-The condition evaluator implements functions 47, 56, 58, 59, 72, 74, 136,
-182, 264, 277, 289, 359, 448, 543, 560, 629, 630 and 659. This is a bounded set,
-not the entire CTDA contract. It supports ordered AND/OR groups, numeric or
+The condition evaluator implements functions 47, 53, 56, 58, 59, 72, 74, 79,
+136, 182, 264, 277, 289, 359, 448, 470, 528, 543, 560, 629, 630 and 659.
+This is a bounded set, not the entire CTDA contract. It supports ordered
+AND/OR groups, numeric or
 global comparisons, explicit references and caller-supplied quest aliases.
 Reserved PlayerRef resolves to the runtime player even without a placed record.
 New runtime players retain reserved FormID 00000014 and use the Player NPC
 base when present, so forced player aliases and inventory notifications agree.
-Conditional Papyrus variables come from current attached instances, with
-ambiguous or nonnumeric values reported as errors. Unavailable targets,
+Conditional Papyrus variables for script and quest variable conditions come
+from current attached instances, with ambiguous or nonnumeric values reported
+as errors. Destruction stage defaults to -1 and is saved per reference.
+Critical-stage conditions match the actor's current critical-stage value.
+Functions that the local CK sources do not describe as usable condition
+contracts, GetEventData, GetIsCrashLandRequest and GetIsHastyLandRequest,
+return unsupported-function diagnostics. xEdit supplies their parameter
+layouts but not result semantics. SOEW version 35 stores destruction-stage
+state by reference. Older saves load references at stage -1. These parameter
+slots follow xEdit's `wbDefinitionsTES5.pas`. The stage rules follow CK's
+`GetCurrentDestructionStage` and `SetCriticalStage` pages. The local CK corpus
+does not define usable result contracts for event data or either landing
+request query, so those functions return diagnostics. Unavailable targets,
 unsupported flags/functions, nonzero HasPerk parameter 2 and missing tempering
 context are explicit errors. Crafting does not invent a target or quest context.
 Float comparisons are exact and have not been compared against vanilla

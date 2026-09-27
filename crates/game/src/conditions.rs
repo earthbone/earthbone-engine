@@ -139,6 +139,10 @@ pub fn supports_function(function: u16) -> bool {
             | 630
             | 655
             | 659
+            | 53
+            | 79
+            | 470
+            | 528
     )
 }
 
@@ -384,6 +388,50 @@ fn function_value(
                 _ => boolean(state.completed),
             }
         }
+        53 | 79 => {
+            let name = c.strings[1]
+                .as_deref()
+                .filter(|name| !name.is_empty())
+                .ok_or_else(|| Error::Variable("missing CIS2".into()))?;
+            let form = if c.function == 53 {
+                resolve_reference(world, context.owner, raw)?
+            } else {
+                resolve(world, context.owner, raw, Some(*b"QUST"))?
+            };
+            let values = world
+                .object_id(Handle::Form(form))
+                .map(|object| {
+                    vm.map(|vm| vm.conditional_vars(object, name))
+                        .unwrap_or_default()
+                })
+                .unwrap_or_default();
+            match values.as_slice() {
+                [Value::Int(value)] => *value as f32,
+                [Value::Float(value)] => *value,
+                [Value::Bool(value)] => boolean(*value),
+                _ => return Err(Error::Variable(name.into())),
+            }
+        }
+        470 => {
+            no_parameter(c)?;
+            world
+                .reference(subject)
+                .ok_or(Error::Form(subject))?
+                .destruction_stage as f32
+        }
+        528 => {
+            if raw > 4 || c.parameters[1] != 0 {
+                return Err(Error::Parameter(c.function, raw.max(c.parameters[1])));
+            }
+            boolean(
+                world
+                    .actor(subject)
+                    .ok_or(Error::Form(subject))?
+                    .critical_stage
+                    == raw as i32,
+            )
+        }
+        576 | 646 | 647 => return Err(Error::Function(c.function)),
         72 => {
             let base = resolve(world, context.owner, raw, None)?;
             boolean(world.base_of(subject) == Some(base))

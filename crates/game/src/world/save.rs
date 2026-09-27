@@ -58,7 +58,8 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// script equip survives a reload the way a hand weapon selection already did.
 /// Version 33 retains the spawned reference owned by each Summon Creature effect.
 /// Version 34 retains last-visit game days for resettable encounter zones.
-pub const SAVE_VERSION: u16 = 34;
+/// Version 35 retains each reference's current destruction stage.
+pub const SAVE_VERSION: u16 = 35;
 
 #[derive(Clone, Copy)]
 pub(crate) enum FormNamespace {
@@ -416,6 +417,16 @@ impl World {
         self.write_encounter_levels(&mut body);
         self.write_encounter_zone_visits(&mut body);
         self.write_dialogue_repeats(&mut body);
+        let destruction_stages: BTreeMap<_, _> = self
+            .refs
+            .iter()
+            .map(|(id, state)| (*id, state.destruction_stage))
+            .collect();
+        body.len(destruction_stages.len());
+        for (id, stage) in destruction_stages {
+            write_form_id(&mut body, id);
+            body.i32(stage);
+        }
         self.write_detection(&mut body);
         let mut out = Writer::new();
         out.out.extend_from_slice(SAVE_MAGIC);
@@ -985,6 +996,23 @@ impl World {
         } else {
             BTreeMap::new()
         };
+        if version >= 35 {
+            let count = r.len()?;
+            let mut seen = BTreeSet::new();
+            for _ in 0..count {
+                let id = read_form_id(&mut r)?;
+                let stage = r.i32()?;
+                let reference = refs.get_mut(&id).ok_or_else(|| {
+                    VmError::State("destruction stage names missing reference".into())
+                })?;
+                if !seen.insert(id) {
+                    return Err(VmError::State(
+                        "duplicate destruction stage reference".into(),
+                    ));
+                }
+                reference.destruction_stage = stage;
+            }
+        }
         let detection = if version >= 30 {
             super::detection::read_detection(&mut r)?
         } else {
@@ -1334,6 +1362,7 @@ fn read_ref_state(r: &mut FormReader<'_, '_>) -> Result<RefState, VmError> {
         on_map,
         fast_travel,
         destroyed,
+        destruction_stage: -1,
         ignore_friendly_hits,
         anim_floats,
         anim_ints,

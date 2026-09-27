@@ -283,8 +283,8 @@ fn rich_world(namespace: u16) -> World {
 /// Save `world` the way a version 23 engine would, without the exclusive
 /// dialogue branch field that version 24 added, the stagger end time field
 /// that version 29 added, the witnessed crimes set that version 31 added,
-/// the hand spell fields that version 32 added, and the summon actor link
-/// that version 33 added. Each is set to a unique sentinel so its serialized
+/// the hand spell fields that version 32 added, the summon actor link
+/// that version 33 added, and destruction stages from version 35. Each is set to a unique sentinel so its serialized
 /// bytes can be located exactly, then cut back out.
 fn without_exclusive_branches(world: &mut World) -> Vec<u8> {
     let ids: Vec<_> = world.actors.keys().copied().collect();
@@ -351,6 +351,7 @@ fn without_exclusive_branches(world: &mut World) -> Vec<u8> {
     summon_marker.extend_from_slice(&summon_sentinel.object.to_le_bytes());
     markers.push(summon_marker);
     let mut bytes = world.save_state();
+    bytes.truncate(bytes.len() - 4 - world.refs.len() * 10);
     world.active_effects.get_mut(&EffectId(1)).unwrap().summoned = None;
     for id in &ids {
         let actor = world.actors.get_mut(id).unwrap();
@@ -468,7 +469,7 @@ fn sav_07_unknown_version_and_mixed_legacy_namespaces_are_rejected() {
     let mut world = rich_world(DYNAMIC_FILE);
     let before = world.save_state();
     for (version, message) in [
-        (35_u16, "world state version 35"),
+        (36_u16, "world state version 36"),
         (18, "created namespace in a legacy world state"),
     ] {
         let mut bytes = before.clone();
