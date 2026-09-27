@@ -665,6 +665,15 @@ with the gameplay evaluator. Any other function fails its condition and is
 counted in `World::ai.unsupported_functions` by index, so a live run
 prints what the next round should add.
 
+AI-72 adds these queries to both condition evaluators: `GetOpenState` for
+placed `DOOR` references (0 for other references, 1 open and 3 closed),
+`GetIsCurrentPackage` against the subject actor's selected package,
+`GetDestroyed` from reference state, and `GetDefaultOpen` from a placed
+reference's `ONAM` marker. `ONAM` also initializes the runtime open state.
+`GetCurrentAIProcedure`, `IsContinuingPackagePCNear`, `GetVampireFeed` and
+`GetCannibal` remain unsupported with a function diagnostic because the local
+sources name them without defining query results.
+
 **Procedures.** AI-02 walks sequential branches in authored preorder. The
 actor retains the active child and its completion state. A completed Travel
 starts the next child on the next driver tick. Nested `Sequence` branches

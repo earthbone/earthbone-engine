@@ -599,11 +599,52 @@ fn function_value(
         }
         161 => {
             let p = form(world, c.param1)?;
+            if c.param2 != 0 || world.tag_of(p) != Some(T(b"PACK")) {
+                return None;
+            }
             bool_f(
                 world
                     .actor(subject)
                     .is_some_and(|a| a.ai.package == Some(p)),
             )
+        }
+        157 => {
+            if c.param1 != 0 || c.param2 != 0 {
+                return None;
+            }
+            let (base, opened) = world
+                .reference(subject)
+                .filter(|reference| !reference.deleted)
+                .map(|reference| (reference.base, reference.opened))?;
+            if base.is_some_and(|base| world.tag_of(base) == Some(T(b"DOOR"))) {
+                if opened {
+                    1.0
+                } else {
+                    3.0
+                }
+            } else {
+                0.0
+            }
+        }
+        203 => {
+            if c.param1 != 0 || c.param2 != 0 {
+                return None;
+            }
+            bool_f(
+                world
+                    .reference(subject)
+                    .filter(|reference| !reference.deleted)?
+                    .destroyed,
+            )
+        }
+        215 => {
+            if c.param1 != 0 || c.param2 != 0 {
+                return None;
+            }
+            world
+                .reference(subject)
+                .filter(|reference| !reference.deleted)?;
+            bool_f(world.record(subject)?.find(T(b"ONAM")).is_some())
         }
         170 => (world.clock.game_days.floor() as i64).rem_euclid(7) as f32,
         286 => 0.0,
