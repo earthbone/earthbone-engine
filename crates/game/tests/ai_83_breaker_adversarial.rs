@@ -1,4 +1,3 @@
-
 use soe_esm::{
     records::gameplay::{Comparison, Condition},
     FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag,
@@ -111,7 +110,13 @@ fn ai_83_undocumented_interaction_and_undead_functions_report_diagnostics() {
 fn unique_condition_is_repeatable_for_both_base_flags() {
     let game = fixture();
     for _ in 0..3 {
-        assert_eq!(evaluate(&game, id(0x900), &condition(641, 0, 0, 1.0)), Ok(true));
-        assert_eq!(evaluate(&game, id(0x901), &condition(641, 0, 0, 0.0)), Ok(true));
+        assert_eq!(
+            evaluate(&game, id(0x900), &condition(641, 0, 0, 1.0)),
+            Ok(true)
+        );
+        assert_eq!(
+            evaluate(&game, id(0x901), &condition(641, 0, 0, 0.0)),
+            Ok(true)
+        );
     }
 }

@@ -1,3 +1,4 @@
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use soe_esm::{
     records::gameplay::{Comparison, Condition},
@@ -173,7 +174,17 @@ fn ai_82_teammate_count_and_exit_instant_remain_unsupported_with_diagnostics() {
 #[test]
 fn authored_relationship_extrema_ignore_runtime_relationship_overrides() {
     let game = fixture();
-    game.world_mut().actor(id(0x900)).unwrap().relationships.insert(id(0x901), 4);
-    assert_eq!(evaluate(&game, id(0x900), &condition(615, 0, 0, 3.0)), Ok(true));
-    assert_eq!(evaluate(&game, id(0x900), &condition(615, 0, 0, 4.0)), Ok(false));
+    game.world_mut()
+        .actor(id(0x900))
+        .unwrap()
+        .relationships
+        .insert(id(0x901), 4);
+    assert_eq!(
+        evaluate(&game, id(0x900), &condition(615, 0, 0, 3.0)),
+        Ok(true)
+    );
+    assert_eq!(
+        evaluate(&game, id(0x900), &condition(615, 0, 0, 4.0)),
+        Ok(false)
+    );
 }

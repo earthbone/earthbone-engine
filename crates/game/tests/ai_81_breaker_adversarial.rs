@@ -1,4 +1,3 @@
-
 use soe_esm::{
     records::gameplay::{Comparison, Condition},
     FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag,
