@@ -1103,6 +1103,13 @@ Only its gameplay context supplies gameplay actions. The hold-to-walk action
 is named `Run` in that file, and Toggle Always Run uses Caps Lock. Camera
 offsets remain this engine's choices, as `camera` documents separately.
 
+The `Right Attack/Block` gameplay event is also registered from the PC control
+map. Its press edge arms one right-hand melee contact in PlayerNode. The
+authored animation's `HitFrame` marker still supplies the contact pose and
+reaches the same shared Game path as other melee contacts. A single-key or
+single-button action can also be pressed through Godot's Input action API,
+while chorded bindings continue to require every device input.
+
 ### The camera basis
 
 Skyrim's yaw is zero facing north and grows clockwise from above, so forward is
@@ -1845,7 +1852,9 @@ attacker. It reads the weapon attachment from the rig's model-space pose, the
 same buffer used for skinning, and resolves the segment using the armed hand's
 reach. For a bound rig, position, rotation and scale come from the actor's
 current shared World placement. A rig without a matching weapon or hand bone
-rejects the contact.
+rejects the contact. CMB-04's `Right Attack/Block` press arms this contact for
+the right hand, and the authored `HitFrame` remains the only event that queries
+and applies damage.
 `last_melee_obstruction` exposes the first unmapped body RID when an
 obstruction stops a swing. It is invalid for an actor contact or a miss.
 

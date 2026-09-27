@@ -334,8 +334,9 @@ application. They also cover misses, cancellation, equipment changes, rejected
 damage, slot-parent cycles, animation-independent hand occupancy and save/load.
 These tests use synthetic records and query results. A live Godot swing and
 installed attack-animation corpus have not been exercised. CMB-28 owns the
-scene wiring that supplies weapon segments and registered bodies. CMB-04 owns
-device input and depends on both CMB-03 and CMB-28.
+scene wiring that supplies weapon segments and registered bodies. CMB-04 binds
+the PC `Right Attack/Block` input to the right-hand swing latch. Left-hand attack
+input remains outside that row.
 
 Additional local sources read for this increment:
 
@@ -355,8 +356,8 @@ actors. A SkinnedActorNode bound to that World supplies its model-space weapon
 attachment pose at HitFrame. The one-handed graph emits the authored marker,
 and PlayerNode queries the first actor or obstruction using the selected
 weapon's reach. The installed-data contact script runs the path across a load
-door. Input binding remains CMB-04, and the host script forwards the relevant
-HitFrame marker while a swing is armed.
+door. The host script forwards the relevant HitFrame marker while a swing is
+armed by CMB-04 or another caller.
 
 CMB-29 exposes and validates character controller metadata first. The local
 serde-hkx hkbCharacterDataCharacterControllerInfo declaration places height,

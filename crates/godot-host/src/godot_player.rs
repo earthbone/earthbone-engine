@@ -526,6 +526,9 @@ impl PlayerNode {
         if input.toggle_pov_pressed {
             self.rig.mode = self.rig.mode.toggled();
         }
+        if input.right_attack_pressed {
+            self.begin_melee_swing(false);
+        }
 
         let camera = self.rig;
         let intent = self.driver.update(&input, &camera);
@@ -925,6 +928,7 @@ impl PlayerNode {
             activate_pressed: pressed(Action::Activate),
             toggle_pov_pressed: pressed(Action::TogglePov),
             toggle_always_run_pressed: pressed(Action::ToggleAlwaysRun),
+            right_attack_pressed: pressed(Action::RightAttack),
         };
         self.held_actions = held_now;
         state
