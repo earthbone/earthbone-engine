@@ -521,6 +521,8 @@ impl World {
                 target: caster,
                 quest: None,
                 tempering_enchanted: None,
+                magic_item: Some(spell),
+                dual_cast: Some(false),
             };
             if !conditions::evaluate_without_vm(self, context, &entry.conditions)? {
                 continue;

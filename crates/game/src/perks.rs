@@ -336,6 +336,8 @@ fn entry_conditions(
             target: context.target,
             quest: context.quest,
             tempering_enchanted: None,
+            magic_item: None,
+            dual_cast: None,
         };
         if !conditions::evaluate(world, vm, condition_context, conditions)
             .map_err(|error| DispatchError::Condition(perk, error))?
@@ -429,6 +431,8 @@ impl Game {
             target: None,
             quest: None,
             tempering_enchanted: None,
+            magic_item: None,
+            dual_cast: None,
         };
         if !conditions::evaluate(&mut world, &self.vm, context, &perk.conditions)? {
             return Err(Error::Ineligible);

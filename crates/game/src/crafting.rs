@@ -144,6 +144,8 @@ impl Game {
             target: None,
             quest: None,
             tempering_enchanted: None,
+            magic_item: None,
+            dual_cast: None,
         };
         if !conditions::evaluate(&mut world, &self.vm, context, &recipe.conditions)? {
             return Err(Error::Ineligible);

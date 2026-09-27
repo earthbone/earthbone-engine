@@ -48,6 +48,8 @@ fn evaluate(game: &Game, subject: GlobalFormId, c: &Condition) -> Result<bool, c
             target: None,
             quest: None,
             tempering_enchanted: None,
+            magic_item: None,
+            dual_cast: None,
         },
         c,
     )

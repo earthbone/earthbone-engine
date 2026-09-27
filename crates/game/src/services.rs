@@ -113,6 +113,8 @@ pub fn resolve_vendor_service(
                 target: Some(player),
                 quest: None,
                 tempering_enchanted: None,
+                magic_item: None,
+                dual_cast: None,
             },
             &conditions,
         )?;

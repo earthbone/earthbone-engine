@@ -1234,7 +1234,8 @@ earlier member can change inventory or queue events.
 Active-effect recipients remain pending with magic execution.
 
 The condition evaluator implements functions 47, 56, 58, 59, 72, 74, 136,
-182, 264, 277, 289, 359, 448, 543, 560, 629, 630 and 659. This is a bounded set,
+182, 264, 277, 289, 359, 448, 543, 560, 629, 630, 659, 693, 696, 699, 706,
+713, 721 and 724. This is a bounded set,
 not the entire CTDA contract. It supports ordered AND/OR groups, numeric or
 global comparisons, explicit references and caller-supplied quest aliases.
 Reserved PlayerRef resolves to the runtime player even without a placed record.
@@ -2391,6 +2392,35 @@ SKSE name a FormList argument for 409 without defining what it matches. The
 describes 530 as a placebo vanilla command fixed by that mod. These queries
 remain unsupported pending a Skyrim contract. They are not counted as
 implemented predicates.
+
+## Magic condition batch AI-61
+
+The gameplay condition evaluator checks spell keywords (693) against the
+current spell's KWDA, spell skills (696) against each linked MGEF's magic-skill
+actor value, and SpellHasCastingPerk (713) against the SPEL half-cost perk.
+These three functions require the active spell context supplied while SPEL
+effect and MGEF conditions run. HasMagicEffectKeyword (699) checks live active
+effects on the subject. HasBoundWeaponEquipped (706) uses Casting Source 0 for
+the left hand and 1 for the right, then checks the equipped WEAP bound flag.
+IsPoison (721) reads the subject reference's ALCH base and its poison flag.
+EffectWasDualCast (724) reads optional caller-supplied cast context. Without
+that value it returns a typed magic-context error. The direct scripted cast
+path supplies false because it has no hand-cast dual-cast input. Function 681
+remains unsupported because the local xEdit and UESP tables identify its name
+and Actor Value parameter but the CK dump has no condition-function semantics
+for its skill-advancement entry point.
+
+Local xEdit `Core/wbDefinitionsTES5.pas` establishes the function IDs and
+parameter types. UESP `Raw_Function_Data.wikitext` identifies IsPoison as the
+poison-potion query. The CK `Magic_Effect` page supplies the shared spell/MGEF
+condition context and swapped subject/target behavior. The CK conditions page
+is absent from the local dump, and the available sources do not define an
+original-runtime dual-cast call path. No state is saved or duplicated.
+
+`ai_61_magic_conditions.rs` covers positive, negative and invalid-context
+cases, including unsupported diagnostics for 681 and missing dual-cast state
+for 724. The fixtures use synthetic records. No installed-record survey is
+claimed.
 
 `condition_actor_values` checks both evaluators against independent expected
 values, high indices, invalid indices and subjects, resource fractions and the

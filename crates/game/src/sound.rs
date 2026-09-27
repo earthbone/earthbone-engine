@@ -102,6 +102,8 @@ pub fn prepare_for(
                 target,
                 quest: None,
                 tempering_enchanted: None,
+                magic_item: None,
+                dual_cast: None,
             },
             &conditions,
         )
