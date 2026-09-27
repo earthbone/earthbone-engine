@@ -34,6 +34,7 @@ fn hst_12_deleted_reference_rejects_a_late_physics_pose() {
     let (mut world, id) = fixture();
     world.reference(id).unwrap().deleted = true;
     assert!(!world.set_host_ref_pose(id, [10.0; 3], [0.5; 3]));
+    assert!(!world.ref_placement(id).unwrap().visible);
     assert_eq!(world.ref_placement(id).unwrap().position, [1.0, 2.0, 3.0]);
 }
 

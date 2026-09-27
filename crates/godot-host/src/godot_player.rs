@@ -76,6 +76,12 @@ pub struct PlayerNode {
     /// Stick look rate in mouse units per second, before camera sensitivity.
     #[export]
     gamepad_look_speed: f32,
+    /// Maximum exterior mesh triangles uploaded by one walking tick. Zero is unlimited.
+    #[export]
+    exterior_triangle_budget: i64,
+    /// Maximum exterior vertex and index bytes uploaded by one walking tick.
+    #[export]
+    exterior_byte_budget: i64,
     rig: CameraRig,
     motion: CameraMotion,
     bindings: Bindings,
@@ -133,6 +139,8 @@ impl INode3D for PlayerNode {
             capture_mouse: true,
             auto_step: true,
             gamepad_look_speed: 800.0,
+            exterior_triangle_budget: 0,
+            exterior_byte_budget: 0,
             rig: CameraRig::default(),
             motion: CameraMotion::new(Vec3::ZERO, CharacterSettings::default().height),
             bindings: Bindings::default(),

@@ -131,8 +131,12 @@ Costs may be measured or estimated. Loads stay nearest first, and a cell that do
 either remaining limit is deferred while later smaller cells may be selected. A zero limit
 is unlimited. The ordinary `update` keeps its cell-count behavior and does not apply mesh
 budgets. `SurfaceArrays` exposes triangle counts and its vertex and index buffers, which
-callers can use to calculate or estimate costs. The walking player path still uses `update`,
-so it does not yet schedule by measured mesh cost.
+callers can use to calculate or estimate costs. The walking player path measures
+prepared surface arrays and calls `update_with_budget` when its exported
+`exterior_triangle_budget` or `exterior_byte_budget` is positive. The limits
+apply to selected mesh uploads. Preparation may decode more candidates on that
+tick so a smaller later cell can fit. Zero on both exported settings leaves
+the earlier cell-count behavior.
 
 ## Mesh
 
@@ -867,7 +871,11 @@ graph. Events for other forms and events already present when the actor was
 bound are skipped. The cursor advances across the whole log, so one request is
 submitted at most once to that host actor. The interpreter's emitted graph
 events continue through the node's `animation_event` signal after its pose is
-uploaded, once per event returned by `take_events()`.
+uploaded, once per event returned by `take_events()`. That interpreter method
+also returns submitted input events, so the signal does not report that a
+requested animation finished. `World::animation_event` currently records both
+script requests and listener notifications. The host does not instantiate a
+graph for non actor references, which `ObjectReference.PlayAnimation` requires.
 
 This uses Godot's `RenderingServer` skeleton RIDs and
 `skeleton_bone_set_transform` for pose upload, as documented in the local

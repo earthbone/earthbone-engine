@@ -27,7 +27,7 @@ use soe_hkx::pose::to_model_space_into;
 use soe_hkx::QsTransform;
 
 use crate::actor::{ActorAssets, ActorSurface, HUMAN_SKELETON};
-use crate::animation_dispatch::{report_completed_events, AnimationEventCursor};
+use crate::animation_dispatch::{report_graph_events, AnimationEventCursor};
 use crate::data_source::DataSource;
 use crate::godot_layer::array_mesh_from;
 use crate::skinned::{skinning_transforms_into, Affine};
@@ -282,7 +282,7 @@ impl SkinnedActorNode {
         }
         self.push_pose();
         // Authored events follow the pose they belong to.
-        report_completed_events(&mut events, |event| {
+        report_graph_events(&mut events, |event| {
             self.signals().animation_event().emit(&GString::from(event));
         });
     }

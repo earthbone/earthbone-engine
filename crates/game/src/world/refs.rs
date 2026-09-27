@@ -224,7 +224,7 @@ impl World {
             position: state.position,
             rotation: state.rotation,
             scale: state.scale,
-            visible: state.enabled,
+            visible: state.enabled && !state.deleted,
         })
     }
 

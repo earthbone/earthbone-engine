@@ -37,7 +37,9 @@ impl AnimationEventCursor {
 }
 
 /// Report and consume graph events returned by one interpreter update.
-pub fn report_completed_events(events: &mut Vec<String>, mut report: impl FnMut(&str)) {
+/// The interpreter also returns submitted inputs, so these are not completion
+/// notifications.
+pub fn report_graph_events(events: &mut Vec<String>, mut report: impl FnMut(&str)) {
     for event in events.drain(..) {
         report(&event);
     }

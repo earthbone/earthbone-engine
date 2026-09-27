@@ -161,6 +161,23 @@ impl CellStreamer {
         self.resident.contains(&cell)
     }
 
+    /// Missing cells in nearest-first order before the per-tick caps apply.
+    pub fn candidates(&self, focus: SkyrimPos) -> Vec<CellCoord> {
+        let centre = CellCoord::containing(focus);
+        let r = self.config.load_radius;
+        let mut wanted = Vec::with_capacity(((2 * r + 1) * (2 * r + 1)) as usize);
+        for y in (centre.y - r)..=(centre.y + r) {
+            for x in (centre.x - r)..=(centre.x + r) {
+                let cell = CellCoord::new(x, y);
+                if !self.resident.contains(&cell) {
+                    wanted.push(cell);
+                }
+            }
+        }
+        wanted.sort_by_key(|cell| (cell.distance_sq(centre), cell.x, cell.y));
+        wanted
+    }
+
     /// The caller failed to load, or dropped, a cell on its own.
     pub fn mark_unloaded(&mut self, cell: CellCoord) {
         self.resident.remove(&cell);
@@ -193,19 +210,7 @@ impl CellStreamer {
         let centre = CellCoord::containing(focus);
         self.last_focus = Some(centre);
 
-        let r = self.config.load_radius;
-        let mut wanted: Vec<CellCoord> = Vec::with_capacity(((2 * r + 1) * (2 * r + 1)) as usize);
-        for y in (centre.y - r)..=(centre.y + r) {
-            for x in (centre.x - r)..=(centre.x + r) {
-                let c = CellCoord::new(x, y);
-                if !self.resident.contains(&c) {
-                    wanted.push(c);
-                }
-            }
-        }
-        // Nearest first. The tie-break on coordinates keeps the order stable
-        // across runs, which the tests and the benchmark rely on.
-        wanted.sort_by_key(|c| (c.distance_sq(centre), c.x, c.y));
+        let wanted = self.candidates(focus);
         let mut selected = Vec::new();
         let mut used = StreamCost::default();
         for cell in wanted {

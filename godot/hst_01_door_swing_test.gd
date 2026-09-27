@@ -23,7 +23,7 @@ func _hst_01_door_swing_and_collision_follow() -> void:
 		quit(2)
 		return
 
-	var fixture_path := ProjectSettings.globalize_path("res://fixtures/rnd_08_animated_static.nif")
+	var fixture_path := ProjectSettings.globalize_path("res://../target/godot-check/fixtures/rnd_08_animated_static.nif")
 	if not FileAccess.file_exists(fixture_path):
 		printerr("RESULT: FAIL: fixture not found at ", fixture_path)
 		quit(2)
