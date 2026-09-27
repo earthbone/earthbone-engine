@@ -192,6 +192,16 @@ scripts can continue when their owning system has no behavior yet.
 | MusicType, Topic | | Add, Remove |
 | Weather, Weapon, Scroll | | SetActive, Fire, Cast |
 
+Condition functions 84 (`GetDeadCount`), 323 (`GetCombatState`) and 338
+(`GetIgnoreFriendlyHits`) use the local CK contracts and xEdit function
+identities. Dead count reads the number of runtime-dead actors for an NPC
+base, increasing on death and decreasing on resurrection. Combat state reports
+0 or 1 from the runtime engagement flag. CK also defines state 2 for searching,
+which the runtime does not currently represent. Ignore-friendly-hits reads the
+reference flag used by its Papyrus native. The condition functions 63, 66, 118,
+288 and 361 remain unsupported with explicit function diagnostics because the
+local CK corpus does not provide usable condition semantics for them.
+
 Current behavior and compatibility limits:
 
 - `SetStage` on a quest that is not running starts it (`OnInit`, then the

@@ -127,11 +127,14 @@ pub fn supports_function(function: u16) -> bool {
             | 403
             | 566
             | 74
+            | 84
             | 136
             | 182
             | 264
             | 289
+            | 323
             | 359
+            | 338
             | 448
             | 543
             | 560
@@ -282,6 +285,13 @@ fn function_value(
         }
         18 => world.calendar().hour as f32,
         46 => boolean(world.actor(subject).is_some_and(|actor| actor.dead)),
+        84 => {
+            if c.parameters[1] != 0 {
+                return Err(Error::Parameter(c.function, c.parameters[1]));
+            }
+            let base = resolve(world, context.owner, raw, Some(*b"NPC_"))?;
+            world.actor_base(base).ok_or(Error::Form(base))?.dead_count as f32
+        }
         67 => {
             let cell = resolve(world, context.owner, raw, Some(*b"CELL"))?;
             boolean(
@@ -417,6 +427,23 @@ fn function_value(
             )
         }
         289 => boolean(world.actor(subject).is_some_and(|actor| actor.in_combat)),
+        323 => {
+            // CK GetCombatState defines 0 as not in combat, 1 as in combat,
+            // and 2 as searching. The runtime currently models engagement as
+            // a boolean, so the searchable state has no producer yet.
+            no_parameter(c)?;
+            let actor = world.actor(subject).ok_or(Error::Form(subject))?;
+            f32::from(actor.in_combat)
+        }
+        338 => {
+            no_parameter(c)?;
+            boolean(
+                world
+                    .reference(subject)
+                    .ok_or(Error::Form(subject))?
+                    .ignore_friendly_hits,
+            )
+        }
         359 => {
             let wanted = resolve(world, context.owner, raw, Some(*b"LCTN"))?;
             boolean(world.current_location(subject).is_some_and(|current| {
