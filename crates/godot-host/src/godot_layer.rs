@@ -730,6 +730,30 @@ impl CellStreamerNode {
         out
     }
 
+    /// Terrain surfaces currently submitted to the RenderingServer, with
+    /// their RID and cached material for host-side visual checks.
+    #[func]
+    pub fn terrain_surfaces(&self) -> Array<VarDictionary> {
+        let mut out = Array::new();
+        for instance in &self.instances {
+            let Some(path) = instance.arrays.material.diffuse.as_deref() else {
+                continue;
+            };
+            if !path.starts_with("terrain:") {
+                continue;
+            }
+            let key = crate::mesh::MaterialKey::from(&instance.arrays.material);
+            let Some(material) = self.materials.materials.get(&key) else {
+                continue;
+            };
+            let mut row = VarDictionary::new();
+            row.set("rid", instance.rid);
+            row.set("material", material);
+            out.push(&row);
+        }
+        out
+    }
+
     /// Instances alive in this node's scenario.
     #[func]
     pub fn instance_count(&self) -> i32 {

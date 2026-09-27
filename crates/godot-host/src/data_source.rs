@@ -47,6 +47,7 @@ mod grass;
 mod location;
 mod lod;
 mod models;
+mod terrain_texture;
 mod textures;
 mod water;
 mod workers;

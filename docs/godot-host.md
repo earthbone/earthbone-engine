@@ -707,10 +707,22 @@ around the origin carry their own `LAND`, the city draws Tamriel's under the oth
 have terrain. Whether the shipped engine draws the parent's land under a child cell that has
 its own is not settled here, the override wins.
 
-What the exterior still lacks, none of it needed for the block benchmark: the `LAND` quadrant
-layers (`LTEX` base plus alpha layers) need a splat material, so terrain draws in the
-untextured white material. `godot/pan_capture.gd` orbits and pans that block through 25
-shots for a quick visual sweep. Distant geometry is Bethesda's precomputed LOD (the `BTO` and
+For each terrain cell, `terrain_texture::bake` samples four 128 by 128 quadrant images. Each
+quadrant starts with its `BTXT` base texture, or `textures/landscape/dirt02.dds` when its
+texture is zero or unavailable. Each `ATXT` layer resolves its `LTEX` record, `TNAM` texture
+set and `TX00` diffuse path, then blends into the base using the `VTXT` opacity points on the
+17 by 17 quadrant grid. Opacity is bilinearly interpolated. Source textures repeat four times
+per quadrant. The baked RGBA image is attached to the terrain surface's ordinary albedo
+material and uploaded through the existing texture path. This uses the LAND/TXST layouts in
+TES5Edit and the UESP LAND description. Terrain3D's control map is a separate layer-index
+representation, but this host already streams one ordinary mesh per cell, so baking keeps
+the rendering path on Godot's existing mesh and material servers without adding Terrain3D.
+`rnd_01_terrain_texture_check.rs` checks the installed Whiterun data path through the
+`LoadedSurface` texture payload. `CellStreamerNode::terrain_surfaces` exposes the uploaded
+terrain materials for `godot/rnd_01_terrain_texture_check.gd`, which checks the live
+RenderingServer instances and their albedo images. `godot/pan_capture.gd` orbits and pans that
+block through 25 shots for a quick visual sweep. Distant geometry is Bethesda's precomputed
+LOD (the `BTO` and
 `BTR` files under `meshes/terrain`, to be consumed, never generated), not loaded, so nothing
 beyond the requested ring exists. No water plane. `WhiterunWorld` lists grid (0, 0) twice among
 its winners, both streamed. Interior streaming by proximity is still unstarted.
