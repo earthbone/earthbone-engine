@@ -83,6 +83,7 @@ unmeasured. Static world collision is not evidence of hazard execution.
 | `units` | no | Skyrim units and axes to Godot metres and Y up |
 | `streaming` | no | which cells to load and unload around a focus, with budgets and hysteresis |
 | `mesh` | no | a decoded NIF shape to `ArrayMesh` surface arrays, with validation |
+| `facegen` | no | apply named TRI morph weights to a resolved head-part mesh and build host surface arrays |
 | `terrain` | no | LAND heights to Terrain3D regions |
 | `data_source` | no | a real `Data` folder through `esm`, `bsa`, `nif` and `dds` to loaded cells and exterior blocks |
 | `batch` | no | a cell's surfaces merged per material set, with the side table back to each reference |
@@ -93,6 +94,12 @@ unmeasured. Static world collision is not evidence of hazard execution.
 
 The Godot layer decides nothing. That is what keeps the tests engine-free, and it is the
 seam a VulkanSceneGraph or other host would reuse: everything above the layer is plain data.
+
+`facegen::build_head_part_surface` takes one already resolved head-part NIF mesh, a parsed
+`FRTRI003` file and named morph weights. It applies the deltas to a fresh mesh copy and
+passes the changed geometry through the same axis conversion, bounds and surface validation
+as streamed meshes. Normals are generated from the changed geometry. The caller resolves
+the NPC's `PNAM` head-part links and maps `NAM9` values to morph names.
 
 `godot/` holds a project stub and `soe.gdextension` pointing at `target/`, so `cargo build`
 plus opening `godot/` in a 4.4 or later editor loads the extension. The initial
