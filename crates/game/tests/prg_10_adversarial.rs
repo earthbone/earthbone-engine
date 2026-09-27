@@ -14,7 +14,9 @@ const REF_B: u32 = 0x301;
 const PERSISTENT: u32 = 0x302;
 const BASE: u32 = 0x400;
 
-fn id(object: u32) -> GlobalFormId { GlobalFormId { file: 0, object } }
+fn id(object: u32) -> GlobalFormId {
+    GlobalFormId { file: 0, object }
+}
 
 fn zone(object: u32) -> Record {
     let mut data = vec![0; 12];
@@ -28,19 +30,31 @@ fn reference(object: u32, zone: u32, persistent: bool) -> Record {
         .sub(T(b"NAME"), BASE.to_le_bytes())
         .sub(T(b"XEZN"), zone.to_le_bytes());
     record.placement.cell = Some(CELL);
-    if persistent { record.flags |= record_flags::PERSISTENT; }
+    if persistent {
+        record.flags |= record_flags::PERSISTENT;
+    }
     record
 }
 
 fn fixture() -> World {
-    let base = Record::new(T(b"CONT"), BASE).sub(T(b"CNTO"), [
-        0x600_u32.to_le_bytes().as_slice(), 2_i32.to_le_bytes().as_slice()
-    ].concat());
+    let base = Record::new(T(b"CONT"), BASE).sub(
+        T(b"CNTO"),
+        [
+            0x600_u32.to_le_bytes().as_slice(),
+            2_i32.to_le_bytes().as_slice(),
+        ]
+        .concat(),
+    );
     let mut plugin = Plugin::new(FileHeader::default());
-    for record in [zone(ZONE_A), zone(ZONE_B), base,
+    for record in [
+        zone(ZONE_A),
+        zone(ZONE_B),
+        base,
         Record::new(T(b"MISC"), 0x600),
-        reference(REF_A, ZONE_A, false), reference(REF_B, ZONE_B, false),
-        reference(PERSISTENT, ZONE_A, true)] {
+        reference(REF_A, ZONE_A, false),
+        reference(REF_B, ZONE_B, false),
+        reference(PERSISTENT, ZONE_A, true),
+    ] {
         plugin.push_top(record);
     }
     let mut order = LoadOrder::new();

@@ -53,12 +53,14 @@ The existing ESM Race view was checked, but it reads FaceFX PHTN/PHWT rather
 than DATA attributes. The game view therefore adds the missing prefix only.
 
 `World::actor` seeds a spawned actor's values from the resolved stats and
-traits sources once. Manual NPC skills add each valid RACE boost to DNAM;
-fixed-level auto-calculated skills use the class weight formula with that
-boost. The resulting actor values are saved in SOEW, so loading an existing
-actor restores its initialized values without running the seed calculation
-again. `prg_09_race_skill_initialization.rs` checks both paths with a synthetic
-spawn and an installed-data sample.
+traits sources once. Manual NPC skills preserve the DNAM cache because the
+available sources do not establish whether manual values already contain race
+boosts. Fixed-level auto-calculated skills use the class weight formula with
+the resolved race boost. The resulting actor values are saved in SOEW, so
+loading an existing actor restores its initialized values without running the
+seed calculation again. `prg_09_race_skill_initialization.rs` checks cache
+preservation and reload behavior with a synthetic spawn and an installed-data
+sample. Manual-mode race bonus initialization remains pending PRG-15 evidence.
 
 The store rejects non-finite inputs and overflowing components or totals
 before mutation. Resurrection clears health damage and death identity while

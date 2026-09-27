@@ -56,28 +56,28 @@ fn synthetic_game() -> Game {
 }
 
 #[test]
-fn prg_09_spawn_applies_the_authored_race_skill_bonus_once() {
+fn prg_09_manual_spawn_preserves_the_authored_skill_cache() {
     let mut game = synthetic_game();
     let player = game.player();
     let mut world = game.world_mut();
     let actor = world.place_at(id(0, 0x800), player, false);
 
-    assert_eq!(world.base_actor_value(actor, "heavyarmor"), 55.0);
-    assert_eq!(world.base_actor_value(actor, "heavyarmor"), 55.0);
+    assert_eq!(world.base_actor_value(actor, "heavyarmor"), 40.0);
+    assert_eq!(world.base_actor_value(actor, "heavyarmor"), 40.0);
 }
 
 #[test]
-fn prg_09_spawned_race_skill_bonus_survives_world_reload_without_reapplication() {
+fn prg_09_manual_skill_cache_survives_world_reload_without_reapplication() {
     let mut game = synthetic_game();
     let player = game.player();
     let mut world = game.world_mut();
     let actor = world.place_at(id(0, 0x800), player, false);
-    assert_eq!(world.base_actor_value(actor, "heavyarmor"), 55.0);
+    assert_eq!(world.base_actor_value(actor, "heavyarmor"), 40.0);
 
     let saved = world.save_state();
     world.load_state(&saved).unwrap();
 
-    assert_eq!(world.base_actor_value(actor, "heavyarmor"), 55.0);
+    assert_eq!(world.base_actor_value(actor, "heavyarmor"), 40.0);
 }
 
 #[test]

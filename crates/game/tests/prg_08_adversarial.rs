@@ -11,7 +11,10 @@ const PERK: u32 = 0x800;
 const ENTRY: u8 = 35;
 
 fn id(raw: u32) -> GlobalFormId {
-    GlobalFormId { file: 0, object: raw }
+    GlobalFormId {
+        file: 0,
+        object: raw,
+    }
 }
 
 fn game_with(records: Vec<Record>) -> Game {
@@ -23,7 +26,11 @@ fn game_with(records: Vec<Record>) -> Game {
     order.add("PerkAdversarial.esm", plugin).unwrap();
     let game = Game::new(order);
     let actor = game.world_mut().player();
-    game.world_mut().actor(actor).unwrap().perks.insert(id(PERK));
+    game.world_mut()
+        .actor(actor)
+        .unwrap()
+        .perks
+        .insert(id(PERK));
     game
 }
 
@@ -44,7 +51,11 @@ fn record_rank(world: &mut World, invocation: &EntryPointInvocation) {
 }
 
 fn context(actor: GlobalFormId) -> EntryPointContext {
-    EntryPointContext { tabs: vec![actor], target: None, quest: None }
+    EntryPointContext {
+        tabs: vec![actor],
+        target: None,
+        quest: None,
+    }
 }
 
 #[test]
@@ -54,7 +65,10 @@ fn prg_08_maximum_authored_rank_remains_unsigned_and_one_based() {
     let mut dispatcher = EntryPointDispatcher::default();
     dispatcher.register(ENTRY, record_rank);
 
-    assert_eq!(dispatcher.dispatch(&mut game, actor, ENTRY, &context(actor)), Ok(1));
+    assert_eq!(
+        dispatcher.dispatch(&mut game, actor, ENTRY, &context(actor)),
+        Ok(1)
+    );
     assert_eq!(game.world_mut().actor_value(actor, "health"), 256.0);
 }
 
@@ -65,8 +79,14 @@ fn prg_08_repeated_dispatch_calls_repeat_the_registered_entry() {
     let mut dispatcher = EntryPointDispatcher::default();
     dispatcher.register(ENTRY, record_rank);
 
-    assert_eq!(dispatcher.dispatch(&mut game, actor, ENTRY, &context(actor)), Ok(1));
-    assert_eq!(dispatcher.dispatch(&mut game, actor, ENTRY, &context(actor)), Ok(1));
+    assert_eq!(
+        dispatcher.dispatch(&mut game, actor, ENTRY, &context(actor)),
+        Ok(1)
+    );
+    assert_eq!(
+        dispatcher.dispatch(&mut game, actor, ENTRY, &context(actor)),
+        Ok(1)
+    );
     assert_eq!(game.world_mut().actor_value(actor, "health"), 1.0);
 }
 

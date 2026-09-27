@@ -207,7 +207,8 @@ Current behavior and compatibility limits:
   for zero maximum and CarryWeight.
 - Actor initialization resolves separate stats and traits template chains.
   Manual attributes use race starting values plus NPC offsets. Manual skills
-  use DNAM plus each RACE skill boost. Fixed-level auto-calculated skills
+  preserve the DNAM cache while race-bonus semantics remain unresolved.
+  Fixed-level auto-calculated skills
   use class weights, actor level and race boosts. `PC_LEVEL_MULT`, missing
   class and zero-weight cases keep the authored DNAM skill cache. SOEW saves
   initialized actor values, so reload does not seed bonuses again. Leveled
