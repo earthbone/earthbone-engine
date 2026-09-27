@@ -93,6 +93,18 @@ the map's third open seam.
 wrappers before implementing natives. `engine-refs/ck-wiki/` contains 402
 wikitext pages as of 2026-09-19. When an individual page is absent, class pages
 and `engine-refs/skse64/scripts/vanilla` can establish the contract.
+
+`conditions.rs` evaluates `GetIsPlayableRace` and the race part of `IsChild`
+from the actor base's winning RACE DATA flags. `HasAssociationType` and
+`HasFamilyRelationship` scan winning RELA records, resolve their actor bases
+and ASTP association, and read the ASTP Family Association flag.
+`HasParentRelationship` respects RELA's authored parent-to-child direction.
+`GetFactionCombatReaction` reads the first FACT's XNAM entry for the second
+FACT, defaulting to neutral when no relation is authored. These record layouts
+come from `TES5Edit/Core/wbDefinitionsTES5.pas`; association, family, parent
+and child wording comes from the corresponding CK pages. The local CK corpus
+has no usable semantics for `GetClassDefaultMatch` or `GetIsCreatureType`, so
+both return the evaluator's explicit unsupported-function error.
 [The reference audit](reference-audit.md) records missed contracts and gaps.
 
 **World reads out, host never writes back.** `World::ref_placement` (in
