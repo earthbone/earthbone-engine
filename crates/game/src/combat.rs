@@ -47,7 +47,7 @@ impl Difficulty {
 }
 
 /// Weapon hand, matching CK GetEquippedWeapon's left-hand argument.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Hand {
     Left,
     Right,

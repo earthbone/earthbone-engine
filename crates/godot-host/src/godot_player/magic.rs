@@ -17,6 +17,13 @@ use super::PlayerNode;
 
 const HANDS: [Hand; 2] = [Hand::Left, Hand::Right];
 
+#[derive(Clone, Copy)]
+pub(super) struct HandCastInput {
+    pub was_held: bool,
+    pub held: bool,
+    pub pressed: bool,
+}
+
 fn hand_label(hand: Hand) -> &'static str {
     match hand {
         Hand::Left => "Left Hand",
@@ -25,6 +32,23 @@ fn hand_label(hand: Hand) -> &'static str {
 }
 
 impl PlayerNode {
+    pub(super) fn route_hand_casts(&mut self, left: HandCastInput, right: HandCastInput) {
+        let Some(game) = self.game.as_mut() else {
+            return;
+        };
+        let player = game.player();
+        for (hand, input) in [(Hand::Left, left), (Hand::Right, right)] {
+            if input.pressed || (input.held && !input.was_held) {
+                if let Err(error) = game.begin_hand_cast(player, hand, None) {
+                    godot_error!("PlayerNode: hand cast rejected: {error}");
+                }
+            }
+            if !input.held && (input.was_held || input.pressed) {
+                let _ = game.end_hand_cast(player, hand);
+            }
+        }
+    }
+
     fn magic_content(&mut self) -> bool {
         if self.menu.title() != Some("Magic") {
             return false;

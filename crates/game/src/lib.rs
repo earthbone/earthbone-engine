@@ -147,6 +147,8 @@ pub struct Game {
     hash_log: Option<Vec<determinism::TickHash>>,
     /// Actors that were in greeting range on the previous gameplay tick.
     greeting_range_actors: BTreeSet<soe_esm::GlobalFormId>,
+    /// Hands currently held by direct player or scripted cast input.
+    active_hand_casts: BTreeSet<(soe_esm::GlobalFormId, combat::Hand)>,
 }
 
 impl Game {
@@ -167,6 +169,7 @@ impl Game {
             budget: 100_000,
             hash_log: None,
             greeting_range_actors: BTreeSet::new(),
+            active_hand_casts: BTreeSet::new(),
         }
     }
 
@@ -548,6 +551,51 @@ impl Game {
             .melee_hit(hit, &mut |name, class| vm.create_object_of(name, class))?;
         self.run_until_idle(64);
         Ok(result)
+    }
+
+    /// Begin a costed cast from an actor's equipped hand spell.
+    ///
+    /// Repeated begins while that hand remains held do not request another
+    /// cast. Supported fire-and-forget spells execute on the initial press.
+    ///
+    /// # Errors
+    /// Returns the magic validation, delivery, or magicka error for the spell.
+    pub fn begin_hand_cast(
+        &mut self,
+        actor: soe_esm::GlobalFormId,
+        hand: combat::Hand,
+        target: Option<soe_esm::GlobalFormId>,
+    ) -> Result<bool, world::magic::MagicError> {
+        let key = (actor, hand);
+        if self.active_hand_casts.contains(&key) {
+            return Ok(false);
+        }
+        let spell = self.world.borrow_mut().hand_spell(actor, hand);
+        let Some(spell) = spell else {
+            return Ok(false);
+        };
+        let vm = &mut self.vm;
+        let result = self.world.borrow_mut().cast_charged_spell(
+            spell,
+            actor,
+            actor,
+            target,
+            &mut |name, class| vm.create_object_of(name, class),
+        );
+        match result {
+            Ok(_) => {
+                self.active_hand_casts.insert(key);
+                self.run_until_idle(64);
+                Ok(true)
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    /// Release a casting hand after its input is lifted.
+    #[must_use]
+    pub fn end_hand_cast(&mut self, actor: soe_esm::GlobalFormId, hand: combat::Hand) -> bool {
+        self.active_hand_casts.remove(&(actor, hand))
     }
 
     /// Activate a reference the way a player click would, then settle.

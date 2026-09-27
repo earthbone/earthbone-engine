@@ -324,6 +324,11 @@ impl PlayerNode {
     #[func]
     fn input_focus_lost(&mut self) {
         self.input_focused = false;
+        if let Some(game) = self.game.as_mut() {
+            let player = game.player();
+            let _ = game.end_hand_cast(player, soe_game::combat::Hand::Left);
+            let _ = game.end_hand_cast(player, soe_game::combat::Hand::Right);
+        }
         self.devices = Devices::default();
         self.pending_look = (0.0, 0.0);
         self.action_latches.clear();
@@ -521,7 +526,20 @@ impl PlayerNode {
         let (dx, dy) = std::mem::take(&mut self.pending_look);
         self.rig.look(dx, dy);
 
+        let previous_held = self.held_actions.clone();
         let input = self.gather();
+        self.route_hand_casts(
+            magic::HandCastInput {
+                was_held: previous_held.contains(&Action::LeftAttackBlock),
+                held: input.left_attack_held,
+                pressed: input.left_attack_pressed,
+            },
+            magic::HandCastInput {
+                was_held: previous_held.contains(&Action::RightAttackBlock),
+                held: input.right_attack_held,
+                pressed: input.right_attack_pressed,
+            },
+        );
         if input.toggle_pov_pressed {
             self.rig.mode = self.rig.mode.toggled();
         }
@@ -914,6 +932,10 @@ impl PlayerNode {
             activate_pressed: pressed(Action::Activate),
             toggle_pov_pressed: pressed(Action::TogglePov),
             toggle_always_run_pressed: pressed(Action::ToggleAlwaysRun),
+            left_attack_held: held(Action::LeftAttackBlock),
+            right_attack_held: held(Action::RightAttackBlock),
+            left_attack_pressed: pressed(Action::LeftAttackBlock),
+            right_attack_pressed: pressed(Action::RightAttackBlock),
         };
         self.held_actions = held_now;
         state

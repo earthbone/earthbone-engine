@@ -1077,6 +1077,13 @@ Only its gameplay context supplies gameplay actions. The hold-to-walk action
 is named `Run` in that file, and Toggle Always Run uses Caps Lock. Camera
 offsets remain this engine's choices, as `camera` documents separately.
 
+MAG-22 adds `Left Attack/Block` and `Right Attack/Block` as held gameplay
+actions. PlayerNode compares each frame with the prior held state and calls
+`Game::begin_hand_cast` once on a press, then `Game::end_hand_cast` on release.
+The actions use the PC control map's mouse, keyboard or gamepad binding. Losing
+input focus releases both hand requests so a missed device-up event cannot
+leave a hand latched.
+
 ### The camera basis
 
 Skyrim's yaw is zero facing north and grows clockwise from above, so forward is
