@@ -41,9 +41,7 @@ fn rnd_01_quadrants_keep_bottom_left_record_order() {
     for (id, quadrant) in land.quadrants.iter_mut().enumerate() {
         quadrant.base = Some(id as u32 + 1);
     }
-    let baked = terrain_texture::bake(&land, |id| {
-        Some(image([id as u8 * 20, 0, 0, 255]))
-    });
+    let baked = terrain_texture::bake(&land, |id| Some(image([id as u8 * 20, 0, 0, 255])));
 
     assert_eq!(pixel(&baked, 0, 255), [20, 0, 0, 255]);
     assert_eq!(pixel(&baked, 128, 255), [40, 0, 0, 255]);

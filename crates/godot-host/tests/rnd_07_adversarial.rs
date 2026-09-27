@@ -9,11 +9,7 @@ use soe_godot_host::units::{GodotPos, GodotTransform};
 
 fn surface(id: u32, triangles: usize, alpha: AlphaMode) -> LoadedSurface {
     let data = MeshData {
-        positions: vec![
-            [0.0, 0.0, 0.0],
-            [1.0, 0.0, 0.0],
-            [0.0, 1.0, 0.0],
-        ],
+        positions: vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
         indices: (0..triangles).flat_map(|_| [0, 1, 2]).collect(),
         material: MaterialDesc {
             alpha,
@@ -22,7 +18,10 @@ fn surface(id: u32, triangles: usize, alpha: AlphaMode) -> LoadedSurface {
         ..MeshData::default()
     };
     LoadedSurface {
-        reference: GlobalFormId { file: 0, object: id },
+        reference: GlobalFormId {
+            file: 0,
+            object: id,
+        },
         arrays: build_surface(&data, MeshOptions::default()).unwrap(),
         textures: SurfaceTextures::default(),
         placement: soe_physics::Iso::IDENTITY,

@@ -68,5 +68,8 @@ fn rnd_05_repeated_actor_loads_keep_each_authored_texture() {
 
     let first = material_signature(&first);
     let second = material_signature(&second);
-    assert_eq!(first, second, "texture resolution is stable across actor loads");
+    assert_eq!(
+        first, second,
+        "texture resolution is stable across actor loads"
+    );
 }
