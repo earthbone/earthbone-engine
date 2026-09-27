@@ -1880,8 +1880,8 @@ Native presenters use PlayerNode::game and game_mut to read and mutate the
 shared form-backed runtime. menu_content exposes a Control container owned by
 the framework. menu_opened and menu_closed signals run after their state change
 through gdext's reentrant base guard, allowing callbacks to inspect PlayerNode.
-No inventory, dialogue, crafting or MCM implementation is included here.
-Those menus use this shell and their existing gameplay APIs.
+Dialogue and MCM presenters remain unimplemented and can use this shell with
+their existing gameplay APIs.
 
 The inventory presenter now uses this shell. It renders the SkyUI categories
 All, Weapons, Apparel, Potions, Scrolls, Food, Ingredients, Books, Keys and
@@ -1917,6 +1917,19 @@ equipped.
 
 The native M shortcut opens the magic menu the same way I opens inventory,
 gated on an active Game. No shortcut is yet remapped through controlmap.txt.
+
+Creation bench activation opens a native Control recipe list when at least one
+COBJ recipe passes the shared Game's bench and condition checks for the player
+and bench. Rows show the recipe name, output and output count. Rows blocked by
+missing ingredients are disabled. Confirming an available row calls
+`Game::craft`, which rechecks eligibility and commits ingredient and output
+inventory events. The host identifies creation benches from their FURN WBDT
+mode. This presenter uses the existing transaction path and adds no crafting
+state to the host.
+
+Sources read for CRF-06: Godot's `godot-docs/classes/class_control.rst` for
+native Control focus and input behavior, and `skyui/src/CraftingMenu/` for the
+crafting menu's recipe list and selected-recipe confirmation flow.
 
 Sources read for UI-03: `ck-wiki` for the EquipSpell/UnequipSpell hand
 argument and the SPEL spell type enum, `TES5Edit/Core/wbDefinitionsTES5.pas`

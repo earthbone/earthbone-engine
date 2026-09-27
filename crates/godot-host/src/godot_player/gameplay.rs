@@ -130,7 +130,7 @@ impl PlayerNode {
     }
 
     pub(super) fn activate_game_reference(&mut self, target: GlobalFormId) -> bool {
-        let (activated, show_container) = {
+        let (activated, show_container, show_crafting) = {
             let Some(game) = &mut self.game else {
                 return false;
             };
@@ -156,15 +156,22 @@ impl PlayerNode {
                     .is_some_and(|reference| reference.activation_blocked);
                 (container, blocked)
             };
+            let creation_bench = crate::crafting_menu::is_creation_bench(game, target);
             let activated = game.activate_deferred(target, player);
             let opened = game
                 .world_mut()
                 .reference_ref(target)
                 .is_some_and(|reference| reference.opened);
-            (activated, activated && container && !blocked && opened)
+            (
+                activated,
+                activated && container && !blocked && opened,
+                activated && creation_bench && !blocked,
+            )
         };
         if show_container {
             self.open_container_menu(target);
+        } else if show_crafting {
+            self.open_crafting_menu(i64::from(target.file), i64::from(target.object));
         }
         activated
     }
