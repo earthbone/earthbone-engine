@@ -156,7 +156,14 @@ pub fn supports_function(function: u16) -> bool {
             | 68
             | 129
             | 130
+            | 131
+            | 132
+            | 133
+            | 134
+            | 135
             | 577
+            | 197
+            | 199
     )
 }
 
@@ -368,7 +375,7 @@ fn function_value(
                 }
             }
         }
-        64 => return Err(Error::Function(c.function)),
+        64 | 228 => return Err(Error::Function(c.function)),
         68 => {
             let class = resolve(world, context.owner, raw, Some(*b"CLAS"))?;
             if world.actor(subject).is_none() {
@@ -397,6 +404,94 @@ fn function_value(
                 }
             });
             boolean(actual == Some(expected))
+        }
+        131 => {
+            if c.parameters[1] != 0 {
+                return Err(Error::Parameter(c.function, c.parameters[1]));
+            }
+            if raw > 1 {
+                return Err(Error::Parameter(c.function, raw));
+            }
+            let player = world.player();
+            let (_, traits) = world
+                .actor_npc_part(player, crate::npc::template::TRAITS)
+                .map_err(|_| Error::Form(player))?;
+            boolean(traits.is_female() == (raw == 1))
+        }
+        132 | 197 | 199 => {
+            if c.parameters[1] != 0 {
+                return Err(Error::Parameter(c.function, c.parameters[1]));
+            }
+            let faction = resolve(world, context.owner, raw, Some(*b"FACT"))?;
+            match c.function {
+                132 => {
+                    let player = world.player();
+                    if world.actor(player).is_none() {
+                        return Err(Error::Form(player));
+                    }
+                    boolean(
+                        world
+                            .actor(player)
+                            .is_some_and(|actor| actor.factions.contains_key(&faction)),
+                    )
+                }
+                197 => boolean(
+                    world
+                        .faction(faction)
+                        .ok_or(Error::Form(faction))?
+                        .player_enemy,
+                ),
+                _ => boolean(
+                    world
+                        .faction(faction)
+                        .ok_or(Error::Form(faction))?
+                        .player_attacked,
+                ),
+            }
+        }
+        133..=135 => {
+            no_parameter(c)?;
+            let player = world.player();
+            if world.actor(subject).is_none() || world.actor(player).is_none() {
+                return Err(Error::Form(if world.actor(subject).is_none() {
+                    subject
+                } else {
+                    player
+                }));
+            }
+            match c.function {
+                133 => {
+                    let subject_factions = world
+                        .actor(subject)
+                        .ok_or(Error::Form(subject))?
+                        .factions
+                        .clone();
+                    let player_factions = world
+                        .actor(player)
+                        .ok_or(Error::Form(player))?
+                        .factions
+                        .clone();
+                    boolean(
+                        subject_factions
+                            .keys()
+                            .any(|faction| player_factions.contains_key(faction)),
+                    )
+                }
+                134 => {
+                    let subject_race = world.actor(subject).and_then(|actor| actor.race);
+                    let player_race = world.actor(player).and_then(|actor| actor.race);
+                    boolean(subject_race.is_some() && subject_race == player_race)
+                }
+                _ => {
+                    let (_, subject_traits) = world
+                        .actor_npc_part(subject, crate::npc::template::TRAITS)
+                        .map_err(|_| Error::Form(subject))?;
+                    let (_, player_traits) = world
+                        .actor_npc_part(player, crate::npc::template::TRAITS)
+                        .map_err(|_| Error::Form(player))?;
+                    boolean(subject_traits.is_female() == player_traits.is_female())
+                }
+            }
         }
         237 | 242 => {
             no_parameter(c)?;

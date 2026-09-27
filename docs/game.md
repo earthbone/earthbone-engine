@@ -2325,6 +2325,25 @@ values, high indices, invalid indices and subjects, resource fractions and the
 existing kill/resurrection lifecycle. No new authoritative actor state,
 dependency or save format was added.
 
+## Player identity and faction conditions (AI-80)
+
+The shared CTDA evaluator implements GetPCIsSex (131), GetPCInFaction (132),
+SameFactionAsPC (133), SameRaceAsPC (134), SameSexAsPC (135),
+GetPCEnemyofFaction (197) and GetPCFactionAttack (199). Player sex uses the
+resolved player NPC traits, faction membership uses the player's faction
+entries, and the Same* conditions compare the subject actor with the player.
+Enemy state reads the faction's `SetPlayerEnemy` value. A successful player
+melee hit records each faction membership of its target, and the attack flag
+is retained in SOEW version 36. Older saves read that flag as false.
+
+The local xEdit `wbConditionFunctions` table supplies the indices and
+parameter types. CK `IsInFaction`, `GetFactionRank`, `GetRace` and
+`ActorBase.GetSex` pages establish the underlying actor queries. The local CK
+corpus does not define a usable contract for GetIsClassDefault (228), so the
+evaluator returns `Error::Function(228)` and does not list it as supported.
+`ai_80_player_conditions.rs` checks positive, negative and invalid-context
+cases, including a successful attack, a no-attack faction and save/load.
+
 ### Sequential package validation
 
 AI-02 has synthetic tests for child order, nested and root repeats, early

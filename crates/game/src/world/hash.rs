@@ -247,6 +247,7 @@ fn faction_state(h: &mut StateHasher, f: &FactionState) {
     h.i32(f.infamy_nonviolent);
     h.bool(f.player_expelled);
     h.bool(f.player_enemy);
+    h.bool(f.player_attacked);
     h.bool(f.tracks_crime);
 }
 

@@ -59,7 +59,8 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// Version 33 retains the spawned reference owned by each Summon Creature effect.
 /// Version 34 retains last-visit game days for resettable encounter zones.
 /// Version 35 retains saved list flags and per-entry chance bytes in record overrides.
-pub const SAVE_VERSION: u16 = 35;
+/// Version 36 retains whether the player has attacked each faction.
+pub const SAVE_VERSION: u16 = 36;
 
 #[derive(Clone, Copy)]
 pub(crate) enum FormNamespace {
@@ -290,6 +291,7 @@ impl World {
             body.bool(f.player_expelled);
             body.bool(f.player_enemy);
             body.bool(f.tracks_crime);
+            body.bool(f.player_attacked);
         }
         // Persisted whole, including entries `World::actor_base` populated
         // only to answer a protected/essential/invulnerable check during a
@@ -732,6 +734,7 @@ impl World {
                     player_expelled: r.bool()?,
                     player_enemy: r.bool()?,
                     tracks_crime: r.bool()?,
+                    player_attacked: version >= 36 && r.bool()?,
                 },
             );
         }
