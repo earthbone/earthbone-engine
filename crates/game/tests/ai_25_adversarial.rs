@@ -231,7 +231,10 @@ fn ai_25_orbit_re_resolves_a_moving_target_each_tick() {
         let mut world = game.world_mut();
         let actor = world.reference(id(ACTOR)).unwrap().position;
         let radius = (actor[0] - target_x).hypot(actor[1] - 200.0);
-        assert!((40.0..=80.0).contains(&radius), "orbit lost moving target at radius {radius}");
+        assert!(
+            (40.0..=80.0).contains(&radius),
+            "orbit lost moving target at radius {radius}"
+        );
         assert!(soe_game::ai::nav_graph(&mut world).locate(actor).is_some());
     }
 }

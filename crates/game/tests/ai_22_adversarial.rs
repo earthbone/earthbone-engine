@@ -283,8 +283,14 @@ fn ai_22_follow_saved_tag_roundtrips_and_rejects_older_world_versions() {
 #[test]
 fn ai_22_follow_retargets_when_target_moves_to_another_navmesh_cell() {
     let mut game = game(10.0);
-    let actor = soe_esm::GlobalFormId { file: 0, object: ACTOR };
-    let target = soe_esm::GlobalFormId { file: 0, object: TARGET_REF };
+    let actor = soe_esm::GlobalFormId {
+        file: 0,
+        object: ACTOR,
+    };
+    let target = soe_esm::GlobalFormId {
+        file: 0,
+        object: TARGET_REF,
+    };
     game.world_mut().reference(target).unwrap().position = [150.0, 50.0, 0.0];
     for _ in 0..80 {
         game.tick(0.1);
@@ -292,8 +298,17 @@ fn ai_22_follow_retargets_when_target_moves_to_another_navmesh_cell() {
     let mut world = game.world_mut();
     let actor_position = world.reference(actor).unwrap().position;
     let target_position = world.reference(target).unwrap().position;
-    let separation = (actor_position[0] - target_position[0])
-        .hypot(actor_position[1] - target_position[1]);
-    assert!((20.0..=24.0).contains(&separation), "stale target route left gap {separation}");
-    assert_eq!(world.reference(actor).unwrap().cell, Some(soe_esm::GlobalFormId { file: 0, object: CELL_B }));
+    let separation =
+        (actor_position[0] - target_position[0]).hypot(actor_position[1] - target_position[1]);
+    assert!(
+        (20.0..=24.0).contains(&separation),
+        "stale target route left gap {separation}"
+    );
+    assert_eq!(
+        world.reference(actor).unwrap().cell,
+        Some(soe_esm::GlobalFormId {
+            file: 0,
+            object: CELL_B
+        })
+    );
 }
