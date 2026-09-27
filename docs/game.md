@@ -1245,8 +1245,15 @@ held reference identity against its materialized or authored state before an
 earlier member can change inventory or queue events.
 Active-effect recipients remain pending with magic execution.
 
-The condition evaluator implements functions 47, 56, 58, 59, 72, 74, 136,
-182, 264, 277, 289, 359, 448, 543, 560, 629, 630 and 659. This is a bounded set,
+The condition evaluator implements functions 24, 35, 45, 47, 56, 58, 59, 61,
+72, 74, 77, 136, 182, 264, 277, 289, 359, 448, 543, 560, 629, 630 and 659.
+GetScale reads reference scale with the race and NPC height multipliers for
+actors, and GetDisabled reads reference state. GetDetected checks whether its
+actor argument has current Combat-level awareness of the subject, and GetAlarmed
+reads the subject actor's alert flag. GetRandomPercent draws an integer from 0
+to 99 from the world's saved random stream. Functions 27, 36 and 39 return an
+explicit unavailable-contract error because the local CK corpus does not define
+their runtime behavior. This is a bounded set,
 not the entire CTDA contract. It supports ordered AND/OR groups, numeric or
 global comparisons, explicit references and caller-supplied quest aliases.
 Reserved PlayerRef resolves to the runtime player even without a placed record.

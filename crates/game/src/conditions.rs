@@ -4,6 +4,7 @@
 //! wbConditions/wbConditionFunctions. CK documents the state queries and
 //! conditional Papyrus variables. See docs/game.md for the implemented set.
 
+use crate::detection::DetectionLevel;
 use crate::{inventory::Field, Handle, World};
 use soe_esm::{
     records::gameplay::{Comparison, Condition},
@@ -46,6 +47,8 @@ pub enum Error {
     NonFinite,
     #[error("condition requires tempering item context")]
     TemperingContext,
+    #[error("condition function {0} has no usable runtime contract")]
+    UnavailableContract(u16),
     #[error("condition count overflow or cyclic form list")]
     Inventory,
 }
@@ -140,6 +143,11 @@ pub fn supports_function(function: u16) -> bool {
             | 630
             | 655
             | 659
+            | 24
+            | 35
+            | 45
+            | 61
+            | 77
     )
 }
 
@@ -273,6 +281,54 @@ fn function_value(
 ) -> Result<f32, Error> {
     let raw = c.parameters[0];
     Ok(match c.function {
+        24 => {
+            no_parameter(c)?;
+            let actor_scale = if world.actor(subject).is_some() {
+                let base = world.base_of(subject).ok_or(Error::Form(subject))?;
+                world
+                    .actor_controller_scale(base)
+                    .map_err(|_| Error::Form(subject))?
+            } else {
+                1.0
+            };
+            let reference = world.reference(subject).ok_or(Error::Form(subject))?;
+            if reference.deleted || !reference.scale.is_finite() {
+                return Err(Error::Form(subject));
+            }
+            reference.scale * actor_scale
+        }
+        27 | 36 | 39 => return Err(Error::UnavailableContract(c.function)),
+        35 => {
+            no_parameter(c)?;
+            let reference = world.reference(subject).ok_or(Error::Form(subject))?;
+            if reference.deleted {
+                return Err(Error::Form(subject));
+            }
+            boolean(!reference.enabled)
+        }
+        45 => {
+            let observer = resolve_reference(world, context.owner, raw)?;
+            if world.actor(subject).is_none() || world.actor(observer).is_none() {
+                return Err(Error::Form(if world.actor(subject).is_none() {
+                    subject
+                } else {
+                    observer
+                }));
+            }
+            boolean(
+                world
+                    .awareness(observer, subject)
+                    .is_some_and(|awareness| awareness.level == DetectionLevel::Combat),
+            )
+        }
+        61 => {
+            no_parameter(c)?;
+            boolean(world.actor(subject).ok_or(Error::Form(subject))?.alerted)
+        }
+        77 => {
+            no_parameter(c)?;
+            world.random_int(0, 99) as f32
+        }
         14 | 128 | 277 | 408 | 430 | 494 => {
             actor_query(world, context.owner, subject, c.function, raw)?
         }
