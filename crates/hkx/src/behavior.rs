@@ -507,6 +507,22 @@ pub struct FalseToTrueSlot {
     pub event: EventProperty,
 }
 
+/// `hkbTwistModifier`: the twist applied over the inclusive authored bone
+/// index span. The class metadata marks its chain arrays as runtime caches.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TwistModifier {
+    pub enable: bool,
+    pub axis_of_rotation: [f32; 4],
+    pub twist_angle: f32,
+    pub start_bone_index: i16,
+    pub end_bone_index: i16,
+    /// 0 linear, 1 ramped.
+    pub set_angle_method: i8,
+    /// 0 model coordinates, 1 local coordinates.
+    pub rotation_axis_coordinates: i8,
+    pub is_additive: bool,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum NodeKind {
     StateMachine(StateMachine),
@@ -606,6 +622,7 @@ pub enum NodeKind {
         enable: bool,
         slots: [FalseToTrueSlot; FALSE_TO_TRUE_SLOTS],
     },
+    TwistModifier(TwistModifier),
     /// `BSDecomposeVectorModifier`: copies the four components of `vector`
     /// into its real outputs.
     DecomposeVector {
@@ -687,6 +704,7 @@ impl Node {
             | NodeKind::GetTimeStepModifier { .. }
             | NodeKind::IsActiveModifier { .. }
             | NodeKind::FalseToTrueModifier { .. }
+            | NodeKind::TwistModifier(_)
             | NodeKind::DecomposeVector { .. }
             | NodeKind::Modifier { .. }
             | NodeKind::Unknown => {}
@@ -1126,6 +1144,16 @@ impl<'a> Loader<'a> {
                 enable: o.bool(o.layout_offset(40, 72))?,
                 vector: o.vec4(o.layout_offset(48, 80))?,
             },
+            "hkbTwistModifier" => NodeKind::TwistModifier(TwistModifier {
+                enable: o.bool(o.layout_offset(40, 72))?,
+                axis_of_rotation: o.vec4(o.layout_offset(48, 80))?,
+                twist_angle: o.f32(o.layout_offset(64, 96))?,
+                start_bone_index: o.i16(o.layout_offset(68, 100))?,
+                end_bone_index: o.i16(o.layout_offset(70, 102))?,
+                set_angle_method: o.i8(o.layout_offset(72, 104))?,
+                rotation_axis_coordinates: o.i8(o.layout_offset(73, 105))?,
+                is_additive: o.bool(o.layout_offset(74, 106))?,
+            }),
             c if c.ends_with("Modifier") => NodeKind::Modifier {
                 enable: o.bool(o.layout_offset(40, 72))?,
             },

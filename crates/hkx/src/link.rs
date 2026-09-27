@@ -369,6 +369,7 @@ fn remap_node(node: &mut Node, map: &SymbolMap, offset: usize) {
         NodeKind::BlendingTransition(_)
         | NodeKind::GetTimeStepModifier { .. }
         | NodeKind::IsActiveModifier { .. }
+        | NodeKind::TwistModifier(_)
         | NodeKind::DecomposeVector { .. }
         | NodeKind::Modifier { .. }
         | NodeKind::Unknown => {}

@@ -332,6 +332,7 @@ enum Target {
     StartStateId,
     /// A transition effect's blend duration in seconds.
     Duration,
+    TwistAngle,
     /// Output: a `BSIsActiveModifier` slot writes whether it is active into
     /// the variable, inverted when the slot's invert bit is set. Skyrim uses
     /// it to let the rest of a graph, and script through the variable, see
@@ -432,6 +433,7 @@ struct Runtime {
 
     /// A bound vector input for `BSDecomposeVectorModifier`.
     vector: Option<[f32; 4]>,
+    twist_angle: Option<f32>,
 }
 
 /// A generator's result for one frame: a local pose and how much of it
@@ -461,6 +463,76 @@ pub struct Unsupported {
     pub modifier_list_cycles: Vec<String>,
     /// Modifier-list paths deeper than the interpreter's fixed safety limit.
     pub modifier_list_depth_limit: Vec<String>,
+}
+
+fn distribute_twist(output: &mut Output, twist: &crate::behavior::TwistModifier, angle: f32) {
+    if !angle.is_finite()
+        || twist.axis_of_rotation[..3].iter().any(|v| !v.is_finite())
+        || !matches!(twist.set_angle_method, 0 | 1)
+        || !matches!(twist.rotation_axis_coordinates, 0 | 1)
+    {
+        return;
+    }
+    let start = usize::try_from(twist.start_bone_index).ok();
+    let end = usize::try_from(twist.end_bone_index).ok();
+    let (Some(start), Some(end)) = (start, end) else {
+        return;
+    };
+    if start >= output.pose.len() || end >= output.pose.len() {
+        return;
+    }
+    let axis = [
+        twist.axis_of_rotation[0],
+        twist.axis_of_rotation[1],
+        twist.axis_of_rotation[2],
+    ];
+    let axis_length = (axis[0] * axis[0] + axis[1] * axis[1] + axis[2] * axis[2]).sqrt();
+    if !axis_length.is_finite() || axis_length <= f32::EPSILON {
+        return;
+    }
+    let axis = [
+        axis[0] / axis_length,
+        axis[1] / axis_length,
+        axis[2] / axis_length,
+    ];
+    let count = start.abs_diff(end) + 1;
+    let total_weight = if twist.set_angle_method == 0 {
+        count as f32
+    } else {
+        (count * (count + 1)) as f32 / 2.0
+    };
+    let indices: Vec<usize> = if start <= end {
+        (start..=end).collect()
+    } else {
+        (end..=start).rev().collect()
+    };
+    for (position, bone) in indices.into_iter().enumerate() {
+        let weight = if twist.set_angle_method == 0 {
+            1.0 / total_weight
+        } else {
+            (position + 1) as f32 / total_weight
+        };
+        let half = angle * weight * 0.5;
+        let sine = half.sin();
+        let delta = [axis[0] * sine, axis[1] * sine, axis[2] * sine, half.cos()];
+        let rotation = output.pose[bone].rotation;
+        output.pose[bone].rotation = if !twist.is_additive {
+            delta
+        } else if twist.rotation_axis_coordinates == 0 {
+            quat_mul(delta, rotation)
+        } else {
+            quat_mul(rotation, delta)
+        };
+    }
+}
+
+fn quat_mul(a: [f32; 4], b: [f32; 4]) -> [f32; 4] {
+    [
+        a[3] * b[0] + a[0] * b[3] + a[1] * b[2] - a[2] * b[1],
+        a[3] * b[1] - a[0] * b[2] + a[1] * b[3] + a[2] * b[0],
+        a[3] * b[2] + a[0] * b[1] - a[1] * b[0] + a[2] * b[3],
+        a[3] * b[3] - a[0] * b[0] - a[1] * b[1] - a[2] * b[2],
+    ]
 }
 
 fn false_to_true_slot(path: &str, prefix: &str) -> Option<usize> {
@@ -679,6 +751,7 @@ impl<'a> Interpreter<'a> {
                 ("isActive", None, NodeKind::StateMachine(_)) => Some(Target::MachineIsActive),
                 ("startStateId", None, NodeKind::StateMachine(_)) => Some(Target::StartStateId),
                 ("duration", None, NodeKind::BlendingTransition(_)) => Some(Target::Duration),
+                ("twistAngle", None, NodeKind::TwistModifier(_)) => Some(Target::TwistAngle),
                 ("timeStep", None, NodeKind::GetTimeStepModifier { .. }) => Some(Target::TimeStep),
                 ("fBlendParameter", None, NodeKind::CyclicBlendTransition { .. }) => {
                     Some(Target::BlendParameter)
@@ -1006,6 +1079,7 @@ impl<'a> Interpreter<'a> {
                 Target::FalseToTrueValue(slot) => rt.edge_value[slot] = Some(value != 0.0),
                 Target::StartStateId => rt.start_state = Some(value as i32),
                 Target::Duration => rt.duration = Some(value),
+                Target::TwistAngle => rt.twist_angle = Some(value),
                 Target::DecomposeVector => rt.vector = table.quad(b.variable),
                 // Written by apply_output_bindings, skipped above.
                 Target::IsActive { .. }
@@ -1030,6 +1104,7 @@ impl<'a> Interpreter<'a> {
             | NodeKind::IsActiveModifier { enable, .. }
             | NodeKind::FalseToTrueModifier { enable, .. }
             | NodeKind::DecomposeVector { enable, .. }
+            | NodeKind::TwistModifier(crate::behavior::TwistModifier { enable, .. })
             | NodeKind::Modifier { enable } => *enable,
             _ => true,
         };
@@ -1201,6 +1276,7 @@ impl<'a> Interpreter<'a> {
             | NodeKind::TimerModifier { .. }
             | NodeKind::GetTimeStepModifier { .. }
             | NodeKind::IsActiveModifier { .. }
+            | NodeKind::TwistModifier(_)
             | NodeKind::DecomposeVector { .. }
             | NodeKind::Modifier { .. }
             | NodeKind::Unknown => {}
@@ -1620,18 +1696,23 @@ impl<'a> Interpreter<'a> {
                 modifier,
                 generator,
             } => {
+                let mut modifiers = Vec::new();
                 if let Some(modifier) = modifier {
                     let start = self.modifier_order.len();
                     self.sync_modifier(*modifier);
-                    for index in start..self.modifier_order.len() {
-                        let node = self.modifier_order[index];
+                    modifiers.extend_from_slice(&self.modifier_order[start..]);
+                    for node in modifiers.iter().copied() {
                         self.update_modifier(node);
                     }
                 }
-                match generator {
+                let mut output = match generator {
                     Some(generator) => self.generate(*generator, dt),
                     None => self.reference_output(),
+                };
+                for modifier in modifiers {
+                    self.apply_twist_modifier(modifier, &mut output);
                 }
+                output
             }
             NodeKind::IStateTagging {
                 default_generator: generator,
@@ -1687,9 +1768,30 @@ impl<'a> Interpreter<'a> {
             | NodeKind::GetTimeStepModifier { .. }
             | NodeKind::IsActiveModifier { .. }
             | NodeKind::FalseToTrueModifier { .. }
+            | NodeKind::TwistModifier(_)
             | NodeKind::DecomposeVector { .. }
             | NodeKind::Modifier { .. } => self.reference_output(),
         }
+    }
+
+    fn apply_twist_modifier(&self, id: NodeId, output: &mut Output) {
+        let Some(node) = self.graph.nodes.get(id.0) else {
+            return;
+        };
+        let NodeKind::TwistModifier(twist) = &node.kind else {
+            return;
+        };
+        let Some(runtime) = self.nodes.get(id.0) else {
+            return;
+        };
+        if !runtime.active {
+            return;
+        }
+        distribute_twist(
+            output,
+            twist,
+            runtime.twist_angle.unwrap_or(twist.twist_angle),
+        );
     }
 
     /// The clip's playable length after the crops, `enforcedDuration`
@@ -2401,6 +2503,23 @@ mod tests {
         graph
     }
 
+    fn twist_graph(enable: bool) -> BehaviorGraph {
+        let mut graph = modifier_generator_graph();
+        graph.nodes[1].class = "hkbTwistModifier".into();
+        graph.nodes[1].name = "authored twist".into();
+        graph.nodes[1].kind = NodeKind::TwistModifier(crate::behavior::TwistModifier {
+            enable,
+            axis_of_rotation: [0.0, 0.0, 1.0, 0.0],
+            twist_angle: std::f32::consts::PI,
+            start_bone_index: 1,
+            end_bone_index: 2,
+            set_angle_method: 0,
+            rotation_axis_coordinates: 1,
+            is_additive: true,
+        });
+        graph
+    }
+
     fn is_active_node(
         id: usize,
         name: &str,
@@ -2776,6 +2895,116 @@ mod tests {
         vm.variables.set_word(1, 0);
         vm.update(1.0 / 60.0);
         assert_eq!(vm.variables.word(0), Some(0));
+    }
+
+    #[test]
+    fn anm_48_authored_twist_distributes_rotation_only_across_declared_chain() {
+        let graph = twist_graph(true);
+        let mut clips = ClipLibrary::new();
+        clips.insert(modifier_generator_clip());
+        let mut vm = Interpreter::new(&graph, &clips, vec![QsTransform::IDENTITY; 4]);
+        vm.variables.set_word(1, 1);
+        let output = vm.update(1.0 / 60.0);
+        let half = std::f32::consts::FRAC_PI_4;
+        let expected = [0.0, 0.0, half.sin(), half.cos()];
+        assert_eq!(output.pose[0].rotation, QsTransform::IDENTITY.rotation);
+        assert_eq!(output.pose[1].rotation, expected);
+        assert_eq!(output.pose[2].rotation, expected);
+        assert_eq!(output.pose[3].rotation, QsTransform::IDENTITY.rotation);
+        assert_eq!(output.pose[0].translation[0], 4.0);
+    }
+
+    #[test]
+    fn anm_48_disabled_twist_leaves_wrapped_generator_pose_unchanged() {
+        let graph = twist_graph(false);
+        let mut clips = ClipLibrary::new();
+        clips.insert(modifier_generator_clip());
+        let mut vm = Interpreter::new(&graph, &clips, vec![QsTransform::IDENTITY; 4]);
+        let output = vm.update(1.0 / 60.0);
+        assert_eq!(output.pose[1].rotation, QsTransform::IDENTITY.rotation);
+        assert_eq!(output.pose[2].rotation, QsTransform::IDENTITY.rotation);
+    }
+
+    #[test]
+    fn anm_48_twist_angle_binding_overrides_the_authored_angle() {
+        let mut graph = twist_graph(true);
+        graph.data.variable_names.push("TwistAngle".into());
+        graph.data.variable_infos.push(VariableInfo {
+            ty: VariableType::Real,
+            ..Default::default()
+        });
+        graph.nodes[1].bindings = Some(VariableBindingSet {
+            bindings: vec![Binding {
+                member_path: "twistAngle".into(),
+                variable_index: 2,
+                bit_index: -1,
+                binding_type: 0,
+            }],
+            index_of_binding_to_enable: -1,
+        });
+        let mut clips = ClipLibrary::new();
+        clips.insert(modifier_generator_clip());
+        let mut vm = Interpreter::new(&graph, &clips, vec![QsTransform::IDENTITY; 4]);
+        vm.variables
+            .set_word(2, (std::f32::consts::FRAC_PI_2).to_bits() as i32);
+        let output = vm.update(1.0 / 60.0);
+        let half = std::f32::consts::FRAC_PI_8;
+        let expected = [0.0, 0.0, half.sin(), half.cos()];
+        assert_eq!(output.pose[1].rotation, expected);
+        assert_eq!(output.pose[2].rotation, expected);
+    }
+
+    #[test]
+    fn anm_48_ramped_twist_increases_each_chain_bone_increment() {
+        let mut output = Output {
+            pose: vec![QsTransform::IDENTITY; 4],
+            bone_weights: vec![1.0; 4],
+            weight: 1.0,
+        };
+        let twist = crate::behavior::TwistModifier {
+            enable: true,
+            axis_of_rotation: [0.0, 0.0, 1.0, 0.0],
+            twist_angle: std::f32::consts::PI,
+            start_bone_index: 0,
+            end_bone_index: 2,
+            set_angle_method: 1,
+            rotation_axis_coordinates: 1,
+            is_additive: true,
+        };
+        distribute_twist(&mut output, &twist, twist.twist_angle);
+        let expected_angles = [
+            std::f32::consts::PI / 6.0,
+            std::f32::consts::PI / 3.0,
+            std::f32::consts::PI / 2.0,
+        ];
+        for (bone, angle) in expected_angles.into_iter().enumerate() {
+            assert!((output.pose[bone].rotation[2] - (angle / 2.0).sin()).abs() < 0.0001);
+        }
+        assert_eq!(output.pose[3].rotation, QsTransform::IDENTITY.rotation);
+    }
+
+    #[test]
+    fn anm_48_twist_rejects_invalid_or_out_of_pose_chain_indices() {
+        let mut output = Output {
+            pose: vec![QsTransform::IDENTITY; 2],
+            bone_weights: vec![1.0; 2],
+            weight: 1.0,
+        };
+        let twist = crate::behavior::TwistModifier {
+            enable: true,
+            axis_of_rotation: [0.0, 0.0, 1.0, 0.0],
+            twist_angle: 1.0,
+            start_bone_index: 1,
+            end_bone_index: 2,
+            set_angle_method: 0,
+            rotation_axis_coordinates: 1,
+            is_additive: true,
+        };
+        distribute_twist(&mut output, &twist, twist.twist_angle);
+        assert!(output
+            .pose
+            .iter()
+            .all(|bone| bone.rotation == QsTransform::IDENTITY.rotation));
     }
 
     #[test]
