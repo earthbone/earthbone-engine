@@ -1717,6 +1717,22 @@ and Papyrus casts log that error. This includes projectiles, contact and
 location delivery, concentration, taper, perk adjustments, equip abilities and
 other archetypes. Area selection is covered separately below, under Area
 targeting, MAG-06.
+
+#### Bound Weapon archetype, MAG-38
+
+Archetype 17 resolves the MGEF Associated Item through the effect's owning
+plugin and requires a WEAP record marked with the WEAP Flags2 Bound Weapon bit.
+It grants one inventory copy to the target and selects that item in the right
+hand. Expiry and dispel clear its hand and equipped entries and remove one copy
+through the normal inventory event path. When another copy remains, its hand
+selection remains valid. Active applications and inventories already persist,
+so the associated weapon is resolved again from the winning MGEF after load.
+The acceptance tests cover both final-copy cleanup and preserving an existing
+copy when the temporary copy expires, plus a five-master link survey. xEdit's
+`wbDefinitionsTES5.pas` defines the MGEF associated-item types, archetype 17
+and the WEAP flag. CommonLib's `EffectArchetypes.h` confirms the numeric
+archetype name. The local CK corpus does not contain its Magic Effect page.
+
 An MGEF with the Dispel with Keywords flag reads its KWDA entries as the
 cancellation list. Casting that effect, or applying it from an ingestible,
 ends only live effects on the recipient whose winning MGEF carries a matching
