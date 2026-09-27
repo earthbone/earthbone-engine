@@ -173,7 +173,26 @@ impl Parser<'_> {
             }
             self.offset += operator.len();
             let right = self.expression(precedence + 1)?;
-            left = Expression::Binary(operator, Box::new(left), Box::new(right));
+            let comparison = matches!(operator, "==" | "!=" | "<" | "<=" | ">" | ">=");
+            let compared_value = left.clone();
+            let first = Expression::Binary(operator, Box::new(left), Box::new(right));
+            if comparison && self.consume(",") {
+                self.whitespace();
+                let (next_operator, next_precedence) = [("<=", 4), (">=", 4), ("<", 4), (">", 4)]
+                    .into_iter()
+                    .find(|(op, _)| self.source[self.offset..].starts_with(op))
+                    .ok_or(ExpressionError::Syntax(self.offset))?;
+                self.offset += next_operator.len();
+                let next_right = self.expression(next_precedence + 1)?;
+                let second = Expression::Binary(
+                    next_operator,
+                    Box::new(compared_value),
+                    Box::new(next_right),
+                );
+                left = Expression::Binary("&&", Box::new(first), Box::new(second));
+            } else {
+                left = first;
+            }
         }
         Ok(left)
     }
@@ -280,9 +299,78 @@ mod tests {
     use super::*;
     use crate::behavior::VariableInfo;
 
+    const TROLL_BEHAVIOR: &str = "meshes/actors/troll/behaviors/trollbehavior.hkx";
+
     fn evaluate(source: &str) -> Result<f32> {
         let variables = Variables::default();
         Expression::compile(source, &variables, &variables, None)?.evaluate(&variables, &variables)
+    }
+
+    #[test]
+    fn anm_50_troll_shipped_expression_matches_comma_comparison_trace() {
+        let Some(data) = std::env::var_os("SKYRIM_DATA") else {
+            eprintln!("SKYRIM_DATA not set, skipping");
+            return;
+        };
+        let archive =
+            soe_bsa::Archive::open(&std::path::Path::new(&data).join("Skyrim - Animations.bsa"))
+                .expect("animation archive opens");
+        let bytes = archive
+            .read(TROLL_BEHAVIOR)
+            .expect("troll behavior is in the animation archive");
+        let packfile = crate::Packfile::parse(&bytes).expect("troll behavior parses");
+        let graph = crate::behavior::BehaviorGraph::from_packfile(&packfile)
+            .expect("troll behavior graph decodes");
+        let source = graph
+            .nodes
+            .iter()
+            .filter_map(|node| match &node.kind {
+                crate::behavior::NodeKind::StateMachine(machine) => Some(
+                    machine
+                        .states
+                        .iter()
+                        .flat_map(|state| state.transitions.iter())
+                        .chain(machine.wildcard_transitions.iter()),
+                ),
+                _ => None,
+            })
+            .flatten()
+            .filter_map(|transition| transition.condition.as_ref())
+            .filter_map(|condition| condition.expression().map(|(source, _)| source))
+            .find(|source| *source == "(staggerDirection < .25) || (staggerDirection > .75) || (staggerMagnitude > .3 , < .7)")
+            .expect("the shipped troll guard is present");
+        let variables = Variables::from_graph_data(&graph.data);
+        let properties = Variables::from_infos(
+            &graph
+                .data
+                .character_property_names
+                .iter()
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
+            &graph.data.character_property_infos,
+        );
+        let expression = Expression::compile(source, &variables, &properties, None)
+            .expect("the shipped expression compiles");
+        let magnitude = variables
+            .index("staggerMagnitude")
+            .expect("staggerMagnitude is declared");
+        let direction = variables
+            .index("staggerDirection")
+            .expect("staggerDirection is declared");
+        let mut values = variables;
+        values.set_real(direction, 0.5);
+        for (value, expected) in [
+            (0.2, 0.0),
+            (0.3, 0.0),
+            (0.31, 1.0),
+            (0.5, 1.0),
+            (0.69, 1.0),
+            (0.7, 0.0),
+            (0.8, 0.0),
+        ] {
+            values.set_real(magnitude, value);
+            assert_eq!(expression.evaluate(&values, &properties).unwrap(), expected);
+        }
     }
 
     #[test]

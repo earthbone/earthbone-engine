@@ -69,6 +69,33 @@ fn condition_only_transition_is_polled_without_an_event() {
 }
 
 #[test]
+fn anm_50_troll_comma_comparison_traces_both_strict_bounds() {
+    let mut graph = guarded("staggerMagnitude > .3 , < .7", 1);
+    graph.data.variable_names.push("staggerMagnitude".into());
+    graph.data.variable_infos.push(VariableInfo {
+        ty: VariableType::Real,
+        ..Default::default()
+    });
+    let clips = ClipLibrary::new();
+    for (magnitude, expected) in [
+        (0.2, 0),
+        (0.3, 0),
+        (0.31, 1),
+        (0.5, 1),
+        (0.69, 1),
+        (0.7, 0),
+        (0.8, 0),
+    ] {
+        let mut vm = Interpreter::new(&graph, &clips, Vec::new());
+        assert!(vm.variables.set_by_name("staggerMagnitude", magnitude));
+        vm.send_event(1);
+        vm.update(0.0);
+        assert_eq!(current(&vm), expected, "magnitude {magnitude}");
+        assert!(vm.unsupported().conditions.is_empty());
+    }
+}
+
+#[test]
 fn unknown_and_malformed_guards_block_and_report_once() {
     let clips = ClipLibrary::new();
     for condition in [
