@@ -82,12 +82,38 @@ fn reset_fixture(zone_flags: u8) -> World {
     build_world(vec![
         zone(ZONE, 6, 20, zone_flags),
         cell(Some(ZONE)),
+        Record::new(T(b"CELL"), CELL + 1),
         reference(None),
         persistent,
         Record::new(T(b"WRLD"), WORLD),
         base,
         Record::new(T(b"MISC"), 0x600),
     ])
+}
+
+#[test]
+fn prg_10_streaming_focus_return_expires_zone_and_restores_contents() {
+    let mut world = reset_fixture(0);
+    world.player_level = 10;
+    world.clock.game_days = 1.0;
+    world
+        .update_streaming_cells(id(CELL), &[id(CELL)], &[])
+        .unwrap();
+    world.reference(id(REF)).unwrap().opened = true;
+    world.add_item(id(REF), id(0x600), -4);
+    world
+        .update_streaming_cells(id(CELL + 1), &[id(CELL + 1)], &[id(CELL)])
+        .unwrap();
+
+    world.player_level = 20;
+    world.clock.game_days = 11.0;
+    world
+        .update_streaming_cells(id(CELL), &[id(CELL)], &[id(CELL + 1)])
+        .unwrap();
+
+    assert_eq!(world.encounter_level(id(REF)).unwrap(), 14);
+    assert!(!world.reference(id(REF)).unwrap().opened);
+    assert_eq!(world.item_count(id(REF), id(0x600)), 4);
 }
 
 #[test]

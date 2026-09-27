@@ -115,9 +115,10 @@ checked against a running vanilla game.
 ## Remaining gameplay work
 
 Leveled templates now retain a selection per reference, as detailed below.
-Encounter-zone difficulty and reset integration are still missing. Skills,
-health, magicka and stamina all follow RACE Skill Boosts or RACE starts for
-a manual actor's DNAM base, and CLAS.wikitext's Weight Calculations for a
+Encounter-zone levels and zone reset are described in [game.md](game.md).
+Manual skills retain DNAM's cache until race-bonus semantics are established.
+Health, magicka and stamina follow RACE starts for a manual actor's base, and
+CLAS.wikitext's Weight Calculations for a
 fixed-level auto-calculated actor with a resolvable class and a non-zero
 weight sum. A `PC_LEVEL_MULT` actor keeps the DNAM cache for both, since this
 store does not track a live player level. Missing RACE
@@ -153,7 +154,7 @@ empty result and does not treat a missing NPC as a default 100-health actor.
 The current lazy-reference and PlaceAtMe paths supply player level. The public
 prepare_actor_template entry point accepts a caller-resolved level before the
 reference is materialized. ECZN level locking, XLCM difficulty multipliers,
-zone resets and actor respawn are not connected. Therefore this increment
+zone reset and actor respawn were not connected in this increment. Therefore it
 removes unresolved actor initialization without establishing vanilla encounter
 selection. A single actor has one result, so LVLF's per-count flag adds no
 extra selection in this path. Multi-actor count expansion remains unfinished.

@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-//! Actor initialization applies resolved race skill bonuses once and retains
-//! those values when the world state is loaded again.
+//! Actor initialization retains resolved skill values across world reloads.
+//! Manual DNAM skill values stay cached until race-bonus semantics are known.
 
 use std::path::PathBuf;
 

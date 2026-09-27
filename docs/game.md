@@ -2794,8 +2794,8 @@ the prior entry, a zone without the ECZN Never Resets flag clears its previous
 level lock and rebuilds its cached nonpersistent references from their winning
 records. This restores authored placement and contents. Persistent and dynamic
 references keep their state. Uncached references already read from their records
-need no work. Each entry restarts the interval. The new lock uses the current
-player level. SOEW version 34 adds
+need no work. Each entry, including an exterior streaming focus change,
+restarts the interval. The new lock uses the current player level. SOEW version 34 adds
 sorted last-visit game days, rejects duplicate or invalid entries before
 changing state, and reads older saves with empty zone history. Both zone tables
 contribute to the form-state hash.
@@ -2815,7 +2815,8 @@ selection already accepts an explicit level without computing NPC attributes.
 This work supplies zone levels to the existing LVLF selection rules. The CK
 LeveledCharacter page also describes XLCM difficulty-specific selection,
 including Easy weighting and Very Hard tier advancement. Those selector rules
-are a separate gap. Zone reset and lock clearing remain owned by PRG-10.
+are a separate gap. PRG-10 adds zone reset and lock clearing for cached
+nonpersistent references.
 Importing vanilla ESS encounter-zone changes is outside this selection contract.
 
 ## Ordinary perk purchases (PRG-02)
