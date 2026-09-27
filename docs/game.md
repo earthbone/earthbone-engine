@@ -1248,9 +1248,10 @@ iron ingot and produced ten nails. Explicit PlayerRef inventory conditions
 also passed. Predicate presence across the survey does not establish that
 every recipe is executable or that all predicate contexts match vanilla.
 
-Tempering, alchemy, enchanting, skill advancement, crafting story events,
-item instance state and host menus remain unfinished. The full requested
-execution scope is tracked in [execution-plan.md](execution-plan.md).
+Tempering, alchemy, creating enchantments, skill advancement, crafting story
+events and host menus remain unfinished. Disenchanting and item instance state
+have separate implementations below. The full requested execution scope is
+tracked in [execution-plan.md](execution-plan.md).
 
 The game crate now directly uses the workspace's existing thiserror 2.0.20
 for typed execution errors. `cargo tree -p soe-game -i thiserror` confirms
@@ -2637,9 +2638,31 @@ Synthetic inventory tests cover selected quality updates retaining enchantment,
 poison, charge and opaque fields, exact transfer, adjacent stacks, save/load,
 plain quantity splits, stale indices, identical restoration, malformed patches,
 ambiguous counts, bookkeeping, recipient overflow and failure event atomicity.
-Tempering formulas, learned enchantments, recipe eligibility, poison use and
-host menus belong to their separate backlog items. These tests do not compare
+Tempering formulas, recipe eligibility, poison use and host menus belong to
+their separate backlog items. These tests do not compare
 selection policy against the original runtime or load installed save files.
+
+## Disenchanting (CRF-03)
+
+`Game::disenchant` consumes one selected weapon or armor instance and adds each
+unknown MGEF linked by its ENCH record to the world's learned effect set.
+Instance ExtraEnchantment data takes precedence over the base item's EITM link.
+Staff enchantments, malformed or effectless ENCH records, already-known
+effects, and items with the `MagicDisallowEnchanting` keyword are rejected.
+Eligibility is checked before the selected inventory clone and learned-effect
+set are committed. A successful operation emits the normal OnItemRemoved event.
+
+SOEW version 34 saves the learned MGEF identities, and the determinism hash
+includes them. Earlier world saves load with an empty learned-effect set.
+The xEdit `wbDefinitionsTES5.pas` ENCH definition supplies the ENIT field
+layout, enchantment kind and EFID/EFIT pairs. The CK wiki corpus has no
+disenchanting page. Original-runtime edge cases such as partial learning from
+multi-effect enchantments remain unverified. The local UESP KYWD reference
+identifies `MagicDisallowEnchanting` as an engine-recognized keyword.
+
+`crf_03_disenchant` covers learned effects, selected-stack consumption,
+rejection atomicity, excluded enchantments and save/load continuation. Tests
+use synthetic records and do not claim an installed-data survey.
 
 ## Alias-backed dialogue eligibility (DLG-13)
 

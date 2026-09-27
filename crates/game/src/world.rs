@@ -517,6 +517,8 @@ pub struct World {
     pub beast_form: bool,
     pub words_taught: BTreeSet<GlobalFormId>,
     pub words_unlocked: BTreeSet<GlobalFormId>,
+    /// Magic effects made available for new enchantments by disenchanting.
+    pub learned_enchantment_effects: BTreeSet<GlobalFormId>,
     pub achievements: Vec<i32>,
     pub last_ridden_horse: Option<GlobalFormId>,
     /// `Game.AddPerkPoints`, the Dragonborn black book reward.
@@ -609,6 +611,7 @@ impl World {
             beast_form: false,
             words_taught: BTreeSet::new(),
             words_unlocked: BTreeSet::new(),
+            learned_enchantment_effects: BTreeSet::new(),
             achievements: Vec::new(),
             last_ridden_horse: None,
             perk_points: 0,

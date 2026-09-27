@@ -284,8 +284,9 @@ fn rich_world(namespace: u16) -> World {
 /// dialogue branch field that version 24 added, the stagger end time field
 /// that version 29 added, the witnessed crimes set that version 31 added,
 /// the hand spell fields that version 32 added, and the summon actor link
-/// that version 33 added. Each is set to a unique sentinel so its serialized
-/// bytes can be located exactly, then cut back out.
+/// that version 33 added. It also strips the empty learned-enchantment set
+/// added in version 34. Each actor field uses a unique sentinel so its
+/// serialized bytes can be located exactly, then cut back out.
 fn without_exclusive_branches(world: &mut World) -> Vec<u8> {
     let ids: Vec<_> = world.actors.keys().copied().collect();
     let mut markers = Vec::new();
@@ -367,6 +368,7 @@ fn without_exclusive_branches(world: &mut World) -> Vec<u8> {
             .expect("sentinel field is serialized");
         bytes.drain(at..at + marker.len());
     }
+    bytes.truncate(bytes.len() - 4);
     bytes
 }
 
@@ -469,7 +471,7 @@ fn sav_07_unknown_version_and_mixed_legacy_namespaces_are_rejected() {
     let mut world = rich_world(DYNAMIC_FILE);
     let before = world.save_state();
     for (version, message) in [
-        (34_u16, "world state version 34"),
+        (35_u16, "world state version 35"),
         (18, "created namespace in a legacy world state"),
     ] {
         let mut bytes = before.clone();

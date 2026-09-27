@@ -57,7 +57,8 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// Version 32 retains each hand's explicitly assigned spell, so a menu or
 /// script equip survives a reload the way a hand weapon selection already did.
 /// Version 33 retains the spawned reference owned by each Summon Creature effect.
-pub const SAVE_VERSION: u16 = 33;
+/// Version 34 retains the learned magic effects from disenchanting.
+pub const SAVE_VERSION: u16 = 34;
 
 #[derive(Clone, Copy)]
 pub(crate) enum FormNamespace {
@@ -414,6 +415,7 @@ impl World {
         self.write_loose_items(&mut body);
         self.write_encounter_levels(&mut body);
         self.write_dialogue_repeats(&mut body);
+        write_form_set(&mut body, &self.learned_enchantment_effects);
         self.write_detection(&mut body);
         let mut out = Writer::new();
         out.out.extend_from_slice(SAVE_MAGIC);
@@ -978,6 +980,11 @@ impl World {
         } else {
             BTreeMap::new()
         };
+        let learned_enchantment_effects = if version >= 34 {
+            read_form_set(&mut r)?
+        } else {
+            BTreeSet::new()
+        };
         let detection = if version >= 30 {
             super::detection::read_detection(&mut r)?
         } else {
@@ -1026,6 +1033,7 @@ impl World {
         self.cells = cells;
         self.encounter_levels = encounter_levels;
         self.detection = detection;
+        self.learned_enchantment_effects = learned_enchantment_effects;
         self.settings = settings;
         self.inventory_filters = inventory_filters;
         self.sleep_listeners = sleep_listeners;
