@@ -648,7 +648,14 @@ GetFactionRank, GetGlobalValue, GetRandomPercent, GetLevel,
 GetPlayerControlsDisabled, GetIsReference, GetIsCurrentPackage,
 GetDayOfWeek, IsSneaking (always false, no sneak state yet), IsInCombat,
 IsInInterior, GetQuestCompleted, HasKeyword, GetIsAliasRef,
-GetActorValuePercent. The AI-01 increment also shares GetStaminaPercentage,
+GetActorValuePercent, IsBleedingOut, GetNoBleedoutRecovery and IsStaggered.
+Bleedout reads the actor's unconscious and dead flags, the recovery query
+reads `no_bleedout_recovery`, and stagger reads the active real-time deadline.
+IsAttacking, IsPowerAttacking, IsLastHostileActor, ShouldAttackKill and
+IsAttackType return a typed condition error: local xEdit metadata gives their
+identities and parameter types, but the CK corpus has no usable condition
+contract and the runtime lacks their live attack or hostile-state producers.
+The AI-01 increment also shares GetStaminaPercentage,
 GetBaseActorValue, IsKiller, GetHealthPercentage and GetPermanentActorValue
 with the gameplay evaluator. Any other function fails its condition and is
 counted in `World::ai.unsupported_functions` by index, so a live run
@@ -1372,11 +1379,22 @@ worktrees, including NPC Player base data when present.
 The shared condition evaluator reuses the crafting implementation and adds
 speaker/listener and owning-quest context. Supported function IDs are 1, 18,
 46, 47, 56, 58, 59, 67, 69, 70, 71, 72, 73, 74, 80, 136, 182, 264, 277, 289, 359,
-403, 448, 543, 560, 566, 606, 629, 630 and 659. Run-on subject, target,
+403, 448, 543, 560, 566, 580, 606, 629, 630, 659, 694 and 701. Run-on subject, target,
 explicit reference and quest alias are supported when their context exists.
 Conditions use current shared actor, quest, inventory and location state.
 Papyrus variable queries require conditional flags and reject ambiguous names.
-The evaluator does not complete missing actor-value, alias or package systems.
+The combat predicates 672, 673, 674, 678 and 697 return `UnavailableState`
+diagnostics because their attack-state producers or usable condition contracts
+are absent. The evaluator does not complete missing actor-value, alias or
+package systems.
+
+AI-40 follows local `TES5Edit/Core/wbDefinitionsTES5.pas` and
+`uesp-modfileformat/Raw_Function_Data.wikitext` for condition ids and parameter
+types. CK `IsBleedingOut` and `GetNoBleedoutRecovery` define their actor flags.
+The CK corpus has no usable contract for the attack-state predicates or
+`IsStaggered`; stagger uses the existing `World::is_staggered` deadline from
+CMB-14. Unsupported attack-state reads diagnose instead of inferring a result
+from melee contacts, actor values or target selection.
 
 SOEW version 28 stores the active do-all DIAL cycles. SOEW version 24 stores
 an actor's active exclusive DLBR. Speaking any topic
