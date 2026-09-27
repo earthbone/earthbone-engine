@@ -145,7 +145,7 @@ impl World {
             } else {
                 None
             };
-            let list = if version >= 34 && r.bool()? {
+            let list = if version >= 35 && r.bool()? {
                 let form_flags = if r.bool()? {
                     Some((r.u32()?, r.u16()?))
                 } else {

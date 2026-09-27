@@ -139,12 +139,10 @@ fn class_skill_weights_preserve_the_skills_array_order() {
     );
 }
 
-// 4/5. The PRG-15 done check requires "caps": a manual actor's DNAM skill
-// plus its race's boost must clamp to 0 to 100, not wrap or overflow past
-// either bound, mirroring the health/magicka/stamina clamp
-// `mod_actor_value` already enforces elsewhere in this crate.
+// 4/5. Manual DNAM skill values may already contain the race boost. Keep the
+// authored cache until the source contract establishes how to recompute it.
 #[test]
-fn manual_actor_skill_with_race_boost_clamps_at_the_upper_bound() {
+fn manual_actor_skill_preserves_high_dnam_cache_without_another_race_boost() {
     let mut plugin = Plugin::new(FileHeader::default());
     // Local skill index 14 (Destruction, full actor value 20).
     plugin.push_top(race_with_boosts(0x700, &[(20, 50)]));
@@ -160,13 +158,13 @@ fn manual_actor_skill_with_race_boost_clamps_at_the_upper_bound() {
     let values = game.world().initial_actor_values(id(0, 0x800)).unwrap();
     assert_eq!(
         skill_value(&values, "destruction"),
-        100.0,
-        "90 base + 50 race boost must clamp at 100, not read 140"
+        90.0,
+        "manual DNAM skill cache must not receive a second race boost"
     );
 }
 
 #[test]
-fn manual_actor_skill_with_negative_race_boost_clamps_at_the_lower_bound() {
+fn manual_actor_skill_preserves_low_dnam_cache_without_another_race_boost() {
     let mut plugin = Plugin::new(FileHeader::default());
     // Local skill index 14 (Destruction, full actor value 20).
     plugin.push_top(race_with_boosts(0x700, &[(20, -60)]));
@@ -182,8 +180,8 @@ fn manual_actor_skill_with_negative_race_boost_clamps_at_the_lower_bound() {
     let values = game.world().initial_actor_values(id(0, 0x800)).unwrap();
     assert_eq!(
         skill_value(&values, "destruction"),
-        0.0,
-        "10 base minus 60 race boost must clamp at 0, not go negative"
+        10.0,
+        "manual DNAM skill cache must not receive a second race boost"
     );
 }
 
@@ -328,8 +326,7 @@ fn winning_class_override_supplies_the_skill_weights_not_the_losing_definition()
     );
 }
 
-// 9. Same as test 8 for a winning RACE skill boost override, the other half
-// of the done check's "winning race and class overrides".
+// 9. An auto-calculated actor reads the winning RACE skill boost.
 #[test]
 fn winning_race_override_supplies_the_skill_boost_not_the_losing_definition() {
     let mut base = Plugin::new(FileHeader::default());
@@ -340,11 +337,25 @@ fn winning_race_override_supplies_the_skill_boost_not_the_losing_definition() {
         ..FileHeader::default()
     });
     patch.push_top(race_with_boosts(0x700, &[(10, 30)]));
+    let mut weights = [0; 18];
+    weights[4] = 1;
+    patch.push_top(clas(0x900, weights));
     let mut stats = Stats::default();
     stats.skills[4] = 20;
     patch.push_top(
-        npc::build_record(0x800, "Smith", "Smith", Config::default(), stats)
-            .sub(T(b"RNAM"), 0x700u32.to_le_bytes()),
+        npc::build_record(
+            0x800,
+            "Smith",
+            "Smith",
+            Config {
+                flags: npc::flags::AUTO_CALC_STATS,
+                level: 1,
+                ..Config::default()
+            },
+            stats,
+        )
+        .sub(T(b"RNAM"), 0x700u32.to_le_bytes())
+        .sub(T(b"CNAM"), 0x900u32.to_le_bytes()),
     );
     let mut order = LoadOrder::new();
     order.add("Actors.esm", base).unwrap();
@@ -353,8 +364,8 @@ fn winning_race_override_supplies_the_skill_boost_not_the_losing_definition() {
     let values = game.world().initial_actor_values(id(0, 0x800)).unwrap();
     assert_eq!(
         skill_value(&values, "smithing"),
-        50.0,
-        "20 base + 30 winning race boost, the losing +5 must not apply"
+        45.0,
+        "15 base + 30 winning race boost, the losing +5 must not apply"
     );
 }
 
