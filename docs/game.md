@@ -3376,3 +3376,22 @@ CK `AddForm_-_FormList.wikitext` for import order and duplicate handling, and
 FallrimTools `ChangeFormFLST.java`, `ChangeFormLeveled.java` and
 `LeveledEntry.java`. Their Java readers cannot serve as Rust runtime code, so
 the existing typed save decoder and record override layer perform the mapping.
+
+## Saved WOOP and MGEF changes, SAV-50
+
+`World::restore_vanilla_base_objects` maps and validates WOOP and MGEF changes
+before installing record overrides. It rejects malformed data, duplicate
+targets, missing or mistyped records and records already overridden. The
+six-byte form flags, value marker, full-name marker and unnamed change bits are
+retained in `BaseObjectRecordExtra`. xEdit defines the value and full-name
+sections as zero-byte fields, so these markers do not replace record subrecords.
+The saved mask words remain pending because their runtime application rules
+are not established. WOOP and MGEF records remain available through
+`World::record`, names use the shared record lookup, and MGEF views read that
+same live record. SOEW version 37 persists the marker metadata.
+
+The layout follows xEdit `Core/wbDefinitionsTES5Saves.pas` change types 34 and
+35. Its `wbNull` fields consume no payload bytes. The typed save decoder retains
+the six-byte optional flag block and higher unnamed flag bits. No value or name
+replacement bytes are present in these changes, so the authored record fields
+remain in use.

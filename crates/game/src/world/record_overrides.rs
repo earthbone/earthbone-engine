@@ -27,6 +27,19 @@ pub struct ListRecordExtra {
     pub entry_chances: Vec<u8>,
 }
 
+/// Saved WOOP and MGEF change fields whose payload does not replace subrecords.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct BaseObjectRecordExtra {
+    /// Saved mask and unknown word, retained pending application rules.
+    pub form_flags: Option<(u32, u16)>,
+    /// The zero-byte base-object value section was marked changed.
+    pub value_changed: bool,
+    /// The zero-byte base-object full-name section was marked changed.
+    pub full_name_changed: bool,
+    /// Change bits outside xEdit's named fields.
+    pub unnamed_flags: u32,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct RecordOverride {
     pub origin: GlobalFormId,
@@ -37,6 +50,7 @@ pub(super) struct RecordOverride {
     pub plain_full: bool,
     pub npc: NpcRecordExtra,
     pub list: Option<ListRecordExtra>,
+    pub base_object: Option<BaseObjectRecordExtra>,
 }
 
 pub(super) fn raw_words(record: &Record) -> BTreeSet<u32> {
@@ -61,6 +75,7 @@ impl RecordOverride {
             plain_full: false,
             npc: NpcRecordExtra::default(),
             list: None,
+            base_object: None,
         }
     }
 
@@ -120,5 +135,10 @@ impl World {
 
     pub fn restored_list_extra(&self, id: GlobalFormId) -> Option<&ListRecordExtra> {
         self.record_overrides.get(&id)?.list.as_ref()
+    }
+
+    /// Saved zero-payload change markers for a WOOP or MGEF record.
+    pub fn restored_base_object_extra(&self, id: GlobalFormId) -> Option<&BaseObjectRecordExtra> {
+        self.record_overrides.get(&id)?.base_object.as_ref()
     }
 }

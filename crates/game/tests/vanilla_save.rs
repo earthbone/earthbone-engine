@@ -22,6 +22,9 @@ mod actor_sources;
 #[path = "vanilla_save/lists.rs"]
 mod lists;
 
+#[path = "vanilla_save/base_objects.rs"]
+mod base_objects;
+
 use std::{
     path::{Path, PathBuf},
     sync::Arc,

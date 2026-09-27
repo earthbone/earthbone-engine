@@ -115,6 +115,9 @@ does not claim runtime support for opaque payloads.
 - `ChangeForm::word_of_power_change` and `magic_effect_change` decode WOOP and
   MGEF form flags, the two payload-free base-object change markers, and retain
   unnamed flag bits. Only the form-flags marker contributes payload bytes.
+  The game crate applies these fields as persisted record metadata. It leaves
+  source subrecords in place because the two base-object markers contain no
+  replacement values or text.
 - Type 107, quest static data, including its two event arrays, three reference
   arrays, reference-keyed values and final byte.
 - Type 1001, the Papyrus block: the string table, the script definitions with
@@ -893,6 +896,17 @@ and change version were both 78. No LVSP change occurred in the corpus, so
 LVSP and shared form-mask combinations have synthetic coverage only. No save
 bytes were copied into the repository. `World::restore_vanilla_lists` in the
 game crate applies decoded changes to live record overrides.
+
+## WOOP and MGEF change application, SAV-50
+
+`World::restore_vanilla_base_objects` maps all WOOP and MGEF changes before
+installing their record overrides. It retains the optional six-byte form flag
+pair, both zero-byte change markers and unnamed flag bits. The mask pair stays
+pending until its application semantics are established. The base-object value
+and full-name markers do not include replacement data, so saved records keep
+their authored subrecords. MGEF runtime views read through the override-aware
+record lookup. SOEW version 37 stores the retained metadata, and earlier
+versions still load without that extension.
 
 ## Reference ownership and locks, SAV-16, blocked
 
