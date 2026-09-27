@@ -68,11 +68,14 @@ week 6 to 9 gate.
 including regular and light slots. `World::restore_vanilla_globals` atomically
 applies the global table to winning GLOB forms. `Game::restore_vanilla_papyrus`
 resolves saved script-instance RefIDs to live form objects and imports their
-saved variables into the VM. Saved reference-only objects are created using
-their saved runtime type. Instances whose signed `unknown` field is `-1` ignore
-their saved RefID and receive standalone VM objects. Values reach the existing
-Papyrus native path and engine save state. This is not a full ESS load or
-resumed game. See
+saved variables into the VM. `Game::restore_vanilla_papyrus_execution` also
+converts and schedules validated active script frames, rolling back VM state
+if the import fails. Saved reference-only objects are created using their
+saved runtime type. Instances whose signed
+`unknown` field is `-1` ignore their saved RefID and receive standalone VM
+objects. Values reach the existing Papyrus native path and engine save state.
+Queued messages and suspended stacks remain inert. This is not a full ESS load
+or resumed game. See
 [save.md](save.md) for mapping rules, failure behavior and the remaining work.
 
 Reference placement reserves created identities found in saved change forms,
@@ -2304,9 +2307,11 @@ save decoding, identity mapping, global import, ticking and serialization are
 reused. No parser, dependency or host node was added.
 
 SAV-08 has no backlog prerequisite. It establishes calendar values before
-execution. SAV-18 separately restores scheduler epochs and deadlines. Import
-does not execute queued scripts, fire timers or resume quests. Full ESS loading
-and host resumption remain separate backlog items.
+execution. SAV-18 separately restores scheduler epochs and deadlines. Calendar
+import does not execute queued messages, fire timers or resume quests.
+`restore_vanilla_papyrus_execution` separately restores instances and schedules
+validated active Papyrus frames. Full ESS loading and host resumption remain
+separate backlog items.
 
 The installed survey passes all 60 saves and all 360 calendar values, with
 exact engine-save bytes and world hashes after reloading. Synthetic checks

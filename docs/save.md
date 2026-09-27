@@ -145,10 +145,10 @@ types on demand. Unsupported types remain opaque. The Papyrus auxiliary data
 after the save-file version stays raw, as does the original payload used when
 writing the save body.
 
-Most decoded state remains inspection data. The game crate can apply globals
-and quest state, but neither stack execution nor pending calls can be resumed from a
-vanilla save. The explicit instance-import API below can apply decoded
-variables to a prepared VM, but it is not a complete save loader.
+Most decoded state remains inspection data. The game crate can apply globals,
+quest state, Papyrus instances and active script frames. Queued messages,
+suspended stack tables, latent native waits and other world state are not
+resumed by this path. This is not a complete save loader.
 
 ## Runtime instance import
 
@@ -186,6 +186,14 @@ instances, inheritance cycles, missing identities, invalid array elements
 and unsupported variant/struct runtime values. Arrays use the existing VM
 allocation ceiling. It also refuses to replace instances beneath existing
 threads. It does not invent a form or alias binding from an opaque saved ID.
+
+`Papyrus::restore_execution` converts active script frames after instance
+import. It resolves frame owners through the supplied saved-object mapping,
+checks saved instruction bodies against loaded PEX, and validates frame
+positions and local slots before scheduling any thread. A nested call returns
+through the destination operand in the saved caller instruction. Invalid
+frame references leave the VM thread list unchanged. Queued messages and
+suspended stack tables remain decoded data.
 
 ## Quest change and static data
 

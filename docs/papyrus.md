@@ -302,9 +302,14 @@ invalidate their frames. Saved state names remain valid even when the loaded
 PEX has no body for that state, as the existing `GoToState` path permits.
 Function lookup then uses its normal empty-state fallback.
 
-The save crate supplies the vanilla slot-to-name adapter. This API restores
-instance data only. It does not restore saved stacks, schedule latent calls
-or resolve a vanilla object's game-world identity.
+The save crate supplies the vanilla slot-to-name adapter and converts decoded
+active frames into VM frames after object identities and instances are mapped.
+`Vm::restore_threads` checks every owner, script, function, instruction body,
+program counter and local slot before adding any thread. Caller return targets
+come from the saved call instruction. The game import entry point restores
+instances and schedules the saved active scripts. Queued messages, suspended
+stack tables and latent native waits remain inert. Object identity mapping is
+still supplied by the host.
 
 A thread saved mid-`Utility.Wait` is a saved `Sleeping(seconds)` state on a
 frame sitting inside the wait, nothing about the scheduler is special-cased,
