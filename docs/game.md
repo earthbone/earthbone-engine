@@ -1725,14 +1725,8 @@ Actor-value indices from 0 through 163 resolve through the shared mapping in
 [actor values](actor-values.md). Recover effects use the temporary modifier
 domain. Other effects damage or restore the damage component without changing
 permanent modifiers.
-Automatic ability application from AddSpell or NPC spell lists, enchantments,
-potions, resistance and absorption, effect artwork and sounds, actor-event
-forwarding and VM object reclamation remain unfinished.
-
-resistance and absorption, effect artwork and sounds, actor-event
-forwarding, effect inventory filters and VM object reclamation remain unfinished.
-
-forwarding and effect inventory filters remain unfinished.
+Potion effects, absorption, effect artwork and sounds, actor-event forwarding,
+effect inventory filters and VM object reclamation remain unfinished.
 This is an active-effect foundation, not complete magic execution.
 
 ### Summon Creature, MAG-39
@@ -1838,6 +1832,46 @@ The installed five-master survey reads 1,354 winning spells. It accepts 179
 and creates 206 applications, including one authored hostile effect. All 24
 magic tests pass with installed data. The other spells remain explicit
 unsupported results, so this measurement covers the direct cast boundary.
+
+The Godot `PlayerNode::aimed_spell_projectile_contact` resolves the contacted
+actor body and calls this API. A live host contact was not exercised in this
+worktree.
+
+### Automatic constant abilities, MAG-13
+
+When an actor is first built, constant-effect abilities from its resolved spell
+set apply to that actor. `Actor.AddSpell` does the same when it adds an ability
+later. Ordinary spells remain known without being cast. Repeated actor access
+does not apply an ability a second time.
+
+Local xEdit `wbDefinitionsTES5.pas` defines NPC `SPLO` as actor effects and
+labels spell type 4 as Ability. The CK `AddSpell_-_Actor.wikitext` page says
+the native adds the spell to the actor. `mag_13_actor_abilities.rs` covers
+NPC initialization and repeated access. `natives_dlc`'s MAG-13 adversarial
+test drives `AddSpell` through Papyrus and checks the active effect. These
+tests use synthetic records and do not include a vanilla-data survey.
+
+### Worn enchantments, MAG-10
+
+Equipping armor applies its ENCH effects to the wearer. Unequipping the item,
+or replacing it through an overlapping armor slot, removes only active effects
+from that item. The ENCH record supplies effect entries and ARMO's EITM link
+names the enchantment. These fields are defined in local xEdit
+`wbDefinitionsTES5.pas`. `magic/worn_enchantment.rs` covers apply and unequip;
+`mag_10_adversarial.rs` covers removing the replaced source without disturbing
+other effects. Weapon enchantments and charge use remain outside this path.
+
+### Magic resistance, MAG-12
+
+Hostile effect magnitude applies Resist Magic first, then the specific
+resistance named by MGEF, with each actor value independently capped at 85
+percent. MGEF resistance values 40 through 45 use their matching actor value;
+44 is Resist Magic and is not applied twice. Unresisted effects and
+non-hostile effects keep their authored magnitude. The mapping and resistance
+field are defined in local xEdit `wbDefinitionsTES5.pas`; the order and cap are
+the documented magic resistance behavior reviewed for this row. The
+`mag_12_adversarial.rs` and `magic.rs` tests cover the independent caps and
+actor-value modifier behavior with synthetic records.
 
 ### Area targeting, MAG-06
 

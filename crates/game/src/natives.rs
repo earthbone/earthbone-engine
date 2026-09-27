@@ -19,7 +19,7 @@ use soe_papyrus::{NativeCall, NativeReturn, ObjectId, Value, Vm};
 use crate::clock::GameClock;
 use crate::combat::Hand;
 use crate::conditions;
-use crate::world::{reaction, AnimationListener, Handle, LeveledEntry, LosListener, World};
+use crate::world::{AnimationListener, Handle, LeveledEntry, LosListener, World, reaction};
 
 pub type Shared = Rc<RefCell<World>>;
 
@@ -1305,7 +1305,7 @@ fn actor(vm: &mut Vm, w: &Shared) {
         let Some(spell) = world.form_arg(&call.arg(0)) else {
             return b(false);
         };
-        b(world.actor(me).is_some_and(|a| a.spells.insert(spell)))
+        b(world.add_actor_spell(me, spell))
     });
     method!(vm, w, "Actor", "RemoveSpell", |world, call, me| {
         let Some(spell) = world.form_arg(&call.arg(0)) else {

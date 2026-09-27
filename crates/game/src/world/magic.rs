@@ -773,41 +773,64 @@ impl World {
         };
         let spells = state.spells.clone();
         for spell in spells {
-            let Ok(definition) = self.spell(spell) else {
-                continue;
-            };
-            if definition.data.spell_type != 4
-                || definition.data.cast_type != 0
-                || definition.data.delivery != 0
-            {
-                continue;
-            }
-            let Ok(prepared) = self.prepare_spell(
-                spell,
-                actor,
-                Some(actor),
-                Some(actor),
-                CastDelivery::Direct,
-                None,
-                true,
-            ) else {
-                continue;
-            };
-            let Ok(prepared) = self.prepare_effect_actions(prepared) else {
-                continue;
-            };
-            for prepared in prepared {
-                let id = prepared.effect.id;
-                self.next_effect = id.0 + 1;
-                if prepared.effect.recover || prepared.effect.duration == Some(0.0) {
-                    if let Some(state) = self.actors.get_mut(&prepared.effect.target) {
-                        if change_values(&mut state.values, &prepared.effect, 1.0).is_err() {
-                            continue;
-                        }
+            self.apply_actor_ability(actor, spell);
+        }
+    }
+
+    /// Add a known spell and activate it when it is a constant-effect ability.
+    pub fn add_actor_spell(&mut self, actor: GlobalFormId, spell: GlobalFormId) -> bool {
+        let Some(state) = self.actor(actor) else {
+            return false;
+        };
+        if !state.spells.insert(spell) {
+            return false;
+        }
+        self.apply_actor_ability(actor, spell);
+        true
+    }
+
+    fn apply_actor_ability(&mut self, actor: GlobalFormId, spell: GlobalFormId) {
+        if self
+            .active_effects
+            .values()
+            .any(|effect| effect.target == actor && effect.source == actor && effect.spell == spell)
+        {
+            return;
+        }
+        let Ok(definition) = self.spell(spell) else {
+            return;
+        };
+        if definition.data.spell_type != 4
+            || definition.data.cast_type != 0
+            || definition.data.delivery != 0
+        {
+            return;
+        }
+        let Ok(prepared) = self.prepare_spell(
+            spell,
+            actor,
+            Some(actor),
+            Some(actor),
+            CastDelivery::Direct,
+            None,
+            true,
+        ) else {
+            return;
+        };
+        let Ok(prepared) = self.prepare_effect_actions(prepared) else {
+            return;
+        };
+        for prepared in prepared {
+            let id = prepared.effect.id;
+            self.next_effect = id.0 + 1;
+            if prepared.effect.recover || prepared.effect.duration == Some(0.0) {
+                if let Some(state) = self.actors.get_mut(&prepared.effect.target) {
+                    if change_values(&mut state.values, &prepared.effect, 1.0).is_err() {
+                        continue;
                     }
                 }
-                self.active_effects.insert(id, prepared.effect.clone());
             }
+            self.active_effects.insert(id, prepared.effect.clone());
         }
     }
 
@@ -887,7 +910,7 @@ impl World {
             2 => {
                 return Err(MagicError::Unsupported(
                     "aimed cast requires projectile contact",
-                ))
+                ));
             }
             _ => return Err(MagicError::Unsupported("location delivery")),
         };
