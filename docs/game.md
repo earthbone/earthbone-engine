@@ -2308,12 +2308,26 @@ The condition index table covers all 164 CommonLib actor values, with the
 existing store spellings for marksman, speechcraft and critchance. This does
 not widen the separate magic effect actor-value allowlist.
 
-AI-86 retains IsKillerObject (409) and GetXPForNextLevel (530). xEdit and
-SKSE name a FormList argument for 409 without defining what it matches. The
-[Experience author](https://www.nexusmods.com/skyrimspecialedition/articles/7028)
-describes 530 as a placebo vanilla command fixed by that mod. These queries
-remain unsupported pending a Skyrim contract. They are not counted as
-implemented predicates.
+AI-86 retains IsKillerObject (409) and GetXPForNextLevel (530) as unsupported
+conditions. xEdit's `wbConditionFunctions` and the SKSE vanilla command list
+identify 409 as taking a FormList, but neither says which object is matched or
+how the subject participates. The CK `IsKiller` description is for adjacent
+function 408 and does not define 409. xEdit's
+`engine-refs/TES5Edit/Core/wbDefinitionsTES5.pas` and UESP's
+`engine-refs/uesp-modfileformat/Raw_Function_Data.wikitext` list 530 without
+parameters. The [SKSE vanilla command list](https://skse.silverlock.org/vanilla_commands.html)
+also names both functions but does not describe a numeric result for the
+condition evaluator. The CK [IsKiller description](https://ck.uesp.net/wiki/IsKiller)
+documents 408. The [Experience author](https://www.nexusmods.com/skyrimspecialedition/articles/7028)
+calls its implementation of the similarly named console command a fixed
+placebo vanilla command. That does not establish the condition's Skyrim
+semantics. Neither function has sourced numeric semantics, so both remain
+unsupported and are not counted as implemented predicates.
+
+`ai_86_condition_contracts` checks that each function remains outside the
+supported set and returns `Error::Function` for an otherwise valid actor
+subject. The evaluator reports that explicit diagnostic instead of guessing
+the condition result.
 
 `condition_actor_values` checks both evaluators against independent expected
 values, high indices, invalid indices and subjects, resource fractions and the
