@@ -255,6 +255,7 @@ fn rich_world(namespace: u16) -> World {
             duration: Some(60.0),
             elapsed: 1.0,
             summoned: None,
+            reanimated_previous_owner: None,
             recover: false,
             changes: vec![],
         },
@@ -284,7 +285,8 @@ fn rich_world(namespace: u16) -> World {
 /// dialogue branch field that version 24 added, the stagger end time field
 /// that version 29 added, the witnessed crimes set that version 31 added,
 /// the hand spell fields that version 32 added, and the summon actor link
-/// that version 33 added, plus the record metadata byte from version 35.
+/// that version 33 added, plus the record metadata byte from version 35 and
+/// the Reanimate prior owner from version 36.
 /// Each is set to a unique sentinel so its serialized
 /// bytes can be located exactly, then cut back out.
 fn without_exclusive_branches(world: &mut World) -> Vec<u8> {
@@ -351,8 +353,26 @@ fn without_exclusive_branches(world: &mut World) -> Vec<u8> {
     summon_marker.extend_from_slice(&summon_sentinel.file.to_le_bytes());
     summon_marker.extend_from_slice(&summon_sentinel.object.to_le_bytes());
     markers.push(summon_marker);
+    let owner_sentinel = GlobalFormId {
+        file: u16::MAX,
+        object: 0xE300_0000,
+    };
+    world
+        .active_effects
+        .get_mut(&EffectId(1))
+        .unwrap()
+        .reanimated_previous_owner = Some(Some(owner_sentinel));
+    let mut owner_marker = vec![1, 1];
+    owner_marker.extend_from_slice(&owner_sentinel.file.to_le_bytes());
+    owner_marker.extend_from_slice(&owner_sentinel.object.to_le_bytes());
+    markers.push(owner_marker);
     let mut bytes = world.save_state();
     world.active_effects.get_mut(&EffectId(1)).unwrap().summoned = None;
+    world
+        .active_effects
+        .get_mut(&EffectId(1))
+        .unwrap()
+        .reanimated_previous_owner = None;
     for id in &ids {
         let actor = world.actors.get_mut(id).unwrap();
         actor.exclusive_branch = None;
@@ -477,7 +497,7 @@ fn sav_07_unknown_version_and_mixed_legacy_namespaces_are_rejected() {
     let mut world = rich_world(DYNAMIC_FILE);
     let before = world.save_state();
     for (version, message) in [
-        (36_u16, "world state version 36"),
+        (37_u16, "world state version 37"),
         (18, "created namespace in a legacy world state"),
     ] {
         let mut bytes = before.clone();

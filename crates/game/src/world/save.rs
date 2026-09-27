@@ -59,7 +59,8 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// Version 33 retains the spawned reference owned by each Summon Creature effect.
 /// Version 34 retains last-visit game days for resettable encounter zones.
 /// Version 35 retains saved list flags and per-entry chance bytes in record overrides.
-pub const SAVE_VERSION: u16 = 35;
+/// Version 36 retains the prior owner of a corpse under a Reanimate effect.
+pub const SAVE_VERSION: u16 = 36;
 
 #[derive(Clone, Copy)]
 pub(crate) enum FormNamespace {
@@ -854,7 +855,7 @@ impl World {
             }
         }
         let (next_effect, active_effects) = if version == 5 || version >= 9 {
-            super::magic::read_magic(&mut r, version >= 33)?
+            super::magic::read_magic(&mut r, version >= 33, version >= 36)?
         } else {
             (1, BTreeMap::new())
         };
@@ -894,6 +895,19 @@ impl World {
                 }
             } else if definition.data.archetype == 18 && version >= 33 {
                 return Err(VmError::State("summon effect without actor".into()));
+            }
+            if effect.reanimated_previous_owner.is_some() {
+                let owner = effect.caster;
+                if definition.data.archetype != 22
+                    || owner.is_none()
+                    || refs
+                        .get(&effect.target)
+                        .is_none_or(|reference| reference.owner != owner)
+                {
+                    return Err(VmError::State("invalid reanimated actor state".into()));
+                }
+            } else if definition.data.archetype == 22 && version >= 36 {
+                return Err(VmError::State("reanimate effect without owner".into()));
             }
         }
         for handle in objects.keys() {

@@ -32,6 +32,10 @@ impl World {
             }
             w.f64(effect.elapsed);
             write_opt_form_id(w, effect.summoned);
+            w.bool(effect.reanimated_previous_owner.is_some());
+            if let Some(owner) = effect.reanimated_previous_owner {
+                write_opt_form_id(w, owner);
+            }
             w.bool(effect.recover);
             w.len(effect.changes.len());
             for (name, amount) in &effect.changes {
@@ -45,6 +49,7 @@ impl World {
 pub(in crate::world) fn read_magic(
     r: &mut FormReader<'_, '_>,
     has_summoned_reference: bool,
+    has_reanimated_owner: bool,
 ) -> Result<(u64, BTreeMap<EffectId, ActiveEffect>), VmError> {
     let next = r.u64()?;
     let count = r.len()?;
@@ -62,6 +67,11 @@ pub(in crate::world) fn read_magic(
         let elapsed = r.f64()?;
         let summoned = if has_summoned_reference {
             read_opt_form_id(r)?
+        } else {
+            None
+        };
+        let reanimated_previous_owner = if has_reanimated_owner && r.bool()? {
+            Some(read_opt_form_id(r)?)
         } else {
             None
         };
@@ -101,6 +111,7 @@ pub(in crate::world) fn read_magic(
             duration,
             elapsed,
             summoned,
+            reanimated_previous_owner,
             recover,
             changes,
         };

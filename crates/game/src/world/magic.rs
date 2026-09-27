@@ -32,6 +32,7 @@ pub(super) const DISPEL_WITH_KEYWORDS: u32 = 1 << 8;
 const INGESTIBLE_POISON: u32 = 1 << 17;
 const PARALYSIS_ARCHETYPE: u32 = 21;
 const DETECT_LIFE_ARCHETYPE: u32 = 19;
+const REANIMATE_ARCHETYPE: u32 = 22;
 
 /// Identity of one effect application, independent of its MGEF FormID.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -53,6 +54,8 @@ pub struct ActiveEffect {
     pub elapsed: f64,
     /// Runtime actor created by a Summon Creature effect, dismissed with it.
     pub summoned: Option<GlobalFormId>,
+    /// Prior reference owner while this effect commands a reanimated actor.
+    pub reanimated_previous_owner: Option<Option<GlobalFormId>>,
     pub(crate) recover: bool,
     pub(crate) changes: Vec<(String, f32)>,
 }
@@ -434,6 +437,7 @@ impl World {
                     }),
                     elapsed: 0.0,
                     summoned: None,
+                    reanimated_previous_owner: None,
                     recover: data.flags & RECOVER != 0 || data.archetype == PARALYSIS_ARCHETYPE,
                     changes,
                 },
@@ -565,7 +569,7 @@ impl World {
             {
                 continue;
             }
-            if data.flags & HOSTILE != 0 {
+            if data.flags & HOSTILE != 0 && data.archetype != REANIMATE_ARCHETYPE {
                 let actor = self.actor(target).ok_or(MagicError::Target)?;
                 if actor.dead || actor.ghost {
                     return Err(MagicError::Target);
@@ -573,7 +577,13 @@ impl World {
             }
             if !matches!(
                 data.archetype,
-                0 | 1 | 2 | 5 | 18 | DETECT_LIFE_ARCHETYPE | PARALYSIS_ARCHETYPE
+                0 | 1
+                    | 2
+                    | 5
+                    | 18
+                    | DETECT_LIFE_ARCHETYPE
+                    | PARALYSIS_ARCHETYPE
+                    | REANIMATE_ARCHETYPE
             ) {
                 return Err(MagicError::Unsupported("effect archetype"));
             }
@@ -588,13 +598,19 @@ impl World {
             {
                 return Err(MagicError::Unsupported("mixed casting types or delivery"));
             }
-            let magnitude = if data.flags & NO_MAGNITUDE != 0 {
-                0.0
-            } else {
-                entry.data.magnitude
-            };
+            let magnitude =
+                if data.flags & NO_MAGNITUDE != 0 && data.archetype != REANIMATE_ARCHETYPE {
+                    0.0
+                } else {
+                    entry.data.magnitude
+                };
             if !magnitude.is_finite() || magnitude < 0.0 {
                 return Err(MagicError::Number);
+            }
+            if data.archetype == REANIMATE_ARCHETYPE
+                && (caster.is_none() || !self.reanimate_eligible(target, magnitude))
+            {
+                return Err(MagicError::Target);
             }
             let signed = if data.flags & DETRIMENTAL != 0 {
                 -magnitude
@@ -638,11 +654,13 @@ impl World {
             let duration = if matches!(definition.data.cast_type, 0 | 2) {
                 None
             } else {
-                Some(if data.flags & NO_DURATION != 0 {
-                    0.0
-                } else {
-                    f64::from(entry.data.duration)
-                })
+                Some(
+                    if data.flags & NO_DURATION != 0 && data.archetype != REANIMATE_ARCHETYPE {
+                        0.0
+                    } else {
+                        f64::from(entry.data.duration)
+                    },
+                )
             };
             let mut dispel_rules = Vec::new();
             if data.archetype == 2 {
@@ -657,19 +675,24 @@ impl World {
                 }
                 dispel_rules.push(DispelRule::Keywords(keywords));
             }
-            let radius = if data.flags & NO_AREA != 0 {
+            let radius = if data.flags & NO_AREA != 0 && data.archetype != REANIMATE_ARCHETYPE {
                 0.0
             } else {
                 entry.data.area as f32
             };
             let mut recipients = self.area_targets(target, radius);
-            if data.flags & HOSTILE != 0 {
+            if data.flags & HOSTILE != 0 && data.archetype != REANIMATE_ARCHETYPE {
                 recipients.retain(|&id| {
                     self.actor(id)
                         .is_some_and(|actor| !actor.dead && !actor.ghost)
                 });
             }
             for recipient in recipients {
+                if data.archetype == REANIMATE_ARCHETYPE
+                    && !self.reanimate_eligible(recipient, magnitude)
+                {
+                    continue;
+                }
                 prepared.push(PreparedEffect {
                     effect: ActiveEffect {
                         id: EffectId(0),
@@ -683,6 +706,8 @@ impl World {
                         duration,
                         elapsed: 0.0,
                         summoned: None,
+                        reanimated_previous_owner: (data.archetype == REANIMATE_ARCHETYPE)
+                            .then_some(None),
                         recover: data.flags & RECOVER != 0 || data.archetype == PARALYSIS_ARCHETYPE,
                         changes: changes.clone(),
                     },
@@ -697,6 +722,21 @@ impl World {
         self.apply_prepared_effects(prepared, alloc)
     }
 
+    fn reanimate_eligible(&mut self, target: GlobalFormId, magnitude: f32) -> bool {
+        let Some(reference) = self.reference_ref(target) else {
+            return false;
+        };
+        if !reference.enabled || reference.deleted {
+            return false;
+        }
+        self.actor(target).is_some_and(|actor| {
+            actor.dead
+                && !actor.ghost
+                && !actor.essential
+                && (magnitude == 0.0 || actor.level as f32 <= magnitude)
+        })
+    }
+
     fn apply_prepared_effects(
         &mut self,
         prepared: Vec<PreparedEffect>,
@@ -705,6 +745,14 @@ impl World {
         let prepared = self.prepare_effect_actions(prepared)?;
         let mut applied = Vec::new();
         for mut prepared in prepared {
+            if prepared.effect.reanimated_previous_owner.is_some() {
+                let target = prepared.effect.target;
+                let previous_owner = self.reference(target).ok_or(MagicError::Target)?.owner;
+                self.resurrect_actor(target)
+                    .map_err(|_| MagicError::Target)?;
+                self.reference(target).ok_or(MagicError::Target)?.owner = prepared.effect.caster;
+                prepared.effect.reanimated_previous_owner = Some(previous_owner);
+            }
             if let Some(base) = prepared.summon_base {
                 let summon = self.place_at(base, prepared.effect.source, false);
                 let owner = prepared.effect.caster.unwrap_or(prepared.effect.target);
@@ -812,6 +860,13 @@ impl World {
                     .any(|effect| effect.effect == prepared.effect.effect)
             {
                 continue;
+            }
+            if prepared.effect.reanimated_previous_owner.is_some()
+                && live
+                    .iter()
+                    .any(|effect| effect.reanimated_previous_owner.is_some())
+            {
+                return Err(MagicError::Target);
             }
             prepared.effect.id = EffectId(next);
             next = next.checked_add(1).ok_or(MagicError::Identity)?;
@@ -928,6 +983,12 @@ impl World {
                 reference.deleted = true;
                 reference.enabled = false;
             }
+        }
+        if let Some(previous_owner) = effect.reanimated_previous_owner {
+            if let Some(reference) = self.reference(effect.target) {
+                reference.owner = previous_owner;
+            }
+            self.kill_actor(effect.target, None);
         }
         self.active_effects.remove(&id);
         if let Some(object) = self.object_id(Handle::ActiveEffect(id)) {

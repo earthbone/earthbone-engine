@@ -1664,6 +1664,27 @@ forwarding, effect inventory filters and VM object reclamation remain unfinished
 forwarding and effect inventory filters remain unfinished.
 This is an active-effect foundation, not complete magic execution.
 
+### Reanimate, MAG-43
+
+Direct target-actor casts accept MGEF archetype 22 for an enabled, dead,
+non-ghost, non-essential actor. A positive magnitude caps the target's level.
+The cast requires a credited actor caster. It restores the corpse's health,
+credits that caster as the reference owner while the effect is active, and
+retains the previous owner. The authored EFIT duration advances on the active
+magic clock. Expiry or dispel kills the reanimated actor and restores its
+previous owner. SOEW version 36 saves that owner with each active Reanimate
+application so expiry after load has the same result. Reanimate reads the
+authored EFIT magnitude, duration and area even when the corresponding MGEF
+flags hide those fields in the editor.
+
+The local xEdit MGEF archetype table identifies Reanimate as 22, and the CK
+Magic Effect page specifies a dead target under caster control. Local
+`uesp-modfileformat/MGEF.wikitext` lists no associated item for this
+archetype. `CommonLibSSE-NG/include/RE/R/ReanimateEffect.h` derives it from
+`CommandEffect` and names Start, Update, Finish and save hooks. The runtime
+uses its existing active-effect lifecycle and world reference state rather
+than those C++ hooks.
+
 ### Paralysis, MAG-42
 
 Direct casts and ingestibles accept MGEF archetype 21 as a timed active effect.
