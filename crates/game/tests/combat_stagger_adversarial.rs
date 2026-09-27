@@ -23,6 +23,9 @@
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::{combat::MeleeHit, Game};
 
+#[path = "common/legacy.rs"]
+mod legacy;
+
 fn id(object: u32) -> GlobalFormId {
     GlobalFormId { file: 0, object }
 }
@@ -401,7 +404,8 @@ fn cmb_14_version_28_save_loads_with_no_actor_staggered() {
             world.actor(actor).unwrap().stagger_end_time = Some(value);
         }
     }
-    let mut bytes = game.world().save_state();
+    let mut bytes =
+        legacy::without_recent_ai_fields(&mut game.world_mut(), &[id(0x14), id(0x900), id(0x901)]);
     for (_, value) in sentinels {
         let mut marker = vec![1_u8];
         marker.extend_from_slice(&value.to_le_bytes());

@@ -18,6 +18,9 @@ use soe_game::crime::CrimeType;
 use soe_game::npc::{self, Config, Stats};
 use soe_game::Game;
 
+#[path = "common/legacy.rs"]
+mod legacy;
+
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
 
 /// `FACT.DATA`'s Track Crime bit (`uesp-modfileformat/FACT.wikitext`).
@@ -182,7 +185,7 @@ fn a_genuine_pre_prg_06_save_loads_cleanly_with_no_witnessed_crimes() {
     };
     let mut w = game.world_mut();
     w.actor(witness).unwrap().witnessed_crimes.insert(sentinel);
-    let mut bytes = w.save_state();
+    let mut bytes = legacy::without_recent_ai_fields(&mut w, &[witness]);
 
     // `witnessed_crimes` is a length-prefixed set, written last in
     // `write_actor_state`. With a single entry it serializes as a u32

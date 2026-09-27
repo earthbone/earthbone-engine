@@ -731,9 +731,11 @@ target's position while approaching it, so movement before the attempt does
 not leave the actor heading for an old position.
 
 `Find` reads the branch's target input through its package template chain.
-Object ID matches a placed reference's resolved base form. Object Type value
-11 matches weapon bases. Other Object Type values and target selectors are
-unsupported. A negative authored radius is unsupported. The search uses the
+Object ID matches a placed reference's resolved base form. Object Type values
+1 to 15 match the base types in CommonLib's `PACKAGE_OBJECT_TYPE`. Values 14
+and 15 distinguish potions from food through the `ALCH.ENIT` Food Item flag.
+Unknown Object Type values and other target selectors are unsupported. A
+negative authored radius is unsupported. The search uses the
 authored location's cell and optional radius,
 or the actor's current cell when there is no location. Disabled, deleted,
 destroyed, invalid-position and self references are skipped. An unresolved
@@ -741,7 +743,9 @@ authored location does not fall back to the actor's cell. The nearest match wins
 resolved FormID as the deterministic tie break. The local CK corpus has no
 Find procedure page. The target layout and Object Type label follow xEdit's
 `wbRecord(PACK)` and the UESP PACK page, which documents value 11 as any
-weapon. No reusable local runtime implementation covers Find.
+weapon. CommonLib's `TESPackage.h` defines the remaining object types, and
+xEdit's `wbRecord(ALCH)` defines the Food Item flag. No reusable local runtime
+implementation covers Find.
 
 SOEW version 42 saves the selected reference with the active Find procedure.
 Earlier world saves cannot restore an active Find procedure.
@@ -798,8 +802,8 @@ skips the player, the dead and the unconscious.
 **Live run (2026-09-18).** Every one of the 5,961 `PACK` records in
 `Skyrim.esm` parses (104 templates, 2,384 with conditions, 1,545 with a
 scheduled hour) in 7.9 s including the plugin parse. 4,635 packages
-resolve to a procedure the driver runs: 2,467 `Travel`, 1,841 `Sandbox`,
-327 `Sleep`. The rest by template procedure: Patrol 378, Sit 300,
+resolved to a procedure the driver ran at the time: 2,467 `Travel`, 1,841
+`Sandbox`, 327 `Sleep`. The rest by template procedure: Patrol 378, Sit 300,
 HoldPosition 141, Follow 128, UseIdleMarker 61, UseMagic 52, Orbit 47,
 Escort 45, Activate 40, ForceGreet 31, Shout 26, Guard 24, Hover 14, Flee
 13, Find 11, Wait 11, DialogueActivate 2, UseWeapon 2. The `Prisoner`
@@ -813,7 +817,7 @@ package over the base list, switch at once from a script's
 `EvaluatePackage`, and keep walking after a save and load.
 
 **Not done.** Simultaneous and stacked branches (AI-14 and AI-15),
-the other 15 procedures and the Patrol modes tracked by AI-88 through AI-91,
+the six remaining named procedures and the Patrol modes tracked by AI-88 through AI-91,
 calling the `On Begin`, `On End` and `On Change` package fragments at
 package boundaries (`vmad::Vmad` decodes them from `VMAD` on `PACK`, the
 driver does not yet call them, AI-04), idles and topics, once per day for
@@ -1073,8 +1077,8 @@ notification fired, and the alias resolved to the lever.
   template groups share persistent leveled choices, with the remaining
   inheritance boundaries documented in [actor-values.md](actor-values.md).
 - Weapon combat remains unfinished. Dialogue and magic have the limited
-  execution paths documented below. Packages run three
-  procedures, see the Packages section for the rest. Scenes play as a flag
+  execution paths documented below. Packages run the procedures described in
+  the Packages section. Scenes play as a flag
   with `OnBegin` and `OnEnd`, no phases or actions. Perks are a set on the
   actor, no entry point applies. Leveled lists are never rolled. Spell casts
   are recorded, no effect applies. Crime has bounty and infamy ledgers, no

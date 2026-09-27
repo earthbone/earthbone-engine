@@ -78,6 +78,8 @@ fn make_game(target: Target, search_location: Option<(Location, i32)>) -> Game {
     );
     plugin.push_top(Record::new(T(b"WEAP"), OBJECT_BASE));
     plugin.push_top(Record::new(T(b"ARMO"), DECOY_BASE));
+    plugin.push_top(Record::new(T(b"ALCH"), 0x90C).sub(T(b"ENIT"), [0, 0, 0, 0, 2, 0, 0, 0]));
+    plugin.push_top(Record::new(T(b"ALCH"), 0x90E).sub(T(b"ENIT"), [0; 8]));
 
     let cell = plugin.push_record(Record::new(T(b"CELL"), CELL).sub(T(b"DATA"), [1u8, 0]));
     let mut temporary = Group::new(GroupKind::CellTemporary(CELL));
@@ -93,6 +95,8 @@ fn make_game(target: Target, search_location: Option<(Location, i32)>) -> Game {
         placed(*b"REFR", 0x908, OBJECT_BASE, 12.0),
         placed(*b"REFR", 0x909, OBJECT_BASE, 48.0),
         placed(*b"REFR", DECOY, DECOY_BASE, 2.0),
+        placed(*b"REFR", 0x90D, 0x90C, 6.0),
+        placed(*b"REFR", 0x90F, 0x90E, 4.0),
     ] {
         temporary
             .entries
@@ -141,6 +145,29 @@ fn ai_33_find_object_type_matches_any_weapon_and_breaks_ties_by_identity() {
             .ai
             .found_reference,
         Some(id(OBJECT))
+    );
+}
+
+#[test]
+fn ai_33_find_distinguishes_authored_food_and_potion_types() {
+    let potion = make_game(Target::ObjectType(14), None);
+    assert_eq!(
+        potion
+            .world()
+            .actor_ref(id(ACTOR))
+            .unwrap()
+            .ai
+            .found_reference,
+        Some(id(0x90F))
+    );
+    let food = make_game(Target::ObjectType(15), None);
+    assert_eq!(
+        food.world()
+            .actor_ref(id(ACTOR))
+            .unwrap()
+            .ai
+            .found_reference,
+        Some(id(0x90D))
     );
 }
 

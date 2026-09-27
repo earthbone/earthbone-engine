@@ -1088,7 +1088,7 @@ fn find_reference(
 
     let (base, object_type) = match target {
         Target::ObjectId(raw) => (Some(world.resolve_from(owner, raw)?), None),
-        Target::ObjectType(11) => (None, Some(T(b"WEAP"))),
+        Target::ObjectType(kind @ 1..=15) => (None, Some(kind)),
         _ => return None,
     };
     let actor_cell = world.reference(actor)?.cell;
@@ -1114,7 +1114,8 @@ fn find_reference(
             }
             let candidate_base = world.base_of(reference)?;
             let matches = base.is_some_and(|base| base == candidate_base)
-                || object_type.is_some_and(|tag| world.tag_of(candidate_base) == Some(tag));
+                || object_type
+                    .is_some_and(|kind| matches_package_object_type(world, candidate_base, kind));
             if !matches || radius.is_some_and(|radius| distance(center, position) > radius) {
                 return None;
             }
@@ -1126,6 +1127,40 @@ fn find_reference(
                 .then_with(|| left_id.cmp(right_id))
         })
         .map(|(_, reference)| reference)
+}
+
+fn matches_package_object_type(world: &World, base: GlobalFormId, kind: u32) -> bool {
+    let tag = world.tag_of(base);
+    let expected = match kind {
+        1 => T(b"ACTI"),
+        2 => T(b"ARMO"),
+        3 => T(b"BOOK"),
+        4 => T(b"CONT"),
+        5 => T(b"DOOR"),
+        6 => T(b"INGR"),
+        7 => T(b"LIGH"),
+        8 => T(b"MISC"),
+        9 => T(b"FLOR"),
+        10 => T(b"FURN"),
+        11 => T(b"WEAP"),
+        12 => T(b"AMMO"),
+        13 => T(b"KEYM"),
+        14 | 15 => T(b"ALCH"),
+        _ => return false,
+    };
+    if tag != Some(expected) {
+        return false;
+    }
+    if matches!(kind, 14 | 15) {
+        let food = world
+            .record(base)
+            .and_then(|record| record.find(T(b"ENIT")))
+            .and_then(|data| data.get(4..8))
+            .and_then(|bytes| <[u8; 4]>::try_from(bytes).ok())
+            .is_some_and(|bytes| u32::from_le_bytes(bytes) & 2 != 0);
+        return food == (kind == 15);
+    }
+    true
 }
 
 fn resolve_follow_target(
