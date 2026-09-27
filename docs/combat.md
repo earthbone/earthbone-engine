@@ -197,12 +197,21 @@ The installed-data unarmed survey executes the canonical source form against
 regression combines unarmed damage, templated armor, Legendary difficulty and
 engine save/load. Ordinary weapons retain their shared template resolver.
 
+## Witnessed assault bounty, CMB-18
+
+A successful nonlethal melee hit by the player reports an assault to the
+player's own crime faction. The victim is the witness, and the bounty uses
+that faction's `FACT.CRVA` assault value. A faction with Ignore Assault set
+in `FACT.DATA` receives no assault bounty. NPC attacks and lethal player hits
+do not post an assault bounty. The crime recorder also records the victim's
+knowledge of the attacker in `ActorState::witnessed_crimes`.
+
 ## Remaining execution work
 
 Host attack input, timing/contact detection, hand-specific selection, ranged
 weapons/ammunition, dual-wield and bash power
 attacks, weapon-only blocking, perk entry points, enchantments, poison, bleedout,
-stagger, crime and combat AI remain unfinished. The API is an execution
+stagger, other crime pathways and combat AI remain unfinished. The API is an execution
 increment and does not establish playable combat or completion of the broader
 gameplay-foundations goal.
 

@@ -9,11 +9,12 @@ use std::collections::BTreeSet;
 use soe_esm::{GlobalFormId, Tag};
 use soe_papyrus::Value;
 
-use super::{Alloc, Pending, World};
+use super::{le_u32, Alloc, Pending, World};
 use crate::combat::{
     records::{Armor, PowerAttack, Weapon},
     Difficulty, Error, HitResult, MeleeHit,
 };
+use crate::crime::CrimeType;
 
 const UNARMED_ATTACK: u32 = 0x1F4;
 
@@ -579,6 +580,9 @@ impl World {
             poisoned = true;
         }
         let killed = !bleedout_target && lethal && self.kill_actor(hit.target, Some(hit.attacker));
+        if !killed && self.player == Some(hit.attacker) {
+            self.record_player_assault(hit.attacker, hit.target);
+        }
         Ok(HitResult {
             weapon_damage,
             armor_rating,
@@ -593,6 +597,30 @@ impl World {
             poisoned,
             sneak_attacked,
         })
+    }
+
+    /// Posts a witnessed player assault to the player's own tracked crime
+    /// faction. The hit victim is the witness because the contact itself
+    /// establishes that the victim observed the assault.
+    fn record_player_assault(&mut self, perpetrator: GlobalFormId, witness: GlobalFormId) {
+        let Some(faction) = self
+            .actor_ref(perpetrator)
+            .and_then(|actor| actor.crime_faction)
+        else {
+            return;
+        };
+        // UESP FACT flags define Ignore Assault independently from Track
+        // Crime. Read the winning record so runtime crime state stays in the
+        // shared form database rather than another faction cache.
+        let ignore_assault = self
+            .record(faction)
+            .filter(|record| record.tag == Tag(*b"FACT"))
+            .and_then(|record| record.find(Tag(*b"DATA")))
+            .and_then(le_u32)
+            .is_some_and(|flags| flags & 0x100 != 0);
+        if !ignore_assault {
+            let _ = self.record_witnessed_crime(perpetrator, witness, CrimeType::Assault);
+        }
     }
 
     /// Whether an actor is inside its stagger window right now. Lazily

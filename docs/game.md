@@ -130,8 +130,13 @@ parsed. A faction outside the perpetrator's own never gets charged, which
 is narrower than vanilla when a `CRGR` link exists. A `FACT` with no
 `CRVA` subrecord prices every crime at zero rather than failing, since a
 faction can legally exist without one. No Papyrus native calls this
-function yet, `SendAssaultAlarm` and similar witness-driven natives are
-later work that can build on it.
+function yet. A surviving target hit by the player is the witness for a melee
+assault. The assault uses the player's own crime faction and its `CRVA`
+assault price, unless that faction's `DATA` sets Ignore Assault. NPC attacks
+and lethal player hits do not add an assault bounty. The victim's witnessed
+perpetrator set and the faction's violent bounty are updated through the
+existing crime recorder. Other `SendAssaultAlarm` and witness-driven natives
+remain later work.
 
 ## Conformance table
 
