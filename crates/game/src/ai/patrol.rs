@@ -45,7 +45,7 @@ impl Parameters {
         }
         if !matches!(
             target.target,
-            Target::Reference(_) | Target::LinkedReference(0)
+            Target::Reference(_) | Target::LinkedReference(0) | Target::Alias(_)
         ) {
             return Err("Patrol target mode, AI-91");
         }
@@ -227,6 +227,10 @@ fn start(
     let start = match params.target {
         Target::Reference(raw) if raw != 0 => world.resolve_from(params.owner, raw),
         Target::LinkedReference(0) => next_link(world, actor)?,
+        Target::Alias(alias) => ai
+            .package
+            .and_then(|package| world.owning_quest(package))
+            .and_then(|quest| world.alias_ref(quest, alias)),
         _ => None,
     }
     .ok_or("Patrol has no route start")?;
