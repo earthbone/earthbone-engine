@@ -985,11 +985,15 @@ from.
 `SOEG`, version 2. The envelope stores sorted plugin names, regular/light
 kind, load-order slot and SHA-256 plugin fingerprints, followed by loaded
 script names and optional SHA-256 PEX fingerprints. `Game::saved_provenance`
-reads this evidence. `load_state` checks it before replacing state, rejecting
-missing or changed plugins, slot movement and changed script fingerprints.
-This prevents a reordered plugin from silently retargeting saved form IDs.
-Programmatically loaded scripts have unknown source fingerprints. Each world
-and VM blob remains length-prefixed. The caller loads the same definitions
+reads this evidence. `load_state` rejects missing or changed plugins and slot
+movement before replacing state, preventing a reordered plugin from silently
+retargeting saved form IDs. Script provenance is reported by
+`preflight_dependencies`, while the VM's saved script fingerprints validate
+the definitions that saved instances and frames actually use. Missing or
+changed definitions keep the whole VM payload suspended until compatible PEX
+loads. World and VM state are both validated in scratch state before either is
+replaced. Programmatically loaded scripts have unknown source fingerprints.
+Each world and VM blob remains length-prefixed. The caller loads definitions
 before restoring into a game that has not been bound or started.
 
 `Game::preflight_dependencies` compares native save provenance with the

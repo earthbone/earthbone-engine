@@ -313,8 +313,11 @@ and clears the live objects and threads. `save_state` returns those bytes
 unchanged while parked, and the scheduler executes no work. Loading definitions
 retries restoration.
 The state becomes live only when all named scripts and frame functions resolve.
-The parked state keeps array identity, frames, latent waiters and pending return
-destinations without substituting null values.
+Each retry parses into temporary tables and installs them together, so an
+incompatible definition cannot leave a partial object or thread set. The parked
+state keeps array identity, frames, latent waiters and pending return
+destinations without substituting null values. Successful restoration clears
+the parked bytes once, so later script loads do not install duplicate threads.
 
 The save crate supplies the vanilla slot-to-name adapter and converts decoded
 active frames into VM frames after object identities and instances are mapped.

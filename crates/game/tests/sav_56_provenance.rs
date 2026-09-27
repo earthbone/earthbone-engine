@@ -2,7 +2,10 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use soe_esm::{plugin::flags, tag, FileHeader, LoadOrder, Plugin, Record};
-use soe_game::{save::SaveProvenance, Game};
+use soe_game::{
+    save::{DependencyChange, SaveProvenance},
+    Game,
+};
 use soe_papyrus::asm::ScriptBuilder;
 
 fn plugin(light: bool, content: &str) -> Plugin {
@@ -128,15 +131,20 @@ fn sav_56_slot_reordering_is_distinct_from_same_name_replacement() {
 }
 
 #[test]
-fn sav_56_script_replacement_is_rejected_before_state_restore() {
-    let source = game(&[], "Int Function Value()\n  Return 1\nEndFunction");
+fn sav_56_script_replacement_is_reported_and_suspended() {
+    let mut source = game(&[], "Int Function Value()\n  Return 1\nEndFunction");
+    let object = source.vm.create_object("saved script owner");
+    source.vm.attach(object, "ProvenanceFixture").unwrap();
     let bytes = source.save_state().unwrap();
     let mut replacement = game(&[], "Int Function Value()\n  Return 2\nEndFunction");
-    assert!(replacement
-        .load_state(&bytes)
-        .unwrap_err()
-        .to_string()
-        .contains("script fingerprints differ"));
+    let report = replacement.preflight_dependencies(&bytes).unwrap();
+    assert!(report.findings.iter().any(|finding| {
+        finding.identity == "ProvenanceFixture"
+            && finding.change == DependencyChange::FingerprintChanged
+    }));
+    replacement.load_state(&bytes).unwrap();
+    assert!(replacement.vm.has_suspended_state());
+    assert_eq!(replacement.vm.run(100), 0);
 }
 
 #[test]
