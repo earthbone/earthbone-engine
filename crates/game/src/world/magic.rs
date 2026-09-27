@@ -9,7 +9,7 @@
 //! archetypes return errors before applying effects.
 
 use soe_esm::records::gameplay::{Effect, Ingestible, MagicEffect, Spell};
-use soe_esm::GlobalFormId;
+use soe_esm::{GlobalFormId, Record, Tag};
 use soe_papyrus::{ObjectId, Value};
 
 use crate::actor_values::actor_value_name;
@@ -111,6 +111,211 @@ impl World {
         self.active_effects.get(&id)
     }
 
+    /// Equip an item and apply its worn armor enchantment, if it has one.
+    ///
+    /// # Errors
+    /// Invalid equipment, malformed enchantment records or unsupported effects.
+    pub fn equip_item_with_effects(
+        &mut self,
+        actor: GlobalFormId,
+        item: GlobalFormId,
+        alloc: Alloc<'_>,
+    ) -> Result<(), crate::combat::Error> {
+        let previously_equipped = self
+            .actor(actor)
+            .ok_or(crate::combat::Error::Actor(actor))?
+            .equipped
+            .clone();
+        let enchantment = self.item_enchantment(item)?;
+        let already_active = enchantment.is_some_and(|enchantment| {
+            self.active_effects.values().any(|effect| {
+                effect.target == actor && effect.spell == enchantment && effect.source == item
+            })
+        });
+        let prepared = if already_active {
+            None
+        } else if let Some(enchantment) = enchantment {
+            Some(self.enchantment_prepared_effects(item, enchantment, actor)?)
+        } else {
+            None
+        };
+        self.equip_item(actor, item)?;
+        let equipped = self
+            .actor(actor)
+            .ok_or(crate::combat::Error::Actor(actor))?
+            .equipped
+            .clone();
+        let replaced: Vec<_> = previously_equipped.difference(&equipped).copied().collect();
+        let removed: Vec<_> = self
+            .active_effects
+            .values()
+            .filter(|effect| {
+                effect.target == actor
+                    && self
+                        .item_enchantment(effect.source)
+                        .is_ok_and(|enchantment| {
+                            enchantment.is_some_and(|enchantment| effect.spell == enchantment)
+                        })
+                    && replaced.contains(&effect.source)
+            })
+            .map(|effect| effect.id)
+            .collect();
+        for effect in removed {
+            self.dispel_effect(effect, alloc);
+        }
+        if let Some(prepared) = prepared {
+            self.apply_prepared_effects(prepared, alloc)?;
+        }
+        Ok(())
+    }
+
+    /// Unequip an item and remove effects supplied by its worn enchantment.
+    ///
+    /// # Errors
+    /// Missing actor or reference.
+    pub fn unequip_item_with_effects(
+        &mut self,
+        actor: GlobalFormId,
+        item: GlobalFormId,
+        alloc: Alloc<'_>,
+    ) -> Result<(), crate::combat::Error> {
+        self.unequip_item(actor, item)?;
+        let enchantment = self.item_enchantment(item)?;
+        let effects: Vec<_> = self
+            .active_effects
+            .values()
+            .filter(|effect| {
+                effect.target == actor
+                    && effect.source == item
+                    && enchantment.is_some_and(|enchantment| effect.spell == enchantment)
+            })
+            .map(|effect| effect.id)
+            .collect();
+        for effect in effects {
+            self.dispel_effect(effect, alloc);
+        }
+        Ok(())
+    }
+
+    fn item_enchantment(&self, item: GlobalFormId) -> Result<Option<GlobalFormId>, MagicError> {
+        if self.tag_of(item) != Some(super::T(b"ARMO")) {
+            return Ok(None);
+        }
+        let Some(record) = self.record(item) else {
+            return Ok(None);
+        };
+        let Some(raw) = record.find(super::T(b"EITM")) else {
+            return Ok(None);
+        };
+        if raw.len() != 4 {
+            return Err(MagicError::Unsupported("malformed armor enchantment link"));
+        }
+        let raw: [u8; 4] = raw
+            .try_into()
+            .map_err(|_| MagicError::Unsupported("malformed armor enchantment link"))?;
+        let raw = u32::from_le_bytes(raw);
+        if raw == 0 {
+            return Ok(None);
+        }
+        let enchantment = self
+            .resolve_from(item, raw)
+            .ok_or(MagicError::Missing(item))?;
+        if self.tag_of(enchantment) != Some(super::T(b"ENCH")) {
+            return Err(MagicError::Missing(enchantment));
+        }
+        Ok(Some(enchantment))
+    }
+
+    fn enchantment_effects(&self, enchantment: GlobalFormId) -> Result<Vec<Effect>, MagicError> {
+        let source = self
+            .record(enchantment)
+            .ok_or(MagicError::Missing(enchantment))?;
+        let enit = source
+            .find(super::T(b"ENIT"))
+            .ok_or(MagicError::Missing(enchantment))?;
+        if !matches!(enit.len(), 32 | 36) {
+            return Err(MagicError::Unsupported("malformed enchantment data"));
+        }
+        let cast_type = u32::from_le_bytes(
+            enit[8..12]
+                .try_into()
+                .map_err(|_| MagicError::Unsupported("malformed enchantment data"))?,
+        );
+        let delivery = u32::from_le_bytes(
+            enit[16..20]
+                .try_into()
+                .map_err(|_| MagicError::Unsupported("malformed enchantment data"))?,
+        );
+        let enchantment_type = u32::from_le_bytes(
+            enit[20..24]
+                .try_into()
+                .map_err(|_| MagicError::Unsupported("malformed enchantment data"))?,
+        );
+        if cast_type != 0 || delivery != 0 || enchantment_type != 6 {
+            return Err(MagicError::Unsupported("nonconstant armor enchantment"));
+        }
+        let mut record =
+            Record::new(Tag(*b"SPEL"), source.form_id).sub(super::T(b"SPIT"), vec![0; 36]);
+        record.subrecords.extend(
+            source
+                .subrecords
+                .iter()
+                .filter(|sub| {
+                    matches!(
+                        sub.tag.as_bytes(),
+                        b"EFID" | b"EFIT" | b"CTDA" | b"CIS1" | b"CIS2"
+                    )
+                })
+                .cloned(),
+        );
+        Ok(Spell::from_record(&record, false)?.effects)
+    }
+
+    fn enchantment_prepared_effects(
+        &mut self,
+        item: GlobalFormId,
+        enchantment: GlobalFormId,
+        actor: GlobalFormId,
+    ) -> Result<Vec<PreparedEffect>, MagicError> {
+        let entries = self.enchantment_effects(enchantment)?;
+        let mut prepared = Vec::new();
+        for (index, entry) in entries.iter().enumerate() {
+            let context = Context {
+                owner: enchantment,
+                subject: actor,
+                target: Some(actor),
+                quest: None,
+                tempering_enchanted: None,
+            };
+            if !conditions::evaluate_without_vm(self, context, &entry.conditions)? {
+                continue;
+            }
+            let effect = self
+                .resolve_from(enchantment, entry.base_effect)
+                .ok_or(MagicError::Missing(enchantment))?;
+            let base = self.magic_effect(effect)?;
+            let context = Context {
+                owner: effect,
+                ..context
+            };
+            if !conditions::evaluate_without_vm(self, context, &base.conditions)? {
+                continue;
+            }
+            let mut entry = entry.clone();
+            entry.conditions.clear();
+            let mut one =
+                self.item_prepared_effects(enchantment, &[entry], Some(actor), actor, true)?;
+            for prepared in &mut one {
+                prepared.effect.effect_index = index as u32;
+                prepared.effect.source = item;
+                prepared.effect.duration = None;
+                prepared.effect.recover = true;
+            }
+            prepared.extend(one);
+        }
+        Ok(prepared)
+    }
+
     /// Read the current winning SPEL definition.
     pub fn spell(&self, id: GlobalFormId) -> Result<Spell, MagicError> {
         let rref = self.order.winner_ref(id).ok_or(MagicError::Missing(id))?;
@@ -150,6 +355,7 @@ impl World {
         let effects = match self.tag_of(item).map(|tag| *tag.as_bytes()) {
             Some(tag) if tag == *b"SPEL" => self.spell(item)?.effects,
             Some(tag) if tag == *b"ALCH" => self.ingestible(item)?.effects,
+            Some(tag) if tag == *b"ENCH" => self.enchantment_effects(item)?,
             _ => return Err(MagicError::Missing(item)),
         };
         effects
@@ -226,17 +432,30 @@ impl World {
         caster: Option<GlobalFormId>,
         target: GlobalFormId,
     ) -> Result<Vec<PreparedEffect>, MagicError> {
+        self.item_prepared_effects(item, effects, caster, target, false)
+    }
+
+    fn item_prepared_effects(
+        &mut self,
+        resolution: GlobalFormId,
+        effects: &[soe_esm::records::gameplay::Effect],
+        caster: Option<GlobalFormId>,
+        target: GlobalFormId,
+        conditions_evaluated: bool,
+    ) -> Result<Vec<PreparedEffect>, MagicError> {
         if self.actor(target).is_none() {
             return Err(MagicError::Target);
         }
         let mut prepared = Vec::new();
         for (index, entry) in effects.iter().enumerate() {
             let effect = self
-                .resolve_from(item, entry.base_effect)
-                .ok_or(MagicError::Missing(item))?;
+                .resolve_from(resolution, entry.base_effect)
+                .ok_or(MagicError::Missing(resolution))?;
             let base = self.magic_effect(effect)?;
             let data = &base.data;
-            if !entry.conditions.is_empty() || !base.conditions.is_empty() {
+            if !conditions_evaluated
+                && (!entry.conditions.is_empty() || !base.conditions.is_empty())
+            {
                 return Err(MagicError::Unsupported("magic condition evaluation"));
             }
             if data.flags & HOSTILE != 0 {
@@ -300,10 +519,10 @@ impl World {
             prepared.push(PreparedEffect {
                 effect: ActiveEffect {
                     id: EffectId(0),
-                    spell: item,
+                    spell: resolution,
                     effect,
                     effect_index: index as u32,
-                    source: item,
+                    source: resolution,
                     caster,
                     target,
                     magnitude,
@@ -858,6 +1077,7 @@ impl World {
             .values()
             .filter(|e| {
                 e.target == target
+                    && !self.is_worn_enchantment(e)
                     && self.spell(e.spell).is_ok_and(|s| {
                         !(matches!(s.data.spell_type, 1 | 4 | 10)
                             || s.data.spell_type == 6 && s.data.cast_type == 0)
@@ -868,6 +1088,14 @@ impl World {
         for id in ids {
             self.dispel_effect(id, alloc);
         }
+    }
+
+    fn is_worn_enchantment(&self, effect: &ActiveEffect) -> bool {
+        self.item_enchantment(effect.source)
+            .is_ok_and(|enchantment| enchantment == Some(effect.spell))
+            && self
+                .actor_ref(effect.target)
+                .is_some_and(|actor| actor.equipped.contains(&effect.source))
     }
 
     /// End one application and reverse only its temporary value changes.

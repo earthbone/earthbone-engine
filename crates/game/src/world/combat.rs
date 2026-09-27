@@ -982,10 +982,7 @@ impl World {
                 .record(current)
                 .filter(|record| record.tag == Tag(*b"ARMO"))
                 .ok_or(Error::Equipment)?;
-            let (template, enchantment) = Armor::template_links(record)?;
-            if enchantment.is_some() {
-                return Err(Error::Unsupported("armor enchantment"));
-            }
+            let (template, _enchantment) = Armor::template_links(record)?;
             let Some(template) = template else {
                 return Ok(Armor::from_record(record)?);
             };

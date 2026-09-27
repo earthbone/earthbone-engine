@@ -197,7 +197,12 @@ Current behavior and compatibility limits:
 - `DispelSpell` removes active applications from the named spell and reports
   whether anything was removed. Neither dispel native changes known or equipped
   spells. `DispelAllSpells` preserves diseases, abilities, addictions and constant
-  enchantments. Worn enchantment application is not implemented yet.
+  enchantments. Equipping an ARMO with an EITM link applies the linked ENCH
+  effect entries to the wearer as indefinite active effects. Unequipping the
+  item or replacing it in an overlapping armor slot ends those effects and
+  reverses their actor-value changes. Unsupported or malformed effects are
+  logged by `Actor.EquipItem`. Weapon enchantments remain outside this path
+  and are not applied during combat yet.
 - `tick_menu_mode(dt, true)` pauses world time and ordinary waits while
   `WaitMenuMode` continues. `tick(dt)` remains the unpaused entry point.
   The UI must supply the pause state when menus are implemented.
@@ -1640,9 +1645,23 @@ to equipped weapons stays rejected without consuming the item until CMB-25
 implements that separate interaction. Addiction and consume sounds have no
 runtime behavior yet.
 
-SOEW validation resolves saved active-effect entries through their owning SPEL
-or ALCH record. Restoring an active potion effect retains its consumed inventory
-state and its existing modifier, then expires it from its saved elapsed time.
+`Actor.EquipItem` also reads an armor's optional EITM link to a winning ENCH.
+Only constant self-delivered enchantments apply. Their EFID/EFIT entries use
+the same MGEF application rules as ingestibles, but the effects have no expiry
+and stay active until the armor is unequipped or
+replaced by overlapping armor. Ending an application reverses its actor-value
+changes. `DispelAllSpells` keeps these effects while their source armor remains
+worn. This path reads the ENCH ENIT and ordered effect layout from local xEdit
+`wbRecord(ENCH)`, and the EITM link from xEdit `wbEnchantment` and
+`ARMO.wikitext`. The CK `EquipItem` and `UnequipItem` pages describe the native
+equipment calls. Effect conditions use the existing non-VM condition subset.
+Papyrus-variable conditions remain unsupported here.
+
+SOEW validation resolves saved active-effect entries through their owning SPEL,
+ALCH or ENCH record. Restoring an active potion or worn-enchantment effect
+retains its inventory state and existing modifier without applying the effect
+again. Potion effects expire from their saved elapsed time. Worn effects remain
+active while the armor stays equipped.
 
 Unsupported casts return a typed error before applying any of their effects,
 and Papyrus casts log that error. This includes aimed and location delivery,

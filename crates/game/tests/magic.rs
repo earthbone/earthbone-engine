@@ -33,6 +33,8 @@ const SUMMON_BASE: u32 = 0x501;
 
 #[path = "magic/collection.rs"]
 mod collection;
+#[path = "magic/worn_enchantment.rs"]
+mod worn_enchantment;
 
 fn retain_effect(game: &mut Game, effect: soe_papyrus::ObjectId) {
     let script = ScriptBuilder::new("EffectHolder", "Actor")

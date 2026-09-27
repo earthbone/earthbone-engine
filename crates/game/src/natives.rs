@@ -1332,7 +1332,7 @@ fn actor(vm: &mut Vm, w: &Shared) {
                     call.log
                         .push(call.time, format!("Actor.EquipItem: {error}"));
                 }
-            } else if let Err(error) = world.equip_item(me, item) {
+            } else if let Err(error) = world.equip_item_with_effects(me, item, alloc!(call)) {
                 call.log
                     .push(call.time, format!("Actor.EquipItem: {error}"));
             }
@@ -1341,7 +1341,7 @@ fn actor(vm: &mut Vm, w: &Shared) {
     });
     method!(vm, w, "Actor", "UnequipItem", |world, call, me| {
         if let Some(item) = world.form_arg(&call.arg(0)) {
-            if let Err(error) = world.unequip_item(me, item) {
+            if let Err(error) = world.unequip_item_with_effects(me, item, alloc!(call)) {
                 call.log
                     .push(call.time, format!("Actor.UnequipItem: {error}"));
             }

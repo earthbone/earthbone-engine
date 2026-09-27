@@ -65,7 +65,7 @@ do not use those multipliers. Novice uses 2.0 damage by the player and 0.5 to
 the player. Apprentice uses 1.5 and 0.75. Adept uses 1.0 and 1.0. Expert uses
 0.75 and 1.5. Master uses 0.5 and 2.0. Legendary uses 0.25 and 3.0. Plugin
 records and runtime overrides for the selected GMST pair take precedence over
-these defaults. It rejects all perked actors, enchantments, item poison and
+these defaults. It rejects all perked actors, weapon enchantments, item poison and
 unsupported weapon skills/types. Tempered item quality scales damage instead
 of rejecting, CMB-10. A weapon's resistance flags scale damage instead of
 rejecting too, CMB-26: only a reserved DNAM Resist index still rejects. These
@@ -79,9 +79,10 @@ record's load-order context until a terminal template supplies the combat
 fields. A child only needs a well-formed template or enchantment link. It may
 omit DATA, DNAM and BOD2/BODT, so those fields are decoded only from the
 terminal record. Each link remains a form lookup, so templates do not create a
-parallel item store. Cycles, unresolved links, wrong record types and
+parallel item store. Cycles, unresolved links, wrong record types and weapon
 enchantments anywhere in the chain reject the contact before it changes health
-or queues an event.
+or queues an event. Armor EITM links do not alter physical rating. Worn armor
+enchantment effects are applied by MAG-10.
 
 TES5Edit and UESP identify the links and field layouts, while CommonLibSSE
 exposes the template pointers. None of these local sources states a
