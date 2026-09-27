@@ -10,6 +10,7 @@ use soe_game::{
         Difficulty, Error, MeleeHit,
     },
     inventory::{Extra, Stack},
+    world::magic::MagicError,
     Game, Handle,
 };
 use soe_papyrus::{
@@ -1012,7 +1013,7 @@ fn installed_weapon_and_armor_fields_decode_and_ordinary_weapons_execute() {
                 assert!(result.health_damage.is_finite());
                 accepted += 1;
             }
-            Err(Error::Unsupported(reason)) => {
+            Err(Error::Unsupported(reason) | Error::Magic(MagicError::Unsupported(reason))) => {
                 *excluded.entry(reason).or_insert(0) += 1;
             }
             Err(error) => panic!("{form}: {error}"),

@@ -265,6 +265,54 @@ impl World {
         self.apply_prepared_plan(prepared.0, alloc)
     }
 
+    /// Check an enchantment against the target's health after the physical hit.
+    /// The first preparation sees the pre-hit values, so it cannot detect a
+    /// combined hit and effect that overflows an actor-value component.
+    pub(super) fn validate_weapon_enchantment_after_hit(
+        &mut self,
+        prepared: &PreparedWeaponEnchantment,
+        target_values: &crate::actor_values::Values,
+    ) -> Result<(), MagicError> {
+        let mut values = target_values.clone();
+        for action in &prepared.0 {
+            for id in &action.dispel {
+                if let Some(effect) = self.active_effects.get(id).filter(|effect| effect.recover) {
+                    change_values(&mut values, effect, -1.0)?;
+                }
+            }
+            if action.effect.recover || action.effect.duration == Some(0.0) {
+                let before = values.get("health").current();
+                change_values(&mut values, &action.effect, 1.0)?;
+                let touches_health = action
+                    .effect
+                    .changes
+                    .iter()
+                    .any(|(name, _)| name == "health");
+                let actor = self
+                    .actor_ref(action.effect.target)
+                    .ok_or(MagicError::Target)?;
+                let player_exception = actor.protected
+                    && !actor.essential
+                    && self.player.is_some()
+                    && action.effect.caster == self.player;
+                let eligible = touches_health
+                    && (actor.protected || actor.essential)
+                    && !player_exception
+                    && values.get("health").current() < before;
+                let (clamped, entering) = self.clamp_health_at_bleedout(
+                    action.effect.target,
+                    eligible,
+                    values.get("health").current(),
+                );
+                if entering {
+                    super::bleedout::commit_bleedout_health(&mut values, clamped)
+                        .map_err(|_| MagicError::Number)?;
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// Shared ALCH effect-entry validation and `PreparedEffect` construction
     /// for `drink_ingestible` and `apply_poison`. `item` is the ALCH record
     /// both the caster and source fields report, `effects` its already-read

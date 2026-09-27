@@ -126,12 +126,11 @@ carried in SOEW version 31. Every check, witness is an actor, perpetrator
 is an actor with a crime faction, that faction tracks crime, runs before
 anything is mutated, so a bad call changes nothing. `CRGR`, the crime
 group that would let one faction's bounty spread to its allies, is not
-parsed. A faction outside the perpetrator's own never gets charged, which
-is narrower than vanilla when a `CRGR` link exists. A `FACT` with no
+parsed. This API charges only the perpetrator's faction. A `FACT` with no
 `CRVA` subrecord prices every crime at zero rather than failing, since a
 faction can legally exist without one. No Papyrus native calls this
 function yet. A surviving target hit by the player is the witness for a melee
-assault. The assault uses the player's own crime faction and its `CRVA`
+assault. The combat path uses the victim's crime faction and its `CRVA`
 assault price, unless that faction's `DATA` sets Ignore Assault. NPC attacks
 and lethal player hits do not add an assault bounty. The victim's witnessed
 perpetrator set and the faction's violent bounty are updated through the
@@ -3293,12 +3292,15 @@ are outside this range-exit implementation.
 
 `Game::apply_mod_data` retains OAR submods in descending priority order.
 `Game::select_oar_animation` checks each submod's conditions against the actor
-base, then returns an HKX file with the requested clip filename from the first
-passing submod. `IsFemale`, `IsActorBase` and `IsRace` are evaluated. Unknown,
+base and current race, then returns an HKX file with the requested clip filename
+from the first passing submod. `IsFemale`, `IsActorBase` and `IsRace` are
+evaluated. Unknown,
 unresolved and plugin-registered conditions fail closed. JSON condition arrays
 are ANDed. Legacy OR groups accept any passing member, while the groups are
-ANDed. This selects a path for a host animation system, it does not replace a
-live Havok clip yet.
+ANDed. Legacy actor-base and race conditions resolve their quoted plugin and
+hex form ID pairs through the load order. A condition that requires an
+unavailable SKSE plugin cannot select a clip. This selects a path for a host
+animation system, it does not replace a live Havok clip yet.
 
 `anm_09_` tests use authored records and synthetic OAR directories to check
 conditioned selection, priority order and unsupported-condition rejection.

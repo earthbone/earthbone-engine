@@ -438,6 +438,9 @@ fn cmb_14_version_28_save_loads_with_no_actor_staggered() {
         soe_game::world::SAVE_VERSION,
         "the save must carry the current world state version before the patch"
     );
+    // Version 28 predates the learned-enchantment set at the save tail.
+    assert_eq!(bytes[bytes.len() - 4..], [0; 4]);
+    bytes.truncate(bytes.len() - 4);
     bytes[4..6].copy_from_slice(&28_u16.to_le_bytes());
 
     let loaded = fixture(

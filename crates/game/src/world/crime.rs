@@ -45,6 +45,19 @@ impl World {
             .ok_or(Error::Actor(perpetrator))?
             .crime_faction
             .ok_or(Error::NoCrimeFaction(perpetrator))?;
+        self.record_witnessed_crime_in_faction(perpetrator, witness, crime, faction_id)
+    }
+
+    /// Price a witnessed crime for the faction the witness reports to.
+    pub(super) fn record_witnessed_crime_in_faction(
+        &mut self,
+        perpetrator: GlobalFormId,
+        witness: GlobalFormId,
+        crime: CrimeType,
+        faction_id: GlobalFormId,
+    ) -> Result<i32, Error> {
+        self.actor(witness).ok_or(Error::Actor(witness))?;
+        self.actor(perpetrator).ok_or(Error::Actor(perpetrator))?;
         let values = self.crime_values(faction_id);
         let fs = self
             .faction(faction_id)

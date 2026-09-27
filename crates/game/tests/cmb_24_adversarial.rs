@@ -23,7 +23,7 @@ fn put(bytes: &mut [u8], at: usize, value: u32) {
     bytes[at..at + 4].copy_from_slice(&value.to_le_bytes());
 }
 
-fn fixture() -> Game {
+fn fixture_with(weapon_multiplier: f32, magnitude: f32, actor_value: u32) -> Game {
     let mut p = Plugin::new(FileHeader::default());
     p.push_top(Record::new(T(b"NPC_"), 0x800));
     for actor in [A, V] {
@@ -31,6 +31,7 @@ fn fixture() -> Game {
     }
     let mut wd = vec![0; 10];
     put(&mut wd, 4, 8_f32.to_bits());
+    wd[8..10].copy_from_slice(&10_u16.to_le_bytes());
     let mut wn = vec![0; 100];
     wn[0] = 1;
     put(&mut wn, 4, 1_f32.to_bits());
@@ -49,7 +50,7 @@ fn fixture() -> Game {
     put(&mut enit, 12, 100);
     put(&mut enit, 16, 1);
     put(&mut enit, 20, 6);
-    let mut effect_item = 7_f32.to_le_bytes().to_vec();
+    let mut effect_item = magnitude.to_le_bytes().to_vec();
     effect_item.extend_from_slice(&0_u32.to_le_bytes());
     effect_item.extend_from_slice(&0_u32.to_le_bytes());
     p.push_top(
@@ -61,10 +62,10 @@ fn fixture() -> Game {
     let mut ed = vec![0; 152];
     put(&mut ed, 0, (1 << 2) | (1 << 9));
     put(&mut ed, 64, 0);
-    put(&mut ed, 68, 26);
+    put(&mut ed, 68, actor_value);
     p.push_top(Record::new(T(b"MGEF"), EFFECT).sub(T(b"DATA"), ed));
     for (i, (name, value)) in [
-        ("fDamageWeaponMult", 1_f32),
+        ("fDamageWeaponMult", weapon_multiplier),
         ("fDamagePCSkillMin", 1.),
         ("fDamagePCSkillMax", 1.),
         ("fDamageSkillMin", 1.),
@@ -126,6 +127,10 @@ fn fixture() -> Game {
         )
         .unwrap();
     game
+}
+
+fn fixture() -> Game {
+    fixture_with(1.0, 7.0, 26)
 }
 
 fn hit() -> MeleeHit {
@@ -210,4 +215,32 @@ fn multiple_enchanted_instances_are_rejected_without_damage_or_charge_spend() {
         100.
     );
     assert_eq!(game.world_mut().active_effects().count(), 0);
+}
+
+#[test]
+fn enchantment_value_overflow_rejects_before_hit_and_charge_commit() {
+    let mut game = fixture_with(2.5e37, 2.0e38, 24);
+    game.world_mut()
+        .set_actor_value(id(V), "health", f32::MAX)
+        .unwrap();
+    let health_before = game
+        .world_mut()
+        .actor(id(V))
+        .unwrap()
+        .values
+        .get("health")
+        .current();
+
+    assert!(game.melee_hit(hit()).is_err());
+    assert_eq!(charge(&game), 10.0);
+    assert_eq!(game.world_mut().active_effects().count(), 0);
+    assert_eq!(
+        game.world_mut()
+            .actor(id(V))
+            .unwrap()
+            .values
+            .get("health")
+            .current(),
+        health_before
+    );
 }

@@ -201,7 +201,7 @@ engine save/load. Ordinary weapons retain their shared template resolver.
 ## Witnessed assault bounty, CMB-18
 
 A successful nonlethal melee hit by the player reports an assault to the
-player's own crime faction. The victim is the witness, and the bounty uses
+victim's crime faction. The victim is the witness, and the bounty uses
 that faction's `FACT.CRVA` assault value. A faction with Ignore Assault set
 in `FACT.DATA` receives no assault bounty. NPC attacks and lethal player hits
 do not post an assault bounty. The crime recorder also records the victim's
@@ -1214,10 +1214,13 @@ When charge covers the `ENIT` cost, the `EFID`/`EFIT` entries apply once to the
 hit target through the shared magic-effect path, then the selected instance's
 charge is reduced by that cost. The effect plan and updated inventory are
 prepared before hit state changes. The instance charge is committed only after
-the effect plan applies. A malformed or unsupported effect therefore rejects
-before physical damage or charge changes. This path accepts fire-and-forget
-touch enchantments of type Enchantment, with unconditional supported actor
-effects. Conditions, base-enchantment inheritance, non-touch delivery,
+the effect plan applies. Before committing the hit, combat also checks the
+prepared effects against the target's staged post-hit actor values, so combined
+damage overflow rejects without changing health, effects or charge. A malformed
+or unsupported effect also rejects before physical damage or charge changes.
+This path accepts fire-and-forget touch enchantments of type Enchantment,
+with unconditional supported actor effects. Conditions, base-enchantment
+inheritance, non-touch delivery,
 concentration casting, unsupported archetypes, perks and equip abilities
 reject the contact.
 

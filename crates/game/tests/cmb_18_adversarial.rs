@@ -71,7 +71,9 @@ fn fixture() -> Game {
         world.add_item(actor, id(0xA00), 1);
         world.actor(actor).unwrap().equipped.insert(id(0xA00));
     }
-    game.world_mut().actor(player).unwrap().crime_faction = Some(id(0x701));
+    for witness in [id(0x900), id(0x901)] {
+        game.world_mut().actor(witness).unwrap().crime_faction = Some(id(0x701));
+    }
     game
 }
 

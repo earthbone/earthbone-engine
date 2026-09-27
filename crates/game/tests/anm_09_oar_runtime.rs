@@ -54,6 +54,7 @@ fn build_game() -> Game {
         },
         Stats::default(),
     ));
+    plugin.push_top(Record::new(T(b"RACE"), 0x804));
     let cell =
         plugin.push_record(Record::new(T(b"CELL"), CELL).zsub(Tag::new(b"EDID"), "OarTestCell"));
     let actor = plugin.push_record(
@@ -196,5 +197,68 @@ fn anm_09_legacy_or_condition_group_selects_when_one_branch_passes() {
         game.select_oar_animation(actor_id(), "walk.hkx"),
         Some(expected),
         "a passing branch satisfies its legacy OR group"
+    );
+}
+
+#[test]
+fn anm_09_legacy_actor_base_form_selects_its_clip() {
+    let fixture = Fixture::new("legacy-base");
+    let directory =
+        "meshes/actors/character/animations/DynamicAnimationReplacer/_CustomConditions/10";
+    fixture.write(
+        &format!("{directory}/_conditions.txt"),
+        "IsActorBase(\"OarTest.esm\"|0x800)\n",
+    );
+    let expected = fixture.write(&format!("{directory}/walk.hkx"), "synthetic HKX path");
+    let mut game = build_game();
+    game.apply_mod_data(&fixture.roots());
+
+    assert_eq!(
+        game.select_oar_animation(actor_id(), "walk.hkx"),
+        Some(expected),
+        "a legacy actor base form resolves through its named plugin"
+    );
+}
+
+#[test]
+fn anm_09_unavailable_required_plugin_cannot_select_builtin_condition() {
+    let fixture = Fixture::new("required-plugin");
+    submod(
+        &fixture,
+        "UnavailablePlugin",
+        10,
+        r#"{"condition":"IsFemale","requiredPlugin":"missing.dll"}"#,
+    );
+    let mut game = build_game();
+    game.apply_mod_data(&fixture.roots());
+
+    assert_eq!(
+        game.select_oar_animation(actor_id(), "walk.hkx"),
+        None,
+        "a condition with an unavailable plugin dependency fails closed"
+    );
+}
+
+#[test]
+fn anm_09_is_race_reads_the_actors_current_race() {
+    let fixture = Fixture::new("current-race");
+    let expected = submod(
+        &fixture,
+        "ChangedRace",
+        10,
+        r#"{"condition":"IsRace","form":{"pluginName":"OarTest.esm","formID":"0x804"}}"#,
+    )
+    .join("walk.hkx");
+    let mut game = build_game();
+    game.world_mut().actor(actor_id()).unwrap().race = Some(soe_esm::GlobalFormId {
+        file: 0,
+        object: 0x804,
+    });
+    game.apply_mod_data(&fixture.roots());
+
+    assert_eq!(
+        game.select_oar_animation(actor_id(), "walk.hkx"),
+        Some(expected),
+        "IsRace follows the live actor race rather than the NPC base"
     );
 }

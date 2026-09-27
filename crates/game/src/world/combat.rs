@@ -558,6 +558,9 @@ impl World {
             }
             _ => false,
         };
+        if let Some(prepared) = &weapon_enchantment {
+            self.validate_weapon_enchantment_after_hit(prepared, &values)?;
+        }
         let lethal = values.get("health").current() <= 0.0;
         let aggressor = self.form_value(Some(hit.attacker), alloc);
         let source = self.form_value(Some(hit.weapon), alloc);
@@ -650,12 +653,11 @@ impl World {
         })
     }
 
-    /// Posts a witnessed player assault to the player's own tracked crime
-    /// faction. The hit victim is the witness because the contact itself
-    /// establishes that the victim observed the assault.
+    /// Posts a witnessed player assault to the victim's crime faction. The
+    /// victim reports the contact they observed to that faction.
     fn record_player_assault(&mut self, perpetrator: GlobalFormId, witness: GlobalFormId) {
         let Some(faction) = self
-            .actor_ref(perpetrator)
+            .actor_ref(witness)
             .and_then(|actor| actor.crime_faction)
         else {
             return;
@@ -670,7 +672,12 @@ impl World {
             .and_then(le_u32)
             .is_some_and(|flags| flags & 0x100 != 0);
         if !ignore_assault {
-            let _ = self.record_witnessed_crime(perpetrator, witness, CrimeType::Assault);
+            let _ = self.record_witnessed_crime_in_faction(
+                perpetrator,
+                witness,
+                CrimeType::Assault,
+                faction,
+            );
         }
     }
 

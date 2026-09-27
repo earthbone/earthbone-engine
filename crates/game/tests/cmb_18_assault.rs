@@ -82,7 +82,7 @@ fn fixture(faction_flags: u32) -> Game {
         world.add_item(actor, id(0xA00), 1);
         world.actor(actor).unwrap().equipped.insert(id(0xA00));
     }
-    game.world_mut().actor(player).unwrap().crime_faction = Some(id(0x701));
+    game.world_mut().actor(id(0x901)).unwrap().crime_faction = Some(id(0x701));
     game
 }
 

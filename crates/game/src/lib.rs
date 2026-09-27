@@ -497,7 +497,11 @@ impl Game {
         let base = world.reference(actor)?.base?;
         let base_state = world.actor_base(base)?;
         let female = base_state.female;
-        let race = base_state.race;
+        let base_race = base_state.race;
+        let race = world
+            .actor(actor)
+            .and_then(|state| state.race)
+            .or(base_race);
         let order = world.order();
 
         for sub_mod in &self.oar_submods {
@@ -791,6 +795,15 @@ fn oar_condition_matches(
     race: Option<GlobalFormId>,
     order: &LoadOrder,
 ) -> bool {
+    // OAR requires the named SKSE plugin before it evaluates this condition.
+    // The runtime has no SKSE plugin loader for that dependency.
+    if condition
+        .required_plugin
+        .as_deref()
+        .is_some_and(|name| !name.is_empty())
+    {
+        return false;
+    }
     let result = match condition.name.as_str() {
         "IsFemale" => Some(female),
         "IsActorBase" => oar_condition_form(condition, order).map(|form| form == base),
@@ -804,13 +817,31 @@ fn oar_condition_form(
     condition: &soe_moddata::oar::Condition,
     order: &LoadOrder,
 ) -> Option<GlobalFormId> {
-    let form = condition.parameters.get("form")?.as_object()?;
-    let plugin = form.get("pluginName")?.as_str()?;
-    let raw_id = form.get("formID")?;
-    let raw_id = raw_id
-        .as_str()
-        .map(str::to_string)
-        .or_else(|| raw_id.as_u64().map(|id| format!("0x{id:X}")))?;
+    let (plugin, raw_id) = if let Some(form) = condition
+        .parameters
+        .get("form")
+        .and_then(|value| value.as_object())
+    {
+        let plugin = form.get("pluginName")?.as_str()?;
+        let raw_id = form.get("formID")?;
+        let raw_id = raw_id
+            .as_str()
+            .map(str::to_string)
+            .or_else(|| raw_id.as_u64().map(|id| format!("0x{id:X}")))?;
+        (plugin.to_string(), raw_id)
+    } else {
+        let raw = condition.parameters.get("raw")?.as_str()?;
+        let (_, argument) = raw.split_once('(')?;
+        let argument = argument.strip_suffix(')')?;
+        let (plugin, raw_id) = argument.split_once('|')?;
+        (
+            plugin.trim().trim_matches('"').to_string(),
+            raw_id.trim().to_string(),
+        )
+    };
+    if plugin.is_empty() {
+        return None;
+    }
     let raw_id = if raw_id.starts_with("0x") || raw_id.starts_with("0X") {
         raw_id
     } else {
