@@ -89,6 +89,7 @@ pub struct SkinnedActorNode {
     skins: Vec<Affine>,
     stats: VarDictionary,
     elapsed: f64,
+    invisible: bool,
 }
 
 #[godot_api]
@@ -107,6 +108,7 @@ impl INode3D for SkinnedActorNode {
             skins: Vec::new(),
             stats: VarDictionary::new(),
             elapsed: 0.0,
+            invisible: false,
         }
     }
 
@@ -116,6 +118,7 @@ impl INode3D for SkinnedActorNode {
 
     fn process(&mut self, delta: f64) {
         if !self.playing {
+            self.sync_invisibility();
             self.refresh_appearance();
             return;
         }
@@ -220,6 +223,7 @@ impl SkinnedActorNode {
             let mesh = array_mesh_from(&surface.arrays);
             let instance = server.instance_create2(mesh.get_rid(), scenario);
             server.instance_set_transform(instance, Transform3D::IDENTITY);
+            server.instance_set_visible(instance, visible_for_invisibility(self.invisible));
             server.instance_attach_skeleton(instance, skeleton);
             self.shapes.push(ShapeRids { instance, skeleton });
             self.meshes.push(mesh);
@@ -302,6 +306,7 @@ impl SkinnedActorNode {
     /// this while `playing`, and a test can call it directly.
     #[func]
     pub fn advance(&mut self, delta: f32) {
+        self.sync_invisibility();
         self.refresh_appearance();
         let (Some(assets), Some(vm)) = (self.assets, self.vm.as_mut()) else {
             return;
@@ -470,6 +475,21 @@ impl SkinnedActorNode {
 }
 
 impl SkinnedActorNode {
+    fn sync_invisibility(&mut self) {
+        let invisible = self
+            .appearance
+            .as_ref()
+            .is_some_and(|binding| binding.world.borrow().is_invisible(binding.actor));
+        if self.invisible == invisible {
+            return;
+        }
+        self.invisible = invisible;
+        let mut server = RenderingServer::singleton();
+        for shape in &self.shapes {
+            server.instance_set_visible(shape.instance, visible_for_invisibility(invisible));
+        }
+    }
+
     /// Bind an existing rig to a live actor. Geometry is replaced only after
     /// every selected model loads, so failed refreshes preserve the last view.
     pub(crate) fn bind_appearance(
@@ -540,5 +560,24 @@ impl SkinnedActorNode {
         self.update_surface_stats();
         self.push_pose();
         Ok(())
+    }
+}
+
+fn visible_for_invisibility(invisible: bool) -> bool {
+    !invisible
+}
+
+#[cfg(test)]
+mod invisibility_tests {
+    use super::visible_for_invisibility;
+
+    #[test]
+    fn mag_34_invisibility_hides_skinned_actor_instances() {
+        assert!(!visible_for_invisibility(true));
+    }
+
+    #[test]
+    fn mag_34_visible_actor_keeps_skinned_actor_instances_visible() {
+        assert!(visible_for_invisibility(false));
     }
 }

@@ -40,6 +40,8 @@ mod bound_weapon;
 mod collection;
 #[path = "magic/disarm.rs"]
 mod disarm;
+#[path = "magic/invisibility.rs"]
+mod invisibility;
 
 fn retain_effect(game: &mut Game, effect: soe_papyrus::ObjectId) {
     let script = ScriptBuilder::new("EffectHolder", "Actor")
@@ -83,6 +85,26 @@ fn effect_with_keywords(
     associated_item: u32,
     keywords: &[u32],
 ) -> Record {
+    effect_with_id(
+        EFFECT,
+        flags,
+        archetype,
+        av,
+        constant,
+        associated_item,
+        keywords,
+    )
+}
+
+fn effect_with_id(
+    form: u32,
+    flags: u32,
+    archetype: u32,
+    av: u32,
+    constant: bool,
+    associated_item: u32,
+    keywords: &[u32],
+) -> Record {
     let mut data = vec![0; 152];
     put(&mut data, 0, flags);
     put(&mut data, 8, associated_item);
@@ -99,7 +121,7 @@ fn effect_with_keywords(
         .iter()
         .flat_map(|keyword| keyword.to_le_bytes())
         .collect();
-    Record::new(T(b"MGEF"), EFFECT)
+    Record::new(T(b"MGEF"), form)
         .zsub(T(b"EDID"), "ProbeEffect")
         .sub(T(b"DATA"), data)
         .sub(T(b"KWDA"), keyword_data)
@@ -193,6 +215,8 @@ fn plugin(effect: Record, spells: Vec<Record>) -> Plugin {
                 .sub(T(b"DATA"), vec![0; 24]),
         );
     }
+    plugin.push_top(Record::new(T(b"ACTI"), 0x700));
+    plugin.push_top(Record::new(T(b"REFR"), 0x701).sub(T(b"NAME"), 0x700u32.to_le_bytes()));
     plugin.push_top(Record::new(T(b"KYWD"), KEYWORD).zsub(T(b"EDID"), "ProbeKeyword"));
     plugin.push_top(Record::new(T(b"MISC"), ITEM).zsub(T(b"EDID"), "AllowedItem"));
     plugin.push_top(Record::new(T(b"MISC"), OTHER_ITEM).zsub(T(b"EDID"), "RejectedItem"));

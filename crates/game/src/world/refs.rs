@@ -444,6 +444,7 @@ impl World {
         else {
             return false;
         };
+        self.break_invisibility(activator, alloc);
         let kind = base.and_then(|b| self.tag_of(b));
         let lockable = kind == Some(T(b"DOOR")) || kind == Some(T(b"CONT"));
         let process = (!blocked || !send_event)

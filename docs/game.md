@@ -1691,6 +1691,22 @@ inventory, equipment and loose-reference state, whose metadata and pickup
 behavior are documented above. `mag_32_*` tests cover the level boundary,
 single-copy transfer, dropped placement and pickup.
 
+#### Invisibility archetype, MAG-34
+
+MGEF archetype 11 creates an ordinary active effect for its authored duration.
+`World::is_invisible` derives the state from the active effect's winning MGEF,
+so dispel and expiry end it without a second saved flag. Detection uses that
+same query alongside direct changes to the Invisibility actor value. A
+successful spell cast, accepted melee hit or reference activation ends the
+actor's current Invisibility effects through the normal dispel lifecycle.
+
+The local xEdit `wbDefinitionsTES5.pas` names archetype 11 Invisibility and
+defines the duration flags. UESP's `MGEF.wikitext` describes the MGEF duration
+fields. The CK corpus has no Magic Effect page, so the break actions are the
+runtime's explicit interaction contract. `mag_34_*` tests cover duration,
+spell and activation breaks, detection state derivation and host visibility
+mapping.
+
 #### Bound Weapon archetype, MAG-38
 
 Archetype 17 resolves the MGEF Associated Item through the effect's owning

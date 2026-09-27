@@ -2,7 +2,8 @@
 
 //! Active spell applications, following CK Magic Effect, DispelSpell and
 //! DispelAllSpells contracts, xEdit SPEL/MGEF fields and CommonLib MagicSystem
-//! enums. Definitions stay in the winning records. Per-cast magnitudes,
+//! enums. Invisibility follows xEdit's MGEF archetype table and UESP's MGEF
+//! layout. Definitions stay in the winning records. Per-cast magnitudes,
 //! elapsed time and reversible actor-value deltas belong to the world.
 //! Cure Disease removes active MGEFs marked with MagicDisease. Disarm drops
 //! one eligible hand weapon as a loose reference. Unsupported delivery and
@@ -34,6 +35,7 @@ const NO_DEATH_DISPEL: u32 = 1 << 28;
 const WEAPON_BOUND: u32 = 1 << 13;
 pub(super) const DISPEL_WITH_KEYWORDS: u32 = 1 << 8;
 const INGESTIBLE_POISON: u32 = 1 << 17;
+const INVISIBILITY: u32 = 11;
 
 /// Identity of one effect application, independent of its MGEF FormID.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -108,6 +110,35 @@ impl World {
             return None;
         };
         self.active_effects.get(&id)
+    }
+
+    /// Whether an actor currently has an active Invisibility effect.
+    #[must_use]
+    pub fn is_invisible(&self, actor: GlobalFormId) -> bool {
+        self.active_effects.values().any(|effect| {
+            effect.target == actor
+                && self
+                    .magic_effect(effect.effect)
+                    .is_ok_and(|definition| definition.data.archetype == INVISIBILITY)
+        })
+    }
+
+    /// End all active Invisibility effects on an actor after a break action.
+    pub fn break_invisibility(&mut self, actor: GlobalFormId, alloc: Alloc<'_>) {
+        let ids: Vec<_> = self
+            .active_effects
+            .values()
+            .filter(|effect| {
+                effect.target == actor
+                    && self
+                        .magic_effect(effect.effect)
+                        .is_ok_and(|definition| definition.data.archetype == INVISIBILITY)
+            })
+            .map(|effect| effect.id)
+            .collect();
+        for id in ids {
+            self.dispel_effect(id, alloc);
+        }
     }
 
     /// Read the current winning SPEL definition.
@@ -439,7 +470,7 @@ impl World {
                     return Err(MagicError::Target);
                 }
             }
-            if !matches!(data.archetype, 0 | 1 | 2 | 3 | 4 | 5 | 9 | 17 | 18) {
+            if !matches!(data.archetype, 0 | 1 | 2 | 3 | 4 | 5 | 9 | 11 | 17 | 18) {
                 return Err(MagicError::Unsupported("effect archetype"));
             }
             if data.taper_duration != 0.0 {
@@ -584,6 +615,9 @@ impl World {
                     dispel: Vec::new(),
                 });
             }
+        }
+        if let Some(caster) = caster {
+            self.break_invisibility(caster, alloc);
         }
         self.apply_prepared_effects(prepared, alloc)
     }

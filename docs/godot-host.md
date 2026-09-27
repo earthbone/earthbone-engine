@@ -2096,6 +2096,10 @@ paths through the shared archive and loose-file overlay. Unchanged views avoid
 mesh loading. Failed views are cached too, so unchanged bad assets do not reload
 or log on each tick. A changed view or an explicit rebind retries preparation. Failed model preparation retains the previously displayed surfaces.
 `ActorError::RigMismatch` reports missing rig bones before a live replacement.
+For a bound actor, the node also reads `World::is_invisible` and toggles the
+existing RenderingServer instances while the effect is active. It restores
+visibility when the effect expires or is dispelled. This covers bound skinned
+actor rigs, not actors drawn through another host path.
 
 The node owns the replaceable surface arrays. Only the existing animation rig
 has the loader's process-lifetime allocation, so repeated skin changes do not
