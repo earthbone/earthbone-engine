@@ -23,6 +23,13 @@ fn quest() -> Record {
             .sub(tag(*b"FNAM"), 0_u32.to_le_bytes())
             .zsub(tag(*b"NNAM"), "Find the objective")
             .sub(tag(*b"QSTA"), target);
+        if objective == 10 {
+            let mut condition = vec![0; 32];
+            condition[4..8].copy_from_slice(&1.0_f32.to_le_bytes());
+            condition[8..10].copy_from_slice(&58_u16.to_le_bytes());
+            condition[12..16].copy_from_slice(&0x100_u32.to_le_bytes());
+            record = record.sub(tag(*b"CTDA"), condition);
+        }
     }
     record
         .sub(tag(*b"ALST"), 1_u32.to_le_bytes())
@@ -54,11 +61,12 @@ fn game() -> Game {
     plugin.push_top(Record::new(tag(*b"LCTN"), 0x200).sub(tag(*b"MNAM"), 0x301_u32.to_le_bytes()));
     let mut order = LoadOrder::new();
     order.add("UiObjectiveMap.esm", plugin).unwrap();
-    let mut game = Game::new(order);
+    let game = Game::new(order);
     {
         let mut world = game.world_mut();
         let state = world.quest_state(id(0x100)).unwrap();
         state.active = true;
+        state.highest = 1;
         world.objective(id(0x100), 10).unwrap().displayed = true;
         world.objective(id(0x100), 20).unwrap().displayed = true;
     }
@@ -93,4 +101,16 @@ fn ui_10_marker_visibility_tracks_objective_and_reference_world_state() {
     let markers = objective_map::markers(&mut game);
     assert!(!markers[0].visible);
     assert!(!markers[1].visible);
+}
+
+#[test]
+fn ui_10_target_conditions_control_objective_map_targets() {
+    let mut game = game();
+    assert_eq!(objective_map::markers(&mut game).len(), 2);
+
+    game.world_mut().quest_state(id(0x100)).unwrap().highest = 0;
+
+    let markers = objective_map::markers(&mut game);
+    assert_eq!(markers.len(), 1);
+    assert_eq!(markers[0].objective, 20);
 }
