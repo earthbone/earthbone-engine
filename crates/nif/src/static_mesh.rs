@@ -453,7 +453,14 @@ impl NifWriter {
     }
     fn shader(&mut self, texture: i32, material: &Material) -> i32 {
         let mut data = Bytes::default();
-        data.u32(0);
+        data.u32(match material.kind {
+            crate::mesh::MaterialKind::Lighting(kind) => match kind {
+                crate::blocks::ShaderType::LodLandscapeNoise => 18,
+                crate::blocks::ShaderType::LodLandscape => 9,
+                _ => 0,
+            },
+            _ => 0,
+        });
         data.u32(u32::MAX);
         data.refs(&[]);
         data.i32(-1);

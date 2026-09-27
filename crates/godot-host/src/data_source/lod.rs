@@ -6,11 +6,16 @@
 //! `crate::terrain_lod` for the block coordinates, the file naming and the
 //! residency budget that decides which blocks to request.
 
-use soe_esm::GlobalFormId;
+use std::collections::HashMap;
+
+use soe_esm::records::{cell::Cell, land::Land};
+use soe_esm::{tag, GlobalFormId};
 use soe_nif::{Transform as NifTransform, Vec3 as NifVec3};
 
 use super::{DataSource, DataSourceError, LoadedSurface};
 use crate::mesh::{build_surface, MeshOptions};
+use crate::streaming::CellCoord;
+use crate::terrain::CellHeights;
 use crate::terrain_lod::{LodBlockCoord, LodSettings};
 use crate::units::CELL_UNITS;
 
@@ -25,6 +30,77 @@ pub struct LoadedLodBlock {
 }
 
 impl DataSource {
+    /// Generate a BTR from winning LAND records for one worldspace block.
+    /// A child worldspace uses parent LAND at positions it does not own when
+    /// its PNAM use-land bit is set. Returns `None` for a block without land.
+    pub fn generate_terrain_lod_block(
+        &self,
+        world: GlobalFormId,
+        block: LodBlockCoord,
+    ) -> Result<Option<Vec<u8>>, DataSourceError> {
+        let parent = self.land_parent_of(world);
+        let span = i64::from(block.level.cells());
+        let in_bounds = |x: i32, y: i32| {
+            (i64::from(block.x)..=i64::from(block.x) + span).contains(&i64::from(x))
+                && (i64::from(block.y)..=i64::from(block.y) + span).contains(&i64::from(y))
+        };
+        let mut selected = HashMap::new();
+        for (id, rec) in self.order.winners_of(tag::CELL) {
+            let Some(raw_world) = rec.placement.world else {
+                continue;
+            };
+            let Some(rref) = self.order.winner_ref(id) else {
+                continue;
+            };
+            let owner = self.order.resolve(rref.file, raw_world);
+            if owner != world && Some(owner) != parent {
+                continue;
+            }
+            let localized = self.order.file(rref.file).plugin.header.is_localized();
+            let cell = Cell::from_record(rec, localized)?;
+            if let Some(grid) = cell.grid.filter(|grid| in_bounds(grid.x, grid.y)) {
+                selected.insert(id, (CellCoord::new(grid.x, grid.y), owner == world));
+            }
+        }
+        let mut heights = HashMap::<CellCoord, (bool, CellHeights)>::new();
+        for (id, rec) in self.order.winners_of(tag::LAND) {
+            let Some(raw_cell) = rec.placement.cell else {
+                continue;
+            };
+            let Some(rref) = self.order.winner_ref(id) else {
+                continue;
+            };
+            let cell_id = self.order.resolve(rref.file, raw_cell);
+            let Some(&(position, own)) = selected.get(&cell_id) else {
+                continue;
+            };
+            let land = Land::from_record(rec)?;
+            let Some(encoded) = land.heights else {
+                continue;
+            };
+            if !own && heights.get(&position).is_some_and(|entry| entry.0) {
+                continue;
+            }
+            heights.insert(
+                position,
+                (
+                    own,
+                    CellHeights {
+                        cell: position,
+                        units: encoded.decode(),
+                    },
+                ),
+            );
+        }
+        let heights: HashMap<CellCoord, CellHeights> = heights
+            .into_iter()
+            .map(|(key, (_, value))| (key, value))
+            .collect();
+        Ok(crate::terrain_lod_generate::generate_terrain_lod_btr(
+            &heights, block,
+        )?)
+    }
+
     /// The winning `WRLD` record whose editor id matches, ignoring ASCII
     /// case, with that record's own spelling of the editor id. The spelling
     /// names the `meshes/terrain/<edid>/` folder and the `lodsettings` file
@@ -90,10 +166,29 @@ impl DataSource {
             Err(soe_bsa::Error::NotFound { .. }) => return Ok(None),
             Err(e) => return Err(e.into()),
         };
-        let file = soe_nif::parse(&bytes)?;
+        let loaded = self.load_lod_block_bytes(world, block, &bytes)?;
+        if loaded.surfaces.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(loaded))
+        }
+    }
+
+    /// Build generated or archived BTR bytes through the same surface path
+    /// used for the on-disk block. Editors can preview a block before saving.
+    pub fn load_lod_block_bytes(
+        &self,
+        world: GlobalFormId,
+        block: LodBlockCoord,
+        bytes: &[u8],
+    ) -> Result<LoadedLodBlock, DataSourceError> {
+        let file = soe_nif::parse(bytes)?;
         let meshes = file.meshes()?;
         if meshes.is_empty() {
-            return Ok(None);
+            return Ok(LoadedLodBlock {
+                surfaces: Vec::new(),
+                approx_bytes: 0,
+            });
         }
         let origin = block.origin_cell();
         let placement = NifTransform {
@@ -120,9 +215,9 @@ impl DataSource {
                 mesh_identity: None,
             });
         }
-        Ok(Some(LoadedLodBlock {
+        Ok(LoadedLodBlock {
             surfaces,
             approx_bytes,
-        }))
+        })
     }
 }

@@ -2226,6 +2226,19 @@ supplying the scale argument.
 
 ## Distant-terrain LOD residency, RND-03
 
+`DataSource::generate_terrain_lod_block` reads winning CELL and LAND records
+for a selected worldspace block. Where PNAM requests parent land, its LAND
+fills positions without a child LAND. It samples authored heights onto a 33
+by 33 tile grid for levels 4, 8, 16 and 32, edge extends missing height
+samples, and writes triangles only over cells with LAND. The returned BTR
+bytes use the `soe-nif` writer and can be passed to
+`DataSource::load_lod_block_bytes` for preview through the same mesh and
+surface builder as archived BTR files. A block without LAND returns `None`.
+
+The generator writes a land shape with LOD landscape shader flags. It does
+not generate diffuse or normal textures, a water shape, or the vanilla
+`BSMultiBoundNode` chunk root.
+
 `crate::terrain_lod` decides which BTR terrain LOD blocks should stand in
 for full resolution LAND terrain (`exterior.rs::terrain_surface`) beyond the
 cells the cell streamer keeps loaded, and tracks a recorded byte budget for

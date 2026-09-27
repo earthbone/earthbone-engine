@@ -211,6 +211,11 @@ The archived mesh test is the one that exercises real content on a plain install
 
 ## Residency estimate
 
+`static_mesh::export_nif` writes shader type 18 for a mesh whose material
+kind is `LodLandscapeNoise`, and type 9 for `LodLandscape`. Other supported
+static meshes retain type 0. This lets `godot-host` write terrain LOD BTR
+geometry that the existing NIF reader can parse.
+
 `Mesh::approx_bytes()` sums each vertex's natural width, 12 bytes for
 positions plus 12 for normals charged unconditionally, plus 16 for tangents,
 8 for UVs, 16 for bone weights and 4 for bone indices when each is present,
