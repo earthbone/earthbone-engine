@@ -15,6 +15,7 @@
 
 pub mod actor;
 pub mod animated_static;
+pub mod animation_dispatch;
 pub mod audio;
 pub mod batch;
 pub mod camera;
