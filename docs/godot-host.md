@@ -2392,6 +2392,29 @@ against a live scene, same as the rest of this document's frame-time numbers.
 That measurement is still open and belongs with the other "Numbers" table
 entries once someone runs one.
 
+## Per-cell occluder trial, RND-07
+
+`batch::cell_occluder_mesh` selects at most four opaque source surfaces per
+cell, ordered by descending triangle count with source order breaking ties.
+Cutout and blended surfaces are excluded because they contain visible holes
+or transparency. Candidate vertices already converted to Godot coordinates
+are copied into one mesh. A `MultiMesh` surface receives its placement
+transform before it is copied. `CellStreamerNode` creates one server occluder
+instance for a cell when the runtime exposes Godot's 3D occluder methods, and
+frees both associated RIDs when the cell unloads or the node clears. The
+exported `cell_occluders` switch defaults off pending a measured improvement.
+
+Godot's local `ArrayOccluder3D` and `OccluderInstance3D` docs state that
+occlusion culling has CPU cost and is usually not useful for large open
+scenes. The trial therefore uses the existing windowed `bench.gd` sampler
+with the same scene and camera. `SOE_BENCH_OCCLUDERS=0` disables both the
+occlusion setting and generated meshes. Setting it to `1` enables both.
+The first Bannered Mare run loaded 318 statics and 145 draw instances with
+zero mesh failures, but X11 reported `BadAccess` and the process did not
+produce a frame percentile. Baseline p99: not recorded. Occluder p99: not
+recorded. The feature remains off until both values can be collected and the
+occluder run is lower.
+
 ## Water planes, RND-02 (2026-09-24)
 
 A cell with water now streams one extra `LoadedSurface`: a flat quad at the
