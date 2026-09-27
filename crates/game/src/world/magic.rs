@@ -83,6 +83,7 @@ enum DispelRule {
 struct PreparedEffect {
     effect: ActiveEffect,
     summon_base: Option<GlobalFormId>,
+    banish: bool,
     no_recast: bool,
     hit_event: bool,
     dispel_rules: Vec<DispelRule>,
@@ -311,6 +312,7 @@ impl World {
                 },
                 no_recast: data.flags & NO_RECAST != 0,
                 summon_base: None,
+                banish: false,
                 hit_event: false,
                 dispel_rules,
                 dispel: Vec::new(),
@@ -427,7 +429,7 @@ impl World {
                     return Err(MagicError::Target);
                 }
             }
-            if !matches!(data.archetype, 0 | 1 | 2 | 5 | 18) {
+            if !matches!(data.archetype, 0 | 1 | 2 | 5 | 18 | 42) {
                 return Err(MagicError::Unsupported("effect archetype"));
             }
             if data.taper_duration != 0.0 {
@@ -539,6 +541,7 @@ impl World {
                     },
                     no_recast: data.flags & NO_RECAST != 0,
                     summon_base,
+                    banish: data.archetype == 42,
                     hit_event: data.flags & (HOSTILE | NO_HIT_EVENT) == HOSTILE,
                     dispel_rules: dispel_rules.clone(),
                     dispel: Vec::new(),
@@ -614,6 +617,29 @@ impl World {
             self.active_effects.insert(id, prepared.effect.clone());
             for victim in prepared.dispel {
                 self.dispel_effect(victim, alloc);
+            }
+            if prepared.banish {
+                let target_level = self.actor(prepared.effect.target).map(|actor| actor.level);
+                let summon = target_level
+                    .filter(|level| prepared.effect.magnitude >= *level as f32)
+                    .and_then(|_| {
+                        self.active_effects
+                            .values()
+                            .find(|effect| {
+                                effect.summoned == Some(prepared.effect.target)
+                                    && self.reference_ref(prepared.effect.target).is_some_and(
+                                        |reference| {
+                                            reference.is_actor
+                                                && reference.enabled
+                                                && !reference.deleted
+                                        },
+                                    )
+                            })
+                            .map(|effect| effect.id)
+                    });
+                if let Some(summon) = summon {
+                    self.dispel_effect(summon, alloc);
+                }
             }
             if prepared.effect.recover || prepared.effect.duration == Some(0.0) {
                 self.apply_effect_values(&prepared.effect, 1.0, alloc)?;
