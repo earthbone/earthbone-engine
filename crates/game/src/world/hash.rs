@@ -301,6 +301,13 @@ fn ai_state(h: &mut StateHasher, a: &AiState) {
                 h.f64(until);
             }
         }
+        Procedure::Shout => {
+            h.u8(7);
+            h.bool(a.wait_until.is_some());
+            if let Some(until) = a.wait_until {
+                h.f64(until);
+            }
+        }
         Procedure::Unsupported(name) => {
             h.u8(4);
             h.str(name);
@@ -418,6 +425,10 @@ fn actor_state(h: &mut StateHasher, a: &ActorState) {
     opt_form(h, a.left_spell);
     opt_form(h, a.right_spell);
     form_set(h, &a.witnessed_crimes);
+    h.bool(a.voice_recovery_until.is_some());
+    if let Some(until) = a.voice_recovery_until {
+        h.f64(until);
+    }
 }
 
 fn quest_state(h: &mut StateHasher, q: &QuestState) {

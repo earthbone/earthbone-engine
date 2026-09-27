@@ -7,7 +7,7 @@
 //! Unsupported delivery and archetypes return errors before applying effects.
 
 use soe_esm::records::gameplay::{Effect, Ingestible, MagicEffect, Spell};
-use soe_esm::GlobalFormId;
+use soe_esm::{GlobalFormId, Tag};
 use soe_papyrus::{ObjectId, Value};
 
 use crate::actor_values::actor_value_name;
@@ -92,6 +92,84 @@ struct PreparedEffect {
 }
 
 impl World {
+    /// Seconds remaining before an actor may use a shout again.
+    #[must_use]
+    pub fn voice_recovery_time(&mut self, actor: GlobalFormId) -> f32 {
+        let now = self.clock.real_seconds;
+        self.actor(actor)
+            .and_then(|state| state.voice_recovery_until)
+            .map_or(0.0, |until| (until - now).max(0.0) as f32)
+    }
+
+    /// Set an actor's shout recovery in real seconds.
+    ///
+    /// # Errors
+    ///
+    /// Returns `false` for an absent actor, non-finite duration, or negative duration.
+    pub fn set_voice_recovery_time(&mut self, actor: GlobalFormId, seconds: f32) -> bool {
+        if !seconds.is_finite() || seconds < 0.0 || self.actor(actor).is_none() {
+            return false;
+        }
+        let deadline = (self.clock.real_seconds + f64::from(seconds)).min(f64::MAX);
+        if let Some(state) = self.actor(actor) {
+            state.voice_recovery_until = (seconds > 0.0).then_some(deadline);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Cast the highest authored word spell of the actor's equipped shout and
+    /// start the recovery authored by that word.
+    ///
+    /// # Errors
+    ///
+    /// Returns a magic error before setting recovery if the shout, spell,
+    /// target, or authored recovery data is unusable.
+    pub fn cast_shout(
+        &mut self,
+        actor: GlobalFormId,
+        target: Option<GlobalFormId>,
+        alloc: crate::world::Alloc<'_>,
+    ) -> Result<(), MagicError> {
+        let shout = self
+            .actor(actor)
+            .and_then(|state| state.equipped_shout)
+            .ok_or(MagicError::Target)?;
+        if self.voice_recovery_time(actor) > 0.0 {
+            return Err(MagicError::Unsupported("voice recovery"));
+        }
+        let record = self.record(shout).ok_or(MagicError::Missing(shout))?;
+        if record.tag != Tag::new(b"SHOU") {
+            return Err(MagicError::Missing(shout));
+        }
+        let words: Vec<_> = record.all(Tag::new(b"SNAM")).collect();
+        if words.len() != 3 || words.iter().any(|word| word.len() != 12) {
+            return Err(MagicError::Unsupported("malformed shout words"));
+        }
+        let selected = words
+            .iter()
+            .rev()
+            .find_map(|word| {
+                let raw = u32::from_le_bytes(word[4..8].try_into().ok()?);
+                (raw != 0).then_some((raw, f32::from_le_bytes(word[8..12].try_into().ok()?)))
+            })
+            .ok_or(MagicError::Unsupported("shout has no spell"))?;
+        let (raw_spell, recovery) = selected;
+        if !recovery.is_finite() || recovery < 0.0 {
+            return Err(MagicError::Number);
+        }
+        let spell = self
+            .resolve_from(shout, raw_spell)
+            .ok_or(MagicError::Missing(shout))?;
+        self.cast_spell(spell, actor, Some(actor), target, alloc)?;
+        let deadline = (self.clock.real_seconds + f64::from(recovery)).min(f64::MAX);
+        if let Some(state) = self.actor(actor) {
+            state.voice_recovery_until = (recovery > 0.0).then_some(deadline);
+        }
+        Ok(())
+    }
+
     /// All currently applied effects, in application order.
     pub fn active_effects(&self) -> impl Iterator<Item = &ActiveEffect> {
         self.active_effects.values()
