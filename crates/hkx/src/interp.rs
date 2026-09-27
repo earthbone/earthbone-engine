@@ -186,13 +186,15 @@ impl ClipLibrary {
 
 /// One graph's variable values. Reals live in the word table as their bit
 /// pattern, which is how `hkbVariableValueSet` stores them. A quad
-/// variable's word is its index into the quad table.
+/// variable's word is its index into the quad table. Pointer values use the
+/// variant table and retain object offsets.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Variables {
     infos: Vec<VariableInfo>,
     names: Vec<String>,
     words: Vec<i32>,
     quads: Vec<[f32; 4]>,
+    pointers: Vec<Option<u32>>,
 }
 
 impl Variables {
@@ -209,11 +211,18 @@ impl Variables {
             .as_ref()
             .map(|v| v.quad_values.clone())
             .unwrap_or_default();
+        let mut pointers = data
+            .variable_initial_values
+            .as_ref()
+            .map(|v| v.variant_values.clone())
+            .unwrap_or_default();
+        pointers.resize(count, None);
         Variables {
             infos: data.variable_infos.clone(),
             names: data.variable_names.clone(),
             words,
             quads,
+            pointers,
         }
     }
 
@@ -225,6 +234,7 @@ impl Variables {
             names: names.iter().map(|n| (*n).to_string()).collect(),
             words: vec![0; infos.len()],
             quads: Vec::new(),
+            pointers: vec![None; infos.len()],
         }
     }
 
@@ -256,6 +266,27 @@ impl Variables {
         match self.words.get_mut(index) {
             Some(w) => {
                 *w = value;
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Pointer value for a variable declared with Havok's pointer type.
+    pub fn pointer(&self, index: usize) -> Option<Option<u32>> {
+        (self.ty(index) == Some(VariableType::Pointer))
+            .then(|| self.pointers.get(index).copied())
+            .flatten()
+    }
+
+    /// Set a pointer variable to an object offset, or null.
+    pub fn set_pointer(&mut self, index: usize, value: Option<u32>) -> bool {
+        if self.ty(index) != Some(VariableType::Pointer) {
+            return false;
+        }
+        match self.pointers.get_mut(index) {
+            Some(pointer) => {
+                *pointer = value;
                 true
             }
             None => false,
@@ -324,6 +355,7 @@ enum Target {
     UserControlledTimeFraction,
     BlendParameter,
     ChildWeight(usize),
+    ChildBoneWeights(usize),
     SelectedGeneratorIndex,
     Enable,
     FalseToTrueEnable(usize),
@@ -420,6 +452,7 @@ struct Runtime {
     time_step: f32,
     blend_parameter: Option<f32>,
     child_weights: Vec<Option<f32>>,
+    child_bone_weights_pointers: Vec<BoundMaskPointer>,
     selected: Option<usize>,
     enabled: Option<bool>,
     /// A bound `startStateId`, read when the machine activates.
@@ -432,6 +465,14 @@ struct Runtime {
 
     /// A bound vector input for `BSDecomposeVectorModifier`.
     vector: Option<[f32; 4]>,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+enum BoundMaskPointer {
+    #[default]
+    Unbound,
+    Null,
+    Pointer(u32),
 }
 
 /// A generator's result for one frame: a local pose and how much of it
@@ -489,6 +530,7 @@ pub struct Interpreter<'a> {
     pub character_properties: Variables,
     nodes: Vec<Runtime>,
     bindings: Vec<ResolvedBinding>,
+    bone_weight_masks: HashMap<u32, Vec<f32>>,
     conditions: HashMap<Condition, std::result::Result<Expression, ExpressionError>>,
     /// Modifier nodes in this frame's authored traversal order. Output
     /// bindings publish in this order rather than arena allocation order.
@@ -522,8 +564,20 @@ impl<'a> Interpreter<'a> {
         for node in &graph.nodes {
             if let NodeKind::Blender(b) = &node.kind {
                 nodes[node.id.0].child_weights = vec![None; b.children.len()];
+                nodes[node.id.0].child_bone_weights_pointers =
+                    vec![BoundMaskPointer::Unbound; b.children.len()];
             }
         }
+        let bone_weight_masks = graph
+            .nodes
+            .iter()
+            .filter_map(|node| match &node.kind {
+                NodeKind::Blender(blender) => Some(&blender.bone_weight_masks),
+                _ => None,
+            })
+            .flatten()
+            .map(|(&offset, weights)| (offset, weights.clone()))
+            .collect();
         let mut interp = Interpreter {
             graph,
             clips,
@@ -539,6 +593,7 @@ impl<'a> Interpreter<'a> {
             ),
             nodes,
             bindings: Vec::new(),
+            bone_weight_masks,
             conditions: HashMap::new(),
             modifier_order: Vec::new(),
             pending: Vec::new(),
@@ -672,6 +727,7 @@ impl<'a> Interpreter<'a> {
                 }
                 ("blendParameter", None, NodeKind::Blender(_)) => Some(Target::BlendParameter),
                 ("weight", Some(i), NodeKind::Blender(_)) => Some(Target::ChildWeight(i)),
+                ("boneWeights", Some(i), NodeKind::Blender(_)) => Some(Target::ChildBoneWeights(i)),
                 ("selectedGeneratorIndex", None, NodeKind::ManualSelector { .. }) => {
                     Some(Target::SelectedGeneratorIndex)
                 }
@@ -724,6 +780,34 @@ impl<'a> Interpreter<'a> {
             };
             let variable = usize::try_from(b.variable_index).ok();
             match (target, variable) {
+                (Some(Target::ChildBoneWeights(child)), Some(variable))
+                    if (if b.binding_type == 1 {
+                        self.character_properties.ty(variable)
+                    } else {
+                        self.variables.ty(variable)
+                    }) == Some(VariableType::Pointer)
+                        && child
+                            < match kind {
+                                NodeKind::Blender(blender) => blender.children.len(),
+                                _ => 0,
+                            } =>
+                {
+                    self.bindings.push(ResolvedBinding {
+                        node,
+                        target: Target::ChildBoneWeights(child),
+                        variable,
+                        property: b.binding_type == 1,
+                    });
+                }
+                (Some(Target::ChildBoneWeights(_)), _) => push_unique(
+                    &mut self.unsupported.unbound,
+                    format!(
+                        "{}.{} ({})",
+                        graph.node(node).name,
+                        b.member_path,
+                        graph.node(node).class
+                    ),
+                ),
                 (Some(target), Some(variable)) => self.bindings.push(ResolvedBinding {
                     node,
                     target,
@@ -985,6 +1069,20 @@ impl<'a> Interpreter<'a> {
             } else {
                 &self.variables
             };
+            if let Target::ChildBoneWeights(child) = b.target {
+                if let Some(pointer) = table.pointer(b.variable) {
+                    if let Some(pointers) = self.nodes[b.node.0]
+                        .child_bone_weights_pointers
+                        .get_mut(child)
+                    {
+                        *pointers = match pointer {
+                            Some(pointer) => BoundMaskPointer::Pointer(pointer),
+                            None => BoundMaskPointer::Null,
+                        };
+                    }
+                }
+                continue;
+            }
             let Some(value) = table.real(b.variable) else {
                 continue;
             };
@@ -1011,6 +1109,7 @@ impl<'a> Interpreter<'a> {
                 Target::IsActive { .. }
                 | Target::MachineIsActive
                 | Target::DecomposeComponent(_)
+                | Target::ChildBoneWeights(_)
                 | Target::TimeStep => {}
             }
         }
@@ -1894,10 +1993,17 @@ impl<'a> Interpreter<'a> {
             let w = w / total;
             acc_weight += w;
             for (bone, (acc, next)) in pose.iter_mut().zip(&out.pose).enumerate() {
-                let mask = child
-                    .bone_weights
-                    .as_ref()
-                    .map_or(1.0, |m| m.get(bone).copied().unwrap_or(0.0));
+                let mask = match self.nodes[id.0].child_bone_weights_pointers[i] {
+                    BoundMaskPointer::Pointer(pointer) => self
+                        .bone_weight_masks
+                        .get(&pointer)
+                        .map_or(0.0, |mask| mask.get(bone).copied().unwrap_or(0.0)),
+                    BoundMaskPointer::Null => 1.0,
+                    BoundMaskPointer::Unbound => child
+                        .bone_weights
+                        .as_ref()
+                        .map_or(1.0, |mask| mask.get(bone).copied().unwrap_or(0.0)),
+                };
                 let contribution = w * mask * out.bone_weights.get(bone).copied().unwrap_or(0.0);
                 if contribution <= 0.0 {
                     continue;

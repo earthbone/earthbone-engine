@@ -451,6 +451,8 @@ pub struct BlenderChild {
     pub generator: Option<NodeId>,
     /// Per-bone mask. Missing masks give every bone weight one.
     pub bone_weights: Option<Vec<f32>>,
+    /// Data offset of the referenced hkbBoneWeightArray.
+    pub bone_weights_pointer: Option<u32>,
     pub weight: f32,
     pub world_from_model_weight: f32,
     pub bindings: Option<VariableBindingSet>,
@@ -469,6 +471,8 @@ pub struct BlenderGenerator {
     pub flags: i16,
     pub subtract_last_child: bool,
     pub children: Vec<BlenderChild>,
+    /// Bone masks referenced by pointer variables or blender children.
+    pub bone_weight_masks: HashMap<u32, Vec<f32>>,
 }
 
 /// `hkbTransitionEffect`: selfTransitionMode (0 continue if cyclic and
@@ -756,13 +760,34 @@ impl BehaviorGraph {
             Some(d) => BehaviorGraphData::from_obj(d)?,
             None => BehaviorGraphData::default(),
         };
+        let mut bone_weight_masks = HashMap::new();
+        if let Some(values) = &data.variable_initial_values {
+            for (index, info) in data.variable_infos.iter().enumerate() {
+                if info.ty != VariableType::Pointer {
+                    continue;
+                }
+                let Some(Some(offset)) = values.variant_values.get(index) else {
+                    continue;
+                };
+                let target = o.packfile().object(*offset);
+                if target.class() == Some("hkbBoneWeightArray") {
+                    bone_weight_masks.insert(*offset, bone_weights(target)?);
+                }
+            }
+        }
         let mut loader = Loader {
             nodes: Vec::new(),
             by_offset: HashMap::new(),
             pending: Vec::new(),
+            bone_weight_masks,
         };
         let root = o.ptr(o.layout_offset(76, 128))?.map(|r| loader.node_id(r));
         loader.drain()?;
+        for node in &mut loader.nodes {
+            if let NodeKind::Blender(blender) = &mut node.kind {
+                blender.bone_weight_masks = loader.bone_weight_masks.clone();
+            }
+        }
         Ok(BehaviorGraph {
             name: o.string_or_empty(o.layout_offset(32, 56))?,
             variable_mode: o.i8(o.layout_offset(40, 72))?,
@@ -781,6 +806,7 @@ struct Loader<'a> {
     nodes: Vec<Node>,
     by_offset: HashMap<u32, NodeId>,
     pending: Vec<(NodeId, Obj<'a>)>,
+    bone_weight_masks: HashMap<u32, Vec<f32>>,
 }
 
 impl<'a> Loader<'a> {
@@ -930,12 +956,15 @@ impl<'a> Loader<'a> {
         for c in o.array_ptrs(o.layout_offset(64, 96))?.into_iter().flatten() {
             c.expect_class("hkbBlenderGeneratorChild")?;
             let generator = self.opt_id(c.ptr(c.layout_offset(32, 48))?);
+            let mask = c.ptr(c.layout_offset(36, 56))?;
+            let decoded_mask = mask.map(bone_weights).transpose()?;
+            if let (Some(mask), Some(weights)) = (mask, &decoded_mask) {
+                self.bone_weight_masks.insert(mask.base, weights.clone());
+            }
             children.push(BlenderChild {
                 generator,
-                bone_weights: c
-                    .ptr(c.layout_offset(36, 56))?
-                    .map(bone_weights)
-                    .transpose()?,
+                bone_weights: decoded_mask,
+                bone_weights_pointer: mask.map(|mask| mask.base),
                 weight: c.f32(c.layout_offset(40, 64))?,
                 world_from_model_weight: c.f32(c.layout_offset(44, 68))?,
                 bindings: Self::bindings(c)?,
@@ -950,6 +979,7 @@ impl<'a> Loader<'a> {
             flags: o.i16(o.layout_offset(58, 90))?,
             subtract_last_child: o.bool(o.layout_offset(60, 92))?,
             children,
+            bone_weight_masks: HashMap::new(),
         })
     }
 
