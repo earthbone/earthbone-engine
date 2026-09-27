@@ -19,6 +19,7 @@ use soe_papyrus::{NativeCall, NativeReturn, ObjectId, Value, Vm};
 use crate::clock::GameClock;
 use crate::combat::Hand;
 use crate::conditions;
+use crate::world::magic::MagicExecution;
 use crate::world::{reaction, AnimationListener, Handle, LeveledEntry, LosListener, World};
 
 pub type Shared = Rc<RefCell<World>>;
@@ -47,6 +48,16 @@ fn f(v: f32) -> NativeReturn {
 }
 fn s(v: &str) -> NativeReturn {
     ret(Value::string(v))
+}
+
+impl MagicExecution for NativeCall<'_> {
+    fn conditional_vars(&self, object: ObjectId, name: &str) -> Vec<Value> {
+        NativeCall::conditional_vars(self, object, name)
+    }
+
+    fn create_object(&mut self, name: &str, class: &str) -> ObjectId {
+        NativeCall::create_object(self, name, class)
+    }
 }
 
 fn text(v: &Value) -> String {
@@ -2454,7 +2465,8 @@ fn message_scene_sound_spell(vm: &mut Vm, w: &Shared) {
         };
         let target = world.form_arg(&call.arg(1));
         world.spell_casts.push((me, source, target));
-        if let Err(error) = world.cast_spell(me, source, Some(source), target, alloc!(call)) {
+        if let Err(error) = world.cast_spell_with_execution(me, source, Some(source), target, call)
+        {
             call.log.push(call.time, format!("Spell.Cast: {error}"));
         }
         none()
@@ -2466,7 +2478,7 @@ fn message_scene_sound_spell(vm: &mut Vm, w: &Shared) {
         let target = world.form_arg(&call.arg(2));
         world.spell_casts.push((me, source, target));
         let caster = world.form_arg(&call.arg(1));
-        if let Err(error) = world.cast_spell(me, source, caster, target, alloc!(call)) {
+        if let Err(error) = world.cast_spell_with_execution(me, source, caster, target, call) {
             call.log
                 .push(call.time, format!("Spell.RemoteCast: {error}"));
         }

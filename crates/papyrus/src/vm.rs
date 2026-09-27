@@ -167,6 +167,7 @@ pub struct NativeCall<'a> {
     pub log: &'a mut Log,
     latent_counter: &'a mut u64,
     objects: &'a mut HashMap<ObjectId, GameObject>,
+    instances: &'a [Instance],
     next_object: &'a mut u64,
 }
 
@@ -197,6 +198,12 @@ impl NativeCall<'_> {
     }
     pub fn object_name(&self, id: ObjectId) -> Option<&str> {
         self.objects.get(&id).map(|o| o.name.as_str())
+    }
+
+    /// Read matching conditional variables from an object's attached scripts.
+    /// Multiple matches remain visible so callers can reject ambiguous names.
+    pub fn conditional_vars(&self, object: ObjectId, name: &str) -> Vec<Value> {
+        conditional_vars(self.objects, self.instances, object, name)
     }
 }
 
@@ -280,6 +287,38 @@ struct Instance {
     state: String,
     vars: HashMap<String, Value>,
     var_types: HashMap<String, String>,
+}
+
+fn conditional_vars(
+    objects: &HashMap<ObjectId, GameObject>,
+    instances: &[Instance],
+    object: ObjectId,
+    name: &str,
+) -> Vec<Value> {
+    let Some(object) = objects.get(&object) else {
+        return Vec::new();
+    };
+    object
+        .instances
+        .iter()
+        .filter_map(|id| instances.get(id.0))
+        .filter_map(|instance| {
+            let (script, variable) = instance.chain.iter().find_map(|script| {
+                script
+                    .object
+                    .variables
+                    .iter()
+                    .find(|variable| variable.name.eq_ignore_ascii_case(name))
+                    .map(|variable| (script, variable))
+            })?;
+            let mask = script.conditional_mask;
+            if script.object.user_flags & mask == 0 || variable.user_flags & mask == 0 {
+                return None;
+            }
+            let key = variable_key(&script.name, &variable.name);
+            instance.vars.get(&key).cloned()
+        })
+        .collect()
 }
 
 fn variable_key(script: &str, name: &str) -> String {
@@ -737,30 +776,7 @@ impl Vm {
     /// visible to the caller instead of choosing by attachment order.
     /// Auto properties use their compiled `::Name_var` variable name.
     pub fn conditional_vars(&self, object: ObjectId, name: &str) -> Vec<Value> {
-        let Some(object) = self.objects.get(&object) else {
-            return Vec::new();
-        };
-        object
-            .instances
-            .iter()
-            .filter_map(|id| {
-                let instance = &self.instances[id.0];
-                let (script, variable) = instance.chain.iter().find_map(|script| {
-                    script
-                        .object
-                        .variables
-                        .iter()
-                        .find(|variable| variable.name.eq_ignore_ascii_case(name))
-                        .map(|variable| (script, variable))
-                })?;
-                let mask = script.conditional_mask;
-                if script.object.user_flags & mask == 0 || variable.user_flags & mask == 0 {
-                    return None;
-                }
-                let key = variable_key(&script.name, &variable.name);
-                instance.vars.get(&key).cloned()
-            })
-            .collect()
+        conditional_vars(&self.objects, &self.instances, object, name)
     }
 
     pub fn set_var(

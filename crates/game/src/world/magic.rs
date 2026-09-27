@@ -89,6 +89,25 @@ struct PreparedEffect {
     dispel: Vec<EffectId>,
 }
 
+pub(crate) trait MagicExecution {
+    fn conditional_vars(&self, object: ObjectId, name: &str) -> Vec<Value>;
+    fn create_object(&mut self, name: &str, class: &str) -> ObjectId;
+}
+
+struct AllocationExecution<'a> {
+    alloc: Alloc<'a>,
+}
+
+impl MagicExecution for AllocationExecution<'_> {
+    fn conditional_vars(&self, _object: ObjectId, _name: &str) -> Vec<Value> {
+        Vec::new()
+    }
+
+    fn create_object(&mut self, name: &str, class: &str) -> ObjectId {
+        (self.alloc)(name, class)
+    }
+}
+
 impl World {
     /// All currently applied effects, in application order.
     pub fn active_effects(&self) -> impl Iterator<Item = &ActiveEffect> {
@@ -380,6 +399,18 @@ impl World {
         target: Option<GlobalFormId>,
         alloc: Alloc<'_>,
     ) -> Result<Vec<EffectId>, MagicError> {
+        let mut execution = AllocationExecution { alloc };
+        self.cast_spell_with_execution(spell, source, caster, target, &mut execution)
+    }
+
+    pub(crate) fn cast_spell_with_execution(
+        &mut self,
+        spell: GlobalFormId,
+        source: GlobalFormId,
+        caster: Option<GlobalFormId>,
+        target: Option<GlobalFormId>,
+        execution: &mut impl MagicExecution,
+    ) -> Result<Vec<EffectId>, MagicError> {
         let definition = self.spell(spell)?;
         if !matches!(definition.data.cast_type, 0 | 1) {
             return Err(MagicError::Unsupported("concentration or scroll casting"));
@@ -411,14 +442,24 @@ impl World {
                 quest: None,
                 tempering_enchanted: None,
             };
-            if !conditions::evaluate_without_vm(self, context, &entry.conditions)? {
+            if !conditions::evaluate_with_lookup(
+                self,
+                context,
+                &entry.conditions,
+                &|object, name| execution.conditional_vars(object, &name),
+            )? {
                 continue;
             }
             let context = Context {
                 owner: effect,
                 ..context
             };
-            if !conditions::evaluate_without_vm(self, context, &base.conditions)? {
+            if !conditions::evaluate_with_lookup(
+                self,
+                context,
+                &base.conditions,
+                &|object, name| execution.conditional_vars(object, &name),
+            )? {
                 continue;
             }
             if data.flags & HOSTILE != 0 {
@@ -545,7 +586,9 @@ impl World {
                 });
             }
         }
-        self.apply_prepared_effects(prepared, alloc)
+        self.apply_prepared_effects(prepared, &mut |name, class| {
+            execution.create_object(name, class)
+        })
     }
 
     fn apply_prepared_effects(

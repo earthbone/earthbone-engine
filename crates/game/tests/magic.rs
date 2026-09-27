@@ -241,6 +241,24 @@ fn fixture(flags: u32, archetype: u32, magnitude: f32, duration: u32) -> Game {
     ))
 }
 
+fn conditional_int_script(
+    name: &str,
+    class: &str,
+    variable: &str,
+    value: i32,
+) -> soe_papyrus::pex::Script {
+    let mut script = ScriptBuilder::new(name, class)
+        .variable(variable, "Int", i(value))
+        .build();
+    script.user_flags.push(soe_papyrus::pex::UserFlag {
+        name: "conditional".into(),
+        bit: 3,
+    });
+    script.objects[0].user_flags = 8;
+    script.objects[0].variables[0].user_flags = 8;
+    script
+}
+
 #[test]
 fn mag_11_drinking_an_ingestible_consumes_it_applies_its_effect_and_expires() {
     let mut game = game(plugin(
@@ -511,6 +529,157 @@ fn magic_conditions_use_credited_caster_and_delivery_target() {
         .unwrap();
     assert!(skipped.is_empty());
     assert_eq!(game.world_mut().actor_value(id(OTHER), "health"), 100.0);
+}
+
+#[test]
+fn mag_69_cast_evaluates_live_quest_variable_predicates() {
+    let effect = effect(4, 0, 24, false)
+        .sub(T(b"CTDA"), condition(629, 0x900, 2.0, 0))
+        .zsub(T(b"CIS2"), "::gate");
+    let mut plugin = plugin(effect, vec![spell(SPELL, 0, false, 10.0, 0)]);
+    plugin.push_top(Record::new(T(b"QUST"), 0x900));
+    let mut game = game(plugin);
+    game.vm
+        .load(conditional_int_script("QuestGate", "Quest", "::gate", 2));
+    let quest = game.object_of_form(id(0x900));
+    game.vm.attach(quest, "QuestGate").unwrap();
+    let spell = Value::Object(game.object_of_form(id(SPELL)));
+    let source = Value::Object(game.object_of_form(id(ACTOR)));
+    let target = Value::Object(game.object_of_form(id(OTHER)));
+
+    native(
+        &mut game,
+        spell.clone(),
+        "Cast",
+        &[source.clone(), target.clone()],
+    );
+    assert_eq!(game.world_mut().actor_value(id(OTHER), "health"), 90.0);
+
+    game.vm
+        .set_var(quest, "QuestGate", "::gate", Value::Int(1))
+        .unwrap();
+    native(&mut game, spell, "Cast", &[source, target]);
+    assert_eq!(game.world_mut().actor_value(id(OTHER), "health"), 90.0);
+    assert_eq!(game.world().active_effects().count(), 1);
+}
+
+#[test]
+fn mag_69_remote_cast_evaluates_live_script_variable_predicates() {
+    let effect = effect(4, 0, 24, false)
+        .sub(T(b"CTDA"), condition(630, OTHER, 2.0, 0))
+        .zsub(T(b"CIS2"), "gate");
+    let mut game = game(plugin(effect, vec![spell(SPELL, 0, false, 10.0, 0)]));
+    game.vm
+        .load(conditional_int_script("ReferenceGate", "Actor", "gate", 2));
+    let target_object = game.object_of_form(id(OTHER));
+    game.vm.attach(target_object, "ReferenceGate").unwrap();
+    let spell = Value::Object(game.object_of_form(id(SPELL)));
+    let source = Value::Object(game.object_of_form(id(SOURCE)));
+    let caster = Value::Object(game.object_of_form(id(ACTOR)));
+    let target = Value::Object(target_object);
+
+    native(
+        &mut game,
+        spell.clone(),
+        "RemoteCast",
+        &[source.clone(), caster.clone(), target.clone()],
+    );
+    assert_eq!(game.world_mut().actor_value(id(OTHER), "health"), 90.0);
+
+    game.vm
+        .set_var(target_object, "ReferenceGate", "gate", Value::Int(1))
+        .unwrap();
+    native(&mut game, spell, "RemoteCast", &[source, caster, target]);
+    assert_eq!(game.world_mut().actor_value(id(OTHER), "health"), 90.0);
+    assert_eq!(game.world().active_effects().count(), 1);
+}
+
+#[test]
+fn mag_69_cast_evaluates_live_reference_variable_predicates() {
+    let effect = effect(4, 0, 24, false)
+        .sub(T(b"CTDA"), condition(630, OTHER, 2.0, 0))
+        .zsub(T(b"CIS2"), "gate");
+    let mut game = game(plugin(effect, vec![spell(SPELL, 0, false, 10.0, 0)]));
+    game.vm
+        .load(conditional_int_script("ReferenceGate", "Actor", "gate", 2));
+    let target_object = game.object_of_form(id(OTHER));
+    game.vm.attach(target_object, "ReferenceGate").unwrap();
+    let spell = Value::Object(game.object_of_form(id(SPELL)));
+    let source = Value::Object(game.object_of_form(id(SOURCE)));
+    let target = Value::Object(target_object);
+
+    native(
+        &mut game,
+        spell.clone(),
+        "Cast",
+        &[source.clone(), target.clone()],
+    );
+    assert_eq!(game.world_mut().actor_value(id(OTHER), "health"), 90.0);
+
+    game.vm
+        .set_var(target_object, "ReferenceGate", "gate", Value::Int(1))
+        .unwrap();
+    native(&mut game, spell, "Cast", &[source, target]);
+    assert_eq!(game.world_mut().actor_value(id(OTHER), "health"), 90.0);
+    assert_eq!(game.world().active_effects().count(), 1);
+}
+
+#[test]
+fn mag_69_remote_cast_evaluates_live_quest_variable_predicates() {
+    let effect = effect(4, 0, 24, false)
+        .sub(T(b"CTDA"), condition(629, 0x900, 2.0, 0))
+        .zsub(T(b"CIS2"), "::gate");
+    let mut plugin = plugin(effect, vec![spell(SPELL, 0, false, 10.0, 0)]);
+    plugin.push_top(Record::new(T(b"QUST"), 0x900));
+    let mut game = game(plugin);
+    game.vm
+        .load(conditional_int_script("QuestGate", "Quest", "::gate", 2));
+    let quest = game.object_of_form(id(0x900));
+    game.vm.attach(quest, "QuestGate").unwrap();
+    let spell = Value::Object(game.object_of_form(id(SPELL)));
+    let source = Value::Object(game.object_of_form(id(SOURCE)));
+    let caster = Value::Object(game.object_of_form(id(ACTOR)));
+    let target = Value::Object(game.object_of_form(id(OTHER)));
+
+    native(
+        &mut game,
+        spell.clone(),
+        "RemoteCast",
+        &[source.clone(), caster.clone(), target.clone()],
+    );
+    assert_eq!(game.world_mut().actor_value(id(OTHER), "health"), 90.0);
+
+    game.vm
+        .set_var(quest, "QuestGate", "::gate", Value::Int(1))
+        .unwrap();
+    native(&mut game, spell, "RemoteCast", &[source, caster, target]);
+    assert_eq!(game.world_mut().actor_value(id(OTHER), "health"), 90.0);
+    assert_eq!(game.world().active_effects().count(), 1);
+}
+
+#[test]
+fn mag_69_ambiguous_live_variable_rejects_cast_before_effects() {
+    let effect = effect(4, 0, 24, false)
+        .sub(T(b"CTDA"), condition(630, OTHER, 2.0, 0))
+        .zsub(T(b"CIS2"), "gate");
+    let mut game = game(plugin(effect, vec![spell(SPELL, 0, false, 10.0, 0)]));
+    game.vm
+        .load(conditional_int_script("FirstGate", "Actor", "gate", 2));
+    game.vm
+        .load(conditional_int_script("SecondGate", "Actor", "gate", 2));
+    let target_object = game.object_of_form(id(OTHER));
+    game.vm.attach(target_object, "FirstGate").unwrap();
+    game.vm.attach(target_object, "SecondGate").unwrap();
+    let spell = Value::Object(game.object_of_form(id(SPELL)));
+    let source = Value::Object(game.object_of_form(id(SOURCE)));
+    let caster = Value::Object(game.object_of_form(id(ACTOR)));
+    let target = Value::Object(target_object);
+
+    native(&mut game, spell, "RemoteCast", &[source, caster, target]);
+    assert_eq!(game.world_mut().actor_value(id(OTHER), "health"), 100.0);
+    assert!(game.world().active_effects().next().is_none());
+    assert!(game.world().pending.is_empty());
+    assert!(game.vm.log.contains("condition variable gate"));
 }
 
 /// mag_06: an area hit selects each eligible actor once using the spell

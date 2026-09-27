@@ -1558,7 +1558,11 @@ run separately, with FormIDs resolved against their owning MGEF. Both use the
 delivery recipient as subject and the credited caster as target. A false group
 skips only its effect. The currently implemented CTDA function set is shared
 with dialogue and crafting. Variable-backed predicates return a typed error
-until direct casting can borrow the VM for that lookup.
+when the referenced script variable is absent, ambiguous, nonconditional or
+nonnumeric. Papyrus `Spell.Cast` and `Spell.RemoteCast` read those values from
+the executing native call, so the live VM remains available without borrowing
+the VM itself. Direct `World::cast_spell` calls have no VM and still reject
+variable-backed predicates.
 The [Creation Kit Magic Effect page](https://ck.uesp.net/wiki/Magic_Effect)
 calls the flag "Swap Subject and Target" useful for running a condition on
 the spellcaster. The common SPEL/MGEF context is inferred from that statement
@@ -1592,6 +1596,12 @@ dispel. Future registrations alone do not keep an expired effect alive.
 before binding, a suspended finish callback, a live alias reference and a callback
 queued during `OnEffectFinish`. VM storage checks are described in
 [Papyrus](papyrus.md).
+
+The four `mag_69_` predicate tests check true and false quest and reference
+variables through both spell natives. The ambiguous-variable case confirms a
+failed predicate applies no effect and queues no callbacks. The CK Papyrus
+introduction describes scripts as variables read by engine functions; the
+conditional flag and ambiguity rules come from the local VM contract.
 
 Recover modifiers change the target once and reverse their own delta at the end.
 Other value modifiers integrate magnitude over unpaused simulation seconds, with

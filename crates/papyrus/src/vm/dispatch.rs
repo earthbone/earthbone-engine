@@ -280,6 +280,7 @@ impl Vm {
             log: &mut self.log,
             latent_counter: &mut self.latent_counter,
             objects: &mut self.objects,
+            instances: &self.instances,
             next_object: &mut self.next_object,
         };
         let ret = f(&mut call);

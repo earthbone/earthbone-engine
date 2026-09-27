@@ -9,7 +9,7 @@ use soe_esm::{
     records::gameplay::{Comparison, Condition},
     GlobalFormId, Tag,
 };
-use soe_papyrus::{Value, Vm};
+use soe_papyrus::{ObjectId, Value, Vm};
 
 mod actor_values;
 
@@ -61,31 +61,30 @@ pub fn evaluate(
     context: Context,
     conditions: &[Condition],
 ) -> Result<bool, Error> {
-    evaluate_with_vm(world, Some(vm), context, conditions)
+    let lookup = |object, name: String| vm.conditional_vars(object, &name);
+    evaluate_with_vm(world, Some(&lookup), context, conditions)
 }
 
-/// Evaluate conditions that do not require a Papyrus variable lookup.
-///
-/// Direct world actions have no VM borrow while they queue their later script
-/// events. Variable-backed predicates return [`Error::Variable`] in this mode.
-pub(crate) fn evaluate_without_vm(
+/// Evaluate conditions using a callback-safe view of the VM's conditional variables.
+pub(crate) fn evaluate_with_lookup(
     world: &mut World,
     context: Context,
     conditions: &[Condition],
+    lookup: &dyn Fn(ObjectId, String) -> Vec<Value>,
 ) -> Result<bool, Error> {
-    evaluate_with_vm(world, None, context, conditions)
+    evaluate_with_vm(world, Some(lookup), context, conditions)
 }
 
 fn evaluate_with_vm(
     world: &mut World,
-    vm: Option<&Vm>,
+    lookup: Option<&dyn Fn(ObjectId, String) -> Vec<Value>>,
     context: Context,
     conditions: &[Condition],
 ) -> Result<bool, Error> {
     let mut any = false;
     for (index, condition) in conditions.iter().enumerate() {
         if !any {
-            any = evaluate_one_with_vm(world, vm, context, condition)?;
+            any = evaluate_one_with_vm(world, lookup, context, condition)?;
         }
         if !condition.or_with_next() || index + 1 == conditions.len() {
             if !any {
@@ -153,12 +152,13 @@ pub fn evaluate_one(
     context: Context,
     c: &Condition,
 ) -> Result<bool, Error> {
-    evaluate_one_with_vm(world, Some(vm), context, c)
+    let lookup = |object, name: String| vm.conditional_vars(object, &name);
+    evaluate_one_with_vm(world, Some(&lookup), context, c)
 }
 
 fn evaluate_one_with_vm(
     world: &mut World,
-    vm: Option<&Vm>,
+    lookup: Option<&dyn Fn(ObjectId, String) -> Vec<Value>>,
     context: Context,
     c: &Condition,
 ) -> Result<bool, Error> {
@@ -182,7 +182,7 @@ fn evaluate_one_with_vm(
         target => return Err(Error::Target(target)),
     }
     .ok_or(Error::Target(c.run_on))?;
-    let actual = function_value(world, vm, context, subject, c)?;
+    let actual = function_value(world, lookup, context, subject, c)?;
     let expected = match c.comparison {
         Comparison::Number(value) => value,
         Comparison::Global(raw) => {
@@ -265,7 +265,7 @@ pub(crate) fn resolve(
 
 fn function_value(
     world: &mut World,
-    vm: Option<&Vm>,
+    lookup: Option<&dyn Fn(ObjectId, String) -> Vec<Value>>,
     context: Context,
     subject: GlobalFormId,
     c: &Condition,
@@ -451,7 +451,8 @@ fn function_value(
             let values = world
                 .object_id(Handle::Form(form))
                 .map(|object| {
-                    vm.map(|vm| vm.conditional_vars(object, name))
+                    lookup
+                        .map(|lookup| lookup(object, name.to_string()))
                         .unwrap_or_default()
                 })
                 .unwrap_or_default();
