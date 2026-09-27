@@ -7,7 +7,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use soe_esm::records::gameplay::{DialogueInfo, DialogueTopic, Response};
+use soe_esm::records::gameplay::{DialogueInfo, DialogueTopic, Response, TopicSubtype};
 use soe_esm::{GlobalFormId, Tag};
 use soe_papyrus::{Value, VmError};
 
@@ -36,6 +36,9 @@ pub struct Session {
 pub(crate) struct State {
     pub session: Option<Session>,
     pub said: BTreeMap<GlobalFormId, f64>,
+    /// The speaker currently being evaluated for an automatic ForceGreet.
+    /// This is an evaluation context and is not serialized.
+    pub greeting_actor: Option<GlobalFormId>,
     /// INFO records selected in the current do-all cycle, keyed by DIAL.
     pub repeated: BTreeMap<GlobalFormId, BTreeSet<GlobalFormId>>,
 }
@@ -279,6 +282,137 @@ impl World {
 }
 
 impl Game {
+    /// Start an eligible ForceGreet topic when a driven actor enters dialogue
+    /// range. The per-Game edge latch prevents repeated selection on later ticks.
+    ///
+    /// # Errors
+    ///
+    /// Invalid range settings, positions, dialogue records or conditions are
+    /// reported to the tick logger without changing the greeting latch.
+    pub(crate) fn update_automatic_greetings(&mut self) -> Result<(), Error> {
+        let (player, range, actors) = {
+            let mut world = self.world.borrow_mut();
+            let player = world.player();
+            let Some(Value::Float(range)) =
+                world.game_setting("fAIInDialogueModeWithPlayerDistance")
+            else {
+                return Err(Error::State("missing or invalid dialogue distance setting"));
+            };
+            if !range.is_finite() || range < 0.0 {
+                return Err(Error::State("invalid dialogue distance setting"));
+            }
+            (player, range, world.loaded_actors())
+        };
+
+        let (player_position, player_cell) = {
+            let mut world = self.world.borrow_mut();
+            let player_ref = world.reference(player).ok_or(Error::Record(player))?;
+            (player_ref.position, player_ref.cell)
+        };
+        if player_position.iter().any(|value| !value.is_finite()) {
+            return Err(Error::State("invalid dialogue participant position"));
+        }
+
+        let mut nearby = BTreeSet::new();
+        let mut entering = Vec::new();
+        {
+            let mut world = self.world.borrow_mut();
+            for actor in actors {
+                if actor == player {
+                    continue;
+                }
+                let Some(state) = world.actor_ref(actor) else {
+                    continue;
+                };
+                if state.dead || state.in_combat || state.unconscious || !state.allow_pc_dialogue {
+                    continue;
+                }
+                let ghost = state.ghost;
+                let Some(reference) = world.reference(actor) else {
+                    continue;
+                };
+                let (position, cell, enabled, alpha) = (
+                    reference.position,
+                    reference.cell,
+                    reference.enabled,
+                    reference.alpha,
+                );
+                if !enabled || position.iter().any(|value| !value.is_finite()) {
+                    continue;
+                }
+                if alpha < 1.0 && !ghost {
+                    continue;
+                }
+                let same_space = if player_cell == cell {
+                    true
+                } else {
+                    let worldspace = |cell: Option<GlobalFormId>, world: &World| {
+                        let cell = cell?;
+                        if world.cell_is_interior(cell) {
+                            return None;
+                        }
+                        let raw = world.record(cell)?.placement.world?;
+                        world.resolve_from(cell, raw)
+                    };
+                    worldspace(player_cell, &world).is_some()
+                        && worldspace(player_cell, &world) == worldspace(cell, &world)
+                };
+                if !same_space {
+                    continue;
+                }
+                let distance_squared: f64 = position
+                    .iter()
+                    .zip(player_position)
+                    .map(|(a, b)| (f64::from(*a) - f64::from(b)).powi(2))
+                    .sum();
+                if distance_squared <= f64::from(range).powi(2) {
+                    nearby.insert(actor);
+                    if !self.greeting_range_actors.contains(&actor) {
+                        entering.push(actor);
+                    }
+                }
+            }
+        }
+        self.greeting_range_actors = nearby;
+
+        for actor in entering {
+            if self.world.borrow().dialogue.session.is_some() {
+                break;
+            }
+            self.begin_dialogue(actor, player)?;
+            self.world.borrow_mut().dialogue.greeting_actor = Some(actor);
+            let result: Result<(), Error> = (|| {
+                let choices = self.dialogue_choices()?;
+                let greeting = choices.available.into_iter().find(|choice| {
+                    self.world
+                        .borrow()
+                        .dialogue_topic(choice.topic)
+                        .is_ok_and(|topic| Self::is_force_greet(&topic))
+                });
+                if let Some(greeting) = greeting {
+                    self.choose_dialogue(greeting.topic)?;
+                } else {
+                    self.close_dialogue();
+                }
+                Ok(())
+            })();
+            self.world.borrow_mut().dialogue.greeting_actor = None;
+            if let Err(error) = result {
+                self.close_dialogue();
+                return Err(error);
+            }
+        }
+        Ok(())
+    }
+
+    fn is_force_greet(topic: &DialogueTopic) -> bool {
+        topic.category == Some(0)
+            && matches!(
+                topic.subtype,
+                Some(TopicSubtype::Numeric(1) | TopicSubtype::Signature([b'P', b'F', b'G', b'T']),)
+            )
+    }
+
     /// Open a conversation without inventing an eligible topic.
     /// The host queries choices and acknowledges actual response completion.
     ///
@@ -303,6 +437,7 @@ impl Game {
         {
             return Err(Error::State("speaker or listener unavailable"));
         }
+        world.dialogue.greeting_actor = None;
         world.dialogue.session = Some(Session {
             speaker,
             listener,
@@ -316,7 +451,9 @@ impl Game {
 
     /// Close a conversation. Interrupted lines do not run their end fragments.
     pub fn close_dialogue(&mut self) {
-        self.world.borrow_mut().dialogue.session = None;
+        let mut world = self.world.borrow_mut();
+        world.dialogue.session = None;
+        world.dialogue.greeting_actor = None;
     }
 
     /// End an out-of-range conversation and dispatch its active INFO end fragment.
@@ -897,6 +1034,7 @@ impl Game {
             .is_some_and(|data| data.flags() & GOODBYE != 0)
         {
             world.dialogue.session = None;
+            world.dialogue.greeting_actor = None;
         } else if let Some(session) = &mut world.dialogue.session {
             session.current_info = None;
             session.last_info = Some(info_id);

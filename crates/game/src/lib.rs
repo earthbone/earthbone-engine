@@ -55,6 +55,7 @@ pub mod vmad;
 pub mod world;
 
 use std::cell::{Ref, RefCell, RefMut};
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
@@ -143,6 +144,8 @@ pub struct Game {
     pub budget: usize,
     /// One hash per tick once [`Game::record_hashes`] turned it on.
     hash_log: Option<Vec<determinism::TickHash>>,
+    /// Actors that were in greeting range on the previous gameplay tick.
+    greeting_range_actors: BTreeSet<soe_esm::GlobalFormId>,
 }
 
 impl Game {
@@ -162,6 +165,7 @@ impl Game {
             bound: None,
             budget: 100_000,
             hash_log: None,
+            greeting_range_actors: BTreeSet::new(),
         }
     }
 
@@ -614,6 +618,9 @@ impl Game {
         self.run_until_idle(64);
         if !menu_mode {
             if let Err(error) = self.update_dialogue_range() {
+                self.vm.log.push(self.vm.time(), error.to_string());
+            }
+            if let Err(error) = self.update_automatic_greetings() {
                 self.vm.log.push(self.vm.time(), error.to_string());
             }
         }

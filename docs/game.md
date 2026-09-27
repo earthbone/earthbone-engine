@@ -1380,6 +1380,29 @@ services, complete alias behavior and interruption rules. Godot activation,
 menus, voice assets, LIP and idle playback are not connected to this API. This increment does not establish playable dialogue
 or complete the broader gameplay goal.
 
+DLG-02 starts a greeting when a driven, living actor enters the current
+`fAIInDialogueModeWithPlayerDistance` range of the player in the same cell or
+exterior worldspace. The DIAL must use the Player category and ForceGreet
+subtype, encoded as legacy DATA subtype 1 or SNAM `PFGT`. The normal dialogue
+choice path evaluates its quest and INFO conditions and starts the first
+available greeting topic. A per-Game actor set records which actors were
+already in range, so another gameplay tick does not start the line again.
+Leaving range clears that actor's entry and allows a later greeting. Actors
+that are dead, in combat, unconscious, disallowed from PC dialogue, disabled,
+or translucent without the ghost flag are skipped. The range latch is runtime
+state and is not part of the engine save.
+
+CTDA function 123, `IsGreetingPlayer`, takes no parameters and returns true for
+the current actor while automatic ForceGreet choices are evaluated. Ordinary
+conversation choices return false for that predicate.
+
+The DIAL category and legacy subtype fields follow xEdit
+`wbDefinitionsTES5.pas`; the SNAM subtype names and the fact that SNAM replaces
+the legacy subtype follow UESP `DIAL.wikitext`. The alpha and ghost eligibility
+rule follows CK `SetAlpha_-_Actor.wikitext`. CK `MoveTo_-_ObjectReference`
+describes ForceGreet as an approach procedure. This increment selects dialogue
+after an actor is already in range and does not move actors toward the player.
+
 DLG-07 adds the persuasion and intimidation CTDA functions: IsIntimidatedbyPlayer
 (116), GetPersuasionNumber (225), GetTotalPersuasionNumber (315) and
 GetIntimidateSuccess (655). All four take no parameter in `wbDefinitionsTES5.pas`
