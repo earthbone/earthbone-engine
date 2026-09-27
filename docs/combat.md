@@ -200,11 +200,35 @@ engine save/load. Ordinary weapons retain their shared template resolver.
 ## Remaining execution work
 
 Host attack input, timing/contact detection, hand-specific selection, ranged
-weapons/ammunition, bashing, sneak attacks, dual-wield and bash power
+weapons/ammunition, dual-wield and bash power
 attacks, weapon-only blocking, perk entry points, enchantments, poison, bleedout,
 stagger, crime and combat AI remain unfinished. The API is an execution
 increment and does not establish playable combat or completion of the broader
 gameplay-foundations goal.
+
+## Sneak attack multipliers, CMB-06
+
+An ordinary melee hit is a sneak attack when its attacker is currently
+sneaking and the target's CMB-31 awareness of that attacker is not Combat.
+No awareness entry means the target has not detected the attacker. Combat
+awareness suppresses the multiplier even if the attacker remains in the
+sneaking state. Bashes do not use this weapon multiplier.
+
+The multiplier is read from the load order's GMST using the WEAP animation
+type: hand-to-hand uses `fCombatSneakHandMult`, one-handed swords, daggers,
+axes and maces use their corresponding `fCombatSneak1H...Mult` setting, and
+two-handed swords and axes use `fCombatSneak2H...Mult`. The xEdit animation
+enum in `TES5Edit/Core/wbDefinitionsTES5.pas` defines these WEAP categories.
+Wrye Bash's `GmstTweak_Combat_StealthDamageBonus` identifies the dagger, bow
+and crossbow sneak settings. The installed Skyrim.esm contains the six melee
+settings used here. Missing or invalid selected settings reject the hit before
+damage is committed. The multiplier scales base weapon damage before the
+existing actor-value, quality, armor, block, resistance and difficulty terms.
+
+The CK `OnHit_-_ObjectReference.wikitext` defines `abSneakAttack` as whether
+the hit was caused by a sneak attack. `OnHit` now receives the same result as
+`HitResult::sneak_attacked`. Ranged sneak multipliers remain outside this
+melee-only path.
 
 ## Block damage reduction, CMB-05
 

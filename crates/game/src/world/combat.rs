@@ -29,6 +29,19 @@ const SUPPORTED_ARMOR_SLOTS: u32 = (1 << 14) - 1;
 const POWER_ATTACK_STAMINA_BASE: f32 = 40.0;
 const POWER_ATTACK_STAMINA_PER_WEIGHT: f32 = 2.0;
 
+fn sneak_attack_setting(animation: u8) -> Option<&'static str> {
+    Some(match animation {
+        0 => "fCombatSneakHandMult",
+        1 => "fCombatSneak1HSwordMult",
+        2 => "fCombatSneak1HDaggerMult",
+        3 => "fCombatSneak1HAxeMult",
+        4 => "fCombatSneak1HMaceMult",
+        5 => "fCombatSneak2HSwordMult",
+        6 => "fCombatSneak2HAxeMult",
+        _ => return None,
+    })
+}
+
 /// A poisoned stack's index in `Inventory::stacks` alongside its poison
 /// item, threaded from `combat_stack_poison` through `check_combat_weapon`
 /// to `melee_hit`'s deferred consumption step (CMB-25).
@@ -133,6 +146,30 @@ impl World {
         Ok(Some(armor))
     }
 
+    fn sneak_attack_qualifies(&self, attacker: GlobalFormId, target: GlobalFormId) -> bool {
+        self.actors
+            .get(&attacker)
+            .is_some_and(|actor| actor.sneaking)
+            && self
+                .awareness(target, attacker)
+                .is_none_or(|awareness| awareness.level != crate::detection::DetectionLevel::Combat)
+    }
+
+    fn sneak_attack_multiplier(&self, animation: u8) -> Result<f32, Error> {
+        let name = sneak_attack_setting(animation)
+            .ok_or(Error::Unsupported("sneak attack weapon type"))?;
+        let multiplier = match self.game_setting(name) {
+            Some(Value::Float(value)) => value,
+            Some(Value::Int(value)) => value as f32,
+            _ => return Err(Error::Setting(name)),
+        };
+        if multiplier.is_finite() && multiplier >= 0.0 {
+            Ok(multiplier)
+        } else {
+            Err(Error::Setting(name))
+        }
+    }
+
     /// Execute one ordinary melee contact after host collision detection.
     ///
     /// # Errors
@@ -144,6 +181,7 @@ impl World {
         }
         self.validate_combat_actor(hit.attacker)?;
         self.validate_combat_actor(hit.target)?;
+        let sneak_attacked = !hit.is_bash && self.sneak_attack_qualifies(hit.attacker, hit.target);
         // Reading the target's actor base below may initialize it lazily, and
         // save_state persists that entry (CMB-36). Validate the equipped
         // weapon's quality extras first (CMB-10), a read-only pass, so a
@@ -285,6 +323,11 @@ impl World {
             }
             let (damage, resist, ignores_resistance) =
                 self.unarmed_damage(hit.attacker, hit.weapon)?;
+            let damage = if sneak_attacked {
+                finite(f64::from(damage) * f64::from(self.sneak_attack_multiplier(0)?))?
+            } else {
+                damage
+            };
             (damage, 0.0_f32, 1.0_f32, None, resist, ignores_resistance)
         } else {
             let weapon = self.combat_weapon(hit.weapon)?;
@@ -338,6 +381,12 @@ impl World {
                         + f64::from(weapon.weight) * f64::from(POWER_ATTACK_STAMINA_PER_WEIGHT))
                         * f64::from(power_attack.stamina_mult),
                 )?);
+            }
+            if sneak_attacked {
+                weapon_damage = finite(
+                    f64::from(weapon_damage)
+                        * f64::from(self.sneak_attack_multiplier(weapon.animation)?),
+                )?;
             }
             (
                 weapon_damage,
@@ -468,7 +517,7 @@ impl World {
             source,
             Value::None,
             Value::Bool(hit.is_power_attack),
-            Value::Bool(false),
+            Value::Bool(sneak_attacked),
             Value::Bool(hit.is_bash),
             Value::Bool(blocked),
         ];
@@ -542,6 +591,7 @@ impl World {
             staggered,
             bashed: hit.is_bash,
             poisoned,
+            sneak_attacked,
         })
     }
 
