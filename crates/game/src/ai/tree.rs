@@ -93,6 +93,31 @@ impl Tree {
         self.location(branch).map(|_| height)
     }
 
+    fn orbit_parameters(&self, branch: &Branch) -> Option<f32> {
+        let values = branch
+            .inputs
+            .iter()
+            .filter_map(|&index| {
+                self.chain.iter().find_map(|(_, package)| {
+                    match package.input(index as i8).map(|input| input.value) {
+                        Some(DataValue::Float(value)) => Some(value),
+                        _ => None,
+                    }
+                })
+            })
+            .collect::<Vec<_>>();
+        let [inner, outer, height] = values.as_slice() else {
+            return None;
+        };
+        (inner.is_finite()
+            && outer.is_finite()
+            && height.is_finite()
+            && *inner >= 0.0
+            && *outer >= *inner)
+            .then_some(*height)
+            .filter(|_| self.location(branch).is_some())
+    }
+
     fn patrol_parameters(
         &self,
         branch: &Branch,
@@ -150,6 +175,7 @@ fn procedure(branch: &Branch) -> Procedure {
         },
         Some("hover") => Procedure::Hover,
         Some("follow") => Procedure::Follow,
+        Some("orbit") => Procedure::Orbit { height: 0.0 },
         Some("forcegreet") => Procedure::ForceGreet,
         Some("useidlemarker") => Procedure::UseIdleMarker { marker: None },
         Some("holdposition") => Procedure::HoldPosition,
@@ -200,6 +226,40 @@ pub(super) fn follow_parameters(
         catch_up_radius,
         follow_radius,
     ))
+}
+
+pub(super) fn orbit_parameters(
+    world: &World,
+    ai: &AiState,
+) -> Option<(GlobalFormId, LocationData, f32, f32, f32)> {
+    let package_id = ai.package?;
+    let tree = Tree::load(world, package_id)?;
+    let branch = tree.branches.get(ai.tree.as_ref()?.branch as usize)?;
+    let (owner, location) = tree.location(branch)?;
+    let values = branch
+        .inputs
+        .iter()
+        .filter_map(|&index| {
+            tree.chain.iter().find_map(|(_, package)| {
+                match package.input(index as i8).map(|input| input.value) {
+                    Some(DataValue::Float(value)) => Some(value),
+                    _ => None,
+                }
+            })
+        })
+        .collect::<Vec<_>>();
+    let [inner, outer, height] = values.as_slice() else {
+        return None;
+    };
+    if !inner.is_finite()
+        || !outer.is_finite()
+        || !height.is_finite()
+        || *inner < 0.0
+        || *outer < *inner
+    {
+        return None;
+    }
+    Some((owner, location, *inner, *outer, *height))
 }
 
 pub(super) fn force_greet_parameters(
@@ -386,6 +446,12 @@ pub(super) fn enter(world: &mut World, actor: GlobalFormId, ai: &mut AiState) {
             match tree.hover_parameters(branch) {
                 Some(height) => hover_height = Some(height),
                 None => chosen = Procedure::Unsupported("Hover inputs, AI-31".into()),
+            }
+        }
+        if matches!(chosen, Procedure::Orbit { .. }) {
+            match tree.orbit_parameters(branch) {
+                Some(height) => chosen = Procedure::Orbit { height },
+                None => chosen = Procedure::Unsupported("Orbit inputs, AI-25".into()),
             }
         }
         let is_patrol = chosen == Procedure::Patrol;

@@ -12,6 +12,8 @@
 //! `Hover` flies to its authored location and height, then holds there until
 //! another package replaces it. `Follow` tracks a resolved target, stopping
 //! within its authored follow radius and running beyond its catch-up radius.
+//! `Orbit` circles a resolved package location at its authored height and
+//! stays between its inner and outer radii on the navmesh.
 //! Walking follows the vanilla navmesh graph (`soe_navmesh::vanilla`)
 //! built once per world, and crossing into another navmesh moves the actor
 //! into that navmesh's cell. Its rates come from the actor race's `WKMV` and
@@ -71,7 +73,7 @@ const MTYP: Tag = Tag::new(b"MTYP");
 const SPED: Tag = Tag::new(b"SPED");
 
 /// What the chosen package makes the actor do.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub enum Procedure {
     #[default]
     None,
@@ -85,6 +87,10 @@ pub enum Procedure {
     },
     Hover,
     Follow,
+    /// Circle a resolved location inside the authored radii at a fixed height.
+    Orbit {
+        height: f32,
+    },
     /// Approach the assigned target and start its assigned dialogue topic.
     ForceGreet,
     /// Walk to and hold an exclusive idle marker selected by the package.
@@ -874,6 +880,7 @@ fn begin_procedure(
         Procedure::None
         | Procedure::Wait { .. }
         | Procedure::Patrol
+        | Procedure::Orbit { .. }
         | Procedure::Unsupported(_) => {}
     }
 }
@@ -1252,6 +1259,13 @@ fn step(world: &mut World, actor: GlobalFormId, dt: f32) {
     if ai.procedure == Procedure::Follow {
         follow_target(world, actor, &mut ai, position);
     }
+    if matches!(ai.procedure, Procedure::Orbit { .. }) {
+        orbit(world, actor, &mut ai, position, dt);
+        if let Some(a) = world.actor(actor) {
+            a.ai = ai;
+        }
+        return;
+    }
     if ai.procedure == Procedure::HoldPosition {
         let hold_position = ai.center.unwrap_or(position);
         if distance(position, hold_position) > ARRIVAL_DISTANCE {
@@ -1470,6 +1484,82 @@ fn follow_target(world: &mut World, actor: GlobalFormId, ai: &mut AiState, posit
     ai.speed = movement_speed(world, actor, preferred);
 }
 
+fn orbit(world: &mut World, actor: GlobalFormId, ai: &mut AiState, position: [f32; 3], dt: f32) {
+    let Some((owner, location, inner, outer, height)) = tree::orbit_parameters(world, ai) else {
+        ai.procedure = Procedure::Unsupported("Orbit inputs, AI-25".into());
+        return;
+    };
+    if let Some(place) = resolve_location(world, actor, owner, ai.alias, ai, &location) {
+        ai.center = Some(place.position);
+        ai.center_cell = place.cell;
+    } else {
+        ai.procedure = Procedure::Unsupported("Orbit target location, AI-25".into());
+        return;
+    }
+    let Some(center) = ai.center else { return };
+    let center = [center[0], center[1], center[2] + height];
+    let dx = position[0] - center[0];
+    let dy = position[1] - center[1];
+    let current_radius = dx.hypot(dy);
+    let radius = current_radius.clamp(inner, outer);
+    let angle = dy.atan2(dx);
+    let angular_step = (ai.speed * dt.max(0.0) / radius.max(1.0)).clamp(0.0, 0.3);
+    let mut moved = false;
+    for direction in [1.0, -1.0] {
+        let next_angle = angle + direction * angular_step;
+        let destination = [
+            center[0] + radius * next_angle.cos(),
+            center[1] + radius * next_angle.sin(),
+            center[2],
+        ];
+        ensure_nav_graph(world);
+        let Some(graph) = world.ai.nav.as_ref() else {
+            return;
+        };
+        if graph.find_path_between(position, destination).is_none()
+            || !orbit_arc_valid(graph, center, radius, angle, next_angle, inner, outer)
+        {
+            continue;
+        }
+        if let Some(reference) = world.reference(actor) {
+            reference.position = destination;
+            if let Some(cell) = ai.center_cell {
+                reference.cell = Some(cell);
+            }
+        }
+        ai.destination = Some(destination);
+        ai.arrived = true;
+        moved = true;
+        break;
+    }
+    if !moved {
+        ai.destination = None;
+        ai.arrived = false;
+    }
+}
+
+fn orbit_arc_valid(
+    graph: &NavGraph,
+    center: [f32; 3],
+    radius: f32,
+    start_angle: f32,
+    end_angle: f32,
+    inner: f32,
+    outer: f32,
+) -> bool {
+    (0..=8).all(|step| {
+        let t = step as f32 / 8.0;
+        let angle = start_angle + (end_angle - start_angle) * t;
+        let point = [
+            center[0] + radius * angle.cos(),
+            center[1] + radius * angle.sin(),
+            center[2],
+        ];
+        let radius = (point[0] - center[0]).hypot(point[1] - center[1]);
+        (inner - 0.01..=outer + 0.01).contains(&radius) && graph.locate(point).is_some()
+    })
+}
+
 // ----- save and load -----
 
 fn write_opt_form_id(w: &mut Writer, id: Option<GlobalFormId>) {
@@ -1530,6 +1620,10 @@ pub(crate) fn write_record_state(w: &mut Writer, a: &AiState) {
         Procedure::Follow => w.u8(8),
         Procedure::ForceGreet => w.u8(10),
         Procedure::HoldPosition => w.u8(11),
+        Procedure::Orbit { height } => {
+            w.u8(12);
+            w.f32(*height);
+        }
         Procedure::UseIdleMarker { marker } => {
             w.u8(9);
             match marker {
@@ -1608,7 +1702,12 @@ pub fn write_state(w: &mut Writer, a: &AiState) {
 
 /// Read a complete driver state written by [`write_state`].
 pub fn read_state(r: &mut Reader<'_>) -> Result<AiState, VmError> {
-    let mut a = read_state_mapped(&mut FormReader::new(r, FormNamespace::Current), true, true)?;
+    let mut a = read_state_mapped(
+        &mut FormReader::new(r, FormNamespace::Current),
+        true,
+        true,
+        true,
+    )?;
     a.tree = read_tree_state(r)?;
     Ok(a)
 }
@@ -1617,6 +1716,7 @@ pub(crate) fn read_state_mapped(
     r: &mut FormReader<'_, '_>,
     has_force_greet_state: bool,
     has_hold_position: bool,
+    has_orbit: bool,
 ) -> Result<AiState, VmError> {
     let mut a = AiState {
         package: read_opt_form_id(r)?,
@@ -1661,6 +1761,18 @@ pub(crate) fn read_state_mapped(
         11 => {
             return Err(VmError::State(
                 "HoldPosition procedure requires world version 38".into(),
+            ));
+        }
+        12 if has_orbit => {
+            let height = r.f32()?;
+            if !height.is_finite() {
+                return Err(VmError::State("invalid Orbit height".into()));
+            }
+            Procedure::Orbit { height }
+        }
+        12 => {
+            return Err(VmError::State(
+                "Orbit procedure requires world version 39".into(),
             ));
         }
         9 => {

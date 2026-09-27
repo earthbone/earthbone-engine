@@ -711,6 +711,15 @@ wiki's `GetFlyingState - Actor` page defines 3 as Hovering, and its
 `IsFlying - Actor` page defines the Boolean query. The corpus has no Hover
 procedure contract page.
 
+`Orbit` resolves its `TargetLocation` input on every driver tick, then moves
+around that point at the authored `Height`. It keeps the actor between the
+authored `InnerRadius` and `OuterRadius`, and advances only when the arc
+stays inside both bounds and over a navmesh. Missing inputs, non-finite values,
+negative inner radii or an outer radius below the inner radius leave an
+unsupported procedure. The package input names and radius meanings follow the
+Creation Kit `Orbit (Procedure)` page. SOEW version 39 saves the active Orbit
+height.
+
 **Walking.** `ai::nav_graph` builds `soe_navmesh::vanilla` over every
 winning `NAVM` on first use and remembers which cell each mesh sits in.
 A route is `find_path_between` from the actor to the place. The actor follows
@@ -885,7 +894,7 @@ either.
 
 `World::save_state(&self) -> Vec<u8>` and `World::load_state(&mut self,
 bytes) -> Result<(), VmError>` write and read the run-time half of the form
-table, magic `SOEW`, version 29. Versions 4 to 6 use legacy actor values,
+table, magic `SOEW`, version 39. Versions 4 to 6 use legacy actor values,
 version 5 adds active magic, version 6 adds dialogue, version 7 adds actor-value
 components, version 8 adds dialogue to those components, and version 9 adds
 active magic. Version 10 adds per-reference leveled template choices.
@@ -902,7 +911,9 @@ locked encounter-zone levels, version 28 the do-all dialogue cycles, and
 version 29 an actor's stagger end time. Version 30 appends shared stealth-point
 pools with each observer's detection level and timers, written only when a pool
 exists. Version 31 adds the set of perpetrators an actor witnessed committing a
-tracked crime.
+tracked crime. Versions 32 and 33 retain assigned hand spells and summoned
+references. Versions 34 to 39 add Hover, Follow, UseIdleMarker, ForceGreet,
+HoldPosition and Orbit procedure state.
 version 5 adds active magic, version 6 adds dialogue, version 7 adds actor-value
 components, version 8 adds dialogue to those components, version 9 adds
 active magic. Version 10 adds per-reference leveled template choices.
