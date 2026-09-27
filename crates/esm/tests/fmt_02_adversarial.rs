@@ -9,11 +9,11 @@ fn fmt_02_adversarial_all_named_offsets_match_mgef_source_fields() {
     let mut data = vec![0; 152];
     for (offset, value) in [
         (28usize, 0x3f00_0001u32), // taper weight
-        (72, 0x0100_0801), // projectile
-        (76, 0x0100_0802), // explosion
-        (112, 0xbf00_0001), // dual cast scale
-        (144, 0x447a_0001), // AI score
-        (148, 0x3e80_0001), // AI delay
+        (72, 0x0100_0801),         // projectile
+        (76, 0x0100_0802),         // explosion
+        (112, 0xbf00_0001),        // dual cast scale
+        (144, 0x447a_0001),        // AI score
+        (148, 0x3e80_0001),        // AI delay
     ] {
         data[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
     }
@@ -33,6 +33,9 @@ fn fmt_02_adversarial_missing_and_truncated_data_are_errors() {
     assert!(MagicEffect::from_record(&Record::new(b"MGEF", 1), false).is_err());
     for size in [0, 27, 151, 153] {
         let record = Record::new(b"MGEF", 1).sub(b"DATA", vec![0; size]);
-        assert!(MagicEffect::from_record(&record, false).is_err(), "size {size}");
+        assert!(
+            MagicEffect::from_record(&record, false).is_err(),
+            "size {size}"
+        );
     }
 }

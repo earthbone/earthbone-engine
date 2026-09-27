@@ -38,7 +38,10 @@ fn fmt_15_adversarial_every_vmad_object_array_link_is_remapped() {
         plugin.remap_form_ids(&mapping).unwrap();
         let bytes = plugin.records[0].find(Tag::new(b"VMAD")).unwrap();
         for (at, expected) in locations.into_iter().zip([0x901u32, 0x902, 0x903]) {
-            assert_eq!(u32::from_le_bytes(bytes[at..at + 4].try_into().unwrap()), expected);
+            assert_eq!(
+                u32::from_le_bytes(bytes[at..at + 4].try_into().unwrap()),
+                expected
+            );
         }
     }
 }
@@ -49,7 +52,9 @@ fn fmt_15_adversarial_malformed_typed_data_does_not_partially_remap() {
     plugin.push_top(Record::new(b"REFR", 0x800).sub(b"NAME", 0x801u32.to_le_bytes()));
     plugin.push_top(Record::new(b"QUST", 0x802).sub(b"VMAD", [5, 0, 9, 0]));
     let before = plugin.clone();
-    assert!(plugin.remap_form_ids(&HashMap::from([(0x800, 0x900), (0x801, 0x901)])).is_err());
+    assert!(plugin
+        .remap_form_ids(&HashMap::from([(0x800, 0x900), (0x801, 0x901)]))
+        .is_err());
     assert_eq!(plugin, before);
 }
 
@@ -72,7 +77,9 @@ fn fmt_15_adversarial_qust_alias_object_formid_is_remapped() {
 
     let mut plugin = Plugin::new(FileHeader::default());
     plugin.push_top(Record::new(b"QUST", 0x800).sub(b"VMAD", vmad));
-    plugin.remap_form_ids(&HashMap::from([(0x801, 0x901)])).unwrap();
+    plugin
+        .remap_form_ids(&HashMap::from([(0x801, 0x901)]))
+        .unwrap();
     let bytes = plugin.records[0].find(Tag::new(b"VMAD")).unwrap();
     assert_eq!(u32::from_le_bytes(bytes[17..21].try_into().unwrap()), 0x901);
 }

@@ -38,8 +38,11 @@ fn vmad(object_format: u16, values: &[u32]) -> Vec<u8> {
             data.extend_from_slice(&[0; 4]);
         }
     }
-    // A fragment section follows the script properties and must be preserved.
-    data.extend_from_slice(&[0xde, 0xad, 0xbe, 0xef]);
+    // A valid empty QUST fragment section follows the script properties.
+    data.push(2); // extra bind data version
+    data.extend_from_slice(&0u16.to_le_bytes()); // fragments
+    data.extend_from_slice(&0u16.to_le_bytes()); // fragment file name
+    data.extend_from_slice(&0u16.to_le_bytes()); // alias scripts
     data
 }
 
@@ -138,7 +141,7 @@ fn fmt_15_remaps_typed_vmad_objects_and_arrays_in_both_formats() {
             u32::from_le_bytes(data[array_link..array_link + 4].try_into().unwrap()),
             0x902
         );
-        assert_eq!(&data[data.len() - 4..], &[0xde, 0xad, 0xbe, 0xef]);
+        assert_eq!(&data[data.len() - 7..], &[2, 0, 0, 0, 0, 0, 0]);
     }
 }
 

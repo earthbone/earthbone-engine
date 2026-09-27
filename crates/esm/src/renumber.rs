@@ -20,7 +20,11 @@ pub(crate) fn remap_plugin(plugin: &mut Plugin, mapping: &HashMap<u32, u32>) -> 
         record.placement.cell = record.placement.cell.map(|id| remap(id, mapping));
         for subrecord in &mut record.subrecords {
             if subrecord.tag == Tag::new(b"VMAD") {
-                remap_vmad(&mut subrecord.data, mapping)?;
+                remap_vmad(
+                    &mut subrecord.data,
+                    mapping,
+                    record.tag == Tag::new(b"QUST"),
+                )?;
             } else if record.tag == Tag::new(b"HAZD") && subrecord.tag == Tag::new(b"DATA") {
                 remap_hazd_data(&mut subrecord.data, mapping)?;
             } else if record.tag == Tag::new(b"MGEF") && subrecord.tag == Tag::new(b"DATA") {
@@ -177,7 +181,7 @@ fn form_id_field(record: Tag, field: Tag) -> bool {
         || (record == Tag::new(b"INFO") && field == Tag::new(b"TCLT"))
 }
 
-fn remap_vmad(data: &mut [u8], mapping: &HashMap<u32, u32>) -> Result<()> {
+fn remap_vmad(data: &mut [u8], mapping: &HashMap<u32, u32>, quest_fragments: bool) -> Result<()> {
     let mut cursor = VmadCursor { data, pos: 0 };
     cursor.skip(2)?; // VMAD version
     let object_format = cursor.u16()?;
@@ -186,8 +190,30 @@ fn remap_vmad(data: &mut [u8], mapping: &HashMap<u32, u32>) -> Result<()> {
             "unsupported VMAD object format {object_format}"
         )));
     }
-    let scripts = cursor.u16()?;
     let mut offsets = Vec::new();
+    remap_scripts(&mut cursor, object_format, &mut offsets)?;
+    if quest_fragments && cursor.pos < cursor.data.len() {
+        remap_quest_fragments(&mut cursor, object_format, &mut offsets)?;
+        if cursor.pos != cursor.data.len() {
+            return Err(Error::Invalid("trailing bytes in QUST VMAD data".into()));
+        }
+    }
+    let VmadCursor { data, .. } = cursor;
+    for at in offsets {
+        let old = u32::from_le_bytes([data[at], data[at + 1], data[at + 2], data[at + 3]]);
+        if let Some(new) = mapping.get(&old) {
+            data[at..at + 4].copy_from_slice(&new.to_le_bytes());
+        }
+    }
+    Ok(())
+}
+
+fn remap_scripts(
+    cursor: &mut VmadCursor<'_>,
+    object_format: u16,
+    offsets: &mut Vec<usize>,
+) -> Result<()> {
+    let scripts = cursor.u16()?;
     for _ in 0..scripts {
         cursor.string()?;
         cursor.skip(1)?; // script flags
@@ -198,16 +224,14 @@ fn remap_vmad(data: &mut [u8], mapping: &HashMap<u32, u32>) -> Result<()> {
             cursor.skip(1)?; // property flags
             match kind {
                 0 => {}
-                1 => object(&mut cursor, object_format, &mut offsets)?,
-                2 => {
-                    cursor.string()?;
-                }
+                1 => object(cursor, object_format, offsets)?,
+                2 => cursor.string()?,
                 3 | 4 => cursor.skip(4)?,
                 5 => cursor.skip(1)?,
                 11 => {
                     let count = cursor.u32()?;
                     for _ in 0..count {
-                        object(&mut cursor, object_format, &mut offsets)?;
+                        object(cursor, object_format, offsets)?;
                     }
                 }
                 12 => {
@@ -236,12 +260,33 @@ fn remap_vmad(data: &mut [u8], mapping: &HashMap<u32, u32>) -> Result<()> {
             }
         }
     }
-    let VmadCursor { data, .. } = cursor;
-    for at in offsets {
-        let old = u32::from_le_bytes([data[at], data[at + 1], data[at + 2], data[at + 3]]);
-        if let Some(new) = mapping.get(&old) {
-            data[at..at + 4].copy_from_slice(&new.to_le_bytes());
+    Ok(())
+}
+
+fn remap_quest_fragments(
+    cursor: &mut VmadCursor<'_>,
+    object_format: u16,
+    offsets: &mut Vec<usize>,
+) -> Result<()> {
+    cursor.skip(1)?; // extra bind data version
+    let fragments = cursor.u16()?;
+    cursor.string()?; // fragment file name
+    for _ in 0..fragments {
+        cursor.skip(9)?; // stage, log entry and fragment flags
+        cursor.string()?; // script name
+        cursor.string()?; // fragment name
+    }
+    let aliases = cursor.u16()?;
+    for _ in 0..aliases {
+        object(cursor, object_format, offsets)?;
+        cursor.skip(2)?; // alias VMAD version
+        let alias_object_format = cursor.u16()?;
+        if alias_object_format != 1 && alias_object_format != 2 {
+            return Err(Error::Invalid(format!(
+                "unsupported VMAD alias object format {alias_object_format}"
+            )));
         }
+        remap_scripts(cursor, alias_object_format, offsets)?;
     }
     Ok(())
 }
