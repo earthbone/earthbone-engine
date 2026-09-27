@@ -763,6 +763,11 @@ typed decoding or typed re-encoding. Before its first run, it required at
 least 50 saves and more than 100,000 inspected change forms. The 60-save run
 inspected 1,344,172 changes and found:
 
+SAV-11 regression tests round-trip the three record indices, header flag words
+and opaque payload bytes, and reject every truncated prefix of each synthetic
+change form. The corpus test requires PMIS and PGRE records and reports the
+PBEA count, including zero. These checks cover the generic envelope only.
+
 | Type | Change flags | Count | Decompressed payload bytes |
 |---|---|---:|---:|
 | PMIS | `00000002` | 25 | 4,375 |
