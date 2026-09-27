@@ -666,7 +666,8 @@ The tooling helper `procedure_of` reports the first procedure before conditions.
 
 Input locations retain their defining package's namespace when inherited from
 a template. SOEW version 16 saves the tree cursor alongside the existing path.
-Versions 4 through 15 remain readable. They have no tree cursor, so their
+SOEW version 37 also saves the UseWeapon procedure tag. Versions 4 through 36
+remain readable. Saves before version 16 have no tree cursor, so their
 selected package starts its tree from the beginning on its first driver tick.
 Empty repeating branches yield each tick without running later siblings.
 
@@ -685,9 +686,13 @@ has no markers. `Sleep` walks to the bed the location names, or the
 nearest furniture in that cell whose base carries a keyword with `bed` in
 its editor id, and holds with `sleeping` set. `Wait` holds for its real-time
 duration, with zero meaning indefinite. Walking `Patrol` follows linked markers,
-including their arrival radius and idle time. Every other procedure name
-is `Procedure::Unsupported` and the actor stands where it is. Location
-kinds near reference, in cell, near package start, near editor location,
+including their arrival radius and idle time. `UseWeapon` sends one ordinary
+melee contact through `World::melee_hit` against the actor's current combat
+target, preferring its right hand weapon and then its left. It completes its
+tree branch after the attempt. The shared combat path validates equipment and
+combat modifiers and queues hit events. Other procedure names are
+`Procedure::Unsupported` and the actor stands where it is. Location kinds near
+reference, in cell, near package start, near editor location,
 near linked reference, alias reference, alias location and near self resolve.
 An alias location uses its filled `LCTN` form's `MNAM` world marker as its
 destination. Location alias fill rules remain separate quest work.

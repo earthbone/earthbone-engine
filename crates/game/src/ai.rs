@@ -73,6 +73,8 @@ pub enum Procedure {
     Sandbox,
     Sleep,
     Patrol,
+    /// Issue one ordinary contact against the actor's current combat target.
+    UseWeapon,
     /// A mental timer. The movement flag is retained for concurrent procedures.
     Wait {
         stop_movement: bool,
@@ -755,6 +757,7 @@ fn begin_procedure(
         Procedure::None
         | Procedure::Wait { .. }
         | Procedure::Patrol
+        | Procedure::UseWeapon
         | Procedure::Unsupported(_) => {}
     }
 }
@@ -1004,7 +1007,7 @@ pub fn tick(world: &mut World, dt: f64, alloc: Alloc<'_>) {
         if due {
             evaluate(world, actor, alloc);
         }
-        step(world, actor, dt as f32);
+        step(world, actor, dt as f32, alloc);
     }
 }
 
@@ -1037,7 +1040,7 @@ fn plan(
     (vec![to], vec![to_cell])
 }
 
-fn step(world: &mut World, actor: GlobalFormId, dt: f32) {
+fn step(world: &mut World, actor: GlobalFormId, dt: f32, alloc: Alloc<'_>) {
     let Some((position, cell)) = world.reference(actor).map(|r| (r.position, r.cell)) else {
         return;
     };
@@ -1048,6 +1051,25 @@ fn step(world: &mut World, actor: GlobalFormId, dt: f32) {
         tree::start(world, actor, &mut ai);
     } else {
         tree::enter(world, actor, &mut ai);
+    }
+    if ai.procedure == Procedure::UseWeapon && ai.tree.as_ref().is_some_and(|tree| tree.active) {
+        let target = world.actor(actor).and_then(|state| state.combat_target);
+        let weapon = world
+            .hand_weapon(actor, crate::combat::Hand::Right)
+            .or_else(|| world.hand_weapon(actor, crate::combat::Hand::Left));
+        if let (Some(target), Some(weapon)) = (target, weapon) {
+            let _ = world.melee_hit(
+                crate::combat::MeleeHit {
+                    attacker: actor,
+                    target,
+                    weapon,
+                    is_bash: false,
+                    is_power_attack: false,
+                },
+                alloc,
+            );
+        }
+        tree::succeeded(world, &mut ai);
     }
     if ai.procedure == Procedure::Patrol && ai.tree.as_ref().is_some_and(|tree| tree.active) {
         patrol::prepare(world, &mut ai);
@@ -1231,6 +1253,7 @@ pub(crate) fn write_record_state(w: &mut Writer, a: &AiState) {
             w.u8(6);
             patrol::write(w, a.patrol.as_ref());
         }
+        Procedure::UseWeapon => w.u8(7),
         Procedure::Wait { stop_movement } => {
             w.u8(5);
             w.bool(*stop_movement);
@@ -1329,6 +1352,7 @@ pub(crate) fn read_state_mapped(r: &mut FormReader<'_, '_>) -> Result<AiState, V
             a.patrol = Some(patrol::read(r)?);
             Procedure::Patrol
         }
+        7 => Procedure::UseWeapon,
         5 => {
             let stop_movement = r.bool()?;
             if r.bool()? {
