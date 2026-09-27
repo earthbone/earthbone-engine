@@ -199,6 +199,39 @@ impl Collected {
     }
 }
 
+/// Samples the convex shell at support vertices. Axis directions preserve the
+/// exact Havok surface offset on bounds, while diagonal directions retain its
+/// rounded corners without multiplying large vertex sets.
+fn convex_shell_points(vertices: &[Vec3], radius: f32) -> Vec<Vec3> {
+    if radius == 0.0 {
+        return vertices.to_vec();
+    }
+
+    let mut directions = Vec::with_capacity(26);
+    for x in -1..=1 {
+        for y in -1..=1 {
+            for z in -1..=1 {
+                let direction = Vec3::new(x as f32, y as f32, z as f32);
+                if direction != Vec3::ZERO {
+                    directions.push(direction.normalized());
+                }
+            }
+        }
+    }
+
+    let mut points = vertices.to_vec();
+    points.reserve(directions.len());
+    for direction in directions {
+        let support = vertices
+            .iter()
+            .copied()
+            .max_by(|a, b| a.dot(direction).total_cmp(&b.dot(direction)))
+            .unwrap_or(Vec3::ZERO);
+        points.push(support + direction * radius);
+    }
+    points
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Phantom {
     pub node: BlockRef,
@@ -527,7 +560,13 @@ impl<'a> Walker<'a> {
             _ => None,
         };
         let shape = match b {
-            Bhk::Box { half_extents, .. } => Some(Shape::Box { half_extents }),
+            Bhk::Box {
+                radius,
+                half_extents,
+                ..
+            } => Some(Shape::Box {
+                half_extents: half_extents + Vec3::new(radius, radius, radius),
+            }),
             Bhk::Sphere { radius, .. } => Some(Shape::Sphere { radius }),
             Bhk::Capsule {
                 radius,
@@ -539,14 +578,18 @@ impl<'a> Walker<'a> {
                 b: second,
                 radius,
             }),
-            Bhk::ConvexVertices { vertices, .. } => {
+            Bhk::ConvexVertices {
+                radius, vertices, ..
+            } => {
                 if vertices.len() < 4 {
                     self.out
                         .skipped
                         .push((r, "convex shape with fewer than four points".into()));
                     None
                 } else {
-                    Some(Shape::ConvexHull { points: vertices })
+                    Some(Shape::ConvexHull {
+                        points: convex_shell_points(&vertices, radius),
+                    })
                 }
             }
             Bhk::Transform {

@@ -265,7 +265,12 @@ fn matrix44(s: &mut Stream<'_>) -> Result<Iso> {
 
 /// bhkConvexShape prefix: material then the shell radius.
 fn convex_prefix(s: &mut Stream<'_>) -> Result<(u32, f32)> {
-    Ok((s.u32()?, s.f32()?))
+    let material = s.u32()?;
+    let radius = s.f32()?;
+    if !radius.is_finite() || radius < 0.0 {
+        return Err(Error::Invalid("convex shape radius".into()));
+    }
+    Ok((material, radius))
 }
 
 fn refs(s: &mut Stream<'_>) -> Result<Vec<BlockRef>> {

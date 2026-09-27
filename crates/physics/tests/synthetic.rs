@@ -254,6 +254,19 @@ fn box_shape(half: [f32; 3]) -> Block {
     }
 }
 
+fn convex_vertices_shape(vertices: &[[f32; 3]]) -> Block {
+    let mut w = W::new();
+    w.u32(1).f32(0.05).zeros(24).u32(vertices.len() as u32);
+    for vertex in vertices {
+        w.vec4(*vertex);
+    }
+    w.u32(0);
+    Block::Collision {
+        type_name: "bhkConvexVerticesShape".into(),
+        data: w.done(),
+    }
+}
+
 fn compressed_mesh_shape(data: i32) -> Block {
     let mut w = W::new();
     w.i32(-1)
@@ -438,7 +451,7 @@ fn a_capsule_falls_through_a_floor_that_does_not_block_characters() {
 #[test]
 fn a_box_under_a_moved_node_lands_where_the_transforms_say() {
     // Node at x = 100 game units, body offset half a metre up, box half a
-    // metre tall: the top face sits one metre above the node.
+    // metre tall: its outer shell reaches 1.05 metres above the node.
     let blocks = vec![
         node("Crate", [100.0, 0.0, 0.0], 1, vec![]),
         collision_object(2),
@@ -459,7 +472,11 @@ fn a_box_under_a_moved_node_lands_where_the_transforms_say() {
             shape => shape,
         },
         &Shape::Box {
-            half_extents: Vec3::new(UNITS_PER_METER, UNITS_PER_METER, 0.5 * UNITS_PER_METER)
+            half_extents: Vec3::new(
+                1.05 * UNITS_PER_METER,
+                1.05 * UNITS_PER_METER,
+                0.55 * UNITS_PER_METER,
+            )
         }
     );
     let mut world = SimpleWorld::new();
@@ -471,7 +488,7 @@ fn a_box_under_a_moved_node_lands_where_the_transforms_say() {
     let ch = world.character(player).unwrap();
     assert!(ch.on_ground);
     assert!(
-        (ch.position.z - UNITS_PER_METER).abs() < 0.5,
+        (ch.position.z - 1.05 * UNITS_PER_METER).abs() < 0.5,
         "feet at {}",
         ch.position.z
     );
@@ -479,13 +496,100 @@ fn a_box_under_a_moved_node_lands_where_the_transforms_say() {
     let hit = world
         .raycast(Vec3::new(100.0, 0.0, 500.0), Vec3::new(100.0, 0.0, -500.0))
         .unwrap();
-    assert!((hit.point.z - UNITS_PER_METER).abs() < 1e-2);
+    assert!((hit.point.z - 1.05 * UNITS_PER_METER).abs() < 1e-2);
     assert!(hit.normal.z > 0.99);
     assert_eq!(hit.material, Some(1));
     // Beside the box there is nothing.
     assert!(world
         .raycast(Vec3::new(300.0, 0.0, 500.0), Vec3::new(300.0, 0.0, -500.0))
         .is_none());
+}
+
+#[test]
+fn fmt_10_boxes_and_hulls_include_the_havok_convex_shell() {
+    let box_blocks = vec![
+        node("Box", [0.0; 3], 1, vec![]),
+        collision_object(2),
+        rigid_body_t(3, 1, [0.0; 3], 7),
+        box_shape([1.0, 1.0, 1.0]),
+    ];
+    let box_collected = collect_blocks(&header(), &box_blocks, &[BlockRef(0)]).unwrap();
+    let box_collider = &box_collected.colliders[0];
+    let box_bounds = box_collider.aabb();
+    let radius_units = 0.05 * UNITS_PER_METER;
+    assert!(
+        ((box_bounds.max.x - UNITS_PER_METER) - radius_units).abs() < 0.001,
+        "box shell offset was {} units",
+        box_bounds.max.x - UNITS_PER_METER
+    );
+    let mut box_world = SimpleWorld::new();
+    box_world.add_static(box_collider);
+    let box_hit = box_world
+        .raycast(
+            Vec3::new(1.2 * UNITS_PER_METER, 0.0, 0.0),
+            Vec3::new(0.8 * UNITS_PER_METER, 0.0, 0.0),
+        )
+        .unwrap();
+    assert!((box_hit.point.x - 1.05 * UNITS_PER_METER).abs() < 0.001);
+
+    let hull_blocks = vec![
+        node("Hull", [0.0; 3], 1, vec![]),
+        collision_object(2),
+        rigid_body_t(3, 1, [0.0; 3], 7),
+        convex_vertices_shape(&[
+            [0.5, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [0.5, 0.5, 0.0],
+            [0.5, 0.0, 0.5],
+        ]),
+    ];
+    let hull_collected = collect_blocks(&header(), &hull_blocks, &[BlockRef(0)]).unwrap();
+    let hull_collider = &hull_collected.colliders[0];
+    let hull_bounds = hull_collider.aabb();
+    assert!(
+        ((hull_bounds.max.x - UNITS_PER_METER) - radius_units).abs() < 0.001,
+        "hull shell offset was {} units",
+        hull_bounds.max.x - UNITS_PER_METER
+    );
+    let mut hull_world = SimpleWorld::new();
+    hull_world.add_static(hull_collider);
+    let hull_hit = hull_world
+        .raycast(
+            Vec3::new(1.2 * UNITS_PER_METER, 0.0, 0.0),
+            Vec3::new(0.8 * UNITS_PER_METER, 0.0, 0.0),
+        )
+        .unwrap();
+    assert!((hull_hit.point.x - 1.05 * UNITS_PER_METER).abs() < 0.001);
+}
+
+#[test]
+fn fmt_10_box_and_hull_reject_invalid_shell_radii() {
+    for radius in [f32::NAN, -0.05] {
+        let mut box_block = box_shape([1.0, 1.0, 1.0]);
+        let Block::Collision { data, .. } = &mut box_block else {
+            panic!("box collision block expected");
+        };
+        data[4..8].copy_from_slice(&radius.to_le_bytes());
+        let Block::Collision { type_name, data } = box_block else {
+            panic!("box collision block expected");
+        };
+        assert!(bhk::decode(&type_name, &data, &header()).is_err());
+
+        let mut hull_block = convex_vertices_shape(&[
+            [0.5, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [0.5, 0.5, 0.0],
+            [0.5, 0.0, 0.5],
+        ]);
+        let Block::Collision { data, .. } = &mut hull_block else {
+            panic!("hull collision block expected");
+        };
+        data[4..8].copy_from_slice(&radius.to_le_bytes());
+        let Block::Collision { type_name, data } = hull_block else {
+            panic!("hull collision block expected");
+        };
+        assert!(bhk::decode(&type_name, &data, &header()).is_err());
+    }
 }
 
 #[test]

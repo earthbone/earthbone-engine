@@ -67,6 +67,12 @@ moves on. The `controller` item of round 6 is what will use the last of those.
   each collision object to a `Collider` with a world `Iso` transform and a
   `Shape` (box, sphere, capsule, convex hull, triangle mesh, compound),
   converted from Havok metres to game units at 69.99125 units per metre.
+  The shell radius on `bhkBoxShape` expands each half extent. On
+  `bhkConvexVerticesShape`, the converter samples 26 axis and diagonal
+  support directions to approximate the rounded shell. Axis bounds retain
+  the authored radius, so the common 0.05 metre radius
+  adds 3.49956 game units to the surface. Non-finite and negative convex
+  radii are rejected during block decoding.
   A `bhkRigidBodyT`'s own translation and rotation are applied, a plain
   `bhkRigidBody`'s are ignored, as the game does.
 - `hull`: faces of a convex point set, brute force, for the convex
@@ -107,6 +113,24 @@ geometry, which matches the neutral triangle-mesh representation; this
 decoder does not add a separate Jolt dependency. The synthetic
 `fmt_09_strips_fixture_preserves_collision_triangles_and_winding` test checks
 the output triangles, material and scale.
+
+### Convex shell radius on boxes and hulls (FMT-10)
+
+`bhkConvexShape` supplies the shell radius used to form the collision surface.
+The converter adds this radius to each box half extent and samples 26
+normalized axis and diagonal support offsets on convex hull vertices. The
+sampled hull keeps the exact authored offset on axis bounds and approximates
+the rounded edges and corners. At 69.99125 game units per metre, the common
+0.05 metre radius adds 3.49956 units. Synthetic checks verify that boxes and
+hulls reach that surface and that non-finite or negative radii fail decoding.
+
+The field layout and shell meaning come from `engine-refs/nifxml/nif.xml`,
+which defines the convex radius as a thin shell and the convex vertex normals
+as outward half spaces. The local Jolt `BoxShape.h` and `ConvexHullShape.h`
+explain that their input size includes convex radius, which they subtract
+internally to retain the total outer size. This crate keeps its current
+renderer-neutral `Shape` API and converts the NIF core directly to its outer
+surface, rather than adding a Jolt dependency.
 
 ## SimpleWorld
 
