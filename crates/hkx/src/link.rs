@@ -364,6 +364,9 @@ fn remap_node(node: &mut Node, map: &SymbolMap, offset: usize) {
                 remap_event_property(&mut slot.event, map);
             }
         }
+        NodeKind::RagdollContactListener { contact_event, .. } => {
+            remap_event_property(contact_event, map);
+        }
         // Nothing here carries a node id, an event or a variable. A blending
         // transition effect is timing only, the rest are leaves.
         NodeKind::BlendingTransition(_)

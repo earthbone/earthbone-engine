@@ -606,6 +606,13 @@ pub enum NodeKind {
         enable: bool,
         slots: [FalseToTrueSlot; FALSE_TO_TRUE_SLOTS],
     },
+    /// `BSRagdollContactListenerModifier`: emits `contact_event` when an
+    /// externally reported contact belongs to one of its declared bones.
+    RagdollContactListener {
+        enable: bool,
+        contact_event: EventProperty,
+        bones: Vec<i16>,
+    },
     /// `BSDecomposeVectorModifier`: copies the four components of `vector`
     /// into its real outputs.
     DecomposeVector {
@@ -687,6 +694,7 @@ impl Node {
             | NodeKind::GetTimeStepModifier { .. }
             | NodeKind::IsActiveModifier { .. }
             | NodeKind::FalseToTrueModifier { .. }
+            | NodeKind::RagdollContactListener { .. }
             | NodeKind::DecomposeVector { .. }
             | NodeKind::Modifier { .. }
             | NodeKind::Unknown => {}
@@ -1122,6 +1130,19 @@ impl<'a> Loader<'a> {
                 }
             }
 
+            "BSRagdollContactListenerModifier" => {
+                let bones = o
+                    .ptr(o.layout_offset(56, 104))?
+                    .map(|bones| bones.array_i16(bones.layout_offset(28, 48)))
+                    .transpose()?
+                    .unwrap_or_default();
+                NodeKind::RagdollContactListener {
+                    enable: o.bool(o.layout_offset(40, 72))?,
+                    contact_event: EventProperty::read(o, o.layout_offset(48, 88))?,
+                    bones,
+                }
+            }
+
             "BSDecomposeVectorModifier" => NodeKind::DecomposeVector {
                 enable: o.bool(o.layout_offset(40, 72))?,
                 vector: o.vec4(o.layout_offset(48, 80))?,
@@ -1263,6 +1284,33 @@ mod tests {
         b.finish()
     }
 
+    fn synthetic_ragdoll_contact_graph() -> Vec<u8> {
+        let mut b = PackfileBuilder::new();
+        let root = b.object("hkRootLevelContainer", 16);
+        let graph = b.object("hkbBehaviorGraph", 304);
+        let variant = b.array_structs(root, 0, 24, 1);
+        b.string(variant, 0, "hkbBehaviorGraph");
+        b.string(variant, 8, "hkbBehaviorGraph");
+        b.ptr(variant, 16, graph);
+        b.string(graph, 56, "ragdoll contacts");
+        let data = b.object("hkbBehaviorGraphData", 128);
+        let strings = b.object("hkbBehaviorGraphStringData", 80);
+        let values = b.object("hkbVariableValueSet", 64);
+        b.ptr(graph, 136, data);
+        b.ptr(data, 120, strings);
+        b.ptr(data, 112, values);
+        let wrapper = b.object("hkbModifierGenerator", 88);
+        let listener = b.object("BSRagdollContactListenerModifier", 136);
+        let bones = b.object("hkbBoneIndexArray", 64);
+        b.ptr(graph, 128, wrapper);
+        b.ptr(wrapper, 72, listener);
+        b.set_bool(listener, 72, true);
+        b.set_i32(listener, 88, 17);
+        b.ptr(listener, 104, bones);
+        b.array_i16(bones, 48, &[1, 4]);
+        b.finish()
+    }
+
     #[test]
     fn a_synthetic_graph_loads_into_the_model() {
         let bytes = synthetic_graph();
@@ -1359,6 +1407,29 @@ mod tests {
         assert_eq!(g.clip_animation_names(), vec!["mt_idle", "mt_walkforward"]);
         assert_eq!(root.children().len(), 3);
         assert_eq!(g.nodes.len(), 6);
+    }
+
+    #[test]
+    fn anm_35_contact_listener_reads_event_and_declared_bone_indices() {
+        let bytes = synthetic_ragdoll_contact_graph();
+        let pf = Packfile::parse(&bytes).unwrap();
+        let graph = BehaviorGraph::from_packfile(&pf).unwrap();
+        let wrapper = graph.node(graph.root.unwrap());
+        let NodeKind::ModifierGenerator {
+            modifier: Some(listener),
+            ..
+        } = &wrapper.kind
+        else {
+            panic!("root is {:?}", wrapper.kind);
+        };
+        assert!(matches!(
+            graph.node(*listener).kind,
+            NodeKind::RagdollContactListener {
+                enable: true,
+                contact_event: EventProperty { id: 17, .. },
+                ref bones,
+            } if bones == &[1, 4]
+        ));
     }
 
     #[test]
