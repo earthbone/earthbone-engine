@@ -2271,6 +2271,30 @@ adds the actor body pipeline, this is the function it resolves shape and
 transform from, with `game::World::actor_controller_scale` (`docs/game.md`)
 supplying the scale argument.
 
+## Generated object LOD, EDT-25
+
+`DataSource::load_object_lod_block` reads a shipped BTO through the NIF
+reader and surface builder. If the BTO path is absent, it calls
+`generate_object_lod_block`, which walks winning REFR records in the resolved
+load order and selects the matching level's authored MNAM mesh from each
+visible distant STAT. If that mesh is missing, it uses the STAT's MODL mesh
+and samples one triangle in every 4, 8, 16 or 32 triangles for levels 4, 8,
+16 or 32, compacting the referenced vertex attributes. It excludes deleted
+and initially disabled references, references with enable parents unless
+visible when distant, and persistent references marked never fade or full
+LOD. The reference transform, scale,
+worldspace LOD anchor and block origin are applied before each shape reaches
+the same surface builder and texture cache used by BTO geometry.
+
+The implementation follows TES5Edit's `Core/wbLOD.pas`, especially
+`TwbLodSettings.BlockForCell` and the Skyrim object export in
+`BuildObjectsLOD`. The row's named `tes4skyrim/terrain_lod.py` was not present
+in the local reference corpus. Generated blocks report contributing reference
+count, built and source triangle counts and the NIF mesh byte estimate used
+by the same residency budget as BTO blocks. The generated result is held in
+memory and is not serialized to a BTO file. Skyrim tree billboard generation
+and atlas baking are not part of this path.
+
 ## Distant-terrain LOD residency, RND-03
 
 `crate::terrain_lod` decides which BTR terrain LOD blocks should stand in
