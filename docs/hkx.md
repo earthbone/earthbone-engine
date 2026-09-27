@@ -740,6 +740,27 @@ installed scan found 428 graphs, 23 edge modifiers and 29 enabled slots, with
 no slot payloads. The linked locomotion run now resolves 195 bindings with
 four unbound, compared with the historical 194 and five above.
 
+### Every-N event modifier (2026-09-28)
+
+ANM-26 decodes and executes `BSEventEveryNEventsModifier`. The field layout
+comes from `engine-refs/serde-hkx/assets/classes/BSEventEveryNEventsModifier.json`
+and its generated Rust class. The modifier forwards matching input event IDs
+through the graph and raises its output event after the configured number of
+matches. Other event IDs do not change its count. It resets its count when the
+modifier activates and after each output. The serialized `numberOfEventsSeen`
+and `calculatedNumberOfEventsBeforeSend` fields are ignored because the class
+metadata marks them `SERIALIZE_IGNORED`.
+
+When randomization is enabled, each interval is selected deterministically
+within the authored minimum and maximum. This preserves replay stability, but
+does not reproduce Skyrim's random sequence. Nonpositive authored limits are
+treated as one event, and an inverted range collapses to the maximum. The
+interpreter's event value carries IDs only, so event payload objects are not
+forwarded by this modifier. Synthetic tests cover matching and nonmatching
+inputs, interval boundaries, randomized bounds, ignored runtime counters and
+event remapping when behavior graphs are linked. An installed-data test scans
+behavior graphs in `Skyrim - Animations.bsa`.
+
 ### Get time step modifier (2026-09-20)
 
 `BSGetTimeStepModifier` inherits the `hkbModifier` enable field and stores an

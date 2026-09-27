@@ -364,6 +364,14 @@ fn remap_node(node: &mut Node, map: &SymbolMap, offset: usize) {
                 remap_event_property(&mut slot.event, map);
             }
         }
+        NodeKind::EveryNEventsModifier {
+            event_to_check_for,
+            event_to_send,
+            ..
+        } => {
+            remap_event_property(event_to_check_for, map);
+            remap_event_property(event_to_send, map);
+        }
         // Nothing here carries a node id, an event or a variable. A blending
         // transition effect is timing only, the rest are leaves.
         NodeKind::BlendingTransition(_)

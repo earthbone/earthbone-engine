@@ -429,6 +429,9 @@ struct Runtime {
     edge_enabled: [Option<bool>; FALSE_TO_TRUE_SLOTS],
     edge_value: [Option<bool>; FALSE_TO_TRUE_SLOTS],
     edge_previous: [bool; FALSE_TO_TRUE_SLOTS],
+    every_n_seen: u32,
+    every_n_interval: u32,
+    every_n_outputs: u64,
 
     /// A bound vector input for `BSDecomposeVectorModifier`.
     vector: Option<[f32; 4]>,
@@ -479,6 +482,29 @@ fn push_unique(list: &mut Vec<String>, item: String) {
     if !list.contains(&item) {
         list.push(item);
     }
+}
+
+fn every_n_interval(
+    id: NodeId,
+    outputs: u64,
+    authored_maximum: i8,
+    authored_minimum: i8,
+    randomize: bool,
+) -> u32 {
+    let maximum = u32::try_from(authored_maximum).unwrap_or(1).max(1);
+    if !randomize {
+        return maximum;
+    }
+    let minimum = u32::try_from(authored_minimum)
+        .unwrap_or(1)
+        .clamp(1, maximum);
+    let range = maximum - minimum + 1;
+    let seed = u64::try_from(id.0).unwrap_or(0) ^ outputs.wrapping_mul(0x9e37_79b9_7f4a_7c15);
+    let mut value = seed.wrapping_add(0x9e37_79b9_7f4a_7c15);
+    value = (value ^ (value >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+    value = (value ^ (value >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+    value ^= value >> 31;
+    minimum + u32::try_from(value % u64::from(range)).unwrap_or(0)
 }
 
 pub struct Interpreter<'a> {
@@ -1029,6 +1055,7 @@ impl<'a> Interpreter<'a> {
             | NodeKind::GetTimeStepModifier { enable, .. }
             | NodeKind::IsActiveModifier { enable, .. }
             | NodeKind::FalseToTrueModifier { enable, .. }
+            | NodeKind::EveryNEventsModifier { enable, .. }
             | NodeKind::DecomposeVector { enable, .. }
             | NodeKind::Modifier { enable } => *enable,
             _ => true,
@@ -1112,6 +1139,23 @@ impl<'a> Interpreter<'a> {
         self.nodes[id.0].active = true;
         let graph = self.graph;
         match &graph.node(id).kind {
+            NodeKind::EveryNEventsModifier {
+                number_of_events_before_send,
+                minimum_number_of_events_before_send,
+                randomize_number_of_events,
+                ..
+            } => {
+                let runtime = &mut self.nodes[id.0];
+                runtime.every_n_seen = 0;
+                runtime.every_n_outputs = 0;
+                runtime.every_n_interval = every_n_interval(
+                    id,
+                    0,
+                    *number_of_events_before_send,
+                    *minimum_number_of_events_before_send,
+                    *randomize_number_of_events,
+                );
+            }
             NodeKind::FalseToTrueModifier { .. } => {
                 self.nodes[id.0].edge_previous = [false; FALSE_TO_TRUE_SLOTS];
             }
@@ -1319,6 +1363,32 @@ impl<'a> Interpreter<'a> {
         let graph = self.graph;
         let node = graph.node(id);
         match &node.kind {
+            NodeKind::EveryNEventsModifier {
+                event_to_check_for,
+                event_to_send,
+                number_of_events_before_send,
+                minimum_number_of_events_before_send,
+                randomize_number_of_events,
+                ..
+            } => {
+                if ev.id == event_to_check_for.id && ev.id >= 0 {
+                    let runtime = &mut self.nodes[id.0];
+                    runtime.every_n_seen = runtime.every_n_seen.saturating_add(1);
+                    if runtime.every_n_seen >= runtime.every_n_interval {
+                        runtime.every_n_seen = 0;
+                        runtime.every_n_outputs = runtime.every_n_outputs.saturating_add(1);
+                        runtime.every_n_interval = every_n_interval(
+                            id,
+                            runtime.every_n_outputs,
+                            *number_of_events_before_send,
+                            *minimum_number_of_events_before_send,
+                            *randomize_number_of_events,
+                        );
+                        self.raise(event_to_send.id);
+                    }
+                }
+                false
+            }
             NodeKind::StateMachine(sm) => {
                 if self.machine_event(id, sm, ev) {
                     return true;
@@ -1687,6 +1757,7 @@ impl<'a> Interpreter<'a> {
             | NodeKind::GetTimeStepModifier { .. }
             | NodeKind::IsActiveModifier { .. }
             | NodeKind::FalseToTrueModifier { .. }
+            | NodeKind::EveryNEventsModifier { .. }
             | NodeKind::DecomposeVector { .. }
             | NodeKind::Modifier { .. } => self.reference_output(),
         }
