@@ -14,39 +14,35 @@ With `--no-default-features` the `godot` dependency is gone and what remains is 
 
 ## Layout
 
-### Movable-reference physics prerequisite, HST-12
+### Movable reference physics, HST-12
 
-The MAG-41 prerequisite audit on 2026-09-20 confirmed that the host has no
-movable-reference body lifecycle yet. `collision::DataSource::collide_cell_id`
-filters placed colliders with `Collider::is_static` before adding them to
-`SimpleWorld`. `godot_physics::add_statics` applies the same filter and creates
-only `PhysicsServer3D` bodies in `BodyMode::STATIC`. Its `CellBodies` holds RID
-lists for freeing a cell, without a body-to-FormID map for simulated movement.
-The player gameplay path uses the static `SimpleWorld`. Render batches bake
-reference placement into surface vertices, and runtime reference placement
-changes are not generally synchronized with rendering and collision.
+`DataSource::placed_cell_colliders` retains the NIF body motion and mass from
+`soe-physics`. `add_placed_statics` installs fixed and zero-mass colliders as
+static bodies. It groups the remaining colliders by owning FormID and installs
+one `PhysicsServer3D` rigid body per reference. The body owns its shape RIDs.
+Concave triangle meshes are skipped for rigid bodies, since Godot's rigid
+solver requires convex collision. The body's local shapes include authored
+scale and NIF offsets, while its server transform carries reference position
+and rotation. This follows `nifxml/nif.xml`'s mass and motion fields and
+`godot-docs/classes/class_physicsserver3d.rst`'s body modes and state API.
 
-Local `godot-docs/classes/class_physicsserver3d.rst` documents rigid body modes,
-state synchronization callbacks and RID cleanup. Rigid bodies receive forces
-and collision responses. A callback can copy their latest pose into the shared
-World each physics tick, preserving the record-backed authority rule. This
-is a host integration task using Godot's existing physics facilities.
+Each gameplay tick first applies game-side moves and disable state to the
+bodies, then reads simulated transforms back into `World`. The same tick's
+render pass reads `World`, patches merged mesh members and updates `MultiMesh`
+instance transforms. The host writes only the existing position and rotation
+fields of an enabled reference. It frees body and shape RIDs on disable or
+despawn, creates them again on re-enable, and frees a cell's resources on
+clear, replacement, exit or exterior release. `collision_stats` reports live
+body, shape and movable counts. `movable_reference_poses` and
+`rendered_reference_pose` expose the host state for integration checks.
+`render_alignment_error` reads the uploaded mesh vertices or `MultiMesh`
+transforms and reports their largest difference from the cached World pose.
+`PlayerNode` exposes `gameplay_reference_pose`, `set_reference_enabled` and
+`despawn_reference` for host controls and integration checks.
 
-HST-04 owns reflection of runtime reference changes. HST-12 depends on it and
-owns movable-reference rigid bodies, physics-to-World pose synchronization and
-resource cleanup on disable, despawn or unload. Its acceptance run must observe
-one authored movable reference responding to collision while the shared World
-and renderer agree on its pose, then verify the body's resources are released.
-MAG-41 depends on both rows before it can manipulate an object and release it
-on interruption. The audit made no host runtime changes, added no scene nodes
-and performed no Godot run. It therefore supplies no motion, collision-cost or
-cleanup measurement.
-
-HST-04 is implemented, see "Runtime enable and placement reflection, HST-04"
-below: a script-driven or editor-driven change to `World` now reaches both
-rendering and collision at the next tick. That direction (World to host) is
-separate from what HST-12 still owns, physics-driven rigid bodies pushing a
-pose back into World, and this row does not narrow HST-12's remaining scope.
+`godot/hst_12_movable_test.gd` uses the installed Bannered Mare cell, applies
+an impulse to an authored movable reference, then checks World and rendering
+pose agreement and the disable, despawn and unload cleanup paths.
 
 ### Spawn Hazard prerequisites, MAG-61
 
@@ -577,10 +573,9 @@ disable or Creation Kit style drag never reached the mesh or its collision
 after the first tick. `CellStreamerNode::sync_reference_changes(&World)`
 closes that gap and is called once a tick from `PlayerNode::advance_game`,
 before anything that frame reads geometry or collision, so an enable or
-placement change lands the same tick it is written to `World`. `World` stays
-the sole source of truth throughout, satisfying the record-backed authority
-rule from the HST-12 section above: the host reads `World::ref_placement`
-every tick and never writes a pose back into it.
+placement change lands the same tick it is written to `World`. The host reads
+`World::ref_placement` every tick. HST-12 also writes simulated movable poses
+into these same fields.
 
 Collision and rendering both gate their expensive path on a per-reference
 cache of the last applied `(visible, Iso)`, called every tick but doing real
@@ -595,13 +590,10 @@ work only on an actual change:
   `add_placed_statics` used, since a Godot static body's collision shapes
   bake their world placement into their own data or local transform and
   cannot be nudged by moving the body alone.
-- Rendering (the new method above) keeps its cache on the `CellStreamerNode`
-  instead, keyed by reference across every batch, and only rebuilds a
-  batch's `ArrayMesh` when one of its members' cached value disagrees with
-  `World`. A batch can hold hundreds of members sharing one mesh, one
-  `RenderingServer` instance and one index buffer, so rebuilding every
-  batch every tick regardless of change would cost far more than the map
-  lookups the cache adds.
+- Rendering keeps its cache on the `CellStreamerNode`, keyed by reference
+  across every batch. It rebuilds a merged `ArrayMesh` when a member changes
+  and updates a `MultiMesh` member's transform when its reference changes.
+  All batches containing the changed reference update on the same tick.
 
 Either side's delta is always computed against the reference's placement at
 load time, never against the last placement applied, so a reference moved
@@ -637,13 +629,9 @@ Position, normal and tangent arrays each round trip through `units.rs`'s
 Skyrim/Godot converters before and after the delta applies, since `delta` is
 built in Skyrim space like every other placement in this crate.
 
-This is the World-to-host direction only: a reference `World` already knows
-about, moved or hidden by a script, activation or the editor. HST-12's
-physics-driven rigid bodies, their host-to-World pose sync and their
-despawn/unload cleanup remain open, as does a per-reference prune of the
-render cache on cell unload (it is cleared wholesale on `clear`/`exit_tree`
-today, so a reference's cache entry outlives the cell it belonged to until
-the whole streamer resets).
+HST-12 also reads rigid-body poses back into World on each gameplay tick. A
+per-reference prune of the render cache on cell unload remains absent. It is
+cleared wholesale on `clear` and `exit_tree`.
 
 ### Compressed textures as they are
 
