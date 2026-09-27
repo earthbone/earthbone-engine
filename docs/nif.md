@@ -23,8 +23,13 @@ everything after it.
 Block families with trailing fields the mesh path does not need are read as
 their base type and skipped to their recorded end: the NiNode family
 (`BSFadeNode`, `BSMultiBoundNode`, `NiSwitchNode`, ...) and the BSTriShape
-family (`BSDynamicTriShape`, `BSSubIndexTriShape`). `BSLODTriShape` is read as
-a `TriShape` and also exposes its three trailing LOD size values as
+family (`BSSubIndexTriShape`). `BSDynamicTriShape` is read as a `BsTriShape`
+and exposes its full precision dynamic positions as `dynamic_positions`, one
+`[f32; 4]` per vertex. Its dynamic data byte size must equal 16 times the
+shape's vertex count. This follows `BSDynamicTriShape` in
+`../engine-refs/nifxml/nif.xml` and nifly's `BSDynamicTriShape::Sync` in
+`../engine-refs/nifly/src/Geometry.cpp`. `BSLODTriShape` is read as a
+`TriShape` and also exposes its three trailing LOD size values as
 `lod_sizes: Some([lod0, lod1, lod2])`. Each value remains a `u32` in the order
 declared by nif.xml. Ordinary `NiTriShape` and `NiTriStrips` blocks use
 `lod_sizes: None`. The field layout follows
@@ -157,6 +162,8 @@ do not report LOD sizes.
 `tests/fmt_11_skeleton_sentinel.rs` checks the empty-bones sentinel for both
 skin-instance block types and parses all skeleton NIFs in the installed
 vanilla mesh archives when `SKYRIM_DATA` is set.
+`tests/fmt_19_dynamic_tri_shape.rs` checks dynamic position values, vertex
+count validation and truncated dynamic position arrays.
 
 `tests/real_files.rs` runs over `$SKYRIM_DATA/meshes` and
 `$SOE_NIF_SAMPLES` when set. Skyrim SE ships nearly every mesh inside
@@ -220,6 +227,5 @@ differently.
 - Collision shapes are opaque bytes, the physics layer decodes them.
 - Fallout 4 lighting shader fields past specular strength, and Fallout 76
   entirely.
-- Controllers, particles, `BSLODTriShape` levels, `BSDynamicTriShape`
-  dynamic positions, multiple UV sets beyond the first in the mesh output
-  (the block layer keeps them all).
+- Controllers, particles, `BSLODTriShape` levels, multiple UV sets beyond the
+  first in the mesh output (the block layer keeps them all).

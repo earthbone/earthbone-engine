@@ -7,9 +7,9 @@
 //! collision still loads and still hands back its meshes.
 //!
 //! Node and shape families with trailing fields this crate does not need
-//! (`BSMultiBoundNode`, `NiSwitchNode`, `BSDynamicTriShape`, ...) are read
-//! as their base type and the rest of the block is skipped by size, which
-//! is safe because every subtype appends its fields after the base's.
+//! (`BSMultiBoundNode`, `NiSwitchNode`, ...) are read as their base type and
+//! the rest of the block is skipped by size, which is safe because every
+//! subtype appends its fields after the base's.
 
 use crate::controller::{
     read_float_data, read_path_interpolator, read_pos_data, read_transform_controller,
@@ -109,6 +109,9 @@ pub struct BsTriShape {
     pub num_vertices: u16,
     pub vertices: Vec<Vertex>,
     pub triangles: Vec<[u16; 3]>,
+    /// Full precision dynamic positions from `BSDynamicTriShape`, including
+    /// each source `Vector4`'s fourth component.
+    pub dynamic_positions: Vec<[f32; 4]>,
 }
 
 /// BSLightingShaderType values for Skyrim.
@@ -887,7 +890,7 @@ fn read_vertices(
     Ok(out)
 }
 
-fn read_bs_tri_shape(s: &mut Stream<'_>, c: &Ctx<'_>) -> Result<BsTriShape> {
+fn read_bs_tri_shape(s: &mut Stream<'_>, c: &Ctx<'_>, dynamic: bool) -> Result<BsTriShape> {
     let av = read_av_object(s, c)?;
     let bound = s.bound()?;
     if c.h.bs_version >= 155 {
@@ -915,6 +918,7 @@ fn read_bs_tri_shape(s: &mut Stream<'_>, c: &Ctx<'_>) -> Result<BsTriShape> {
         num_vertices,
         vertices: Vec::new(),
         triangles: Vec::new(),
+        dynamic_positions: Vec::new(),
     };
     if data_size > 0 {
         t.vertices = read_vertices(s, c, desc, num_vertices as usize)?;
@@ -936,6 +940,20 @@ fn read_bs_tri_shape(s: &mut Stream<'_>, c: &Ctx<'_>) -> Result<BsTriShape> {
             s.take(nv * 12)?;
             s.count(num_triangles, 6)?;
             s.take(num_triangles as usize * 6)?;
+        }
+    }
+    if dynamic {
+        let dynamic_data_size = s.u32()?;
+        let expected_size = u32::from(num_vertices) * 16;
+        if dynamic_data_size != expected_size {
+            return Err(c.invalid(format!(
+                "dynamic data size {dynamic_data_size} does not match {num_vertices} vertices ({expected_size} bytes)"
+            )));
+        }
+        s.count(u32::from(num_vertices), 16)?;
+        for _ in 0..num_vertices {
+            t.dynamic_positions
+                .push([s.f32()?, s.f32()?, s.f32()?, s.f32()?]);
         }
     }
     Ok(t)
@@ -1224,6 +1242,7 @@ pub fn read_blocks(s: &mut Stream<'_>, h: &Header) -> Result<Vec<Block>> {
                 | "NiTriShapeData"
                 | "NiTriStripsData"
                 | "BSTriShape"
+                | "BSDynamicTriShape"
                 | "BSEffectShaderProperty"
                 | "BSShaderTextureSet"
                 | "NiAlphaProperty"
@@ -1248,7 +1267,9 @@ pub fn read_blocks(s: &mut Stream<'_>, h: &Header) -> Result<Vec<Block>> {
             Kind::TriShape => Block::TriShape(read_tri_shape(s, &c)?),
             Kind::TriShapeData => Block::GeometryData(read_geometry_data(s, &c, false)?),
             Kind::TriStripsData => Block::GeometryData(read_geometry_data(s, &c, true)?),
-            Kind::BsTriShape => Block::BsTriShape(read_bs_tri_shape(s, &c)?),
+            Kind::BsTriShape => {
+                Block::BsTriShape(read_bs_tri_shape(s, &c, type_name == "BSDynamicTriShape")?)
+            }
             Kind::LightingShader => Block::LightingShader(read_lighting_shader(s, &c)?),
             Kind::EffectShader => Block::EffectShader(read_effect_shader(s, &c)?),
             Kind::TextureSet => Block::TextureSet(read_texture_set(s, &c)?),
