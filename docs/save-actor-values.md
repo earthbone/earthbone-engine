@@ -30,7 +30,7 @@ No Bethesda executable was inspected or disassembled.
 
 | Source and revision | Relevant observation |
 | --- | --- |
-| xEdit `6dbbed51d92456e39ffb916eece56040e91114b5`, `Core/wbDefinitionsTES5Saves.pas` | `wbChangeFlags001` names the five actor-modifier flags. All five modifier unions use `wbNull` for both alternatives. `wbChangedActor` has unfinished actor fields and does not supply a modifier layout. |
+| xEdit `6dbbed51d92456e39ffb916eece56040e91114b5`, `Core/wbDefinitionsTES5Saves.pas` | `wbChangeFlags001` names the five actor-modifier flags. `wbChangedCharacter` contains `wbChangedActor`, which defines two 32-bit fields, `wbChangedREFR`, and empty equip data. The five modifier unions are commented out at the actor definition and each active union uses `wbNull` for both alternatives. This provides no modifier field boundaries. |
 | Public xEdit file revision `973b80ec555f2fbdc5ee8c1a15113d23ecb6ea2d` | The modifier unions remain placeholders. Reading a newer file does not close the gap. |
 | FallrimTools `61bb57d895f023617cb55045a4907849fd1ff566`, `ChangeFormACHR.java` and `ChangeFlagConstantsAchr.java` | The reader handles the common actor prefix, extras, inventory and animation, then retains unparsed bytes. The flag names are present, but no modifier section is decoded. |
 | UESP ACHR page, revision `3187377` from 2024-11-19 | The flag table names bits 19 through 23. The structure table ends after animation, with the remaining ACHR fields undocumented. |
@@ -38,6 +38,13 @@ No Bethesda executable was inspected or disassembled.
 | skymp `756fb86b05ab5c2fae4f9bc3c6d52ca580b8bdd3`, `savefile/src/SFChangeFormACHR.cpp` | The writer starts from an opaque ACHR template and patches body-morph values. It does not provide an actor-value schema. |
 | TiltedEvolution `d2bcf04fd262b32e4a2693a2822a28fb89b03b9c`, `Code/client/Games/Skyrim/Actor.h` and `Actor.cpp` | The code names modifier flags and runtime components. The conditional `Save_Reversed` implementation is incomplete and does not establish the missing serialized sections. |
 | Skyrim Save Lab `dbb0b4e3243c7753ff4b5b049cef644e21d294a8`, `app/core/player_payload.py`, `preset_patcher.py` and `live_player.py` | Player editing uses anchor searches, candidate actor-value offsets and plausible-value scoring. Those heuristics do not identify complete component domains or exact general ACHR boundaries. |
+
+The older xEdit NVSE source dump in the local corpus repeats the same five
+`wbNull` modifier unions. It is a copied definition, not independent layout
+evidence. `crates/save/tests/roundtrip.rs` checks that an ACHR payload remains
+byte-exact with each named modifier flag and with all five set together. That
+test covers opaque preservation only. It does not assign field boundaries or
+decode modifier domains.
 
 The local UESP `ACHR_Changeform.wikitext` has SHA-256
 `3f983922f4cbee53337d400113c77d94c4709644e51b189e459c7851742e3d45`.
