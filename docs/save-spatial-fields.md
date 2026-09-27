@@ -6,6 +6,11 @@ continues to depend on SAV-27. Its original completion check is unchanged.
 
 ## Source boundary
 
+SAV-66 audit result: the named public sources establish several flag names and
+runtime fields, but they do not establish the requested serialized boundaries
+for every high-flag combination. Do not treat these runtime declarations as a
+save payload schema.
+
 Local xEdit `6dbbed51d92456e39ffb916eece56040e91114b5`,
 `Core/wbDefinitionsTES5Saves.pas`, supplies CELL's u16 flags, length-prefixed
 full name, owner RefID and two seen-data shapes. Its CELL dispatch orders
@@ -24,6 +29,15 @@ ECZN's Zone Flags and Game Data unions are placeholders. LCTN's KeywordData and
 Cleared unions are also placeholders. A flag name does not establish its field
 width or a zero-length payload. The current corpus contains nonempty payloads
 using these flags.
+
+The CommonLibSSE-NG headers confirm runtime CELL flag names, the LCTN runtime
+keyword-data entry shape and cleared booleans, and ECZN runtime data and game
+data member types. They declare `SaveGame` and `LoadGame`, but the checked
+headers do not define those method bodies. Those runtime shapes therefore do
+not establish the corresponding ESS encodings. FallrimTools
+`ChangeForm.java::getData` also has no typed dispatch for these records and
+retains their bytes as raw payloads. No controlled vanilla save fixtures in
+this worktree isolate the flagged sections.
 
 FallrimTools `61bb57d895f023617cb55045a4907849fd1ff566`,
 `src/main/java/resaver/ess/ChangeForm.java::getData`, has no CELL, LCTN or ECZN
@@ -81,3 +95,8 @@ Once those boundaries are established, SAV-27 can implement typed fields,
 exact encodings and malformed-input checks for all supported combinations.
 The census does not satisfy that decoder completion check. No user save was
 modified or copied into this repository.
+
+The save crate continues to preserve the full CELL, LCTN and ECZN payload
+bytes. `sav_66_raw_spatial_payloads_preserve_observed_flag_boundaries` checks
+the observed CELL `60000000`, LCTN `40000000` and `80000000`, and ECZN
+`80000000` combinations without assigning meaning to their opaque fields.
