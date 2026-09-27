@@ -1242,6 +1242,7 @@ fn actor(vm: &mut Vm, w: &Shared) {
         i(world
             .actor(me)
             .and_then(|a| a.relationships.get(&other).copied())
+            .or_else(|| world.relationship_record_rank(me, other))
             .unwrap_or(0))
     });
     method!(

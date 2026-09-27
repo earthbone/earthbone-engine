@@ -71,6 +71,16 @@ Papyrus native path and engine save state. This is one restoration component,
 not a full ESS load or resumed game. See [save.md](save.md) for mapping rules,
 failure behavior and the remaining world and VM work.
 
+`World::restore_vanilla_record_changes` validates CLAS changes and atomically
+applies FACT and RELA fields to record overrides. FACT reaction records feed
+the faction runtime state, and FACT crime values and RELA data are read from
+the overridden records. `Actor.GetRelationshipRank` falls back to matching
+RELA records when no runtime relationship value exists. Record overrides
+persist through SOEW save and load.
+xEdit defines CLAS tag-skills as a null payload, so it changes no runtime
+field. SOEW version 37 retains the six-byte saved form-flags section, including
+its undocumented 16-bit word.
+
 **Forms, not structs.** Every native takes and returns forms by
 `GlobalFormId`. The VM sees them as objects created on first use with the
 class the record's signature implies (`QUST` is a `Quest`, `ACHR` an `Actor`),
