@@ -1572,10 +1572,9 @@ state and its existing modifier, then expires it from its saved elapsed time.
 
 Unsupported casts return a typed error before applying any of their effects,
 and Papyrus casts log that error. This includes hostile hit resolution,
-projectiles, contact and location delivery, concentration, area,
-
-and Papyrus casts log that error. This includes projectiles, contact and location delivery, concentration, conditions, area,
-taper, perk adjustments, equip abilities, keyword dispelling and other archetypes.
+projectiles, contact and location delivery, concentration, taper, perk
+adjustments, equip abilities, keyword dispelling and other archetypes. Area
+selection is covered separately below, under Area targeting, MAG-06.
 Actor-value indices from 0 through 163 resolve through the shared mapping in
 [actor values](actor-values.md). Recover effects use the temporary modifier
 domain. Other effects damage or restore the damage component without changing
@@ -1642,6 +1641,44 @@ The installed five-master survey reads 1,354 winning spells. It accepts 179
 and creates 206 applications, including one authored hostile effect. All 24
 magic tests pass with installed data. The other spells remain explicit
 unsupported results, so this measurement covers the direct cast boundary.
+
+### Area targeting, MAG-06
+
+`World::cast_spell` no longer rejects a spell for a nonzero effect area. Each
+effect entry's own EFIT area (the per-spell radius, not the MGEF's Spellmaking
+area default) selects every actor reference within that radius of the cast's
+resolved target, always including the target itself. The MGEF `kNoArea` flag
+(bit 11 of DATA flags) zeroes the radius for that effect regardless of the
+EFIT value, matching the CK Magic Effect flag list. Selection is cell
+agnostic, raw Euclidean distance against each actor's position, the same
+precedent `World::distance` already used for `GetDistance`, since existing
+magic fixtures place actors without a parent CELL group.
+
+An area-selected actor that is not the explicit cast target is dropped from a
+hostile effect when it is dead or ghosted, so one ineligible bystander does
+not cancel the cast. The explicit target keeps its existing hard rejection on
+a dead or ghosted hostile hit. Each selected actor gets its own prepared
+effect, active-effect entry and actor-value baseline, so an area hit applies
+independently per actor rather than sharing one target's state. `EffectId`
+assignment stays a single sequential counter across every recipient of one
+cast, preserving existing single-target ID and count behavior.
+
+Sources are local `TES5Edit/Core/wbDefinitionsTES5.pas` for the EFIT
+Magnitude, Area and Duration layout, `ck-wiki` Magic Effect pages for the area
+and Spellmaking flag semantics, and CommonLibSSE-NG `EffectSetting.h` and
+`Effect.h` for the `kNoArea` flag bit and the confirmation that runtime area
+reads the spell's own EFIT field, not the MGEF default.
+
+`mag_06_area_hit_selects_each_eligible_actor_once_in_radius` and
+`mag_06_area_hit_skips_ineligible_actors_in_radius` in `tests/magic.rs` cover
+both done-check clauses with synthetic records: an in-radius actor and the
+explicit target both take the effect once, an out-of-radius actor takes no
+effect, and a dead hostile-ineligible actor inside the radius is skipped
+without affecting the other recipients. The done check names no specific
+vanilla record, so no SKYRIM_DATA-gated case was added. Ingestible and poison
+area remains its own unsupported entry, out of this row's scope. Concentration,
+projectiles, contact and location delivery and taper stay separately
+unsupported as before.
 
 ### Unnamed archetypes, MAG-68
 
@@ -2454,8 +2491,8 @@ MGEF and 1,354 SPEL records, with zero Dispel effects or linked spells. All
 30 magic tests pass with installed data, and the existing spell survey still
 accepts 179 spells with 206 applications. Dispel execution is validated with
 synthetic records, not an installed vanilla use or an original-runtime probe.
-Concentration, area, contact delivery and condition support retain their
-separate backlog scopes.
+Concentration, contact delivery and condition support retain their
+separate backlog scopes. Area selection is now covered by MAG-06.
 
 ## Exact crafted item selection (CRF-04)
 
