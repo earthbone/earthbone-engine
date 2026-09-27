@@ -58,8 +58,9 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// script equip survives a reload the way a hand weapon selection already did.
 /// Version 33 retains the spawned reference owned by each Summon Creature effect.
 /// Version 34 retains last-visit game days for resettable encounter zones.
-/// Version 35 retains BOS record flags on instantiated references.
-pub const SAVE_VERSION: u16 = 35;
+/// Version 35 retains saved list flags and per-entry chance bytes in record overrides.
+/// Version 36 retains BOS record flags on instantiated references.
+pub const SAVE_VERSION: u16 = 36;
 
 #[derive(Clone, Copy)]
 pub(crate) enum FormNamespace {
@@ -947,7 +948,7 @@ impl World {
         for (id, state) in &mut refs {
             state.record_flags = self.order.winner(*id).map_or(0, |record| record.flags);
         }
-        if version >= 35 {
+        if version >= 36 {
             super::reference_extras::read_reference_flags(&mut r, &mut refs)?;
         }
         if version >= 21 {

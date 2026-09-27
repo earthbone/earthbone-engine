@@ -433,7 +433,7 @@ fn cmb_14_version_28_save_loads_with_no_actor_staggered() {
         );
         bytes.drain(positions[0]..end + 6);
     }
-    // Version 35 writes an empty reference flag count before the trailing
+    // Version 36 writes an empty reference flag count before the trailing
     // cursor and world extension blocks. Version 28 has no such count.
     let flags_offset = bytes.len() - 37;
     assert_eq!(&bytes[flags_offset..flags_offset + 4], &[0; 4]);

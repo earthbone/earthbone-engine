@@ -19,6 +19,9 @@ mod inventory;
 #[path = "vanilla_save/actor_sources.rs"]
 mod actor_sources;
 
+#[path = "vanilla_save/lists.rs"]
+mod lists;
+
 use std::{
     path::{Path, PathBuf},
     sync::Arc,

@@ -11,12 +11,37 @@ Crate `crates/papyrus`. Round 1 of `ENGINE-PLAN.md`, written 2026-09-06.
 - `asm`: a writer for the same model and a builder on top of it. Tests build a
   script, serialize it, and load the bytes, so the reader is on the path of
   every VM test. It is also the seed of an assembler for tooling.
+- `psc`: a bounded Skyrim source compiler using the assembler. It accepts a
+  script header with `extends`, `Hidden` and `Conditional`, native functions
+  without parameters, and functions with literal returns. Other declarations
+  and statements return a source line error. It checks the source filename
+  against `ScriptName` without case, generates Skyrim's `GetState` and
+  `GotoState` functions, and emits a Skyrim PEX file. The parser follows the
+  Open Papyrus script header, identifier, keyword and `.psc` filename rules
+  and Caprica's Skyrim flag
+  definitions and generated state functions. The gated SCR-04 tests compare
+  the compiled `Activator.psc` and `Armor.psc` objects with their shipped
+  Creation Kit PEX objects. A synthetic PSC function compiles and runs in the VM.
 - `value`: run-time values and the language's conversion rules.
 - `vm`: objects, attached script instances, threads with their own frame
   stacks, a scheduler with sleeping and latent threads, events, states, and the
   native registry.
 
-No dependencies outside the standard library.
+The VM depends on `soe-trace`. SHA-256 fingerprints use `sha2`. PSC errors
+use `thiserror`.
+
+`Vm::loaded_script_fingerprints` lists loaded script names in case-insensitive
+order with optional SHA-256 PEX source fingerprints. `load_bytes` records a
+fingerprint of the input bytes after a successful parse. `load(Script)` reports
+unknown source provenance because its original PEX bytes are unavailable.
+Loading another definition with the same name replaces its fingerprint.
+`tests/sav_67_fingerprints.rs` covers changed PEX definitions, programmatic
+loads and replacement. The hash identifies content for dependency comparison,
+not the origin or authenticity of a file.
+
+OpenMW's `apps/openmw/mwstate/savegame.hpp` records content file names and
+`loadgame.hpp` maps saved indices on load. Its save path does not supply script
+source fingerprints, so the VM records them at the PEX load boundary.
 
 ## Format facts, checked against the references
 

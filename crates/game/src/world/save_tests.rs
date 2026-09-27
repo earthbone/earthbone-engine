@@ -284,9 +284,10 @@ fn rich_world(namespace: u16) -> World {
 /// dialogue branch field that version 24 added, the stagger end time field
 /// that version 29 added, the witnessed crimes set that version 31 added,
 /// the hand spell fields that version 32 added, and the summon actor link
-/// that version 33 added. The version 35 reference flag block is removed with
-/// the other trailing blocks. Unique sentinels locate earlier fields for
-/// removal from the serialized bytes.
+/// that version 33 added, plus the record metadata byte from version 35.
+/// The version 36 reference flag block is removed with the other trailing
+/// blocks. Each field is set to a unique sentinel so its serialized bytes can
+/// be located exactly, then cut back out.
 fn without_exclusive_branches(world: &mut World) -> Vec<u8> {
     let ids: Vec<_> = world.actors.keys().copied().collect();
     let mut markers = Vec::new();
@@ -368,6 +369,14 @@ fn without_exclusive_branches(world: &mut World) -> Vec<u8> {
             .expect("sentinel field is serialized");
         bytes.drain(at..at + marker.len());
     }
+    let mut records = Writer::new();
+    world.write_record_overrides(&mut records);
+    let at = bytes
+        .windows(records.out.len())
+        .position(|window| window == records.out)
+        .expect("record override is serialized");
+    // CONTEXT: This fixture has one override with no list fields in version 23.
+    bytes.remove(at + 39);
     bytes
 }
 
@@ -375,7 +384,7 @@ fn without_exclusive_branches(world: &mut World) -> Vec<u8> {
 fn sav_07_legacy_ids_migrate_through_all_nested_world_state() {
     for version in 15..=18_u16 {
         let mut legacy = without_exclusive_branches(&mut rich_world(255));
-        // Drop the empty version 35 flags and later trailing blocks,
+        // Drop the empty version 36 flags and later trailing blocks,
         // including zone visit history.
         legacy.truncate(legacy.len() - 37);
         let tail = legacy.len() - 25;

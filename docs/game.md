@@ -14,7 +14,7 @@ week 6 to 9 gate.
 Base Object Swapper property rules are applied as a reference is built. The
 runtime checks a rule for the reference, then its original base. Position,
 rotation and scale update the existing placement fields.
-Flag overrides use `RefState::record_flags`, saved in SOEW version 35.
+Flag overrides use `RefState::record_flags`, saved in SOEW version 36.
 Property ranges are sampled deterministically from the reference ID. `ChanceL`
 uses the location and base IDs for a stable chance decision. This does not
 reproduce BOS's C++ random sequence. Conditional BOS filters remain unevaluated.
@@ -870,8 +870,9 @@ version 29 an actor's stagger end time. Version 30 appends shared stealth-point
 pools with each observer's detection level and timers, written only when a pool
 exists. Version 31 adds the set of perpetrators an actor witnessed committing a
 tracked crime.
-Version 34 retains encounter-zone visit history. Version 35 retains reference
-flag overrides applied by BOS.
+Version 34 retains encounter-zone visit history. Version 35 retains saved list
+flags and per-entry chance bytes in record overrides. Version 36 retains
+reference flag overrides applied by BOS.
 version 5 adds active magic, version 6 adds dialogue, version 7 adds actor-value
 components, version 8 adds dialogue to those components, version 9 adds
 active magic. Version 10 adds per-reference leveled template choices.
@@ -957,6 +958,9 @@ callbacks and does not mutate the running game.
 newest one loadable under the current definitions. `recover_generation` loads
 those verified bytes. Retention preserves loadable fallbacks before intact
 incompatible files, with a minimum configured limit of two generations.
+The `sav_63_` tests also corrupt a newly published generation after an
+interrupted rotation, then recover the older verified state and finish a
+bounded retry.
 
 A test in `tests/quest_flow.rs` calls the new `Game::activate_no_settle`
 (the part of `Game::activate` before `run_until_idle`) on the lever so the
@@ -3310,3 +3314,28 @@ runtime FormID using the Szudzik formula from
 conversion evaluates each keyword and target pair without consuming the world
 RNG. The seed inputs match upstream, though the random generator output is not
 claimed bit for bit.
+
+## Saved list changes, SAV-52
+
+`World::restore_vanilla_lists` applies decoded FLST, LVLN, LVLI and LVSP
+changes to record overrides. Saved references map through plugin names before
+any override is installed. The record retains decoded additions, including
+duplicate and null references. FormList queries follow the CK saved-addition
+rule: they skip duplicates and nulls, with created forms before authored forms.
+The method preserves form flag words, optional section presence and leveled
+entry chance bytes. Leveled additions become twelve-byte LVLO subrecords and
+update LLCT when present. Warm form-list
+caches receive the same visible entries as cold queries. Warm leveled-list
+caches receive the saved additions. Malformed changes, duplicate targets,
+missing records and count overflow leave
+all four list types unchanged.
+
+The record overrides feed form-list queries, leveled selection and other
+record readers. SOEW version 35 stores the saved flag words and entry chance
+bytes alongside the overridden records. The chance byte remains available as
+saved data without altering leveled selection probability. The implementation
+follows local xEdit `Core/wbDefinitionsTES5Saves.pas` change types 43 to 46,
+CK `AddForm_-_FormList.wikitext` for import order and duplicate handling, and
+FallrimTools `ChangeFormFLST.java`, `ChangeFormLeveled.java` and
+`LeveledEntry.java`. Their Java readers cannot serve as Rust runtime code, so
+the existing typed save decoder and record override layer perform the mapping.
