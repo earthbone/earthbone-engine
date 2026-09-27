@@ -158,14 +158,14 @@ game-facing side.
 ### 3.5 Navmesh regeneration on save
 
 Navmesh generation in the Creation Kit is a manual step that authors forget and that
-produces broken meshes when references move. In the editor, saving a cell whose references
-or landscape changed marks its navmesh stale, and the save step regenerates it through
-`soe-navmesh` from the cell's collision and LAND heights, then reruns finalization for the
-edge links to neighbours. Hand edits survive as overrides on triangles the author marked
-locked. A stale navmesh that the author chooses not to regenerate is saved with a flag the
-engine reads, so the runtime can generate it at load instead. This is the one place the
-editor does something the Creation Kit does not: the workaround (running xEdit's navmesh
-checks, or a generation pass in a separate session) becomes the default behaviour.
+produces broken meshes when references move. `EditorDocument::save_with_navmesh_regeneration`
+accepts the changed cell scene, agent dimensions and locked triangle indices, then uses
+`soe-navmesh` to generate the replacement geometry before writing the plugin. Exterior
+scenes need neighboring geometry around the cell border for Recast's erosion padding. The
+save retains locked triangles and triangles that own authored edge or door links, rebuilds
+adjacency and the spatial grid, and keeps their link metadata. The current editor API does
+not detect cell changes, finalize links with neighboring NAVMs, or write a stale flag when
+regeneration is skipped. Those behaviors remain part of the editor milestone design.
 
 ### 3.6 What the editor renders
 

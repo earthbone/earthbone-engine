@@ -10,4 +10,5 @@ workspace = true
 
 [dependencies]
 soe-esm = { path = "../esm" }
+soe-navmesh = { path = "../navmesh" }
 thiserror = "2.0"

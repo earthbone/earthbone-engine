@@ -5,8 +5,10 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use soe_esm::records::navm::{Geometry, NavMesh, Triangle};
+use soe_esm::records::navm::{DoorLink, Geometry, NavMesh, Parent, Triangle};
 use soe_esm::{Entry, GlobalFormId, GroupKind, LoadOrder, Plugin, Record, Subrecord, Tag};
+use soe_navmesh::{Agent, Scene};
+use std::collections::BTreeSet;
 use thiserror::Error;
 
 /// Errors produced while opening or editing a plugin document.
@@ -53,6 +55,14 @@ pub enum EditorError {
         form: GlobalFormId,
         /// Why the requested geometry was rejected.
         reason: &'static str,
+    },
+    /// Recast could not regenerate the requested navmesh.
+    #[error("cannot regenerate navmesh {form}: {message}")]
+    NavmeshGeneration {
+        /// Navmesh being regenerated.
+        form: GlobalFormId,
+        /// Generation failure.
+        message: String,
     },
     /// Saving the active plugin failed.
     #[error("could not write plugin {path}: {source}")]
@@ -302,6 +312,81 @@ impl EditorDocument {
         })
     }
 
+    /// Regenerate a NAVM from changed cell geometry while retaining locked
+    /// triangles and the geometry that owns authored links.
+    ///
+    /// For exterior NAVMs the cell coordinates come from the record. Interior
+    /// NAVMs use the complete supplied scene. The returned edit is undoable.
+    ///
+    /// # Errors
+    /// Returns an error if the form is not an editable NAVM, generation fails,
+    /// a locked triangle index is invalid, or the merged NVNM is invalid.
+    pub fn regenerate_navmesh(
+        &mut self,
+        form: GlobalFormId,
+        scene: &Scene,
+        agent: &Agent,
+        locked_triangles: &[usize],
+    ) -> Result<(), EditorError> {
+        let index = self
+            .active_record_index(form)
+            .ok_or(EditorError::UnsupportedEdit {
+                form,
+                reason: "navmesh regeneration requires a NAVM record in the active plugin",
+            })?;
+        let record = &self.active_plugin.records[index];
+        if record.tag != Tag(*b"NAVM") {
+            return Err(EditorError::UnsupportedEdit {
+                form,
+                reason: "form is not a NAVM record",
+            });
+        }
+        let view = NavMesh::from_record(record).map_err(|_| EditorError::InvalidNavmesh {
+            form,
+            reason: "NVNM geometry could not be parsed",
+        })?;
+        let Some(original) = view.geometry else {
+            return Err(EditorError::InvalidNavmesh {
+                form,
+                reason: "NAVM has no NVNM geometry",
+            });
+        };
+        let generated = match original.parent {
+            Parent::Grid { x, y, .. } => soe_navmesh::generate_cell(scene, agent, x, y),
+            Parent::Cell(_) => soe_navmesh::generate(scene, agent),
+        }
+        .and_then(|mesh| mesh.to_geometry(original.parent, original.grid.divisor))
+        .map_err(|error| EditorError::NavmeshGeneration {
+            form,
+            message: error.to_string(),
+        })?;
+        let merged = merge_regenerated_geometry(&original, generated, locked_triangles)
+            .map_err(|reason| EditorError::InvalidNavmesh { form, reason })?;
+
+        let mut updated = record.clone();
+        let mut nvnm = updated
+            .subrecords
+            .iter_mut()
+            .filter(|subrecord| subrecord.tag == Tag(*b"NVNM"));
+        let Some(subrecord) = nvnm.next() else {
+            return Err(EditorError::InvalidNavmesh {
+                form,
+                reason: "NAVM has no NVNM geometry",
+            });
+        };
+        if nvnm.next().is_some() {
+            return Err(EditorError::RepeatedSubrecord {
+                form,
+                tag: Tag(*b"NVNM"),
+            });
+        }
+        subrecord.data = merged.to_bytes();
+        self.undo.push(self.active_plugin.clone());
+        self.active_plugin.records[index] = updated;
+        self.rebuild_load_order()?;
+        Ok(())
+    }
+
     fn edit_navmesh(
         &mut self,
         form: GlobalFormId,
@@ -377,6 +462,25 @@ impl EditorDocument {
         })
     }
 
+    /// Regenerate a NAVM from a changed scene and save the active plugin.
+    ///
+    /// Exterior scenes should include neighboring geometry around the cell
+    /// border so Recast can use it as padding during erosion.
+    ///
+    /// # Errors
+    /// Returns an error if regeneration or plugin saving fails.
+    pub fn save_with_navmesh_regeneration(
+        &mut self,
+        path: impl AsRef<Path>,
+        form: GlobalFormId,
+        scene: &Scene,
+        agent: &Agent,
+        locked_triangles: &[usize],
+    ) -> Result<Plugin, EditorError> {
+        self.regenerate_navmesh(form, scene, agent, locked_triangles)?;
+        self.save(path)
+    }
+
     fn active_record(&self, form: GlobalFormId) -> Option<&Record> {
         let index = self.active_record_index(form)?;
         self.active_plugin.records.get(index)
@@ -449,6 +553,113 @@ impl EditorDocument {
             hedr.data[4..8].copy_from_slice(&count.to_le_bytes());
         }
     }
+}
+
+fn merge_regenerated_geometry(
+    original: &Geometry,
+    mut generated: Geometry,
+    requested_locks: &[usize],
+) -> Result<Geometry, &'static str> {
+    if original.parent != generated.parent {
+        return Err("generated parent does not match the edited NAVM");
+    }
+    let mut retained = BTreeSet::new();
+    for &triangle in requested_locks {
+        if triangle >= original.triangles.len() {
+            return Err("locked triangle index is out of range");
+        }
+        retained.insert(triangle);
+    }
+    for (triangle_index, triangle) in original.triangles.iter().enumerate() {
+        if (0..3).any(|edge| {
+            triangle.flags & (1 << edge) != 0
+                && usize::try_from(triangle.edges[edge])
+                    .is_ok_and(|link| link < original.edge_links.len())
+        }) {
+            retained.insert(triangle_index);
+        }
+    }
+    for link in &original.door_links {
+        if let Ok(index) = usize::try_from(link.triangle) {
+            if index < original.triangles.len() {
+                retained.insert(index);
+            }
+        }
+    }
+
+    let mut old_to_new = vec![None; original.triangles.len()];
+    let mut old_vertex_to_new = Vec::with_capacity(original.vertices.len());
+    for &position in &original.vertices {
+        let index = if let Some(index) = generated
+            .vertices
+            .iter()
+            .position(|candidate| *candidate == position)
+        {
+            index
+        } else {
+            let index = generated.vertices.len();
+            generated.vertices.push(position);
+            index
+        };
+        old_vertex_to_new.push(u16::try_from(index).map_err(|_| "vertex index overflow")?);
+    }
+    for old_index in retained {
+        let triangle = original.triangles[old_index];
+        let vertices = triangle
+            .vertices
+            .map(|vertex| old_vertex_to_new[usize::from(vertex)]);
+        let next =
+            i16::try_from(generated.triangles.len()).map_err(|_| "triangle index overflow")?;
+        generated.triangles.push(Triangle {
+            vertices,
+            edges: triangle.edges,
+            flags: triangle.flags,
+            cover_flags: triangle.cover_flags,
+        });
+        old_to_new[old_index] = Some(usize::try_from(next).map_err(|_| "triangle index overflow")?);
+    }
+    generated.edge_links.clone_from(&original.edge_links);
+    generated.door_links = original
+        .door_links
+        .iter()
+        .filter_map(|link| remap_door_link(*link, &old_to_new))
+        .collect();
+    generated.cover_triangles = original
+        .cover_triangles
+        .iter()
+        .filter_map(|triangle| {
+            usize::try_from(*triangle)
+                .ok()
+                .and_then(|index| old_to_new.get(index).copied().flatten())
+                .and_then(|index| i16::try_from(index).ok())
+        })
+        .collect();
+
+    normalize_geometry(&mut generated)?;
+    for (old_index, new_index) in old_to_new.iter().enumerate() {
+        let Some(new_index) = new_index else { continue };
+        let old = original.triangles[old_index];
+        let current = &mut generated.triangles[*new_index];
+        for edge in 0..3 {
+            let edge_bit = 1 << edge;
+            if old.flags & edge_bit != 0 {
+                current.flags |= edge_bit;
+                current.edges[edge] = old.edges[edge];
+            }
+        }
+    }
+    validate_metadata(&generated)?;
+    Ok(generated)
+}
+
+fn remap_door_link(link: DoorLink, mapping: &[Option<usize>]) -> Option<DoorLink> {
+    let old_index = usize::try_from(link.triangle).ok()?;
+    let new_index = mapping.get(old_index).copied().flatten()?;
+    Some(DoorLink {
+        triangle: i16::try_from(new_index).ok()?,
+        crc: link.crc,
+        door: link.door,
+    })
 }
 
 const EDGE_LINK_BITS: [u16; 3] = [1, 2, 4];
