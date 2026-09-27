@@ -1007,3 +1007,15 @@ FallrimTools keeps these payloads raw, and UESP documents the outer
 change-form framing rather than these record layouts. The corpus test accounts
 for every BOOK, NOTE and KEYM change in the external save set and checks exact
 payload re-encoding.
+
+`World::restore_vanilla_book_note_keys` maps each saved base through the saved
+plugin names and prepares all BOOK, NOTE and KEYM record overrides before
+installing any. Saved form flags update the live record header flags. The
+VALUE and FULL_NAME bits, teaching-skill and read markers, and opaque suffix
+are retained as runtime metadata because xEdit defines those markers without
+payload values or plugin-subrecord equivalents. Duplicate changes and records
+already overridden by another restoration path fail without partial mutation.
+These fields persist in SOEW version 37.
+The change-field meanings follow xEdit `Core/wbDefinitionsTES5Saves.pas`,
+`wbUnionCHANGE_BASE_OBJECT_VALUE`, `wbUnionCHANGE_BASE_OBJECT_FULLNAME`, and
+the BOOK and NOTE marker unions.

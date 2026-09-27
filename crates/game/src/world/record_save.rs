@@ -7,7 +7,9 @@ use std::collections::BTreeMap;
 use soe_esm::{plugin::Subrecord, GlobalFormId, Slot, Tag};
 use soe_papyrus::{vm::state::Writer, VmError};
 
-use super::record_overrides::{raw_words, ListRecordExtra, NpcRecordExtra, RecordOverride};
+use super::record_overrides::{
+    raw_words, BookNoteKeyRecordExtra, ListRecordExtra, NpcRecordExtra, RecordOverride,
+};
 use super::save::{read_form_id, read_opt_form_id, write_form_id, write_opt_form_id, FormReader};
 use super::{World, T};
 
@@ -65,6 +67,19 @@ impl World {
                 w.bool(list.section_present);
                 w.bytes(&list.entry_chances);
             }
+            w.bool(value.book_note_key.is_some());
+            if let Some(extra) = &value.book_note_key {
+                w.bool(extra.form_flags.is_some());
+                if let Some((flags, unknown)) = extra.form_flags {
+                    w.u32(flags);
+                    w.u16(unknown);
+                }
+                w.bool(extra.value_changed);
+                w.bool(extra.full_name_changed);
+                w.bool(extra.teaches_skill);
+                w.bool(extra.read);
+                w.bytes(&extra.opaque_suffix);
+            }
             w.len(value.links.len());
             for (raw, link) in &value.links {
                 w.u32(*raw);
@@ -103,7 +118,15 @@ impl World {
                 || self.order.winner(text_origin).is_none_or(|r| {
                     !matches!(
                         &r.tag.0,
-                        b"NPC_" | b"RACE" | b"FLST" | b"LVLN" | b"LVLI" | b"LVSP"
+                        b"NPC_"
+                            | b"RACE"
+                            | b"FLST"
+                            | b"LVLN"
+                            | b"LVLI"
+                            | b"LVSP"
+                            | b"BOOK"
+                            | b"NOTE"
+                            | b"KEYM"
                     )
                 })
             {
@@ -115,7 +138,15 @@ impl World {
                 .filter(|rec| {
                     matches!(
                         &rec.tag.0,
-                        b"NPC_" | b"RACE" | b"FLST" | b"LVLN" | b"LVLI" | b"LVSP"
+                        b"NPC_"
+                            | b"RACE"
+                            | b"FLST"
+                            | b"LVLN"
+                            | b"LVLI"
+                            | b"LVSP"
+                            | b"BOOK"
+                            | b"NOTE"
+                            | b"KEYM"
                     ) && !rec.is_deleted()
                 })
                 .ok_or_else(|| bad("missing record origin"))?;
@@ -159,6 +190,25 @@ impl World {
             } else {
                 None
             };
+            let book_note_key = if version >= 37 && r.bool()? {
+                Some(BookNoteKeyRecordExtra {
+                    form_flags: if r.bool()? {
+                        Some((r.u32()?, r.u16()?))
+                    } else {
+                        None
+                    },
+                    value_changed: r.bool()?,
+                    full_name_changed: r.bool()?,
+                    teaches_skill: r.bool()?,
+                    read: r.bool()?,
+                    opaque_suffix: r.bytes()?.to_vec(),
+                })
+            } else {
+                None
+            };
+            if let Some((flags, _)) = book_note_key.as_ref().and_then(|extra| extra.form_flags) {
+                record.flags = flags;
+            }
             let mut links = BTreeMap::new();
             let used = raw_words(original);
             let count = r.len()?;
@@ -253,7 +303,28 @@ impl World {
                 {
                     return Err(bad("invalid race skin link"));
                 }
+            } else if matches!(&record.tag.0, b"BOOK" | b"NOTE" | b"KEYM") {
+                let extra = book_note_key
+                    .as_ref()
+                    .ok_or_else(|| bad("BOOK, NOTE or KEYM metadata missing"))?;
+                if list.is_some()
+                    || temporary_for.is_some()
+                    || text_origin != id
+                    || plain_full
+                    || original_race.is_some()
+                    || body_tint.is_some()
+                    || pending_form_flags.is_some()
+                    || (extra.teaches_skill && record.tag != T(b"BOOK"))
+                    || (extra.read && !matches!(&record.tag.0, b"BOOK" | b"NOTE"))
+                    || record.flags != extra.form_flags.map_or(original.flags, |(flags, _)| flags)
+                    || record.subrecords != original.subrecords
+                {
+                    return Err(bad("invalid BOOK, NOTE or KEYM record override"));
+                }
             } else {
+                if book_note_key.is_some() {
+                    return Err(bad("unexpected BOOK, NOTE or KEYM metadata"));
+                }
                 let tag = if record.tag == T(b"FLST") {
                     T(b"LNAM")
                 } else {
@@ -318,6 +389,7 @@ impl World {
                     pending_form_flags,
                 },
                 list,
+                book_note_key,
             };
             if values.insert(id, value).is_some() {
                 return Err(bad("duplicate NPC record"));

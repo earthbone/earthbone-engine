@@ -290,6 +290,8 @@ fn record_overrides_persist_before_actor_initialization_and_old_saves_clear_them
     v13.drain(origin_fields..origin_fields + 13);
     // CONTEXT: Version 13 has no list metadata byte in record overrides.
     v13.remove(origin_fields + 14);
+    // Version 13 also predates the BOOK, NOTE and KEYM metadata byte.
+    v13.remove(origin_fields + 14);
     v13.truncate(v13.len() - 42);
     v13[4..6].copy_from_slice(&13_u16.to_le_bytes());
     let mut legacy = World::new(fixture_order());

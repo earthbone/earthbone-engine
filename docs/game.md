@@ -3376,3 +3376,15 @@ CK `AddForm_-_FormList.wikitext` for import order and duplicate handling, and
 FallrimTools `ChangeFormFLST.java`, `ChangeFormLeveled.java` and
 `LeveledEntry.java`. Their Java readers cannot serve as Rust runtime code, so
 the existing typed save decoder and record override layer perform the mapping.
+
+## BOOK, NOTE and KEYM save restoration, SAV-36
+
+`World::restore_vanilla_book_note_keys` maps saved plugin identities and
+prepares every decoded BOOK, NOTE and KEYM override before installing any.
+Saved form flags update the record header flags. The independent record query
+and name lookup read the override. xEdit defines VALUE and FULL_NAME as
+payload-free change markers, so their flags are retained as metadata with the
+BOOK, NOTE and KEYM teaching and read markers. Opaque suffix bytes are also
+retained. Duplicate changes, missing or wrong records, and records already
+overridden by another restoration path fail without partial mutation. SOEW
+version 37 persists the record flags and saved markers.

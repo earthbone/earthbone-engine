@@ -22,6 +22,9 @@ mod actor_sources;
 #[path = "vanilla_save/lists.rs"]
 mod lists;
 
+#[path = "vanilla_save/sav_36_book_note_key.rs"]
+mod sav_36_book_note_key;
+
 use std::{
     path::{Path, PathBuf},
     sync::Arc,
