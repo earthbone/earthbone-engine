@@ -635,6 +635,8 @@ Match Conditions and no `ALFR` forced reference searches the winning `ACHR`
 and `REFR` records in sorted FormID order. The scan stops before evaluation if
 it would inspect more than 4,096 candidates. Each candidate must be enabled
 unless the alias has Allow Disabled, and a dead actor must have Allow Dead.
+Destroyed candidates require Allow Destroyed. In Loaded Area requires a
+resident cell, not merely a reference built by an unrelated form lookup.
 Every authored condition must pass with the candidate as subject and the quest
 as owner. Unsupported conditions reject that candidate. The alias fills only
 when exactly one candidate passes. Existing alias fills prevent reuse unless
@@ -645,6 +647,8 @@ uses the QUST alias flags and condition block defined in
 `TES5Edit/Core/wbDefinitionsTES5.pas`. Other alias fill types, including
 Create Reference to Object (`ALCO`), are not created by this path, and aliases
 with `ALCO` are excluded from this placed-reference search.
+Closest search remains unsupported because the local format sources do not
+establish the runtime distance origin or tie rule.
 
 **Specific location aliases, AI-18.** `Quest.Start` resolves a location
 alias's `ALFL` through the quest plugin's load-order namespace and fills it
@@ -877,7 +881,7 @@ either.
 
 `World::save_state(&self) -> Vec<u8>` and `World::load_state(&mut self,
 bytes) -> Result<(), VmError>` write and read the run-time half of the form
-table, magic `SOEW`, version 34. Versions 4 to 6 use legacy actor values,
+table, magic `SOEW`, version 35. Versions 4 to 6 use legacy actor values,
 version 5 adds active magic, version 6 adds dialogue, version 7 adds actor-value
 components, version 8 adds dialogue to those components, and version 9 adds
 active magic. Version 10 adds per-reference leveled template choices.
@@ -894,15 +898,10 @@ locked encounter-zone levels, version 28 the do-all dialogue cycles, and
 version 29 an actor's stagger end time. Version 30 appends shared stealth-point
 pools with each observer's detection level and timers, written only when a pool
 exists. Version 31 adds the set of perpetrators an actor witnessed committing a
-tracked crime. Version 34 appends suspended procedure state for stacked PACK
-branches.
-version 5 adds active magic, version 6 adds dialogue, version 7 adds actor-value
-components, version 8 adds dialogue to those components, version 9 adds
-active magic. Version 10 adds per-reference leveled template choices.
-Version 11 adds quest journal instances and mapped runtime metadata. Versions
-12 to 15 add inventory, NPC, identity and deferred-death state. Version 16
-adds an actor's active exclusive dialogue branch, and version 17 adds active
-do-all dialogue cycles.
+tracked crime. Version 32 adds equipped spells, and version 33 adds the spawned
+reference owned by a Summon Creature effect. Version 34 appends suspended
+procedure state for stacked PACK branches. Version 35 retains the active Patrol
+mount reference.
 Older formats load with empty state for absent subsystems.
 Legacy current and base values must agree. Otherwise their modifier domains
 are ambiguous and restoration returns an explicit error.
@@ -3202,8 +3201,8 @@ the existing weapon-hand fields, for World/replay determinism.
 written unconditionally (the writer always emits the current format) and read
 behind `if version >= 32`, the same pattern `witnessed_crimes` used for
 version 31. An older save simply loads with both hands empty, matching how a
-pre-31 save loads with no witnessed crimes. The version-34 unknown-version
-probe in `save_tests.rs` moved to 35 so it still names a version past the
+pre-31 save loads with no witnessed crimes. The unknown-version probe in
+`save_tests.rs` moved to 36 so it still names a version past the
 current one.
 
 `natives.rs`'s `EquipSpell`/`UnequipSpell`/`GetEquippedSpell` now share

@@ -69,10 +69,17 @@ impl World {
         if self.quest_state(id).is_none_or(|quest| quest.running) {
             return false;
         }
+        let original_aliases = self.quest_state(id).map(|quest| quest.aliases.clone());
         if !self.fill_reference_aliases(id) {
+            if let (Some(quest), Some(aliases)) = (self.quests.get_mut(&id), original_aliases) {
+                quest.aliases = aliases;
+            }
             return false;
         }
         if !self.fill_specific_location_aliases(id) {
+            if let (Some(quest), Some(aliases)) = (self.quests.get_mut(&id), original_aliases) {
+                quest.aliases = aliases;
+            }
             return false;
         }
         let Some(q) = self.quest_state(id) else {
@@ -138,18 +145,33 @@ impl World {
                 .all(|alias| alias.flags & alias_flags::OPTIONAL != 0);
         }
 
+        let mut pending = Vec::new();
         for alias in aliases.iter().filter(|alias| {
             !alias.location
                 && !alias.creates_reference
                 && alias.forced_ref.is_none()
                 && !alias.match_conditions.is_empty()
         }) {
+            if alias.flags & alias_flags::CLOSEST != 0 {
+                if alias.flags & alias_flags::OPTIONAL == 0 {
+                    return false;
+                }
+                continue;
+            }
             let matching: Vec<_> = candidates
                 .iter()
                 .copied()
                 .filter(|candidate| {
                     self.alias_candidate_allowed(alias.flags, *candidate)
                         && self.alias_conditions_match(id, *candidate, &alias.match_conditions)
+                        && !aliases.iter().any(|other| {
+                            other.id != alias.id
+                                && (self.alias_ref(id, other.id) == Some(*candidate)
+                                    || pending.contains(&(other.id, *candidate)))
+                                && (alias.flags & alias_flags::ALLOW_REUSE_IN_QUEST == 0
+                                    || other.flags & alias_flags::RESERVES_REFERENCE != 0
+                                        && alias.flags & alias_flags::ALLOW_RESERVED == 0)
+                        })
                 })
                 .collect();
             let [candidate] = matching.as_slice() else {
@@ -158,20 +180,12 @@ impl World {
                 }
                 continue;
             };
-            let occupied = aliases.iter().any(|other| {
-                other.id != alias.id
-                    && self.alias_ref(id, other.id) == Some(*candidate)
-                    && (alias.flags & alias_flags::ALLOW_REUSE_IN_QUEST == 0
-                        || other.flags & alias_flags::RESERVES_REFERENCE != 0
-                            && alias.flags & alias_flags::ALLOW_RESERVED == 0)
-            });
-            if occupied {
-                if alias.flags & alias_flags::OPTIONAL == 0 {
-                    return false;
-                }
-                continue;
+            pending.push((alias.id, *candidate));
+        }
+        if let Some(state) = self.quests.get_mut(&id) {
+            for (alias, target) in pending {
+                state.aliases.insert(alias, Some(target));
             }
-            self.force_alias(id, alias.id, Some(*candidate));
         }
         true
     }
@@ -219,13 +233,28 @@ impl World {
     }
 
     fn alias_candidate_allowed(&mut self, flags: u32, candidate: GlobalFormId) -> bool {
-        let Some((deleted, enabled, is_actor)) = self
-            .reference(candidate)
-            .map(|reference| (reference.deleted, reference.enabled, reference.is_actor))
+        let Some((deleted, destroyed, enabled, is_actor, cell)) =
+            self.reference(candidate).map(|reference| {
+                (
+                    reference.deleted,
+                    reference.destroyed,
+                    reference.enabled,
+                    reference.is_actor,
+                    reference.cell,
+                )
+            })
         else {
             return false;
         };
         if deleted || !enabled && flags & alias_flags::ALLOW_DISABLED == 0 {
+            return false;
+        }
+        if destroyed && flags & alias_flags::ALLOW_DESTROYED == 0 {
+            return false;
+        }
+        if flags & alias_flags::IN_LOADED_AREA != 0
+            && !cell.is_some_and(|cell| self.cell_is_resident(cell))
+        {
             return false;
         }
         if flags & alias_flags::ALLOW_DEAD == 0

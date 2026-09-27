@@ -93,8 +93,11 @@ pub mod alias_flags {
     pub const OPTIONAL: u32 = 1 << 1;
     pub const ALLOW_REUSE_IN_QUEST: u32 = 1 << 3;
     pub const ALLOW_DEAD: u32 = 1 << 4;
+    pub const IN_LOADED_AREA: u32 = 1 << 5;
     pub const ALLOW_DISABLED: u32 = 1 << 7;
     pub const ALLOW_RESERVED: u32 = 1 << 9;
+    pub const ALLOW_DESTROYED: u32 = 1 << 12;
+    pub const CLOSEST: u32 = 1 << 13;
 }
 
 #[derive(Debug, Clone, PartialEq)]

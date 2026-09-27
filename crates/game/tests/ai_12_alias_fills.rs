@@ -133,6 +133,83 @@ fn ai_12_allows_reuse_only_when_the_alias_flag_permits_it() {
 }
 
 #[test]
+fn ai_12_selects_the_unclaimed_reference_when_another_match_is_reserved() {
+    let quest = add_search_alias(
+        quest::build_record(QUEST, "AI12Quest", 0),
+        0,
+        "Target",
+        0,
+        MATCH_BASE,
+    )
+    .sub(Tag(*b"ALST"), 1u32.to_le_bytes())
+    .zsub(Tag(*b"ALID"), "Reserved")
+    .sub(
+        Tag(*b"FNAM"),
+        quest::alias_flags::RESERVES_REFERENCE.to_le_bytes(),
+    )
+    .sub(Tag(*b"ALFR"), 0x900u32.to_le_bytes())
+    .sub(Tag(*b"ALED"), Vec::new());
+    let mut game = build_game(quest, &[(0x900, MATCH_BASE), (0x901, MATCH_BASE)]);
+    assert!(game.start_quest(id(QUEST)));
+    assert_eq!(game.world_mut().alias_ref(id(QUEST), 0), Some(id(0x901)));
+}
+
+#[test]
+fn ai_12_failed_quest_start_restores_prior_reference_aliases() {
+    let quest = search_alias(0, "Target", 0, MATCH_BASE)
+        .sub(Tag(*b"ALLS"), 1u32.to_le_bytes())
+        .zsub(Tag(*b"ALID"), "MissingLocation")
+        .sub(Tag(*b"FNAM"), 0u32.to_le_bytes())
+        .sub(Tag(*b"ALFL"), 0x990u32.to_le_bytes())
+        .sub(Tag(*b"ALED"), Vec::new());
+    let mut game = build_game(quest, &[(0x900, MATCH_BASE)]);
+    assert!(!game.start_quest(id(QUEST)));
+    assert_eq!(game.world_mut().alias_ref(id(QUEST), 0), None);
+}
+
+#[test]
+fn ai_12_destroyed_reference_requires_the_authored_permission() {
+    for (flags, expected) in [
+        (quest::alias_flags::OPTIONAL, None),
+        (
+            quest::alias_flags::OPTIONAL | quest::alias_flags::ALLOW_DESTROYED,
+            Some(id(0x900)),
+        ),
+    ] {
+        let mut game = build_game(
+            search_alias(0, "Target", flags, MATCH_BASE),
+            &[(0x900, MATCH_BASE)],
+        );
+        game.world_mut().reference(id(0x900)).unwrap().destroyed = true;
+        assert!(game.start_quest(id(QUEST)));
+        assert_eq!(game.world_mut().alias_ref(id(QUEST), 0), expected);
+    }
+}
+
+#[test]
+fn ai_12_loaded_area_does_not_mean_a_reference_built_on_demand() {
+    let flags = quest::alias_flags::OPTIONAL | quest::alias_flags::IN_LOADED_AREA;
+    let mut game = build_game(
+        search_alias(0, "Target", flags, MATCH_BASE),
+        &[(0x900, MATCH_BASE)],
+    );
+    assert!(game.world_mut().reference(id(0x900)).is_some());
+    assert!(game.start_quest(id(QUEST)));
+    assert_eq!(game.world_mut().alias_ref(id(QUEST), 0), None);
+}
+
+#[test]
+fn ai_12_closest_mode_does_not_silently_use_ambiguous_order() {
+    let flags = quest::alias_flags::OPTIONAL | quest::alias_flags::CLOSEST;
+    let mut game = build_game(
+        search_alias(0, "Target", flags, MATCH_BASE),
+        &[(0x900, MATCH_BASE)],
+    );
+    assert!(game.start_quest(id(QUEST)));
+    assert_eq!(game.world_mut().alias_ref(id(QUEST), 0), None);
+}
+
+#[test]
 fn ai_12_does_not_treat_create_reference_aliases_as_placed_matches() {
     let quest = quest::build_record(QUEST, "AI12Quest", 0)
         .sub(Tag(*b"ALST"), 0u32.to_le_bytes())

@@ -203,21 +203,10 @@ fn owned_available_horse(world: &mut World, actor: GlobalFormId) -> Option<Globa
     let horse_keyword = world.form("ActorTypeHorse")?;
     let factions: std::collections::BTreeSet<_> =
         world.actor(actor)?.factions.keys().copied().collect();
-    let order = world.order();
-    let mut candidates: Vec<_> = order
+    let mut candidates: Vec<_> = world
+        .order()
         .winners_of(T(b"ACHR"))
-        .filter_map(|(id, record)| {
-            let raw_owner = record.find(T(b"XOWN"))?;
-            let raw_owner = u32::from_le_bytes(raw_owner.get(..4)?.try_into().ok()?);
-            (raw_owner != 0).then(|| {
-                let file = order.winner_ref(id)?.file;
-                Some((id, file, raw_owner))
-            })?
-        })
-        .filter_map(|(id, file, raw_owner)| {
-            let owner = order.resolve(file, raw_owner);
-            (owner == actor_base || factions.contains(&owner)).then_some(id)
-        })
+        .map(|(id, _)| id)
         .collect();
     candidates.sort();
     let occupied: std::collections::BTreeSet<_> = world
@@ -234,13 +223,16 @@ fn owned_available_horse(world: &mut World, actor: GlobalFormId) -> Option<Globa
         if occupied.contains(&horse) {
             continue;
         }
-        let Some((enabled, deleted, base)) = world
+        let Some((enabled, deleted, base, owner)) = world
             .reference(horse)
-            .map(|r| (r.enabled, r.deleted, r.base))
+            .map(|r| (r.enabled, r.deleted, r.base, r.owner))
         else {
             continue;
         };
-        if !enabled || deleted {
+        if !enabled
+            || deleted
+            || !owner.is_some_and(|owner| owner == actor_base || factions.contains(&owner))
+        {
             continue;
         }
         let Some(base) = base else {

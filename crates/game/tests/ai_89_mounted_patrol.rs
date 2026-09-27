@@ -237,3 +237,21 @@ fn ai_89_patrol_does_not_mount_an_unowned_horse() {
         None
     );
 }
+
+#[test]
+fn ai_89_patrol_selects_a_horse_owned_through_runtime_state() {
+    let mut game = game(true, false);
+    game.world_mut().reference(id(HORSE)).unwrap().owner = Some(id(RIDER_BASE));
+    game.tick(0.0);
+    assert_eq!(
+        game.world()
+            .actor_ref(id(ACTOR))
+            .unwrap()
+            .ai
+            .patrol
+            .as_ref()
+            .unwrap()
+            .mount,
+        Some(id(HORSE))
+    );
+}
