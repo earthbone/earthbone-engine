@@ -612,6 +612,11 @@ impl Game {
         }
         self.vm.advance_clocks(real_seconds, game_hours, menu_mode);
         self.run_until_idle(64);
+        if !menu_mode {
+            if let Err(error) = self.update_dialogue_range() {
+                self.vm.log.push(self.vm.time(), error.to_string());
+            }
+        }
         self.push_tick_hash();
     }
 

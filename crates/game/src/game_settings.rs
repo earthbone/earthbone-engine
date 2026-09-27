@@ -7,6 +7,7 @@
 //! Block defaults come from UESP's Block page and its talk archive, also
 //! linked in docs/combat.md. Detection and stealth-point defaults come from a
 //! runtime listing of every TES5 GMST, cited in docs/combat-ai.md.
+//! Dialogue range comes from Skyrim.esm, detailed in game.md DLG-06.
 //! No local or UESP source states a vanilla stagger threshold or duration,
 //! so fStaggerThreshold and fStaggerDuration are engineering estimates,
 //! documented as such in docs/combat.md CMB-14. fBashStaminaCost is the
@@ -54,6 +55,7 @@ pub(crate) fn engine_default(name: &str) -> Option<f32> {
         // address evidence in combat.md.
         "fshieldscalingfactor" | "fbleedoutdefault" | "fsneaklightrunmult" => 0.2,
         "fcombatstealthpointmax" => 100.0,
+        "faiindialoguemodewithplayerdistance" => 500.0,
         "fcombatstealthpointregenalertwaittime" => 30.0,
         "fcombatstealthpointregenlostwaittime" => 10.0,
         "fsneakequippedweightbase" => 12.0,

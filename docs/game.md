@@ -1287,8 +1287,9 @@ Original-engine comparison of random-group selection remains open.
 INFO VMAD begin/end fragments run on their named script attachment through
 `Vm::call_script`. Both methods are checked before starting a response. The
 speaker reference is the fragment argument. Begin runs before the first line,
-and end is dispatched only after the host acknowledges the final response.
-Closing an interrupted conversation does not dispatch its end fragment. A
+and end is dispatched after the host acknowledges the final response or a
+range exit interrupts the INFO. Explicit `close_dialogue` cancellation does
+not dispatch its end fragment. A
 failed end dispatch retains the current response cursor. The VM remains
 responsible for scheduling latent calls and logging runtime script failures.
 The host must not interpret successful dispatch as successful quest completion.
@@ -1352,7 +1353,7 @@ outside this test.
 
 Remaining dialogue work includes missing conditions, automatic greetings and
 ForceGreet, refusal/invisible continuation,
-do-all-before-repeating, walk-away behavior, scenes,
+do-all-before-repeating, walk-away topic selection, scenes,
 services, complete alias behavior and interruption rules. Godot activation,
 menus, voice assets, LIP and idle playback are not connected to this API. This increment does not establish playable dialogue
 or complete the broader gameplay goal.
@@ -3149,3 +3150,46 @@ Open: unarmed reach, which reads the race's unarmed reach instead of a
 weapon, is not handled, so a fist swing reports `Error::Equipment`. The
 reach scale uses the reference scale only, the UESP formula's `NPCScale`,
 and not the race height.
+
+## Dialogue range exit, DLG-06
+
+Every unpaused `Game::tick` checks the current conversation after AI movement
+and pending Papyrus work. `Game::update_dialogue_range` also exposes that check
+for a caller that needs a typed error. It reads both participants' current
+reference positions and the resolved `fAIInDialogueModeWithPlayerDistance`
+GMST, including runtime setting overrides. Distance is three dimensional.
+The exact boundary remains in range. Distinct interiors or worldspaces are
+out of range even if their coordinates coincide. Adjacent exterior cells in
+the same worldspace share coordinates.
+
+Leaving range finishes the active INFO through the existing named VMAD end
+fragment dispatcher and closes the session. A multi-response INFO ends once,
+even if its first response was interrupted. Shared responses keep the selected
+INFO's fragment ownership. Between responses, closure does not replay the
+previous INFO's end fragment. Later ticks have no session to end again.
+Explicit `close_dialogue` remains a cancellation without fragment dispatch.
+Invalid settings or non-finite positions return an error without consuming the
+cursor. Ticks record these errors in the VM log. A failed end dispatch retains
+the cursor for retry, and latent fragment execution follows the VM scheduler.
+
+Sources read were local `ck-wiki/GetDialogueTarget_-_Actor.wikitext` and
+`IsInDialogueWithPlayer_-_ObjectReference.wikitext` for conversation visibility,
+`TES5Edit/Core/wbDefinitionsTES5.pas` for INFO flags, TWAT and named VMAD
+OnBegin/OnEnd fragments, and `uesp-modfileformat/INFO.wikitext` for the same
+fields. The broader CK Topic Info and Player Dialogue pages were absent from
+the corpus and returned HTTP 403 on retrieval. The installed `Skyrim.esm`
+GMST supplies the 500-unit fallback, also checked against the five-master
+winning record. Range-driven dispatch is this row's required contract, not a
+claim of measured original-engine interruption timing. These schema sources
+supply no reusable Rust conversation driver, so the existing game interpreter
+handles the exit without another parser or dependency.
+
+`dialogue.rs` integration tests prefixed `dlg_06_` cover range exits during
+either response, end-fragment quest effects and single dispatch, idle exits,
+record and runtime range overrides, invalid input, menu pause, shared response
+ownership and separate interiors. `dlg_06_installed_distance_record_drives_walk_away`
+is gated on `SKYRIM_DATA` and applies the installed distance record to a
+synthetic scripted conversation. It does not execute a shipped quest fragment.
+The row's range-exit and recorded-end checks are covered. TWAT reply selection,
+walk-away menu flags, voice cancellation and original-engine timing comparison
+are outside this range-exit implementation.
