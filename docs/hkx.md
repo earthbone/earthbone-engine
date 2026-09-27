@@ -370,6 +370,10 @@ What each node does:
   `BSCyclicBlendTransition`) pass their generator child through.
   `hkbModifierGenerator` also gives an enabled modifier child activation and
   deactivation lifecycle.
+- `hkbRigidBodyRagdollControlsModifier` adds one rigid-body ragdoll control
+  output when enabled. It carries the twelve authored hierarchy-control
+  scalars, blend duration and optional bone indices. Its weight starts at one
+  and is scaled by blender and transition contributions.
 - `hkbBehaviorReferenceGenerator` and unmodelled classes yield the
   reference pose at weight zero and are listed in `Unsupported`.
 
@@ -456,6 +460,16 @@ maintainer and the layouts are what we need rather than the code.
 - `hkbVariableBindingSetBinding`: `hasOutputBinding` on the set is
   `SERIALIZE_IGNORED`, so a file never says whether a binding reads or
   writes. The member decides, see below.
+- `hkbRigidBodyRagdollControlsModifier` stores `controlData` at offset 80
+  on SE and its bone-array pointer at 144. Its embedded control data contains
+  the 48-byte `hkaKeyFrameHierarchyUtilityControlData` followed by
+  `durationToBlend`. `hkbBoneIndexArray.boneIndices` is an array of signed
+  16-bit indices.
+
+ANM-46 decodes those fields from the local `serde-hkx/assets/classes/`
+definitions and publishes active controls in `Output`. Blender weights and
+transition alpha scale each control's output weight. The crate exposes these
+controls to its caller; it does not apply them to a physics world.
 
 ### Linking, and why symbols map by name
 
