@@ -33,6 +33,9 @@ pub const HUMAN_SKELETON: &str = "character assets/skeleton.hkx";
 /// `behavior-2` work proved out, and it names the idle and walk clips.
 pub const LOCOMOTION_BEHAVIOR: &str = "behaviors/mt_behavior.hkx";
 
+/// Vanilla one-handed melee behavior, with authored attack markers.
+pub const ONE_HAND_BEHAVIOR: &str = "behaviors/1hm_behavior.hkx";
+
 /// What went wrong assembling a character.
 #[derive(Debug, thiserror::Error)]
 pub enum ActorError {
@@ -182,8 +185,20 @@ impl ActorAssets {
     /// [`ActorError`] when a required file is missing or will not parse, or
     /// when the mesh carries no skinned shape.
     pub fn load(vfs: &Vfs, mesh_path: &str) -> Result<ActorAssets, ActorError> {
+        Self::load_with_behavior(vfs, mesh_path, LOCOMOTION_BEHAVIOR)
+    }
+
+    /// Load the same character rig and mesh with a selected behavior graph.
+    ///
+    /// # Errors
+    /// A required rig, graph, animation or mesh cannot be read or decoded.
+    pub fn load_with_behavior(
+        vfs: &Vfs,
+        mesh_path: &str,
+        behavior: &str,
+    ) -> Result<ActorAssets, ActorError> {
         let skeleton = Self::load_skeleton(vfs)?;
-        let (mut graph, unresolved_references) = Self::load_graph(vfs)?;
+        let (mut graph, unresolved_references) = Self::load_graph(vfs, behavior)?;
         let (clips, missing_clips) = Self::load_clips(vfs, &graph);
         crate::combat::contact_annotation_triggers(&mut graph, &clips);
         let surfaces = Self::load_surfaces(vfs, mesh_path, &skeleton)?;
@@ -213,8 +228,8 @@ impl ActorAssets {
             .ok_or(ActorError::NoSkeleton { path })
     }
 
-    fn load_graph(vfs: &Vfs) -> Result<(BehaviorGraph, Vec<String>), ActorError> {
-        let path = format!("{CHARACTER_ROOT}{LOCOMOTION_BEHAVIOR}");
+    fn load_graph(vfs: &Vfs, behavior: &str) -> Result<(BehaviorGraph, Vec<String>), ActorError> {
+        let path = format!("{CHARACTER_ROOT}{behavior}");
         let bytes = read(vfs, &path)?;
         let pf = packfile(&bytes, &path)?;
         let mut graph = BehaviorGraph::from_packfile(&pf).map_err(|source| ActorError::Havok {

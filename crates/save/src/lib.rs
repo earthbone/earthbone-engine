@@ -24,6 +24,7 @@ pub mod change;
 mod compress;
 pub mod created_objects;
 mod cursor;
+pub mod dialogue_scene;
 pub mod error;
 pub mod expect;
 pub mod globals;
@@ -36,8 +37,12 @@ pub mod reference;
 pub mod table;
 
 pub use change::{ChangeForm, QuestStage};
+pub use change::{
+    ClassChange, FactionChange, FactionReaction, FactionReactions, RelationshipChange,
+};
 pub use created_objects::{CreatedEffect, CreatedObject, CreatedObjects};
 pub use cursor::{RefId, RefKind, WString};
+pub use dialogue_scene::{InfoChange, SceneChange, StoryManagerQuestNodeChange};
 pub use error::{Error, Result};
 pub use globals::{GlobalVariable, GlobalVariables};
 pub use header::{Compression, Header};
