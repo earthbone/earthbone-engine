@@ -685,6 +685,13 @@ reservation semantics. It does not play the marker's authored idle animation.
 SOEW version 36 saves the selected marker, and earlier saves cannot contain
 this procedure tag.
 
+`ForceGreet` resolves its branch target and dialogue topic, walks to the target,
+then opens the assigned eligible topic when it arrives. It attempts the greeting
+once per branch. An actor below full alpha cannot start the dialogue unless it
+is a ghost, matching the CK wiki's `SetAlpha - Actor` rule. The attempt state and
+procedure tag are saved in SOEW version 37. The package remains active after the
+greeting, and a later branch or package selection resets the attempt state.
+
 `Hover` reads a location and finite height from its branch inputs, moves to
 the location's X and Y at its Z plus that height, and holds there. The actor
 reports flying state 3 and `IsFlying` true while Hover runs. Replacing the

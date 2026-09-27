@@ -306,6 +306,7 @@ fn ai_state(h: &mut StateHasher, a: &AiState) {
             h.f32(a.hover_height);
         }
         Procedure::Follow => h.u8(8),
+        Procedure::ForceGreet => h.u8(10),
         Procedure::UseIdleMarker { marker } => {
             h.u8(9);
             if let Some(marker) = marker {
@@ -331,6 +332,7 @@ fn ai_state(h: &mut StateHasher, a: &AiState) {
         opt_form(h, *c);
     }
     h.bool(a.arrived);
+    h.bool(a.force_greet_started);
     h.bool(a.sleeping);
     opt_form(h, a.bed);
     opt_point(h, a.center);

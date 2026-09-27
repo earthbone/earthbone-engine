@@ -85,6 +85,8 @@ pub enum Procedure {
     },
     Hover,
     Follow,
+    /// Approach the assigned target and start its assigned dialogue topic.
+    ForceGreet,
     /// Walk to and hold an exclusive idle marker selected by the package.
     UseIdleMarker {
         marker: Option<GlobalFormId>,
@@ -109,6 +111,8 @@ pub struct AiState {
     /// The cell the actor is in once it passes the matching waypoint.
     pub path_cells: Vec<Option<GlobalFormId>>,
     pub arrived: bool,
+    /// A ForceGreet attempt was made for the current procedure branch.
+    pub force_greet_started: bool,
     pub sleeping: bool,
     pub bed: Option<GlobalFormId>,
     pub center: Option<[f32; 3]>,
@@ -262,6 +266,44 @@ fn template_chain(world: &World, id: GlobalFormId) -> Vec<(GlobalFormId, Package
 /// Runtime execution uses the actor's saved tree cursor.
 pub fn procedure_of(world: &World, id: GlobalFormId) -> (Procedure, Option<LocationData>, bool) {
     tree::first(world, id)
+}
+
+/// Ready ForceGreet attempts, resolved to the assigned target and topic.
+pub(crate) fn force_greet_ready(
+    world: &mut World,
+) -> Vec<(GlobalFormId, GlobalFormId, GlobalFormId)> {
+    let actors = world.loaded_actors();
+    actors
+        .into_iter()
+        .filter_map(|actor| {
+            let (ai, ghost) = {
+                let state = world.actor(actor)?;
+                (state.ai.clone(), state.ghost)
+            };
+            if ai.procedure != Procedure::ForceGreet || !ai.arrived || ai.force_greet_started {
+                return None;
+            }
+            let alpha = world
+                .reference(actor)
+                .map_or(1.0, |reference| reference.alpha);
+            if alpha < 1.0 && !ghost {
+                if let Some(state) = world.actor(actor) {
+                    state.ai.force_greet_started = true;
+                }
+                return None;
+            }
+            let ((owner, target), topic) = tree::force_greet_parameters(world, &ai)?;
+            let target = resolve_follow_target(world, actor, &ai, (owner, target))?;
+            world.actor(target)?;
+            Some((actor, target, topic))
+        })
+        .collect()
+}
+
+pub(crate) fn force_greet_started(world: &mut World, actor: GlobalFormId) {
+    if let Some(state) = world.actor(actor) {
+        state.ai.force_greet_started = true;
+    }
 }
 
 // ----- the stack -----
@@ -667,6 +709,7 @@ pub fn evaluate(world: &mut World, actor: GlobalFormId, alloc: Alloc<'_>) -> Opt
     ai.path.clear();
     ai.path_cells.clear();
     ai.arrived = false;
+    ai.force_greet_started = false;
     ai.sleeping = false;
     ai.bed = None;
     ai.center = None;
@@ -722,6 +765,7 @@ fn begin_procedure(
     ai.path.clear();
     ai.path_cells.clear();
     ai.arrived = false;
+    ai.force_greet_started = false;
     ai.sleeping = false;
     ai.bed = None;
     ai.center = None;
@@ -791,6 +835,23 @@ fn begin_procedure(
                 }
             } else {
                 ai.procedure = Procedure::Unsupported("Follow inputs".into());
+            }
+        }
+        Procedure::ForceGreet => {
+            if let Some((target, _)) = tree::force_greet_parameters(world, ai) {
+                if let Some(target) = resolve_follow_target(world, actor, ai, target) {
+                    if let Some(target_ref) = world.reference(target) {
+                        ai.destination = Some(target_ref.position);
+                        ai.center_cell = target_ref.cell;
+                    } else {
+                        ai.procedure =
+                            Procedure::Unsupported("ForceGreet target is not placed".into());
+                    }
+                } else {
+                    ai.procedure = Procedure::Unsupported("ForceGreet target".into());
+                }
+            } else {
+                ai.procedure = Procedure::Unsupported("ForceGreet inputs".into());
             }
         }
         Procedure::UseIdleMarker { .. } => match (place, location) {
@@ -1323,6 +1384,9 @@ fn step(world: &mut World, actor: GlobalFormId, dt: f32) {
             if ai.procedure == Procedure::Travel {
                 tree::succeeded(world, &mut ai);
             }
+            if ai.procedure == Procedure::ForceGreet {
+                ai.arrived = true;
+            }
         }
         if let Some(r) = world.reference(actor) {
             r.position = pos;
@@ -1444,6 +1508,7 @@ pub(crate) fn write_record_state(w: &mut Writer, a: &AiState) {
             w.f32(a.hover_height);
         }
         Procedure::Follow => w.u8(8),
+        Procedure::ForceGreet => w.u8(10),
         Procedure::UseIdleMarker { marker } => {
             w.u8(9);
             match marker {
@@ -1476,6 +1541,7 @@ pub(crate) fn write_record_state(w: &mut Writer, a: &AiState) {
         write_opt_form_id(w, *c);
     }
     w.bool(a.arrived);
+    w.bool(a.force_greet_started);
     w.bool(a.sleeping);
     write_opt_form_id(w, a.bed);
     match a.center {
@@ -1521,12 +1587,15 @@ pub fn write_state(w: &mut Writer, a: &AiState) {
 
 /// Read a complete driver state written by [`write_state`].
 pub fn read_state(r: &mut Reader<'_>) -> Result<AiState, VmError> {
-    let mut a = read_state_mapped(&mut FormReader::new(r, FormNamespace::Current))?;
+    let mut a = read_state_mapped(&mut FormReader::new(r, FormNamespace::Current), true)?;
     a.tree = read_tree_state(r)?;
     Ok(a)
 }
 
-pub(crate) fn read_state_mapped(r: &mut FormReader<'_, '_>) -> Result<AiState, VmError> {
+pub(crate) fn read_state_mapped(
+    r: &mut FormReader<'_, '_>,
+    has_force_greet_state: bool,
+) -> Result<AiState, VmError> {
     let mut a = AiState {
         package: read_opt_form_id(r)?,
         ..Default::default()
@@ -1565,6 +1634,7 @@ pub(crate) fn read_state_mapped(r: &mut FormReader<'_, '_>) -> Result<AiState, V
             Procedure::Hover
         }
         8 => Procedure::Follow,
+        10 => Procedure::ForceGreet,
         9 => {
             let marker = if r.bool()? {
                 Some(read_form_id(r)?)
@@ -1587,6 +1657,7 @@ pub(crate) fn read_state_mapped(r: &mut FormReader<'_, '_>) -> Result<AiState, V
         a.path_cells.push(read_opt_form_id(r)?);
     }
     a.arrived = r.bool()?;
+    a.force_greet_started = has_force_greet_state && r.bool()?;
     a.sleeping = r.bool()?;
     a.bed = read_opt_form_id(r)?;
     if r.bool()? {
@@ -1793,6 +1864,7 @@ mod tests {
             path: vec![[4.0, 5.0, 6.0]],
             path_cells: vec![Some(GlobalFormId { file: 0, object: 9 })],
             arrived: true,
+            force_greet_started: false,
             sleeping: true,
             bed: None,
             center: Some([7.0, 8.0, 9.0]),

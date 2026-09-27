@@ -150,6 +150,7 @@ fn procedure(branch: &Branch) -> Procedure {
         },
         Some("hover") => Procedure::Hover,
         Some("follow") => Procedure::Follow,
+        Some("forcegreet") => Procedure::ForceGreet,
         Some("useidlemarker") => Procedure::UseIdleMarker { marker: None },
         Some(_) => Procedure::Unsupported(branch.procedure.clone().unwrap_or_default()),
         None => Procedure::Unsupported(branch.kind.clone()),
@@ -198,6 +199,33 @@ pub(super) fn follow_parameters(
         catch_up_radius,
         follow_radius,
     ))
+}
+
+pub(super) fn force_greet_parameters(
+    world: &World,
+    ai: &AiState,
+) -> Option<((GlobalFormId, crate::package::Target), GlobalFormId)> {
+    let package_id = ai.package?;
+    let tree = Tree::load(world, package_id)?;
+    let branch = tree.branches.get(ai.tree.as_ref()?.branch as usize)?;
+    let mut target = None;
+    let mut topic = None;
+    for &index in &branch.inputs {
+        for (owner, package) in &tree.chain {
+            match package.input(index as i8).map(|input| input.value) {
+                Some(DataValue::Target(target_data)) if target.is_none() => {
+                    target = Some((*owner, target_data.target));
+                }
+                Some(DataValue::Topic(crate::package::Topic::Dialogue(raw))) if topic.is_none() => {
+                    topic = world
+                        .resolve_from(*owner, raw)
+                        .filter(|id| world.tag_of(*id) == Some(soe_esm::Tag::new(b"DIAL")));
+                }
+                _ => {}
+            }
+        }
+    }
+    Some((target?, topic?))
 }
 
 /// Static first procedure for tooling. Random choices have no static first leaf.

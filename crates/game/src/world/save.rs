@@ -60,7 +60,8 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// Version 34 retains the active Hover package height.
 /// Version 35 adds the Follow procedure tag.
 /// Version 36 adds the selected UseIdleMarker reservation.
-pub const SAVE_VERSION: u16 = 36;
+/// Version 37 adds ForceGreet and its one-shot dialogue state.
+pub const SAVE_VERSION: u16 = 37;
 
 #[derive(Clone, Copy)]
 pub(crate) enum FormNamespace {
@@ -1485,7 +1486,7 @@ fn read_actor_state(r: &mut FormReader<'_, '_>, version: u16) -> Result<ActorSta
     if r.bool()? {
         a.race = Some(read_form_id(r)?);
     }
-    a.ai = crate::ai::read_state_mapped(r)?;
+    a.ai = crate::ai::read_state_mapped(r, version >= 37)?;
     if version < 23 && a.ai.procedure == crate::ai::Procedure::Patrol {
         return Err(VmError::State(
             "Patrol procedure requires world version 23".into(),
@@ -1509,6 +1510,11 @@ fn read_actor_state(r: &mut FormReader<'_, '_>, version: u16) -> Result<ActorSta
     if version < 36 && matches!(a.ai.procedure, crate::ai::Procedure::UseIdleMarker { .. }) {
         return Err(VmError::State(
             "UseIdleMarker procedure requires world version 36".into(),
+        ));
+    }
+    if version < 37 && a.ai.procedure == crate::ai::Procedure::ForceGreet {
+        return Err(VmError::State(
+            "ForceGreet procedure requires world version 37".into(),
         ));
     }
     a.perks = read_form_set(r)?;

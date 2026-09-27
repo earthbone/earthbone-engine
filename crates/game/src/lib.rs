@@ -610,6 +610,18 @@ impl Game {
             w.fire_timers();
             w.ai_tick(real_seconds, &mut |n, c| vm.create_object_of(n, c));
         }
+        if !menu_mode {
+            let greetings = crate::ai::force_greet_ready(&mut self.world.borrow_mut());
+            for (speaker, listener, topic) in greetings {
+                if self.begin_dialogue(speaker, listener).is_err() {
+                    continue;
+                }
+                crate::ai::force_greet_started(&mut self.world.borrow_mut(), speaker);
+                if self.choose_dialogue(topic).is_err() {
+                    self.close_dialogue();
+                }
+            }
+        }
         self.vm.advance_clocks(real_seconds, game_hours, menu_mode);
         self.run_until_idle(64);
         if !menu_mode {
