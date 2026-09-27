@@ -503,6 +503,12 @@ impl Plugin {
         out
     }
 
+    /// Remap plugin-local FormIDs in record identities, known FormID fields,
+    /// group labels, the override list and typed VMAD object links.
+    pub fn remap_form_ids(&mut self, mapping: &std::collections::HashMap<u32, u32>) -> Result<()> {
+        crate::renumber::remap_plugin(self, mapping)
+    }
+
     /// Records of one signature, in file order.
     pub fn records_of(&self, tag: Tag) -> impl Iterator<Item = &Record> {
         self.records.iter().filter(move |r| r.tag == tag)

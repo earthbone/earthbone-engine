@@ -39,6 +39,7 @@ pub mod error;
 pub mod load_order;
 pub mod plugin;
 pub mod records;
+pub mod renumber;
 pub mod strings;
 pub mod tag;
 

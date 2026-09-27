@@ -77,6 +77,22 @@ the named fields and leave the record intact, so an unknown subrecord is never l
 FormIDs inside views are raw, as written in the file, so a view can be built without a
 load order and resolved later.
 
+`Plugin::remap_form_ids` applies a caller-provided map to record identities,
+group labels that contain FormIDs and the TES4 ONAM override list. It also
+updates the FormID fields currently decoded by the CELL, WRLD, LCTN, REFR,
+LTEX, NAVM, MGEF and selected INFO views: cell water, owner, location, image
+space, music, acoustic space, encounter zone, weather and region links;
+worldspace parent, climate, water, location, encounter zone and music links;
+location parents and markers; placed reference base, owner, location, layer,
+encounter zone and emittance; texture set and grass links; navmesh base object
+lists; magic effect keyword and counter effect lists; SCEN and DIAL quest
+links; and INFO topic, response and topic-list links. VMAD object properties
+and arrays in object formats 1 and 2 are remapped while trailing fragment
+bytes are preserved. An invalid or
+unsupported VMAD property makes the operation fail without changing the
+plugin. Other raw subrecords remain untouched because their fields have not
+been modeled as FormIDs here.
+
 `Refr::lock` reads XLOC level, key and flags. Presence means initially locked,
 including level zero. Level 255 requires a key. The reader accepts the 20-byte
 layout and the 9- and 12-byte forms obtained by omitting xEdit's optional unused
