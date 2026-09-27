@@ -52,6 +52,7 @@ mod doorway;
 mod driver;
 mod encounter_zones;
 mod events;
+pub use events::EffectShaderRequest;
 mod forms;
 pub mod hash;
 mod inventory;
@@ -527,6 +528,8 @@ pub struct World {
     /// source and the volume.
     pub sound_instances: BTreeMap<i32, (GlobalFormId, GlobalFormId, f32)>,
     next_sound: i32,
+    /// Transient renderer requests for EffectShader Play and Stop.
+    pub(crate) effect_shader_requests: Vec<events::EffectShaderRequest>,
     /// `(spell, source, target)` per `Spell.Cast`, in order.
     pub spell_casts: Vec<(GlobalFormId, GlobalFormId, Option<GlobalFormId>)>,
     pub(crate) active_effects: BTreeMap<magic::EffectId, magic::ActiveEffect>,
@@ -615,6 +618,7 @@ impl World {
             scenes: BTreeSet::new(),
             sound_instances: BTreeMap::new(),
             next_sound: 0,
+            effect_shader_requests: Vec::new(),
             spell_casts: Vec::new(),
             dialogue_index: std::sync::OnceLock::new(),
             dialogue: crate::dialogue::State::default(),

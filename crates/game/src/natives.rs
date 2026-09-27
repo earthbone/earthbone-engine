@@ -2437,6 +2437,36 @@ fn message_scene_sound_spell(vm: &mut Vm, w: &Shared) {
         };
         i(world.play_sound(me, source))
     });
+    method!(vm, w, "EffectShader", "Play", |world, call, me| {
+        let Some(target) = world.form_arg(&call.arg(0)) else {
+            return none();
+        };
+        let Some(tag) = world.tag_of(me) else {
+            return none();
+        };
+        let target_tag = world.tag_of(target);
+        if tag != soe_esm::Tag::new(b"EFSH")
+            || !matches!(target_tag, Some(t) if t == soe_esm::Tag::new(b"REFR") || t == soe_esm::Tag::new(b"ACHR"))
+        {
+            return none();
+        }
+        let duration = call.args.get(1).map_or(-1.0, Value::as_float);
+        if !duration.is_nan() {
+            world.effect_shader(me, target, duration, true);
+        }
+        none()
+    });
+    method!(vm, w, "EffectShader", "Stop", |world, call, me| {
+        let Some(target) = world.form_arg(&call.arg(0)) else {
+            return none();
+        };
+        if world.tag_of(me) == Some(soe_esm::Tag::new(b"EFSH"))
+            && matches!(world.tag_of(target), Some(t) if t == soe_esm::Tag::new(b"REFR") || t == soe_esm::Tag::new(b"ACHR"))
+        {
+            world.effect_shader(me, target, 0.0, false);
+        }
+        none()
+    });
     global!(vm, w, "Sound", "StopInstance", |world, call| {
         world.sound_instances.remove(&call.arg(0).as_int());
         none()
@@ -3296,10 +3326,7 @@ fn stubs(vm: &mut Vm) -> usize {
         ("ObjectReference", "ForceAddRagdollToWorld"),
         ("ObjectReference", "ForceRemoveRagdollFromWorld"),
         ("ObjectReference", "TetherToHorse"),
-        // The shader, effect and music systems the DLC scripts lean on
-        // hardest. Nothing renders or sounds yet, so each one is quiet.
-        ("EffectShader", "Play"),
-        ("EffectShader", "Stop"),
+        // The effect, music and particle systems are not implemented yet.
         ("VisualEffect", "Play"),
         ("VisualEffect", "Stop"),
         ("ShaderParticleGeometry", "Apply"),

@@ -9,7 +9,38 @@ use soe_papyrus::{ObjectId, Value};
 
 use super::{Alloc, Handle, Pending, World, T};
 
+/// A transient request for the host to display one EffectShader on a reference.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct EffectShaderRequest {
+    pub shader: GlobalFormId,
+    pub target: GlobalFormId,
+    pub duration: f32,
+    pub playing: bool,
+}
+
 impl World {
+    /// Queue a shader start or stop for the renderer. Repeated starts replace
+    /// the lifetime for the same shader and target when the host consumes it.
+    pub fn effect_shader(
+        &mut self,
+        shader: GlobalFormId,
+        target: GlobalFormId,
+        duration: f32,
+        playing: bool,
+    ) {
+        self.effect_shader_requests.push(EffectShaderRequest {
+            shader,
+            target,
+            duration,
+            playing,
+        });
+    }
+
+    /// Drain visual requests after the host has reconciled them.
+    pub fn take_effect_shader_requests(&mut self) -> Vec<EffectShaderRequest> {
+        std::mem::take(&mut self.effect_shader_requests)
+    }
+
     /// An event to the scripts on `form`, the way `OnActivate` reaches a
     /// reference: `Actor.SendVampirismStateChanged` and its siblings use it.
     pub fn form_event(

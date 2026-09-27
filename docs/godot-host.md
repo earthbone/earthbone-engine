@@ -94,6 +94,17 @@ unmeasured. Static world collision is not evidence of hazard execution.
 The Godot layer decides nothing. That is what keeps the tests engine-free, and it is the
 seam a VulkanSceneGraph or other host would reuse: everything above the layer is plain data.
 
+## EffectShader playback, MAG-14
+
+`CellStreamerNode` consumes transient EffectShader requests from the shared
+game World. It keys active visuals by `(EFSH, target reference)`, so a second
+Play refreshes the existing RenderingServer instance. Stop frees it, finite
+durations free it after elapsed host time, and leaving the tree frees every
+remaining instance. Each active effect owns one sphere mesh instance and one
+material, with no scene node. The current material is a generic blue emissive
+fill. EFSH texture inputs, authored colors, blend modes, fade curves and
+attachment to skinned surfaces are not read yet.
+
 `godot/` holds a project stub and `soe.gdextension` pointing at `target/`, so `cargo build`
 plus opening `godot/` in a 4.4 or later editor loads the extension. The initial
 round had no Godot binary. Later sections record actual host runs, and the

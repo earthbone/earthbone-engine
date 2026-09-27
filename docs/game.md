@@ -174,7 +174,8 @@ run past it.
 | Scene, Package | GetOwningQuest | |
 | TopicInfo | GetOwningQuest | |
 | ActiveMagicEffect | RegisterForUpdate, RegisterForSingleUpdate, RegisterForUpdateGameTime, RegisterForSingleUpdateGameTime, UnregisterForUpdate, UnregisterForUpdateGameTime, RegisterForAnimationEvent, UnregisterForAnimationEvent, GetBaseObject, GetTargetActor, GetCasterActor, Dispel, AddInventoryEventFilter, RemoveInventoryEventFilter, RemoveAllInventoryEventFilters | |
-| EffectShader, VisualEffect | | Play, Stop |
+| EffectShader | Play, Stop | |
+| VisualEffect | | Play, Stop |
 | ImageSpaceModifier | Apply, ApplyCrossFade, Remove, RemoveCrossFade, PopTo | |
 | ShaderParticleGeometry | | Apply, Remove |
 | MusicType, Topic | | Add, Remove |
@@ -804,8 +805,8 @@ Decisions taken rather than read, since no wiki page states them:
 A second pass added the reference animation graph (`SetAnimationVariable`
 and `GetAnimationVariable` in all three types, one store per type on the
 reference), `SetAlpha`, `PlayIdle`, `GetNthLinkedRef` and `PlaceActorAtMe`,
-with quiet stubs for the shader, visual effect, image space modifier, music
-and translation calls the DLC scripts lean on hardest. It also fixed a real
+with quiet stubs for visual effects, image space, music and translation. It
+also fixed a real
 gap next door: the `ACHR` reader ignored `XLKR`, so an actor reference had
 no linked references at all. Actor references carry them the same way a
 `REFR` does, and the DLC scripts use them to find a coffin or a cart.
@@ -1438,6 +1439,22 @@ confirming the topic drops out again once the remainder can no longer cover
 another Small favor).
 
 ## Active magic applications
+
+### EffectShader native lifetime, MAG-14
+
+`EffectShader.Play(target, duration)` and `Stop(target)` validate that the
+receiver is an `EFSH` and the target is a placed `REFR` or `ACHR`, then queue
+a transient request keyed by those two resolved form IDs. The omitted Play
+duration defaults to `-1`, which the host treats as indefinite. The requests
+are not saved. Stop queues a release request, and repeated Play calls for the
+same pair refresh one host effect instead of adding another.
+
+The vanilla `EffectShader.psc` in the local SKSE script corpus documents the
+negative infinite-duration convention. xEdit's `wbDefinitionsTES5.pas`
+identifies EFSH as Effect Shader and shows MGEF's hit and enchant shader links.
+No EffectShader page exists in the local CK wiki corpus. The host currently
+draws one temporary emissive sphere at the target reference placement. It
+does not parse EFSH textures, colors, blend modes or fade curves.
 
 ### Telekinesis prerequisite audit, MAG-41
 
