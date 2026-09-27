@@ -1781,6 +1781,25 @@ save state. The check names no vanilla records, so it has no
 `SKYRIM_DATA`-gated case. Summon combat behavior, command and banish effects,
 visuals, sounds, and host presentation remain outside this check.
 
+### Command Summoned, MAG-33
+
+Direct casts execute MGEF archetype 10 only for a reference spawned by a live
+Summon Creature effect. The command effect temporarily assigns the spawned
+reference to its caster and restores its previous runtime owner when the effect
+ends. An actor with no active summon application is ignored. The authored NPC_
+record is read as usual and is not changed.
+
+TES5Edit's local `wbDefinitionsTES5.pas` names archetype 10 Command Summoned,
+and UESP's local `MGEF.wikitext` says it has no additional archetype data. The
+local CK wiki dump contains no Magic Effect archetype page. Eligibility uses
+the runtime summon identity already retained by MAG-39. SOEW version 37 stores
+the prior reference owner with the active effect so expiry after loading still
+restores the same runtime state.
+
+`mag_33_transfers_only_a_live_summons_runtime_owner` checks eligible transfer
+and that the NPC record remains unchanged. The ineligible actor, effect end
+and saved expiry checks exercise ignored targets and owner restoration.
+
 Validation on the installed five-master load order found 1,354 non-deleted
 SPEL winners. The direct path accepted 178 spells and created 205 applications.
 The survey checks definitions, identity and removal without running their scripts.

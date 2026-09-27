@@ -5,7 +5,7 @@
 use super::*;
 use crate::inventory::{Extra, Field, Stack};
 use crate::quest::state::{AliasMetadata, JournalInstance, RunData, StoryEvent, StoryParameter};
-use crate::world::magic::{ActiveEffect, EffectId};
+use crate::world::magic::{ActiveEffect, EffectId, PriorOwner};
 use crate::world::record_overrides::{raw_words, RecordOverride};
 use crate::world::templates::TemplateChoice;
 use crate::world::DYNAMIC_FILE;
@@ -255,6 +255,7 @@ fn rich_world(namespace: u16) -> World {
             duration: Some(60.0),
             elapsed: 1.0,
             summoned: None,
+            restore_owner: None,
             recover: false,
             changes: vec![],
         },
@@ -284,7 +285,8 @@ fn rich_world(namespace: u16) -> World {
 /// dialogue branch field that version 24 added, the stagger end time field
 /// that version 29 added, the witnessed crimes set that version 31 added,
 /// the hand spell fields that version 32 added, and the summon actor link
-/// that version 33 added, plus the record metadata byte from version 35.
+/// that version 33 added, the command owner field from version 37, plus the
+/// record metadata byte from version 35.
 /// Each is set to a unique sentinel so its serialized
 /// bytes can be located exactly, then cut back out.
 fn without_exclusive_branches(world: &mut World) -> Vec<u8> {
@@ -351,8 +353,23 @@ fn without_exclusive_branches(world: &mut World) -> Vec<u8> {
     summon_marker.extend_from_slice(&summon_sentinel.file.to_le_bytes());
     summon_marker.extend_from_slice(&summon_sentinel.object.to_le_bytes());
     markers.push(summon_marker);
+    let command_owner_sentinel = GlobalFormId {
+        file: u16::MAX,
+        object: 0xE300_0000,
+    };
+    world
+        .active_effects
+        .get_mut(&EffectId(1))
+        .unwrap()
+        .restore_owner = Some(PriorOwner::Owned(command_owner_sentinel));
+    let mut command_owner_marker = vec![1, 1];
+    command_owner_marker.extend_from_slice(&command_owner_sentinel.file.to_le_bytes());
+    command_owner_marker.extend_from_slice(&command_owner_sentinel.object.to_le_bytes());
+    markers.push(command_owner_marker);
     let mut bytes = world.save_state();
-    world.active_effects.get_mut(&EffectId(1)).unwrap().summoned = None;
+    let effect = world.active_effects.get_mut(&EffectId(1)).unwrap();
+    effect.summoned = None;
+    effect.restore_owner = None;
     for id in &ids {
         let actor = world.actors.get_mut(id).unwrap();
         actor.exclusive_branch = None;
@@ -477,7 +494,7 @@ fn sav_07_unknown_version_and_mixed_legacy_namespaces_are_rejected() {
     let mut world = rich_world(DYNAMIC_FILE);
     let before = world.save_state();
     for (version, message) in [
-        (37_u16, "world state version 37"),
+        (38_u16, "world state version 38"),
         (18, "created namespace in a legacy world state"),
     ] {
         let mut bytes = before.clone();

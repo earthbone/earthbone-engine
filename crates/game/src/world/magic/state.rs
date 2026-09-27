@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 use soe_papyrus::vm::state::Writer;
 use soe_papyrus::VmError;
 
-use super::{ActiveEffect, EffectId, World};
+use super::{ActiveEffect, EffectId, PriorOwner, World};
 use crate::world::save::{
     read_form_id, read_opt_form_id, write_form_id, write_opt_form_id, FormReader,
 };
@@ -38,6 +38,16 @@ impl World {
                 w.str(name);
                 w.f32(*amount);
             }
+            w.bool(effect.restore_owner.is_some());
+            if let Some(owner) = effect.restore_owner {
+                match owner {
+                    PriorOwner::Unowned => w.bool(false),
+                    PriorOwner::Owned(id) => {
+                        w.bool(true);
+                        write_form_id(w, id);
+                    }
+                }
+            }
         }
     }
 }
@@ -45,6 +55,7 @@ impl World {
 pub(in crate::world) fn read_magic(
     r: &mut FormReader<'_, '_>,
     has_summoned_reference: bool,
+    has_commanded_owner: bool,
 ) -> Result<(u64, BTreeMap<EffectId, ActiveEffect>), VmError> {
     let next = r.u64()?;
     let count = r.len()?;
@@ -89,6 +100,15 @@ pub(in crate::world) fn read_magic(
             }
             changes.push((name, amount));
         }
+        let restore_owner = if has_commanded_owner && r.bool()? {
+            if r.bool()? {
+                Some(PriorOwner::Owned(read_form_id(r)?))
+            } else {
+                Some(PriorOwner::Unowned)
+            }
+        } else {
+            None
+        };
         let state = ActiveEffect {
             id,
             spell,
@@ -101,6 +121,7 @@ pub(in crate::world) fn read_magic(
             duration,
             elapsed,
             summoned,
+            restore_owner,
             recover,
             changes,
         };

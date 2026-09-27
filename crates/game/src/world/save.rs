@@ -60,7 +60,8 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// Version 34 retains last-visit game days for resettable encounter zones.
 /// Version 35 retains saved list flags and per-entry chance bytes in record overrides.
 /// Version 36 retains the active phase and completed action slots for each scene.
-pub const SAVE_VERSION: u16 = 36;
+/// Version 37 retains the previous owner for active Command Summoned effects.
+pub const SAVE_VERSION: u16 = 37;
 
 #[derive(Clone, Copy)]
 pub(crate) enum FormNamespace {
@@ -864,7 +865,7 @@ impl World {
             }
         }
         let (next_effect, active_effects) = if version == 5 || version >= 9 {
-            super::magic::read_magic(&mut r, version >= 33)?
+            super::magic::read_magic(&mut r, version >= 33, version >= 37)?
         } else {
             (1, BTreeMap::new())
         };
@@ -890,7 +891,17 @@ impl World {
                     .resolve_from(effect.effect, definition.data.associated_item)
                     .filter(|base| self.tag_of(*base) == Some(super::T(b"NPC_")));
                 let reference = refs.get(&summoned);
-                let owner = Some(effect.caster.unwrap_or(effect.target));
+                let owner = active_effects
+                    .values()
+                    .find(|command| command.target == summoned && command.restore_owner.is_some())
+                    .and_then(|command| {
+                        command.caster.or_else(|| {
+                            actors
+                                .contains_key(&command.source)
+                                .then_some(command.source)
+                        })
+                    })
+                    .or(Some(effect.caster.unwrap_or(effect.target)));
                 if definition.data.archetype != 18
                     || base.is_none()
                     || reference.is_none_or(|reference| {
@@ -904,6 +915,23 @@ impl World {
                 }
             } else if definition.data.archetype == 18 && version >= 33 {
                 return Err(VmError::State("summon effect without actor".into()));
+            }
+            if effect.restore_owner.is_some() {
+                let summoned_by_target = active_effects
+                    .values()
+                    .any(|summon| summon.summoned == Some(effect.target));
+                let command_owner = effect
+                    .caster
+                    .or_else(|| actors.contains_key(&effect.source).then_some(effect.source));
+                if definition.data.archetype != 10
+                    || !summoned_by_target
+                    || command_owner.is_none()
+                    || refs
+                        .get(&effect.target)
+                        .is_none_or(|reference| reference.owner != command_owner)
+                {
+                    return Err(VmError::State("invalid commanded actor state".into()));
+                }
             }
         }
         for handle in objects.keys() {
