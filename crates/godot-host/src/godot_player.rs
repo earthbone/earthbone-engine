@@ -40,6 +40,7 @@ use crate::input::devices::{godot_mouse_for, godot_pad_for, Devices, PadControl}
 use crate::input::{godot_key_for, Action, Bindings, ControlMap, Driver, InputState};
 
 mod containers;
+mod detection;
 mod exterior;
 mod footsteps;
 mod gameplay;
@@ -552,6 +553,16 @@ impl PlayerNode {
             activation_hit.and_then(|hit| self.collision_references.get(&hit.body).copied());
 
         self.advance_game(delta);
+        let player_motion = if input.is_moving() {
+            if input.sprint || self.driver.always_run != input.walk {
+                soe_game::detection::Motion::Running
+            } else {
+                soe_game::detection::Motion::Walking
+            }
+        } else {
+            soe_game::detection::Motion::Still
+        };
+        self.advance_detection(delta, player_motion);
         self.advance_door_fade(delta);
 
         self.motion.step(self.feet(), self.capsule_height());
