@@ -60,7 +60,8 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// Version 34 retains last-visit game days for resettable encounter zones.
 /// Version 35 retains saved list flags and per-entry chance bytes in record overrides.
 /// Version 36 retains the active phase and completed action slots for each scene.
-pub const SAVE_VERSION: u16 = 36;
+/// Version 37 retains scene package overrides and timer action progress.
+pub const SAVE_VERSION: u16 = 37;
 
 #[derive(Clone, Copy)]
 pub(crate) enum FormNamespace {
@@ -425,6 +426,26 @@ impl World {
             body.len(run.completed_actions.len());
             for slot in &run.completed_actions {
                 body.u32(*slot);
+            }
+            body.len(run.started_actions.len());
+            for slot in &run.started_actions {
+                body.u32(*slot);
+            }
+            body.len(run.timer_deadlines.len());
+            for (slot, deadline) in &run.timer_deadlines {
+                body.u32(*slot);
+                body.f64(*deadline);
+            }
+            body.len(run.prior_packages.len());
+            for (actor, package) in &run.prior_packages {
+                write_form_id(&mut body, *actor);
+                write_opt_form_id(&mut body, *package);
+                let alias = run.prior_aliases.get(actor).copied().flatten();
+                body.bool(alias.is_some());
+                if let Some((quest, alias)) = alias {
+                    write_form_id(&mut body, quest);
+                    body.u32(alias);
+                }
             }
         }
         self.write_detection(&mut body);
@@ -1009,6 +1030,41 @@ impl World {
                         return Err(VmError::State("duplicate completed scene action".into()));
                     }
                 }
+                let mut started_actions = BTreeSet::new();
+                let mut timer_deadlines = BTreeMap::new();
+                let mut prior_packages = BTreeMap::new();
+                let mut prior_aliases = BTreeMap::new();
+                if version >= 37 {
+                    let count = r.len()?;
+                    for _ in 0..count {
+                        if !started_actions.insert(r.u32()?) {
+                            return Err(VmError::State("duplicate started scene action".into()));
+                        }
+                    }
+                    let count = r.len()?;
+                    for _ in 0..count {
+                        let slot = r.u32()?;
+                        let deadline = r.f64()?;
+                        if !deadline.is_finite() || timer_deadlines.insert(slot, deadline).is_some()
+                        {
+                            return Err(VmError::State("invalid scene timer deadline".into()));
+                        }
+                    }
+                    let count = r.len()?;
+                    for _ in 0..count {
+                        let actor = read_form_id(&mut r)?;
+                        let package = read_opt_form_id(&mut r)?;
+                        let alias = if r.bool()? {
+                            Some((read_form_id(&mut r)?, r.u32()?))
+                        } else {
+                            None
+                        };
+                        if prior_packages.insert(actor, package).is_some() {
+                            return Err(VmError::State("duplicate scene package actor".into()));
+                        }
+                        prior_aliases.insert(actor, alias);
+                    }
+                }
                 let scene_record = self.record(id).ok_or_else(|| {
                     VmError::State("scene runtime state names a missing form".into())
                 })?;
@@ -1023,12 +1079,28 @@ impl World {
                             .get(*slot as usize)
                             .is_none_or(|action| action.end_phase != Some(phase))
                     })
+                    || started_actions
+                        .iter()
+                        .any(|slot| scene.actions.get(*slot as usize).is_none())
+                    || timer_deadlines.keys().any(|slot| {
+                        !started_actions.contains(slot)
+                            || !scene.actions.get(*slot as usize).is_some_and(|action| {
+                                matches!(
+                                    action.data,
+                                    soe_esm::records::gameplay::SceneActionData::Timer { .. }
+                                )
+                            })
+                    })
                     || runs
                         .insert(
                             id,
                             super::SceneRunState {
                                 phase,
                                 completed_actions,
+                                started_actions,
+                                timer_deadlines,
+                                prior_packages,
+                                prior_aliases,
                             },
                         )
                         .is_some()
@@ -1488,6 +1560,7 @@ fn write_actor_state(w: &mut Writer, a: &ActorState) {
     write_form_set(w, &a.witnessed_crimes);
     write_opt_form_id(w, a.left_spell);
     write_opt_form_id(w, a.right_spell);
+    write_opt_form_id(w, a.ai.scene_package);
 }
 
 fn write_form_set(w: &mut Writer, set: &BTreeSet<GlobalFormId>) {
@@ -1610,6 +1683,9 @@ fn read_actor_state(r: &mut FormReader<'_, '_>, version: u16) -> Result<ActorSta
     if version >= 32 {
         a.left_spell = read_opt_form_id(r)?;
         a.right_spell = read_opt_form_id(r)?;
+    }
+    if version >= 37 {
+        a.ai.scene_package = read_opt_form_id(r)?;
     }
     Ok(a)
 }

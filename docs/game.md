@@ -273,12 +273,17 @@ Current behavior and compatibility limits:
   and `World::advance_scene_phase` waits for every action ending in the current
   phase before advancing. Reaching the last phase stops the scene and delivers
   `OnEnd`. `Scene.Start` and `Stop` deliver `OnBegin` and `OnEnd` to the
-  scene's scripts. SOEW version 36 stores the current phase and completed
-  action slots. Action slots use zero-based positions from the SCEN action
-  list because two vanilla scenes reuse action numbers. The SCEN layout follows
-  `TES5Edit/Core/wbDefinitionsTES5.pas` and
-  `uesp-modfileformat/SCEN.wikitext`. Timer expiry, CTDA evaluation, automatic
-  action dispatch, and the scene flags are not implemented. `Sound.Play`
+  scene's scripts. SOEW version 37 stores the current phase, completed and
+  started action slots, timer deadlines, actor package overrides and prior
+  package assignments. Action slots use zero-based positions from the SCEN
+  action list because two vanilla scenes reuse action numbers. Package actions
+  assign the first listed package to their actor alias and restore its previous
+  package at the action's end phase. Timer actions expire on real time and
+  complete their action slot. SCEN action layouts follow xEdit's
+  `wbRecord(SCEN)` and the UESP SCEN page. The local CK corpus's scene index
+  describes scene and timer fragments but does not include their detailed
+  behavior pages. CTDA evaluation, dialogue action dispatch and scene flags are
+  not implemented. `Sound.Play`
   hands out instance ids. `Spell.Cast` records the cast, no effect applies.
 - `SetGameSetting*` writes an overlay `GetGameSetting*` reads first.
 - A quest start delivers `OnInit` to its alias objects too, the ones a
@@ -990,8 +995,9 @@ notification fired, and the alias resolved to the lever.
 - Weapon combat remains unfinished. Dialogue and magic have the limited
   execution paths documented below. Packages run three
   procedures, see the Packages section for the rest. Scene phase advancement
-  is action-gated, but action execution, phase and scene CTDA evaluation,
-  timer lifetimes, and repeat-while-conditions behavior are not implemented.
+  is action-gated. Package and timer actions execute, but phase and scene CTDA
+  evaluation, dialogue action dispatch, and repeat-while-conditions behavior
+  are not implemented.
   Perks are a set on the
   actor, no entry point applies. Leveled lists are never rolled. Spell casts
   are recorded, no effect applies. Crime has bounty and infamy ledgers, no
