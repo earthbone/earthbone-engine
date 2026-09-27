@@ -1741,6 +1741,28 @@ forwarding, effect inventory filters and VM object reclamation remain unfinished
 forwarding and effect inventory filters remain unfinished.
 This is an active-effect foundation, not complete magic execution.
 
+### Accumulate Magnitude, MAG-53
+
+MGEF archetype 32 accumulates the effect's authored magnitude into its primary
+actor value, at `fMagicWardPowerMaxBase` points per unpaused simulation second.
+The current value is capped at the effect magnitude. An effect with No Duration
+stays active until it is dispelled. Menu time does not accumulate the value.
+For the shipped ward records, xEdit names archetype 32 and UESP identifies its
+primary actor value as WardPower. The accumulation rate comes from the
+`fMagicWardPowerMaxBase` GMST. A missing or invalid setting returns a typed
+magic error and leaves the effect's elapsed time unchanged.
+
+The accumulated value uses the actor's existing persistent value components,
+so it and the active effect continue from their saved state after reload. No
+separate magic save field is added. `mag_53_accumulates_primary_actor_value_on_unpaused_clock_and_caps_at_magnitude`
+checks the primary value, paused clock, rate and cap.
+`mag_53_accumulated_amount_and_effect_resume_after_reload` checks the saved
+partial amount and continued accumulation. The local CK wiki corpus has no
+Accumulate Magnitude page describing its rate formula. This implementation
+uses the named GMST directly. The source inventory is local
+`TES5Edit/Core/wbDefinitionsTES5.pas` and
+`uesp-modfileformat/MGEF.wikitext`.
+
 ### Summon Creature, MAG-39
 
 Direct casts execute MGEF archetype 18 by resolving the effect's associated

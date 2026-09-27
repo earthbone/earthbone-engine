@@ -237,7 +237,7 @@ impl World {
                     return Err(MagicError::Target);
                 }
             }
-            if !matches!(data.archetype, 0 | 1 | 2 | 5) {
+            if !matches!(data.archetype, 0 | 1 | 2 | 5 | 32) {
                 return Err(MagicError::Unsupported("effect archetype"));
             }
             if entry.data.area != 0 || data.area != 0 || data.taper_duration != 0.0 {
@@ -274,6 +274,11 @@ impl World {
                     changes.push((name.to_string(), amount));
                 }
             }
+            if data.archetype == 32 {
+                let name = actor_value_name(data.primary_actor_value)
+                    .ok_or(MagicError::Unsupported("actor value"))?;
+                changes.push((name.to_string(), signed));
+            }
             // An ingestible's effects carry the same dispel archetype and
             // keyword flags a cast spell's do.
             let mut dispel_rules = Vec::new();
@@ -299,11 +304,15 @@ impl World {
                     caster,
                     target,
                     magnitude,
-                    duration: Some(if data.flags & NO_DURATION != 0 {
-                        0.0
+                    duration: if data.archetype == 32 && data.flags & NO_DURATION != 0 {
+                        None
                     } else {
-                        f64::from(entry.data.duration)
-                    }),
+                        Some(if data.flags & NO_DURATION != 0 {
+                            0.0
+                        } else {
+                            f64::from(entry.data.duration)
+                        })
+                    },
                     elapsed: 0.0,
                     summoned: None,
                     recover: data.flags & RECOVER != 0,
@@ -427,7 +436,7 @@ impl World {
                     return Err(MagicError::Target);
                 }
             }
-            if !matches!(data.archetype, 0 | 1 | 2 | 5 | 18) {
+            if !matches!(data.archetype, 0 | 1 | 2 | 5 | 18 | 32) {
                 return Err(MagicError::Unsupported("effect archetype"));
             }
             if data.taper_duration != 0.0 {
@@ -469,6 +478,11 @@ impl World {
                     changes.push((name.to_string(), amount));
                 }
             }
+            if data.archetype == 32 {
+                let name = actor_value_name(data.primary_actor_value)
+                    .ok_or(MagicError::Unsupported("actor value"))?;
+                changes.push((name.to_string(), signed));
+            }
             let summon_base = if data.archetype == 18 {
                 let base = self
                     .resolve_from(effect, data.associated_item)
@@ -486,7 +500,9 @@ impl World {
             } else {
                 None
             };
-            let duration = if definition.data.cast_type == 0 {
+            let duration = if definition.data.cast_type == 0
+                || (data.archetype == 32 && data.flags & NO_DURATION != 0)
+            {
                 None
             } else {
                 Some(if data.flags & NO_DURATION != 0 {
@@ -824,8 +840,18 @@ impl World {
             let dt = effect.duration.map_or(seconds, |duration| {
                 seconds.min((duration - effect.elapsed).max(0.0))
             });
-            if !effect.recover && effect.duration != Some(0.0) {
-                if let Err(error) = self.apply_effect_values(&effect, dt, alloc) {
+            if effect.duration != Some(0.0) {
+                let result = if self
+                    .magic_effect(effect.effect)
+                    .is_ok_and(|base| base.data.archetype == 32)
+                {
+                    self.accumulate_effect_value(&effect, dt)
+                } else if !effect.recover {
+                    self.apply_effect_values(&effect, dt, alloc)
+                } else {
+                    Ok(())
+                };
+                if let Err(error) = result {
                     errors.push(error);
                     continue;
                 }
@@ -840,6 +866,27 @@ impl World {
             }
         }
         errors
+    }
+
+    fn accumulate_effect_value(
+        &mut self,
+        effect: &ActiveEffect,
+        seconds: f64,
+    ) -> Result<(), MagicError> {
+        let (name, _) = effect.changes.first().ok_or(MagicError::Number)?;
+        let rate = match self.game_setting("fMagicWardPowerMaxBase") {
+            Some(Value::Float(rate)) if rate.is_finite() && rate >= 0.0 => f64::from(rate),
+            Some(_) => return Err(MagicError::Number),
+            None => return Err(MagicError::Unsupported("ward power setting")),
+        };
+        let actor = self.actor(effect.target).ok_or(MagicError::Target)?;
+        let current = f64::from(actor.values.get(name).current());
+        let next = (current + rate * seconds).clamp(0.0, f64::from(effect.magnitude));
+        let actor = self.actor(effect.target).ok_or(MagicError::Target)?;
+        actor
+            .values
+            .force(name, next as f32)
+            .map_err(|_| MagicError::Number)
     }
 
     fn apply_effect_values(
