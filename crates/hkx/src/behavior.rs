@@ -612,6 +612,14 @@ pub enum NodeKind {
         enable: bool,
         vector: [f32; 4],
     },
+    /// `hkbRotateCharacterModifier`: rotates the root orientation at the
+    /// authored angular speed around `axis_of_rotation`.
+    RotateCharacterModifier {
+        enable: bool,
+        degrees_per_second: f32,
+        speed_multiplier: f32,
+        axis_of_rotation: [f32; 4],
+    },
     /// Any other `hkbModifier` subclass: only the enable flag is read.
     Modifier {
         enable: bool,
@@ -688,6 +696,7 @@ impl Node {
             | NodeKind::IsActiveModifier { .. }
             | NodeKind::FalseToTrueModifier { .. }
             | NodeKind::DecomposeVector { .. }
+            | NodeKind::RotateCharacterModifier { .. }
             | NodeKind::Modifier { .. }
             | NodeKind::Unknown => {}
         }
@@ -1126,6 +1135,12 @@ impl<'a> Loader<'a> {
                 enable: o.bool(o.layout_offset(40, 72))?,
                 vector: o.vec4(o.layout_offset(48, 80))?,
             },
+            "hkbRotateCharacterModifier" => NodeKind::RotateCharacterModifier {
+                enable: o.bool(o.layout_offset(40, 72))?,
+                degrees_per_second: o.f32(o.layout_offset(44, 80))?,
+                speed_multiplier: o.f32(o.layout_offset(48, 84))?,
+                axis_of_rotation: o.vec4(o.layout_offset(64, 96))?,
+            },
             c if c.ends_with("Modifier") => NodeKind::Modifier {
                 enable: o.bool(o.layout_offset(40, 72))?,
             },
@@ -1148,6 +1163,35 @@ mod tests {
     use super::*;
     use crate::writer::PackfileBuilder;
     use crate::Error;
+
+    #[test]
+    fn anm_14_decodes_authored_rotation_fields() {
+        let mut b = PackfileBuilder::new();
+        let container = b.object("hkRootLevelContainer", 16);
+        let graph = b.object("hkbBehaviorGraph", 304);
+        let variant = b.array_structs(container, 0, 24, 1);
+        b.string(variant, 0, "hkbBehaviorGraph");
+        b.string(variant, 8, "hkbBehaviorGraph");
+        b.ptr(variant, 16, graph);
+        let modifier = b.object("hkbRotateCharacterModifier", 128);
+        b.ptr(graph, 128, modifier);
+        b.set_bool(modifier, 72, true);
+        b.set_f32(modifier, 80, 90.0);
+        b.set_f32(modifier, 84, 2.0);
+        b.set_vec4(modifier, 96, [0.0, 1.0, 0.0, 0.0]);
+
+        let packfile = Packfile::parse(&b.finish()).unwrap();
+        let graph = BehaviorGraph::from_packfile(&packfile).unwrap();
+        assert!(matches!(
+            graph.node(graph.root.unwrap()).kind,
+            NodeKind::RotateCharacterModifier {
+                enable: true,
+                degrees_per_second: 90.0,
+                speed_multiplier: 2.0,
+                axis_of_rotation: [0.0, 1.0, 0.0, 0.0],
+            }
+        ));
+    }
 
     /// A graph with one state machine of two states, each a clip, one
     /// transition on an event with a blending effect, and one wildcard.

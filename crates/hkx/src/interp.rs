@@ -429,6 +429,7 @@ struct Runtime {
     edge_enabled: [Option<bool>; FALSE_TO_TRUE_SLOTS],
     edge_value: [Option<bool>; FALSE_TO_TRUE_SLOTS],
     edge_previous: [bool; FALSE_TO_TRUE_SLOTS],
+    rotation_angle: f32,
 
     /// A bound vector input for `BSDecomposeVectorModifier`.
     vector: Option<[f32; 4]>,
@@ -1030,6 +1031,7 @@ impl<'a> Interpreter<'a> {
             | NodeKind::IsActiveModifier { enable, .. }
             | NodeKind::FalseToTrueModifier { enable, .. }
             | NodeKind::DecomposeVector { enable, .. }
+            | NodeKind::RotateCharacterModifier { enable, .. }
             | NodeKind::Modifier { enable } => *enable,
             _ => true,
         };
@@ -1087,9 +1089,18 @@ impl<'a> Interpreter<'a> {
     }
 
     /// Evaluate edge slots only during update, after list enable state is known.
-    fn update_modifier(&mut self, id: NodeId) {
+    fn update_modifier(&mut self, id: NodeId, dt: f32) {
         if !self.nodes[id.0].active {
             return;
+        }
+        if let NodeKind::RotateCharacterModifier {
+            degrees_per_second,
+            speed_multiplier,
+            ..
+        } = &self.graph.nodes[id.0].kind
+        {
+            self.nodes[id.0].rotation_angle +=
+                degrees_per_second.to_radians() * speed_multiplier * dt;
         }
         if let NodeKind::FalseToTrueModifier { slots, .. } = &self.graph.nodes[id.0].kind {
             for (index, slot) in slots.iter().enumerate() {
@@ -1105,6 +1116,35 @@ impl<'a> Interpreter<'a> {
         }
     }
 
+    fn apply_modifier_output(&self, id: NodeId, output: &mut Output) {
+        let NodeKind::RotateCharacterModifier {
+            axis_of_rotation, ..
+        } = &self.graph.node(id).kind
+        else {
+            return;
+        };
+        let Some(root) = output.pose.first_mut() else {
+            return;
+        };
+        let axis_length = axis_of_rotation[..3]
+            .iter()
+            .map(|component| component * component)
+            .sum::<f32>()
+            .sqrt();
+        if axis_length <= f32::EPSILON {
+            return;
+        }
+        let half_angle = self.nodes[id.0].rotation_angle * 0.5;
+        let (sin, cos) = half_angle.sin_cos();
+        let rotation = [
+            axis_of_rotation[0] / axis_length * sin,
+            axis_of_rotation[1] / axis_length * sin,
+            axis_of_rotation[2] / axis_length * sin,
+            cos,
+        ];
+        root.rotation = quat_mul(rotation, root.rotation);
+    }
+
     fn activate(&mut self, id: NodeId) {
         if self.nodes[id.0].active {
             return;
@@ -1114,6 +1154,9 @@ impl<'a> Interpreter<'a> {
         match &graph.node(id).kind {
             NodeKind::FalseToTrueModifier { .. } => {
                 self.nodes[id.0].edge_previous = [false; FALSE_TO_TRUE_SLOTS];
+            }
+            NodeKind::RotateCharacterModifier { .. } => {
+                self.nodes[id.0].rotation_angle = 0.0;
             }
             NodeKind::Clip(c) => {
                 let rt = &mut self.nodes[id.0];
@@ -1625,12 +1668,21 @@ impl<'a> Interpreter<'a> {
                     self.sync_modifier(*modifier);
                     for index in start..self.modifier_order.len() {
                         let node = self.modifier_order[index];
-                        self.update_modifier(node);
+                        self.update_modifier(node, dt);
                     }
-                }
-                match generator {
-                    Some(generator) => self.generate(*generator, dt),
-                    None => self.reference_output(),
+                    let mut output = match generator {
+                        Some(generator) => self.generate(*generator, dt),
+                        None => self.reference_output(),
+                    };
+                    for node in &self.modifier_order[start..] {
+                        self.apply_modifier_output(*node, &mut output);
+                    }
+                    output
+                } else {
+                    match generator {
+                        Some(generator) => self.generate(*generator, dt),
+                        None => self.reference_output(),
+                    }
                 }
             }
             NodeKind::IStateTagging {
@@ -1688,6 +1740,7 @@ impl<'a> Interpreter<'a> {
             | NodeKind::IsActiveModifier { .. }
             | NodeKind::FalseToTrueModifier { .. }
             | NodeKind::DecomposeVector { .. }
+            | NodeKind::RotateCharacterModifier { .. }
             | NodeKind::Modifier { .. } => self.reference_output(),
         }
     }
@@ -2065,6 +2118,15 @@ fn blend_curve(curve: i8, t: f32) -> f32 {
     }
 }
 
+fn quat_mul(a: [f32; 4], b: [f32; 4]) -> [f32; 4] {
+    [
+        a[3] * b[0] + a[0] * b[3] + a[1] * b[2] - a[2] * b[1],
+        a[3] * b[1] - a[0] * b[2] + a[1] * b[3] + a[2] * b[0],
+        a[3] * b[2] + a[0] * b[1] - a[1] * b[0] + a[2] * b[3],
+        a[3] * b[3] - a[0] * b[0] - a[1] * b[1] - a[2] * b[2],
+    ]
+}
+
 /// Blend two transforms: lerp translation and scale, nlerp rotation on
 /// the shorter arc.
 pub fn blend_transform(a: &QsTransform, b: &QsTransform, alpha: f32) -> QsTransform {
@@ -2194,6 +2256,82 @@ mod tests {
             extracted_motion: None,
         };
         Clip::from_parts("modifier-pose", animation, &[0]).unwrap()
+    }
+
+    fn anm_14_rotation_graph(enable: bool) -> BehaviorGraph {
+        BehaviorGraph {
+            name: "rotate character".into(),
+            variable_mode: 0,
+            root: Some(NodeId(0)),
+            data: BehaviorGraphData::default(),
+            nodes: vec![
+                Node {
+                    id: NodeId(0),
+                    offset: 0,
+                    class: "hkbModifierGenerator".into(),
+                    name: "wrapper".into(),
+                    user_data: 0,
+                    bindings: None,
+                    kind: NodeKind::ModifierGenerator {
+                        modifier: Some(NodeId(1)),
+                        generator: Some(NodeId(2)),
+                    },
+                },
+                Node {
+                    id: NodeId(1),
+                    offset: 1,
+                    class: "hkbRotateCharacterModifier".into(),
+                    name: "rotate".into(),
+                    user_data: 0,
+                    bindings: None,
+                    kind: NodeKind::RotateCharacterModifier {
+                        enable,
+                        degrees_per_second: 45.0,
+                        speed_multiplier: 2.0,
+                        axis_of_rotation: [0.0, 0.0, 1.0, 0.0],
+                    },
+                },
+                Node {
+                    id: NodeId(2),
+                    offset: 2,
+                    class: "hkbClipGenerator".into(),
+                    name: "empty".into(),
+                    user_data: 0,
+                    bindings: None,
+                    kind: NodeKind::Clip(ClipGenerator::default()),
+                },
+            ],
+        }
+    }
+
+    #[test]
+    fn anm_14_enabled_modifier_rotates_root_by_elapsed_time_only_while_enabled() {
+        let graph = anm_14_rotation_graph(true);
+        let clips = ClipLibrary::new();
+        let mut vm = Interpreter::new(&graph, &clips, vec![QsTransform::IDENTITY]);
+
+        let first = vm.update(0.5).pose[0].rotation;
+        assert!((first[2] - (std::f32::consts::FRAC_PI_8).sin()).abs() < 1e-5);
+        assert!((first[3] - (std::f32::consts::FRAC_PI_8).cos()).abs() < 1e-5);
+
+        let second = vm.update(0.5).pose[0].rotation;
+        assert!((second[2] - std::f32::consts::FRAC_1_SQRT_2).abs() < 1e-5);
+        assert!((second[3] - std::f32::consts::FRAC_1_SQRT_2).abs() < 1e-5);
+
+        vm.nodes[1].enabled = Some(false);
+        let disabled = vm.update(1.0).pose[0].rotation;
+        assert_eq!(disabled, second);
+    }
+
+    #[test]
+    fn anm_14_disabled_modifier_leaves_root_rotation_unchanged() {
+        let graph = anm_14_rotation_graph(false);
+        let clips = ClipLibrary::new();
+        let mut vm = Interpreter::new(&graph, &clips, vec![QsTransform::IDENTITY]);
+        assert_eq!(
+            vm.update(2.0).pose[0].rotation,
+            QsTransform::IDENTITY.rotation
+        );
     }
 
     /// A graph of one `BSIsActiveModifier` with a binding on one slot, so the
