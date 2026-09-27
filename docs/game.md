@@ -3254,16 +3254,18 @@ The row's range-exit and recorded-end checks are covered. TWAT reply selection,
 walk-away menu flags, voice cancellation and original-engine timing comparison
 are outside this range-exit implementation.
 
-# SPID deterministic distribution
+## SPID deterministic distribution
 
 `Game::apply_mod_data` retains fractional SPID chance rules marked with `!`.
 When `World::actor` first builds a matching reference, it checks the base
 filters and chooses each rule using its entry value seed, the player runtime
-FormID and the actor runtime FormID. The chosen actor additions enter the same
+FormID and the actor runtime FormID. Upstream SPID uses the save character ID
+in place of the player FormID, so this selection is not upstream identical.
+The chosen actor additions enter the same
 actor state and inventory paths as ordinary distributions. The rules are part
 of the mod-data determinism hash.
 
-# KID exclusive groups and chance
+## KID exclusive groups and chance
 
 `Game::apply_mod_data` resolves KID exclusive groups across all discovered KID
 files before applying keyword rules. Repeated group names accumulate keyword

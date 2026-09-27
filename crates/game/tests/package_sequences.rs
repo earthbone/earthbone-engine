@@ -356,7 +356,7 @@ fn a_world_saved_before_cursors_existed_starts_its_authored_tree() {
     let mut game = game(tree, 0);
     let mut bytes = legacy::without_exclusive_branches(&mut game.world_mut(), &[id(ACTOR)]);
     // Drop the zone, loose-item and image-space blocks, then the cursor count.
-    bytes.truncate(bytes.len() - 21);
+    bytes.truncate(bytes.len() - 25);
     assert_eq!(&bytes[bytes.len() - 4..], &[0; 4]);
     bytes.truncate(bytes.len() - 4);
     // Version 20 is the last one written without a cursor block.

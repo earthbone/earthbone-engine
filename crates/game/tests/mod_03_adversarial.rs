@@ -99,3 +99,29 @@ fn mod_03_references_section_swaps_the_named_reference() {
     );
     assert_eq!(s.base, Some(id(TREE)));
 }
+
+#[test]
+fn mod_03_form_swap_chance_controls_swap_and_properties_per_reference() {
+    let d = Dir::new("swap-chance");
+    fs::write(
+        d.0.join("Props_SWAP.ini"),
+        "[Forms]\nRock|Tree|pos(20,30,40)|chance(0)\n",
+    )
+    .unwrap();
+    let mut g = game();
+    g.apply_mod_data(&d.roots());
+    let state = g.world_mut().reference(id(REF)).unwrap().clone();
+    assert_eq!(state.base, Some(id(ROCK)));
+    assert_eq!(state.position, [1., 2., 3.]);
+
+    fs::write(
+        d.0.join("Props_SWAP.ini"),
+        "[Forms]\nRock|Tree|pos(20,30,40)|chance(100)\n",
+    )
+    .unwrap();
+    let mut g = game();
+    g.apply_mod_data(&d.roots());
+    let state = g.world_mut().reference(id(REF)).unwrap().clone();
+    assert_eq!(state.base, Some(id(TREE)));
+    assert_eq!(state.position, [20., 30., 40.]);
+}

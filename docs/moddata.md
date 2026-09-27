@@ -111,6 +111,9 @@ location and base IDs for a stable chance decision. These values are not
 claimed to match BOS's C++ random sequence. Conditional section filters are
 not evaluated by this runtime.
 
+A swap line's fourth-field `chance(...)` is checked when its reference is
+built. A failed check leaves both the base and attached properties unchanged.
+
 Open Animation Replacer's conditions are structural for a different reason: the
 plugin lets other plugins register new condition types at runtime, so the set is
 open ended and no fixed list would stay correct. Each condition keeps its name,
@@ -220,12 +223,12 @@ seeded generator. Deterministic `0!` and `100!` work without a random choice.
 Fractional deterministic rules retain the parsed entry value's line seed and
 are evaluated when `World::actor` first builds the matching reference. The
 roll seed combines that line seed with the player runtime FormID and the actor
-runtime FormID, following SPID's `LookupConfigs.cpp`, `Defs.h` and
-`LookupFilters.cpp` inputs and hash-combine order. The engine uses FNV-1a for
-the entry value, then expands the combined seed with SplitMix64 before the
-xorshift draw. This preserves the upstream per-entry, per-player and per-actor
-selection rule without relying on an implementation-defined C++ string hash
-or claiming bit-for-bit output from SPID's RNG.
+runtime FormID, following the combine order in SPID's `LookupFilters.cpp`.
+`PCLevelMultManager.cpp` uses the save character ID for the player seed, which
+this runtime does not yet track. The engine uses FNV-1a for the entry value,
+then expands the combined seed with SplitMix64 before the xorshift draw. This
+gives stable per-entry and per-actor results, but does not reproduce upstream
+per-character selection or SPID's C++ random sequence.
 `world.mod_data` includes the retained actor rules and their selection inputs.
 
 KID chance uses the upstream seed inputs from

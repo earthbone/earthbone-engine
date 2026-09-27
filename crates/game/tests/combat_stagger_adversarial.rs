@@ -433,6 +433,11 @@ fn cmb_14_version_28_save_loads_with_no_actor_staggered() {
         );
         bytes.drain(positions[0]..end + 6);
     }
+    // Version 34 writes an empty reference flag count before the trailing
+    // cursor and world extension blocks. Version 28 has no such count.
+    let flags_offset = bytes.len() - 33;
+    assert_eq!(&bytes[flags_offset..flags_offset + 4], &[0; 4]);
+    bytes.drain(flags_offset..flags_offset + 4);
     assert_eq!(
         u16::from_le_bytes([bytes[4], bytes[5]]),
         soe_game::world::SAVE_VERSION,

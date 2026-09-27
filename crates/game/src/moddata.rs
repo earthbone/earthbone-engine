@@ -36,8 +36,9 @@
 //! Ordinary SPID chances use the world's seeded generator per matching NPC
 //! base. SPID's trailing `!` requests a deterministic per-actor choice. Those
 //! rules are evaluated when an actor is built from its reference ID and are
-//! keyed from the entry value, player runtime ID and actor runtime ID. Zero
-//! and 100 percent remain exact.
+//! keyed from the entry value, player runtime ID and actor runtime ID. SPID
+//! uses the save character ID instead of the player FormID. Zero and 100
+//! percent remain exact.
 //! KID chance uses its keyword editor ID and target FormID as a deterministic
 //! seed. Exclusive groups prevent adding a keyword when another group member
 //! is already present on the record.
@@ -92,8 +93,12 @@ pub struct ModDataState {
     pub actor_rules: Vec<ActorDistribution>,
     /// Base object replacements, applied when a reference is built.
     pub base_swaps: BTreeMap<GlobalFormId, GlobalFormId>,
+    /// Per-reference chance for a base swap when BOS supplies a chance call.
+    pub base_swap_chances: BTreeMap<GlobalFormId, soe_moddata::bos::PropertyChance>,
     /// Replacements for explicitly named references, before base swaps.
     pub reference_swaps: BTreeMap<GlobalFormId, GlobalFormId>,
+    /// Per-reference chance for an explicit reference swap.
+    pub reference_swap_chances: BTreeMap<GlobalFormId, soe_moddata::bos::PropertyChance>,
     /// BOS property overrides, applied when a reference is built.
     pub properties: BTreeMap<GlobalFormId, soe_moddata::bos::Properties>,
     pub report: ModDataReport,
@@ -532,6 +537,11 @@ fn apply_bos(world: &mut World, path: &Path, report: &mut ModDataReport) {
             Change::SwapBase { to, properties } => {
                 world.mod_data.base_swaps.insert(target, to);
                 let parsed = soe_moddata::bos::Properties::parse(&properties);
+                if let Some(chance) = parsed.chance {
+                    world.mod_data.base_swap_chances.insert(target, chance);
+                } else {
+                    world.mod_data.base_swap_chances.remove(&target);
+                }
                 if parsed != soe_moddata::bos::Properties::default() {
                     world.mod_data.properties.insert(target, parsed);
                 }
@@ -539,6 +549,11 @@ fn apply_bos(world: &mut World, path: &Path, report: &mut ModDataReport) {
             Change::SwapReference { to, properties } => {
                 world.mod_data.reference_swaps.insert(target, to);
                 let parsed = soe_moddata::bos::Properties::parse(&properties);
+                if let Some(chance) = parsed.chance {
+                    world.mod_data.reference_swap_chances.insert(target, chance);
+                } else {
+                    world.mod_data.reference_swap_chances.remove(&target);
+                }
                 if parsed != soe_moddata::bos::Properties::default() {
                     world.mod_data.properties.insert(target, parsed);
                 }

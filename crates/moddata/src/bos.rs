@@ -351,11 +351,24 @@ fn parse_swap(text: &str, kind: SwapKind, line: usize) -> Swap {
                 .join(",");
             (Vec::new(), properties, 100.0)
         }
-        _ => (
-            parse_set(fields.get(1).copied().unwrap_or_default()),
-            fields.get(2).copied().unwrap_or_default().to_string(),
-            parse_chance(fields.get(3).copied().unwrap_or_default()),
-        ),
+        _ => {
+            let chance_field = fields.get(3).copied().unwrap_or_default();
+            let mut properties = fields.get(2).copied().unwrap_or_default().to_string();
+            let chance = if chance_field.to_ascii_lowercase().starts_with("chance") {
+                if !properties.is_empty() {
+                    properties.push(',');
+                }
+                properties.push_str(chance_field);
+                100.0
+            } else {
+                parse_chance(chance_field)
+            };
+            (
+                parse_set(fields.get(1).copied().unwrap_or_default()),
+                properties,
+                chance,
+            )
+        }
     };
     Swap {
         from,

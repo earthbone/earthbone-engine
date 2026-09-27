@@ -409,8 +409,9 @@ fn combined_save_reads_both_branch_layouts_without_confusing_their_extensions() 
     }
     let mut suffix = vec![Difficulty::Legendary as u8];
     suffix.extend_from_slice(&hands);
-    // The empty version 20 reference extras, then the empty version 21 cursors,
-    // then the empty version 25 image-space block: two counts and a fade flag.
+    // The empty version 20 reference extras, version 34 reference flags,
+    // version 21 cursors, and version 25 image-space block.
+    suffix.extend_from_slice(&0_u32.to_le_bytes());
     suffix.extend_from_slice(&0_u32.to_le_bytes());
     suffix.extend_from_slice(&0_u32.to_le_bytes());
     suffix.extend_from_slice(&0_u32.to_le_bytes());

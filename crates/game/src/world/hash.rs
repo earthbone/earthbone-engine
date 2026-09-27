@@ -140,6 +140,7 @@ fn ref_state(h: &mut StateHasher, s: &RefState) {
     point(h, s.position);
     point(h, s.rotation);
     h.f32(s.scale);
+    h.u32(s.record_flags);
     h.bool(s.enabled);
     h.bool(s.deleted);
     h.bool(s.activation_blocked);
@@ -789,10 +790,26 @@ impl World {
             form(&mut h, *from);
             form(&mut h, *to);
         }
+        for (from, chance) in &self.mod_data.base_swap_chances {
+            form(&mut h, *from);
+            h.f32(chance.percent);
+            h.bool(chance.location_based);
+            h.u64(chance.seed);
+        }
         h.len(self.mod_data.reference_swaps.len());
         for (reference, to) in &self.mod_data.reference_swaps {
             form(&mut h, *reference);
             form(&mut h, *to);
+        }
+        for (reference, chance) in &self.mod_data.reference_swap_chances {
+            form(&mut h, *reference);
+            h.f32(chance.percent);
+            h.bool(chance.location_based);
+            h.u64(chance.seed);
+        }
+        for (target, properties) in &self.mod_data.properties {
+            form(&mut h, *target);
+            h.str(&format!("{properties:?}"));
         }
         let mod_data = h.finish();
 

@@ -144,11 +144,22 @@ impl World {
         // reference is built here rather than at start, which is why the swap
         // is held until now. See `crate::moddata`.
         st.base = st.base.map(|base| {
-            self.mod_data
-                .reference_swaps
-                .get(&id)
-                .copied()
-                .unwrap_or_else(|| self.mod_data.swap(base))
+            let location = st.location.or(st.cell);
+            if let Some(to) = self.mod_data.reference_swaps.get(&id).copied() {
+                let chance = self.mod_data.reference_swap_chances.get(&id);
+                if chance
+                    .is_none_or(|chance| Self::bos_chance_passes(chance, id, Some(base), location))
+                {
+                    return to;
+                }
+            }
+            let chance = self.mod_data.base_swap_chances.get(&base);
+            if chance.is_none_or(|chance| Self::bos_chance_passes(chance, id, Some(base), location))
+            {
+                self.mod_data.swap(base)
+            } else {
+                base
+            }
         });
         let properties = self
             .mod_data
@@ -172,13 +183,7 @@ impl World {
     ) {
         let seed = (u64::from(id.file) << 32) | u64::from(id.object);
         if let Some(chance) = properties.chance {
-            let chance_seed = if chance.location_based {
-                location.map(Self::form_seed).unwrap_or(seed)
-                    ^ base.map(Self::form_seed).unwrap_or_default()
-            } else {
-                seed
-            } ^ chance.seed;
-            if Self::sample_bos_range([0.0, 100.0], chance_seed) > chance.percent {
+            if !Self::bos_chance_passes(&chance, id, base, location) {
                 return;
             }
         }
@@ -209,6 +214,28 @@ impl World {
         }
         state.record_flags &= !properties.flags_clear;
         state.record_flags |= properties.flags_set;
+    }
+
+    fn bos_chance_passes(
+        chance: &soe_moddata::bos::PropertyChance,
+        id: GlobalFormId,
+        base: Option<GlobalFormId>,
+        location: Option<GlobalFormId>,
+    ) -> bool {
+        if chance.percent >= 100.0 {
+            return true;
+        }
+        if chance.percent <= 0.0 {
+            return false;
+        }
+        let seed = Self::form_seed(id);
+        let chance_seed = if chance.location_based {
+            location.map(Self::form_seed).unwrap_or(seed)
+                ^ base.map(Self::form_seed).unwrap_or_default()
+        } else {
+            seed
+        } ^ chance.seed;
+        Self::sample_bos_range([0.0, 100.0], chance_seed) <= chance.percent
     }
 
     fn sample_bos_range(range: [f32; 2], seed: u64) -> f32 {

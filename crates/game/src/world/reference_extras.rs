@@ -223,7 +223,9 @@ impl World {
         let states: BTreeMap<_, _> = self
             .refs
             .iter()
-            .filter(|(_, state)| state.record_flags != 0)
+            .filter(|(id, state)| {
+                state.record_flags != self.order.winner(**id).map_or(0, |record| record.flags)
+            })
             .collect();
         writer.len(states.len());
         for (id, state) in states {

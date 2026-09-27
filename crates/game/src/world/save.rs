@@ -942,6 +942,9 @@ impl World {
             super::reference_extras::read_reference_extras(&mut r, &mut refs)?;
             self.validate_reference_extras(&refs)?;
         }
+        for (id, state) in &mut refs {
+            state.record_flags = self.order.winner(*id).map_or(0, |record| record.flags);
+        }
         if version >= 34 {
             super::reference_extras::read_reference_flags(&mut r, &mut refs)?;
         }
