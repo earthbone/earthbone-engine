@@ -628,6 +628,14 @@ impl Game {
                 }
             }
         }
+        if !menu_mode {
+            let starts = crate::ai::dialogue_activate_ready(&mut self.world.borrow_mut());
+            for (speaker, listener) in starts {
+                if self.begin_dialogue(speaker, listener).is_ok() {
+                    crate::ai::dialogue_activate_started(&mut self.world.borrow_mut(), speaker);
+                }
+            }
+        }
         self.vm.advance_clocks(real_seconds, game_hours, menu_mode);
         self.run_until_idle(64);
         if !menu_mode {

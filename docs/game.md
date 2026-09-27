@@ -714,6 +714,17 @@ behavior as other game activations. The attempt flag is saved in SOEW version
 rules. The target's event uses the local `OnActivate - ObjectReference`
 contract.
 
+`DialogueActivate` resolves the branch target through the package template
+chain, walks toward it and starts a dialogue session with the package actor as
+speaker once both actors are in the same space and within
+`fAIInDialogueModeWithPlayerDistance`. The ordinary dialogue choice path
+selects eligible topics. A busy conversation leaves the procedure ready to
+retry. The attempt state and procedure tag are saved in SOEW version 43.
+Changing the package or procedure branch clears the attempt state. The local CK
+corpus has no DialogueActivate procedure page. Package target inputs follow
+`wbRecord(PACK)` in xEdit. Range follows the existing dialogue distance rule
+in `dialogue.rs`.
+
 `Find` reads the branch's target input through its package template chain.
 Object ID matches a placed reference's resolved base form. Object Type value
 11 matches weapon bases. Other Object Type values and target selectors are
@@ -939,7 +950,7 @@ either.
 
 `World::save_state(&self) -> Vec<u8>` and `World::load_state(&mut self,
 bytes) -> Result<(), VmError>` write and read the run-time half of the form
-table, magic `SOEW`, version 41. Versions 4 to 6 use legacy actor values,
+table, magic `SOEW`, version 43. Versions 4 to 6 use legacy actor values,
 version 5 adds active magic, version 6 adds dialogue, version 7 adds actor-value
 components, version 8 adds dialogue to those components, and version 9 adds
 active magic. Version 10 adds per-reference leveled template choices.
@@ -959,7 +970,8 @@ exists. Version 31 adds the set of perpetrators an actor witnessed committing a
 tracked crime. Versions 32 and 33 retain assigned hand spells and summoned
 references. Versions 34 to 40 add Hover, Follow, UseIdleMarker, ForceGreet,
 HoldPosition, Orbit and Escort procedure state. Version 41 adds the Activate
-procedure and its saved one-shot state.
+procedure and its saved one-shot state. Version 42 adds Find and its selected
+reference. Version 43 adds DialogueActivate and its saved one-shot state.
 version 5 adds active magic, version 6 adds dialogue, version 7 adds actor-value
 components, version 8 adds dialogue to those components, version 9 adds
 active magic. Version 10 adds per-reference leveled template choices.

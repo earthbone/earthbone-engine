@@ -178,6 +178,7 @@ fn procedure(branch: &Branch) -> Procedure {
         Some("escort") => Procedure::Escort,
         Some("orbit") => Procedure::Orbit { height: 0.0 },
         Some("forcegreet") => Procedure::ForceGreet,
+        Some("dialogueactivate") => Procedure::DialogueActivate,
         Some("useidlemarker") => Procedure::UseIdleMarker { marker: None },
         Some("activate") => Procedure::Activate,
         Some("find") => Procedure::Find,

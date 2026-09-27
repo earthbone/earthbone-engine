@@ -16,6 +16,8 @@
 //! stays between its inner and outer radii on the navmesh.
 //! `Activate` walks to its resolved target and activates it once through the
 //! game's shared activation path.
+//! `DialogueActivate` starts a conversation with its resolved actor target
+//! once it is within the configured dialogue range.
 //! `Find` selects the nearest enabled placed reference that matches its
 //! authored object input in the search cell.
 //! Walking follows the vanilla navmesh graph (`soe_navmesh::vanilla`)
@@ -39,6 +41,7 @@ use soe_esm::{GlobalFormId, Tag};
 use soe_navmesh::vanilla::{key_of, Builder};
 use soe_navmesh::NavGraph;
 use soe_papyrus::vm::state::{Reader, Writer};
+use soe_papyrus::Value;
 use soe_papyrus::VmError;
 
 use crate::actor_values::actor_value_name;
@@ -99,6 +102,8 @@ pub enum Procedure {
     },
     /// Approach the assigned target and start its assigned dialogue topic.
     ForceGreet,
+    /// Approach the assigned actor and start a dialogue session in range.
+    DialogueActivate,
     /// Walk to and hold an exclusive idle marker selected by the package.
     UseIdleMarker {
         marker: Option<GlobalFormId>,
@@ -133,6 +138,8 @@ pub struct AiState {
     pub force_greet_started: bool,
     /// The Activate procedure has handed its one attempt to the game driver.
     pub activate_started: bool,
+    /// DialogueActivate has opened its conversation for the current branch.
+    pub dialogue_activate_started: bool,
     /// Reference selected by the active Find procedure.
     pub found_reference: Option<GlobalFormId>,
     pub sleeping: bool,
@@ -347,6 +354,74 @@ pub(crate) fn activate_ready(world: &mut World) -> Vec<(GlobalFormId, GlobalForm
             Some((actor, target))
         })
         .collect()
+}
+
+/// DialogueActivate actors that are inside the configured dialogue range.
+pub(crate) fn dialogue_activate_ready(world: &mut World) -> Vec<(GlobalFormId, GlobalFormId)> {
+    if world.dialogue.session.is_some() {
+        return Vec::new();
+    }
+    let Some(Value::Float(range)) = world.game_setting("fAIInDialogueModeWithPlayerDistance")
+    else {
+        return Vec::new();
+    };
+    if !range.is_finite() || range < 0.0 {
+        return Vec::new();
+    }
+    let actors = world.loaded_actors();
+    actors
+        .into_iter()
+        .filter_map(|actor| {
+            let ai = world.actor(actor)?.ai.clone();
+            if ai.procedure != Procedure::DialogueActivate || ai.dialogue_activate_started {
+                return None;
+            }
+            let (owner, target) = tree::activate_target(world, &ai)?;
+            let target = resolve_follow_target(world, actor, &ai, (owner, target))?;
+            world.actor(target)?;
+            let (actor_position, actor_cell) = {
+                let reference = world.reference(actor)?;
+                (reference.position, reference.cell)
+            };
+            let (target_position, target_cell) = {
+                let reference = world.reference(target)?;
+                (reference.position, reference.cell)
+            };
+            if actor_position
+                .iter()
+                .chain(&target_position)
+                .any(|v| !v.is_finite())
+            {
+                return None;
+            }
+            let same_space = if actor_cell == target_cell {
+                true
+            } else {
+                let worldspace = |cell: Option<GlobalFormId>| {
+                    let cell = cell?;
+                    if world.cell_is_interior(cell) {
+                        return None;
+                    }
+                    let raw = world.record(cell)?.placement.world?;
+                    world.resolve_from(cell, raw)
+                };
+                let actor_world = worldspace(actor_cell);
+                actor_world.is_some() && actor_world == worldspace(target_cell)
+            };
+            let distance_squared: f64 = actor_position
+                .iter()
+                .zip(target_position)
+                .map(|(a, b)| (f64::from(*a) - f64::from(b)).powi(2))
+                .sum();
+            (same_space && distance_squared <= f64::from(range).powi(2)).then_some((actor, target))
+        })
+        .collect()
+}
+
+pub(crate) fn dialogue_activate_started(world: &mut World, actor: GlobalFormId) {
+    if let Some(state) = world.actor(actor) {
+        state.ai.dialogue_activate_started = true;
+    }
 }
 
 // ----- the stack -----
@@ -754,6 +829,7 @@ pub fn evaluate(world: &mut World, actor: GlobalFormId, alloc: Alloc<'_>) -> Opt
     ai.arrived = false;
     ai.force_greet_started = false;
     ai.activate_started = false;
+    ai.dialogue_activate_started = false;
     ai.found_reference = None;
     ai.sleeping = false;
     ai.bed = None;
@@ -812,6 +888,7 @@ fn begin_procedure(
     ai.arrived = false;
     ai.force_greet_started = false;
     ai.activate_started = false;
+    ai.dialogue_activate_started = false;
     ai.found_reference = None;
     ai.sleeping = false;
     ai.bed = None;
@@ -936,6 +1013,23 @@ fn begin_procedure(
                 }
             } else {
                 ai.procedure = Procedure::Unsupported("Activate inputs".into());
+            }
+        }
+        Procedure::DialogueActivate => {
+            if let Some((owner, target)) = tree::activate_target(world, ai) {
+                if let Some(target) = resolve_follow_target(world, actor, ai, (owner, target)) {
+                    if let Some(target_ref) = world.reference(target) {
+                        ai.destination = Some(target_ref.position);
+                        ai.center_cell = target_ref.cell;
+                    } else {
+                        ai.procedure =
+                            Procedure::Unsupported("DialogueActivate target is not placed".into());
+                    }
+                } else {
+                    ai.procedure = Procedure::Unsupported("DialogueActivate target".into());
+                }
+            } else {
+                ai.procedure = Procedure::Unsupported("DialogueActivate inputs".into());
             }
         }
         Procedure::Find => {
@@ -1807,6 +1901,7 @@ pub(crate) fn write_record_state(w: &mut Writer, a: &AiState) {
         }
         Procedure::Follow => w.u8(8),
         Procedure::ForceGreet => w.u8(10),
+        Procedure::DialogueActivate => w.u8(16),
         Procedure::HoldPosition => w.u8(11),
         Procedure::Orbit { height } => {
             w.u8(12);
@@ -1872,6 +1967,7 @@ pub(crate) fn write_record_state(w: &mut Writer, a: &AiState) {
         w.u32(*day);
     }
     write_opt_form_id(w, a.found_reference);
+    w.bool(a.dialogue_activate_started);
 }
 
 /// Write one actor's package procedure cursor. The world save keeps these in
@@ -1988,6 +2084,12 @@ pub(crate) fn read_state_mapped(
                 "Find procedure requires world version 42".into(),
             ));
         }
+        16 if world_version >= 43 => Procedure::DialogueActivate,
+        16 => {
+            return Err(VmError::State(
+                "DialogueActivate procedure requires world version 43".into(),
+            ));
+        }
         9 => {
             let marker = if r.bool()? {
                 Some(read_form_id(r)?)
@@ -2032,6 +2134,7 @@ pub(crate) fn read_state_mapped(
     if world_version >= 42 {
         a.found_reference = read_opt_form_id(r)?;
     }
+    a.dialogue_activate_started = world_version >= 43 && r.bool()?;
     Ok(a)
 }
 
@@ -2223,6 +2326,7 @@ mod tests {
             arrived: true,
             force_greet_started: false,
             activate_started: false,
+            dialogue_activate_started: false,
             found_reference: Some(GlobalFormId {
                 file: 1,
                 object: 10,
