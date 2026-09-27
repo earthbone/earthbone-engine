@@ -56,6 +56,7 @@ mod forms;
 pub mod hash;
 mod inventory;
 mod inventory_restore;
+mod item_restore;
 mod spell_hand;
 mod weapon_hands;
 pub use inventory_restore::InventoryRestoreReport;

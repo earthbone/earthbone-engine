@@ -27,6 +27,16 @@ pub struct ListRecordExtra {
     pub entry_chances: Vec<u8>,
 }
 
+/// Saved change markers for INGR, ALCH and ENCH records.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ItemRecordExtra {
+    pub form_flags: Option<(u32, u16)>,
+    pub ingredient_use_changed: bool,
+    pub value_changed: bool,
+    pub fullname_changed: bool,
+    pub other_flags: u32,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct RecordOverride {
     pub origin: GlobalFormId,
@@ -37,6 +47,7 @@ pub(super) struct RecordOverride {
     pub plain_full: bool,
     pub npc: NpcRecordExtra,
     pub list: Option<ListRecordExtra>,
+    pub item: Option<ItemRecordExtra>,
 }
 
 pub(super) fn raw_words(record: &Record) -> BTreeSet<u32> {
@@ -61,6 +72,7 @@ impl RecordOverride {
             plain_full: false,
             npc: NpcRecordExtra::default(),
             list: None,
+            item: None,
         }
     }
 
@@ -120,5 +132,10 @@ impl World {
 
     pub fn restored_list_extra(&self, id: GlobalFormId) -> Option<&ListRecordExtra> {
         self.record_overrides.get(&id)?.list.as_ref()
+    }
+
+    /// Return saved item change markers for a restored INGR, ALCH or ENCH.
+    pub fn restored_item_extra(&self, id: GlobalFormId) -> Option<&ItemRecordExtra> {
+        self.record_overrides.get(&id)?.item.as_ref()
     }
 }

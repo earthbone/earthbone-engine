@@ -14,7 +14,7 @@ use crate::actor_values::actor_value_name;
 
 use crate::conditions::{self, Context};
 
-use super::{Alloc, Handle, Pending, World};
+use super::{Alloc, Handle, Pending, World, T};
 
 mod state;
 pub(super) use state::read_magic;
@@ -127,10 +127,13 @@ impl World {
 
     /// Read the current winning ALCH definition.
     pub fn ingestible(&self, id: GlobalFormId) -> Result<Ingestible, MagicError> {
-        let rref = self.order.winner_ref(id).ok_or(MagicError::Missing(id))?;
+        let record = self.record(id).ok_or(MagicError::Missing(id))?;
+        if record.is_deleted() {
+            return Err(MagicError::Missing(id));
+        }
         Ok(Ingestible::from_record(
-            self.order.record(rref),
-            self.order.file(rref.file).plugin.header.is_localized(),
+            record,
+            self.record_text_localized(id, T(b"FULL")),
         )?)
     }
 
