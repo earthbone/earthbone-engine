@@ -78,6 +78,7 @@ pub enum MagicError {
 enum DispelRule {
     Timed,
     Keywords(Vec<GlobalFormId>),
+    Poisons,
 }
 
 struct PreparedEffect {
@@ -237,7 +238,7 @@ impl World {
                     return Err(MagicError::Target);
                 }
             }
-            if !matches!(data.archetype, 0 | 1 | 2 | 5) {
+            if !matches!(data.archetype, 0 | 1 | 2 | 5 | 29) {
                 return Err(MagicError::Unsupported("effect archetype"));
             }
             if entry.data.area != 0 || data.area != 0 || data.taper_duration != 0.0 {
@@ -279,6 +280,9 @@ impl World {
             let mut dispel_rules = Vec::new();
             if data.archetype == 2 {
                 dispel_rules.push(DispelRule::Timed);
+            }
+            if data.archetype == 29 {
+                dispel_rules.push(DispelRule::Poisons);
             }
             if data.flags & DISPEL_WITH_KEYWORDS != 0 {
                 let keywords = self.keyword_entries(effect);
@@ -427,7 +431,7 @@ impl World {
                     return Err(MagicError::Target);
                 }
             }
-            if !matches!(data.archetype, 0 | 1 | 2 | 5 | 18) {
+            if !matches!(data.archetype, 0 | 1 | 2 | 5 | 18 | 29) {
                 return Err(MagicError::Unsupported("effect archetype"));
             }
             if data.taper_duration != 0.0 {
@@ -498,6 +502,9 @@ impl World {
             let mut dispel_rules = Vec::new();
             if data.archetype == 2 {
                 dispel_rules.push(DispelRule::Timed);
+            }
+            if data.archetype == 29 {
+                dispel_rules.push(DispelRule::Poisons);
             }
             if data.flags & DISPEL_WITH_KEYWORDS != 0 {
                 let keywords = self.keyword_entries(effect);
@@ -681,6 +688,16 @@ impl World {
                                 .keywords(effect.effect)
                                 .iter()
                                 .any(|keyword| keywords.contains(keyword))
+                            {
+                                selected.insert(effect.id);
+                            }
+                        }
+                    }
+                    DispelRule::Poisons => {
+                        for effect in live.iter() {
+                            if self.tag_of(effect.source) == Some(super::T(b"ALCH"))
+                                && self.ingestible(effect.source)?.data.flags & INGESTIBLE_POISON
+                                    != 0
                             {
                                 selected.insert(effect.id);
                             }

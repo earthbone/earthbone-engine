@@ -1513,6 +1513,18 @@ another Small favor).
 
 ## Active magic applications
 
+The Cure Poison archetype (MGEF archetype 29) ends active applications whose
+source is an ALCH record marked as a poison by ENIT flag bit 17. Other active
+effects on the target remain applied. Ending a selected application uses the
+usual dispel path, including reversal of recoverable actor-value changes and
+`OnEffectFinish` delivery.
+
+The archetype number and ALCH poison bit match
+`TES5Edit/Core/wbDefinitionsTES5.pas`, MGEF and ALCH, and CommonLibSSE-NG's
+`EffectArchetypes.h` and `AlchemyItem.h`. UESP's `MGEF.wikitext` lists Cure
+Poison without additional archetype data. The local CK wiki corpus has no page
+specifying the archetype's execution rules.
+
 ### Telekinesis prerequisite audit, MAG-41
 
 The 2026-09-20 five-master survey found 1,573 non-deleted MGEF winners and
