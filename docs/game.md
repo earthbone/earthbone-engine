@@ -60,6 +60,9 @@ reproduce BOS's C++ random sequence. Conditional BOS filters remain unevaluated.
 - `clock`: real seconds drive the scheduler and update timers, game time runs
   at `timescale` (20) for `GetCurrentGameTime`.
 - `harness`: the conformance scenario runner, see `docs/validation.md`.
+- `soe-validate`: the `soe-game` binary that resolves a portable MO2 profile,
+  starts a fresh game world for each `.scenario` file, and reports its pass
+  state and cited captures. See `docs/validation.md` for invocation and rules.
 - `Game`: owns the VM and the world. `load_scripts_from_data` builds the load
   order's `soe_bsa::Vfs` (each plugin's `<stem> - Misc.bsa` or `<stem>.bsa`
   archive if the install shipped one, loose files on top) and loads every
