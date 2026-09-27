@@ -188,7 +188,7 @@ bindings, and the classes an interpreter needs are decoded into
 clip generators with their triggers, blenders with their weighted
 children, manual selectors, modifier generators and lists, behavior
 references, blending and generator transition effects, the Skyrim `BS*`
-generators listed above, and event-driven and timer modifiers. Any other
+generators listed above, and event-driven, timer and expression modifiers. Any other
 class is kept as `NodeKind::Unknown` (or `NodeKind::Modifier` with its
 enable flag when the class name ends in `Modifier`), so a vanilla or
 Nemesis-patched graph never fails to load because of an unmodelled node.
@@ -370,6 +370,19 @@ What each node does:
   `BSCyclicBlendTransition`) pass their generator child through.
   `hkbModifierGenerator` also gives an enabled modifier child activation and
   deactivation lifecycle.
+- `hkbEvaluateExpressionModifier`: compiles its expression data at graph
+  construction and evaluates active entries in serialized order each update.
+  A nonnegative assignment variable index writes the finite scalar result to
+  a bool, integer or real graph variable. Unsupported syntax, assignment
+  targets, event indices and event modes are reported in
+  `Unsupported::expression_modifiers`. The four event modes follow
+  `hkbExpressionData`'s `ExpressionEventMode` values: send once after the first
+  true result, send on every true frame, send on a false-to-true edge, or keep
+  sending every frame after the first true result. The source field layout and
+  enum names come from serde-hkx's `assets/classes/hkbEvaluateExpressionModifier.json`,
+  `hkbExpressionDataArray.json` and `hkbExpressionData.json`. The runtime
+  evaluator uses this crate's scalar `Expression` parser because serde-hkx
+  describes serialized fields but does not execute them.
 - `hkbBehaviorReferenceGenerator` and unmodelled classes yield the
   reference pose at weight zero and are listed in `Unsupported`.
 

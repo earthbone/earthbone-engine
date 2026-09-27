@@ -432,6 +432,8 @@ struct Runtime {
 
     /// A bound vector input for `BSDecomposeVectorModifier`.
     vector: Option<[f32; 4]>,
+    expression_raised: Vec<bool>,
+    expression_previous: Vec<bool>,
 }
 
 /// A generator's result for one frame: a local pose and how much of it
@@ -457,6 +459,8 @@ pub struct Unsupported {
     pub unbound: Vec<String>,
     /// Condition classes, source expressions or values that cannot be evaluated.
     pub conditions: Vec<String>,
+    /// Expression modifiers whose syntax, target or event mode is unsupported.
+    pub expression_modifiers: Vec<String>,
     /// Modifier lists whose child pointer closes a cycle.
     pub modifier_list_cycles: Vec<String>,
     /// Modifier-list paths deeper than the interpreter's fixed safety limit.
@@ -490,6 +494,7 @@ pub struct Interpreter<'a> {
     nodes: Vec<Runtime>,
     bindings: Vec<ResolvedBinding>,
     conditions: HashMap<Condition, std::result::Result<Expression, ExpressionError>>,
+    expressions: Vec<Option<Vec<std::result::Result<Expression, ExpressionError>>>>,
     /// Modifier nodes in this frame's authored traversal order. Output
     /// bindings publish in this order rather than arena allocation order.
     modifier_order: Vec<NodeId>,
@@ -541,6 +546,7 @@ impl<'a> Interpreter<'a> {
             nodes,
             bindings: Vec::new(),
             conditions: HashMap::new(),
+            expressions: vec![None; graph.nodes.len()],
             modifier_order: Vec::new(),
             pending: Vec::new(),
             raised: Vec::new(),
@@ -559,7 +565,31 @@ impl<'a> Interpreter<'a> {
         };
         interp.resolve_bindings();
         interp.resolve_conditions();
+        interp.resolve_expressions();
         interp
+    }
+
+    fn resolve_expressions(&mut self) {
+        for node in &self.graph.nodes {
+            let NodeKind::EvaluateExpression { expressions, .. } = &node.kind else {
+                continue;
+            };
+            self.nodes[node.id.0].expression_raised = vec![false; expressions.len()];
+            self.nodes[node.id.0].expression_previous = vec![false; expressions.len()];
+            self.expressions[node.id.0] = Some(
+                expressions
+                    .iter()
+                    .map(|data| {
+                        Expression::compile(
+                            &data.expression,
+                            &self.variables,
+                            &self.character_properties,
+                            None,
+                        )
+                    })
+                    .collect(),
+            );
+        }
     }
 
     fn resolve_conditions(&mut self) {
@@ -1036,6 +1066,7 @@ impl<'a> Interpreter<'a> {
             | NodeKind::IsActiveModifier { enable, .. }
             | NodeKind::FalseToTrueModifier { enable, .. }
             | NodeKind::DecomposeVector { enable, .. }
+            | NodeKind::EvaluateExpression { enable, .. }
             | NodeKind::Modifier { enable } => *enable,
             _ => true,
         };
@@ -1109,6 +1140,119 @@ impl<'a> Interpreter<'a> {
                 }
             }
         }
+        if matches!(
+            self.graph.nodes[id.0].kind,
+            NodeKind::EvaluateExpression { .. }
+        ) {
+            self.evaluate_expressions(id);
+        }
+    }
+
+    fn evaluate_expressions(&mut self, id: NodeId) {
+        let NodeKind::EvaluateExpression { expressions, .. } = &self.graph.nodes[id.0].kind else {
+            return;
+        };
+        let expressions = expressions.clone();
+        let compiled = self.expressions[id.0].clone().unwrap_or_default();
+        for (index, (data, expression)) in expressions.iter().zip(compiled).enumerate() {
+            let Ok(expression) = expression else {
+                let error = expression.err().unwrap_or(ExpressionError::InvalidValue);
+                push_unique(
+                    &mut self.unsupported.expression_modifiers,
+                    format!(
+                        "{}.{}: {error:?}",
+                        self.graph.nodes[id.0].name, data.expression
+                    ),
+                );
+                continue;
+            };
+            let value = match expression.evaluate(
+                &self.variables,
+                &self.character_properties,
+                &mut self.expression_random_state,
+            ) {
+                Ok(value) => value,
+                Err(error) => {
+                    push_unique(
+                        &mut self.unsupported.expression_modifiers,
+                        format!(
+                            "{}.{}: {error:?}",
+                            self.graph.nodes[id.0].name, data.expression
+                        ),
+                    );
+                    continue;
+                }
+            };
+            if data.assignment_variable_index >= 0 {
+                let assignment = usize::try_from(data.assignment_variable_index).ok();
+                let supported = assignment.is_some_and(|target| {
+                    matches!(
+                        self.variables.ty(target),
+                        Some(
+                            VariableType::Bool
+                                | VariableType::Int8
+                                | VariableType::Int16
+                                | VariableType::Int32
+                                | VariableType::Real
+                        )
+                    )
+                });
+                if let Some(target) = assignment.filter(|_| supported) {
+                    self.variables.set_real(target, value);
+                } else {
+                    push_unique(
+                        &mut self.unsupported.expression_modifiers,
+                        format!(
+                            "{}.{}: invalid assignment target {}",
+                            self.graph.nodes[id.0].name,
+                            data.expression,
+                            data.assignment_variable_index
+                        ),
+                    );
+                }
+            }
+            if !matches!(data.event_mode, 0..=3) {
+                push_unique(
+                    &mut self.unsupported.expression_modifiers,
+                    format!(
+                        "{}.{}: invalid event mode {}",
+                        self.graph.nodes[id.0].name, data.expression, data.event_mode
+                    ),
+                );
+                continue;
+            }
+            let truth = value != 0.0;
+            let previous = self.nodes[id.0].expression_previous[index];
+            let raised = self.nodes[id.0].expression_raised[index];
+            let send = match data.event_mode {
+                0 => truth && !raised,
+                1 => truth,
+                2 => truth && !previous,
+                3 => truth || raised,
+                _ => false,
+            };
+            self.nodes[id.0].expression_previous[index] = truth;
+            if send {
+                self.nodes[id.0].expression_raised[index] = true;
+                if let Some(event) = usize::try_from(data.assignment_event_index)
+                    .ok()
+                    .and_then(|event| self.graph.data.event_names.get(event))
+                    .and_then(|name| self.graph.data.event_id(name))
+                {
+                    self.raise(event);
+                } else if data.assignment_event_index >= 0 {
+                    push_unique(
+                        &mut self.unsupported.expression_modifiers,
+                        format!(
+                            "{}.{}: invalid event index {}",
+                            self.graph.nodes[id.0].name,
+                            data.expression,
+                            data.assignment_event_index
+                        ),
+                    );
+                }
+            }
+        }
     }
 
     fn activate(&mut self, id: NodeId) {
@@ -1120,6 +1264,10 @@ impl<'a> Interpreter<'a> {
         match &graph.node(id).kind {
             NodeKind::FalseToTrueModifier { .. } => {
                 self.nodes[id.0].edge_previous = [false; FALSE_TO_TRUE_SLOTS];
+            }
+            NodeKind::EvaluateExpression { expressions, .. } => {
+                self.nodes[id.0].expression_raised = vec![false; expressions.len()];
+                self.nodes[id.0].expression_previous = vec![false; expressions.len()];
             }
             NodeKind::Clip(c) => {
                 let rt = &mut self.nodes[id.0];
@@ -1694,6 +1842,7 @@ impl<'a> Interpreter<'a> {
             | NodeKind::IsActiveModifier { .. }
             | NodeKind::FalseToTrueModifier { .. }
             | NodeKind::DecomposeVector { .. }
+            | NodeKind::EvaluateExpression { .. }
             | NodeKind::Modifier { .. } => self.reference_output(),
         }
     }
@@ -2146,7 +2295,7 @@ pub fn blend_outputs(from: &Output, to: &Output, alpha: f32) -> Output {
 mod tests {
     use super::*;
 
-    use crate::behavior::{Binding, Node, VariableBindingSet, VariableValueSet};
+    use crate::behavior::{Binding, ExpressionData, Node, VariableBindingSet, VariableValueSet};
     use crate::spline::encode;
 
     fn pad4(bytes: &mut Vec<u8>) {
@@ -2295,6 +2444,56 @@ mod tests {
                 },
                 time_step_node(1, "time step", 0, enable),
             ],
+        }
+    }
+
+    fn evaluate_expression_graph(
+        expressions: Vec<ExpressionData>,
+        variable_names: &[&str],
+        variable_types: &[VariableType],
+        event_names: &[&str],
+    ) -> BehaviorGraph {
+        let mut nodes = vec![Node {
+            id: NodeId(0),
+            offset: 0,
+            class: "hkbModifierGenerator".into(),
+            name: "wrapper".into(),
+            user_data: 0,
+            bindings: None,
+            kind: NodeKind::ModifierGenerator {
+                modifier: Some(NodeId(1)),
+                generator: None,
+            },
+        }];
+        nodes.push(Node {
+            id: NodeId(1),
+            offset: 1,
+            class: "hkbEvaluateExpressionModifier".into(),
+            name: "evaluate".into(),
+            user_data: 0,
+            bindings: None,
+            kind: NodeKind::EvaluateExpression {
+                enable: true,
+                expressions,
+            },
+        });
+        BehaviorGraph {
+            name: "expressions".into(),
+            variable_mode: 0,
+            root: Some(NodeId(0)),
+            data: BehaviorGraphData {
+                variable_names: variable_names.iter().map(|name| (*name).into()).collect(),
+                variable_infos: variable_types
+                    .iter()
+                    .map(|ty| VariableInfo {
+                        ty: *ty,
+                        ..Default::default()
+                    })
+                    .collect(),
+                event_names: event_names.iter().map(|name| (*name).into()).collect(),
+                ..Default::default()
+            },
+            nodes,
         }
     }
 
@@ -2928,6 +3127,111 @@ mod tests {
 
         assert_eq!(vm.variables.real(0), Some(0.0));
         assert!(!vm.is_active(NodeId(1)));
+    }
+
+    #[test]
+    fn anm_40_typed_expression_writes_its_expected_result() {
+        let graph = evaluate_expression_graph(
+            vec![ExpressionData {
+                expression: "Speed * 2 + 1".into(),
+                assignment_variable_index: 1,
+                assignment_event_index: -1,
+                event_mode: 0,
+            }],
+            &["Speed", "Result"],
+            &[VariableType::Real, VariableType::Real],
+            &[],
+        );
+        let clips = ClipLibrary::new();
+        let mut vm = Interpreter::new(&graph, &clips, Vec::new());
+        vm.variables.set_real(0, 2.5);
+
+        vm.update(1.0 / 60.0);
+
+        assert_eq!(vm.variables.real(1), Some(6.0));
+        assert!(vm.unsupported().expression_modifiers.is_empty());
+    }
+
+    #[test]
+    fn anm_40_unsupported_expression_syntax_is_reported_without_assignment() {
+        let graph = evaluate_expression_graph(
+            vec![ExpressionData {
+                expression: "Speed + (1".into(),
+                assignment_variable_index: 1,
+                assignment_event_index: -1,
+                event_mode: 0,
+            }],
+            &["Speed", "Result"],
+            &[VariableType::Real, VariableType::Real],
+            &[],
+        );
+        let clips = ClipLibrary::new();
+        let mut vm = Interpreter::new(&graph, &clips, Vec::new());
+        vm.variables.set_real(0, 2.5);
+        vm.variables.set_real(1, 9.0);
+
+        vm.update(1.0 / 60.0);
+
+        assert_eq!(vm.variables.real(1), Some(9.0));
+        assert_eq!(vm.unsupported().expression_modifiers.len(), 1);
+        assert!(vm.unsupported().expression_modifiers[0].contains("Syntax"));
+    }
+
+    #[test]
+    fn anm_40_expression_event_modes_follow_their_declared_trigger_rules() {
+        let graph = evaluate_expression_graph(
+            (0..4)
+                .map(|event_mode| ExpressionData {
+                    expression: "Gate".into(),
+                    assignment_variable_index: -1,
+                    assignment_event_index: event_mode,
+                    event_mode: i8::try_from(event_mode).unwrap(),
+                })
+                .collect(),
+            &["Gate"],
+            &[VariableType::Bool],
+            &["Once", "True", "Rising", "Sticky"],
+        );
+        let clips = ClipLibrary::new();
+        let mut vm = Interpreter::new(&graph, &clips, Vec::new());
+        vm.variables.set_bool(0, true);
+        vm.update(1.0 / 60.0);
+        assert_eq!(
+            vm.take_events()
+                .iter()
+                .map(|event| event.id)
+                .collect::<Vec<_>>(),
+            vec![0, 1, 2, 3]
+        );
+
+        vm.update(1.0 / 60.0);
+        assert_eq!(
+            vm.take_events()
+                .iter()
+                .map(|event| event.id)
+                .collect::<Vec<_>>(),
+            vec![1, 3]
+        );
+
+        vm.variables.set_bool(0, false);
+        vm.update(1.0 / 60.0);
+        assert_eq!(
+            vm.take_events()
+                .iter()
+                .map(|event| event.id)
+                .collect::<Vec<_>>(),
+            vec![3]
+        );
+
+        vm.variables.set_bool(0, true);
+        vm.update(1.0 / 60.0);
+        assert_eq!(
+            vm.take_events()
+                .iter()
+                .map(|event| event.id)
+                .collect::<Vec<_>>(),
+            vec![1, 2, 3]
+        );
     }
 
     #[test]
