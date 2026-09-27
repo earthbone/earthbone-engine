@@ -7,7 +7,8 @@ or removed. This review changes planning data, not engine behavior.
 
 ## Recommendation columns
 
-The CSV adds difficulty, recommended_model and recommended_effort after status.
+The CSV adds difficulty, recommended_model and recommended_effort after status,
+then breaker_group and judge_group.
 Difficulty describes implementation uncertainty and integration risk, not
 elapsed runtime or priority. Recommendations assume the row's dependencies
 are complete. They are engineering estimates, not measured model benchmarks
@@ -38,6 +39,45 @@ The [official Codex model command documentation](https://learn.chatgpt.com/docs/
 confirms that /model selects a model and its available reasoning effort.
 The per-task choices in this file are project recommendations, not assignments
 prescribed by OpenAI. No pricing or account-capacity assumption was used.
+
+### Measured selection, 2026-09-27
+
+A comparison of Codex models on DLG-03, PRG-09, FMT-18, MAG-07 and MAG-39
+replaced the estimates above for every open row. Each open row now recommends
+gpt-6-luna at high effort for the writer, the breaker and the judge. Done rows
+keep their earlier estimates.
+
+- gpt-6-luna high met the FMT-18 check alone. On MAG-07 it missed the
+  ingestible clause. On MAG-39, a very_high row, its writer missed the
+  Summonable rule, its breaker found the gap and its judge fixed it. All three
+  steps cost $0.14 at API prices.
+- gpt-6-sol high met every check it was given, the Summonable rule included,
+  without a breaker. Its MAG-39 writer alone cost $1.56. It is the rerun model
+  when a luna judge reports a row as partial.
+- gpt-6-luna xhigh stalled on MAG-39 without an edit. gpt-6-luna low has not
+  completed a reviewed row.
+- gpt-5.6-terra high matched luna on MAG-07 at about nine times the price.
+
+### Checker groups
+
+breaker_group and judge_group name the rows one breaker and one judge cover,
+so each checker reads the shared code once and reuses its cache across rows.
+`tools/backlog_groups.py BACKLOG.csv --write` recomputes both columns and the
+model columns of open rows after rows change.
+
+- Rows share a breaker group when they share an id prefix and the first source
+  file read_first names, and sit at the same dependency depth among open rows,
+  so their writers can run in parallel.
+- A row alone in its topic joins the lone rows of its area and crate, then of
+  its area, then of any area, at the same depth.
+- A breaker group holds up to 8 weight and a judge group up to 4, where a
+  very_high row weighs 2 and any other row 1. The caps keep a checker under the
+  275k context limit of the GPT models. On 2026-09-27 a single very_high judge
+  peaked at 127k and its breaker at 55k. The first grouped runs confirm or
+  lower the caps.
+- Names read `B-<area>-<topic>-<n>` for breakers and `J-<area>-<topic>-<n>` for
+  judges, with a letter suffix when one breaker group splits into several
+  judge groups.
 
 ## Confirmed corrections applied
 
