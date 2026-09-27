@@ -1717,6 +1717,33 @@ and Papyrus casts log that error. This includes projectiles, contact and
 location delivery, concentration, taper, perk adjustments, equip abilities and
 other archetypes. Area selection is covered separately below, under Area
 targeting, MAG-06.
+
+### Guide effect, MAG-46
+
+MGEF archetype 25 is accepted as an active effect. `World::guide_route` returns
+the navmesh route from the player to the nearest live reference target of the
+first eligible displayed objective. It considers running, active quests that
+are not completed or failed, sorts quests by descending priority and then by
+FormID, and skips objectives that are hidden, completed or failed. Objectives
+with no resolvable enabled reference target produce no route. The returned
+route is recomputed from current quest and reference state, and becomes absent
+when the Guide application expires.
+
+The definitions come from local `TES5Edit/Core/wbDefinitionsTES5.pas`, which
+names archetype 25 as Guide and selects a HAZD associated item for it, and
+`uesp-modfileformat/MGEF.wikitext`, which says that associated hazard is used
+only by Clairvoyance. The CK dump has no Guide archetype page. The local
+CommonLib `GuideEffect.h` declares quest, quest target and hazard members plus
+Start and Finish hooks, but no behavior. The hazard link is not treated as the
+objective target. Guide concentration casting, Clairvoyance hazard visuals and
+host rendering of the route are not implemented by this runtime API.
+
+`mag_46_guide_routes_to_the_current_eligible_objective`,
+`mag_46_guide_clears_the_route_when_its_effect_expires` and
+`mag_46_guide_skips_completed_and_failed_objectives` exercise route selection,
+objective eligibility and expiry with synthetic records. The check names no
+vanilla record, so it has no `SKYRIM_DATA`-gated case.
+
 An MGEF with the Dispel with Keywords flag reads its KWDA entries as the
 cancellation list. Casting that effect, or applying it from an ingestible,
 ends only live effects on the recipient whose winning MGEF carries a matching
