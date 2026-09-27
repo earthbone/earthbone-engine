@@ -32,6 +32,8 @@ const ITEM: u32 = 0x600;
 const OTHER_ITEM: u32 = 0x601;
 const SUMMON_BASE: u32 = 0x501;
 
+#[path = "magic/absorb.rs"]
+mod absorb;
 #[path = "magic/bound_weapon.rs"]
 mod bound_weapon;
 #[path = "magic/collection.rs"]

@@ -1550,7 +1550,7 @@ dependencies and the current direct-cast rejection boundary.
 ### Direct active-effect foundation
 
 The runtime provides `World::cast_spell` for direct scripted casts
-of Script, Value Modifier, Dual Value Modifier and Dispel effects, including hostile hits. Definitions
+of Script, Value Modifier, Absorb, Dual Value Modifier and Dispel effects, including hostile hits. Definitions
 come from winning SPEL and MGEF records, with each FormID resolved in its winning
 plugin. Self and target-actor delivery are supported for constant and fire-and-forget
 casts. `Spell.Cast` credits an actor source. `RemoteCast` credits its explicit
@@ -1638,7 +1638,7 @@ state and its existing modifier, then expires it from its saved elapsed time.
 Unsupported casts return a typed error before applying any of their effects,
 and Papyrus casts log that error. This includes projectiles, contact and
 location delivery, concentration, taper, perk adjustments, equip abilities and
-other unsupported archetypes. Cure Disease is supported below. Area selection
+other unsupported archetypes. Absorb and Cure Disease are supported below. Area selection
 is covered separately under Area targeting, MAG-06.
 
 #### Cure Disease archetype, MAG-27
@@ -1653,6 +1653,23 @@ spells and unrelated active effects remain unchanged. The scope follows CK's
 disease keyword query and xEdit's archetype table. The local skymp implementation
 instead removes learned spells of Disease type, which does not match this
 runtime's per-application active-effect model.
+
+#### Absorb archetype, MAG-28
+
+Archetype 4 selects its actor value from MGEF `PrimaryAV`. During each active
+tick, it damages that value on the recipient and restores the same amount to
+the credited caster, using the authored magnitude per second and clipping the
+last tick to the remaining duration. A missing caster still leaves the target
+drain. `No Magnitude` suppresses both sides, and `No Duration` applies the
+transfer immediately. The value mapping and ordinary damage and restore rules
+are shared with other active effects.
+
+The local xEdit `wbDefinitionsTES5.pas` names archetype 4 as Absorb, and UESP's
+`MGEF.wikitext` says `PrimaryAV` selects the absorbed value. The CK corpus has
+no Magic Effect page. CommonLibSSE-NG's `AbsorbEffect.h` confirms start, update
+and finish hooks on an absorb effect derived from `ValueModifierEffect`, but
+does not provide their behavior. `mag_28_*` tests cover primary-value
+selection, magnitude, duration, and the `No Magnitude` and `No Duration` flags.
 
 #### Bound Weapon archetype, MAG-38
 
@@ -1684,7 +1701,7 @@ Actor-value indices from 0 through 163 resolve through the shared mapping in
 domain. Other effects damage or restore the damage component without changing
 permanent modifiers.
 Automatic ability application from AddSpell or NPC spell lists, enchantments,
-potions, resistance and absorption, effect artwork and sounds, actor-event
+potions, resistance, effect artwork and sounds, actor-event
 forwarding and VM object reclamation remain unfinished.
 
 resistance and absorption, effect artwork and sounds, actor-event
@@ -1758,7 +1775,7 @@ The `mag_01_hostile_hit_damages_only_the_target_with_spell_and_aggressor_argumen
 regression checks the cast result and exact event arguments. Companion tests
 cover hit suppression, No Recast, rejected targets, atomic failure, alias and
 active-effect listeners, RemoteCast attribution and instant/timed death.
-Resistance, absorption, charging, combat targeting and other archetypes keep
+Resistance, charging, combat targeting and other archetypes keep
 their separate BACKLOG.csv scopes. This step does not establish complete
 hostile spell gameplay or host contact detection.
 

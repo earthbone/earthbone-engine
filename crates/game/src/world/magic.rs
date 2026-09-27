@@ -436,7 +436,7 @@ impl World {
                     return Err(MagicError::Target);
                 }
             }
-            if !matches!(data.archetype, 0 | 1 | 2 | 3 | 5 | 17 | 18) {
+            if !matches!(data.archetype, 0 | 1 | 2 | 3 | 4 | 5 | 17 | 18) {
                 return Err(MagicError::Unsupported("effect archetype"));
             }
             if data.taper_duration != 0.0 {
@@ -464,10 +464,15 @@ impl World {
                 magnitude
             };
             let mut changes = Vec::new();
-            if matches!(data.archetype, 0 | 5) {
+            if matches!(data.archetype, 0 | 4 | 5) {
                 let name = actor_value_name(data.primary_actor_value)
                     .ok_or(MagicError::Unsupported("actor value"))?;
-                changes.push((name.to_string(), signed));
+                let amount = if data.archetype == 4 {
+                    -magnitude
+                } else {
+                    signed
+                };
+                changes.push((name.to_string(), amount));
                 if data.archetype == 5 {
                     let name = actor_value_name(data.second_actor_value)
                         .ok_or(MagicError::Unsupported("secondary actor value"))?;
@@ -981,6 +986,24 @@ impl World {
                 actor.unconscious = true;
                 actor.in_combat = false;
                 actor.combat_target = None;
+            }
+        }
+        if self
+            .magic_effect(effect.effect)
+            .is_ok_and(|definition| definition.data.archetype == 4)
+        {
+            if let Some(caster) = effect.caster {
+                if let Some(actor) = self.actor(caster) {
+                    let mut values = actor.values.clone();
+                    let mut transfer = effect.clone();
+                    for (_, amount) in &mut transfer.changes {
+                        *amount = -*amount;
+                    }
+                    change_values(&mut values, &transfer, scale)?;
+                    if let Some(actor) = self.actors.get_mut(&caster) {
+                        actor.values = values;
+                    }
+                }
             }
         }
         if entering_bleedout {
