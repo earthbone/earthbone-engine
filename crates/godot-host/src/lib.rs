@@ -21,6 +21,7 @@ pub mod camera;
 pub mod collision;
 pub mod combat;
 pub mod data_source;
+pub mod detect_life;
 pub mod dialogue_menu;
 pub mod door_fade;
 pub mod image_space;

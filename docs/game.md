@@ -1703,6 +1703,24 @@ page. Its `OnMagicEffectApply_-_ObjectReference.wikitext` defines the
 responsible caster argument used by the active effect. Placement, ownership
 and dismissal reuse `World::place_at` and the existing effect expiry path.
 
+### Detect Life, MAG-40
+
+Archetype 19 selects loaded, enabled, living actor references within the active
+effect magnitude of its target, excluding the target itself. Results are
+ordered by active effect and actor identity. Each result carries the winning
+MGEF's `Hit Shader` FormID from DATA offset 32, resolved in the plugin that
+owns that MGEF. The selection does not load distant actors. Direct
+concentration casts are accepted only when every spell effect is archetype 19.
+They stay active until dispelled. This does not add charge or magicka-cost
+handling. The spell-entry and MGEF conditions are evaluated for each candidate
+actor, with that actor as subject and the caster as target. xEdit's local MGEF
+definitions supply the archetype and field layout.
+The local CK dump has no Magic Effect archetype page with further Detect Life
+execution semantics.
+`mag_40_active_detect_life_selects_only_live_actors_in_range_with_authored_shader`
+checks selection and shader identity. The host adapter converts those results
+to Godot coordinates and retains the authored shader FormID for presentation.
+
 `mag_39_summon_check_spawns_authored_actor_with_caster_ownership_and_dismisses_on_expiry`
 exercises the row's spawn, ownership and expiry check with synthetic records.
 `mag_39_rejects_an_actor_base_without_the_summonable_flag` checks the sourced

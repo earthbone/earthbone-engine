@@ -31,6 +31,7 @@ const NO_DEATH_DISPEL: u32 = 1 << 28;
 pub(super) const DISPEL_WITH_KEYWORDS: u32 = 1 << 8;
 const INGESTIBLE_POISON: u32 = 1 << 17;
 const PARALYSIS_ARCHETYPE: u32 = 21;
+const DETECT_LIFE_ARCHETYPE: u32 = 19;
 
 /// Identity of one effect application, independent of its MGEF FormID.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -54,6 +55,15 @@ pub struct ActiveEffect {
     pub summoned: Option<GlobalFormId>,
     pub(crate) recover: bool,
     pub(crate) changes: Vec<(String, f32)>,
+}
+
+/// A live actor selected by a Detect Life effect, with its authored hit shader.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct DetectedActor {
+    pub effect: EffectId,
+    pub actor: GlobalFormId,
+    pub position: [f32; 3],
+    pub hit_shader: Option<GlobalFormId>,
 }
 
 /// A spell was rejected before any of its effects were applied.
@@ -91,6 +101,111 @@ struct PreparedEffect {
 }
 
 impl World {
+    /// Find loaded, living actor references in range of active Detect Life effects.
+    ///
+    /// The MGEF magnitude is the authored radius in Skyrim units. The shader
+    /// comes from the winning MGEF DATA `Hit Shader` field.
+    pub fn detect_life_targets(&mut self) -> Result<Vec<DetectedActor>, MagicError> {
+        let mut detected = Vec::new();
+        let active_effects: Vec<_> = self.active_effects.values().cloned().collect();
+        for active in active_effects {
+            let definition = self.magic_effect(active.effect)?;
+            if definition.data.archetype != DETECT_LIFE_ARCHETYPE
+                || !active.magnitude.is_finite()
+                || active.magnitude <= 0.0
+            {
+                continue;
+            }
+            let Some(origin) = self.reference_ref(active.target).map(|r| r.position) else {
+                continue;
+            };
+            if !origin.iter().all(|value| value.is_finite()) {
+                continue;
+            }
+            let radius_squared = active.magnitude * active.magnitude;
+            let hit_shader = self.magic_effect_hit_shader(active.effect)?;
+            let entry = self.magic_item_effect(active.spell, active.effect_index)?;
+            let candidates: Vec<_> = self
+                .refs
+                .iter()
+                .map(|(&id, reference)| {
+                    (
+                        id,
+                        reference.is_actor,
+                        reference.enabled,
+                        reference.deleted,
+                        reference.position,
+                    )
+                })
+                .collect();
+            for (actor, is_actor, enabled, deleted, position) in candidates {
+                if actor == active.target || !is_actor || !enabled || deleted {
+                    continue;
+                }
+                if self.actor(actor).is_none_or(|state| state.dead) {
+                    continue;
+                }
+                if !position.iter().all(|value| value.is_finite()) {
+                    continue;
+                }
+                let distance_squared = (0..3)
+                    .map(|axis| {
+                        let delta = position[axis] - origin[axis];
+                        delta * delta
+                    })
+                    .sum::<f32>();
+                if distance_squared > radius_squared {
+                    continue;
+                }
+                let context = Context {
+                    owner: active.spell,
+                    subject: actor,
+                    target: active.caster,
+                    quest: None,
+                    tempering_enchanted: None,
+                };
+                if !conditions::evaluate_without_vm(self, context, &entry.conditions)? {
+                    continue;
+                }
+                let context = Context {
+                    owner: active.effect,
+                    ..context
+                };
+                if conditions::evaluate_without_vm(self, context, &definition.conditions)? {
+                    detected.push(DetectedActor {
+                        effect: active.id,
+                        actor,
+                        position,
+                        hit_shader,
+                    });
+                }
+            }
+        }
+        detected.sort_by_key(|target| (target.effect, target.actor));
+        Ok(detected)
+    }
+
+    /// Read the winning MGEF DATA `Hit Shader` FormID.
+    fn magic_effect_hit_shader(
+        &self,
+        id: GlobalFormId,
+    ) -> Result<Option<GlobalFormId>, MagicError> {
+        let Some(reference) = self.order.winner_ref(id) else {
+            return Err(MagicError::Missing(id));
+        };
+        let record = self.order.record(reference);
+        let data = record.required(super::T(b"DATA"))?;
+        if data.len() < 36 {
+            return Err(MagicError::Record(soe_esm::Error::Truncated {
+                at: 32,
+                need: 4,
+                have: data.len().saturating_sub(32),
+            }));
+        }
+        let raw = u32::from_le_bytes([data[32], data[33], data[34], data[35]]);
+        Ok((raw != 0).then(|| self.order.resolve(reference.file, raw)))
+    }
+
     /// Whether a live Paralysis archetype currently suppresses actor motion.
     pub fn actor_is_paralyzed(&self, actor: GlobalFormId) -> bool {
         self.active_effects.values().any(|active| {
@@ -394,8 +509,18 @@ impl World {
         alloc: Alloc<'_>,
     ) -> Result<Vec<EffectId>, MagicError> {
         let definition = self.spell(spell)?;
-        if !matches!(definition.data.cast_type, 0 | 1) {
+        if !matches!(definition.data.cast_type, 0..=2) {
             return Err(MagicError::Unsupported("concentration or scroll casting"));
+        }
+        if definition.data.cast_type == 2
+            && (definition.effects.is_empty()
+                || !definition.effects.iter().all(|entry| {
+                    self.resolve_from(spell, entry.base_effect)
+                        .and_then(|effect| self.magic_effect(effect).ok())
+                        .is_some_and(|effect| effect.data.archetype == DETECT_LIFE_ARCHETYPE)
+                }))
+        {
+            return Err(MagicError::Unsupported("concentration archetype"));
         }
         let target = match definition.data.delivery {
             0 => source,
@@ -417,6 +542,8 @@ impl World {
                 .ok_or(MagicError::Missing(spell))?;
             let base = self.magic_effect(effect)?;
             let data = &base.data;
+            let defer_detect_conditions =
+                definition.data.cast_type == 2 && data.archetype == DETECT_LIFE_ARCHETYPE;
             let context = Context {
                 owner: spell,
                 subject: target,
@@ -424,14 +551,18 @@ impl World {
                 quest: None,
                 tempering_enchanted: None,
             };
-            if !conditions::evaluate_without_vm(self, context, &entry.conditions)? {
+            if !defer_detect_conditions
+                && !conditions::evaluate_without_vm(self, context, &entry.conditions)?
+            {
                 continue;
             }
             let context = Context {
                 owner: effect,
                 ..context
             };
-            if !conditions::evaluate_without_vm(self, context, &base.conditions)? {
+            if !defer_detect_conditions
+                && !conditions::evaluate_without_vm(self, context, &base.conditions)?
+            {
                 continue;
             }
             if data.flags & HOSTILE != 0 {
@@ -440,7 +571,10 @@ impl World {
                     return Err(MagicError::Target);
                 }
             }
-            if !matches!(data.archetype, 0 | 1 | 2 | 5 | 18 | PARALYSIS_ARCHETYPE) {
+            if !matches!(
+                data.archetype,
+                0 | 1 | 2 | 5 | 18 | DETECT_LIFE_ARCHETYPE | PARALYSIS_ARCHETYPE
+            ) {
                 return Err(MagicError::Unsupported("effect archetype"));
             }
             if data.taper_duration != 0.0 {
@@ -501,7 +635,7 @@ impl World {
             } else {
                 None
             };
-            let duration = if definition.data.cast_type == 0 {
+            let duration = if matches!(definition.data.cast_type, 0 | 2) {
                 None
             } else {
                 Some(if data.flags & NO_DURATION != 0 {
