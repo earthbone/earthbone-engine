@@ -45,8 +45,15 @@ base's, so the prefix read is exact.
 
 `mesh::Mesh` is what the Godot host mirrors:
 
-- `positions`, `normals`, `tangents` (`[x, y, z, handedness]`), `uvs`,
-  `colors`, `indices` as a triangle list.
+- `positions`, `normals`, `tangents` (`[x, y, z, handedness]`), `uv_sets`,
+  `colors`, `indices` as a triangle list. `uv_sets` contains one
+  vertex-aligned coordinate array per source set. `uvs` remains an alias for
+  the first set for callers that only use one. `BSTriShape` stores one set in
+  its packed vertex stream. `NiGeometryData` stores the UV set count in its
+  data flags where its stream version supports multiple sets, followed by one
+  coordinate array per set. This follows the layouts in
+  `../engine-refs/nifxml/nif.xml` and the corresponding `uvSets` handling in
+  `../engine-refs/nifly/src/Geometry.cpp`.
 - `bone_weights` and `bone_indices`, four per vertex, indexing `skin.bones`.
 - `skin`: skeleton root, per-bone name, node reference and inverse bind
   transform.
@@ -169,8 +176,8 @@ The archived mesh test is the one that exercises real content on a plain install
 
 `Mesh::approx_bytes()` sums each vertex's natural width, 12 bytes for
 positions plus 12 for normals charged unconditionally, plus 16 for tangents,
-8 for UVs, 16 for bone weights and 4 for bone indices when each is present,
-and adds 4 bytes an index. Colors are never charged. Added for RND-03's
+8 for each UV set, 16 for bone weights and 4 for bone indices when each is
+present, and adds 4 bytes an index. Colors are never charged. Added for RND-03's
 terrain LOD residency budget in `godot-host`, which needs a recorded byte
 cost per loaded block to weigh against a budget.
 
