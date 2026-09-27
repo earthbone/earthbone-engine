@@ -1248,8 +1248,8 @@ held reference identity against its materialized or authored state before an
 earlier member can change inventory or queue events.
 Active-effect recipients remain pending with magic execution.
 
-The condition evaluator implements functions 47, 56, 58, 59, 72, 74, 136,
-182, 264, 277, 289, 359, 448, 543, 560, 629, 630 and 659. This is a bounded set,
+The condition evaluator implements functions 47, 56, 58, 59, 72, 74, 136, 182,
+264, 277, 289, 359, 447, 448, 543, 560, 629, 630 and 659. This is a bounded set,
 not the entire CTDA contract. It supports ordered AND/OR groups, numeric or
 global comparisons, explicit references and caller-supplied quest aliases.
 Reserved PlayerRef resolves to the runtime player even without a placed record.
@@ -1279,6 +1279,16 @@ The skymp evaluator's unknown-function success and unresolved target mapping
 were not adopted. Mutagen labels HasPerk's second integer unused, while xEdit
 exposes it, so nonzero values need further evidence. Caprica's property
 compiler confirms conditional auto-property flags on the backing variable.
+
+AI-65 implements CTDA 447, `GetGraphVariableFloat`, from the actor's saved
+behavior-graph float map. The condition's `CIS1` name is matched without case
+sensitivity. Missing names and non-actor subjects return explicit errors. The
+other AI-65 functions remain unsupported because their transition or animation
+state is not available in this worktree. Local xEdit identifies their
+parameters, while the CK corpus only documents `IsSprinting` and `IsFlying`
+as live state queries. The AI-31 draft prerequisites are absent here, so no
+cell-crossing, last-idle, sprint, flight, movement, relative-angle or furniture
+animation state is inferred from unrelated saved flags.
 
 Twelve synthetic crafting scenarios cover duplicate inputs, gross versus net
 counts, overflow, bench modes, winning overrides, condition rechecks,
