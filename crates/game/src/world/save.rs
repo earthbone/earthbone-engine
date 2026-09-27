@@ -59,7 +59,8 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// Version 33 retains the spawned reference owned by each Summon Creature effect.
 /// Version 34 retains last-visit game days for resettable encounter zones.
 /// Version 35 retains the explicit weather and time image-space selection.
-pub const SAVE_VERSION: u16 = 35;
+/// Version 36 retains the authored taper values of active magic effects.
+pub const SAVE_VERSION: u16 = 36;
 
 #[derive(Clone, Copy)]
 pub(crate) enum FormNamespace {
@@ -855,7 +856,7 @@ impl World {
             }
         }
         let (next_effect, active_effects) = if version == 5 || version >= 9 {
-            super::magic::read_magic(&mut r, version >= 33)?
+            super::magic::read_magic(&mut r, version >= 33, version >= 36)?
         } else {
             (1, BTreeMap::new())
         };

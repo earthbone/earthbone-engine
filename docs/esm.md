@@ -277,9 +277,9 @@ and do not create another form database. They introduce no dependencies.
 
 The MGEF DATA subset is flags, base cost, associated item, magic skill,
 resistance, declared counter-effect count, minimum skill, area, casting time,
-taper curve and duration, secondary actor-value weight, archetype, both actor
+taper weight, curve and duration, secondary actor-value weight, archetype, both actor
 values, cast type, delivery, skill usage multiplier, equip ability and perk.
-Taper weight, projectile/explosion links, dual-cast scale, AI score/delay and
+Projectile/explosion links, dual-cast scale, AI score/delay and
 visual/audio fields remain in the source record. This is not a full MGEF API.
 
 `Condition` preserves CTDA flags, comparison number or GLOB FormID, function,

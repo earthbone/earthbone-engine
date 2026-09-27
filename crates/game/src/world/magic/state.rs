@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! SOEW version 5 stores active applications after the version 4 world body.
-//! Loaded actor values already contain recoverable modifiers.
+//! SOEW versions 5 and 36 store active applications after the world body.
+//! Loaded actor values already contain recoverable modifiers. Version 36
+//! stores the authored taper values for each active application.
 
 use std::collections::BTreeMap;
 
@@ -26,6 +27,9 @@ impl World {
             write_opt_form_id(w, effect.caster);
             write_form_id(w, effect.target);
             w.f32(effect.magnitude);
+            w.f32(effect.taper_weight);
+            w.f32(effect.taper_curve);
+            w.f64(effect.taper_duration);
             w.bool(effect.duration.is_some());
             if let Some(duration) = effect.duration {
                 w.f64(duration);
@@ -45,6 +49,7 @@ impl World {
 pub(in crate::world) fn read_magic(
     r: &mut FormReader<'_, '_>,
     has_summoned_reference: bool,
+    has_taper_values: bool,
 ) -> Result<(u64, BTreeMap<EffectId, ActiveEffect>), VmError> {
     let next = r.u64()?;
     let count = r.len()?;
@@ -58,6 +63,11 @@ pub(in crate::world) fn read_magic(
         let caster = read_opt_form_id(r)?;
         let target = read_form_id(r)?;
         let magnitude = r.f32()?;
+        let (taper_weight, taper_curve, taper_duration) = if has_taper_values {
+            (r.f32()?, r.f32()?, r.f64()?)
+        } else {
+            (1.0, 0.0, 0.0)
+        };
         let duration = if r.bool()? { Some(r.f64()?) } else { None };
         let elapsed = r.f64()?;
         let summoned = if has_summoned_reference {
@@ -70,9 +80,14 @@ pub(in crate::world) fn read_magic(
             || id.0 >= next
             || !magnitude.is_finite()
             || magnitude < 0.0
+            || !taper_weight.is_finite()
+            || !taper_curve.is_finite()
+            || !taper_duration.is_finite()
+            || taper_duration < 0.0
             || !elapsed.is_finite()
             || elapsed < 0.0
-            || duration.is_some_and(|d| !d.is_finite() || d < elapsed)
+            || duration.is_some_and(|d| !d.is_finite() || d + taper_duration < elapsed)
+            || (taper_duration > 0.0 && taper_curve <= -1.0)
         {
             return Err(VmError::State("invalid active effect state".into()));
         }
@@ -99,6 +114,9 @@ pub(in crate::world) fn read_magic(
             target,
             magnitude,
             duration,
+            taper_weight,
+            taper_curve,
+            taper_duration,
             elapsed,
             summoned,
             recover,

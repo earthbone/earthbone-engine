@@ -841,7 +841,7 @@ either.
 
 `World::save_state(&self) -> Vec<u8>` and `World::load_state(&mut self,
 bytes) -> Result<(), VmError>` write and read the run-time half of the form
-table, magic `SOEW`, version 29. Versions 4 to 6 use legacy actor values,
+table, magic `SOEW`, version 36. Versions 4 to 6 use legacy actor values,
 version 5 adds active magic, version 6 adds dialogue, version 7 adds actor-value
 components, version 8 adds dialogue to those components, and version 9 adds
 active magic. Version 10 adds per-reference leveled template choices.
@@ -859,13 +859,9 @@ version 29 an actor's stagger end time. Version 30 appends shared stealth-point
 pools with each observer's detection level and timers, written only when a pool
 exists. Version 31 adds the set of perpetrators an actor witnessed committing a
 tracked crime.
-version 5 adds active magic, version 6 adds dialogue, version 7 adds actor-value
-components, version 8 adds dialogue to those components, version 9 adds
-active magic. Version 10 adds per-reference leveled template choices.
-Version 11 adds quest journal instances and mapped runtime metadata. Versions
-12 to 15 add inventory, NPC, identity and deferred-death state. Version 16
-adds an actor's active exclusive dialogue branch, and version 17 adds active
-do-all dialogue cycles.
+Version 32 retains explicit hand spells. Version 33 retains summon references,
+version 34 retains encounter-zone visit days, version 35 retains weather and
+time image-space selection, and version 36 stores active-effect taper values.
 Older formats load with empty state for absent subsystems.
 Legacy current and base values must agree. Otherwise their modifier domains
 are ambiguous and restoration returns an explicit error.
@@ -1608,8 +1604,14 @@ Other value modifiers integrate magnitude over unpaused simulation seconds, with
 the final tick clipped to the remaining duration. Zero-duration effects apply
 once. Healing health, magicka and stamina is limited to the maximum, including permanent and temporary modifiers. No Recast prevents a second live application of the
 same MGEF on the same actor. Death removes effects unless No Death Dispel is set.
-SOEW version 9 stores identity, source, caster, target, magnitude, elapsed time,
-duration and value deltas, including pending script attachment. Loading never
+For timed effects, taper adds its authored duration after EFIT duration.
+Non-RECOVER value changes integrate `magnitude * weight * (1 - taper_time /
+taper_duration)^curve` over that interval. RECOVER changes keep full magnitude
+and reverse at the end of the taper interval. The CK Magic Effect page defines
+this curve and its recover exception. Curves at or below -1 with positive taper
+duration are rejected because their total is unbounded. SOEW version 36 stores
+identity, source, caster, target, magnitude, elapsed time, duration, taper
+values and value deltas, including pending script attachment. Loading never
 reapplies a saved modifier. The deterministic scenes hash includes this state.
 
 The source contracts are CK [Magic Effect](https://ck.uesp.net/wiki/Magic_Effect),
@@ -1644,8 +1646,8 @@ state and its existing modifier, then expires it from its saved elapsed time.
 
 Unsupported casts return a typed error before applying any of their effects,
 and Papyrus casts log that error. This includes projectiles, contact and
-location delivery, concentration, taper, perk adjustments, equip abilities and
-other archetypes. Area selection is covered separately below, under Area
+location delivery, concentration, perk adjustments, equip abilities and other
+archetypes. Area selection is covered separately below, under Area
 targeting, MAG-06.
 An MGEF with the Dispel with Keywords flag reads its KWDA entries as the
 cancellation list. Casting that effect, or applying it from an ingestible,
@@ -1787,8 +1789,7 @@ effect, and a dead hostile-ineligible actor inside the radius is skipped
 without affecting the other recipients. The done check names no specific
 vanilla record, so no SKYRIM_DATA-gated case was added. Ingestible and poison
 area remains its own unsupported entry, out of this row's scope. Concentration,
-projectiles, contact and location delivery and taper stay separately
-unsupported as before.
+projectiles and contact and location delivery stay separately unsupported.
 
 ### Unnamed archetypes, MAG-68
 

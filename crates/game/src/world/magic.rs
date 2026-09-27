@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! Active spell applications, following CK Magic Effect, DispelSpell and
-//! DispelAllSpells contracts, xEdit SPEL/MGEF fields and CommonLib MagicSystem
+//! Active spell applications, following CK Magic Effect tapering, DispelSpell
+//! and DispelAllSpells contracts, xEdit SPEL/MGEF fields and CommonLib MagicSystem
 //! enums. Definitions stay in the winning records. Per-cast magnitudes,
 //! elapsed time and reversible actor-value deltas belong to the world.
 //! Unsupported delivery and archetypes return errors before applying effects.
@@ -48,6 +48,9 @@ pub struct ActiveEffect {
     pub target: GlobalFormId,
     pub magnitude: f32,
     pub duration: Option<f64>,
+    pub taper_weight: f32,
+    pub taper_curve: f32,
+    pub taper_duration: f64,
     pub elapsed: f64,
     /// Runtime actor created by a Summon Creature effect, dismissed with it.
     pub summoned: Option<GlobalFormId>,
@@ -259,9 +262,10 @@ impl World {
             if !matches!(data.archetype, 0 | 1 | 2 | 5) {
                 return Err(MagicError::Unsupported("effect archetype"));
             }
-            if entry.data.area != 0 || data.area != 0 || data.taper_duration != 0.0 {
-                return Err(MagicError::Unsupported("area or taper"));
+            if entry.data.area != 0 || data.area != 0 {
+                return Err(MagicError::Unsupported("area"));
             }
+            validate_taper(data.taper_weight, data.taper_curve, data.taper_duration)?;
             if data.perk != 0 || data.equip_ability != 0 {
                 return Err(MagicError::Unsupported("perk or equip ability"));
             }
@@ -323,6 +327,13 @@ impl World {
                     } else {
                         f64::from(entry.data.duration)
                     }),
+                    taper_weight: data.taper_weight,
+                    taper_curve: data.taper_curve,
+                    taper_duration: if data.flags & NO_DURATION == 0 {
+                        f64::from(data.taper_duration)
+                    } else {
+                        0.0
+                    },
                     elapsed: 0.0,
                     summoned: None,
                     recover: data.flags & RECOVER != 0,
@@ -471,9 +482,7 @@ impl World {
             if !matches!(data.archetype, 0 | 1 | 2 | 5 | 18) {
                 return Err(MagicError::Unsupported("effect archetype"));
             }
-            if data.taper_duration != 0.0 {
-                return Err(MagicError::Unsupported("taper"));
-            }
+            validate_taper(data.taper_weight, data.taper_curve, data.taper_duration)?;
             if data.perk != 0 || data.equip_ability != 0 {
                 return Err(MagicError::Unsupported("perk or equip ability"));
             }
@@ -536,6 +545,11 @@ impl World {
                     f64::from(entry.data.duration)
                 })
             };
+            let taper_duration = if duration.is_some() && data.flags & NO_DURATION == 0 {
+                f64::from(data.taper_duration)
+            } else {
+                0.0
+            };
             let mut dispel_rules = Vec::new();
             if data.archetype == 2 {
                 dispel_rules.push(DispelRule::Timed);
@@ -573,6 +587,9 @@ impl World {
                         target: recipient,
                         magnitude,
                         duration,
+                        taper_weight: data.taper_weight,
+                        taper_curve: data.taper_curve,
+                        taper_duration,
                         elapsed: 0.0,
                         summoned: None,
                         recover: data.flags & RECOVER != 0,
@@ -658,7 +675,9 @@ impl World {
             for victim in prepared.dispel {
                 self.dispel_effect(victim, alloc);
             }
-            if prepared.effect.recover || prepared.effect.duration == Some(0.0) {
+            if prepared.effect.recover
+                || prepared.effect.duration == Some(0.0) && prepared.effect.taper_duration == 0.0
+            {
                 self.apply_effect_values(&prepared.effect, 1.0, alloc)?;
             }
             applied.push(id);
@@ -738,7 +757,9 @@ impl World {
             }
             live.retain(|effect| !selected.contains(&effect.id));
             prepared.dispel = selected.into_iter().collect();
-            if prepared.effect.recover || prepared.effect.duration == Some(0.0) {
+            if prepared.effect.recover
+                || prepared.effect.duration == Some(0.0) && prepared.effect.taper_duration == 0.0
+            {
                 change_values(values, &prepared.effect, 1.0)?;
             }
             live.push(prepared.effect.clone());
@@ -865,18 +886,46 @@ impl World {
                 continue;
             }
             let dt = effect.duration.map_or(seconds, |duration| {
-                seconds.min((duration - effect.elapsed).max(0.0))
+                seconds.min((duration + effect.taper_duration - effect.elapsed).max(0.0))
             });
-            if !effect.recover && effect.duration != Some(0.0) {
-                if let Err(error) = self.apply_effect_values(&effect, dt, alloc) {
-                    errors.push(error);
-                    continue;
+            if !effect.recover && (effect.duration != Some(0.0) || effect.taper_duration > 0.0) {
+                let start = effect.elapsed;
+                let end = start + dt;
+                let duration = effect.duration.unwrap_or(0.0);
+                let full_end = end.min(duration);
+                let full_seconds = (full_end - start).max(0.0);
+                if full_seconds > 0.0 {
+                    if let Err(error) = self.apply_effect_values(&effect, full_seconds, alloc) {
+                        errors.push(error);
+                        continue;
+                    }
+                }
+                let taper_start = (start - duration).max(0.0);
+                let taper_end = (end - duration).min(effect.taper_duration);
+                if taper_end > taper_start {
+                    let taper_amount = taper_integral(
+                        effect.taper_weight,
+                        effect.taper_curve,
+                        effect.taper_duration,
+                        taper_start,
+                        taper_end,
+                    );
+                    if !taper_amount.is_finite() || taper_amount > f64::from(f32::MAX) {
+                        errors.push(MagicError::Number);
+                        continue;
+                    }
+                    if taper_amount != 0.0 {
+                        if let Err(error) = self.apply_effect_values(&effect, taper_amount, alloc) {
+                            errors.push(error);
+                            continue;
+                        }
+                    }
                 }
             }
             effect.elapsed = (effect.elapsed + dt).min(f64::MAX);
             let expired = effect
                 .duration
-                .is_some_and(|duration| effect.elapsed >= duration);
+                .is_some_and(|duration| effect.elapsed >= duration + effect.taper_duration);
             self.active_effects.insert(id, effect);
             if expired {
                 self.dispel_effect(id, alloc);
@@ -956,6 +1005,29 @@ impl World {
         }
         Ok(())
     }
+}
+
+fn validate_taper(weight: f32, curve: f32, duration: f32) -> Result<(), MagicError> {
+    if !weight.is_finite()
+        || !curve.is_finite()
+        || !duration.is_finite()
+        || duration < 0.0
+        || (duration > 0.0 && curve <= -1.0)
+    {
+        return Err(MagicError::Number);
+    }
+    Ok(())
+}
+
+fn taper_integral(weight: f32, curve: f32, duration: f64, start: f64, end: f64) -> f64 {
+    if duration <= 0.0 || end <= start {
+        return 0.0;
+    }
+    let exponent = f64::from(curve) + 1.0;
+    let start_remaining = (1.0 - start / duration).max(0.0);
+    let end_remaining = (1.0 - end / duration).max(0.0);
+    f64::from(weight) * duration * (start_remaining.powf(exponent) - end_remaining.powf(exponent))
+        / exponent
 }
 
 fn change_values(

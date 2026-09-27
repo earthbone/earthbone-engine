@@ -228,6 +228,7 @@ pub struct MagicEffectData {
     pub minimum_skill: u32,
     pub area: u32,
     pub casting_time: f32,
+    pub taper_weight: f32,
     pub taper_curve: f32,
     pub taper_duration: f32,
     pub second_actor_value_weight: f32,
@@ -270,7 +271,9 @@ impl MagicEffect {
         let magic_skill = f.i32()?;
         let resistance = f.i32()?;
         let counter_effect_count = f.u16()?;
-        f.skip(18)?;
+        f.skip(6)?;
+        let taper_weight = f.f32()?;
+        f.skip(8)?;
         let minimum_skill = f.u32()?;
         let area = f.u32()?;
         let casting_time = f.f32()?;
@@ -304,6 +307,7 @@ impl MagicEffect {
                 minimum_skill,
                 area,
                 casting_time,
+                taper_weight,
                 taper_curve,
                 taper_duration,
                 second_actor_value_weight,
