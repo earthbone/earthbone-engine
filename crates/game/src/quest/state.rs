@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! Quest journal and runtime state, following CommonLib TESQuest.h and
-//! xEdit's QUST save layout. References use the live load order's identities.
+//! Quest journal and runtime state, following CommonLib TESQuest and xEdit's
+//! QUST save layout. References use the live load order's identities.
 
 use std::collections::BTreeMap;
 
@@ -99,6 +99,13 @@ pub struct Runtime {
     pub script_delay: Option<f32>,
     pub already_run: u8,
     pub run_data: Option<RunData>,
+}
+
+/// A quest promotion task restored from a transitional QUST flag word.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LifecycleTask {
+    Starting,
+    Stopping,
 }
 
 /// Bits represented by QuestState's existing booleans.

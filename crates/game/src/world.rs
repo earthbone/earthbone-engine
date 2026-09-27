@@ -404,6 +404,8 @@ pub struct QuestState {
     pub aliases: HashMap<u32, Option<GlobalFormId>>,
     pub journal: crate::quest::state::Journal,
     pub runtime: crate::quest::state::Runtime,
+    /// A saved start or stop promotion task that has not completed.
+    pub lifecycle_task: Option<crate::quest::state::LifecycleTask>,
 }
 
 /// Work a native asked the VM to do.

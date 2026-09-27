@@ -60,7 +60,8 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// Version 34 retains last-visit game days for resettable encounter zones.
 /// Version 35 retains saved list flags and per-entry chance bytes in record overrides.
 /// Version 36 retains the active phase and completed action slots for each scene.
-pub const SAVE_VERSION: u16 = 36;
+/// Version 37 retains pending quest start and stop promotion tasks.
+pub const SAVE_VERSION: u16 = 37;
 
 #[derive(Clone, Copy)]
 pub(crate) enum FormNamespace {
@@ -545,6 +546,7 @@ impl World {
                     aliases,
                     journal: crate::quest::state::Journal::legacy(instance_globals),
                     runtime: initial.runtime,
+                    lifecycle_task: None,
                 },
             );
         }
@@ -919,7 +921,7 @@ impl World {
             BTreeMap::new()
         };
         if version >= 11 {
-            super::quest_save::read_quest_aux(&mut r, &mut quests)?;
+            super::quest_save::read_quest_aux(&mut r, &mut quests, version)?;
         }
         if version >= 12 {
             super::item_save::read_item_stacks(&mut r, &mut refs)?;

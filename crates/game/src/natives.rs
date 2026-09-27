@@ -1433,7 +1433,28 @@ fn quest(vm: &mut Vm, w: &Shared) {
     });
     method!(vm, w, "Quest", "IsRunning", |world, call, me| b(world
         .quest_state(me)
-        .is_some_and(|q| q.running)));
+        .is_some_and(|q| {
+            q.running
+                && !matches!(
+                    q.lifecycle_task,
+                    Some(
+                        crate::quest::state::LifecycleTask::Starting
+                            | crate::quest::state::LifecycleTask::Stopping
+                    )
+                )
+        })));
+    method!(vm, w, "Quest", "IsStarting", |world, call, me| b(world
+        .quest_state(me)
+        .is_some_and(|q| matches!(
+            q.lifecycle_task,
+            Some(crate::quest::state::LifecycleTask::Starting)
+        ))));
+    method!(vm, w, "Quest", "IsStopping", |world, call, me| b(world
+        .quest_state(me)
+        .is_some_and(|q| matches!(
+            q.lifecycle_task,
+            Some(crate::quest::state::LifecycleTask::Stopping)
+        ))));
     method!(vm, w, "Quest", "IsCompleted", |world, call, me| b(world
         .quest_state(me)
         .is_some_and(|q| q.completed)));
@@ -3197,8 +3218,6 @@ fn stubs(vm: &mut Vm) -> usize {
         ("Actor", "IsDetectedBy", true),
         ("Actor", "HasLOS", true),
         ("Actor", "PathToReference", true),
-        ("Quest", "IsStarting", false),
-        ("Quest", "IsStopping", false),
         ("Cell", "IsAttached", true),
         ("Location", "IsLoaded", false),
         ("Location", "HasRefType", false),

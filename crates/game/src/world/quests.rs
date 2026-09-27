@@ -41,6 +41,7 @@ impl World {
             aliases,
             journal: crate::quest::state::Journal::default(),
             runtime,
+            lifecycle_task: None,
         })
     }
 
@@ -67,6 +68,7 @@ impl World {
         }
         q.running = true;
         q.active = true;
+        q.lifecycle_task = None;
         let startup = q.def.startup_stage();
         let alias_ids: Vec<u32> = q.def.aliases.iter().map(|a| a.id).collect();
         let object = self.object_of(Handle::Form(id), alloc);
@@ -100,6 +102,7 @@ impl World {
             Some(q) if q.running => {
                 q.running = false;
                 q.active = false;
+                q.lifecycle_task = None;
                 true
             }
             _ => false,

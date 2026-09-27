@@ -81,6 +81,11 @@ pub(super) fn write_aux(w: &mut Writer, q: &QuestState) {
             w.f32(*value);
         }
     }
+    w.u8(match q.lifecycle_task {
+        None => 0,
+        Some(crate::quest::state::LifecycleTask::Starting) => 1,
+        Some(crate::quest::state::LifecycleTask::Stopping) => 2,
+    });
 }
 
 fn read_run(r: &mut FormReader<'_, '_>, q: &QuestState) -> Result<RunData, VmError> {
@@ -143,7 +148,7 @@ fn read_run(r: &mut FormReader<'_, '_>, q: &QuestState) -> Result<RunData, VmErr
     })
 }
 
-fn read_aux(r: &mut FormReader<'_, '_>, q: &mut QuestState) -> Result<(), VmError> {
+fn read_aux(r: &mut FormReader<'_, '_>, q: &mut QuestState, version: u16) -> Result<(), VmError> {
     let other_flags = r.u16()?;
     if other_flags & STATE_FLAGS != 0 {
         return Err(bad("duplicated quest state flags"));
@@ -211,6 +216,16 @@ fn read_aux(r: &mut FormReader<'_, '_>, q: &mut QuestState) -> Result<(), VmErro
         return Err(bad("missing current journal instance"));
     }
     let journal = Journal { current, instances };
+    let lifecycle_task = if version >= 37 {
+        match r.u8()? {
+            0 => None,
+            1 => Some(crate::quest::state::LifecycleTask::Starting),
+            2 => Some(crate::quest::state::LifecycleTask::Stopping),
+            _ => return Err(bad("invalid quest lifecycle task")),
+        }
+    } else {
+        None
+    };
     let old = q
         .journal
         .globals()
@@ -227,6 +242,7 @@ fn read_aux(r: &mut FormReader<'_, '_>, q: &mut QuestState) -> Result<(), VmErro
     }
     q.runtime = runtime;
     q.journal = journal;
+    q.lifecycle_task = lifecycle_task;
     Ok(())
 }
 
@@ -244,6 +260,7 @@ impl World {
 pub(super) fn read_quest_aux(
     r: &mut FormReader<'_, '_>,
     quests: &mut HashMap<GlobalFormId, QuestState>,
+    version: u16,
 ) -> Result<(), VmError> {
     let n = r.len()?;
     if n != quests.len() {
@@ -258,7 +275,7 @@ pub(super) fn read_quest_aux(
         let q = quests
             .get_mut(&id)
             .ok_or_else(|| bad("unknown quest extension"))?;
-        read_aux(r, q)?;
+        read_aux(r, q, version)?;
     }
     Ok(())
 }
