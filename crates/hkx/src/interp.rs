@@ -348,6 +348,10 @@ enum Target {
     DecomposeComponent(usize),
     /// Output: the elapsed time of this graph update.
     TimeStep,
+    /// Input bindings and output binding for `BSInterpValueModifier`.
+    InterpFrom,
+    InterpTo,
+    InterpOutput,
 }
 
 impl Target {
@@ -363,6 +367,7 @@ impl Target {
                 | Target::MachineIsActive
                 | Target::DecomposeComponent(_)
                 | Target::TimeStep
+                | Target::InterpOutput
         )
     }
 }
@@ -418,6 +423,9 @@ struct Runtime {
     delayed: Option<DelayedTransition>,
     intervals: Vec<IntervalState>,
     time_step: f32,
+    interp_source: Option<f32>,
+    interp_target: Option<f32>,
+    interp_result: Option<f32>,
     blend_parameter: Option<f32>,
     child_weights: Vec<Option<f32>>,
     selected: Option<usize>,
@@ -680,6 +688,9 @@ impl<'a> Interpreter<'a> {
                 ("startStateId", None, NodeKind::StateMachine(_)) => Some(Target::StartStateId),
                 ("duration", None, NodeKind::BlendingTransition(_)) => Some(Target::Duration),
                 ("timeStep", None, NodeKind::GetTimeStepModifier { .. }) => Some(Target::TimeStep),
+                ("source", None, NodeKind::InterpValue { .. }) => Some(Target::InterpFrom),
+                ("target", None, NodeKind::InterpValue { .. }) => Some(Target::InterpTo),
+                ("result", None, NodeKind::InterpValue { .. }) => Some(Target::InterpOutput),
                 ("fBlendParameter", None, NodeKind::CyclicBlendTransition { .. }) => {
                     Some(Target::BlendParameter)
                 }
@@ -882,6 +893,7 @@ impl<'a> Interpreter<'a> {
             let output = self.generate(root, dt);
             self.output = output;
             self.update_time_step_modifiers(dt);
+            self.update_interp_value_modifiers(dt);
             for _ in 0..MAX_EVENT_ROUNDS {
                 if self.raised.is_empty() {
                     break;
@@ -908,6 +920,39 @@ impl<'a> Interpreter<'a> {
             ) {
                 self.nodes[node.0].time_step = if self.nodes[node.0].active { dt } else { 0.0 };
             }
+        }
+    }
+
+    /// Advance active interpolation modifiers by their authored rate.
+    fn update_interp_value_modifiers(&mut self, dt: f32) {
+        for node in &self.modifier_order {
+            let NodeKind::InterpValue {
+                source: authored_source,
+                target: authored_target,
+                gain,
+                ..
+            } = &self.graph.node(*node).kind
+            else {
+                continue;
+            };
+            let runtime = &mut self.nodes[node.0];
+            if !runtime.active {
+                continue;
+            }
+            let source = runtime
+                .interp_source
+                .or(runtime.interp_result)
+                .unwrap_or(*authored_source);
+            let target = runtime.interp_target.unwrap_or(*authored_target);
+            let distance = target - source;
+            let step = gain.max(0.0) * dt.max(0.0);
+            runtime.interp_result = Some(if distance > 0.0 {
+                (source + step).min(target)
+            } else if distance < 0.0 {
+                (source - step).max(target)
+            } else {
+                target
+            });
         }
     }
 
@@ -971,6 +1016,16 @@ impl<'a> Interpreter<'a> {
                 };
                 self.variables.set_real(b.variable, runtime.time_step);
             }
+            Target::InterpOutput => {
+                let Some(runtime) = self.nodes.get(b.node.0) else {
+                    return;
+                };
+                if runtime.active {
+                    if let Some(result) = runtime.interp_result {
+                        self.variables.set_real(b.variable, result);
+                    }
+                }
+            }
             _ => {}
         }
     }
@@ -1002,6 +1057,8 @@ impl<'a> Interpreter<'a> {
                     rt.selected = usize::try_from(value as i32).ok();
                 }
                 Target::Enable => rt.enabled = Some(value != 0.0),
+                Target::InterpFrom => rt.interp_source = Some(value),
+                Target::InterpTo => rt.interp_target = Some(value),
                 Target::FalseToTrueEnable(slot) => rt.edge_enabled[slot] = Some(value != 0.0),
                 Target::FalseToTrueValue(slot) => rt.edge_value[slot] = Some(value != 0.0),
                 Target::StartStateId => rt.start_state = Some(value as i32),
@@ -1011,7 +1068,8 @@ impl<'a> Interpreter<'a> {
                 Target::IsActive { .. }
                 | Target::MachineIsActive
                 | Target::DecomposeComponent(_)
-                | Target::TimeStep => {}
+                | Target::TimeStep
+                | Target::InterpOutput => {}
             }
         }
     }
@@ -1027,6 +1085,7 @@ impl<'a> Interpreter<'a> {
             | NodeKind::EventDrivenModifier { enable, .. }
             | NodeKind::TimerModifier { enable, .. }
             | NodeKind::GetTimeStepModifier { enable, .. }
+            | NodeKind::InterpValue { enable, .. }
             | NodeKind::IsActiveModifier { enable, .. }
             | NodeKind::FalseToTrueModifier { enable, .. }
             | NodeKind::DecomposeVector { enable, .. }
@@ -1200,6 +1259,7 @@ impl<'a> Interpreter<'a> {
             | NodeKind::EventDrivenModifier { .. }
             | NodeKind::TimerModifier { .. }
             | NodeKind::GetTimeStepModifier { .. }
+            | NodeKind::InterpValue { .. }
             | NodeKind::IsActiveModifier { .. }
             | NodeKind::DecomposeVector { .. }
             | NodeKind::Modifier { .. }
@@ -1685,6 +1745,7 @@ impl<'a> Interpreter<'a> {
             | NodeKind::EventDrivenModifier { .. }
             | NodeKind::TimerModifier { .. }
             | NodeKind::GetTimeStepModifier { .. }
+            | NodeKind::InterpValue { .. }
             | NodeKind::IsActiveModifier { .. }
             | NodeKind::FalseToTrueModifier { .. }
             | NodeKind::DecomposeVector { .. }
@@ -2290,6 +2351,127 @@ mod tests {
                 time_step_node(1, "time step", 0, enable),
             ],
         }
+    }
+
+    fn interp_value_graph(source: f32, target: f32, gain: f32) -> BehaviorGraph {
+        let binding = |member_path: &str, variable_index| Binding {
+            member_path: member_path.into(),
+            variable_index,
+            bit_index: -1,
+            binding_type: 0,
+        };
+        BehaviorGraph {
+            name: "interp value".into(),
+            variable_mode: 0,
+            root: Some(NodeId(0)),
+            data: BehaviorGraphData {
+                variable_names: vec!["Value".into(), "Target".into()],
+                variable_infos: vec![
+                    VariableInfo {
+                        ty: VariableType::Real,
+                        ..Default::default()
+                    },
+                    VariableInfo {
+                        ty: VariableType::Real,
+                        ..Default::default()
+                    },
+                ],
+                ..Default::default()
+            },
+            nodes: vec![
+                Node {
+                    id: NodeId(0),
+                    offset: 0,
+                    class: "hkbModifierGenerator".into(),
+                    name: "wrapper".into(),
+                    user_data: 0,
+                    bindings: None,
+                    kind: NodeKind::ModifierGenerator {
+                        modifier: Some(NodeId(1)),
+                        generator: None,
+                    },
+                },
+                Node {
+                    id: NodeId(1),
+                    offset: 1,
+                    class: "BSInterpValueModifier".into(),
+                    name: "interpolation".into(),
+                    user_data: 0,
+                    bindings: Some(VariableBindingSet {
+                        bindings: vec![
+                            binding("source", 0),
+                            binding("target", 1),
+                            binding("result", 0),
+                        ],
+                        index_of_binding_to_enable: -1,
+                    }),
+                    kind: NodeKind::InterpValue {
+                        enable: true,
+                        source,
+                        target,
+                        result: source,
+                        gain,
+                    },
+                },
+            ],
+        }
+    }
+
+    #[test]
+    fn anm_30_interpolates_by_authored_rate_and_frame_delta() {
+        let graph = interp_value_graph(1.0, 5.0, 2.0);
+        let clips = ClipLibrary::new();
+        let mut vm = Interpreter::new(&graph, &clips, Vec::new());
+        vm.variables.set_real(0, 1.0);
+        vm.variables.set_real(1, 5.0);
+
+        vm.update(0.5);
+
+        assert_eq!(vm.variables.real(0), Some(2.0));
+    }
+
+    #[test]
+    fn anm_30_uses_authored_source_and_target_when_unbound() {
+        let mut graph = interp_value_graph(1.0, 5.0, 2.0);
+        graph.nodes[1]
+            .bindings
+            .as_mut()
+            .unwrap()
+            .bindings
+            .retain(|binding| binding.member_path == "result");
+        let clips = ClipLibrary::new();
+        let mut vm = Interpreter::new(&graph, &clips, Vec::new());
+
+        vm.update(0.5);
+        assert_eq!(vm.variables.real(0), Some(2.0));
+        vm.update(0.5);
+        assert_eq!(vm.variables.real(0), Some(3.0));
+    }
+
+    #[test]
+    fn anm_30_clamps_upward_interpolation_at_its_target() {
+        let graph = interp_value_graph(1.0, 1.5, 2.0);
+        let clips = ClipLibrary::new();
+        let mut vm = Interpreter::new(&graph, &clips, Vec::new());
+        vm.variables.set_real(0, 1.0);
+        vm.variables.set_real(1, 1.5);
+
+        vm.update(0.5);
+
+        assert_eq!(vm.variables.real(0), Some(1.5));
+    }
+
+    #[test]
+    fn anm_30_interpolates_downward_and_clamps_at_its_target() {
+        let graph = interp_value_graph(4.0, 2.0, 3.0);
+        let clips = ClipLibrary::new();
+        let mut vm = Interpreter::new(&graph, &clips, Vec::new());
+        vm.variables.set_real(0, 4.0);
+        vm.variables.set_real(1, 2.0);
+
+        vm.update(1.0);
+
+        assert_eq!(vm.variables.real(0), Some(2.0));
     }
 
     fn nested_time_step_graph() -> BehaviorGraph {

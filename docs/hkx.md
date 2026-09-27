@@ -629,21 +629,17 @@ gated `installed_behavior_passthrough_modifier_inventory` test parses every
 `hkbBehaviorGraph` object and fails if any graph cannot decode. It counts every
 modifier path that the interpreter does not execute: generic `NodeKind::Modifier`,
 `ModifierGenerator`, `ModifierList`, `EventDrivenModifier` and `TimerModifier`.
-It found 4,176 nodes across 32 classes. `BSIsActiveModifier` is excluded because
-its bound activity slots already write their output variables. The test freezes
-the sorted names and counts, and checks that every class has a bounded backlog
-row whose title names that class.
+It found 4,115 nodes across 28 classes. `BSIsActiveModifier` is excluded because
+its bound activity slots already write their output variables. Typed modifier
+paths are also omitted. The test freezes the sorted names and counts, and checks
+that every class has a bounded backlog row whose title names that class.
 
 | Class | Nodes | Follow-up |
 | --- | ---: | --- |
-| `BSDecomposeVectorModifier` | 1 | [ANM-24](../BACKLOG.csv) |
 | `BSDirectAtModifier` | 23 | [ANM-25](../BACKLOG.csv) |
 | `BSEventEveryNEventsModifier` | 85 | [ANM-26](../BACKLOG.csv) |
 | `BSEventOnDeactivateModifier` | 98 | [ANM-27](../BACKLOG.csv) |
-| `BSEventOnFalseToTrueModifier` | 23 | [ANM-03](../BACKLOG.csv) |
-| `BSGetTimeStepModifier` | 1 | [ANM-28](../BACKLOG.csv) |
 | `BSIStateManagerModifier` | 3 | [ANM-29](../BACKLOG.csv) |
-| `BSInterpValueModifier` | 36 | [ANM-30](../BACKLOG.csv) |
 | `BSLimbIKModifier` | 1 | [ANM-31](../BACKLOG.csv) |
 | `BSLookAtModifier` | 128 | [ANM-32](../BACKLOG.csv) |
 | `BSModifyOnceModifier` | 26 | [ANM-33](../BACKLOG.csv) |
@@ -754,6 +750,23 @@ synthetic packfile test checks the class field and binding decode, while the
 interpreter tests check zero, unequal update intervals, disabled output and a
 nested list. No original-runtime capture establishes finer behavior here.
 
+### BSInterpValueModifier
+
+`BSInterpValueModifier` inherits the `hkbModifier` enable field and stores
+`source`, `target`, `result` and `gain` as reals at 80, 84, 88 and 92 in the
+64-bit layout. Those fields and their 32-bit offsets come from
+`engine-refs/serde-hkx/assets/classes/BSInterpValueModifier.json`. Its
+`timeStep` field is serialization-ignored. The interpreter treats `source`
+and `target` bindings as inputs and `result` as an output. Each active update
+moves the source value toward the target by `gain * dt`, limiting the step to
+the remaining distance. The result reaches the target without overshooting
+in either direction. Modifier-list order controls when its output is
+published. `serde-hkx` supplies the field layout. The local Nemesis example
+confirms the input and output binding paths but does not define the arithmetic,
+so the interpreter follows the backlog's rate and target contract. The
+synthetic tests cover decoding, the rate, both directions, and target
+clamping. No original-runtime capture checks numerical parity.
+
 ### BSDecomposeVectorModifier (2026-09-20)
 
 `BSDecomposeVectorModifier` stores an `hkVector4` at offset 80, followed by
@@ -776,12 +789,10 @@ word-table slots. ANM-57 owns that linker work.
 
 ## 7. Not done and next
 
-- Modifier evaluation beyond the four the interpreter runs:
-  `BSIsActiveModifier`, `BSEventOnFalseToTrueModifier`,
-  `BSDecomposeVectorModifier` and `BSGetTimeStepModifier`. Dynamic bone weight
-  masks on a blender, `hkbRotateCharacterModifier` and
-  `hkbEventsFromRangeModifier` still pass through. Their layouts are in
-  `serde-hkx` like the rest.
+- Some modifiers still pass through without evaluation, including dynamic
+  bone weight masks on a blender, `hkbRotateCharacterModifier` and
+  `hkbEventsFromRangeModifier`. Their layouts are in `serde-hkx` like the
+  rest.
 - Transition details: equal-priority arbitration, the `abut at end` flag,
   `hkbGeneratorTransitionEffect`, `maxSimultaneousTransitions`, delayed timeout
   and interval boundary parity. Expression functions are ANM-49 and the
