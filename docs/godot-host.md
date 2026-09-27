@@ -1901,8 +1901,8 @@ Native presenters use PlayerNode::game and game_mut to read and mutate the
 shared form-backed runtime. menu_content exposes a Control container owned by
 the framework. menu_opened and menu_closed signals run after their state change
 through gdext's reentrant base guard, allowing callbacks to inspect PlayerNode.
-No inventory, dialogue, crafting or MCM implementation is included here.
-Those menus use this shell and their existing gameplay APIs.
+Crafting and MCM are not implemented here. Their menus can use this shell and
+their existing gameplay APIs.
 
 The inventory presenter now uses this shell. It renders the SkyUI categories
 All, Weapons, Apparel, Potions, Scrolls, Food, Ingredients, Books, Keys and
@@ -1938,6 +1938,28 @@ equipped.
 
 The native M shortcut opens the magic menu the same way I opens inventory,
 gated on an active Game. No shortcut is yet remapped through controlmap.txt.
+
+## Dialogue menu, DLG-10
+
+`open_dialogue_menu(file, object)` begins a conversation between the selected
+speaker and the player through `Game::begin_dialogue`, then renders the
+currently offered topics as focusable Godot Buttons in the modal menu. Each
+button carries its topic FormID back to `Game::choose_dialogue`. The selected
+line text is shown with a Continue button, which acknowledges it through
+`Game::advance_dialogue` and either shows another response or returns to the
+offered topics. Closing the modal menu closes the game conversation. Choice
+eligibility, stale selection checks, response text and fragment execution
+remain in the game layer.
+
+`dialogue_menu::entries` reads the current eligible choices from the shared
+Game. It displays each authored prompt, falling back to the topic name and
+then its FormID when the prompt is absent. The menu does not keep a second
+copy of dialogue state. The local Godot `Control` class documentation informed
+the native control and focus path. The checked out SkyUI source has no dialogue
+menu implementation, so its other menu assets did not define this presenter's
+choice behavior. `CommonLibSSE/include/RE/D/DialogueMenu.h` confirms the
+original menu is a separate menu-mode UI surface, while this host uses Godot
+Controls under the project's native UI intent.
 
 Sources read for UI-03: `ck-wiki` for the EquipSpell/UnequipSpell hand
 argument and the SPEL spell type enum, `TES5Edit/Core/wbDefinitionsTES5.pas`
