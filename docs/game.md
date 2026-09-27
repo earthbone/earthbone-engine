@@ -1234,8 +1234,8 @@ earlier member can change inventory or queue events.
 Active-effect recipients remain pending with magic execution.
 
 The condition evaluator implements functions 47, 56, 58, 59, 72, 74, 136,
-182, 264, 277, 289, 359, 448, 543, 560, 629, 630 and 659. This is a bounded set,
-not the entire CTDA contract. It supports ordered AND/OR groups, numeric or
+182, 264, 277, 289, 359, 448, 543, 560, 629, 630, 659 and 731. This is a
+bounded set, not the entire CTDA contract. It supports ordered AND/OR groups, numeric or
 global comparisons, explicit references and caller-supplied quest aliases.
 Reserved PlayerRef resolves to the runtime player even without a placed record.
 New runtime players retain reserved FormID 00000014 and use the Player NPC
@@ -1254,6 +1254,20 @@ and an explicit condition error. The CK page records keyword failures on actor
 inventories and CK-defined reference inventories. The engine uses its shared
 inventory totals for both actors and containers, so keyword queries have the
 same defined result for either holder.
+
+`CanFlyHere` (731) follows the CK no-argument actor query and the existing
+`Actor.CanFlyHere` native: it is true when `SetAllowFlying` has enabled flight
+and the actor has a current exterior cell. Missing, deleted, non-actor and
+cell-less subjects return a form error. A nonzero unused parameter is rejected.
+xEdit and CommonLib name `IsFlyingMountPatrolQueud` (732) and
+`IsFlyingMountFastTravelling` (733), but the local CK pages do not define their
+behavior. They remain unsupported and return an explicit function error. The
+local CK sources used were `CanFlyHere_-_Actor.wikitext` and, to check for a
+flight-state contract, `IsFlying_-_Actor.wikitext` and
+`GetFlyingState_-_Actor.wikitext`. `ai_68_flying_conditions` covers positive
+and negative CanFlyHere comparisons, invalid actor context and explicit
+diagnostics for both undocumented mount queries. It does not use installed
+Skyrim records.
 
 Sources consulted were local xEdit `wbDefinitionsTES5.pas` for CTDA, COBJ and
 FURN WBDT, CK `GetItemCount_-_ObjectReference.wikitext` for the query forms,
