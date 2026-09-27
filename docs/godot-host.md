@@ -1808,29 +1808,50 @@ lists every body with its owner and World position in Godot space,
 `equip_melee_weapon` gives and equips a weapon so a headless script can arm
 the player.
 
+`SkinnedActorNode::load_melee_character` loads the vanilla one-handed
+`1hm_behavior.hkx` graph on the human rig. `send_graph_event` sends an input
+to the loaded graph, and the node emits authored markers after installing each
+animated pose. `set_graph_variable` sets a named graph value, including
+`iRightHandType` for the equipped weapon type. `load_character` still loads
+`mt_behavior.hkx` for locomotion.
+`PlayerNode::melee_skinned_contact` accepts a marker from a rig bound to the
+attacker. It reads the weapon attachment from the rig's model-space pose, the
+same buffer used for skinning, and resolves the segment using the armed hand's
+reach. For a bound rig, position, rotation and scale come from the actor's
+current shared World placement. A rig without a matching weapon or hand bone
+rejects the contact.
+`last_melee_obstruction` exposes the first unmapped body RID when an
+obstruction stops a swing. It is invalid for an actor contact or a miss.
+
 Sources read: `godot-docs` PhysicsServer3D and PhysicsDirectSpaceState3D for
 body state, body modes and ray exclusion. `activeragdoll/src/utils.cpp`
 `GetWeaponNode` for the `WEAPON` and `SHIELD` node names, and
 `activeragdoll/include/math_utils.h` `ForwardVector` for the blade axis.
 `CommonLibSSE` `MiddleHighProcessData::weaponBone` confirms the engine keeps
-a weapon node per actor process.
+a weapon node per actor process. Its `NiMatrix3::SetEulerAnglesXYZ` supplies
+the shared reference rotation used by both placed meshes and bound rigs.
+The local Nemesis `1hm_behavior.xml` names
+`attackStart`, `HitFrame` and `iRightHandType`. `docs/hkx.md` records the
+linked graph and clip path used by the same interpreter.
 
 Open: the capsule is the generated template for every race. The authored
 `CHAR_CONTROLLER` phantom path in `DataSource::actor_controller_shape` needs a
 race to skeleton path lookup the World does not expose yet. Actor bodies
 follow `RefState::position`, so an NPC is only as current as the system that
-writes its placement. No NPC pose is sampled yet: `SkinnedActorNode` renders
-through a RenderingServer skeleton RID, not a Skeleton3D, so a scene has to
-call `melee_bone_contact` with a pose it computed itself. The fallback to the
-hand bone keeps the WEAPON node's axis, which is only approximate for a hand.
+writes its placement. The fallback to the hand bone keeps the WEAPON node's
+axis, which is only approximate for a hand.
 Checks: `crates/game/tests/cmb_28_contact_actors.rs` covers the World list
 and the reach formula across a cell change, and
 `crates/godot-host/tests/cmb_28_body_sync.rs` covers the body sync plan and
-the segment. `godot/cmb_28_contact_test.gd` runs on installed data from the
+the segment, the animated attachment transform and a SKYRIM_DATA gated
+one-handed graph HitFrame. `godot/cmb_28_contact_test.gd` runs on installed data from the
 Bannered Mare through its load door on Godot 4.7.2. Every body sits at its
 World position, bodies carry across the door with unchanged RIDs, an armed
-HitFrame reaches the NPC beside the pose, a HitFrame pointed at the floor
-reports no actor, and teardown removes every body from its space. On that
+HitFrame reaches the NPC beside the pose, an intervening server body stops
+the contact and reports its RID, and an authored `1HM_AttackRight` HitFrame
+reaches an obstruction through its live animated rig in both cells. Teardown
+removes every actor body from
+its space. On that
 data `Game::melee_hit` then refuses the contact with "unsupported combat
 behavior: perk entry points", so hit resolution is still open and belongs to
 the combat rows, not to this one. Actor bodies are static query bodies, not
