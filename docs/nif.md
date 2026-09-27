@@ -12,7 +12,7 @@ dependencies.
 | 100 | Skyrim SE | Everything above plus BSTriShape and the SSE skin partition vertex buffer |
 | 130 | Fallout 4 | BSTriShape geometry with half positions, texture set, lighting shader up to the specular fields, effect shader |
 
-Anything else in a file (particles, controllers, extra data, Havok blocks)
+Anything else in a file (unsupported particle modifiers, extra data, Havok blocks)
 is kept as raw bytes under `Block::Unknown` or `Block::Collision`, found by
 the per-block size table in the header. That table is also the reader's
 self-check: a block that parses to a different length than the header
@@ -43,6 +43,8 @@ draws that full list for each selected BTO block.
   Enum `Block` holds them in file order.
 - `vertex`: the packed `BSVertexData` layout and its 64-bit descriptor.
 - `controller`: `NiTransformController` and its interpolators, see below.
+- `particle`: SSE volume emitter rate and lifetime decoding, plus bounded
+  particle birth and death timing.
 - `mesh`: the neutral output, see below, and the scene walk that produces
   it. Cycle protection and a depth limit make the walk safe on any input.
 
@@ -212,12 +214,36 @@ mesh against a residency budget, not a claim about any one renderer's exact
 buffer layout, an upload can pad, align or drop an unused attribute
 differently.
 
+## Particle emitters (RND-14)
+
+`NifFile::particle_emitters` reads SSE `NiParticleSystem` blocks, named
+`NiPSysSphereEmitter`, `NiPSysBoxEmitter` and `NiPSysCylinderEmitter`
+modifiers, and `NiPSysEmitterCtlr` birth rates through `NiFloatInterpolator`
+or `NiFloatData`. It matches a controller to the system target and modifier
+name. The system's `NiPSysData` maximum caps live particles at 8192. The
+emitter's active flag and controller active flag suppress births. A
+`NiBoolInterpolator` visibility value or `NiBoolData` constant key track
+also switches births.
+
+`particle::Timeline` accumulates births at the sampled rate, assigns a
+deterministic value within the authored lifespan variation, removes each
+particle when that lifespan ends, and exposes live positions in NIF units.
+The named synthetic `RND14SmokeEmitter` fixture in
+`rnd_14_particle_emitter_check.rs` asserts four births per second, half
+second expiry and the system's authored maximum. The parser layout follows
+`nifxml/nif.xml` and nifly's `Particles.cpp`. OpenMW's
+`components/nifosg/particle.cpp` supplied the lifetime variation and quota
+behavior.
+
+The timeline places particles at the system translation. The host exposes
+the timeline through `ParticleEmitterNode` for a named model path.
+
 ## Not yet
 
 - DDS loading (round 2).
 - Collision shapes are opaque bytes, the physics layer decodes them.
 - Fallout 4 lighting shader fields past specular strength, and Fallout 76
   entirely.
-- Controllers, particles, `BSLODTriShape` levels, `BSDynamicTriShape`
+- Other controllers and particle modifiers, `BSLODTriShape` levels, `BSDynamicTriShape`
   dynamic positions, multiple UV sets beyond the first in the mesh output
   (the block layer keeps them all).

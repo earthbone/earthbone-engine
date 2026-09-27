@@ -28,6 +28,7 @@ pub mod controller;
 pub mod error;
 pub mod header;
 pub mod mesh;
+pub mod particle;
 pub mod stream;
 pub mod types;
 pub mod vertex;
@@ -68,6 +69,11 @@ impl NifFile {
     pub fn meshes(&self) -> Result<Vec<Mesh>> {
         let _span = soe_trace::Span::new("nif.meshes", "nif");
         mesh::meshes(self)
+    }
+
+    /// SSE particle emitters reachable through particle system blocks.
+    pub fn particle_emitters(&self) -> Result<Vec<particle::Emitter>> {
+        particle::emitters(self)
     }
 
     /// Type names of every block, useful when a file fails to yield meshes.

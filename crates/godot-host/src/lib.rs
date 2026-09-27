@@ -46,6 +46,8 @@ pub mod godot_combat;
 #[cfg(feature = "godot")]
 pub mod godot_layer;
 #[cfg(feature = "godot")]
+pub mod godot_particle;
+#[cfg(feature = "godot")]
 pub mod godot_physics;
 #[cfg(feature = "godot")]
 pub mod godot_player;

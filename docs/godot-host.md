@@ -2535,3 +2535,17 @@ Open gaps, none closed by this row:
 - The `CellStreamer` release path in the Godot layer only follows
   `stream_exterior` grid positions. `stream_cell` by editor id does not
   record one, so `release_exterior_cell` cannot drop a cell loaded that way.
+
+## Named NIF particle emitters (RND-14)
+
+`ParticleEmitterNode::load_nif(path, emitter_name)` parses an SSE NIF through
+`soe-nif`, selects a named volume emitter, and creates one `MultiMesh` and
+one `RenderingServer` instance in its 3D scenario. Each `advance(delta)`
+updates the bounded `soe-nif` timeline, writes the surviving positions as
+MultiMesh transforms and sets the visible instance count. `_process` calls
+`advance` while `playing` is true. `particle_count`, `emitted_count` and
+`rendered_count` expose the timing and upload counts to
+`godot/rnd_14_test.gd`. The node frees its RID on exit.
+
+Each particle draws an untextured, two sided quad in the emitter's initial
+color and radius. The node loads a NIF by path and selects an emitter by name.

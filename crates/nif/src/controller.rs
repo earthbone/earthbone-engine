@@ -334,7 +334,7 @@ impl<T> Default for KeyGroup<T> {
 /// transform controllers use (float channels for XYZ Euler rotation and
 /// path percent, `Vec3` for translation, scale reuses the float reader
 /// directly since `KeyGroup<f32>` already covers it).
-trait Numeric: Copy + Default {
+pub(crate) trait Numeric: Copy + Default {
     fn add(self, o: Self) -> Self;
     fn sub(self, o: Self) -> Self;
     fn scale(self, s: f32) -> Self;
@@ -651,7 +651,7 @@ fn hermite<T: Numeric>(a: &Key<T>, b: &Key<T>, frac: f32) -> T {
 /// Evaluate a float or vector key track at local track time `t`. `None`
 /// when the track carries no keys, so a caller can fall back to a default
 /// value instead of the track's zero value.
-fn evaluate_track<T: Numeric>(group: &KeyGroup<T>, t: f32) -> Option<T> {
+pub(crate) fn evaluate_track<T: Numeric>(group: &KeyGroup<T>, t: f32) -> Option<T> {
     if group.keys.is_empty() {
         return None;
     }
