@@ -83,3 +83,51 @@ fn fmt_15_adversarial_qust_alias_object_formid_is_remapped() {
     let bytes = plugin.records[0].find(Tag::new(b"VMAD")).unwrap();
     assert_eq!(u32::from_le_bytes(bytes[17..21].try_into().unwrap()), 0x901);
 }
+
+#[test]
+fn fmt_15_refr_struct_links_remap_without_changing_scalar_words() {
+    let mut plugin = Plugin::new(FileHeader::default());
+    let mut teleport = Vec::from(0x801u32.to_le_bytes());
+    teleport.extend_from_slice(&[0x55; 24]);
+    let mut lock = vec![42, 0, 0, 0];
+    lock.extend_from_slice(&0x801u32.to_le_bytes());
+    lock.push(4);
+    let mut linked = Vec::from(0x801u32.to_le_bytes());
+    linked.extend_from_slice(&0x802u32.to_le_bytes());
+    let mut navmesh = Vec::from(0x801u32.to_le_bytes());
+    navmesh.extend_from_slice(&[0x22; 4]);
+    plugin.push_top(
+        Record::new(b"REFR", 0x800)
+            .sub(
+                b"XESP",
+                [0x801u32.to_le_bytes(), 0x801u32.to_le_bytes()].concat(),
+            )
+            .sub(b"XTEL", teleport)
+            .sub(b"XLOC", lock)
+            .sub(b"XLKR", linked)
+            .sub(b"XLKR", 0x802u32.to_le_bytes())
+            .sub(b"XNDP", navmesh)
+            .sub(b"XLRL", 0x802u32.to_le_bytes()),
+    );
+    plugin
+        .remap_form_ids(&HashMap::from([(0x801, 0x901), (0x802, 0x902)]))
+        .unwrap();
+    let record = &plugin.records[0];
+    let read = |data: &[u8], offset: usize| {
+        u32::from_le_bytes(data[offset..offset + 4].try_into().unwrap())
+    };
+    assert_eq!(read(record.find(Tag::new(b"XESP")).unwrap(), 0), 0x901);
+    assert_eq!(read(record.find(Tag::new(b"XESP")).unwrap(), 4), 0x801);
+    assert_eq!(read(record.find(Tag::new(b"XTEL")).unwrap(), 0), 0x901);
+    assert_eq!(read(record.find(Tag::new(b"XLOC")).unwrap(), 4), 0x901);
+    let links: Vec<_> = record.all(Tag::new(b"XLKR")).collect();
+    assert_eq!(read(links[0], 0), 0x901);
+    assert_eq!(read(links[0], 4), 0x902);
+    assert_eq!(read(links[1], 0), 0x902);
+    assert_eq!(read(record.find(Tag::new(b"XNDP")).unwrap(), 0), 0x901);
+    assert_eq!(
+        read(record.find(Tag::new(b"XNDP")).unwrap(), 4),
+        0x2222_2222
+    );
+    assert_eq!(read(record.find(Tag::new(b"XLRL")).unwrap(), 0), 0x902);
+}

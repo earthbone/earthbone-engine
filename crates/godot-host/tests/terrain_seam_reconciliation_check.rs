@@ -62,12 +62,13 @@ fn rnd_15_whiterun_origin_block_has_no_seam_wider_than_one_sample() {
     let mut grids: std::collections::HashMap<(i32, i32), Vec<[f32; 3]>> =
         std::collections::HashMap::default();
     for (cell, loaded_cell) in &loaded.cells {
-        let Some(surface) = loaded_cell.surfaces.last() else {
+        let Some(surface) = loaded_cell.surfaces.iter().find(|surface| {
+            surface.arrays.positions.len() == LAND_SAMPLES * LAND_SAMPLES
+                && surface.arrays.triangle_count() == 2048
+                && surface.arrays.material.diffuse.is_none()
+        }) else {
             continue;
         };
-        if surface.arrays.positions.len() != LAND_SAMPLES * LAND_SAMPLES {
-            continue;
-        }
         grids.insert((cell.x, cell.y), surface.arrays.positions.clone());
     }
     assert_eq!(

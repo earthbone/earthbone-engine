@@ -41,4 +41,8 @@ fn fmt_06_mesh_exposes_every_uv_set_and_keeps_the_first_set_alias() {
     assert_eq!(mesh.uv_sets[0], mesh.uvs);
     assert_eq!(mesh.uv_sets[1], vec![[0.25, 0.5], [0.75, 0.5], [0.25, 1.0]]);
     assert_eq!(mesh.approx_bytes(), 3 * (12 + 12 + 16) + 3 * 4);
+
+    let mut legacy = mesh;
+    legacy.uv_sets.clear();
+    assert_eq!(legacy.approx_bytes(), 3 * (12 + 12 + 8) + 3 * 4);
 }

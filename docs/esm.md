@@ -95,20 +95,22 @@ prefix, float bit preservation and every winning installed CELL XCLL when
 `Plugin::remap_form_ids` applies a caller-provided map to record identities,
 group labels that contain FormIDs and the TES4 ONAM override list. It also
 updates the FormID fields currently decoded by the CELL, WRLD, LCTN, REFR,
-LTEX, NAVM, MGEF, HAZD and selected INFO views: cell water, owner, location, image
-space, music, acoustic space, encounter zone, weather and region links;
-worldspace parent, climate, water, location, encounter zone and music links;
-location parents and markers; placed reference base, owner, location, layer,
-encounter zone and emittance; texture set and grass links; navmesh base object
-lists; magic effect DATA links, keywords and counter effect lists; SCEN and DIAL
-quest links; INFO topic, response and topic-list links; and HAZD image-space
-and DATA links at their documented offsets, without interpreting scalar values
-as FormIDs. VMAD object properties
-and arrays in object formats 1 and 2 are remapped while trailing fragment
-bytes are preserved. An invalid or
-unsupported VMAD property makes the operation fail without changing the
-plugin. Other raw subrecords remain untouched because their fields have not
-been modeled as FormIDs here.
+LTEX, NAVM, MGEF, HAZD and selected INFO views. This covers cell water,
+owner, location, image space, music, acoustic space, encounter zone, weather
+and region links. It covers worldspace parent, climate, water, location,
+encounter zone and music links, plus location parents and markers. REFR base,
+owner, location, layer, encounter zone, emittance, teleport door, enable
+parent, lock key, linked reference, navmesh door, location ref type and idle
+links are remapped. Texture set and grass links, navmesh base object lists,
+magic effect DATA links, keywords and counter effect lists, SCEN and DIAL
+quest links, INFO topic and response links, and HAZD image-space and DATA
+links are remapped at their documented offsets. Scalar values remain intact.
+The REFR field layouts follow local xEdit `wbDefinitionsTES5.pas` and UESP
+`REFR.wikitext`. VMAD object
+properties and arrays in object formats 1 and 2 are remapped while trailing
+fragment bytes are preserved. An invalid or unsupported VMAD property makes
+the operation fail without changing the plugin. Other raw subrecords remain
+untouched because their fields have not been modeled as FormIDs here.
 
 `Refr::lock` reads XLOC level, key and flags. Presence means initially locked,
 including level zero. Level 255 requires a key. The reader accepts the 20-byte
@@ -174,8 +176,8 @@ parser change was needed, every record type the checks touch read cleanly.
 
 - Typed gameplay views do not evaluate conditions or implement game systems.
   Their coverage and remaining raw fields are listed below.
-- No writer beyond the round trip: no FormID renumbering, no master list editing.
-- `XCLL` lighting and `XPRM` primitives are kept as bytes.
+- FormID remapping covers the fields listed above. Master list editing is absent.
+- Typed `XCLL` lighting and `XPRM` primitives retain exact byte encoding.
 - No fuzzing harness beyond the malformed-input unit tests. `cargo-fuzz` over
   `Plugin::parse` and `Geometry::parse` is the obvious next step.
 - The xDump diff is printed, not automated: xDump is a Windows binary.

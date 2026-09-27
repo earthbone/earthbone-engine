@@ -46,7 +46,10 @@ fn fmt_16_adversarial_reference_view_rejects_missing_base_and_keeps_unknown_type
 
 #[test]
 fn fmt_16_adversarial_installed_five_master_primitive_survey_round_trips() {
-    let data = PathBuf::from(std::env::var_os("SKYRIM_DATA").unwrap());
+    let Some(data) = std::env::var_os("SKYRIM_DATA").map(PathBuf::from) else {
+        eprintln!("SKYRIM_DATA not set, skipping XPRM survey");
+        return;
+    };
     let mut order = LoadOrder::new();
     for name in [
         "Skyrim.esm",

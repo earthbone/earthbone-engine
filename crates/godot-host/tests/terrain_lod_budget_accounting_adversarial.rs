@@ -40,6 +40,7 @@ fn shape_with(normals: Vec<[f32; 3]>, colors: Vec<[f32; 4]>) -> NifMesh {
         normals,
         tangents: Vec::new(),
         uvs: Vec::new(),
+        uv_sets: Vec::new(),
         colors,
         indices,
         bone_weights: Vec::new(),

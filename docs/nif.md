@@ -90,7 +90,7 @@ Two layouts exist and both are normalised to the per-vertex form above.
 as a `u32`, followed by that many references. Skyrim skeleton files also use
 `0xFFFF_FFFF` as an empty-array sentinel, which the reader maps to no bones.
 The field order follows `NiSkinInstance` in
-`../engine-refs/nifxml/nif.xml`; nifly's `NiSkinInstance::Sync` in
+`../engine-refs/nifxml/nif.xml`. Nifly's `NiSkinInstance::Sync` in
 `../engine-refs/nifly/src/Skin.cpp` confirms the bone references are one
 counted array. Neither source specifies the sentinel, so the explicit empty
 array behavior follows the vanilla skeleton files covered by
@@ -206,8 +206,9 @@ The archived mesh test is the one that exercises real content on a plain install
 
 `Mesh::approx_bytes()` sums each vertex's natural width, 12 bytes for
 positions plus 12 for normals charged unconditionally, plus 16 for tangents,
-8 for each UV set, 16 for bone weights and 4 for bone indices when each is
-present, and adds 4 bytes an index. Colors are never charged. Added for RND-03's
+8 for each UV set, or one set when only the legacy `uvs` field is filled, 16
+for bone weights and 4 for bone indices when each is present, and adds 4 bytes
+an index. Colors are never charged. Added for RND-03's
 terrain LOD residency budget in `godot-host`, which needs a recorded byte
 cost per loaded block to weigh against a budget.
 
@@ -231,4 +232,4 @@ differently.
 - Fallout 4 lighting shader fields past specular strength, and Fallout 76
   entirely.
 - Controllers, particles, `BSLODTriShape` levels, multiple UV sets beyond the
-  first in the mesh output (the block layer keeps them all).
+  first in the host renderer. The neutral mesh output retains every source set.

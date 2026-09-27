@@ -54,14 +54,13 @@ fn seam_tolerance_m() -> f32 {
 fn terrain_grids(loaded: &LoadedExterior) -> HashMap<(i32, i32), Vec<[f32; 3]>> {
     let mut out = HashMap::new();
     for (cell, loaded_cell) in &loaded.cells {
-        let Some(surface) = loaded_cell.surfaces.last() else {
+        let Some(surface) = loaded_cell.surfaces.iter().find(|surface| {
+            surface.arrays.positions.len() == LAND_SAMPLES * LAND_SAMPLES
+                && surface.arrays.triangle_count() == 2048
+                && surface.arrays.material.diffuse.is_none()
+        }) else {
             continue;
         };
-        let is_terrain =
-            surface.arrays.material.diffuse.is_none() && surface.arrays.triangle_count() == 2048;
-        if !is_terrain {
-            continue;
-        }
         assert_eq!(
             surface.arrays.positions.len(),
             LAND_SAMPLES * LAND_SAMPLES,
@@ -97,6 +96,7 @@ fn no_shared_edge_vertex_in_the_whiterun_block_disagrees_by_more_than_one_sample
         .stream_exterior("WhiterunOrigin", 1)
         .unwrap_or_else(|e| panic!("stream_exterior: {e}"));
     let grids = terrain_grids(&loaded);
+    assert_eq!(grids.len(), 9, "the seam survey must check all nine cells");
     let tolerance = seam_tolerance_m();
 
     let mut worst: Option<(&str, i32, i32, usize, f32)> = None;

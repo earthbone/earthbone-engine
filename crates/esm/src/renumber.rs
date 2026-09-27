@@ -29,6 +29,8 @@ pub(crate) fn remap_plugin(plugin: &mut Plugin, mapping: &HashMap<u32, u32>) -> 
                 remap_hazd_data(&mut subrecord.data, mapping)?;
             } else if record.tag == Tag::new(b"MGEF") && subrecord.tag == Tag::new(b"DATA") {
                 remap_mgef_data(&mut subrecord.data, mapping)?;
+            } else if record.tag == Tag::new(b"REFR") {
+                remap_refr_field(subrecord.tag, &mut subrecord.data, mapping)?;
             } else if form_id_field(record.tag, subrecord.tag) {
                 map_words(&mut subrecord.data, mapping);
             }
@@ -49,6 +51,47 @@ pub(crate) fn remap_plugin(plugin: &mut Plugin, mapping: &HashMap<u32, u32>) -> 
         .map(|id| remap(*id, mapping))
         .collect();
     *plugin = updated;
+    Ok(())
+}
+
+fn remap_refr_field(tag: Tag, data: &mut [u8], mapping: &HashMap<u32, u32>) -> Result<()> {
+    let offsets: &[usize] = match tag.as_bytes() {
+        b"XESP" | b"XTEL" | b"XNDP" => &[0],
+        b"XLOC" => &[4],
+        b"XLKR" if data.len() == 4 => &[0],
+        b"XLKR" => &[0, 4],
+        _ => {
+            if form_id_field(Tag::new(b"REFR"), tag) {
+                map_words(data, mapping);
+            }
+            return Ok(());
+        }
+    };
+    let valid = match tag.as_bytes() {
+        b"XESP" | b"XNDP" => data.len() == 8,
+        b"XTEL" => matches!(data.len(), 28 | 32),
+        b"XLOC" => matches!(data.len(), 9 | 12 | 20),
+        b"XLKR" => matches!(data.len(), 4 | 8),
+        _ => true,
+    };
+    if !valid {
+        return Err(Error::SubrecordSize {
+            record: Tag::new(b"REFR"),
+            tag,
+            len: data.len(),
+            expected: "valid REFR reference field size".into(),
+        });
+    }
+    for &offset in offsets {
+        let old = u32::from_le_bytes(
+            data[offset..offset + 4]
+                .try_into()
+                .map_err(|_| Error::Invalid("REFR reference offset exceeds subrecord".into()))?,
+        );
+        if let Some(new) = mapping.get(&old) {
+            data[offset..offset + 4].copy_from_slice(&new.to_le_bytes());
+        }
+    }
     Ok(())
 }
 
@@ -154,6 +197,11 @@ fn form_id_field(record: Tag, field: Tag) -> bool {
         (b"REFR", b"XLYR"),
         (b"REFR", b"XEZN"),
         (b"REFR", b"XEMI"),
+        (b"REFR", b"XTNM"),
+        (b"REFR", b"XMBR"),
+        (b"REFR", b"XLRT"),
+        (b"REFR", b"XLRL"),
+        (b"REFR", b"INAM"),
         (b"LTEX", b"TNAM"),
         (b"NAVM", b"ONAM"),
         (b"SCEN", b"PNAM"),

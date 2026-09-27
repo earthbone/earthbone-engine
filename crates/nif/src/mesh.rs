@@ -84,7 +84,7 @@ impl Mesh {
         let per_vertex = 12 // positions
             + 12 // normals, present or generated downstream
             + if self.tangents.is_empty() { 0 } else { 16 }
-            + self.uv_sets.len() as u64 * 8
+            + self.uv_sets.len().max(usize::from(!self.uvs.is_empty())) as u64 * 8
             + if self.bone_weights.is_empty() { 0 } else { 16 }
             + if self.bone_indices.is_empty() { 0 } else { 4 };
         self.positions.len() as u64 * per_vertex + self.indices.len() as u64 * 4

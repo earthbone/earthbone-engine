@@ -48,7 +48,9 @@ tools/prose-lint.sh
 
 step "taplo fmt --check"
 if command -v taplo >/dev/null 2>&1; then
-  taplo fmt --check
+  # Limit the scan to tracked source files so build output does not stall it.
+  mapfile -d '' -t toml_files < <(git ls-files -z -- '*.toml')
+  taplo fmt --check "${toml_files[@]}"
 else
   echo "taplo not installed, skipping"
 fi
