@@ -7,7 +7,7 @@
 //! Unsupported delivery and archetypes return errors before applying effects.
 
 use soe_esm::records::gameplay::{Effect, Ingestible, MagicEffect, Spell};
-use soe_esm::GlobalFormId;
+use soe_esm::{GlobalFormId, Record};
 use soe_papyrus::{ObjectId, Value};
 
 use crate::actor_values::actor_value_name;
@@ -88,6 +88,8 @@ struct PreparedEffect {
     dispel_rules: Vec<DispelRule>,
     dispel: Vec<EffectId>,
 }
+
+pub(super) struct PreparedWeaponEnchantment(Vec<PreparedEffect>);
 
 impl World {
     /// All currently applied effects, in application order.
@@ -204,6 +206,56 @@ impl World {
         let prepared =
             self.ingestible_prepared_effects(poison, &definition.effects, Some(attacker), target)?;
         self.apply_prepared_effects(prepared, alloc)
+    }
+
+    pub(super) fn prepare_weapon_enchantment(
+        &mut self,
+        enchantment: GlobalFormId,
+        attacker: GlobalFormId,
+        target: GlobalFormId,
+    ) -> Result<PreparedWeaponEnchantment, MagicError> {
+        let record = self
+            .record(enchantment)
+            .filter(|record| !record.is_deleted() && record.tag == super::T(b"ENCH"))
+            .ok_or(MagicError::Missing(enchantment))?;
+        let data = record
+            .find(super::T(b"ENIT"))
+            .filter(|data| matches!(data.len(), 32 | 36))
+            .ok_or_else(|| {
+                MagicError::Record(soe_esm::Error::Invalid("malformed ENCH ENIT".into()))
+            })?;
+        let cast_type = u32::from_le_bytes(data[8..12].try_into().map_err(|_| {
+            MagicError::Record(soe_esm::Error::Invalid("malformed ENCH cast type".into()))
+        })?);
+        let delivery = u32::from_le_bytes(data[16..20].try_into().map_err(|_| {
+            MagicError::Record(soe_esm::Error::Invalid("malformed ENCH delivery".into()))
+        })?);
+        let enchant_type = u32::from_le_bytes(data[20..24].try_into().map_err(|_| {
+            MagicError::Record(soe_esm::Error::Invalid("malformed ENCH type".into()))
+        })?);
+        let base_enchantment = u32::from_le_bytes(data[24..28].try_into().map_err(|_| {
+            MagicError::Record(soe_esm::Error::Invalid("malformed ENCH base link".into()))
+        })?);
+        if cast_type != 1 || delivery != 1 || enchant_type != 6 {
+            return Err(MagicError::Unsupported("weapon enchantment casting"));
+        }
+        if base_enchantment != 0 {
+            return Err(MagicError::Unsupported("base weapon enchantment"));
+        }
+        let effects = weapon_enchantment_effects(record)?;
+        let prepared =
+            self.ingestible_prepared_effects(enchantment, &effects, Some(attacker), target)?;
+        Ok(PreparedWeaponEnchantment(
+            self.prepare_effect_actions(prepared)?,
+        ))
+    }
+
+    pub(super) fn apply_weapon_enchantment(
+        &mut self,
+        prepared: PreparedWeaponEnchantment,
+        alloc: Alloc<'_>,
+    ) -> Result<Vec<EffectId>, MagicError> {
+        self.apply_prepared_plan(prepared.0, alloc)
     }
 
     /// Shared ALCH effect-entry validation and `PreparedEffect` construction
@@ -554,6 +606,14 @@ impl World {
         alloc: Alloc<'_>,
     ) -> Result<Vec<EffectId>, MagicError> {
         let prepared = self.prepare_effect_actions(prepared)?;
+        self.apply_prepared_plan(prepared, alloc)
+    }
+
+    fn apply_prepared_plan(
+        &mut self,
+        prepared: Vec<PreparedEffect>,
+        alloc: Alloc<'_>,
+    ) -> Result<Vec<EffectId>, MagicError> {
         let mut applied = Vec::new();
         for mut prepared in prepared {
             if let Some(base) = prepared.summon_base {
@@ -933,4 +993,67 @@ fn change_values(
         result.map_err(|_| MagicError::Number)?;
     }
     Ok(())
+}
+
+fn weapon_enchantment_effects(record: &Record) -> Result<Vec<Effect>, MagicError> {
+    let mut effects = Vec::new();
+    let mut pending: Option<u32> = None;
+    for subrecord in &record.subrecords {
+        match subrecord.tag.as_bytes() {
+            b"EFID" => {
+                if pending.is_some() || subrecord.data.len() != 4 {
+                    return Err(MagicError::Unsupported(
+                        "malformed weapon enchantment effects",
+                    ));
+                }
+                pending = Some(u32::from_le_bytes(
+                    subrecord.data.as_slice().try_into().map_err(|_| {
+                        MagicError::Unsupported("malformed weapon enchantment effects")
+                    })?,
+                ));
+            }
+            b"EFIT" => {
+                let base_effect = pending.take().ok_or(MagicError::Unsupported(
+                    "malformed weapon enchantment effects",
+                ))?;
+                if subrecord.data.len() != 12 {
+                    return Err(MagicError::Unsupported(
+                        "malformed weapon enchantment effects",
+                    ));
+                }
+                let bytes = subrecord.data.as_slice();
+                let magnitude = f32::from_le_bytes(bytes[..4].try_into().map_err(|_| {
+                    MagicError::Unsupported("malformed weapon enchantment effects")
+                })?);
+                let area = u32::from_le_bytes(bytes[4..8].try_into().map_err(|_| {
+                    MagicError::Unsupported("malformed weapon enchantment effects")
+                })?);
+                let duration = u32::from_le_bytes(bytes[8..12].try_into().map_err(|_| {
+                    MagicError::Unsupported("malformed weapon enchantment effects")
+                })?);
+                if !magnitude.is_finite() || magnitude < 0.0 {
+                    return Err(MagicError::Number);
+                }
+                effects.push(Effect {
+                    base_effect,
+                    data: soe_esm::records::gameplay::EffectData {
+                        magnitude,
+                        area,
+                        duration,
+                    },
+                    conditions: Vec::new(),
+                });
+            }
+            b"CTDA" | b"CIS1" | b"CIS2" => {
+                return Err(MagicError::Unsupported("weapon enchantment conditions"));
+            }
+            _ => {}
+        }
+    }
+    if pending.is_some() || effects.is_empty() {
+        return Err(MagicError::Unsupported(
+            "malformed weapon enchantment effects",
+        ));
+    }
+    Ok(effects)
 }

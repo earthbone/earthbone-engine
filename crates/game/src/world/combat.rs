@@ -15,6 +15,7 @@ use crate::combat::{
     Difficulty, Error, HitResult, MeleeHit,
 };
 use crate::crime::CrimeType;
+use crate::inventory::{Extra, Field, StackSource};
 
 const UNARMED_ATTACK: u32 = 0x1F4;
 
@@ -47,6 +48,12 @@ fn sneak_attack_setting(animation: u8) -> Option<&'static str> {
 /// item, threaded from `combat_stack_poison` through `check_combat_weapon`
 /// to `melee_hit`'s deferred consumption step (CMB-25).
 type PoisonStack = Option<(usize, GlobalFormId)>;
+
+struct EnchantmentCharge {
+    source: StackSource,
+    enchantment: GlobalFormId,
+    current: f32,
+}
 
 impl World {
     /// Return the selected difficulty tier.
@@ -257,6 +264,8 @@ impl World {
         // so they never stagger. No corpus source states an unarmed default.
         let mut bash_stamina_cost = None;
         let mut poison_stack: PoisonStack = None;
+        let mut weapon_enchantment = None;
+        let mut enchantment_charge = None;
         let (
             weapon_damage,
             stagger_fraction,
@@ -331,7 +340,7 @@ impl World {
             };
             (damage, 0.0_f32, 1.0_f32, None, resist, ignores_resistance)
         } else {
-            let weapon = self.combat_weapon(hit.weapon)?;
+            let (weapon, base_enchantment, maximum_charge) = self.combat_weapon(hit.weapon)?;
             if !matches!(weapon.animation, 1..=6) || !matches!(weapon.skill, 6..=8 | -1) {
                 return Err(Error::Unsupported("non-melee weapon or governing skill"));
             }
@@ -352,6 +361,22 @@ impl World {
             }
             let (quality, poison) = self.check_combat_weapon(hit.attacker, hit.weapon)?;
             poison_stack = poison;
+            if let Some(charge) = self.combat_stack_enchantment(
+                hit.attacker,
+                hit.weapon,
+                base_enchantment,
+                maximum_charge,
+            )? {
+                let cost = self.weapon_enchantment_cost(charge.enchantment)?;
+                if charge.current >= cost {
+                    weapon_enchantment = Some(self.prepare_weapon_enchantment(
+                        charge.enchantment,
+                        hit.attacker,
+                        hit.target,
+                    )?);
+                    enchantment_charge = Some((charge.source, charge.current - cost));
+                }
+            }
             let quality_multiplier = quality.unwrap_or(1.0);
             let skill = match weapon.skill {
                 6 => "onehanded",
@@ -488,6 +513,29 @@ impl World {
                 Ok(values)
             })
             .transpose()?;
+        let staged_inventory = if enchantment_charge.is_some() || poison_stack.is_some() {
+            let mut inventory = self
+                .reference(hit.attacker)
+                .ok_or(Error::Actor(hit.attacker))?
+                .inventory
+                .clone();
+            if let Some((source, charge)) = enchantment_charge {
+                let selection = inventory.select(hit.weapon, source, 1)?;
+                inventory.update_selected(
+                    &selection,
+                    vec![Extra {
+                        kind: 40,
+                        fields: vec![Field::FloatBits(charge.to_bits())],
+                    }],
+                )?;
+            }
+            if let Some((index, _)) = poison_stack {
+                inventory.clear_stack_extra(hit.weapon, index, 62)?;
+            }
+            Some(inventory)
+        } else {
+            None
+        };
         let mut values = self
             .actor_ref(hit.target)
             .ok_or(Error::Actor(hit.target))?
@@ -570,14 +618,17 @@ impl World {
         // on the weapon, the same accepted partial-commit risk those two
         // already carry for this function.
         let mut poisoned = false;
-        if let Some((index, poison_item)) = poison_stack {
+        if let Some((_, poison_item)) = poison_stack {
             self.apply_poison(hit.attacker, poison_item, hit.target, alloc)?;
-            if let Some(reference) = self.reference(hit.attacker) {
-                reference
-                    .inventory
-                    .clear_stack_extra(hit.weapon, index, 62)?;
-            }
             poisoned = true;
+        }
+        if let Some(prepared) = weapon_enchantment {
+            self.apply_weapon_enchantment(prepared, alloc)?;
+        }
+        if let Some(inventory) = staged_inventory {
+            if let Some(reference) = self.reference(hit.attacker) {
+                reference.inventory = inventory;
+            }
         }
         let killed = !bleedout_target && lethal && self.kill_actor(hit.target, Some(hit.attacker));
         if !killed && self.player == Some(hit.attacker) {
@@ -767,42 +818,102 @@ impl World {
         self.combat_stack_quality(actor, item)
     }
 
-    /// Rejects an equipped weapon stack that carries an enchantment (kind
-    /// 155), but allows poison (kind 62): CMB-25 lets an ordinary weapon
-    /// swing read and consume a poisoned stack instead of rejecting it
-    /// outright. Bash and armor still reject poison unconditionally through
-    /// `check_no_poison_or_enchant`, only the ordinary weapon branch of
-    /// `melee_hit` calls this. A missing reference or an item count of zero
-    /// or less rejects too.
-    fn check_no_enchant(&self, actor: GlobalFormId, item: GlobalFormId) -> Result<(), Error> {
-        let reference = self.refs.get(&actor).ok_or(Error::Actor(actor))?;
-        if reference.inventory.count(item) <= 0 {
-            return Err(Error::Equipment);
-        }
-        if reference
-            .inventory
-            .stacks(item)
-            .iter()
-            .any(|stack| stack.extras().iter().any(|extra| extra.kind == 155))
-        {
-            return Err(Error::Unsupported("enchanted item instances"));
-        }
-        Ok(())
-    }
-
     /// Read the equipped weapon's quality and poisoned stack together for an
-    /// ordinary melee swing, after rejecting an enchanted stack. Poison is
-    /// read instead of rejected, unlike `check_combat_stack`. See
+    /// ordinary melee swing. Poison is read instead of rejected, unlike
+    /// `check_combat_stack`. Enchantment extras are resolved by
+    /// `combat_stack_enchantment`. See
     /// `combat_stack_quality` and `combat_stack_poison`.
     fn check_combat_weapon(
         &self,
         actor: GlobalFormId,
         item: GlobalFormId,
     ) -> Result<(Option<f32>, PoisonStack), Error> {
-        self.check_no_enchant(actor, item)?;
         let quality = self.combat_stack_quality(actor, item)?;
         let poison = self.combat_stack_poison(actor, item)?;
         Ok((quality, poison))
+    }
+
+    fn combat_stack_enchantment(
+        &self,
+        actor: GlobalFormId,
+        item: GlobalFormId,
+        base_enchantment: Option<GlobalFormId>,
+        base_maximum: f32,
+    ) -> Result<Option<EnchantmentCharge>, Error> {
+        let inventory = &self.refs.get(&actor).ok_or(Error::Actor(actor))?.inventory;
+        let mut instance = None;
+        for (index, stack) in inventory.stacks(item).iter().enumerate() {
+            let Some(extra) = stack.extra(155) else {
+                continue;
+            };
+            let [Field::Form(Some(enchantment)), Field::Short(maximum)] = extra.fields.as_slice()
+            else {
+                return Err(Error::Unsupported("malformed weapon enchantment extra"));
+            };
+            if instance.is_some() || stack.count() != 1 || *maximum == 0 {
+                return Err(Error::Unsupported("ambiguous enchanted weapon instances"));
+            }
+            instance = Some((index, *enchantment, f32::from(*maximum)));
+        }
+        let (source, enchantment, maximum) = if let Some((index, enchantment, maximum)) = instance {
+            (StackSource::Extra(index), enchantment, maximum)
+        } else if let Some(enchantment) = base_enchantment {
+            let mut stacks = inventory.stacks(item).iter().enumerate();
+            let source = match (inventory.count(item), stacks.next(), stacks.next()) {
+                (1, Some((index, stack)), None) if stack.count() == 1 => StackSource::Extra(index),
+                (1, None, None) => StackSource::Plain,
+                _ => return Err(Error::Unsupported("ambiguous enchanted weapon instances")),
+            };
+            if base_maximum <= 0.0 || !base_maximum.is_finite() {
+                return Err(Error::Unsupported(
+                    "invalid weapon enchantment charge amount",
+                ));
+            }
+            (source, enchantment, base_maximum)
+        } else {
+            return Ok(None);
+        };
+        let current = match source {
+            StackSource::Plain => maximum,
+            StackSource::Extra(index) => {
+                let stack = inventory.stacks(item).get(index).ok_or(Error::Equipment)?;
+                match stack.extra(40) {
+                    None => maximum,
+                    Some(extra) => match extra.fields.as_slice() {
+                        [Field::FloatBits(bits)] => {
+                            let charge = f32::from_bits(*bits);
+                            if !charge.is_finite() || charge < 0.0 || charge > maximum {
+                                return Err(Error::Unsupported("invalid weapon instance charge"));
+                            }
+                            charge
+                        }
+                        _ => return Err(Error::Unsupported("malformed weapon instance charge")),
+                    },
+                }
+            }
+        };
+        Ok(Some(EnchantmentCharge {
+            source,
+            enchantment,
+            current,
+        }))
+    }
+
+    fn weapon_enchantment_cost(&self, enchantment: GlobalFormId) -> Result<f32, Error> {
+        let data = self
+            .record(enchantment)
+            .filter(|record| !record.is_deleted() && record.tag == Tag(*b"ENCH"))
+            .and_then(|record| record.find(Tag(*b"ENIT")))
+            .filter(|data| matches!(data.len(), 32 | 36))
+            .ok_or(Error::Unsupported("malformed weapon enchantment data"))?;
+        let bytes: [u8; 4] = data[..4]
+            .try_into()
+            .map_err(|_| Error::Unsupported("malformed weapon enchantment cost"))?;
+        let cost = i32::from_le_bytes(bytes);
+        if cost <= 0 {
+            return Err(Error::Unsupported("weapon enchantment has no charge cost"));
+        }
+        Ok(cost as f32)
     }
 
     /// Read-only poison pass shared by `check_combat_weapon` and the early
@@ -1021,8 +1132,48 @@ impl World {
         Ok(Some(reduction))
     }
 
-    fn combat_weapon(&self, id: GlobalFormId) -> Result<Weapon, Error> {
-        Ok(self.combat_weapon_source(id)?.1)
+    fn combat_weapon(
+        &self,
+        id: GlobalFormId,
+    ) -> Result<(Weapon, Option<GlobalFormId>, f32), Error> {
+        let (source, weapon) = self.combat_weapon_source(id)?;
+        let mut current = id;
+        let mut seen = BTreeSet::new();
+        let mut enchantment = None;
+        loop {
+            if !seen.insert(current) || seen.len() > 128 {
+                return Err(Error::Unsupported("cyclic weapon template"));
+            }
+            let record = self.record(current).ok_or(Error::Equipment)?;
+            let (template, raw_enchantment) = Weapon::template_links(record)?;
+            if let Some(raw) = raw_enchantment {
+                enchantment = Some(
+                    self.resolve_from(current, raw)
+                        .ok_or(Error::Unsupported("unresolved weapon enchantment"))?,
+                );
+                break;
+            }
+            let Some(template) = template else {
+                break;
+            };
+            current = self
+                .resolve_from(current, template)
+                .ok_or(Error::Unsupported("unresolved weapon template"))?;
+        }
+        let maximum = self
+            .record(source)
+            .and_then(|record| record.find(Tag(*b"EAMT")))
+            .map(|bytes| {
+                if bytes.len() != 2 {
+                    return Err(Error::Unsupported(
+                        "malformed weapon enchantment charge amount",
+                    ));
+                }
+                Ok(f32::from(u16::from_le_bytes([bytes[0], bytes[1]])))
+            })
+            .transpose()?
+            .unwrap_or(0.0);
+        Ok((weapon, enchantment, maximum))
     }
 
     pub(super) fn combat_weapon_source(
@@ -1036,10 +1187,7 @@ impl World {
                 return Err(Error::Unsupported("cyclic weapon template"));
             }
             let record = self.record(current).ok_or(Error::Equipment)?;
-            let (template, enchantment) = Weapon::template_links(record)?;
-            if enchantment.is_some() {
-                return Err(Error::Unsupported("weapon enchantment"));
-            }
+            let (template, _) = Weapon::template_links(record)?;
             let Some(template) = template else {
                 return Ok((current, Weapon::from_record(record)?));
             };

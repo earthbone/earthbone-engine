@@ -65,10 +65,11 @@ do not use those multipliers. Novice uses 2.0 damage by the player and 0.5 to
 the player. Apprentice uses 1.5 and 0.75. Adept uses 1.0 and 1.0. Expert uses
 0.75 and 1.5. Master uses 0.5 and 2.0. Legendary uses 0.25 and 3.0. Plugin
 records and runtime overrides for the selected GMST pair take precedence over
-these defaults. It rejects all perked actors, enchantments, item poison and
-unsupported weapon skills/types. Tempered item quality scales damage instead
-of rejecting, CMB-10. A weapon's resistance flags scale damage instead of
-rejecting too, CMB-26: only a reserved DNAM Resist index still rejects. These
+these defaults. It rejects all perked actors and unsupported weapon
+skills/types. Supported enchantments execute as described under CMB-24, and
+weapon poison executes as described under CMB-25. Tempered item quality
+scales damage instead of rejecting, CMB-10. A weapon's resistance flags
+scale damage instead of rejecting too, CMB-26: only a reserved DNAM Resist index still rejects. These
 are open execution requirements, not silently omitted modifiers. Protected
 and essential targets are rejected pending bleedout handling. Ghosts and dead
 actors are rejected.
@@ -79,9 +80,8 @@ record's load-order context until a terminal template supplies the combat
 fields. A child only needs a well-formed template or enchantment link. It may
 omit DATA, DNAM and BOD2/BODT, so those fields are decoded only from the
 terminal record. Each link remains a form lookup, so templates do not create a
-parallel item store. Cycles, unresolved links, wrong record types and
-enchantments anywhere in the chain reject the contact before it changes health
-or queues an event.
+parallel item store. Cycles, unresolved links and wrong record types reject
+the contact before it changes health or queues an event.
 
 TES5Edit and UESP identify the links and field layouts, while CommonLibSSE
 exposes the template pointers. None of these local sources states a
@@ -89,8 +89,9 @@ field-by-field merge mask for WEAP or ARMO. This path therefore treats the
 terminal referenced form as the combat source for CMB-11 instead of merging
 child fields. The synthetic cross-plugin fixtures cover weapon damage, armor
 rating, slots, skill and weapon behavior fields from that terminal record.
-An EITM link on a child or terminal record still rejects the contact, pending
-weapon enchantment execution.
+The closest weapon EITM link in the template chain supplies the record
+enchantment. Instance overrides and charge follow CMB-24. Armor enchantments
+remain unsupported.
 
 ## Application and events
 
@@ -209,11 +210,11 @@ knowledge of the attacker in `ActorState::witnessed_crimes`.
 ## Remaining execution work
 
 Host attack input, timing/contact detection, hand-specific selection, ranged
-weapons/ammunition, dual-wield and bash power
-attacks, weapon-only blocking, perk entry points, enchantments, poison, bleedout,
-stagger, other crime pathways and combat AI remain unfinished. The API is an execution
-increment and does not establish playable combat or completion of the broader
-gameplay-foundations goal.
+weapons/ammunition, dual-wield and bash power attacks, weapon-only blocking,
+perk entry points, unsupported enchantment rules, poison modifiers, bleedout,
+stagger, other crime pathways and combat AI remain unfinished. The API is an
+execution increment and does not establish playable combat or completion of
+the broader gameplay-foundations goal.
 
 ## Sneak attack multipliers, CMB-06
 
@@ -329,11 +330,11 @@ with unassigned hands. Version 16 retains its difficulty and has unassigned
 hands. Version 17 retains its hands and defaults to Adept. Version 18 retains
 both fields. The integration checks all four extension layouts and rejects
 invalid difficulty bytes before replacing world state.
-This does not infer item-instance selection from a form-only equipment set.
-Poison and enchantment continue to reject as described above. Tempered item
-quality reads instead of rejecting, CMB-10, but the same form-only equipment
-set still cannot name which physical stack a hit swung: when an item's
-stacks disagree on quality, `check_combat_stack` rejects rather than guess.
+This does not infer item-instance selection for quality from a form-only
+equipment set. Weapon enchantment and poison use their instance rules in
+CMB-24 and CMB-25. Tempered item quality reads instead of rejecting, CMB-10,
+but when an item's stacks disagree on quality, `check_combat_stack` rejects
+rather than guess.
 
 Hand selection and armor slot replacement use the same template resolution
 as hit calculation. Terminal weapon ETYP supplies the slot choices. The child
@@ -987,9 +988,9 @@ Open gaps, not attempted by this increment:
 
 `check_combat_stack` used to reject any weapon stack carrying an extra of
 kind 37 (CommonLib `ExtraHealth`, poison 62 and enchantment 155) outright.
-It now separates the three: poison and enchantment still reject the contact
-unconditionally, unchanged from CMB-03. Quality is read instead, and
-`melee_hit` applies it as a multiplier on `weapon_damage` right after
+It now reads quality as a multiplier, while weapon poison and enchantment
+follow their contact rules in CMB-25 and CMB-24. `melee_hit` applies quality
+as a multiplier on `weapon_damage` right after
 AttackDamageMult (CMB-01) and before armor and shield block reduction
 (CMB-05). A weapon with no quality extra on any of its stacks leaves damage
 unchanged, matching CMB-01's existing untempered path exactly.
@@ -1059,9 +1060,9 @@ Left out of this row:
 - Unarmed contacts hold no WEAP record or inventory stack, so quality never
   applies to them, matching the existing unarmed-modifier rejection CMB-01
   already documents.
-- Enchanted-and-tempered weapons still reject on the enchantment extra
-  alone, so quality's interaction with an active enchantment is untested
-  and unimplemented pending the enchantment row.
+- Enchanted-and-tempered weapons use the same quality multiplier and instance
+  charge as the two existing paths, but no installed-data survey covers this
+  combination.
 - No live or installed-data comparison against `SKYRIM_DATA` has been run,
   since no vanilla save in the local corpus was checked for its equipped
   weapons' quality extras specifically.
@@ -1120,10 +1121,11 @@ An ordinary weapon swing now reads the equipped weapon's stacks for a
 CommonLib `ExtraPoison` extra (kind 62, `[Field::Form(Some(poison_item)),
 Field::Word(count)]`) and, when exactly one stack carries one, applies the
 poison's magic effects to the target once and clears that stack's coating.
-Quality (CMB-10) and poison are two separate extras on the same stack model,
-so `check_combat_weapon` now reads both together after `check_no_enchant`
-rejects an enchanted stack, and `combat_stack_poison` mirrors
-`combat_stack_quality`'s read shape while applying its own stricter
+Quality (CMB-10), poison and enchantment (CMB-24) are separate extras on the
+same stack model, so `check_combat_weapon` reads quality and poison while
+`combat_stack_enchantment` resolves charge and the selected effect.
+`combat_stack_poison` mirrors `combat_stack_quality`'s read shape while
+applying its own stricter
 ambiguity rule below.
 
 The equipped set is form-only (CMB-03), so a hit cannot name which physical
@@ -1195,3 +1197,35 @@ Left out of this row:
 - Perked poison modifiers (Deadly Poisons and similar) are out of scope
   pending CMB-09's perk dispatch path, the same gap CMB-26 leaves open for
   weapon resistance.
+
+## Weapon enchantment charge, CMB-24
+
+An ordinary melee contact reads the weapon's `EITM` enchantment, unless the
+selected item stack has a kind-155 `ExtraEnchantment` override. The override
+must identify one item instance. When more than one enchanted instance is
+present, or an enchanted stack has count greater than one, combat rejects the
+contact because the form-only hit cannot identify which charge pool to spend.
+The instance's kind-40 `ExtraCharge` stores current charge. Without that extra,
+charge begins at the maximum stored in kind 155, or at the weapon's `EAMT` for
+a record enchantment. A hit with less charge than the ENCH `ENIT` cost still
+applies physical damage but skips the enchantment.
+
+When charge covers the `ENIT` cost, the `EFID`/`EFIT` entries apply once to the
+hit target through the shared magic-effect path, then the selected instance's
+charge is reduced by that cost. The effect plan and updated inventory are
+prepared before hit state changes. The instance charge is committed only after
+the effect plan applies. A malformed or unsupported effect therefore rejects
+before physical damage or charge changes. This path accepts fire-and-forget
+touch enchantments of type Enchantment, with unconditional supported actor
+effects. Conditions, base-enchantment inheritance, non-touch delivery,
+concentration casting, unsupported archetypes, perks and equip abilities
+reject the contact.
+
+The layout follows local `TES5Edit/Core/wbDefinitionsTES5.pas` ENCH and WEAP
+definitions and `uesp-modfileformat/ENCH.wikitext` / `WEAP.wikitext`. CommonLib
+`ExtraEnchantment.h`, `ExtraCharge.h` and `ExtraDataTypes.h` identify the
+instance fields and kinds. The ENCH page identifies ENIT cost as total effect
+cost and documents the ordered effect fields. This implementation spends that
+recorded cost per contact. Exact charge rounding and the runtime's treatment
+of conditioned enchantments remain unverified against the original engine.
+No save schema changed because inventory extras already persist through SOEW.
