@@ -91,6 +91,8 @@ pub enum Procedure {
     UseIdleMarker {
         marker: Option<GlobalFormId>,
     },
+    /// Hold the position where this procedure branch began.
+    HoldPosition,
     /// A procedure the driver does not run yet, by its template name. The
     /// actor holds where it stands.
     Unsupported(String),
@@ -865,6 +867,10 @@ fn begin_procedure(
             }
             _ => ai.procedure = Procedure::Unsupported("UseIdleMarker location".into()),
         },
+        Procedure::HoldPosition => {
+            ai.center = Some(place.map_or(position, |place| place.position));
+            ai.center_cell = place.and_then(|place| place.cell).or(cell);
+        }
         Procedure::None
         | Procedure::Wait { .. }
         | Procedure::Patrol
@@ -1246,6 +1252,20 @@ fn step(world: &mut World, actor: GlobalFormId, dt: f32) {
     if ai.procedure == Procedure::Follow {
         follow_target(world, actor, &mut ai, position);
     }
+    if ai.procedure == Procedure::HoldPosition {
+        let hold_position = ai.center.unwrap_or(position);
+        if distance(position, hold_position) > ARRIVAL_DISTANCE {
+            ai.destination = Some(hold_position);
+            ai.path.clear();
+            ai.path_cells.clear();
+            ai.arrived = false;
+        } else {
+            ai.destination = None;
+            ai.path.clear();
+            ai.path_cells.clear();
+            ai.arrived = true;
+        }
+    }
     if matches!(ai.procedure, Procedure::Wait { .. })
         && ai
             .wait_until
@@ -1509,6 +1529,7 @@ pub(crate) fn write_record_state(w: &mut Writer, a: &AiState) {
         }
         Procedure::Follow => w.u8(8),
         Procedure::ForceGreet => w.u8(10),
+        Procedure::HoldPosition => w.u8(11),
         Procedure::UseIdleMarker { marker } => {
             w.u8(9);
             match marker {
@@ -1587,7 +1608,7 @@ pub fn write_state(w: &mut Writer, a: &AiState) {
 
 /// Read a complete driver state written by [`write_state`].
 pub fn read_state(r: &mut Reader<'_>) -> Result<AiState, VmError> {
-    let mut a = read_state_mapped(&mut FormReader::new(r, FormNamespace::Current), true)?;
+    let mut a = read_state_mapped(&mut FormReader::new(r, FormNamespace::Current), true, true)?;
     a.tree = read_tree_state(r)?;
     Ok(a)
 }
@@ -1595,6 +1616,7 @@ pub fn read_state(r: &mut Reader<'_>) -> Result<AiState, VmError> {
 pub(crate) fn read_state_mapped(
     r: &mut FormReader<'_, '_>,
     has_force_greet_state: bool,
+    has_hold_position: bool,
 ) -> Result<AiState, VmError> {
     let mut a = AiState {
         package: read_opt_form_id(r)?,
@@ -1635,6 +1657,12 @@ pub(crate) fn read_state_mapped(
         }
         8 => Procedure::Follow,
         10 => Procedure::ForceGreet,
+        11 if has_hold_position => Procedure::HoldPosition,
+        11 => {
+            return Err(VmError::State(
+                "HoldPosition procedure requires world version 38".into(),
+            ));
+        }
         9 => {
             let marker = if r.bool()? {
                 Some(read_form_id(r)?)

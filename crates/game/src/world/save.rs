@@ -61,7 +61,8 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// Version 35 adds the Follow procedure tag.
 /// Version 36 adds the selected UseIdleMarker reservation.
 /// Version 37 adds ForceGreet and its one-shot dialogue state.
-pub const SAVE_VERSION: u16 = 37;
+/// Version 38 adds the HoldPosition procedure tag.
+pub const SAVE_VERSION: u16 = 38;
 
 #[derive(Clone, Copy)]
 pub(crate) enum FormNamespace {
@@ -1486,7 +1487,7 @@ fn read_actor_state(r: &mut FormReader<'_, '_>, version: u16) -> Result<ActorSta
     if r.bool()? {
         a.race = Some(read_form_id(r)?);
     }
-    a.ai = crate::ai::read_state_mapped(r, version >= 37)?;
+    a.ai = crate::ai::read_state_mapped(r, version >= 37, version >= 38)?;
     if version < 23 && a.ai.procedure == crate::ai::Procedure::Patrol {
         return Err(VmError::State(
             "Patrol procedure requires world version 23".into(),

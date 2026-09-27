@@ -307,6 +307,7 @@ fn ai_state(h: &mut StateHasher, a: &AiState) {
         }
         Procedure::Follow => h.u8(8),
         Procedure::ForceGreet => h.u8(10),
+        Procedure::HoldPosition => h.u8(11),
         Procedure::UseIdleMarker { marker } => {
             h.u8(9);
             if let Some(marker) = marker {

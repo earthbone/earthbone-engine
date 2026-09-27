@@ -685,6 +685,14 @@ reservation semantics. It does not play the marker's authored idle animation.
 SOEW version 36 saves the selected marker, and earlier saves cannot contain
 this procedure tag.
 
+`HoldPosition` resolves the branch location and holds within the driver's four
+unit arrival tolerance of that position. Without a location input, it holds at
+the position where the branch began. If the actor moves outside the tolerance,
+the driver routes it back. The procedure stays active until its package stops
+winning. The local CK wiki corpus has no HoldPosition procedure page. CommonLib
+names the procedure type, while the package location layout comes from xEdit's
+`wbRecord(PACK)`. SOEW version 38 adds the procedure tag.
+
 `ForceGreet` resolves its branch target and dialogue topic, walks to the target,
 then opens the assigned eligible topic when it arrives. It attempts the greeting
 once per branch. An actor below full alpha cannot start the dialogue unless it

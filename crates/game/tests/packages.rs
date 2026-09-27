@@ -1005,6 +1005,7 @@ fn the_installed_game_reads_every_package_and_evaluates_the_prisoner() {
             Procedure::Follow => "Follow".to_string(),
             Procedure::ForceGreet => "ForceGreet".to_string(),
             Procedure::UseIdleMarker { .. } => "UseIdleMarker".to_string(),
+            Procedure::HoldPosition => "HoldPosition".to_string(),
             Procedure::Unsupported(n) => format!("unsupported {n}"),
         };
         if matches!(
@@ -1018,6 +1019,7 @@ fn the_installed_game_reads_every_package_and_evaluates_the_prisoner() {
                 | Procedure::Follow
                 | Procedure::ForceGreet
                 | Procedure::UseIdleMarker { .. }
+                | Procedure::HoldPosition
         ) {
             supported += 1;
         }
