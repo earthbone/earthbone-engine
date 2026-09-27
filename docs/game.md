@@ -1280,9 +1280,27 @@ iron ingot and produced ten nails. Explicit PlayerRef inventory conditions
 also passed. Predicate presence across the survey does not establish that
 every recipe is executable or that all predicate contexts match vanilla.
 
-Tempering, alchemy, enchanting, skill advancement, crafting story events,
-item instance state and host menus remain unfinished. The full requested
-execution scope is tracked in [execution-plan.md](execution-plan.md).
+`Game::temper` executes COBJ improvement recipes at grindstones and workbenches.
+The recipe output must be a weapon or armor form also listed as one input
+instance. Other COBJ inputs are consumed together with that instance quality
+update, and removal events are queued only after the inventory transaction
+commits. The item keeps its other extra data. Quality is selected from the
+actor's Smithing value, with a minimum increase from 1.0 and a 1.6 cap. Recipes
+must use the improvement bench keyword matching their station. The CK
+`SetItemHealthPercent` page describes 1.0 as untempered, values below 1.0 as
+having no effect, and 1.6 as appearing legendary. The engine writes only
+tempering qualities at or above 1.0. It does not implement perk or equipment
+bonuses to the quality calculation.
+
+The local xEdit `wbRecord(COBJ)` definition establishes the recipe fields, and
+the UESP COBJ description states that the bench keyword distinguishes item
+creation from improvement. CK `SetItemHealthPercent` and
+`ObjectReference_Script` describe the quality range used above. The xEdit
+definitions contain no `SMIT` record declaration.
+
+Alchemy, enchanting, skill advancement, crafting story events and host menus
+remain unfinished. The full requested execution scope is tracked in
+[execution-plan.md](execution-plan.md).
 
 The game crate now directly uses the workspace's existing thiserror 2.0.20
 for typed execution errors. `cargo tree -p soe-game -i thiserror` confirms
@@ -2720,9 +2738,10 @@ Synthetic inventory tests cover selected quality updates retaining enchantment,
 poison, charge and opaque fields, exact transfer, adjacent stacks, save/load,
 plain quantity splits, stale indices, identical restoration, malformed patches,
 ambiguous counts, bookkeeping, recipient overflow and failure event atomicity.
-Tempering formulas, learned enchantments, recipe eligibility, poison use and
-host menus belong to their separate backlog items. These tests do not compare
-selection policy against the original runtime or load installed save files.
+Learned enchantments, poison use and host menus belong to their separate
+backlog items. Tempering uses this exact-selection API and does not change
+Papyrus RemoveItem selection policy. These tests do not compare selection
+policy against the original runtime or load installed save files.
 
 ## Alias-backed dialogue eligibility (DLG-13)
 
