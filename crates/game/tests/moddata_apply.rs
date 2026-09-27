@@ -324,6 +324,36 @@ fn a_swap_file_changes_what_a_reference_resolves_to() {
 }
 
 #[test]
+fn mod_03_swap_properties_apply_to_reference_state_and_survive_save_load() {
+    let dir = Dir::new("bos-properties");
+    dir.write(
+        "Test_SWAP.ini",
+        "[Forms]\nRockPile01|TreePine01\n[Properties]\nRockPile01|pos(10,20,30),rot(0,0,90),scale(2),flags(0x10)|ChanceL(100)\n",
+    );
+    let mut g = game();
+    g.apply_mod_data(&dir.roots());
+    let state = g.world_mut().reference(id(ROCK_REF)).unwrap().clone();
+    assert_eq!(state.base, Some(id(TREE)));
+    assert_eq!(state.position, [10.0, 20.0, 30.0]);
+    assert!((state.rotation[2] - std::f32::consts::FRAC_PI_2).abs() < 1e-6);
+    assert_eq!(state.scale, 2.0);
+    assert_eq!(state.record_flags, 0x10);
+
+    let bytes = g.world().save_state();
+    let restored = game();
+    restored.world_mut().load_state(&bytes).unwrap();
+    assert_eq!(
+        restored
+            .world()
+            .reference_ref(id(ROCK_REF))
+            .unwrap()
+            .record_flags,
+        0x10,
+        "BOS flags must remain on a saved reference"
+    );
+}
+
+#[test]
 fn a_level_filtered_rule_is_skipped_rather_than_applied_to_everyone() {
     let dir = Dir::new("spid-level");
     dir.write(

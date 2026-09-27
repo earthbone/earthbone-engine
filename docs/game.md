@@ -11,6 +11,14 @@ separate unfinished rows. See [combat](combat.md) and BACKLOG.csv.
 Crate `crates/game`. Round 2 of `ENGINE-PLAN.md`, written 2026-09-14. The map's
 week 6 to 9 gate.
 
+Base Object Swapper property rules are applied as a reference is built. The
+runtime checks a rule for the reference, then its original base. Position,
+rotation and scale update the existing placement fields.
+Flag overrides use `RefState::record_flags`, saved in SOEW version 34.
+Property ranges are sampled deterministically from the reference ID. `ChanceL`
+uses the location and base IDs for a stable chance decision. This does not
+reproduce BOS's C++ random sequence. Conditional BOS filters remain unevaluated.
+
 ## What is in it
 
 - `world`: the runtime form table. A `LoadOrder` from `soe-esm` plus the state

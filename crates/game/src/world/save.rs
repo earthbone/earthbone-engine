@@ -57,7 +57,8 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// Version 32 retains each hand's explicitly assigned spell, so a menu or
 /// script equip survives a reload the way a hand weapon selection already did.
 /// Version 33 retains the spawned reference owned by each Summon Creature effect.
-pub const SAVE_VERSION: u16 = 33;
+/// Version 34 retains BOS record flags on instantiated references.
+pub const SAVE_VERSION: u16 = 34;
 
 #[derive(Clone, Copy)]
 pub(crate) enum FormNamespace {
@@ -400,6 +401,7 @@ impl World {
             write_opt_form_id(&mut body, actor.right_weapon);
         }
         self.write_reference_extras(&mut body);
+        self.write_reference_flags(&mut body);
         let cursors: BTreeMap<_, _> = self
             .actors
             .iter()
@@ -940,6 +942,9 @@ impl World {
             super::reference_extras::read_reference_extras(&mut r, &mut refs)?;
             self.validate_reference_extras(&refs)?;
         }
+        if version >= 34 {
+            super::reference_extras::read_reference_flags(&mut r, &mut refs)?;
+        }
         if version >= 21 {
             let count = r.len()?;
             let mut seen = BTreeSet::new();
@@ -1306,6 +1311,7 @@ fn read_ref_state(r: &mut FormReader<'_, '_>) -> Result<RefState, VmError> {
         position,
         rotation,
         scale,
+        record_flags: 0,
         enabled,
         deleted,
         activation_blocked,

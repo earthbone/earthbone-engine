@@ -137,13 +137,86 @@ impl World {
         // disable cleaning would have left it, so whatever still names it
         // resolves instead of crashing the way the vanilla engine does.
         st.enabled = rec.flags & flags::INITIALLY_DISABLED == 0 && !rec.is_deleted();
+        st.record_flags = rec.flags;
         st.cell = rec.placement.cell.map(|c| self.order.resolve(file, c));
+        let original_base = st.base;
         // Base Object Swapper replaces the base of a placed reference, and a
         // reference is built here rather than at start, which is why the swap
         // is held until now. See `crate::moddata`.
         st.base = st.base.map(|b| self.mod_data.swap(b));
+        let properties = self
+            .mod_data
+            .properties
+            .get(&id)
+            .or_else(|| original_base.and_then(|base| self.mod_data.properties.get(&base)));
+        if let Some(properties) = properties {
+            let location = st.location.or(st.cell);
+            Self::apply_bos_properties(&mut st, properties, id, original_base, location);
+        }
         st.item = self.loose_item(st.base, st.owner, Some(rec));
         Some(st)
+    }
+
+    fn apply_bos_properties(
+        state: &mut RefState,
+        properties: &soe_moddata::bos::Properties,
+        id: GlobalFormId,
+        base: Option<GlobalFormId>,
+        location: Option<GlobalFormId>,
+    ) {
+        let seed = (u64::from(id.file) << 32) | u64::from(id.object);
+        if let Some(chance) = properties.chance {
+            let chance_seed = if chance.location_based {
+                location.map(Self::form_seed).unwrap_or(seed)
+                    ^ base.map(Self::form_seed).unwrap_or_default()
+            } else {
+                seed
+            } ^ chance.seed;
+            if Self::sample_bos_range([0.0, 100.0], chance_seed) > chance.percent {
+                return;
+            }
+        }
+        for (operation, target, property) in [
+            (0_u64, &mut state.position, properties.position),
+            (3_u64, &mut state.rotation, properties.rotation),
+        ] {
+            if let Some(property) = property {
+                for (index, (value, range)) in target.iter_mut().zip(property.values).enumerate() {
+                    let value_to_apply =
+                        Self::sample_bos_range(range, seed ^ operation ^ index as u64);
+                    if property.relative {
+                        *value += value_to_apply;
+                    } else {
+                        *value = value_to_apply;
+                    }
+                }
+            }
+        }
+        if let Some(scale) = properties.scale {
+            let value = Self::sample_bos_range(scale.values, seed ^ 6);
+            state.scale = if scale.absolute {
+                value
+            } else {
+                state.scale * value
+            };
+            state.scale = state.scale.clamp(0.0, 1000.0);
+        }
+        state.record_flags &= !properties.flags_clear;
+        state.record_flags |= properties.flags_set;
+    }
+
+    fn sample_bos_range(range: [f32; 2], seed: u64) -> f32 {
+        let mut value = seed.wrapping_add(0x9E37_79B9_7F4A_7C15);
+        value = (value ^ (value >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+        value = (value ^ (value >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+        value ^= value >> 31;
+        let unit = (value >> 11) as f64 / ((1_u64 << 53) as f64);
+        range[0] + (range[1] - range[0]) * unit as f32
+    }
+
+    fn form_seed(id: GlobalFormId) -> u64 {
+        let raw = (u64::from(id.file) << 32) | u64::from(id.object);
+        raw.wrapping_mul(0x9E37_79B9_7F4A_7C15)
     }
 
     /// A base's own `CNTO` list plus anything a distribution handed it as an

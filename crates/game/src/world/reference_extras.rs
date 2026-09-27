@@ -218,6 +218,19 @@ impl World {
             write_extra_state(writer, state);
         }
     }
+
+    pub(super) fn write_reference_flags(&self, writer: &mut Writer) {
+        let states: BTreeMap<_, _> = self
+            .refs
+            .iter()
+            .filter(|(_, state)| state.record_flags != 0)
+            .collect();
+        writer.len(states.len());
+        for (id, state) in states {
+            write_form_id(writer, *id);
+            writer.u32(state.record_flags);
+        }
+    }
 }
 
 pub(super) fn write_extra_state(w: &mut Writer, state: &RefState) {
@@ -269,6 +282,28 @@ pub(super) fn read_reference_extras(
         } else {
             None
         };
+    }
+    Ok(())
+}
+
+pub(super) fn read_reference_flags(
+    r: &mut FormReader<'_, '_>,
+    refs: &mut HashMap<GlobalFormId, RefState>,
+) -> Result<(), VmError> {
+    let count = r.len()?;
+    if count > refs.len() {
+        return Err(VmError::State("too many reference flag entries".into()));
+    }
+    let mut seen = BTreeSet::new();
+    for _ in 0..count {
+        let id = read_form_id(r)?;
+        if !seen.insert(id) {
+            return Err(VmError::State("duplicate reference flag entry".into()));
+        }
+        let state = refs
+            .get_mut(&id)
+            .ok_or_else(|| VmError::State("reference flags without reference".into()))?;
+        state.record_flags = r.u32()?;
     }
     Ok(())
 }

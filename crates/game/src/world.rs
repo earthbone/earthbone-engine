@@ -124,6 +124,8 @@ pub struct RefState {
     pub position: [f32; 3],
     pub rotation: [f32; 3],
     pub scale: f32,
+    /// Runtime record flags changed by Base Object Swapper.
+    pub record_flags: u32,
     pub enabled: bool,
     pub deleted: bool,
     pub activation_blocked: bool,
@@ -171,6 +173,7 @@ impl RefState {
             position: [0.0; 3],
             rotation: [0.0; 3],
             scale: 1.0,
+            record_flags: 0,
             enabled: true,
             deleted: false,
             activation_blocked: false,

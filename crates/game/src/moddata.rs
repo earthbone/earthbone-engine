@@ -92,6 +92,8 @@ pub struct ModDataState {
     pub actor_rules: Vec<ActorDistribution>,
     /// Base object replacements, applied when a reference is built.
     pub base_swaps: BTreeMap<GlobalFormId, GlobalFormId>,
+    /// BOS property overrides, applied when a reference is built.
+    pub properties: BTreeMap<GlobalFormId, soe_moddata::bos::Properties>,
     pub report: ModDataReport,
 }
 
@@ -524,10 +526,21 @@ fn apply_bos(world: &mut World, path: &Path, report: &mut ModDataReport) {
             report.skipped_by_chance += 1;
             continue;
         }
-        // A property override keeps its text, see the moddata crate docs, so
-        // only a base replacement changes world state here.
-        if let Change::SwapBase { to } = patch.change {
-            world.mod_data.base_swaps.insert(target, to);
+        match patch.change {
+            Change::SwapBase { to, properties } => {
+                world.mod_data.base_swaps.insert(target, to);
+                let parsed = soe_moddata::bos::Properties::parse(&properties);
+                if parsed != soe_moddata::bos::Properties::default() {
+                    world.mod_data.properties.insert(target, parsed);
+                }
+            }
+            Change::SetProperties { properties } => {
+                let parsed = soe_moddata::bos::Properties::parse(&properties);
+                if parsed != soe_moddata::bos::Properties::default() {
+                    world.mod_data.properties.insert(target, parsed);
+                }
+            }
+            _ => {}
         }
     }
 }

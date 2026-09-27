@@ -51,7 +51,8 @@ from a wiki page and nothing was copied.
 - **Base Object Swapper**, `../engine-refs/BaseObjectSwapper/`. `Manager.cpp`
   gives the section walk and the `SetAllowKeyOnly` call that makes a line's key
   carry the whole payload. `SwapData.cpp` gives the field order on both sides of
-  a swap.
+  a swap. `ObjectProperties.cpp` and `.h` define transform, scale and flag
+  operations. `RNG.cpp` gives the reference seed and chance behavior.
 - **Open Animation Replacer**, `../engine-refs/OpenAnimationReplacer/`.
   `Parsing.cpp` gives the directory layout, that `priority` is required rather
   than defaulted, and that `user.json` is read after `config.json`. GPL-3.0 with
@@ -91,16 +92,24 @@ crate. `0x` makes it explicit, and any non-hex letter makes it a name. This is
 pinned by a test rather than left to be rediscovered inside a mod that quietly
 stops working.
 
-## What is deliberately left as written
+## What remains as written
 
-Two fields keep their text instead of being modelled, because modelling them
-badly would be worse than handing the caller a string.
+One field keeps its text instead of being modelled, because its grammar varies
+by item type.
 
 - Keyword Item Distributor's traits field has a different grammar for every
   item type. An armour trait and a weapon trait share no syntax, and `Traits.h`
   dispatches to a different class per type.
-- Base Object Swapper's property field is its own small language of `pos`,
-  `rot`, `scale` and `flags` calls, with a location based `ChanceL` variant.
+
+Base Object Swapper's property field is parsed into `pos`, `rot`, `scale` and
+`flags` operations. Position and rotation support exact values and ranges.
+`R` makes position or rotation relative. Rotation input uses degrees and is
+stored in radians. Scale multiplies the reference scale unless suffixed with
+`A`, which sets it. `flags` adds hexadecimal bits and `flagsC` clears them.
+Ranges are sampled deterministically from the reference ID. `ChanceL` uses the
+location and base IDs for a stable chance decision. These values are not
+claimed to match BOS's C++ random sequence. Conditional section filters are
+not evaluated by this runtime.
 
 Open Animation Replacer's conditions are structural for a different reason: the
 plugin lets other plugins register new condition types at runtime, so the set is
@@ -142,14 +151,14 @@ them, but no shipped mod has been run through them yet.
 
 | Test suite | Count | What it covers |
 |---|---|---|
-| `src/*` unit | 63 | Each grammar, KID exclusive group entries, each filter rule, the ini dialect, the form reference ambiguity |
-| `tests/resolve.rs` | 11 | Resolution against a synthetic load order, including absent forms |
+| `src/*` unit | 64 | Each grammar, BOS property operations, KID exclusive group entries, each filter rule, the ini dialect, the form reference ambiguity |
+| `tests/resolve.rs` | 12 | Resolution against a synthetic load order, including absent forms |
 
 ## Not done
 
 - No real mod has been parsed, see above.
-- The two fields left as written, and Open Animation Replacer's `user.json`
-  override layer.
+- The KID traits field and Open Animation Replacer's `user.json` override
+  layer.
 - Exact chance selection and actor lifecycle compatibility, detailed below.
 
 ## Applying, added 2026-09-18
@@ -170,7 +179,7 @@ built.
 |---|---|---|
 | `_KID.ini` | At load | Merged into `World::keywords` itself |
 | `_DISTR.ini` | At load | Base rules are read when actor state is built, deterministic fractional rules are selected per actor reference |
-| `_SWAP.ini` | Held, applied per reference | Read when a reference is built |
+| `_SWAP.ini` | Base swaps and property overrides are held, applied per reference | Read when a reference is built |
 | OAR | Counted only | The animation system will read the trees |
 
 The keyword merge is the one worth stating plainly. A distributed keyword goes
@@ -192,9 +201,12 @@ marked with `!` instead wait for an actor reference, where the same base can
 produce different results for different actors.
 
 A swap is not a load time event at all. The reference it names may not exist
-yet, so the swap is held and `RefState`'s base is rewritten when the reference
-is built. `World::base_inventory` does the same for a distributed item, so
-`GetItemCount` counts it the way it counts a shipped one.
+yet, so the swap and property overrides are held until the reference is built.
+An explicit reference rule takes precedence over a rule for the original base,
+and a rule for the original base applies when no reference rule exists. The
+runtime writes transform and flag changes to `RefState`. Applied flags persist
+in SOEW version 34. `World::base_inventory` does the same for a distributed
+item, so `GetItemCount` counts it the way it counts a shipped one.
 
 ### Chance, and what it costs
 
