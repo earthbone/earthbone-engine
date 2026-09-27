@@ -140,6 +140,7 @@ pub fn supports_function(function: u16) -> bool {
             | 630
             | 655
             | 659
+            | 513
     )
 }
 
@@ -370,6 +371,26 @@ fn function_value(
                 .actor(subject)
                 .and_then(|actor| actor.relationships.get(&other).copied())
                 .unwrap_or(0) as f32
+        }
+        513 => {
+            // xEdit identifies a placed NPC parameter. The CK dump has no
+            // condition page, so match the runtime combat target relation
+            // exposed by Actor.GetCombatTarget: the subject targets the
+            // parameter actor.
+            if c.parameters[1] != 0 {
+                return Err(Error::Parameter(c.function, c.parameters[1]));
+            }
+            let target = resolve_reference(world, context.owner, raw)?;
+            if world.actor(target).is_none() {
+                return Err(Error::Form(target));
+            }
+            boolean(
+                world
+                    .actor(subject)
+                    .ok_or(Error::Form(subject))?
+                    .combat_target
+                    == Some(target),
+            )
         }
         566 => {
             let quest = context.quest.ok_or(Error::Target(5))?;
