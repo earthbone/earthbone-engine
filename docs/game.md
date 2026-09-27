@@ -273,7 +273,7 @@ Current behavior and compatibility limits:
   and `World::advance_scene_phase` waits for every action ending in the current
   phase before advancing. Reaching the last phase stops the scene and delivers
   `OnEnd`. `Scene.Start` and `Stop` deliver `OnBegin` and `OnEnd` to the
-  scene's scripts. SOEW version 36 stores the current phase and completed
+  scene's scripts. SOEW version 37 stores the current phase and completed
   action slots. Action slots use zero-based positions from the SCEN action
   list because two vanilla scenes reuse action numbers. The SCEN layout follows
   `TES5Edit/Core/wbDefinitionsTES5.pas` and
