@@ -100,25 +100,27 @@ pub fn resolve_vendor_service(
     let container = resolve_record_link(world, faction, &record, T(b"VENC"), T(b"REFR"))?;
     let conditions = faction_conditions(&record)?;
     let player = world.player();
-    let conditions_met = conditions::evaluate(
-        world,
-        vm,
-        Context {
-            owner: faction,
-            subject: merchant,
-            target: Some(player),
-            quest: None,
-            tempering_enchanted: None,
-        },
-        &conditions,
-    )?;
+    let merchant_loaded = world.is_reference_loaded(merchant);
+    let conditions_met = merchant_loaded
+        && conditions::evaluate(
+            world,
+            vm,
+            Context {
+                owner: faction,
+                subject: merchant,
+                target: Some(player),
+                quest: None,
+                tempering_enchanted: None,
+            },
+            &conditions,
+        )?;
     let hour = world.clock.game_hours().rem_euclid(24.0);
     let within_hours = match start_hour.cmp(&end_hour) {
         Ordering::Equal => true,
         Ordering::Less => hour >= f64::from(start_hour) && hour < f64::from(end_hour),
         Ordering::Greater => hour >= f64::from(start_hour) || hour < f64::from(end_hour),
     };
-    let available = conditions_met && within_hours && !not_sell_buy;
+    let available = merchant_loaded && conditions_met && within_hours && !not_sell_buy;
 
     let mut merchandise = Inventory::default();
     let mut gold = 0;

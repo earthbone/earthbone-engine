@@ -14,6 +14,7 @@ const FACTION: u32 = 0x800;
 const MERCHANT: u32 = 0x500;
 const CONTAINER_REF: u32 = 0x501;
 const CONTAINER_BASE: u32 = 0x400;
+const MERCHANT_BASE: u32 = 0x502;
 const LIST: u32 = 0x900;
 const ITEM: u32 = 0x901;
 const LEVELED: u32 = 0x902;
@@ -90,9 +91,15 @@ fn plugin(vendor: Record, list_items: &[u32]) -> Plugin {
             .sub(T(b"NAME"), CONTAINER_BASE.to_le_bytes()),
     );
     plugin.push_top(
-        Record::new(T(b"REFR"), MERCHANT)
+        Record::new(T(b"NPC_"), MERCHANT_BASE)
+            .zsub(T(b"EDID"), "Merchant")
+            .sub(T(b"ACBS"), vec![0; 24]),
+    );
+    plugin.push_top(
+        Record::new(T(b"ACHR"), MERCHANT)
             .zsub(T(b"EDID"), "MerchantRef")
-            .sub(T(b"NAME"), CONTAINER_BASE.to_le_bytes()),
+            .sub(T(b"NAME"), MERCHANT_BASE.to_le_bytes())
+            .sub(T(b"DATA"), vec![0; 24]),
     );
     plugin.push_top(Record::new(T(b"GLOB"), GLOBAL).sub(T(b"FLTV"), 0.0_f32.to_le_bytes()));
     plugin
@@ -101,7 +108,9 @@ fn plugin(vendor: Record, list_items: &[u32]) -> Plugin {
 fn game(vendor: Record, items: &[u32]) -> Game {
     let mut order = LoadOrder::new();
     order.add("Vendor.esm", plugin(vendor, items)).unwrap();
-    Game::new(order)
+    let game = Game::new(order);
+    assert!(game.world_mut().drive_actor(id(MERCHANT)));
+    game
 }
 
 fn global_condition(expected: f32) -> Vec<u8> {
@@ -174,6 +183,7 @@ fn dlg_08_winning_override_controls_service_fields() {
     order.add("Vendor.esm", base).unwrap();
     order.add("VendorPatch.esp", patch).unwrap();
     let mut game = Game::new(order);
+    assert!(game.world_mut().drive_actor(id(MERCHANT)));
 
     let service = game
         .resolve_vendor_service(id(FACTION), id(MERCHANT))

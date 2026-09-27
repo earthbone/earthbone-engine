@@ -135,9 +135,11 @@ later work that can build on it.
 
 **Vendor service lookup.** `Game::resolve_vendor_service` reads the winning
 `FACT` vendor flag, `VEND`, `VENC`, `VENV` and faction conditions. It evaluates
-conditions for the merchant with the player as target, applies the authored
-hours and no-trade flag, expands direct and leveled merchandise, and reads
-gold from the merchant container. The result retains the service radius and
+conditions for a loaded merchant with the player as target, applies the
+authored hours and no-trade flag, expands direct and leveled merchandise, and
+reads gold from the merchant container. An unloaded merchant has an
+unavailable service with no exposed merchandise or gold, matching the CK
+`ShowBarterMenu_-_Actor` note. The result retains the service radius and
 stolen-item policy. Leveled merchandise uses the shared LVLI resolver, which
 retains entry metadata. This is service data for a caller. Trade transactions
 and the barter menu are separate work.
