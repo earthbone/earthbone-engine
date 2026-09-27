@@ -137,6 +137,17 @@ not in the streamer yet because nothing measures the real per-cell cost until th
 `esm` crates land. `SurfaceArrays` carries bounds and a triangle count so that budget can be
 added without changing the plan shape.
 
+`CellStreamerNode::stream_object_lod` reads and draws existing BTO object LOD
+blocks from `meshes/terrain/<world>/Objects`. It uses the world's LOD settings
+for the block anchor and level, and the same capped distance streamer and byte
+budget as BTR terrain LOD. Blocks inside the full resolution radius are not
+requested. Each rendered block remains keyed by its worldspace and
+`LodBlockCoord`, and release or budget eviction frees its instances. Use
+`update_object_lod` to move the BTO streamer as the focus changes, and
+`clear_object_lod` to release it. BTO surfaces retain the worldspace form as
+their source identity because the merged file does not encode individual
+placed-reference identities.
+
 ## Mesh
 
 `mesh::MeshSource` is a trait shaped like the `nif` crate's neutral output: positions,
