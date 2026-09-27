@@ -1613,11 +1613,28 @@ queued during `OnEffectFinish`. VM storage checks are described in
 Recover modifiers change the target once and reverse their own delta at the end.
 Other value modifiers integrate magnitude over unpaused simulation seconds, with
 the final tick clipped to the remaining duration. Zero-duration effects apply
-once. Healing health, magicka and stamina is limited to the maximum, including permanent and temporary modifiers. No Recast prevents a second live application of the
-same MGEF on the same actor. Death removes effects unless No Death Dispel is set.
+once. Hostile magic effects first apply the target's current `resistmagic`, then
+the MGEF `Resist Value` actor value when it names poison, fire, shock, frost,
+magic or disease resistance. Each term is clamped from 0 to 85 percent and
+reductions multiply. `DamageResist` and other MGEF resistance indices return an
+unsupported behavior error before the cast changes state. The `-1` sentinel
+omits the specific resistance. Non-hostile effects bypass resistance. Current
+values include the actor-value store's base, permanent, temporary and damage
+components. Healing health, magicka and stamina is limited to the maximum,
+including permanent and temporary modifiers. No Recast prevents a second live
+application of the same MGEF on the same actor. Death removes effects unless No
+Death Dispel is set.
 SOEW version 9 stores identity, source, caster, target, magnitude, elapsed time,
 duration and value deltas, including pending script attachment. Loading never
 reapplies a saved modifier. The deterministic scenes hash includes this state.
+
+MGEF's `Resist Value` field and its enum come from local
+`TES5Edit/Core/wbDefinitionsTES5.pas`. Its actor-value indices map through
+`crates/game/src/actor_values.rs`. The local skymp magic action handler leaves
+magic-effect application as a TODO, so it supplies no resistance formula. The
+85 percent cap and order are the runtime's selected behavior. Keeping magic
+and specific resistance as separate terms preserves their independent actor
+values.
 
 The source contracts are CK [Magic Effect](https://ck.uesp.net/wiki/Magic_Effect),
 local `ck-wiki/AddInventoryEventFilter_-_ObjectReference.wikitext`,

@@ -86,6 +86,12 @@ fn effect_with_associated_item(
         .sub(T(b"VMAD"), vmad.write(T(b"MGEF")))
 }
 
+fn effect_with_resistance(resistance: i32) -> Record {
+    let mut effect = effect(1 | (1 << 2), 0, 24, false);
+    effect.subrecords[1].data[16..20].copy_from_slice(&resistance.to_le_bytes());
+    effect
+}
+
 fn spell(form: u32, kind: u32, constant: bool, magnitude: f32, duration: u32) -> Record {
     spell_with_area(form, kind, constant, magnitude, duration, 0)
 }
@@ -385,6 +391,94 @@ fn mag_11_poison_waits_for_weapon_application_without_consuming_it() {
     ));
     assert_eq!(game.world_mut().item_count(id(ACTOR), id(POTION)), 1);
     assert_eq!(game.world().active_effects().count(), 0);
+}
+
+#[test]
+fn mag_12_magic_and_specific_resistance_apply_multiplicatively_in_order() {
+    let mut game = game(plugin(
+        effect_with_resistance(41),
+        vec![spell(SPELL, 0, false, 100.0, 0)],
+    ));
+    game.world_mut()
+        .set_actor_value(id(OTHER), "resistmagic", 50.0)
+        .unwrap();
+    game.world_mut()
+        .set_actor_value(id(OTHER), "resistfire", 50.0)
+        .unwrap();
+
+    cast(&mut game, SPELL, OTHER).unwrap();
+
+    assert_eq!(game.world_mut().actor_value(id(OTHER), "health"), 75.0);
+}
+
+#[test]
+fn mag_12_all_supported_specific_resistance_values_apply() {
+    for (resistance, actor_value) in [
+        (40, "poisonresist"),
+        (41, "resistfire"),
+        (42, "resistshock"),
+        (43, "resistfrost"),
+        (44, "resistmagic"),
+        (45, "resistdisease"),
+    ] {
+        let mut game = game(plugin(
+            effect_with_resistance(resistance),
+            vec![spell(SPELL, 0, false, 100.0, 0)],
+        ));
+        game.world_mut()
+            .set_actor_value(id(OTHER), actor_value, 50.0)
+            .unwrap();
+
+        cast(&mut game, SPELL, OTHER).unwrap();
+
+        assert_eq!(
+            game.world_mut().actor_value(id(OTHER), "health"),
+            50.0,
+            "MGEF resistance index {resistance} uses {actor_value}"
+        );
+    }
+}
+
+#[test]
+fn mag_12_each_resistance_caps_at_eighty_five_percent() {
+    let mut game = game(plugin(
+        effect_with_resistance(41),
+        vec![spell(SPELL, 0, false, 100.0, 0)],
+    ));
+    game.world_mut()
+        .set_actor_value(id(OTHER), "resistmagic", 100.0)
+        .unwrap();
+    game.world_mut()
+        .set_actor_value(id(OTHER), "resistfire", 100.0)
+        .unwrap();
+
+    cast(&mut game, SPELL, OTHER).unwrap();
+
+    assert!((game.world_mut().actor_value(id(OTHER), "health") - 97.75).abs() < 0.001);
+}
+
+#[test]
+fn mag_12_resistance_reads_independent_actor_value_modifiers() {
+    let mut game = game(plugin(
+        effect_with_resistance(42),
+        vec![spell(SPELL, 0, false, 100.0, 0)],
+    ));
+    game.world_mut()
+        .set_actor_value(id(OTHER), "resistmagic", 30.0)
+        .unwrap();
+    game.world_mut()
+        .mod_actor_value(id(OTHER), "resistmagic", 20.0)
+        .unwrap();
+    game.world_mut()
+        .set_actor_value(id(OTHER), "resistshock", 40.0)
+        .unwrap();
+    game.world_mut()
+        .mod_temporary_actor_value(id(OTHER), "resistshock", 10.0)
+        .unwrap();
+
+    cast(&mut game, SPELL, OTHER).unwrap();
+
+    assert_eq!(game.world_mut().actor_value(id(OTHER), "health"), 75.0);
 }
 
 #[test]

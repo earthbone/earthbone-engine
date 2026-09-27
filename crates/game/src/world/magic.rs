@@ -32,6 +32,10 @@ const NO_RECAST: u32 = 1 << 17;
 const NO_DEATH_DISPEL: u32 = 1 << 28;
 pub(super) const DISPEL_WITH_KEYWORDS: u32 = 1 << 8;
 const INGESTIBLE_POISON: u32 = 1 << 17;
+const MAX_RESISTANCE: f32 = 85.0;
+const RESIST_MAGIC: i32 = 44;
+const FIRST_SPECIFIC_RESISTANCE: i32 = 40;
+const LAST_SPECIFIC_RESISTANCE: i32 = 45;
 
 /// Identity of one effect application, independent of its MGEF FormID.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -481,6 +485,7 @@ impl World {
             if !magnitude.is_finite() || magnitude < 0.0 {
                 return Err(MagicError::Number);
             }
+            let magnitude = self.resisted_magnitude(target, data, magnitude)?;
             let signed = if data.flags & DETRIMENTAL != 0 {
                 -magnitude
             } else {
@@ -772,6 +777,7 @@ impl World {
             if !magnitude.is_finite() || magnitude < 0.0 {
                 return Err(MagicError::Number);
             }
+            let magnitude = self.resisted_magnitude(target, data, magnitude)?;
             let signed = if data.flags & DETRIMENTAL != 0 {
                 -magnitude
             } else {
@@ -944,6 +950,42 @@ impl World {
             applied.push(id);
         }
         Ok(applied)
+    }
+
+    fn resisted_magnitude(
+        &mut self,
+        target: GlobalFormId,
+        data: &soe_esm::records::gameplay::MagicEffectData,
+        magnitude: f32,
+    ) -> Result<f32, MagicError> {
+        if data.flags & HOSTILE == 0 {
+            return Ok(magnitude);
+        }
+        if data.resistance != -1
+            && !matches!(
+                data.resistance,
+                FIRST_SPECIFIC_RESISTANCE..=LAST_SPECIFIC_RESISTANCE
+            )
+        {
+            return Err(MagicError::Unsupported("magic resistance value"));
+        }
+        let values = &self.actor(target).ok_or(MagicError::Target)?.values;
+        let mut resisted = magnitude;
+        let magic_resistance = values
+            .get("resistmagic")
+            .current()
+            .clamp(0.0, MAX_RESISTANCE);
+        resisted *= 1.0 - magic_resistance / 100.0;
+        if data.resistance != -1 && data.resistance != RESIST_MAGIC {
+            let name = actor_value_name(data.resistance)
+                .ok_or(MagicError::Unsupported("magic resistance value"))?;
+            let specific = values.get(name).current().clamp(0.0, MAX_RESISTANCE);
+            resisted *= 1.0 - specific / 100.0;
+        }
+        if !resisted.is_finite() {
+            return Err(MagicError::Number);
+        }
+        Ok(resisted)
     }
 
     /// Validate authored action order before events or live actor values change.
