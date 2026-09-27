@@ -9,6 +9,10 @@ use soe_esm::GlobalFormId;
 
 use super::{Alloc, Handle, ObjectiveState, Pending, QuestState, World};
 use crate::quest::Quest;
+use crate::{conditions, quest::alias_flags};
+use soe_esm::{records::gameplay::Condition, Tag};
+
+const MAX_ALIAS_SEARCH_CANDIDATES: usize = 4096;
 
 impl World {
     pub(crate) fn initial_quest(&self, id: GlobalFormId) -> Option<QuestState> {
@@ -59,6 +63,12 @@ impl World {
     /// `Quest.Start`: true when the quest was not running. Delivers `OnInit`
     /// to the quest's scripts, then sets the start-up stage.
     pub fn start_quest(&mut self, id: GlobalFormId, alloc: Alloc<'_>) -> bool {
+        if self.quest_state(id).is_none_or(|quest| quest.running) {
+            return false;
+        }
+        if !self.fill_reference_aliases(id) {
+            return false;
+        }
         let Some(q) = self.quest_state(id) else {
             return false;
         };
@@ -93,6 +103,110 @@ impl World {
             self.set_stage(id, stage, alloc);
         }
         true
+    }
+
+    /// Fill reference aliases with one unambiguous, condition-matching placed reference.
+    ///
+    /// The search is capped across winning `ACHR` and `REFR` records. If the
+    /// cap is exceeded, the result is incomplete and no searched alias is filled.
+    fn fill_reference_aliases(&mut self, id: GlobalFormId) -> bool {
+        let Some(state) = self.quest_state(id) else {
+            return false;
+        };
+        let aliases: Vec<_> = state.def.aliases.clone();
+        let mut candidates: Vec<_> = [Tag::new(b"ACHR"), Tag::new(b"REFR")]
+            .into_iter()
+            .flat_map(|tag| self.order.winners_of(tag).map(|(form, _)| form))
+            .collect();
+        candidates.sort_unstable();
+        candidates.dedup();
+        if candidates.len() > MAX_ALIAS_SEARCH_CANDIDATES {
+            return aliases
+                .iter()
+                .filter(|alias| {
+                    !alias.location
+                        && !alias.creates_reference
+                        && !alias.match_conditions.is_empty()
+                        && alias.forced_ref.is_none()
+                })
+                .all(|alias| alias.flags & alias_flags::OPTIONAL != 0);
+        }
+
+        for alias in aliases.iter().filter(|alias| {
+            !alias.location
+                && !alias.creates_reference
+                && alias.forced_ref.is_none()
+                && !alias.match_conditions.is_empty()
+        }) {
+            let matching: Vec<_> = candidates
+                .iter()
+                .copied()
+                .filter(|candidate| {
+                    self.alias_candidate_allowed(alias.flags, *candidate)
+                        && self.alias_conditions_match(id, *candidate, &alias.match_conditions)
+                })
+                .collect();
+            let [candidate] = matching.as_slice() else {
+                if alias.flags & alias_flags::OPTIONAL == 0 {
+                    return false;
+                }
+                continue;
+            };
+            let occupied = aliases.iter().any(|other| {
+                other.id != alias.id
+                    && self.alias_ref(id, other.id) == Some(*candidate)
+                    && (alias.flags & alias_flags::ALLOW_REUSE_IN_QUEST == 0
+                        || other.flags & alias_flags::RESERVES_REFERENCE != 0
+                            && alias.flags & alias_flags::ALLOW_RESERVED == 0)
+            });
+            if occupied {
+                if alias.flags & alias_flags::OPTIONAL == 0 {
+                    return false;
+                }
+                continue;
+            }
+            self.force_alias(id, alias.id, Some(*candidate));
+        }
+        true
+    }
+
+    fn alias_candidate_allowed(&mut self, flags: u32, candidate: GlobalFormId) -> bool {
+        let Some((deleted, enabled, is_actor)) = self
+            .reference(candidate)
+            .map(|reference| (reference.deleted, reference.enabled, reference.is_actor))
+        else {
+            return false;
+        };
+        if deleted || !enabled && flags & alias_flags::ALLOW_DISABLED == 0 {
+            return false;
+        }
+        if flags & alias_flags::ALLOW_DEAD == 0
+            && is_actor
+            && self.actor(candidate).is_some_and(|actor| actor.dead)
+        {
+            return false;
+        }
+        true
+    }
+
+    fn alias_conditions_match(
+        &mut self,
+        quest: GlobalFormId,
+        candidate: GlobalFormId,
+        conditions_list: &[Condition],
+    ) -> bool {
+        conditions::evaluate_without_vm(
+            self,
+            conditions::Context {
+                owner: quest,
+                subject: candidate,
+                target: None,
+                quest: Some(quest),
+                tempering_enchanted: None,
+            },
+            conditions_list,
+        )
+        .unwrap_or(false)
     }
 
     pub fn stop_quest(&mut self, id: GlobalFormId) -> bool {

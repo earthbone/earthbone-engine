@@ -67,7 +67,7 @@ pub struct Objective {
     pub targets: Vec<(i32, u32)>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Alias {
     pub id: u32,
     pub name: String,
@@ -78,6 +78,20 @@ pub struct Alias {
     pub forced_ref: Option<u32>,
     /// `ALPC`: packages the alias puts on its actor, in order.
     pub packages: Vec<u32>,
+    /// `ALCO` selects Create Reference to Object rather than a placed reference.
+    pub creates_reference: bool,
+    /// `CTDA` predicates in the alias's Match Conditions block.
+    pub match_conditions: Vec<Condition>,
+}
+
+pub mod alias_flags {
+    //! Flags on reference and location aliases in a `QUST` record.
+    pub const RESERVES_REFERENCE: u32 = 1 << 0;
+    pub const OPTIONAL: u32 = 1 << 1;
+    pub const ALLOW_REUSE_IN_QUEST: u32 = 1 << 3;
+    pub const ALLOW_DEAD: u32 = 1 << 4;
+    pub const ALLOW_DISABLED: u32 = 1 << 7;
+    pub const ALLOW_RESERVED: u32 = 1 << 9;
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -131,6 +145,13 @@ impl Quest {
                 && Condition::push(rec, sub, &mut q.dialogue_conditions)?
             {
                 continue;
+            }
+            if matches!(section, Section::Alias) {
+                if let Some(alias) = q.aliases.last_mut() {
+                    if Condition::push(rec, sub, &mut alias.match_conditions)? {
+                        continue;
+                    }
+                }
             }
             let d = sub.data.as_slice();
             match sub.tag.as_bytes() {
@@ -208,6 +229,8 @@ impl Quest {
                         location: sub.tag == Tag::new(b"ALLS"),
                         forced_ref: None,
                         packages: Vec::new(),
+                        creates_reference: false,
+                        match_conditions: Vec::new(),
                     });
                     section = Section::Alias;
                 }
@@ -218,6 +241,11 @@ impl Quest {
                     if let Some(a) = q.aliases.last_mut() {
                         a.packages
                             .push(u32::from_le_bytes([d[0], d[1], d[2], d[3]]));
+                    }
+                }
+                b"ALCO" => {
+                    if let Some(a) = q.aliases.last_mut() {
+                        a.creates_reference = true;
                     }
                 }
                 b"ALID" => {

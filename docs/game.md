@@ -626,6 +626,22 @@ with the gameplay evaluator. Any other function fails its condition and is
 counted in `World::ai.unsupported_functions` by index, so a live run
 prints what the next round should add.
 
+**Quest reference alias searches.** At quest start, a reference alias with
+Match Conditions and no `ALFR` forced reference searches the winning `ACHR`
+and `REFR` records in sorted FormID order. The scan stops before evaluation if
+it would inspect more than 4,096 candidates. Each candidate must be enabled
+unless the alias has Allow Disabled, and a dead actor must have Allow Dead.
+Every authored condition must pass with the candidate as subject and the quest
+as owner. Unsupported conditions reject that candidate. The alias fills only
+when exactly one candidate passes. Existing alias fills prevent reuse unless
+the new alias has Allow Reuse in Quest, and reserved references require Allow
+Reserved. An ambiguous or missing result leaves an Optional alias empty. A
+required searched alias prevents quest start when it cannot be filled. This
+uses the QUST alias flags and condition block defined in
+`TES5Edit/Core/wbDefinitionsTES5.pas`. Other alias fill types, including
+Create Reference to Object (`ALCO`), are not created by this path, and aliases
+with `ALCO` are excluded from this placed-reference search.
+
 **Procedures.** AI-02 walks sequential branches in authored preorder. The
 actor retains the active child and its completion state. A completed Travel
 starts the next child on the next driver tick. Nested `Sequence` branches
