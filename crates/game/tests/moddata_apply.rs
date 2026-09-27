@@ -28,6 +28,7 @@ const GUARD_BASE: u32 = 0x806;
 const CELL: u32 = 0x810;
 const ROCK_REF: u32 = 0x811;
 const GUARD_REF: u32 = 0x812;
+const SECOND_GUARD_REF: u32 = 0x813;
 
 /// A directory of this test's own, named for the case so two cases running at
 /// once cannot read each other's files.
@@ -117,6 +118,25 @@ fn master() -> Plugin {
 fn game() -> Game {
     let mut order = LoadOrder::new();
     let bytes = master().to_bytes();
+    order
+        .add("Master.esm", Plugin::parse(&bytes).unwrap())
+        .unwrap();
+    Game::new(order)
+}
+
+fn game_with_guards(count: u32) -> Game {
+    let mut plugin = master();
+    for offset in 0..count {
+        let object = SECOND_GUARD_REF + offset;
+        plugin.push_top(placed(
+            *b"ACHR",
+            object,
+            &format!("Guard{object}"),
+            GUARD_BASE,
+        ));
+    }
+    let mut order = LoadOrder::new();
+    let bytes = plugin.to_bytes();
     order
         .add("Master.esm", Plugin::parse(&bytes).unwrap())
         .unwrap();
@@ -296,8 +316,8 @@ fn the_installed_game_is_scanned_for_real_mod_data() {
 }
 
 #[test]
-fn deterministic_spid_chances_never_silently_become_guaranteed() {
-    for (chance, applied, unsupported) in [("0!", 0, 0), ("50!", 0, 1), ("100!", 1, 0)] {
+fn mod_01_zero_and_full_deterministic_chances_remain_exact() {
+    for (chance, applied) in [("0!", 0), ("100!", 1)] {
         let dir = Dir::new(&format!("spid-chance-{chance}"));
         dir.write(
             "Test_DISTR.ini",
@@ -306,7 +326,6 @@ fn deterministic_spid_chances_never_silently_become_guaranteed() {
         let mut g = game();
         let report = g.apply_mod_data(&dir.roots());
         assert_eq!(report.distributions_applied, applied);
-        assert_eq!(report.skipped_unsupported_chance, unsupported);
         assert_eq!(
             g.world_mut()
                 .actor(id(GUARD_REF))
@@ -316,4 +335,41 @@ fn deterministic_spid_chances_never_silently_become_guaranteed() {
             applied == 1
         );
     }
+}
+
+#[test]
+fn mod_01_same_base_actors_get_distinct_repeatable_deterministic_results() {
+    let dir = Dir::new("spid-per-actor");
+    dir.write(
+        "Test_DISTR.ini",
+        "Spell = MySpell|WhiterunGuard|NONE|NONE|NONE|1|50!\n",
+    );
+    let results = || {
+        let mut g = game_with_guards(16);
+        g.apply_mod_data(&dir.roots());
+        std::iter::once(GUARD_REF)
+            .chain(SECOND_GUARD_REF..SECOND_GUARD_REF + 16)
+            .map(|reference| {
+                g.world_mut()
+                    .actor(id(reference))
+                    .unwrap()
+                    .spells
+                    .contains(&id(SPELL))
+            })
+            .collect::<Vec<_>>()
+    };
+    let first_run = results();
+    let second_run = results();
+    let other = first_run
+        .iter()
+        .position(|result| *result != first_run[0])
+        .unwrap_or_else(|| panic!("same-base deterministic results did not vary: {first_run:?}"));
+    assert_ne!(
+        first_run[0], first_run[other],
+        "actor FormIDs seed separate results"
+    );
+    assert_eq!(
+        first_run, second_run,
+        "the same load and actor IDs repeat results"
+    );
 }

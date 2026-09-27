@@ -162,15 +162,16 @@ under them, resolves it and applies it. `Game::apply_mod_data_from` takes a
 resolved `soe_profile::Loadout` instead, which already knows those roots in
 order.
 
-Call it before `Game::start`. This engine applies distributions once at load.
-That is a current limitation, not a claim of matching SPID's actor lifecycle.
+Call it before `Game::start`. This engine applies distributions before scripts
+run. Fractional SPID rules marked with `!` are kept until an actor reference is
+built.
 
 ### Where each format lands, and why there
 
 | Format | Applied | Where |
 |---|---|---|
 | `_KID.ini` | At load | Merged into `World::keywords` itself |
-| `_DISTR.ini` | At load, keyed by base | Read when an actor's state is built |
+| `_DISTR.ini` | At load | Base rules are read when actor state is built, deterministic fractional rules are selected per actor reference |
 | `_SWAP.ini` | Held, applied per reference | Read when a reference is built |
 | OAR | Counted only | The animation system will read the trees |
 
@@ -181,9 +182,10 @@ from a shipped one. A side table this module alone consulted would have passed
 a weaker test and failed a real mod, which is why the lookup changed rather
 than gaining a neighbour.
 
-Distribution is keyed by `NPC_` base rather than applied to loaded actors,
-because an actor's state is built from its base on first use. A reference that
-loads an hour later still receives what its base was given.
+Ordinary SPID distribution results are keyed by `NPC_` base because actor
+state is built from its base on first use. Fractional deterministic rules
+marked with `!` instead wait for an actor reference, where the same base can
+produce different results for different actors.
 
 A swap is not a load time event at all. The reference it names may not exist
 yet, so the swap is held and `RefState`'s base is rewritten when the reference
@@ -199,11 +201,16 @@ Tests cover `0!`, `50!`, `100!`, ordinary percentages and malformed values.
 
 Ordinary SPID chance rolls occur per matching NPC base using the world's
 seeded generator. Deterministic `0!` and `100!` work without a random choice.
-Fractional deterministic rules are skipped and counted in
-`skipped_unsupported_chance`. Their per-actor seed and lifecycle are not
-implemented. References are SPID `SPID/src/LookupConfigs.h`, `Defs.h` and
-`LookupFilters.cpp`, especially `ChanceComponentParser` and the deterministic
-branch combining line seed, player ID and actor FormID.
+Fractional deterministic rules retain the parsed entry value's line seed and
+are evaluated when `World::actor` first builds the matching reference. The
+roll seed combines that line seed with the player runtime FormID and the actor
+runtime FormID, following SPID's `LookupConfigs.cpp`, `Defs.h` and
+`LookupFilters.cpp` inputs and hash-combine order. The engine uses FNV-1a for
+the entry value, then expands the combined seed with SplitMix64 before the
+xorshift draw. This preserves the upstream per-entry, per-player and per-actor
+selection rule without relying on an implementation-defined C++ string hash
+or claiming bit-for-bit output from SPID's RNG.
+`world.mod_data` includes the retained actor rules and their selection inputs.
 
 KID uses a different deterministic seed in `src/Data/BaseFilters.cpp`, based
 on keyword editor ID and target form. Our KID application still rolls once

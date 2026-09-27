@@ -49,9 +49,8 @@ pub struct WorldHash {
     pub flags: u64,
     /// Playing scenes, sound instances and recorded spell casts.
     pub scenes: u64,
-    /// What the mod data files attached, distributed and swapped. Distribution
-    /// rolls a chance from the world generator, so this part moving between
-    /// two runs of one seed is a real divergence and not noise.
+    /// What the mod data files attached, distributed and swapped, including
+    /// retained actor-specific deterministic distribution rules.
     pub mod_data: u64,
 }
 
@@ -775,6 +774,15 @@ impl World {
                 h.i32(d.count);
                 h.bool(d.on_death);
             }
+        }
+        h.len(self.mod_data.actor_rules.len());
+        for rule in &self.mod_data.actor_rules {
+            form(&mut h, rule.base);
+            form(&mut h, rule.what);
+            h.u64(rule.distribution.line_seed);
+            h.f32(rule.distribution.chance);
+            h.i32(rule.count);
+            h.str(&format!("{:?}", rule.distribution));
         }
         h.len(self.mod_data.base_swaps.len());
         for (from, to) in &self.mod_data.base_swaps {

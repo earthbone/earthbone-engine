@@ -159,7 +159,11 @@ impl World {
         base: GlobalFormId,
     ) -> crate::inventory::Inventory {
         let mut out = crate::inventory::Inventory::default();
-        for d in self.mod_data.for_base(base) {
+        let distributions = reference.map_or_else(
+            || self.mod_data.for_base(base).to_vec(),
+            |reference| crate::moddata::for_actor(self, reference, base),
+        );
+        for d in &distributions {
             if d.record_type == soe_moddata::spid::RecordType::Item {
                 let _ = out.add(d.what, d.count);
             }

@@ -34,9 +34,10 @@
 //! # Chance
 //!
 //! Ordinary SPID chances use the world's seeded generator per matching NPC
-//! base. SPID's trailing `!` requests a deterministic per-actor choice, whose
-//! seed and actor lifecycle are not implemented. Fractional deterministic
-//! rules are counted as unsupported. Zero and 100 percent remain exact.
+//! base. SPID's trailing `!` requests a deterministic per-actor choice. Those
+//! rules are evaluated when an actor is built from its reference ID and are
+//! keyed from the entry value, player runtime ID and actor runtime ID. Zero
+//! and 100 percent remain exact.
 //! KID's deterministic target seed is also not reproduced yet. See
 //! `docs/moddata.md` for these compatibility limits.
 
@@ -86,9 +87,24 @@ pub struct ModDataState {
     pub added_keywords: BTreeMap<GlobalFormId, BTreeSet<GlobalFormId>>,
     /// What each `NPC_` base was handed, applied when its actor is built.
     pub distributed: BTreeMap<GlobalFormId, Vec<Distributed>>,
+    /// Fractional deterministic SPID rules, evaluated for each actor instance.
+    pub actor_rules: Vec<ActorDistribution>,
     /// Base object replacements, applied when a reference is built.
     pub base_swaps: BTreeMap<GlobalFormId, GlobalFormId>,
     pub report: ModDataReport,
+}
+
+/// A resolved SPID distribution whose chance depends on an actor reference.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ActorDistribution {
+    /// NPC base selected by the rule filters.
+    pub base: GlobalFormId,
+    /// Resolved form handed to the actor.
+    pub what: GlobalFormId,
+    /// Parsed rule, including its per-entry chance seed.
+    pub distribution: spid::Distribution,
+    /// Resolved item count, at least one.
+    pub count: i32,
 }
 
 impl ModDataState {
@@ -120,7 +136,7 @@ pub struct ModDataReport {
     /// Rules carrying a level or trait filter, which are not evaluated yet, so
     /// the rule is skipped rather than applied to the wrong actors.
     pub skipped_unsupported_filter: usize,
-    /// Deterministic fractional chances need per-actor distribution support.
+    /// Rules skipped because their chance mode is unsupported.
     pub skipped_unsupported_chance: usize,
     /// Lines the parser could not read, reported by the parser itself.
     pub unreadable_lines: usize,
@@ -165,6 +181,71 @@ fn subject_of(world: &World, id: GlobalFormId) -> Subject {
             .filter_map(|k| world.editor_id(k))
             .collect(),
     }
+}
+
+/// Distributions applicable to one actor reference, including stable SPID
+/// chances whose result depends on its runtime FormID.
+pub(crate) fn for_actor(
+    world: &World,
+    actor: GlobalFormId,
+    base: GlobalFormId,
+) -> Vec<Distributed> {
+    let mut result = world.mod_data.for_base(base).to_vec();
+    let subject = subject_of(world, base);
+    let player = u64::from(world.order().runtime_id(GlobalFormId {
+        file: 0,
+        object: crate::world::PLAYER_OBJECT,
+    }));
+    let actor_id = u64::from(world.order().runtime_id(actor));
+    for rule in &world.mod_data.actor_rules {
+        if rule.base != base
+            || !rule.distribution.strings.matches(world.order(), &subject)
+            || !rule.distribution.forms.matches(world.order(), &subject)
+            || !deterministic_roll(
+                rule.distribution.line_seed,
+                player,
+                actor_id,
+                rule.distribution.chance,
+            )
+        {
+            continue;
+        }
+        result.push(Distributed {
+            record_type: rule.distribution.record_type,
+            what: rule.what,
+            count: rule.count,
+            on_death: rule.distribution.on_death,
+        });
+    }
+    result
+}
+
+fn deterministic_roll(line_seed: u64, player: u64, actor: u64, chance: f32) -> bool {
+    if chance >= 100.0 {
+        return true;
+    }
+    if chance <= 0.0 {
+        return false;
+    }
+    let mut seed = line_seed;
+    for value in [player, actor] {
+        seed ^= value
+            .wrapping_add(0x9e37_79b9)
+            .wrapping_add(seed << 6)
+            .wrapping_add(seed >> 2);
+    }
+    let mut value = seed.wrapping_add(0x9E37_79B9_7F4A_7C15);
+    value = (value ^ (value >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    value = (value ^ (value >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+    value ^= value >> 31;
+    if value == 0 {
+        value = 0x9E37_79B9_7F4A_7C15;
+    }
+    value ^= value << 13;
+    value ^= value >> 7;
+    value ^= value << 17;
+    let unit = (value >> 11) as f64 / (1_u64 << 53) as f64;
+    unit * 100.0 < f64::from(chance)
 }
 
 /// True when a distribution carries a filter this module cannot evaluate yet.
@@ -292,10 +373,6 @@ fn apply_spid(world: &mut World, path: &Path, report: &mut ModDataReport) {
             report.skipped_unsupported_filter += 1;
             continue;
         }
-        if d.deterministic_chance && d.chance > 0.0 && d.chance < 100.0 {
-            report.skipped_unsupported_chance += 1;
-            continue;
-        }
         let count = match d.index_or_count {
             spid::IndexOrCount::Count(r) => i32::try_from(r.min.max(1)).unwrap_or(1),
             spid::IndexOrCount::Index(_) => 1,
@@ -306,6 +383,15 @@ fn apply_spid(world: &mut World, path: &Path, report: &mut ModDataReport) {
                 continue;
             }
             if !d.forms.matches(world.order(), &subject) {
+                continue;
+            }
+            if d.deterministic_chance && d.chance > 0.0 && d.chance < 100.0 {
+                world.mod_data.actor_rules.push(ActorDistribution {
+                    base: *base,
+                    what,
+                    distribution: d.clone(),
+                    count,
+                });
                 continue;
             }
             if !roll(world, d.chance) {
