@@ -961,7 +961,9 @@ were excluded, and no corpus restoration success is claimed by this checkpoint.
 
 ## Actor-value restoration evidence
 
-SAV-06 remains blocked on SAV-64's missing serialized component layout.
+The SAV-06 engine-save check verifies that current and permanent actor-value
+components remain separate through SOEW save/load. Vanilla ACHR modifier
+restoration remains blocked on SAV-64's missing serialized component layout.
 The 60-save ACHR survey accounts for 243,595 records, all without the five
 documented actor-modifier bits. Existing prefix decoding fails on 81 named
 package states and leaves actor data unparsed. These observations do not

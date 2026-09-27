@@ -1,9 +1,11 @@
 # Saved actor-value modifiers
 
-SAV-06 remains blocked on SAV-64 as of 2026-09-20. The engine already preserves
-its own actor-value components, but the consulted sources do not define how to
-locate and decode those components in vanilla ACHR payloads. No modifier decoder
-or restoration API is added by this checkpoint.
+The SAV-06 engine-save check is covered by `sav_06_actor_value_modifiers` in
+`crates/game/tests`. SOEW preserves its actor-value components across the full
+game save and load path. Vanilla ACHR modifier restoration remains blocked on
+SAV-64 because the consulted sources do not define how to locate or decode
+those components in vanilla payloads. This checkpoint adds no modifier decoder
+or vanilla restoration API.
 
 ## Existing engine persistence
 
