@@ -46,6 +46,8 @@ pub enum Error {
     NonFinite,
     #[error("condition requires tempering item context")]
     TemperingContext,
+    #[error("condition function {0} has no usable runtime contract in the local sources")]
+    Contract(u16),
     #[error("condition count overflow or cyclic form list")]
     Inventory,
 }
@@ -140,6 +142,14 @@ pub fn supports_function(function: u16) -> bool {
             | 630
             | 655
             | 659
+            | 650
+            | 680
+            | 682
+            | 700
+            | 720
+            | 722
+            | 725
+            | 726
     )
 }
 
@@ -166,6 +176,25 @@ fn evaluate_one_with_vm(
     if c.flags & 0x0a != 0 {
         return Err(Error::Flags(c.flags & 0x1f));
     }
+    if c.function == 726 {
+        no_parameter(c)?;
+        if c.run_on != 5 {
+            return Err(Error::Contract(c.function));
+        }
+        let quest = context.quest.ok_or(Error::Target(5))?;
+        let alias = u32::try_from(c.parameter_3).map_err(|_| Error::Target(5))?;
+        if world
+            .quest_state(quest)
+            .and_then(|state| state.def.alias(alias))
+            .is_none()
+        {
+            return Err(Error::Target(5));
+        }
+        if world.alias_ref(quest, alias).is_none() {
+            let expected = expected_value(world, context.owner, c)?;
+            return compare(boolean(true), expected, c);
+        }
+    }
     let (context_subject, context_target) = if c.flags & 0x10 != 0 {
         (context.target, Some(context.subject))
     } else {
@@ -184,13 +213,24 @@ fn evaluate_one_with_vm(
     }
     .ok_or(Error::Target(c.run_on))?;
     let actual = function_value(world, vm, context, subject, c)?;
-    let expected = match c.comparison {
+    let expected = expected_value(world, context.owner, c)?;
+    if !actual.is_finite() || !expected.is_finite() {
+        return Err(Error::NonFinite);
+    }
+    compare(actual, expected, c)
+}
+
+fn expected_value(world: &mut World, owner: GlobalFormId, c: &Condition) -> Result<f32, Error> {
+    Ok(match c.comparison {
         Comparison::Number(value) => value,
         Comparison::Global(raw) => {
-            let global = resolve(world, context.owner, raw, Some(*b"GLOB"))?;
+            let global = resolve(world, owner, raw, Some(*b"GLOB"))?;
             world.global_value(global)
         }
-    };
+    })
+}
+
+fn compare(actual: f32, expected: f32, c: &Condition) -> Result<bool, Error> {
     if !actual.is_finite() || !expected.is_finite() {
         return Err(Error::NonFinite);
     }
@@ -280,6 +320,63 @@ fn function_value(
             let other = resolve_reference(world, context.owner, raw)?;
             world.distance(subject, other)
         }
+        650 => {
+            let target = resolve_reference(world, context.owner, raw)?;
+            let keyword = if c.parameters[1] == 0 {
+                None
+            } else {
+                Some(resolve(
+                    world,
+                    context.owner,
+                    c.parameters[1],
+                    Some(*b"KYWD"),
+                )?)
+            };
+            let reference = world.reference(subject).ok_or(Error::Form(subject))?;
+            boolean(
+                reference.linked.iter().any(|(linked_keyword, linked)| {
+                    *linked == target && *linked_keyword == keyword
+                }),
+            )
+        }
+        680 | 720 | 725 => return Err(Error::Contract(c.function)),
+        682 | 722 => {
+            if c.parameters[1] != 0 {
+                return Err(Error::Parameter(c.function, c.parameters[1]));
+            }
+            let keyword = resolve(world, context.owner, raw, Some(*b"KYWD"))?;
+            let equipped: Vec<_> = world
+                .actor(subject)
+                .ok_or(Error::Form(subject))?
+                .equipped
+                .iter()
+                .copied()
+                .collect();
+            let count = equipped
+                .into_iter()
+                .filter(|item| {
+                    world.tag_of(*item) == Some(Tag(*b"ARMO")) && world.has_keyword(*item, keyword)
+                })
+                .count();
+            if c.function == 682 {
+                boolean(count != 0)
+            } else {
+                count as f32
+            }
+        }
+        700 => {
+            no_parameter(c)?;
+            if world.actor(subject).is_none() {
+                return Err(Error::Form(subject));
+            }
+            boolean(
+                world
+                    .active_effects
+                    .values()
+                    .any(|effect| effect.target == subject && effect.restore_owner.is_some()),
+            )
+        }
+        726 => 0.0,
         18 => world.calendar().hour as f32,
         46 => boolean(world.actor(subject).is_some_and(|actor| actor.dead)),
         67 => {
@@ -608,4 +705,198 @@ pub(crate) fn inventory_count(
         return Ok(total);
     }
     Ok(world.item_count(subject, item))
+}
+
+#[cfg(test)]
+mod ai_78_conditions {
+    use super::*;
+    use crate::{quest, Game};
+    use soe_esm::{FileHeader, LoadOrder, Plugin, Record};
+
+    fn id(object: u32) -> GlobalFormId {
+        GlobalFormId { file: 0, object }
+    }
+
+    fn fixture() -> Game {
+        let mut plugin = Plugin::new(FileHeader::default());
+        plugin.push_top(Record::new(Tag(*b"NPC_"), 0x800));
+        plugin.push_top(
+            Record::new(Tag(*b"ACHR"), 0x900).sub(Tag(*b"NAME"), 0x800_u32.to_le_bytes()),
+        );
+        plugin.push_top(
+            Record::new(Tag(*b"ACHR"), 0x901).sub(Tag(*b"NAME"), 0x800_u32.to_le_bytes()),
+        );
+        plugin.push_top(Record::new(Tag(*b"STAT"), 0x910));
+        plugin.push_top(
+            Record::new(Tag(*b"REFR"), 0x902).sub(Tag(*b"NAME"), 0x910_u32.to_le_bytes()),
+        );
+        plugin.push_top(Record::new(Tag(*b"KYWD"), 0x820));
+        plugin.push_top(
+            Record::new(Tag(*b"ARMO"), 0x830).sub(Tag(*b"KWDA"), 0x820_u32.to_le_bytes()),
+        );
+        plugin.push_top(quest::with_alias(
+            Record::new(Tag(*b"QUST"), 0x840),
+            7,
+            "Target",
+            None,
+        ));
+        let mut order = LoadOrder::new();
+        order.add("AI78.esm", plugin).unwrap();
+        Game::new(order)
+    }
+
+    fn condition(function: u16, first: u32, second: u32, expected: f32) -> Condition {
+        Condition {
+            flags: 0,
+            comparison: Comparison::Number(expected),
+            function,
+            parameters: [first, second],
+            run_on: 0,
+            reference: 0,
+            parameter_3: -1,
+            strings: [None, None],
+        }
+    }
+
+    fn evaluate(game: &Game, subject: GlobalFormId, condition: &Condition) -> Result<bool, Error> {
+        evaluate_one(
+            &mut game.world_mut(),
+            &game.vm,
+            Context {
+                owner: id(0x800),
+                subject,
+                target: None,
+                quest: Some(id(0x840)),
+                tempering_enchanted: None,
+            },
+            condition,
+        )
+    }
+
+    #[test]
+    fn ai_78_is_linked_to_matches_reference_and_keyword() {
+        let game = fixture();
+        game.world_mut()
+            .reference(id(0x900))
+            .unwrap()
+            .linked
+            .push((Some(id(0x820)), id(0x901)));
+        assert_eq!(
+            evaluate(&game, id(0x900), &condition(650, 0x901, 0x820, 1.0)),
+            Ok(true)
+        );
+        assert_eq!(
+            evaluate(&game, id(0x900), &condition(650, 0x902, 0x820, 1.0)),
+            Ok(false)
+        );
+        assert_eq!(
+            evaluate(&game, id(0x900), &condition(650, 0x901, 0x820, 0.0)),
+            Ok(false)
+        );
+        assert_eq!(
+            evaluate(&game, id(0x900), &condition(650, 0x910, 0x820, 1.0)),
+            Err(Error::Form(id(0x910)))
+        );
+    }
+
+    #[test]
+    fn ai_78_get_activator_height_reports_missing_contract() {
+        let game = fixture();
+        assert_eq!(
+            evaluate(&game, id(0x900), &condition(680, 0, 0, 0.0)),
+            Err(Error::Contract(680))
+        );
+    }
+
+    #[test]
+    fn ai_78_worn_keyword_checks_and_counts_apparel() {
+        let game = fixture();
+        game.world_mut()
+            .actor(id(0x900))
+            .unwrap()
+            .equipped
+            .insert(id(0x830));
+        assert_eq!(
+            evaluate(&game, id(0x900), &condition(682, 0x820, 0, 1.0)),
+            Ok(true)
+        );
+        assert_eq!(
+            evaluate(&game, id(0x900), &condition(682, 0x820, 0, 0.0)),
+            Ok(false)
+        );
+        assert_eq!(
+            evaluate(&game, id(0x900), &condition(722, 0x820, 0, 1.0)),
+            Ok(true)
+        );
+        assert_eq!(
+            evaluate(&game, id(0x900), &condition(722, 0x820, 0, 2.0)),
+            Ok(false)
+        );
+        assert_eq!(
+            evaluate(&game, id(0x902), &condition(682, 0x820, 0, 0.0)),
+            Err(Error::Form(id(0x902)))
+        );
+        assert!(matches!(
+            evaluate(&game, id(0x900), &condition(682, 0x910, 0, 1.0)),
+            Err(Error::Form(_))
+        ));
+    }
+
+    #[test]
+    fn ai_78_commanded_actor_reads_live_command_effect_ownership() {
+        let game = fixture();
+        let query = condition(700, 0, 0, 1.0);
+        assert_eq!(evaluate(&game, id(0x900), &query), Ok(false));
+        game.world_mut().make_commanded_for_test(id(0x900));
+        assert_eq!(evaluate(&game, id(0x900), &query), Ok(true));
+        assert_eq!(evaluate(&game, id(0x901), &query), Ok(false));
+        assert_eq!(
+            evaluate(&game, id(0x902), &query),
+            Err(Error::Form(id(0x902)))
+        );
+    }
+
+    #[test]
+    fn ai_78_target_height_reports_missing_contract() {
+        let game = fixture();
+        assert_eq!(
+            evaluate(&game, id(0x900), &condition(720, 0x901, 0, 5.0)),
+            Err(Error::Contract(720))
+        );
+        assert_eq!(
+            evaluate(&game, id(0x900), &condition(720, 0x901, 0, -5.0)),
+            Err(Error::Contract(720))
+        );
+        assert_eq!(
+            evaluate(&game, id(0x900), &condition(720, 0x910, 0, 0.0)),
+            Err(Error::Contract(720))
+        );
+    }
+
+    #[test]
+    fn ai_78_knocked_state_reports_missing_contract() {
+        let game = fixture();
+        assert_eq!(
+            evaluate(&game, id(0x900), &condition(725, 0, 0, 0.0)),
+            Err(Error::Contract(725))
+        );
+    }
+
+    #[test]
+    fn ai_78_does_not_exist_checks_unfilled_quest_alias() {
+        let game = fixture();
+        let mut missing = condition(726, 0, 0, 1.0);
+        missing.run_on = 5;
+        missing.parameter_3 = 7;
+        assert_eq!(evaluate(&game, id(0x900), &missing), Ok(true));
+        game.world_mut().force_alias(id(0x840), 7, Some(id(0x900)));
+        assert_eq!(evaluate(&game, id(0x900), &missing), Ok(false));
+        assert_eq!(
+            evaluate(&game, id(0x900), &condition(726, 0, 0, 0.0)),
+            Err(Error::Contract(726))
+        );
+        let mut invalid = missing;
+        invalid.parameter_3 = 99;
+        assert_eq!(evaluate(&game, id(0x900), &invalid), Err(Error::Target(5)));
+    }
 }

@@ -1246,7 +1246,8 @@ earlier member can change inventory or queue events.
 Active-effect recipients remain pending with magic execution.
 
 The condition evaluator implements functions 47, 56, 58, 59, 72, 74, 136,
-182, 264, 277, 289, 359, 448, 543, 560, 629, 630 and 659. This is a bounded set,
+182, 264, 277, 289, 359, 448, 543, 560, 629, 630, 650, 659, 680, 682, 700,
+720, 722, 725 and 726. This is a bounded set,
 not the entire CTDA contract. It supports ordered AND/OR groups, numeric or
 global comparisons, explicit references and caller-supplied quest aliases.
 Reserved PlayerRef resolves to the runtime player even without a placed record.
@@ -1266,6 +1267,21 @@ and an explicit condition error. The CK page records keyword failures on actor
 inventories and CK-defined reference inventories. The engine uses its shared
 inventory totals for both actors and containers, so keyword queries have the
 same defined result for either holder.
+
+The later condition batch checks `IsLinkedTo` against the subject reference's
+linked-reference keyword pairs, `WornHasKeyword` and
+`WornApparelHasKeywordCount` against worn ARMO forms, `IsCommandedActor` against
+live command effects. `DoesNotExist` is supported for declared quest aliases
+run on that alias and returns true when it is unfilled. The batch returns
+`conditions::Error::Contract` for `GetActivatorHeight`, `GetTargetHeight` and
+`GetKnockedStateEnum`, since the local CK corpus provides no usable runtime
+contract or state representation for them. Invalid actors, forms, parameters,
+and undeclared aliases return explicit errors. xEdit's local
+`wbDefinitionsTES5.pas` supplies the function IDs and parameter types. CK's
+`IsCommandedActor_-_Actor.wikitext`, `WornHasKeyword_-_Actor.wikitext` and
+`GetLinkedRef_-_ObjectReference.wikitext` supply the behavior used for those
+queries. The other condition IDs appear in xEdit's function table, but that
+schema does not establish their runtime behavior.
 
 Sources consulted were local xEdit `wbDefinitionsTES5.pas` for CTDA, COBJ and
 FURN WBDT, CK `GetItemCount_-_ObjectReference.wikitext` for the query forms,
