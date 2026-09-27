@@ -13,7 +13,28 @@ use godot::prelude::*;
 
 use super::PlayerNode;
 use crate::inventory_menu::{self, Category};
+use crate::quest_journal::{self, Entry as QuestEntry};
 use soe_esm::GlobalFormId;
+
+fn render_quest_entry(rows: &mut Gd<VBoxContainer>, entry: &QuestEntry) {
+    if let Some(title) = &entry.title {
+        let mut heading = Label::new_alloc();
+        heading.set_text(title);
+        rows.add_child(&heading);
+    }
+    for objective in &entry.objectives {
+        let status = if objective.failed {
+            " [Failed]"
+        } else if objective.completed {
+            " [Completed]"
+        } else {
+            ""
+        };
+        let mut label = Label::new_alloc();
+        label.set_text(&format!("{}{}", objective.text, status));
+        rows.add_child(&label);
+    }
+}
 
 pub(super) struct MenuView {
     panel: Gd<PanelContainer>,
@@ -25,6 +46,42 @@ pub(super) struct MenuView {
 }
 
 impl PlayerNode {
+    pub(super) fn refresh_quest_journal(&mut self) -> bool {
+        if self.menu.title() != Some("Quests") {
+            return false;
+        }
+        let Some(game) = self.game.as_ref() else {
+            return false;
+        };
+        let entries = quest_journal::entries(game);
+        if self.quest_journal_snapshot.as_ref() == Some(&entries) {
+            return false;
+        }
+        let Some(mut content) = self.menu_view.as_ref().map(|view| view.content.clone()) else {
+            return false;
+        };
+        self.quest_journal_snapshot = Some(entries.clone());
+        let _guard = self.base_mut();
+        for mut child in content.get_children().iter_shared() {
+            content.remove_child(&child);
+            child.queue_free();
+        }
+        let mut scroll = ScrollContainer::new_alloc();
+        scroll.set_v_size_flags(SizeFlags::EXPAND_FILL);
+        let mut rows = VBoxContainer::new_alloc();
+        scroll.add_child(&rows);
+        content.add_child(&scroll);
+        if entries.is_empty() {
+            let mut label = Label::new_alloc();
+            label.set_text("No active quests");
+            rows.add_child(&label);
+        }
+        for entry in &entries {
+            render_quest_entry(&mut rows, entry);
+        }
+        true
+    }
+
     pub(super) fn create_menu(&mut self) {
         let mut theme = Theme::new_gd();
         theme.set_default_font_size(22);
@@ -308,6 +365,16 @@ impl PlayerNode {
         }
         self.inventory_category = Category::All;
         self.inventory_content(self.inventory_category)
+    }
+
+    /// Open active quests and displayed objectives from the shared Game.
+    #[func]
+    pub fn open_quest_journal(&mut self) -> bool {
+        if self.game.is_none() || !self.open_menu("Quests".into()) {
+            return false;
+        }
+        self.quest_journal_snapshot = None;
+        self.refresh_quest_journal()
     }
 
     /// Open the native mod configuration list from live quest scripts.

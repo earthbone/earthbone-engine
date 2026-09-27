@@ -122,6 +122,7 @@ pub struct PlayerNode {
     inventory_category: crate::inventory_menu::Category,
     magic_hand: soe_game::combat::Hand,
     menu_view: Option<menu::MenuView>,
+    quest_journal_snapshot: Option<Vec<crate::quest_journal::Entry>>,
     mcm_config: Option<GlobalFormId>,
     container_menu: Option<(GlobalFormId, crate::inventory_menu::Category)>,
     lockpick_target: Option<GlobalFormId>,
@@ -176,6 +177,7 @@ impl INode3D for PlayerNode {
             inventory_category: crate::inventory_menu::Category::All,
             magic_hand: soe_game::combat::Hand::Right,
             menu_view: None,
+            quest_journal_snapshot: None,
             mcm_config: None,
             container_menu: None,
             lockpick_target: None,
@@ -242,6 +244,17 @@ impl INode3D for PlayerNode {
                 }
                 return;
             }
+            if key.get_keycode() == Key::J
+                && key.is_pressed()
+                && !key.is_echo()
+                && !self.menu.is_open()
+                && self.open_quest_journal()
+            {
+                if let Some(mut viewport) = self.base().get_viewport() {
+                    viewport.set_input_as_handled();
+                }
+                return;
+            }
             if key.get_keycode() == Key::ESCAPE && key.is_pressed() && !key.is_echo() {
                 if self.menu.is_open() {
                     self.close_menu();
@@ -294,6 +307,9 @@ impl INode3D for PlayerNode {
     }
 
     fn process(&mut self, delta: f64) {
+        if self.menu.title() == Some("Quests") {
+            self.refresh_quest_journal();
+        }
         if self.auto_step && !self.menu.is_open() {
             self.look_stick(delta);
             let (dx, dy) = std::mem::take(&mut self.pending_look);

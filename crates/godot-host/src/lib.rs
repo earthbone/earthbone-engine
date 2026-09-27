@@ -28,6 +28,7 @@ pub mod interior_prefetch;
 pub mod inventory_menu;
 pub mod magic_menu;
 pub mod mesh;
+pub mod quest_journal;
 pub mod skinned;
 pub mod streaming;
 pub mod terrain;

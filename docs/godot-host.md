@@ -1918,6 +1918,20 @@ equipped.
 The native M shortcut opens the magic menu the same way I opens inventory,
 gated on an active Game. No shortcut is yet remapped through controlmap.txt.
 
+The native J shortcut opens the quest journal through the same menu shell.
+It reads loaded active quest state from the shared Game, omits QUST type 0,
+and hides the title for miscellaneous type 6 quests. It lists only objectives
+whose runtime state is displayed, with completed and failed markers. While
+the journal is open, PlayerNode compares the current rows with its last
+snapshot each process frame and rebuilds the presenter when shared quest
+state changes. The menu does not maintain quest or objective state of its
+own.
+
+The QUST layout rules come from `uesp-modfileformat/QUST.wikitext` and
+`TES5Edit/Core/wbDefinitionsTES5.pas`. The local CK `Quest_Script.wikitext`
+lists the objective display, completion and failure operations. The presenter
+reads the existing `World::QuestState`; it adds no save fields.
+
 The lockpicking presenter (UI-08) opens when player activation reaches a
 locked, non-key-only reference and the player has a lockpick but no matching
 key. Its angle slider and Turn lock button submit attempts to
