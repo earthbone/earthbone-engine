@@ -10,7 +10,7 @@ mod common;
 
 use common::{graph, Root};
 use soe_hkx::animation::SplineCompressedAnimation;
-use soe_hkx::behavior::{BehaviorGraph, NodeId, NodeKind};
+use soe_hkx::behavior::{BehaviorGraph, BoneSwitchChild, NodeId, NodeKind};
 use soe_hkx::interp::{Clip, ClipLibrary, Event, Interpreter};
 use soe_hkx::spline::encode;
 use soe_hkx::{Packfile, QsTransform};
@@ -206,6 +206,39 @@ fn idle_plays_then_a_trigger_starts_the_walk_blend() {
         sampled_x(&lib, "mt_idle", DT)
     ));
     assert!(!vm.send_event_named("noSuchEvent"));
+}
+
+#[test]
+fn anm_19_selected_bone_child_overlays_only_its_authored_bones() {
+    let mut g = load(&Root::Machine);
+    let idle = clip_named(&g, "IdleClip");
+    let walk = clip_named(&g, "WalkClip");
+    let root = g.root.unwrap();
+    g.nodes[root.0].kind = NodeKind::BoneSwitch {
+        default_generator: Some(walk),
+        children: vec![BoneSwitchChild {
+            generator: Some(idle),
+            bone_weights: Some(vec![0.0, 1.0]),
+        }],
+    };
+    let lib = library();
+    let untouched = QsTransform {
+        translation: [0.0, 0.0, 60.0, 0.0],
+        ..QsTransform::IDENTITY
+    };
+    let mut vm = Interpreter::new(&g, &lib, vec![QsTransform::IDENTITY, untouched]);
+
+    let out = vm.update(DT);
+    assert_eq!(out.pose[0], QsTransform::IDENTITY, "unmasked bone changed");
+    assert!(
+        close(out.pose[1].translation[0], sampled_x(&lib, "mt_idle", DT)),
+        "masked bone did not use the child generator: {:?}",
+        out.pose[1]
+    );
+    assert_eq!(
+        out.pose[1].translation[2], 0.0,
+        "masked bone kept default pose"
+    );
 }
 
 #[test]
