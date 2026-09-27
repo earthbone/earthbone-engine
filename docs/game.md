@@ -1246,7 +1246,8 @@ earlier member can change inventory or queue events.
 Active-effect recipients remain pending with magic execution.
 
 The condition evaluator implements functions 47, 56, 58, 59, 72, 74, 136,
-182, 264, 277, 289, 359, 448, 543, 560, 629, 630 and 659. This is a bounded set,
+182, 264, 277, 289, 359, 372, 414, 426, 432, 448, 543, 560, 629, 630 and
+659. This is a bounded set,
 not the entire CTDA contract. It supports ordered AND/OR groups, numeric or
 global comparisons, explicit references and caller-supplied quest aliases.
 Reserved PlayerRef resolves to the runtime player even without a placed record.
@@ -1266,6 +1267,20 @@ and an explicit condition error. The CK page records keyword failures on actor
 inventories and CK-defined reference inventories. The engine uses its shared
 inventory totals for both actors and containers, so keyword queries have the
 same defined result for either holder.
+
+`IsInList` tests whether the subject reference's base form is a member of the
+resolved FLST. `Exists` accepts a placed ACHR or REFR and returns false for a
+deleted reference. `GetIsVoiceType` compares the actor's traits-source NPC_ VTCK
+with a resolved VTYP. `GetIsObjectType` compares the subject base record's
+CommonLib form-type code. First-person camera state, shared combat-group counts
+and the grabbed reference are unavailable runtime contexts, so functions 391,
+415, 416 and 463 return explicit condition errors. They do not silently match
+either boolean result. Local xEdit `wbDefinitionsTES5.pas` and UESP
+`Raw_Function_Data.wikitext` supply the function indices and parameter types.
+Mutagen's Skyrim condition data types confirm the typed FLST, placed-reference,
+VTYP and form-type links. The CK corpus does not document the four unavailable
+runtime states, and CMB-17 currently stores actor combat targets without a
+shared combat-group identity.
 
 Sources consulted were local xEdit `wbDefinitionsTES5.pas` for CTDA, COBJ and
 FURN WBDT, CK `GetItemCount_-_ObjectReference.wikitext` for the query forms,

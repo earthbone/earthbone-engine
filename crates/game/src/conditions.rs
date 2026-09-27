@@ -46,6 +46,8 @@ pub enum Error {
     NonFinite,
     #[error("condition requires tempering item context")]
     TemperingContext,
+    #[error("condition function {0} requires unavailable runtime context")]
+    Context(u16),
     #[error("condition count overflow or cyclic form list")]
     Inventory,
 }
@@ -140,6 +142,14 @@ pub fn supports_function(function: u16) -> bool {
             | 630
             | 655
             | 659
+            | 372
+            | 391
+            | 414
+            | 415
+            | 416
+            | 426
+            | 432
+            | 463
     )
 }
 
@@ -394,6 +404,60 @@ fn function_value(
         72 => {
             let base = resolve(world, context.owner, raw, None)?;
             boolean(world.base_of(subject) == Some(base))
+        }
+        372 => {
+            let list = resolve(world, context.owner, raw, Some(*b"FLST"))?;
+            let base = world.base_of(subject).ok_or(Error::Form(subject))?;
+            let members = world.form_list(list).ok_or(Error::Form(list))?;
+            boolean(members.contains(&base))
+        }
+        414 => {
+            let reference = world
+                .resolve_from(context.owner, raw)
+                .ok_or(Error::Form(context.owner))?;
+            if raw == 0
+                || !matches!(world.tag_of(reference), Some(Tag(tag)) if tag == *b"ACHR" || tag == *b"REFR")
+            {
+                return Err(Error::Form(reference));
+            }
+            boolean(
+                world
+                    .reference(reference)
+                    .is_some_and(|state| !state.deleted),
+            )
+        }
+        391 | 415 | 416 => {
+            no_parameter(c)?;
+            return Err(Error::Context(c.function));
+        }
+        426 => {
+            let voice_type = resolve(world, context.owner, raw, Some(*b"VTYP"))?;
+            if world.actor(subject).is_none() {
+                return Err(Error::Form(subject));
+            }
+            let source = world
+                .actor_component_source(subject, crate::npc::template::TRAITS)
+                .map_err(|_| Error::Form(subject))?;
+            let voice = world
+                .record(source)
+                .and_then(|record| record.find(Tag(*b"VTCK")))
+                .and_then(|bytes| {
+                    (bytes.len() >= 4)
+                        .then(|| u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
+                })
+                .and_then(|raw| world.resolve_from(source, raw));
+            boolean(voice == Some(voice_type))
+        }
+        432 => {
+            if raw == 0 || i32::try_from(raw).is_err() {
+                return Err(Error::Parameter(c.function, raw));
+            }
+            let base = world.base_of(subject).ok_or(Error::Form(subject))?;
+            boolean(world.type_code(base) == raw as i32)
+        }
+        463 => {
+            resolve_reference(world, context.owner, raw)?;
+            return Err(Error::Context(c.function));
         }
         74 => {
             let global = resolve(world, context.owner, raw, Some(*b"GLOB"))?;
