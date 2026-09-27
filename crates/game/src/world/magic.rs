@@ -72,6 +72,8 @@ pub enum MagicError {
     Number,
     #[error("active effect identity exhausted")]
     Identity,
+    #[error("missing or invalid stagger game setting {0}")]
+    StaggerSetting(&'static str),
 }
 
 #[derive(Clone)]
@@ -83,6 +85,7 @@ enum DispelRule {
 struct PreparedEffect {
     effect: ActiveEffect,
     summon_base: Option<GlobalFormId>,
+    stagger_duration: Option<f64>,
     no_recast: bool,
     hit_event: bool,
     dispel_rules: Vec<DispelRule>,
@@ -237,7 +240,7 @@ impl World {
                     return Err(MagicError::Target);
                 }
             }
-            if !matches!(data.archetype, 0 | 1 | 2 | 5) {
+            if !matches!(data.archetype, 0 | 1 | 2 | 5 | 33) {
                 return Err(MagicError::Unsupported("effect archetype"));
             }
             if entry.data.area != 0 || data.area != 0 || data.taper_duration != 0.0 {
@@ -311,6 +314,12 @@ impl World {
                 },
                 no_recast: data.flags & NO_RECAST != 0,
                 summon_base: None,
+                stagger_duration: (data.archetype == 33)
+                    .then(|| {
+                        self.combat_setting("fStaggerDuration")
+                            .map_err(|_| MagicError::StaggerSetting("fStaggerDuration"))
+                    })
+                    .transpose()?,
                 hit_event: false,
                 dispel_rules,
                 dispel: Vec::new(),
@@ -427,7 +436,7 @@ impl World {
                     return Err(MagicError::Target);
                 }
             }
-            if !matches!(data.archetype, 0 | 1 | 2 | 5 | 18) {
+            if !matches!(data.archetype, 0 | 1 | 2 | 5 | 18 | 33) {
                 return Err(MagicError::Unsupported("effect archetype"));
             }
             if data.taper_duration != 0.0 {
@@ -495,6 +504,12 @@ impl World {
                     f64::from(entry.data.duration)
                 })
             };
+            let stagger_duration = (data.archetype == 33)
+                .then(|| {
+                    self.combat_setting("fStaggerDuration")
+                        .map_err(|_| MagicError::StaggerSetting("fStaggerDuration"))
+                })
+                .transpose()?;
             let mut dispel_rules = Vec::new();
             if data.archetype == 2 {
                 dispel_rules.push(DispelRule::Timed);
@@ -539,6 +554,7 @@ impl World {
                     },
                     no_recast: data.flags & NO_RECAST != 0,
                     summon_base,
+                    stagger_duration,
                     hit_event: data.flags & (HOSTILE | NO_HIT_EVENT) == HOSTILE,
                     dispel_rules: dispel_rules.clone(),
                     dispel: Vec::new(),
@@ -556,6 +572,14 @@ impl World {
         let prepared = self.prepare_effect_actions(prepared)?;
         let mut applied = Vec::new();
         for mut prepared in prepared {
+            if let Some(duration) = prepared.stagger_duration {
+                self.begin_stagger(
+                    prepared.effect.target,
+                    f64::from(prepared.effect.magnitude),
+                    prepared.effect.caster.or(Some(prepared.effect.source)),
+                    self.clock.real_seconds + duration,
+                );
+            }
             if let Some(base) = prepared.summon_base {
                 let summon = self.place_at(base, prepared.effect.source, false);
                 let owner = prepared.effect.caster.unwrap_or(prepared.effect.target);

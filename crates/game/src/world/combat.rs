@@ -497,9 +497,9 @@ impl World {
                 target.in_combat = false;
                 target.combat_target = None;
             }
-            if staggered {
-                target.stagger_end_time = stagger_deadline;
-            }
+        }
+        if let Some(deadline) = stagger_deadline.filter(|_| staggered) {
+            self.begin_stagger(hit.target, stagger_magnitude, Some(hit.attacker), deadline);
         }
         // Committed last, alongside the target's own state, so a bash that
         // errors anywhere above never reaches this line.
@@ -556,6 +556,22 @@ impl World {
                 .stagger_end_time
                 .is_some_and(|until| self.clock.real_seconds < until)
         })
+    }
+
+    /// Commit one stagger application with its authored magnitude and source
+    /// direction. Callers validate the duration before reaching this point.
+    pub(super) fn begin_stagger(
+        &mut self,
+        target: GlobalFormId,
+        magnitude: f64,
+        direction: Option<GlobalFormId>,
+        deadline: f64,
+    ) {
+        if let Some(actor) = self.actors.get_mut(&target) {
+            actor.stagger_magnitude = magnitude;
+            actor.stagger_direction = direction;
+            actor.stagger_end_time = Some(deadline);
+        }
     }
 
     fn validate_combat_actor(&mut self, id: GlobalFormId) -> Result<(), Error> {
@@ -800,7 +816,7 @@ impl World {
         Ok(quality)
     }
 
-    fn combat_setting(&self, name: &'static str) -> Result<f64, Error> {
+    pub(super) fn combat_setting(&self, name: &'static str) -> Result<f64, Error> {
         match self.game_setting(name) {
             Some(Value::Float(value)) if value.is_finite() && value >= 0.0 => Ok(f64::from(value)),
             _ => Err(Error::Setting(name)),

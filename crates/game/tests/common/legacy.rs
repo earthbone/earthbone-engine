@@ -6,9 +6,9 @@ use soe_game::world::World;
 /// Strip uniquely marked actor fields before a fixture applies its older layout.
 /// Callers supply every initialized actor and restore the requested old header.
 /// Strips the exclusive dialogue branch version 24 added, the stagger end time
-/// version 29 added, the witnessed crime set version 31 added and the hand
-/// spell fields version 32 added, so fixtures built against any older header
-/// see none of those fields' bytes.
+/// version 29 added, the witnessed crime set version 31 added, the hand spell
+/// fields version 32 added and stagger metadata version 37 added, so fixtures
+/// built against any older header see none of those fields' bytes.
 pub fn without_exclusive_branches(world: &mut World, actors: &[GlobalFormId]) -> Vec<u8> {
     let hash = world.state_hash();
     let mut saved = Vec::new();
@@ -27,6 +27,15 @@ pub fn without_exclusive_branches(world: &mut World, actors: &[GlobalFormId]) ->
         let prior_stagger = actor.stagger_end_time;
         let stagger_sentinel = 1_000_000.0 + f64::from(index as u32);
         actor.stagger_end_time = Some(stagger_sentinel);
+        let prior_stagger_magnitude = actor.stagger_magnitude;
+        let stagger_magnitude_sentinel = 2_000_000.0 + f64::from(index as u32);
+        actor.stagger_magnitude = stagger_magnitude_sentinel;
+        let prior_stagger_direction = actor.stagger_direction;
+        let stagger_direction_sentinel = GlobalFormId {
+            file: u16::MAX,
+            object: 0xB000_0000 + index as u32,
+        };
+        actor.stagger_direction = Some(stagger_direction_sentinel);
         let witness_sentinel = GlobalFormId {
             file: u16::MAX,
             object: 0xE000_0000 + index as u32,
@@ -51,6 +60,10 @@ pub fn without_exclusive_branches(world: &mut World, actors: &[GlobalFormId]) ->
             sentinel,
             prior_stagger,
             stagger_sentinel,
+            prior_stagger_magnitude,
+            stagger_magnitude_sentinel,
+            prior_stagger_direction,
+            stagger_direction_sentinel,
             prior_witnessed,
             witness_sentinel,
             prior_left_spell,
@@ -64,6 +77,8 @@ pub fn without_exclusive_branches(world: &mut World, actors: &[GlobalFormId]) ->
         let actor = world.actor(entry.id).unwrap();
         actor.exclusive_branch = entry.prior_branch;
         actor.stagger_end_time = entry.prior_stagger;
+        actor.stagger_magnitude = entry.prior_stagger_magnitude;
+        actor.stagger_direction = entry.prior_stagger_direction;
         actor.witnessed_crimes = std::mem::take(&mut entry.prior_witnessed);
         actor.left_spell = entry.prior_left_spell;
         actor.right_spell = entry.prior_right_spell;
@@ -77,6 +92,8 @@ pub fn without_exclusive_branches(world: &mut World, actors: &[GlobalFormId]) ->
     for Saved {
         sentinel,
         stagger_sentinel,
+        stagger_magnitude_sentinel,
+        stagger_direction_sentinel,
         witness_sentinel,
         left_spell_sentinel,
         right_spell_sentinel,
@@ -103,6 +120,34 @@ pub fn without_exclusive_branches(world: &mut World, actors: &[GlobalFormId]) ->
             .collect();
         assert_eq!(stagger_offsets.len(), 1, "stagger sentinel is not unique");
         fields.push((stagger_offsets[0], stagger_marker.len()));
+
+        let magnitude_marker = stagger_magnitude_sentinel.to_le_bytes();
+        let magnitude_offsets: Vec<_> = bytes
+            .windows(magnitude_marker.len())
+            .enumerate()
+            .filter_map(|(offset, window)| (window == magnitude_marker).then_some(offset))
+            .collect();
+        assert_eq!(
+            magnitude_offsets.len(),
+            1,
+            "stagger magnitude sentinel is not unique"
+        );
+        fields.push((magnitude_offsets[0], magnitude_marker.len()));
+
+        let mut direction_marker = vec![1];
+        direction_marker.extend_from_slice(&stagger_direction_sentinel.file.to_le_bytes());
+        direction_marker.extend_from_slice(&stagger_direction_sentinel.object.to_le_bytes());
+        let direction_offsets: Vec<_> = bytes
+            .windows(direction_marker.len())
+            .enumerate()
+            .filter_map(|(offset, window)| (window == direction_marker).then_some(offset))
+            .collect();
+        assert_eq!(
+            direction_offsets.len(),
+            1,
+            "stagger direction sentinel is not unique"
+        );
+        fields.push((direction_offsets[0], direction_marker.len()));
 
         let mut witness_marker = 1u32.to_le_bytes().to_vec();
         witness_marker.extend_from_slice(&witness_sentinel.file.to_le_bytes());
@@ -159,6 +204,10 @@ struct Saved {
     sentinel: GlobalFormId,
     prior_stagger: Option<f64>,
     stagger_sentinel: f64,
+    prior_stagger_magnitude: f64,
+    stagger_magnitude_sentinel: f64,
+    prior_stagger_direction: Option<GlobalFormId>,
+    stagger_direction_sentinel: GlobalFormId,
     prior_witnessed: std::collections::BTreeSet<GlobalFormId>,
     witness_sentinel: GlobalFormId,
     prior_left_spell: Option<GlobalFormId>,

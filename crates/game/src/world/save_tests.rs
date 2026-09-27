@@ -284,7 +284,8 @@ fn rich_world(namespace: u16) -> World {
 /// dialogue branch field that version 24 added, the stagger end time field
 /// that version 29 added, the witnessed crimes set that version 31 added,
 /// the hand spell fields that version 32 added, and the summon actor link
-/// that version 33 added, plus the record metadata byte from version 35.
+/// that version 33 added, stagger magnitude and direction from version 37,
+/// plus the record metadata byte from version 35.
 /// Each is set to a unique sentinel so its serialized
 /// bytes can be located exactly, then cut back out.
 fn without_exclusive_branches(world: &mut World) -> Vec<u8> {
@@ -306,6 +307,19 @@ fn without_exclusive_branches(world: &mut World) -> Vec<u8> {
         let mut stagger_marker = vec![1];
         stagger_marker.extend_from_slice(&stagger_sentinel.to_le_bytes());
         markers.push(stagger_marker);
+
+        let stagger_magnitude_sentinel = 2_000_000.0 + f64::from(index as u32);
+        world.actors.get_mut(id).unwrap().stagger_magnitude = stagger_magnitude_sentinel;
+        markers.push(stagger_magnitude_sentinel.to_le_bytes().to_vec());
+        let stagger_direction_sentinel = GlobalFormId {
+            file: u16::MAX,
+            object: 0xB000_0000 + index as u32,
+        };
+        world.actors.get_mut(id).unwrap().stagger_direction = Some(stagger_direction_sentinel);
+        let mut direction_marker = vec![1];
+        direction_marker.extend_from_slice(&stagger_direction_sentinel.file.to_le_bytes());
+        direction_marker.extend_from_slice(&stagger_direction_sentinel.object.to_le_bytes());
+        markers.push(direction_marker);
 
         // `witnessed_crimes` (version 31) is written unconditionally, even
         // when empty, so an emulated pre-30 save must strip it same as the
@@ -357,6 +371,8 @@ fn without_exclusive_branches(world: &mut World) -> Vec<u8> {
         let actor = world.actors.get_mut(id).unwrap();
         actor.exclusive_branch = None;
         actor.stagger_end_time = None;
+        actor.stagger_magnitude = 0.0;
+        actor.stagger_direction = None;
         actor.witnessed_crimes.clear();
         actor.left_spell = None;
         actor.right_spell = None;
@@ -477,7 +493,7 @@ fn sav_07_unknown_version_and_mixed_legacy_namespaces_are_rejected() {
     let mut world = rich_world(DYNAMIC_FILE);
     let before = world.save_state();
     for (version, message) in [
-        (37_u16, "world state version 37"),
+        (38_u16, "world state version 38"),
         (18, "created namespace in a legacy world state"),
     ] {
         let mut bytes = before.clone();

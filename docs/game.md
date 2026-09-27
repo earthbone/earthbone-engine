@@ -274,8 +274,10 @@ Current behavior and compatibility limits:
   phase before advancing. Reaching the last phase stops the scene and delivers
   `OnEnd`. `Scene.Start` and `Stop` deliver `OnBegin` and `OnEnd` to the
   scene's scripts. SOEW version 36 stores the current phase and completed
-  action slots. Action slots use zero-based positions from the SCEN action
-  list because two vanilla scenes reuse action numbers. The SCEN layout follows
+  action slots. Version 37 stores the latest stagger magnitude and direction
+  source with each actor's stagger deadline. Action slots use zero-based
+  positions from the SCEN action list because two vanilla scenes reuse action
+  numbers. The SCEN layout follows
   `TES5Edit/Core/wbDefinitionsTES5.pas` and
   `uesp-modfileformat/SCEN.wikitext`. Timer expiry, CTDA evaluation, automatic
   action dispatch, and the scene flags are not implemented. `Sound.Play`
@@ -1681,6 +1683,15 @@ same MGEF on the same actor. Death removes effects unless No Death Dispel is set
 SOEW version 9 stores identity, source, caster, target, magnitude, elapsed time,
 duration and value deltas, including pending script attachment. Loading never
 reapplies a saved modifier. The deterministic scenes hash includes this state.
+
+The runtime executes MGEF archetype 33, Stagger, for spells and ingestibles.
+Each prepared Stagger application passes its authored magnitude and caster
+form, falling back to the cast source, to the shared stagger lifecycle once.
+It uses the same `fStaggerDuration` real-time deadline as melee stagger. Actor
+state retains the latest magnitude and direction source with that deadline,
+serialized from SOEW version 37. Local xEdit and UESP MGEF layouts name
+archetype 33 and specify no archetype-specific data. The local CK wiki dump has
+no page that defines its runtime behavior.
 
 The source contracts are CK [Magic Effect](https://ck.uesp.net/wiki/Magic_Effect),
 local `ck-wiki/AddInventoryEventFilter_-_ObjectReference.wikitext`,
