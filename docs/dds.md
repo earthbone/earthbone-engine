@@ -71,7 +71,8 @@ for opaque diffuse color, BC3 sRGB for diffuse with alpha, linear BC3 for Skyrim
 normals, or linear BC4 for a single-channel mask. The tangent-normal profile keeps alpha because
 PyNifly's Skyrim shader notes identify it as specular input. `MipChain` selects the base image,
 the complete chain, or an exact count including the base. Explicit counts larger than the full
-chain are rejected. The output keeps the source dimensions and channels before compression.
+chain are rejected. The output keeps the source dimensions. BC1 drops alpha,
+and BC4 keeps only the red channel of the decoded image.
 
 The editor import plan calls for PNG-to-DDS export with material and slot mappings in
 `docs/editor.md`, milestone 4. `nifly/include/Shaders.hpp` defines the texture set as ordered

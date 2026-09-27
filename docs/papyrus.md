@@ -39,9 +39,9 @@ Loading another definition with the same name replaces its fingerprint.
 loads and replacement. The hash identifies content for dependency comparison,
 not the origin or authenticity of a file.
 
-OpenMW's `apps/openmw/mwstate/statemanagerimp.cpp` records content file names
-and remaps indices by name. Its save path does not supply script source
-fingerprints, so the VM records them at the PEX load boundary.
+OpenMW's `apps/openmw/mwstate/savegame.hpp` records content file names and
+`loadgame.hpp` maps saved indices on load. Its save path does not supply script
+source fingerprints, so the VM records them at the PEX load boundary.
 
 ## Format facts, checked against the references
 

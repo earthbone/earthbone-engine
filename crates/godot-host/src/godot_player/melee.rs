@@ -50,6 +50,8 @@ impl PlayerNode {
     /// Arm an ordinary swing. Input binding is owned by CMB-04.
     #[func]
     pub fn begin_melee_swing(&mut self, left_hand: bool) -> bool {
+        self.last_melee_target = None;
+        self.last_melee_obstruction = None;
         let Some(game) = &mut self.game else {
             return false;
         };

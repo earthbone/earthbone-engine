@@ -111,6 +111,9 @@ impl PlayerNode {
                 .bindv(&varray![index as i64]);
             button.connect("pressed", &callback);
             rows.add_child(&button);
+            if index == 0 {
+                button.grab_focus();
+            }
         }
         let mut heading = Label::new_alloc();
         heading.set_text(&format!("{} ({})", category.label(), entries.len()));
@@ -125,9 +128,6 @@ impl PlayerNode {
             ]);
             button.connect("pressed", &callback);
             rows.add_child(&button);
-            if rows.get_child_count() == 1 {
-                button.grab_focus();
-            }
         }
         true
     }

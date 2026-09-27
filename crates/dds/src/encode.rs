@@ -76,9 +76,9 @@ impl MipChain {
 
 /// Decode a PNG and encode it as a slot-profiled Skyrim DDS texture.
 ///
-/// The PNG dimensions and RGBA channels are retained. Color profiles use sRGB
-/// formats, while normal and mask profiles use linear formats. The mip chain
-/// is generated from the decoded base image.
+/// The PNG dimensions are retained. Color profiles use sRGB formats, while
+/// normal and mask profiles use linear formats. BC1 discards alpha and BC4
+/// retains only the red channel. The mip chain comes from the decoded image.
 ///
 /// # Errors
 /// Returns an error when PNG decoding, mip validation, or DDS encoding fails.

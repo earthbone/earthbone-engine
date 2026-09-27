@@ -53,9 +53,11 @@ definition changes its fingerprint. This is dependency evidence, not an
 authenticity check. `tests/sav_67_fingerprints.rs` covers slot reordering,
 same-name replacements and the engine-added global.
 
-OpenMW's `apps/openmw/mwstate/statemanagerimp.cpp` stores content file names in
-save profiles and remaps their indices by name on load. It does not provide
-content fingerprints, so this crate hashes the definition it loads.
+OpenMW's `apps/openmw/mwstate/savegame.hpp` writes content file names to saves,
+and `loadgame.hpp` checks dependencies and maps saved indices on load.
+`statemanagerimp.cpp` passes the active content list to its character manager.
+These paths do not provide content fingerprints, so this crate hashes the
+definition it loads.
 
 Light plugins (`ESL` header flag) do not take a top-byte slot at runtime. The game packs
 them as `FE:sss:ooo`, a twelve-bit slot and a twelve-bit object. `LoadOrder::runtime_id`

@@ -64,6 +64,13 @@ fn scr_04_invalid_or_unhandled_source_is_rejected() {
         ),
         Err(psc::CompileError::Syntax { line: 3, .. })
     ));
+    assert!(matches!(
+        psc::compile(
+            "Example.psc",
+            "ScriptName Example\nInt Function F()\nReturn42\nEndFunction"
+        ),
+        Err(psc::CompileError::Syntax { line: 3, .. })
+    ));
 }
 
 #[test]

@@ -114,7 +114,24 @@ fn literal(text: &str) -> Option<Operand> {
     } else if let Ok(value) = text.parse::<f32>() {
         Some(Operand::Float(value))
     } else if text.len() >= 2 && text.starts_with('"') && text.ends_with('"') {
-        Some(Operand::Str(text[1..text.len() - 1].to_string()))
+        let mut decoded = String::new();
+        let mut chars = text[1..text.len() - 1].chars();
+        while let Some(character) = chars.next() {
+            if character == '\\' {
+                decoded.push(match chars.next()? {
+                    'n' => '\n',
+                    't' => '\t',
+                    '\\' => '\\',
+                    '"' => '"',
+                    _ => return None,
+                });
+            } else if character == '"' {
+                return None;
+            } else {
+                decoded.push(character);
+            }
+        }
+        Some(Operand::Str(decoded))
     } else {
         None
     }
@@ -299,6 +316,9 @@ pub fn compile(source_name: &str, source: &str) -> Result<Vec<u8>, CompileError>
             } else if source
                 .get(..6)
                 .is_some_and(|head| head.eq_ignore_ascii_case("return"))
+                && source
+                    .get(6..)
+                    .is_some_and(|tail| tail.is_empty() || tail.starts_with(char::is_whitespace))
             {
                 let rest = source[6..].trim();
                 let value = if rest.is_empty() {
