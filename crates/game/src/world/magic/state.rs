@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! SOEW versions 5 and 36 store active applications after the world body.
+//! SOEW versions 5 and 37 store active applications after the world body.
 //! Loaded actor values already contain recoverable modifiers. Version 36
-//! stores the authored taper values for each active application.
+//! stores authored taper values, and version 37 stores granted perks.
 
 use std::collections::BTreeMap;
 
@@ -36,6 +36,7 @@ impl World {
             }
             w.f64(effect.elapsed);
             write_opt_form_id(w, effect.summoned);
+            write_opt_form_id(w, effect.granted_perk);
             w.bool(effect.recover);
             w.len(effect.changes.len());
             for (name, amount) in &effect.changes {
@@ -50,6 +51,7 @@ pub(in crate::world) fn read_magic(
     r: &mut FormReader<'_, '_>,
     has_summoned_reference: bool,
     has_taper_values: bool,
+    has_granted_perk: bool,
 ) -> Result<(u64, BTreeMap<EffectId, ActiveEffect>), VmError> {
     let next = r.u64()?;
     let count = r.len()?;
@@ -71,6 +73,11 @@ pub(in crate::world) fn read_magic(
         let duration = if r.bool()? { Some(r.f64()?) } else { None };
         let elapsed = r.f64()?;
         let summoned = if has_summoned_reference {
+            read_opt_form_id(r)?
+        } else {
+            None
+        };
+        let granted_perk = if has_granted_perk {
             read_opt_form_id(r)?
         } else {
             None
@@ -119,6 +126,7 @@ pub(in crate::world) fn read_magic(
             taper_duration,
             elapsed,
             summoned,
+            granted_perk,
             recover,
             changes,
         };

@@ -559,11 +559,15 @@ impl World {
     }
 
     fn validate_combat_actor(&mut self, id: GlobalFormId) -> Result<(), Error> {
+        let effect_has_perk = self
+            .active_effects
+            .values()
+            .any(|effect| effect.target == id && effect.granted_perk.is_some());
         let actor = self.actor(id).ok_or(Error::Actor(id))?;
         if actor.dead || actor.ghost || actor.unconscious {
             return Err(Error::Actor(id));
         }
-        if !actor.perks.is_empty() {
+        if !actor.perks.is_empty() || effect_has_perk {
             return Err(Error::Unsupported("perk entry points"));
         }
         for name in [

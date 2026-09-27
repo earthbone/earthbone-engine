@@ -60,7 +60,8 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// Version 34 retains last-visit game days for resettable encounter zones.
 /// Version 35 retains the explicit weather and time image-space selection.
 /// Version 36 retains the authored taper values of active magic effects.
-pub const SAVE_VERSION: u16 = 36;
+/// Version 37 retains perks granted by active magic effects.
+pub const SAVE_VERSION: u16 = 37;
 
 #[derive(Clone, Copy)]
 pub(crate) enum FormNamespace {
@@ -856,7 +857,7 @@ impl World {
             }
         }
         let (next_effect, active_effects) = if version == 5 || version >= 9 {
-            super::magic::read_magic(&mut r, version >= 33, version >= 36)?
+            super::magic::read_magic(&mut r, version >= 33, version >= 36, version >= 37)?
         } else {
             (1, BTreeMap::new())
         };
@@ -877,6 +878,12 @@ impl World {
             let definition = self
                 .magic_effect(effect.effect)
                 .map_err(|e| VmError::State(e.to_string()))?;
+            if effect
+                .granted_perk
+                .is_some_and(|perk| self.tag_of(perk) != Some(super::T(b"PERK")))
+            {
+                return Err(VmError::State("active effect grant is not a perk".into()));
+            }
             if let Some(summoned) = effect.summoned {
                 let base = self
                     .resolve_from(effect.effect, definition.data.associated_item)

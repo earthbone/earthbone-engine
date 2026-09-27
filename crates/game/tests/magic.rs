@@ -30,6 +30,7 @@ const KEYWORD: u32 = 0x400;
 const ITEM: u32 = 0x600;
 const OTHER_ITEM: u32 = 0x601;
 const SUMMON_BASE: u32 = 0x501;
+const GRANTED_PERK: u32 = 0x700;
 
 #[path = "magic/collection.rs"]
 mod collection;
@@ -82,6 +83,20 @@ fn effect_with_associated_item(
         .sub(T(b"DATA"), data)
         .sub(T(b"KWDA"), KEYWORD.to_le_bytes())
         .sub(T(b"VMAD"), vmad.write(T(b"MGEF")))
+}
+
+fn effect_with_perk() -> Record {
+    let mut data = vec![0; 152];
+    put(&mut data, 0, 1 << 1);
+    put(&mut data, 16, u32::MAX);
+    put(&mut data, 64, 0);
+    put(&mut data, 68, 24);
+    put(&mut data, 80, 1);
+    put(&mut data, 84, 3);
+    put(&mut data, 136, GRANTED_PERK);
+    Record::new(T(b"MGEF"), EFFECT)
+        .zsub(T(b"EDID"), "PerkEffect")
+        .sub(T(b"DATA"), data)
 }
 
 fn spell(form: u32, kind: u32, constant: bool, magnitude: f32, duration: u32) -> Record {
@@ -160,6 +175,7 @@ fn plugin(effect: Record, spells: Vec<Record>) -> Plugin {
         );
     }
     plugin.push_top(Record::new(T(b"KYWD"), KEYWORD).zsub(T(b"EDID"), "ProbeKeyword"));
+    plugin.push_top(Record::new(T(b"PERK"), GRANTED_PERK).zsub(T(b"EDID"), "GrantedPerk"));
     plugin.push_top(Record::new(T(b"MISC"), ITEM).zsub(T(b"EDID"), "AllowedItem"));
     plugin.push_top(Record::new(T(b"MISC"), OTHER_ITEM).zsub(T(b"EDID"), "RejectedItem"));
     plugin.push_top(effect);
@@ -390,6 +406,63 @@ fn cast(game: &mut Game, spell: u32, target: u32) -> Result<Vec<EffectId>, Magic
         &mut |name, class| game.vm.create_object_of(name, class),
     );
     result
+}
+
+#[test]
+fn mag_21_effect_granted_perk_expires_without_removing_owned_copy() {
+    let mut game = game(plugin(
+        effect_with_perk(),
+        vec![spell(SPELL, 0, false, 1.0, 5)],
+    ));
+    game.world_mut()
+        .actor(id(ACTOR))
+        .unwrap()
+        .perks
+        .insert(id(GRANTED_PERK));
+
+    let first_actor_effect = cast(&mut game, SPELL, ACTOR).unwrap()[0];
+    cast(&mut game, SPELL, ACTOR).unwrap();
+    cast(&mut game, SPELL, OTHER).unwrap();
+    assert!(game.world_mut().has_perk(id(ACTOR), id(GRANTED_PERK)));
+    assert!(game.world_mut().has_perk(id(OTHER), id(GRANTED_PERK)));
+    let other_object = Value::Object(game.object_of_form(id(OTHER)));
+    let perk_object = Value::Object(game.object_of_form(id(GRANTED_PERK)));
+    assert_eq!(
+        native(&mut game, other_object, "HasPerk", &[perk_object]),
+        Value::Bool(true)
+    );
+    assert_eq!(
+        game.world()
+            .active_effects()
+            .filter(|e| e.granted_perk == Some(id(GRANTED_PERK)))
+            .count(),
+        3
+    );
+    assert!(dispel(&mut game, first_actor_effect));
+    assert!(game.world_mut().has_perk(id(ACTOR), id(GRANTED_PERK)));
+
+    game.tick(5.0);
+    assert!(game.world_mut().has_perk(id(ACTOR), id(GRANTED_PERK)));
+    assert!(!game.world_mut().has_perk(id(OTHER), id(GRANTED_PERK)));
+}
+
+#[test]
+fn mag_21_saved_effect_keeps_its_perk_until_dispelled() {
+    let fixture = || plugin(effect_with_perk(), vec![spell(SPELL, 0, false, 1.0, 5)]);
+    let mut original = game(fixture());
+    cast(&mut original, SPELL, ACTOR).unwrap();
+    let saved = original.save_state().unwrap();
+
+    let mut restored = game(fixture());
+    restored.load_state(&saved).unwrap();
+    assert!(restored.world_mut().has_perk(id(ACTOR), id(GRANTED_PERK)));
+    let shared = restored.shared_world();
+    assert!(shared
+        .borrow_mut()
+        .dispel_spell(id(ACTOR), id(SPELL), &mut |name, class| restored
+            .vm
+            .create_object_of(name, class),));
+    assert!(!restored.world_mut().has_perk(id(ACTOR), id(GRANTED_PERK)));
 }
 
 #[test]
@@ -1281,7 +1354,7 @@ fn version_eight_worlds_load_without_active_effects() {
     let mut game = fixture(0, 1, 0.0, 10);
     let actors = game.world().loaded_actors();
     let mut old = legacy::without_exclusive_branches(&mut game.world_mut(), &actors);
-    old.truncate(old.len() - 66);
+    old.truncate(old.len() - 71);
     old[4..6].copy_from_slice(&8u16.to_le_bytes());
     cast(&mut game, SPELL, OTHER).unwrap();
     game.world_mut().load_state(&old).unwrap();

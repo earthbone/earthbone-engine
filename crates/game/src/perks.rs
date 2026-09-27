@@ -131,10 +131,7 @@ impl EntryPointDispatcher {
             .get(&entry_point)
             .ok_or(DispatchError::Unregistered(entry_point))?;
         let mut world = game.world_mut();
-        let owned = world
-            .actor(actor)
-            .map(|state| state.perks.clone())
-            .unwrap_or_default();
+        let owned = world.perks_for_actor(actor);
         let entries = world
             .order()
             .winners_of(Tag(*b"PERK"))

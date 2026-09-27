@@ -258,6 +258,7 @@ fn rich_world(namespace: u16) -> World {
             taper_duration: 0.0,
             elapsed: 1.0,
             summoned: None,
+            granted_perk: None,
             recover: false,
             changes: vec![],
         },
@@ -471,7 +472,7 @@ fn sav_07_unknown_version_and_mixed_legacy_namespaces_are_rejected() {
     let mut world = rich_world(DYNAMIC_FILE);
     let before = world.save_state();
     for (version, message) in [
-        (37_u16, "world state version 37"),
+        (38_u16, "world state version 38"),
         (18, "created namespace in a legacy world state"),
     ] {
         let mut bytes = before.clone();

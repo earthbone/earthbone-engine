@@ -1429,6 +1429,24 @@ another Small favor).
 
 ## Active magic applications
 
+### MGEF perk grants, MAG-21
+
+Each active application retains the `PERK` linked by its winning MGEF record.
+The actor's ordinary owned-perk set stays independent. `HasPerk`, perk
+conditions and perk entry-point dispatch include grants from live effects.
+Perk purchases continue to use the ordinary owned-perk set. Expiry, death
+cleanup, `DispelSpell`, `DispelAllSpells` and `ActiveMagicEffect.Dispel`
+remove access when the application ends, while an independently owned perk
+remains. Active grants are saved with their effect in SOEW version 37.
+Versions through 36 load without an effect-granted perk.
+
+The MGEF `DATA` field order and its `Perk to Apply` reference type come from
+`TES5Edit/Core/wbDefinitionsTES5.pas`. Its `KYWD` record definition confirms
+the keyword records used by existing magic dispel rules. CK
+`DispelSpell_-_Actor.wikitext` says the native dispels every effect from the
+specified spell. Tests named `mag_21_` cover temporary access, independent
+ownership, dispel, and save/load. Equip abilities remain unsupported.
+
 ### Telekinesis prerequisite audit, MAG-41
 
 The 2026-09-20 five-master survey found 1,573 non-deleted MGEF winners and

@@ -421,11 +421,7 @@ fn function_value(
                 return Err(Error::Parameter(c.function, c.parameters[1]));
             }
             let perk = resolve(world, context.owner, raw, Some(*b"PERK"))?;
-            boolean(
-                world
-                    .actor(subject)
-                    .is_some_and(|actor| actor.perks.contains(&perk)),
-            )
+            boolean(world.has_perk(subject, perk))
         }
         560 => {
             let keyword = resolve(world, context.owner, raw, Some(*b"KYWD"))?;

@@ -54,6 +54,8 @@ pub struct ActiveEffect {
     pub elapsed: f64,
     /// Runtime actor created by a Summon Creature effect, dismissed with it.
     pub summoned: Option<GlobalFormId>,
+    /// PERK granted while this application remains active.
+    pub granted_perk: Option<GlobalFormId>,
     pub(crate) recover: bool,
     pub(crate) changes: Vec<(String, f32)>,
 }
@@ -112,6 +114,52 @@ impl MagicExecution for AllocationExecution<'_> {
 }
 
 impl World {
+    fn resolve_effect_perk(
+        &self,
+        effect: GlobalFormId,
+        raw_perk: u32,
+    ) -> Result<Option<GlobalFormId>, MagicError> {
+        if raw_perk == 0 {
+            return Ok(None);
+        }
+        let perk = self
+            .resolve_from(effect, raw_perk)
+            .ok_or(MagicError::Missing(effect))?;
+        if self.tag_of(perk) != Some(super::T(b"PERK")) {
+            return Err(MagicError::Missing(perk));
+        }
+        Ok(Some(perk))
+    }
+
+    /// Check an actor's independently owned perks and active-effect grants.
+    pub fn has_perk(&mut self, actor: GlobalFormId, perk: GlobalFormId) -> bool {
+        let owned = self
+            .actor(actor)
+            .is_some_and(|state| state.perks.contains(&perk));
+        owned
+            || self
+                .active_effects
+                .values()
+                .any(|effect| effect.target == actor && effect.granted_perk == Some(perk))
+    }
+
+    /// List owned perks together with those granted by live effects.
+    pub fn perks_for_actor(
+        &mut self,
+        actor: GlobalFormId,
+    ) -> std::collections::BTreeSet<GlobalFormId> {
+        let mut perks = self
+            .actor(actor)
+            .map(|state| state.perks.clone())
+            .unwrap_or_default();
+        perks.extend(self.active_effects.values().filter_map(|effect| {
+            (effect.target == actor)
+                .then_some(effect.granted_perk)
+                .flatten()
+        }));
+        perks
+    }
+
     /// All currently applied effects, in application order.
     pub fn active_effects(&self) -> impl Iterator<Item = &ActiveEffect> {
         self.active_effects.values()
@@ -266,9 +314,10 @@ impl World {
                 return Err(MagicError::Unsupported("area"));
             }
             validate_taper(data.taper_weight, data.taper_curve, data.taper_duration)?;
-            if data.perk != 0 || data.equip_ability != 0 {
-                return Err(MagicError::Unsupported("perk or equip ability"));
+            if data.equip_ability != 0 {
+                return Err(MagicError::Unsupported("equip ability"));
             }
+            let granted_perk = self.resolve_effect_perk(effect, data.perk)?;
             let magnitude = if data.flags & NO_MAGNITUDE != 0 {
                 0.0
             } else {
@@ -336,6 +385,7 @@ impl World {
                     },
                     elapsed: 0.0,
                     summoned: None,
+                    granted_perk,
                     recover: data.flags & RECOVER != 0,
                     changes,
                 },
@@ -483,9 +533,10 @@ impl World {
                 return Err(MagicError::Unsupported("effect archetype"));
             }
             validate_taper(data.taper_weight, data.taper_curve, data.taper_duration)?;
-            if data.perk != 0 || data.equip_ability != 0 {
-                return Err(MagicError::Unsupported("perk or equip ability"));
+            if data.equip_ability != 0 {
+                return Err(MagicError::Unsupported("equip ability"));
             }
+            let granted_perk = self.resolve_effect_perk(effect, data.perk)?;
             if data.cast_type != definition.data.cast_type
                 || data.delivery != definition.data.delivery
             {
@@ -592,6 +643,7 @@ impl World {
                         taper_duration,
                         elapsed: 0.0,
                         summoned: None,
+                        granted_perk,
                         recover: data.flags & RECOVER != 0,
                         changes: changes.clone(),
                     },

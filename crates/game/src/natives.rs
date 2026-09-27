@@ -1232,7 +1232,7 @@ fn actor(vm: &mut Vm, w: &Shared) {
         let Some(perk) = world.form_arg(&call.arg(0)) else {
             return b(false);
         };
-        b(world.actor(me).is_some_and(|a| a.perks.contains(&perk)))
+        b(world.has_perk(me, perk))
     });
     method!(vm, w, "Actor", "SetRelationshipRank", |world, call, me| {
         let rank = call.arg(1).as_int().clamp(-4, 4);
