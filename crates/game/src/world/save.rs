@@ -63,7 +63,8 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// Version 37 adds ForceGreet and its one-shot dialogue state.
 /// Version 38 adds HoldPosition, version 39 adds Orbit, and version 40 adds Escort.
 /// Version 41 adds the saved attempt state and procedure tag for Activate.
-pub const SAVE_VERSION: u16 = 41;
+/// Version 42 adds the Find procedure tag and its selected reference.
+pub const SAVE_VERSION: u16 = 42;
 
 #[derive(Clone, Copy)]
 pub(crate) enum FormNamespace {

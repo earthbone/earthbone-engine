@@ -16,6 +16,8 @@
 //! stays between its inner and outer radii on the navmesh.
 //! `Activate` walks to its resolved target and activates it once through the
 //! game's shared activation path.
+//! `Find` selects the nearest enabled placed reference that matches its
+//! authored object input in the search cell.
 //! Walking follows the vanilla navmesh graph (`soe_navmesh::vanilla`)
 //! built once per world, and crossing into another navmesh moves the actor
 //! into that navmesh's cell. Its rates come from the actor race's `WKMV` and
@@ -108,6 +110,8 @@ pub enum Procedure {
     Unsupported(String),
     /// Approach and activate the assigned reference once.
     Activate,
+    /// Select the nearest eligible reference matching the authored input.
+    Find,
 }
 
 /// Per-actor driver state, saved with the actor.
@@ -129,6 +133,8 @@ pub struct AiState {
     pub force_greet_started: bool,
     /// The Activate procedure has handed its one attempt to the game driver.
     pub activate_started: bool,
+    /// Reference selected by the active Find procedure.
+    pub found_reference: Option<GlobalFormId>,
     pub sleeping: bool,
     pub bed: Option<GlobalFormId>,
     pub center: Option<[f32; 3]>,
@@ -748,6 +754,7 @@ pub fn evaluate(world: &mut World, actor: GlobalFormId, alloc: Alloc<'_>) -> Opt
     ai.arrived = false;
     ai.force_greet_started = false;
     ai.activate_started = false;
+    ai.found_reference = None;
     ai.sleeping = false;
     ai.bed = None;
     ai.center = None;
@@ -805,6 +812,7 @@ fn begin_procedure(
     ai.arrived = false;
     ai.force_greet_started = false;
     ai.activate_started = false;
+    ai.found_reference = None;
     ai.sleeping = false;
     ai.bed = None;
     ai.center = None;
@@ -930,6 +938,24 @@ fn begin_procedure(
                 ai.procedure = Procedure::Unsupported("Activate inputs".into());
             }
         }
+        Procedure::Find => {
+            match tree::find_target(world, ai).and_then(|(owner, target, location)| {
+                let place = location.and_then(|(owner, location)| {
+                    resolve_location(world, actor, owner, ai.alias, ai, &location)
+                });
+                find_reference(
+                    world,
+                    actor,
+                    owner,
+                    target,
+                    place,
+                    location.map(|(_, l)| l.radius),
+                )
+            }) {
+                Some(reference) => ai.found_reference = Some(reference),
+                None => ai.procedure = Procedure::Unsupported("Find inputs or reference".into()),
+            }
+        }
         Procedure::UseIdleMarker { .. } => match (place, location) {
             (Some(place), Some((_, location))) => {
                 ai.center = Some(place.position);
@@ -951,6 +977,58 @@ fn begin_procedure(
         | Procedure::Orbit { .. }
         | Procedure::Unsupported(_) => {}
     }
+}
+
+fn find_reference(
+    world: &mut World,
+    actor: GlobalFormId,
+    owner: GlobalFormId,
+    target: crate::package::Target,
+    place: Option<Place>,
+    radius: Option<i32>,
+) -> Option<GlobalFormId> {
+    use crate::package::Target;
+
+    let (base, object_type) = match target {
+        Target::ObjectId(raw) => (Some(world.resolve_from(owner, raw)?), None),
+        Target::ObjectType(11) => (None, Some(T(b"WEAP"))),
+        _ => return None,
+    };
+    let actor_cell = world.reference(actor)?.cell;
+    let cell = place.and_then(|place| place.cell).or(actor_cell)?;
+    let center = place.map_or(world.reference(actor)?.position, |place| place.position);
+    let radius = radius.unwrap_or(0);
+    if radius < 0 {
+        return None;
+    }
+    let radius = radius as f32;
+    references_in_cell(world, cell)
+        .into_iter()
+        .filter(|reference| *reference != actor)
+        .filter_map(|reference| {
+            let (position, eligible) = world.reference(reference).map(|state| {
+                (
+                    state.position,
+                    !state.deleted && !state.destroyed && state.enabled,
+                )
+            })?;
+            if !eligible {
+                return None;
+            }
+            let candidate_base = world.base_of(reference)?;
+            let matches = base.is_some_and(|base| base == candidate_base)
+                || object_type.is_some_and(|tag| world.tag_of(candidate_base) == Some(tag));
+            if !matches || (radius > 0.0 && distance(center, position) > radius) {
+                return None;
+            }
+            Some((distance(center, position), reference))
+        })
+        .min_by(|(left_distance, left_id), (right_distance, right_id)| {
+            left_distance
+                .total_cmp(right_distance)
+                .then_with(|| left_id.cmp(right_id))
+        })
+        .map(|(_, reference)| reference)
 }
 
 fn resolve_follow_target(
@@ -1736,6 +1814,7 @@ pub(crate) fn write_record_state(w: &mut Writer, a: &AiState) {
         }
         Procedure::Escort => w.u8(13),
         Procedure::Activate => w.u8(14),
+        Procedure::Find => w.u8(15),
         Procedure::UseIdleMarker { marker } => {
             w.u8(9);
             match marker {
@@ -1792,6 +1871,7 @@ pub(crate) fn write_record_state(w: &mut Writer, a: &AiState) {
         w.u32(id.object);
         w.u32(*day);
     }
+    write_opt_form_id(w, a.found_reference);
 }
 
 /// Write one actor's package procedure cursor. The world save keeps these in
@@ -1902,6 +1982,12 @@ pub(crate) fn read_state_mapped(
                 "Activate procedure requires world version 41".into(),
             ));
         }
+        15 if world_version >= 42 => Procedure::Find,
+        15 => {
+            return Err(VmError::State(
+                "Find procedure requires world version 42".into(),
+            ));
+        }
         9 => {
             let marker = if r.bool()? {
                 Some(read_form_id(r)?)
@@ -1942,6 +2028,9 @@ pub(crate) fn read_state_mapped(
     for _ in 0..n {
         let id = read_form_id(r)?;
         a.completed.insert(id, r.u32()?);
+    }
+    if world_version >= 42 {
+        a.found_reference = read_opt_form_id(r)?;
     }
     Ok(a)
 }
@@ -2134,6 +2223,10 @@ mod tests {
             arrived: true,
             force_greet_started: false,
             activate_started: false,
+            found_reference: Some(GlobalFormId {
+                file: 1,
+                object: 10,
+            }),
             sleeping: true,
             bed: None,
             center: Some([7.0, 8.0, 9.0]),

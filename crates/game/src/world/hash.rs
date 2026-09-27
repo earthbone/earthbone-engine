@@ -314,6 +314,7 @@ fn ai_state(h: &mut StateHasher, a: &AiState) {
         }
         Procedure::Escort => h.u8(13),
         Procedure::Activate => h.u8(14),
+        Procedure::Find => h.u8(15),
         Procedure::UseIdleMarker { marker } => {
             h.u8(9);
             if let Some(marker) = marker {
@@ -341,6 +342,7 @@ fn ai_state(h: &mut StateHasher, a: &AiState) {
     h.bool(a.arrived);
     h.bool(a.force_greet_started);
     h.bool(a.activate_started);
+    opt_form(h, a.found_reference);
     h.bool(a.sleeping);
     opt_form(h, a.bed);
     opt_point(h, a.center);

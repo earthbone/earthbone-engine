@@ -650,6 +650,11 @@ No reusable interpreter exists in those sources, so this interpreter uses the
 existing world and procedure driver without a new dependency.
 
 `Travel` walks to its input location and completes on arrival.
+`Find` selects the nearest enabled placed reference matching its authored
+Object ID, or the known Object Type value for any weapon, in its search cell.
+An authored location radius limits the search. Equal distances choose the
+lower resolved FormID. The selected identity is available as the actor's
+`AiState::found_reference`.
 `Sandbox` picks an idle marker or a piece of furniture (beds excluded)
 within the radius of the location, walks there, dwells 0.1 to 0.4 game
 hours, and picks the next, or a random point in the radius when the cell
@@ -708,6 +713,21 @@ behavior as other game activations. The attempt flag is saved in SOEW version
 `Activate - ObjectReference` page defines the default-processing and event
 rules. The target's event uses the local `OnActivate - ObjectReference`
 contract.
+
+`Find` reads the branch's target input through its package template chain.
+Object ID matches a placed reference's resolved base form. Object Type value
+11 matches weapon bases. Other Object Type values and target selectors are
+unsupported. A negative authored radius is unsupported. The search uses the
+authored location's cell and optional radius,
+or the actor's current cell when there is no location. Disabled, deleted,
+destroyed and self references are skipped. The nearest match wins, with
+resolved FormID as the deterministic tie break. The local CK corpus has no
+Find procedure page. The target layout and Object Type label follow xEdit's
+`wbRecord(PACK)` and the UESP PACK page, which documents value 11 as any
+weapon. No reusable local runtime implementation covers Find.
+
+SOEW version 42 saves the selected reference with the active Find procedure.
+Earlier world saves cannot restore an active Find procedure.
 
 `Hover` reads a location and finite height from its branch inputs, moves to
 the location's X and Y at its Z plus that height, and holds there. The actor

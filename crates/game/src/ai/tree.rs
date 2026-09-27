@@ -180,6 +180,7 @@ fn procedure(branch: &Branch) -> Procedure {
         Some("forcegreet") => Procedure::ForceGreet,
         Some("useidlemarker") => Procedure::UseIdleMarker { marker: None },
         Some("activate") => Procedure::Activate,
+        Some("find") => Procedure::Find,
         Some("holdposition") => Procedure::HoldPosition,
         Some(_) => Procedure::Unsupported(branch.procedure.clone().unwrap_or_default()),
         None => Procedure::Unsupported(branch.kind.clone()),
@@ -323,6 +324,27 @@ pub(super) fn activate_target(
             }
         })
     })
+}
+
+type FindTarget = (
+    GlobalFormId,
+    crate::package::Target,
+    Option<(GlobalFormId, LocationData)>,
+);
+
+pub(super) fn find_target(world: &World, ai: &AiState) -> Option<FindTarget> {
+    let package_id = ai.package?;
+    let tree = Tree::load(world, package_id)?;
+    let branch = tree.branches.get(ai.tree.as_ref()?.branch as usize)?;
+    let target = branch.inputs.iter().find_map(|&index| {
+        tree.chain.iter().find_map(|(owner, package)| {
+            match package.input(index as i8).map(|input| input.value) {
+                Some(DataValue::Target(target)) => Some((*owner, target.target)),
+                _ => None,
+            }
+        })
+    })?;
+    Some((target.0, target.1, tree.location(branch)))
 }
 
 /// Static first procedure for tooling. Random choices have no static first leaf.
