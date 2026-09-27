@@ -55,19 +55,23 @@ impl AnimationModels {
         }
         let mut models = Self::default();
         let mut female = false;
+        let mut behavior_models = false;
         for subrecord in &record.subrecords {
             match subrecord.tag.as_bytes() {
+                b"NAM3" => behavior_models = true,
                 b"MNAM" => female = false,
                 b"FNAM" => female = true,
                 b"ANAM" => {
-                    let path = nonempty_path(&subrecord.data);
-                    if female {
-                        models.female_skeleton = path;
-                    } else {
-                        models.male_skeleton = path;
+                    if !behavior_models {
+                        let path = nonempty_path(&subrecord.data);
+                        if female {
+                            models.female_skeleton = path;
+                        } else {
+                            models.male_skeleton = path;
+                        }
                     }
                 }
-                b"MODL" => {
+                b"MODL" if behavior_models => {
                     let path = nonempty_path(&subrecord.data);
                     if female {
                         models.female_behavior = path;

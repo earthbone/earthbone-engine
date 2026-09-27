@@ -13,9 +13,12 @@ fn anm_55_race_markers_select_separate_skeletal_and_behavior_models() {
     let record = Record::new(tag(*b"RACE"), 0x100)
         .sub(tag(*b"MNAM"), vec![])
         .zsub(tag(*b"ANAM"), r"Actors\Human\skeleton.hkx")
-        .zsub(tag(*b"MODL"), r"Actors\Human\Behaviors\male.hkx")
         .sub(tag(*b"FNAM"), vec![])
         .zsub(tag(*b"ANAM"), r"Actors\Beast\skeleton.hkx")
+        .sub(tag(*b"NAM3"), vec![])
+        .sub(tag(*b"MNAM"), vec![])
+        .zsub(tag(*b"MODL"), r"Actors\Human\Behaviors\male.hkx")
+        .sub(tag(*b"FNAM"), vec![])
         .zsub(tag(*b"MODL"), r"Actors\Beast\Behaviors\female.hkx");
     let models = AnimationModels::from_record(&record).unwrap();
 
@@ -42,6 +45,8 @@ fn anm_55_missing_sex_models_stay_missing_without_borrowing_other_sex_paths() {
     let record = Record::new(tag(*b"RACE"), 0x100)
         .sub(tag(*b"MNAM"), vec![])
         .zsub(tag(*b"ANAM"), r"Actors\Creature\skeleton.hkx")
+        .sub(tag(*b"NAM3"), vec![])
+        .sub(tag(*b"MNAM"), vec![])
         .zsub(tag(*b"MODL"), r"Actors\Creature\Behaviors\graph.hkx");
     let models = AnimationModels::from_record(&record).unwrap();
 

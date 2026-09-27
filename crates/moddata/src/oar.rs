@@ -69,8 +69,9 @@ impl AnimationMod {
     ///
     /// # Errors
     ///
-    /// [`Error::Json`] when a `config.json` is present but unreadable as a
-    /// submod. A directory that holds neither layout yields nothing.
+    /// [`Error::Json`] when `root` itself has an unreadable `config.json`.
+    /// Invalid nested submods are skipped independently. A directory that
+    /// holds neither layout yields nothing.
     pub fn scan(root: impl AsRef<Path>) -> Result<Self> {
         let mut sub_mods = Vec::new();
         walk(root.as_ref(), 0, &mut sub_mods)?;
@@ -109,7 +110,9 @@ fn walk(dir: &Path, depth: usize, out: &mut Vec<SubMod>) -> Result<()> {
         .collect();
     paths.sort();
     for path in paths {
-        walk(&path, depth + 1, out)?;
+        // Parsing.cpp treats each submod as an independent parse result and
+        // keeps successful siblings when one submod fails.
+        let _ = walk(&path, depth + 1, out);
     }
     Ok(())
 }
@@ -308,10 +311,11 @@ mod tests {
     }
 
     #[test]
-    fn a_submod_without_a_priority_is_an_error_not_a_default() {
+    fn a_submod_without_a_priority_is_skipped_without_a_default() {
         let tmp = tempfile::tempdir().expect("tempdir");
         write(tmp.path(), "Mod/Sub/config.json", r#"{"name":"x"}"#);
-        assert!(AnimationMod::scan(tmp.path()).is_err());
+        let found = AnimationMod::scan(tmp.path()).expect("scan keeps walking");
+        assert!(found.sub_mods.is_empty());
     }
 
     #[test]
