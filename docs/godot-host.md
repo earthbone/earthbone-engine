@@ -1033,8 +1033,8 @@ The last step, a speaker. These tests prove the chain up to the exact bytes
 `AudioStreamWav` is handed, which is where a conversion bug lives. Whether a
 device makes noise needs a windowed Godot run with a `SoundBank` in the tree,
 `open_data` pointed at the install, and `play_effect` called with a footstep
-path. Nothing yet drives `SoundBank` from the game loop, so footsteps are not
-wired to the character controller and voice lines are not wired to dialogue.
+path. Footsteps are driven by the character controller. Dialogue response
+audio is now driven by the dialogue menu.
 `SoundBank::open_data` and the profile-taking `DataSource` entry point build
 their VFS from resolved profile archives and loose roots. Both direct paths
 retain the supplied data directory. The selected
@@ -1688,6 +1688,26 @@ sets now come from the game actor's current race, skin and equipped armor,
 with selection limits described in [game.md](game.md). Animation timing,
 landing/scuff sounds and NPC footstep delivery remain pending. The current
 controller does not supply submerged state to audio.
+
+## Dialogue voice playback
+
+When a selected INFO response starts, the dialogue menu resolves its voice
+asset from the response and current speaker. An explicit TRDT sound override
+does not use the generated voice path. Otherwise the path uses the response
+INFO's owning plugin filename, the DIAL and QUST editor IDs, the response
+INFO's local FormID, its response number and the speaker's VTYP editor ID.
+NPC speakers take VTCK from their Traits template source. Talking activators
+take VNAM. The current speaker reference position is converted from Skyrim
+units to Godot metres and passed to `AudioStreamPlayer3D`. The filename rule
+follows `../engine-refs/Mutagen/Mutagen.Bethesda.Skyrim/Records/Assets/VoiceType/VoiceTypeAssetLookup.cs`.
+The runtime already has the selected speaker, so it resolves that speaker's
+voice type rather than enumerating the static candidate set used by the asset
+lookup.
+
+The menu remembers the voice slot returned by `SoundBank`. Starting a later
+response stops the prior dialogue slot first. Closing the dialogue menu and
+advancing past the final response also stop the tracked voice. SoundBank
+refuses to stop a slot that has since been released or reused for an effect.
 
 `godot/sound_descriptor_test.gd` verifies real descriptor playback and cache
 reuse through AudioEffectCapture. Its Godot 4.7.2 run captured 20,480 frames with

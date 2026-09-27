@@ -62,6 +62,20 @@ pub struct SoundBank {
     last_error: GString,
 }
 
+impl crate::dialogue_menu::VoiceOutput for SoundBank {
+    fn play_voice(&mut self, path: &str, position: [f32; 3]) -> i32 {
+        SoundBank::play_voice(
+            self,
+            GString::from(path),
+            Vector3::new(position[0], position[1], position[2]),
+        )
+    }
+
+    fn stop_voice(&mut self, slot: i32) -> bool {
+        SoundBank::stop_voice(self, slot)
+    }
+}
+
 #[godot_api]
 impl INode3D for SoundBank {
     fn init(base: Base<Node3D>) -> Self {
@@ -226,8 +240,28 @@ impl SoundBank {
     /// full, so a footstep cannot cut dialogue off.
     #[allow(clippy::needless_pass_by_value)]
     #[func]
-    fn play_voice(&mut self, data_path: GString, position: Vector3) -> i32 {
+    pub(crate) fn play_voice(&mut self, data_path: GString, position: Vector3) -> i32 {
         self.play(&data_path.to_string(), position, Kind::Voice)
+    }
+
+    /// Stops a voice slot while leaving effect playback untouched.
+    pub(crate) fn stop_voice(&mut self, slot: i32) -> bool {
+        let Ok(slot) = usize::try_from(slot) else {
+            return false;
+        };
+        if self
+            .pool
+            .peek(slot)
+            .is_none_or(|playing| playing.kind != Kind::Voice)
+        {
+            return false;
+        }
+        let Some(player) = self.players.get_mut(slot) else {
+            return false;
+        };
+        player.stop();
+        self.pool.release(slot);
+        true
     }
 
     /// How many slots are playing right now.
