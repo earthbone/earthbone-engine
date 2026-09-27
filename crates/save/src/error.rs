@@ -95,6 +95,9 @@ pub enum Error {
     #[error("invalid list change data: {reason}")]
     List { reason: String },
 
+    #[error("invalid INFO, SCEN or SMQN change data: {reason}")]
+    DialogueScene { reason: String },
+
     #[error("invalid quest change data: {reason}")]
     Quest { reason: String },
 

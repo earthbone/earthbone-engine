@@ -99,6 +99,9 @@ does not claim runtime support for opaque payloads.
 - Type 3, the global variable table, as references and floats.
 - Every change form header. `ChangeForm::quest_change` decodes documented QUST
   flags, stages, objectives, runtime aliases/events and quest instances.
+- `ChangeForm::info_change`, `story_manager_quest_node_change` and
+  `scene_change` decode the defined INFO, SMQN and SCEN flag sections and state
+  markers.
 - `ChangeForm::npc_change` decodes complete NPC_ payloads, including base data,
   factions, spells, AI data, names, skills, class, race, face, gender and outfits.
 - Type 107, quest static data, including its two event arrays, three reference
@@ -135,10 +138,10 @@ Unknown fields are retained without assigning them runtime behavior.
 
 ## What is left raw
 
-Change form payloads other than `QUST` and the REFR/ACHR placement prefixes
-stay as bytes, decoded on demand. The
-Papyrus auxiliary data after the save-file version stays raw, as does the
-original payload used when writing the save body.
+Change form payloads stay as original bytes and typed readers decode supported
+types on demand. Unsupported types remain opaque. The Papyrus auxiliary data
+after the save-file version stays raw, as does the original payload used when
+writing the save body.
 
 Most decoded state remains inspection data. The game crate can apply globals
 and quest state, but neither stack execution nor pending calls can be resumed from a
@@ -771,6 +774,33 @@ then reproduce the payloads exactly and reject truncated fields across the
 source-defined combinations. Wiring an unused candidate structure into all
 three dispatch cases without that evidence would not establish compatibility.
 SAV-01's live-record application remains dependent on the completed decoder.
+
+## INFO, SMQN and SCEN changes
+
+`ChangeForm::info_change`, `story_manager_quest_node_change` and `scene_change`
+decode the optional six-byte form flags and the bit 31 state marker. Their
+typed values distinguish an absent flag section from one whose bytes are zero.
+The INFO marker is said once and has no payload. SMQN's time-last-run marker
+carries a 32-bit count followed by that many float bit patterns. Its decoder
+checks the count against the remaining bytes and preserves NaN and signed-zero
+bits. SCEN's active marker carries variable scene data. The decoder retains
+that data as opaque bytes because its internal field boundaries are unknown.
+The typed values reconstruct their flags and payload bytes. `Save::write`
+still keeps the original compressed or raw change-form data.
+
+The field order and flag positions follow local TES5Edit
+`Core/wbDefinitionsTES5Saves.pas`. UESP `Save_File_Format.wikitext` supplies
+the INFO, SMQN and SCEN change type indices. FallrimTools `ChangeForm.java`
+dispatches these types to its opaque default reader, so it supplies no field
+layout to reuse. The 60-save external corpus supplies the observed SMQN count
+and float-array layout. xEdit lists both SMQN and SCEN bit 31 as null payloads,
+which conflicts with that corpus. Unknown change bits, truncated form flags,
+invalid SMQN counts and trailing bytes outside SCEN's active data return errors.
+SCEN active data cannot yet be checked for interior truncation.
+The external survey read 60 saves in place and re-encoded all 32,438 INFO,
+3,054 SMQN and 807 SCEN changes exactly, covering 197,758 payload bytes.
+Every observed change used bit 31 alone. The other three defined flag
+combinations have synthetic coverage.
 
 ## Form-list and leveled-list changes
 
