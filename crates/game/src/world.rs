@@ -87,6 +87,8 @@ pub use refs::RefPlacement;
 mod leveled_items;
 mod rng;
 pub(crate) mod save;
+mod save_section_registry;
+mod save_sections;
 mod template_restore;
 mod templates;
 pub use template_restore::TemplateRestoreReport;
