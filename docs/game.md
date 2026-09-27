@@ -1513,6 +1513,22 @@ another Small favor).
 
 ## Active magic applications
 
+### Peak Value Modifier, MAG-55
+
+Archetype 34 uses the winning MGEF's `PrimaryAV` and `RelatedID`. The related
+form must resolve to a KYWD record. Active effects on the same target compete
+when their keyword and primary actor value match, and the greatest signed
+modifier is applied once. Distinct keywords form separate groups. A lower new
+modifier does not change the actor value.
+When the effect supplying the peak ends, the remaining group is recalculated
+and its next greatest modifier takes effect. Secondary actor value fields do
+not contribute. The group is derived from active effects and winning MGEF
+records, so it adds no save fields.
+
+`magic.rs` tests cover peak selection, keyword groups, ignored secondary
+values, and promotion of the next active modifier after expiration. They use
+synthetic records.
+
 ### Telekinesis prerequisite audit, MAG-41
 
 The 2026-09-20 five-master survey found 1,573 non-deleted MGEF winners and
