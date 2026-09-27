@@ -2,7 +2,8 @@
 
 //! Record-backed conversations. Layouts and selection inputs follow xEdit
 //! DIAL/INFO/DLBR/QUST, UESP VMAD and the shipped TopicInfo fragment contract.
-//! The host acknowledges each response before end fragments or links advance.
+//! The host acknowledges responses, while range exits finish the active INFO.
+//! Range uses Skyrim.esm's fAIInDialogueModeWithPlayerDistance GMST.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -275,6 +276,74 @@ impl Game {
     /// Close a conversation. Interrupted lines do not run their end fragments.
     pub fn close_dialogue(&mut self) {
         self.world.borrow_mut().dialogue.session = None;
+    }
+
+    /// End an out-of-range conversation and dispatch its active INFO end fragment.
+    /// Uses current reference positions and fAIInDialogueModeWithPlayerDistance.
+    /// Returns whether a conversation closed. Called by each unpaused game tick.
+    ///
+    /// # Errors
+    ///
+    /// Invalid settings or positions and failed fragment dispatch leave the cursor
+    /// available for retry. Script execution errors use the normal VM log.
+    pub fn update_dialogue_range(&mut self) -> Result<bool, Error> {
+        let active_info = {
+            let mut world = self.world.borrow_mut();
+            let Some(session) = world.dialogue.session.clone() else {
+                return Ok(false);
+            };
+            let Some(Value::Float(range)) =
+                world.game_setting("fAIInDialogueModeWithPlayerDistance")
+            else {
+                return Err(Error::State("missing or invalid dialogue distance setting"));
+            };
+            if !range.is_finite() || range < 0.0 {
+                return Err(Error::State("invalid dialogue distance setting"));
+            }
+            let speaker = world
+                .reference(session.speaker)
+                .ok_or(Error::Record(session.speaker))?;
+            let (speaker_position, speaker_cell) = (speaker.position, speaker.cell);
+            let listener = world
+                .reference(session.listener)
+                .ok_or(Error::Record(session.listener))?;
+            let (listener_position, listener_cell) = (listener.position, listener.cell);
+            if speaker_position
+                .iter()
+                .chain(&listener_position)
+                .any(|value| !value.is_finite())
+            {
+                return Err(Error::State("invalid dialogue participant position"));
+            }
+            let same_space = if speaker_cell == listener_cell {
+                true
+            } else {
+                let worldspace = |cell: Option<GlobalFormId>| {
+                    let cell = cell?;
+                    if world.cell_is_interior(cell) {
+                        return None;
+                    }
+                    let raw = world.record(cell)?.placement.world?;
+                    world.resolve_from(cell, raw)
+                };
+                let speaker_world = worldspace(speaker_cell);
+                speaker_world.is_some() && speaker_world == worldspace(listener_cell)
+            };
+            let distance_squared: f64 = speaker_position
+                .iter()
+                .zip(listener_position)
+                .map(|(a, b)| (f64::from(*a) - f64::from(b)).powi(2))
+                .sum();
+            if same_space && distance_squared <= f64::from(range).powi(2) {
+                return Ok(false);
+            }
+            session.current_info
+        };
+        if active_info.is_some() {
+            self.finish_dialogue_info()?;
+        }
+        self.close_dialogue();
+        Ok(true)
     }
 
     /// Enumerate currently eligible player topics without advancing the RNG.

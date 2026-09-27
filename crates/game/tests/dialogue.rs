@@ -548,6 +548,289 @@ fn interrupted_response_does_not_run_end_fragment() {
 }
 
 #[test]
+fn dlg_06_leaving_range_ends_conversation_and_fires_recorded_end_once() {
+    for response_index in [0, 1] {
+        let mut game = game(plugin(vec![info(INFO, 0, &["First", "Second"], true)]));
+        open(&mut game);
+        game.choose_dialogue(id(TOPIC)).unwrap();
+        if response_index == 1 {
+            game.advance_dialogue().unwrap();
+        }
+        let player = game.player();
+        game.world_mut().reference(player).unwrap().position = [300.0, 400.0, 0.0];
+        game.tick(0.0);
+        assert!(
+            game.world().dialogue_session().is_some(),
+            "the exact boundary is in range"
+        );
+        assert_eq!(
+            counter(&mut game, "ends"),
+            0,
+            "in-range ticks must not end a line"
+        );
+        game.world_mut().reference(player).unwrap().position[2] = 1.0;
+        game.tick(0.0);
+        assert!(
+            game.world().dialogue_session().is_none(),
+            "leaving range closes the session"
+        );
+        assert_eq!(
+            game.world().dialogue_target(id(SPEAKER)),
+            None,
+            "the actor loses its target"
+        );
+        assert!(
+            game.dialogue_line().unwrap().is_none(),
+            "no response remains after walking away"
+        );
+        assert_eq!(
+            game.world_mut().quest_state(id(QUEST)).unwrap().highest,
+            20,
+            "the recorded end fragment runs"
+        );
+        game.tick(0.0);
+        assert!(
+            !game.update_dialogue_range().unwrap(),
+            "closure is idempotent"
+        );
+        assert_eq!(
+            counter(&mut game, "begins"),
+            1,
+            "walking away must not restart the INFO"
+        );
+        assert_eq!(
+            counter(&mut game, "ends"),
+            1,
+            "the end fragment runs exactly once"
+        );
+    }
+}
+
+#[test]
+fn dlg_06_between_responses_closes_without_replaying_end() {
+    for completed in [false, true] {
+        let mut game = game(plugin(vec![info(INFO, 0, &["Line"], true)]));
+        open(&mut game);
+        if completed {
+            game.choose_dialogue(id(TOPIC)).unwrap();
+            game.advance_dialogue().unwrap();
+        }
+        game.world_mut().reference(id(SPEAKER)).unwrap().position = [501.0, 0.0, 0.0];
+        game.tick(0.0);
+        assert!(
+            game.world().dialogue_session().is_none(),
+            "an idle conversation closes too"
+        );
+        assert_eq!(
+            counter(&mut game, "ends"),
+            i32::from(completed),
+            "only a playing INFO needs an end fragment"
+        );
+    }
+}
+
+#[test]
+fn dlg_06_record_and_runtime_distance_overrides_control_range() {
+    let mut plugin = plugin(vec![info(INFO, 0, &["Line"], true)]);
+    plugin.push_top(
+        Record::new(T(b"GMST"), 0xB00)
+            .zsub(T(b"EDID"), "fAIInDialogueModeWithPlayerDistance")
+            .sub(T(b"DATA"), 1000.0f32.to_le_bytes()),
+    );
+    let mut game = game(plugin);
+    open(&mut game);
+    game.choose_dialogue(id(TOPIC)).unwrap();
+    game.world_mut().reference(id(SPEAKER)).unwrap().position = [750.0, 0.0, 0.0];
+    assert!(
+        !game.update_dialogue_range().unwrap(),
+        "the record overrides the default"
+    );
+    game.world_mut().settings.insert(
+        "faiindialoguemodewithplayerdistance".into(),
+        Value::Float(600.0),
+    );
+    game.tick(0.0);
+    assert!(
+        game.world().dialogue_session().is_none(),
+        "runtime setting overrides the record"
+    );
+    assert_eq!(
+        counter(&mut game, "ends"),
+        1,
+        "the override exit dispatches the end fragment"
+    );
+}
+
+#[test]
+fn dlg_06_invalid_range_or_position_preserves_the_response() {
+    let mut game = game(plugin(vec![info(INFO, 0, &["Line"], true)]));
+    open(&mut game);
+    game.choose_dialogue(id(TOPIC)).unwrap();
+    for invalid in [
+        Value::Float(-1.0),
+        Value::Float(f32::NAN),
+        Value::Float(f32::INFINITY),
+        Value::string("bad"),
+    ] {
+        game.world_mut()
+            .settings
+            .insert("faiindialoguemodewithplayerdistance".into(), invalid);
+        assert!(
+            matches!(game.update_dialogue_range().unwrap_err(), Error::State(_)),
+            "invalid settings must be reported"
+        );
+    }
+    game.world_mut().settings.clear();
+    game.world_mut().reference(id(SPEAKER)).unwrap().position[0] = f32::NAN;
+    assert!(
+        matches!(game.update_dialogue_range().unwrap_err(), Error::State(_)),
+        "invalid positions must be reported"
+    );
+    assert_eq!(
+        game.world().dialogue_session().unwrap().current_info,
+        Some(id(INFO)),
+        "errors retain the active INFO"
+    );
+    assert_eq!(
+        counter(&mut game, "ends"),
+        0,
+        "errors must not consume its fragment"
+    );
+}
+
+#[test]
+fn dlg_06_menu_pause_defers_walk_away_until_simulation_resumes() {
+    let mut game = game(plugin(vec![info(INFO, 0, &["Line"], true)]));
+    open(&mut game);
+    game.choose_dialogue(id(TOPIC)).unwrap();
+    game.world_mut().reference(id(SPEAKER)).unwrap().position = [501.0, 0.0, 0.0];
+    game.tick_menu_mode(0.0, true);
+    assert!(
+        game.world().dialogue_session().is_some(),
+        "menu pause preserves the session"
+    );
+    assert_eq!(
+        counter(&mut game, "ends"),
+        0,
+        "menu pause defers the fragment"
+    );
+    game.tick(0.0);
+    assert!(
+        game.world().dialogue_session().is_none(),
+        "simulation resume applies the exit"
+    );
+    assert_eq!(counter(&mut game, "ends"), 1, "resume dispatches once");
+}
+
+#[test]
+fn dlg_06_shared_response_uses_selected_info_end_fragment() {
+    let mut plugin = plugin(vec![
+        info(INFO, 0, &[], true).sub(T(b"DNAM"), SHARED.to_le_bytes())
+    ]);
+    add_topic(
+        &mut plugin,
+        topic(LINKED_TOPIC, OTHER_QUEST),
+        vec![info(SHARED, 0, &["Shared"], true)],
+        false,
+    );
+    let mut game = game(plugin);
+    open(&mut game);
+    game.choose_dialogue(id(TOPIC)).unwrap();
+    game.world_mut().reference(id(SPEAKER)).unwrap().position = [0.0, 0.0, 501.0];
+    game.tick(0.0);
+    assert_eq!(
+        counter(&mut game, "ends"),
+        1,
+        "the selected INFO owns the end fragment"
+    );
+    let shared = game.object_of_form(id(SHARED));
+    assert_eq!(
+        game.vm.get_var(shared, "TopicFragments", "ends"),
+        Some(Value::Int(0)),
+        "shared text must not transfer fragment ownership"
+    );
+    assert_eq!(
+        game.world_mut()
+            .quest_state(id(OTHER_QUEST))
+            .unwrap()
+            .highest,
+        0,
+        "the shared response quest is unchanged"
+    );
+}
+
+#[test]
+fn dlg_06_separate_interiors_do_not_share_dialogue_range() {
+    let mut plugin = plugin(vec![info(INFO, 0, &["Line"], true)]);
+    for cell in [0xC00, 0xC01] {
+        plugin.push_top(Record::new(T(b"CELL"), cell).sub(T(b"DATA"), [1, 0]));
+    }
+    let mut game = game(plugin);
+    open(&mut game);
+    game.choose_dialogue(id(TOPIC)).unwrap();
+    let player = game.player();
+    game.world_mut().reference(player).unwrap().cell = Some(id(0xC00));
+    game.world_mut().reference(id(SPEAKER)).unwrap().cell = Some(id(0xC01));
+    game.tick(0.0);
+    assert!(
+        game.world().dialogue_session().is_none(),
+        "matching interior coordinates are not the same space"
+    );
+    assert_eq!(
+        counter(&mut game, "ends"),
+        1,
+        "the spatial exit dispatches its end fragment"
+    );
+}
+
+#[test]
+fn dlg_06_installed_distance_record_drives_walk_away() {
+    let Some(data) = std::env::var_os("SKYRIM_DATA").map(std::path::PathBuf::from) else {
+        return;
+    };
+    let mut order = LoadOrder::new();
+    for name in [
+        "Skyrim.esm",
+        "Update.esm",
+        "Dawnguard.esm",
+        "HearthFires.esm",
+        "Dragonborn.esm",
+    ] {
+        order
+            .add(
+                name,
+                Plugin::parse(&std::fs::read(data.join(name)).unwrap()).unwrap(),
+            )
+            .unwrap();
+    }
+    let world = soe_game::World::new(order);
+    let setting = world.form("fAIInDialogueModeWithPlayerDistance").unwrap();
+    assert_eq!(
+        world.game_setting("fAIInDialogueModeWithPlayerDistance"),
+        Some(Value::Float(500.0)),
+        "the installed setting establishes the default"
+    );
+    let mut record = world.record(setting).unwrap().clone();
+    record.form_id = 0xB00;
+    let mut plugin = plugin(vec![info(INFO, 0, &["Line"], true)]);
+    plugin.push_top(record);
+    let mut game = game(plugin);
+    open(&mut game);
+    game.choose_dialogue(id(TOPIC)).unwrap();
+    game.world_mut().reference(id(SPEAKER)).unwrap().position = [501.0, 0.0, 0.0];
+    game.tick(0.0);
+    assert!(
+        game.world().dialogue_session().is_none(),
+        "the authored range controls the exit"
+    );
+    assert_eq!(
+        counter(&mut game, "ends"),
+        1,
+        "the recorded fragment runs after leaving the authored range"
+    );
+}
+
+#[test]
 fn stale_choice_is_rechecked_before_running_its_fragment() {
     let record =
         info(INFO, 0, &["Only at stage zero"], true).sub(T(b"CTDA"), condition(58, QUEST, 0.0, 0));
