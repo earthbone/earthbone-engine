@@ -1948,6 +1948,17 @@ The QUST layout rules come from `uesp-modfileformat/QUST.wikitext` and
 lists the objective display, completion and failure operations. The presenter
 reads the existing `World::QuestState`; it adds no save fields.
 
+The objective map presenter resolves each QUST target through its runtime
+quest alias. Reference aliases point to their placed reference, while
+location aliases use the location's `MNAM` world marker. It returns the
+resolved Skyrim position, authored compass lock flag and a visibility value
+derived from the objective's displayed state and the target reference's
+enabled and deleted state. Target CTDA conditions are evaluated against the
+current Game and VM, and a target is omitted when its conditions are false or
+cannot be evaluated. The presenter reads the shared world and adds no saved
+state. QSTA layout rules come from `uesp-modfileformat/QUST.wikitext` and
+`TES5Edit/Core/wbDefinitionsTES5.pas`.
+
 The lockpicking presenter (UI-08) opens when player activation reaches a
 locked, non-key-only reference and the player has a lockpick but no matching
 key. Its angle slider and Turn lock button submit attempts to

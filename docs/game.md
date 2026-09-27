@@ -46,8 +46,9 @@ week 6 to 9 gate.
   shared by every observer of one target. `World::evaluate_detection` checks a
   whole batch of observations before it changes any pool. See
   [combat AI](combat-ai.md) for the formula sources and what remains.
-- `quest`: the `QUST` view. Flags, stages with log entries, objectives, aliases
-  with forced references.
+- `quest`: the `QUST` view. Flags, stages with log entries, objectives,
+  aliases with forced references, and each objective target's alias, lock
+  marker flag and CTDA conditions.
 - `natives`: the base game's natives, closed over the shared world.
 - `clock`: real seconds drive the scheduler and update timers, game time runs
   at `timescale` (20) for `GetCurrentGameTime`.
