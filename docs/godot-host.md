@@ -9,11 +9,12 @@ body, including an intervening actor or static obstruction. The query uses
 the existing RID-backed actor bodies and allocates no reference nodes.
 
 `detection::light_level` reads the winning CELL/XCLL ambient RGB, LGTM
-inheritance, and enabled placed LIGH/DATA radius, color, negative and
-off-by-default flags with FNAM fade. It samples
-current reference placement and enable state and bounds the resulting
-record-derived light estimate to 0 to 150. The host sends that value, sight,
-motion and queued detection sounds to `World::evaluate_detection` each step.
+inheritance, and enabled authored or runtime placed LIGH/DATA radius, color,
+negative and off-by-default flags with FNAM fade. It samples current reference
+placement and enable state, including `PlaceAtMe` references, and bounds the
+resulting record-derived light estimate to 0 to 150. The host sends that
+value, sight, motion and queued detection sounds to
+`World::evaluate_detection` each step.
 A sound event uses its source position and owning actor FormID. Footsteps emit
 a detection sound after successful playback. World keeps the stealth pool and
 observer state across cell resource replacement.

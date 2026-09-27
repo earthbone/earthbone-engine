@@ -133,20 +133,33 @@ pub fn light_level(world: &World, cell: GlobalFormId, point: [f32; 3]) -> f32 {
         (f32::from(bytes[0]) + f32::from(bytes[1]) + f32::from(bytes[2])) / 3.0
     });
     let mut level = ambient * (100.0 / 255.0);
-    for id in world.order().build_cell_index().references(cell) {
-        let Some(reference) = world.record(*id) else {
+    let mut references = world.order().build_cell_index().references(cell).to_vec();
+    references.extend(world.runtime_references_in_cell(cell));
+    for id in references {
+        let (base, placement, reference) = if let Some(reference) =
+            world.record(id).filter(|record| record.tag == T(b"REFR"))
+        {
+            let Some(raw_base) = reference.find(T(b"NAME")).filter(|bytes| bytes.len() == 4) else {
+                continue;
+            };
+            let raw = u32::from_le_bytes([raw_base[0], raw_base[1], raw_base[2], raw_base[3]]);
+            (
+                world.resolve_from(id, raw),
+                world.ref_placement(id),
+                Some(reference),
+            )
+        } else if let Some(runtime) = world.reference_ref(id) {
+            let placement = soe_game::world::RefPlacement {
+                position: runtime.position,
+                rotation: runtime.rotation,
+                scale: runtime.scale,
+                visible: runtime.enabled && !runtime.deleted,
+            };
+            (runtime.base, Some(placement), None)
+        } else {
             continue;
         };
-        if reference.tag != T(b"REFR") {
-            continue;
-        }
-        let Some(raw_base) = reference.find(T(b"NAME")).filter(|bytes| bytes.len() == 4) else {
-            continue;
-        };
-        let raw = u32::from_le_bytes([raw_base[0], raw_base[1], raw_base[2], raw_base[3]]);
-        let Some(base) = world.resolve_from(*id, raw) else {
-            continue;
-        };
+        let Some(base) = base else { continue };
         let Some(base_record) = world.record(base).filter(|record| record.tag == T(b"LIGH")) else {
             continue;
         };
@@ -157,7 +170,6 @@ pub fn light_level(world: &World, cell: GlobalFormId, point: [f32; 3]) -> f32 {
             continue;
         };
         let flags = u32::from_le_bytes([data[12], data[13], data[14], data[15]]);
-        let placement = world.ref_placement(*id);
         if placement.is_some_and(|p| !p.visible) || (placement.is_none() && flags & (1 << 5) != 0) {
             continue;
         }
@@ -167,7 +179,7 @@ pub fn light_level(world: &World, cell: GlobalFormId, point: [f32; 3]) -> f32 {
         }
         let position = placement.map_or_else(
             || {
-                reference
+                reference?
                     .find(T(b"DATA"))
                     .filter(|bytes| bytes.len() >= 12)
                     .map(|bytes| {

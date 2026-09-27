@@ -34,13 +34,19 @@ fn light_world(reference_flags: u32, light_flags: u32) -> World {
 #[test]
 fn initially_disabled_reference_does_not_emit_placed_light() {
     let world = light_world(flags::INITIALLY_DISABLED, 0);
-    assert_eq!(soe_godot_host::detection::light_level(&world, id(1), [0.0; 3]), 0.0);
+    assert_eq!(
+        soe_godot_host::detection::light_level(&world, id(1), [0.0; 3]),
+        0.0
+    );
 }
 
 #[test]
 fn off_by_default_light_does_not_emit_until_enabled() {
     let world = light_world(0, 1 << 5);
-    assert_eq!(soe_godot_host::detection::light_level(&world, id(1), [0.0; 3]), 0.0);
+    assert_eq!(
+        soe_godot_host::detection::light_level(&world, id(1), [0.0; 3]),
+        0.0
+    );
 }
 
 #[test]
@@ -65,7 +71,10 @@ fn runtime_placed_light_changes_detection_light() {
     let runtime_light = world.place_at(id(2), id(4), false);
     let placement = world.ref_placement(runtime_light).unwrap();
     let light = soe_godot_host::detection::light_level(&world, id(1), placement.position);
-    assert!(light > 0.0, "an enabled runtime light raises local detection light");
+    assert!(
+        light > 0.0,
+        "an enabled runtime light raises local detection light"
+    );
 }
 
 #[test]
