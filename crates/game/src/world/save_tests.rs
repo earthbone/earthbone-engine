@@ -477,7 +477,7 @@ fn sav_07_unknown_version_and_mixed_legacy_namespaces_are_rejected() {
     let mut world = rich_world(DYNAMIC_FILE);
     let before = world.save_state();
     for (version, message) in [
-        (37_u16, "world state version 37"),
+        (38_u16, "world state version 38"),
         (18, "created namespace in a legacy world state"),
     ] {
         let mut bytes = before.clone();
@@ -489,6 +489,27 @@ fn sav_07_unknown_version_and_mixed_legacy_namespaces_are_rejected() {
             .contains(message));
         assert_eq!(world.save_state(), before);
     }
+}
+
+#[test]
+fn sav_07_guard_procedure_requires_world_version_37() {
+    let mut world = rich_world(DYNAMIC_FILE);
+    world
+        .actors
+        .get_mut(&id(DYNAMIC_FILE, 0x800))
+        .unwrap()
+        .ai
+        .procedure = crate::ai::Procedure::Guard;
+    let mut older = world.save_state();
+    let before = older.clone();
+    older[4..6].copy_from_slice(&36_u16.to_le_bytes());
+
+    assert!(world
+        .load_state(&older)
+        .unwrap_err()
+        .to_string()
+        .contains("Guard procedure requires world version 37"));
+    assert_eq!(world.save_state(), before);
 }
 
 #[test]

@@ -60,7 +60,8 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// Version 34 retains last-visit game days for resettable encounter zones.
 /// Version 35 retains saved list flags and per-entry chance bytes in record overrides.
 /// Version 36 retains the active phase and completed action slots for each scene.
-pub const SAVE_VERSION: u16 = 36;
+/// Version 37 retains the active Guard package procedure.
+pub const SAVE_VERSION: u16 = 37;
 
 #[derive(Clone, Copy)]
 pub(crate) enum FormNamespace {
@@ -1562,6 +1563,11 @@ fn read_actor_state(r: &mut FormReader<'_, '_>, version: u16) -> Result<ActorSta
     if version < 22 && matches!(a.ai.procedure, crate::ai::Procedure::Wait { .. }) {
         return Err(VmError::State(
             "Wait procedure requires world version 22".into(),
+        ));
+    }
+    if version < 37 && a.ai.procedure == crate::ai::Procedure::Guard {
+        return Err(VmError::State(
+            "Guard procedure requires world version 37".into(),
         ));
     }
     a.perks = read_form_set(r)?;

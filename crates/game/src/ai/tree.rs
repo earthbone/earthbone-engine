@@ -133,6 +133,7 @@ fn procedure(branch: &Branch) -> Procedure {
         Some("sandbox") => Procedure::Sandbox,
         Some("sleep") => Procedure::Sleep,
         Some("patrol") => Procedure::Patrol,
+        Some("guard") => Procedure::Guard,
         Some("wait") => Procedure::Wait {
             stop_movement: false,
         },
