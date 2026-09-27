@@ -104,6 +104,8 @@ does not claim runtime support for opaque payloads.
   markers.
 - `ChangeForm::npc_change` decodes complete NPC_ payloads, including base data,
   factions, spells, AI data, names, skills, class, race, face, gender and outfits.
+- `ChangeForm::class_change`, `faction_change` and `relationship_change` decode
+  CLAS, FACT and RELA change sections on demand.
 - Type 107, quest static data, including its two event arrays, three reference
   arrays, reference-keyed values and final byte.
 - Type 1001, the Papyrus block: the string table, the script definitions with
@@ -774,6 +776,38 @@ then reproduce the payloads exactly and reject truncated fields across the
 source-defined combinations. Wiring an unused candidate structure into all
 three dispatch cases without that evidence would not establish compatibility.
 SAV-01's live-record application remains dependent on the completed decoder.
+
+## CLAS, FACT and RELA changes
+
+`ChangeForm::class_change` retains the optional six-byte form flags and the
+tag-skills change marker. The local xEdit Skyrim save definition names that
+marker but supplies no payload layout, so the marker has no decoded data.
+
+`ChangeForm::faction_change` reads the optional form flags, a variable-count
+reaction array, the faction flag word, and four crime words. Each reaction
+retains its faction RefID, signed modifier and unsigned reaction word. The
+count keeps its original width. The reaction and crime field boundaries follow
+the external Special Edition corpus and the corresponding definitions in
+local xEdit FO3/FNV sources. Skyrim xEdit names both sections but leaves their
+payload definitions empty. The corpus places reactions before the faction flag
+word when both bits are set, despite xEdit listing the flag word first. Crime
+words remain uninterpreted.
+
+`ChangeForm::relationship_change` reads three RefIDs for a created form,
+regardless of change flags, then an optional signed rank under bit one. This
+ordering follows local FallrimTools `ChangeFormRela.java`. Noncreated forms do
+not carry the three identities. The optional six-byte form flag section follows
+xEdit's shared change flag definition.
+
+All three readers reject unknown change bits, truncated known fields and
+trailing bytes. Their typed encoders reconstruct the change flags and payload,
+including empty versus absent reaction arrays. `Save::write` still uses the
+original change-form bytes. The decoder does not apply these changes to live
+records. The local UESP save format page supplies the three change type
+indices. FallrimTools handles CLAS and FACT as opaque forms.
+The 60-save external check reproduced all 345,703 payload bytes from 4,702
+FACT and 547 RELA changes. It found no CLAS changes, so CLAS field coverage is
+synthetic only.
 
 ## INFO, SMQN and SCEN changes
 
