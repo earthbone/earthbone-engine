@@ -106,6 +106,9 @@ does not claim runtime support for opaque payloads.
   factions, spells, AI data, names, skills, class, race, face, gender and outfits.
 - `ChangeForm::class_change`, `faction_change` and `relationship_change` decode
   CLAS, FACT and RELA change sections on demand.
+- `ChangeForm::activator_change` decodes ACTI, TACT and DOOR form flags and
+  their value, full-name and TACT speaker change markers. The markers consume
+  no payload bytes, as defined by xEdit.
 - Type 107, quest static data, including its two event arrays, three reference
   arrays, reference-keyed values and final byte.
 - Type 1001, the Papyrus block: the string table, the script definitions with
