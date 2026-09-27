@@ -34,6 +34,7 @@ const MARKER_BASE: u32 = 0x704;
 const TRAVEL_TEMPLATE: u32 = 0x710;
 const SANDBOX_TEMPLATE: u32 = 0x711;
 const SLEEP_TEMPLATE: u32 = 0x712;
+const FLEE_TEMPLATE: u32 = 0x713;
 const TRAVEL: u32 = 0x720;
 const SLEEP: u32 = 0x721;
 const SANDBOX: u32 = 0x722;
@@ -46,6 +47,8 @@ const LOCATION_ALIAS_QUEST: u32 = 0x732;
 const ALIAS_LOCATION: u32 = 0x733;
 const OVERRIDE_LOCATION: u32 = 0x734;
 const GUARD_BASE: u32 = 0x740;
+const FLEE_BASE: u32 = 0x741;
+const THREAT_BASE: u32 = 0x742;
 const CELL_A: u32 = 0x800;
 const CELL_B: u32 = 0x801;
 const MARKER_B: u32 = 0x805;
@@ -55,6 +58,9 @@ const MARKER_A: u32 = 0x808;
 const NAVM_A: u32 = 0x810;
 const NAVM_B: u32 = 0x811;
 const IDLE_A: u32 = 0x822;
+const FLEE_REF: u32 = 0x823;
+const THREAT_REF: u32 = 0x824;
+const FLEE_PACKAGE: u32 = 0x726;
 
 fn placed(tag: [u8; 4], id: u32, edid: &str, base: u32, at: [f32; 3]) -> Record {
     let mut data = Vec::with_capacity(24);
@@ -254,6 +260,11 @@ fn test_plugin_for_race(race: Record) -> Plugin {
         "Sleep",
         "Sleep Location",
     ));
+    let flee_template = package::build_template(FLEE_TEMPLATE, "FleeTemplate");
+    let flee_template = package::close_header(flee_template, None);
+    let flee_template = package::finish(flee_template);
+    let flee_template = package::with_procedure(flee_template, "Flee", &[], true);
+    p.push_top(package::with_actions(flee_template));
 
     let stage_reached = Condition {
         comparison: condition::GREATER_OR_EQUAL,
@@ -297,6 +308,9 @@ fn test_plugin_for_race(race: Record) -> Plugin {
     let sandbox = package::close_header(sandbox, Some(SANDBOX_TEMPLATE));
     let sandbox = package::with_location_input(sandbox, 0, Location::NearSelf, 200);
     p.push_top(package::with_actions(package::finish(sandbox)));
+    let flee = package::build_record(FLEE_PACKAGE, "FleePackage", 0, Schedule::default());
+    let flee = package::close_header(flee, Some(FLEE_TEMPLATE));
+    p.push_top(package::with_actions(package::finish(flee)));
     let run_sandbox = package::build_record(
         RUN_SANDBOX,
         "GuardRunSandbox",
@@ -354,6 +368,39 @@ fn test_plugin_for_race(race: Record) -> Plugin {
     .sub(T(b"PKID"), RUN_SANDBOX.to_le_bytes())
     .sub(T(b"PKID"), SANDBOX.to_le_bytes());
     p.push_top(guard);
+    p.push_top(
+        npc::build_record(
+            FLEE_BASE,
+            "FleeBase",
+            "Flee",
+            Config {
+                level: 5,
+                ..Default::default()
+            },
+            Stats {
+                health: 100,
+                ..Default::default()
+            },
+        )
+        .sub(T(b"RNAM"), RACE.to_le_bytes())
+        .sub(T(b"PKID"), FLEE_PACKAGE.to_le_bytes()),
+    );
+    p.push_top(
+        npc::build_record(
+            THREAT_BASE,
+            "ThreatBase",
+            "Threat",
+            Config {
+                level: 5,
+                ..Default::default()
+            },
+            Stats {
+                health: 100,
+                ..Default::default()
+            },
+        )
+        .sub(T(b"RNAM"), RACE.to_le_bytes()),
+    );
 
     let guard_script = Vmad {
         scripts: vec![ScriptEntry::new("GuardScript")],
@@ -367,6 +414,14 @@ fn test_plugin_for_race(race: Record) -> Plugin {
         vec![
             placed(*b"ACHR", GUARD, "GuardRef", GUARD_BASE, [10.0, 50.0, 0.0])
                 .sub(T(b"VMAD"), guard_script),
+            placed(*b"ACHR", FLEE_REF, "FleeRef", FLEE_BASE, [110.0, 50.0, 0.0]),
+            placed(
+                *b"ACHR",
+                THREAT_REF,
+                "ThreatRef",
+                THREAT_BASE,
+                [120.0, 50.0, 0.0],
+            ),
             placed(
                 *b"REFR",
                 MARKER_A,
@@ -457,6 +512,100 @@ fn package_name(game: &Game, actor: soe_esm::GlobalFormId) -> String {
     w.current_package(actor)
         .and_then(|p| w.editor_id(p))
         .unwrap_or_default()
+}
+
+#[test]
+fn ai_32_flee_routes_away_from_its_live_threat_and_resumes_after_save() {
+    let mut game = game_at_hour(12.0);
+    let actor = game.form("FleeRef").unwrap();
+    let threat = game.form("ThreatRef").unwrap();
+    let (start, target) = {
+        let mut world = game.world_mut();
+        let state = world.actor(actor).unwrap();
+        state.in_combat = true;
+        state.combat_target = Some(threat);
+        (
+            world.reference(actor).unwrap().position,
+            world.reference(threat).unwrap().position,
+        )
+    };
+
+    tick(&mut game, 0.1);
+    let flee_package = game.form("FleePackage").unwrap();
+    let (route, complete) = {
+        let world = game.world();
+        let state = world.actor_ref(actor).unwrap();
+        (
+            state.ai.destination,
+            state.ai.completed.contains_key(&flee_package),
+        )
+    };
+    assert_eq!(
+        game.world()
+            .actor_ref(actor)
+            .map(|state| state.ai.procedure.clone()),
+        Some(Procedure::Flee),
+        "the PACK template selects Flee, package is {}",
+        package_name(&game, actor)
+    );
+    let route = route.expect("an eligible navmesh route is selected");
+    assert!(
+        ((route[0] - target[0]).powi(2) + (route[1] - target[1]).powi(2)).sqrt()
+            > ((start[0] - target[0]).powi(2) + (start[1] - target[1]).powi(2)).sqrt(),
+        "route {route:?} must increase distance from threat {target:?}"
+    );
+    assert!(!complete, "the procedure remains active before arrival");
+
+    let save = game.save_state().unwrap();
+    let mut restored = game_at_hour(12.0);
+    restored.load_state(&save).unwrap();
+    assert_eq!(
+        restored
+            .world()
+            .actor_ref(actor)
+            .map(|state| state.ai.procedure.clone()),
+        Some(Procedure::Flee),
+        "SOEW restores the active Flee procedure"
+    );
+    tick(&mut restored, 2.0);
+    let restored_world = restored.world();
+    let state = restored_world.actor_ref(actor).unwrap();
+    let package = restored.form("FleePackage").unwrap();
+    assert!(state.ai.arrived, "the actor reaches its selected route end");
+    assert!(state.ai.completed.contains_key(&package));
+    assert!(state.ai.tree.as_ref().is_some_and(|tree| tree.finished));
+}
+
+#[test]
+fn ai_32_installed_flee_templates_resolve_to_the_flee_procedure() {
+    let Ok(data) = std::env::var("SKYRIM_DATA") else {
+        eprintln!("SKYRIM_DATA not set, skipping");
+        return;
+    };
+    let bytes = std::fs::read(format!("{data}/Skyrim.esm")).unwrap();
+    let mut order = LoadOrder::new();
+    order
+        .add("Skyrim.esm", Plugin::parse(&bytes).unwrap())
+        .unwrap();
+    let game = Game::new(order);
+    let mut count = 0;
+    for (id, record) in game.world().order().winners_of(T(b"PACK")) {
+        let parsed = package::Package::from_record(record).unwrap();
+        if !parsed.is_template()
+            || !parsed
+                .procedures()
+                .any(|branch| branch.procedure.as_deref() == Some("Flee"))
+        {
+            continue;
+        }
+        if ai::procedure_of(&game.world(), id).0 == Procedure::Flee {
+            count += 1;
+        }
+    }
+    assert!(
+        count > 0,
+        "Skyrim.esm has templates whose first procedure is Flee"
+    );
 }
 
 #[test]
@@ -920,6 +1069,7 @@ fn the_installed_game_reads_every_package_and_evaluates_the_prisoner() {
             Procedure::Travel => "Travel".to_string(),
             Procedure::Sandbox => "Sandbox".to_string(),
             Procedure::Sleep => "Sleep".to_string(),
+            Procedure::Flee => "Flee".to_string(),
             Procedure::Patrol => "Patrol".to_string(),
             Procedure::Wait { .. } => "Wait".to_string(),
             Procedure::Unsupported(n) => format!("unsupported {n}"),
