@@ -370,13 +370,22 @@ What each node does:
   `BSCyclicBlendTransition`) pass their generator child through.
   `hkbModifierGenerator` also gives an enabled modifier child activation and
   deactivation lifecycle.
+- `hkbEventsFromRangeModifier` reads its bound `inputValue` and ordered
+  `eventRanges`. The serde-hkx declarations provide the class layout, each
+  upper bound and event, and the two policies: event mode 0 sends on entry,
+  while mode 1 sends on every update in range. This interpreter uses half-open
+  intervals `[lower, upper)`, with each range's lower bound taken from the
+  modifier or the previous range's upper bound. A shared boundary belongs to
+  one range. Entry state is tracked per range. Non-finite or non-increasing
+  bounds and unknown event modes reject graph loading.
 - `hkbBehaviorReferenceGenerator` and unmodelled classes yield the
   reference pose at weight zero and are listed in `Unsupported`.
 
 Bindings resolve at construction to typed setters: `playbackSpeed`,
 `userControlledTimeFraction`, `blendParameter`, `weight` on a blender
 child (also `children:N/weight`), `selectedGeneratorIndex`, `enable`. Any
-other member path is reported in `Unsupported::unbound`. Reals live in the
+`inputValue` on an events-from-range modifier is a real input. Any other
+member path is reported in `Unsupported::unbound`. Reals live in the
 word table as their bit pattern, which is how the file stores them.
 
 ### Checked against the sampler (2026-09-18)
@@ -629,19 +638,17 @@ gated `installed_behavior_passthrough_modifier_inventory` test parses every
 `hkbBehaviorGraph` object and fails if any graph cannot decode. It counts every
 modifier path that the interpreter does not execute: generic `NodeKind::Modifier`,
 `ModifierGenerator`, `ModifierList`, `EventDrivenModifier` and `TimerModifier`.
-It found 4,176 nodes across 32 classes. `BSIsActiveModifier` is excluded because
+It found 4,148 remaining nodes across 28 classes after implemented modifiers
+were excluded from the inventory. `BSIsActiveModifier` is excluded because
 its bound activity slots already write their output variables. The test freezes
 the sorted names and counts, and checks that every class has a bounded backlog
 row whose title names that class.
 
 | Class | Nodes | Follow-up |
 | --- | ---: | --- |
-| `BSDecomposeVectorModifier` | 1 | [ANM-24](../BACKLOG.csv) |
 | `BSDirectAtModifier` | 23 | [ANM-25](../BACKLOG.csv) |
 | `BSEventEveryNEventsModifier` | 85 | [ANM-26](../BACKLOG.csv) |
 | `BSEventOnDeactivateModifier` | 98 | [ANM-27](../BACKLOG.csv) |
-| `BSEventOnFalseToTrueModifier` | 23 | [ANM-03](../BACKLOG.csv) |
-| `BSGetTimeStepModifier` | 1 | [ANM-28](../BACKLOG.csv) |
 | `BSIStateManagerModifier` | 3 | [ANM-29](../BACKLOG.csv) |
 | `BSInterpValueModifier` | 36 | [ANM-30](../BACKLOG.csv) |
 | `BSLimbIKModifier` | 1 | [ANM-31](../BACKLOG.csv) |
@@ -655,7 +662,6 @@ row whose title names that class.
 | `hkbDampingModifier` | 41 | [ANM-39](../BACKLOG.csv) |
 | `hkbEvaluateExpressionModifier` | 438 | [ANM-40](../BACKLOG.csv) |
 | `hkbEventDrivenModifier` | 158 | [ANM-17](../BACKLOG.csv) |
-| `hkbEventsFromRangeModifier` | 3 | [ANM-15](../BACKLOG.csv) |
 | `hkbFootIkControlsModifier` | 25 | [ANM-41](../BACKLOG.csv) |
 | `hkbFootIkModifier` | 2 | [ANM-42](../BACKLOG.csv) |
 | `hkbGetUpModifier` | 46 | [ANM-43](../BACKLOG.csv) |
@@ -779,8 +785,8 @@ word-table slots. ANM-57 owns that linker work.
 - Modifier evaluation beyond the four the interpreter runs:
   `BSIsActiveModifier`, `BSEventOnFalseToTrueModifier`,
   `BSDecomposeVectorModifier` and `BSGetTimeStepModifier`. Dynamic bone weight
-  masks on a blender, `hkbRotateCharacterModifier` and
-  `hkbEventsFromRangeModifier` still pass through. Their layouts are in
+  masks on a blender and `hkbRotateCharacterModifier` still pass through.
+  Their layouts are in
   `serde-hkx` like the rest.
 - Transition details: equal-priority arbitration, the `abut at end` flag,
   `hkbGeneratorTransitionEffect`, `maxSimultaneousTransitions`, delayed timeout

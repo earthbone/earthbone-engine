@@ -328,6 +328,7 @@ enum Target {
     Enable,
     FalseToTrueEnable(usize),
     FalseToTrueValue(usize),
+    EventRangeInput,
     /// Which state the machine enters on activation.
     StartStateId,
     /// A transition effect's blend duration in seconds.
@@ -429,6 +430,8 @@ struct Runtime {
     edge_enabled: [Option<bool>; FALSE_TO_TRUE_SLOTS],
     edge_value: [Option<bool>; FALSE_TO_TRUE_SLOTS],
     edge_previous: [bool; FALSE_TO_TRUE_SLOTS],
+    event_range_input: Option<f32>,
+    event_range_previous: Vec<bool>,
 
     /// A bound vector input for `BSDecomposeVectorModifier`.
     vector: Option<[f32; 4]>,
@@ -522,6 +525,9 @@ impl<'a> Interpreter<'a> {
         for node in &graph.nodes {
             if let NodeKind::Blender(b) = &node.kind {
                 nodes[node.id.0].child_weights = vec![None; b.children.len()];
+            }
+            if let NodeKind::EventsFromRangeModifier { ranges, .. } = &node.kind {
+                nodes[node.id.0].event_range_previous = vec![false; ranges.len()];
             }
         }
         let mut interp = Interpreter {
@@ -676,6 +682,9 @@ impl<'a> Interpreter<'a> {
                     Some(Target::SelectedGeneratorIndex)
                 }
                 ("enable", None, _) => Some(Target::Enable),
+                ("inputValue", None, NodeKind::EventsFromRangeModifier { .. }) => {
+                    Some(Target::EventRangeInput)
+                }
                 ("isActive", None, NodeKind::StateMachine(_)) => Some(Target::MachineIsActive),
                 ("startStateId", None, NodeKind::StateMachine(_)) => Some(Target::StartStateId),
                 ("duration", None, NodeKind::BlendingTransition(_)) => Some(Target::Duration),
@@ -1006,6 +1015,7 @@ impl<'a> Interpreter<'a> {
                 Target::FalseToTrueValue(slot) => rt.edge_value[slot] = Some(value != 0.0),
                 Target::StartStateId => rt.start_state = Some(value as i32),
                 Target::Duration => rt.duration = Some(value),
+                Target::EventRangeInput => rt.event_range_input = Some(value),
                 Target::DecomposeVector => rt.vector = table.quad(b.variable),
                 // Written by apply_output_bindings, skipped above.
                 Target::IsActive { .. }
@@ -1026,6 +1036,7 @@ impl<'a> Interpreter<'a> {
             NodeKind::ModifierList { enable, .. }
             | NodeKind::EventDrivenModifier { enable, .. }
             | NodeKind::TimerModifier { enable, .. }
+            | NodeKind::EventsFromRangeModifier { enable, .. }
             | NodeKind::GetTimeStepModifier { enable, .. }
             | NodeKind::IsActiveModifier { enable, .. }
             | NodeKind::FalseToTrueModifier { enable, .. }
@@ -1101,6 +1112,34 @@ impl<'a> Interpreter<'a> {
                 if rising {
                     self.raise(slot.event.id);
                 }
+            }
+        } else if let NodeKind::EventsFromRangeModifier {
+            input_value,
+            lower_bound,
+            ranges,
+            ..
+        } = &self.graph.nodes[id.0].kind
+        {
+            let value = self.nodes[id.0].event_range_input.unwrap_or(*input_value);
+            let mut lower = *lower_bound;
+            let mut raised = Vec::new();
+            for (index, (upper, range)) in ranges.iter().enumerate() {
+                let active = value.is_finite() && value >= lower && value < *upper;
+                let previous = self.nodes[id.0]
+                    .event_range_previous
+                    .get(index)
+                    .copied()
+                    .unwrap_or(false);
+                if active && (range.event_mode == 1 || !previous) {
+                    raised.push(range.event.id);
+                }
+                if let Some(previous) = self.nodes[id.0].event_range_previous.get_mut(index) {
+                    *previous = active;
+                }
+                lower = *upper;
+            }
+            for event in raised {
+                self.raise(event);
             }
         }
     }
@@ -1199,6 +1238,7 @@ impl<'a> Interpreter<'a> {
             | NodeKind::GeneratorTransition(_)
             | NodeKind::EventDrivenModifier { .. }
             | NodeKind::TimerModifier { .. }
+            | NodeKind::EventsFromRangeModifier { .. }
             | NodeKind::GetTimeStepModifier { .. }
             | NodeKind::IsActiveModifier { .. }
             | NodeKind::DecomposeVector { .. }
@@ -1684,6 +1724,7 @@ impl<'a> Interpreter<'a> {
             | NodeKind::GeneratorTransition(_)
             | NodeKind::EventDrivenModifier { .. }
             | NodeKind::TimerModifier { .. }
+            | NodeKind::EventsFromRangeModifier { .. }
             | NodeKind::GetTimeStepModifier { .. }
             | NodeKind::IsActiveModifier { .. }
             | NodeKind::FalseToTrueModifier { .. }

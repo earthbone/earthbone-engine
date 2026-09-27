@@ -359,6 +359,11 @@ fn remap_node(node: &mut Node, map: &SymbolMap, offset: usize) {
             *deactivate_event_id = map.event(*deactivate_event_id);
         }
         NodeKind::TimerModifier { alarm_event, .. } => remap_event_property(alarm_event, map),
+        NodeKind::EventsFromRangeModifier { ranges, .. } => {
+            for (_, range) in ranges {
+                remap_event_property(&mut range.event, map);
+            }
+        }
         NodeKind::FalseToTrueModifier { slots, .. } => {
             for slot in slots {
                 remap_event_property(&mut slot.event, map);
