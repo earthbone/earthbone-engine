@@ -7,7 +7,8 @@
 //! resolves to zero bytes in `TwbByteArrayDef.GetSize`.
 
 use crate::cursor::Cursor;
-use crate::{ChangeForm, Result};
+use crate::quest::FormFlags;
+use crate::{ChangeForm, Error, Result};
 
 /// Change flag masks for the shared base-object prefix.
 pub mod flags {
@@ -34,12 +35,90 @@ pub struct BaseObjectFields {
     pub remaining_bytes: usize,
 }
 
+/// Fully decoded LIGH, STAT or MSTT change data.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LightStaticChange {
+    /// The optional six-byte form flag section.
+    pub form_flags: Option<FormFlags>,
+    /// Whether xEdit's zero-byte base-object value marker is set.
+    pub value_changed: bool,
+    /// Whether xEdit's zero-byte base-object full-name marker is set.
+    pub full_name_changed: bool,
+}
+
+impl LightStaticChange {
+    /// Rebuild the defined change flag bits.
+    ///
+    /// # Panics
+    /// Does not panic.
+    #[must_use]
+    pub fn change_flags(self) -> u32 {
+        u32::from(self.form_flags.is_some())
+            | (u32::from(self.value_changed) << 1)
+            | (u32::from(self.full_name_changed) << 2)
+    }
+
+    /// Rebuild the exact source-defined payload bytes.
+    ///
+    /// # Panics
+    /// Does not panic.
+    #[must_use]
+    pub fn data_bytes(self) -> Vec<u8> {
+        let mut out = Vec::with_capacity(if self.form_flags.is_some() { 6 } else { 0 });
+        if let Some(flags) = self.form_flags {
+            out.extend(flags.flags.to_le_bytes());
+            out.extend(flags.unknown.to_le_bytes());
+        }
+        out
+    }
+}
+
 const BASE_OBJECT_TYPES: &[&str] = &[
     "ACTI", "TACT", "ARMO", "BOOK", "CONT", "DOOR", "LIGH", "MISC", "APPA", "STAT", "MSTT", "FURN",
     "WEAP", "AMMO", "KEYM", "ALCH", "IDLM", "NAVM", "WOOP", "MGEF", "ENCH",
 ];
 
 impl ChangeForm {
+    /// Decode a LIGH, STAT or MSTT change payload defined by xEdit.
+    ///
+    /// These records contain optional form flags followed by value and
+    /// full-name markers. xEdit defines both markers as zero-byte fields.
+    ///
+    /// # Errors
+    /// Returns decompression, truncation, unknown-flag or trailing-byte errors.
+    ///
+    /// # Panics
+    /// Does not panic.
+    pub fn light_static_change(&self) -> Result<Option<LightStaticChange>> {
+        if !matches!(self.record_type(), "LIGH" | "STAT" | "MSTT") {
+            return Ok(None);
+        }
+        if self.change_flags & !0b111 != 0 {
+            return Err(Error::RecordChange {
+                reason: "unknown LIGH/STAT/MSTT change flags".into(),
+            });
+        }
+
+        let fields = self
+            .base_object_fields()?
+            .ok_or_else(|| Error::RecordChange {
+                reason: "missing base-object fields".into(),
+            })?;
+        if fields.remaining_bytes != 0 {
+            return Err(Error::RecordChange {
+                reason: "trailing LIGH/STAT/MSTT change bytes".into(),
+            });
+        }
+
+        Ok(Some(LightStaticChange {
+            form_flags: fields
+                .form_flags
+                .map(|(flags, unknown)| FormFlags { flags, unknown }),
+            value_changed: fields.value_changed,
+            full_name_changed: fields.full_name_changed,
+        }))
+    }
+
     /// Decode the shared base-object fields before a type-specific suffix.
     ///
     /// xEdit orders the optional six-byte form flags before the value and
