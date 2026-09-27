@@ -10,6 +10,8 @@ use crate::combat::{Error, FlightRequest};
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
 const AMMO_NON_BOLT: u32 = 1 << 2;
+const AMMO_NON_PLAYABLE: u32 = 1 << 1;
+const AMMO_RECORD_NON_PLAYABLE: u32 = 1 << 2;
 const PROJ_HITSCAN: u16 = 1;
 const PROJ_ARROW: u16 = 1 << 6;
 
@@ -100,13 +102,14 @@ impl World {
             return Err(Error::Equipment);
         }
         let ammo_record = self.record(equipment.ammunition).ok_or(Error::Equipment)?;
+        let ammo_record_playable = ammo_record.flags & AMMO_RECORD_NON_PLAYABLE == 0;
         let mut ammo_data = Fields::new(
             ammo_record.tag,
             T(b"DATA"),
             ammo_record.required(T(b"DATA"))?,
         );
         let raw_projectile = ammo_data.u32()?;
-        ammo_data.skip(4)?;
+        let ammo_flags = ammo_data.u32()?;
         let damage = ammo_data.f32()?;
         if !damage.is_finite() || damage < 0.0 {
             return Err(Error::Number);
@@ -155,7 +158,29 @@ impl World {
             speed,
             range,
             damage,
+            recoverable: ammo_record_playable
+                && ammo_flags & AMMO_NON_PLAYABLE == 0
+                && ammo_flags & AMMO_NON_BOLT != 0,
         })
+    }
+
+    /// Create one placed AMMO reference after a missed arrow hits the world.
+    ///
+    /// The reference uses the existing dynamic identity and placement state,
+    /// so the ordinary world save retains its ammunition base and location.
+    #[must_use]
+    pub fn place_recovered_arrow(
+        &mut self,
+        request: &crate::combat::FlightRequest,
+        position: [f32; 3],
+    ) -> Option<soe_esm::GlobalFormId> {
+        if !request.recoverable || !position.iter().all(|value| value.is_finite()) {
+            return None;
+        }
+        let id = self.place_at(request.ammunition, request.attacker, false);
+        let reference = self.refs.get_mut(&id)?;
+        reference.position = position;
+        Some(id)
     }
 
     fn select_ammunition(

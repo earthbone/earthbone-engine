@@ -134,8 +134,10 @@ pub enum ProjectileUpdate {
 #[derive(Debug, Clone, Copy)]
 pub struct ProjectileFlight {
     attacker: GlobalFormId,
+    request: FlightRequest,
     motion: FlightMotion,
     finished: bool,
+    missed_arrow: Option<[f32; 3]>,
 }
 
 impl ProjectileFlight {
@@ -144,9 +146,22 @@ impl ProjectileFlight {
     pub fn new(request: FlightRequest) -> Self {
         Self {
             attacker: request.attacker,
+            request,
             motion: FlightMotion::new(request),
             finished: false,
+            missed_arrow: None,
         }
+    }
+
+    /// Place a recoverable arrow after a world obstruction stops this flight.
+    ///
+    /// The impact is consumed on the first call, even when its AMMO record is
+    /// not recoverable, so repeated host finalization cannot create duplicates.
+    #[must_use]
+    pub fn recover_missed_arrow(&mut self, game: &mut Game) -> Option<GlobalFormId> {
+        let position = self.missed_arrow.take()?;
+        game.world_mut()
+            .place_recovered_arrow(&self.request, position)
     }
 
     /// Advance once and query the swept segment for its first contact.
@@ -193,6 +208,9 @@ impl ProjectileFlight {
         if let Some(contact) = contact {
             self.motion.stop_at(contact.position);
             self.finished = true;
+            if matches!(contact.hit, crate::godot_combat::ContactHit::Obstruction(_)) {
+                self.missed_arrow = Some(contact.position);
+            }
             return Ok(ProjectileUpdate::Contact(contact));
         }
         if !self.motion.is_active() {

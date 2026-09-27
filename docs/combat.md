@@ -399,6 +399,25 @@ segment-query and one-terminal-hit state shape. It was not ported because it
 uses OpenMW and Bullet object lifetimes, while this host already has Godot
 PhysicsServer query bodies and RID ownership maps.
 
+## Recoverable missed arrows, CMB-23
+
+AMMO release requests retain whether their ammunition is an arrow and neither
+its record header nor DATA flags mark it Non-Playable. When a
+`ProjectileFlight` ends on a world obstruction, the host can consume its impact
+once to create a dynamic reference whose base is that AMMO record and whose
+placement is the impact point. Actor contacts and range expiry do not create a
+placed arrow. The reference's cell comes from the shooter. Existing SOEW
+reference serialization preserves its created identity, AMMO base and
+placement, with no new save fields.
+
+TES5Edit's `AMMO` definition names the DATA projectile link and its record and
+DATA Non-Playable flags, plus the DATA Non-Bolt flag. Its placed projectile
+record list identifies `PARW` as a placed arrow. UESP's local AMMO description
+confirms those AMMO flag meanings. CK's `ObjectReference_Script.wikitext`
+defines `OnHit` with an optional projectile argument, which supports treating
+actor hits separately from world impacts. The referenced CK corpus has no
+separate projectile page.
+
 ### Live contact prerequisites
 
 PlayerNode now owns actor collision RIDs keyed by the shared World's resident

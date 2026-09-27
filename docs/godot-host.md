@@ -1825,6 +1825,17 @@ termination and one-time actor and obstruction contacts. The query uses a
 segment ray, so PROJ collision radius and actor impact damage are not applied
 by this increment.
 
+## Recoverable missed arrows, CMB-23
+
+`ProjectileFlight::recover_missed_arrow` consumes one recorded world
+obstruction impact and asks the shared `Game` to create a dynamic AMMO
+reference at that point. A second call cannot create another reference.
+Recoverable state comes from an arrow AMMO record whose header and DATA flags
+allow play. Actor contacts and range expiry do not leave an arrow reference.
+The host flight itself remains transient. SOEW persists the placed reference
+through the existing reference table. No scene node or extra save payload is
+added for the arrow.
+
 ## Actor contact bodies and pose segments, CMB-28
 
 `godot_physics::ActorBodies` gives every resident actor one static query body
