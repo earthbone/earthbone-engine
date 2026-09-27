@@ -164,6 +164,11 @@ pub fn supports_function(function: u16) -> bool {
             | 577
             | 197
             | 199
+            | 453
+            | 615
+            | 616
+            | 617
+            | 618
     )
 }
 
@@ -375,7 +380,7 @@ fn function_value(
                 }
             }
         }
-        64 | 228 => return Err(Error::Function(c.function)),
+        64 | 228 | 449 | 454 | 637 => return Err(Error::Function(c.function)),
         68 => {
             let class = resolve(world, context.owner, raw, Some(*b"CLAS"))?;
             if world.actor(subject).is_none() {
@@ -678,6 +683,41 @@ fn function_value(
                 .get(&second)
                 .copied()
                 .unwrap_or(crate::world::reaction::NEUTRAL) as f32
+        }
+        453 => {
+            no_parameter(c)?;
+            boolean(world.actor(subject).ok_or(Error::Form(subject))?.teammate)
+        }
+        615 | 616 => {
+            no_parameter(c)?;
+            if world.actor(subject).is_none() {
+                return Err(Error::Form(subject));
+            }
+            let base = world.base_of(subject).ok_or(Error::Form(subject))?;
+            let ranks = world.authored_relationship_ranks(base);
+            (match c.function {
+                615 => ranks.into_iter().max().unwrap_or(0),
+                _ => ranks.into_iter().min().unwrap_or(0),
+            }) as f32
+        }
+        617 => {
+            if c.parameters[1] != 0 {
+                return Err(Error::Parameter(c.function, c.parameters[1]));
+            }
+            let association = resolve(world, context.owner, raw, Some(*b"ASTP"))?;
+            if world.actor(subject).is_none() {
+                return Err(Error::Form(subject));
+            }
+            let base = world.base_of(subject).ok_or(Error::Form(subject))?;
+            boolean(world.actor_has_association_type(base, association))
+        }
+        618 => {
+            no_parameter(c)?;
+            if world.actor(subject).is_none() {
+                return Err(Error::Form(subject));
+            }
+            let base = world.base_of(subject).ok_or(Error::Form(subject))?;
+            boolean(world.actors_have_family_relationship(base, None))
         }
         566 => {
             let quest = context.quest.ok_or(Error::Target(5))?;

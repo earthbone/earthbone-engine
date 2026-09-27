@@ -42,6 +42,29 @@ pub(super) fn add_saved_form_list_entries(
 }
 
 impl World {
+    /// Authored relationship ranks attached to one actor base.
+    pub fn authored_relationship_ranks(&self, actor: GlobalFormId) -> Vec<i32> {
+        self.order
+            .winners_of(T(b"RELA"))
+            .filter_map(|(id, record)| {
+                if record.is_deleted() {
+                    return None;
+                }
+                let data = record.find(T(b"DATA"))?;
+                if data.len() < 16 {
+                    return None;
+                }
+                let parent = self.resolve_from(id, le_u32(&data[..4]).unwrap_or(0));
+                let child = self.resolve_from(id, le_u32(&data[4..8]).unwrap_or(0));
+                if parent != Some(actor) && child != Some(actor) {
+                    return None;
+                }
+                let rank = u16::from_le_bytes(data[8..10].try_into().ok()?);
+                (rank <= 8).then_some(4 - i32::from(rank))
+            })
+            .collect()
+    }
+
     /// Whether an actor base's race carries the RACE DATA Playable flag.
     pub fn race_is_playable(&mut self, actor: GlobalFormId) -> Option<bool> {
         let race = self.actor_base(actor)?.race?;
@@ -91,6 +114,29 @@ impl World {
             assoc == Some(association)
                 && ((parent == Some(first) && child == Some(second))
                     || (parent == Some(second) && child == Some(first)))
+        })
+    }
+
+    /// Whether an actor base has any RELA using an association type.
+    pub fn actor_has_association_type(
+        &self,
+        actor: GlobalFormId,
+        association: GlobalFormId,
+    ) -> bool {
+        self.order.winners_of(T(b"RELA")).any(|(id, record)| {
+            if record.is_deleted() {
+                return false;
+            }
+            let Some(data) = record.find(T(b"DATA")) else {
+                return false;
+            };
+            if data.len() < 16 {
+                return false;
+            }
+            let parent = self.resolve_from(id, le_u32(&data[..4]).unwrap_or(0));
+            let child = self.resolve_from(id, le_u32(&data[4..8]).unwrap_or(0));
+            let assoc = self.resolve_from(id, le_u32(&data[12..16]).unwrap_or(0));
+            assoc == Some(association) && (parent == Some(actor) || child == Some(actor))
         })
     }
 

@@ -132,6 +132,19 @@ subtracts the parameter actor's rank in the requested faction from the tested
 actor's rank, treating an absent faction as rank -2 and preserving authored
 rank -1 membership. Function 64 `GetIsCreature` remains unsupported because
 the local CK corpus does not define a usable condition contract.
+`ai_82_relationship_conditions.rs` covers 453 `GetPlayerTeammate`, 615
+`GetHighestRelationshipRank`, 616 `GetLowestRelationshipRank`, 617
+`HasAssociationTypeAny` and 618 `HasFamilyRelationshipAny`. Teammate state
+comes from the runtime actor. Relationship extrema use winning authored RELA
+ranks, decoding Lover through Archnemesis as 4 through -4. This follows the CK
+note that the Papyrus highest-rank call does not account for runtime changes.
+Association and family queries check all RELA records for the actor base.
+Functions 449 `GetFactionRelation`, 454 `GetPlayerTeammateCount` and 637
+`IsExitingInstant` remain unsupported because the local CK pages define no
+usable condition semantics for them. Function ids and RELA fields come from
+`TES5Edit/Core/wbDefinitionsTES5.pas`; behavior follows the CK pages for
+`IsPlayerTeammate`, `GetHighestRelationshipRank`, `GetLowestRelationshipRank`,
+`HasAssociation` and `HasFamilyRelationship`.
 [The reference audit](reference-audit.md) records missed contracts and gaps.
 
 **World reads out, host never writes back.** `World::ref_placement` (in
