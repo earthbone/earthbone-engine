@@ -629,8 +629,9 @@ gated `installed_behavior_passthrough_modifier_inventory` test parses every
 `hkbBehaviorGraph` object and fails if any graph cannot decode. It counts every
 modifier path that the interpreter does not execute: generic `NodeKind::Modifier`,
 `ModifierGenerator`, `ModifierList`, `EventDrivenModifier` and `TimerModifier`.
-It found 4,176 nodes across 32 classes. `BSIsActiveModifier` is excluded because
-its bound activity slots already write their output variables. The test freezes
+It found 4,130 nodes across 31 classes. `BSIsActiveModifier` and the executed
+`hkbGetUpModifier` are excluded because their interpreter paths are handled.
+The test freezes
 the sorted names and counts, and checks that every class has a bounded backlog
 row whose title names that class.
 
@@ -658,7 +659,6 @@ row whose title names that class.
 | `hkbEventsFromRangeModifier` | 3 | [ANM-15](../BACKLOG.csv) |
 | `hkbFootIkControlsModifier` | 25 | [ANM-41](../BACKLOG.csv) |
 | `hkbFootIkModifier` | 2 | [ANM-42](../BACKLOG.csv) |
-| `hkbGetUpModifier` | 46 | [ANM-43](../BACKLOG.csv) |
 | `hkbKeyframeBonesModifier` | 91 | [ANM-44](../BACKLOG.csv) |
 | `hkbModifierGenerator` | 1,909 | [ANM-52](../BACKLOG.csv) |
 | `hkbModifierList` | 708 | [ANM-51](../BACKLOG.csv) |
@@ -705,6 +705,26 @@ synthetic tests cover two direct outputs, an arena order different from the
 serialized order, a shared output with invert, a nested output, list and child
 enable transitions, authored disable, cleanup, malformed cycles and deep
 lists, and pose preservation.
+
+### Get-up ground alignment (ANM-43)
+
+`hkbGetUpModifier` reads its inherited `enable` flag, ground normal, total
+duration, ground-alignment duration and three signed bone indices from the
+field layouts in `engine-refs/serde-hkx/assets/classes/hkbGetUpModifier.json`.
+The class metadata marks its elapsed time, time step and initialization flag
+as serialization-ignored runtime state. The interpreter starts elapsed time at
+zero when the modifier activates and advances it by the graph update delta.
+
+For a finite nonzero ground normal, the interpreter builds a rotation from
+model +Z to that normal. The rotation ramps in over `alignWithGroundDuration`
+and fades out over `duration`. It composes that partial rotation with the pose
+rotation at each valid selected index. Translation, scale and every other bone
+remain unchanged. A nonpositive alignment duration means immediate alignment,
+and a nonpositive total duration means no fade. Invalid or repeated indices are
+skipped. Synthetic tests cover field decoding, timing, selected-bone scope,
+inherited disable and ignored serialized timer values. The local class source
+defines layout, not the Havok runtime algorithm, so this timing and rotation
+policy is interpreter behavior and has not been compared with Skyrim.
 
 ### False-to-true event slots (2026-09-20)
 

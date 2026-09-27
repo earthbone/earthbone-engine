@@ -593,6 +593,16 @@ pub enum NodeKind {
         enable: bool,
         time_step: f32,
     },
+    /// `hkbGetUpModifier`: align the selected pose bones toward the ground normal.
+    GetUpModifier {
+        enable: bool,
+        ground_normal: [f32; 4],
+        duration: f32,
+        align_with_ground_duration: f32,
+        root_bone_index: i16,
+        other_bone_index: i16,
+        another_bone_index: i16,
+    },
     /// `BSIsActiveModifier`: five slots, each a flag the graph binds a
     /// variable to and an invert bit. Skyrim uses it to turn parts of a
     /// graph on from script, and its bindings are the bulk of what an
@@ -685,6 +695,7 @@ impl Node {
             | NodeKind::BlendingTransition(_)
             | NodeKind::TimerModifier { .. }
             | NodeKind::GetTimeStepModifier { .. }
+            | NodeKind::GetUpModifier { .. }
             | NodeKind::IsActiveModifier { .. }
             | NodeKind::FalseToTrueModifier { .. }
             | NodeKind::DecomposeVector { .. }
@@ -1085,6 +1096,15 @@ impl<'a> Loader<'a> {
             "BSGetTimeStepModifier" => NodeKind::GetTimeStepModifier {
                 enable: o.bool(o.layout_offset(40, 72))?,
                 time_step: o.f32(o.layout_offset(44, 80))?,
+            },
+            "hkbGetUpModifier" => NodeKind::GetUpModifier {
+                enable: o.bool(o.layout_offset(40, 72))?,
+                ground_normal: o.vec4(o.layout_offset(48, 80))?,
+                duration: o.f32(o.layout_offset(64, 96))?,
+                align_with_ground_duration: o.f32(o.layout_offset(68, 100))?,
+                root_bone_index: o.i16(o.layout_offset(72, 104))?,
+                other_bone_index: o.i16(o.layout_offset(74, 106))?,
+                another_bone_index: o.i16(o.layout_offset(76, 108))?,
             },
             // Five (flag, invert) pairs packed one byte each from 80.
             "BSIsActiveModifier" => {
