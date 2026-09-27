@@ -618,13 +618,90 @@ impl CellStreamerNode {
                 return -1;
             }
         };
+        self.draw_editor_cell(cell_id, &loaded, &editor_id.to_string(), false)
+    }
+
+    /// Rows for the editor's worldspace and cell tree. Each row carries a
+    /// resolved cell id so duplicate editor ids remain individually selectable.
+    #[func]
+    pub fn editor_cell_tree(&self) -> Array<VarDictionary> {
+        let mut rows = Array::new();
+        let Some(source) = self.data_source.as_ref() else {
+            return rows;
+        };
+        for cell in source.editor_cells() {
+            let mut row = VarDictionary::new();
+            row.set("id", cell.id.as_str());
+            row.set("name", cell.name.as_str());
+            row.set("world_id", cell.world_id.as_deref().unwrap_or(""));
+            row.set("world_name", cell.world_name.as_deref().unwrap_or(""));
+            row.set("interior", cell.interior);
+            row.set("x", cell.x.unwrap_or_default());
+            row.set("y", cell.y.unwrap_or_default());
+            row.set("references", cell.references as i64);
+            rows.push(&row);
+        }
+        rows
+    }
+
+    /// Clears the shared scene view and opens the selected cell by resolved
+    /// form id. This avoids ambiguous editor ids and uses the same cell loader
+    /// as `stream_cell`.
+    #[allow(clippy::needless_pass_by_value)]
+    #[func]
+    pub fn open_cell_id(&mut self, cell_form_id: GString) -> i32 {
+        let Some(source) = self.data_source.as_ref() else {
+            godot_error!("CellStreamerNode::open_cell_id: load_data was not called");
+            return -1;
+        };
+        let Some((file, object)) =
+            cell_form_id
+                .to_string()
+                .split_once(':')
+                .and_then(|(file, object)| {
+                    Some((
+                        file.parse::<u16>().ok()?,
+                        u32::from_str_radix(object, 16).ok()?,
+                    ))
+                })
+        else {
+            return -1;
+        };
+        let cell_id = GlobalFormId { file, object };
+        let order = source.shared_order();
+        let Some(record) = order.winner(cell_id) else {
+            return -1;
+        };
+        if record.tag != soe_esm::tag::CELL {
+            return -1;
+        }
+        let loaded = match source.stream_cell_id(cell_id) {
+            Ok(loaded) => loaded,
+            Err(e) => {
+                godot_error!("CellStreamerNode::open_cell_id: {e}");
+                return -1;
+            }
+        };
+        self.draw_editor_cell(cell_id, &loaded, &cell_form_id.to_string(), true)
+    }
+
+    fn draw_editor_cell(
+        &mut self,
+        cell_id: GlobalFormId,
+        loaded: &LoadedCell,
+        label: &str,
+        replace: bool,
+    ) -> i32 {
         let Some(scenario) = self.scenario() else {
             return -1;
         };
+        if replace {
+            self.clear();
+        }
         let materials_before = self.materials.len();
         let mut totals = StreamTotals::default();
-        totals.cell_list.push(editor_id.to_string());
-        self.add_cell(cell_id, &loaded, scenario, &mut totals);
+        totals.cell_list.push(label.to_owned());
+        self.add_cell(cell_id, loaded, scenario, &mut totals);
         self.last_stats = totals.to_dictionary(self.materials.len() - materials_before);
         totals.instances as i32
     }

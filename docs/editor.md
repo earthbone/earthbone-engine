@@ -238,7 +238,10 @@ year or more or blocked.
    chain per field. Needs the Godot binary installed.
 3. **Cell view and render view** (M). Worldspace and cell tree, the 3D main screen driven
    by `CellStreamer`, selection, transform gizmos, drop to ground through `soe-physics`,
-   snap and align, duplicate, and the CKPE hotkey table as defaults. Play from here.
+   snap and align, duplicate, and the CKPE hotkey table as defaults. Play from here. EDT-03
+   adds the worldspace and cell tree plus a read-only `SubViewport` preview using the
+   existing host cell renderer. Reference selection, transform tools and play-from-here
+   are not part of that implementation.
 4. **Import and export pipeline** (M). NIF and DDS import plugins for preview, glTF to NIF
    and PNG to DDS export with the material and slot mappings, archive packing. Depends on
    the `soe-nif` writer and the `dds` crate.
