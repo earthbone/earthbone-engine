@@ -1258,8 +1258,9 @@ same defined result for either holder.
 
 AI-55 adds `GetInCellParam`, `GetLocationCleared`, `IsCellOwner`,
 `GetInWorldspace`, `GetWithinPackageLocation`, `GetInCurrentLocAlias` and
-`GetInCurrentLocFormList`. Cell and worldspace tests read the subject's current
-reference placement. Cell ownership compares the cell's explicit `XOWN` owner,
+`GetInCurrentLocFormList`. `GetInCellParam` reads the explicit reference
+parameter's current cell. Worldspace tests read the subject's current reference
+placement. Cell ownership compares the cell's explicit `XOWN` owner,
 and a zero owner parameter matches an unowned cell. Location tests include the
 named location and its descendants. Location aliases must be filled `ALLS`
 aliases. Form lists match any listed location and its descendants. Package

@@ -588,12 +588,11 @@ fn function_value(
         230 => {
             let cell = resolve(world, context.owner, raw, Some(*b"CELL"))?;
             let reference = resolve_reference(world, context.owner, c.parameters[1])?;
-            let subject_cell = world.reference(subject).ok_or(Error::Form(subject))?.cell;
             let parameter_cell = world
                 .reference(reference)
                 .ok_or(Error::Form(reference))?
                 .cell;
-            boolean(subject_cell == Some(cell) && parameter_cell == Some(cell))
+            boolean(parameter_cell == Some(cell))
         }
         250 => {
             no_second_parameter(c)?;
