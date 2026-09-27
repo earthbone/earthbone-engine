@@ -178,6 +178,13 @@ Among eligible detected actors it selects the nearest by 3D reference position,
 breaking ties by FormID. It keeps an existing live target. A current package
 with the PACK `Ignore Combat` flag leaves package movement in control.
 
+MAG-31 lets an active MGEF Frenzy application include teammates in that same
+Combat-awareness candidate set. When the last Frenzy application on an actor
+ends, the driver clears that actor's current engagement and reevaluates normal
+eligibility on its next tick. The effect remains authoritative in the shared
+magic application table. Local xEdit `wbDefinitionsTES5.pas` names archetype 8
+Frenzy, and UESP `MGEF.wikitext` assigns its primary actor value to Aggression.
+
 Combat movement uses `NavGraph::find_path_between` and only advances when the
 vanilla graph returns a route. It stops within four game units. It does not use
 the package planner's straight-line fallback for combat. When the selected

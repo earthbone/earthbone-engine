@@ -30,6 +30,7 @@ const NO_RECAST: u32 = 1 << 17;
 const NO_DEATH_DISPEL: u32 = 1 << 28;
 pub(super) const DISPEL_WITH_KEYWORDS: u32 = 1 << 8;
 const INGESTIBLE_POISON: u32 = 1 << 17;
+const FRENZY_ARCHETYPE: u32 = 8;
 
 /// Identity of one effect application, independent of its MGEF FormID.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -101,6 +102,17 @@ impl World {
             return None;
         };
         self.active_effects.get(&id)
+    }
+
+    /// Whether an actor currently has a live Frenzy application.
+    #[must_use]
+    pub fn is_frenzied(&self, target: GlobalFormId) -> bool {
+        self.active_effects.values().any(|effect| {
+            effect.target == target
+                && self
+                    .magic_effect(effect.effect)
+                    .is_ok_and(|base| base.data.archetype == FRENZY_ARCHETYPE)
+        })
     }
 
     /// Read the current winning SPEL definition.
@@ -427,7 +439,7 @@ impl World {
                     return Err(MagicError::Target);
                 }
             }
-            if !matches!(data.archetype, 0 | 1 | 2 | 5 | 18) {
+            if !matches!(data.archetype, 0 | 1 | 2 | 5 | 18 | FRENZY_ARCHETYPE) {
                 return Err(MagicError::Unsupported("effect archetype"));
             }
             if data.taper_duration != 0.0 {
@@ -468,6 +480,11 @@ impl World {
                     }
                     changes.push((name.to_string(), amount));
                 }
+            }
+            if data.archetype == FRENZY_ARCHETYPE {
+                // xEdit and UESP define Frenzy's primary actor value as
+                // Aggression, independent of the serialized PrimaryAV field.
+                changes.push(("aggression".to_string(), signed));
             }
             let summon_base = if data.archetype == 18 {
                 let base = self
@@ -781,6 +798,21 @@ impl World {
             }
         }
         self.active_effects.remove(&id);
+        if self
+            .magic_effect(effect.effect)
+            .is_ok_and(|base| base.data.archetype == FRENZY_ARCHETYPE)
+            && !self.is_frenzied(effect.target)
+        {
+            if let Some(actor) = self.actors.get_mut(&effect.target) {
+                actor.in_combat = false;
+                actor.combat_target = None;
+                actor.ai.reevaluate = true;
+                actor.ai.path.clear();
+                actor.ai.path_cells.clear();
+                actor.ai.destination = None;
+                actor.ai.arrived = false;
+            }
+        }
         if let Some(object) = self.object_id(Handle::ActiveEffect(id)) {
             self.timers.retain(|t| t.object != object);
             self.sleep_listeners.retain(|listener| *listener != object);

@@ -1685,6 +1685,30 @@ before binding, a suspended finish callback, a live alias reference and a callba
 queued during `OnEffectFinish`. VM storage checks are described in
 [Papyrus](papyrus.md).
 
+### Frenzy, MAG-31
+
+Direct casts execute MGEF archetype 8 by applying its signed magnitude to the
+target's Aggression through the existing actor-value modifier path and
+marking the actor as Frenzied while that active effect remains. Combat
+acquisition may then select detected teammates, which ordinary acquisition
+skips. When the last Frenzy application
+ends or expires, its actor leaves the current engagement and the ordinary
+target rules apply again. Target acquisition still requires Combat-level
+awareness. The effect and its Aggression delta use the existing active-effect
+save state, with no additional world field.
+
+The source is local xEdit `wbDefinitionsTES5.pas`, whose MGEF archetype enum
+names value 8 as Frenzy, and UESP's local `MGEF.wikitext`, which says Frenzy's
+primary actor value is Aggression. The CK wiki dump has no Magic Effect
+archetype page. Its `OnMagicEffectApply_-_ObjectReference.wikitext` defines
+the responsible caster and effect event arguments already used by this path.
+`mag_31_frenzy_allows_combat_targeting_of_a_teammate` and
+`mag_31_frenzy_expiry_releases_its_combat_target_override` cover target
+eligibility and expiry with synthetic records. The check names no vanilla
+records, so it has no `SKYRIM_DATA`-gated case. Range selection beyond existing
+Combat-level awareness and the retail target scoring rules remain outside this
+behavior.
+
 Recover modifiers change the target once and reverse their own delta at the end.
 Other value modifiers integrate magnitude over unpaused simulation seconds, with
 the final tick clipped to the remaining duration. Zero-duration effects apply

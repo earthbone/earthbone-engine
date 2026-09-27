@@ -1078,6 +1078,7 @@ fn acquire_combat_target(world: &mut World, actor: GlobalFormId) -> bool {
     let Some(from) = world.reference(actor).map(|reference| reference.position) else {
         return false;
     };
+    let frenzied = world.is_frenzied(actor);
     let mut candidates = world.loaded_actors();
     candidates.sort();
     let mut best: Option<(GlobalFormId, f32)> = None;
@@ -1085,7 +1086,7 @@ fn acquire_combat_target(world: &mut World, actor: GlobalFormId) -> bool {
         if target == actor
             || world
                 .actor(target)
-                .is_none_or(|state| state.dead || state.unconscious || state.teammate)
+                .is_none_or(|state| state.dead || state.unconscious || state.teammate && !frenzied)
             || !world.awareness(actor, target).is_some_and(|awareness| {
                 awareness.level == crate::detection::DetectionLevel::Combat
             })
