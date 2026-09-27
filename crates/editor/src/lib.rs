@@ -55,6 +55,14 @@ pub enum EditorError {
         /// Why the field could not be edited.
         reason: &'static str,
     },
+    /// A condition list contains tags or data that are not a valid CTDA sequence.
+    #[error("quest form {form} has an invalid alias condition list: {reason}")]
+    InvalidQuestConditions {
+        /// Quest being edited.
+        form: GlobalFormId,
+        /// Why the condition list is invalid.
+        reason: &'static str,
+    },
     /// The quest record stores localized string IDs that need a string-table writer.
     #[error(
         "quest form {0} uses localized strings, which cannot be updated by the plugin-only writer"
@@ -278,6 +286,114 @@ impl EditorDocument {
         self.replace_edited_record(form, record)
     }
 
+    /// Set or clear a quest alias's force-into-alias fill rule.
+    ///
+    /// `alias_occurrence` selects the ALST alias in record order. A value of
+    /// `None` removes its optional ALFI field.
+    ///
+    /// # Errors
+    /// Returns an error if the quest or alias is unsupported or its ALFI field
+    /// is malformed or repeated.
+    pub fn set_quest_alias_fill_rule(
+        &mut self,
+        form: GlobalFormId,
+        alias_occurrence: usize,
+        target_alias: Option<i32>,
+    ) -> Result<(), EditorError> {
+        let mut record = self.quest_record_for_edit(form)?;
+        let (start, end) = quest_alias_range(form, &record, alias_occurrence)?;
+        let fields = (start + 1..end)
+            .filter(|index| record.subrecords[*index].tag == Tag(*b"ALFI"))
+            .collect::<Vec<_>>();
+        if fields.len() > 1 {
+            return Err(EditorError::InvalidQuestField {
+                form,
+                tag: Tag(*b"ALFI"),
+                reason: "alias has repeated fill rules",
+            });
+        }
+        if fields
+            .first()
+            .is_some_and(|index| record.subrecords[*index].data.len() != 4)
+        {
+            return Err(EditorError::InvalidQuestField {
+                form,
+                tag: Tag(*b"ALFI"),
+                reason: "fill rule must contain four bytes",
+            });
+        }
+        match (fields.first().copied(), target_alias) {
+            (Some(index), Some(alias)) => {
+                record.subrecords[index].data = alias.to_le_bytes().to_vec();
+            }
+            (Some(index), None) => {
+                record.subrecords.remove(index);
+            }
+            (None, Some(alias)) => {
+                let after_flags = (start + 1..end)
+                    .find(|index| record.subrecords[*index].tag == Tag(*b"FNAM"))
+                    .ok_or(EditorError::InvalidQuestField {
+                        form,
+                        tag: Tag(*b"FNAM"),
+                        reason: "alias flags are missing before the fill rule",
+                    })?;
+                record.subrecords.insert(
+                    after_flags + 1,
+                    Subrecord::new(Tag(*b"ALFI"), alias.to_le_bytes()),
+                );
+            }
+            (None, None) => {}
+        }
+        self.replace_edited_record(form, record)
+    }
+
+    /// Replace one quest alias's ordered match-condition subrecords.
+    ///
+    /// The supplied list may contain CTDA records with optional CIS1 and CIS2
+    /// strings. Other alias fields retain their existing order and bytes.
+    ///
+    /// # Errors
+    /// Returns an error if the quest or alias is unsupported, or if the input
+    /// condition list is malformed.
+    pub fn set_quest_alias_conditions(
+        &mut self,
+        form: GlobalFormId,
+        alias_occurrence: usize,
+        conditions: &[Subrecord],
+    ) -> Result<(), EditorError> {
+        let mut record = self.quest_record_for_edit(form)?;
+        let (start, end) = quest_alias_range(form, &record, alias_occurrence)?;
+        validate_alias_conditions(form, &record, conditions)?;
+        let mut insertion = None;
+        let mut retained = Vec::with_capacity(record.subrecords.len() + conditions.len());
+        for (index, subrecord) in record.subrecords.drain(..).enumerate() {
+            if index > start && index < end && is_condition_subrecord(subrecord.tag) {
+                insertion.get_or_insert(retained.len());
+            } else {
+                retained.push(subrecord);
+            }
+        }
+        let insertion = insertion.unwrap_or_else(|| {
+            retained
+                .iter()
+                .rposition(|subrecord| is_alias_fill_subrecord(subrecord.tag))
+                .or_else(|| {
+                    retained
+                        .iter()
+                        .rposition(|subrecord| subrecord.tag == Tag(*b"FNAM"))
+                })
+                .or_else(|| {
+                    retained
+                        .iter()
+                        .rposition(|subrecord| subrecord.tag == Tag(*b"ALID"))
+                })
+                .map_or(retained.len(), |index| index + 1)
+        });
+        retained.splice(insertion..insertion, conditions.iter().cloned());
+        record.subrecords = retained;
+        self.replace_edited_record(form, record)
+    }
+
     fn quest_record_for_edit(&self, form: GlobalFormId) -> Result<Record, EditorError> {
         let record_ref = self
             .load_order
@@ -444,6 +560,123 @@ fn contains_ascii_case_insensitive(value: &[u8], query: &str) -> bool {
 fn reject_localized_quest_text(form: GlobalFormId, record: &Record) -> Result<(), EditorError> {
     if record.flags & soe_esm::plugin::flags::LOCALIZED != 0 {
         return Err(EditorError::LocalizedQuestText(form));
+    }
+    Ok(())
+}
+
+fn quest_alias_range(
+    form: GlobalFormId,
+    record: &Record,
+    alias_occurrence: usize,
+) -> Result<(usize, usize), EditorError> {
+    let alias_tag = Tag(*b"ALST");
+    let aliases = record
+        .subrecords
+        .iter()
+        .enumerate()
+        .filter_map(|(index, subrecord)| (subrecord.tag == alias_tag).then_some(index))
+        .collect::<Vec<_>>();
+    let start = *aliases
+        .get(alias_occurrence)
+        .ok_or(EditorError::InvalidQuestField {
+            form,
+            tag: alias_tag,
+            reason: "alias occurrence does not exist",
+        })?;
+    let boundary = aliases
+        .get(alias_occurrence + 1)
+        .copied()
+        .unwrap_or(record.subrecords.len());
+    let terminators = (start + 1..boundary)
+        .filter(|index| record.subrecords[*index].tag == Tag(*b"ALED"))
+        .collect::<Vec<_>>();
+    let [terminator] = terminators.as_slice() else {
+        return Err(EditorError::InvalidQuestField {
+            form,
+            tag: Tag(*b"ALED"),
+            reason: "alias must have exactly one end marker",
+        });
+    };
+    let end = *terminator + 1;
+    if record.subrecords[start].data.len() != 4 {
+        return Err(EditorError::InvalidQuestField {
+            form,
+            tag: alias_tag,
+            reason: "alias id must contain four bytes",
+        });
+    }
+    let body = &record.subrecords[start + 1..end - 1];
+    let alias_name_count = body
+        .iter()
+        .filter(|subrecord| subrecord.tag == Tag(*b"ALID"))
+        .count();
+    let flags = body
+        .iter()
+        .filter(|subrecord| subrecord.tag == Tag(*b"FNAM"))
+        .collect::<Vec<_>>();
+    if alias_name_count != 1 || flags.len() != 1 || flags[0].data.len() != 4 {
+        return Err(EditorError::InvalidQuestField {
+            form,
+            tag: alias_tag,
+            reason: "reference alias needs one name and one four-byte flags field",
+        });
+    }
+    if !record.subrecords[*terminator].data.is_empty() {
+        return Err(EditorError::InvalidQuestField {
+            form,
+            tag: Tag(*b"ALED"),
+            reason: "alias end marker must be empty",
+        });
+    }
+    Ok((start, end))
+}
+
+fn is_condition_subrecord(tag: Tag) -> bool {
+    matches!(tag.as_bytes(), b"CTDA" | b"CIS1" | b"CIS2")
+}
+
+fn is_alias_fill_subrecord(tag: Tag) -> bool {
+    matches!(
+        tag.as_bytes(),
+        b"ALFI"
+            | b"ALFR"
+            | b"ALUA"
+            | b"ALFA"
+            | b"ALRT"
+            | b"ALEQ"
+            | b"ALEA"
+            | b"ALCO"
+            | b"ALCA"
+            | b"ALCL"
+            | b"ALNA"
+            | b"ALNT"
+            | b"ALFE"
+            | b"ALFD"
+    )
+}
+
+fn validate_alias_conditions(
+    form: GlobalFormId,
+    record: &Record,
+    conditions: &[Subrecord],
+) -> Result<(), EditorError> {
+    let mut condition_record = record.clone();
+    condition_record.subrecords = conditions.to_vec();
+    let mut parsed = Vec::new();
+    for subrecord in conditions {
+        if !is_condition_subrecord(subrecord.tag)
+            || soe_esm::records::gameplay::Condition::push(
+                &condition_record,
+                subrecord,
+                &mut parsed,
+            )
+            .is_err()
+        {
+            return Err(EditorError::InvalidQuestConditions {
+                form,
+                reason: "expected well-formed CTDA records and optional CIS1 or CIS2 strings",
+            });
+        }
     }
     Ok(())
 }

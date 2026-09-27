@@ -322,3 +322,21 @@ not add stages, log entries, objectives or targets, and it does not edit DIAL, I
 `crates/editor/tests/edt_07_quest_stages.rs` covers saving and reparsing both text changes,
 undo, duplicate stage and objective numbers, preserved targets and safe rejection of
 localized text.
+
+### Quest alias fill rules and match conditions, EDT-18
+
+`EditorDocument::set_quest_alias_fill_rule` sets or removes an alias's optional four-byte
+`ALFI` field, selected by the occurrence of its `ALST` marker. Setting a missing field
+places it after the alias flags and before its fill type. `set_quest_alias_conditions` replaces
+the alias's ordered `CTDA`, `CIS1` and `CIS2` subrecords. It validates the condition
+sequence with the `soe-esm` condition reader and preserves every other alias subrecord in
+its original order. Both edits create a top-level QUST override through the editor's
+existing master-order check and participate in undo.
+
+The layout follows xEdit's `wbRecord(QUST)` in
+`engine-refs/TES5Edit/Core/wbDefinitionsTES5.pas`: aliases start at `ALST`, contain the
+optional fill rule and fill type, then match conditions, and end at `ALED`. The same
+definition identifies DIAL's `QNAM` as its QUST link. This operation edits only reference
+aliases with `ALID` and `FNAM`, and does not resolve alias FormIDs or evaluate conditions.
+`crates/editor/tests/edt_18_quest_aliases.rs` covers override save and reload, retained
+alias fields, undo, and rejection of an orphan condition string.
