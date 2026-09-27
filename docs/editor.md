@@ -303,3 +303,13 @@ edited plugin, whose LAND data can be parsed after reload. The operation uses th
 position-based builder contract in local Terrain3D's `project/addons/terrain_3d/src/operation_builder.gd`.
 It is a Rust document operation, not a Terrain3D brush UI, and it does not create an override
 for a LAND owned by another plugin.
+
+`EditorDocument::brush_land_vertex_colors` blends a selected RGB color into the VCLR vertices of
+a LAND record already present in the active plugin. The circular brush uses cell-local world
+units, a smooth radial falloff and a strength from zero to one. One stroke is one undo entry.
+Saving writes VCLR and the LAND vertex-color flag into the active plugin, and the saved plugin
+can be parsed again. When a LAND has no VCLR, the brush starts with white vertex colors. The
+record operation follows the position-based boundary in local Terrain3D's
+`project/addons/terrain_3d/src/operation_builder.gd`; UESP's local LAND format page documents
+VCLR as the vertex-color grid. This remains a Rust document operation without Terrain3D brush UI,
+and it edits only LAND records already in the active plugin.
