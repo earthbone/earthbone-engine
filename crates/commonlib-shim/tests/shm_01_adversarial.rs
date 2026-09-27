@@ -8,12 +8,13 @@ use std::process::Command;
 #[test]
 fn shm_01_event_source_delivers_in_order_and_stops_after_stop() {
     let include = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("include");
-    let scratch = std::env::temp_dir().join(format!("soe-shm-01-adversarial-{}", std::process::id()));
+    let scratch =
+        std::env::temp_dir().join(format!("soe-shm-01-adversarial-{}", std::process::id()));
     fs::create_dir_all(&scratch).unwrap();
     let source = scratch.join("events.cpp");
     fs::write(
         &source,
-        r#"
+        r"
 #include <RE/Events.h>
 #include <cassert>
 struct Sink final : RE::EventSink<RE::ScriptEvent> {
@@ -31,7 +32,7 @@ int main() {
     assert(source.send(RE::ScriptEvent::ContainerChanged) == 2);
     assert(calls == 2);
 }
-"#,
+",
     )
     .unwrap();
     let output = Command::new("c++")
@@ -42,7 +43,11 @@ int main() {
         .arg(scratch.join("events"))
         .output()
         .expect("C++20 compiler is required by SHM-01");
-    assert!(output.status.success(), "compile failed: {}", String::from_utf8_lossy(&output.stderr));
+    assert!(
+        output.status.success(),
+        "compile failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     let run = Command::new(scratch.join("events")).status().unwrap();
     assert!(run.success());
     fs::remove_dir_all(scratch).unwrap();

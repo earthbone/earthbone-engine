@@ -81,6 +81,27 @@ fn syntax(line: usize, text: &str) -> CompileError {
     }
 }
 
+fn strip_line_comment(source: &str) -> &str {
+    let mut in_string = false;
+    let mut escaped = false;
+    for (offset, character) in source.char_indices() {
+        if in_string {
+            if escaped {
+                escaped = false;
+            } else if character == '\\' {
+                escaped = true;
+            } else if character == '"' {
+                in_string = false;
+            }
+        } else if character == '"' {
+            in_string = true;
+        } else if character == ';' {
+            return &source[..offset];
+        }
+    }
+    source
+}
+
 fn literal(text: &str) -> Option<Operand> {
     if text.eq_ignore_ascii_case("none") {
         Some(Operand::None)
@@ -210,7 +231,7 @@ fn generated_state_functions() -> Vec<Function> {
 /// declaration or statement.
 pub fn compile(source_name: &str, source: &str) -> Result<Vec<u8>, CompileError> {
     let mut lines = source.lines().enumerate().filter_map(|(index, source)| {
-        let source = source.split(';').next().unwrap_or_default().trim();
+        let source = strip_line_comment(source).trim();
         (!source.is_empty()).then_some((index + 1, source))
     });
     let (header_line, header) = lines.next().ok_or(CompileError::Header { line: 1 })?;
