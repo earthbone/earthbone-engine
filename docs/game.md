@@ -2307,7 +2307,9 @@ The partial reference-extra pass writes the shared owner, locked bit and
 lock level. GetActorOwner, GetFactionOwner, IsLocked and GetLockLevel observe
 those values immediately. GetKey and default door/container activation prefer
 the saved key, including explicit null, over the authored XLOC link. The
-activator's key is retained after unlocking. Restoration queues no events.
+activator's key is retained after unlocking. Restoration queues no events. A
+synthetic restoration check applies placements first, then extras, before
+checking native queries and keyed activation.
 
 Rank and global ownership metadata and unassigned lock fields persist in the
 SOEW version 20 extension and contribute to the world hash. Older saves
