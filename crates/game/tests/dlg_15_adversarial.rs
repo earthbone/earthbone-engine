@@ -2,7 +2,10 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use soe_esm::{Entry, FileHeader, GlobalFormId, Group, GroupKind, LoadOrder, Plugin, Record, Tag};
+use soe_game::vmad::{InfoFragment, InfoFragments, ScriptEntry, Vmad};
 use soe_game::Game;
+use soe_papyrus::asm::{i, ident, FunctionBuilder, ScriptBuilder};
+use soe_papyrus::Opcode::IAdd;
 fn id(n: u32) -> GlobalFormId {
     GlobalFormId { file: 0, object: n }
 }
@@ -25,6 +28,48 @@ fn info(n: u32, flags: u16, text: &str, link: Option<u32>) -> Record {
         r = r.sub(Tag(*b"TCLT"), link.to_le_bytes());
     }
     r
+}
+
+fn with_fragments(record: Record) -> Record {
+    let fragment = |function: &str| InfoFragment {
+        marker: 1,
+        script: "TopicFragments".into(),
+        function: function.into(),
+    };
+    let vmad = Vmad {
+        scripts: vec![ScriptEntry::new("TopicFragments")],
+        info_fragments: Some(InfoFragments {
+            version: 2,
+            file: "TopicFragments".into(),
+            begin: Some(fragment("Fragment_0")),
+            end: Some(fragment("Fragment_1")),
+        }),
+        ..Vmad::default()
+    };
+    record.sub(Tag(*b"VMAD"), vmad.write(Tag(*b"INFO")))
+}
+
+fn fragment_script() -> Vec<u8> {
+    let fragment = |name: &str, counter: &str| {
+        FunctionBuilder::new(name, "None")
+            .param("akSpeakerRef", "ObjectReference")
+            .ins(IAdd, vec![ident(counter), ident(counter), i(1)])
+            .build()
+    };
+    ScriptBuilder::new("TopicFragments", "TopicInfo")
+        .variable("begins", "Int", i(0))
+        .variable("ends", "Int", i(0))
+        .function(fragment("Fragment_0", "begins"))
+        .function(fragment("Fragment_1", "ends"))
+        .bytes()
+}
+
+fn fragment_count(game: &mut Game, form: u32, name: &str) -> i32 {
+    let object = game.object_of_form(id(form));
+    game.vm
+        .get_var(object, "TopicFragments", name)
+        .unwrap()
+        .as_int()
 }
 #[test]
 fn dlg_15_invisible_continue_follows_only_authored_link_without_replaying_current_line() {
@@ -65,22 +110,26 @@ fn dlg_15_invisible_continue_follows_only_authored_link_without_replaying_curren
     let mut root = Group::new(GroupKind::Top(Tag(*b"DIAL")));
     root.entries.push(Entry::Record(p.push_record(first)));
     let mut c = Group::new(GroupKind::TopicChildren(0x400));
-    c.entries.push(Entry::Record(p.push_record(info(
-        0x500,
-        1 << 6,
-        "Hidden",
-        Some(0x401),
-    ))));
+    c.entries
+        .push(Entry::Record(p.push_record(with_fragments(info(
+            0x500,
+            1 << 6,
+            "Hidden",
+            Some(0x401),
+        )))));
     root.entries.push(Entry::Group(c));
     root.entries.push(Entry::Record(p.push_record(linked)));
     let mut c2 = Group::new(GroupKind::TopicChildren(0x401));
-    c2.entries
-        .push(Entry::Record(p.push_record(info(0x501, 0, "Next", None))));
+    c2.entries.push(Entry::Record(
+        p.push_record(with_fragments(info(0x501, 0, "Next", None))),
+    ));
     root.entries.push(Entry::Group(c2));
     p.groups.push(root);
     let mut lo = LoadOrder::new();
     lo.add("Dialogue.esm", p).unwrap();
     let mut g = Game::new(lo);
+    g.load_script(&fragment_script()).unwrap();
+    g.bind();
     g.start_quest(id(0x300));
     let player = g.player();
     g.begin_dialogue(id(0x200), player).unwrap();
@@ -89,4 +138,13 @@ fn dlg_15_invisible_continue_follows_only_authored_link_without_replaying_curren
     let next = g.advance_dialogue().unwrap().unwrap();
     assert_eq!(next.info, id(0x501));
     assert_eq!(next.text.as_deref(), Some("Next"));
+    assert_eq!(fragment_count(&mut g, 0x500, "begins"), 1);
+    assert_eq!(fragment_count(&mut g, 0x500, "ends"), 1);
+    assert_eq!(fragment_count(&mut g, 0x501, "begins"), 1);
+    assert_eq!(fragment_count(&mut g, 0x501, "ends"), 0);
+    assert!(g.advance_dialogue().unwrap().is_none());
+    assert_eq!(fragment_count(&mut g, 0x500, "begins"), 1);
+    assert_eq!(fragment_count(&mut g, 0x500, "ends"), 1);
+    assert_eq!(fragment_count(&mut g, 0x501, "begins"), 1);
+    assert_eq!(fragment_count(&mut g, 0x501, "ends"), 1);
 }
