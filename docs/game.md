@@ -574,7 +574,11 @@ stack semantics from the Creation Kit wiki (`EvaluatePackage - Actor`).
 
 **The view.** A package is a template plus data. The template (`PKCU`
 names it) carries the procedure tree, `ANAM` branches with `PNAM`
-procedure names and `PKC2` input indexes, and the data input names
+procedure names and `PKC2` input indexes. For procedure branches, `FNAM`
+bit 0 means success completes the package tree. `PRCB` bit 0 separately
+means repeat when complete. These encodings follow xEdit's `PACK` layout,
+the UESP `PACK` page and Mutagen's `PackageRoot.Flag`. The parser ignores
+other `FNAM` bits. The template also carries the data input names
 (`UNAM`, `BNAM`). A package built on it carries values for those inputs in
 its public data: `ANAM` type, then `CNAM` (bool, int, float), `PLDT`
 (location kind, form, radius), `PTDA` (target), `PDTO` or `TPIC` (topic),
@@ -651,6 +655,10 @@ including enclosing repeats. Once Per Day is recorded after the tree finishes,
 not at every Travel arrival. Conditions are checked when entering each branch.
 Unsupported group types hold with an explicit `Procedure::Unsupported` value.
 The tooling helper `procedure_of` reports the first procedure before conditions.
+The parser's `ai_87` paired `Simultaneous` fixtures keep `FNAM` clear and set
+as separate policies, including an unknown-bit case. Its `SKYRIM_DATA` survey
+checks that authored Skyrim.esm `Simultaneous` procedure records include both
+policies.
 
 Input locations retain their defining package's namespace when inherited from
 a template. SOEW version 16 saves the tree cursor alongside the existing path.

@@ -1049,6 +1049,62 @@ fn the_installed_game_reads_every_package_and_evaluates_the_prisoner() {
     eprintln!("total {:.2}s", started.elapsed().as_secs_f32());
 }
 
+#[test]
+fn ai_87_installed_simultaneous_packages_show_both_completion_policies() {
+    let Ok(data) = std::env::var("SKYRIM_DATA") else {
+        eprintln!("SKYRIM_DATA not set, skipping");
+        return;
+    };
+    let bytes = std::fs::read(format!("{data}/Skyrim.esm")).unwrap();
+    let mut order = LoadOrder::new();
+    order
+        .add("Skyrim.esm", Plugin::parse(&bytes).unwrap())
+        .unwrap();
+    let game = Game::new(order);
+    let world = game.world();
+
+    let mut completing_records = Vec::new();
+    let mut non_completing_records = Vec::new();
+    let ids: Vec<_> = world
+        .order()
+        .winners_of(T(b"PACK"))
+        .map(|(id, _)| id)
+        .collect();
+    for id in ids {
+        let record = world.record(id).unwrap();
+        let parsed = package::Package::from_record(record)
+            .unwrap_or_else(|error| panic!("PACK {id:?}: {error}"));
+        for (index, branch) in parsed.tree.iter().enumerate() {
+            if branch.kind != "Simultaneous" {
+                continue;
+            }
+            let end = (index + 1 + branch.child_count as usize).min(parsed.tree.len());
+            for child in &parsed.tree[index + 1..end] {
+                if child.procedure.is_none() {
+                    continue;
+                }
+                let id_list = if child.success_completes_package {
+                    &mut completing_records
+                } else {
+                    &mut non_completing_records
+                };
+                if !id_list.contains(&id) {
+                    id_list.push(id);
+                }
+            }
+        }
+    }
+
+    assert!(
+        !completing_records.is_empty(),
+        "Skyrim.esm has a Simultaneous procedure with FNAM bit 0 set"
+    );
+    assert!(
+        !non_completing_records.is_empty(),
+        "Skyrim.esm has a Simultaneous procedure with FNAM bit 0 clear"
+    );
+}
+
 /// FMT-03: PACK VMAD begin, end and change fragment entries must decode
 /// from, and re-encode back to, the exact bytes the Creation Kit authored.
 /// Loads Skyrim.esm, Update.esm and the three DLC masters and checks every
