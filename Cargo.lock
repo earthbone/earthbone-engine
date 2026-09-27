@@ -1432,6 +1432,7 @@ dependencies = [
  "sha2",
  "soe-bsa",
  "soe-trace",
+ "thiserror 2.0.20",
 ]
 
 [[package]]
