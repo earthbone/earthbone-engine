@@ -166,6 +166,13 @@ pub enum Bhk {
         material: u32,
         radius: f32,
     },
+    Plane {
+        material: u32,
+        normal: Vec3,
+        distance: f32,
+        half_extents: Vec3,
+        center: Vec3,
+    },
     Capsule {
         material: u32,
         radius: f32,
@@ -347,6 +354,37 @@ pub fn decode(type_name: &str, data: &[u8], header: &Header) -> Result<Bhk> {
         "bhkSphereShape" => {
             let (material, radius) = convex_prefix(s)?;
             Bhk::Sphere { material, radius }
+        }
+        "bhkPlaneShape" => {
+            let material = s.u32()?;
+            skip(s, 12)?;
+            let normal = vec3(s)?;
+            let distance = s.f32()?;
+            let half_extents = vec4(s)?;
+            let center = vec4(s)?;
+            let normal_length = normal.length();
+            if !normal.is_finite()
+                || !normal_length.is_finite()
+                || normal_length <= f32::EPSILON
+                || !distance.is_finite()
+                || !(distance / normal_length).is_finite()
+                || !half_extents.is_finite()
+                || half_extents.x < 0.0
+                || half_extents.y < 0.0
+                || half_extents.z < 0.0
+                || !center.is_finite()
+                || !(center + half_extents).is_finite()
+                || !(center - half_extents).is_finite()
+            {
+                return Err(Error::Invalid("plane geometry".into()));
+            }
+            Bhk::Plane {
+                material,
+                normal,
+                distance,
+                half_extents,
+                center,
+            }
         }
         "bhkCylinderShape" => {
             let (material, shell_radius) = convex_prefix(s)?;

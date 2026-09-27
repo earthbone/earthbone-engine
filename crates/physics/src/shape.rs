@@ -256,6 +256,94 @@ fn cylinder_points(first: Vec3, second: Vec3, radius: f32) -> Vec<Vec3> {
     points
 }
 
+/// Intersect a plane with the AABB Havok uses to bound its broad-phase work.
+fn plane_mesh(normal: Vec3, distance: f32, half_extents: Vec3, center: Vec3) -> Option<Shape> {
+    let normal_length = normal.length();
+    let normal = normal * (1.0 / normal_length);
+    let distance = distance / normal_length;
+    let corners: Vec<Vec3> = (0..8)
+        .map(|i| {
+            center
+                + Vec3::new(
+                    if i & 1 == 0 {
+                        -half_extents.x
+                    } else {
+                        half_extents.x
+                    },
+                    if i & 2 == 0 {
+                        -half_extents.y
+                    } else {
+                        half_extents.y
+                    },
+                    if i & 4 == 0 {
+                        -half_extents.z
+                    } else {
+                        half_extents.z
+                    },
+                )
+        })
+        .collect();
+    let signed_distance = |point: Vec3| normal.dot(point) - distance;
+    let mut vertices = Vec::new();
+    let add_unique = |vertices: &mut Vec<Vec3>, point: Vec3| {
+        if vertices
+            .iter()
+            .all(|other| (*other - point).length() > 1e-5)
+        {
+            vertices.push(point);
+        }
+    };
+
+    for (index, first) in corners.iter().copied().enumerate() {
+        for axis in [1, 2, 4] {
+            if index & axis != 0 {
+                continue;
+            }
+            let second = corners[index | axis];
+            let first_distance = signed_distance(first);
+            let second_distance = signed_distance(second);
+            if first_distance.abs() <= 1e-5 {
+                add_unique(&mut vertices, first);
+            }
+            if second_distance.abs() <= 1e-5 {
+                add_unique(&mut vertices, second);
+            }
+            if (first_distance < 0.0 && second_distance > 0.0)
+                || (first_distance > 0.0 && second_distance < 0.0)
+            {
+                let fraction = first_distance / (first_distance - second_distance);
+                add_unique(&mut vertices, first + (second - first) * fraction);
+            }
+        }
+    }
+    if vertices.len() < 3 {
+        return None;
+    }
+
+    let center =
+        vertices.iter().copied().fold(Vec3::ZERO, |sum, p| sum + p) * (1.0 / vertices.len() as f32);
+    let reference = if normal.z.abs() < 0.9 {
+        Vec3::Z
+    } else {
+        Vec3::new(0.0, 1.0, 0.0)
+    };
+    let u = reference.cross(normal).normalized();
+    let v = normal.cross(u);
+    vertices.sort_by(|a, b| {
+        let angle_a = (*a - center).dot(v).atan2((*a - center).dot(u));
+        let angle_b = (*b - center).dot(v).atan2((*b - center).dot(u));
+        angle_a.total_cmp(&angle_b)
+    });
+    let triangles = (1..vertices.len() - 1)
+        .map(|i| [0, i as u32, (i + 1) as u32])
+        .collect();
+    Some(Shape::TriangleMesh {
+        vertices,
+        triangles,
+        materials: Vec::new(),
+    })
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Phantom {
     pub node: BlockRef,
@@ -576,6 +664,7 @@ impl<'a> Walker<'a> {
         let material = match &b {
             Bhk::Box { material, .. }
             | Bhk::Sphere { material, .. }
+            | Bhk::Plane { material, .. }
             | Bhk::Capsule { material, .. }
             | Bhk::Cylinder { material, .. }
             | Bhk::ConvexVertices { material, .. }
@@ -593,6 +682,13 @@ impl<'a> Walker<'a> {
                 half_extents: half_extents + Vec3::new(radius, radius, radius),
             }),
             Bhk::Sphere { radius, .. } => Some(Shape::Sphere { radius }),
+            Bhk::Plane {
+                normal,
+                distance,
+                half_extents,
+                center,
+                ..
+            } => plane_mesh(normal, distance, half_extents, center),
             Bhk::Capsule {
                 radius,
                 first,

@@ -152,6 +152,25 @@ existing `ConvexHull` variant rather than adding a Jolt-specific shape or
 dependency. `fmt_20_cylinder_fixture_preserves_endpoints_and_radius` checks
 both endpoint planes and the outer radial extent.
 
+### `bhkPlaneShape` collision geometry (FMT-21)
+
+The decoder reads the Havok material, plane normal and distance, and the AABB
+half extents and center. It rejects non-finite plane values, a zero normal, and
+negative half extents. Shape collection normalizes the plane normal, intersects
+the plane with the authored AABB, triangulates the bounded polygon, and applies
+the material. Its vertices and plane distance therefore convert from Havok
+metres to game units at 69.99125 units per metre. Planes that do not cut the
+AABB produce no shape.
+
+The field order and distance meaning come from
+`engine-refs/nifxml/nif.xml`'s `bhkPlaneShape`. Havok's local
+`hkpPlaneShape.h` confirms that the AABB bounds broad-phase work and plane
+edges do not collide. Jolt's local `PlaneShape.h` describes an infinite plane,
+so collection uses the bounded triangle mesh representation already supported
+by both physics paths. `fmt_21_plane_fixture_preserves_normal_and_distance_after_unit_conversion`
+checks the decoded fields and converted surface. The decoder test checks
+truncation and invalid values.
+
 ## SimpleWorld
 
 Statics are flattened to world-space primitives on insert: triangles
@@ -318,7 +337,7 @@ code change was needed.
   rays, which is what the simulation needs so far.
 - The convex shell radius (0.05 m on most shapes) is not added to boxes
   and hulls, so their surfaces sit 3.5 units inside where Havok puts them.
-- `bhkNiTriStripsShape`, `bhkCylinderShape`, `bhkPlaneShape`, phantoms,
+- `bhkNiTriStripsShape`, phantoms,
   constraints (hinge and ragdoll data are parsed as `Other`).
 - Keyframed and animated statics (doors, drawbridges) are loaded at their
   rest pose only.

@@ -108,6 +108,9 @@ fn summary(b: &Bhk) -> String {
         }
         Bhk::Box { half_extents, .. } => format!("box {half_extents:?}"),
         Bhk::Sphere { radius, .. } => format!("sphere {radius}"),
+        Bhk::Plane {
+            normal, distance, ..
+        } => format!("plane {normal:?} at distance {distance}"),
         Bhk::Capsule { first, second, .. } => format!("capsule {first:?} {second:?}"),
         Bhk::Cylinder {
             first,
