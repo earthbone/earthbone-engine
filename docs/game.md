@@ -1554,6 +1554,17 @@ plugin. Self and target-actor delivery are supported for constant and fire-and-f
 casts. `Spell.Cast` credits an actor source. `RemoteCast` credits its explicit
 blame actor. Player charging, costs and hand input are separate unfinished work.
 
+Touch delivery resolves only the supplied actor target and measures its
+three-dimensional distance from the source reference against the SPEL SPIT
+range, including a target exactly at that boundary. Missing targets, non-actor
+targets, targets beyond reach and non-finite distances reject the whole cast
+before any effects apply. A touch spell with a negative or non-finite authored
+range returns the typed invalid-number error. The layout and delivery enum
+come from local `TES5Edit/Core/wbDefinitionsTES5.pas`. The CK
+`DoCombatSpellApply_-_Actor.wikitext` page says its separate combat native
+applies a Target Actor spell regardless of battlefield distance, so that
+target-actor behavior is not used for touch delivery.
+
 Each SPEL effect group's CTDAs run before that group is prepared. MGEF CTDAs
 run separately, with FormIDs resolved against their owning MGEF. Both use the
 delivery recipient as subject and the credited caster as target. A false group
@@ -1634,9 +1645,9 @@ or ALCH record. Restoring an active potion effect retains its consumed inventory
 state and its existing modifier, then expires it from its saved elapsed time.
 
 Unsupported casts return a typed error before applying any of their effects,
-and Papyrus casts log that error. This includes projectiles, contact and
-location delivery, concentration, taper, perk adjustments, equip abilities and
-other archetypes. Area selection is covered separately below, under Area
+and Papyrus casts log that error. This includes aimed and location delivery,
+concentration, taper, perk adjustments, equip abilities and other archetypes.
+Area selection is covered separately below, under Area
 targeting, MAG-06.
 An MGEF with the Dispel with Keywords flag reads its KWDA entries as the
 cancellation list. Casting that effect, or applying it from an ingestible,

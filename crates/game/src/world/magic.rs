@@ -435,12 +435,23 @@ impl World {
         }
         let target = match definition.data.delivery {
             0 => source,
-            3 => target.ok_or(MagicError::Target)?,
-            _ => {
-                return Err(MagicError::Unsupported(
-                    "projectile, contact or location delivery",
-                ))
+            1 => {
+                let target = target.ok_or(MagicError::Target)?;
+                if !definition.data.range.is_finite() || definition.data.range < 0.0 {
+                    return Err(MagicError::Number);
+                }
+                let distance = self.distance(source, target);
+                if self.reference(source).is_none()
+                    || self.actor(target).is_none()
+                    || !distance.is_finite()
+                    || distance > definition.data.range
+                {
+                    return Err(MagicError::Target);
+                }
+                target
             }
+            3 => target.ok_or(MagicError::Target)?,
+            _ => return Err(MagicError::Unsupported("aimed or location delivery")),
         };
         if self.reference(source).is_none() || self.actor(target).is_none() {
             return Err(MagicError::Target);
