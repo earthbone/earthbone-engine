@@ -1914,6 +1914,23 @@ takes a Game, holder and category, allowing the container menu to reuse its
 form-backed rows without a second inventory model. Drop, use, charge, favorite
 and instance-specific actions remain outside UI-02.
 
+When activation opens a container, its menu presents the same category buttons
+and lists the container's positive inventory totals. The rows come from its shared
+`RefState::inventory`, including authored `CNTO` entries loaded from the xEdit
+`CONT` record. Taking a row transfers one item through `Game::transfer_item`,
+then refreshes the selected category from the shared game state. A rejected
+transfer leaves the source and player inventories unchanged. xEdit's local
+`TES5Edit/Core/wbDefinitionsTES5.pas` defines `CONT` with `COCT` and `CNTO`
+contents. CK's local `GetContainerForms_-_ObjectReference.wikitext` describes
+enumerating container forms, and `OnContainerChanged_-_ObjectReference.wikitext`
+documents reference moves between holders. These host rows show inventory
+totals, not a separate list of loose references.
+
+The `inv_04_` inventory presenter tests activate a synthetic container, check
+its listed contents, verify both rows after a successful transfer, and verify
+both inventories remain unchanged when recipient quantity overflow rejects a
+transfer.
+
 The native I shortcut opens inventory once gameplay has started. This shortcut,
 like Escape for the modal shell, is not yet remapped through controlmap.txt.
 Rows scroll, and category selection survives equipment changes. Closed or other
