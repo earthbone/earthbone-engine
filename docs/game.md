@@ -40,6 +40,10 @@ week 6 to 9 gate.
 - `npc`: the `NPC_` view. `ACBS` configuration, `DNAM` stats and skills,
   spells, factions, items, race, class and template, with the template flags
   applied one level. `World::actor` follows each component's template chain.
+  When actor state is first built, its resolved spell list applies
+  constant-effect `SPEL` abilities to that actor without a cast. Unsupported
+  or malformed ability effects are skipped. Their active effect state uses
+  the existing SOEW active-effect table and survives save/load.
   AIDT supplies its six AI actor values, see [combat AI](combat-ai.md) for
   sources, validation and the unimplemented engagement boundary.
 - `detection`: the detection value from sneak GMSTs, and stealth-point pools
