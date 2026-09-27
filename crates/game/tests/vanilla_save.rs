@@ -22,6 +22,9 @@ mod actor_sources;
 #[path = "vanilla_save/lists.rs"]
 mod lists;
 
+#[path = "vanilla_save/sav_30_dialogue_scene.rs"]
+mod sav_30_dialogue_scene;
+
 use std::{
     path::{Path, PathBuf},
     sync::Arc,

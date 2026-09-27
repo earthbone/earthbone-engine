@@ -7,7 +7,9 @@ use std::collections::BTreeMap;
 use soe_esm::{plugin::Subrecord, GlobalFormId, Slot, Tag};
 use soe_papyrus::{vm::state::Writer, VmError};
 
-use super::record_overrides::{raw_words, ListRecordExtra, NpcRecordExtra, RecordOverride};
+use super::record_overrides::{
+    raw_words, DialogueRecordExtra, ListRecordExtra, NpcRecordExtra, RecordOverride,
+};
 use super::save::{read_form_id, read_opt_form_id, write_form_id, write_opt_form_id, FormReader};
 use super::{World, T};
 
@@ -65,6 +67,32 @@ impl World {
                 w.bool(list.section_present);
                 w.bytes(&list.entry_chances);
             }
+            if let Some(dialogue) = &value.dialogue {
+                w.bool(dialogue.form_flags.is_some());
+                if let Some((flags, unknown)) = dialogue.form_flags {
+                    w.u32(flags);
+                    w.u16(unknown);
+                }
+                w.bool(dialogue.info_said_once.is_some());
+                if let Some(said) = dialogue.info_said_once {
+                    w.bool(said);
+                }
+                w.bool(dialogue.smqn_last_run_times.is_some());
+                if let Some(times) = &dialogue.smqn_last_run_times {
+                    w.len(times.len());
+                    for time in times {
+                        w.u32(*time);
+                    }
+                }
+                w.bool(dialogue.scene_active.is_some());
+                if let Some(active) = dialogue.scene_active {
+                    w.bool(active);
+                }
+                w.bool(dialogue.scene_active_data.is_some());
+                if let Some(data) = &dialogue.scene_active_data {
+                    w.bytes(data);
+                }
+            }
             w.len(value.links.len());
             for (raw, link) in &value.links {
                 w.u32(*raw);
@@ -103,11 +131,19 @@ impl World {
                 || self.order.winner(text_origin).is_none_or(|r| {
                     !matches!(
                         &r.tag.0,
-                        b"NPC_" | b"RACE" | b"FLST" | b"LVLN" | b"LVLI" | b"LVSP"
+                        b"NPC_"
+                            | b"RACE"
+                            | b"FLST"
+                            | b"LVLN"
+                            | b"LVLI"
+                            | b"LVSP"
+                            | b"INFO"
+                            | b"SMQN"
+                            | b"SCEN"
                     )
                 })
             {
-                return Err(bad("invalid NPC origin or temporary identity"));
+                return Err(bad("invalid record override origin or identity"));
             }
             let original = self
                 .order
@@ -115,7 +151,15 @@ impl World {
                 .filter(|rec| {
                     matches!(
                         &rec.tag.0,
-                        b"NPC_" | b"RACE" | b"FLST" | b"LVLN" | b"LVLI" | b"LVSP"
+                        b"NPC_"
+                            | b"RACE"
+                            | b"FLST"
+                            | b"LVLN"
+                            | b"LVLI"
+                            | b"LVSP"
+                            | b"INFO"
+                            | b"SMQN"
+                            | b"SCEN"
                     ) && !rec.is_deleted()
                 })
                 .ok_or_else(|| bad("missing record origin"))?;
@@ -159,6 +203,43 @@ impl World {
             } else {
                 None
             };
+            let dialogue =
+                if version >= 37 && [T(b"INFO"), T(b"SMQN"), T(b"SCEN")].contains(&original.tag) {
+                    let form_flags = if r.bool()? {
+                        Some((r.u32()?, r.u16()?))
+                    } else {
+                        None
+                    };
+                    let info_said_once = if r.bool()? { Some(r.bool()?) } else { None };
+                    let smqn_last_run_times = if r.bool()? {
+                        let count = r.len()?;
+                        if count > r.remaining() / 4 {
+                            return Err(bad("SMQN time count exceeds remaining bytes"));
+                        }
+                        let mut times = Vec::with_capacity(count);
+                        for _ in 0..count {
+                            times.push(r.u32()?);
+                        }
+                        Some(times)
+                    } else {
+                        None
+                    };
+                    let scene_active = if r.bool()? { Some(r.bool()?) } else { None };
+                    let scene_active_data = if r.bool()? {
+                        Some(r.bytes()?.to_vec())
+                    } else {
+                        None
+                    };
+                    Some(DialogueRecordExtra {
+                        form_flags,
+                        info_said_once,
+                        smqn_last_run_times,
+                        scene_active,
+                        scene_active_data,
+                    })
+                } else {
+                    None
+                };
             let mut links = BTreeMap::new();
             let used = raw_words(original);
             let count = r.len()?;
@@ -184,12 +265,55 @@ impl World {
                 subrecords.push(Subrecord { tag, data });
             }
             record.subrecords = subrecords;
+            if let Some((flags, _)) = dialogue.as_ref().and_then(|extra| extra.form_flags) {
+                record.flags = flags;
+            }
             let present = raw_words(&record);
             if links.keys().any(|raw| !present.contains(raw)) {
                 return Err(bad("unused link token"));
             }
             if record.editor_id() != original.editor_id() {
                 return Err(bad("NPC override changed editor identity"));
+            }
+            if dialogue.is_some() {
+                let valid = match record.tag {
+                    tag if tag == T(b"INFO") => dialogue.as_ref().is_some_and(|d| {
+                        (d.info_said_once.is_some() || d.form_flags.is_some())
+                            && d.smqn_last_run_times.is_none()
+                            && d.scene_active.is_none()
+                            && d.scene_active_data.is_none()
+                    }),
+                    tag if tag == T(b"SMQN") => dialogue.as_ref().is_some_and(|d| {
+                        d.info_said_once.is_none()
+                            && d.scene_active.is_none()
+                            && d.scene_active_data.is_none()
+                    }),
+                    tag if tag == T(b"SCEN") => dialogue.as_ref().is_some_and(|d| {
+                        d.info_said_once.is_none()
+                            && d.smqn_last_run_times.is_none()
+                            && (d.scene_active.is_some() || d.form_flags.is_some())
+                            && (d.scene_active == Some(true)) == d.scene_active_data.is_some()
+                    }),
+                    _ => false,
+                };
+                if !valid
+                    || temporary_for.is_some()
+                    || text_origin != id
+                    || original_race.is_some()
+                    || body_tint.is_some()
+                    || pending_form_flags.is_some()
+                    || list.is_some()
+                    || !links.is_empty()
+                    || record.subrecords != original.subrecords
+                    || plain_full
+                {
+                    return Err(bad("invalid saved dialogue record override"));
+                }
+            } else if !matches!(
+                &record.tag.0,
+                b"NPC_" | b"RACE" | b"FLST" | b"LVLN" | b"LVLI" | b"LVSP"
+            ) {
+                return Err(bad("missing saved dialogue record state"));
             }
             let localized = !plain_full
                 && self
@@ -253,7 +377,7 @@ impl World {
                 {
                     return Err(bad("invalid race skin link"));
                 }
-            } else {
+            } else if [T(b"FLST"), T(b"LVLN"), T(b"LVLI"), T(b"LVSP")].contains(&record.tag) {
                 let tag = if record.tag == T(b"FLST") {
                     T(b"LNAM")
                 } else {
@@ -318,9 +442,10 @@ impl World {
                     pending_form_flags,
                 },
                 list,
+                dialogue,
             };
             if values.insert(id, value).is_some() {
-                return Err(bad("duplicate NPC record"));
+                return Err(bad("duplicate record override"));
             }
         }
         Ok(values)
