@@ -1307,6 +1307,11 @@ subtype's meaning is not established by any of the three. This engine applies
 the same rule wherever the byte is set, which is what xEdit and CommonLib
 describe, and no capture from the game contradicts it.
 
+When no accepted INFO in a topic passes its conditions, the selector can use
+an eligible INFO marked Info Refusal (INFO response flag bit 4). The refusal
+INFO's own conditions still apply. It is a fallback and does not replace an
+accepted INFO whose conditions pass.
+
 When a DIAL sets Do All Before Repeating, selection first applies those INFO
 eligibility rules, then suppresses the INFO records already selected for that
 DIAL's current cycle. When every currently eligible INFO has been selected,

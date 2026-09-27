@@ -46,6 +46,7 @@ pub(crate) struct State {
 const GOODBYE: u16 = 1;
 const RANDOM: u16 = 1 << 1;
 const SAY_ONCE: u16 = 1 << 2;
+const INFO_REFUSAL: u16 = 1 << 4;
 const RANDOM_END: u16 = 1 << 5;
 const SPENDS_FAVOR: u16 = 1 << 14;
 const TOP_LEVEL: u32 = 1;
@@ -726,6 +727,7 @@ impl Game {
             });
         }
         let mut candidates = Vec::new();
+        let mut refusals = Vec::new();
         let mut random_group = false;
         for id in world.dialogue_infos(topic)? {
             if world.record(id).is_none_or(|record| record.is_deleted()) {
@@ -733,10 +735,15 @@ impl Game {
             }
             let info = world.dialogue_info(id)?;
             let flags = info.data.as_ref().map_or(0, |data| data.flags());
-            if random_group && flags & RANDOM == 0 {
+            let refusal = flags & INFO_REFUSAL != 0;
+            if random_group && flags & RANDOM == 0 && !refusal {
                 break;
             }
             if Self::info_eligible(&mut world, &self.vm, session, id, &info, quest)? {
+                if refusal {
+                    refusals.push((id, info));
+                    continue;
+                }
                 if flags & RANDOM == 0 {
                     candidates.push((id, info));
                     break;
@@ -744,9 +751,12 @@ impl Game {
                 random_group = true;
                 candidates.push((id, info));
             }
-            if flags & RANDOM_END != 0 && random_group {
+            if flags & RANDOM_END != 0 && random_group && !refusal {
                 break;
             }
+        }
+        if candidates.is_empty() {
+            candidates = refusals;
         }
         if topic_data.do_all_before_repeating.unwrap_or(0) != 0 {
             let said = world.dialogue.repeated.get(&topic);
@@ -799,8 +809,8 @@ impl Game {
         if !conditions::evaluate(world, vm, context, &info.conditions)? {
             return Ok(false);
         }
-        if flags & ((1 << 4) | (1 << 6)) != 0 {
-            return Err(Error::Unsupported("refusal or invisible continuation"));
+        if flags & (1 << 6) != 0 {
+            return Err(Error::Unsupported("invisible continuation"));
         }
         if flags & SPENDS_FAVOR != 0 {
             let level = info.favor_level.unwrap_or(0);
