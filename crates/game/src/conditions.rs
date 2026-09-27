@@ -197,6 +197,14 @@ pub fn supports_function(function: u16) -> bool {
             | 318
             | 327
             | 339
+            | 91
+            | 98
+            | 106
+            | 107
+            | 110
+            | 111
+            | 125
+            | 127
     )
 }
 
@@ -518,6 +526,34 @@ fn function_value(
             } else {
                 0.0
             }
+        }
+        91 => {
+            no_parameter(c)?;
+            let actor = world.actor(subject).ok_or(Error::Form(subject))?;
+            boolean(actor.alerted)
+        }
+        98 | 106 | 107 | 110 | 127 => {
+            if c.function != 98 {
+                no_parameter(c)?;
+            }
+            world.actor(subject).ok_or(Error::Form(subject))?;
+            return Err(Error::Unavailable(c.function));
+        }
+        111 => {
+            no_parameter(c)?;
+            let actor = world.actor(subject).ok_or(Error::Form(subject))?;
+            boolean(matches!(
+                actor.ai.procedure,
+                crate::ai::Procedure::Wait { .. }
+            ))
+        }
+        125 => {
+            no_parameter(c)?;
+            let guard_faction = world
+                .resolve_from(subject, 0x0008_6eee)
+                .ok_or(Error::Form(subject))?;
+            let actor = world.actor(subject).ok_or(Error::Form(subject))?;
+            boolean(actor.factions.contains_key(&guard_faction))
         }
         185 | 286 | 287 | 327 | 339 => {
             no_parameter(c)?;

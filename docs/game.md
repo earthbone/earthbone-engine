@@ -629,6 +629,22 @@ with the gameplay evaluator. Any other function fails its condition and is
 counted in `World::ai.unsupported_functions` by index, so a live run
 prints what the next round should add.
 
+**AI-71 reference conditions.** `GetIsAlerted` reads the actor's runtime
+alert flag, `IsWaiting` checks whether its active package procedure is `Wait`,
+and `IsGuard` checks membership in the Skyrim `GFAC` default object faction.
+All three require an actor context and no parameters. xEdit supplies the
+function indices and the two integer parameters on `GetPlayerControlsDisabled`.
+The local CK pages define `Actor.IsAlerted` and `Actor.IsGuard` as boolean actor
+queries, while UESP's raw function table describes the eight optional player
+control groups and links `HasBeenEaten` to `StartCannibal`. The other five
+functions return `Unavailable`: the runtime has no per-group player control
+state, facing-up or knocked animation state, native package identity result,
+or cannibalism completion state. The CK corpus has no usable contract pages
+for those conditional functions. Tests `ai_71_` cover true and false actor
+fixtures, parameter and actor-context errors, and diagnostics for untracked
+queries. The fixtures use synthetic records and do not need installed game
+data.
+
 **Procedures.** AI-02 walks sequential branches in authored preorder. The
 actor retains the active child and its completion state. A completed Travel
 starts the next child on the next driver tick. Nested `Sequence` branches
