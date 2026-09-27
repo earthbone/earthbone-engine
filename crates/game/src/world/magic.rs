@@ -49,6 +49,8 @@ pub struct ActiveEffect {
     pub magnitude: f32,
     pub duration: Option<f64>,
     pub elapsed: f64,
+    /// Runtime actor created by a Summon Creature effect, dismissed with it.
+    pub summoned: Option<GlobalFormId>,
     pub(crate) recover: bool,
     pub(crate) changes: Vec<(String, f32)>,
 }
@@ -80,6 +82,7 @@ enum DispelRule {
 
 struct PreparedEffect {
     effect: ActiveEffect,
+    summon_base: Option<GlobalFormId>,
     no_recast: bool,
     hit_event: bool,
     dispel_rules: Vec<DispelRule>,
@@ -302,10 +305,12 @@ impl World {
                         f64::from(entry.data.duration)
                     }),
                     elapsed: 0.0,
+                    summoned: None,
                     recover: data.flags & RECOVER != 0,
                     changes,
                 },
                 no_recast: data.flags & NO_RECAST != 0,
+                summon_base: None,
                 hit_event: false,
                 dispel_rules,
                 dispel: Vec::new(),
@@ -422,7 +427,7 @@ impl World {
                     return Err(MagicError::Target);
                 }
             }
-            if !matches!(data.archetype, 0 | 1 | 2 | 5) {
+            if !matches!(data.archetype, 0 | 1 | 2 | 5 | 18) {
                 return Err(MagicError::Unsupported("effect archetype"));
             }
             if data.taper_duration != 0.0 {
@@ -464,6 +469,23 @@ impl World {
                     changes.push((name.to_string(), amount));
                 }
             }
+            let summon_base = if data.archetype == 18 {
+                let base = self
+                    .resolve_from(effect, data.associated_item)
+                    .ok_or(MagicError::Missing(effect))?;
+                if self.tag_of(base) != Some(super::T(b"NPC_")) {
+                    return Err(MagicError::Unsupported("summon actor base"));
+                }
+                if self
+                    .npc(base)
+                    .is_none_or(|npc| npc.config.flags & crate::npc::flags::SUMMONABLE == 0)
+                {
+                    return Err(MagicError::Unsupported("summon actor not summonable"));
+                }
+                Some(base)
+            } else {
+                None
+            };
             let duration = if definition.data.cast_type == 0 {
                 None
             } else {
@@ -511,10 +533,12 @@ impl World {
                         magnitude,
                         duration,
                         elapsed: 0.0,
+                        summoned: None,
                         recover: data.flags & RECOVER != 0,
                         changes: changes.clone(),
                     },
                     no_recast: data.flags & NO_RECAST != 0,
+                    summon_base,
                     hit_event: data.flags & (HOSTILE | NO_HIT_EVENT) == HOSTILE,
                     dispel_rules: dispel_rules.clone(),
                     dispel: Vec::new(),
@@ -531,7 +555,15 @@ impl World {
     ) -> Result<Vec<EffectId>, MagicError> {
         let prepared = self.prepare_effect_actions(prepared)?;
         let mut applied = Vec::new();
-        for prepared in prepared {
+        for mut prepared in prepared {
+            if let Some(base) = prepared.summon_base {
+                let summon = self.place_at(base, prepared.effect.source, false);
+                let owner = prepared.effect.caster.unwrap_or(prepared.effect.target);
+                if let Some(reference) = self.reference(summon) {
+                    reference.owner = Some(owner);
+                }
+                prepared.effect.summoned = Some(summon);
+            }
             if prepared.hit_event {
                 let aggressor = self.form_value(
                     prepared.effect.caster.or(Some(prepared.effect.source)),
@@ -741,6 +773,12 @@ impl World {
         };
         if effect.recover && self.apply_effect_values(&effect, -1.0, alloc).is_err() {
             return false;
+        }
+        if let Some(summon) = effect.summoned {
+            if let Some(reference) = self.reference(summon) {
+                reference.deleted = true;
+                reference.enabled = false;
+            }
         }
         self.active_effects.remove(&id);
         if let Some(object) = self.object_id(Handle::ActiveEffect(id)) {

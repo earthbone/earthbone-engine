@@ -29,6 +29,7 @@ const POTION: u32 = 0x301;
 const KEYWORD: u32 = 0x400;
 const ITEM: u32 = 0x600;
 const OTHER_ITEM: u32 = 0x601;
+const SUMMON_BASE: u32 = 0x501;
 
 #[path = "magic/collection.rs"]
 mod collection;
@@ -54,8 +55,19 @@ fn put(data: &mut [u8], at: usize, value: u32) {
 }
 
 fn effect(flags: u32, archetype: u32, av: u32, constant: bool) -> Record {
+    effect_with_associated_item(flags, archetype, av, constant, 0)
+}
+
+fn effect_with_associated_item(
+    flags: u32,
+    archetype: u32,
+    av: u32,
+    constant: bool,
+    associated_item: u32,
+) -> Record {
     let mut data = vec![0; 152];
     put(&mut data, 0, flags);
+    put(&mut data, 8, associated_item);
     put(&mut data, 16, u32::MAX);
     put(&mut data, 64, archetype);
     put(&mut data, 68, av);
@@ -133,6 +145,13 @@ fn ingestible_with_flags(form: u32, flags: u32, magnitude: f32, duration: u32) -
 fn plugin(effect: Record, spells: Vec<Record>) -> Plugin {
     let mut plugin = Plugin::new(FileHeader::default());
     plugin.push_top(Record::new(T(b"NPC_"), 0x500).sub(T(b"ACBS"), vec![0; 24]));
+    let mut summon_acbs = vec![0; 24];
+    put(&mut summon_acbs, 0, 0x4000);
+    plugin.push_top(
+        Record::new(T(b"NPC_"), SUMMON_BASE)
+            .zsub(T(b"EDID"), "SummonedActor")
+            .sub(T(b"ACBS"), summon_acbs),
+    );
     for actor in [ACTOR, OTHER, SOURCE] {
         plugin.push_top(
             Record::new(T(b"ACHR"), actor)
@@ -353,6 +372,108 @@ fn cast(game: &mut Game, spell: u32, target: u32) -> Result<Vec<EffectId>, Magic
         &mut |name, class| game.vm.create_object_of(name, class),
     );
     result
+}
+
+#[test]
+fn mag_39_summon_creature_spawns_associated_actor_owned_by_caster() {
+    let summon = effect_with_associated_item(0, 18, 24, false, SUMMON_BASE);
+    let mut game = game(plugin(summon, vec![spell(SPELL, 0, false, 0.0, 10)]));
+
+    assert_eq!(cast(&mut game, SPELL, ACTOR).unwrap().len(), 1);
+    let active = game.world().active_effects().next().unwrap().clone();
+    let spawned = active
+        .summoned
+        .expect("summon effect must retain its actor");
+    let world = game.world();
+    let reference = world.reference_ref(spawned).unwrap();
+    assert_eq!(reference.base, Some(id(SUMMON_BASE)));
+    assert!(reference.is_actor);
+    assert_eq!(reference.owner, Some(id(ACTOR)));
+    assert!(reference.enabled);
+}
+
+#[test]
+fn mag_39_summon_creature_dismisses_spawned_actor_on_expiry() {
+    let summon = effect_with_associated_item(0, 18, 24, false, SUMMON_BASE);
+    let mut game = game(plugin(summon, vec![spell(SPELL, 0, false, 0.0, 3)]));
+
+    cast(&mut game, SPELL, ACTOR).unwrap();
+    let spawned = game
+        .world()
+        .active_effects()
+        .next()
+        .unwrap()
+        .summoned
+        .unwrap();
+    assert!(game.world().reference_ref(spawned).unwrap().enabled);
+
+    game.tick(3.0);
+
+    let world = game.world();
+    let reference = world.reference_ref(spawned).unwrap();
+    assert!(reference.deleted);
+    assert!(!reference.enabled);
+    assert_eq!(game.world().active_effects().count(), 0);
+}
+
+#[test]
+fn mag_39_summon_check_spawns_authored_actor_with_caster_ownership_and_dismisses_on_expiry() {
+    let summon = effect_with_associated_item(0, 18, 24, false, SUMMON_BASE);
+    let mut game = game(plugin(summon, vec![spell(SPELL, 0, false, 0.0, 3)]));
+
+    let effects = cast(&mut game, SPELL, ACTOR).unwrap();
+    let active = game
+        .world()
+        .active_effects()
+        .find(|effect| effect.id == effects[0])
+        .unwrap()
+        .clone();
+    let spawned = active
+        .summoned
+        .expect("summon effect must retain its actor");
+    {
+        let world = game.world();
+        let reference = world.reference_ref(spawned).unwrap();
+        assert_eq!(reference.base, Some(id(SUMMON_BASE)));
+        assert_eq!(reference.owner, Some(id(ACTOR)));
+        assert!(reference.enabled);
+    }
+
+    game.tick(3.0);
+
+    let world = game.world();
+    let reference = world.reference_ref(spawned).unwrap();
+    assert!(reference.deleted);
+    assert!(!reference.enabled);
+}
+
+#[test]
+fn mag_39_saved_summon_keeps_its_actor_link_until_expiry() {
+    let summon = effect_with_associated_item(0, 18, 24, false, SUMMON_BASE);
+    let plugin = plugin(summon, vec![spell(SPELL, 0, false, 0.0, 3)]);
+    let mut original = game(plugin.clone());
+    cast(&mut original, SPELL, ACTOR).unwrap();
+    let spawned = original
+        .world()
+        .active_effects()
+        .next()
+        .unwrap()
+        .summoned
+        .unwrap();
+    let saved = original.save_state().unwrap();
+
+    let mut restored = game(plugin);
+    restored.load_state(&saved).unwrap();
+    assert_eq!(
+        restored.world().active_effects().next().unwrap().summoned,
+        Some(spawned)
+    );
+    restored.tick(3.0);
+
+    let world = restored.world();
+    let reference = world.reference_ref(spawned).unwrap();
+    assert!(reference.deleted);
+    assert!(!reference.enabled);
 }
 
 #[test]
