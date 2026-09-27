@@ -33,8 +33,15 @@ fn ui_10_deleted_target_is_not_visible_and_missing_alias_is_omitted() {
             .sub(tag(*b"ALED"), []),
     );
     plugin.push_top(Record::new(tag(*b"STAT"), 0x400));
-    let transform = [0.0_f32; 6].into_iter().flat_map(f32::to_le_bytes).collect::<Vec<_>>();
-    plugin.push_top(Record::new(tag(*b"REFR"), 0x300).sub(tag(*b"NAME"), 0x400_u32.to_le_bytes()).sub(tag(*b"DATA"), transform));
+    let transform = [0.0_f32; 6]
+        .into_iter()
+        .flat_map(f32::to_le_bytes)
+        .collect::<Vec<_>>();
+    plugin.push_top(
+        Record::new(tag(*b"REFR"), 0x300)
+            .sub(tag(*b"NAME"), 0x400_u32.to_le_bytes())
+            .sub(tag(*b"DATA"), transform),
+    );
     let mut order = LoadOrder::new();
     order.add("Map.esm", plugin).unwrap();
     let mut game = Game::new(order);

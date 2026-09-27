@@ -20,7 +20,9 @@ fn load_order() -> LoadOrder {
         Record::new(T(b"NPC_"), 7).zsub(T(b"EDID"), "Player"),
         Record::new(T(b"DOOR"), 0x10),
         Record::new(T(b"MISC"), PICK).zsub(T(b"EDID"), "Lockpick"),
-        Record::new(T(b"REFR"), DOOR).sub(T(b"NAME"), 0x10_u32.to_le_bytes()).sub(T(b"XLOC"), lock),
+        Record::new(T(b"REFR"), DOOR)
+            .sub(T(b"NAME"), 0x10_u32.to_le_bytes())
+            .sub(T(b"XLOC"), lock),
     ] {
         plugin.push_top(record);
     }
