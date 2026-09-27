@@ -50,6 +50,8 @@ pub struct SubMod {
     /// the legacy one.
     pub priority: i32,
     pub conditions: Vec<Condition>,
+    /// Conditions in each group are ORed. The groups themselves are ANDed.
+    pub condition_groups: Vec<Vec<Condition>>,
     /// True when this came from a `_conditions.txt` tree.
     pub legacy: bool,
 }
@@ -135,13 +137,19 @@ fn read_config(dir: &Path, config: &Path) -> Result<SubMod> {
     let conditions = obj
         .get("conditions")
         .and_then(serde_json::Value::as_array)
-        .map_or_else(Vec::new, |a| a.iter().filter_map(read_condition).collect());
+        .map_or_else(Vec::new, |a| {
+            a.iter()
+                .map(|value| read_condition(value).unwrap_or_else(invalid_condition))
+                .collect()
+        });
+    let condition_groups = conditions.iter().cloned().map(|c| vec![c]).collect();
 
     Ok(SubMod {
         directory: dir.to_path_buf(),
         name,
         priority: i32::try_from(priority).unwrap_or(i32::MAX),
         conditions,
+        condition_groups,
         legacy: false,
     })
 }
@@ -167,6 +175,15 @@ fn read_condition(value: &serde_json::Value) -> Option<Condition> {
     })
 }
 
+fn invalid_condition() -> Condition {
+    Condition {
+        name: String::new(),
+        negated: false,
+        required_plugin: None,
+        parameters: serde_json::Map::new(),
+    }
+}
+
 /// The legacy layout: the directory name is the priority and the conditions
 /// are one per line in `_conditions.txt`.
 fn read_legacy(dir: &Path) -> Result<Option<SubMod>> {
@@ -181,38 +198,68 @@ fn read_legacy(dir: &Path) -> Result<Option<SubMod>> {
         return Ok(None);
     };
     let text = std::fs::read_to_string(&file).map_err(|e| Error::io(&file, e))?;
-    let conditions = text
+    let lines: Vec<&str> = text
         .lines()
         .map(str::trim)
         .filter(|l| !l.is_empty() && !l.starts_with(';'))
-        .map(|l| {
-            let (negated, rest) = match l.strip_prefix("NOT ") {
-                Some(r) => (true, r.trim()),
-                None => (false, l),
-            };
-            let head = rest.split('(').next().unwrap_or(rest).trim();
-            Condition {
-                name: head.to_string(),
-                negated,
-                required_plugin: None,
-                parameters: {
-                    let mut m = serde_json::Map::new();
-                    m.insert(
-                        "raw".to_string(),
-                        serde_json::Value::String(rest.to_string()),
-                    );
-                    m
-                },
-            }
-        })
         .collect();
+    let mut condition_groups = Vec::new();
+    let mut index = 0;
+    while index < lines.len() {
+        let first = lines[index];
+        if first.ends_with("OR") {
+            let mut group = Vec::new();
+            let mut line = first;
+            loop {
+                let continued = line.ends_with("OR");
+                let content = if continued {
+                    line[..line.len() - 2].trim_end()
+                } else {
+                    line
+                };
+                group.push(read_legacy_condition(content));
+                index += 1;
+                if !continued || index == lines.len() {
+                    break;
+                }
+                line = lines[index];
+            }
+            condition_groups.push(group);
+        } else {
+            condition_groups.push(vec![read_legacy_condition(first)]);
+            index += 1;
+        }
+    }
+    let conditions = condition_groups.iter().flatten().cloned().collect();
     Ok(Some(SubMod {
         directory: dir.to_path_buf(),
         name,
         priority,
         conditions,
+        condition_groups,
         legacy: true,
     }))
+}
+
+fn read_legacy_condition(line: &str) -> Condition {
+    let (negated, rest) = match line.strip_prefix("NOT ") {
+        Some(r) => (true, r.trim()),
+        None => (false, line),
+    };
+    let head = rest.split('(').next().unwrap_or(rest).trim();
+    Condition {
+        name: head.to_string(),
+        negated,
+        required_plugin: None,
+        parameters: {
+            let mut m = serde_json::Map::new();
+            m.insert(
+                "raw".to_string(),
+                serde_json::Value::String(rest.to_string()),
+            );
+            m
+        },
+    }
 }
 
 fn directory_name(dir: &Path) -> String {
@@ -329,5 +376,33 @@ mod tests {
         assert_eq!(m.sub_mods.len(), 2);
         assert!(m.sub_mods.iter().any(|s| s.legacy));
         assert!(m.sub_mods.iter().any(|s| !s.legacy));
+    }
+
+    #[test]
+    fn anm_09_legacy_or_lines_form_an_alternative_condition_group() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        write(
+            tmp.path(),
+            "DynamicAnimationReplacer/_CustomConditions/100/_conditions.txt",
+            "IsFemale() OR\nIsActorBase(0x800)\nIsRace(0x801)\n",
+        );
+        let found = AnimationMod::scan(tmp.path()).expect("scan");
+        let sub_mod = &found.sub_mods[0];
+        assert_eq!(sub_mod.condition_groups.len(), 2);
+        assert_eq!(sub_mod.condition_groups[0].len(), 2);
+        assert_eq!(sub_mod.condition_groups[1].len(), 1);
+    }
+
+    #[test]
+    fn anm_09_malformed_json_conditions_are_retained_for_fail_closed_evaluation() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        write(
+            tmp.path(),
+            "OAR/Test/Sub/config.json",
+            r#"{"priority":1,"conditions":[null]}"#,
+        );
+        let found = AnimationMod::scan(tmp.path()).expect("scan");
+        assert_eq!(found.sub_mods[0].condition_groups.len(), 1);
+        assert_eq!(found.sub_mods[0].condition_groups[0][0].name, "");
     }
 }

@@ -102,11 +102,12 @@ badly would be worse than handing the caller a string.
 - Base Object Swapper's property field is its own small language of `pos`,
   `rot`, `scale` and `flags` calls, with a location based `ChanceL` variant.
 
-Open Animation Replacer's conditions are structural for a different reason: the
-plugin lets other plugins register new condition types at runtime, so the set is
-open ended and no fixed list would stay correct. Each condition keeps its name,
-its negation, the plugin it needs and its raw parameters, which is enough to
-report what a mod asks for and to implement the common ones later.
+Open Animation Replacer's conditions remain structural in `soe-moddata` because
+the plugin lets other plugins register new condition types at runtime. The game
+runtime evaluates `IsFemale`, `IsActorBase` and `IsRace`. Unknown, unresolved or
+plugin-registered condition types do not select a replacement. JSON condition
+arrays are ANDed. Legacy `OR` blocks are kept as groups, alternatives within a
+group are ORed, and separate groups are ANDed.
 
 ## Conflicts resolve by file name
 
@@ -142,7 +143,7 @@ them, but no shipped mod has been run through them yet.
 
 | Test suite | Count | What it covers |
 |---|---|---|
-| `src/*` unit | 60 | Each grammar, each filter rule, the ini dialect, the form reference ambiguity |
+| `src/*` unit | 63 | Each grammar, each filter rule, the ini dialect, the form reference ambiguity and OAR condition groups |
 | `tests/resolve.rs` | 11 | Resolution against a synthetic load order, including absent forms |
 
 ## Not done
@@ -172,7 +173,7 @@ That is a current limitation, not a claim of matching SPID's actor lifecycle.
 | `_KID.ini` | At load | Merged into `World::keywords` itself |
 | `_DISTR.ini` | At load, keyed by base | Read when an actor's state is built |
 | `_SWAP.ini` | Held, applied per reference | Read when a reference is built |
-| OAR | Counted only | The animation system will read the trees |
+| OAR | Parsed submods are retained by `Game` and selected by actor condition and priority | Runtime animation playback will consume the selected paths |
 
 The keyword merge is the one worth stating plainly. A distributed keyword goes
 into the same list `World::keywords` returns for a record's own `KWDA`, so

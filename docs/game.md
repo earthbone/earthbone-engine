@@ -3242,3 +3242,17 @@ synthetic scripted conversation. It does not execute a shipped quest fragment.
 The row's range-exit and recorded-end checks are covered. TWAT reply selection,
 walk-away menu flags, voice cancellation and original-engine timing comparison
 are outside this range-exit implementation.
+
+## Open Animation Replacer selection, ANM-09
+
+`Game::apply_mod_data` retains OAR submods in descending priority order.
+`Game::select_oar_animation` checks each submod's conditions against the actor
+base, then returns an HKX file with the requested clip filename from the first
+passing submod. `IsFemale`, `IsActorBase` and `IsRace` are evaluated. Unknown,
+unresolved and plugin-registered conditions fail closed. JSON condition arrays
+are ANDed. Legacy OR groups accept any passing member, while the groups are
+ANDed. This selects a path for a host animation system, it does not replace a
+live Havok clip yet.
+
+`anm_09_` tests use authored records and synthetic OAR directories to check
+conditioned selection, priority order and unsupported-condition rejection.
