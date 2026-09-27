@@ -103,11 +103,22 @@ not the complete set of Skyrim hardcoded forms.
 
 ## Typed views
 
-`records::{cell, refr, wrld, land, lctn, navm, stat, race}` and `records::gameplay`
+`records::{cell, refr, wrld, land, lctn, navm, npc, stat, race}` and `records::gameplay`
 expose `from_record`. Views copy
 the named fields and leave the record intact, so an unknown subrecord is never lost.
 FormIDs inside views are raw, as written in the file, so a view can be built without a
 load order and resolved later.
+
+`records::npc::NpcFace` reads NPC_ `PNAM` head-part links in file order and the
+19 floats in `NAM9`. `edit_record` replaces those fields while preserving the
+other NPC subrecords, checks each link against the active load order for a
+winning `HDPT`, and rejects malformed links or non-finite morph values. The
+`NPC_` `PNAM` links are relocated with other recognized FormIDs when a plugin's
+master order changes. These fields are defined by local xEdit's NPC_ record
+definition. TiltedEvolution's `FaceGenSystem.cpp` confirms that runtime face
+assembly resolves NPC head-part records before finding mesh nodes. The PyNifly
+TRI source named by the editor milestone is absent from the local reference
+corpus, and this view does not generate TRI morph meshes or FaceGen textures.
 
 `Refr::lock` reads XLOC level, key and flags. Presence means initially locked,
 including level zero. Level 255 requires a key. The reader accepts the 20-byte
