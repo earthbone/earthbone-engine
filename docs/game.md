@@ -1671,6 +1671,26 @@ and finish hooks on an absorb effect derived from `ValueModifierEffect`, but
 does not provide their behavior. `mag_28_*` tests cover primary-value
 selection, magnitude, duration, and the `No Magnitude` and `No Duration` flags.
 
+#### Disarm archetype, MAG-32
+
+Archetype 9 disarms a target when the target's actor level does not exceed the
+effect magnitude and the actor has a weapon assigned to either hand. One copy
+of the selected hand weapon leaves the actor inventory and becomes an enabled
+loose reference at the actor's position, rotation and cell. The runtime clears
+the weapon's hand assignment. Picking up that reference returns the same
+single copy through the ordinary reference inventory path. A target above the
+magnitude limit or without an equipped hand weapon keeps its inventory and
+equipment unchanged.
+
+Local `TES5Edit/Core/wbDefinitionsTES5.pas` and
+`uesp-modfileformat/MGEF.wikitext` name archetype 9 as Disarm and specify no
+archetype-specific data. The local CK corpus has no Magic Effect page. The CK
+Magic Effect archetype table describes Disarm as affecting targets up to its
+magnitude, which supplies the level limit. The implementation uses the shared
+inventory, equipment and loose-reference state, whose metadata and pickup
+behavior are documented above. `mag_32_*` tests cover the level boundary,
+single-copy transfer, dropped placement and pickup.
+
 #### Bound Weapon archetype, MAG-38
 
 Archetype 17 resolves the MGEF Associated Item through the effect's owning

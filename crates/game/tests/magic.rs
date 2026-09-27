@@ -38,6 +38,8 @@ mod absorb;
 mod bound_weapon;
 #[path = "magic/collection.rs"]
 mod collection;
+#[path = "magic/disarm.rs"]
+mod disarm;
 
 fn retain_effect(game: &mut Game, effect: soe_papyrus::ObjectId) {
     let script = ScriptBuilder::new("EffectHolder", "Actor")

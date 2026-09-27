@@ -4,8 +4,9 @@
 //! DispelAllSpells contracts, xEdit SPEL/MGEF fields and CommonLib MagicSystem
 //! enums. Definitions stay in the winning records. Per-cast magnitudes,
 //! elapsed time and reversible actor-value deltas belong to the world.
-//! Cure Disease removes active MGEFs marked with MagicDisease. Unsupported
-//! delivery and archetypes return errors before applying effects.
+//! Cure Disease removes active MGEFs marked with MagicDisease. Disarm drops
+//! one eligible hand weapon as a loose reference. Unsupported delivery and
+//! archetypes return errors before applying effects.
 
 use soe_esm::records::gameplay::{Effect, Ingestible, MagicEffect, Spell};
 use soe_esm::GlobalFormId;
@@ -88,6 +89,7 @@ struct PreparedEffect {
     effect: ActiveEffect,
     summon_base: Option<GlobalFormId>,
     bound_weapon: Option<GlobalFormId>,
+    disarm: bool,
     no_recast: bool,
     hit_event: bool,
     dispel_rules: Vec<DispelRule>,
@@ -320,6 +322,7 @@ impl World {
                 no_recast: data.flags & NO_RECAST != 0,
                 summon_base: None,
                 bound_weapon: None,
+                disarm: false,
                 hit_event: false,
                 dispel_rules,
                 dispel: Vec::new(),
@@ -436,7 +439,7 @@ impl World {
                     return Err(MagicError::Target);
                 }
             }
-            if !matches!(data.archetype, 0 | 1 | 2 | 3 | 4 | 5 | 17 | 18) {
+            if !matches!(data.archetype, 0 | 1 | 2 | 3 | 4 | 5 | 9 | 17 | 18) {
                 return Err(MagicError::Unsupported("effect archetype"));
             }
             if data.taper_duration != 0.0 {
@@ -517,6 +520,7 @@ impl World {
             } else {
                 None
             };
+            let disarm = data.archetype == 9;
             let duration = if definition.data.cast_type == 0 {
                 None
             } else {
@@ -574,6 +578,7 @@ impl World {
                     no_recast: data.flags & NO_RECAST != 0,
                     summon_base,
                     bound_weapon,
+                    disarm,
                     hit_event: data.flags & (HOSTILE | NO_HIT_EVENT) == HOSTILE,
                     dispel_rules: dispel_rules.clone(),
                     dispel: Vec::new(),
@@ -589,6 +594,11 @@ impl World {
         alloc: Alloc<'_>,
     ) -> Result<Vec<EffectId>, MagicError> {
         let prepared = self.prepare_effect_actions(prepared)?;
+        let disarms: Vec<_> = prepared
+            .iter()
+            .filter(|prepared| prepared.disarm)
+            .map(|prepared| (prepared.effect.target, prepared.effect.magnitude))
+            .collect();
         let mut applied = Vec::new();
         for mut prepared in prepared {
             if let Some(weapon) = prepared.bound_weapon {
@@ -675,7 +685,52 @@ impl World {
             }
             applied.push(id);
         }
+        for (target, magnitude) in disarms {
+            self.disarm_equipped_weapon(target, magnitude, alloc);
+        }
         Ok(applied)
+    }
+
+    /// Drop one eligible hand weapon into a loose reference at the target.
+    fn disarm_equipped_weapon(&mut self, target: GlobalFormId, magnitude: f32, alloc: Alloc<'_>) {
+        let Some(level) = self.actor(target).map(|actor| actor.level) else {
+            return;
+        };
+        if level as f32 > magnitude {
+            return;
+        }
+        let Some(weapon) = self
+            .hand_weapon(target, Hand::Right)
+            .or_else(|| self.hand_weapon(target, Hand::Left))
+        else {
+            return;
+        };
+        let bundle = self.remove_item_bundle(target, weapon, 1, None);
+        if bundle.count() != 1 {
+            return;
+        }
+        let item = bundle
+            .stacks()
+            .first()
+            .cloned()
+            .unwrap_or_else(crate::inventory::Stack::plain_one);
+        let dropped = self.place_at(weapon, target, false);
+        if let Some(reference) = self.reference(dropped) {
+            reference.item = Some(item);
+        }
+        if let Some(actor) = self.actor(target) {
+            actor.equipped.remove(&weapon);
+            if actor.left_weapon == Some(weapon) {
+                actor.left_weapon = None;
+            }
+            if actor.right_weapon == Some(weapon) {
+                actor.right_weapon = None;
+            }
+        }
+        if let Some(reference) = self.reference(target) {
+            reference.inventory.unequip(weapon);
+        }
+        self.inventory_event(target, weapon, -1, None, alloc);
     }
 
     /// Validate authored action order before events or live actor values change.
