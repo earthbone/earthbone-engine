@@ -158,6 +158,174 @@ pub struct ClipLibrary {
     clips: HashMap<String, Clip>,
 }
 
+/// A named synchronization mark in one participant's clip, in seconds.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SyncMarker {
+    pub name: String,
+    pub time: f32,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct SyncParticipant {
+    actor: u64,
+    markers: Vec<SyncMarker>,
+}
+
+/// A two-actor synchronized animation timeline. The lead participant's time
+/// drives the scene and each other clip is mapped between the same named marks.
+/// The host must provide corresponding mark times from each active clip.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SynchronizedClipScene {
+    participants: [SyncParticipant; 2],
+    common_markers: Vec<String>,
+    lead: usize,
+    elapsed: f32,
+    active: bool,
+}
+
+impl SynchronizedClipScene {
+    /// Pair two clips by their ordered shared marker names.
+    pub fn new(
+        first_actor: u64,
+        first_markers: Vec<SyncMarker>,
+        second_actor: u64,
+        second_markers: Vec<SyncMarker>,
+        lead_actor: u64,
+    ) -> Result<Self> {
+        if first_actor == second_actor || (lead_actor != first_actor && lead_actor != second_actor)
+        {
+            return Err(Error::Unsupported(
+                "invalid synchronized clip actors".into(),
+            ));
+        }
+        for markers in [&first_markers, &second_markers] {
+            if markers
+                .iter()
+                .any(|m| m.name.is_empty() || !m.time.is_finite() || m.time < 0.0)
+                || markers.windows(2).any(|w| w[0].time > w[1].time)
+                || markers
+                    .iter()
+                    .map(|m| &m.name)
+                    .collect::<std::collections::HashSet<_>>()
+                    .len()
+                    != markers.len()
+            {
+                return Err(Error::Unsupported(
+                    "invalid synchronized clip markers".into(),
+                ));
+            }
+        }
+        let common_markers: Vec<String> = first_markers
+            .iter()
+            .filter(|marker| second_markers.iter().any(|other| other.name == marker.name))
+            .map(|marker| marker.name.clone())
+            .collect();
+        let second_common_times: Vec<f32> = common_markers
+            .iter()
+            .filter_map(|name| {
+                second_markers
+                    .iter()
+                    .find(|marker| &marker.name == name)
+                    .map(|marker| marker.time)
+            })
+            .collect();
+        if common_markers.len() < 2
+            || second_common_times.len() != common_markers.len()
+            || second_common_times.windows(2).any(|w| w[0] > w[1])
+        {
+            return Err(Error::Unsupported(
+                "synchronized clips need two ordered shared markers".into(),
+            ));
+        }
+        let lead = usize::from(lead_actor == second_actor);
+        Ok(Self {
+            participants: [
+                SyncParticipant {
+                    actor: first_actor,
+                    markers: first_markers,
+                },
+                SyncParticipant {
+                    actor: second_actor,
+                    markers: second_markers,
+                },
+            ],
+            common_markers,
+            lead,
+            elapsed: 0.0,
+            active: true,
+        })
+    }
+
+    /// Advance the shared lead clock once per frame. Returns false after the
+    /// last common marker has been reached or the scene has been cancelled.
+    pub fn advance(&mut self, dt: f32) -> bool {
+        if !self.active || !dt.is_finite() || dt < 0.0 {
+            return false;
+        }
+        self.elapsed += dt;
+        let end = self
+            .marker_time(self.lead, self.common_markers.len() - 1)
+            .unwrap_or(0.0);
+        self.active = self.elapsed < end - self.marker_time(self.lead, 0).unwrap_or(0.0);
+        self.active
+    }
+
+    /// Current clip-local time for an actor, aligned at every shared marker.
+    pub fn time_for(&self, actor: u64) -> Option<f32> {
+        if !self.active {
+            return None;
+        }
+        let participant = self.participants.iter().position(|p| p.actor == actor)?;
+        let lead_start = self.marker_time(self.lead, 0)?;
+        let lead_time = lead_start + self.elapsed;
+        let lead_marker_times: Vec<f32> = (0..self.common_markers.len())
+            .filter_map(|i| self.marker_time(self.lead, i))
+            .collect();
+        let peer_marker_times: Vec<f32> = (0..self.common_markers.len())
+            .filter_map(|i| self.marker_time(participant, i))
+            .collect();
+        if participant == self.lead {
+            return Some(lead_time);
+        }
+        for index in 0..lead_marker_times.len().saturating_sub(1) {
+            let start = lead_marker_times[index];
+            let end = lead_marker_times[index + 1];
+            if lead_time <= end {
+                let fraction = if end > start {
+                    (lead_time - start) / (end - start)
+                } else {
+                    1.0
+                };
+                return Some(
+                    peer_marker_times[index]
+                        + fraction * (peer_marker_times[index + 1] - peer_marker_times[index]),
+                );
+            }
+        }
+        peer_marker_times.last().copied()
+    }
+
+    /// Stop the scene and release both participants. Calling this repeatedly is safe.
+    pub fn cancel(&mut self) -> [u64; 2] {
+        self.active = false;
+        [self.participants[0].actor, self.participants[1].actor]
+    }
+
+    pub fn is_active(&self) -> bool {
+        self.active
+    }
+
+    fn marker_time(&self, participant: usize, marker: usize) -> Option<f32> {
+        let name = self.common_markers.get(marker)?;
+        self.participants
+            .get(participant)?
+            .markers
+            .iter()
+            .find(|m| &m.name == name)
+            .map(|m| m.time)
+    }
+}
+
 fn clip_key(name: &str) -> String {
     name.to_lowercase().replace('\\', "/")
 }
@@ -406,6 +574,7 @@ struct IntervalState {
 struct Runtime {
     active: bool,
     local_time: f32,
+    synchronized_time: Option<f32>,
     at_end: bool,
     /// Loops completed, for acyclic triggers.
     passes: u32,
@@ -833,6 +1002,55 @@ impl<'a> Interpreter<'a> {
         let rt = self.nodes.get(clip.0)?;
         (rt.active && matches!(self.graph.node(clip).kind, NodeKind::Clip(_)))
             .then_some(rt.local_time)
+    }
+
+    /// Set the externally coordinated local time for a clip wrapped by a
+    /// `BSSynchronizedClipGenerator`. Call once for each actor before update.
+    pub fn set_synchronized_clip_time(&mut self, synchronized: NodeId, time: f32) -> bool {
+        let Some(node) = self.graph.nodes.get(synchronized.0) else {
+            return false;
+        };
+        let NodeKind::SynchronizedClip {
+            clip_generator: Some(clip),
+            ..
+        } = node.kind
+        else {
+            return false;
+        };
+        if !time.is_finite()
+            || time < 0.0
+            || !matches!(
+                self.graph.nodes.get(clip.0).map(|n| &n.kind),
+                Some(NodeKind::Clip(_))
+            )
+        {
+            return false;
+        }
+        if let Some(runtime) = self.nodes.get_mut(clip.0) {
+            runtime.synchronized_time = Some(time);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Clear externally coordinated time when a synchronized scene ends.
+    pub fn clear_synchronized_clip_time(&mut self, synchronized: NodeId) -> bool {
+        let Some(node) = self.graph.nodes.get(synchronized.0) else {
+            return false;
+        };
+        let NodeKind::SynchronizedClip {
+            clip_generator: Some(clip),
+            ..
+        } = node.kind
+        else {
+            return false;
+        };
+        let Some(runtime) = self.nodes.get_mut(clip.0) else {
+            return false;
+        };
+        runtime.synchronized_time = None;
+        true
     }
 
     /// Whether a single-play clip has reached its end.
@@ -1719,48 +1937,53 @@ impl<'a> Interpreter<'a> {
         let speed = rt.playback_speed.unwrap_or(clip.playback_speed);
         let previous = rt.local_time;
         let mut wrapped = false;
-        match clip.mode {
-            2 => {
-                let f = rt
-                    .user_fraction
-                    .unwrap_or(clip.user_controlled_time_fraction);
-                rt.local_time = f.clamp(0.0, 1.0) * duration;
-            }
-            1 => {
-                rt.local_time += dt * speed;
-                if duration > 0.0 {
-                    while rt.local_time >= duration {
-                        rt.local_time -= duration;
-                        rt.passes += 1;
-                        wrapped = true;
-                    }
-                    while rt.local_time < 0.0 {
-                        rt.local_time += duration;
-                        wrapped = true;
-                    }
-                } else {
-                    rt.local_time = 0.0;
+        if let Some(time) = rt.synchronized_time {
+            rt.local_time = time.min(duration);
+            rt.at_end = rt.local_time >= duration;
+        } else {
+            match clip.mode {
+                2 => {
+                    let f = rt
+                        .user_fraction
+                        .unwrap_or(clip.user_controlled_time_fraction);
+                    rt.local_time = f.clamp(0.0, 1.0) * duration;
                 }
-            }
-            3 => {
-                rt.local_time += dt * speed;
-                if duration > 0.0 {
-                    let period = 2.0 * duration;
-                    let mut t = rt.local_time.rem_euclid(period);
-                    if t > duration {
-                        t = period - t;
+                1 => {
+                    rt.local_time += dt * speed;
+                    if duration > 0.0 {
+                        while rt.local_time >= duration {
+                            rt.local_time -= duration;
+                            rt.passes += 1;
+                            wrapped = true;
+                        }
+                        while rt.local_time < 0.0 {
+                            rt.local_time += duration;
+                            wrapped = true;
+                        }
+                    } else {
+                        rt.local_time = 0.0;
                     }
-                    rt.local_time = t;
                 }
-            }
-            _ => {
-                rt.local_time += dt * speed;
-                if rt.local_time >= duration {
-                    rt.local_time = duration;
-                    rt.at_end = true;
+                3 => {
+                    rt.local_time += dt * speed;
+                    if duration > 0.0 {
+                        let period = 2.0 * duration;
+                        let mut t = rt.local_time.rem_euclid(period);
+                        if t > duration {
+                            t = period - t;
+                        }
+                        rt.local_time = t;
+                    }
                 }
-                if rt.local_time < 0.0 {
-                    rt.local_time = 0.0;
+                _ => {
+                    rt.local_time += dt * speed;
+                    if rt.local_time >= duration {
+                        rt.local_time = duration;
+                        rt.at_end = true;
+                    }
+                    if rt.local_time < 0.0 {
+                        rt.local_time = 0.0;
+                    }
                 }
             }
         }

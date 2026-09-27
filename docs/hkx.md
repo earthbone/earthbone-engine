@@ -368,6 +368,12 @@ What each node does:
 - `hkbModifierGenerator` and Skyrim's `BS*` wrappers (`BSiStateTagging`,
   `BSBoneSwitch`, `BSOffsetAnimation`, `BSSynchronizedClip`,
   `BSCyclicBlendTransition`) pass their generator child through.
+  `SynchronizedClipScene` coordinates two actor clip clocks through ordered,
+  shared named markers. The host supplies each clip's marker times, chooses
+  the lead actor, advances the scene once per frame, then sets each wrapped
+  clip's synchronized time before updating its interpreter. Cancel returns
+  both actor ids and makes the scene inactive. The host clears the synchronized
+  time override on each interpreter when the scene ends or is cancelled.
   `hkbModifierGenerator` also gives an enabled modifier child activation and
   deactivation lifecycle.
 - `hkbBehaviorReferenceGenerator` and unmodelled classes yield the
@@ -378,6 +384,13 @@ Bindings resolve at construction to typed setters: `playbackSpeed`,
 child (also `children:N/weight`), `selectedGeneratorIndex`, `enable`. Any
 other member path is reported in `Unsupported::unbound`. Reals live in the
 word table as their bit pattern, which is how the file stores them.
+
+`BSSynchronizedClipGenerator` loads its wrapped generator, prefix, mark
+settings and lead flag from the Skyrim class layout. The two-actor scene clock
+uses marker times supplied by the host because the serialized graph alone has
+no paired actor instance or world mark transforms. It maps elapsed lead time
+linearly between shared markers. It does not place or reorient actors, apply
+root motion, or discover partner clips from `SyncAnimPrefix`.
 
 ### Checked against the sampler (2026-09-18)
 
