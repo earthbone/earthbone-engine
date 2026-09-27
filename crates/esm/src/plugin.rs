@@ -18,6 +18,7 @@
 //! and whose own size field is zero. A record with flag 0x00040000 stores a
 //! u32 inflated size followed by a zlib stream.
 
+use sha2::{Digest, Sha256};
 use std::io::Read;
 
 use crate::cursor::Cursor;
@@ -501,6 +502,12 @@ impl Plugin {
             g.write(&self.records, &mut out);
         }
         out
+    }
+
+    /// SHA-256 of this plugin's serialized definition. This does not depend
+    /// on its load slot or on another file's overrides.
+    pub fn fingerprint(&self) -> [u8; 32] {
+        Sha256::digest(self.to_bytes()).into()
     }
 
     /// Records of one signature, in file order.

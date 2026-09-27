@@ -16,7 +16,20 @@ Crate `crates/papyrus`. Round 1 of `ENGINE-PLAN.md`, written 2026-09-06.
   stacks, a scheduler with sleeping and latent threads, events, states, and the
   native registry.
 
-No dependencies outside the standard library.
+The VM depends on `soe-trace`. SHA-256 fingerprints use `sha2`.
+
+`Vm::loaded_script_fingerprints` lists loaded script names in case-insensitive
+order with optional SHA-256 PEX source fingerprints. `load_bytes` records a
+fingerprint of the input bytes after a successful parse. `load(Script)` reports
+unknown source provenance because its original PEX bytes are unavailable.
+Loading another definition with the same name replaces its fingerprint.
+`tests/sav_67_fingerprints.rs` covers changed PEX definitions, programmatic
+loads and replacement. The hash identifies content for dependency comparison,
+not the origin or authenticity of a file.
+
+OpenMW's `apps/openmw/mwstate/statemanagerimp.cpp` records content file names
+and remaps indices by name. Its save path does not supply script source
+fingerprints, so the VM records them at the PEX load boundary.
 
 ## Format facts, checked against the references
 

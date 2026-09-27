@@ -10,6 +10,7 @@ workspace = true
 
 [dependencies]
 soe-trace = { path = "../trace" }
+sha2 = "0.10"
 
 [dev-dependencies]
 proptest = "1.11"
