@@ -7,7 +7,9 @@ use std::collections::BTreeMap;
 use soe_esm::{plugin::Subrecord, GlobalFormId, Slot, Tag};
 use soe_papyrus::{vm::state::Writer, VmError};
 
-use super::record_overrides::{raw_words, ListRecordExtra, NpcRecordExtra, RecordOverride};
+use super::record_overrides::{
+    raw_words, BaseObjectRecordExtra, ListRecordExtra, NpcRecordExtra, RecordOverride,
+};
 use super::save::{read_form_id, read_opt_form_id, write_form_id, write_opt_form_id, FormReader};
 use super::{World, T};
 
@@ -65,6 +67,16 @@ impl World {
                 w.bool(list.section_present);
                 w.bytes(&list.entry_chances);
             }
+            w.bool(value.base_object.is_some());
+            if let Some(base_object) = value.base_object {
+                w.bool(base_object.form_flags.is_some());
+                if let Some((flags, unknown)) = base_object.form_flags {
+                    w.u32(flags);
+                    w.u16(unknown);
+                }
+                w.bool(base_object.value_changed);
+                w.bool(base_object.full_name_changed);
+            }
             w.len(value.links.len());
             for (raw, link) in &value.links {
                 w.u32(*raw);
@@ -103,7 +115,15 @@ impl World {
                 || self.order.winner(text_origin).is_none_or(|r| {
                     !matches!(
                         &r.tag.0,
-                        b"NPC_" | b"RACE" | b"FLST" | b"LVLN" | b"LVLI" | b"LVSP"
+                        b"NPC_"
+                            | b"RACE"
+                            | b"FLST"
+                            | b"LVLN"
+                            | b"LVLI"
+                            | b"LVSP"
+                            | b"LIGH"
+                            | b"STAT"
+                            | b"MSTT"
                     )
                 })
             {
@@ -115,7 +135,15 @@ impl World {
                 .filter(|rec| {
                     matches!(
                         &rec.tag.0,
-                        b"NPC_" | b"RACE" | b"FLST" | b"LVLN" | b"LVLI" | b"LVSP"
+                        b"NPC_"
+                            | b"RACE"
+                            | b"FLST"
+                            | b"LVLN"
+                            | b"LVLI"
+                            | b"LVSP"
+                            | b"LIGH"
+                            | b"STAT"
+                            | b"MSTT"
                     ) && !rec.is_deleted()
                 })
                 .ok_or_else(|| bad("missing record origin"))?;
@@ -155,6 +183,20 @@ impl World {
                     form_flags,
                     section_present: r.bool()?,
                     entry_chances: r.bytes()?.to_vec(),
+                })
+            } else {
+                None
+            };
+            let base_object = if version >= 37 && r.bool()? {
+                let form_flags = if r.bool()? {
+                    Some((r.u32()?, r.u16()?))
+                } else {
+                    None
+                };
+                Some(BaseObjectRecordExtra {
+                    form_flags,
+                    value_changed: r.bool()?,
+                    full_name_changed: r.bool()?,
                 })
             } else {
                 None
@@ -253,6 +295,20 @@ impl World {
                 {
                     return Err(bad("invalid race skin link"));
                 }
+            } else if let Some(base_object) = base_object {
+                if list.is_some()
+                    || temporary_for.is_some()
+                    || text_origin != id
+                    || plain_full
+                    || original_race.is_some()
+                    || body_tint.is_some()
+                    || pending_form_flags.is_some()
+                    || !matches!(&record.tag.0, b"LIGH" | b"STAT" | b"MSTT")
+                    || record.subrecords != original.subrecords
+                {
+                    return Err(bad("invalid saved base-object override"));
+                }
+                let _ = base_object;
             } else {
                 let tag = if record.tag == T(b"FLST") {
                     T(b"LNAM")
@@ -318,6 +374,7 @@ impl World {
                     pending_form_flags,
                 },
                 list,
+                base_object,
             };
             if values.insert(id, value).is_some() {
                 return Err(bad("duplicate NPC record"));

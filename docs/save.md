@@ -999,3 +999,12 @@ bits, incomplete form flags and trailing payload bytes. The typed fields
 rebuild the same flags and payload bytes. SAV-39 tests all eight defined flag
 combinations for each record type and reports record counts, distinct flag
 sets and payload bytes from `SOE_TEST_SAVES` when that corpus is configured.
+
+`World::restore_vanilla_base_objects` applies these fields to shared record
+overrides after mapping saved identities through plugin names. It validates
+all LIGH, STAT and MSTT changes before changing the world. The live records
+remain available through `World::record`, while
+`World::restored_base_object_extra` returns the saved form-flag words and the
+two zero-byte change markers. Since the markers contain no replacement value
+or name, record-backed value and name queries continue to use the winning
+plugin record. SOEW version 37 retains this metadata through engine save/load.

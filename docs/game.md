@@ -2184,6 +2184,17 @@ before actor initialization, failed late imports and old saves clearing state.
 The temporary-base follow-up below adds inline NPC application. Complete
 actor state, save resumption and saved package execution remain open.
 
+## Restoring light and static base objects
+
+`World::restore_vanilla_base_objects` maps LIGH, STAT and MSTT changes through
+the saved plugin list, validates every target and payload, then installs all
+records together. The shared record lookup and name query continue to read the
+winning record's fields. `World::restored_base_object_extra` exposes the saved
+form-flag words and the value and full-name changed markers. xEdit defines the
+last two markers as zero-byte fields, so they carry no replacement value or
+name. These fields persist in SOEW version 37 and participate in the world
+hash.
+
 ## Temporary actor bases
 
 The template-restoration pass now materializes a private NPC record for every
