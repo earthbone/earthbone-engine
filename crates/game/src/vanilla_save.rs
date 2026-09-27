@@ -43,6 +43,8 @@ pub enum RestoreError {
     Quest { id: GlobalFormId, reason: String },
     #[error("cannot restore NPC {id}: {reason}")]
     Npc { id: GlobalFormId, reason: String },
+    #[error("cannot restore list {id}: {reason}")]
+    List { id: GlobalFormId, reason: String },
     #[error("cannot restore reference {id}: {reason}")]
     WorldReference { id: GlobalFormId, reason: String },
 }
