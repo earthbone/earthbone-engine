@@ -34,14 +34,15 @@ so. Where something is ours, it is because nothing packaged existed.
 | Ogg Opus | `opus-decoder` plus `ogg` | Pure Rust port of libopus. The alternatives (`opus`, `audiopus`, `symphonia-adapter-libopus`) all bind the C library, which this machine would need a toolchain for. Proven here against a real re-encode, see the numbers below. | 2 (`opus-decoder`, `ogg`, sharing `byteorder` with lewton) |
 | Switch NX Opus | `opus-decoder` plus our container reader | The same codec dependency reads raw packets. Skyrim-NX-Toolkit and VGAudio define the wrapper and packet layout. | 0 |
 | RIFF WAVE | `hound` | Zero transitive dependencies, and the Creation Kit writes WAV. Cheaper than a reader of our own. | 1 |
-| WMA bitstream | ffmpeg, out of process, behind a feature | See below. | 0 |
+| WMA v2 bitstream | `oxideav-wma`, in process | Pure Rust WMA v1/v2 decoder, currently matching the vanilla WMA v2 path. | 2 direct crates plus the core crate's transitives |
 | FUZ container | ours, following Skyrim-NX-Toolkit | No crate exists. See the credits. | 0 |
 | LIP body | ours, zero-run expansion and frame-major weights | Header from `FaceFXWrapper`. Body layout verified against all 74,070 installed English tracks. No dependency added. | 0 |
 | xWMA container | ours, ffmpeg's `xwma` demuxer as the reference for `dpds` | No crate exists, and the container is about 120 lines. | 0 |
 
-Six crates in total, `lewton`, `byteorder`, `tinyvec`, `ogg`, `opus-decoder` and `hound`, plus
-`thiserror` and `soe-bsa` which the workspace already carries. `cargo tree -p soe-audio` prints
-the lot on one screen.
+The audio codec tree includes `lewton`, `byteorder`, `tinyvec`, `ogg`, `opus-decoder`, `hound`,
+`oxideav-core` and `oxideav-wma`, plus `thiserror` and `soe-bsa` which the workspace already
+carries. `oxideav-core` also brings `bytemuck` and `serde_json` in the default dependency tree.
+`cargo tree -p soe-audio` prints the full tree.
 
 ### Voice archive locale selection
 
@@ -60,21 +61,26 @@ The host does not substitute English.
 
 ### The WMA bitstream
 
-ffmpeg has demuxed xWMA and decoded `wmav2` for years, so no WMA decoder is written here and none
-should be. What the crate adds is the seam: a `WmaDecoder` trait, and one implementation that runs
-the `ffmpeg` binary with the file on its standard input and raw floats coming back.
+`WmaDecoder` keeps callers independent of a particular implementation. Its `Native`
+implementation feeds each xWMA block-aligned packet to `oxideav-wma` and returns interleaved
+float samples. xWMA carries WMA v2 format fields but omits the codec private data found in other
+WMA containers. The adapter supplies the six-byte setup value that FFmpeg's xWMA demuxer uses,
+normalizes the documented fake bitrate combinations, checks the `dpds` entry count and cumulative
+totals, and trims decoder priming output to the exact decoded byte count. It rejects unsupported
+tags, invalid packet alignment and decoded PCM above 256 MiB.
 
-Out of process, behind a feature that is off by default, is the trade:
+`Ffmpeg` remains behind `xwma-ffmpeg` as an out-of-process comparison decoder. It takes the
+standalone file produced by `Xwma::to_bytes` on stdin and returns raw float samples. The default
+decoder does not start a process or require ffmpeg to be installed.
 
-- Linking through `ffmpeg-sys-next` needs the development headers on every build machine. This one
-  carries `libavcodec.so.62` and no headers at all, so that route does not compile here today.
-- Linking drags a large C dependency into a crate the runtime links, and ties the engine's build to
-  ffmpeg's ABI across releases.
-- A subprocess costs one process per file and nothing else. It is replaceable: the day an
-  in-process decoder is worth it, it implements the same trait and no caller changes.
-- With no decoder at all, the container reading below still works. A caller gets sample rate,
-  channel count, packet count and exact duration, and an `Unsupported::Wma` when it asks for
-  samples. That is why the feature can stay off.
+`oxideav-wma` is MIT licensed and uses a single `oxideav-core` dependency. Its WMA v2 implementation
+is a pure Rust codec. Its own WMA wire implementation is under active development, so the gated
+vanilla acceptance test compares its output against ffmpeg and checks the output duration and
+waveform correlation before claiming support. The local Skyrim-NX-Toolkit conversion script
+confirms that xWMA is the PC FUZ audio form and ffmpeg is used for normalization. `fuzmanager`
+confirms the FUZ header and payload split, but contains no decoder. Neither local reference
+provided a WMA decoder, so the existing Rust package is used rather than porting an unmaintained
+or native codec implementation.
 
 ## Credits
 
@@ -99,8 +105,8 @@ Out of process, behind a feature that is off by default, is the trade:
   VGAudio is MIT licensed. It was absent from the local corpus and fetched for this
   work. Its C# container framework does not fit this Rust crate, so a bounded slice
   reader handles the container and the existing `opus-decoder` handles packets.
-- **xWMA**: ffmpeg's `libavformat/xwma.c` is the reference for the `dpds` table, and Microsoft's
-  `xWMAEncode` is what writes it.
+- **xWMA**: ffmpeg's `libavformat/xwma.c` is the reference for `dpds` packet totals, fixed packet
+  lengths, WMA2 setup bytes and bitrate normalization. Microsoft's `xWMAEncode` writes the format.
 - **LIP header**: `../engine-refs/FaceFXWrapper/FFXW32/LipSynchAnim.h` declares
   version, size and flags. `LipSynchAnim.cpp` supplies the compression switch and
   default Skyrim target count. The local checkout now includes its MIT license.
@@ -269,10 +275,10 @@ recording and reports which of nine mouth positions to hold at each moment, opti
 by the line's written text. Its licence notes that the data it produces belongs to whoever ran it,
 so a generated track carries no encumbrance at all.
 
-It sits behind the `VisemeSource` trait and the `rhubarb` feature, off by default, exactly where
-ffmpeg sits for the WMA bitstream and for the same reasons. The binary lives in `../tools/rhubarb/`
-next to the Godot binary, never committed. Tests find it through `SOE_RHUBARB`, then that
-directory, then the path.
+It sits behind the `VisemeSource` trait and the `rhubarb` feature, off by default, so the default
+runtime does not need the binary or its JSON reader. The binary lives in `../tools/rhubarb/` next
+to the Godot binary, never committed. Tests find it through `SOE_RHUBARB`, then that directory,
+then the path.
 
 Dependency cost, only when the feature is on: five crates, `serde_json`, `serde_core`, `itoa`,
 `memchr` and `zmij`, for reading what the tool prints. The default build adds none of them, and
@@ -368,6 +374,13 @@ instead of reducing it to the recognizer's shape vocabulary.
 Decoding, with `--features xwma-ffmpeg`: eight lines decoded, every one within 60 ms of the
 duration its packet table predicts, which is the cross-check that the container reading and the
 decode agree.
+
+AUD-02 adds an installed-data check for the default build. It decodes the first English voice
+line with `Native`, compares it with ffmpeg's out-of-process output, requires duration agreement
+within 60 ms, and requires at least 0.8 waveform correlation. The comparison searches a 4,096
+sample priming offset in 32 sample steps and samples every eighth PCM value. It also checks the
+native result is non-silent and has the container's sample rate and channel count. This verifies
+one vanilla line, not every entry in the archive.
 
 The open path, end to end on one real line: the vanilla xWMA decodes to 2.136 s, the same line
 re-encoded to Ogg Vorbis decodes through `lewton` to 2.136 s at 44,100 Hz, and re-encoded to Ogg
