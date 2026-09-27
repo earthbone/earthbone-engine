@@ -8,6 +8,9 @@ const CONSTANT: u32 = EFFECT + 1;
 const DISPEL: u32 = EFFECT + 2;
 const CONSTANT_SPELL: u32 = SPELL + 1;
 const DISPEL_SPELL: u32 = SPELL + 2;
+const UNMATCHED: u32 = EFFECT + 3;
+const KEYWORD_DISPEL: u32 = EFFECT + 4;
+const MIXED_SPELL: u32 = SPELL + 4;
 
 fn linked_spell(form: u32, base: u32, constant: bool, magnitude: f32, duration: u32) -> Record {
     let mut record = spell(
@@ -40,6 +43,113 @@ fn dispel_fixture(magnitude: f32) -> Plugin {
     fixture.push_top(linked_spell(CONSTANT_SPELL, CONSTANT, true, 5.0, 0));
     fixture.push_top(linked_spell(DISPEL_SPELL, DISPEL, false, magnitude, 5));
     fixture
+}
+
+fn keyword_dispel_fixture() -> Plugin {
+    let mut fixture = plugin(
+        effect(2, 0, 24, false),
+        vec![spell(MIXED_SPELL, 0, false, 20.0, 10)],
+    );
+    let mut unmatched = effect(2, 0, 25, false);
+    unmatched.form_id = UNMATCHED;
+    unmatched.subrecords.retain(|sub| sub.tag != T(b"KWDA"));
+    fixture.push_top(unmatched);
+    let mut dispeller = effect(1 << 8, 1, u32::MAX, false);
+    dispeller.form_id = KEYWORD_DISPEL;
+    fixture.push_top(dispeller);
+    let mixed = fixture
+        .records
+        .iter_mut()
+        .find(|record| record.form_id == MIXED_SPELL)
+        .unwrap();
+    mixed
+        .subrecords
+        .push(soe_esm::Subrecord::new(T(b"EFID"), UNMATCHED.to_le_bytes()));
+    mixed.subrecords.push(soe_esm::Subrecord::new(
+        T(b"EFIT"),
+        [
+            20.0f32.to_le_bytes().as_slice(),
+            &0u32.to_le_bytes(),
+            &10u32.to_le_bytes(),
+        ]
+        .concat(),
+    ));
+    fixture.push_top(linked_spell(DISPEL_SPELL, KEYWORD_DISPEL, false, 0.0, 5));
+    fixture
+}
+
+#[test]
+fn mag_07_keyword_dispel_finishes_only_matching_effect_once() {
+    let mut game = game(keyword_dispel_fixture());
+    let victims = cast(&mut game, MIXED_SPELL, OTHER).unwrap();
+    let other_actor = cast(&mut game, MIXED_SPELL, ACTOR).unwrap();
+    game.run_until_idle(64);
+    let matching_object = game.object_of(Handle::ActiveEffect(victims[0]));
+    retain_effect(&mut game, matching_object);
+    cast(&mut game, DISPEL_SPELL, OTHER).unwrap();
+    assert_eq!(
+        game.world()
+            .pending
+            .iter()
+            .filter(|event| matches!(event, Pending::Event { object, name, .. } if *object == matching_object && name == "OnEffectFinish"))
+            .count(),
+        1
+    );
+    assert!(!game
+        .world()
+        .active_effects()
+        .any(|effect| effect.id == victims[0]));
+    assert!(game
+        .world()
+        .active_effects()
+        .any(|effect| effect.id == victims[1]));
+    assert!(game
+        .world()
+        .active_effects()
+        .any(|effect| effect.id == other_actor[0]));
+    game.run_until_idle(64);
+    assert_eq!(
+        game.vm.get_var(matching_object, "EffectProbe", "finished"),
+        Some(Value::Int(1))
+    );
+    cast(&mut game, DISPEL_SPELL, OTHER).unwrap();
+    game.run_until_idle(64);
+    assert_eq!(
+        game.vm.get_var(matching_object, "EffectProbe", "finished"),
+        Some(Value::Int(1))
+    );
+}
+
+#[test]
+fn mag_07_ingestible_keyword_dispel_selects_matching_effect() {
+    let mut fixture = keyword_dispel_fixture();
+    let mut potion = ingestible(POTION, 0.0, 5);
+    potion
+        .subrecords
+        .iter_mut()
+        .find(|sub| sub.tag == T(b"EFID"))
+        .unwrap()
+        .data = KEYWORD_DISPEL.to_le_bytes().to_vec();
+    fixture.push_top(potion);
+    let mut game = game(fixture);
+    let victims = cast(&mut game, MIXED_SPELL, OTHER).unwrap();
+    game.world_mut().add_item(id(OTHER), id(POTION), 1);
+    let shared = game.shared_world();
+    shared
+        .borrow_mut()
+        .drink_ingestible(id(POTION), id(OTHER), &mut |name, class| {
+            game.vm.create_object_of(name, class)
+        })
+        .unwrap();
+    assert!(!game
+        .world()
+        .active_effects()
+        .any(|effect| effect.id == victims[0]));
+    assert!(game
+        .world()
+        .active_effects()
+        .any(|effect| effect.id == victims[1]));
+    assert_eq!(game.world_mut().item_count(id(OTHER), id(POTION)), 0);
 }
 
 #[test]

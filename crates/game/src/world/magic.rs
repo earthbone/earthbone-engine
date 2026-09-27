@@ -234,16 +234,14 @@ impl World {
                     return Err(MagicError::Target);
                 }
             }
-            if !matches!(data.archetype, 0 | 1 | 5) {
+            if !matches!(data.archetype, 0 | 1 | 2 | 5) {
                 return Err(MagicError::Unsupported("effect archetype"));
             }
             if entry.data.area != 0 || data.area != 0 || data.taper_duration != 0.0 {
                 return Err(MagicError::Unsupported("area or taper"));
             }
-            if data.perk != 0 || data.equip_ability != 0 || data.flags & (1 << 8) != 0 {
-                return Err(MagicError::Unsupported(
-                    "perk, equip ability or keyword dispelling",
-                ));
+            if data.perk != 0 || data.equip_ability != 0 {
+                return Err(MagicError::Unsupported("perk or equip ability"));
             }
             let magnitude = if data.flags & NO_MAGNITUDE != 0 {
                 0.0
@@ -259,7 +257,7 @@ impl World {
                 magnitude
             };
             let mut changes = Vec::new();
-            if data.archetype != 1 {
+            if matches!(data.archetype, 0 | 5) {
                 let name = actor_value_name(data.primary_actor_value)
                     .ok_or(MagicError::Unsupported("actor value"))?;
                 changes.push((name.to_string(), signed));
@@ -645,15 +643,14 @@ impl World {
                             .map(|effect| effect.id),
                     ),
                     DispelRule::Keywords(keywords) => {
-                        let spells: std::collections::BTreeSet<_> =
-                            live.iter().map(|effect| effect.spell).collect();
-                        for spell in spells {
-                            if self.spell_matches_dispel_keywords(spell, keywords)? {
-                                selected.extend(
-                                    live.iter()
-                                        .filter(|effect| effect.spell == spell)
-                                        .map(|effect| effect.id),
-                                );
+                        for effect in live.iter() {
+                            self.magic_effect(effect.effect)?;
+                            if self
+                                .keywords(effect.effect)
+                                .iter()
+                                .any(|keyword| keywords.contains(keyword))
+                            {
+                                selected.insert(effect.id);
                             }
                         }
                     }
@@ -673,30 +670,6 @@ impl World {
             plan.push(prepared);
         }
         Ok(plan)
-    }
-
-    fn spell_matches_dispel_keywords(
-        &self,
-        spell: GlobalFormId,
-        keywords: &[GlobalFormId],
-    ) -> Result<bool, MagicError> {
-        if keywords.is_empty() {
-            return Ok(false);
-        }
-        for entry in self.spell(spell)?.effects {
-            let effect = self
-                .resolve_from(spell, entry.base_effect)
-                .ok_or(MagicError::Missing(spell))?;
-            self.magic_effect(effect)?;
-            if self
-                .keywords(effect)
-                .iter()
-                .any(|keyword| keywords.contains(keyword))
-            {
-                return Ok(true);
-            }
-        }
-        Ok(false)
     }
 
     /// Match active MGEF identity without changing known or equipped spells.

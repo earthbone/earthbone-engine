@@ -1621,8 +1621,18 @@ state and its existing modifier, then expires it from its saved elapsed time.
 Unsupported casts return a typed error before applying any of their effects,
 and Papyrus casts log that error. This includes hostile hit resolution,
 projectiles, contact and location delivery, concentration, taper, perk
-adjustments, equip abilities, keyword dispelling and other archetypes. Area
+adjustments, equip abilities and other archetypes. Area
 selection is covered separately below, under Area targeting, MAG-06.
+An MGEF with the Dispel with Keywords flag reads its KWDA entries as the
+cancellation list. Casting that effect, or applying it from an ingestible,
+ends only live effects on the recipient whose winning MGEF carries a matching
+keyword. Other effects from the same spell and effects on other actors stay
+active. Each ended application queues one `OnEffectFinish`, even when several
+rules select it. The list comes from xEdit's MGEF flag and KWDA definitions,
+with CK `DispelSpell_-_Actor.wikitext` documenting the separate explicit
+spell-removal native. PERK definitions were checked but perk adjustments remain
+unsupported. Synthetic `mag_07_*` tests cover selection and delivery. The
+installed five-master survey for this rule has not been run.
 Actor-value indices from 0 through 163 resolve through the shared mapping in
 [actor values](actor-values.md). Recover effects use the temporary modifier
 domain. Other effects damage or restore the damage component without changing
