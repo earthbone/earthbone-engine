@@ -64,6 +64,21 @@ week 6 to 9 gate.
 
 ## Design
 
+### MCM script lifecycle, UI-05
+
+`Game::start` registers MCM scripts after quest initialization.
+`Game::mcm_configs` scans running quest forms in winning load-order order and
+reads `SKI_ConfigBase.ModName` and `Pages` from their attached Papyrus scripts.
+It registers at most 128 configs, delivers `OnConfigRegister` once per config,
+and returns the current page labels. `mcm_open`, `mcm_select_page` and
+`mcm_close` call the script's `OpenConfig`, `SetPage` and `CloseConfig`
+functions. Those functions deliver the initial empty-page reset, selected-page
+reset, open and close callbacks. The registry and active menu selection are
+session UI state, while page labels remain script properties. This bridge
+does not execute SkyUI's Scaleform panel or its option APIs. The lifecycle
+order and limit come from the local SkyUI `SKI_ConfigBase.psc` and
+`SKI_ConfigManager.psc` sources.
+
 `vanilla_save::SavedFormMap` remaps ESS references through saved plugin names,
 including regular and light slots. `World::restore_vanilla_globals` atomically
 applies the global table to winning GLOB forms. Values reach the existing

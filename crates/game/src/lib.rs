@@ -40,6 +40,7 @@ pub mod footsteps;
 mod game_settings;
 pub mod harness;
 pub mod inventory;
+pub mod mcm;
 pub mod moddata;
 pub mod natives;
 pub mod npc;
@@ -143,6 +144,8 @@ pub struct Game {
     pub budget: usize,
     /// One hash per tick once [`Game::record_hashes`] turned it on.
     hash_log: Option<Vec<determinism::TickHash>>,
+    mcm_registered: Vec<GlobalFormId>,
+    mcm_active: Option<GlobalFormId>,
 }
 
 impl Game {
@@ -162,6 +165,8 @@ impl Game {
             bound: None,
             budget: 100_000,
             hash_log: None,
+            mcm_registered: Vec::new(),
+            mcm_active: None,
         }
     }
 
@@ -486,6 +491,7 @@ impl Game {
             }
         }
         self.run_until_idle(64);
+        self.mcm_configs();
         self.bound = Some(report.clone());
         report
     }

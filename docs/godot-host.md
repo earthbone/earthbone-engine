@@ -1956,6 +1956,14 @@ window keeps its loaded library. A small synthetic master set with installed
 mesh archives exercises this path without loading the full installed records.
 That fixture verifies host integration, not a full installed-game session.
 
+The native mod configuration presenter (UI-05) opens through
+`PlayerNode.open_mcm_menu`. It lists registered config quests by their script
+`ModName` and renders buttons for the selected script's `Pages` property.
+Selecting a config or page calls the shared Game MCM lifecycle methods, and
+closing the modal calls `mcm_close`. Page contents and SkyUI's option controls
+are not presented here. The page lifecycle follows the local SkyUI
+`SKI_ConfigBase.psc` and `SKI_ConfigManager.psc` sources.
+
 ## Image-space lifetime stack, MAG-25
 
 `image_space::ImageSpaceStack` derives its ordered frame snapshot from the

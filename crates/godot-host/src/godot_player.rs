@@ -121,6 +121,7 @@ pub struct PlayerNode {
     inventory_category: crate::inventory_menu::Category,
     magic_hand: soe_game::combat::Hand,
     menu_view: Option<menu::MenuView>,
+    mcm_config: Option<GlobalFormId>,
     container_menu: Option<(GlobalFormId, crate::inventory_menu::Category)>,
     restore_mouse_on_focus: Option<godot::classes::input::MouseMode>,
 }
@@ -171,6 +172,7 @@ impl INode3D for PlayerNode {
             inventory_category: crate::inventory_menu::Category::All,
             magic_hand: soe_game::combat::Hand::Right,
             menu_view: None,
+            mcm_config: None,
             container_menu: None,
             restore_mouse_on_focus: None,
         }

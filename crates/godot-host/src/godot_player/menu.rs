@@ -127,6 +127,56 @@ impl PlayerNode {
         }
         true
     }
+
+    fn mcm_content(&mut self) -> bool {
+        if self.menu.title() != Some("Mod Configuration") {
+            return false;
+        }
+        let Some(game) = self.game.as_mut() else {
+            return false;
+        };
+        let configs = game.mcm_configs();
+        let Some(mut content) = self.menu_view.as_ref().map(|view| view.content.clone()) else {
+            return false;
+        };
+        let selected = self.mcm_config;
+        let base = self.base().clone();
+        let _guard = self.base_mut();
+        for mut child in content.get_children().iter_shared() {
+            content.remove_child(&child);
+            child.queue_free();
+        }
+        let mut scroll = ScrollContainer::new_alloc();
+        scroll.set_v_size_flags(SizeFlags::EXPAND_FILL);
+        let mut rows = VBoxContainer::new_alloc();
+        scroll.add_child(&rows);
+        content.add_child(&scroll);
+        for config in &configs {
+            let mut button = Button::new_alloc();
+            button.set_text(&config.name);
+            let callback = base.callable("mcm_select_config").bindv(&varray![
+                i64::from(config.form.file),
+                i64::from(config.form.object),
+            ]);
+            button.connect("pressed", &callback);
+            rows.add_child(&button);
+        }
+        if let Some(config) = configs.iter().find(|config| Some(config.form) == selected) {
+            let mut heading = Label::new_alloc();
+            heading.set_text(&config.name);
+            rows.add_child(&heading);
+            for (index, page) in config.pages.iter().enumerate() {
+                let mut button = Button::new_alloc();
+                button.set_text(page);
+                let callback = base
+                    .callable("mcm_select_page")
+                    .bindv(&varray![index as i64]);
+                button.connect("pressed", &callback);
+                rows.add_child(&button);
+            }
+        }
+        true
+    }
 }
 
 #[godot_api(secondary)]
@@ -178,6 +228,10 @@ impl PlayerNode {
         if !self.menu.close() {
             return false;
         }
+        if let Some(game) = self.game.as_mut() {
+            game.mcm_close();
+        }
+        self.mcm_config = None;
         let focused = self.input_focused;
         self.input_focus_lost();
         if focused {
@@ -252,6 +306,47 @@ impl PlayerNode {
         }
         self.inventory_category = Category::All;
         self.inventory_content(self.inventory_category)
+    }
+
+    /// Open the native mod configuration list from live quest scripts.
+    #[func]
+    pub fn open_mcm_menu(&mut self) -> bool {
+        if self.game.is_none() || !self.open_menu("Mod Configuration".into()) {
+            return false;
+        }
+        self.mcm_config = None;
+        self.mcm_content()
+    }
+
+    /// Open one registered script config and render its declared pages.
+    #[func]
+    pub fn mcm_select_config(&mut self, file: i64, object: i64) -> bool {
+        if self.menu.title() != Some("Mod Configuration") {
+            return false;
+        }
+        let (Ok(file), Ok(object)) = (u16::try_from(file), u32::try_from(object)) else {
+            return false;
+        };
+        let form = GlobalFormId { file, object };
+        if !self.game.as_mut().is_some_and(|game| game.mcm_open(form)) {
+            return false;
+        }
+        self.mcm_config = Some(form);
+        self.mcm_content()
+    }
+
+    /// Select one of the active script's declared pages.
+    #[func]
+    pub fn mcm_select_page(&mut self, index: i64) -> bool {
+        if self.menu.title() != Some("Mod Configuration") {
+            return false;
+        }
+        let Ok(index) = usize::try_from(index) else {
+            return false;
+        };
+        self.game
+            .as_mut()
+            .is_some_and(|game| game.mcm_select_page(index))
     }
 
     /// Select one of [`Category::ALL`] in the open inventory menu.
