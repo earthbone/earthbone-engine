@@ -33,6 +33,7 @@ const INGESTIBLE_POISON: u32 = 1 << 17;
 const PARALYSIS_ARCHETYPE: u32 = 21;
 const DETECT_LIFE_ARCHETYPE: u32 = 19;
 const REANIMATE_ARCHETYPE: u32 = 22;
+const SOUL_TRAP_ARCHETYPE: u32 = 23;
 
 /// Identity of one effect application, independent of its MGEF FormID.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -101,6 +102,12 @@ struct PreparedEffect {
     hit_event: bool,
     dispel_rules: Vec<DispelRule>,
     dispel: Vec<EffectId>,
+}
+
+struct SoulGem {
+    current: u8,
+    capacity: u8,
+    filled: GlobalFormId,
 }
 
 impl World {
@@ -584,6 +591,7 @@ impl World {
                     | DETECT_LIFE_ARCHETYPE
                     | PARALYSIS_ARCHETYPE
                     | REANIMATE_ARCHETYPE
+                    | SOUL_TRAP_ARCHETYPE
             ) {
                 return Err(MagicError::Unsupported("effect archetype"));
             }
@@ -651,7 +659,9 @@ impl World {
             } else {
                 None
             };
-            let duration = if matches!(definition.data.cast_type, 0 | 2) {
+            let duration = if matches!(definition.data.cast_type, 0 | 2)
+                && data.archetype != SOUL_TRAP_ARCHETYPE
+            {
                 None
             } else {
                 Some(
@@ -1024,6 +1034,14 @@ impl World {
                 continue;
             };
             let dead = self.actor(effect.target).is_some_and(|a| a.dead);
+            if dead
+                && self
+                    .magic_effect(effect.effect)
+                    .is_ok_and(|base| base.data.archetype == SOUL_TRAP_ARCHETYPE)
+            {
+                self.resolve_soul_trap_death(effect.target, alloc);
+                continue;
+            }
             let persist_death = self
                 .magic_effect(effect.effect)
                 .is_ok_and(|base| base.data.flags & NO_DEATH_DISPEL != 0);
@@ -1050,6 +1068,118 @@ impl World {
             }
         }
         errors
+    }
+
+    /// Resolve and consume Soul Trap applications when their marked actor dies.
+    pub(crate) fn resolve_soul_trap_death(&mut self, target: GlobalFormId, alloc: Alloc<'_>) {
+        let mut traps: Vec<_> = self
+            .active_effects
+            .values()
+            .filter(|active| {
+                active.target == target
+                    && self
+                        .magic_effect(active.effect)
+                        .is_ok_and(|effect| effect.data.archetype == SOUL_TRAP_ARCHETYPE)
+            })
+            .map(|active| active.id)
+            .collect();
+        traps.sort_unstable();
+        if let Some(id) = traps.first() {
+            if let Some(effect) = self.active_effects.get(id).cloned() {
+                if let Some(caster) = effect.caster {
+                    self.fill_soul_gem(caster, target, alloc);
+                }
+            }
+        }
+        for id in traps {
+            self.dispel_effect(id, alloc);
+        }
+    }
+
+    fn fill_soul_gem(&mut self, caster: GlobalFormId, target: GlobalFormId, alloc: Alloc<'_>) {
+        let Some(level) = self.actor_ref(target).map(|actor| actor.level) else {
+            return;
+        };
+        let soul_size = self.soul_size(level);
+        let candidates: Vec<_> = self
+            .reference_ref(caster)
+            .into_iter()
+            .flat_map(|reference| reference.inventory.iter())
+            .filter_map(|(&item, count)| {
+                (count > 0)
+                    .then(|| self.soul_gem(item))
+                    .flatten()
+                    .filter(|gem| gem.current == 0 && gem.capacity >= soul_size)
+                    .map(|gem| (gem.capacity, item, gem.filled))
+            })
+            .collect();
+        let Some((_, empty, filled)) = candidates
+            .into_iter()
+            .min_by_key(|(capacity, item, _)| (*capacity, *item))
+        else {
+            return;
+        };
+        let Some(reference) = self.reference(caster) else {
+            return;
+        };
+        if reference.inventory.count(filled) == i32::MAX {
+            return;
+        }
+        let removed = reference.inventory.take(empty, 1);
+        if removed.count() != 1 || reference.inventory.add(filled, 1).is_err() {
+            return;
+        }
+        self.inventory_event(caster, empty, -1, None, alloc);
+        self.inventory_event(caster, filled, 1, None, alloc);
+    }
+
+    fn soul_size(&self, level: u32) -> u8 {
+        let threshold = |setting: &str, default: i32| match self.game_setting(setting) {
+            Some(Value::Int(value)) => value.max(1) as u32,
+            _ => default as u32,
+        };
+        if level >= threshold("iGrandSoulActorLevel", 38) {
+            5
+        } else if level >= threshold("iGreaterSoulActorLevel", 28) {
+            4
+        } else if level >= threshold("iCommonSoulActorLevel", 16) {
+            3
+        } else if level >= threshold("iLesserSoulActorLevel", 4) {
+            2
+        } else {
+            1
+        }
+    }
+
+    fn soul_gem(&self, id: GlobalFormId) -> Option<SoulGem> {
+        let rref = self.order.winner_ref(id)?;
+        let record = self.order.record(rref);
+        if record.is_deleted() || record.tag != super::T(b"SLGM") {
+            return None;
+        }
+        let current = *record.find(super::T(b"SOUL"))?.first()?;
+        let capacity = *record.find(super::T(b"SLCP"))?.first()?;
+        let raw_filled = record.find(super::T(b"NAM0"))?;
+        if raw_filled.len() < 4 {
+            return None;
+        }
+        let raw_filled = u32::from_le_bytes(raw_filled[..4].try_into().ok()?);
+        if raw_filled == 0 {
+            return None;
+        }
+        let filled = self.order.resolve(rref.file, raw_filled);
+        let filled_record = self.record(filled)?;
+        if filled_record.is_deleted()
+            || filled_record.tag != super::T(b"SLGM")
+            || filled_record.find(super::T(b"SOUL"))?.first().copied()? == 0
+        {
+            return None;
+        }
+        Some(SoulGem {
+            current,
+            capacity,
+            filled,
+        })
     }
 
     fn apply_effect_values(

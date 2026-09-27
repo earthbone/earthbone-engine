@@ -1685,6 +1685,32 @@ archetype. `CommonLibSSE-NG/include/RE/R/ReanimateEffect.h` derives it from
 uses its existing active-effect lifecycle and world reference state rather
 than those C++ hooks.
 
+### Soul Trap, MAG-44
+
+Direct target-actor casts accept MGEF archetype 23 as an active application.
+Its authored EFIT duration advances on the active magic clock, including for
+fire-and-forget casts.
+When its target dies, the credited caster's inventory is searched for empty
+SLGM records whose capacity meets the target's soul size. Soul size follows
+`iLesserSoulActorLevel`, `iCommonSoulActorLevel`, `iGreaterSoulActorLevel` and
+`iGrandSoulActorLevel`, with engine defaults 4, 16, 28 and 38. The smallest
+eligible capacity wins, with FormID as the tie-breaker. An eligible gem needs a
+valid `NAM0` link to a filled SLGM record. Capture replaces one empty gem with
+one filled gem and queues both inventory count events. The Soul Trap
+all matching applications end on the first death resolution, even when the
+selected caster has no eligible gem, so repeated applications cannot fill
+multiple gems from the same death.
+
+The local xEdit MGEF table identifies archetype 23 as Soul Trap. Its SLGM
+definition and UESP `SLGM.wikitext` define current soul, capacity, filled gem
+link and the record flag for NPC souls. UESP `MGEF.wikitext` says Soul Trap has
+no archetype-specific data. CK `TrapSoul_-_Actor.wikitext` describes capture
+as a success or failure, while the local CK Magic Effect archetype page is not
+present in the corpus. The runtime reuses the active-effect target and caster,
+the existing death queue and the shared inventory event path. Soul eligibility
+currently uses level-derived capacity and does not distinguish humanoid black
+souls from creature souls.
+
 ### Paralysis, MAG-42
 
 Direct casts and ingestibles accept MGEF archetype 21 as a timed active effect.

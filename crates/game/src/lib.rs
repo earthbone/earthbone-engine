@@ -634,12 +634,15 @@ impl Game {
                     self.world.borrow_mut().pending.push(event);
                 }
                 Pending::ActorDeath {
-                    killer, recipients, ..
+                    actor,
+                    killer,
+                    recipients,
                 } => {
                     let (objects, argument) = {
                         let vm = &mut self.vm;
                         let mut world = self.world.borrow_mut();
                         let mut alloc = |name: &str, class: &str| vm.create_object_of(name, class);
+                        world.resolve_soul_trap_death(actor, &mut alloc);
                         let argument = world.form_value(killer, &mut alloc);
                         let objects: Vec<_> = recipients
                             .into_iter()
