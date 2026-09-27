@@ -1570,5 +1570,65 @@ fn each_hostile_effect_emits_a_hit_to_existing_effect_and_alias_listeners() {
     }
 }
 
+#[test]
+fn mag_47_werewolf_feed_consumes_a_dead_actor_corpse_once() {
+    let mut game = fixture(0, 26, 0.0, 0);
+    game.world_mut().actor(id(OTHER)).unwrap().dead = true;
+
+    assert!(cast(&mut game, SPELL, OTHER).unwrap().is_empty());
+    {
+        let world = game.world();
+        let reference = world.reference_ref(id(OTHER)).unwrap();
+        assert!(reference.deleted);
+        assert!(!reference.enabled);
+    }
+
+    assert_eq!(
+        cast(&mut game, SPELL, OTHER).unwrap_err().to_string(),
+        "spell requires an actor target"
+    );
+    {
+        let world = game.world();
+        let reference = world.reference_ref(id(OTHER)).unwrap();
+        assert!(reference.deleted);
+        assert!(!reference.enabled);
+    }
+}
+
+#[test]
+fn mag_47_werewolf_feed_rejects_a_living_actor_without_changing_it() {
+    let mut game = fixture(0, 26, 0.0, 0);
+
+    assert_eq!(
+        cast(&mut game, SPELL, OTHER).unwrap_err().to_string(),
+        "spell requires an actor target"
+    );
+    {
+        let world = game.world();
+        let reference = world.reference_ref(id(OTHER)).unwrap();
+        assert!(!reference.deleted);
+        assert!(reference.enabled);
+        assert!(!world.actor_ref(id(OTHER)).unwrap().dead);
+    }
+}
+
+#[test]
+fn mag_47_werewolf_feed_rejects_a_disabled_dead_actor_without_changing_it() {
+    let mut game = fixture(0, 26, 0.0, 0);
+    game.world_mut().actor(id(OTHER)).unwrap().dead = true;
+    game.world_mut().reference(id(OTHER)).unwrap().enabled = false;
+
+    assert_eq!(
+        cast(&mut game, SPELL, OTHER).unwrap_err().to_string(),
+        "spell requires an actor target"
+    );
+    {
+        let world = game.world();
+        let reference = world.reference_ref(id(OTHER)).unwrap();
+        assert!(!reference.deleted);
+        assert!(!reference.enabled);
+    }
+}
+
 #[path = "magic/dispel.rs"]
 mod dispel_archetype;

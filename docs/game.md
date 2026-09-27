@@ -1777,6 +1777,23 @@ The rest returned explicit unsupported reasons. The installed startup still ran
 attached 27,563 scripts, with seven missing scripts and 88 missing properties,
 because MGEF script attachments wait until an application exists.
 
+### Werewolf Feed, MAG-47
+
+Direct casts execute archetype 26 against one eligible corpse. The feeder must
+resolve to an actor. The target must be an enabled, undeleted actor reference
+whose actor state is dead. Feeding deletes and disables that reference, using
+the existing saved reference state, and a later cast on the same corpse is
+rejected. The feed action creates no active-effect entry.
+
+Local `TES5Edit/Core/wbDefinitionsTES5.pas` and
+`uesp-modfileformat/MGEF.wikitext` name archetype 26 Werewolf Feed and specify
+no extra MGEF data. CK's local
+`ck-wiki/StartCannibal_-_Actor.wikitext` describes feeding on a dead actor.
+`mag_47_werewolf_feed_consumes_a_dead_actor_corpse_once`,
+`mag_47_werewolf_feed_rejects_a_living_actor_without_changing_it` and
+`mag_47_werewolf_feed_rejects_a_disabled_dead_actor_without_changing_it`
+cover the eligible corpse transition and its repeat and ineligible cases.
+
 ### Direct hostile hits, MAG-01
 
 The `magic-hostile` branch accepts hostile effects on live, non-ghost actor
