@@ -14,9 +14,13 @@
 //! bytes, v2 is two unused bytes, alias, FormID. Arrays are a u32 count of
 //! elements. Names are Windows-1252, read here as Latin-1.
 //!
-//! Quest and INFO tails are decoded. The
-//! fragment tails of PACK, PERK and SCEN records are kept as bytes in
-//! `trailing` so the record still round-trips.
+//! Quest, INFO and PACK tails are decoded. PACK follows xEdit's
+//! `wbVMADFragmentedPACK` (`wbScriptFragmentsPackCounter` for the fragment
+//! count) and Mutagen's `PackageScriptFragments`: an extra bind data
+//! version, a flags byte for `OnBegin`, `OnEnd` and `OnChange`, the fragment
+//! host file name, then a begin, end and change fragment in that fixed order
+//! for each flag bit set. The fragment tails of PERK and SCEN records are
+//! kept as bytes in `trailing` so the record still round-trips.
 
 use soe_esm::{Error, Result, Tag};
 
@@ -131,6 +135,26 @@ pub struct InfoFragments {
     pub end: Option<InfoFragment>,
 }
 
+/// One PACK fragment, retaining its per-fragment extra bind data version.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PackFragment {
+    pub marker: u8,
+    pub script: String,
+    pub function: String,
+}
+
+/// PACK fragment layout from xEdit's `wbVMADFragmentedPACK`: begin, end and
+/// change entries follow the flags that mark them present, always in that
+/// order, and a missing entry contributes no bytes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PackFragments {
+    pub version: u8,
+    pub file: String,
+    pub begin: Option<PackFragment>,
+    pub end: Option<PackFragment>,
+    pub change: Option<PackFragment>,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Vmad {
     pub version: i16,
@@ -141,7 +165,8 @@ pub struct Vmad {
     pub fragments: Vec<QuestFragment>,
     pub aliases: Vec<AliasScripts>,
     pub info_fragments: Option<InfoFragments>,
-    /// Undecoded fragment tail of PACK, PERK and SCEN records.
+    pub pack_fragments: Option<PackFragments>,
+    /// Undecoded fragment tail of PERK and SCEN records.
     pub trailing: Vec<u8>,
 }
 
@@ -155,6 +180,7 @@ impl Default for Vmad {
             fragments: Vec::new(),
             aliases: Vec::new(),
             info_fragments: None,
+            pack_fragments: None,
             trailing: Vec::new(),
         }
     }
@@ -388,6 +414,47 @@ impl Vmad {
             });
             return Ok(vmad);
         }
+        if tag == Tag::new(b"PACK") {
+            let version = r.u8()?;
+            let flags = r.u8()?;
+            if flags & !7 != 0 {
+                return Err(bad("unsupported PACK fragment flags"));
+            }
+            let file = r.wstring()?;
+            let mut fragment = || -> Result<PackFragment> {
+                Ok(PackFragment {
+                    marker: r.u8()?,
+                    script: r.wstring()?,
+                    function: r.wstring()?,
+                })
+            };
+            let begin = if flags & 1 != 0 {
+                Some(fragment()?)
+            } else {
+                None
+            };
+            let end = if flags & 2 != 0 {
+                Some(fragment()?)
+            } else {
+                None
+            };
+            let change = if flags & 4 != 0 {
+                Some(fragment()?)
+            } else {
+                None
+            };
+            if r.pos != data.len() {
+                return Err(bad("trailing PACK fragment bytes"));
+            }
+            vmad.pack_fragments = Some(PackFragments {
+                version,
+                file,
+                begin,
+                end,
+                change,
+            });
+            return Ok(vmad);
+        }
         if tag != Tag::new(b"QUST") {
             vmad.trailing = data[r.pos..].to_vec();
             return Ok(vmad);
@@ -430,13 +497,15 @@ impl Vmad {
         Ok(vmad)
     }
 
-    /// Encode with version 5 and object format 2, the layout the Creation
-    /// Kit writes for Skyrim SE.
+    /// Encode with the version and object format `parse` read (a freshly
+    /// built `Vmad` defaults to version 5, object format 2, the layout the
+    /// Creation Kit writes for Skyrim SE), so a parsed record round-trips
+    /// even when it predates that layout.
     pub fn write(&self, tag: Tag) -> Vec<u8> {
         let mut out = Vec::new();
-        out.extend_from_slice(&VERSION.to_le_bytes());
-        out.extend_from_slice(&OBJECT_FORMAT.to_le_bytes());
-        write_scripts(&mut out, &self.scripts);
+        out.extend_from_slice(&self.version.to_le_bytes());
+        out.extend_from_slice(&self.object_format.to_le_bytes());
+        write_scripts(&mut out, &self.scripts, self.object_format);
         let has_tail = self.fragment_file.is_some() || !self.aliases.is_empty();
         if tag == Tag::new(b"QUST") && has_tail {
             out.push(2);
@@ -452,10 +521,10 @@ impl Vmad {
             }
             out.extend_from_slice(&(self.aliases.len() as u16).to_le_bytes());
             for a in &self.aliases {
-                write_object(&mut out, a.object);
+                write_object(&mut out, a.object, self.object_format);
                 out.extend_from_slice(&VERSION.to_le_bytes());
                 out.extend_from_slice(&OBJECT_FORMAT.to_le_bytes());
-                write_scripts(&mut out, &a.scripts);
+                write_scripts(&mut out, &a.scripts, self.object_format);
             }
         } else if let Some(info) = self
             .info_fragments
@@ -466,6 +535,23 @@ impl Vmad {
             out.push(u8::from(info.begin.is_some()) | (u8::from(info.end.is_some()) << 1));
             write_wstring(&mut out, &info.file);
             for fragment in [&info.begin, &info.end].into_iter().flatten() {
+                out.push(fragment.marker);
+                write_wstring(&mut out, &fragment.script);
+                write_wstring(&mut out, &fragment.function);
+            }
+        } else if let Some(pack) = self
+            .pack_fragments
+            .as_ref()
+            .filter(|_| tag == Tag::new(b"PACK"))
+        {
+            out.push(pack.version);
+            out.push(
+                u8::from(pack.begin.is_some())
+                    | (u8::from(pack.end.is_some()) << 1)
+                    | (u8::from(pack.change.is_some()) << 2),
+            );
+            write_wstring(&mut out, &pack.file);
+            for fragment in [&pack.begin, &pack.end, &pack.change].into_iter().flatten() {
                 out.push(fragment.marker);
                 write_wstring(&mut out, &fragment.script);
                 write_wstring(&mut out, &fragment.function);
@@ -489,13 +575,19 @@ fn write_wstring(out: &mut Vec<u8>, s: &str) {
     out.extend_from_slice(&b);
 }
 
-fn write_object(out: &mut Vec<u8>, o: ObjectRef) {
-    out.extend_from_slice(&0u16.to_le_bytes());
-    out.extend_from_slice(&o.alias.to_le_bytes());
-    out.extend_from_slice(&o.form_id.to_le_bytes());
+fn write_object(out: &mut Vec<u8>, o: ObjectRef, object_format: i16) {
+    if object_format == 1 {
+        out.extend_from_slice(&o.form_id.to_le_bytes());
+        out.extend_from_slice(&o.alias.to_le_bytes());
+        out.extend_from_slice(&0u16.to_le_bytes());
+    } else {
+        out.extend_from_slice(&0u16.to_le_bytes());
+        out.extend_from_slice(&o.alias.to_le_bytes());
+        out.extend_from_slice(&o.form_id.to_le_bytes());
+    }
 }
 
-fn write_scripts(out: &mut Vec<u8>, scripts: &[ScriptEntry]) {
+fn write_scripts(out: &mut Vec<u8>, scripts: &[ScriptEntry], object_format: i16) {
     out.extend_from_slice(&(scripts.len() as u16).to_le_bytes());
     for s in scripts {
         write_wstring(out, &s.name);
@@ -506,7 +598,7 @@ fn write_scripts(out: &mut Vec<u8>, scripts: &[ScriptEntry]) {
             out.push(p.value.type_byte());
             out.push(p.status);
             match &p.value {
-                PropertyValue::Object(o) => write_object(out, *o),
+                PropertyValue::Object(o) => write_object(out, *o, object_format),
                 PropertyValue::Str(s) => write_wstring(out, s),
                 PropertyValue::Int(i) => out.extend_from_slice(&i.to_le_bytes()),
                 PropertyValue::Float(f) => out.extend_from_slice(&f.to_le_bytes()),
@@ -514,7 +606,7 @@ fn write_scripts(out: &mut Vec<u8>, scripts: &[ScriptEntry]) {
                 PropertyValue::Objects(v) => {
                     out.extend_from_slice(&(v.len() as u32).to_le_bytes());
                     for o in v {
-                        write_object(out, *o);
+                        write_object(out, *o, object_format);
                     }
                 }
                 PropertyValue::Strs(v) => {
@@ -687,5 +779,101 @@ mod tests {
         let mut bad_version = good.clone();
         bad_version[0] = 9;
         assert!(Vmad::parse(&bad_version, QUST).is_err());
+    }
+
+    const PACK: Tag = Tag::new(b"PACK");
+
+    /// Bytes as xEdit's `wbVMADFragmentedPACK` would author them: no scripts,
+    /// then the "Script Fragments" struct (extra bind data version, flags,
+    /// file name, one fragment per set flag bit, in `OnBegin`, `OnEnd`,
+    /// `OnChange` order).
+    fn authored_pack_bytes(flags: u8, fragments: &[(u8, &str, &str)]) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&5i16.to_le_bytes());
+        bytes.extend_from_slice(&2i16.to_le_bytes());
+        bytes.extend_from_slice(&0u16.to_le_bytes());
+        bytes.push(2);
+        bytes.push(flags);
+        write_wstring(&mut bytes, "TIF__000A0001");
+        for (marker, script, function) in fragments {
+            bytes.push(*marker);
+            write_wstring(&mut bytes, script);
+            write_wstring(&mut bytes, function);
+        }
+        bytes
+    }
+
+    #[test]
+    fn fmt_03_pack_begin_fragment_reproduces_authored_bytes() {
+        let bytes = authored_pack_bytes(0b001, &[(2, "TIF__000A0001", "Fragment_0")]);
+        let v = Vmad::parse(&bytes, PACK).unwrap();
+        let frags = v.pack_fragments.as_ref().unwrap();
+        assert_eq!(frags.begin.as_ref().unwrap().function, "Fragment_0");
+        assert!(frags.end.is_none());
+        assert!(frags.change.is_none());
+        assert_eq!(v.write(PACK), bytes);
+    }
+
+    #[test]
+    fn fmt_03_pack_end_fragment_reproduces_authored_bytes() {
+        let bytes = authored_pack_bytes(0b010, &[(2, "TIF__000A0001", "Fragment_1")]);
+        let v = Vmad::parse(&bytes, PACK).unwrap();
+        let frags = v.pack_fragments.as_ref().unwrap();
+        assert!(frags.begin.is_none());
+        assert_eq!(frags.end.as_ref().unwrap().function, "Fragment_1");
+        assert!(frags.change.is_none());
+        assert_eq!(v.write(PACK), bytes);
+    }
+
+    #[test]
+    fn fmt_03_pack_change_fragment_reproduces_authored_bytes() {
+        let bytes = authored_pack_bytes(0b100, &[(2, "TIF__000A0001", "Fragment_2")]);
+        let v = Vmad::parse(&bytes, PACK).unwrap();
+        let frags = v.pack_fragments.as_ref().unwrap();
+        assert!(frags.begin.is_none());
+        assert!(frags.end.is_none());
+        assert_eq!(frags.change.as_ref().unwrap().function, "Fragment_2");
+        assert_eq!(v.write(PACK), bytes);
+    }
+
+    #[test]
+    fn fmt_03_pack_begin_end_and_change_together_reproduce_authored_bytes() {
+        let bytes = authored_pack_bytes(
+            0b111,
+            &[
+                (2, "TIF__000A0001", "Fragment_0"),
+                (2, "TIF__000A0001", "Fragment_1"),
+                (2, "TIF__000A0001", "Fragment_2"),
+            ],
+        );
+        let v = Vmad::parse(&bytes, PACK).unwrap();
+        let frags = v.pack_fragments.as_ref().unwrap();
+        assert_eq!(frags.begin.as_ref().unwrap().function, "Fragment_0");
+        assert_eq!(frags.end.as_ref().unwrap().function, "Fragment_1");
+        assert_eq!(frags.change.as_ref().unwrap().function, "Fragment_2");
+        assert_eq!(v.write(PACK), bytes);
+    }
+
+    #[test]
+    fn fmt_03_pack_fragments_reject_unsupported_flags_and_short_input() {
+        let good = authored_pack_bytes(
+            0b111,
+            &[
+                (2, "TIF__000A0001", "Fragment_0"),
+                (2, "TIF__000A0001", "Fragment_1"),
+                (2, "TIF__000A0001", "Fragment_2"),
+            ],
+        );
+        let mut bad_flags = good.clone();
+        // version i16, object format i16, script count u16, extra bind version u8, then flags.
+        let flags_at = 2 + 2 + 2 + 1;
+        bad_flags[flags_at] = 0b1000;
+        assert!(Vmad::parse(&bad_flags, PACK).is_err());
+        for cut in [7, 9, 15, 25, good.len() - 1] {
+            assert!(
+                Vmad::parse(&good[..cut], PACK).is_err(),
+                "cut at {cut} should fail"
+            );
+        }
     }
 }

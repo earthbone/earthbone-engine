@@ -32,7 +32,10 @@ week 6 to 9 gate.
   (what the package driver reads), `save` (the `SOEW` format) and `hash`
   (the determinism hash).
 - `vmad`: the `VMAD` subrecord. Scripts, their filled properties, quest stage
-  fragments and alias scripts. Round-trips through `write`.
+  fragments, INFO and PACK begin, end and change fragments, and alias
+  scripts. Round-trips through `write` at the version and object format the
+  record was authored with, not a fixed one, since installed Skyrim.esm and
+  DLC records mix object format 1 and 2 and VMAD versions 4 and 5.
 - `npc`: the `NPC_` view. `ACBS` configuration, `DNAM` stats and skills,
   spells, factions, items, race, class and template, with the template flags
   applied one level. `World::actor` follows each component's template chain.
@@ -400,8 +403,14 @@ added. Static instruction inspection establishes these rules, without a
 running original-game comparison.
 
 - Unit tests per module: VMAD round trip, object format 1, version 3, cuts at
-  every offset and a hostile array count. QUST view. Clock. Scenario grammar
-  and the log diff. The native registry count against the hand-kept constant.
+  every offset and a hostile array count. PACK begin, end and change
+  fragments decoded and re-encoded from hand-authored bytes, one flag at a
+  time and skipping absent entries, plus unsupported flags and truncation.
+  `tests/packages.rs` round-trips every winning PACK record's `VMAD` in
+  Skyrim.esm, Update.esm and the three DLC masters against SKYRIM_DATA,
+  covering object format 1 and 2 and versions 4 and 5 among installed
+  records. QUST view. Clock. Scenario grammar and the log diff. The native
+  registry count against the hand-kept constant.
 - `tests/quest_flow.rs`: a synthetic master with a start-game-enabled quest,
   a lever whose script sets stage 10, a fragment on stage 10 that completes the
   objective, gives the player gold and sets stage 20 which completes the quest,
@@ -676,10 +685,11 @@ package over the base list, switch at once from a script's
 
 **Not done.** Simultaneous and stacked branches (AI-14 and AI-15),
 the other 16 procedures and the Patrol modes tracked by AI-88 through AI-91,
-package fragments (`VMAD` on `PACK`), the `On Begin`, `On End` and `On
-Change` idles and topics, once per day for packages that end without
-arriving, `Must Complete`, interrupt flags, combat overrides, door
-unlocking flags, the `Package Data` and `Event Data`
+calling the `On Begin`, `On End` and `On Change` package fragments at
+package boundaries (`vmad::Vmad` decodes them from `VMAD` on `PACK`, the
+driver does not yet call them, AI-04), idles and topics, once per day for
+packages that end without arriving, `Must Complete`, interrupt flags, combat
+overrides, door unlocking flags, the `Package Data` and `Event Data`
 condition targets, and every condition function outside the list above.
 
 ## Natives round two (2026-09-18)

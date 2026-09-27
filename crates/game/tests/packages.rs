@@ -999,3 +999,57 @@ fn the_installed_game_reads_every_package_and_evaluates_the_prisoner() {
     assert!(stacks[1] > 0, "Hulda has packages");
     eprintln!("total {:.2}s", started.elapsed().as_secs_f32());
 }
+
+/// FMT-03: PACK VMAD begin, end and change fragment entries must decode
+/// from, and re-encode back to, the exact bytes the Creation Kit authored.
+/// Loads Skyrim.esm, Update.esm and the three DLC masters and checks every
+/// winning PACK record's VMAD subrecord.
+#[test]
+fn fmt_03_installed_pack_vmad_fragments_round_trip() {
+    let Ok(data) = std::env::var("SKYRIM_DATA") else {
+        eprintln!("SKYRIM_DATA not set, skipping");
+        return;
+    };
+    let mut order = LoadOrder::new();
+    for name in [
+        "Skyrim.esm",
+        "Update.esm",
+        "Dawnguard.esm",
+        "HearthFires.esm",
+        "Dragonborn.esm",
+    ] {
+        let bytes = std::fs::read(format!("{data}/{name}")).unwrap();
+        order.add(name, Plugin::parse(&bytes).unwrap()).unwrap();
+    }
+
+    let mut with_fragments = 0;
+    let mut saw_begin = false;
+    let mut saw_end = false;
+    let mut saw_change = false;
+    for (id, rec) in order.winners_of(T(b"PACK")) {
+        let Some(bytes) = rec.find(T(b"VMAD")) else {
+            continue;
+        };
+        let vmad = Vmad::parse(bytes, rec.tag).unwrap_or_else(|e| panic!("PACK {id:?} VMAD: {e}"));
+        let Some(fragments) = &vmad.pack_fragments else {
+            continue;
+        };
+        with_fragments += 1;
+        saw_begin |= fragments.begin.is_some();
+        saw_end |= fragments.end.is_some();
+        saw_change |= fragments.change.is_some();
+        assert_eq!(
+            vmad.write(rec.tag),
+            bytes,
+            "PACK {id:?} VMAD did not reproduce the authored bytes"
+        );
+    }
+
+    assert!(
+        with_fragments > 0,
+        "expected at least one installed PACK record with decoded fragments"
+    );
+    assert!(saw_begin, "expected an installed PACK begin fragment");
+    assert!(saw_end, "expected an installed PACK end fragment");
+    assert!(saw_change, "expected an installed PACK change fragment");
+}
