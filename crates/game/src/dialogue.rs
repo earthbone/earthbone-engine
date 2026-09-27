@@ -43,10 +43,51 @@ const GOODBYE: u16 = 1;
 const RANDOM: u16 = 1 << 1;
 const SAY_ONCE: u16 = 1 << 2;
 const RANDOM_END: u16 = 1 << 5;
+const SPENDS_FAVOR: u16 = 1 << 14;
 const TOP_LEVEL: u32 = 1;
 const BLOCKING: u32 = 2;
 const EXCLUSIVE: u32 = 4;
 const BRANCH_FLAGS: u32 = TOP_LEVEL | BLOCKING | EXCLUSIVE;
+
+/// Actor value that holds a speaker's spendable favor points. Vanilla persists
+/// the accumulated cost per placed reference (`XFVC`, ExtraFavorCost.h, and
+/// uesp-modfileformat REFR.wikitext), which this engine does not parse from
+/// saves yet. `FavorPointsBonus` (CK wiki AVIF index 89, already in
+/// `actor_values::ACTOR_VALUE_NAMES`) is the vanilla actor value that already
+/// carries a favor point quantity, so quests and scripts fund a speaker
+/// through the existing generic `SetActorValue`/`ModActorValue` path instead
+/// of a new engine-private field.
+const FAVOR_POINTS_AV: &str = "favorpointsbonus";
+
+/// Default Object Manager keys the CK binds to the three favor cost tiers
+/// (TES5Edit `wbDefinitionsTES5.pas` DOBJ sig list: FPCS/FPCM/FPCL, matching
+/// CommonLibSSE-NG `BGSDefaultObjectManager.h` kFavorCostSmall/Medium/Large).
+/// Index 0 is CNAM favor level 1 (Small).
+const FAVOR_COST_KEYS: [[u8; 4]; 3] = [*b"FPCS", *b"FPCM", *b"FPCL"];
+
+/// Cost used when the load order defines no override for a tier's global.
+/// No corpus source pins the vanilla globals' values, so these are an
+/// engineering estimate (same caveat as the `game_settings` defaults).
+const FAVOR_COST_DEFAULTS: [f32; 3] = [10.0, 25.0, 50.0];
+
+/// Favor point cost of a CNAM favor level (0 None, 1 Small, 2 Medium,
+/// 3 Large). Resolves the level's global through the Default Object Manager
+/// first and falls back to the estimated defaults.
+fn favor_cost(world: &mut World, level: u8) -> f32 {
+    let Some(index) = level.checked_sub(1) else {
+        return 0.0;
+    };
+    let index = index as usize;
+    if index >= FAVOR_COST_KEYS.len() {
+        return 0.0;
+    }
+    crate::footsteps::Footsteps::new(world.order())
+        .default_object(FAVOR_COST_KEYS[index])
+        .ok()
+        .flatten()
+        .map(|global| world.global_value(global))
+        .unwrap_or(FAVOR_COST_DEFAULTS[index])
+}
 
 #[derive(Debug)]
 struct Branch {
@@ -552,10 +593,15 @@ impl Game {
         if !conditions::evaluate(world, vm, context, &info.conditions)? {
             return Ok(false);
         }
-        if flags & ((1 << 4) | (1 << 6) | (1 << 14)) != 0 {
-            return Err(Error::Unsupported(
-                "refusal, invisible continuation or favor spending",
-            ));
+        if flags & ((1 << 4) | (1 << 6)) != 0 {
+            return Err(Error::Unsupported("refusal or invisible continuation"));
+        }
+        if flags & SPENDS_FAVOR != 0 {
+            let level = info.favor_level.unwrap_or(0);
+            let cost = favor_cost(world, level);
+            if cost > 0.0 && world.actor_value(session.speaker, FAVOR_POINTS_AV) < cost {
+                return Ok(false);
+            }
         }
         Ok(true)
     }
@@ -577,6 +623,7 @@ impl Game {
             .session
             .clone()
             .ok_or(Error::State("no conversation"))?;
+        let speaker = session.speaker;
         let mut infos = self.dialogue_candidates(topic, &session)?.infos;
         if infos.is_empty() {
             return Err(Error::State("no eligible INFO"));
@@ -644,6 +691,14 @@ impl Game {
             world.dialogue.session = Some(session);
             let time = world.clock.game_days;
             world.dialogue.said.insert(info_id, time);
+            let flags = info.data.as_ref().map_or(0, |data| data.flags());
+            if flags & SPENDS_FAVOR != 0 {
+                let level = info.favor_level.unwrap_or(0);
+                let cost = favor_cost(&mut world, level);
+                if cost > 0.0 {
+                    let _ = world.mod_actor_value(speaker, FAVOR_POINTS_AV, -cost);
+                }
+            }
             if world
                 .dialogue_topic(topic)?
                 .do_all_before_repeating
