@@ -237,7 +237,7 @@ impl World {
                     return Err(MagicError::Target);
                 }
             }
-            if !matches!(data.archetype, 0 | 1 | 2 | 5) {
+            if !matches!(data.archetype, 0 | 1 | 2 | 5 | 31) {
                 return Err(MagicError::Unsupported("effect archetype"));
             }
             if entry.data.area != 0 || data.area != 0 || data.taper_duration != 0.0 {
@@ -260,7 +260,7 @@ impl World {
                 magnitude
             };
             let mut changes = Vec::new();
-            if matches!(data.archetype, 0 | 5) {
+            if matches!(data.archetype, 0 | 5 | 31) {
                 let name = actor_value_name(data.primary_actor_value)
                     .ok_or(MagicError::Unsupported("actor value"))?;
                 changes.push((name.to_string(), signed));
@@ -427,7 +427,7 @@ impl World {
                     return Err(MagicError::Target);
                 }
             }
-            if !matches!(data.archetype, 0 | 1 | 2 | 5 | 18) {
+            if !matches!(data.archetype, 0 | 1 | 2 | 5 | 18 | 31) {
                 return Err(MagicError::Unsupported("effect archetype"));
             }
             if data.taper_duration != 0.0 {
@@ -455,7 +455,7 @@ impl World {
                 magnitude
             };
             let mut changes = Vec::new();
-            if matches!(data.archetype, 0 | 5) {
+            if matches!(data.archetype, 0 | 5 | 31) {
                 let name = actor_value_name(data.primary_actor_value)
                     .ok_or(MagicError::Unsupported("actor value"))?;
                 changes.push((name.to_string(), signed));
