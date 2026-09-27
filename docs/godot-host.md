@@ -1918,10 +1918,11 @@ equipped.
 The native M shortcut opens the magic menu the same way I opens inventory,
 gated on an active Game. No shortcut is yet remapped through controlmap.txt.
 
-Creation bench activation opens a native Control recipe list when at least one
-COBJ recipe passes the shared Game's bench and condition checks for the player
-and bench. Rows show the recipe name, output and output count. Rows blocked by
-missing ingredients are disabled. Confirming an available row calls
+Creation bench activation opens a native Control recipe list, including an
+empty state when the bench has no eligible COBJ recipes. Rows show the recipe
+name, output and output count. Rows blocked by missing ingredients are
+disabled. The first available recipe receives keyboard/gamepad focus when the
+list opens. Confirming an available row calls
 `Game::craft`, which rechecks eligibility and commits ingredient and output
 inventory events. The host identifies creation benches from their FURN WBDT
 mode. This presenter uses the existing transaction path and adds no crafting

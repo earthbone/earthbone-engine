@@ -53,9 +53,31 @@ fn crf_03_accepts_enit_without_optional_trailing_worn_restrictions() {
     game.world_mut().add_item(player, item, 1);
 
     let result = game.disenchant(player, item, StackSource::Plain);
-    assert!(result.is_ok(), "valid optional-tail ENIT was rejected: {result:?}");
-    assert!(game.world().learned_enchantment_effects.contains(&id(&game, EFFECT)));
+    assert!(
+        result.is_ok(),
+        "valid optional-tail ENIT was rejected: {result:?}"
+    );
+    assert!(game
+        .world()
+        .learned_enchantment_effects
+        .contains(&id(&game, EFFECT)));
     assert_eq!(game.world_mut().item_count(player, item), 0);
+}
+
+#[test]
+fn crf_03_rejects_other_enit_lengths_without_mutation() {
+    let mut game = game(EFFECT, 33, true);
+    let player = id(&game, PLAYER);
+    let item = id(&game, ITEM);
+    game.world_mut().add_item(player, item, 1);
+    game.world_mut().actor(player);
+    let before = game.save_state().unwrap();
+
+    assert_eq!(
+        game.disenchant(player, item, StackSource::Plain),
+        Err(DisenchantError::Enchantment(id(&game, ENCHANT)))
+    );
+    assert_eq!(game.save_state().unwrap(), before);
 }
 
 #[test]

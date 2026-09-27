@@ -326,7 +326,7 @@ fn inventory_form(world: &World, id: GlobalFormId) -> bool {
 
 fn disenchant_effects(record: &Record) -> Option<(u32, Vec<u32>)> {
     let data = record.find(Tag(*b"ENIT"))?;
-    if data.len() != 36 {
+    if !matches!(data.len(), 32 | 36) {
         return None;
     }
     let kind = u32::from_le_bytes(data.get(20..24)?.try_into().ok()?);

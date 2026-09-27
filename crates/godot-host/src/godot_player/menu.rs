@@ -159,6 +159,7 @@ impl PlayerNode {
         let mut rows = VBoxContainer::new_alloc();
         scroll.add_child(&rows);
         content.add_child(&scroll);
+        let mut first_available: Option<Gd<Button>> = None;
         if recipe_rows.is_empty() {
             let mut empty = Label::new_alloc();
             empty.set_text("No recipes available");
@@ -176,6 +177,12 @@ impl PlayerNode {
             ]);
             button.connect("pressed", &callback);
             rows.add_child(&button);
+            if entry.available && first_available.is_none() {
+                first_available = Some(button.clone());
+            }
+        }
+        if let Some(mut button) = first_available {
+            button.grab_focus();
         }
         true
     }
@@ -319,11 +326,6 @@ impl PlayerNode {
             return false;
         };
         if !crafting_menu::is_creation_bench(game, bench) {
-            return false;
-        }
-        let actor = game.player();
-        let recipes = crafting_menu::entries(game, actor, bench);
-        if recipes.is_empty() {
             return false;
         }
         let title = game

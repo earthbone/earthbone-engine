@@ -2655,7 +2655,9 @@ set are committed. A successful operation emits the normal OnItemRemoved event.
 SOEW version 34 saves the learned MGEF identities, and the determinism hash
 includes them. Earlier world saves load with an empty learned-effect set.
 The xEdit `wbDefinitionsTES5.pas` ENCH definition supplies the ENIT field
-layout, enchantment kind and EFID/EFIT pairs. The CK wiki corpus has no
+layout, enchantment kind and EFID/EFIT pairs. The local UESP ENCH page documents
+both 36-byte ENIT data and 32-byte form-version-37 data without the trailing
+worn-restriction form ID. The parser accepts those two lengths. The CK wiki corpus has no
 disenchanting page. Original-runtime edge cases such as partial learning from
 multi-effect enchantments remain unverified. The local UESP KYWD reference
 identifies `MagicDisallowEnchanting` as an engine-recognized keyword.
