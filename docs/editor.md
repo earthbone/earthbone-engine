@@ -294,3 +294,15 @@ every form. The query walks `soe-esm::LoadOrder::winners`. The Godot editor's
 `tutorials/plugins/editor/making_plugins.rst` and `inspector_plugins.rst` describe the dock
 and inspector controls that can display those results. This row implements the Rust search
 operation only, not the Godot dock or inspector controls.
+
+`EditorDocument::set_reference_transform` updates the 24-byte `DATA` transform on a `REFR`
+already owned by the active plugin, then rebuilds the winning form table. Its edit log keeps
+the prior plugin so undo restores the record pose used by the renderer and by plugin save.
+The operation rejects missing or malformed transform data and repeated `DATA` fields. It
+does not create overrides for references owned by another plugin. The Godot cell editor does
+not yet connect a transform gizmo to this operation.
+
+The 24-byte position and rotation layout follows `REFR`'s `wbVec3PosRot(DATA)` in local
+`TES5Edit/Core/wbDefinitionsTES5.pas`. Godot's `tutorials/plugins/editor/3d_gizmos.rst` and
+`classes/class_editornode3dgizmoplugin.rst` describe handle commits and restore values; their
+Godot callback is not wired to this Rust operation yet.

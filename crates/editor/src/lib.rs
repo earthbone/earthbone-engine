@@ -218,6 +218,72 @@ impl EditorDocument {
         Ok(())
     }
 
+    /// Apply a gizmo transform to a placed reference in the active plugin.
+    ///
+    /// The `REFR` must already belong to the active plugin. This keeps the
+    /// record in its existing cell group while the transform remains the
+    /// single source used by rendering and plugin output.
+    ///
+    /// # Errors
+    /// Returns an error if the form is missing, is not an active-plugin
+    /// reference, has malformed or repeated `DATA`, or the load order cannot
+    /// be rebuilt.
+    pub fn set_reference_transform(
+        &mut self,
+        form: GlobalFormId,
+        transform: soe_esm::records::Transform,
+    ) -> Result<(), EditorError> {
+        let Some(index) = self.active_record_index(form) else {
+            return Err(EditorError::MissingForm(form));
+        };
+        let record = self
+            .active_plugin
+            .records
+            .get_mut(index)
+            .ok_or(EditorError::MissingForm(form))?;
+        if record.tag != Tag(*b"REFR") {
+            return Err(EditorError::UnsupportedEdit {
+                form,
+                reason: "the selected form is not a placed reference",
+            });
+        }
+        let mut data = record
+            .subrecords
+            .iter_mut()
+            .filter(|subrecord| subrecord.tag == Tag(*b"DATA"));
+        let Some(existing) = data.next() else {
+            return Err(EditorError::UnsupportedEdit {
+                form,
+                reason: "the placed reference has no transform DATA",
+            });
+        };
+        if data.next().is_some() {
+            return Err(EditorError::RepeatedSubrecord {
+                form,
+                tag: Tag(*b"DATA"),
+            });
+        }
+        if existing.data.len() != 24 {
+            return Err(EditorError::UnsupportedEdit {
+                form,
+                reason: "the placed reference transform DATA is not 24 bytes",
+            });
+        }
+
+        let mut replacement = record.clone();
+        if let Some(subrecord) = replacement
+            .subrecords
+            .iter_mut()
+            .find(|subrecord| subrecord.tag == Tag(*b"DATA"))
+        {
+            subrecord.data = transform.to_bytes().to_vec();
+        }
+        self.undo.push(self.active_plugin.clone());
+        self.active_plugin.records[index] = replacement;
+        self.rebuild_load_order()?;
+        Ok(())
+    }
+
     /// Undo the most recent edit, returning whether an edit was available.
     ///
     /// # Errors
