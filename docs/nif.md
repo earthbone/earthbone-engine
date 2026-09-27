@@ -78,6 +78,16 @@ the top of `mesh.rs`.
 
 Two layouts exist and both are normalised to the per-vertex form above.
 
+`NiSkinInstance` and `BSDismemberSkinInstance` store their bone-reference count
+as a `u32`, followed by that many references. Skyrim skeleton files also use
+`0xFFFF_FFFF` as an empty-array sentinel, which the reader maps to no bones.
+The field order follows `NiSkinInstance` in
+`../engine-refs/nifxml/nif.xml`; nifly's `NiSkinInstance::Sync` in
+`../engine-refs/nifly/src/Skin.cpp` confirms the bone references are one
+counted array. Neither source specifies the sentinel, so the explicit empty
+array behavior follows the vanilla skeleton files covered by
+`fmt_11_all_vanilla_skeleton_meshes_parse`.
+
 - Skyrim LE NiTriShape: weights and bone indices live in `NiSkinPartition`
   partitions with a vertex map, and bone indices there are partition-local,
   mapped through the partition's bone list to the skin instance's bones.
@@ -144,6 +154,9 @@ lying vertex descriptor, cycles and dangling references.
 `tests/fmt_08_bs_lod_tri_shape.rs` checks the three BSLODTriShape LOD size
 values, including values above `u16`, and verifies ordinary NiTriShape blocks
 do not report LOD sizes.
+`tests/fmt_11_skeleton_sentinel.rs` checks the empty-bones sentinel for both
+skin-instance block types and parses all skeleton NIFs in the installed
+vanilla mesh archives when `SKYRIM_DATA` is set.
 
 `tests/real_files.rs` runs over `$SKYRIM_DATA/meshes` and
 `$SOE_NIF_SAMPLES` when set. Skyrim SE ships nearly every mesh inside

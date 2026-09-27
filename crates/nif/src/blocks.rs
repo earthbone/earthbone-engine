@@ -1061,7 +1061,14 @@ fn read_skin_instance(s: &mut Stream<'_>, _c: &Ctx<'_>, dismember: bool) -> Resu
     let data = s.block_ref()?;
     let partition = s.block_ref()?;
     let skeleton_root = s.block_ref()?;
-    let bones = s.block_refs()?;
+    let bone_count = s.u32()?;
+    // Skyrim skeleton files use u32::MAX for an empty bone-reference array.
+    let bones = if bone_count == u32::MAX {
+        Vec::new()
+    } else {
+        let n = s.count(bone_count, 4)?;
+        (0..n).map(|_| s.block_ref()).collect::<Result<Vec<_>>>()?
+    };
     let mut body_parts = Vec::new();
     if dismember {
         let n = s.counted(4)?;
