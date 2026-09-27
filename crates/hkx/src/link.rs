@@ -368,6 +368,7 @@ fn remap_node(node: &mut Node, map: &SymbolMap, offset: usize) {
         // transition effect is timing only, the rest are leaves.
         NodeKind::BlendingTransition(_)
         | NodeKind::GetTimeStepModifier { .. }
+        | NodeKind::DirectAt { .. }
         | NodeKind::IsActiveModifier { .. }
         | NodeKind::DecomposeVector { .. }
         | NodeKind::Modifier { .. }

@@ -612,6 +612,27 @@ pub enum NodeKind {
         enable: bool,
         vector: [f32; 4],
     },
+    /// `BSDirectAtModifier`: aim the declared bone chain toward a target.
+    DirectAt {
+        enable: bool,
+        direct_at_target: bool,
+        source_bone_index: i16,
+        start_bone_index: i16,
+        end_bone_index: i16,
+        limit_heading_degrees: f32,
+        limit_pitch_degrees: f32,
+        offset_heading_degrees: f32,
+        offset_pitch_degrees: f32,
+        on_gain: f32,
+        off_gain: f32,
+        target_location: [f32; 4],
+        user_info: u32,
+        direct_at_camera: bool,
+        direct_at_camera_location: [f32; 3],
+        active: bool,
+        current_heading_offset: f32,
+        current_pitch_offset: f32,
+    },
     /// Any other `hkbModifier` subclass: only the enable flag is read.
     Modifier {
         enable: bool,
@@ -685,6 +706,7 @@ impl Node {
             | NodeKind::BlendingTransition(_)
             | NodeKind::TimerModifier { .. }
             | NodeKind::GetTimeStepModifier { .. }
+            | NodeKind::DirectAt { .. }
             | NodeKind::IsActiveModifier { .. }
             | NodeKind::FalseToTrueModifier { .. }
             | NodeKind::DecomposeVector { .. }
@@ -1086,6 +1108,30 @@ impl<'a> Loader<'a> {
                 enable: o.bool(o.layout_offset(40, 72))?,
                 time_step: o.f32(o.layout_offset(44, 80))?,
             },
+            "BSDirectAtModifier" => NodeKind::DirectAt {
+                enable: o.bool(o.layout_offset(40, 72))?,
+                direct_at_target: o.bool(o.layout_offset(44, 80))?,
+                source_bone_index: o.i16(o.layout_offset(46, 82))?,
+                start_bone_index: o.i16(o.layout_offset(48, 84))?,
+                end_bone_index: o.i16(o.layout_offset(50, 86))?,
+                limit_heading_degrees: o.f32(o.layout_offset(52, 88))?,
+                limit_pitch_degrees: o.f32(o.layout_offset(56, 92))?,
+                offset_heading_degrees: o.f32(o.layout_offset(60, 96))?,
+                offset_pitch_degrees: o.f32(o.layout_offset(64, 100))?,
+                on_gain: o.f32(o.layout_offset(68, 104))?,
+                off_gain: o.f32(o.layout_offset(72, 108))?,
+                target_location: o.vec4(o.layout_offset(80, 112))?,
+                user_info: o.u32(o.layout_offset(96, 128))?,
+                direct_at_camera: o.bool(o.layout_offset(100, 132))?,
+                direct_at_camera_location: [
+                    o.f32(o.layout_offset(104, 136))?,
+                    o.f32(o.layout_offset(108, 140))?,
+                    o.f32(o.layout_offset(112, 144))?,
+                ],
+                active: o.bool(o.layout_offset(116, 148))?,
+                current_heading_offset: o.f32(o.layout_offset(120, 152))?,
+                current_pitch_offset: o.f32(o.layout_offset(124, 156))?,
+            },
             // Five (flag, invert) pairs packed one byte each from 80.
             "BSIsActiveModifier" => {
                 let mut is_active = [false; IS_ACTIVE_SLOTS];
@@ -1261,6 +1307,95 @@ mod tests {
         b.set_i32(wt, 52, 0);
         b.set_u16(wt, 66, transition_flags::IS_GLOBAL_WILDCARD);
         b.finish()
+    }
+
+    #[test]
+    fn anm_25_direct_at_decodes_authored_fields() {
+        let mut b = PackfileBuilder::new();
+        let root = b.object("hkRootLevelContainer", 16);
+        let graph = b.object("hkbBehaviorGraph", 304);
+        let variant = b.array_structs(root, 0, 24, 1);
+        b.string(variant, 0, "hkbBehaviorGraph");
+        b.string(variant, 8, "hkbBehaviorGraph");
+        b.ptr(variant, 16, graph);
+        let data = b.object("hkbBehaviorGraphData", 128);
+        let strings = b.object("hkbBehaviorGraphStringData", 80);
+        let values = b.object("hkbVariableValueSet", 64);
+        b.ptr(graph, 136, data);
+        b.ptr(data, 120, strings);
+        b.ptr(data, 112, values);
+
+        let wrapper = b.object("hkbModifierGenerator", 88);
+        let direct = b.object("BSDirectAtModifier", 224);
+        let clip = b.object("hkbClipGenerator", 272);
+        b.ptr(graph, 128, wrapper);
+        b.ptr(wrapper, 72, direct);
+        b.ptr(wrapper, 80, clip);
+        b.set_bool(direct, 72, true);
+        b.set_bool(direct, 80, true);
+        b.set_i16(direct, 82, 4);
+        b.set_i16(direct, 84, 5);
+        b.set_i16(direct, 86, 7);
+        b.set_f32(direct, 88, 55.0);
+        b.set_f32(direct, 92, 35.0);
+        b.set_f32(direct, 96, 3.0);
+        b.set_f32(direct, 100, -2.0);
+        b.set_f32(direct, 104, 8.0);
+        b.set_f32(direct, 108, 6.0);
+        b.set_f32(direct, 112, 1.0);
+        b.set_f32(direct, 116, 2.0);
+        b.set_f32(direct, 120, 3.0);
+        b.set_f32(direct, 124, 4.0);
+        b.set_u32(direct, 128, 0x1234);
+        b.set_bool(direct, 132, true);
+        b.set_f32(direct, 136, 9.0);
+        b.set_f32(direct, 140, 8.0);
+        b.set_f32(direct, 144, 7.0);
+        b.set_bool(direct, 148, true);
+        b.set_f32(direct, 152, 11.0);
+        b.set_f32(direct, 156, -12.0);
+        let pf = Packfile::parse(&b.finish()).unwrap();
+        let graph = BehaviorGraph::from_packfile(&pf).unwrap();
+        let direct = graph.node(NodeId(1));
+        let NodeKind::DirectAt {
+            enable,
+            direct_at_target,
+            source_bone_index,
+            start_bone_index,
+            end_bone_index,
+            limit_heading_degrees,
+            limit_pitch_degrees,
+            offset_heading_degrees,
+            offset_pitch_degrees,
+            on_gain,
+            off_gain,
+            target_location,
+            user_info,
+            direct_at_camera,
+            direct_at_camera_location,
+            active,
+            current_heading_offset,
+            current_pitch_offset,
+        } = direct.kind
+        else {
+            panic!("expected direct-at modifier, got {:?}", direct.kind);
+        };
+        assert!(enable && direct_at_target && direct_at_camera);
+        assert_eq!(
+            (source_bone_index, start_bone_index, end_bone_index),
+            (4, 5, 7)
+        );
+        assert_eq!((limit_heading_degrees, limit_pitch_degrees), (55.0, 35.0));
+        assert_eq!((offset_heading_degrees, offset_pitch_degrees), (3.0, -2.0));
+        assert_eq!((on_gain, off_gain), (8.0, 6.0));
+        assert_eq!(target_location, [1.0, 2.0, 3.0, 4.0]);
+        assert_eq!(user_info, 0x1234);
+        assert_eq!(direct_at_camera_location, [9.0, 8.0, 7.0]);
+        assert!(active);
+        assert_eq!(
+            (current_heading_offset, current_pitch_offset),
+            (11.0, -12.0)
+        );
     }
 
     #[test]

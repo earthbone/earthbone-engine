@@ -162,6 +162,15 @@ fn clip_key(name: &str) -> String {
     name.to_lowercase().replace('\\', "/")
 }
 
+fn quat_mul(a: [f32; 4], b: [f32; 4]) -> [f32; 4] {
+    [
+        a[3] * b[0] + a[0] * b[3] + a[1] * b[2] - a[2] * b[1],
+        a[3] * b[1] - a[0] * b[2] + a[1] * b[3] + a[2] * b[0],
+        a[3] * b[2] + a[0] * b[1] - a[1] * b[0] + a[2] * b[3],
+        a[3] * b[3] - a[0] * b[0] - a[1] * b[1] - a[2] * b[2],
+    ]
+}
+
 impl ClipLibrary {
     pub fn new() -> ClipLibrary {
         ClipLibrary::default()
@@ -429,6 +438,9 @@ struct Runtime {
     edge_enabled: [Option<bool>; FALSE_TO_TRUE_SLOTS],
     edge_value: [Option<bool>; FALSE_TO_TRUE_SLOTS],
     edge_previous: [bool; FALSE_TO_TRUE_SLOTS],
+    direct_at_heading: f32,
+    direct_at_pitch: f32,
+    direct_at_initialized: bool,
 
     /// A bound vector input for `BSDecomposeVectorModifier`.
     vector: Option<[f32; 4]>,
@@ -1030,6 +1042,7 @@ impl<'a> Interpreter<'a> {
             | NodeKind::IsActiveModifier { enable, .. }
             | NodeKind::FalseToTrueModifier { enable, .. }
             | NodeKind::DecomposeVector { enable, .. }
+            | NodeKind::DirectAt { enable, .. }
             | NodeKind::Modifier { enable } => *enable,
             _ => true,
         };
@@ -1102,6 +1115,101 @@ impl<'a> Interpreter<'a> {
                     self.raise(slot.event.id);
                 }
             }
+        }
+    }
+
+    fn apply_direct_at(&mut self, id: NodeId, output: &mut Output, dt: f32) {
+        let NodeKind::DirectAt {
+            direct_at_target,
+            source_bone_index,
+            start_bone_index,
+            end_bone_index,
+            limit_heading_degrees,
+            limit_pitch_degrees,
+            offset_heading_degrees,
+            offset_pitch_degrees,
+            on_gain,
+            off_gain,
+            target_location,
+            direct_at_camera,
+            direct_at_camera_location,
+            current_heading_offset,
+            current_pitch_offset,
+            ..
+        } = &self.graph.node(id).kind
+        else {
+            return;
+        };
+        if !self.nodes[id.0].active || output.weight <= 0.0 {
+            return;
+        }
+        if !self.nodes[id.0].direct_at_initialized {
+            self.nodes[id.0].direct_at_heading = *current_heading_offset;
+            self.nodes[id.0].direct_at_pitch = *current_pitch_offset;
+            self.nodes[id.0].direct_at_initialized = true;
+        }
+        let (heading, pitch, gain) = if *direct_at_target || *direct_at_camera {
+            let Ok(source) = usize::try_from(*source_bone_index) else {
+                return;
+            };
+            let Some(source) = output.pose.get(source) else {
+                return;
+            };
+            let target = if *direct_at_camera {
+                *direct_at_camera_location
+            } else {
+                [target_location[0], target_location[1], target_location[2]]
+            };
+            let delta = [
+                target[0] - source.translation[0],
+                target[1] - source.translation[1],
+                target[2] - source.translation[2],
+            ];
+            if !delta.iter().all(|v| v.is_finite()) {
+                return;
+            }
+            let horizontal = delta[0].hypot(delta[1]);
+            let mut heading = delta[0].atan2(delta[1]).to_degrees() + *offset_heading_degrees;
+            let mut pitch = delta[2].atan2(horizontal).to_degrees() + *offset_pitch_degrees;
+            if !heading.is_finite()
+                || !pitch.is_finite()
+                || !limit_heading_degrees.is_finite()
+                || !limit_pitch_degrees.is_finite()
+            {
+                return;
+            }
+            heading = heading.clamp(-limit_heading_degrees.abs(), limit_heading_degrees.abs());
+            pitch = pitch.clamp(-limit_pitch_degrees.abs(), limit_pitch_degrees.abs());
+            (heading, pitch, *on_gain)
+        } else {
+            (0.0, 0.0, *off_gain)
+        };
+        if !gain.is_finite() || !dt.is_finite() || dt < 0.0 {
+            return;
+        }
+        let fraction = (gain.max(0.0) * dt).clamp(0.0, 1.0);
+        let runtime = &mut self.nodes[id.0];
+        runtime.direct_at_heading += (heading - runtime.direct_at_heading) * fraction;
+        runtime.direct_at_pitch += (pitch - runtime.direct_at_pitch) * fraction;
+
+        let (Ok(start), Ok(end)) = (
+            usize::try_from(*start_bone_index),
+            usize::try_from(*end_bone_index),
+        ) else {
+            return;
+        };
+        if start > end || end >= output.pose.len() {
+            return;
+        }
+        let count = (end - start + 1) as f32;
+        let yaw = runtime.direct_at_heading.to_radians() / count;
+        let elevation = runtime.direct_at_pitch.to_radians() / count;
+        let delta_rotation = quat_mul(
+            [0.0, 0.0, (yaw * 0.5).sin(), (yaw * 0.5).cos()],
+            [(elevation * 0.5).sin(), 0.0, 0.0, (elevation * 0.5).cos()],
+        );
+        for bone in &mut output.pose[start..=end] {
+            bone.rotation = quat_mul(delta_rotation, bone.rotation);
         }
     }
 
@@ -1200,6 +1308,7 @@ impl<'a> Interpreter<'a> {
             | NodeKind::EventDrivenModifier { .. }
             | NodeKind::TimerModifier { .. }
             | NodeKind::GetTimeStepModifier { .. }
+            | NodeKind::DirectAt { .. }
             | NodeKind::IsActiveModifier { .. }
             | NodeKind::DecomposeVector { .. }
             | NodeKind::Modifier { .. }
@@ -1620,18 +1729,24 @@ impl<'a> Interpreter<'a> {
                 modifier,
                 generator,
             } => {
+                let mut applied_modifiers = Vec::new();
                 if let Some(modifier) = modifier {
                     let start = self.modifier_order.len();
                     self.sync_modifier(*modifier);
+                    applied_modifiers.extend_from_slice(&self.modifier_order[start..]);
                     for index in start..self.modifier_order.len() {
                         let node = self.modifier_order[index];
                         self.update_modifier(node);
                     }
                 }
-                match generator {
+                let mut output = match generator {
                     Some(generator) => self.generate(*generator, dt),
                     None => self.reference_output(),
+                };
+                for modifier in applied_modifiers {
+                    self.apply_direct_at(modifier, &mut output, dt);
                 }
+                output
             }
             NodeKind::IStateTagging {
                 default_generator: generator,
@@ -1685,6 +1800,7 @@ impl<'a> Interpreter<'a> {
             | NodeKind::EventDrivenModifier { .. }
             | NodeKind::TimerModifier { .. }
             | NodeKind::GetTimeStepModifier { .. }
+            | NodeKind::DirectAt { .. }
             | NodeKind::IsActiveModifier { .. }
             | NodeKind::FalseToTrueModifier { .. }
             | NodeKind::DecomposeVector { .. }
@@ -2194,6 +2310,188 @@ mod tests {
             extracted_motion: None,
         };
         Clip::from_parts("modifier-pose", animation, &[0]).unwrap()
+    }
+
+    fn direct_at_test_graph(config: NodeKind) -> BehaviorGraph {
+        BehaviorGraph {
+            name: "direct at".into(),
+            variable_mode: 0,
+            root: Some(NodeId(0)),
+            data: BehaviorGraphData::default(),
+            nodes: vec![
+                Node {
+                    id: NodeId(0),
+                    offset: 0,
+                    class: "hkbModifierGenerator".into(),
+                    name: "wrapper".into(),
+                    user_data: 0,
+                    bindings: None,
+                    kind: NodeKind::ModifierGenerator {
+                        modifier: Some(NodeId(1)),
+                        generator: Some(NodeId(2)),
+                    },
+                },
+                Node {
+                    id: NodeId(1),
+                    offset: 1,
+                    class: "BSDirectAtModifier".into(),
+                    name: "direct".into(),
+                    user_data: 0,
+                    bindings: None,
+                    kind: config,
+                },
+                Node {
+                    id: NodeId(2),
+                    offset: 2,
+                    class: "hkbClipGenerator".into(),
+                    name: "pose".into(),
+                    user_data: 0,
+                    bindings: None,
+                    kind: NodeKind::Clip(ClipGenerator {
+                        animation_name: "modifier-pose".into(),
+                        ..Default::default()
+                    }),
+                },
+            ],
+        }
+    }
+
+    fn direct_at_config() -> NodeKind {
+        NodeKind::DirectAt {
+            enable: true,
+            direct_at_target: true,
+            source_bone_index: 0,
+            start_bone_index: 1,
+            end_bone_index: 2,
+            limit_heading_degrees: 30.0,
+            limit_pitch_degrees: 20.0,
+            offset_heading_degrees: 5.0,
+            offset_pitch_degrees: -5.0,
+            on_gain: 100.0,
+            off_gain: 100.0,
+            target_location: [10.0, 0.0, 10.0, 0.0],
+            user_info: 0,
+            direct_at_camera: false,
+            direct_at_camera_location: [0.0; 3],
+            active: false,
+            current_heading_offset: 0.0,
+            current_pitch_offset: 0.0,
+        }
+    }
+
+    fn direct_at_fixture(config: NodeKind) -> (BehaviorGraph, ClipLibrary) {
+        let mut clips = ClipLibrary::new();
+        clips.insert(modifier_generator_clip());
+        (direct_at_test_graph(config), clips)
+    }
+
+    #[test]
+    fn anm_25_direct_at_rotates_the_declared_chain_with_heading_and_pitch_limits() {
+        let (graph, clips) = direct_at_fixture(direct_at_config());
+        let mut vm = Interpreter::new(&graph, &clips, vec![QsTransform::IDENTITY; 4]);
+        vm.update(1.0);
+        let pose = &vm.output().pose;
+        assert_eq!(
+            pose[0].translation[0], 4.0,
+            "the source pose remains intact"
+        );
+        assert_eq!(pose[1].translation, QsTransform::IDENTITY.translation);
+        assert_eq!(pose[1].scale, QsTransform::IDENTITY.scale);
+        let (yaw, pitch) = (7.5f32.to_radians(), 5.0f32.to_radians());
+        let expected = [
+            pitch.sin() * yaw.cos(),
+            pitch.sin() * yaw.sin(),
+            pitch.cos() * yaw.sin(),
+            pitch.cos() * yaw.cos(),
+        ];
+        for (actual, expected) in pose[1].rotation.iter().zip(expected) {
+            assert!((actual - expected).abs() < 1e-5, "{actual} != {expected}");
+        }
+        assert_eq!(
+            pose[1].rotation, pose[2].rotation,
+            "the declared chain shares the rotation"
+        );
+        assert_eq!(
+            pose[3].rotation,
+            QsTransform::IDENTITY.rotation,
+            "bones outside the chain stay unchanged"
+        );
+    }
+
+    #[test]
+    fn anm_25_direct_at_gain_smooths_target_and_releases_when_target_is_off() {
+        let mut config = direct_at_config();
+        if let NodeKind::DirectAt { on_gain, .. } = &mut config {
+            *on_gain = 0.5;
+        }
+        let (graph, clips) = direct_at_fixture(config);
+        let mut vm = Interpreter::new(&graph, &clips, vec![QsTransform::IDENTITY; 4]);
+        vm.update(1.0);
+        let half_gain = vm.output().pose[1].rotation;
+        assert!(
+            half_gain[2] > 0.06 && half_gain[2] < 0.07,
+            "gain moves halfway to the limited angle: {half_gain:?}"
+        );
+
+        let mut released = direct_at_config();
+        if let NodeKind::DirectAt {
+            direct_at_target,
+            direct_at_camera,
+            ..
+        } = &mut released
+        {
+            *direct_at_target = false;
+            *direct_at_camera = false;
+        }
+        let (graph, clips) = direct_at_fixture(released);
+        let mut vm = Interpreter::new(&graph, &clips, vec![QsTransform::IDENTITY; 4]);
+        vm.nodes[1].direct_at_heading = 30.0;
+        vm.nodes[1].direct_at_pitch = 20.0;
+        vm.update(1.0);
+        assert_eq!(vm.output().pose[1].rotation, QsTransform::IDENTITY.rotation);
+    }
+
+    #[test]
+    fn anm_25_direct_at_camera_enable_and_bad_chain_follow_declared_fields() {
+        let mut config = direct_at_config();
+        if let NodeKind::DirectAt {
+            direct_at_camera,
+            direct_at_target,
+            direct_at_camera_location,
+            target_location,
+            ..
+        } = &mut config
+        {
+            *direct_at_camera = true;
+            *direct_at_target = false;
+            *direct_at_camera_location = [0.0, 10.0, 0.0];
+            *target_location = [10.0, 0.0, 10.0, 0.0];
+        }
+        let (graph, clips) = direct_at_fixture(config);
+        let mut vm = Interpreter::new(&graph, &clips, vec![QsTransform::IDENTITY; 4]);
+        vm.update(1.0);
+        assert!(
+            vm.output().pose[1].rotation[2] < 0.0,
+            "camera target takes precedence over the authored location"
+        );
+
+        let mut bad_chain = direct_at_config();
+        if let NodeKind::DirectAt { end_bone_index, .. } = &mut bad_chain {
+            *end_bone_index = 99;
+        }
+        let (graph, clips) = direct_at_fixture(bad_chain);
+        let mut vm = Interpreter::new(&graph, &clips, vec![QsTransform::IDENTITY; 4]);
+        vm.update(1.0);
+        assert_eq!(vm.output().pose[1].rotation, QsTransform::IDENTITY.rotation);
+
+        let mut disabled = direct_at_config();
+        if let NodeKind::DirectAt { enable, .. } = &mut disabled {
+            *enable = false;
+        }
+        let (graph, clips) = direct_at_fixture(disabled);
+        let mut vm = Interpreter::new(&graph, &clips, vec![QsTransform::IDENTITY; 4]);
+        vm.update(1.0);
+        assert_eq!(vm.output().pose[1].rotation, QsTransform::IDENTITY.rotation);
     }
 
     /// A graph of one `BSIsActiveModifier` with a binding on one slot, so the
