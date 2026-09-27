@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use std::collections::HashMap;
 
@@ -43,7 +44,11 @@ fn cmb_28_rotated_attachment_beats_hand_and_preserves_blade_axis() {
     assert!((weapon.origin[0] - 1.000125).abs() < 1e-5);
     assert!((weapon.origin[1] - 3.000375).abs() < 1e-5);
     assert!((weapon.origin[2] + 2.00025).abs() < 1e-5);
-    let blade_axis = [-weapon.basis[0][2], -weapon.basis[1][2], -weapon.basis[2][2]];
+    let blade_axis = [
+        -weapon.basis[0][2],
+        -weapon.basis[1][2],
+        -weapon.basis[2][2],
+    ];
     assert!((blade_axis[0] + 1.0).abs() < 1e-5);
     assert!(blade_axis[1].abs() < 1e-5);
     assert!(blade_axis[2].abs() < 1e-5);

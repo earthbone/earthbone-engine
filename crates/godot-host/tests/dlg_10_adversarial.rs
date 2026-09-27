@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use soe_esm::{
     Entry as PluginEntry, FileHeader, GlobalFormId, Group, GroupKind, LoadOrder, Plugin, Record,
@@ -43,7 +44,13 @@ fn game() -> Game {
     let mut group = Group::new(GroupKind::Top(Tag(*b"DIAL")));
     for (topic_id, info_id, label, priority, response) in [
         (TOPIC_A, INFO_A, None, 70.0_f32, "First response"),
-        (TOPIC_B, INFO_B, Some("Second topic"), 50.0_f32, "Second response"),
+        (
+            TOPIC_B,
+            INFO_B,
+            Some("Second topic"),
+            50.0_f32,
+            "Second response",
+        ),
     ] {
         let branch = topic_id + 0x1000;
         plugin.push_top(
@@ -92,7 +99,10 @@ fn dlg_10_choices_are_stably_sorted_and_use_topic_name_when_prompt_is_missing() 
     let first = entries(&mut game).unwrap();
     let second = entries(&mut game).unwrap();
     assert_eq!(first, second);
-    assert_eq!(first.iter().map(|entry| entry.topic).collect::<Vec<_>>(), vec![id(TOPIC_A), id(TOPIC_B)]);
+    assert_eq!(
+        first.iter().map(|entry| entry.topic).collect::<Vec<_>>(),
+        vec![id(TOPIC_A), id(TOPIC_B)]
+    );
     assert_eq!(first[0].label, "0:000900");
     assert_eq!(first[1].label, "Second topic");
 }

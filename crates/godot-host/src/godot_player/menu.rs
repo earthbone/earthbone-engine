@@ -165,6 +165,9 @@ impl PlayerNode {
             ]);
             button.connect("pressed", &callback);
             rows.add_child(&button);
+            if rows.get_child_count() == 1 {
+                button.grab_focus();
+            }
         }
         if rows.get_child_count() == 0 {
             let mut empty = Label::new_alloc();
@@ -358,7 +361,12 @@ impl PlayerNode {
             }
             return false;
         }
-        self.dialogue_content()
+        if self.dialogue_content() {
+            true
+        } else {
+            self.close_menu();
+            false
+        }
     }
 
     /// Select an offered topic through Game::choose_dialogue and show its response.
