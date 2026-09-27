@@ -284,7 +284,8 @@ fn rich_world(namespace: u16) -> World {
 /// dialogue branch field that version 24 added, the stagger end time field
 /// that version 29 added, the witnessed crimes set that version 31 added,
 /// the hand spell fields that version 32 added, and the summon actor link
-/// that version 33 added, plus the record metadata byte from version 35.
+/// that version 33 added, distributed package state from version 37, plus the
+/// record metadata byte from version 35.
 /// Each is set to a unique sentinel so its serialized
 /// bytes can be located exactly, then cut back out.
 fn without_exclusive_branches(world: &mut World) -> Vec<u8> {
@@ -341,6 +342,17 @@ fn without_exclusive_branches(world: &mut World) -> Vec<u8> {
         right_spell_marker.extend_from_slice(&right_spell_sentinel.file.to_le_bytes());
         right_spell_marker.extend_from_slice(&right_spell_sentinel.object.to_le_bytes());
         markers.push(right_spell_marker);
+
+        let package_sentinel = GlobalFormId {
+            file: u16::MAX,
+            object: 0xE300_0000 + index as u32,
+        };
+        world.actors.get_mut(id).unwrap().package_overrides = vec![(0, package_sentinel)];
+        let mut package_marker = 1_u32.to_le_bytes().to_vec();
+        package_marker.extend_from_slice(&0_u32.to_le_bytes());
+        package_marker.extend_from_slice(&package_sentinel.file.to_le_bytes());
+        package_marker.extend_from_slice(&package_sentinel.object.to_le_bytes());
+        markers.push(package_marker);
     }
     let summon_sentinel = GlobalFormId {
         file: u16::MAX,
@@ -360,6 +372,7 @@ fn without_exclusive_branches(world: &mut World) -> Vec<u8> {
         actor.witnessed_crimes.clear();
         actor.left_spell = None;
         actor.right_spell = None;
+        actor.package_overrides.clear();
     }
     for marker in markers {
         let at = bytes
@@ -477,7 +490,7 @@ fn sav_07_unknown_version_and_mixed_legacy_namespaces_are_rejected() {
     let mut world = rich_world(DYNAMIC_FILE);
     let before = world.save_state();
     for (version, message) in [
-        (37_u16, "world state version 37"),
+        (38_u16, "world state version 38"),
         (18, "created namespace in a legacy world state"),
     ] {
         let mut bytes = before.clone();

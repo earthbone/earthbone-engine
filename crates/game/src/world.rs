@@ -228,6 +228,10 @@ pub struct ActorState {
     pub right_spell: Option<GlobalFormId>,
     /// The package driver's state, see `crate::ai`.
     pub ai: crate::ai::AiState,
+    /// SPID packages and their zero-based insertion positions in the base
+    /// package list. Persisted with the actor because distribution is not
+    /// rerun when SOEW restores an existing actor.
+    pub package_overrides: Vec<(usize, GlobalFormId)>,
     pub perks: BTreeSet<GlobalFormId>,
     pub alerted: bool,
     pub sneaking: bool,
