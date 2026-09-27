@@ -34,6 +34,9 @@ pub const HUMAN_SKELETON: &str = "character assets/skeleton.hkx";
 /// `behavior-2` work proved out, and it names the idle and walk clips.
 pub const LOCOMOTION_BEHAVIOR: &str = "behaviors/mt_behavior.hkx";
 
+/// The human behavior graph that connects locomotion, stagger and combat.
+pub const MASTER_BEHAVIOR: &str = "behaviors/0_master.hkx";
+
 /// Vanilla one-handed melee behavior, with authored attack markers.
 pub const ONE_HAND_BEHAVIOR: &str = "behaviors/1hm_behavior.hkx";
 

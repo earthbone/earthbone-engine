@@ -1934,6 +1934,30 @@ shape, joint and RID lifetime calls. The host uses a cone twist span for the
 ragdoll joint's cone and twist limits. Godot's cone twist API does not express
 the separate authored plane range, asymmetric limits or position motors.
 
+## Stagger hit reactions, CMB-27
+
+A bound `SkinnedActorNode` watches its actor's shared `stagger_end_time`.
+`load_character` loads the vanilla master graph, which connects locomotion and
+stagger behavior. When a new active deadline appears, the rig writes the graph's
+`staggerMagnitude` input and sends `staggerStart` once. At expiry it sends
+`staggerStop` once.
+The graph selects and plays its authored hit reaction, then follows its own
+transitions back to the locomotion state. This rendering step only reads World
+state and advances the animation interpreter. It never resolves the hit or
+changes health, so the combat event cannot apply damage twice.
+
+`activeragdoll/src/main.cpp`'s `StaggerActor` and the local Nemesis master,
+stagger and one-handed behavior graphs establish the variable and event names.
+CMB-14 stores only the stagger deadline, not hit strength or source direction,
+so the host uses magnitude `1.0`. The master graph does not expose
+`staggerDirection` from its referenced stagger graph, so the host cannot select
+a hit direction through the outer graph's variable table. The gated
+`cmb_27_vanilla_hit_reaction_plays_and_returns_to_locomotion_without_damage`
+test checks the installed master graph plays its authored stagger clip and
+returns to the original active state. Exact hit direction, stagger tier and
+same-frame repeated deadlines are not represented by the current World event
+state.
+
 The `cmb_19_` unit tests check bone assignment, frame conversion and the
 death-to-resurrection mode transition. The installed-data gated
 `cmb_19_vanilla_human_death_has_renderable_bodies_and_joints` test checks the

@@ -65,6 +65,36 @@ struct AppearanceBinding {
     source: Arc<DataSource>,
     actor: soe_esm::GlobalFormId,
     cache: crate::actor::AppearanceCache,
+    stagger: StaggerTracker,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StaggerGraphEvent {
+    Start,
+    Stop,
+}
+
+#[derive(Default)]
+struct StaggerTracker {
+    last_deadline: Option<f64>,
+    active: bool,
+}
+
+impl StaggerTracker {
+    fn observe(&mut self, deadline: Option<f64>, now: f64) -> Option<StaggerGraphEvent> {
+        if self.last_deadline != deadline {
+            self.last_deadline = deadline;
+            if deadline.is_some_and(|until| until > now) {
+                self.active = true;
+                return Some(StaggerGraphEvent::Start);
+            }
+        }
+        if self.active && deadline.is_some_and(|until| until <= now) {
+            self.active = false;
+            return Some(StaggerGraphEvent::Stop);
+        }
+        None
+    }
 }
 
 /// One animated character. Call `load_character`, then let it process.
@@ -160,7 +190,7 @@ impl SkinnedActorNode {
         self.load_character_with_behavior(
             &data_dir.to_string(),
             &mesh_path.to_string(),
-            crate::actor::LOCOMOTION_BEHAVIOR,
+            crate::actor::MASTER_BEHAVIOR,
         )
     }
 
@@ -329,9 +359,20 @@ impl SkinnedActorNode {
             self.push_pose();
             return;
         }
+        let stagger_event = self.take_stagger_event();
         let (Some(assets), Some(vm)) = (self.assets, self.vm.as_mut()) else {
             return;
         };
+        match stagger_event {
+            Some(StaggerGraphEvent::Start) => {
+                vm.variables.set_by_name("staggerMagnitude", 1.0);
+                vm.send_event_named("staggerStart");
+            }
+            Some(StaggerGraphEvent::Stop) => {
+                vm.send_event_named("staggerStop");
+            }
+            None => {}
+        }
         let _span = soe_trace::Span::new("host.actor_tick", "host");
         vm.update(delta);
         let events: Vec<GString> = vm
@@ -585,6 +626,17 @@ impl SkinnedActorNode {
         }
     }
 
+    fn take_stagger_event(&mut self) -> Option<StaggerGraphEvent> {
+        let Some(binding) = &mut self.appearance else {
+            return None;
+        };
+        let mut world = binding.world.borrow_mut();
+        let deadline = world
+            .actor(binding.actor)
+            .and_then(|actor| actor.stagger_end_time);
+        binding.stagger.observe(deadline, world.clock.real_seconds)
+    }
+
     fn actor_placement(&self) -> Transform3D {
         let Some(binding) = &self.appearance else {
             return self.base().get_global_transform();
@@ -636,6 +688,7 @@ impl SkinnedActorNode {
             source,
             actor,
             cache,
+            stagger: StaggerTracker::default(),
         });
         Ok(())
     }
@@ -679,5 +732,40 @@ impl SkinnedActorNode {
         self.update_surface_stats();
         self.push_pose();
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod cmb_27_tests {
+    use super::{StaggerGraphEvent, StaggerTracker};
+
+    #[test]
+    fn cmb_27_stagger_deadline_sends_start_once_and_stop_at_expiry() {
+        let mut tracker = StaggerTracker::default();
+        assert_eq!(tracker.observe(None, 1.0), None);
+        assert_eq!(
+            tracker.observe(Some(2.0), 1.0),
+            Some(StaggerGraphEvent::Start)
+        );
+        assert_eq!(tracker.observe(Some(2.0), 1.5), None);
+        assert_eq!(
+            tracker.observe(Some(2.0), 2.0),
+            Some(StaggerGraphEvent::Stop)
+        );
+        assert_eq!(tracker.observe(Some(2.0), 2.1), None);
+    }
+
+    #[test]
+    fn cmb_27_a_new_hit_restarts_an_active_stagger_deadline_once() {
+        let mut tracker = StaggerTracker::default();
+        assert_eq!(
+            tracker.observe(Some(2.0), 1.0),
+            Some(StaggerGraphEvent::Start)
+        );
+        assert_eq!(
+            tracker.observe(Some(3.0), 1.5),
+            Some(StaggerGraphEvent::Start)
+        );
+        assert_eq!(tracker.observe(Some(3.0), 1.6), None);
     }
 }
