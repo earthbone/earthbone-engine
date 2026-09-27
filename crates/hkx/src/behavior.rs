@@ -507,6 +507,14 @@ pub struct FalseToTrueSlot {
     pub event: EventProperty,
 }
 
+/// A state-to-`iState` mapping carried by `BSIStateManagerModifier`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct IStateData {
+    pub state_machine: NodeId,
+    pub state_id: i32,
+    pub state_to_set_as: i32,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum NodeKind {
     StateMachine(StateMachine),
@@ -612,6 +620,13 @@ pub enum NodeKind {
         enable: bool,
         vector: [f32; 4],
     },
+    /// `BSIStateManagerModifier`: publishes the mapped value for the current
+    /// state of one of its referenced state machines.
+    IStateManager {
+        enable: bool,
+        state_variable: i32,
+        state_data: Vec<IStateData>,
+    },
     /// Any other `hkbModifier` subclass: only the enable flag is read.
     Modifier {
         enable: bool,
@@ -678,6 +693,9 @@ impl Node {
                 out.extend(*offset_clip_generator);
             }
             NodeKind::EventDrivenModifier { modifier, .. } => out.extend(*modifier),
+            NodeKind::IStateManager { state_data, .. } => {
+                out.extend(state_data.iter().map(|entry| entry.state_machine));
+            }
             // Only after linking. An unlinked reference has no child, which
             // is why an unlinked graph leaves the state it guards silent.
             NodeKind::BehaviorReference { resolved, .. } => out.extend(*resolved),
@@ -1126,6 +1144,24 @@ impl<'a> Loader<'a> {
                 enable: o.bool(o.layout_offset(40, 72))?,
                 vector: o.vec4(o.layout_offset(48, 80))?,
             },
+            "BSIStateManagerModifier" => {
+                let mut state_data = Vec::new();
+                for entry in o.array_structs(o.layout_offset(48, 88), o.layout_offset(12, 16))? {
+                    let Some(state_machine) = self.opt_id(entry.ptr(0)?) else {
+                        continue;
+                    };
+                    state_data.push(IStateData {
+                        state_machine,
+                        state_id: entry.i32(entry.layout_offset(4, 8))?,
+                        state_to_set_as: entry.i32(entry.layout_offset(8, 12))?,
+                    });
+                }
+                NodeKind::IStateManager {
+                    enable: o.bool(o.layout_offset(40, 72))?,
+                    state_variable: o.i32(o.layout_offset(44, 80))?,
+                    state_data,
+                }
+            }
             c if c.ends_with("Modifier") => NodeKind::Modifier {
                 enable: o.bool(o.layout_offset(40, 72))?,
             },

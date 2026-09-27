@@ -881,6 +881,7 @@ impl<'a> Interpreter<'a> {
             self.modifier_order.clear();
             let output = self.generate(root, dt);
             self.output = output;
+            self.update_i_state_managers();
             self.update_time_step_modifiers(dt);
             for _ in 0..MAX_EVENT_ROUNDS {
                 if self.raised.is_empty() {
@@ -907,6 +908,34 @@ impl<'a> Interpreter<'a> {
                 NodeKind::GetTimeStepModifier { .. }
             ) {
                 self.nodes[node.0].time_step = if self.nodes[node.0].active { dt } else { 0.0 };
+            }
+        }
+    }
+
+    /// Publish the value mapped to each active manager's current state.
+    fn update_i_state_managers(&mut self) {
+        for node in self.modifier_order.clone() {
+            if !self.nodes[node.0].active {
+                continue;
+            }
+            let NodeKind::IStateManager {
+                state_variable,
+                state_data,
+                ..
+            } = &self.graph.node(node).kind
+            else {
+                continue;
+            };
+            let variable = usize::try_from(*state_variable).ok();
+            let Some(variable) = variable.filter(|index| *index < self.variables.len()) else {
+                continue;
+            };
+            let value = state_data.iter().find_map(|entry| {
+                (self.nodes.get(entry.state_machine.0)?.current_state == Some(entry.state_id))
+                    .then_some(entry.state_to_set_as)
+            });
+            if let Some(value) = value {
+                self.variables.set_word(variable, value);
             }
         }
     }
@@ -1030,6 +1059,7 @@ impl<'a> Interpreter<'a> {
             | NodeKind::IsActiveModifier { enable, .. }
             | NodeKind::FalseToTrueModifier { enable, .. }
             | NodeKind::DecomposeVector { enable, .. }
+            | NodeKind::IStateManager { enable, .. }
             | NodeKind::Modifier { enable } => *enable,
             _ => true,
         };
@@ -1202,6 +1232,7 @@ impl<'a> Interpreter<'a> {
             | NodeKind::GetTimeStepModifier { .. }
             | NodeKind::IsActiveModifier { .. }
             | NodeKind::DecomposeVector { .. }
+            | NodeKind::IStateManager { .. }
             | NodeKind::Modifier { .. }
             | NodeKind::Unknown => {}
         }
@@ -1688,6 +1719,7 @@ impl<'a> Interpreter<'a> {
             | NodeKind::IsActiveModifier { .. }
             | NodeKind::FalseToTrueModifier { .. }
             | NodeKind::DecomposeVector { .. }
+            | NodeKind::IStateManager { .. }
             | NodeKind::Modifier { .. } => self.reference_output(),
         }
     }

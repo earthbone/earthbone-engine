@@ -358,6 +358,16 @@ fn remap_node(node: &mut Node, map: &SymbolMap, offset: usize) {
             *activate_event_id = map.event(*activate_event_id);
             *deactivate_event_id = map.event(*deactivate_event_id);
         }
+        NodeKind::IStateManager {
+            state_variable,
+            state_data,
+            ..
+        } => {
+            *state_variable = map.variable(*state_variable);
+            for entry in state_data {
+                entry.state_machine = shift(entry.state_machine, offset);
+            }
+        }
         NodeKind::TimerModifier { alarm_event, .. } => remap_event_property(alarm_event, map),
         NodeKind::FalseToTrueModifier { slots, .. } => {
             for slot in slots {

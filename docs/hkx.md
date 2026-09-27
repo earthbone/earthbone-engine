@@ -370,6 +370,13 @@ What each node does:
   `BSCyclicBlendTransition`) pass their generator child through.
   `hkbModifierGenerator` also gives an enabled modifier child activation and
   deactivation lifecycle.
+- `BSIStateManagerModifier` reads `iStateVar` as an index into the graph's
+  variable table. After generation, an active modifier finds the first
+  `stateData` entry whose state machine is in the listed state, then writes
+  `iStateToSetAs` into that variable. An unmatched state leaves the variable
+  unchanged. The entry layout comes from serde-hkx's
+  `BSIStateManagerModifier` and `BSIStateManagerModifierBSiStateData` class
+  descriptions.
 - `hkbBehaviorReferenceGenerator` and unmodelled classes yield the
   reference pose at weight zero and are listed in `Unsupported`.
 
