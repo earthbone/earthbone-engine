@@ -22,6 +22,7 @@ use std::sync::Arc;
 use godot::classes::{ArrayMesh, INode3D, Node3D, RenderingServer};
 use godot::prelude::*;
 use soe_bsa::Vfs;
+use soe_game::combat::{Error as CombatError, Hand};
 use soe_hkx::interp::Interpreter;
 use soe_hkx::pose::to_model_space_into;
 use soe_hkx::QsTransform;
@@ -139,20 +140,44 @@ impl SkinnedActorNode {
     #[allow(clippy::needless_pass_by_value)]
     #[func]
     pub fn load_character(&mut self, data_dir: GString, mesh_path: GString) -> bool {
+        self.load_character_with_behavior(
+            &data_dir.to_string(),
+            &mesh_path.to_string(),
+            crate::actor::LOCOMOTION_BEHAVIOR,
+        )
+    }
+
+    /// Load the vanilla one-handed attack graph on this character rig.
+    /// Its authored markers are emitted through `animation_event`.
+    #[func]
+    #[allow(clippy::needless_pass_by_value)]
+    pub fn load_melee_character(&mut self, data_dir: GString, mesh_path: GString) -> bool {
+        self.load_character_with_behavior(
+            &data_dir.to_string(),
+            &mesh_path.to_string(),
+            crate::actor::ONE_HAND_BEHAVIOR,
+        )
+    }
+
+    fn load_character_with_behavior(
+        &mut self,
+        data_dir: &str,
+        mesh_path: &str,
+        behavior: &str,
+    ) -> bool {
         if self.assets.is_some() {
             godot_error!("SkinnedActorNode: already loaded, make another node");
             return false;
         }
-        let dir = data_dir.to_string();
         let mut vfs = Vfs::new();
         for name in ARCHIVES {
-            let path = Path::new(&dir).join(name);
+            let path = Path::new(data_dir).join(name);
             if let Err(e) = vfs.add_archive_path(&path) {
                 godot_error!("SkinnedActorNode: {}: {e}", path.display());
                 return false;
             }
         }
-        let mut assets = match ActorAssets::load(&vfs, &mesh_path.to_string()) {
+        let mut assets = match ActorAssets::load_with_behavior(&vfs, mesh_path, behavior) {
             Ok(a) => a,
             Err(e) => {
                 godot_error!("SkinnedActorNode: {e}");
@@ -252,6 +277,27 @@ impl SkinnedActorNode {
         }
     }
 
+    /// Send an authored event to this actor's behavior graph. The resulting
+    /// animation markers are emitted after their poses are installed.
+    #[func]
+    #[allow(clippy::needless_pass_by_value)]
+    pub fn send_graph_event(&mut self, name: GString) -> bool {
+        self.vm
+            .as_mut()
+            .is_some_and(|vm| vm.send_event_named(&name.to_string()))
+    }
+
+    /// Set a named behavior variable before advancing the graph.
+    #[func]
+    #[allow(clippy::needless_pass_by_value)]
+    pub fn set_graph_variable(&mut self, name: GString, value: f32) -> bool {
+        value.is_finite()
+            && self
+                .vm
+                .as_mut()
+                .is_some_and(|vm| vm.variables.set_by_name(&name.to_string(), value))
+    }
+
     /// Advance by `delta` seconds and push the new pose. `_process` calls
     /// this while `playing`, and a test can call it directly.
     #[func]
@@ -337,6 +383,73 @@ impl SkinnedActorNode {
     #[func]
     pub fn skeleton_path(&self) -> GString {
         GString::from(HUMAN_SKELETON)
+    }
+
+    /// Named inputs and markers declared by the loaded behavior graph.
+    #[func]
+    pub fn graph_event_names(&self) -> PackedStringArray {
+        self.assets
+            .map(|assets| {
+                assets
+                    .graph
+                    .data
+                    .event_names
+                    .iter()
+                    .map(GString::from)
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// The armed hand's current animated weapon transform in world space.
+    /// Returns an empty dictionary when the rig has no usable pose.
+    #[func]
+    pub fn contact_weapon_pose(&self, left_hand: bool) -> VarDictionary {
+        let hand = if left_hand { Hand::Left } else { Hand::Right };
+        let mut result = VarDictionary::new();
+        if let Ok(pose) = self.weapon_pose(hand) {
+            result.set("pose", pose);
+        }
+        result
+    }
+
+    /// World-space weapon node from the same animated pose sent to the
+    /// RenderingServer skeleton. A bound actor follows its shared placement.
+    ///
+    /// # Errors
+    /// The rig has no matching bone or has not installed a pose yet.
+    pub(crate) fn weapon_pose(&self, hand: Hand) -> Result<Transform3D, CombatError> {
+        let assets = self
+            .assets
+            .ok_or(CombatError::Unsupported("character rig is not loaded"))?;
+        let local = crate::combat::posed_weapon_bone(&assets.skeleton, &self.model, hand)?;
+        let placement = if let Some(binding) = &self.appearance {
+            let actor = binding
+                .world
+                .borrow_mut()
+                .contact_actors()
+                .into_iter()
+                .find(|actor| actor.actor == binding.actor)
+                .ok_or(CombatError::Unsupported("animated actor is not resident"))?;
+            let placed = crate::units::placement_to_godot(
+                crate::units::skyrim_euler_matrix(actor.rotation),
+                actor.position,
+                actor.scale,
+            );
+            to_transform3d(&Affine {
+                basis: placed.basis,
+                origin: [placed.origin.x, placed.origin.y, placed.origin.z],
+            })
+        } else {
+            self.base().get_global_transform()
+        };
+        Ok(placement * to_transform3d(&local))
+    }
+
+    /// The shared actor whose equipment and placement this rig displays.
+    #[must_use]
+    pub(crate) fn bound_actor(&self) -> Option<soe_esm::GlobalFormId> {
+        self.appearance.as_ref().map(|binding| binding.actor)
     }
 
     /// The world to draw into, the same way `CellStreamerNode` finds it: the

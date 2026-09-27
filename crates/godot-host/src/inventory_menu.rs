@@ -157,9 +157,70 @@ mod tests {
                     [0_i32.to_le_bytes(), 2_u32.to_le_bytes()].concat(),
                 ),
         );
+        plugin.push_top(Record::new(Tag(*b"MISC"), 0x104).zsub(Tag(*b"FULL"), "Gold"));
+        plugin.push_top(
+            Record::new(Tag(*b"CONT"), 0x105)
+                .zsub(Tag(*b"FULL"), "Treasure Chest")
+                .sub(
+                    Tag(*b"CNTO"),
+                    [0x104_u32.to_le_bytes(), 3_i32.to_le_bytes()].concat(),
+                ),
+        );
+        plugin.push_top(
+            Record::new(Tag(*b"REFR"), 0x106).sub(Tag(*b"NAME"), 0x105_u32.to_le_bytes()),
+        );
         let mut order = LoadOrder::new();
         order.add("Inventory.esm", plugin).unwrap();
         Game::new(order)
+    }
+
+    #[test]
+    fn inv_04_activated_container_lists_its_authored_contents() {
+        let mut game = game();
+        let player = game.player();
+        let chest = id(0x106);
+
+        assert!(game.activate(chest, player));
+
+        assert_eq!(
+            entries(&game, chest, Category::All),
+            vec![Entry {
+                item: id(0x104),
+                name: "Gold".into(),
+                count: 3,
+                equipped: false,
+                category: Category::Misc,
+            }]
+        );
+    }
+
+    #[test]
+    fn inv_04_container_transfer_updates_both_inventory_rows() {
+        let mut game = game();
+        let player = game.player();
+        let chest = id(0x106);
+        let gold = id(0x104);
+        assert!(game.activate(chest, player));
+
+        assert_eq!(game.transfer_item(chest, gold, 2, player), 2);
+
+        assert_eq!(entries(&game, chest, Category::All)[0].count, 1);
+        assert_eq!(entries(&game, player, Category::All)[0].count, 2);
+    }
+
+    #[test]
+    fn inv_04_rejected_container_transfer_preserves_both_inventories() {
+        let mut game = game();
+        let player = game.player();
+        let chest = id(0x106);
+        let gold = id(0x104);
+        assert!(game.activate(chest, player));
+        game.world_mut().add_item(player, gold, i32::MAX);
+
+        assert_eq!(game.transfer_item(chest, gold, 1, player), 0);
+
+        assert_eq!(entries(&game, chest, Category::All)[0].count, 3);
+        assert_eq!(entries(&game, player, Category::All)[0].count, i32::MAX);
     }
 
     #[test]

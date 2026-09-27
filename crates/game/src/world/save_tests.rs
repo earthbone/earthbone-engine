@@ -284,7 +284,8 @@ fn rich_world(namespace: u16) -> World {
 /// dialogue branch field that version 24 added, the stagger end time field
 /// that version 29 added, the witnessed crimes set that version 31 added,
 /// the hand spell fields that version 32 added, and the summon actor link
-/// that version 33 added. Each is set to a unique sentinel so its serialized
+/// that version 33 added, plus the record metadata byte from version 35.
+/// Each is set to a unique sentinel so its serialized
 /// bytes can be located exactly, then cut back out.
 fn without_exclusive_branches(world: &mut World) -> Vec<u8> {
     let ids: Vec<_> = world.actors.keys().copied().collect();
@@ -367,6 +368,14 @@ fn without_exclusive_branches(world: &mut World) -> Vec<u8> {
             .expect("sentinel field is serialized");
         bytes.drain(at..at + marker.len());
     }
+    let mut records = Writer::new();
+    world.write_record_overrides(&mut records);
+    let at = bytes
+        .windows(records.out.len())
+        .position(|window| window == records.out)
+        .expect("record override is serialized");
+    // CONTEXT: This fixture has one override with no list fields in version 23.
+    bytes.remove(at + 39);
     bytes
 }
 
@@ -374,9 +383,8 @@ fn without_exclusive_branches(world: &mut World) -> Vec<u8> {
 fn sav_07_legacy_ids_migrate_through_all_nested_world_state() {
     for version in 15..=18_u16 {
         let mut legacy = without_exclusive_branches(&mut rich_world(255));
-        // Drop the empty version 21 cursor block and the version 20 extras.
-        // Drop the empty image-space, cursor and extras blocks.
-        legacy.truncate(legacy.len() - 29);
+        // Drop empty post-version-19 blocks, including zone visit and scene history.
+        legacy.truncate(legacy.len() - 37);
         let tail = legacy.len() - 25;
         let mut expected = rich_world(DYNAMIC_FILE);
         match version {
@@ -439,7 +447,7 @@ fn sav_16_extras_preserve_created_namespace_and_all_existing_world_state() {
     assert_eq!(loaded.state_hash(), world.state_hash());
 
     let mut legacy = without_exclusive_branches(&mut rich_world(DYNAMIC_FILE));
-    legacy.truncate(legacy.len() - 29);
+    legacy.truncate(legacy.len() - 37);
     legacy[4..6].copy_from_slice(&19_u16.to_le_bytes());
     loaded.load_state(&legacy).unwrap();
     assert_eq!(loaded.save_state(), rich_world(DYNAMIC_FILE).save_state());
@@ -468,19 +476,23 @@ fn sav_07_ambiguous_legacy_loadouts_fail_before_world_or_vm_mutation() {
 fn sav_07_unknown_version_and_mixed_legacy_namespaces_are_rejected() {
     let mut world = rich_world(DYNAMIC_FILE);
     let before = world.save_state();
-    for (version, message) in [
-        (34_u16, "world state version 34"),
-        (18, "created namespace in a legacy world state"),
-    ] {
-        let mut bytes = before.clone();
-        bytes[4..6].copy_from_slice(&version.to_le_bytes());
-        assert!(world
-            .load_state(&bytes)
-            .unwrap_err()
-            .to_string()
-            .contains(message));
-        assert_eq!(world.save_state(), before);
-    }
+    let mut future = before.clone();
+    future[4..6].copy_from_slice(&(SAVE_VERSION + 1).to_le_bytes());
+    assert!(world
+        .load_state(&future)
+        .unwrap_err()
+        .to_string()
+        .contains(&format!("world state version {}", SAVE_VERSION + 1)));
+    assert_eq!(world.save_state(), before);
+
+    let mut legacy = before.clone();
+    legacy[4..6].copy_from_slice(&18_u16.to_le_bytes());
+    assert!(world
+        .load_state(&legacy)
+        .unwrap_err()
+        .to_string()
+        .contains("created namespace in a legacy world state"));
+    assert_eq!(world.save_state(), before);
 }
 
 #[test]
@@ -498,7 +510,7 @@ fn sav_07_legacy_migration_boundary_is_the_first_colliding_plugin_position() {
             .unwrap();
     }
     let mut legacy = without_exclusive_branches(&mut rich_world(255));
-    legacy.truncate(legacy.len() - 29);
+    legacy.truncate(legacy.len() - 37);
     legacy[4..6].copy_from_slice(&18_u16.to_le_bytes());
     let mut world = World::new(order);
     world.load_state(&legacy).unwrap();
