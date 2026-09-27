@@ -28,6 +28,7 @@ pub mod controller;
 pub mod error;
 pub mod header;
 pub mod mesh;
+pub mod static_mesh;
 pub mod stream;
 pub mod tri;
 pub mod types;
