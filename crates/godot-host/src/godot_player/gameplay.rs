@@ -130,6 +130,32 @@ impl PlayerNode {
     }
 
     pub(super) fn activate_game_reference(&mut self, target: GlobalFormId) -> bool {
+        let should_pick = self.game.as_mut().is_some_and(|game| {
+            let player = game.player();
+            let pick = game.world().form("Lockpick");
+            let (locked, level, blocked) = game
+                .world_mut()
+                .reference(target)
+                .map(|reference| {
+                    (
+                        reference.locked,
+                        reference.lock_level,
+                        reference.activation_blocked,
+                    )
+                })
+                .unwrap_or((false, 0, true));
+            if !locked || level == 255 || blocked {
+                return false;
+            }
+            let key = game.world().key(target);
+            let has_key = key.is_some_and(|key| game.world_mut().item_count(player, key) > 0);
+            let has_pick = pick.is_some_and(|pick| game.world_mut().item_count(player, pick) > 0);
+            !has_key && has_pick
+        });
+        if should_pick {
+            self.open_lockpicking_menu(target);
+            return false;
+        }
         let (activated, show_container) = {
             let Some(game) = &mut self.game else {
                 return false;

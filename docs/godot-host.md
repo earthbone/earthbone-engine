@@ -1918,6 +1918,18 @@ equipped.
 The native M shortcut opens the magic menu the same way I opens inventory,
 gated on an active Game. No shortcut is yet remapped through controlmap.txt.
 
+The lockpicking presenter (UI-08) opens when player activation reaches a
+locked, non-key-only reference and the player has a lockpick but no matching
+key. Its angle slider and Turn lock button submit attempts to
+`Game::attempt_lockpick`. A miss consumes a pick and leaves the menu available
+for another angle. A successful turn closes the menu and activates the same
+reference through the ordinary Game path. The menu is presenter state only.
+CK Lock and GetLockLevel pages plus xEdit's XLOC definition establish lock
+state, level bands and the key-only level 255 case. The angle rule is the
+game crate policy documented in [game.md](game.md#authored-locks-and-keys-2026-09-19).
+Synthetic `ui_08` game tests cover both outcomes. The Godot control interaction
+has not been exercised in a running scene.
+
 Sources read for UI-03: `ck-wiki` for the EquipSpell/UnequipSpell hand
 argument and the SPEL spell type enum, `TES5Edit/Core/wbDefinitionsTES5.pas`
 for the SPIT subrecord layout, and `skyui/src/ItemMenus/magicmenu.fla` plus

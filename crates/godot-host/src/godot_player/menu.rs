@@ -228,6 +228,8 @@ impl PlayerNode {
         if !self.menu.close() {
             return false;
         }
+        self.lockpick_target = None;
+        self.lockpick_status = None;
         if let Some(game) = self.game.as_mut() {
             game.mcm_close();
         }

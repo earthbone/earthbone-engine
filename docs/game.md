@@ -1995,7 +1995,18 @@ Chest 0:016DB7 refused activation without its key, then unlocked with key
 0:03C590 while retaining the key in inventory. There are 146 leveled-lock
 flags in that survey. Their level scaling is not executed yet.
 
-Lockpicking, difficulty scaling, key-use messages, crime handling, reciprocal
+UI-08 adds `Game::attempt_lockpick`. It checks for a locked non-key-only
+reference and a carried pick. A successful turn unlocks through `set_locked`;
+a miss removes one pick through the notified inventory transaction. The host
+then runs ordinary activation after success. The sweet spot is derived from
+the reference FormID. XLOC level narrows the angle window and Lockpicking skill
+increases it, with a two-degree minimum. CK lock pages and xEdit's XLOC layout
+define lock-level ranges, not the menu's angular rule, so the angle behavior
+is runtime policy. The `ui_08` tests cover opening after a successful turn,
+pick consumption after a failed turn and the key-only lock restriction. No
+saved state was added.
+
+Vanilla minigame feel and timing, key-use messages, crime handling, reciprocal
 door lock synchronization and `Lock`'s abAsOwner public/private-cell effect
 remain pending. Lock events currently target reference scripts, without alias
 forwarding. Logical closing does not animate or update the host collision of

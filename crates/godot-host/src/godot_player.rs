@@ -43,6 +43,7 @@ mod containers;
 mod exterior;
 mod footsteps;
 mod gameplay;
+mod lockpicking;
 mod magic;
 mod melee;
 mod menu;
@@ -123,6 +124,9 @@ pub struct PlayerNode {
     menu_view: Option<menu::MenuView>,
     mcm_config: Option<GlobalFormId>,
     container_menu: Option<(GlobalFormId, crate::inventory_menu::Category)>,
+    lockpick_target: Option<GlobalFormId>,
+    lockpick_angle: f32,
+    lockpick_status: Option<Gd<godot::classes::Label>>,
     restore_mouse_on_focus: Option<godot::classes::input::MouseMode>,
 }
 
@@ -174,6 +178,9 @@ impl INode3D for PlayerNode {
             menu_view: None,
             mcm_config: None,
             container_menu: None,
+            lockpick_target: None,
+            lockpick_angle: 0.0,
+            lockpick_status: None,
             restore_mouse_on_focus: None,
         }
     }

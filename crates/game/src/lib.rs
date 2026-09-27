@@ -40,6 +40,7 @@ pub mod footsteps;
 mod game_settings;
 pub mod harness;
 pub mod inventory;
+pub mod lockpicking;
 pub mod mcm;
 pub mod moddata;
 pub mod natives;
