@@ -1538,6 +1538,15 @@ controller pose into the game, dispatches activation, ticks the VM, then
 applies script moves and door landings back to the host. The movement-only
 tests can still run without starting the game.
 
+### Furniture seating, HST-09
+
+Player activation of a FURN reference reserves an active Sit marker in the
+shared game state and moves the actor to the furniture reference transform.
+The player releases the reservation after moving more than 24 Skyrim units
+from that transform or changing cells. Activating the same furniture again
+also releases the reservation. The marker selection and saved actor state are
+described in [game.md](game.md#furniture-activation-hst-09).
+
 The ordinary load-door path uses deferred activation, including
 `arm_doorway`, `commit_doorway` and later `settle_unload`. Destination geometry
 and collision are prepared together before replacing host resources. Exterior
