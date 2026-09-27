@@ -635,9 +635,15 @@ pub fn evaluate(world: &mut World, actor: GlobalFormId, alloc: Alloc<'_>) -> Opt
         let old_value = world.form_value(Some(old), alloc);
         let name = if chosen.is_some() {
             queue_pack_fragment(world, old, actor, PackBoundary::Change, alloc);
+            if let Some(p) = package(world, old) {
+                start_boundary_action(world, old, actor, p.on_change, alloc);
+            }
             "OnPackageChange"
         } else {
             queue_pack_fragment(world, old, actor, PackBoundary::End, alloc);
+            if let Some(p) = package(world, old) {
+                start_boundary_action(world, old, actor, p.on_end, alloc);
+            }
             "OnPackageEnd"
         };
         world.pending.push(Pending::Event {
@@ -672,6 +678,7 @@ pub fn evaluate(world: &mut World, actor: GlobalFormId, alloc: Alloc<'_>) -> Opt
     if let Some(c) = chosen {
         queue_pack_fragment(world, c.package, actor, PackBoundary::Begin, alloc);
         if let Some(p) = package(world, c.package) {
+            start_boundary_action(world, c.package, actor, p.on_begin, alloc);
             ai.speed = movement_speed(
                 world,
                 actor,
@@ -695,6 +702,55 @@ pub fn evaluate(world: &mut World, actor: GlobalFormId, alloc: Alloc<'_>) -> Opt
         a.ai = ai;
     }
     running
+}
+
+fn start_boundary_action(
+    world: &mut World,
+    package_id: GlobalFormId,
+    actor: GlobalFormId,
+    action: crate::package::Action,
+    alloc: Alloc<'_>,
+) {
+    if world
+        .actor(actor)
+        .is_none_or(|state| state.dead || state.unconscious)
+    {
+        return;
+    }
+
+    if let Some(raw_idle) = action.idle {
+        if let Some(idle) = world.resolve_from(package_id, raw_idle) {
+            if let Some(name) = world.editor_id(idle) {
+                world.animation_event(actor, &name, alloc);
+            }
+        }
+    }
+
+    let Some(crate::package::Topic::Dialogue(raw_topic)) = action.topic else {
+        return;
+    };
+    let Some(topic) = world.resolve_from(package_id, raw_topic) else {
+        return;
+    };
+    let listener = world.player();
+    if listener == actor
+        || world.dialogue.session.is_some()
+        || world.actor(actor).is_none_or(|state| {
+            state.dead || state.in_combat || state.unconscious || !state.allow_pc_dialogue
+        })
+        || world.actor(listener).is_none_or(|state| state.dead)
+    {
+        return;
+    }
+    world.dialogue.greeting_actor = None;
+    world.dialogue.session = Some(crate::dialogue::Session {
+        speaker: actor,
+        listener,
+        topic: Some(topic),
+        current_info: None,
+        last_info: None,
+        response_index: 0,
+    });
 }
 
 #[derive(Clone, Copy)]
