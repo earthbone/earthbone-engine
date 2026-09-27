@@ -192,13 +192,19 @@ fn ai_27_activate_saves_attempt_state_and_rejects_old_and_future_versions() {
 #[test]
 fn ai_27_activate_honors_the_target_blocked_flag_on_shared_activation() {
     let mut game = make_game(true);
-    game.world_mut().reference(id(TARGET)).unwrap().activation_blocked = true;
+    game.world_mut()
+        .reference(id(TARGET))
+        .unwrap()
+        .activation_blocked = true;
     for _ in 0..12 {
         game.tick(0.25);
     }
     let mut world = game.world_mut();
     let ai = world.actor_ref(id(ACTOR)).unwrap().ai.clone();
-    assert!(ai.activate_started, "blocked activation was retried forever");
+    assert!(
+        ai.activate_started,
+        "blocked activation was retried forever"
+    );
     assert!(!world.reference(id(TARGET)).unwrap().opened);
     assert!(!world.reference(id(DECOY)).unwrap().opened);
 }
