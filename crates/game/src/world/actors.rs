@@ -27,14 +27,16 @@ fn apply_distributed(a: &mut ActorState, d: Distributed) {
         RecordType::Faction => {
             a.factions.entry(d.what).or_insert(0);
         }
+        RecordType::Shout => {
+            a.shouts.insert(d.what);
+        }
         // Items reach the reference's inventory in `base_inventory`, not the
         // actor state. A package would need a third source in the driver's
-        // stack and a save format change, and shouts, skins and bare forms
-        // have no actor state at all yet. Each is held in `mod_data` and
-        // counted, never silently dropped, and `docs/moddata.md` lists them.
+        // stack and a save format change. Skins and bare forms have no actor
+        // state yet. Each is held in `mod_data` and counted, never silently
+        // dropped, and `docs/moddata.md` lists them.
         RecordType::Item
         | RecordType::Package
-        | RecordType::Shout
         | RecordType::Skin
         | RecordType::Keyword
         | RecordType::Form => {}

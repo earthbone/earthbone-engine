@@ -2151,8 +2151,11 @@ ACBS, AIDT, DNAM, factions, spells, class, race, face, gender and outfit changes
 become their corresponding NPC subrecords. Saved names retain Windows-1252
 bytes and are treated as plain text even if the winning plugin is localized.
 Form and NPC text queries reuse the ESM Windows-1252 decoder. Shouts initialize
-the actor's shout collection separately from spells. PRG-11 expands leveled
-spell lists during actor initialization, as described below.
+the actor's learned shout collection separately from spells. SPID shout
+distributions add to that same collection during actor initialization, with
+repeated forms stored once. The collection is written in SOEW version 3 and
+later. PRG-11 expands leveled spell lists during actor initialization, as
+described below.
 
 CommonLib names originalRace and bodyTintColor as runtime NPC fields. The
 original race and exact four tint bytes are retained alongside the record.

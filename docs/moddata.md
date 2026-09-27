@@ -213,11 +213,13 @@ resulting keywords, distributions and swaps for engine replay.
 
 ### What is applied and what is only carried
 
-Spells, levelled spells, perks, outfits, sleep outfits and factions reach the
-actor. Items reach the inventory. Packages, shouts, skins and bare forms are
-resolved, held in `mod_data` and counted in the report, but nothing consumes
-them yet: a package needs a third source in the driver's stack and a save format
-change, and the other three are not yet connected to distribution.
+Spells, levelled spells, perks, outfits, sleep outfits, factions and shouts
+reach the actor. Shouts join the actor's learned shout set, where repeated
+rules for the same form add only one entry. That set is already part of the
+engine save format. Items reach the inventory. Packages, skins and bare forms
+are resolved, held in `mod_data` and counted in the report, but nothing
+consumes them yet. A package needs a third source in the driver's stack and a
+save format change.
 
 A distribution carrying a level or trait filter is **skipped** and counted in
 `skipped_unsupported_filter`, never applied. Those filters are not evaluated
@@ -235,3 +237,4 @@ every fixture is still authored.
 |---|---|---|
 | `crates/game/src/moddata.rs` unit | 3 | The item type to record tag map, swap fallthrough, empty distribution |
 | `crates/game/tests/moddata_apply.rs` | 9 | Each format through the game's own query paths, the skip direction, chance, determinism, and the gated scan |
+| `crates/game/tests/mod_08_distributed_shouts.rs` | 2 | A duplicate shout distribution enters learned state once and survives whole-game save/load |
