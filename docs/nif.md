@@ -22,10 +22,14 @@ everything after it.
 
 Block families with trailing fields the mesh path does not need are read as
 their base type and skipped to their recorded end: the NiNode family
-(`BSFadeNode`, `BSMultiBoundNode`, `NiSwitchNode`, ...), the NiTriShape
-family (`BSLODTriShape`) and the BSTriShape family (`BSDynamicTriShape`,
-`BSSubIndexTriShape`). Every subtype in nif.xml appends its fields after the
-base's, so the prefix read is exact.
+(`BSFadeNode`, `BSMultiBoundNode`, `NiSwitchNode`, ...) and the BSTriShape
+family (`BSDynamicTriShape`, `BSSubIndexTriShape`). `BSLODTriShape` is read as
+a `TriShape` and also exposes its three trailing LOD size values as
+`lod_sizes: Some([lod0, lod1, lod2])`. Each value remains a `u32` in the order
+declared by nif.xml. Ordinary `NiTriShape` and `NiTriStrips` blocks use
+`lod_sizes: None`. The field layout follows
+`../engine-refs/nifxml/nif.xml` and nifly's `BSLODTriShape::Sync` in
+`../engine-refs/nifly/src/Geometry.cpp`.
 
 ## Layers
 
@@ -137,6 +141,9 @@ and through skin data, strip unrolling, the SSE partition vertex buffer,
 effect shaders, Fallout 4 half positions, truncation at every third byte,
 two thousand random bit flips, a hostile block count, a wrong block size, a
 lying vertex descriptor, cycles and dangling references.
+`tests/fmt_08_bs_lod_tri_shape.rs` checks the three BSLODTriShape LOD size
+values, including values above `u16`, and verifies ordinary NiTriShape blocks
+do not report LOD sizes.
 
 `tests/real_files.rs` runs over `$SKYRIM_DATA/meshes` and
 `$SOE_NIF_SAMPLES` when set. Skyrim SE ships nearly every mesh inside

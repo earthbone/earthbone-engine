@@ -70,6 +70,8 @@ pub struct TriShape {
     pub material: MaterialData,
     pub shader: BlockRef,
     pub alpha: BlockRef,
+    /// Authored `BSLODTriShape` size values for LOD0, LOD1, and LOD2.
+    pub lod_sizes: Option<[u32; 3]>,
 }
 
 /// NiTriShapeData or NiTriStripsData, strips already unrolled to triangles.
@@ -751,7 +753,14 @@ fn read_tri_shape(s: &mut Stream<'_>, c: &Ctx<'_>) -> Result<TriShape> {
         material,
         shader,
         alpha,
+        lod_sizes: None,
     })
+}
+
+fn read_bs_lod_tri_shape(s: &mut Stream<'_>, c: &Ctx<'_>) -> Result<TriShape> {
+    let mut shape = read_tri_shape(s, c)?;
+    shape.lod_sizes = Some([s.u32()?, s.u32()?, s.u32()?]);
+    Ok(shape)
 }
 
 fn read_vec3s(s: &mut Stream<'_>, n: usize) -> Result<Vec<Vec3>> {
@@ -1204,6 +1213,7 @@ pub fn read_blocks(s: &mut Stream<'_>, h: &Header) -> Result<Vec<Block>> {
                 | "BSFadeNode"
                 | "NiTriShape"
                 | "NiTriStrips"
+                | "BSLODTriShape"
                 | "NiTriShapeData"
                 | "NiTriStripsData"
                 | "BSTriShape"
@@ -1225,6 +1235,9 @@ pub fn read_blocks(s: &mut Stream<'_>, h: &Header) -> Result<Vec<Block>> {
         ) || (type_name == "BSLightingShaderProperty" && h.bs_version < BS_FALLOUT_4);
         let block = match kind_of(&type_name) {
             Kind::Node => Block::Node(read_node(s, &c)?),
+            Kind::TriShape if type_name == "BSLODTriShape" => {
+                Block::TriShape(read_bs_lod_tri_shape(s, &c)?)
+            }
             Kind::TriShape => Block::TriShape(read_tri_shape(s, &c)?),
             Kind::TriShapeData => Block::GeometryData(read_geometry_data(s, &c, false)?),
             Kind::TriStripsData => Block::GeometryData(read_geometry_data(s, &c, true)?),
