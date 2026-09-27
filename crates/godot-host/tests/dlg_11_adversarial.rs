@@ -13,12 +13,24 @@ const VOICE: u32 = 0x501;
 const QUEST: u32 = 0x800;
 const TOPIC: u32 = 0x900;
 const INFO: u32 = 0xA00;
+const SHARED_TOPIC: u32 = 0xB00;
+const SHARED_INFO: u32 = 0xC00;
 
 fn id(object: u32) -> GlobalFormId {
     GlobalFormId { file: 0, object }
 }
 
 fn game(quest_name: &str, topic_name: &str, sound_override: u32, include_voice: bool) -> Game {
+    game_fixture(quest_name, topic_name, sound_override, include_voice, false)
+}
+
+fn game_fixture(
+    quest_name: &str,
+    topic_name: &str,
+    sound_override: u32,
+    include_voice: bool,
+    shared: bool,
+) -> Game {
     let mut plugin = Plugin::new(FileHeader::default());
     plugin.push_top(
         Record::new(Tag(*b"NPC_"), 7)
@@ -69,10 +81,14 @@ fn game(quest_name: &str, topic_name: &str, sound_override: u32, include_voice: 
     let mut trdt = [0; 24];
     trdt[12] = 3;
     trdt[16..20].copy_from_slice(&sound_override.to_le_bytes());
-    let response = Record::new(Tag(*b"INFO"), INFO)
-        .sub(Tag(*b"ENAM"), [0; 4])
-        .sub(Tag(*b"TRDT"), trdt)
-        .zsub(Tag(*b"NAM1"), "Speak now");
+    let mut response = Record::new(Tag(*b"INFO"), INFO).sub(Tag(*b"ENAM"), [0; 4]);
+    if shared {
+        response = response.sub(Tag(*b"DNAM"), SHARED_INFO.to_le_bytes());
+    } else {
+        response = response
+            .sub(Tag(*b"TRDT"), trdt)
+            .zsub(Tag(*b"NAM1"), "Speak now");
+    }
     let mut group = Group::new(GroupKind::Top(Tag(*b"DIAL")));
     group
         .entries
@@ -83,6 +99,28 @@ fn game(quest_name: &str, topic_name: &str, sound_override: u32, include_voice: 
         .push(PluginEntry::Record(plugin.push_record(response)));
     group.entries.push(PluginEntry::Group(children));
     plugin.groups.push(group);
+    if shared {
+        let shared_topic = Record::new(Tag(*b"DIAL"), SHARED_TOPIC)
+            .zsub(Tag(*b"EDID"), "SharedTopic")
+            .sub(Tag(*b"QNAM"), QUEST.to_le_bytes())
+            .sub(Tag(*b"DATA"), [0, 0, 0, 0]);
+        let shared_response = Record::new(Tag(*b"INFO"), SHARED_INFO)
+            .sub(Tag(*b"ENAM"), [0; 4])
+            .sub(Tag(*b"TRDT"), trdt)
+            .zsub(Tag(*b"NAM1"), "Shared line");
+        let mut shared_group = Group::new(GroupKind::Top(Tag(*b"DIAL")));
+        shared_group
+            .entries
+            .push(PluginEntry::Record(plugin.push_record(shared_topic)));
+        let mut shared_children = Group::new(GroupKind::TopicChildren(SHARED_TOPIC));
+        shared_children
+            .entries
+            .push(PluginEntry::Record(plugin.push_record(shared_response)));
+        shared_group
+            .entries
+            .push(PluginEntry::Group(shared_children));
+        plugin.groups.push(shared_group);
+    }
 
     let mut order = LoadOrder::new();
     order.add("Dialogue.esm", plugin).unwrap();
@@ -101,6 +139,29 @@ fn dlg_11_long_quest_and_topic_editor_ids_follow_voice_filename_limit() {
     assert_eq!(
         voice.path,
         "Sound/Voice/Dialogue.esm/VoiceHuman/QuestIdent_TopicIdentifier_00000A00_3.fuz"
+    );
+}
+
+#[test]
+fn dlg_11_short_quest_keeps_topic_characters_within_combined_limit() {
+    let mut game = game("Quest", "TopicIdentifierIsLongEnough", 0, true);
+    let line = choose(&mut game, id(TOPIC)).unwrap().unwrap();
+    let voice = voice_asset(&mut game, &line).unwrap();
+    assert_eq!(
+        voice.path,
+        "Sound/Voice/Dialogue.esm/VoiceHuman/Quest_TopicIdentifierIsLon_00000A00_3.fuz"
+    );
+}
+
+#[test]
+fn dlg_11_shared_info_uses_the_response_owner_topic_for_voice_filename() {
+    let mut game = game_fixture("Quest", "SelectedTopic", 0, true, true);
+    let line = choose(&mut game, id(TOPIC)).unwrap().unwrap();
+    assert_eq!(line.response_info, id(SHARED_INFO));
+    let voice = voice_asset(&mut game, &line).unwrap();
+    assert_eq!(
+        voice.path,
+        "Sound/Voice/Dialogue.esm/VoiceHuman/Quest_SharedTopic_00000C00_3.fuz"
     );
 }
 

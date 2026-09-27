@@ -1696,8 +1696,12 @@ asset from the response and current speaker. An explicit TRDT sound override
 does not use the generated voice path. Otherwise the path uses the response
 INFO's owning plugin filename, the DIAL and QUST editor IDs, the response
 INFO's local FormID, its response number and the speaker's VTYP editor ID.
-The quest and topic editor IDs are limited to 10 and 15 characters in the
-voice filename, following Mutagen's `GetQuestAndTopicStrings` rule.
+For shared response data, DIAL and QUST come from the response INFO's owning
+topic.
+When their combined length exceeds 25 characters, the quest ID is capped at
+10 characters if it is longer than 10, and the topic ID is capped at 15.
+For a shorter quest ID, the topic ID may use the remaining characters up to
+the combined limit. This follows Mutagen's `GetQuestAndTopicStrings` rule.
 NPC speakers take VTCK from their Traits template source. Talking activators
 take VNAM. The current speaker reference position is converted from Skyrim
 units to Godot metres and passed to `AudioStreamPlayer3D`. The filename rule
@@ -1710,6 +1714,9 @@ The menu remembers the voice slot returned by `SoundBank`. Starting a later
 response stops the prior dialogue slot first. Closing the dialogue menu and
 advancing past the final response also stop the tracked voice. SoundBank
 refuses to stop a slot that has since been released or reused for an effect.
+Vanilla FUZ playback requires the opt-in `xwma-ffmpeg` feature and an installed
+`ffmpeg` binary. The default host build reports `Unsupported::Wma` for these
+assets. The dialogue tests use a mock output and do not verify Godot playback.
 
 `godot/sound_descriptor_test.gd` verifies real descriptor playback and cache
 reuse through AudioEffectCapture. Its Godot 4.7.2 run captured 20,480 frames with
