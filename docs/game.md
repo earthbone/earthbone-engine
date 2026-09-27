@@ -2787,15 +2787,22 @@ feed the zone level into existing leveled-template selection. Template choices
 retain their existing once-per-reference lifetime. If the player level changes
 between prefetch and entry, prefetched actors retain the earlier selection even
 when entry locks a different zone level. Refreshing unobserved prefetched actors
-is not implemented. Zone locks survive unloading
-and later entry. Explicit `enter_encounter_zone` provides a fallible entry API.
-SOEW version 17 appends sorted zone locks after the version-16 item extension,
-rejects duplicate or invalid locks before changing state, and reads older saves
-with an empty lock table. Zone locks contribute to the form-state hash.
+is not implemented. Zone locks survive unloading and later entry. Explicit
+`enter_encounter_zone` provides a fallible entry API. After ten game days since
+the prior entry, a zone without the ECZN Never Resets flag clears its previous
+level lock and rebuilds its cached nonpersistent references from their winning
+records. This restores authored placement and contents. Persistent and dynamic
+references keep their state. Uncached references already read from their records
+need no work. Each entry restarts the interval. The new lock uses the current
+player level. SOEW version 34 adds
+sorted last-visit game days, rejects duplicate or invalid entries before
+changing state, and reads older saves with empty zone history. Both zone tables
+contribute to the form-state hash.
 
 Sources are local xEdit ECZN/XEZN declarations, UESP ECZN and CommonLib
-`BGSEncounterZone.h`, plus primary CK
-[Encounter Zone](https://ck.uesp.net/wiki/Encounter_Zone) documentation.
+`BGSEncounterZone.h`, plus CK Reset documentation. xEdit and CommonLib define
+Never Resets as flag bit zero. The CK Reset reference describes restoring the
+authored reference state, which this reset applies to cached references.
 The installed SkyrimSE executable, SHA256
 `846efccf0c1374d71f892907f46549560f2fcb0a75cb87a3eed438baa0f1402f`, supplied
 read-only checks of zone lookup at `0x140300ab0`, receiver level at
