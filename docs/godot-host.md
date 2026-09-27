@@ -1,5 +1,12 @@
 # godot-host: streaming, mesh and terrain for the Godot 4 host
 
+The player owns one non-positional ambience stream through a Godot
+`AudioStreamPlayer`. On a cell change it stops the prior stream and starts the
+first supported direct single-track path returned by `soe_game::ambience`.
+This uses Godot's audio server path documented by local
+`godot-docs/classes/class_audioserver.rst`. Track looping, crossfades, multiple
+regional sound descriptors and MUSC priority arbitration are not implemented.
+
 The [large world physics survey](physics.md#large-world-boundary-survey-2026-09-19)
 records the signed cell offsets, tolerances and Jolt measurements for the
 `large-world-physics` branch. Its Rust mesh conversion test and Godot server

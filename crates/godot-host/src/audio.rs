@@ -14,6 +14,75 @@
 //! target and the one vanilla audio was in before it was compressed anyway.
 
 use soe_audio::Pcm;
+use soe_esm::GlobalFormId;
+
+/// Tracks the cell and record that own the current ambience stream.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct AmbienceOwner {
+    cell: Option<GlobalFormId>,
+    descriptor: Option<GlobalFormId>,
+    path: Option<String>,
+}
+
+impl AmbienceOwner {
+    /// Replace the active ambience owner, returning whether playback changed.
+    pub fn set(&mut self, track: Option<&soe_game::ambience::Track>) -> bool {
+        let next = track.map(|track| (track.cell, track.descriptor, track.path.as_str()));
+        let current = self
+            .cell
+            .zip(self.descriptor)
+            .zip(self.path.as_deref())
+            .map(|((cell, descriptor), path)| (cell, descriptor, path));
+        if current == next {
+            return false;
+        }
+        self.cell = track.map(|track| track.cell);
+        self.descriptor = track.map(|track| track.descriptor);
+        self.path = track.map(|track| track.path.clone());
+        true
+    }
+}
+
+#[cfg(test)]
+mod ambience_owner_tests {
+    use super::*;
+
+    fn track(cell: u32, descriptor: u32, path: &str) -> soe_game::ambience::Track {
+        soe_game::ambience::Track {
+            cell: GlobalFormId {
+                file: 0,
+                object: cell,
+            },
+            descriptor: GlobalFormId {
+                file: 0,
+                object: descriptor,
+            },
+            path: path.to_owned(),
+        }
+    }
+
+    #[test]
+    fn aud_09_cell_transition_starts_eligible_ambience() {
+        let mut owner = AmbienceOwner::default();
+        assert!(owner.set(Some(&track(0x100, 0x200, r"Music\Test.wav"))));
+        assert_eq!(
+            owner.cell,
+            Some(GlobalFormId {
+                file: 0,
+                object: 0x100
+            })
+        );
+        assert_eq!(owner.path.as_deref(), Some(r"Music\Test.wav"));
+    }
+
+    #[test]
+    fn aud_09_departed_cell_releases_its_ambience_descriptor() {
+        let mut owner = AmbienceOwner::default();
+        owner.set(Some(&track(0x100, 0x200, r"Music\Test.wav")));
+        assert!(owner.set(None));
+        assert_eq!(owner, AmbienceOwner::default());
+    }
+}
 
 /// Largest magnitude a 16 bit sample can hold without wrapping to negative.
 const I16_PEAK: f32 = 32767.0;

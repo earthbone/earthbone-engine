@@ -289,6 +289,7 @@ impl PlayerNode {
             self.character = Some(id);
             self.collision_references = collision.references;
             self.loaded_cell = Some(cell);
+            self.sync_cell_ambience(cell);
             self.record_door_texture_preparation(texture_preparation);
             self.footstep_cadence.reset();
             self.motion = CameraMotion::new(feet, self.capsule_height());
