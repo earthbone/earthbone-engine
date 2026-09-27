@@ -125,6 +125,8 @@ impl Game {
                     target: None,
                     quest: None,
                     tempering_enchanted: None,
+                    alchemy_making_poison: Some(false),
+                    alchemy_effect: Some(effect),
                 };
                 if !conditions::evaluate(&mut world, &self.vm, context, &entry.conditions)? {
                     eligible = false;
@@ -272,6 +274,8 @@ impl Game {
             target: None,
             quest: None,
             tempering_enchanted: None,
+            alchemy_making_poison: None,
+            alchemy_effect: None,
         };
         if !conditions::evaluate(&mut world, &self.vm, context, &recipe.conditions)? {
             return Err(Error::Ineligible);

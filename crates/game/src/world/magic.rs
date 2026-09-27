@@ -456,6 +456,8 @@ impl World {
                 target: caster,
                 quest: None,
                 tempering_enchanted: None,
+                alchemy_making_poison: None,
+                alchemy_effect: None,
             };
             if !conditions::evaluate_without_vm(self, context, &entry.conditions)? {
                 continue;

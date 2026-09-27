@@ -55,6 +55,8 @@ fn context(actor: GlobalFormId) -> EntryPointContext {
         tabs: vec![actor],
         target: None,
         quest: None,
+        alchemy_making_poison: None,
+        alchemy_effect: None,
     }
 }
 

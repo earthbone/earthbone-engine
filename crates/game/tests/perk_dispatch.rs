@@ -61,6 +61,8 @@ fn context(actor: GlobalFormId) -> EntryPointContext {
         tabs: vec![actor],
         target: None,
         quest: None,
+        alchemy_making_poison: None,
+        alchemy_effect: None,
     }
 }
 
@@ -155,6 +157,8 @@ fn prg_08_false_conditions_and_missing_tabs_do_not_run_handlers() {
                 tabs: vec![actor, actor],
                 target: None,
                 quest: None,
+                alchemy_making_poison: None,
+                alchemy_effect: None,
             }
         ),
         Ok(0)

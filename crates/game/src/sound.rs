@@ -102,6 +102,8 @@ pub fn prepare_for(
                 target,
                 quest: None,
                 tempering_enchanted: None,
+                alchemy_making_poison: None,
+                alchemy_effect: None,
             },
             &conditions,
         )

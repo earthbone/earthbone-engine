@@ -1234,7 +1234,11 @@ earlier member can change inventory or queue events.
 Active-effect recipients remain pending with magic execution.
 
 The condition evaluator implements functions 47, 56, 58, 59, 72, 74, 136,
-182, 264, 277, 289, 359, 448, 543, 560, 629, 630 and 659. This is a bounded set,
+182, 214, 223, 264, 277, 289, 359, 378, 448, 500, 501, 543, 560, 570,
+629, 630 and 659. Functions 101 (`IsWeaponMagicOut`) and 552
+(`GetSpellUsageNum`) return typed contract diagnostics because the local xEdit
+and CK sources name their parameters but do not define a usable runtime result.
+This is a bounded set,
 not the entire CTDA contract. It supports ordered AND/OR groups, numeric or
 global comparisons, explicit references and caller-supplied quest aliases.
 Reserved PlayerRef resolves to the runtime player even without a placed record.
@@ -1254,6 +1258,19 @@ and an explicit condition error. The CK page records keyword failures on actor
 inventories and CK-defined reference inventories. The engine uses its shared
 inventory totals for both actors and containers, so keyword queries have the
 same defined result for either holder.
+
+`HasMagicEffect` matches an active MGEF on its subject. `IsSpellTarget` matches
+an active application from its magic item parameter. `HasShout` checks known
+shout membership. `HasEquippedSpell` accepts casting source 0 for left, 1 for
+right and 2 for voice. Alchemy entry-point checks read transient caller context:
+poison selection and the MGEF currently checked for keyword membership. The
+brewing path supplies potion mode and each shared effect while checking its
+ingredient conditions. Other callers receive a typed missing-context error.
+Complex perk entry-point dispatch accepts the same alchemy context and passes
+it to each tab condition.
+The spell-effect and alchemy behavior follows xEdit
+`wbDefinitionsTES5.pas` parameter metadata. CK pages for these CTDA functions
+are absent from the local `ck-wiki` corpus.
 
 Sources consulted were local xEdit `wbDefinitionsTES5.pas` for CTDA, COBJ and
 FURN WBDT, CK `GetItemCount_-_ObjectReference.wikitext` for the query forms,
