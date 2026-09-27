@@ -143,7 +143,13 @@ impl World {
         // Base Object Swapper replaces the base of a placed reference, and a
         // reference is built here rather than at start, which is why the swap
         // is held until now. See `crate::moddata`.
-        st.base = st.base.map(|b| self.mod_data.swap(b));
+        st.base = st.base.map(|base| {
+            self.mod_data
+                .reference_swaps
+                .get(&id)
+                .copied()
+                .unwrap_or_else(|| self.mod_data.swap(base))
+        });
         let properties = self
             .mod_data
             .properties

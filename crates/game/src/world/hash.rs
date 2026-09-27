@@ -789,6 +789,11 @@ impl World {
             form(&mut h, *from);
             form(&mut h, *to);
         }
+        h.len(self.mod_data.reference_swaps.len());
+        for (reference, to) in &self.mod_data.reference_swaps {
+            form(&mut h, *reference);
+            form(&mut h, *to);
+        }
         let mod_data = h.finish();
 
         WorldHash {

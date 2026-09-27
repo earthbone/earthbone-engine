@@ -68,6 +68,11 @@ pub enum Change {
         to: GlobalFormId,
         properties: String,
     },
+    /// Replace the base object of one named placed reference.
+    SwapReference {
+        to: GlobalFormId,
+        properties: String,
+    },
     /// Override a form or reference's properties, from Base Object Swapper.
     SetProperties { properties: String },
 }
@@ -197,6 +202,10 @@ pub fn resolve_bos(file: &bos::SwapFile, order: &LoadOrder) -> Vec<Patch> {
                 };
                 let change = match (section.kind, to) {
                     (bos::SwapKind::Properties, _) | (_, None) => Change::SetProperties {
+                        properties: swap.properties.clone(),
+                    },
+                    (bos::SwapKind::References, Some(to)) => Change::SwapReference {
+                        to,
                         properties: swap.properties.clone(),
                     },
                     (_, Some(to)) => Change::SwapBase {

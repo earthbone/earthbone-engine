@@ -92,6 +92,8 @@ pub struct ModDataState {
     pub actor_rules: Vec<ActorDistribution>,
     /// Base object replacements, applied when a reference is built.
     pub base_swaps: BTreeMap<GlobalFormId, GlobalFormId>,
+    /// Replacements for explicitly named references, before base swaps.
+    pub reference_swaps: BTreeMap<GlobalFormId, GlobalFormId>,
     /// BOS property overrides, applied when a reference is built.
     pub properties: BTreeMap<GlobalFormId, soe_moddata::bos::Properties>,
     pub report: ModDataReport,
@@ -529,6 +531,13 @@ fn apply_bos(world: &mut World, path: &Path, report: &mut ModDataReport) {
         match patch.change {
             Change::SwapBase { to, properties } => {
                 world.mod_data.base_swaps.insert(target, to);
+                let parsed = soe_moddata::bos::Properties::parse(&properties);
+                if parsed != soe_moddata::bos::Properties::default() {
+                    world.mod_data.properties.insert(target, parsed);
+                }
+            }
+            Change::SwapReference { to, properties } => {
+                world.mod_data.reference_swaps.insert(target, to);
                 let parsed = soe_moddata::bos::Properties::parse(&properties);
                 if parsed != soe_moddata::bos::Properties::default() {
                     world.mod_data.properties.insert(target, parsed);
