@@ -20,6 +20,7 @@ const ACTOR: u32 = 0x803;
 const A: u32 = 0x804;
 const B: u32 = 0x805;
 const C: u32 = 0x806;
+const STACKED_ENABLED: u32 = 0x807;
 
 fn id(object: u32) -> GlobalFormId {
     GlobalFormId { file: 0, object }
@@ -73,6 +74,11 @@ fn order(tree: Record, flags: u32) -> LoadOrder {
     plugin.push_top(placed(*b"REFR", A, 0, 110.0));
     plugin.push_top(placed(*b"REFR", B, 0, 220.0));
     plugin.push_top(placed(*b"REFR", C, 0, 330.0));
+    plugin.push_top(
+        Record::new(T(b"GLOB"), STACKED_ENABLED)
+            .sub(T(b"FNAM"), b"f")
+            .sub(T(b"FLTV"), 0.0f32.to_le_bytes()),
+    );
     let mut order = LoadOrder::new();
     order
         .add("Sequence.esm", Plugin::parse(&plugin.to_bytes()).unwrap())
@@ -373,7 +379,7 @@ fn a_corrupt_cursor_is_rejected_before_replacing_the_world() {
     game.tick(0.1);
     let original = game.world().save_state();
     let mut invalid = original.clone();
-    let finished = invalid.len() - 22;
+    let finished = invalid.len() - 30;
     invalid[finished] = 1;
     assert!(
         game.world_mut().load_state(&invalid).is_err(),
@@ -381,7 +387,7 @@ fn a_corrupt_cursor_is_rejected_before_replacing_the_world() {
     );
     assert_eq!(game.world().save_state(), original);
     let mut invalid = original.clone();
-    let actor_object = invalid.len() - 38;
+    let actor_object = invalid.len() - 46;
     invalid[actor_object..actor_object + 4].copy_from_slice(&0xffffu32.to_le_bytes());
     assert!(
         game.world_mut().load_state(&invalid).is_err(),
@@ -540,6 +546,68 @@ fn a_repeating_random_branch_chooses_again_only_after_child_completion() {
             .is_empty());
     }
     assert_eq!(destinations, std::collections::BTreeSet::from([110, 220]));
+}
+
+#[test]
+fn ai_15_stacked_child_resumes_its_route_after_higher_priority_work() {
+    let tree = branch(template(), "Stacked", 2, false);
+    let enabled = Condition {
+        comparison: condition::EQUAL,
+        flags: 0,
+        value: CompValue::Float(1.0),
+        function: 74,
+        param1: STACKED_ENABLED,
+        param2: 0,
+        run_on: 0,
+        reference: 0,
+        param3: -1,
+    };
+    let high_priority = travel(tree.clone(), 0, false).sub(T(b"CTDA"), enabled.to_bytes());
+    let tree = travel(high_priority, 1, false);
+    let mut game = game(tree.clone(), 0);
+
+    game.tick(0.5);
+    assert!((position(&mut game) - 55.0).abs() < 0.01);
+    game.world_mut().set_global(id(STACKED_ENABLED), 1.0);
+    game.tick(0.1);
+
+    let suspended = game
+        .world()
+        .actor_ref(id(ACTOR))
+        .unwrap()
+        .ai
+        .tree
+        .as_ref()
+        .unwrap()
+        .stacked
+        .clone();
+    assert_eq!(suspended.len(), 1);
+    assert_eq!(
+        game.world()
+            .actor_ref(id(ACTOR))
+            .unwrap()
+            .ai
+            .tree
+            .as_ref()
+            .unwrap()
+            .branch,
+        1
+    );
+    let saved = game.save_state().unwrap();
+    let mut restored = Game::new(order(tree, 0));
+    restored.load_state(&saved).unwrap();
+    assert_eq!(
+        restored.world().actor_ref(id(ACTOR)).unwrap().ai.tree,
+        game.world().actor_ref(id(ACTOR)).unwrap().ai.tree
+    );
+
+    for _ in 0..4 {
+        game.tick(0.5);
+        restored.tick(0.5);
+        assert_eq!(restored.world().save_state(), game.world().save_state());
+    }
+    assert_eq!(position(&mut game), 220.0);
+    assert_eq!(game.world().current_package(id(ACTOR)), Some(id(PACK)));
 }
 
 #[test]

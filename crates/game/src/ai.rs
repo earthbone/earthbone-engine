@@ -1294,6 +1294,36 @@ pub(crate) fn write_tree_state(w: &mut Writer, tree: Option<&TreeState>) {
         w.u32(tree.branch);
         w.bool(tree.active);
         w.bool(tree.finished);
+        w.len(tree.stacked_completed.len());
+        for child in &tree.stacked_completed {
+            w.u32(*child);
+        }
+        w.len(tree.stacked.len());
+        for frame in &tree.stacked {
+            w.u32(frame.parent);
+            w.u32(frame.branch);
+            w.bool(frame.active);
+            let execution = &frame.execution;
+            let state = AiState {
+                procedure: execution.procedure.clone(),
+                destination: execution.destination,
+                path: execution.path.clone(),
+                path_cells: execution.path_cells.clone(),
+                arrived: execution.arrived,
+                sleeping: execution.sleeping,
+                bed: execution.bed,
+                center: execution.center,
+                center_cell: execution.center_cell,
+                radius: execution.radius,
+                dwell_until: execution.dwell_until,
+                wait_until: execution.wait_until,
+                patrol: execution.patrol.clone(),
+                speed: execution.speed,
+                start_position: execution.start_position,
+                ..Default::default()
+            };
+            write_record_state(w, &state);
+        }
     }
 }
 
@@ -1375,10 +1405,21 @@ pub(crate) fn read_state_mapped(r: &mut FormReader<'_, '_>) -> Result<AiState, V
 }
 
 pub(crate) fn read_tree_state(r: &mut Reader<'_>) -> Result<Option<TreeState>, VmError> {
+    read_tree_state_version(r, true)
+}
+
+pub(crate) fn read_tree_state_legacy(r: &mut Reader<'_>) -> Result<Option<TreeState>, VmError> {
+    read_tree_state_version(r, false)
+}
+
+fn read_tree_state_version(
+    r: &mut Reader<'_>,
+    has_stacked: bool,
+) -> Result<Option<TreeState>, VmError> {
     if !r.bool()? {
         return Ok(None);
     }
-    let state = TreeState {
+    let mut state = TreeState {
         owner: GlobalFormId {
             file: r.u16()?,
             object: r.u32()?,
@@ -1386,11 +1427,30 @@ pub(crate) fn read_tree_state(r: &mut Reader<'_>) -> Result<Option<TreeState>, V
         branch: r.u32()?,
         active: r.bool()?,
         finished: r.bool()?,
+        stacked: Vec::new(),
+        stacked_completed: Vec::new(),
     };
     if state.active && state.finished {
         return Err(VmError::State(
             "finished package tree has an active child".into(),
         ));
+    }
+    if has_stacked {
+        for _ in 0..r.len()? {
+            state.stacked_completed.push(r.u32()?);
+        }
+        for _ in 0..r.len()? {
+            let parent = r.u32()?;
+            let branch = r.u32()?;
+            let active = r.bool()?;
+            let restored = read_state_mapped(&mut FormReader::new(r, FormNamespace::Current))?;
+            state.stacked.push(tree::StackedState {
+                parent,
+                branch,
+                active,
+                execution: tree::ExecutionState::capture(&restored),
+            });
+        }
     }
     Ok(Some(state))
 }
@@ -1555,6 +1615,8 @@ mod tests {
                 branch: 2,
                 active: true,
                 finished: false,
+                stacked: Vec::new(),
+                stacked_completed: Vec::new(),
             }),
             destination: Some([1.0, 2.0, 3.0]),
             path: vec![[4.0, 5.0, 6.0]],

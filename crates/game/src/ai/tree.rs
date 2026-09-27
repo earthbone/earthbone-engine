@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! Sequential and random PACK execution from xEdit's PRCB counts and repeat flag.
+//! Sequential, random and stacked PACK execution from xEdit's PRCB counts and repeat flag.
 //! The author test in Nexus thread 11591393 confirms that nested repeat
 //! restarts that branch alone. Progress belongs to the actor, definitions to PACK.
 //! Random single-child execution follows the CK examples in Nexus article 2467
@@ -11,12 +11,42 @@ use crate::package::{branch_ends, Branch, DataValue, LocationData, Package};
 use soe_esm::GlobalFormId;
 
 /// A cursor into the preorder branches of a winning template.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct TreeState {
     pub owner: GlobalFormId,
     pub branch: u32,
     pub active: bool,
     pub finished: bool,
+    pub stacked: Vec<StackedState>,
+    pub stacked_completed: Vec<u32>,
+}
+
+/// A lower-priority child paused while an earlier Stacked child runs.
+#[derive(Debug, Clone, PartialEq)]
+pub struct StackedState {
+    pub(super) parent: u32,
+    pub(super) branch: u32,
+    pub(super) active: bool,
+    pub(super) execution: ExecutionState,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(super) struct ExecutionState {
+    pub(super) procedure: Procedure,
+    pub(super) destination: Option<[f32; 3]>,
+    pub(super) path: Vec<[f32; 3]>,
+    pub(super) path_cells: Vec<Option<GlobalFormId>>,
+    pub(super) arrived: bool,
+    pub(super) sleeping: bool,
+    pub(super) bed: Option<GlobalFormId>,
+    pub(super) center: Option<[f32; 3]>,
+    pub(super) center_cell: Option<GlobalFormId>,
+    pub(super) radius: f32,
+    pub(super) dwell_until: f64,
+    pub(super) wait_until: Option<f64>,
+    pub(super) patrol: Option<super::PatrolState>,
+    pub(super) speed: f32,
+    pub(super) start_position: [f32; 3],
 }
 
 struct Tree {
@@ -120,6 +150,68 @@ impl Tree {
             index = parent;
         }
     }
+
+    fn stacked_parent(&self, index: usize) -> Option<(usize, usize)> {
+        let mut child = index;
+        while let Some(parent) = self.parents.get(child).copied().flatten() {
+            if self.branches[parent].kind.eq_ignore_ascii_case("stacked") {
+                return Some((parent, child));
+            }
+            child = parent;
+        }
+        None
+    }
+
+    fn child_under(&self, index: usize, parent: usize) -> Option<usize> {
+        let mut child = index;
+        while let Some(ancestor) = self.parents.get(child).copied().flatten() {
+            if ancestor == parent {
+                return Some(child);
+            }
+            child = ancestor;
+        }
+        None
+    }
+}
+
+impl ExecutionState {
+    pub(super) fn capture(ai: &AiState) -> Self {
+        Self {
+            procedure: ai.procedure.clone(),
+            destination: ai.destination,
+            path: ai.path.clone(),
+            path_cells: ai.path_cells.clone(),
+            arrived: ai.arrived,
+            sleeping: ai.sleeping,
+            bed: ai.bed,
+            center: ai.center,
+            center_cell: ai.center_cell,
+            radius: ai.radius,
+            dwell_until: ai.dwell_until,
+            wait_until: ai.wait_until,
+            patrol: ai.patrol.clone(),
+            speed: ai.speed,
+            start_position: ai.start_position,
+        }
+    }
+
+    fn restore(self, ai: &mut AiState) {
+        ai.procedure = self.procedure;
+        ai.destination = self.destination;
+        ai.path = self.path;
+        ai.path_cells = self.path_cells;
+        ai.arrived = self.arrived;
+        ai.sleeping = self.sleeping;
+        ai.bed = self.bed;
+        ai.center = self.center;
+        ai.center_cell = self.center_cell;
+        ai.radius = self.radius;
+        ai.dwell_until = self.dwell_until;
+        ai.wait_until = self.wait_until;
+        ai.patrol = self.patrol;
+        ai.speed = self.speed;
+        ai.start_position = self.start_position;
+    }
 }
 
 fn procedure(branch: &Branch) -> Procedure {
@@ -182,6 +274,8 @@ pub(super) fn start(world: &mut World, actor: GlobalFormId, ai: &mut AiState) {
             branch: 0,
             active: false,
             finished: false,
+            stacked: Vec::new(),
+            stacked_completed: Vec::new(),
         });
     enter(world, actor, ai);
 }
@@ -190,7 +284,7 @@ pub(super) fn enter(world: &mut World, actor: GlobalFormId, ai: &mut AiState) {
     let Some(mut state) = ai.tree.take() else {
         return;
     };
-    if state.active || state.finished {
+    if state.finished {
         ai.tree = Some(state);
         return;
     }
@@ -204,18 +298,45 @@ pub(super) fn enter(world: &mut World, actor: GlobalFormId, ai: &mut AiState) {
         ai.tree = Some(state);
         return;
     }
+    if state.active {
+        if let Some((parent, active_child)) = tree.stacked_parent(state.branch as usize) {
+            let mut child = parent + 1;
+            while child < active_child {
+                let next = tree.ends[child];
+                if !state.stacked_completed.contains(&(child as u32))
+                    && conditions_hold(
+                        world,
+                        actor,
+                        tree.owner,
+                        quest_for(world, ai),
+                        &tree.branches[child].conditions,
+                    )
+                {
+                    state.stacked.push(StackedState {
+                        parent: parent as u32,
+                        branch: state.branch,
+                        active: true,
+                        execution: ExecutionState::capture(ai),
+                    });
+                    state.branch = child as u32;
+                    state.active = false;
+                    break;
+                }
+                child = next;
+            }
+        }
+    }
+    if state.active {
+        ai.tree = Some(state);
+        return;
+    }
     // CONTEXT: The driver holds a working copy while branch conditions query
     // the actor's current package and sleeping state through the shared world.
     if let Some(actor_state) = world.actor(actor) {
         actor_state.ai = ai.clone();
         actor_state.ai.tree = Some(state.clone());
     }
-    let quest = ai.alias.map(|(q, _)| q).or_else(|| {
-        let id = ai.package?;
-        package(world, id)?
-            .owner_quest
-            .and_then(|raw| world.resolve_from(id, raw))
-    });
+    let quest = quest_for(world, ai);
     let mut checked = None;
     // CONTEXT: An empty repeating branch must yield rather than spin in one tick.
     for _ in 0..=tree.branches.len() {
@@ -259,6 +380,34 @@ pub(super) fn enter(world: &mut World, actor: GlobalFormId, ai: &mut AiState) {
                 state.branch = child as u32;
                 // CONTEXT: RandomPercent conditions must not roll again on entry.
                 checked = Some(child);
+            }
+            continue;
+        }
+        if branch.kind.eq_ignore_ascii_case("stacked") && branch.procedure.is_none() {
+            let mut child = index + 1;
+            let mut selected = None;
+            while child < tree.ends[index] {
+                if !state.stacked_completed.contains(&(child as u32))
+                    && conditions_hold(
+                        world,
+                        actor,
+                        tree.owner,
+                        quest,
+                        &tree.branches[child].conditions,
+                    )
+                {
+                    selected = Some(child);
+                    break;
+                }
+                child = tree.ends[child];
+            }
+            if let Some(child) = selected {
+                state.branch = child as u32;
+                checked = Some(child);
+            } else if branch.repeat_when_complete {
+                break;
+            } else {
+                tree.after(index, &mut state);
             }
             continue;
         }
@@ -317,6 +466,15 @@ pub(super) fn patrol_parameters(
     tree.patrol_parameters(branch)
 }
 
+fn quest_for(world: &World, ai: &AiState) -> Option<GlobalFormId> {
+    ai.alias.map(|(quest, _)| quest).or_else(|| {
+        let id = ai.package?;
+        package(world, id)?
+            .owner_quest
+            .and_then(|raw| world.resolve_from(id, raw))
+    })
+}
+
 pub(super) fn succeeded(world: &World, ai: &mut AiState) {
     let Some(mut state) = ai.tree.take() else {
         return;
@@ -331,11 +489,47 @@ pub(super) fn succeeded(world: &World, ai: &mut AiState) {
     };
     let index = state.branch as usize;
     if let Some(branch) = tree.branches.get(index) {
+        let mut stacked_children = Vec::new();
+        let mut child = index;
+        while let Some(parent) = tree.parents.get(child).copied().flatten() {
+            if tree.branches[parent].kind.eq_ignore_ascii_case("stacked") {
+                stacked_children.push(child);
+            }
+            child = parent;
+        }
         state.active = false;
         if branch.success_completes_package {
             state.finished = true;
         } else {
             tree.after(index, &mut state);
+            for child in stacked_children {
+                if state.branch as usize >= tree.ends[child] {
+                    state.stacked_completed.push(child as u32);
+                }
+            }
+            if let Some(parent) = tree.branches.get(state.branch as usize) {
+                if parent.kind.eq_ignore_ascii_case("stacked") {
+                    let parent_index = state.branch as usize;
+                    state.stacked_completed.retain(|child| {
+                        *child as usize <= parent_index
+                            || *child as usize >= tree.ends[parent_index]
+                    });
+                }
+            }
+            while let Some(frame) = state.stacked.last() {
+                let parent = frame.parent as usize;
+                let Some(child) = tree.child_under(index, parent) else {
+                    break;
+                };
+                if (state.branch as usize) < tree.ends[child] {
+                    break;
+                }
+                let frame = state.stacked.pop().unwrap_or_else(|| unreachable!());
+                state.branch = frame.branch;
+                state.active = frame.active;
+                state.finished = false;
+                frame.execution.restore(ai);
+            }
         }
     }
     ai.tree = Some(state);

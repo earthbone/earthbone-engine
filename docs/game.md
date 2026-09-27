@@ -694,7 +694,7 @@ to an idle marker, sleep on schedule and wake at 08:00, take an alias
 package over the base list, switch at once from a script's
 `EvaluatePackage`, and keep walking after a save and load.
 
-**Not done.** Simultaneous and stacked branches (AI-14 and AI-15),
+**Not done.** Simultaneous branches (AI-14),
 the other 16 procedures and the Patrol modes tracked by AI-88 through AI-91,
 calling the `On Begin`, `On End` and `On Change` package fragments at
 package boundaries (`vmad::Vmad` decodes them from `VMAD` on `PACK`, the
@@ -838,7 +838,7 @@ either.
 
 `World::save_state(&self) -> Vec<u8>` and `World::load_state(&mut self,
 bytes) -> Result<(), VmError>` write and read the run-time half of the form
-table, magic `SOEW`, version 29. Versions 4 to 6 use legacy actor values,
+table, magic `SOEW`, version 34. Versions 4 to 6 use legacy actor values,
 version 5 adds active magic, version 6 adds dialogue, version 7 adds actor-value
 components, version 8 adds dialogue to those components, and version 9 adds
 active magic. Version 10 adds per-reference leveled template choices.
@@ -855,7 +855,8 @@ locked encounter-zone levels, version 28 the do-all dialogue cycles, and
 version 29 an actor's stagger end time. Version 30 appends shared stealth-point
 pools with each observer's detection level and timers, written only when a pool
 exists. Version 31 adds the set of perpetrators an actor witnessed committing a
-tracked crime.
+tracked crime. Version 34 appends suspended procedure state for stacked PACK
+branches.
 version 5 adds active magic, version 6 adds dialogue, version 7 adds actor-value
 components, version 8 adds dialogue to those components, version 9 adds
 active magic. Version 10 adds per-reference leveled template choices.
@@ -2318,6 +2319,25 @@ Tests extend `package_sequences.rs` with single-child selection, candidate
 conditions, nested sequences, repeat, empty groups, one condition evaluation,
 and save/load equality of both movement and the subsequent RNG draw.
 
+### Stacked package branches
+
+AI-15 evaluates a Stacked branch's immediate children in authored order and
+starts the first child whose conditions pass. While a later child is active,
+conditions on earlier children are checked on each actor driver tick. When an
+earlier child becomes eligible, the driver saves the active child's procedure
+cursor and movement state, then runs the earlier child. On its completion, the
+saved child resumes at its prior route, timer or procedure state. A suspended
+child and its procedure state are part of SOEW version 34. Versions 4 to 33
+remain readable without suspended stacked state.
+
+The UESP PACK layout identifies Stacked as a group branch. Local CommonLib
+headers identify per-node procedure execution state but do not document its
+runtime scheduling. This implementation uses child order as priority and the
+existing actor procedure state for suspension. `tests/package_sequences.rs`
+checks that a conditionally enabled earlier child interrupts and returns to an
+in-progress Travel child, including across save/load. No installed-game survey
+is part of AI-15.
+
 ### Wait package procedure
 
 AI-34 resolves ordered Wait parameters through the package template chain.
@@ -3108,8 +3128,8 @@ the existing weapon-hand fields, for World/replay determinism.
 written unconditionally (the writer always emits the current format) and read
 behind `if version >= 32`, the same pattern `witnessed_crimes` used for
 version 31. An older save simply loads with both hands empty, matching how a
-pre-31 save loads with no witnessed crimes. The version-31 unknown-version
-probe in `save_tests.rs` moved to 33 so it still names a version past the
+pre-31 save loads with no witnessed crimes. The version-34 unknown-version
+probe in `save_tests.rs` moved to 35 so it still names a version past the
 current one.
 
 `natives.rs`'s `EquipSpell`/`UnequipSpell`/`GetEquippedSpell` now share
