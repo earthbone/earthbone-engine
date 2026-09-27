@@ -79,6 +79,22 @@ The FURN field layout follows local xEdit `wbRecord(FURN)` and
 from those definitions. Marker transforms are not read from the furniture
 model by this path.
 
+### Player sleep, HST-11
+
+`World::sleep_at_furniture` accepts only enabled, non-deleted FURN references
+with an active FNPR Sleep marker and an available reservation. It places the
+player at the bed, emits `OnSleepStart`, advances the shared clock for the
+requested elapsed game hours, emits `OnSleepStop` with the interruption flag,
+and releases the marker. Non-finite or non-positive durations, a paused
+timescale, inactive markers and occupied markers leave the clock unchanged.
+`Game::sleep_player_at_furniture` settles the queued Papyrus events.
+
+This marker path follows local xEdit `wbRecord(FURN)` and
+`uesp-modfileformat/FURN.wikitext`: FNPR value 2 is Sleep, and the low 24 MNAM
+bits enable marker indices 0 through 23. The CK furniture-use pages describe
+reservations as in-use, so an occupied marker cannot be selected by another
+actor. The host currently completes an eight-hour sleep on bed activation.
+
 `vanilla_save::SavedFormMap` remaps ESS references through saved plugin names,
 including regular and light slots. `World::restore_vanilla_globals` atomically
 applies the global table to winning GLOB forms. Values reach the existing

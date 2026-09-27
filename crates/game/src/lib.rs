@@ -572,6 +572,23 @@ impl Game {
         ok
     }
 
+    /// Complete player sleep at a furniture reference and deliver its sleep events.
+    pub fn sleep_player_at_furniture(
+        &mut self,
+        furniture: GlobalFormId,
+        elapsed_hours: f64,
+        interrupted: bool,
+    ) -> bool {
+        let slept =
+            self.world
+                .borrow_mut()
+                .sleep_at_furniture(furniture, elapsed_hours, interrupted);
+        if slept {
+            self.run_until_idle(64);
+        }
+        slept
+    }
+
     /// Move an inventory item between two references through the same notified
     /// transaction that Papyrus `RemoveItem` uses. A rejected transfer leaves
     /// both holders unchanged.
