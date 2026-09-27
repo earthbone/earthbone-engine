@@ -58,7 +58,8 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// script equip survives a reload the way a hand weapon selection already did.
 /// Version 33 retains the spawned reference owned by each Summon Creature effect.
 /// Version 34 retains suspended Stacked package child state.
-pub const SAVE_VERSION: u16 = 34;
+/// Version 35 retains the active Patrol mount reference.
+pub const SAVE_VERSION: u16 = 35;
 
 #[derive(Clone, Copy)]
 pub(crate) enum FormNamespace {
@@ -949,11 +950,7 @@ impl World {
                 let actor = actors
                     .get_mut(&id)
                     .ok_or_else(|| VmError::State("package cursor names a missing actor".into()))?;
-                let tree = if version >= 34 {
-                    crate::ai::read_tree_state(&mut r)?
-                } else {
-                    crate::ai::read_tree_state_legacy(&mut r)?
-                };
+                let tree = crate::ai::read_tree_state_for_version(&mut r, version)?;
                 if !seen.insert(id) || actor.ai.package.is_none() || tree.is_none() {
                     return Err(VmError::State("invalid package cursor entry".into()));
                 }
@@ -1487,7 +1484,7 @@ fn read_actor_state(r: &mut FormReader<'_, '_>, version: u16) -> Result<ActorSta
     if r.bool()? {
         a.race = Some(read_form_id(r)?);
     }
-    a.ai = crate::ai::read_state_mapped(r)?;
+    a.ai = crate::ai::read_state_mapped_version(r, version)?;
     if version < 23 && a.ai.procedure == crate::ai::Procedure::Patrol {
         return Err(VmError::State(
             "Patrol procedure requires world version 23".into(),

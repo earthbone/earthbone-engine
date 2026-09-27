@@ -2462,12 +2462,20 @@ cell, availability and current route membership are checked before movement.
 Changed positions or cells invalidate the old path. Malformed links, non-root
 cycles and a single-marker open repeat report Unsupported before walking.
 
-The saved Patrol state contains its chosen start, current marker, direction
-and optional dwell deadline. The route, marker properties and procedure inputs
-remain on the winning records and are reread. SOEW version 18 adds the Patrol
-procedure tag and progress. Earlier versions 4 through 17 remain readable.
-Invalid deadlines and Patrol tags under older headers are rejected before
-world replacement. Vanilla ESS Patrol state is not restored by this change.
+The saved Patrol state contains its chosen start, current marker, direction,
+optional dwell deadline and selected mount reference. With
+`RideHorseIfPossible`, the driver selects the first reference-sorted owned,
+enabled, living actor whose race has `ActorTypeHorse` and which another active
+Patrol does not use. The horse follows the rider's placement and cell. If the
+horse is no longer owned by the actor or its faction, is disabled, deleted,
+dead or unconscious, Patrol clears the mount and keeps its route cursor while
+the actor continues on foot. When no horse qualifies the actor walks on foot.
+The route, marker properties and procedure inputs remain on the
+winning records and are reread. SOEW version 18 adds the Patrol procedure tag
+and progress. Version 35 adds the selected mount reference. Earlier versions
+4 through 34 remain readable. Invalid deadlines and Patrol tags under older
+headers are rejected before world replacement. Vanilla ESS Patrol state is
+not restored by this change.
 
 Local xEdit PACK PKC2/PTDA and REFR XLKR/XPRD/XPPA/INAM/PDTO supply the layouts.
 Mutagen's `Records/Common Subrecords/Patrol.xml` confirms the patrol group.
@@ -2483,13 +2491,15 @@ The row was split before implementation. AI-88 covers marker idle, furniture
 and topic actions and depends on AI-23 and HST-09. AI-89 covers mounted Patrol.
 AI-90 establishes StaticPathing and omitted-input defaults. AI-91 covers
 additional target modes, including aliases and object-list results from AI-33.
-Requested actions, mounted or static modes, additional targets and malformed
-inputs report Unsupported. They are not silently treated as ordinary walking.
+Requested marker actions, static mode, additional targets and malformed inputs
+report Unsupported. They are not silently treated as ordinary walking.
 
 `tests/package_patrol.rs` exercises linked order, final dwell, open and circular
 repeat, nearest entry, radius budgets, menu timing, save/resume during travel,
 dwell and reversal, winning-template namespaces, live marker changes, action
-field contexts and invalid state. These are headless synthetic behavior checks.
+field contexts and invalid state. `tests/ai_89_mounted_patrol.rs` checks owned
+horse selection, mounted movement, route retention after dismount and saved
+mount restoration. These are headless synthetic behavior checks.
 The installed-data survey establishes parameter representation, not a measured
 Patrol run in Skyrim or Godot.
 

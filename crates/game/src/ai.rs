@@ -34,7 +34,7 @@ use crate::clock::GameClock;
 use crate::package::{
     condition, flags, speed, CompValue, Condition, Location, LocationData, Package, Schedule,
 };
-use crate::world::save::{read_form_id, read_opt_form_id, FormNamespace, FormReader};
+use crate::world::save::{read_form_id, read_opt_form_id, FormNamespace, FormReader, SAVE_VERSION};
 use crate::world::{Alloc, Handle, Pending, World};
 
 mod patrol;
@@ -1229,6 +1229,7 @@ fn step(world: &mut World, actor: GlobalFormId, dt: f32) {
     }
     if ai.procedure == Procedure::Patrol {
         patrol::tick(world, &mut ai);
+        patrol::follow_mount_after_movement(world, actor, &mut ai);
     }
     if let Some(a) = world.actor(actor) {
         a.ai = ai;
@@ -1390,6 +1391,13 @@ pub fn read_state(r: &mut Reader<'_>) -> Result<AiState, VmError> {
 }
 
 pub(crate) fn read_state_mapped(r: &mut FormReader<'_, '_>) -> Result<AiState, VmError> {
+    read_state_mapped_version(r, SAVE_VERSION)
+}
+
+pub(crate) fn read_state_mapped_version(
+    r: &mut FormReader<'_, '_>,
+    version: u16,
+) -> Result<AiState, VmError> {
     let mut a = AiState {
         package: read_opt_form_id(r)?,
         ..Default::default()
@@ -1405,7 +1413,7 @@ pub(crate) fn read_state_mapped(r: &mut FormReader<'_, '_>) -> Result<AiState, V
         3 => Procedure::Sleep,
         4 => Procedure::Unsupported(r.str()?),
         6 => {
-            a.patrol = Some(patrol::read(r)?);
+            a.patrol = Some(patrol::read(r, version >= 35)?);
             Procedure::Patrol
         }
         5 => {
@@ -1454,17 +1462,17 @@ pub(crate) fn read_state_mapped(r: &mut FormReader<'_, '_>) -> Result<AiState, V
 }
 
 pub(crate) fn read_tree_state(r: &mut Reader<'_>) -> Result<Option<TreeState>, VmError> {
-    read_tree_state_version(r, true)
+    read_tree_state_version(r, SAVE_VERSION)
 }
 
-pub(crate) fn read_tree_state_legacy(r: &mut Reader<'_>) -> Result<Option<TreeState>, VmError> {
-    read_tree_state_version(r, false)
-}
-
-fn read_tree_state_version(
+pub(crate) fn read_tree_state_for_version(
     r: &mut Reader<'_>,
-    has_stacked: bool,
+    version: u16,
 ) -> Result<Option<TreeState>, VmError> {
+    read_tree_state_version(r, version)
+}
+
+fn read_tree_state_version(r: &mut Reader<'_>, version: u16) -> Result<Option<TreeState>, VmError> {
     if !r.bool()? {
         return Ok(None);
     }
@@ -1484,7 +1492,7 @@ fn read_tree_state_version(
             "finished package tree has an active child".into(),
         ));
     }
-    if has_stacked {
+    if version >= 34 {
         for _ in 0..r.len()? {
             state.stacked_completed.push(r.u32()?);
         }
@@ -1492,7 +1500,10 @@ fn read_tree_state_version(
             let parent = r.u32()?;
             let branch = r.u32()?;
             let active = r.bool()?;
-            let restored = read_state_mapped(&mut FormReader::new(r, FormNamespace::Current))?;
+            let restored = read_state_mapped_version(
+                &mut FormReader::new(r, FormNamespace::Current),
+                version,
+            )?;
             state.stacked.push(tree::StackedState {
                 parent,
                 branch,
