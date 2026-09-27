@@ -427,7 +427,7 @@ impl World {
                     return Err(MagicError::Target);
                 }
             }
-            if !matches!(data.archetype, 0 | 1 | 2 | 5 | 18) {
+            if !matches!(data.archetype, 0 | 1 | 2 | 5 | 18 | 44) {
                 return Err(MagicError::Unsupported("effect archetype"));
             }
             if data.taper_duration != 0.0 {

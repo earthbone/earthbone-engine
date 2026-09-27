@@ -73,7 +73,7 @@ pub struct Observation {
 pub struct Senses {
     /// The observer's current Sneak actor value.
     pub observer_sneak: f32,
-    /// The target's current Sneak actor value.
+    /// The target's effective Sneak value, including active Disguise effects.
     pub target_sneak: f32,
     /// Summed weight of the target's worn armor records.
     pub armor_weight: f32,
@@ -431,6 +431,8 @@ pub enum Error {
     Setting(&'static str),
     #[error("invalid worn armor record {0}")]
     Armor(GlobalFormId),
+    #[error("invalid active magic effect record {0}")]
+    Effect(GlobalFormId),
     #[error("non-finite detection calculation")]
     Number,
 }
