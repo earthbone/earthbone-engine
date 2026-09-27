@@ -897,6 +897,39 @@ impl<'a> Interpreter<'a> {
         &self.output
     }
 
+    fn apply_keyframe_bones_modifier(&self, id: NodeId, output: &mut Output) {
+        if !self.nodes[id.0].active {
+            return;
+        }
+        let NodeKind::KeyframeBonesModifier {
+            keyframe_info,
+            keyframed_bones,
+            ..
+        } = &self.graph.node(id).kind
+        else {
+            return;
+        };
+        for info in keyframe_info.iter().filter(|info| info.is_valid) {
+            if keyframed_bones
+                .as_ref()
+                .is_some_and(|bones| !bones.contains(&info.bone_index))
+            {
+                continue;
+            }
+            let Ok(bone) = usize::try_from(info.bone_index) else {
+                continue;
+            };
+            let Some(transform) = output.pose.get_mut(bone) else {
+                continue;
+            };
+            transform.translation = info.position;
+            transform.rotation = info.rotation;
+            if let Some(weight) = output.bone_weights.get_mut(bone) {
+                *weight = 1.0;
+            }
+        }
+    }
+
     /// The modifier records the interval supplied to this graph update. It
     /// runs after generation so only the modifier subtree reached this frame
     /// can publish it through an output binding.
@@ -1030,6 +1063,7 @@ impl<'a> Interpreter<'a> {
             | NodeKind::IsActiveModifier { enable, .. }
             | NodeKind::FalseToTrueModifier { enable, .. }
             | NodeKind::DecomposeVector { enable, .. }
+            | NodeKind::KeyframeBonesModifier { enable, .. }
             | NodeKind::Modifier { enable } => *enable,
             _ => true,
         };
@@ -1202,6 +1236,7 @@ impl<'a> Interpreter<'a> {
             | NodeKind::GetTimeStepModifier { .. }
             | NodeKind::IsActiveModifier { .. }
             | NodeKind::DecomposeVector { .. }
+            | NodeKind::KeyframeBonesModifier { .. }
             | NodeKind::Modifier { .. }
             | NodeKind::Unknown => {}
         }
@@ -1620,18 +1655,23 @@ impl<'a> Interpreter<'a> {
                 modifier,
                 generator,
             } => {
+                let start = self.modifier_order.len();
                 if let Some(modifier) = modifier {
-                    let start = self.modifier_order.len();
                     self.sync_modifier(*modifier);
                     for index in start..self.modifier_order.len() {
                         let node = self.modifier_order[index];
                         self.update_modifier(node);
                     }
                 }
-                match generator {
+                let modifiers = self.modifier_order[start..].to_vec();
+                let mut output = match generator {
                     Some(generator) => self.generate(*generator, dt),
                     None => self.reference_output(),
+                };
+                for modifier in modifiers {
+                    self.apply_keyframe_bones_modifier(modifier, &mut output);
                 }
+                output
             }
             NodeKind::IStateTagging {
                 default_generator: generator,
@@ -1688,6 +1728,7 @@ impl<'a> Interpreter<'a> {
             | NodeKind::IsActiveModifier { .. }
             | NodeKind::FalseToTrueModifier { .. }
             | NodeKind::DecomposeVector { .. }
+            | NodeKind::KeyframeBonesModifier { .. }
             | NodeKind::Modifier { .. } => self.reference_output(),
         }
     }

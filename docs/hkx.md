@@ -198,6 +198,9 @@ the worklist for widening the model.
 The graph's symbol tables come with it: event names, variable names with
 types and roles, attribute defaults, character property names, and the
 initial variable values. Ids in nodes index these tables directly.
+`hkbKeyframeBonesModifier` stores its keyframe entries as position,
+rotation, bone index, and validity fields. Its optional bone-index array
+restricts which entries can affect the output pose.
 
 ## 5. Interpreter design
 
@@ -369,7 +372,10 @@ What each node does:
   `BSBoneSwitch`, `BSOffsetAnimation`, `BSSynchronizedClip`,
   `BSCyclicBlendTransition`) pass their generator child through.
   `hkbModifierGenerator` also gives an enabled modifier child activation and
-  deactivation lifecycle.
+  deactivation lifecycle. `hkbKeyframeBonesModifier` replaces position and
+  rotation for valid, in-range entries when enabled. A present
+  `keyframedBonesList` further restricts those entries. Scale and bones
+  outside the selected entries retain the generator output.
 - `hkbBehaviorReferenceGenerator` and unmodelled classes yield the
   reference pose at weight zero and are listed in `Unsupported`.
 
