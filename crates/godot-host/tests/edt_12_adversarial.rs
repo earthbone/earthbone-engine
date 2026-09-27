@@ -24,12 +24,13 @@ fn continuous_cells(chosen: LodBlockCoord) -> HashMap<CellCoord, CellHeights> {
             let mut units = Vec::with_capacity(33 * 33);
             for row in 0..33 {
                 for col in 0..33 {
-                    units.push(
-                        ((cell.x * 32 + col as i32) + (cell.y * 32 + row as i32)) as f32,
-                    );
+                    units.push(((cell.x * 32 + col) + (cell.y * 32 + row)) as f32);
                 }
             }
-            cells.insert(cell, CellHeights::new(cell, units).expect("valid LAND grid"));
+            cells.insert(
+                cell,
+                CellHeights::new(cell, units).expect("valid LAND grid"),
+            );
         }
     }
     cells
@@ -76,7 +77,7 @@ fn edt_12_missing_interior_land_emits_no_triangles_for_that_cell() {
         .expect("read partial BTR shape")
         .remove(0);
     assert_eq!(mesh.triangle_count(), 8 * 8 * 2);
-    for triangle in mesh.indices.chunks_exact(3) {
+    for triangle in mesh.indices.as_chunks::<3>().0 {
         let columns: Vec<usize> = triangle.iter().map(|index| *index as usize % 33).collect();
         let rows: Vec<usize> = triangle.iter().map(|index| *index as usize / 33).collect();
         assert!(columns.iter().all(|column| (16..=24).contains(column)));
