@@ -123,6 +123,10 @@ pub fn supports_function(function: u16) -> bool {
             | 116
             | 225
             | 315
+            | 237
+            | 242
+            | 278
+            | 300
             | 403
             | 566
             | 74
@@ -287,6 +291,45 @@ fn function_value(
         }
         18 => world.calendar().hour as f32,
         46 => boolean(world.actor(subject).is_some_and(|actor| actor.dead)),
+        237 | 242 => {
+            no_parameter(c)?;
+            let actor = world.actor(subject).ok_or(Error::Form(subject))?;
+            boolean(if c.function == 237 {
+                actor.ghost
+            } else {
+                actor.unconscious
+            })
+        }
+        278 => {
+            if c.parameters[1] != 0 {
+                return Err(Error::Parameter(c.function, c.parameters[1]));
+            }
+            if world.reference(subject).is_none() {
+                return Err(Error::Form(subject));
+            }
+            let expected_owner = if raw == 0 {
+                let player = world.player();
+                world.base_of(player).ok_or(Error::Form(player))?
+            } else {
+                let owner = resolve(world, context.owner, raw, None)?;
+                if !matches!(world.tag_of(owner), Some(Tag(tag)) if tag == *b"NPC_" || tag == *b"FACT")
+                {
+                    return Err(Error::Form(owner));
+                }
+                owner
+            };
+            boolean(
+                world
+                    .reference(subject)
+                    .and_then(|reference| reference.owner)
+                    == Some(expected_owner),
+            )
+        }
+        300 => {
+            no_parameter(c)?;
+            let cell = world.reference(subject).ok_or(Error::Form(subject))?.cell;
+            boolean(cell.is_some_and(|cell| world.cell_is_interior(cell)))
+        }
         67 => {
             let cell = resolve(world, context.owner, raw, Some(*b"CELL"))?;
             boolean(

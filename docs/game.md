@@ -105,6 +105,16 @@ come from `TES5Edit/Core/wbDefinitionsTES5.pas`; association, family, parent
 and child wording comes from the corresponding CK pages. The local CK corpus
 has no usable semantics for `GetClassDefaultMatch` or `GetIsCreatureType`, so
 both return the evaluator's explicit unsupported-function error.
+The CTDA evaluator also reads actor ghost and unconscious flags for functions
+237 and 242, checks a tested reference's explicit XOWN against an NPC_ or
+FACT owner for function 278, and reads the tested reference's parent CELL
+interior flag for function 300. `IsOwner` with no owner parameter checks the
+player's NPC_ base, matching the optional-owner note in
+`TES5Edit/Core/wbDefinitionsTES5.pas`. The local CK corpus has no usable
+semantics for functions 262 `IsWarningAbout`, 274 `IsSmallBump`, 285
+`IsLeftUp` or 305 `GetPlayerAction`, so these remain unsupported with a
+function diagnostic. These contracts are covered by
+`ai_73_reference_conditions.rs`.
 [The reference audit](reference-audit.md) records missed contracts and gaps.
 
 **World reads out, host never writes back.** `World::ref_placement` (in
