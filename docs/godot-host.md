@@ -1520,6 +1520,14 @@ controller pose into the game, dispatches activation, ticks the VM, then
 applies script moves and door landings back to the host. The movement-only
 tests can still run without starting the game.
 
+When gameplay is running, the controller reads paralysis from the shared
+World before applying frame input. A live Paralysis magic effect replaces
+horizontal direction and speed with zero and blocks jumping, while physics
+continues to step for gravity. Once the effect expires, the next controller
+step applies movement input again. Tests
+`mag_42_paralysis_blocks_player_locomotion_and_jump` and
+`mag_42_player_locomotion_returns_when_not_paralyzed` cover both states.
+
 The ordinary load-door path uses deferred activation, including
 `arm_doorway`, `commit_doorway` and later `settle_unload`. Destination geometry
 and collision are prepared together before replacing host resources. Exterior

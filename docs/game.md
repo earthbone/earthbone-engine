@@ -1664,6 +1664,26 @@ forwarding, effect inventory filters and VM object reclamation remain unfinished
 forwarding and effect inventory filters remain unfinished.
 This is an active-effect foundation, not complete magic execution.
 
+### Paralysis, MAG-42
+
+Direct casts and ingestibles accept MGEF archetype 21 as a timed active effect.
+Its signed magnitude temporarily modifies the forced `paralysis` actor value.
+While that effect is live, `World::actor_is_paralyzed` reports true for its
+recipient. The NPC package driver pauses that actor before package evaluation
+or movement, and the host player controller sends zero horizontal movement and
+does not jump. Expiry reverses only this effect's actor-value delta and clears
+the condition, so NPC and player movement resume. This uses the winning MGEF
+record and existing saved active-effect state, with no additional save fields.
+
+The sources are local `TES5Edit/Core/wbDefinitionsTES5.pas` and
+`uesp-modfileformat/MGEF.wikitext`. Their archetype tables identify 21 as
+Paralysis and require the `paralysis` actor value. The CK `HasMagicEffect` and
+`OnMagicEffectApply` pages describe active application checks and callbacks,
+not movement handling. `mag_42_paralysis_stops_npc_travel_until_effect_expires`
+exercises NPC movement, the forced actor value and expiry with synthetic
+records. Player locomotion is covered by the host's `mag_42_*` tests. The check
+names no vanilla records, so it has no `SKYRIM_DATA`-gated case.
+
 ### Summon Creature, MAG-39
 
 Direct casts execute MGEF archetype 18 by resolving the effect's associated
