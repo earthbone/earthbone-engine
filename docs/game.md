@@ -2686,6 +2686,25 @@ synthetic records, not an installed vanilla use or an original-runtime probe.
 Concentration, contact delivery and condition support retain their
 separate backlog scopes. Area selection is now covered by MAG-06.
 
+## Turn Undead archetype, MAG-45
+
+Direct casts accept MGEF archetype 24. It applies only when the target has the
+`ActorTypeUndead` keyword. An active application makes an AI-driven target flee
+from its caster at run speed along the available navmesh path, with a straight
+path fallback when no route is available. A teammate waits until its combat
+state begins. The active MGEF application ends at its authored duration, and
+the AI driver stops fleeing on the next tick. The fleeing route is derived from
+the active application and does not add saved fields.
+
+Local `TES5Edit/Core/wbDefinitionsTES5.pas` names archetype 24 Turn Undead and
+`uesp-modfileformat/MGEF.wikitext` assigns Confidence as its primary actor
+value. The CK [Magic Effect archetype table](https://ck.uesp.net/w/index.php?section=16&title=Magic_Effect)
+specifies the `ActorTypeUndead` keyword requirement and the teammate combat
+exception. It does not specify movement distance or path selection. The engine
+uses its existing AI movement rate and navmesh driver for those details.
+`tests/mag_45_turn_undead.rs` covers eligible and ineligible targets, duration,
+the teammate exception, and installed record lookup when `SKYRIM_DATA` is set.
+
 ## Exact crafted item selection (CRF-04)
 
 `Inventory::select` chooses an explicit extra-list index or the plain remainder

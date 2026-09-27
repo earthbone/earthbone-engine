@@ -30,6 +30,7 @@ const NO_RECAST: u32 = 1 << 17;
 const NO_DEATH_DISPEL: u32 = 1 << 28;
 pub(super) const DISPEL_WITH_KEYWORDS: u32 = 1 << 8;
 const INGESTIBLE_POISON: u32 = 1 << 17;
+const TURN_UNDEAD: u32 = 24;
 
 /// Identity of one effect application, independent of its MGEF FormID.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -90,6 +91,40 @@ struct PreparedEffect {
 }
 
 impl World {
+    /// The source of an active Turn Undead effect that currently makes this
+    /// actor flee. Teammates do not flee until their combat state begins.
+    pub(crate) fn turn_undead_threat(&mut self, target: GlobalFormId) -> Option<GlobalFormId> {
+        let actor = self.actor(target)?;
+        if actor.dead || actor.ghost || actor.teammate && !actor.in_combat {
+            return None;
+        }
+        let undead = self.form("ActorTypeUndead")?;
+        if !self.has_keyword(target, undead) {
+            return None;
+        }
+        let effects: Vec<_> = self
+            .active_effects
+            .values()
+            .filter(|effect| {
+                effect.target == target
+                    && effect
+                        .duration
+                        .is_some_and(|duration| duration > effect.elapsed)
+            })
+            .map(|effect| (effect.effect, effect.caster, effect.source))
+            .collect();
+        effects.into_iter().find_map(|(effect, caster, source)| {
+            self.magic_effect(effect)
+                .is_ok_and(|definition| definition.data.archetype == TURN_UNDEAD)
+                .then(|| {
+                    caster
+                        .filter(|id| self.reference(*id).is_some())
+                        .unwrap_or(source)
+                })
+                .filter(|id| self.reference(*id).is_some())
+        })
+    }
+
     /// All currently applied effects, in application order.
     pub fn active_effects(&self) -> impl Iterator<Item = &ActiveEffect> {
         self.active_effects.values()
@@ -427,7 +462,14 @@ impl World {
                     return Err(MagicError::Target);
                 }
             }
-            if !matches!(data.archetype, 0 | 1 | 2 | 5 | 18) {
+            if data.archetype == TURN_UNDEAD
+                && self
+                    .form("ActorTypeUndead")
+                    .is_none_or(|keyword| !self.has_keyword(target, keyword))
+            {
+                continue;
+            }
+            if !matches!(data.archetype, 0 | 1 | 2 | 5 | 18 | TURN_UNDEAD) {
                 return Err(MagicError::Unsupported("effect archetype"));
             }
             if data.taper_duration != 0.0 {
@@ -486,15 +528,11 @@ impl World {
             } else {
                 None
             };
-            let duration = if definition.data.cast_type == 0 {
-                None
+            let duration = Some(if data.flags & NO_DURATION != 0 {
+                0.0
             } else {
-                Some(if data.flags & NO_DURATION != 0 {
-                    0.0
-                } else {
-                    f64::from(entry.data.duration)
-                })
-            };
+                f64::from(entry.data.duration)
+            });
             let mut dispel_rules = Vec::new();
             if data.archetype == 2 {
                 dispel_rules.push(DispelRule::Timed);
