@@ -34,7 +34,7 @@ fn decoded(form: &ChangeForm) -> soe_save::Result<(u32, Vec<u8>)> {
         }
         "SCEN" => {
             let change = form.scene_change()?.unwrap();
-            Ok((change.change_flags(), change.data_bytes()))
+            Ok((change.change_flags(), change.data_bytes()?))
         }
         _ => unreachable!(),
     }
@@ -148,6 +148,13 @@ fn sav_29_smqn_count_bounds_and_empty_section_are_distinct() {
         .unwrap();
     assert_eq!(omitted.last_run_times, None);
     assert!(decoded(&change(36, STATE, u32::MAX.to_le_bytes().to_vec())).is_err());
+}
+
+#[test]
+fn sav_29_inactive_scene_rejects_active_data_on_encode() {
+    let mut scene = change(37, 0, vec![]).scene_change().unwrap().unwrap();
+    scene.active_data.push(0xA5);
+    assert!(scene.data_bytes().is_err());
 }
 
 #[test]

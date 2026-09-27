@@ -821,6 +821,7 @@ bits. SCEN's active marker carries variable scene data. The decoder retains
 that data as opaque bytes because its internal field boundaries are unknown.
 The typed values reconstruct their flags and payload bytes. `Save::write`
 still keeps the original compressed or raw change-form data.
+The scene encoder rejects active data when its active marker is absent.
 
 The field order and flag positions follow local TES5Edit
 `Core/wbDefinitionsTES5Saves.pas`. UESP `Save_File_Format.wikitext` supplies

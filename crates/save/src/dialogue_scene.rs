@@ -166,12 +166,18 @@ impl SceneChange {
     }
 
     /// Rebuild the typed payload. `Save::write` retains the original payload.
-    pub fn data_bytes(&self) -> Vec<u8> {
+    ///
+    /// # Errors
+    /// Rejects active scene data when the active marker is absent.
+    pub fn data_bytes(&self) -> Result<Vec<u8>> {
+        if !self.active && !self.active_data.is_empty() {
+            return Err(invalid("inactive scene has active data"));
+        }
         let mut out = bytes(self.form_flags);
         if self.active {
             out.extend(&self.active_data);
         }
-        out
+        Ok(out)
     }
 }
 

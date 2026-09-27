@@ -12,6 +12,8 @@
 //! The payload has its own compression, separate from the file's: when
 //! `length2` is non-zero the payload is zlib deflated and `length2` is its
 //! inflated size.
+//! The type indices follow UESP's Save File Format page. Typed field layouts
+//! use xEdit's `wbDefinitionsTES5Saves.pas` and FallrimTools change readers.
 
 use crate::cursor::{Cursor, RefId, RefKind, VsVal};
 use crate::error::{Error, Result};
@@ -285,10 +287,12 @@ pub struct ClassChange {
 }
 
 impl ClassChange {
+    /// Rebuild the flag word from the present section and change marker.
     pub fn change_flags(self) -> u32 {
         u32::from(self.form_flags.is_some()) | (u32::from(self.tag_skills_changed) << 1)
     }
 
+    /// Rebuild the source-defined payload section.
     pub fn data_bytes(self) -> Vec<u8> {
         let mut out = Vec::new();
         write_record_form_flags(self.form_flags, &mut out);
@@ -347,6 +351,7 @@ pub struct FactionChange {
 }
 
 impl FactionChange {
+    /// Rebuild the flag word from the present sections.
     pub fn change_flags(&self) -> u32 {
         u32::from(self.form_flags.is_some())
             | (u32::from(self.faction_flags.is_some()) << 1)
@@ -385,6 +390,7 @@ pub struct RelationshipChange {
 }
 
 impl RelationshipChange {
+    /// Rebuild the flag word from the present sections.
     pub fn change_flags(self) -> u32 {
         u32::from(self.form_flags.is_some()) | (u32::from(self.rank.is_some()) << 1)
     }
