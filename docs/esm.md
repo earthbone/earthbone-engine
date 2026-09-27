@@ -132,6 +132,17 @@ brush operation follows the position-based operation boundary in local Terrain3D
 `project/addons/terrain_3d/src/operation_builder.gd`; the radial smooth falloff and
 VNML generation are implemented here for the 33 by 33 LAND grid.
 
+`records::land::apply_texture_brush` applies a smooth circular alpha-weight dab to one
+LAND quadrant on its 17 by 17 grid. It retains each `ATXT` texture FormID and layer
+index, changes only the selected layer's `VTXT` weights, and assigns the first free
+quadrant layer index when the texture does not yet have an alpha layer. Weights stay
+between zero and one, and the LAND layer flag is set. The field layout follows local
+xEdit's `Core/wbDefinitionsTES5.pas` LAND definition and shared
+`Core/wbDefinitionsCommon.pas` `wbLandLayers` and `wbVTXTPosition`, with quadrant origins
+from UESP's local `uesp-modfileformat/LAND.wikitext`. The circular brush operation follows
+Terrain3D's editor brush operation interface in
+`project/addons/terrain_3d/src/operation_builder.gd`.
+
 `records::gras::Grass::from_record` reads a `GRAS` record's `EDID`, generic `MODL`
 and 32-byte `DATA` block (density, min and max slope, water fields, position and
 height range, wave period, flags), and `fits_slope` filters a candidate placement's
