@@ -1255,6 +1255,21 @@ inventories and CK-defined reference inventories. The engine uses its shared
 inventory totals for both actors and containers, so keyword queries have the
 same defined result for either holder.
 
+AI-44 implements crime CTDA functions 193, 375, 376 and 402. `GetPCExpelled`
+reads the referenced faction's player-expelled flag. The crime-gold functions
+read that faction's violent or nonviolent bounty, and accept a zero faction
+parameter as the subject's crime faction. `IsBribedbyPlayer` reads the
+subject's `LastBribedIntimidated` actor value, the state currently shared with
+intimidation. The xEdit function table defines the form and unused-parameter
+slots. The CK `SetBribed` page defines the actor outcome, and the evaluator
+rejects nonzero unused parameters and unavailable actor or faction context.
+Functions 195, 282, 366 and 373 return `conditions::Error::Contract`: the CK
+corpus has no usable query contract for faction-murder counts, stolen-horse
+state or stolen-item value, and the runtime does not store those totals or
+flags. They are not inferred from bounty or inventory totals. See
+`crates/game/tests/ai_44_crime_conditions.rs` for positive, negative and
+invalid-context fixtures.
+
 Sources consulted were local xEdit `wbDefinitionsTES5.pas` for CTDA, COBJ and
 FURN WBDT, CK `GetItemCount_-_ObjectReference.wikitext` for the query forms,
 UESP COBJ notes for missing outputs, skymp `CraftService.cpp` and

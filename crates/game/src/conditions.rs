@@ -28,6 +28,8 @@ pub struct Context {
 pub enum Error {
     #[error("unsupported condition function {0}")]
     Function(u16),
+    #[error("condition function {0} has no usable contract or runtime history")]
+    Contract(u16),
     #[error("invalid actor-value index {0}")]
     ActorValue(u32),
     #[error("unsupported second parameter {1:#x} for condition function {0}")]
@@ -140,6 +142,10 @@ pub fn supports_function(function: u16) -> bool {
             | 630
             | 655
             | 659
+            | 193
+            | 375
+            | 376
+            | 402
     )
 }
 
@@ -329,6 +335,53 @@ fn function_value(
             // flag. No setter exists yet, so this reads the LastBribedIntimidated
             // actor value that backs both the bribe and intimidate flags: a
             // nonzero value means an attempt against this actor already landed.
+            no_parameter(c)?;
+            boolean(
+                world
+                    .actor(subject)
+                    .ok_or(Error::Form(subject))?
+                    .values
+                    .get("lastbribedintimidated")
+                    .current()
+                    != 0.0,
+            )
+        }
+        193 => {
+            if c.parameters[1] != 0 {
+                return Err(Error::Parameter(c.function, c.parameters[1]));
+            }
+            let faction = resolve(world, context.owner, raw, Some(*b"FACT"))?;
+            boolean(
+                world
+                    .faction(faction)
+                    .ok_or(Error::Form(faction))?
+                    .player_expelled,
+            )
+        }
+        // CONTEXT: The runtime has no faction murder counts, stolen-item
+        // transaction totals or horse-theft flag, and CK has no query
+        // contract here. Do not infer values from bounty or inventory.
+        195 | 282 | 366 | 373 => return Err(Error::Contract(c.function)),
+        375 | 376 => {
+            if c.parameters[1] != 0 {
+                return Err(Error::Parameter(c.function, c.parameters[1]));
+            }
+            let faction = if raw == 0 {
+                world
+                    .actor(subject)
+                    .and_then(|actor| actor.crime_faction)
+                    .ok_or(Error::Form(subject))?
+            } else {
+                resolve(world, context.owner, raw, Some(*b"FACT"))?
+            };
+            let state = world.faction(faction).ok_or(Error::Form(faction))?;
+            if c.function == 375 {
+                state.crime_gold_violent as f32
+            } else {
+                state.crime_gold_nonviolent as f32
+            }
+        }
+        402 => {
             no_parameter(c)?;
             boolean(
                 world
