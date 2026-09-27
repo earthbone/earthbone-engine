@@ -612,6 +612,23 @@ pub enum NodeKind {
         enable: bool,
         vector: [f32; 4],
     },
+    /// `hkbDampingModifier`: PID damping over a bound scalar or vector.
+    DampingModifier {
+        enable: bool,
+        kp: f32,
+        ki: f32,
+        kd: f32,
+        enable_scalar: bool,
+        enable_vector: bool,
+        raw_value: f32,
+        damped_value: f32,
+        raw_vector: [f32; 4],
+        damped_vector: [f32; 4],
+        vector_error_sum: [f32; 4],
+        vector_previous_error: [f32; 4],
+        error_sum: f32,
+        previous_error: f32,
+    },
     /// Any other `hkbModifier` subclass: only the enable flag is read.
     Modifier {
         enable: bool,
@@ -688,6 +705,7 @@ impl Node {
             | NodeKind::IsActiveModifier { .. }
             | NodeKind::FalseToTrueModifier { .. }
             | NodeKind::DecomposeVector { .. }
+            | NodeKind::DampingModifier { .. }
             | NodeKind::Modifier { .. }
             | NodeKind::Unknown => {}
         }
@@ -1126,6 +1144,22 @@ impl<'a> Loader<'a> {
                 enable: o.bool(o.layout_offset(40, 72))?,
                 vector: o.vec4(o.layout_offset(48, 80))?,
             },
+            "hkbDampingModifier" => NodeKind::DampingModifier {
+                enable: o.bool(o.layout_offset(40, 72))?,
+                kp: o.f32(o.layout_offset(44, 80))?,
+                ki: o.f32(o.layout_offset(48, 84))?,
+                kd: o.f32(o.layout_offset(52, 88))?,
+                enable_scalar: o.bool(o.layout_offset(56, 92))?,
+                enable_vector: o.bool(o.layout_offset(57, 93))?,
+                raw_value: o.f32(o.layout_offset(60, 96))?,
+                damped_value: o.f32(o.layout_offset(64, 100))?,
+                raw_vector: o.vec4(o.layout_offset(80, 112))?,
+                damped_vector: o.vec4(o.layout_offset(96, 128))?,
+                vector_error_sum: o.vec4(o.layout_offset(112, 144))?,
+                vector_previous_error: o.vec4(o.layout_offset(128, 160))?,
+                error_sum: o.f32(o.layout_offset(144, 176))?,
+                previous_error: o.f32(o.layout_offset(148, 180))?,
+            },
             c if c.ends_with("Modifier") => NodeKind::Modifier {
                 enable: o.bool(o.layout_offset(40, 72))?,
             },
@@ -1261,6 +1295,78 @@ mod tests {
         b.set_i32(wt, 52, 0);
         b.set_u16(wt, 66, transition_flags::IS_GLOBAL_WILDCARD);
         b.finish()
+    }
+
+    #[test]
+    fn anm_39_reads_damping_modifier_fields_from_the_packfile() {
+        let mut b = PackfileBuilder::new();
+        let container = b.object("hkRootLevelContainer", 16);
+        let graph = b.object("hkbBehaviorGraph", 304);
+        let variant = b.array_structs(container, 0, 24, 1);
+        b.string(variant, 0, "hkbBehaviorGraph");
+        b.string(variant, 8, "hkbBehaviorGraph");
+        b.ptr(variant, 16, graph);
+        let damping = b.object("hkbDampingModifier", 192);
+        b.ptr(graph, 128, damping);
+        b.string(damping, 56, "Damping");
+        b.set_bool(damping, 72, true);
+        b.set_f32(damping, 80, 2.0);
+        b.set_f32(damping, 84, 0.5);
+        b.set_f32(damping, 88, 0.25);
+        b.set_bool(damping, 92, true);
+        b.set_bool(damping, 93, true);
+        b.set_f32(damping, 96, 3.0);
+        b.set_f32(damping, 100, 1.0);
+        b.set_vec4(damping, 112, [1.0, 2.0, 3.0, 4.0]);
+        b.set_vec4(damping, 128, [5.0, 6.0, 7.0, 8.0]);
+        b.set_vec4(damping, 144, [9.0, 10.0, 11.0, 12.0]);
+        b.set_vec4(damping, 160, [13.0, 14.0, 15.0, 16.0]);
+        b.set_f32(damping, 176, 17.0);
+        b.set_f32(damping, 180, 18.0);
+        let bindings = b.object("hkbVariableBindingSet", 40);
+        b.ptr(damping, 16, bindings);
+        let binding = b.array_structs(bindings, 16, 40, 1);
+        b.string(binding, 0, "rawValue");
+        b.set_i32(binding, 28, 0);
+        b.set_i32(bindings, 32, -1);
+
+        let packfile = Packfile::parse(&b.finish()).unwrap();
+        let graph = BehaviorGraph::from_packfile(&packfile).unwrap();
+        let modifier = graph.node(graph.root.unwrap());
+        assert_eq!(modifier.name, "Damping");
+        assert_eq!(
+            modifier.bindings.as_ref().unwrap().bindings[0].member_path,
+            "rawValue"
+        );
+        assert!(matches!(
+            modifier.kind,
+            NodeKind::DampingModifier {
+                enable: true,
+                kp,
+                ki,
+                kd,
+                enable_scalar: true,
+                enable_vector: true,
+                raw_value,
+                damped_value,
+                raw_vector,
+                damped_vector,
+                vector_error_sum,
+                vector_previous_error,
+                error_sum,
+                previous_error,
+            } if kp == 2.0
+                && ki == 0.5
+                && kd == 0.25
+                && raw_value == 3.0
+                && damped_value == 1.0
+                && raw_vector == [1.0, 2.0, 3.0, 4.0]
+                && damped_vector == [5.0, 6.0, 7.0, 8.0]
+                && vector_error_sum == [9.0, 10.0, 11.0, 12.0]
+                && vector_previous_error == [13.0, 14.0, 15.0, 16.0]
+                && error_sum == 17.0
+                && previous_error == 18.0
+        ));
     }
 
     #[test]
