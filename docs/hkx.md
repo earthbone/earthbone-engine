@@ -622,6 +622,17 @@ Invalid fixed bounds fail closed. Event mode ignores fixed-time fields.
 event windows, condition-only transitions, state reentry, wildcard reset,
 deactivation, priority protection and accepted requests outliving trigger windows.
 
+### `BSLookAtModifier` pose execution (ANM-32)
+
+The behavior decoder reads `BSLookAtModifier` target settings and both authored
+bone lists from the fields declared by serde-hkx. During generation, an enabled
+modifier rotates enabled listed bones toward its authored target location, or
+its authored camera location when camera look is selected. Each rotation uses
+the smaller of the modifier and bone angle limits and the selected global or
+per-bone on gain. Unlisted, disabled and out-of-range bones keep their input
+transforms. The interpreter applies these rotations to the generated local pose
+without skeleton hierarchy data.
+
 ### Installed passthrough modifier inventory (2026-09-20)
 
 The installed `Skyrim - Animations.bsa` contains 428 behavior graphs. The
