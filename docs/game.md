@@ -278,8 +278,26 @@ Current behavior and compatibility limits:
   list because two vanilla scenes reuse action numbers. The SCEN layout follows
   `TES5Edit/Core/wbDefinitionsTES5.pas` and
   `uesp-modfileformat/SCEN.wikitext`. Timer expiry, CTDA evaluation, automatic
-  action dispatch, and the scene flags are not implemented. `Sound.Play`
+  package and timer action dispatch, scene-level action scheduling, and scene
+  flags are not implemented. `Sound.Play`
   hands out instance ids. `Spell.Cast` records the cast, no effect applies.
+  `Game::start_scene_dialogue_action` dispatches one active Dialogue action by
+  its zero-based position in the SCEN action list. It resolves the speaker alias
+  through the scene's parent quest and starts the action's assigned DIAL through
+  the dialogue selector, including INFO conditions and begin fragments. The
+  host presents each returned line and calls
+  `Game::advance_scene_dialogue_action` after playback. That method advances
+  response lines, runs INFO completion behavior, then marks the SCEN action slot
+  complete and closes the conversation when the line ends. A completed action
+  whose end phase is later remains recorded until that phase can advance. The
+  action must be in its authored phase interval, and the alias must resolve to
+  an actor. The ordered action slot preserves distinct actions even though UESP
+  records overlapping action numbers in two vanilla scenes. xEdit's
+  `wbRecord(SCEN)` defines the action alias, DIAL, and phase interval. The local
+  CK `GetCurrentScene` page documents participant lookup only, so it supplies no
+  action scheduling behavior. This API dispatches dialogue actions when called,
+  it does not automatically schedule scene actions or evaluate scene
+  conditions.
 - `SetGameSetting*` writes an overlay `GetGameSetting*` reads first.
 - A quest start delivers `OnInit` to its alias objects too, the ones a
   script is attached to, since the alias kind (`ALST` or `ALLS`) now decides

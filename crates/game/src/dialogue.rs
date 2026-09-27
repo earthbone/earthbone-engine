@@ -7,7 +7,9 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use soe_esm::records::gameplay::{DialogueInfo, DialogueTopic, Response, TopicSubtype};
+use soe_esm::records::gameplay::{
+    DialogueInfo, DialogueTopic, Response, Scene, SceneActionData, TopicSubtype,
+};
 use soe_esm::{GlobalFormId, Tag};
 use soe_papyrus::{Value, VmError};
 
@@ -880,6 +882,10 @@ impl Game {
         if !choices.available.iter().any(|choice| choice.topic == topic) {
             return Err(Error::State("topic is not currently offered"));
         }
+        self.choose_dialogue_topic(topic)
+    }
+
+    fn choose_dialogue_topic(&mut self, topic: GlobalFormId) -> Result<Option<Line>, Error> {
         let session = self
             .world
             .borrow()
@@ -989,6 +995,132 @@ impl Game {
             self.finish_dialogue_info()?;
         }
         Ok(line)
+    }
+
+    /// Start one active SCEN dialogue action and return its first response.
+    ///
+    /// The action's alias and DIAL are read from the ordered SCEN action list.
+    /// The line uses the normal INFO conditions and fragment lifecycle, while
+    /// the action's assigned DIAL does not need to be a player menu choice.
+    ///
+    /// # Errors
+    ///
+    /// Rejects inactive scenes, actions outside their phase bounds, non-dialogue
+    /// actions, missing aliases or topics, and unavailable participants.
+    pub fn start_scene_dialogue_action(
+        &mut self,
+        scene_id: GlobalFormId,
+        action_slot: u32,
+    ) -> Result<Option<Line>, Error> {
+        let (speaker, topic) = self.scene_dialogue_action(scene_id, action_slot)?;
+        let listener = self.player();
+        self.begin_dialogue(speaker, listener)?;
+        match self.choose_dialogue_topic(topic) {
+            Ok(Some(line)) => Ok(Some(line)),
+            Ok(None) => {
+                self.complete_scene_dialogue_action(scene_id, action_slot)?;
+                self.close_dialogue();
+                Ok(None)
+            }
+            Err(error) => {
+                self.close_dialogue();
+                Err(error)
+            }
+        }
+    }
+
+    /// Advance a SCEN dialogue action and complete its action slot at end of line.
+    ///
+    /// Call this after the host has presented the returned response. A `None`
+    /// result means the INFO finished and the scene action was marked complete.
+    ///
+    /// # Errors
+    ///
+    /// Rejects an action whose speaker or topic does not match the open dialogue.
+    pub fn advance_scene_dialogue_action(
+        &mut self,
+        scene_id: GlobalFormId,
+        action_slot: u32,
+    ) -> Result<Option<Line>, Error> {
+        let (speaker, topic) = self.scene_dialogue_action(scene_id, action_slot)?;
+        let session_matches = self
+            .world
+            .borrow()
+            .dialogue
+            .session
+            .as_ref()
+            .is_some_and(|session| session.speaker == speaker && session.topic == Some(topic));
+        if !session_matches {
+            return Err(Error::State("scene action has no matching dialogue"));
+        }
+        let line = self.advance_dialogue()?;
+        if line.is_none() {
+            self.complete_scene_dialogue_action(scene_id, action_slot)?;
+            self.close_dialogue();
+        }
+        Ok(line)
+    }
+
+    fn complete_scene_dialogue_action(
+        &mut self,
+        scene_id: GlobalFormId,
+        action_slot: u32,
+    ) -> Result<(), Error> {
+        if self
+            .world
+            .borrow_mut()
+            .complete_scene_action(scene_id, action_slot)
+        {
+            Ok(())
+        } else {
+            Err(Error::State("scene dialogue action could not complete"))
+        }
+    }
+
+    fn scene_dialogue_action(
+        &self,
+        scene_id: GlobalFormId,
+        action_slot: u32,
+    ) -> Result<(GlobalFormId, GlobalFormId), Error> {
+        let mut world = self.world.borrow_mut();
+        let phase = world
+            .scene_phase(scene_id)
+            .ok_or(Error::State("scene is not playing"))?;
+        let record = world.record(scene_id).ok_or(Error::Record(scene_id))?;
+        let scene = Scene::from_record(record)?;
+        let action = scene
+            .actions
+            .get(action_slot as usize)
+            .ok_or(Error::State("scene action slot is out of range"))?;
+        if action.action_type != 0
+            || !matches!(&action.data, SceneActionData::Dialogue { topic: Some(_) })
+            || action.start_phase.is_none_or(|start| start > phase)
+            || action.end_phase.is_none_or(|end| end < phase)
+        {
+            return Err(Error::State("scene action is not active dialogue"));
+        }
+        let quest = scene
+            .quest
+            .and_then(|raw| world.resolve_from(scene_id, raw))
+            .ok_or(Error::State("scene has no parent quest"))?;
+        let alias = action
+            .alias_id
+            .and_then(|id| u32::try_from(id).ok())
+            .ok_or(Error::State("scene dialogue has no actor alias"))?;
+        let speaker = world
+            .alias_ref(quest, alias)
+            .filter(|speaker| world.actor(*speaker).is_some())
+            .ok_or(Error::State("scene dialogue actor alias is unfilled"))?;
+        let SceneActionData::Dialogue {
+            topic: Some(raw_topic),
+        } = &action.data
+        else {
+            return Err(Error::State("scene dialogue has no topic"));
+        };
+        let topic = world
+            .resolve_from(scene_id, *raw_topic)
+            .ok_or(Error::State("scene dialogue topic is unresolved"))?;
+        Ok((speaker, topic))
     }
 
     /// Current authored response. Reading it has no playback or script side effects.

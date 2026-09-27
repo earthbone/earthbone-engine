@@ -171,7 +171,7 @@ impl World {
         self.scene_runs.get(&id).map(|run| run.phase)
     }
 
-    /// Mark an action slot complete when it ends in the current phase.
+    /// Mark an active action slot complete.
     /// `action_slot` is its zero-based position in the SCEN Actions list.
     pub fn complete_scene_action(&mut self, id: GlobalFormId, action_slot: u32) -> bool {
         let Some(run) = self.scene_runs.get(&id) else {
@@ -188,7 +188,7 @@ impl World {
             .actions
             .get(action_slot as usize)
             .is_none_or(|action| {
-                action.end_phase != Some(phase)
+                action.end_phase.is_none_or(|end| end < phase)
                     || action.start_phase.is_some_and(|start| start > phase)
             })
         {
@@ -236,7 +236,7 @@ impl World {
                 scene
                     .actions
                     .get(*slot as usize)
-                    .is_some_and(|action| action.end_phase.is_some_and(|end| end > next))
+                    .is_some_and(|action| action.end_phase.is_some_and(|end| end >= next))
             });
             true
         } else {
