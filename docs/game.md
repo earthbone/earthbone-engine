@@ -697,8 +697,12 @@ within the radius of the location, walks there, dwells 0.1 to 0.4 game
 hours, and picks the next, or a random point in the radius when the cell
 has no markers. `Sleep` walks to the bed the location names, or the
 nearest furniture in that cell whose base carries a keyword with `bed` in
-its editor id, and holds with `sleeping` set. `Wait` holds for its real-time
-duration, with zero meaning indefinite. Walking `Patrol` follows linked markers,
+its editor id, and holds with `sleeping` set. `Sit` reserves the first active,
+unreserved Sit marker on its furniture reference, walks to that reference's
+placement transform, and releases the reservation when it arrives. Furniture
+marker transforms are not read from the model. SOEW version 38 stores its
+procedure tag. `Wait` holds for its real-time duration, with zero meaning
+indefinite. Walking `Patrol` follows linked markers,
 including their arrival radius and idle time. Every other procedure name
 is `Procedure::Unsupported` and the actor stands where it is. Location
 kinds near reference, in cell, near package start, near editor location,

@@ -61,7 +61,8 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// Version 35 retains saved list flags and per-entry chance bytes in record overrides.
 /// Version 36 retains the active phase and completed action slots for each scene.
 /// Version 37 retains each actor's reserved furniture marker.
-pub const SAVE_VERSION: u16 = 37;
+/// Version 38 adds the Sit package procedure tag.
+pub const SAVE_VERSION: u16 = 38;
 
 #[derive(Clone, Copy)]
 pub(crate) enum FormNamespace {
@@ -1567,6 +1568,11 @@ fn read_actor_state(r: &mut FormReader<'_, '_>, version: u16) -> Result<ActorSta
     if version < 22 && matches!(a.ai.procedure, crate::ai::Procedure::Wait { .. }) {
         return Err(VmError::State(
             "Wait procedure requires world version 22".into(),
+        ));
+    }
+    if version < 38 && a.ai.procedure == crate::ai::Procedure::Sit {
+        return Err(VmError::State(
+            "Sit procedure requires world version 38".into(),
         ));
     }
     a.perks = read_form_set(r)?;
