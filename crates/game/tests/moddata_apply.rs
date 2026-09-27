@@ -25,6 +25,10 @@ const HELMET: u32 = 0x803;
 const ROCK: u32 = 0x804;
 const TREE: u32 = 0x805;
 const GUARD_BASE: u32 = 0x806;
+const RACE: u32 = 0x807;
+const DISTRIBUTED_SKIN: u32 = 0x808;
+const RACE_SKIN: u32 = 0x809;
+const SKIN_ADDON: u32 = 0x80a;
 const CELL: u32 = 0x810;
 const ROCK_REF: u32 = 0x811;
 const GUARD_REF: u32 = 0x812;
@@ -80,13 +84,32 @@ fn master() -> Plugin {
     );
     p.push_top(Record::new(T(b"STAT"), ROCK).zsub(EDID, "RockPile01"));
     p.push_top(Record::new(T(b"STAT"), TREE).zsub(EDID, "TreePine01"));
-    p.push_top(npc::build_record(
-        GUARD_BASE,
-        "WhiterunGuard",
-        "Whiterun Guard",
-        Config::default(),
-        Stats::default(),
-    ));
+    p.push_top(Record::new(T(b"RACE"), RACE).sub(T(b"WNAM"), RACE_SKIN.to_le_bytes()));
+    p.push_top(
+        Record::new(T(b"ARMO"), DISTRIBUTED_SKIN)
+            .zsub(EDID, "DistributedSkin")
+            .sub(T(b"MODL"), SKIN_ADDON.to_le_bytes()),
+    );
+    p.push_top(Record::new(T(b"ARMO"), RACE_SKIN).sub(T(b"MODL"), SKIN_ADDON.to_le_bytes()));
+    p.push_top(
+        Record::new(T(b"ARMA"), SKIN_ADDON)
+            .sub(
+                T(b"BOD2"),
+                [1_u32.to_le_bytes(), 2_u32.to_le_bytes()].concat(),
+            )
+            .sub(T(b"DNAM"), [0_u8; 12])
+            .sub(T(b"RNAM"), RACE.to_le_bytes()),
+    );
+    p.push_top(
+        npc::build_record(
+            GUARD_BASE,
+            "WhiterunGuard",
+            "Whiterun Guard",
+            Config::default(),
+            Stats::default(),
+        )
+        .sub(T(b"RNAM"), RACE.to_le_bytes()),
+    );
 
     let cell = p.push_record(
         Record::new(T(b"CELL"), CELL)
@@ -172,6 +195,24 @@ fn a_distribution_file_hands_an_actor_a_spell() {
         actor.spells.contains(&id(SPELL)),
         "a distributed spell must sit beside the base's own"
     );
+}
+
+#[test]
+fn mod_09_distributed_skin_reaches_actor_appearance_with_form_identity() {
+    let dir = Dir::new("mod-09-skin");
+    dir.write(
+        "Test_DISTR.ini",
+        "Skin = DistributedSkin|WhiterunGuard|NONE|NONE|NONE|1|100\n",
+    );
+    let mut g = game();
+    let report = g.apply_mod_data(&dir.roots());
+    assert_eq!(report.distribution_rules, 1);
+    assert_eq!(report.distributions_applied, 1);
+
+    let appearance = g.world_mut().actor_appearance(id(GUARD_REF)).unwrap();
+    assert_eq!(appearance.skin, Some(id(DISTRIBUTED_SKIN)));
+    assert_eq!(appearance.parts[0].armor, id(DISTRIBUTED_SKIN));
+    assert_eq!(appearance.parts[0].addon, id(SKIN_ADDON));
 }
 
 #[test]

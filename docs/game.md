@@ -1989,7 +1989,13 @@ Default outfits initialize through the reference path described below. Runtime
 skin overrides are not supplied by this path.
 
 Outfit auto-equipping is not supplied by this path. Runtime skin overrides use
-the shared appearance view described below.
+the shared appearance view described below. SPID `Skin` distributions are
+selected before the NPC's direct skin and the race fallback when assembling an
+actor's appearance. The selected `ARMO` keeps its resolved `GlobalFormId`, and
+its armor addons enter the same body-part selection as an authored skin. The
+distribution is keyed by the NPC base and comes from the current load-time
+mod-data pass. Per-actor SPID lifecycle and deterministic seeding remain
+unsupported.
 
 Outfit auto-equipping and runtime skin overrides are not supplied by this path.
 The World footstep path supplies the selected trait source for leveled actors.

@@ -214,10 +214,13 @@ resulting keywords, distributions and swaps for engine replay.
 ### What is applied and what is only carried
 
 Spells, levelled spells, perks, outfits, sleep outfits and factions reach the
-actor. Items reach the inventory. Packages, shouts, skins and bare forms are
-resolved, held in `mod_data` and counted in the report, but nothing consumes
-them yet: a package needs a third source in the driver's stack and a save format
-change, and the other three are not yet connected to distribution.
+actor. Items reach the inventory. A `Skin` distribution is selected by actor
+appearance assembly before the NPC's direct skin and race fallback. It retains
+the resolved `ARMO` identity and uses that record's armor addons. Packages,
+shouts and bare forms are resolved, held in `mod_data` and counted in the
+report, but nothing consumes them yet. A package needs a third source in the
+driver's stack and a save format change, while shouts and bare forms are not
+connected to a consumer.
 
 A distribution carrying a level or trait filter is **skipped** and counted in
 `skipped_unsupported_filter`, never applied. Those filters are not evaluated
