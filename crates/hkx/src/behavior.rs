@@ -587,6 +587,17 @@ pub enum NodeKind {
         alarm_time_seconds: f32,
         alarm_event: EventProperty,
     },
+    /// `BSTweenerModifier`: moves the world-from-model transform toward its
+    /// authored target over the selected duration.
+    Tweener {
+        enable: bool,
+        tween_position: bool,
+        tween_rotation: bool,
+        use_tween_duration: bool,
+        tween_duration: f32,
+        target_position: [f32; 4],
+        target_rotation: [f32; 4],
+    },
     /// `BSGetTimeStepModifier`: writes the current graph update interval to
     /// its `timeStep` output binding.
     GetTimeStepModifier {
@@ -684,6 +695,7 @@ impl Node {
             NodeKind::Clip(_)
             | NodeKind::BlendingTransition(_)
             | NodeKind::TimerModifier { .. }
+            | NodeKind::Tweener { .. }
             | NodeKind::GetTimeStepModifier { .. }
             | NodeKind::IsActiveModifier { .. }
             | NodeKind::FalseToTrueModifier { .. }
@@ -1081,6 +1093,15 @@ impl<'a> Loader<'a> {
                 enable: o.bool(o.layout_offset(40, 72))?,
                 alarm_time_seconds: o.f32(o.layout_offset(44, 80))?,
                 alarm_event: EventProperty::read(o, o.layout_offset(48, 88))?,
+            },
+            "BSTweenerModifier" => NodeKind::Tweener {
+                enable: o.bool(o.layout_offset(40, 72))?,
+                tween_position: o.bool(o.layout_offset(44, 80))?,
+                tween_rotation: o.bool(o.layout_offset(45, 81))?,
+                use_tween_duration: o.bool(o.layout_offset(46, 82))?,
+                tween_duration: o.f32(o.layout_offset(48, 84))?,
+                target_position: o.vec4(o.layout_offset(64, 96))?,
+                target_rotation: o.vec4(o.layout_offset(80, 112))?,
             },
             "BSGetTimeStepModifier" => NodeKind::GetTimeStepModifier {
                 enable: o.bool(o.layout_offset(40, 72))?,

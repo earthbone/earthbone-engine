@@ -432,6 +432,8 @@ struct Runtime {
 
     /// A bound vector input for `BSDecomposeVectorModifier`.
     vector: Option<[f32; 4]>,
+    tween_start: Option<QsTransform>,
+    tween_elapsed: f32,
 }
 
 /// A generator's result for one frame: a local pose and how much of it
@@ -439,6 +441,9 @@ struct Runtime {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Output {
     pub pose: Vec<QsTransform>,
+    /// Character transform emitted by generators, separate from the local
+    /// skeleton pose.
+    pub world_from_model: QsTransform,
     /// Contribution per bone, retained through nested blends and transitions.
     pub bone_weights: Vec<f32>,
     pub weight: f32,
@@ -548,6 +553,7 @@ impl<'a> Interpreter<'a> {
             unsupported: Unsupported::default(),
             output: Output {
                 pose: reference_pose.clone(),
+                world_from_model: QsTransform::IDENTITY,
                 bone_weights: vec![0.0; reference_pose.len()],
                 weight: 0.0,
             },
@@ -1026,6 +1032,7 @@ impl<'a> Interpreter<'a> {
             NodeKind::ModifierList { enable, .. }
             | NodeKind::EventDrivenModifier { enable, .. }
             | NodeKind::TimerModifier { enable, .. }
+            | NodeKind::Tweener { enable, .. }
             | NodeKind::GetTimeStepModifier { enable, .. }
             | NodeKind::IsActiveModifier { enable, .. }
             | NodeKind::FalseToTrueModifier { enable, .. }
@@ -1086,6 +1093,46 @@ impl<'a> Interpreter<'a> {
         }
     }
 
+    fn apply_tweener(&mut self, id: NodeId, output: &mut Output, dt: f32) {
+        let NodeKind::Tweener {
+            tween_position,
+            tween_rotation,
+            use_tween_duration,
+            tween_duration,
+            target_position,
+            target_rotation,
+            ..
+        } = &self.graph.node(id).kind
+        else {
+            return;
+        };
+        if !self.nodes[id.0].active {
+            return;
+        }
+        let start = *self.nodes[id.0]
+            .tween_start
+            .get_or_insert(output.world_from_model);
+        self.nodes[id.0].tween_elapsed += dt.max(0.0);
+        let duration = if *use_tween_duration {
+            (*tween_duration).max(0.0)
+        } else {
+            0.0
+        };
+        let alpha = if duration > 0.0 {
+            (self.nodes[id.0].tween_elapsed / duration).clamp(0.0, 1.0)
+        } else {
+            1.0
+        };
+        let mut target = start;
+        if *tween_position {
+            target.translation = *target_position;
+        }
+        if *tween_rotation {
+            target.rotation = normalized_quaternion(*target_rotation);
+        }
+        output.world_from_model = blend_transform(&start, &target, alpha);
+    }
+
     /// Evaluate edge slots only during update, after list enable state is known.
     fn update_modifier(&mut self, id: NodeId) {
         if !self.nodes[id.0].active {
@@ -1114,6 +1161,10 @@ impl<'a> Interpreter<'a> {
         match &graph.node(id).kind {
             NodeKind::FalseToTrueModifier { .. } => {
                 self.nodes[id.0].edge_previous = [false; FALSE_TO_TRUE_SLOTS];
+            }
+            NodeKind::Tweener { .. } => {
+                self.nodes[id.0].tween_start = None;
+                self.nodes[id.0].tween_elapsed = 0.0;
             }
             NodeKind::Clip(c) => {
                 let rt = &mut self.nodes[id.0];
@@ -1578,6 +1629,7 @@ impl<'a> Interpreter<'a> {
     fn reference_output(&self) -> Output {
         Output {
             pose: self.reference_pose.clone(),
+            world_from_model: QsTransform::IDENTITY,
             bone_weights: vec![0.0; self.reference_pose.len()],
             weight: 0.0,
         }
@@ -1620,18 +1672,20 @@ impl<'a> Interpreter<'a> {
                 modifier,
                 generator,
             } => {
+                let start = self.modifier_order.len();
                 if let Some(modifier) = modifier {
-                    let start = self.modifier_order.len();
                     self.sync_modifier(*modifier);
-                    for index in start..self.modifier_order.len() {
-                        let node = self.modifier_order[index];
-                        self.update_modifier(node);
-                    }
                 }
-                match generator {
+                let mut output = match generator {
                     Some(generator) => self.generate(*generator, dt),
                     None => self.reference_output(),
+                };
+                for index in start..self.modifier_order.len() {
+                    let node = self.modifier_order[index];
+                    self.update_modifier(node);
+                    self.apply_tweener(node, &mut output, dt);
                 }
+                output
             }
             NodeKind::IStateTagging {
                 default_generator: generator,
@@ -1684,6 +1738,7 @@ impl<'a> Interpreter<'a> {
             | NodeKind::GeneratorTransition(_)
             | NodeKind::EventDrivenModifier { .. }
             | NodeKind::TimerModifier { .. }
+            | NodeKind::Tweener { .. }
             | NodeKind::GetTimeStepModifier { .. }
             | NodeKind::IsActiveModifier { .. }
             | NodeKind::FalseToTrueModifier { .. }
@@ -1791,6 +1846,7 @@ impl<'a> Interpreter<'a> {
         Output {
             bone_weights: vec![1.0; pose.len()],
             pose,
+            world_from_model: QsTransform::IDENTITY,
             weight: 1.0,
         }
     }
@@ -1913,6 +1969,7 @@ impl<'a> Interpreter<'a> {
         }
         Output {
             pose,
+            world_from_model: QsTransform::IDENTITY,
             bone_weights,
             weight: acc_weight.min(1.0),
         }
@@ -2100,6 +2157,22 @@ pub fn blend_transform(a: &QsTransform, b: &QsTransform, alpha: f32) -> QsTransf
     }
 }
 
+fn normalized_quaternion(mut value: [f32; 4]) -> [f32; 4] {
+    let length = value
+        .iter()
+        .map(|component| component * component)
+        .sum::<f32>()
+        .sqrt();
+    if length > 0.0 && length.is_finite() {
+        for component in &mut value {
+            *component /= length;
+        }
+        value
+    } else {
+        QsTransform::IDENTITY.rotation
+    }
+}
+
 /// Blend two outputs. A side at weight zero contributes nothing, so a
 /// transition out of a reference pose is a cut to the other side.
 pub fn blend_outputs(from: &Output, to: &Output, alpha: f32) -> Output {
@@ -2131,6 +2204,7 @@ pub fn blend_outputs(from: &Output, to: &Output, alpha: f32) -> Output {
     }
     Output {
         pose,
+        world_from_model: blend_transform(&from.world_from_model, &to.world_from_model, alpha),
         bone_weights,
         weight: from.weight + (to.weight - from.weight) * alpha,
     }
@@ -3091,6 +3165,7 @@ mod tests {
     fn a_zero_weight_side_does_not_blend() {
         let a = Output {
             pose: vec![QsTransform::IDENTITY],
+            world_from_model: QsTransform::IDENTITY,
             bone_weights: vec![0.0],
             weight: 0.0,
         };
@@ -3099,6 +3174,7 @@ mod tests {
                 translation: [5.0, 0.0, 0.0, 0.0],
                 ..QsTransform::IDENTITY
             }],
+            world_from_model: QsTransform::IDENTITY,
             bone_weights: vec![1.0],
             weight: 1.0,
         };

@@ -409,6 +409,7 @@ fn transition_blends_preserve_a_zero_mask_through_nested_outputs() {
             };
             2
         ],
+        world_from_model: QsTransform::IDENTITY,
         bone_weights: vec![1.0, 0.0],
         weight: 1.0,
     };
@@ -420,6 +421,7 @@ fn transition_blends_preserve_a_zero_mask_through_nested_outputs() {
             };
             2
         ],
+        world_from_model: QsTransform::IDENTITY,
         bone_weights: vec![0.0, 1.0],
         weight: 1.0,
     };
@@ -466,11 +468,13 @@ fn masked_transition_endpoints_equal_their_authored_outputs() {
             translation: [10.0, 0.0, 0.0, 0.0],
             ..QsTransform::IDENTITY
         }],
+        world_from_model: QsTransform::IDENTITY,
         bone_weights: vec![1.0],
         weight: 1.0,
     };
     let to = Output {
         pose: vec![QsTransform::IDENTITY],
+        world_from_model: QsTransform::IDENTITY,
         bone_weights: vec![0.0],
         weight: 1.0,
     };
