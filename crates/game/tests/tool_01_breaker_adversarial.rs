@@ -19,7 +19,10 @@ impl Fixture {
             .duration_since(UNIX_EPOCH)
             .expect("system clock should be after the unix epoch")
             .as_nanos();
-        let root = std::env::temp_dir().join(format!("soe-tool-01-breaker-{}-{stamp}", std::process::id()));
+        let root = std::env::temp_dir().join(format!(
+            "soe-tool-01-breaker-{}-{stamp}",
+            std::process::id()
+        ));
         let game = root.join("game");
         let mo2 = root.join("mo2");
         let scenarios = root.join("scenarios");
@@ -29,7 +32,12 @@ impl Fixture {
         fs::write(mo2.join("profiles/Default/loadorder.txt"), "").unwrap();
         fs::write(mo2.join("profiles/Default/modlist.txt"), "").unwrap();
         fs::create_dir_all(&scenarios).unwrap();
-        Self { root, game, mo2, scenarios }
+        Self {
+            root,
+            game,
+            mo2,
+            scenarios,
+        }
     }
 
     fn scenario(&self, relative: &str, text: &str) -> PathBuf {
@@ -75,10 +83,22 @@ fn tool_01_reports_all_nested_scenarios_in_sorted_order_after_a_failure() {
     let output = fixture.run();
     let report = stdout(&output);
     assert!(!output.status.success(), "{report}");
-    assert!(report.contains("Conformance report: 2 scenario(s)"), "{report}");
-    assert!(report.contains("FAIL fail [preserve: missing trace must fail]"), "{report}");
-    assert!(report.contains("PASS pass [redesign: empty scenario is valid]"), "{report}");
-    assert!(report.find("FAIL fail").unwrap() < report.find("PASS pass").unwrap(), "{report}");
+    assert!(
+        report.contains("Conformance report: 2 scenario(s)"),
+        "{report}"
+    );
+    assert!(
+        report.contains("FAIL fail [preserve: missing trace must fail]"),
+        "{report}"
+    );
+    assert!(
+        report.contains("PASS pass [redesign: empty scenario is valid]"),
+        "{report}"
+    );
+    assert!(
+        report.find("FAIL fail").unwrap() < report.find("PASS pass").unwrap(),
+        "{report}"
+    );
     assert!(report.contains("Overall: FAIL"), "{report}");
 }
 
@@ -94,9 +114,15 @@ fn tool_01_missing_capture_is_a_reported_scenario_failure_and_keeps_its_path() {
     let output = fixture.run();
     let report = stdout(&output);
     assert!(!output.status.success(), "{report}");
-    assert!(report.contains("FAIL check [preserve: captured trace is the oracle]"), "{report}");
+    assert!(
+        report.contains("FAIL check [preserve: captured trace is the oracle]"),
+        "{report}"
+    );
     assert!(report.contains("captures:"), "{report}");
-    assert!(report.contains(&expected_capture.display().to_string()), "{report}");
+    assert!(
+        report.contains(&expected_capture.display().to_string()),
+        "{report}"
+    );
     assert!(report.contains("No such file or directory"), "{report}");
 }
 
@@ -147,4 +173,45 @@ fn tool_01_malformed_scenario_is_reported_as_a_runner_error() {
     assert!(error.contains("validation runner:"), "{error}");
     assert!(error.contains(&scenario.display().to_string()), "{error}");
     assert!(error.contains("unknown step not-a-step"), "{error}");
+}
+
+#[test]
+fn tool_01_runner_loads_an_active_plugin_from_the_resolved_profile() {
+    let fixture = Fixture::new();
+    let plugin_path = fixture.game.join("Data/Fixture.esp");
+    let mut plugin = soe_esm::Plugin::new(soe_esm::FileHeader::default());
+    plugin.push_top(
+        soe_esm::Record::new(b"GLOB", 0x800)
+            .zsub(b"EDID", "RunnerProfileProbe")
+            .sub(b"FNAM", *b"f")
+            .sub(b"FLTV", 5.0f32.to_le_bytes()),
+    );
+    fs::write(&plugin_path, plugin.to_bytes()).unwrap();
+    fs::write(
+        fixture.mo2.join("profiles/Default/plugins.txt"),
+        "*Fixture.esp\n",
+    )
+    .unwrap();
+    fs::write(
+        fixture.mo2.join("profiles/Default/loadorder.txt"),
+        "Fixture.esp\n",
+    )
+    .unwrap();
+    fixture.scenario(
+        "profile.scenario",
+        "# redesign: active profile plugins load before validation\nexpect global RunnerProfileProbe == 5\n",
+    );
+
+    let output = fixture.run();
+    let report = stdout(&output);
+    assert!(output.status.success(), "{report}");
+    assert!(
+        report.contains("Conformance report: 1 scenario(s)"),
+        "{report}"
+    );
+    assert!(
+        report.contains("PASS profile [redesign: active profile plugins load before validation]"),
+        "{report}"
+    );
+    assert!(report.contains("Overall: PASS"), "{report}");
 }
