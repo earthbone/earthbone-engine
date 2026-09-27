@@ -153,11 +153,15 @@ variables to a prepared VM, but it is not a complete save loader.
 ## Runtime instance import
 
 `Papyrus::restore_instances` joins parent-first member descriptors to saved
-slots by ID. The host must supply an explicit map from each saved instance or
-reference ID to an existing VM object. A value-only reference may map to
-`None` when the host explicitly determines it is unresolved. Missing mappings
-are errors. Saved form/script pairs are not used as unique identities, since
-the corpus contains repeated pairs and unbound instances.
+slots by ID. Its low-level API takes an explicit map from each saved instance
+or reference ID to a VM object. `Game::restore_vanilla_papyrus` builds that map
+from the ESS plugin list, FormID array and RefIDs. Script instances share the
+VM object for their resolved live form. Reference-only objects use their saved
+runtime type. An instance whose signed `unknown` field is `-1` ignores its
+RefID and gets a standalone VM object. A missing plugin, invalid bound RefID or
+form absent from the current world is an error. Saved form/script pairs are
+not used as unique identities, since the corpus contains repeated pairs and
+unbound instances.
 
 Arrays are allocated once per saved ID, then filled and shared by every
 variable naming that ID. Scalar, object and array references become VM values.

@@ -66,10 +66,14 @@ week 6 to 9 gate.
 
 `vanilla_save::SavedFormMap` remaps ESS references through saved plugin names,
 including regular and light slots. `World::restore_vanilla_globals` atomically
-applies the global table to winning GLOB forms. Values reach the existing
-Papyrus native path and engine save state. This is one restoration component,
-not a full ESS load or resumed game. See [save.md](save.md) for mapping rules,
-failure behavior and the remaining world and VM work.
+applies the global table to winning GLOB forms. `Game::restore_vanilla_papyrus`
+resolves saved script-instance RefIDs to live form objects and imports their
+saved variables into the VM. Saved reference-only objects are created using
+their saved runtime type. Instances whose signed `unknown` field is `-1` ignore
+their saved RefID and receive standalone VM objects. Values reach the existing
+Papyrus native path and engine save state. This is not a full ESS load or
+resumed game. See
+[save.md](save.md) for mapping rules, failure behavior and the remaining work.
 
 Reference placement reserves created identities found in saved change forms,
 the FormID array and the four Created Objects tables before runtime placement
