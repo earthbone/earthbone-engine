@@ -125,6 +125,7 @@ pub fn supports_function(function: u16) -> bool {
             | 225
             | 315
             | 403
+            | 520
             | 566
             | 74
             | 136
@@ -345,6 +346,12 @@ fn function_value(
             // Its subject is true during automatic ForceGreet selection.
             no_parameter(c)?;
             boolean(world.dialogue.greeting_actor == Some(subject))
+        }
+        520 => {
+            // Skyrim Open Engine does not run on the PlayStation 3. xEdit
+            // identifies this condition as parameterless.
+            no_parameter(c)?;
+            0.0
         }
         225 | 315 => {
             // GetPersuasionNumber and GetTotalPersuasionNumber take no parameter
