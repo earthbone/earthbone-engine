@@ -55,6 +55,8 @@ pub struct RecordRef {
 pub struct LoadedFile {
     pub name: String,
     pub plugin: Plugin,
+    /// SHA-256 of the serialized definition before load-order additions.
+    pub fingerprint: [u8; 32],
     pub slot: Slot,
     /// For each master in the header, its position in the load order.
     pub master_positions: Vec<usize>,
@@ -93,6 +95,7 @@ impl LoadOrder {
     pub fn add(&mut self, name: &str, mut plugin: Plugin) -> Result<usize> {
         let _span =
             soe_trace::Span::with_payload("esm.load_order_add", "esm", plugin.records.len() as u64);
+        let fingerprint = plugin.fingerprint();
         // CONTEXT: xEdit Core/Hardcoded/Skyrim.esp defines this engine-owned
         // global, absent from the shipped master but present in ESS globals.
         if self.files.is_empty()
@@ -143,6 +146,7 @@ impl LoadOrder {
         let file = LoadedFile {
             name: name.to_string(),
             plugin,
+            fingerprint,
             slot,
             master_positions,
         };
