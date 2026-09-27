@@ -7,6 +7,7 @@
 use soe_esm::records::lctn::Location;
 use soe_esm::GlobalFormId;
 use soe_papyrus::Value;
+use std::collections::HashSet;
 
 use super::{
     le_f32, le_u32, ActorBaseState, CellState, FactionState, LeveledEntry, LeveledList,
@@ -14,6 +15,31 @@ use super::{
 };
 use crate::crime::CrimeValues;
 use crate::quest::zstring;
+
+pub(super) fn add_saved_form_list_entries(
+    items: &mut Vec<GlobalFormId>,
+    additions: impl IntoIterator<Item = GlobalFormId>,
+) {
+    let mut seen: HashSet<_> = items.iter().copied().collect();
+    let mut created = Vec::new();
+    let mut regular = Vec::new();
+    for item in additions {
+        if item.object == 0 || !seen.insert(item) {
+            continue;
+        }
+        if item.file == super::DYNAMIC_FILE {
+            created.push(item);
+        } else {
+            regular.push(item);
+        }
+    }
+    let at = items
+        .iter()
+        .take_while(|entry| entry.file == super::DYNAMIC_FILE)
+        .count();
+    items.splice(at..at, created);
+    items.extend(regular);
+}
 
 impl World {
     pub fn global_value(&mut self, id: GlobalFormId) -> f32 {
@@ -46,7 +72,7 @@ impl World {
             if rec.tag != T(b"FLST") {
                 return None;
             }
-            let items = rec
+            let mut items: Vec<_> = rec
                 .all(T(b"LNAM"))
                 .filter_map(le_u32)
                 .map(|raw| {
@@ -54,6 +80,18 @@ impl World {
                         .unwrap_or(GlobalFormId { file: 0, object: 0 })
                 })
                 .collect();
+            if self
+                .record_overrides
+                .get(&id)
+                .is_some_and(|value| value.list.is_some())
+            {
+                let authored = self
+                    .order
+                    .winner(id)
+                    .map_or(0, |record| record.all(T(b"LNAM")).count());
+                let additions = items.split_off(authored.min(items.len()));
+                add_saved_form_list_entries(&mut items, additions);
+            }
             self.form_lists.insert(id, items);
         }
         self.form_lists.get_mut(&id)

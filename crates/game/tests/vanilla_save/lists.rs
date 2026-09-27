@@ -93,7 +93,15 @@ fn sav_52_all_four_list_changes_reach_warm_runtime_and_record_queries_after_relo
     assert_eq!(loaded.save_state(), bytes);
     assert_eq!(
         loaded.form_list(id(0, 0x800)).unwrap(),
-        &[id(0, 0x820), id(0, 0x821), id(0, 0)]
+        &[id(0, 0x820), id(0, 0x821)]
+    );
+    assert_eq!(
+        loaded
+            .record(id(0, 0x800))
+            .unwrap()
+            .all(Tag(*b"LNAM"))
+            .count(),
+        3
     );
     for (list, form, chance) in [(0x801, 0x831, 17), (0x802, 0x821, 31), (0x803, 0x841, 47)] {
         let state = loaded.leveled_list(id(0, list)).unwrap();

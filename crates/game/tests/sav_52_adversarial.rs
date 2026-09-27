@@ -3,7 +3,7 @@
 
 use soe_esm::{
     plugin::{FileHeader, Plugin},
-    GlobalFormId, LoadOrder, Record, Tag,
+    GlobalFormId, LoadOrder, Record, Tag, CREATED_FILE,
 };
 use soe_game::{vanilla_save::RestoreError, World};
 use soe_save::{Compression, Header, RefId, Save, WString};
@@ -165,9 +165,10 @@ fn saved_additions_reach_warm_queries_and_rolls_after_engine_reload() {
     let mut loaded = World::from_shared_order(order);
     loaded.load_state(&bytes).unwrap();
 
+    assert_eq!(loaded.form_list(id(0x800)).unwrap(), &[id(0x820)]);
     assert_eq!(
-        loaded.form_list(id(0x800)).unwrap(),
-        &[id(0x820), id(0x820), id(0)]
+        loaded.record(id(0x800)).unwrap().all(Tag(*b"LNAM")).count(),
+        3
     );
     for (list, target) in [(0x801, 0x831), (0x802, 0x821), (0x803, 0x841)] {
         let entries = &loaded.leveled_list(id(list)).unwrap().entries;
@@ -188,6 +189,47 @@ fn saved_additions_reach_warm_queries_and_rolls_after_engine_reload() {
     assert_eq!(
         loaded.select_leveled_spells(id(0x803), 2).unwrap(),
         [id(0x841)].into_iter().collect()
+    );
+}
+
+#[test]
+fn created_saved_forms_precede_authored_forms_and_duplicates_stay_raw() {
+    let mut saved = changes(
+        &[0x400820, 0x800901, 0x400821, 0x800902, 0x800901, 0],
+        &[],
+        &[],
+        &[],
+    );
+    saved.change_forms.truncate(1);
+    let mut warm = World::new(list_order());
+    warm.form_list(id(0x800)).unwrap();
+    warm.restore_vanilla_lists(&saved).unwrap();
+    let expected = [
+        GlobalFormId {
+            file: CREATED_FILE,
+            object: 0x901,
+        },
+        GlobalFormId {
+            file: CREATED_FILE,
+            object: 0x902,
+        },
+        id(0x820),
+        id(0x821),
+    ];
+    assert_eq!(warm.form_list(id(0x800)).unwrap(), &expected);
+    let mut cold = World::new(list_order());
+    cold.restore_vanilla_lists(&saved).unwrap();
+    assert_eq!(cold.form_list(id(0x800)).unwrap(), &expected);
+    let mut reloaded = World::new(list_order());
+    reloaded.load_state(&cold.save_state()).unwrap();
+    assert_eq!(reloaded.form_list(id(0x800)).unwrap(), &expected);
+    assert_eq!(
+        reloaded
+            .record(id(0x800))
+            .unwrap()
+            .all(Tag(*b"LNAM"))
+            .count(),
+        7
     );
 }
 

@@ -3250,19 +3250,23 @@ are outside this range-exit implementation.
 
 `World::restore_vanilla_lists` applies decoded FLST, LVLN, LVLI and LVSP
 changes to record overrides. Saved references map through plugin names before
-any override is installed. The method preserves addition order, duplicates,
-null entries, form flag words, optional section presence and leveled entry
-chance bytes. Leveled additions
-become twelve-byte LVLO subrecords and update LLCT when present. Form-list and
-leveled-list caches already read by a caller receive the same additions.
-Malformed changes, duplicate targets, missing records and count overflow leave
+any override is installed. The record retains decoded additions, including
+duplicate and null references. FormList queries follow the CK saved-addition
+rule: they skip duplicates and nulls, with created forms before authored forms.
+The method preserves form flag words, optional section presence and leveled
+entry chance bytes. Leveled additions become twelve-byte LVLO subrecords and
+update LLCT when present. Warm form-list
+caches receive the same visible entries as cold queries. Warm leveled-list
+caches receive the saved additions. Malformed changes, duplicate targets,
+missing records and count overflow leave
 all four list types unchanged.
 
 The record overrides feed form-list queries, leveled selection and other
 record readers. SOEW version 34 stores the saved flag words and entry chance
 bytes alongside the overridden records. The chance byte remains available as
 saved data without altering leveled selection probability. The implementation
-follows local xEdit `Core/wbDefinitionsTES5Saves.pas` change types 43 to 46 and
+follows local xEdit `Core/wbDefinitionsTES5Saves.pas` change types 43 to 46,
+CK `AddForm_-_FormList.wikitext` for import order and duplicate handling, and
 FallrimTools `ChangeFormFLST.java`, `ChangeFormLeveled.java` and
 `LeveledEntry.java`. Their Java readers cannot serve as Rust runtime code, so
 the existing typed save decoder and record override layer perform the mapping.

@@ -9,7 +9,7 @@ use soe_esm::{plugin::Subrecord, GlobalFormId};
 use soe_save::Save;
 
 use super::record_overrides::{raw_words, ListRecordExtra, RecordOverride};
-use super::{LeveledEntry, World, T};
+use super::{forms::add_saved_form_list_entries, LeveledEntry, World, T};
 use crate::vanilla_save::{RestoreError, SavedFormMap};
 
 fn invalid(id: GlobalFormId, reason: impl Into<String>) -> RestoreError {
@@ -145,7 +145,7 @@ impl World {
         self.record_overrides.extend(prepared);
         for (id, additions) in form_additions {
             if let Some(cached) = self.form_lists.get_mut(&id) {
-                cached.extend(additions);
+                add_saved_form_list_entries(cached, additions);
             }
         }
         for (id, additions) in leveled_additions {
