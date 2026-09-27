@@ -2,8 +2,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
-use soe_game::world::image_space::WeatherSelection;
 use soe_game::World;
+use soe_game::world::image_space::WeatherSelection;
 
 fn tag(bytes: [u8; 4]) -> Tag {
     Tag::new(&bytes)
@@ -106,12 +106,14 @@ fn mag_72_invalid_selection_is_atomic_and_saved_selection_round_trips() {
     };
     world.select_weather_image_space(Some(chosen)).unwrap();
     let before = world.base_image_space().unwrap();
-    assert!(world
-        .select_weather_image_space(Some(WeatherSelection {
-            blend: f32::NAN,
-            ..chosen
-        }))
-        .is_err());
+    assert!(
+        world
+            .select_weather_image_space(Some(WeatherSelection {
+                blend: f32::NAN,
+                ..chosen
+            }))
+            .is_err()
+    );
     assert_eq!(world.base_image_space().unwrap(), before);
     let bytes = world.save_state();
     world.select_weather_image_space(None).unwrap();

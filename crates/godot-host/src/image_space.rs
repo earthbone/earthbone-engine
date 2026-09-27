@@ -3,8 +3,8 @@
 //! Host view of winning base IMGS and shared modifier lifetimes. xEdit IMGS
 //! and Godot Environment/CameraAttributesPractical define the inputs.
 
-use soe_game::world::image_space::{BaseImageSpace, ImageSpaceLayer};
 use soe_game::World;
+use soe_game::world::image_space::{BaseImageSpace, ImageSpaceLayer};
 
 /// A derived frame snapshot. The shared World owns all lifetime changes.
 #[derive(Default)]
@@ -58,8 +58,8 @@ impl From<&BaseImageSpace> for RenderedBase {
             contrast: base.cinematic[2].max(0.0),
             tint: base.tint,
             depth_amount: base.depth[0].clamp(0.0, 1.0),
-            depth_distance: base.depth[1].max(0.0) / 100.0,
-            depth_range: base.depth[2].max(0.01) / 100.0,
+            depth_distance: base.depth[1].max(0.0) / soe_game::world::UNITS_PER_METRE,
+            depth_range: base.depth[2].max(0.01) / soe_game::world::UNITS_PER_METRE,
         }
     }
 }

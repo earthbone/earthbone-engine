@@ -11,13 +11,13 @@ mod legacy;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
+use soe_game::Game;
 use soe_game::vmad::{ScriptEntry, Vmad};
 use soe_game::world::magic::{EffectId, MagicError};
 use soe_game::world::{Handle, Pending};
-use soe_game::Game;
-use soe_papyrus::asm::{i, ident, s, FunctionBuilder, ScriptBuilder};
 use soe_papyrus::Opcode::{Assign, CallMethod, IAdd, Return};
 use soe_papyrus::Value;
+use soe_papyrus::asm::{FunctionBuilder, ScriptBuilder, i, ident, s};
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
 const ACTOR: u32 = 0x100;
@@ -410,12 +410,14 @@ fn mag_11_malformed_effect_group_leaves_the_ingestible_in_inventory() {
     let mut game = game(plugin(effect(1 << 1, 0, 24, false), vec![potion]));
     game.world_mut().add_item(id(ACTOR), id(POTION), 1);
     let shared = game.shared_world();
-    assert!(shared
-        .borrow_mut()
-        .drink_ingestible(id(POTION), id(ACTOR), &mut |name, class| {
-            game.vm.create_object_of(name, class)
-        })
-        .is_err());
+    assert!(
+        shared
+            .borrow_mut()
+            .drink_ingestible(id(POTION), id(ACTOR), &mut |name, class| {
+                game.vm.create_object_of(name, class)
+            })
+            .is_err()
+    );
     assert_eq!(game.world_mut().item_count(id(ACTOR), id(POTION)), 1);
     assert_eq!(game.world().active_effects().count(), 0);
 }
@@ -551,11 +553,13 @@ fn mag_21_saved_effect_keeps_its_perk_until_dispelled() {
     restored.load_state(&saved).unwrap();
     assert!(restored.world_mut().has_perk(id(ACTOR), id(GRANTED_PERK)));
     let shared = restored.shared_world();
-    assert!(shared
-        .borrow_mut()
-        .dispel_spell(id(ACTOR), id(SPELL), &mut |name, class| restored
-            .vm
-            .create_object_of(name, class),));
+    assert!(
+        shared
+            .borrow_mut()
+            .dispel_spell(id(ACTOR), id(SPELL), &mut |name, class| restored
+                .vm
+                .create_object_of(name, class),)
+    );
     assert!(!restored.world_mut().has_perk(id(ACTOR), id(GRANTED_PERK)));
 }
 
@@ -858,9 +862,10 @@ fn mag_06_area_hit_selects_each_eligible_actor_once_in_radius() {
     let effect = effect(1 | 4, 0, 24, false);
     let spell = spell_with_area(SPELL, 0, false, 15.0, 0, 500);
     let mut game = game(plugin(effect, vec![spell]));
-    assert!(game
-        .world_mut()
-        .move_to(id(SOURCE), id(ACTOR), [2_000.0, 0.0, 0.0]));
+    assert!(
+        game.world_mut()
+            .move_to(id(SOURCE), id(ACTOR), [2_000.0, 0.0, 0.0])
+    );
 
     let shared = game.shared_world();
     let applied = shared
@@ -1086,10 +1091,11 @@ fn menu_time_does_not_age_effects() {
 fn scripts_bind_per_application_and_receive_target_and_caster() {
     let mut game = fixture(0, 1, 0.0, 10);
     let definition = game.object_of_form(id(EFFECT));
-    assert!(game
-        .vm
-        .get_var(definition, "EffectProbe", "started")
-        .is_none());
+    assert!(
+        game.vm
+            .get_var(definition, "EffectProbe", "started")
+            .is_none()
+    );
     let first = cast(&mut game, SPELL, ACTOR).unwrap()[0];
     let second = cast(&mut game, SPELL, OTHER).unwrap()[0];
     game.run_until_idle(64);
@@ -1771,11 +1777,13 @@ fn hostile_no_hit_event_applies_damage_without_hit_callbacks() {
     game.world_mut().pending.clear();
     cast(&mut game, SPELL, OTHER).unwrap();
     assert_eq!(game.world_mut().actor_value(id(OTHER), "health"), 80.0);
-    assert!(!game
-        .world()
-        .pending
-        .iter()
-        .any(|p| matches!(p, Pending::Event { name, .. } if name == "OnHit")));
+    assert!(
+        !game
+            .world()
+            .pending
+            .iter()
+            .any(|p| matches!(p, Pending::Event { name, .. } if name == "OnHit"))
+    );
 }
 
 #[test]

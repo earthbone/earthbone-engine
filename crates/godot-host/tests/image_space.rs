@@ -2,8 +2,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
-use soe_game::world::image_space::WeatherSelection;
 use soe_game::Game;
+use soe_game::world::image_space::WeatherSelection;
 use soe_godot_host::image_space::{ImageSpaceStack, RenderedBase};
 
 #[test]
@@ -77,7 +77,7 @@ fn mag_72_render_values_follow_cell_source_and_clear_on_replacement() {
             rendered.depth_distance,
             rendered.depth_range
         ),
-        (0.5, 4.0, 2.0)
+        (0.5, 400.0 / 70.0, 200.0 / 70.0)
     );
     assert_eq!(rendered.tint, [0.25, 0.8, 0.2, 0.1]);
     game.world_mut()
@@ -107,7 +107,7 @@ fn mag_72_render_values_follow_cell_source_and_clear_on_replacement() {
             weather.depth_distance,
             weather.depth_range
         ),
-        (0.8, 6.0, 3.0)
+        (0.8, 600.0 / 70.0, 300.0 / 70.0)
     );
     game.world_mut().select_weather_image_space(None).unwrap();
     game.world_mut().load_cell(GlobalFormId {
