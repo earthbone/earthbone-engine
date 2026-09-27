@@ -112,6 +112,33 @@ impl EditorDocument {
         &self.load_order
     }
 
+    /// Search winning forms by optional record signature and editor ID text.
+    ///
+    /// An empty query matches every winning form that passes the signature
+    /// filter. A non-empty query matches an ASCII case-insensitive substring
+    /// of the record's `EDID`. The iterator yields form IDs only. Callers can
+    /// retrieve the winning record when a result is selected instead of
+    /// creating one Godot resource for every form in the load order.
+    pub fn search_forms<'a>(
+        &'a self,
+        tag: Option<Tag>,
+        query: &'a str,
+    ) -> impl Iterator<Item = GlobalFormId> + 'a {
+        self.load_order
+            .winners()
+            .filter_map(move |(id, record_ref)| {
+                let record = self.load_order.record(record_ref);
+                if tag.is_some_and(|expected| record.tag != expected) {
+                    return None;
+                }
+                let matches = query.is_empty()
+                    || record
+                        .find(Tag(*b"EDID"))
+                        .is_some_and(|editor_id| contains_ascii_case_insensitive(editor_id, query));
+                matches.then_some(id)
+            })
+    }
+
     /// Return the active plugin's file name.
     pub fn active_name(&self) -> &str {
         &self.active_name
@@ -294,6 +321,13 @@ impl EditorDocument {
             hedr.data[4..8].copy_from_slice(&count.to_le_bytes());
         }
     }
+}
+
+fn contains_ascii_case_insensitive(value: &[u8], query: &str) -> bool {
+    let value = value.strip_suffix(&[0]).unwrap_or(value);
+    value
+        .windows(query.len())
+        .any(|window| window.eq_ignore_ascii_case(query.as_bytes()))
 }
 
 fn file_name(path: &Path) -> Result<String, EditorError> {
