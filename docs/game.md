@@ -2361,6 +2361,32 @@ values, high indices, invalid indices and subjects, resource fractions and the
 existing kill/resurrection lifecycle. No new authoritative actor state,
 dependency or save format was added.
 
+## Motion condition batch AI-62
+
+`GetPos` and `GetAngle` read the subject reference's current placement by
+axis. `GetStartingPos` and `GetStartingAngle` read its authored `REFR` or
+`ACHR` transform, so runtime movement does not change those results. Position
+values use game units. Angle values convert the record's radians to degrees.
+All four functions accept axes 0 through 2 and reject other axes or a nonzero
+second parameter. Missing references and authored transforms return form
+diagnostics.
+
+`GetSleeping` returns the actor's modeled sleep state: 0 when idle, 2 when its
+current package is Sleep and it has not reached the bed, and 3 while the AI
+driver marks it sleeping. The runtime does not distinguish the CK's transient
+loading-sleep-idle state 1 or wants-to-wake state 4. Non-actor subjects return
+a form diagnostic. `IsMoving`, `IsTurning` and `IsRotating` validate their
+reference context and then return an unavailable-state diagnostic because
+the world does not track those motion flags.
+
+The contracts follow local xEdit `wbDefinitionsTES5.pas` and UESP
+`Raw_Function_Data.wikitext` parameter declarations, CK's ObjectReference
+position and angle pages for values and units, and CK's `GetSleepState` page
+for the documented sleep states and `GetSleeping` loading-idle note. The
+`ai_62_motion_conditions` tests cover runtime versus authored placement,
+degree conversion, supported sleep states, invalid inputs and unavailable
+motion flags.
+
 ### Sequential package validation
 
 AI-02 has synthetic tests for child order, nested and root repeats, early

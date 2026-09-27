@@ -8,6 +8,7 @@ use crate::package::DataValue;
 use crate::{inventory::Field, Handle, World};
 use soe_esm::{
     records::gameplay::{Comparison, Condition},
+    records::refr::Refr,
     GlobalFormId, Tag,
 };
 use soe_papyrus::{Value, Vm};
@@ -108,7 +109,15 @@ fn evaluate_with_vm(
 pub fn supports_function(function: u16) -> bool {
     matches!(
         function,
-        1 | 14
+        1 | 6
+            | 8
+            | 10
+            | 11
+            | 14
+            | 25
+            | 26
+            | 49
+            | 81
             | 128
             | 277
             | 408
@@ -425,6 +434,83 @@ fn function_value(
 ) -> Result<f32, Error> {
     let raw = c.parameters[0];
     Ok(match c.function {
+        6 | 8 => {
+            no_second_parameter(c)?;
+            let axis = usize::try_from(raw).map_err(|_| Error::Parameter(c.function, raw))?;
+            if axis >= 3 {
+                return Err(Error::Parameter(c.function, raw));
+            }
+            let reference = world.reference(subject).ok_or(Error::Form(subject))?;
+            if reference.deleted {
+                return Err(Error::Form(subject));
+            }
+            if c.function == 6 {
+                reference.position[axis]
+            } else {
+                reference.rotation[axis].to_degrees()
+            }
+        }
+        10 | 11 => {
+            no_second_parameter(c)?;
+            let axis = usize::try_from(raw).map_err(|_| Error::Parameter(c.function, raw))?;
+            if axis >= 3 {
+                return Err(Error::Parameter(c.function, raw));
+            }
+            let record = world.record(subject).ok_or(Error::Form(subject))?;
+            let values = match record.tag.as_bytes() {
+                b"REFR" => {
+                    let transform = Refr::from_record(record)
+                        .ok()
+                        .and_then(|reference| reference.transform)
+                        .ok_or(Error::Form(subject))?;
+                    if c.function == 10 {
+                        transform.position
+                    } else {
+                        transform.rotation.map(f32::to_degrees)
+                    }
+                }
+                b"ACHR" => {
+                    let data = record
+                        .find(Tag(*b"DATA"))
+                        .filter(|data| data.len() >= 24)
+                        .ok_or(Error::Form(subject))?;
+                    let offset = if c.function == 10 { 0 } else { 12 };
+                    let mut values = [0.0; 3];
+                    for (index, value) in values.iter_mut().enumerate() {
+                        let start = offset + index * 4;
+                        let bytes = data[start..start + 4]
+                            .try_into()
+                            .map_err(|_| Error::Form(subject))?;
+                        *value = f32::from_le_bytes(bytes);
+                    }
+                    if c.function == 11 {
+                        values = values.map(f32::to_degrees);
+                    }
+                    values
+                }
+                _ => return Err(Error::Form(subject)),
+            };
+            values[axis]
+        }
+        25 | 26 | 81 => {
+            no_parameter(c)?;
+            let reference = world.reference(subject).ok_or(Error::Form(subject))?;
+            if reference.deleted {
+                return Err(Error::Form(subject));
+            }
+            return Err(Error::Unavailable(c.function));
+        }
+        49 => {
+            no_parameter(c)?;
+            let actor = world.actor(subject).ok_or(Error::Form(subject))?;
+            if actor.ai.sleeping {
+                3.0
+            } else if actor.ai.procedure == crate::ai::Procedure::Sleep {
+                2.0
+            } else {
+                0.0
+            }
+        }
         14 | 128 | 277 | 408 | 430 | 494 => {
             actor_query(world, context.owner, subject, c.function, raw)?
         }
