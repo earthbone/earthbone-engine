@@ -669,6 +669,13 @@ Versions 4 through 15 remain readable. They have no tree cursor, so their
 selected package starts its tree from the beginning on its first driver tick.
 Empty repeating branches yield each tick without running later siblings.
 
+An immediate `Simultaneous` group of condition-eligible `Wait` procedure
+children starts every timer against the same non-menu clock value. The group
+completes after its longest finite timer. A zero duration keeps it active.
+Changing the winning package cancels the active group with the package cursor.
+Other simultaneous child procedures remain unsupported until the completion
+policy in AI-87 is established from paired authored records.
+
 The layout follows local xEdit `wbRecord(PACK)`, `PRCB`, `FNAM`, and `PKC2`,
 plus the local UESP PACK page. CommonLib's sequence header supplies a type
 but no implementation. The nested-repeat behavior follows the mod author's
