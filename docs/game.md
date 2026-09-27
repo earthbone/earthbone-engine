@@ -2381,6 +2381,31 @@ values, high indices, invalid indices and subjects, resource fractions and the
 existing kill/resurrection lifecycle. No new authoritative actor state,
 dependency or save format was added.
 
+## Reference state conditions AI-76
+
+The gameplay CTDA evaluator implements IsProtected (476) from the subject's
+NPC base state and PlayerKnows (493) for spells held in the player's spell
+set. IsProtected rejects parameters and non-actor subjects. PlayerKnows
+rejects malformed forms and extra parameters, compares known spells with the
+player's current spell set, and returns a state contract diagnostic for other
+form types because their known flags are not represented by runtime state.
+
+The local xEdit `wbConditionFunctions` table declares these function indices
+and parameter types. CK's `ActorBase_Script.wikitext` documents the protected
+flag, and `PlayerKnows_-_Form.wikitext` describes the form Known flag for
+magic effects, words of power and enchantments. The CK page defines a broader
+set of knowable forms than the current actor spell state can answer.
+GetAllowWorldInteractions (503), IsWin32 (521), IsGoreDisabled (547),
+GetActorsInHigh (554), HasLoaded3D (555) and GetCurrentDeliveryType (572)
+remain explicit unsupported condition diagnostics. xEdit declares their
+names and parameters, while the local CK corpus does not define usable
+condition contracts for their settings, process tier, host 3D state or active
+cast state. No parallel state or save data is added.
+
+`ai_76_reference_conditions` checks positive and negative results for the
+available contracts, invalid form and parameter cases, missing run-on context,
+and explicit diagnostics for the uncontracted functions.
+
 ### Sequential package validation
 
 AI-02 has synthetic tests for child order, nested and root repeats, early
