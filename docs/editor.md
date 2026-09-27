@@ -294,3 +294,12 @@ every form. The query walks `soe-esm::LoadOrder::winners`. The Godot editor's
 `tutorials/plugins/editor/making_plugins.rst` and `inspector_plugins.rst` describe the dock
 and inspector controls that can display those results. This row implements the Rust search
 operation only, not the Godot dock or inspector controls.
+
+`EditorDocument::brush_land_heights` applies a single circular dab to a LAND record already
+present in the active plugin. The dab takes its center and radius in cell-local world units
+and its strength as the center height change. It updates VHGT and derived VNML in one undo
+step, then rebuilds the load order so the edited record is the winner. Saving writes the
+edited plugin, whose LAND data can be parsed after reload. The operation uses the
+position-based builder contract in local Terrain3D's `project/addons/terrain_3d/src/operation_builder.gd`.
+It is a Rust document operation, not a Terrain3D brush UI, and it does not create an override
+for a LAND owned by another plugin.

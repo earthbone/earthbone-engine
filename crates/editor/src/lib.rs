@@ -218,6 +218,46 @@ impl EditorDocument {
         Ok(())
     }
 
+    /// Apply one circular LAND height brush dab as a single undoable edit.
+    ///
+    /// The LAND record must already be present in the active plugin. `center`
+    /// and `radius` use cell-local world units, and `strength` is the height
+    /// change at the brush centre. The operation updates VHGT and derived
+    /// VNML together while preserving the record's other subrecords.
+    ///
+    /// # Errors
+    /// Returns an error if the form is missing, is not a LAND record in the
+    /// active plugin, or its height data cannot be edited.
+    pub fn brush_land_heights(
+        &mut self,
+        form: GlobalFormId,
+        center: [f32; 2],
+        radius: f32,
+        strength: f32,
+    ) -> Result<(), EditorError> {
+        let Some(index) = self.active_record_index(form) else {
+            return Err(EditorError::MissingForm(form));
+        };
+        if self.active_plugin.records[index].tag != Tag(*b"LAND") {
+            return Err(EditorError::UnsupportedEdit {
+                form,
+                reason: "height brush requires an active-plugin LAND record",
+            });
+        }
+        let mut record = self.active_plugin.records[index].clone();
+        soe_esm::records::land::apply_height_brush(&mut record, center, radius, strength).map_err(
+            |error| EditorError::Plugin {
+                name: self.active_name.clone(),
+                message: error.to_string(),
+            },
+        )?;
+
+        self.undo.push(self.active_plugin.clone());
+        self.active_plugin.records[index] = record;
+        self.rebuild_load_order()?;
+        Ok(())
+    }
+
     /// Undo the most recent edit, returning whether an edit was available.
     ///
     /// # Errors
