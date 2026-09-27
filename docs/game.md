@@ -1255,6 +1255,22 @@ result contract. xEdit `wbConditionFunctions` supplies each function's
 parameter types. Related CK behavior comes from `IsInLocation`,
 `GetWorldSpace`, and `GetActorOwner - Cell`.
 
+AI-56 adds `GetInZone`, `GetVelocity`, `GetMapMarkerVisible`,
+`GetLockIsBroken`, `HasRefType`, `LocationHasKeyword`, `LocationHasRefType` and
+`GetIsEditorLocation`. Encounter-zone checks compare the subject's resolved
+zone with an `ECZN` parameter. Map-marker visibility reads the reference's
+`AddToMap` state. Reference-type checks read `XLRT`; location ref-type checks
+read the location's added and master special-reference lists. Location keyword
+checks use the subject's current location. Editor-location checks use the
+reference's authored location, including its cell fallback. `GetVelocity`
+validates its axis parameter and `GetLockIsBroken` validates its unused
+parameters, then both report unavailable runtime state because the world does
+not model velocity or broken locks. xEdit defines the parameter types. CK's
+`HasRefType` and `IsMapMarkerVisible` pages supply the available query
+contracts. CK's `HasKeyword`, `GetEditorLocation`, `Lock` and `IsLocked` pages
+describe the related form queries and state. The local CK corpus has no usable
+individual condition contract for the other functions.
+
 Sources consulted were local xEdit `wbDefinitionsTES5.pas` for CTDA, COBJ and
 FURN WBDT, CK `GetItemCount_-_ObjectReference.wikitext` for the query forms,
 UESP COBJ notes for missing outputs, skymp `CraftService.cpp` and

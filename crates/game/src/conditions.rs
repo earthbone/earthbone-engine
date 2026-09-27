@@ -49,6 +49,10 @@ pub enum Error {
     TemperingContext,
     #[error("condition requires the subject's current package {0}")]
     PackageContext(GlobalFormId),
+    #[error("condition function {0} requires runtime state the engine does not track")]
+    Unavailable(u16),
+    #[error("condition requires the subject's current location {0}")]
+    LocationContext(GlobalFormId),
     #[error("condition count overflow or cyclic form list")]
     Inventory,
 }
@@ -153,6 +157,14 @@ pub fn supports_function(function: u16) -> bool {
             | 325
             | 360
             | 444
+            | 445
+            | 446
+            | 491
+            | 519
+            | 561
+            | 562
+            | 563
+            | 565
     )
 }
 
@@ -402,6 +414,72 @@ fn function_value(
         325 => {
             no_second_parameter(c)?;
             package_location_condition(world, subject, c, raw)?
+        }
+        445 => {
+            no_second_parameter(c)?;
+            let zone = resolve(world, context.owner, raw, Some(*b"ECZN"))?;
+            let subject_zone = world
+                .encounter_zone(subject)
+                .map_err(|_| Error::Form(subject))?;
+            boolean(subject_zone == Some(zone))
+        }
+        446 => {
+            no_second_parameter(c)?;
+            if raw > 2 {
+                return Err(Error::Parameter(c.function, raw));
+            }
+            return Err(Error::Unavailable(c.function));
+        }
+        491 => {
+            no_parameter(c)?;
+            boolean(world.reference(subject).ok_or(Error::Form(subject))?.on_map)
+        }
+        519 => {
+            no_parameter(c)?;
+            return Err(Error::Unavailable(c.function));
+        }
+        561 => {
+            no_second_parameter(c)?;
+            let ref_type = resolve(world, context.owner, raw, Some(*b"LCRT"))?;
+            let record = world.record(subject).ok_or(Error::Form(subject))?;
+            let matches = record
+                .all(Tag(*b"XLRT"))
+                .filter(|bytes| bytes.len() == 4)
+                .filter_map(|bytes| <[u8; 4]>::try_from(bytes).ok().map(u32::from_le_bytes))
+                .any(|raw| world.resolve_from(subject, raw) == Some(ref_type));
+            boolean(matches)
+        }
+        562 => {
+            no_second_parameter(c)?;
+            let keyword = resolve(world, context.owner, raw, Some(*b"KYWD"))?;
+            let location = world
+                .current_location(subject)
+                .ok_or(Error::LocationContext(subject))?;
+            boolean(world.keywords(location).contains(&keyword))
+        }
+        563 => {
+            no_second_parameter(c)?;
+            let ref_type = resolve(world, context.owner, raw, Some(*b"LCRT"))?;
+            let location = world
+                .current_location(subject)
+                .ok_or(Error::LocationContext(subject))?;
+            let record = world.record(location).ok_or(Error::Form(location))?;
+            let matches = record
+                .all(Tag(*b"ACSR"))
+                .chain(record.all(Tag(*b"LCSR")))
+                .filter(|bytes| bytes.len() >= 4)
+                .filter_map(|bytes| {
+                    <[u8; 4]>::try_from(&bytes[..4])
+                        .ok()
+                        .map(u32::from_le_bytes)
+                })
+                .any(|raw| world.resolve_from(location, raw) == Some(ref_type));
+            boolean(matches)
+        }
+        565 => {
+            no_second_parameter(c)?;
+            let location = resolve(world, context.owner, raw, Some(*b"LCTN"))?;
+            boolean(world.editor_location(subject) == Some(location))
         }
         69 => {
             let race = resolve(world, context.owner, raw, Some(*b"RACE"))?;
