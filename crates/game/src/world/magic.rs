@@ -39,6 +39,7 @@ const INGESTIBLE_POISON: u32 = 1 << 17;
 const INVISIBILITY: u32 = 11;
 const LIGHT: u32 = 12;
 const LOCK: u32 = 15;
+const OPEN: u32 = 16;
 
 /// Identity of one effect application, independent of its MGEF FormID.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -96,6 +97,7 @@ struct PreparedEffect {
     light_base: Option<GlobalFormId>,
     bound_weapon: Option<GlobalFormId>,
     lock_level: Option<i32>,
+    open_lock: bool,
     disarm: bool,
     no_recast: bool,
     hit_event: bool,
@@ -360,6 +362,7 @@ impl World {
                 light_base: None,
                 bound_weapon: None,
                 lock_level: None,
+                open_lock: false,
                 disarm: false,
                 hit_event: false,
                 dispel_rules,
@@ -488,11 +491,11 @@ impl World {
             }
             if !matches!(
                 data.archetype,
-                0 | 1 | 2 | 3 | 4 | 5 | 9 | 11 | 12 | LOCK | 17 | 18
+                0 | 1 | 2 | 3 | 4 | 5 | 9 | 11 | 12 | LOCK | OPEN | 17 | 18
             ) {
                 return Err(MagicError::Unsupported("effect archetype"));
             }
-            if data.archetype == LOCK {
+            if matches!(data.archetype, LOCK | OPEN) {
                 if !self.lockable_reference(target) {
                     return Err(MagicError::Target);
                 }
@@ -621,7 +624,7 @@ impl World {
             } else {
                 entry.data.area as f32
             };
-            let mut recipients = if data.archetype == LOCK {
+            let mut recipients = if matches!(data.archetype, LOCK | OPEN) {
                 vec![target]
             } else {
                 self.area_targets(target, radius)
@@ -654,6 +657,7 @@ impl World {
                     light_base,
                     bound_weapon,
                     lock_level,
+                    open_lock: data.archetype == OPEN,
                     disarm,
                     hit_event: data.flags & (HOSTILE | NO_HIT_EVENT) == HOSTILE,
                     dispel_rules: dispel_rules.clone(),
@@ -672,13 +676,23 @@ impl World {
         prepared: Vec<PreparedEffect>,
         alloc: Alloc<'_>,
     ) -> Result<Vec<EffectId>, MagicError> {
-        let (locks, ordinary): (Vec<_>, Vec<_>) = prepared
+        let (locks, remaining): (Vec<_>, Vec<_>) = prepared
             .into_iter()
             .partition(|effect| effect.lock_level.is_some());
+        let (opens, ordinary): (Vec<_>, Vec<_>) =
+            remaining.into_iter().partition(|effect| effect.open_lock);
         let prepared = self.prepare_effect_actions(ordinary)?;
         for effect in locks {
             if let Some(level) = effect.lock_level {
                 self.set_lock_level(effect.effect.target, level, alloc);
+            }
+        }
+        for effect in opens {
+            let target = effect.effect.target;
+            if self.reference_ref(target).is_some_and(|state| {
+                state.locked && state.lock_level as f32 <= effect.effect.magnitude
+            }) {
+                self.set_locked(target, false, alloc);
             }
         }
         let disarms: Vec<_> = prepared

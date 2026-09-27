@@ -1725,6 +1725,20 @@ rules. The shared state path is `world/locks.rs`. `mag_36_lock_*` covers level
 changes on doors and containers, preservation of locked state, lock-change
 events, and rejection of actor and non-lockable reference targets.
 
+#### Open archetype, MAG-37
+
+MGEF archetype 16 opens a reference lock when the effect magnitude is at least
+the reference's lock level. It accepts doors and containers, leaves a stronger
+lock unchanged, and uses `World::set_locked` for eligible locks, so ownership
+state is retained and `OnLockStateChanged` is queued. Open effects are
+immediate and do not create active effects. Actor and other reference targets,
+plus area Open effects, return a typed error before changing state.
+
+The local xEdit MGEF table names archetype 16 Open. Its format description and
+the local CK corpus do not specify the magnitude threshold, so the behavior
+here follows the MAG-37 done check. CK `Lock` and `GetLockLevel` define the
+shared reference lock state used by the executor.
+
 #### Light archetype, MAG-35
 
 MGEF archetype 12 resolves its Associated Item as a winning `LIGH` record and
