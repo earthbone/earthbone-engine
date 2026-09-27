@@ -194,6 +194,7 @@ impl Game {
             target: Some(target),
             quest: None,
             tempering_enchanted: Some(enchanted),
+            tempering_item: Some(target),
         };
         if !conditions::evaluate(&mut world, &self.vm, context, &recipe.conditions)? {
             return Err(Error::Ineligible);
@@ -327,6 +328,7 @@ impl Game {
             target: None,
             quest: None,
             tempering_enchanted: None,
+            tempering_item: None,
         };
         if !conditions::evaluate(&mut world, &self.vm, context, &recipe.conditions)? {
             return Err(Error::Ineligible);

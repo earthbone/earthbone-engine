@@ -66,6 +66,7 @@ pub struct EntryPointContext {
     pub tabs: Vec<GlobalFormId>,
     pub target: Option<GlobalFormId>,
     pub quest: Option<GlobalFormId>,
+    pub tempering_item: Option<GlobalFormId>,
 }
 
 /// The decoded fields needed by an entry point handler.
@@ -336,6 +337,7 @@ fn entry_conditions(
             target: context.target,
             quest: context.quest,
             tempering_enchanted: None,
+            tempering_item: context.tempering_item,
         };
         if !conditions::evaluate(world, vm, condition_context, conditions)
             .map_err(|error| DispatchError::Condition(perk, error))?
@@ -429,6 +431,7 @@ impl Game {
             target: None,
             quest: None,
             tempering_enchanted: None,
+            tempering_item: None,
         };
         if !conditions::evaluate(&mut world, &self.vm, context, &perk.conditions)? {
             return Err(Error::Ineligible);

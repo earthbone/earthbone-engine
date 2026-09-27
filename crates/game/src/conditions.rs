@@ -4,6 +4,8 @@
 //! wbConditions/wbConditionFunctions. CK documents the state queries and
 //! conditional Papyrus variables. See docs/game.md for the implemented set.
 
+use std::collections::BTreeSet;
+
 use crate::{inventory::Field, Handle, World};
 use soe_esm::{
     records::gameplay::{Comparison, Condition},
@@ -21,6 +23,7 @@ pub struct Context {
     pub target: Option<GlobalFormId>,
     pub quest: Option<GlobalFormId>,
     pub tempering_enchanted: Option<bool>,
+    pub tempering_item: Option<GlobalFormId>,
 }
 
 /// A condition could not be evaluated. It must not be treated as true.
@@ -46,6 +49,8 @@ pub enum Error {
     NonFinite,
     #[error("condition requires tempering item context")]
     TemperingContext,
+    #[error("condition item health extra is malformed or non-finite")]
+    ItemHealth,
     #[error("condition count overflow or cyclic form list")]
     Inventory,
 }
@@ -140,6 +145,9 @@ pub fn supports_function(function: u16) -> bool {
             | 630
             | 655
             | 659
+            | 636
+            | 660
+            | 723
     )
 }
 
@@ -501,8 +509,97 @@ fn function_value(
             }
         }
         659 => boolean(context.tempering_enchanted.ok_or(Error::TemperingContext)?),
+        636 => {
+            no_parameter(c)?;
+            if world
+                .reference(subject)
+                .is_none_or(|reference| reference.deleted)
+            {
+                return Err(Error::Form(subject));
+            }
+            let equipped: Vec<_> = world
+                .actor(subject)
+                .ok_or(Error::Form(subject))?
+                .equipped
+                .iter()
+                .copied()
+                .collect();
+            let mut has_two_handed = false;
+            for item in equipped {
+                if world.tag_of(item) != Some(Tag(*b"WEAP")) {
+                    continue;
+                }
+                if matches!(weapon_animation_type(world, item)?, 5 | 6 | 7 | 9) {
+                    has_two_handed = true;
+                    break;
+                }
+            }
+            boolean(has_two_handed)
+        }
+        660 => {
+            if c.parameters[1] != 0 {
+                return Err(Error::Parameter(c.function, c.parameters[1]));
+            }
+            let keyword = resolve(world, context.owner, raw, Some(*b"KYWD"))?;
+            let item = context.tempering_item.ok_or(Error::TemperingContext)?;
+            if world.record(item).is_none_or(|record| record.is_deleted()) {
+                return Err(Error::Form(item));
+            }
+            boolean(world.has_keyword(item, keyword))
+        }
+        664 => return Err(Error::Function(664)),
+        723 => {
+            no_parameter(c)?;
+            item_health_percent(world, subject)?
+        }
         other => return Err(Error::Function(other)),
     })
+}
+
+fn weapon_animation_type(world: &World, item: GlobalFormId) -> Result<u8, Error> {
+    let mut current = item;
+    let mut seen = BTreeSet::new();
+    loop {
+        if !seen.insert(current) || seen.len() > 128 {
+            return Err(Error::Form(item));
+        }
+        let record = world
+            .record(current)
+            .filter(|record| record.tag == Tag(*b"WEAP"))
+            .ok_or(Error::Form(current))?;
+        if let Some(animation) = record
+            .find(Tag(*b"DNAM"))
+            .and_then(|data| data.first())
+            .copied()
+        {
+            return Ok(animation);
+        }
+        let (template, _) = crate::combat::records::Weapon::template_links(record)
+            .map_err(|_| Error::Form(current))?;
+        let template = template.ok_or(Error::Form(current))?;
+        current = world
+            .resolve_from(current, template)
+            .ok_or(Error::Form(current))?;
+    }
+}
+
+fn item_health_percent(world: &mut World, subject: GlobalFormId) -> Result<f32, Error> {
+    let reference = world
+        .reference(subject)
+        .filter(|reference| !reference.deleted)
+        .ok_or(Error::Form(subject))?;
+    let Some(extra) = reference.item.as_ref().and_then(|stack| stack.extra(37)) else {
+        return Ok(1.0);
+    };
+    let [Field::FloatBits(bits)] = extra.fields.as_slice() else {
+        return Err(Error::ItemHealth);
+    };
+    let quality = f32::from_bits(*bits);
+    if quality.is_finite() {
+        Ok(quality.max(1.0))
+    } else {
+        Err(Error::ItemHealth)
+    }
 }
 
 /// Shared actor queries keep package and gameplay predicates on the same state.

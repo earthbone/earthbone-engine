@@ -91,6 +91,7 @@ fn sav_08_restores_calendar_before_execution_and_preserves_it_in_engine_saves() 
         target: None,
         quest: None,
         tempering_enchanted: None,
+        tempering_item: None,
     };
     assert!(soe_game::conditions::evaluate_one(
         &mut game.world_mut(),

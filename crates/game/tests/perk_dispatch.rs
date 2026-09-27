@@ -61,6 +61,7 @@ fn context(actor: GlobalFormId) -> EntryPointContext {
         tabs: vec![actor],
         target: None,
         quest: None,
+        tempering_item: None,
     }
 }
 
@@ -155,6 +156,7 @@ fn prg_08_false_conditions_and_missing_tabs_do_not_run_handlers() {
                 tabs: vec![actor, actor],
                 target: None,
                 quest: None,
+                tempering_item: None,
             }
         ),
         Ok(0)

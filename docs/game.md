@@ -148,6 +148,20 @@ The location check supports near-reference, in-cell, near-editor-location and
 near-self modes. Other PLVD modes return a typed error. The 32-bit radius and
 location modes follow CommonLibSSE `TESFaction.h` and UESP `FACT.wikitext`.
 
+**Equipment conditions.** CTDA identities and parameter types follow
+`TES5Edit/Core/wbDefinitionsTES5.pas` and
+`uesp-modfileformat/Raw_Function_Data.wikitext`. CTDA 636 checks the subject
+actor's equipped WEAP records for the two-handed sword, axe, bow and crossbow
+animation types in xEdit's weapon enum. CTDA 660 resolves its keyword and
+checks the explicit tempering item supplied by the condition caller. Perk
+entry-point condition contexts carry that item through
+`EntryPointContext::tempering_item`. CTDA 723 reads the kind-37 ExtraHealth
+value from a loose item reference, defaults to 1.0 when the subject has no item
+extra, and clamps values below 1.0 to 1.0, following
+`ck-wiki/GetItemHealthPercent_-_ObjectReference.wikitext`. CTDA 664 retains
+an unsupported-function diagnostic because the local sources identify its
+parameter type but provide no usable evaluation contract.
+
 ## Conformance table
 
 Counts from `natives::register`: 364 natives with state behind them and 177

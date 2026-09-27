@@ -70,6 +70,7 @@ fn evaluate(game: &Game, subject: GlobalFormId, c: &Condition) -> Result<bool, c
             target: None,
             quest: None,
             tempering_enchanted: None,
+            tempering_item: None,
         },
         c,
     )
