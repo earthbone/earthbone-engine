@@ -60,7 +60,8 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// Version 34 retains last-visit game days for resettable encounter zones.
 /// Version 35 retains saved list flags and per-entry chance bytes in record overrides.
 /// Version 36 retains the active phase and completed action slots for each scene.
-pub const SAVE_VERSION: u16 = 36;
+/// Version 37 retains each reference's persistent flag.
+pub const SAVE_VERSION: u16 = 37;
 
 #[derive(Clone, Copy)]
 pub(crate) enum FormNamespace {
@@ -427,7 +428,15 @@ impl World {
                 body.u32(*slot);
             }
         }
-        self.write_detection(&mut body);
+        body.bool(!self.detection.pools.is_empty());
+        if !self.detection.pools.is_empty() {
+            self.write_detection(&mut body);
+        }
+        body.len(self.refs.len());
+        for (id, reference) in self.refs.iter().collect::<BTreeMap<_, _>>() {
+            write_form_id(&mut body, *id);
+            body.bool(reference.persistent);
+        }
         let mut out = Writer::new();
         out.out.extend_from_slice(SAVE_MAGIC);
         out.u16(SAVE_VERSION);
@@ -482,7 +491,11 @@ impl World {
         let mut refs = HashMap::with_capacity(n);
         for _ in 0..n {
             let id = read_form_id(&mut r)?;
-            refs.insert(id, read_ref_state(&mut r)?);
+            let mut state = read_ref_state(&mut r)?;
+            state.persistent = self.order.winner_ref(id).is_some_and(|record_ref| {
+                self.order.record(record_ref).flags & soe_esm::plugin::flags::PERSISTENT != 0
+            });
+            refs.insert(id, state);
         }
 
         let n = r.len()?;
@@ -1046,11 +1059,39 @@ impl World {
                 .map(|id| (*id, super::SceneRunState::default()))
                 .collect()
         };
-        let detection = if version >= 30 {
+        let detection = if version >= 37 {
+            if r.bool()? {
+                super::detection::read_detection(&mut r)?
+            } else {
+                crate::detection::DetectionState::default()
+            }
+        } else if version >= 30 {
             super::detection::read_detection(&mut r)?
         } else {
             crate::detection::DetectionState::default()
         };
+        if version >= 37 {
+            let count = r.len()?;
+            if count != refs.len() {
+                return Err(VmError::State(
+                    "reference persistence table is incomplete".into(),
+                ));
+            }
+            let mut seen = BTreeSet::new();
+            for _ in 0..count {
+                let id = read_form_id(&mut r)?;
+                let persistent = r.bool()?;
+                if !seen.insert(id) {
+                    return Err(VmError::State(
+                        "duplicate reference persistence entry".into(),
+                    ));
+                }
+                let reference = refs
+                    .get_mut(&id)
+                    .ok_or_else(|| VmError::State("missing reference persistence target".into()))?;
+                reference.persistent = persistent;
+            }
+        }
         r.expect_end()?;
         for id in super::detection::detection_actors(&detection) {
             let actor = refs.get(&id).map_or_else(
@@ -1401,6 +1442,7 @@ fn read_ref_state(r: &mut FormReader<'_, '_>) -> Result<RefState, VmError> {
         anim_ints,
         anim_bools,
         alpha,
+        persistent: false,
     })
 }
 

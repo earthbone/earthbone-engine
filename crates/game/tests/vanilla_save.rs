@@ -140,6 +140,11 @@ fn save() -> Save {
     save
 }
 
+fn without_sav37_reference_persistence_tail(bytes: &[u8], references: usize) -> Vec<u8> {
+    let tail_len = 1 + 4 + references * 7;
+    bytes[..bytes.len() - tail_len].to_vec()
+}
+
 fn globals(save: &mut Save, values: &[(u32, f32)]) {
     save.form_id_array = values.iter().map(|(raw, _)| *raw).collect();
     let globals = GlobalVariables {

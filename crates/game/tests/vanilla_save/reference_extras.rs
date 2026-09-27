@@ -289,32 +289,38 @@ fn engine_extras_reject_truncation_duplicates_and_bad_flags_atomically_and_read_
     let mut world = World::new(fixture_order());
     world.reference(id(0, 0x100)).unwrap();
     world.reference(id(0, 0x101)).unwrap();
-    let mut legacy = world.save_state();
+    let mut legacy = without_sav37_reference_persistence_tail(
+        &world.save_state(),
+        world.loaded_reference_count(),
+    );
     legacy.truncate(legacy.len() - 37);
     legacy[4..6].copy_from_slice(&19_u16.to_le_bytes());
     let mut save = save();
     save.change_forms = vec![change(0x400100, 0x400811, 0, 5, 0x400801)];
     world.restore_vanilla_reference_extras(&save).unwrap();
     let before = world.save_state();
+    let persistence_tail = 1 + 4 + world.loaded_reference_count() * 7;
+    let body_end = before.len() - persistence_tail;
     let mut bad_flags = before.clone();
-    let at = bad_flags.len() - 42;
+    let at = body_end - 42;
     bad_flags[at] |= 1;
     let start = legacy.len();
     // The extras block is followed by the package cursor block, so repeat the
     // entry inside the extras block rather than past the end of the save.
-    let entry = &before[start + 4..before.len() - 33];
+    let entry = &before[start + 4..body_end - 33];
     let mut duplicate = before[..start].to_vec();
     duplicate.extend_from_slice(&2_u32.to_le_bytes());
     duplicate.extend_from_slice(entry);
     duplicate.extend_from_slice(entry);
-    duplicate.extend_from_slice(&before[before.len() - 33..]);
-    assert!(world
-        .load_state(&duplicate)
-        .unwrap_err()
-        .to_string()
-        .contains("duplicate reference extras"));
+    duplicate.extend_from_slice(&before[body_end - 33..]);
+    duplicate.extend_from_slice(&before[body_end..]);
+    let duplicate_error = world.load_state(&duplicate).unwrap_err().to_string();
+    assert!(
+        duplicate_error.contains("duplicate reference extras"),
+        "{duplicate_error}"
+    );
     let mut bad_key = before.clone();
-    let at = bad_key.len() - 21;
+    let at = body_end - 21;
     bad_key[at..at + 4].copy_from_slice(&0x811_u32.to_le_bytes());
     let mut cases = vec![bad_flags, duplicate, bad_key];
     for cut in 1..=28 {

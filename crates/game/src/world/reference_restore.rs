@@ -6,6 +6,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use soe_esm::plugin::flags as record_flags;
 use soe_esm::GlobalFormId;
 use soe_save::{
     reference::{Initial, ReferenceHeader},
@@ -108,6 +109,21 @@ fn apply_header(
     state: &mut RefState,
     header: &ReferenceHeader,
 ) -> Result<(), RestoreError> {
+    if let Some((mask_invert, _mask_set_unknown)) = header.form_flags {
+        let invert = mask_invert & (record_flags::INITIALLY_DISABLED | record_flags::PERSISTENT);
+        if invert & record_flags::INITIALLY_DISABLED != 0 {
+            state.enabled = !state.enabled;
+            if state.deleted
+                || world
+                    .order
+                    .winner(id)
+                    .is_some_and(|record| record.is_deleted())
+            {
+                state.enabled = false;
+            }
+        }
+        state.persistent ^= invert & record_flags::PERSISTENT != 0;
+    }
     if let Some(placement) = header.initial.placement() {
         if placement
             .position
@@ -232,6 +248,14 @@ impl World {
             let Some(header) = form.reference_header(save.form_version)? else {
                 continue;
             };
+            if header.form_flags.is_some()
+                && (save.header.version != 12 || save.form_version != 78 || form.version != 78)
+            {
+                return Err(invalid(
+                    GlobalFormId { file: 0, object: PLAYER_OBJECT },
+                    "reference mask semantics are only validated for save version 12 and form versions 78",
+                ));
+            }
             let id = mapping
                 .reference(form.form)?
                 .ok_or(RestoreError::Reference(form.form.raw()))?;
