@@ -358,6 +358,11 @@ pub fn decode(type_name: &str, data: &[u8], header: &Header) -> Result<Bhk> {
             }
             let body_a = s.block_ref()?;
             let body_b = s.block_ref()?;
+            if body_a.0 < BlockRef::NONE.0 || body_b.0 < BlockRef::NONE.0 {
+                return Err(Error::Invalid(
+                    "limited hinge body reference is below the no-block sentinel".into(),
+                ));
+            }
             let priority = s.u32()?;
             let axis_a = vec4_fields(s)?;
             let perp_a_first = vec4_fields(s)?;
