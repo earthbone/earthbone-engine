@@ -1573,8 +1573,22 @@ tested a different location. The corrected test asserts the requested
 Bannered Mare identity after startup. The first import aborted when sandbox
 restrictions denied an editor socket. Direct runtime execution succeeded.
 
-Swing animation remains unwired. Plain doors keep their authored
-mesh pose and immovable collision even when game state marks them open.
+### Animated static collision, HST-01
+
+`AnimatedStaticNode` can build a trimesh collider below each generated mesh
+when `collision_enabled` is set before `load_nif`. The controller updates the
+mesh transform, and the collider remains its descendant, so Godot applies the
+same scene transform to both. `open()` resets controller time and starts its
+per-frame evaluation. The collision option defaults off. This path is for
+small animated references and does not change bulk cell batching.
+
+The `hst_01_door_swing_test.gd` Godot check loads a synthetic NIF controller
+with a rotation track, advances it, and confirms the generated static body
+follows the visual mesh transform. It does not connect ordinary door
+activation in `PlayerNode` to an animated door instance. Plain gameplay doors
+still keep their authored mesh pose and static collision when game state marks
+them open.
+
 Locked player picks use the shared game's key check. Without the key they
 remain closed, pending lockpicking UI. Resource preparation is synchronous.
 Exterior streaming follows door landings only, not subsequent walking across
