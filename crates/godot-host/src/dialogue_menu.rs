@@ -3,7 +3,61 @@
 //! Available conversation choices for the native Godot dialogue menu.
 //! Choice eligibility and response execution stay in the shared Game.
 
+use soe_audio::LipWeightTrack;
 use soe_esm::GlobalFormId;
+
+/// Native mouth weights sampled against the active voice's playback clock.
+#[derive(Default)]
+pub struct DialogueMouth {
+    track: Option<LipWeightTrack>,
+    duration: f64,
+    weights: Vec<f32>,
+}
+
+impl DialogueMouth {
+    /// Start a decoded track over the duration of its voice buffer.
+    pub fn start(&mut self, track: Option<LipWeightTrack>, duration: f64) {
+        self.clear();
+        let Some(track) = track else {
+            return;
+        };
+        self.weights.resize(track.target_count(), 0.0);
+        if duration.is_finite() && duration > 0.0 && track.frame_count() != 0 {
+            self.duration = duration;
+            self.track = Some(track);
+        }
+    }
+
+    /// Sample the stored frame nearest at or before the voice playback time.
+    pub fn sample(&mut self, seconds: f64) {
+        let Some(track) = self.track.as_ref() else {
+            return;
+        };
+        if !seconds.is_finite() || seconds < 0.0 || seconds >= self.duration {
+            self.weights.fill(0.0);
+            return;
+        }
+        let frame_offset = (seconds / self.duration * f64::from(track.frame_count())).floor();
+        let native_frame = i64::from(track.first_frame()) + frame_offset as i64;
+        if let Some(frame) = track.frame_at(native_frame) {
+            self.weights.copy_from_slice(frame.targets);
+        } else {
+            self.weights.fill(0.0);
+        }
+    }
+
+    /// Clear the active track and return its target weights to neutral.
+    pub fn clear(&mut self) {
+        self.weights.fill(0.0);
+        self.track = None;
+        self.duration = 0.0;
+    }
+
+    /// Current mouth weights in their stored LIP target order.
+    pub fn weights(&self) -> &[f32] {
+        &self.weights
+    }
+}
 
 /// A resolved voice file and the speaker's position in Godot metres.
 #[derive(Debug, Clone, PartialEq)]

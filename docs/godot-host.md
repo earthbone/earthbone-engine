@@ -1709,6 +1709,14 @@ response stops the prior dialogue slot first. Closing the dialogue menu and
 advancing past the final response also stop the tracked voice. SoundBank
 refuses to stop a slot that has since been released or reused for an effect.
 
+The selected FUZ's LIP block is decoded with the voice buffer. SoundBank
+samples the native mouth targets against that player's playback position,
+spreading the stored frames over the decoded voice duration. The
+`dialogue_mouth_weights` method returns the current weights in LIP target
+order. Stopping or finishing the voice clears the track and returns its
+weights to zero. Lines without a decodable LIP block keep the mouth weights
+empty or neutral.
+
 `godot/sound_descriptor_test.gd` verifies real descriptor playback and cache
 reuse through AudioEffectCapture. Its Godot 4.7.2 run captured 20,480 frames with
 peak 0.01579 and exactly one decode across two plays. This is mixer output,
