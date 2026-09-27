@@ -1893,6 +1893,56 @@ the combat rows, not to this one. Actor bodies are static query bodies, not
 kinematic: Jolt applies a kinematic transform only on the next physics step,
 so a body placed and queried in the same tick sat at the origin.
 
+## Death ragdoll rendering, CMB-19
+
+`SkinnedActorNode` loads the human `hkaRagdollInstance` from the same skeleton
+HKX as its animated rig. A bound actor reads the shared World's death flag on
+each host tick. At death, the node freezes its animated pose, creates one
+dynamic `PhysicsServer3D` body and collision shape for each authored ragdoll
+body, and creates cone twist or hinge joints from the authored body-space
+frames, rebasing one frame so both pivots meet at the last animated pose.
+The bodies use the decoded mass, friction, restitution and shape geometry.
+Capsule, box, sphere, convex hull, translated and transformed
+shapes are converted to Godot metres and axes at the actor's reference scale.
+World-endpoint constraints use a static anchor RID. A joint's connected bodies
+do not collide with one another. Hinge angular limits and the symmetric spans
+of cone twist joints are sent to the server.
+
+The low resolution ragdoll skeleton prefixes human bone names with
+`Ragdoll_`. `ragdoll::RagdollBoneMap` removes that prefix for matching and
+assigns animated descendants to their closest ragdoll ancestor. The initial
+body pose follows the final animated model pose. Each rendered skin matrix
+then follows its assigned body's movement relative to that initial pose. The
+bound mesh instances use the actor's World placement. `render_mode` and
+`ragdoll_bodies` expose the current representation and body RIDs for host
+diagnostics.
+
+`PlayerNode` removes its static contact capsule for dead actors on the next
+body sync. Its `kill_actor` and `resurrect_actor` host calls forward to the
+shared World and sync that capsule. On resurrection, the visual node frees
+every ragdoll body, shape and joint RID and resumes its animation interpreter.
+`PlayerNode` recreates
+the actor's contact capsule from the World on its next sync. These server
+resources are transient and are rebuilt from the World death flag, so the
+SOEW save format is unchanged. The automatic visual transition applies to
+actors bound through `bind_actor_appearance` to a loaded `SkinnedActorNode`.
+
+The local `activeragdoll` Havok structures and `soe-hkx` reader establish the
+body order and body-space joint frames. The Godot class reference under
+`engine-refs/godot-docs/classes/class_physicsserver3d.rst` supplies the body,
+shape, joint and RID lifetime calls. The host uses a cone twist span for the
+ragdoll joint's cone and twist limits. Godot's cone twist API does not express
+the separate authored plane range, asymmetric limits or position motors.
+
+The `cmb_19_` unit tests check bone assignment, frame conversion and the
+death-to-resurrection mode transition. The installed-data gated
+`cmb_19_vanilla_human_death_has_renderable_bodies_and_joints` test checks the
+vanilla human's 18 bodies, 17 constraints and mapped animated bones.
+`godot/cmb_19_ragdoll_test.gd` drives a World death and resurrection in Godot
+and checks the body modes, physics space, contact capsule, render mode, Jolt
+body movement and uploaded skin movement. It does not assess the resulting
+motion visually.
+
 ## Native save generations
 
 `PlayerNode::save_game_generation(directory, retained)` writes the shared
