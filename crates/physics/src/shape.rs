@@ -824,6 +824,7 @@ impl<'a> Walker<'a> {
             }
             Bhk::CollisionObject { .. }
             | Bhk::RigidBody(_)
+            | Bhk::LimitedHingeConstraint(_)
             | Bhk::SimpleShapePhantom(_)
             | Bhk::CompressedMeshData(_) => {
                 self.out

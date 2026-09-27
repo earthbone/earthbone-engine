@@ -103,6 +103,10 @@ fn main() -> ExitCode {
 fn summary(b: &Bhk) -> String {
     match b {
         Bhk::CollisionObject { body, .. } => format!("collision object, body {body:?}"),
+        Bhk::LimitedHingeConstraint(hinge) => format!(
+            "limited hinge, bodies {:?}/{:?}, limits {}..{}",
+            hinge.body_a, hinge.body_b, hinge.min_angle, hinge.max_angle
+        ),
         Bhk::SimpleShapePhantom(body) => {
             format!("phantom, shape {:?}, layer {:?}", body.shape, body.layer)
         }

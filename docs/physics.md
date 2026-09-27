@@ -171,6 +171,24 @@ by both physics paths. `fmt_21_plane_fixture_preserves_normal_and_distance_after
 checks the decoded fields and converted surface. The decoder test checks
 truncation and invalid values.
 
+### Limited hinge constraint data (FMT-23)
+
+The block decoder supports the Skyrim SE `bhkLimitedHingeConstraint` layout.
+It retains both rigid-body block references, priority, each body's full
+four-component axis frame and pivot, the minimum and maximum angles in radians,
+maximum friction, and the motor type with its serialized payload. Entity counts
+other than two, unsupported motor types, truncated fields, non-finite values,
+negative friction and reversed limits are rejected. Other constraint block
+types remain opaque.
+
+The field order and body count follow `engine-refs/nifxml/nif.xml` and the
+matching descriptors in `TES5Edit/Core/wbDataFormatNif.pas`. Jolt's local
+`HingeConstraint.h` uses two body frames and a min/max angular limit, matching
+the decoded data model. The decoder does not create or simulate a Jolt
+constraint. `fmt_23_limited_hinge_retains_body_links_frames_and_limits` checks
+all retained fields, while the companion rejection test covers malformed
+counts, limits and truncated payloads.
+
 ## SimpleWorld
 
 Statics are flattened to world-space primitives on insert: triangles

@@ -106,6 +106,29 @@ pub struct SimpleShapePhantom {
     pub transform: Iso,
 }
 
+/// A decoded Skyrim SE `bhkLimitedHingeConstraint` in Havok metres and
+/// radians. Body references are NIF block indices.
+#[derive(Clone, Debug, PartialEq)]
+pub struct LimitedHingeConstraint {
+    pub body_a: BlockRef,
+    pub body_b: BlockRef,
+    pub priority: u32,
+    pub axis_a: [f32; 4],
+    pub perpendicular_a1: [f32; 4],
+    pub perpendicular_a2: [f32; 4],
+    pub pivot_a: [f32; 4],
+    pub axis_b: [f32; 4],
+    pub perpendicular_b1: [f32; 4],
+    pub perpendicular_b2: [f32; 4],
+    pub pivot_b: [f32; 4],
+    pub min_angle: f32,
+    pub max_angle: f32,
+    pub max_friction: f32,
+    pub motor_type: u8,
+    /// Serialized motor fields, retained in their NIF byte representation.
+    pub motor_data: Vec<u8>,
+}
+
 impl RigidBody {
     /// The body's transform in its node's space, in Havok metres.
     pub fn local_transform(&self) -> Iso {
@@ -156,6 +179,7 @@ pub enum Bhk {
         body: BlockRef,
     },
     RigidBody(RigidBody),
+    LimitedHingeConstraint(LimitedHingeConstraint),
     SimpleShapePhantom(SimpleShapePhantom),
     Box {
         material: u32,
@@ -246,6 +270,10 @@ fn vec4(s: &mut Stream<'_>) -> Result<Vec3> {
     Ok(v)
 }
 
+fn vec4_fields(s: &mut Stream<'_>) -> Result<[f32; 4]> {
+    Ok([s.f32()?, s.f32()?, s.f32()?, s.f32()?])
+}
+
 fn vec3(s: &mut Stream<'_>) -> Result<Vec3> {
     Ok(Vec3::new(s.f32()?, s.f32()?, s.f32()?))
 }
@@ -293,6 +321,7 @@ fn refs(s: &mut Stream<'_>) -> Result<Vec<BlockRef>> {
 }
 
 /// Decode one `Block::Collision` payload by its type name.
+#[allow(clippy::similar_names)]
 pub fn decode(type_name: &str, data: &[u8], header: &Header) -> Result<Bhk> {
     let _span = soe_trace::Span::with_payload("physics.bhk_decode", "physics", data.len() as u64);
     check_version(header)?;
@@ -314,6 +343,80 @@ pub fn decode(type_name: &str, data: &[u8], header: &Header) -> Result<Bhk> {
         }
         "bhkRigidBody" | "bhkRigidBodyT" => {
             Bhk::RigidBody(rigid_body(s, type_name == "bhkRigidBodyT")?)
+        }
+        "bhkLimitedHingeConstraint" => {
+            if header.bs_version != soe_nif::header::BS_SKYRIM_SE {
+                return Err(Error::Unsupported(
+                    "bhkLimitedHingeConstraint layout is supported for Skyrim SE".into(),
+                ));
+            }
+            let entity_count = s.u32()?;
+            if entity_count != 2 {
+                return Err(Error::Invalid(format!(
+                    "limited hinge has {entity_count} entities, expected 2"
+                )));
+            }
+            let body_a = s.block_ref()?;
+            let body_b = s.block_ref()?;
+            let priority = s.u32()?;
+            let axis_a = vec4_fields(s)?;
+            let perp_a_first = vec4_fields(s)?;
+            let perp_a_second = vec4_fields(s)?;
+            let pivot_a = vec4_fields(s)?;
+            let axis_b = vec4_fields(s)?;
+            let perp_b_first = vec4_fields(s)?;
+            let perp_b_second = vec4_fields(s)?;
+            let pivot_b = vec4_fields(s)?;
+            let min_angle = s.f32()?;
+            let max_angle = s.f32()?;
+            let max_friction = s.f32()?;
+            let motor_type = s.u8()?;
+            if ![
+                axis_a,
+                perp_a_first,
+                perp_a_second,
+                pivot_a,
+                axis_b,
+                perp_b_first,
+                perp_b_second,
+                pivot_b,
+            ]
+            .iter()
+            .all(|v| v.iter().all(|field| field.is_finite()))
+                || !min_angle.is_finite()
+                || !max_angle.is_finite()
+                || !max_friction.is_finite()
+                || max_friction < 0.0
+                || min_angle > max_angle
+            {
+                return Err(Error::Invalid("limited hinge data".into()));
+            }
+            let motor_data_len = match motor_type {
+                0 => 0,
+                1 => 25,
+                2 => 18,
+                3 => 17,
+                other => return Err(Error::Invalid(format!("limited hinge motor type {other}"))),
+            };
+            let motor_data = s.take(motor_data_len)?.to_vec();
+            Bhk::LimitedHingeConstraint(LimitedHingeConstraint {
+                body_a,
+                body_b,
+                priority,
+                axis_a,
+                perpendicular_a1: perp_a_first,
+                perpendicular_a2: perp_a_second,
+                pivot_a,
+                axis_b,
+                perpendicular_b1: perp_b_first,
+                perpendicular_b2: perp_b_second,
+                pivot_b,
+                min_angle,
+                max_angle,
+                max_friction,
+                motor_type,
+                motor_data,
+            })
         }
         "bhkSimpleShapePhantom" => {
             let shape = s.block_ref()?;
