@@ -205,12 +205,15 @@ Current behavior and compatibility limits:
   GetActorValueMax/GetAVMax includes permanent and temporary modifiers.
   GetActorValuePercentage uses that maximum and follows the CK exceptions
   for zero maximum and CarryWeight.
-- Health, magicka and stamina use race starting values plus NPC offsets for
-  manual stats. Auto-calculated actors use their authored DNAM cache pending
-  live class/level calculation. Stats and traits follow separate template
-  chains with links resolved in each winning file. Leveled templates return
-  an error pending spawn selection. Missing race DATA retains the old
-  DNAM-plus-offset fallback for synthetic records. See [actor values](actor-values.md).
+- Actor initialization resolves separate stats and traits template chains.
+  Manual attributes use race starting values plus NPC offsets. Manual skills
+  preserve the DNAM cache while race-bonus semantics remain unresolved.
+  Fixed-level auto-calculated skills
+  use class weights, actor level and race boosts. `PC_LEVEL_MULT`, missing
+  class and zero-weight cases keep the authored DNAM skill cache. SOEW saves
+  initialized actor values, so reload does not seed bonuses again. Leveled
+  templates return an error pending spawn selection. Missing race DATA
+  retains the synthetic-record fallback. See [actor values](actor-values.md).
 - PlayerRef keeps form 0x14 and binds to the Player NPC base when available.
   A base-less synthetic player starts at 100 for the three main values.
   Health reaching zero uses the shared death lifecycle, including essential
@@ -2785,15 +2788,22 @@ feed the zone level into existing leveled-template selection. Template choices
 retain their existing once-per-reference lifetime. If the player level changes
 between prefetch and entry, prefetched actors retain the earlier selection even
 when entry locks a different zone level. Refreshing unobserved prefetched actors
-is not implemented. Zone locks survive unloading
-and later entry. Explicit `enter_encounter_zone` provides a fallible entry API.
-SOEW version 17 appends sorted zone locks after the version-16 item extension,
-rejects duplicate or invalid locks before changing state, and reads older saves
-with an empty lock table. Zone locks contribute to the form-state hash.
+is not implemented. Zone locks survive unloading and later entry. Explicit
+`enter_encounter_zone` provides a fallible entry API. After ten game days since
+the prior entry, a zone without the ECZN Never Resets flag clears its previous
+level lock and rebuilds its cached nonpersistent references from their winning
+records. This restores authored placement and contents. Persistent and dynamic
+references keep their state. Uncached references already read from their records
+need no work. Each entry, including an exterior streaming focus change,
+restarts the interval. The new lock uses the current player level. SOEW version 34 adds
+sorted last-visit game days, rejects duplicate or invalid entries before
+changing state, and reads older saves with empty zone history. Both zone tables
+contribute to the form-state hash.
 
 Sources are local xEdit ECZN/XEZN declarations, UESP ECZN and CommonLib
-`BGSEncounterZone.h`, plus primary CK
-[Encounter Zone](https://ck.uesp.net/wiki/Encounter_Zone) documentation.
+`BGSEncounterZone.h`, plus CK Reset documentation. xEdit and CommonLib define
+Never Resets as flag bit zero. The CK Reset reference describes restoring the
+authored reference state, which this reset applies to cached references.
 The installed SkyrimSE executable, SHA256
 `846efccf0c1374d71f892907f46549560f2fcb0a75cb87a3eed438baa0f1402f`, supplied
 read-only checks of zone lookup at `0x140300ab0`, receiver level at
@@ -2805,7 +2815,8 @@ selection already accepts an explicit level without computing NPC attributes.
 This work supplies zone levels to the existing LVLF selection rules. The CK
 LeveledCharacter page also describes XLCM difficulty-specific selection,
 including Easy weighting and Very Hard tier advancement. Those selector rules
-are a separate gap. Zone reset and lock clearing remain owned by PRG-10.
+are a separate gap. PRG-10 adds zone reset and lock clearing for cached
+nonpersistent references.
 Importing vanilla ESS encounter-zone changes is outside this selection contract.
 
 ## Ordinary perk purchases (PRG-02)
@@ -2900,6 +2911,24 @@ low-skill purchase. Root eligibility across the installed corpus is 11
 already owned, 154 eligible, 32 not playable and 200 with a false
 prerequisite. These tests do not establish original-runtime parity for
 malformed graph policy, effect execution or menu behavior.
+
+## Perk entry-point dispatch (PRG-08)
+
+`EntryPointDispatcher` registers handlers by entry-point ID and visits an
+actor's owned winning PERK records in load-order order, then each record's
+complex entry sections in file order. It passes the PRKE rank as a one-based
+value, so a stored zero is rank one, and includes priority and EPFT/EPFD data
+for the handler. The dispatcher does not sort by priority. The local sources
+do not establish equal-priority execution order or exact versus cumulative
+effect-rank selection.
+
+Each PRKC tab evaluates its own CTDA conditions against the matching supplied
+tab subject. Conditions within a tab use the shared evaluator's file-order
+AND/OR behavior. A matching entry without a registered handler returns a
+typed error. Malformed data, missing tab subjects and unsupported conditions
+also return errors before that entry's handler runs. Non-complex PRKE sections
+are not dispatched. Handler changes are applied as the dispatcher reaches
+each eligible section.
 
 ## Leveled item entry extras
 

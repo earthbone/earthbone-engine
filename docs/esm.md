@@ -103,7 +103,8 @@ owner, location, layer, encounter zone, emittance, teleport door, enable
 parent, lock key, linked reference, navmesh door, location ref type and idle
 links are remapped. Texture set and grass links, navmesh base object lists,
 magic effect DATA links, keywords and counter effect lists, SCEN and DIAL
-quest links, INFO topic and response links, and HAZD image-space and DATA
+quest links, INFO topic, response and response-sound links, WEAP and ARMO
+enchantments, and HAZD image-space and DATA
 links are remapped at their documented offsets. Scalar values remain intact.
 The REFR field layouts follow local xEdit `wbDefinitionsTES5.pas` and UESP
 `REFR.wikitext`. VMAD object

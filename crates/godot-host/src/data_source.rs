@@ -591,7 +591,6 @@ impl DataSource {
             std::time::Duration::from_nanos(after.decode_ns - before.decode_ns);
         if let Some(water) = self.water_surface(cell_id, &surfaces) {
             stats.water_plane_count += 1;
-            stats.triangles += water.arrays.triangle_count();
             surfaces.push(water);
         }
         Ok(LoadedCell { stats, surfaces })

@@ -53,6 +53,10 @@ pub struct Primitive {
 
 impl Primitive {
     /// Decodes the fixed-size XPRM structure.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error unless the field is exactly 32 bytes.
     pub fn decode(data: &[u8]) -> Result<Self> {
         let mut field = Fields::new(tag::REFR, Tag::new(b"XPRM"), data);
         field.exact(32)?;

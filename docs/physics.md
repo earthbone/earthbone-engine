@@ -224,9 +224,8 @@ Shapes: 8,188 triangle meshes, 3,477 convex hulls, 1,698 boxes, 965
 capsules, 145 spheres, 997 compounds. Skipped: 151 `bhkSimpleShapePhantom`
 bodies (trigger volumes on activators, not rigid bodies), 22
 `bhkNiTriStripsShape` (Oblivion-era shapes that survived in a few
-meshes), one cylinder, one plane. The 52 skeleton files that previously
-failed parse with a `count 4294967295` field now parse with that value treated
-as an empty bone-reference array. Every
+meshes), one cylinder, one plane. 52 files the nif crate cannot parse
+(skeletons with a `count 4294967295` field, its problem to fix). Every
 `bhkRigidBodyT` rotation is a unit quaternion and no collider has an
 extent above 200,000 units. The same test then drops a capsule onto
 `farmhouse01.nif` and requires it to come to rest on the building.

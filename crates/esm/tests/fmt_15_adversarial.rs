@@ -131,3 +131,35 @@ fn fmt_15_refr_struct_links_remap_without_changing_scalar_words() {
     );
     assert_eq!(read(record.find(Tag::new(b"XLRL")).unwrap(), 0), 0x902);
 }
+
+#[test]
+fn fmt_15_weapon_and_armor_enchantments_remap() {
+    let mut plugin = Plugin::new(FileHeader::default());
+    for tag in [b"WEAP", b"ARMO"] {
+        plugin.push_top(Record::new(tag, 0x800).sub(b"EITM", 0x801u32.to_le_bytes()));
+    }
+    plugin
+        .remap_form_ids(&HashMap::from([(0x801, 0x901)]))
+        .unwrap();
+    for record in &plugin.records {
+        assert_eq!(
+            record.find(Tag::new(b"EITM")),
+            Some(0x901u32.to_le_bytes().as_slice())
+        );
+    }
+}
+
+#[test]
+fn fmt_15_info_response_sound_remaps_without_changing_other_words() {
+    let mut response = [0u8; 24];
+    response[0..4].copy_from_slice(&0x801u32.to_le_bytes());
+    response[16..20].copy_from_slice(&0x801u32.to_le_bytes());
+    let mut plugin = Plugin::new(FileHeader::default());
+    plugin.push_top(Record::new(b"INFO", 0x800).sub(b"TRDT", response));
+    plugin
+        .remap_form_ids(&HashMap::from([(0x801, 0x901)]))
+        .unwrap();
+    let bytes = plugin.records[0].find(Tag::new(b"TRDT")).unwrap();
+    assert_eq!(&bytes[0..4], &0x801u32.to_le_bytes());
+    assert_eq!(&bytes[16..20], &0x901u32.to_le_bytes());
+}

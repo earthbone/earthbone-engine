@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 //! FormID remapping for plugin identities and the typed reference fields the
-//! reader currently models.
+//! reader currently models. Field layouts follow local TES5Edit definitions
+//! and Mutagen's `Remapping-FormLinks.md` describes the link traversal contract.
 
 use std::collections::HashMap;
 
@@ -29,6 +30,8 @@ pub(crate) fn remap_plugin(plugin: &mut Plugin, mapping: &HashMap<u32, u32>) -> 
                 remap_hazd_data(&mut subrecord.data, mapping)?;
             } else if record.tag == Tag::new(b"MGEF") && subrecord.tag == Tag::new(b"DATA") {
                 remap_mgef_data(&mut subrecord.data, mapping)?;
+            } else if record.tag == Tag::new(b"INFO") && subrecord.tag == Tag::new(b"TRDT") {
+                remap_info_response(&mut subrecord.data, mapping)?;
             } else if record.tag == Tag::new(b"REFR") {
                 remap_refr_field(subrecord.tag, &mut subrecord.data, mapping)?;
             } else if form_id_field(record.tag, subrecord.tag) {
@@ -51,6 +54,22 @@ pub(crate) fn remap_plugin(plugin: &mut Plugin, mapping: &HashMap<u32, u32>) -> 
         .map(|id| remap(*id, mapping))
         .collect();
     *plugin = updated;
+    Ok(())
+}
+
+fn remap_info_response(data: &mut [u8], mapping: &HashMap<u32, u32>) -> Result<()> {
+    if data.len() != 24 {
+        return Err(Error::SubrecordSize {
+            record: Tag::new(b"INFO"),
+            tag: Tag::new(b"TRDT"),
+            len: data.len(),
+            expected: "24".into(),
+        });
+    }
+    let old = u32::from_le_bytes([data[16], data[17], data[18], data[19]]);
+    if let Some(new) = mapping.get(&old) {
+        data[16..20].copy_from_slice(&new.to_le_bytes());
+    }
     Ok(())
 }
 
@@ -203,6 +222,8 @@ fn form_id_field(record: Tag, field: Tag) -> bool {
         (b"REFR", b"XLRL"),
         (b"REFR", b"INAM"),
         (b"LTEX", b"TNAM"),
+        (b"WEAP", b"EITM"),
+        (b"ARMO", b"EITM"),
         (b"NAVM", b"ONAM"),
         (b"SCEN", b"PNAM"),
         (b"DIAL", b"QNAM"),

@@ -60,6 +60,11 @@ pub struct Lighting {
 
 impl Lighting {
     /// Decodes XCLL with the optional trailing fields defined by xEdit.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the field is too short, too long or ends inside a
+    /// trailing field.
     pub fn decode(data: &[u8]) -> crate::error::Result<Self> {
         let tag = Tag::new(b"XCLL");
         if !(64..=92).contains(&data.len()) || !(data.len() - 64).is_multiple_of(4) {
