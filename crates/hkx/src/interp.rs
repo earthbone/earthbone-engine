@@ -499,6 +499,7 @@ pub struct Interpreter<'a> {
     changes: Vec<StateChange>,
     unsupported: Unsupported,
     output: Output,
+    expression_random_state: u64,
     frame: u64,
     condition_frames: Vec<u64>,
 }
@@ -552,6 +553,7 @@ impl<'a> Interpreter<'a> {
                 weight: 0.0,
             },
             reference_pose,
+            expression_random_state: 0x4d59_5df4_d0f3_3173,
             frame: 0,
             condition_frames: vec![0; graph.nodes.len()],
         };
@@ -612,7 +614,11 @@ impl<'a> Interpreter<'a> {
         let Some(Ok(expression)) = self.conditions.get(condition) else {
             return false;
         };
-        match expression.evaluate(&self.variables, &self.character_properties) {
+        match expression.evaluate(
+            &self.variables,
+            &self.character_properties,
+            &mut self.expression_random_state,
+        ) {
             Ok(value) => value != 0.0,
             Err(error) => {
                 push_unique(
