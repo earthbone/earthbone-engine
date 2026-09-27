@@ -922,6 +922,7 @@ fn the_installed_game_reads_every_package_and_evaluates_the_prisoner() {
             Procedure::Sleep => "Sleep".to_string(),
             Procedure::Patrol => "Patrol".to_string(),
             Procedure::Wait { .. } => "Wait".to_string(),
+            Procedure::Shout => "Shout".to_string(),
             Procedure::Unsupported(n) => format!("unsupported {n}"),
         };
         if matches!(
@@ -931,6 +932,7 @@ fn the_installed_game_reads_every_package_and_evaluates_the_prisoner() {
                 | Procedure::Sleep
                 | Procedure::Wait { .. }
                 | Procedure::Patrol
+                | Procedure::Shout
         ) {
             supported += 1;
         }
