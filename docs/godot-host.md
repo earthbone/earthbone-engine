@@ -1,5 +1,24 @@
 # godot-host: streaming, mesh and terrain for the Godot 4 host
 
+### Character race and sex selection, UI-07
+
+`PlayerNode::show_race_menu` opens the native Control menu for race and sex
+selection. `Game.ShowRaceMenu` queues a transient host request that the player
+consumes on its next gameplay advance. The list comes from winning, non-deleted
+`RACE` records whose `DATA` playable flag is set, ordered by resolved FormID.
+Confirmation stores the chosen race and sex through the shared game's player
+actor-base state. Actor values initialize from the confirmed race when the
+player actor is first built, and later confirmations leave initialized values
+intact. The actor-base race and sex already belong to SOEW saves.
+
+The race flag and head-part field definitions were read in local
+`engine-refs/TES5Edit/Core/wbDefinitionsTES5.pas`, with the prose layouts in
+`engine-refs/uesp-modfileformat/RACE.wikitext` and
+`engine-refs/uesp-modfileformat/HDPT.wikitext`. The CK
+`engine-refs/ck-wiki/Game_Script.wikitext` describes `ShowRaceMenu` as the
+race and sex change screen. This row presents race and sex only. Head-part
+editing and appearance rendering remain outside this menu.
+
 The [large world physics survey](physics.md#large-world-boundary-survey-2026-09-19)
 records the signed cell offsets, tolerances and Jolt measurements for the
 `large-world-physics` branch. Its Rust mesh conversion test and Godot server
