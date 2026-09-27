@@ -38,10 +38,12 @@ pub mod reference;
 pub mod table;
 
 pub use base_object::BaseObjectFields;
-pub use change::{ChangeForm, QuestStage};
+pub use change::book_note_key_flags;
 pub use change::{
-    ClassChange, FactionChange, FactionReaction, FactionReactions, RelationshipChange,
+    BookChange, ClassChange, FactionChange, FactionReaction, FactionReactions, KeyChange,
+    NoteChange, RelationshipChange,
 };
+pub use change::{ChangeForm, QuestStage};
 pub use created_objects::{CreatedEffect, CreatedObject, CreatedObjects};
 pub use cursor::{RefId, RefKind, WString};
 pub use dialogue_scene::{InfoChange, SceneChange, StoryManagerQuestNodeChange};

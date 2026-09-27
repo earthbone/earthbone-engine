@@ -991,3 +991,19 @@ flags do not consume payload. The decoder returns the byte boundary and
 remaining suffix length for type-specific readers. It does not restore a
 value or name. See [saved base-object fields](save-base-fields.md) for the
 source audit and scope.
+
+## BOOK, NOTE and KEYM saved fields
+
+`ChangeForm::book_change`, `key_change` and `note_change` decode the xEdit
+source-defined fields for these three record types. Each has an optional
+six-byte form-flags section. BOOK also reports the value, full-name, teaches
+skill and read markers. KEYM reports the value and full-name markers. NOTE
+reports its read marker. Those named marker fields consume no payload bytes in
+xEdit's `wbNull` schema. The decoders reject reserved flag bits and truncated
+form flags. Bytes after the defined fields remain an opaque suffix and are
+written back unchanged. This retains corpus data such as the byte `08` on a
+BOOK carrying only the read marker, whose meaning is not defined by xEdit.
+FallrimTools keeps these payloads raw, and UESP documents the outer
+change-form framing rather than these record layouts. The corpus test accounts
+for every BOOK, NOTE and KEYM change in the external save set and checks exact
+payload re-encoding.
