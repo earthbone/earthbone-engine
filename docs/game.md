@@ -1673,6 +1673,17 @@ before binding, a suspended finish callback, a live alias reference and a callba
 queued during `OnEffectFinish`. VM storage checks are described in
 [Papyrus](papyrus.md).
 
+Enhance Weapon (MGEF archetype 39) reads its associated ENCH record when a live
+effect's target lands an ordinary melee hit with an equipped weapon. Supported
+ENCH entries add direct detrimental Health value-modifier magnitude to that
+weapon's damage for the hit. The contribution ends with the active effect and
+does not change unarmed damage, another actor's hit or an unequipped item.
+Conditioned enchantment entries, multiple entries and non-Health effects return
+an unsupported-combat error before the hit changes state. The contract comes
+from the CK Magic Effect archetype table, xEdit's MGEF archetype and associated
+item fields, and Mutagen's ENCH association type. `tests/magic.rs` covers a
+single supported equipped-weapon contribution and its expiry.
+
 Recover modifiers change the target once and reverse their own delta at the end.
 Other value modifiers integrate magnitude over unpaused simulation seconds, with
 the final tick clipped to the remaining duration. Zero-duration effects apply

@@ -427,7 +427,7 @@ impl World {
                     return Err(MagicError::Target);
                 }
             }
-            if !matches!(data.archetype, 0 | 1 | 2 | 5 | 18) {
+            if !matches!(data.archetype, 0 | 1 | 2 | 5 | 18 | 39) {
                 return Err(MagicError::Unsupported("effect archetype"));
             }
             if data.taper_duration != 0.0 {
@@ -486,6 +486,14 @@ impl World {
             } else {
                 None
             };
+            if data.archetype == 39 {
+                let enchantment = self
+                    .resolve_from(effect, data.associated_item)
+                    .ok_or(MagicError::Missing(effect))?;
+                if self.tag_of(enchantment) != Some(super::T(b"ENCH")) {
+                    return Err(MagicError::Unsupported("enhance weapon association"));
+                }
+            }
             let duration = if definition.data.cast_type == 0 {
                 None
             } else {
