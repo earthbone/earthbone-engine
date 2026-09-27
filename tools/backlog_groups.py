@@ -13,7 +13,14 @@ WEIGHT = {"low": 1, "medium": 1, "high": 1, "very_high": 2}
 JUDGE_WEIGHT = WEIGHT
 BREAKER_CAP, JUDGE_CAP = 8, 4
 MODEL, EFFORT = "gpt-6-luna", "high"
-CHECK_FIELDS = ["breaker_group", "judge_group"]
+# Very high rows get a sol writer: on 2026-09-27 sol caught a sourced rule on
+# MAG-39 that the luna writer missed and only its breaker found.
+HARD_MODEL = "gpt-6-sol"
+CHECK_FIELDS = ["breaker_group", "judge_group", "review_group"]
+# One sol reviewer reads the diffs of whole breaker groups. Twelve rows of
+# diff at 4k to 8k tokens each, plus intent and style reading, stays well
+# under the 275k context.
+REVIEW_CAP = 12
 
 
 def topic(r):
@@ -34,14 +41,62 @@ def slug(t):
     return "-".join(parts)
 
 
+def review_groups(breaker_groups, live):
+    """Pack whole breaker groups into sol review groups of up to REVIEW_CAP weight.
+
+    Groups of one area and dependency level pack first. Review groups left under
+    a third of the cap then pool across areas at the same level, so no sol
+    reviewer runs for one or two rows.
+    """
+    weight = lambda g: sum(WEIGHT[live[rid]["difficulty"]] for rid in g[3])
+    packs = collections.defaultdict(list)
+    for g in breaker_groups:
+        packs[(g[1], g[2])].append(g)
+    small = collections.defaultdict(list)
+    counter = collections.Counter()
+
+    def emit(area, members):
+        counter[area] += 1
+        name = "R-%s-%d" % (area, counter[area])
+        for g in members:
+            for rid in g[3]:
+                live[rid]["review_group"] = name
+
+    for (area, lv), gs in sorted(packs.items()):
+        cur, w = [], 0
+        for g in gs:
+            if cur and w + weight(g) > REVIEW_CAP:
+                emit(area, cur)
+                cur, w = [], 0
+            cur.append(g)
+            w += weight(g)
+        if w < REVIEW_CAP // 3:
+            small[lv].extend(cur)
+        elif cur:
+            emit(area, cur)
+    for lv, gs in sorted(small.items()):
+        cur, w = [], 0
+        for g in gs:
+            if cur and w + weight(g) > REVIEW_CAP:
+                emit("X", cur)
+                cur, w = [], 0
+            cur.append(g)
+            w += weight(g)
+        if cur:
+            emit("X", cur)
+
+
 def main(path):
     with open(path, newline="") as f:
         reader = csv.DictReader(f)
         fields = list(reader.fieldnames or [])
         rows = list(reader)
-    if "breaker_group" not in fields:
-        i = fields.index("recommended_effort") + 1
-        fields = fields[:i] + CHECK_FIELDS + fields[i:]
+    after = "recommended_effort"
+    for name in CHECK_FIELDS:
+        if name not in fields:
+            i = fields.index(after) + 1
+            fields = fields[:i] + [name] + fields[i:]
+        after = name
     live = {r["id"]: r for r in rows if r["status"] != "done"}
 
     level = {}
@@ -76,6 +131,7 @@ def main(path):
             buckets[(k, b[1])].append(rid)
     num = lambda rid: (rid.split("-")[0], int(re.sub(r"\D", "", rid.split("-", 1)[1]) or 0))
     counter = collections.Counter()
+    breaker_groups = []
     for (k, lv) in sorted(buckets, key=lambda b: (b[0], b[1])):
         ids = sorted(buckets[(k, lv)], key=num)
         groups, cur, w = [], [], 0
@@ -91,6 +147,7 @@ def main(path):
         for g in groups:
             counter[k] += 1
             bname = "B-%s-%s-%d" % (k[0], slug(k[1]), counter[k])
+            breaker_groups.append((bname, k[0], lv, list(g)))
             jgroups, cur, w = [], [], 0
             for rid in g:
                 wt = JUDGE_WEIGHT[live[rid]["difficulty"]]
@@ -105,11 +162,13 @@ def main(path):
                 for rid in jg:
                     live[rid]["breaker_group"] = bname
                     live[rid]["judge_group"] = jname
+    review_groups(breaker_groups, live)
     for r in rows:
-        r.setdefault("breaker_group", "")
-        r.setdefault("judge_group", "")
+        for name in CHECK_FIELDS:
+            r.setdefault(name, "")
         if r["status"] != "done":
-            r["recommended_model"], r["recommended_effort"] = MODEL, EFFORT
+            model = HARD_MODEL if r["difficulty"] == "very_high" else MODEL
+            r["recommended_model"], r["recommended_effort"] = model, EFFORT
     if "--write" in sys.argv:
         with open(path, "w", newline="") as f:
             w = csv.DictWriter(f, fieldnames=fields, quoting=csv.QUOTE_ALL, lineterminator="\n")
@@ -117,7 +176,9 @@ def main(path):
             w.writerows(rows)
     bg = collections.Counter(r["breaker_group"] for r in live.values())
     jg = collections.Counter(r["judge_group"] for r in live.values())
-    print("open rows", len(live), "breaker groups", len(bg), "judge groups", len(jg))
+    rg = collections.Counter(r["review_group"] for r in live.values())
+    print("open rows", len(live), "breaker groups", len(bg), "judge groups", len(jg), "review groups", len(rg))
+    print("review sizes", sorted(collections.Counter(rg.values()).items()))
     print("breaker sizes", sorted(collections.Counter(bg.values()).items()), "judge sizes", sorted(collections.Counter(jg.values()).items()))
     print("levels", sorted(collections.Counter(level.values()).items()))
     per_area = collections.Counter(b.split("-")[1] for b in bg)

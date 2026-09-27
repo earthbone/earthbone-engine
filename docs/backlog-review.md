@@ -8,7 +8,7 @@ or removed. This review changes planning data, not engine behavior.
 ## Recommendation columns
 
 The CSV adds difficulty, recommended_model and recommended_effort after status,
-then breaker_group and judge_group.
+then breaker_group, judge_group and review_group.
 Difficulty describes implementation uncertainty and integration risk, not
 elapsed runtime or priority. Recommendations assume the row's dependencies
 are complete. They are engineering estimates, not measured model benchmarks
@@ -44,8 +44,9 @@ prescribed by OpenAI. No pricing or account-capacity assumption was used.
 
 A comparison of Codex models on DLG-03, PRG-09, FMT-18, MAG-07 and MAG-39
 replaced the estimates above for every open row. Each open row now recommends
-gpt-6-luna at high effort for the writer, the breaker and the judge. Done rows
-keep their earlier estimates.
+gpt-6-luna at high effort for the writer, the breaker and the judge, and
+gpt-6-sol at high effort for the writer of a very_high row. A gpt-6-sol high
+reviewer covers each review group. Done rows keep their earlier estimates.
 
 - gpt-6-luna high met the FMT-18 check alone. On MAG-07 it missed the
   ingestible clause. On MAG-39, a very_high row, its writer missed the
@@ -60,10 +61,13 @@ keep their earlier estimates.
 
 ### Checker groups
 
-breaker_group and judge_group name the rows one breaker and one judge cover,
-so each checker reads the shared code once and reuses its cache across rows.
-`tools/backlog_groups.py BACKLOG.csv --write` recomputes both columns and the
-model columns of open rows after rows change.
+breaker_group and judge_group name the rows one luna breaker and one luna judge
+cover, so each checker reads the shared code once and reuses its cache across
+rows. review_group names the rows one sol reviewer covers after their judges:
+it checks each result against docs/intent.md, the done check and the sources,
+fixes style deviations and issues across the rows, and hands the result to the
+lead, who merges. `tools/backlog_groups.py BACKLOG.csv --write` recomputes the
+three columns and the model columns of open rows after rows change.
 
 - Rows share a breaker group when they share an id prefix and the first source
   file read_first names, and sit at the same dependency depth among open rows,
@@ -78,6 +82,11 @@ model columns of open rows after rows change.
 - Names read `B-<area>-<topic>-<n>` for breakers and `J-<area>-<topic>-<n>` for
   judges, with a letter suffix when one breaker group splits into several
   judge groups.
+- A review group packs whole breaker groups of one area and depth up to 12
+  weight, so one sol reviewer follows about three luna judges. Review groups
+  under 4 weight pool across areas as `R-X-<n>`. Twelve rows of diff at 4k to
+  8k tokens each plus the intent and style reading keep the reviewer well under
+  the 275k limit.
 
 ## Confirmed corrections applied
 
