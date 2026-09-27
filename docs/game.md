@@ -145,6 +145,13 @@ usable condition semantics for them. Function ids and RELA fields come from
 `TES5Edit/Core/wbDefinitionsTES5.pas`; behavior follows the CK pages for
 `IsPlayerTeammate`, `GetHighestRelationshipRank`, `GetLowestRelationshipRank`,
 `HasAssociation` and `HasFamilyRelationship`.
+`ai_83_relationship_conditions.rs` covers 641 `IsUnique` by reading the
+tested actor's winning NPC_ base flag, with a form diagnostic for a non-actor
+subject and parameter diagnostics for authored values on unused slots. CK's
+`ActorBase.IsUnique` page defines the flag query and xEdit supplies function
+641 with no parameters. The CK corpus provides no usable condition contract
+for 703 `IsExitingInteractionQuick` or 715 `IsUndead`, so both remain
+unsupported with explicit function diagnostics.
 [The reference audit](reference-audit.md) records missed contracts and gaps.
 
 **World reads out, host never writes back.** `World::ref_placement` (in

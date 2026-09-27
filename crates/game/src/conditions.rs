@@ -169,6 +169,7 @@ pub fn supports_function(function: u16) -> bool {
             | 616
             | 617
             | 618
+            | 641
     )
 }
 
@@ -380,7 +381,17 @@ fn function_value(
                 }
             }
         }
-        64 | 228 | 449 | 454 | 637 => return Err(Error::Function(c.function)),
+        64 | 228 | 449 | 454 | 637 | 703 | 715 => {
+            return Err(Error::Function(c.function));
+        }
+        641 => {
+            no_parameter(c)?;
+            if world.actor(subject).is_none() {
+                return Err(Error::Form(subject));
+            }
+            let base = world.base_of(subject).ok_or(Error::Form(subject))?;
+            boolean(world.actor_base(base).ok_or(Error::Form(base))?.unique)
+        }
         68 => {
             let class = resolve(world, context.owner, raw, Some(*b"CLAS"))?;
             if world.actor(subject).is_none() {
