@@ -1525,6 +1525,21 @@ another Small favor).
 
 ## Active magic applications
 
+### Calm archetype, MAG-29
+
+MGEF archetype 6 applies a temporary reduction to the target's `aggression`
+actor value, regardless of the MGEF's serialized primary actor value or
+detrimental flag. Recoverable effect state restores the prior value when the
+effect expires or is dispelled. The combat driver drops an existing combat
+target when the actor's live aggression falls below 1, matching its target
+acquisition threshold. This supports Calm delivery through the existing spell
+and ingestible effect paths, subject to their existing validation limits.
+
+The archetype and forced Aggression actor value are identified in the local
+`TES5Edit/Core/wbDefinitionsTES5.pas` and
+`uesp-modfileformat/MGEF.wikitext`. The CK pages for `HasMagicEffect` describe
+queries for active effects but do not specify Calm's aggression update.
+
 ### Telekinesis prerequisite audit, MAG-41
 
 The 2026-09-20 five-master survey found 1,573 non-deleted MGEF winners and

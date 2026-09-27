@@ -1044,7 +1044,8 @@ fn combat_target(world: &mut World, actor: GlobalFormId) -> Option<GlobalFormId>
         .filter(|state| state.in_combat)
         .and_then(|state| state.combat_target);
     let target = target?;
-    let valid = world.actor(target).is_some_and(|state| !state.dead);
+    let valid = world.actor(target).is_some_and(|state| !state.dead)
+        && world.actor_value(actor, "aggression") >= 1.0;
     if valid {
         return Some(target);
     }

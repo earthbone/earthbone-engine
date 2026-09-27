@@ -31,6 +31,8 @@ const ITEM: u32 = 0x600;
 const OTHER_ITEM: u32 = 0x601;
 const SUMMON_BASE: u32 = 0x501;
 
+#[path = "magic/calm.rs"]
+mod calm;
 #[path = "magic/collection.rs"]
 mod collection;
 
