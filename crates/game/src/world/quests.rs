@@ -6,9 +6,16 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use soe_esm::GlobalFormId;
+use thiserror::Error;
 
 use super::{Alloc, Handle, ObjectiveState, Pending, QuestState, World};
-use crate::quest::Quest;
+use crate::quest::{AliasFill, Quest};
+
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+pub enum AliasResolutionError {
+    #[error("quest alias dependency cycle: {0:?}")]
+    Cycle(Vec<(GlobalFormId, u32)>),
+}
 
 impl World {
     pub(crate) fn initial_quest(&self, id: GlobalFormId) -> Option<QuestState> {
@@ -175,11 +182,62 @@ impl World {
     }
 
     pub fn alias_ref(&mut self, quest: GlobalFormId, alias: u32) -> Option<GlobalFormId> {
-        self.quest_state(quest)?
-            .aliases
-            .get(&alias)
-            .copied()
-            .flatten()
+        self.resolve_alias_ref(quest, alias).ok().flatten()
+    }
+
+    /// Resolve an alias through its local or external alias fill dependency.
+    /// No alias state is written while walking the dependency chain.
+    pub fn resolve_alias_ref(
+        &mut self,
+        quest: GlobalFormId,
+        alias: u32,
+    ) -> Result<Option<GlobalFormId>, AliasResolutionError> {
+        self.resolve_alias_ref_inner(quest, alias, &mut Vec::new())
+    }
+
+    fn resolve_alias_ref_inner(
+        &mut self,
+        quest: GlobalFormId,
+        alias: u32,
+        path: &mut Vec<(GlobalFormId, u32)>,
+    ) -> Result<Option<GlobalFormId>, AliasResolutionError> {
+        let node = (quest, alias);
+        if let Some(start) = path.iter().position(|entry| *entry == node) {
+            let mut cycle = path[start..].to_vec();
+            cycle.push(node);
+            return Err(AliasResolutionError::Cycle(cycle));
+        }
+        let Some((fill, current_target)) = self.quest_state(quest).and_then(|state| {
+            state.def.alias(alias).map(|definition| {
+                (
+                    definition.fill,
+                    state.aliases.get(&alias).copied().flatten(),
+                )
+            })
+        }) else {
+            return Ok(None);
+        };
+        if let Some(target) = current_target {
+            return Ok(Some(target));
+        }
+        path.push(node);
+        let result = match fill {
+            Some(AliasFill::Local(target)) => self.resolve_alias_ref_inner(quest, target, path)?,
+            Some(AliasFill::External {
+                quest: raw_quest,
+                alias: target,
+            }) => {
+                let Some(rref) = self.order.winner_ref(quest) else {
+                    path.pop();
+                    return Ok(None);
+                };
+                let target_quest = self.order.resolve(rref.file, raw_quest);
+                self.resolve_alias_ref_inner(target_quest, target, path)?
+            }
+            None => current_target,
+        };
+        path.pop();
+        Ok(result)
     }
 
     /// Whether this quest declares `alias` as an `ALLS` location alias.

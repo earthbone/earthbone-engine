@@ -47,7 +47,7 @@ week 6 to 9 gate.
   whole batch of observations before it changes any pool. See
   [combat AI](combat-ai.md) for the formula sources and what remains.
 - `quest`: the `QUST` view. Flags, stages with log entries, objectives, aliases
-  with forced references.
+  with forced references and local or external alias dependencies.
 - `natives`: the base game's natives, closed over the shared world.
 - `clock`: real seconds drive the scheduler and update timers, game time runs
   at `timescale` (20) for `GetCurrentGameTime`.
@@ -94,6 +94,18 @@ wrappers before implementing natives. `engine-refs/ck-wiki/` contains 402
 wikitext pages as of 2026-09-19. When an individual page is absent, class pages
 and `engine-refs/skse64/scripts/vanilla` can establish the contract.
 [The reference audit](reference-audit.md) records missed contracts and gaps.
+
+**Quest alias dependencies.** The `QUST` reader retains local alias IDs from
+`ALFA` and external quest and alias IDs from `ALEQ` plus `ALEA`.
+`World::resolve_alias_ref` follows those local and external ID chains in
+dependency order. A cycle returns `AliasResolutionError::Cycle` with the cycle
+path, and resolution does not write partial alias values.
+`World::alias_ref` preserves its optional result and returns `None` when a
+dependency cycle prevents resolution. The layout follows `wbRecord(QUST)` in
+`engine-refs/TES5Edit/Core/wbDefinitionsTES5.pas` and
+`engine-refs/uesp-modfileformat/QUST.wikitext`. The CK `Alias_Script` page
+establishes that aliases are objects owned by their quest. Fill selection for
+location reference types and `ALFI` forced-into copying are not implemented.
 
 **World reads out, host never writes back.** `World::ref_placement` (in
 `world/refs.rs`) is the read-only view a host uses to keep its own rendering

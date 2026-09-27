@@ -77,6 +77,7 @@ pub use record_overrides::NpcRecordExtra;
 mod quest_restore;
 mod quest_save;
 mod quests;
+pub use quests::AliasResolutionError;
 mod record_save;
 pub use quest_restore::QuestRestoreReport;
 mod reference_extras;
