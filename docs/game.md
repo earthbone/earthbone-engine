@@ -1707,6 +1707,19 @@ runtime's explicit interaction contract. `mag_34_*` tests cover duration,
 spell and activation breaks, detection state derivation and host visibility
 mapping.
 
+#### Light archetype, MAG-35
+
+MGEF archetype 12 resolves its Associated Item as a winning `LIGH` record and
+places a runtime reference of that light at each selected target. The active
+effect retains that reference in the existing spawned-reference save field.
+Dispel and timed expiry disable and delete the reference through the ordinary
+active-effect cleanup path. The local xEdit MGEF table names archetype 12 as
+Light, and UESP's MGEF page identifies `RelatedID` as its light FormID. The
+local CK corpus has no Magic Effect page. `mag_35_authored_light_spawns_at_target_and_is_removed_on_expiry`
+checks the resolved base, target placement, save/load and expiry cleanup. The
+Godot host does not yet turn runtime `LIGH` references into rendered light
+instances.
+
 #### Bound Weapon archetype, MAG-38
 
 Archetype 17 resolves the MGEF Associated Item through the effect's owning

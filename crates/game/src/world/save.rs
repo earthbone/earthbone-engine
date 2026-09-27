@@ -876,24 +876,32 @@ impl World {
                 .magic_effect(effect.effect)
                 .map_err(|e| VmError::State(e.to_string()))?;
             if let Some(summoned) = effect.summoned {
-                let base = self
-                    .resolve_from(effect.effect, definition.data.associated_item)
-                    .filter(|base| self.tag_of(*base) == Some(super::T(b"NPC_")));
+                let base = self.resolve_from(effect.effect, definition.data.associated_item);
                 let reference = refs.get(&summoned);
                 let owner = Some(effect.caster.unwrap_or(effect.target));
-                if definition.data.archetype != 18
-                    || base.is_none()
-                    || reference.is_none_or(|reference| {
-                        reference.base != base
-                            || reference.owner != owner
-                            || !reference.is_actor
-                            || reference.deleted
-                    })
-                {
+                let invalid = match definition.data.archetype {
+                    18 => {
+                        base.is_none_or(|base| self.tag_of(base) != Some(super::T(b"NPC_")))
+                            || reference.is_none_or(|reference| {
+                                reference.base != base
+                                    || reference.owner != owner
+                                    || !reference.is_actor
+                                    || reference.deleted
+                            })
+                    }
+                    12 => {
+                        base.is_none_or(|base| self.tag_of(base) != Some(super::T(b"LIGH")))
+                            || reference.is_none_or(|reference| {
+                                reference.base != base || reference.is_actor || reference.deleted
+                            })
+                    }
+                    _ => true,
+                };
+                if invalid {
                     return Err(VmError::State("invalid summoned actor state".into()));
                 }
-            } else if definition.data.archetype == 18 && version >= 33 {
-                return Err(VmError::State("summon effect without actor".into()));
+            } else if matches!(definition.data.archetype, 12 | 18) && version >= 33 {
+                return Err(VmError::State("spawn effect without reference".into()));
             }
         }
         for handle in objects.keys() {

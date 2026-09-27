@@ -36,6 +36,7 @@ const WEAPON_BOUND: u32 = 1 << 13;
 pub(super) const DISPEL_WITH_KEYWORDS: u32 = 1 << 8;
 const INGESTIBLE_POISON: u32 = 1 << 17;
 const INVISIBILITY: u32 = 11;
+const LIGHT: u32 = 12;
 
 /// Identity of one effect application, independent of its MGEF FormID.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -90,6 +91,7 @@ enum DispelRule {
 struct PreparedEffect {
     effect: ActiveEffect,
     summon_base: Option<GlobalFormId>,
+    light_base: Option<GlobalFormId>,
     bound_weapon: Option<GlobalFormId>,
     disarm: bool,
     no_recast: bool,
@@ -352,6 +354,7 @@ impl World {
                 },
                 no_recast: data.flags & NO_RECAST != 0,
                 summon_base: None,
+                light_base: None,
                 bound_weapon: None,
                 disarm: false,
                 hit_event: false,
@@ -470,7 +473,10 @@ impl World {
                     return Err(MagicError::Target);
                 }
             }
-            if !matches!(data.archetype, 0 | 1 | 2 | 3 | 4 | 5 | 9 | 11 | 17 | 18) {
+            if !matches!(
+                data.archetype,
+                0 | 1 | 2 | 3 | 4 | 5 | 9 | 11 | 12 | 17 | 18
+            ) {
                 return Err(MagicError::Unsupported("effect archetype"));
             }
             if data.taper_duration != 0.0 {
@@ -530,6 +536,15 @@ impl World {
                 {
                     return Err(MagicError::Unsupported("summon actor not summonable"));
                 }
+                Some(base)
+            } else {
+                None
+            };
+            let light_base = if data.archetype == LIGHT {
+                let base = self
+                    .resolve_from(effect, data.associated_item)
+                    .filter(|item| self.tag_of(*item) == Some(super::T(b"LIGH")))
+                    .ok_or(MagicError::Unsupported("light record"))?;
                 Some(base)
             } else {
                 None
@@ -608,6 +623,7 @@ impl World {
                     },
                     no_recast: data.flags & NO_RECAST != 0,
                     summon_base,
+                    light_base,
                     bound_weapon,
                     disarm,
                     hit_event: data.flags & (HOSTILE | NO_HIT_EVENT) == HOSTILE,
@@ -662,6 +678,9 @@ impl World {
                     reference.owner = Some(owner);
                 }
                 prepared.effect.summoned = Some(summon);
+            }
+            if let Some(base) = prepared.light_base {
+                prepared.effect.summoned = Some(self.place_at(base, prepared.effect.target, false));
             }
             if prepared.hit_event {
                 let aggressor = self.form_value(

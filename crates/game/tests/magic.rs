@@ -31,6 +31,7 @@ const DISEASE_KEYWORD: u32 = 0x401;
 const ITEM: u32 = 0x600;
 const OTHER_ITEM: u32 = 0x601;
 const SUMMON_BASE: u32 = 0x501;
+const LIGHT_BASE: u32 = 0x502;
 
 #[path = "magic/absorb.rs"]
 mod absorb;
@@ -448,6 +449,56 @@ fn mag_39_summon_creature_spawns_associated_actor_owned_by_caster() {
     assert!(reference.is_actor);
     assert_eq!(reference.owner, Some(id(ACTOR)));
     assert!(reference.enabled);
+}
+
+#[test]
+fn mag_35_authored_light_spawns_at_target_and_is_removed_on_expiry() {
+    let light = effect_with_associated_item(0, 12, 24, false, LIGHT_BASE);
+    let mut content = plugin(light, vec![spell(SPELL, 0, false, 0.0, 4)]);
+    content.push_top(Record::new(T(b"LIGH"), LIGHT_BASE));
+    let mut original = game(content.clone());
+    let (position, rotation, cell) = {
+        let mut world = original.world_mut();
+        let reference = world.reference(id(OTHER)).unwrap();
+        reference.position = [12.0, 34.0, 56.0];
+        reference.rotation = [0.1, 0.2, 0.3];
+        (reference.position, reference.rotation, reference.cell)
+    };
+
+    cast(&mut original, SPELL, OTHER).unwrap();
+    let light_ref = original
+        .world()
+        .active_effects()
+        .next()
+        .unwrap()
+        .summoned
+        .unwrap();
+    let world = original.world();
+    let reference = world.reference_ref(light_ref).unwrap();
+    assert_eq!(reference.base, Some(id(LIGHT_BASE)));
+    assert_eq!(reference.position, position);
+    assert_eq!(reference.rotation, rotation);
+    assert_eq!(reference.cell, cell);
+    assert!(reference.enabled);
+    drop(world);
+
+    let saved = original.save_state().unwrap();
+    let mut restored = game(content);
+    restored.load_state(&saved).unwrap();
+    let light_ref = restored
+        .world()
+        .active_effects()
+        .next()
+        .unwrap()
+        .summoned
+        .unwrap();
+    restored.tick(4.0);
+
+    let world = restored.world();
+    let reference = world.reference_ref(light_ref).unwrap();
+    assert!(reference.deleted);
+    assert!(!reference.enabled);
+    assert_eq!(restored.world().active_effects().count(), 0);
 }
 
 #[test]
