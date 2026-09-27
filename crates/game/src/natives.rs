@@ -213,7 +213,7 @@ pub fn register(vm: &mut Vm, world: &Shared) -> Registered {
 
 /// Hand-kept count of the non-stub natives registered below. The test in
 /// this module checks it against the registry.
-pub const NATIVE_COUNT: usize = 366;
+pub const NATIVE_COUNT: usize = 368;
 
 fn declare_parents(vm: &mut Vm) {
     for (class, parent) in [
@@ -3079,6 +3079,19 @@ fn dlc(vm: &mut Vm, w: &Shared) {
 /// The quest-owned fragment classes and `ActiveMagicEffect`. Both groups
 /// are what the DLC scripts reach for most after the base classes.
 fn fragments_and_effects(vm: &mut Vm, w: &Shared) {
+    method!(vm, w, "VisualEffect", "Play", |world, call, me| {
+        if let Some(target) = world.form_arg(&call.arg(0)) {
+            world.play_visual_effect(me, target);
+        }
+        none()
+    });
+    method!(vm, w, "VisualEffect", "Stop", |world, call, me| {
+        if let Some(target) = world.form_arg(&call.arg(0)) {
+            world.stop_visual_effect(me, target);
+        }
+        none()
+    });
+
     // CONTEXT: INFO ownership follows its DIAL group, not previous-topic links.
     for class in ["Scene", "Package", "TopicInfo"] {
         method!(vm, w, class, "GetOwningQuest", |world, call, me| {
@@ -3308,12 +3321,9 @@ fn stubs(vm: &mut Vm) -> usize {
         ("ObjectReference", "ForceAddRagdollToWorld"),
         ("ObjectReference", "ForceRemoveRagdollFromWorld"),
         ("ObjectReference", "TetherToHorse"),
-        // The shader, effect and music systems the DLC scripts lean on
-        // hardest. Nothing renders or sounds yet, so each one is quiet.
+        // The EffectShader and music systems are not implemented yet.
         ("EffectShader", "Play"),
         ("EffectShader", "Stop"),
-        ("VisualEffect", "Play"),
-        ("VisualEffect", "Stop"),
         ("ShaderParticleGeometry", "Apply"),
         ("ShaderParticleGeometry", "Remove"),
         ("MusicType", "Add"),

@@ -170,7 +170,8 @@ run past it.
 | Scene, Package | GetOwningQuest | |
 | TopicInfo | GetOwningQuest | |
 | ActiveMagicEffect | RegisterForUpdate, RegisterForSingleUpdate, RegisterForUpdateGameTime, RegisterForSingleUpdateGameTime, UnregisterForUpdate, UnregisterForUpdateGameTime, RegisterForAnimationEvent, UnregisterForAnimationEvent, GetBaseObject, GetTargetActor, GetCasterActor, Dispel, AddInventoryEventFilter, RemoveInventoryEventFilter, RemoveAllInventoryEventFilters | |
-| EffectShader, VisualEffect | | Play, Stop |
+| EffectShader | | Play, Stop |
+| VisualEffect | Play, Stop | |
 | ImageSpaceModifier | Apply, ApplyCrossFade, Remove, RemoveCrossFade, PopTo | |
 | ShaderParticleGeometry | | Apply, Remove |
 | MusicType, Topic | | Add, Remove |
@@ -798,11 +799,12 @@ Decisions taken rather than read, since no wiki page states them:
 A second pass added the reference animation graph (`SetAnimationVariable`
 and `GetAnimationVariable` in all three types, one store per type on the
 reference), `SetAlpha`, `PlayIdle`, `GetNthLinkedRef` and `PlaceActorAtMe`,
-with quiet stubs for the shader, visual effect, image space modifier, music
-and translation calls the DLC scripts lean on hardest. It also fixed a real
-gap next door: the `ACHR` reader ignored `XLKR`, so an actor reference had
-no linked references at all. Actor references carry them the same way a
-`REFR` does, and the DLC scripts use them to find a coffin or a cart.
+with quiet stubs for the shader, image space modifier, music and translation
+calls the DLC scripts lean on hardest. MAG-24 now stores and releases
+transient VisualEffect target attachments. It also fixed a real gap next
+door: the `ACHR` reader ignored `XLKR`, so an actor reference had no linked
+references at all. Actor references carry them the same way a `REFR` does,
+and the DLC scripts use them to find a coffin or a cart.
 
 Against the installed game after the round: 423 quests started, 81 distinct
 natives reached through 1,388 calls, **zero unresolved calls**, 87 log lines,
@@ -1428,6 +1430,21 @@ confirming the topic drops out again once the remainder can no longer cover
 another Small favor).
 
 ## Active magic applications
+
+### VisualEffect target lifetimes, MAG-24
+
+`VisualEffect.Play(target)` reads the winning `RFCT` record and stores one
+transient attachment per effect and target. The attachment retains the
+resolved `ARTO` effect-art form, `EFSH` shader form and record flags for a host
+consumer. Repeating `Play` for the same pair updates that attachment.
+`VisualEffect.Stop(target)` releases only that pair. Attachments are not saved.
+The host does not yet render these attachments.
+
+The `RFCT` `DATA` field order and its `ARTO`, `EFSH` and flags are from
+`TES5Edit/Core/wbDefinitionsTES5.pas`. Neither the local CK wiki nor the
+shipped vanilla scripts contain a dedicated VisualEffect declaration.
+`mag_24_` tests check the Papyrus calls, authored form resolution,
+target-specific release, invalid inputs and installed RFCT records.
 
 ### MGEF perk grants, MAG-21
 

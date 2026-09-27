@@ -91,12 +91,14 @@ mod templates;
 pub use template_restore::TemplateRestoreReport;
 mod timers;
 mod transition;
+mod visual_effects;
 
 pub use contact::{ContactActor, DEFAULT_COMBAT_DISTANCE};
 pub use doorway::{Doorway, InteriorDestination, Side, Threshold, THRESHOLD_BAND, UNITS_PER_METRE};
 pub use reference_extras::{ReferenceExtrasRestoreReport, ReferenceLock};
 pub use save::{SAVE_MAGIC, SAVE_VERSION};
 pub use transition::CellTransition;
+pub use visual_effects::{VisualEffectAttachment, VisualEffectData};
 
 /// Created references and temporary bases share an internal namespace outside
 /// the plugin positions. Runtime FormIDs still use the `FF` prefix.
@@ -531,6 +533,9 @@ pub struct World {
     /// `(spell, source, target)` per `Spell.Cast`, in order.
     pub spell_casts: Vec<(GlobalFormId, GlobalFormId, Option<GlobalFormId>)>,
     pub(crate) active_effects: BTreeMap<magic::EffectId, magic::ActiveEffect>,
+    /// Visual effects currently attached to references. Host rendering is
+    /// transient and is rebuilt from Papyrus calls after load.
+    visual_effects: BTreeMap<(GlobalFormId, GlobalFormId), VisualEffectAttachment>,
     pub(crate) next_effect: u64,
     pub(crate) image_space: image_space::ImageSpaceState,
     pub(crate) weather_image_space: Option<image_space::WeatherSelection>,
@@ -623,6 +628,7 @@ impl World {
             dialogue: crate::dialogue::State::default(),
             localized_strings: BTreeMap::new(),
             active_effects: BTreeMap::new(),
+            visual_effects: BTreeMap::new(),
             next_effect: 1,
             image_space: image_space::ImageSpaceState::default(),
             weather_image_space: None,
