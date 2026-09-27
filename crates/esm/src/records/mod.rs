@@ -135,4 +135,36 @@ impl Transform {
         }
         out
     }
+
+    /// Create a reversible vertical placement at a Skyrim-world ground height.
+    pub fn drop_to_ground(self, height: f32) -> Option<GroundDrop> {
+        if !height.is_finite() {
+            return None;
+        }
+        let mut after = self;
+        after.position[2] = height;
+        Some(GroundDrop {
+            before: self,
+            after,
+        })
+    }
+}
+
+/// A reference transform edit that can be applied and undone by an editor.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct GroundDrop {
+    before: Transform,
+    after: Transform,
+}
+
+impl GroundDrop {
+    /// Transform to apply when placing the reference on the collision surface.
+    pub fn placed(self) -> Transform {
+        self.after
+    }
+
+    /// Transform to restore when undoing the placement.
+    pub fn undo(self) -> Transform {
+        self.before
+    }
 }

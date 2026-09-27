@@ -109,6 +109,12 @@ the named fields and leave the record intact, so an unknown subrecord is never l
 FormIDs inside views are raw, as written in the file, so a view can be built without a
 load order and resolved later.
 
+`records::Transform::drop_to_ground` creates a `GroundDrop` edit from a
+collision height in Skyrim world units. The placed transform keeps its
+horizontal position and rotation and replaces its vertical position with the
+surface height. `GroundDrop::undo` returns the original transform for an
+editor undo action. Non-finite collision heights are rejected.
+
 `Refr::lock` reads XLOC level, key and flags. Presence means initially locked,
 including level zero. Level 255 requires a key. The reader accepts the 20-byte
 layout and the 9- and 12-byte forms obtained by omitting xEdit's optional unused
