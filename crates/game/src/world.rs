@@ -248,6 +248,8 @@ pub struct ActorState {
     pub relationships: BTreeMap<GlobalFormId, i32>,
     pub combat_target: Option<GlobalFormId>,
     pub crime_faction: Option<GlobalFormId>,
+    /// Whether this actor is currently trespassing, for the CK `IsTrespassing` query.
+    pub trespassing: bool,
     pub outfit: Option<GlobalFormId>,
     pub sleep_outfit: Option<GlobalFormId>,
     pub killer: Option<GlobalFormId>,

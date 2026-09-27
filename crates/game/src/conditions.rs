@@ -122,6 +122,8 @@ pub fn supports_function(function: u16) -> bool {
             | 73
             | 80
             | 116
+            | 145
+            | 152
             | 225
             | 315
             | 403
@@ -338,6 +340,29 @@ fn function_value(
                     .get("lastbribedintimidated")
                     .current()
                     != 0.0,
+            )
+        }
+        145 => {
+            // CK IsTrespassing - Actor defines this as the subject's current
+            // trespassing state. The world retains that state per actor.
+            no_parameter(c)?;
+            boolean(
+                world
+                    .actor(subject)
+                    .ok_or(Error::Form(subject))?
+                    .trespassing,
+            )
+        }
+        152 => {
+            // Actor.GetCrimeFaction returns the faction this actor reports
+            // crimes to. GetIsCrimeFaction tests that same relationship.
+            let faction = resolve(world, context.owner, raw, Some(*b"FACT"))?;
+            boolean(
+                world
+                    .actor(subject)
+                    .ok_or(Error::Form(subject))?
+                    .crime_faction
+                    == Some(faction),
             )
         }
         123 => {
