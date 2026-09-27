@@ -299,6 +299,19 @@ impl Variables {
         let slot = usize::try_from(self.word(index)?).ok()?;
         self.quads.get(slot).copied()
     }
+
+    fn set_quad(&mut self, index: usize, value: [f32; 4]) -> bool {
+        let Some(slot) = self.word(index).and_then(|word| usize::try_from(word).ok()) else {
+            return false;
+        };
+        match self.quads.get_mut(slot) {
+            Some(quad) => {
+                *quad = value;
+                true
+            }
+            None => false,
+        }
+    }
 }
 
 /// An event by graph-local id. Payloads are not carried yet.
@@ -346,6 +359,11 @@ enum Target {
     DecomposeVector,
     /// Output: one component of a decomposed vector.
     DecomposeComponent(usize),
+    /// Input and output vectors for `hkbTransformVectorModifier`.
+    TransformVectorInput,
+    TransformVectorOutput,
+    TransformRotation,
+    TransformTranslation,
     /// Output: the elapsed time of this graph update.
     TimeStep,
 }
@@ -362,6 +380,7 @@ impl Target {
             Target::IsActive { .. }
                 | Target::MachineIsActive
                 | Target::DecomposeComponent(_)
+                | Target::TransformVectorOutput
                 | Target::TimeStep
         )
     }
@@ -432,6 +451,11 @@ struct Runtime {
 
     /// A bound vector input for `BSDecomposeVectorModifier`.
     vector: Option<[f32; 4]>,
+    transform_vector_in: Option<[f32; 4]>,
+    transform_vector_out: Option<[f32; 4]>,
+    transform_rotation: Option<[f32; 4]>,
+    transform_translation: Option<[f32; 4]>,
+    activated_this_frame: bool,
 }
 
 /// A generator's result for one frame: a local pose and how much of it
@@ -479,6 +503,46 @@ fn push_unique(list: &mut Vec<String>, item: String) {
     if !list.contains(&item) {
         list.push(item);
     }
+}
+
+fn transform_vector(
+    input: [f32; 4],
+    rotation: [f32; 4],
+    translation: [f32; 4],
+    rotate_only: bool,
+    inverse: bool,
+) -> [f32; 4] {
+    let mut vector = [input[0], input[1], input[2]];
+    if inverse && !rotate_only {
+        for (component, offset) in vector.iter_mut().zip(&translation[..3]) {
+            *component -= offset;
+        }
+    }
+
+    let q = if inverse {
+        [-rotation[0], -rotation[1], -rotation[2], rotation[3]]
+    } else {
+        rotation
+    };
+    let [x, y, z, w] = q;
+    let rotated = [
+        (1.0 - 2.0 * (y * y + z * z)) * vector[0]
+            + 2.0 * (x * y - z * w) * vector[1]
+            + 2.0 * (x * z + y * w) * vector[2],
+        2.0 * (x * y + z * w) * vector[0]
+            + (1.0 - 2.0 * (x * x + z * z)) * vector[1]
+            + 2.0 * (y * z - x * w) * vector[2],
+        2.0 * (x * z - y * w) * vector[0]
+            + 2.0 * (y * z + x * w) * vector[1]
+            + (1.0 - 2.0 * (x * x + y * y)) * vector[2],
+    ];
+    vector = rotated;
+    if !inverse && !rotate_only {
+        for (component, offset) in vector.iter_mut().zip(&translation[..3]) {
+            *component += offset;
+        }
+    }
+    [vector[0], vector[1], vector[2], input[3]]
 }
 
 pub struct Interpreter<'a> {
@@ -703,6 +767,18 @@ impl<'a> Interpreter<'a> {
                         })
                 }
                 ("vector", None, NodeKind::DecomposeVector { .. }) => Some(Target::DecomposeVector),
+                ("vectorIn", None, NodeKind::TransformVector { .. }) => {
+                    Some(Target::TransformVectorInput)
+                }
+                ("vectorOut", None, NodeKind::TransformVector { .. }) => {
+                    Some(Target::TransformVectorOutput)
+                }
+                ("rotation", None, NodeKind::TransformVector { .. }) => {
+                    Some(Target::TransformRotation)
+                }
+                ("translation", None, NodeKind::TransformVector { .. }) => {
+                    Some(Target::TransformTranslation)
+                }
                 ("x", None, NodeKind::DecomposeVector { .. }) => {
                     Some(Target::DecomposeComponent(0))
                 }
@@ -971,6 +1047,24 @@ impl<'a> Interpreter<'a> {
                 };
                 self.variables.set_real(b.variable, runtime.time_step);
             }
+            Target::TransformVectorOutput => {
+                let Some(runtime) = self.nodes.get(b.node.0) else {
+                    return;
+                };
+                if !runtime.active {
+                    return;
+                }
+                let value =
+                    runtime
+                        .transform_vector_out
+                        .or_else(|| match &self.graph.node(b.node).kind {
+                            NodeKind::TransformVector { vector_out, .. } => Some(*vector_out),
+                            _ => None,
+                        });
+                if let Some(value) = value {
+                    self.variables.set_quad(b.variable, value);
+                }
+            }
             _ => {}
         }
     }
@@ -1007,10 +1101,16 @@ impl<'a> Interpreter<'a> {
                 Target::StartStateId => rt.start_state = Some(value as i32),
                 Target::Duration => rt.duration = Some(value),
                 Target::DecomposeVector => rt.vector = table.quad(b.variable),
+                Target::TransformVectorInput => rt.transform_vector_in = table.quad(b.variable),
+                Target::TransformRotation => rt.transform_rotation = table.quad(b.variable),
+                Target::TransformTranslation => {
+                    rt.transform_translation = table.quad(b.variable);
+                }
                 // Written by apply_output_bindings, skipped above.
                 Target::IsActive { .. }
                 | Target::MachineIsActive
                 | Target::DecomposeComponent(_)
+                | Target::TransformVectorOutput
                 | Target::TimeStep => {}
             }
         }
@@ -1030,6 +1130,7 @@ impl<'a> Interpreter<'a> {
             | NodeKind::IsActiveModifier { enable, .. }
             | NodeKind::FalseToTrueModifier { enable, .. }
             | NodeKind::DecomposeVector { enable, .. }
+            | NodeKind::TransformVector { enable, .. }
             | NodeKind::Modifier { enable } => *enable,
             _ => true,
         };
@@ -1103,6 +1204,34 @@ impl<'a> Interpreter<'a> {
                 }
             }
         }
+        if let NodeKind::TransformVector {
+            rotation,
+            translation,
+            vector_in,
+            rotate_only,
+            inverse,
+            compute_on_activate,
+            compute_on_modify,
+            ..
+        } = &self.graph.nodes[id.0].kind
+        {
+            let runtime = &mut self.nodes[id.0];
+            let should_compute =
+                *compute_on_modify || (runtime.activated_this_frame && *compute_on_activate);
+            runtime.activated_this_frame = false;
+            if should_compute {
+                let input = runtime.transform_vector_in.unwrap_or(*vector_in);
+                let rotation = runtime.transform_rotation.unwrap_or(*rotation);
+                let translation = runtime.transform_translation.unwrap_or(*translation);
+                runtime.transform_vector_out = Some(transform_vector(
+                    input,
+                    rotation,
+                    translation,
+                    *rotate_only,
+                    *inverse,
+                ));
+            }
+        }
     }
 
     fn activate(&mut self, id: NodeId) {
@@ -1110,6 +1239,7 @@ impl<'a> Interpreter<'a> {
             return;
         }
         self.nodes[id.0].active = true;
+        self.nodes[id.0].activated_this_frame = true;
         let graph = self.graph;
         match &graph.node(id).kind {
             NodeKind::FalseToTrueModifier { .. } => {
@@ -1202,6 +1332,7 @@ impl<'a> Interpreter<'a> {
             | NodeKind::GetTimeStepModifier { .. }
             | NodeKind::IsActiveModifier { .. }
             | NodeKind::DecomposeVector { .. }
+            | NodeKind::TransformVector { .. }
             | NodeKind::Modifier { .. }
             | NodeKind::Unknown => {}
         }
@@ -1688,6 +1819,7 @@ impl<'a> Interpreter<'a> {
             | NodeKind::IsActiveModifier { .. }
             | NodeKind::FalseToTrueModifier { .. }
             | NodeKind::DecomposeVector { .. }
+            | NodeKind::TransformVector { .. }
             | NodeKind::Modifier { .. } => self.reference_output(),
         }
     }
@@ -2629,6 +2761,184 @@ mod tests {
                 ),
             ],
         }
+    }
+
+    #[derive(Clone, Copy)]
+    struct TransformOptions {
+        enable: bool,
+        inverse: bool,
+        rotate_only: bool,
+        compute_on_activate: bool,
+        compute_on_modify: bool,
+    }
+
+    impl Default for TransformOptions {
+        fn default() -> Self {
+            Self {
+                enable: true,
+                inverse: false,
+                rotate_only: false,
+                compute_on_activate: true,
+                compute_on_modify: true,
+            }
+        }
+    }
+
+    fn transform_vector_graph(options: TransformOptions) -> BehaviorGraph {
+        let rotation = [
+            0.0,
+            0.0,
+            std::f32::consts::FRAC_1_SQRT_2,
+            std::f32::consts::FRAC_1_SQRT_2,
+        ];
+        BehaviorGraph {
+            name: "transform vector".into(),
+            variable_mode: 0,
+            root: Some(NodeId(0)),
+            data: BehaviorGraphData {
+                variable_names: vec!["input".into(), "output".into()],
+                variable_infos: vec![
+                    VariableInfo {
+                        ty: VariableType::Vector4,
+                        ..Default::default()
+                    },
+                    VariableInfo {
+                        ty: VariableType::Vector4,
+                        ..Default::default()
+                    },
+                ],
+                variable_initial_values: Some(VariableValueSet {
+                    word_values: vec![0, 1],
+                    quad_values: vec![[1.0, 0.0, 0.0, 7.0], [0.0; 4]],
+                    variant_values: Vec::new(),
+                }),
+                ..Default::default()
+            },
+            nodes: vec![
+                Node {
+                    id: NodeId(0),
+                    offset: 0,
+                    class: "hkbModifierGenerator".into(),
+                    name: "wrapper".into(),
+                    user_data: 0,
+                    bindings: None,
+                    kind: NodeKind::ModifierGenerator {
+                        modifier: Some(NodeId(1)),
+                        generator: None,
+                    },
+                },
+                Node {
+                    id: NodeId(1),
+                    offset: 1,
+                    class: "hkbTransformVectorModifier".into(),
+                    name: "transform".into(),
+                    user_data: 0,
+                    bindings: Some(VariableBindingSet {
+                        bindings: vec![
+                            Binding {
+                                member_path: "vectorIn".into(),
+                                variable_index: 0,
+                                bit_index: -1,
+                                binding_type: 0,
+                            },
+                            Binding {
+                                member_path: "vectorOut".into(),
+                                variable_index: 1,
+                                bit_index: -1,
+                                binding_type: 0,
+                            },
+                        ],
+                        index_of_binding_to_enable: -1,
+                    }),
+                    kind: NodeKind::TransformVector {
+                        enable: options.enable,
+                        rotation,
+                        translation: [10.0, 0.0, 0.0, 0.0],
+                        vector_in: [99.0; 4],
+                        vector_out: [5.0; 4],
+                        rotate_only: options.rotate_only,
+                        inverse: options.inverse,
+                        compute_on_activate: options.compute_on_activate,
+                        compute_on_modify: options.compute_on_modify,
+                    },
+                },
+            ],
+        }
+    }
+
+    fn assert_vector_close(actual: Option<[f32; 4]>, expected: [f32; 4]) {
+        let actual = actual.unwrap();
+        for (actual, expected) in actual.into_iter().zip(expected) {
+            assert!((actual - expected).abs() < 0.00001);
+        }
+    }
+
+    #[test]
+    fn anm_47_authored_rotation_and_translation_map_the_bound_input_vector() {
+        let graph = transform_vector_graph(TransformOptions::default());
+        let lib = ClipLibrary::new();
+        let mut vm = Interpreter::new(&graph, &lib, Vec::new());
+        vm.update(1.0 / 60.0);
+        assert_vector_close(vm.variables.quad(1), [10.0, 1.0, 0.0, 7.0]);
+        assert!(vm.unsupported().unbound.is_empty());
+    }
+
+    #[test]
+    fn anm_47_inverse_transform_removes_translation_before_inverse_rotation() {
+        let graph = transform_vector_graph(TransformOptions {
+            inverse: true,
+            ..Default::default()
+        });
+        let lib = ClipLibrary::new();
+        let mut vm = Interpreter::new(&graph, &lib, Vec::new());
+        vm.variables.set_quad(0, [10.0, 1.0, 0.0, 3.0]);
+        vm.update(1.0 / 60.0);
+        assert_vector_close(vm.variables.quad(1), [1.0, 0.0, 0.0, 3.0]);
+    }
+
+    #[test]
+    fn anm_47_rotate_only_omits_translation_and_disabled_modifier_preserves_output() {
+        let graph = transform_vector_graph(TransformOptions {
+            rotate_only: true,
+            ..Default::default()
+        });
+        let lib = ClipLibrary::new();
+        let mut vm = Interpreter::new(&graph, &lib, Vec::new());
+        vm.update(1.0 / 60.0);
+        assert_vector_close(vm.variables.quad(1), [0.0, 1.0, 0.0, 7.0]);
+
+        let graph = transform_vector_graph(TransformOptions {
+            enable: false,
+            ..Default::default()
+        });
+        let lib = ClipLibrary::new();
+        let mut vm = Interpreter::new(&graph, &lib, Vec::new());
+        vm.update(1.0 / 60.0);
+        assert_eq!(vm.variables.quad(1), Some([0.0; 4]));
+    }
+
+    #[test]
+    fn anm_47_compute_flags_control_activation_and_modify_recalculation() {
+        let graph = transform_vector_graph(TransformOptions {
+            compute_on_activate: false,
+            compute_on_modify: false,
+            ..Default::default()
+        });
+        let lib = ClipLibrary::new();
+        let mut vm = Interpreter::new(&graph, &lib, Vec::new());
+        vm.update(1.0 / 60.0);
+        assert_eq!(vm.variables.quad(1), Some([5.0; 4]));
+
+        let graph = transform_vector_graph(TransformOptions {
+            compute_on_modify: false,
+            ..Default::default()
+        });
+        let mut vm = Interpreter::new(&graph, &lib, Vec::new());
+        vm.update(1.0 / 60.0);
+        assert_vector_close(vm.variables.quad(1), [10.0, 1.0, 0.0, 7.0]);
+        vm.variables.set_quad(0, [0.0, 1.0, 0.0, 2.0]);
+        vm.update(1.0 / 60.0);
+        assert_vector_close(vm.variables.quad(1), [10.0, 1.0, 0.0, 7.0]);
     }
 
     #[test]

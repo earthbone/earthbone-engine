@@ -612,6 +612,19 @@ pub enum NodeKind {
         enable: bool,
         vector: [f32; 4],
     },
+    /// `hkbTransformVectorModifier`: rotates and optionally translates a
+    /// vector, or applies the inverse transform, then publishes `vectorOut`.
+    TransformVector {
+        enable: bool,
+        rotation: [f32; 4],
+        translation: [f32; 4],
+        vector_in: [f32; 4],
+        vector_out: [f32; 4],
+        rotate_only: bool,
+        inverse: bool,
+        compute_on_activate: bool,
+        compute_on_modify: bool,
+    },
     /// Any other `hkbModifier` subclass: only the enable flag is read.
     Modifier {
         enable: bool,
@@ -688,6 +701,7 @@ impl Node {
             | NodeKind::IsActiveModifier { .. }
             | NodeKind::FalseToTrueModifier { .. }
             | NodeKind::DecomposeVector { .. }
+            | NodeKind::TransformVector { .. }
             | NodeKind::Modifier { .. }
             | NodeKind::Unknown => {}
         }
@@ -1125,6 +1139,17 @@ impl<'a> Loader<'a> {
             "BSDecomposeVectorModifier" => NodeKind::DecomposeVector {
                 enable: o.bool(o.layout_offset(40, 72))?,
                 vector: o.vec4(o.layout_offset(48, 80))?,
+            },
+            "hkbTransformVectorModifier" => NodeKind::TransformVector {
+                enable: o.bool(o.layout_offset(40, 72))?,
+                rotation: o.vec4(o.layout_offset(48, 80))?,
+                translation: o.vec4(o.layout_offset(64, 96))?,
+                vector_in: o.vec4(o.layout_offset(80, 112))?,
+                vector_out: o.vec4(o.layout_offset(96, 128))?,
+                rotate_only: o.bool(o.layout_offset(112, 144))?,
+                inverse: o.bool(o.layout_offset(113, 145))?,
+                compute_on_activate: o.bool(o.layout_offset(114, 146))?,
+                compute_on_modify: o.bool(o.layout_offset(115, 147))?,
             },
             c if c.ends_with("Modifier") => NodeKind::Modifier {
                 enable: o.bool(o.layout_offset(40, 72))?,
