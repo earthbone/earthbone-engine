@@ -279,6 +279,48 @@ impl ChangeForm {
     }
 }
 
+#[cfg(test)]
+mod sav_55_projectile_envelope_tests {
+    use super::ChangeForm;
+    use crate::{cursor::Cursor, cursor::RefId};
+
+    #[test]
+    fn sav_55_projectile_subtype_ids_preserve_flags_and_payload_envelope() {
+        let subtypes = [
+            (2, "PMIS"),
+            (3, "PGRE"),
+            (4, "PBEA"),
+            (5, "PFLA"),
+            (40, "PHZD"),
+            (41, "PBAR"),
+            (42, "PCON"),
+            (47, "PARW"),
+        ];
+        let payload = [0x10, 0x20, 0x30, 0x40, 0x50];
+
+        for (index, expected_type) in subtypes {
+            let flags = 1_u32 << (index % 32);
+            let form = ChangeForm {
+                form: RefId::from_bytes([0; 3]),
+                change_flags: flags,
+                type_field: index,
+                version: 0,
+                uncompressed_len: 0,
+                data: payload.to_vec(),
+            };
+            let mut bytes = Vec::new();
+            form.write(&mut bytes);
+            let mut cursor = Cursor::new(&bytes, "SAV-55 projectile fixture");
+            let decoded = ChangeForm::read(&mut cursor).unwrap();
+
+            assert_eq!(decoded.record_type(), expected_type);
+            assert_eq!(decoded.change_flags, flags);
+            assert_eq!(decoded.data, payload);
+            assert_eq!(cursor.remaining(), 0);
+        }
+    }
+}
+
 /// Saved CLAS sections. xEdit names tag skills but defines no payload for it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ClassChange {

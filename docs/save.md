@@ -14,6 +14,14 @@ The projectile and hazard decoder tasks share a missing subtype-layout
 prerequisite. See [saved projectile layouts](save-projectile-layouts.md) for
 the xEdit dispatch gap, runtime type boundaries and evidence needed by SAV-55.
 
+The SAV-55 regression test pins the type indices for PMIS, PGRE, PBEA, PFLA,
+PHZD, PBAR, PCON and PARW and checks the generic change-form header preserves
+flags and payload bytes. It does not assign subtype fields. The inspected
+Skyrim xEdit definitions have empty subtype dispatch structures, FallrimTools
+keeps these payloads raw, and CommonLib runtime inheritance does not define
+save serialization. See [saved projectile layouts](save-projectile-layouts.md)
+for the source review and remaining evidence requirement.
+
 The format was not reverse engineered. It is documented and it has a mature
 open implementation, so both were read first.
 
