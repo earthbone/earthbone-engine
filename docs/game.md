@@ -74,6 +74,11 @@ if the import fails. Saved reference-only objects are created using their
 saved runtime type. Instances whose signed
 `unknown` field is `-1` ignore their saved RefID and receive standalone VM
 objects. Values reach the existing Papyrus native path and engine save state.
+`Game::resume_vanilla_quest_story_events` delivers saved `SCPT` contexts as
+`OnStoryScript` after its handler is loaded. It passes the six mapped arguments
+in order and clears the saved context only when the VM accepts the event.
+Contexts without a loaded handler or with unresolved mapped references remain
+saved for a later call.
 Queued messages and suspended stacks remain inert. This is not a full ESS load
 or resumed game. See
 [save.md](save.md) for mapping rules, failure behavior and the remaining work.
