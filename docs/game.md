@@ -1631,7 +1631,25 @@ of Script, Value Modifier, Dual Value Modifier and Dispel effects, including hos
 come from winning SPEL and MGEF records, with each FormID resolved in its winning
 plugin. Self and target-actor delivery are supported for constant and fire-and-forget
 casts. `Spell.Cast` credits an actor source. `RemoteCast` credits its explicit
-blame actor. Player charging, costs and hand input are separate unfinished work.
+blame actor. Player charge progress and hand input remain unfinished.
+
+`World::spell_charge_time` returns authored SPIT charge time when Manual Cost
+Calc is set, otherwise the maximum MGEF casting time in the SPEL effect list.
+`World::spell_cost` returns authored SPIT base cost for manual-cost spells.
+Auto-calculated cost sums each MGEF base cost scaled by magnitude and duration,
+with magnitude below one raised to one, zero duration treated as ten, and
+concentration duration treated as ten. It applies the SPEL half-cost perk when
+the caster owns that perk. `World::cast_charged_spell` validates the cast and
+available magicka before debiting the cost once and applying effects. This
+one-shot API does not model charge progress or concentration ticks. These rules
+follow local `uesp-modfileformat/SPEL.wikitext` and
+`TES5Edit/Core/wbDefinitionsTES5.pas`; `tests/magic/mag_09_cast_cost.rs`
+checks authored and calculated timing and costs, perk adjustment, and rejection
+without state changes when magicka is insufficient.
+The charged gameplay path sends `OnSpellCast` once after validation and payment.
+The CK `ck-wiki/OnSpellCast_-_ObjectReference.wikitext` contract says the event
+fires once when concentration begins and is not detected for Papyrus casts, so
+the direct scripted `World::cast_spell` path does not send it.
 
 Each SPEL effect group's CTDAs run before that group is prepared. MGEF CTDAs
 run separately, with FormIDs resolved against their owning MGEF. Both use the
