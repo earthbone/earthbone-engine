@@ -20,7 +20,9 @@ fn fmt_08_lod_ranges_keep_zero_and_full_u32_values() {
     writer.roots = vec![writer.add("NiNode", root_data)];
 
     let file = parse(&writer.finish()).expect("LOD shape parses");
-    let Block::TriShape(parsed) = &file.blocks[0] else { panic!("LOD shape block") };
+    let Block::TriShape(parsed) = &file.blocks[0] else {
+        panic!("LOD shape block")
+    };
     assert_eq!(parsed.lod_sizes, Some(expected));
 }
 

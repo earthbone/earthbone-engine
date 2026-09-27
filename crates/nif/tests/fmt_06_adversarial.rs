@@ -24,7 +24,6 @@ fn fmt_06_mesh_walker_keeps_all_uv_sets_and_first_set_alias() {
     writer.roots = vec![root];
 
     let mut file = parse(&writer.finish()).expect("single-set source geometry parses");
-    let second_uvs = [[0.125, 0.25], [0.5, 0.75], [0.875, 1.0]];
     let data = file
         .blocks
         .iter_mut()
@@ -33,6 +32,11 @@ fn fmt_06_mesh_walker_keeps_all_uv_sets_and_first_set_alias() {
             _ => None,
         })
         .expect("geometry block exists");
+    assert_eq!(data.uv_sets.len(), 1);
+
+    // Supported Skyrim 20.2 streams encode UV presence as one flag bit. This
+    // exercises the mesh walker's multi-set output independently of parsing.
+    let second_uvs = [[0.125, 0.25], [0.5, 0.75], [0.875, 1.0]];
     data.uv_sets.push(second_uvs.to_vec());
     let mesh = file.meshes().unwrap().remove(0);
     assert_eq!(mesh.uv_sets.len(), 2);

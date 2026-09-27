@@ -62,7 +62,10 @@ declared by nif.xml. Ordinary `NiTriShape` and `NiTriStrips` blocks use
   data flags where its stream version supports multiple sets, followed by one
   coordinate array per set. This follows the layouts in
   `../engine-refs/nifxml/nif.xml` and the corresponding `uvSets` handling in
-  `../engine-refs/nifly/src/Geometry.cpp`.
+  `../engine-refs/nifly/src/Geometry.cpp`. For the supported Skyrim 20.2
+  streams, BS Data Flags bit 0 marks UV presence, so serialized geometry has
+  at most one UV set. The FMT-06 mesh-walker test adds a second set to parsed
+  geometry data to verify that the neutral mesh output preserves every set.
 - `bone_weights` and `bone_indices`, four per vertex, indexing `skin.bones`.
 - `skin`: skeleton root, per-bone name, node reference and inverse bind
   transform.

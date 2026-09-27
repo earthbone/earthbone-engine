@@ -5,8 +5,8 @@ mod common;
 
 use common::{Buf, NifWriter};
 use soe_nif::blocks::Block;
-use soe_nif::types::BlockRef;
 use soe_nif::parse;
+use soe_nif::types::BlockRef;
 use std::path::PathBuf;
 
 #[test]
@@ -17,7 +17,9 @@ fn fmt_11_regular_bone_count_retains_each_reference() {
     writer.add("NiSkinInstance", data.0);
 
     let file = parse(&writer.finish()).expect("two bone references parse");
-    let Block::SkinInstance(instance) = &file.blocks[0] else { panic!("skin instance block") };
+    let Block::SkinInstance(instance) = &file.blocks[0] else {
+        panic!("skin instance block")
+    };
     assert_eq!(instance.bones, [BlockRef(7), BlockRef(11)]);
 }
 
