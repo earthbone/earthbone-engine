@@ -364,7 +364,7 @@ returns a transient `FlightRequest` with normalized direction and record-backed
 flight fields. A rejected request leaves ammunition unchanged. The host's
 `RangedRelease` captures the weapon at draw start and invokes that transaction
 only on `bowRelease`; `attackStop` and `bowCancel` clear the armed shot. Flight
-movement and impact remain CMB-22 work. No runtime or save field was added.
+movement is described under CMB-22. No runtime or save field was added.
 
 Sources read for CMB-08:
 
@@ -374,6 +374,30 @@ Sources read for CMB-08:
   projectile field meanings.
 - ck-wiki/Actor_Script.wikitext for `OnPlayerBowShot`, and
   ck-wiki/OnHit_-_ObjectReference.wikitext for projectile event arguments.
+
+## Projectile flight, CMB-22
+
+`FlightMotion` uses the request's normalized direction and PROJ speed for the
+initial velocity. Each fixed step advances position with constant downward
+acceleration of `9.81 * 70 * gravity` Skyrim units per second squared, then
+updates vertical velocity. The step segment is clipped at the PROJ range.
+Its state is transient and is not serialized.
+
+`ProjectileFlight` queries each segment against the host physics space. The
+first mapped resident actor returns an actor contact, while an unmapped first
+body returns an obstruction. The shooter is excluded from its own query. A
+contact or maximum range ends the flight. Later updates return `Finished`
+without querying or resolving another contact. This path detects contact and
+does not yet apply projectile damage or emit Papyrus `OnHit` events.
+
+TES5Edit's AMMO and PROJ definitions establish the linked projectile,
+ammunition damage, arrow type, gravity, speed and range fields. UESP's PROJ
+description confirms the field order. CK's `OnHit_-_ObjectReference.wikitext`
+establishes the target event arguments, which remain outside this contact-only
+increment. OpenMW's projectile collision callback and manager informed the
+segment-query and one-terminal-hit state shape. It was not ported because it
+uses OpenMW and Bullet object lifetimes, while this host already has Godot
+PhysicsServer query bodies and RID ownership maps.
 
 ### Live contact prerequisites
 
