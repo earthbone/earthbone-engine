@@ -46,6 +46,8 @@ pub enum Error {
     NonFinite,
     #[error("condition requires tempering item context")]
     TemperingContext,
+    #[error("condition function {0} needs runtime state that is not available")]
+    Unavailable(u16),
     #[error("condition count overflow or cyclic form list")]
     Inventory,
 }
@@ -140,6 +142,9 @@ pub fn supports_function(function: u16) -> bool {
             | 630
             | 655
             | 659
+            | 683
+            | 698
+            | 704
     )
 }
 
@@ -501,6 +506,30 @@ fn function_value(
             }
         }
         659 => boolean(context.tempering_enchanted.ok_or(Error::TemperingContext)?),
+        683 => {
+            no_parameter(c)?;
+            let actor = world.actor(subject).ok_or(Error::Form(subject))?;
+            if actor.ai.path.is_empty() || actor.ai.arrived {
+                0.0
+            } else {
+                actor.ai.speed
+            }
+        }
+        698 => {
+            no_parameter(c)?;
+            boolean(
+                world
+                    .actor(subject)
+                    .ok_or(Error::Form(subject))?
+                    .allow_flying,
+            )
+        }
+        704 => {
+            no_parameter(c)?;
+            let actor = world.actor(subject).ok_or(Error::Form(subject))?;
+            boolean(!actor.ai.path.is_empty() && !actor.ai.arrived)
+        }
+        644 | 675 | 684 | 714 | 730 => return Err(Error::Unavailable(c.function)),
         other => return Err(Error::Function(other)),
     })
 }
