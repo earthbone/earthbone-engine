@@ -187,6 +187,53 @@ fn every_saved_created_namespace_entry_reserves_allocation_space() {
 }
 
 #[test]
+fn sav_17_created_base_identity_is_reserved_before_placement_and_inventory() {
+    let mut save = fixture();
+    let created_base = 0x800900;
+    let mut object_table = vec![4];
+    reference(created_base).write(&mut object_table);
+    object_table.extend(7_u32.to_le_bytes());
+    object_table.push(0);
+    object_table.extend([0, 0, 0]);
+    save.table_1.push(GlobalData {
+        kind: GlobalData::CREATED_OBJECTS,
+        data: object_table,
+    });
+
+    let mut created_reference = change(
+        0x800800,
+        false,
+        1 << 5,
+        0x400800,
+        [4.0, 5.0, 6.0],
+        Some(created_base),
+    );
+    created_reference.data.extend([4]);
+    reference(created_base).write(&mut created_reference.data);
+    created_reference.data.extend(2_i32.to_le_bytes());
+    created_reference.data.push(0);
+    save.change_forms[2] = created_reference;
+
+    let mut world = World::new(fixture_order());
+    let report = world.restore_vanilla_reference_placements(&save).unwrap();
+    let base = id(DYNAMIC_FILE, 0x900);
+    assert!(report.missing_bases.contains(&base));
+    assert_eq!(
+        world.reference_ref(id(DYNAMIC_FILE, 0x800)).unwrap().base,
+        Some(base)
+    );
+    assert_eq!(
+        world.place_at(id(0, 0x900), id(0, 0x14), false),
+        id(DYNAMIC_FILE, 0x901)
+    );
+
+    let inventory = world.restore_vanilla_inventories(&save).unwrap();
+    assert_eq!(inventory.references, 3);
+    assert!(inventory.missing_items.contains(&base));
+    assert_eq!(world.item_count(id(DYNAMIC_FILE, 0x800), base), 2);
+}
+
+#[test]
 fn missing_placement_dependencies_and_unapplied_state_are_reported() {
     let mut save = fixture();
     save.change_forms[2] = change(
