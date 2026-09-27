@@ -2076,8 +2076,10 @@ and transforms to a fresh reference table, reserves dynamic IDs and restores
 the player location without queuing events. It validates the entire pass
 before changing the world. Its report identifies missing dependencies and
 unapplied state. Inventory, actor values, extra data and saved execution remain
-separate requirements. See [save.md](save.md#reference-placements) for sources,
-validation and the limits of this intermediate reconstruction pass.
+separate requirements. PCON and PARW saved placements use the same reference
+table and record-backed base queries. Their runtime state uses the existing
+SOEW reference encoding. See [save.md](save.md#reference-placements) for
+sources, validation and the limits of this intermediate reconstruction pass.
 
 ## Inventory instances and ESS application, work in progress
 

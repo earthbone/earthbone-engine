@@ -13,6 +13,9 @@ mod npcs;
 #[path = "vanilla_save/references.rs"]
 mod references;
 
+#[path = "vanilla_save/projectiles.rs"]
+mod projectiles;
+
 #[path = "vanilla_save/inventory.rs"]
 mod inventory;
 

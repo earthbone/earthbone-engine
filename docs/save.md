@@ -110,7 +110,9 @@ does not claim runtime support for opaque payloads.
 - Every change form header. `ChangeForm::quest_change` decodes documented QUST
   flags, stages, objectives, runtime aliases/events and quest instances.
 - PCON and PARW change-form envelopes, with original stored payload bytes
-  retained without subtype interpretation.
+  retained without subtype interpretation. Their shared initial placement
+  prefixes decode into the normal reference reconstruction path. The xEdit
+  subtype structs are empty, so any remaining bytes stay opaque.
 - `ChangeForm::info_change`, `story_manager_quest_node_change` and
   `scene_change` decode the defined INFO, SMQN and SCEN flag sections and state
   markers.
