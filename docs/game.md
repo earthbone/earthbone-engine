@@ -1205,7 +1205,8 @@ earlier member can change inventory or queue events.
 Active-effect recipients remain pending with magic execution.
 
 The condition evaluator implements functions 47, 53, 56, 58, 59, 72, 74, 79,
-136, 182, 264, 277, 289, 359, 448, 470, 528, 543, 560, 629, 630 and 659.
+136, 182, 230, 250, 264, 277, 280, 289, 310, 325, 359, 360, 444, 448, 470,
+528, 543, 560, 629, 630 and 659.
 This is a bounded set, not the entire CTDA contract. It supports ordered
 AND/OR groups, numeric or
 global comparisons, explicit references and caller-supplied quest aliases.
@@ -1237,6 +1238,22 @@ and an explicit condition error. The CK page records keyword failures on actor
 inventories and CK-defined reference inventories. The engine uses its shared
 inventory totals for both actors and containers, so keyword queries have the
 same defined result for either holder.
+
+AI-55 adds `GetInCellParam`, `GetLocationCleared`, `IsCellOwner`,
+`GetInWorldspace`, `GetWithinPackageLocation`, `GetInCurrentLocAlias` and
+`GetInCurrentLocFormList`. Cell and worldspace tests read the subject's current
+reference placement. Cell ownership compares the cell's explicit `XOWN` owner,
+and a zero owner parameter matches an unowned cell. Location tests include the
+named location and its descendants. Location aliases must be filled `ALLS`
+aliases. Form lists match any listed location and its descendants. Package
+location tests require an active package and its location input. `InCell`
+inputs compare cell identity, and other location inputs use their package
+radius around the resolved destination. Single-parameter functions reject a
+nonzero second parameter. `GetHitLocation` remains an explicit
+unsupported-function diagnostic because the local CK corpus supplies no usable
+result contract. xEdit `wbConditionFunctions` supplies each function's
+parameter types. Related CK behavior comes from `IsInLocation`,
+`GetWorldSpace`, and `GetActorOwner - Cell`.
 
 Sources consulted were local xEdit `wbDefinitionsTES5.pas` for CTDA, COBJ and
 FURN WBDT, CK `GetItemCount_-_ObjectReference.wikitext` for the query forms,

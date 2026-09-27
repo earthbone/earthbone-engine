@@ -4,6 +4,7 @@
 //! wbConditions/wbConditionFunctions. CK documents the state queries and
 //! conditional Papyrus variables. See docs/game.md for the implemented set.
 
+use crate::package::DataValue;
 use crate::{inventory::Field, Handle, World};
 use soe_esm::{
     records::gameplay::{Comparison, Condition},
@@ -46,6 +47,8 @@ pub enum Error {
     NonFinite,
     #[error("condition requires tempering item context")]
     TemperingContext,
+    #[error("condition requires the subject's current package {0}")]
+    PackageContext(GlobalFormId),
     #[error("condition count overflow or cyclic form list")]
     Inventory,
 }
@@ -143,6 +146,13 @@ pub fn supports_function(function: u16) -> bool {
             | 79
             | 470
             | 528
+            | 230
+            | 250
+            | 280
+            | 310
+            | 325
+            | 360
+            | 444
     )
 }
 
@@ -225,6 +235,14 @@ fn no_parameter(c: &Condition) -> Result<(), Error> {
     }
 }
 
+fn no_second_parameter(c: &Condition) -> Result<(), Error> {
+    if c.parameters[1] == 0 {
+        Ok(())
+    } else {
+        Err(Error::Parameter(c.function, c.parameters[1]))
+    }
+}
+
 /// Mutagen Skyrim.Constants.Player is reserved even without a placed ACHR record.
 fn resolve_reference(
     world: &mut World,
@@ -248,6 +266,55 @@ fn resolve_reference(
         return Err(Error::Form(id));
     }
     Ok(id)
+}
+
+fn reference_worldspace(world: &mut World, reference: GlobalFormId) -> Option<GlobalFormId> {
+    let cell = world.reference(reference)?.cell?;
+    let raw = world.record(cell)?.placement.world?;
+    world.resolve_from(cell, raw)
+}
+
+fn package_location_condition(
+    world: &mut World,
+    subject: GlobalFormId,
+    c: &Condition,
+    index: u32,
+) -> Result<f32, Error> {
+    let package_id = world
+        .current_package(subject)
+        .ok_or(Error::PackageContext(subject))?;
+    let ai_state = world.actor(subject).ok_or(Error::Form(subject))?.ai.clone();
+    let index = i8::try_from(index).map_err(|_| Error::Parameter(c.function, index))?;
+    let package = crate::ai::package(world, package_id).ok_or(Error::Form(package_id))?;
+    let input = package
+        .input(index)
+        .ok_or(Error::Parameter(c.function, index as u32))?;
+    let DataValue::Location(location) = &input.value else {
+        return Err(Error::Parameter(c.function, index as u32));
+    };
+    let Some(place) = crate::ai::resolve_location(
+        world,
+        subject,
+        package_id,
+        ai_state.alias,
+        &ai_state,
+        location,
+    ) else {
+        return Err(Error::PackageContext(subject));
+    };
+    let reference = world.reference(subject).ok_or(Error::Form(subject))?;
+    let inside = if matches!(location.location, crate::package::Location::InCell(_)) {
+        reference.cell == place.cell
+    } else {
+        let distance_squared = reference
+            .position
+            .iter()
+            .zip(place.position)
+            .map(|(a, b)| f64::from(*a - b).powi(2))
+            .sum::<f64>();
+        distance_squared <= f64::from(location.radius.max(0)).powi(2)
+    };
+    Ok(boolean(inside))
 }
 
 pub(crate) fn resolve(
@@ -293,6 +360,48 @@ fn function_value(
                     .and_then(|reference| reference.cell)
                     == Some(cell),
             )
+        }
+        230 => {
+            let cell = resolve(world, context.owner, raw, Some(*b"CELL"))?;
+            let reference = resolve_reference(world, context.owner, c.parameters[1])?;
+            let subject_cell = world.reference(subject).ok_or(Error::Form(subject))?.cell;
+            let parameter_cell = world
+                .reference(reference)
+                .ok_or(Error::Form(reference))?
+                .cell;
+            boolean(subject_cell == Some(cell) && parameter_cell == Some(cell))
+        }
+        250 => {
+            no_second_parameter(c)?;
+            let location = resolve(world, context.owner, raw, Some(*b"LCTN"))?;
+            boolean(
+                world
+                    .location(location)
+                    .ok_or(Error::Form(location))?
+                    .cleared,
+            )
+        }
+        280 => {
+            let cell = resolve(world, context.owner, raw, Some(*b"CELL"))?;
+            let owner = if c.parameters[1] == 0 {
+                None
+            } else {
+                let owner = resolve(world, context.owner, c.parameters[1], None)?;
+                if ![Some(Tag(*b"NPC_")), Some(Tag(*b"FACT"))].contains(&world.tag_of(owner)) {
+                    return Err(Error::Form(owner));
+                }
+                Some(owner)
+            };
+            boolean(world.cell_state(cell).ok_or(Error::Form(cell))?.owner == owner)
+        }
+        310 => {
+            no_second_parameter(c)?;
+            let wanted = resolve(world, context.owner, raw, Some(*b"WRLD"))?;
+            boolean(reference_worldspace(world, subject) == Some(wanted))
+        }
+        325 => {
+            no_second_parameter(c)?;
+            package_location_condition(world, subject, c, raw)?
         }
         69 => {
             let race = resolve(world, context.owner, raw, Some(*b"RACE"))?;
@@ -431,7 +540,7 @@ fn function_value(
                     == raw as i32,
             )
         }
-        576 | 646 | 647 => return Err(Error::Function(c.function)),
+        390 | 576 | 646 | 647 => return Err(Error::Function(c.function)),
         72 => {
             let base = resolve(world, context.owner, raw, None)?;
             boolean(world.base_of(subject) == Some(base))
@@ -464,6 +573,20 @@ fn function_value(
                 current == wanted || world.location_is_child(wanted, current)
             }))
         }
+        360 => {
+            no_second_parameter(c)?;
+            let quest = context.quest.ok_or(Error::Target(5))?;
+            if !world.alias_is_location(quest, raw) {
+                return Err(Error::Target(5));
+            }
+            let location = world.alias_ref(quest, raw).ok_or(Error::Target(5))?;
+            if world.tag_of(location) != Some(Tag(*b"LCTN")) {
+                return Err(Error::Form(location));
+            }
+            boolean(world.current_location(subject).is_some_and(|current| {
+                current == location || world.location_is_child(location, current)
+            }))
+        }
         448 => {
             if c.parameters[1] != 0 {
                 return Err(Error::Parameter(c.function, c.parameters[1]));
@@ -486,6 +609,16 @@ fn function_value(
                 .location(location)
                 .and_then(|state| state.keyword_data.get(&keyword).copied())
                 .unwrap_or(0.0)
+        }
+        444 => {
+            no_second_parameter(c)?;
+            let list = resolve(world, context.owner, raw, Some(*b"FLST"))?;
+            let locations = world.form_list(list).ok_or(Error::Form(list))?.clone();
+            boolean(world.current_location(subject).is_some_and(|current| {
+                locations.iter().any(|location| {
+                    *location == current || world.location_is_child(*location, current)
+                })
+            }))
         }
         629 | 630 => {
             let form = if c.function == 629 {
