@@ -1025,3 +1025,18 @@ Two tests use `SKYRIM_DATA` and skip when it is unset:
 ANM-06 has no backlog prerequisite. Reading 32-bit ragdolls requires the layout
 work in ANM-07. Consumers implementing death ragdolls can depend on this reader
 without requiring behavior evaluation or extracted motion.
+
+## BSModifyOnceModifier (ANM-33, 2026-09-28)
+
+`BSModifyOnceModifier` inherits the modifier enable flag and stores
+`pOnActivateModifier` and `pOnDeactivateModifier` pointers at offsets 80 and
+96 in the 64-bit layout. The offsets and inherited class fields come from
+`../engine-refs/serde-hkx/assets/classes/BSModifyOnceModifier.json`. The
+decoder retains both pointers as modifier children and graph linking shifts
+them when behavior graphs are combined. When an enabled node activates, the
+interpreter synchronizes its activation child once. When it deactivates, it
+synchronizes its deactivation child before normal child cleanup. Repeated
+updates do not repeat either lifecycle edge. Synthetic `anm_33` tests cover
+the decoded children, activation, stable repeated updates and deactivation.
+The available class metadata defines layout and fields, but does not establish
+more detailed behavior from an original-runtime capture.

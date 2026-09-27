@@ -1029,6 +1029,7 @@ impl<'a> Interpreter<'a> {
             | NodeKind::GetTimeStepModifier { enable, .. }
             | NodeKind::IsActiveModifier { enable, .. }
             | NodeKind::FalseToTrueModifier { enable, .. }
+            | NodeKind::ModifyOnce { enable, .. }
             | NodeKind::DecomposeVector { enable, .. }
             | NodeKind::Modifier { enable } => *enable,
             _ => true,
@@ -1165,6 +1166,11 @@ impl<'a> Interpreter<'a> {
                     self.activate(*generator);
                 }
             }
+            NodeKind::ModifyOnce { on_activate, .. } => {
+                if let Some(child) = on_activate {
+                    self.sync_modifier(*child);
+                }
+            }
             NodeKind::IStateTagging {
                 default_generator: generator,
                 ..
@@ -1220,6 +1226,18 @@ impl<'a> Interpreter<'a> {
             seen[node_id.0] = true;
             let node = &self.graph.nodes[node_id.0];
             let mut children = node.children();
+            if let NodeKind::ModifyOnce {
+                on_deactivate: Some(child),
+                ..
+            } = &node.kind
+            {
+                let start = self.modifier_order.len();
+                self.sync_modifier(*child);
+                for index in start..self.modifier_order.len() {
+                    let child_node = self.modifier_order[index];
+                    self.update_modifier(child_node);
+                }
+            }
             if let NodeKind::StateMachine(sm) = &node.kind {
                 if let Some(current) = self.nodes[node_id.0].current_state {
                     if let Some(state) = sm.state(current) {
@@ -1687,6 +1705,7 @@ impl<'a> Interpreter<'a> {
             | NodeKind::GetTimeStepModifier { .. }
             | NodeKind::IsActiveModifier { .. }
             | NodeKind::FalseToTrueModifier { .. }
+            | NodeKind::ModifyOnce { .. }
             | NodeKind::DecomposeVector { .. }
             | NodeKind::Modifier { .. } => self.reference_output(),
         }
