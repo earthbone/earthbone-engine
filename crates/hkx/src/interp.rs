@@ -418,6 +418,9 @@ struct Runtime {
     delayed: Option<DelayedTransition>,
     intervals: Vec<IntervalState>,
     time_step: f32,
+    timer_elapsed: f32,
+    timer_fired: bool,
+    timer_updated_frame: u64,
     blend_parameter: Option<f32>,
     child_weights: Vec<Option<f32>>,
     selected: Option<usize>,
@@ -1087,21 +1090,39 @@ impl<'a> Interpreter<'a> {
     }
 
     /// Evaluate edge slots only during update, after list enable state is known.
-    fn update_modifier(&mut self, id: NodeId) {
+    fn update_modifier(&mut self, id: NodeId, dt: f32) {
         if !self.nodes[id.0].active {
             return;
         }
-        if let NodeKind::FalseToTrueModifier { slots, .. } = &self.graph.nodes[id.0].kind {
-            for (index, slot) in slots.iter().enumerate() {
-                let runtime = &mut self.nodes[id.0];
-                let active = runtime.edge_enabled[index].unwrap_or(slot.enable)
-                    && runtime.edge_value[index].unwrap_or(slot.variable_to_test);
-                let rising = active && !runtime.edge_previous[index];
-                runtime.edge_previous[index] = active;
-                if rising {
-                    self.raise(slot.event.id);
+        match &self.graph.nodes[id.0].kind {
+            NodeKind::FalseToTrueModifier { slots, .. } => {
+                for (index, slot) in slots.iter().enumerate() {
+                    let runtime = &mut self.nodes[id.0];
+                    let active = runtime.edge_enabled[index].unwrap_or(slot.enable)
+                        && runtime.edge_value[index].unwrap_or(slot.variable_to_test);
+                    let rising = active && !runtime.edge_previous[index];
+                    runtime.edge_previous[index] = active;
+                    if rising {
+                        self.raise(slot.event.id);
+                    }
                 }
             }
+            NodeKind::TimerModifier {
+                alarm_time_seconds,
+                alarm_event,
+                ..
+            } => {
+                let runtime = &mut self.nodes[id.0];
+                if !runtime.timer_fired && runtime.timer_updated_frame != self.frame {
+                    runtime.timer_updated_frame = self.frame;
+                    runtime.timer_elapsed += dt.max(0.0);
+                    if runtime.timer_elapsed >= *alarm_time_seconds {
+                        runtime.timer_fired = true;
+                        self.raise(alarm_event.id);
+                    }
+                }
+            }
+            _ => {}
         }
     }
 
@@ -1114,6 +1135,11 @@ impl<'a> Interpreter<'a> {
         match &graph.node(id).kind {
             NodeKind::FalseToTrueModifier { .. } => {
                 self.nodes[id.0].edge_previous = [false; FALSE_TO_TRUE_SLOTS];
+            }
+            NodeKind::TimerModifier { .. } => {
+                self.nodes[id.0].timer_elapsed = 0.0;
+                self.nodes[id.0].timer_fired = false;
+                self.nodes[id.0].timer_updated_frame = 0;
             }
             NodeKind::Clip(c) => {
                 let rt = &mut self.nodes[id.0];
@@ -1198,7 +1224,6 @@ impl<'a> Interpreter<'a> {
             | NodeKind::BlendingTransition(_)
             | NodeKind::GeneratorTransition(_)
             | NodeKind::EventDrivenModifier { .. }
-            | NodeKind::TimerModifier { .. }
             | NodeKind::GetTimeStepModifier { .. }
             | NodeKind::IsActiveModifier { .. }
             | NodeKind::DecomposeVector { .. }
@@ -1625,7 +1650,7 @@ impl<'a> Interpreter<'a> {
                     self.sync_modifier(*modifier);
                     for index in start..self.modifier_order.len() {
                         let node = self.modifier_order[index];
-                        self.update_modifier(node);
+                        self.update_modifier(node, dt);
                     }
                 }
                 match generator {
