@@ -3138,6 +3138,22 @@ and rejected on equip, and `EquipSpell`/menu equip agreeing on
 `GetEquippedSpell`. The existing `world.rs` and `hash.rs` suites were left
 unchanged since neither exercised the two new fields before this change.
 
+## Race animation models, ANM-55
+
+`race::AnimationModels` reads male and female skeletal `ANAM` strings and
+behavior project `MODL` paths in the `RACE` subrecord order defined by
+`TES5Edit/Core/wbDefinitionsTES5.pas`. The `MNAM` and `FNAM` markers select the
+sex slot. `World::actor_animation_rig` selects the paths for the actor's
+current race and sex after the same trait and live-race resolution used by
+appearance selection. Missing sex-specific paths remain absent for the host
+to report.
+
+CommonLibSSE-NG's `TESRace.h` names the matching runtime members
+`skeletonModels[sex]` and `behaviorGraphs[sex]`. The focused synthetic test
+checks the marker order and confirms one sex does not borrow the other sex's
+paths. The host follows the selected project into its `hkbProjectData` and
+`hkbCharacterData` records to find the HKX rig and behavior graph named there.
+
 ## Actor controller scale, CMB-33
 
 `race::Attributes` reads two more pairs from `RACE`'s `DATA` prefix,

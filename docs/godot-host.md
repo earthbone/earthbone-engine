@@ -2060,9 +2060,16 @@ checks authored human and beast addon paths against the installed archives.
 
 The installed five-race survey assembles six model paths and 22 shapes, including
 Argonian and Khajiit tails. Both tails name `TailBone01` through `TailBone05`, which
-the current human rig does not contain. Live binding reports this mismatch and
-keeps the previous geometry. Breton, High Elf and Nord addons match that rig.
-ANM-55 tracks record-selected animation rigs without narrowing skin selection.
+the human rig does not contain. Breton, High Elf and Nord addons match that rig.
+ANM-55 reads the sex-specific skeletal `ANAM` NIF and behavior project `MODL`
+from the actor's current race. It follows the project data to the character's
+HKX skeleton and graph. When the NIF skeleton has bones absent from that HKX
+skeleton, the host adds those named nodes with their NIF parent and local
+transform. `SkinnedActorNode.bind_actor_appearance` loads that rig with the
+actor's full selected skin. When the live race or sex changes, the node loads
+the new rig and appearance before replacing the previous view. Every selected
+skin shape must map all its bone names onto the race rig or the replacement is
+rejected. Paths use the data source VFS and its file overlay.
 The installed body/hand/null refresh fixture measured a 8.2 us cached view against
 the declared 2 ms budget. This measures record resolution, not rendered frame time.
 
@@ -2075,6 +2082,9 @@ Full installed-data startup received SIGTERM before loading finished, exit 143,
 so that larger startup is not claimed as verified. Rust checks execute the node's
 same `AppearanceCache::prepare` path, including live record mutation, failed-view
 caching and explicit rig mismatch results.
+
+`anm_55_actor_race_rigs` loads installed Nord, Argonian and Draugr skeleton and
+behavior paths and requires every selected skin bone to map onto the chosen rig.
 
 The existing `godot/skinned_test.gd` passed on Godot 4.7.2 with the changed
 surface ownership: two shapes, 2,948 triangles and 29 matched mesh bones. Its

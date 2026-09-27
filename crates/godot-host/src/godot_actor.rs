@@ -26,7 +26,7 @@ use soe_hkx::interp::Interpreter;
 use soe_hkx::pose::to_model_space_into;
 use soe_hkx::QsTransform;
 
-use crate::actor::{ActorAssets, ActorSurface, HUMAN_SKELETON};
+use crate::actor::{ActorAssets, ActorSurface};
 use crate::data_source::DataSource;
 use crate::godot_layer::array_mesh_from;
 use crate::skinned::{skinning_transforms_into, Affine};
@@ -336,7 +336,15 @@ impl SkinnedActorNode {
     /// The skeleton file this node loads, so a script can report it.
     #[func]
     pub fn skeleton_path(&self) -> GString {
-        GString::from(HUMAN_SKELETON)
+        self.assets
+            .map_or_else(GString::new, |assets| GString::from(&assets.skeleton_path))
+    }
+
+    /// The behavior graph selected for this actor's race.
+    #[func]
+    pub fn behavior_path(&self) -> GString {
+        self.assets
+            .map_or_else(GString::new, |assets| GString::from(&assets.behavior_path))
     }
 
     /// The world to draw into, the same way `CellStreamerNode` finds it: the
@@ -365,37 +373,86 @@ impl SkinnedActorNode {
         source: Arc<DataSource>,
         actor: soe_esm::GlobalFormId,
     ) -> Result<(), String> {
-        let assets = self
-            .assets
-            .ok_or("load the character rig before binding its appearance")?;
-        let mut cache = crate::actor::AppearanceCache::default();
-        let update = cache
-            .prepare(
-                &mut world.borrow_mut(),
-                actor,
-                source.vfs(),
-                &assets.skeleton,
-            )
-            .map_err(|error| error.to_string())?
-            .ok_or("initial appearance was not prepared")?;
-        self.replace_surfaces(update.surfaces)?;
+        if self.assets.is_none() {
+            return Err("load the character node before binding its appearance".into());
+        }
+        let mut assets = ActorAssets::load_for_actor(&mut world.borrow_mut(), actor, source.vfs())
+            .map_err(|error| error.to_string())?;
+        let surfaces = std::mem::take(&mut assets.surfaces);
+        let assets: &'static ActorAssets = Box::leak(Box::new(assets));
+        self.assets = Some(assets);
+        self.vm = Some(Interpreter::new(
+            &assets.graph,
+            &assets.clips,
+            assets.skeleton.reference_pose.clone(),
+        ));
+        self.model.clear();
+        self.surfaces.clear();
+        self.replace_surfaces(surfaces)?;
         self.appearance = Some(AppearanceBinding {
             world,
             source,
             actor,
-            cache,
+            cache: crate::actor::AppearanceCache::default(),
         });
         Ok(())
     }
 
     fn refresh_appearance(&mut self) {
-        let (Some(binding), Some(assets)) = (&mut self.appearance, self.assets) else {
+        let Some(assets) = self.assets else {
+            return;
+        };
+        let Some(binding) = self.appearance.as_ref() else {
+            return;
+        };
+        let (world, source, actor) = (
+            Rc::clone(&binding.world),
+            Arc::clone(&binding.source),
+            binding.actor,
+        );
+        let selected = match world.borrow_mut().actor_animation_rig(actor) {
+            Ok(Some(rig)) => rig,
+            Ok(None) => return,
+            Err(error) => {
+                godot_error!("SkinnedActorNode race rig: {error}");
+                return;
+            }
+        };
+        if assets.actor_race != Some(selected.race) || assets.actor_female != Some(selected.female)
+        {
+            let mut next =
+                match ActorAssets::load_for_actor(&mut world.borrow_mut(), actor, source.vfs()) {
+                    Ok(assets) => assets,
+                    Err(error) => {
+                        godot_error!("SkinnedActorNode race rig: {error}");
+                        return;
+                    }
+                };
+            let surfaces = std::mem::take(&mut next.surfaces);
+            let next: &'static ActorAssets = Box::leak(Box::new(next));
+            self.assets = Some(next);
+            self.vm = Some(Interpreter::new(
+                &next.graph,
+                &next.clips,
+                next.skeleton.reference_pose.clone(),
+            ));
+            self.model.clear();
+            self.surfaces.clear();
+            if let Some(binding) = &mut self.appearance {
+                binding.cache = crate::actor::AppearanceCache::default();
+            }
+            if let Err(error) = self.replace_surfaces(surfaces) {
+                godot_error!("SkinnedActorNode race rig: {error}");
+            }
+            return;
+        }
+        let Some(binding) = &mut self.appearance else {
             return;
         };
         let update = match binding.cache.prepare(
             &mut binding.world.borrow_mut(),
             binding.actor,
-            binding.source.vfs(),
+            source.vfs(),
             &assets.skeleton,
         ) {
             Ok(Some(update)) => update,
