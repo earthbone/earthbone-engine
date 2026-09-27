@@ -646,6 +646,15 @@ uses the QUST alias flags and condition block defined in
 Create Reference to Object (`ALCO`), are not created by this path, and aliases
 with `ALCO` are excluded from this placed-reference search.
 
+**Specific location aliases, AI-18.** `Quest.Start` resolves a location
+alias's `ALFL` through the quest plugin's load-order namespace and fills it
+only when the winning form is a live `LCTN`. A missing or wrong-type target
+leaves an Optional alias empty and prevents a required alias from starting
+the quest. The location identity uses the existing quest alias state, which
+the `SOEW` writer already saves and restores. This fill follows the Specific
+Location rule in xEdit's `wbRecord(QUST)` and UESP's QUST format page.
+Reference alias locations and external alias locations remain AI-19 work.
+
 **Procedures.** AI-02 walks sequential branches in authored preorder. The
 actor retains the active child and its completion state. A completed Travel
 starts the next child on the next driver tick. Nested `Sequence` branches

@@ -4,7 +4,8 @@
 //! objectives, and aliases. Layout from `wbRecord(QUST)` in
 //! `wbDefinitionsTES5.pas`. The subrecords come in order and the meaning of
 //! `FNAM` depends on whether an objective or an alias is open, so the reader
-//! is a small state machine over the subrecord list.
+//! is a small state machine over the subrecord list. `ALFL` is the specific
+//! location fill defined by xEdit and UESP's QUST format page.
 
 use soe_esm::records::gameplay::Condition;
 use soe_esm::records::Text;
@@ -76,6 +77,8 @@ pub struct Alias {
     pub location: bool,
     /// `ALFR`: the reference the alias holds from the start.
     pub forced_ref: Option<u32>,
+    /// `ALFL`: the location the alias holds from the start.
+    pub forced_location: Option<u32>,
     /// `ALPC`: packages the alias puts on its actor, in order.
     pub packages: Vec<u32>,
     /// `ALCO` selects Create Reference to Object rather than a placed reference.
@@ -228,6 +231,7 @@ impl Quest {
                         flags: 0,
                         location: sub.tag == Tag::new(b"ALLS"),
                         forced_ref: None,
+                        forced_location: None,
                         packages: Vec::new(),
                         creates_reference: false,
                         match_conditions: Vec::new(),
@@ -259,6 +263,14 @@ impl Quest {
                     }
                     if let Some(a) = q.aliases.last_mut() {
                         a.forced_ref = Some(u32::from_le_bytes([d[0], d[1], d[2], d[3]]));
+                    }
+                }
+                b"ALFL" => {
+                    if d.len() < 4 {
+                        return Err(short("ALFL"));
+                    }
+                    if let Some(a) = q.aliases.last_mut() {
+                        a.forced_location = Some(u32::from_le_bytes([d[0], d[1], d[2], d[3]]));
                     }
                 }
                 b"ALED" => section = Section::Header,

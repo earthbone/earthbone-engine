@@ -26,7 +26,10 @@ impl World {
         let aliases = def
             .aliases
             .iter()
-            .map(|a| (a.id, a.forced_ref.map(|r| self.order.resolve(rref.file, r))))
+            .map(|a| {
+                let target = if a.location { None } else { a.forced_ref };
+                (a.id, target.map(|raw| self.order.resolve(rref.file, raw)))
+            })
             .collect();
         let runtime = crate::quest::state::Runtime {
             other_flags: def.flags & !crate::quest::state::STATE_FLAGS,
@@ -67,6 +70,9 @@ impl World {
             return false;
         }
         if !self.fill_reference_aliases(id) {
+            return false;
+        }
+        if !self.fill_specific_location_aliases(id) {
             return false;
         }
         let Some(q) = self.quest_state(id) else {
@@ -166,6 +172,48 @@ impl World {
                 continue;
             }
             self.force_alias(id, alias.id, Some(*candidate));
+        }
+        true
+    }
+
+    /// Fill location aliases whose QUST record names a specific `LCTN` in `ALFL`.
+    fn fill_specific_location_aliases(&mut self, id: GlobalFormId) -> bool {
+        let Some(quest_ref) = self.order.winner_ref(id) else {
+            return false;
+        };
+        let Some(state) = self.quest_state(id) else {
+            return false;
+        };
+        let aliases: Vec<_> = state
+            .def
+            .aliases
+            .iter()
+            .filter(|alias| alias.location && alias.forced_location.is_some())
+            .map(|alias| (alias.id, alias.flags, alias.forced_location))
+            .collect();
+        let mut resolved = Vec::with_capacity(aliases.len());
+        for (alias, flags, raw) in aliases {
+            let target = raw
+                .filter(|raw| *raw != 0)
+                .map(|raw| self.order.resolve(quest_ref.file, raw))
+                .filter(|target| {
+                    self.order.winner(*target).is_some_and(|record| {
+                        record.tag == Tag::new(b"LCTN") && !record.is_deleted()
+                    })
+                });
+            let Some(target) = target else {
+                if flags & alias_flags::OPTIONAL == 0 {
+                    return false;
+                }
+                resolved.push((alias, None));
+                continue;
+            };
+            resolved.push((alias, Some(target)));
+        }
+        if let Some(state) = self.quests.get_mut(&id) {
+            for (alias, target) in resolved {
+                state.aliases.insert(alias, target);
+            }
         }
         true
     }
