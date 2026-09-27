@@ -283,3 +283,12 @@ supports copied top-level `STAT` records only. The FMT-15 FormID renumbering and
 master relocation rows remain open. The Spriggit output guide describes separate text files
 per record, while the current editor writes plugin files only. No text plugin translation
 or `.spriggit` configuration reader is implemented.
+
+The navmesh document commands edit `NAVM` records already present in the active plugin.
+They add or delete triangles and move existing vertices. Each successful operation records
+an undo snapshot, rebuilds same-mesh triangle adjacency and the NVNM spatial grid, and
+updates door and cover triangle indices after deletion. Triangle and vertex indices are
+checked against NVNM limits, malformed or degenerate edits are rejected before changing the
+plugin, and save writes the packed geometry back through the plugin writer. Editing a
+winning navmesh owned by another plugin is not supported yet because its parent, door and
+edge-link FormIDs need relocation when an override is created.

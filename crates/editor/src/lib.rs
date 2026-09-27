@@ -5,6 +5,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use soe_esm::records::navm::{Geometry, NavMesh, Triangle};
 use soe_esm::{Entry, GlobalFormId, GroupKind, LoadOrder, Plugin, Record, Subrecord, Tag};
 use thiserror::Error;
 
@@ -44,6 +45,14 @@ pub enum EditorError {
         form: GlobalFormId,
         /// Subrecord tag that was repeated.
         tag: Tag,
+    },
+    /// A NAVM edit would create invalid geometry or indices.
+    #[error("cannot edit navmesh {form}: {reason}")]
+    InvalidNavmesh {
+        /// Navmesh being edited.
+        form: GlobalFormId,
+        /// Why the requested geometry was rejected.
+        reason: &'static str,
     },
     /// Saving the active plugin failed.
     #[error("could not write plugin {path}: {source}")]
@@ -204,6 +213,152 @@ impl EditorDocument {
         Ok(true)
     }
 
+    /// Add a triangle using three existing vertex indices.
+    ///
+    /// Triangle adjacency and the spatial grid are rebuilt before the record
+    /// is changed. The edit is rejected if it would exceed NVNM index limits
+    /// or create ambiguous edge adjacency.
+    pub fn add_navmesh_triangle(
+        &mut self,
+        form: GlobalFormId,
+        vertices: [u16; 3],
+        flags: u16,
+        cover_flags: u16,
+    ) -> Result<(), EditorError> {
+        self.edit_navmesh(form, |geometry| {
+            if geometry.triangles.len() >= i16::MAX as usize {
+                return Err("triangle count exceeds NVNM signed index capacity");
+            }
+            geometry.triangles.push(Triangle {
+                vertices,
+                edges: [-1; 3],
+                flags: flags & !0x7,
+                cover_flags,
+            });
+            Ok(())
+        })
+    }
+
+    /// Delete a triangle and remove or remap its triangle-indexed metadata.
+    pub fn delete_navmesh_triangle(
+        &mut self,
+        form: GlobalFormId,
+        triangle: usize,
+    ) -> Result<(), EditorError> {
+        self.edit_navmesh(form, |geometry| {
+            if triangle >= geometry.triangles.len() {
+                return Err("triangle index is out of range");
+            }
+            geometry.triangles.remove(triangle);
+            for tri in &mut geometry.triangles {
+                for edge in 0..3 {
+                    if tri.flags & (1 << edge) != 0 {
+                        continue;
+                    }
+                    match usize::try_from(tri.edges[edge]) {
+                        Ok(target) if target == triangle => tri.edges[edge] = -1,
+                        Ok(target) if target > triangle => tri.edges[edge] -= 1,
+                        _ => {}
+                    }
+                }
+            }
+            geometry
+                .door_links
+                .retain_mut(|link| match usize::try_from(link.triangle) {
+                    Ok(target) if target == triangle => false,
+                    Ok(target) if target > triangle => {
+                        link.triangle -= 1;
+                        true
+                    }
+                    _ => true,
+                });
+            geometry
+                .cover_triangles
+                .retain_mut(|target| match usize::try_from(*target) {
+                    Ok(index) if index == triangle => false,
+                    Ok(index) if index > triangle => {
+                        *target -= 1;
+                        true
+                    }
+                    _ => true,
+                });
+            Ok(())
+        })
+    }
+
+    /// Move one vertex and rebuild the navmesh bounds and spatial grid.
+    pub fn move_navmesh_vertex(
+        &mut self,
+        form: GlobalFormId,
+        vertex: usize,
+        position: [f32; 3],
+    ) -> Result<(), EditorError> {
+        self.edit_navmesh(form, |geometry| {
+            let Some(target) = geometry.vertices.get_mut(vertex) else {
+                return Err("vertex index is out of range");
+            };
+            *target = position;
+            Ok(())
+        })
+    }
+
+    fn edit_navmesh(
+        &mut self,
+        form: GlobalFormId,
+        edit: impl FnOnce(&mut Geometry) -> Result<(), &'static str>,
+    ) -> Result<(), EditorError> {
+        let Some(index) = self.active_record_index(form) else {
+            return Err(EditorError::UnsupportedEdit {
+                form,
+                reason: "navmesh editing requires a NAVM record in the active plugin",
+            });
+        };
+        let record = &self.active_plugin.records[index];
+        if record.tag != Tag(*b"NAVM") {
+            return Err(EditorError::UnsupportedEdit {
+                form,
+                reason: "form is not a NAVM record",
+            });
+        }
+        let view = NavMesh::from_record(record).map_err(|_| EditorError::InvalidNavmesh {
+            form,
+            reason: "NVNM geometry could not be parsed",
+        })?;
+        let Some(mut geometry) = view.geometry else {
+            return Err(EditorError::InvalidNavmesh {
+                form,
+                reason: "NAVM has no NVNM geometry",
+            });
+        };
+        edit(&mut geometry).map_err(|reason| EditorError::InvalidNavmesh { form, reason })?;
+        normalize_geometry(&mut geometry)
+            .map_err(|reason| EditorError::InvalidNavmesh { form, reason })?;
+
+        let mut updated = record.clone();
+        let mut nvnm = updated
+            .subrecords
+            .iter_mut()
+            .filter(|subrecord| subrecord.tag == Tag(*b"NVNM"));
+        let Some(subrecord) = nvnm.next() else {
+            return Err(EditorError::InvalidNavmesh {
+                form,
+                reason: "NAVM has no NVNM geometry",
+            });
+        };
+        if nvnm.next().is_some() {
+            return Err(EditorError::RepeatedSubrecord {
+                form,
+                tag: Tag(*b"NVNM"),
+            });
+        }
+        subrecord.data = geometry.to_bytes();
+
+        self.undo.push(self.active_plugin.clone());
+        self.active_plugin.records[index] = updated;
+        self.rebuild_load_order()?;
+        Ok(())
+    }
+
     /// Write the active plugin to disk and parse the written bytes again.
     ///
     /// # Errors
@@ -294,6 +449,189 @@ impl EditorDocument {
             hedr.data[4..8].copy_from_slice(&count.to_le_bytes());
         }
     }
+}
+
+const EDGE_LINK_BITS: [u16; 3] = [1, 2, 4];
+
+fn normalize_geometry(geometry: &mut Geometry) -> Result<(), &'static str> {
+    if geometry.vertices.is_empty() || geometry.vertices.len() > u16::MAX as usize + 1 {
+        return Err("vertex count exceeds NVNM unsigned index capacity");
+    }
+    if geometry.triangles.len() > i16::MAX as usize {
+        return Err("triangle count exceeds NVNM signed index capacity");
+    }
+    if geometry
+        .vertices
+        .iter()
+        .flatten()
+        .any(|value| !value.is_finite())
+    {
+        return Err("vertex coordinates must be finite");
+    }
+    for triangle in &geometry.triangles {
+        let [a, b, c] = triangle.vertices.map(usize::from);
+        if a >= geometry.vertices.len()
+            || b >= geometry.vertices.len()
+            || c >= geometry.vertices.len()
+        {
+            return Err("triangle references a missing vertex");
+        }
+        let [a, b, c] = [
+            geometry.vertices[a],
+            geometry.vertices[b],
+            geometry.vertices[c],
+        ];
+        let cross = [
+            (b[1] - a[1]) * (c[2] - a[2]) - (b[2] - a[2]) * (c[1] - a[1]),
+            (b[2] - a[2]) * (c[0] - a[0]) - (b[0] - a[0]) * (c[2] - a[2]),
+            (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]),
+        ];
+        if cross
+            .iter()
+            .all(|component| component.abs() <= f32::EPSILON)
+        {
+            return Err("triangle vertices must not be collinear");
+        }
+    }
+
+    let mut edge_owners = std::collections::BTreeMap::<(u16, u16), Vec<(usize, usize)>>::new();
+    for (triangle_index, triangle) in geometry.triangles.iter().enumerate() {
+        for edge in 0..3 {
+            let a = triangle.vertices[edge];
+            let b = triangle.vertices[(edge + 1) % 3];
+            edge_owners
+                .entry((a.min(b), a.max(b)))
+                .or_default()
+                .push((triangle_index, edge));
+        }
+    }
+    for owners in edge_owners.values() {
+        if owners.len() > 2 {
+            return Err("more than two triangles share an edge");
+        }
+    }
+    for (owner_index, triangle) in geometry.triangles.iter_mut().enumerate() {
+        for (edge, &link_bit) in EDGE_LINK_BITS.iter().enumerate() {
+            if triangle.flags & link_bit == 0 {
+                triangle.edges[edge] = -1;
+            }
+            let neighbor = edge_owners
+                .get(&{
+                    let a = triangle.vertices[edge];
+                    let b = triangle.vertices[(edge + 1) % 3];
+                    (a.min(b), a.max(b))
+                })
+                .and_then(|owners| {
+                    owners
+                        .iter()
+                        .find(|(other_index, _)| *other_index != owner_index)
+                });
+            if let Some((other_index, _)) = neighbor {
+                triangle.edges[edge] =
+                    i16::try_from(*other_index).map_err(|_| "triangle index overflow")?;
+                triangle.flags &= !link_bit;
+            }
+        }
+    }
+    rebuild_grid(geometry)?;
+    validate_metadata(geometry)?;
+    Ok(())
+}
+
+fn rebuild_grid(geometry: &mut Geometry) -> Result<(), &'static str> {
+    let divisor = geometry.grid.divisor;
+    let cell_count = usize::try_from(divisor)
+        .ok()
+        .and_then(|side| side.checked_mul(side))
+        .filter(|count| *count > 0 && *count == geometry.grid.cells.len())
+        .ok_or("navmesh grid divisor does not match its cells")?;
+    let mut min = [f32::INFINITY; 3];
+    let mut max = [f32::NEG_INFINITY; 3];
+    for vertex in &geometry.vertices {
+        for axis in 0..3 {
+            min[axis] = min[axis].min(vertex[axis]);
+            max[axis] = max[axis].max(vertex[axis]);
+        }
+    }
+    let width = (max[0] - min[0]).max(1.0);
+    let height = (max[1] - min[1]).max(1.0);
+    let side = divisor as usize;
+    let mut cells = vec![Vec::new(); cell_count];
+    for (triangle_index, triangle) in geometry.triangles.iter().enumerate() {
+        let points = triangle
+            .vertices
+            .map(|index| geometry.vertices[usize::from(index)]);
+        let x0 = points
+            .iter()
+            .map(|point| point[0])
+            .fold(f32::INFINITY, f32::min);
+        let x1 = points
+            .iter()
+            .map(|point| point[0])
+            .fold(f32::NEG_INFINITY, f32::max);
+        let y0 = points
+            .iter()
+            .map(|point| point[1])
+            .fold(f32::INFINITY, f32::min);
+        let y1 = points
+            .iter()
+            .map(|point| point[1])
+            .fold(f32::NEG_INFINITY, f32::max);
+        let cell_x = |value: f32| {
+            (((value - min[0]) / width * divisor as f32).floor() as usize).min(side - 1)
+        };
+        let cell_y = |value: f32| {
+            (((value - min[1]) / height * divisor as f32).floor() as usize).min(side - 1)
+        };
+        for y in cell_y(y0)..=cell_y(y1) {
+            for x in cell_x(x0)..=cell_x(x1) {
+                cells[y * side + x]
+                    .push(i16::try_from(triangle_index).map_err(|_| "triangle index overflow")?);
+            }
+        }
+    }
+    geometry.grid.size = [width / divisor as f32, height / divisor as f32];
+    geometry.grid.min = min;
+    geometry.grid.max = max;
+    geometry.grid.cells = cells;
+    Ok(())
+}
+
+fn validate_metadata(geometry: &Geometry) -> Result<(), &'static str> {
+    let count = geometry.triangles.len();
+    for triangle in &geometry.triangles {
+        for (edge, &link_bit) in EDGE_LINK_BITS.iter().enumerate() {
+            let raw = triangle.edges[edge];
+            if triangle.flags & link_bit != 0 {
+                if usize::try_from(raw)
+                    .ok()
+                    .is_none_or(|index| index >= geometry.edge_links.len())
+                {
+                    return Err("triangle edge references a missing edge link");
+                }
+            } else if raw < -1 || usize::try_from(raw).is_ok_and(|index| index >= count) {
+                return Err("triangle edge references a missing triangle");
+            }
+        }
+    }
+    if geometry
+        .door_links
+        .iter()
+        .any(|link| usize::try_from(link.triangle).map_or(true, |index| index >= count))
+        || geometry
+            .cover_triangles
+            .iter()
+            .any(|index| usize::try_from(*index).map_or(true, |index| index >= count))
+        || geometry
+            .grid
+            .cells
+            .iter()
+            .flatten()
+            .any(|index| usize::try_from(*index).map_or(true, |index| index >= count))
+    {
+        return Err("triangle metadata references a missing triangle");
+    }
+    Ok(())
 }
 
 fn file_name(path: &Path) -> Result<String, EditorError> {
