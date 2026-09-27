@@ -2069,6 +2069,15 @@ remain pending. Lock events currently target reference scripts, without alias
 forwarding. Logical closing does not animate or update the host collision of
 a swinging door. The ordinary unloaded/load-door resource path is unchanged.
 
+`Game::resolve_lockpick` applies a result from a host interaction. It requires
+the activator to carry the `Lockpick` item, refuses unlocked and key-only
+references, preserves the pick on success and consumes one after a failed
+attempt. Success clears the same reference lock state used by Papyrus and
+queues `OnLockStateChanged`. The host is responsible for deciding whether the
+pick succeeds. The resolver does not calculate difficulty, skill, leveled
+lock scaling or lockpick durability. HST-03 tests cover successful and failed
+results and key-only refusal.
+
 ## Vanilla reference placement restoration
 
 `World::restore_vanilla_reference_placements` applies saved identities, bases
