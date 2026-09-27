@@ -13,6 +13,7 @@ use soe_esm::{GlobalFormId, Record, Tag};
 use soe_papyrus::{ObjectId, Value};
 
 use crate::actor_values::actor_value_name;
+use crate::inventory::{Error as InventoryError, Selection};
 
 use crate::conditions::{self, Context};
 
@@ -78,6 +79,8 @@ pub enum MagicError {
     Number,
     #[error("active effect identity exhausted")]
     Identity,
+    #[error("inventory selection: {0}")]
+    Inventory(#[from] InventoryError),
 }
 
 #[derive(Clone)]
@@ -100,6 +103,7 @@ enum CastDelivery {
     Direct,
     ProjectileContact,
     Location,
+    Scroll,
 }
 
 impl World {
@@ -332,6 +336,18 @@ impl World {
             record,
             self.order.file(rref.file).plugin.header.is_localized(),
         )?)
+    }
+
+    /// Read a winning SCRL record using the shared SPIT and effect layout.
+    fn scroll(&self, id: GlobalFormId) -> Result<Spell, MagicError> {
+        let record = self.record(id).ok_or(MagicError::Missing(id))?;
+        if record.is_deleted() || record.tag.as_bytes() != b"SCRL" {
+            return Err(MagicError::Missing(id));
+        }
+        let localized = self.record_text_localized(id, Tag::new(b"FULL"));
+        let mut spell_record = record.clone();
+        spell_record.tag = Tag::new(b"SPEL");
+        Ok(Spell::from_record(&spell_record, localized)?)
     }
 
     /// Read the current winning MGEF definition.
@@ -712,6 +728,43 @@ impl World {
         self.apply_prepared_effects(prepared, alloc)
     }
 
+    /// Cast the selected scroll and consume one item after its effects apply.
+    ///
+    /// # Errors
+    /// Invalid or stale selections, non-scroll records, unsupported effects,
+    /// invalid targets or a failed effect preparation leave the inventory intact.
+    pub fn cast_scroll(
+        &mut self,
+        holder: GlobalFormId,
+        selected: &Selection,
+        source: GlobalFormId,
+        caster: Option<GlobalFormId>,
+        target: Option<GlobalFormId>,
+        alloc: Alloc<'_>,
+    ) -> Result<Vec<EffectId>, MagicError> {
+        if selected.count() != 1 || self.tag_of(selected.item()) != Some(Tag::new(b"SCRL")) {
+            return Err(MagicError::Unsupported("scroll selection"));
+        }
+        self.reference(holder)
+            .ok_or(MagicError::Target)?
+            .inventory
+            .selected_stack(selected)?;
+        let prepared = self.prepare_spell(
+            selected.item(),
+            source,
+            caster,
+            target,
+            CastDelivery::Scroll,
+            None,
+            true,
+        )?;
+        let applied = self.apply_prepared_effects(prepared, &mut *alloc)?;
+        self.remove_selected_notified(holder, selected, None, &mut *alloc)?;
+        let scroll_value = self.form_value(Some(selected.item()), &mut *alloc);
+        self.form_event(source, "OnSpellCast", vec![scroll_value], &mut *alloc);
+        Ok(applied)
+    }
+
     /// Apply constant-effect abilities from an actor's resolved spell list.
     ///
     pub(crate) fn apply_actor_abilities(&mut self, actor: GlobalFormId) {
@@ -768,11 +821,18 @@ impl World {
         location: Option<[f32; 3]>,
         line_of_sight_clear: bool,
     ) -> Result<Vec<PreparedEffect>, MagicError> {
-        let definition = self.spell(spell)?;
+        let scroll = cast_delivery == CastDelivery::Scroll;
+        let definition = if scroll {
+            self.scroll(spell)?
+        } else {
+            self.spell(spell)?
+        };
         if cast_delivery == CastDelivery::Location && definition.data.delivery != 4 {
             return Err(MagicError::Unsupported("location delivery"));
         }
-        if !matches!(definition.data.cast_type, 0 | 1) {
+        if (scroll && definition.data.cast_type != 3)
+            || (!scroll && !matches!(definition.data.cast_type, 0 | 1))
+        {
             return Err(MagicError::Unsupported("concentration or scroll casting"));
         }
         let target = match definition.data.delivery {
@@ -874,9 +934,12 @@ impl World {
             if data.perk != 0 || data.equip_ability != 0 {
                 return Err(MagicError::Unsupported("perk or equip ability"));
             }
-            if data.cast_type != definition.data.cast_type
-                || data.delivery != definition.data.delivery
-            {
+            let cast_type_matches = if scroll {
+                data.cast_type == 1
+            } else {
+                data.cast_type == definition.data.cast_type
+            };
+            if !cast_type_matches || data.delivery != definition.data.delivery {
                 return Err(MagicError::Unsupported("mixed casting types or delivery"));
             }
             let magnitude = if data.flags & NO_MAGNITUDE != 0 {

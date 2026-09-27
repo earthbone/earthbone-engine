@@ -2691,6 +2691,30 @@ synthetic records, not an installed vanilla use or an original-runtime probe.
 Concentration, contact delivery and condition support retain their
 separate backlog scopes. Area selection is now covered by MAG-06.
 
+## Scroll casting, MAG-18
+
+`World::cast_scroll` accepts a transient one-item `Selection` from the holder's
+inventory. It validates a winning `SCRL` record and its cast type, then uses the
+same ordered effect conditions, target checks and action preparation as a
+direct spell. It removes that exact selected item only after all prepared
+effects apply successfully. A stale selection, unsupported effect or invalid
+target returns before inventory removal. xEdit names SCRL cast type 3 as Scroll
+and its cast enum names MGEF type 1 Fire and Forget, type 2 Concentration. The
+executor accepts only fire-and-forget MGEFs on a scroll and requires matching
+delivery. Scroll cast data is read through the shared SPIT and effect layout
+used by `SPEL`.
+
+Local xEdit `Core/wbDefinitionsTES5.pas` defines SCRL SPIT with cast type 3,
+delivery, duration, range and ordered effects. UESP's `SCRL.wikitext` describes
+the same structure. The CK `OnSpellCast_-_ObjectReference.wikitext` says a
+concentration spell raises its cast event once when casting begins. A successful
+scroll queues one `OnSpellCast` event on its source reference after effects apply
+and its item is consumed. Failed casts queue no event and run no concentration
+lifecycle.
+`tests/magic/scroll.rs` checks one selected item is consumed after a successful
+cast, its event is queued, and rejected casts preserve inventory and actor
+state. No saved state was added.
+
 ## Exact crafted item selection (CRF-04)
 
 `Inventory::select` chooses an explicit extra-list index or the plain remainder
