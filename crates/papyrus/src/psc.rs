@@ -4,7 +4,8 @@
 //!
 //! Header and identifier rules follow the Open Papyrus language reference.
 //! Declaration shapes and user flag bits follow Caprica's Skyrim parser and
-//! the TESV Papyrus flag definition. Unsupported source returns an error.
+//! the TESV Papyrus flag definition. Auto properties support scalar types.
+//! Unsupported source returns an error.
 
 use std::path::Path;
 
@@ -12,8 +13,9 @@ use thiserror::Error;
 
 use crate::asm;
 use crate::pex::{
-    ByteOrder, Function, Header, Instruction, Object, Opcode, Operand, Script, State, TypedName,
-    UserFlag, FUNCTION_GLOBAL, FUNCTION_NATIVE,
+    ByteOrder, Function, Header, Instruction, Object, Opcode, Operand, Property, Script, State,
+    TypedName, UserFlag, Variable, FUNCTION_GLOBAL, FUNCTION_NATIVE, PROPERTY_AUTOVAR,
+    PROPERTY_READ, PROPERTY_WRITE,
 };
 
 /// A PSC source error with its one-based source line.
@@ -298,6 +300,8 @@ pub fn compile(source_name: &str, source: &str) -> Result<Vec<u8>, CompileError>
     }
 
     let mut functions = generated_state_functions();
+    let mut properties = Vec::new();
+    let mut variables = Vec::new();
     let mut active: Option<Function> = None;
     for (line, source) in lines {
         if let Some(function) = active.as_mut() {
@@ -334,6 +338,51 @@ pub fn compile(source_name: &str, source: &str) -> Result<Vec<u8>, CompileError>
                 return Err(syntax(line, source));
             }
         } else {
+            let words: Vec<&str> = source.split_whitespace().collect();
+            let auto_property = match words.as_slice() {
+                [ty, keyword, name, auto]
+                    if keyword.eq_ignore_ascii_case("property")
+                        && auto.eq_ignore_ascii_case("auto")
+                        && type_name(ty)
+                        && identifier(name) =>
+                {
+                    Some((*ty, *name))
+                }
+                _ => None,
+            };
+            if let Some((ty, name)) = auto_property {
+                if properties
+                    .iter()
+                    .any(|property: &Property| property.name.eq_ignore_ascii_case(name))
+                {
+                    return Err(syntax(line, source));
+                }
+                let type_name = canonical_type(ty).to_string();
+                let auto_var = format!("::{name}_var");
+                variables.push(Variable {
+                    name: auto_var.clone(),
+                    type_name: type_name.clone(),
+                    user_flags: 0,
+                    default: match type_name.as_str() {
+                        "Int" => Operand::Int(0),
+                        "Float" => Operand::Float(0.0),
+                        "Bool" => Operand::Bool(false),
+                        "String" => Operand::Str(String::new()),
+                        _ => Operand::None,
+                    },
+                });
+                properties.push(Property {
+                    name: name.to_string(),
+                    type_name,
+                    docstring: String::new(),
+                    user_flags: 0,
+                    flags: PROPERTY_READ | PROPERTY_WRITE | PROPERTY_AUTOVAR,
+                    auto_var: Some(auto_var),
+                    getter: None,
+                    setter: None,
+                });
+                continue;
+            }
             let function = function_header(line, source)?;
             if function.is_native() {
                 functions.push(function);
@@ -370,8 +419,8 @@ pub fn compile(source_name: &str, source: &str) -> Result<Vec<u8>, CompileError>
             docstring: String::new(),
             user_flags: flags,
             auto_state: String::new(),
-            variables: Vec::new(),
-            properties: Vec::new(),
+            variables,
+            properties,
             states: vec![State {
                 name: String::new(),
                 functions,
