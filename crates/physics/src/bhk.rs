@@ -172,6 +172,13 @@ pub enum Bhk {
         first: Vec3,
         second: Vec3,
     },
+    Cylinder {
+        material: u32,
+        shell_radius: f32,
+        radius: f32,
+        first: Vec3,
+        second: Vec3,
+    },
     ConvexVertices {
         material: u32,
         radius: f32,
@@ -340,6 +347,32 @@ pub fn decode(type_name: &str, data: &[u8], header: &Header) -> Result<Bhk> {
         "bhkSphereShape" => {
             let (material, radius) = convex_prefix(s)?;
             Bhk::Sphere { material, radius }
+        }
+        "bhkCylinderShape" => {
+            let (material, shell_radius) = convex_prefix(s)?;
+            skip(s, 8)?;
+            let first = vec4(s)?;
+            let second = vec4(s)?;
+            let radius = s.f32()?;
+            skip(s, 12)?;
+            let axis = second - first;
+            if !first.is_finite()
+                || !second.is_finite()
+                || !radius.is_finite()
+                || radius <= 0.0
+                || !axis.length().is_finite()
+                || axis.length() <= f32::EPSILON
+                || !(radius + shell_radius).is_finite()
+            {
+                return Err(Error::Invalid("cylinder geometry".into()));
+            }
+            Bhk::Cylinder {
+                material,
+                shell_radius,
+                radius,
+                first,
+                second,
+            }
         }
         "bhkCapsuleShape" => {
             let (material, radius) = convex_prefix(s)?;

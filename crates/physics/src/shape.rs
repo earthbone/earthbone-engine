@@ -232,6 +232,30 @@ fn convex_shell_points(vertices: &[Vec3], radius: f32) -> Vec<Vec3> {
     points
 }
 
+/// Sample the two circular ends of a cylinder as a convex point set. The
+/// radial samples keep the authored radius, while the axis endpoints retain
+/// the cylinder's exact height in the convex hull.
+fn cylinder_points(first: Vec3, second: Vec3, radius: f32) -> Vec<Vec3> {
+    const SIDES: usize = 32;
+    let axis = (second - first).normalized();
+    let reference = if axis.z.abs() < 0.9 {
+        Vec3::new(0.0, 0.0, 1.0)
+    } else {
+        Vec3::new(0.0, 1.0, 0.0)
+    };
+    let u = axis.cross(reference).normalized();
+    let v = axis.cross(u).normalized();
+    let mut points = Vec::with_capacity(SIDES * 2);
+    for endpoint in [first, second] {
+        for side in 0..SIDES {
+            let angle = std::f32::consts::TAU * side as f32 / SIDES as f32;
+            let radial = u * angle.cos() + v * angle.sin();
+            points.push(endpoint + radial * radius);
+        }
+    }
+    points
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Phantom {
     pub node: BlockRef,
@@ -553,6 +577,7 @@ impl<'a> Walker<'a> {
             Bhk::Box { material, .. }
             | Bhk::Sphere { material, .. }
             | Bhk::Capsule { material, .. }
+            | Bhk::Cylinder { material, .. }
             | Bhk::ConvexVertices { material, .. }
             | Bhk::Transform { material, .. }
             | Bhk::List { material, .. }
@@ -577,6 +602,15 @@ impl<'a> Walker<'a> {
                 a: first,
                 b: second,
                 radius,
+            }),
+            Bhk::Cylinder {
+                shell_radius,
+                radius,
+                first,
+                second,
+                ..
+            } => Some(Shape::ConvexHull {
+                points: cylinder_points(first, second, radius + shell_radius),
             }),
             Bhk::ConvexVertices {
                 radius, vertices, ..

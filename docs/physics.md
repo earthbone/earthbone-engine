@@ -55,7 +55,7 @@ moves on. The `controller` item of round 6 is what will use the last of those.
   nif.xml for stream 20.2.0.7 at Bethesda version 83 and 100, cross-read
   against OpenMW's `physics.cpp`. Fallout 4 (130) is refused as
   `Unsupported`. Covered: `bhkCollisionObject` and its P, SP and Blend
-  variants, `bhkRigidBody`, `bhkRigidBodyT`, `bhkSimpleShapePhantom`, box, sphere, capsule,
+  variants, `bhkRigidBody`, `bhkRigidBodyT`, `bhkSimpleShapePhantom`, box, sphere, capsule, cylinder,
   convex vertices, `bhkTransformShape` and `bhkConvexTransformShape`,
   `bhkListShape`, `bhkMoppBvTreeShape` (the MOPP tree itself is Havok's
   closed code and is skipped, the wrapped shape is used),
@@ -131,6 +131,26 @@ explain that their input size includes convex radius, which they subtract
 internally to retain the total outer size. This crate keeps its current
 renderer-neutral `Shape` API and converts the NIF core directly to its outer
 surface, rather than adding a Jolt dependency.
+
+### `bhkCylinderShape` collision geometry (FMT-20)
+
+The decoder reads the convex material and shell radius, the two Vector4 axis
+endpoints, and the cylinder radius from `bhkCylinderShape`. It rejects
+non-finite endpoints or radii, a non-positive cylinder radius, a zero-length
+axis and an outer radius that overflows. Shape collection adds the convex shell
+radius to the cylinder radius and samples 32 points around each endpoint to
+produce a convex hull in game units. The sample points retain the endpoint
+planes and outer radius while fitting the existing neutral shape model used by
+both physics paths.
+
+The field order and the shell field come from
+`engine-refs/nifxml/nif.xml`. Jolt's local `CylinderShape.h` and
+`CylinderShape.cpp` describe a centered cylinder with two half-height ends and
+a separately specified convex radius. The neutral `Shape` API has no
+finite-cylinder variant, so this crate samples the end circles into the
+existing `ConvexHull` variant rather than adding a Jolt-specific shape or
+dependency. `fmt_20_cylinder_fixture_preserves_endpoints_and_radius` checks
+both endpoint planes and the outer radial extent.
 
 ## SimpleWorld
 

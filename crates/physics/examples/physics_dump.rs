@@ -109,6 +109,12 @@ fn summary(b: &Bhk) -> String {
         Bhk::Box { half_extents, .. } => format!("box {half_extents:?}"),
         Bhk::Sphere { radius, .. } => format!("sphere {radius}"),
         Bhk::Capsule { first, second, .. } => format!("capsule {first:?} {second:?}"),
+        Bhk::Cylinder {
+            first,
+            second,
+            radius,
+            ..
+        } => format!("cylinder {first:?} {second:?}, radius {radius}"),
         Bhk::ConvexVertices { vertices, .. } => format!("convex, {} vertices", vertices.len()),
         Bhk::Transform { shape, .. } => format!("transform of {shape:?}"),
         Bhk::List { children, .. } => format!("list of {}", children.len()),
