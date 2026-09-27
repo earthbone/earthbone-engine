@@ -225,7 +225,10 @@ impl World {
     }
 
     /// Resolve shared response data without transferring conditions or fragments.
-    fn response_data(&self, info: GlobalFormId) -> Result<(GlobalFormId, DialogueInfo), Error> {
+    pub(crate) fn response_data(
+        &self,
+        info: GlobalFormId,
+    ) -> Result<(GlobalFormId, DialogueInfo), Error> {
         let mut current = info;
         let mut visited = std::collections::BTreeSet::new();
         loop {
