@@ -1753,6 +1753,24 @@ forwarding, effect inventory filters and VM object reclamation remain unfinished
 forwarding and effect inventory filters remain unfinished.
 This is an active-effect foundation, not complete magic execution.
 
+### Rally, MAG-59
+
+MGEF archetype 38 uses Confidence regardless of the authored Primary AV. On
+application, it raises each selected actor's current Confidence to the effect
+magnitude when that value is lower. It does not lower Confidence that already
+meets or exceeds the magnitude. The added temporary modifier remains for the
+effect duration and the existing expiry or dispel path removes only that
+application's contribution. Ordered effect preparation accounts for earlier
+Rally entries in the same cast. The implementation follows xEdit's archetype
+table and UESP's MGEF notes that PrimaryAV is forced to Confidence, plus the
+Creation Kit [Magic Effect](https://ck.uesp.net/wiki/Magic_Effect) description
+that Rally maxes target Confidence up to MAG.
+
+`mag_59_rally_modifies_confidence_for_its_duration_and_restores_prior_value`
+checks the forced actor value, the magnitude cap, unrelated Health preservation
+and expiry restoration. The companion test checks that a target already above
+the authored magnitude keeps its prior Confidence through expiry.
+
 ### Summon Creature, MAG-39
 
 Direct casts execute MGEF archetype 18 by resolving the effect's associated
