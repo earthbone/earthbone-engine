@@ -91,8 +91,14 @@ fn game(settings: Settings) -> Game {
         Some(TEMPLATE),
     )));
     plugin.push_top(
-        npc::build_record(BASE, "Walker", "Walker", Config::default(), Stats::default())
-            .sub(T(b"PKID"), PACK.to_le_bytes()),
+        npc::build_record(
+            BASE,
+            "Walker",
+            "Walker",
+            Config::default(),
+            Stats::default(),
+        )
+        .sub(T(b"PKID"), PACK.to_le_bytes()),
     );
     plugin.push_top(
         Record::new(T(b"ACHR"), ACTOR)
@@ -121,18 +127,24 @@ fn state(game: &Game) -> AiState {
 }
 
 #[test]
-fn static_pathing_boolean_is_accepted_on_a_complete_linked_route() {
-    for static_path in [false, true] {
-        let mut game = game(Settings {
-            static_path,
-            ..Settings::default()
-        });
-        for expected in [110.0, 110.0, 220.0, 220.0, 330.0, 330.0] {
-            game.tick(1.0);
-            assert_eq!(position(&mut game), expected);
-        }
-        assert!(state(&game).completed.contains_key(&id(PACK)));
+fn false_static_pathing_completes_and_true_remains_unsupported() {
+    let mut walking = game(Settings::default());
+    for expected in [110.0, 110.0, 220.0, 220.0, 330.0, 330.0] {
+        walking.tick(1.0);
+        assert_eq!(position(&mut walking), expected);
     }
+    assert!(state(&walking).completed.contains_key(&id(PACK)));
+
+    let mut static_path = game(Settings {
+        static_path: true,
+        ..Settings::default()
+    });
+    static_path.tick(1.0);
+    assert_eq!(position(&mut static_path), 0.0);
+    assert!(matches!(
+        state(&static_path).procedure,
+        Procedure::Unsupported(_)
+    ));
 }
 
 #[test]

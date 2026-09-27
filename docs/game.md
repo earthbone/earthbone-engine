@@ -2444,8 +2444,9 @@ vanilla Patrol template. The six inputs are PathStart (Target), PointRadius
 (Float), Repeatable, StartAtNearestPoint, RideHorseIfPossible and StaticPathing
 (Boolean). PathStart and PointRadius are required. The four Boolean options
 default to false when their PKC2 index is 255 or the input list ends before
-them. Both StaticPathing values use
-the same marker walker and shared navigation planner.
+them. StaticPathing=false uses the marker walker and shared navigation planner.
+StaticPathing=true remains Unsupported because the cited sources do not
+establish its runtime behavior.
 Public parameter names do not determine execution.
 
 PathStart currently supports a specific reference or the actor's keyword-free
@@ -2504,7 +2505,8 @@ report Unsupported. They are not silently treated as ordinary walking.
 `tests/package_patrol.rs` exercises linked order, final dwell, open and circular
 repeat, nearest entry, radius budgets, menu timing, save/resume during travel,
 dwell and reversal, winning-template namespaces, live marker changes, action
-field contexts, invalid state and AI-90 input defaults and StaticPathing.
+field contexts, invalid state, AI-90 input defaults and rejection of
+unverified StaticPathing=true.
 Its installed-data survey checks all 45 Skyrim.esm Patrol branches when
 `SKYRIM_DATA` is set. `tests/ai_89_mounted_patrol.rs` checks owned
 horse selection, mounted movement, route retention after dismount and saved

@@ -31,11 +31,14 @@ pub(super) struct Parameters {
 
 impl Parameters {
     pub(super) fn from_inputs(inputs: &[(GlobalFormId, DataValue)]) -> Result<Self, &'static str> {
-        let [(owner, DataValue::Target(target)), (_, DataValue::Float(radius)), (_, DataValue::Bool(repeat)), (_, DataValue::Bool(nearest)), (_, DataValue::Bool(horse)), (_, DataValue::Bool(_static_path))] =
+        let [(owner, DataValue::Target(target)), (_, DataValue::Float(radius)), (_, DataValue::Bool(repeat)), (_, DataValue::Bool(nearest)), (_, DataValue::Bool(horse)), (_, DataValue::Bool(static_path))] =
             inputs
         else {
             return Err("Patrol parameter types or omitted inputs, AI-90");
         };
+        if *static_path {
+            return Err("Patrol StaticPathing behavior is unverified, AI-90");
+        }
         if !radius.is_finite() || *radius < 0.0 {
             return Err("invalid Patrol radius");
         }

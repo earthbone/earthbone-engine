@@ -331,16 +331,22 @@ fn unsupported_actions_options_and_invalid_routes_hold_without_mutating_position
 }
 
 #[test]
-fn ai_90_static_pathing_values_share_the_static_marker_walker() {
-    for static_path in [false, true] {
-        let mut game = game(Settings {
-            static_path,
-            ..Settings::default()
-        });
-        game.tick(1.0);
-        assert_eq!(position(&game), 110.0);
-        assert_eq!(state(&game).patrol.unwrap().current, id(A));
-    }
+fn ai_90_static_pathing_true_is_unsupported_without_runtime_semantics() {
+    let mut walking = game(Settings::default());
+    walking.tick(1.0);
+    assert_eq!(position(&walking), 110.0);
+    assert_eq!(state(&walking).patrol.unwrap().current, id(A));
+
+    let mut static_path = game(Settings {
+        static_path: true,
+        ..Settings::default()
+    });
+    static_path.tick(1.0);
+    assert_eq!(position(&static_path), 0.0);
+    assert!(matches!(
+        state(&static_path).procedure,
+        Procedure::Unsupported(_)
+    ));
 }
 
 #[test]
