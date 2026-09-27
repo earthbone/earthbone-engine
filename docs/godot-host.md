@@ -575,7 +575,7 @@ reports the materials a call created, not the cache size.
 A batch bakes each source surface's placement into its vertices once, at load
 time. Nothing updated a batch again after that, so a script-driven move,
 disable or Creation Kit style drag never reached the mesh or its collision
-after the first tick. `CellStreamerNode::sync_reference_changes(&World)`
+after the first tick. `CellStreamerNode::sync_reference_changes(&mut World)`
 closes that gap and is called once a tick from `PlayerNode::advance_game`,
 before anything that frame reads geometry or collision, so an enable or
 placement change lands the same tick it is written to `World`. The host reads
@@ -1588,10 +1588,11 @@ them open.
 
 Locked player picks use the shared game's key check. Without the key they
 remain closed, pending lockpicking UI. Resource preparation is synchronous.
-Exterior streaming follows door landings only, not subsequent walking across
-grid boundaries. Runtime reference enable, placement and animation changes
-are not yet reflected in all drawn objects. Portal transitions and revised
-AI remain deferred until existing Skyrim gameplay works.
+Exterior walking loads and unloads nearby grid cells through the budgeted
+planner when either mesh budget is set. Ordinary door activation still does
+not instantiate `AnimatedStaticNode`, so a logical open state does not swing
+the rendered door or move its collision. Portal transitions and revised AI
+remain deferred until existing Skyrim gameplay works.
 
 ### Cold door fade fallback (2026-09-20)
 
