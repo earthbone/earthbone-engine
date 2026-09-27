@@ -21,11 +21,12 @@ No dependencies outside the standard library.
 ## Format facts, checked against the references
 
 - Skyrim and Skyrim SE files (format 3.1 and 3.2) are big-endian. Fallout 4
-  files are little-endian. Caprica detects the order from the byte-swapped
-  magic and skymp's reader is big-endian throughout, so this reader does the
-  same: `DE C0 57 FA` on disk is a Skyrim file. Format 3.9 and later use a
-  different object layout (const flags, structs, property groups) and are
-  rejected with `UnsupportedVersion`.
+  format 3.9 and later files use the extended object layout and little-endian
+  fields. The reader chooses byte order from the magic and chooses the object
+  layout from the header game ID. The extended layout stores object, variable
+  and struct-member const flags, struct definitions, property groups and struct
+  member order. These const flags are preserved in the parsed model. They do
+  not change VM assignment behavior.
 - Object layout for 3.1 and 3.2: name, a size field that counts itself, parent
   class, docstring, user flags, auto state name, variables (name, type, user
   flags, default value), properties (name, type, docstring, user flags, flags
@@ -41,6 +42,13 @@ No dependencies outside the standard library.
   carry a trailing integer operand with the count of variable arguments.
 - Jump offsets are relative to the jump instruction itself.
 - Debug function kinds: 0 method, 1 property getter, 2 property setter.
+
+The 3.9 sections follow Champollion's `Pex/FileReader.cpp` and Caprica's
+`pex/PexObject.cpp`, `PexVariable.cpp`, `PexStruct.cpp`,
+`PexStructMember.cpp` and `PexDebugInfo.cpp`. The reader stores the added
+metadata in the existing Rust PEX model rather than adding a C++ parser
+dependency. The 3.9 parser test builds a small byte fixture with each extended
+section populated.
 
 Checked on the installed game: all 14,026 `.pex` files in `Skyrim - Misc.bsa`
 parse, 54,620 functions, zero failures, and every one loads into the VM.
