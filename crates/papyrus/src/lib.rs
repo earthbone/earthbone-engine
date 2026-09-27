@@ -24,5 +24,5 @@ pub use pex::{Function, Instruction, Object, Opcode, Property, Script, State, Va
 pub use value::{ArrayRef, ObjectId, Value};
 pub use vm::{
     Log, NativeCall, NativeFn, NativeRegistry, NativeReturn, ThreadId, ThreadState, Vm, VmError,
-    MAX_ARRAY_LEN, MAX_STRING_LEN,
+    MAX_ARRAY_LEN, MAX_COMPLETED_THREAD_HISTORY, MAX_STRING_LEN,
 };
