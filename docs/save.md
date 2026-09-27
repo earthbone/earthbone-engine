@@ -106,6 +106,11 @@ does not claim runtime support for opaque payloads.
   factions, spells, AI data, names, skills, class, race, face, gender and outfits.
 - `ChangeForm::class_change`, `faction_change` and `relationship_change` decode
   CLAS, FACT and RELA change sections on demand.
+- `ChangeForm::pack_change` and `navmesh_change` decode PACK and NAVM sections.
+  PACK retains optional form flags plus waiting and never-run markers. NAVM
+  retains optional form flags plus base-object value and full-name markers.
+  The four markers after the form flags have no payload bytes in xEdit's
+  definitions, so typed output re-encodes to the exact source payload.
 - Type 107, quest static data, including its two event arrays, three reference
   arrays, reference-keyed values and final byte.
 - Type 1001, the Papyrus block: the string table, the script definitions with
@@ -808,6 +813,25 @@ indices. FallrimTools handles CLAS and FACT as opaque forms.
 The 60-save external check reproduced all 345,703 payload bytes from 4,702
 FACT and 547 RELA changes. It found no CLAS changes, so CLAS field coverage is
 synthetic only.
+
+## PACK and NAVM changes
+
+`ChangeForm::pack_change` reads the optional six-byte form flags and records
+the waiting and never-run bits as typed zero-byte markers. `navmesh_change`
+reads the same form-flags section and records the base-object value and
+full-name markers. Both readers reject unknown bits, incomplete form flags,
+and payload suffixes. Their encoders reproduce the change flag word and
+payload exactly.
+
+The field order and bit names follow xEdit's
+`Core/wbDefinitionsTES5Saves.pas`. That file defines PACK as form flags,
+waiting and never-run, and NAVM as form flags, base-object value and full name.
+Its `wbNull` marker definitions consume no bytes. The UESP save format table
+and FallrimTools `ChangeForm.Type` confirm change type indices 32 and 33.
+FallrimTools does not decode these type payloads, so its reader is used only
+to cross-check the type indices. Synthetic tests cover all eight combinations
+for each type and each truncated form-flags prefix. The external corpus test
+accounts for all matching PACK and NAVM payloads and records their flag counts.
 
 ## INFO, SMQN and SCEN changes
 
