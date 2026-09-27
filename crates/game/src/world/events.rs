@@ -130,10 +130,13 @@ impl World {
             return false;
         };
         if scene.phases.is_empty()
-            || scene.actions.iter().any(|action| {
-                matches!((action.start_phase, action.end_phase), (Some(start), Some(end))
-                    if start > end || end as usize >= scene.phases.len())
-            })
+            || scene
+                .actions
+                .iter()
+                .any(|action| match (action.start_phase, action.end_phase) {
+                    (Some(start), Some(end)) => start > end || end as usize >= scene.phases.len(),
+                    _ => true,
+                })
             || !self.scenes.insert(id)
         {
             return false;

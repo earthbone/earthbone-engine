@@ -8,6 +8,7 @@ use soe_esm::records::gameplay::Condition;
 use soe_esm::{Error as EsmError, GlobalFormId, Record, Tag};
 use soe_papyrus::Vm;
 use std::cmp::Ordering;
+use std::collections::BTreeSet;
 
 use crate::conditions::{self, Context};
 use crate::inventory::Inventory;
@@ -24,7 +25,7 @@ pub struct VendorService {
     pub buy_sell_list: GlobalFormId,
     pub start_hour: u16,
     pub end_hour: u16,
-    pub radius: u16,
+    pub radius: u32,
     pub only_buys_stolen: bool,
     pub not_sell_buy: bool,
     pub conditions_met: bool,
@@ -86,7 +87,7 @@ pub fn resolve_vendor_service(
         .ok_or(VendorError::Invalid("missing or invalid FACT.VENV"))?;
     let start_hour = read_u16(&vendor[0..2]).ok_or(VendorError::Invalid("invalid VENV start"))?;
     let end_hour = read_u16(&vendor[2..4]).ok_or(VendorError::Invalid("invalid VENV end"))?;
-    let radius = read_u16(&vendor[4..6]).ok_or(VendorError::Invalid("invalid VENV radius"))?;
+    let radius = read_u32(&vendor[4..8]).ok_or(VendorError::Invalid("invalid VENV radius"))?;
     if vendor[8] > 1 || vendor[9] > 1 {
         return Err(VendorError::Invalid("invalid VENV trade flags"));
     }
@@ -102,6 +103,7 @@ pub fn resolve_vendor_service(
     let player = world.player();
     let merchant_loaded = world.is_reference_loaded(merchant);
     let conditions_met = merchant_loaded
+        && vendor_location_met(world, merchant, faction, &record, radius)?
         && conditions::evaluate(
             world,
             vm,
@@ -120,7 +122,7 @@ pub fn resolve_vendor_service(
         Ordering::Less => hour >= f64::from(start_hour) && hour < f64::from(end_hour),
         Ordering::Greater => hour >= f64::from(start_hour) || hour < f64::from(end_hour),
     };
-    let available = merchant_loaded && conditions_met && within_hours && !not_sell_buy;
+    let available = merchant_loaded && conditions_met && within_hours;
 
     let mut merchandise = Inventory::default();
     let mut gold = 0;
@@ -129,19 +131,46 @@ pub fn resolve_vendor_service(
             .form_list(list)
             .cloned()
             .ok_or(VendorError::Invalid("VEND is not a form list"))?;
-        for item in items {
-            if world.tag_of(item) == Some(T(b"LVLI")) {
-                let rolled = world.roll_leveled_inventory(item, world.player_level.max(1), 1)?;
-                merge_inventory(&mut merchandise, &rolled)?;
-            } else if world.is_inventory_base(item) {
-                merchandise
-                    .add(item, 1)
-                    .map_err(|_| VendorError::Invalid("invalid vendor merchandise"))?;
-            } else {
-                return Err(VendorError::Invalid("VEND contains a non-inventory form"));
+        let stock = world
+            .reference(container)
+            .ok_or(VendorError::Invalid(
+                "merchant container is not a reference",
+            ))?
+            .inventory
+            .clone();
+        let mut resolved_stock = Inventory::default();
+        let mut listed_from_leveled = BTreeSet::new();
+        for (item, count) in stock.iter() {
+            if world.tag_of(*item) == Some(T(b"LVLI")) {
+                let rolled =
+                    world.roll_leveled_inventory(*item, world.player_level.max(1), count)?;
+                if items.contains(item) {
+                    listed_from_leveled.extend(rolled.iter().map(|(form, _)| *form));
+                }
+                merge_inventory(&mut resolved_stock, &rolled)?;
+            } else if world.is_inventory_base(*item) {
+                copy_item(&mut resolved_stock, &stock, *item)?;
             }
         }
-        gold = merchant_gold(world, container)?;
+        let currency = world.form("Gold001").unwrap_or(GlobalFormId {
+            file: 0,
+            object: 0xF,
+        });
+        gold = resolved_stock.count(currency);
+        for (item, _) in resolved_stock.iter() {
+            if *item == currency {
+                continue;
+            }
+            let listed = listed_from_leveled.contains(item)
+                || items.contains(item)
+                || world
+                    .keywords(*item)
+                    .iter()
+                    .any(|keyword| items.contains(keyword));
+            if listed != not_sell_buy {
+                copy_item(&mut merchandise, &resolved_stock, *item)?;
+            }
+        }
     }
 
     Ok(Some(VendorService {
@@ -159,6 +188,97 @@ pub fn resolve_vendor_service(
         merchandise,
         gold,
     }))
+}
+
+fn vendor_location_met(
+    world: &mut World,
+    merchant: GlobalFormId,
+    faction: GlobalFormId,
+    record: &Record,
+    radius: u32,
+) -> Result<bool, VendorError> {
+    let Some(data) = record.find(T(b"PLVD")) else {
+        return Ok(true);
+    };
+    if data.len() != 12 {
+        return Err(VendorError::Invalid("invalid FACT.PLVD"));
+    }
+    let mode = read_u32(&data[0..4]).ok_or(VendorError::Invalid("invalid PLVD mode"))?;
+    let raw = read_u32(&data[4..8]).ok_or(VendorError::Invalid("invalid PLVD target"))?;
+    let merchant_ref = world
+        .reference(merchant)
+        .ok_or(VendorError::Invalid("merchant is not a reference"))?;
+    let position = merchant_ref.position;
+    let cell = merchant_ref.cell;
+    match mode {
+        0 => {
+            let target = world
+                .resolve_from(faction, raw)
+                .ok_or(VendorError::Invalid("missing PLVD reference"))?;
+            let target_ref = world
+                .reference(target)
+                .ok_or(VendorError::Invalid("invalid PLVD reference"))?;
+            let target_position = target_ref.position;
+            let target_cell = target_ref.cell;
+            Ok(same_space(world, cell, target_cell)
+                && within_radius(position, target_position, radius))
+        }
+        1 => {
+            let target = world
+                .resolve_from(faction, raw)
+                .filter(|id| world.tag_of(*id) == Some(T(b"CELL")))
+                .ok_or(VendorError::Invalid("invalid PLVD cell"))?;
+            Ok(cell == Some(target))
+        }
+        3 => Ok(world
+            .editor_position(merchant)
+            .is_some_and(|editor| within_radius(position, editor, radius))),
+        12 => Ok(true),
+        _ => Err(VendorError::Invalid("unsupported PLVD location type")),
+    }
+}
+
+fn same_space(world: &World, a: Option<GlobalFormId>, b: Option<GlobalFormId>) -> bool {
+    if a == b {
+        return true;
+    }
+    let worldspace = |cell: Option<GlobalFormId>| {
+        let cell = cell?;
+        if world.cell_is_interior(cell) {
+            return None;
+        }
+        let raw = world.record(cell)?.placement.world?;
+        world.resolve_from(cell, raw)
+    };
+    worldspace(a).is_some() && worldspace(a) == worldspace(b)
+}
+
+fn within_radius(a: [f32; 3], b: [f32; 3], radius: u32) -> bool {
+    if a.iter().chain(&b).any(|component| !component.is_finite()) {
+        return false;
+    }
+    a.iter()
+        .zip(b)
+        .map(|(x, y)| (f64::from(*x) - f64::from(y)).powi(2))
+        .sum::<f64>()
+        <= f64::from(radius).powi(2)
+}
+
+fn copy_item(
+    target: &mut Inventory,
+    source: &Inventory,
+    item: GlobalFormId,
+) -> Result<(), VendorError> {
+    for stack in source.stacks(item) {
+        target
+            .add_selected_stack(item, stack.clone())
+            .map_err(|_| VendorError::Invalid("invalid vendor merchandise"))?;
+    }
+    let described: i32 = source.stacks(item).iter().map(|stack| stack.count()).sum();
+    target
+        .add(item, source.count(item) - described)
+        .map_err(|_| VendorError::Invalid("invalid vendor merchandise"))?;
+    Ok(())
 }
 
 fn merge_inventory(target: &mut Inventory, source: &Inventory) -> Result<(), VendorError> {
@@ -202,34 +322,6 @@ fn resolve_record_link(
         .filter(|form| world.tag_of(*form) == Some(expected))
         .ok_or(VendorError::Invalid("vendor link has the wrong form type"))?;
     Ok(form)
-}
-
-fn merchant_gold(world: &mut World, container: GlobalFormId) -> Result<i32, VendorError> {
-    let inventory = world
-        .reference(container)
-        .ok_or(VendorError::Invalid(
-            "merchant container is not a reference",
-        ))?
-        .inventory
-        .clone();
-    let gold = world.form("Gold001").unwrap_or(GlobalFormId {
-        file: 0,
-        object: 0xF,
-    });
-    let mut total = 0_i32;
-    for (item, count) in inventory.iter() {
-        if *item == gold {
-            total = total
-                .checked_add(count)
-                .ok_or(VendorError::Invalid("merchant gold overflow"))?;
-        } else if world.tag_of(*item) == Some(T(b"LVLI")) {
-            let rolled = world.roll_leveled_inventory(*item, world.player_level.max(1), count)?;
-            total = total
-                .checked_add(rolled.count(gold))
-                .ok_or(VendorError::Invalid("merchant gold overflow"))?;
-        }
-    }
-    Ok(total)
 }
 
 fn read_u16(data: &[u8]) -> Option<u16> {

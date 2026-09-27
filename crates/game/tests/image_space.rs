@@ -165,7 +165,7 @@ fn corrupt_fade_load_is_atomic_and_an_older_save_starts_without_modifiers() {
     // Version 24 is the last one written without an image-space block.
     legacy[4..6].copy_from_slice(&24u16.to_le_bytes());
     // Drop the image-space block and the loose-item and zone blocks after it.
-    legacy.truncate(legacy.len() - 21);
+    legacy.truncate(legacy.len() - 25);
     game.world_mut()
         .crossfade_image_space(Some(id(1)), 0.0)
         .unwrap();

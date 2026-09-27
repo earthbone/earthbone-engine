@@ -30,8 +30,8 @@ fn venv(start: u16, end: u16, stolen: bool, disabled: bool) -> Vec<u8> {
     let mut data = Vec::with_capacity(12);
     data.extend_from_slice(&start.to_le_bytes());
     data.extend_from_slice(&end.to_le_bytes());
-    data.extend_from_slice(&120_u16.to_le_bytes());
-    data.extend_from_slice(&[0, 0, u8::from(stolen), u8::from(disabled), 0, 0]);
+    data.extend_from_slice(&120_u32.to_le_bytes());
+    data.extend_from_slice(&[u8::from(stolen), u8::from(disabled), 0, 0]);
     data
 }
 
@@ -83,6 +83,16 @@ fn plugin(vendor: Record, list_items: &[u32]) -> Plugin {
                 let mut entry = GOLD.to_le_bytes().to_vec();
                 entry.extend_from_slice(&37_i32.to_le_bytes());
                 entry
+            })
+            .sub(T(b"CNTO"), {
+                let mut entry = ITEM.to_le_bytes().to_vec();
+                entry.extend_from_slice(&1_i32.to_le_bytes());
+                entry
+            })
+            .sub(T(b"CNTO"), {
+                let mut entry = LEVELED.to_le_bytes().to_vec();
+                entry.extend_from_slice(&1_i32.to_le_bytes());
+                entry
             }),
     );
     plugin.push_top(
@@ -122,7 +132,7 @@ fn global_condition(expected: f32) -> Vec<u8> {
     condition
 }
 
-/// Winning FACT vendor links resolve the merchandise list and the merchant chest.
+/// Winning FACT vendor links filter stock from the merchant chest.
 #[test]
 fn dlg_08_winning_faction_resolves_merchandise_and_gold() {
     let mut game = game(faction(LIST, CONTAINER_REF, (0, 23)), &[ITEM, LEVELED]);
@@ -172,6 +182,11 @@ fn dlg_08_winning_override_controls_service_fields() {
                 let mut entry = GOLD.to_le_bytes().to_vec();
                 entry.extend_from_slice(&91_i32.to_le_bytes());
                 entry
+            })
+            .sub(T(b"CNTO"), {
+                let mut entry = 0x911_u32.to_le_bytes().to_vec();
+                entry.extend_from_slice(&3_i32.to_le_bytes());
+                entry
             }),
     );
     patch.push_top(
@@ -193,7 +208,7 @@ fn dlg_08_winning_override_controls_service_fields() {
     let override_chest_ref = game.world_mut().form("OverriddenChestRef").unwrap();
     assert_eq!(
         service.merchandise.count(override_item),
-        1,
+        3,
         "the winning form list supplies its plugin-local item: {service:?}, {override_item:?}"
     );
     assert_eq!(service.merchandise.count(id(ITEM)), 0);
@@ -255,7 +270,7 @@ fn dlg_08_faction_conditions_gate_the_service() {
     );
 }
 
-/// VENV hours and its no-trade flag prevent an otherwise valid service.
+/// VENV hours prevent an otherwise valid service.
 #[test]
 fn dlg_08_hours_and_trade_flag_gate_the_service() {
     let vendor = faction(LIST, CONTAINER_REF, (1, 2)).sub(T(b"VENV"), venv(1, 2, true, true));
@@ -272,11 +287,81 @@ fn dlg_08_hours_and_trade_flag_gate_the_service() {
     );
     assert!(
         !service.available,
-        "the VENV no-trade flag disables service"
+        "outside the VENV hours the service is unavailable"
     );
     assert!(
         service.merchandise.is_empty(),
         "closed services expose no merchandise"
+    );
+}
+
+#[test]
+fn dlg_08_inverse_list_sells_unlisted_stock_and_keeps_service_open() {
+    let mut vendor = faction(LIST, CONTAINER_REF, (0, 23));
+    vendor
+        .subrecords
+        .retain(|subrecord| subrecord.tag != T(b"VENV"));
+    let vendor = vendor.sub(T(b"VENV"), venv(0, 23, false, true));
+    let mut game = game(vendor, &[ITEM]);
+    let service = game
+        .resolve_vendor_service(id(FACTION), id(MERCHANT))
+        .unwrap()
+        .unwrap();
+    assert!(
+        service.available,
+        "inverse list is still a valid barter service"
+    );
+    assert_eq!(
+        service.merchandise.count(id(ITEM)),
+        0,
+        "listed stock is excluded"
+    );
+    assert_eq!(
+        service.merchandise.count(id(LEVELED_ITEM)),
+        2,
+        "unlisted chest stock is included"
+    );
+}
+
+#[test]
+fn dlg_08_vendor_location_and_full_width_radius_gate_stock() {
+    let mut location = Vec::new();
+    location.extend_from_slice(&3_u32.to_le_bytes());
+    location.extend_from_slice(&0_u64.to_le_bytes());
+    let mut vendor = faction(LIST, CONTAINER_REF, (0, 23)).sub(T(b"PLVD"), location);
+    let venv = vendor
+        .subrecords
+        .iter_mut()
+        .find(|sub| sub.tag == T(b"VENV"))
+        .unwrap();
+    venv.data[4..8].copy_from_slice(&70_000_u32.to_le_bytes());
+    let mut game = game(vendor, &[ITEM]);
+    game.world_mut().reference(id(MERCHANT)).unwrap().position = [65_536.0, 0.0, 0.0];
+    let service = game
+        .resolve_vendor_service(id(FACTION), id(MERCHANT))
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        service.radius, 70_000,
+        "all four VENV radius bytes are decoded"
+    );
+    assert!(
+        service.available,
+        "merchant remains inside the authored location radius"
+    );
+
+    game.world_mut().reference(id(MERCHANT)).unwrap().position = [70_001.0, 0.0, 0.0];
+    let service = game
+        .resolve_vendor_service(id(FACTION), id(MERCHANT))
+        .unwrap()
+        .unwrap();
+    assert!(
+        !service.available,
+        "merchant outside the PLVD radius cannot trade"
+    );
+    assert!(
+        service.merchandise.is_empty(),
+        "out of range stock stays hidden"
     );
 }
 

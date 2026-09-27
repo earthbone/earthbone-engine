@@ -70,3 +70,26 @@ fn dlg_09_scene_waits_for_required_actions_and_persists_its_phase() {
     assert_eq!(restored.world().scene_phase(id(0x800)), Some(1));
     assert!(restored.world().scenes.contains(&id(0x800)));
 }
+
+#[test]
+fn dlg_09_scene_rejects_an_action_without_required_phase_bounds() {
+    for missing in [Tag(*b"SNAM"), Tag(*b"ENAM")] {
+        let mut record = scene();
+        let at = record
+            .subrecords
+            .iter()
+            .position(|subrecord| subrecord.tag == missing)
+            .unwrap();
+        record.subrecords.remove(at);
+        let mut plugin = Plugin::new(FileHeader::default());
+        plugin.push_top(record);
+        let mut order = LoadOrder::new();
+        order.add("Scene.esp", plugin).unwrap();
+        let game = Game::new(order);
+        let mut allocate = |_: &str, _: &str| ObjectId(1);
+        assert!(
+            !game.world_mut().start_scene(id(0x800), &mut allocate),
+            "SCEN actions require both phase bounds"
+        );
+    }
+}

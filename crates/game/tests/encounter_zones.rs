@@ -188,7 +188,7 @@ fn old_save_clears_zone_locks_and_corrupt_zone_extension_is_atomic() {
     let mut world = fixture(6, 20, 0);
     world.player_level = 10;
     let mut old = world.save_state();
-    old.truncate(old.len() - 8);
+    old.truncate(old.len() - 12);
     // Version 26 is the last one written without the zone-level block.
     old[4..6].copy_from_slice(&26_u16.to_le_bytes());
     world.enter_encounter_zone(id(ZONE)).unwrap();
@@ -196,7 +196,7 @@ fn old_save_clears_zone_locks_and_corrupt_zone_extension_is_atomic() {
     let hash = world.state_hash();
     // The zone block is followed by the version 28 repeat history, so the
     // zone count, its one entry and that trailing block are sliced apart.
-    let repeats = before.len() - 4;
+    let repeats = before.len() - 8;
     let entry_at = repeats - 8;
     let count_at = entry_at - 4;
     let mut invalid = before.clone();

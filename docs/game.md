@@ -134,15 +134,19 @@ function yet, `SendAssaultAlarm` and similar witness-driven natives are
 later work that can build on it.
 
 **Vendor service lookup.** `Game::resolve_vendor_service` reads the winning
-`FACT` vendor flag, `VEND`, `VENC`, `VENV` and faction conditions. It evaluates
-conditions for a loaded merchant with the player as target, applies the
-authored hours and no-trade flag, expands direct and leveled merchandise, and
-reads gold from the merchant container. An unloaded merchant has an
+`FACT` vendor flag, `VEND`, `VENC`, `VENV`, `PLVD` and faction conditions. It evaluates
+conditions for a loaded merchant with the player as target and applies the
+authored hours. It filters direct and leveled stock from the merchant container
+through the buy/sell list, including its inverse-list flag, and reads gold
+from the same container. An unloaded merchant has an
 unavailable service with no exposed merchandise or gold, matching the CK
 `ShowBarterMenu_-_Actor` note. The result retains the service radius and
-stolen-item policy. Leveled merchandise uses the shared LVLI resolver, which
+stolen-item policy. Leveled stock uses the shared LVLI resolver, which
 retains entry metadata. This is service data for a caller. Trade transactions
 and the barter menu are separate work.
+The location check supports near-reference, in-cell, near-editor-location and
+near-self modes. Other PLVD modes return a typed error. The 32-bit radius and
+location modes follow CommonLibSSE `TESFaction.h` and UESP `FACT.wikitext`.
 
 ## Conformance table
 
@@ -1408,8 +1412,9 @@ DLG-02 starts a greeting when a driven, living actor enters the current
 `fAIInDialogueModeWithPlayerDistance` range of the player in the same cell or
 exterior worldspace. The DIAL must use the Player category and ForceGreet
 subtype, encoded as legacy DATA subtype 1 or SNAM `PFGT`. The normal dialogue
-choice path evaluates its quest and INFO conditions and starts the first
-available greeting topic. A per-Game actor set records which actors were
+choice path evaluates its quest and INFO conditions and starts the highest
+priority greeting among actors entering range on that tick. A per-Game actor
+set records which actors were
 already in range, so another gameplay tick does not start the line again.
 Leaving range clears that actor's entry and allows a later greeting. Actors
 that are dead, in combat, unconscious, disallowed from PC dialogue, disabled,
@@ -1421,7 +1426,7 @@ the current actor while automatic ForceGreet choices are evaluated. Ordinary
 conversation choices return false for that predicate.
 
 The DIAL category and legacy subtype fields follow xEdit
-`wbDefinitionsTES5.pas`; the SNAM subtype names and the fact that SNAM replaces
+`wbDefinitionsTES5.pas`. The SNAM subtype names and the fact that SNAM replaces
 the legacy subtype follow UESP `DIAL.wikitext`. The alpha and ghost eligibility
 rule follows CK `SetAlpha_-_Actor.wikitext`. CK `MoveTo_-_ObjectReference`
 describes ForceGreet as an approach procedure. This increment selects dialogue
@@ -1437,7 +1442,7 @@ range-entry latch prevents the same actor from interrupting again until it
 leaves and re-enters range. xEdit `wbRecord(QUST)` and UESP `QUST.wikitext`
 place quest priority in `DNAM` and describe its range as 0 to 100. The local
 CK dialogue corpus contains actor dialogue-state pages, but no page describing
-the interruption lifecycle; the callback sequence here reuses the existing
+the interruption lifecycle. The callback sequence here reuses the existing
 INFO fragment lifecycle.
 
 DLG-07 adds the persuasion and intimidation CTDA functions: IsIntimidatedbyPlayer

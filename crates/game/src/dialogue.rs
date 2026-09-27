@@ -375,34 +375,39 @@ impl Game {
                 }
             }
         }
-        self.greeting_range_actors = nearby;
-
+        let mut selected = None;
         for actor in entering {
-            let prior = self.world.borrow().dialogue.session.clone();
-            if let Some(prior) = prior {
-                let greeting = self.eligible_force_greet(actor, player)?;
-                let Some((topic, priority)) = greeting else {
-                    continue;
-                };
-                let prior_priority = {
-                    let mut world = self.world.borrow_mut();
-                    prior
-                        .topic
-                        .and_then(|topic| world.owning_quest(topic))
-                        .and_then(|quest| world.quest_state(quest))
-                        .map_or(0, |state| state.def.priority)
-                };
-                if priority <= prior_priority {
-                    continue;
+            if let Some((topic, priority)) = self.eligible_force_greet(actor, player)? {
+                if selected.is_none_or(|(_, _, highest)| priority > highest) {
+                    selected = Some((actor, topic, priority));
                 }
-                if prior.current_info.is_some() {
+            }
+        }
+        if let Some((actor, topic, priority)) = selected {
+            let prior = self.world.borrow().dialogue.session.clone();
+            let prior_priority = if let Some(prior) = &prior {
+                let mut world = self.world.borrow_mut();
+                prior
+                    .topic
+                    .and_then(|topic| world.owning_quest(topic))
+                    .and_then(|quest| world.quest_state(quest))
+                    .map_or(0, |state| state.def.priority)
+            } else {
+                0
+            };
+            if prior.is_none() || priority > prior_priority {
+                if prior
+                    .as_ref()
+                    .is_some_and(|session| session.current_info.is_some())
+                {
                     self.finish_dialogue_info()?;
                 }
-                self.close_dialogue();
+                if prior.is_some() {
+                    self.close_dialogue();
+                }
                 self.begin_dialogue(actor, player)?;
                 self.world.borrow_mut().dialogue.greeting_actor = Some(actor);
-                let result = self.choose_dialogue(topic);
-                match result {
+                match self.choose_dialogue(topic) {
                     Ok(Some(_)) => self.world.borrow_mut().dialogue.greeting_actor = None,
                     Ok(None) => self.close_dialogue(),
                     Err(error) => {
@@ -410,31 +415,9 @@ impl Game {
                         return Err(error);
                     }
                 }
-                continue;
-            }
-            self.begin_dialogue(actor, player)?;
-            self.world.borrow_mut().dialogue.greeting_actor = Some(actor);
-            let result: Result<(), Error> = (|| {
-                let choices = self.dialogue_choices()?;
-                let greeting = choices.available.into_iter().find(|choice| {
-                    self.world
-                        .borrow()
-                        .dialogue_topic(choice.topic)
-                        .is_ok_and(|topic| Self::is_force_greet(&topic))
-                });
-                if let Some(greeting) = greeting {
-                    self.choose_dialogue(greeting.topic)?;
-                } else {
-                    self.close_dialogue();
-                }
-                Ok(())
-            })();
-            self.world.borrow_mut().dialogue.greeting_actor = None;
-            if let Err(error) = result {
-                self.close_dialogue();
-                return Err(error);
             }
         }
+        self.greeting_range_actors = nearby;
         Ok(())
     }
 
@@ -517,7 +500,8 @@ impl Game {
         Ok(())
     }
 
-    /// Close a conversation. Interrupted lines do not run their end fragments.
+    /// Close a conversation without dispatching the active INFO end fragment.
+    /// An interruption that completes the line calls `finish_dialogue_info` first.
     pub fn close_dialogue(&mut self) {
         let mut world = self.world.borrow_mut();
         world.dialogue.session = None;

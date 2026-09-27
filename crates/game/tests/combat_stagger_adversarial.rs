@@ -433,6 +433,7 @@ fn cmb_14_version_28_save_loads_with_no_actor_staggered() {
         );
         bytes.drain(positions[0]..end + 6);
     }
+    bytes.truncate(bytes.len() - 4);
     assert_eq!(
         u16::from_le_bytes([bytes[4], bytes[5]]),
         soe_game::world::SAVE_VERSION,
