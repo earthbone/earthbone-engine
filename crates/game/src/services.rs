@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! Vendor services from winning FACT, FLST, LVLI and merchant-container records.
-//! FACT field identities follow xEdit wbDefinitionsTES5.pas. Eligibility uses
-//! the shared CTDA evaluator, as required by the CK ShowBarterMenu contract.
+//! Vendor and follower services. Vendor FACT fields follow xEdit
+//! wbDefinitionsTES5.pas. Follower recruitment retains its prior service
+//! values and places the follow package above the actor's ordinary AI stack.
 
 use soe_esm::records::gameplay::Condition;
 use soe_esm::{Error as EsmError, GlobalFormId, Record, Tag};
@@ -16,6 +16,121 @@ use crate::world::World;
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
 const VENDOR: u32 = 1 << 14;
+
+/// Saved follower service state for one recruited actor.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct FollowerServiceState {
+    pub package: GlobalFormId,
+    pub faction: GlobalFormId,
+    pub previous_faction_rank: Option<i32>,
+    pub previous_teammate: bool,
+    pub previous_can_do_favors: bool,
+}
+
+/// Invalid follower service requests.
+#[derive(Debug, thiserror::Error)]
+pub enum FollowerError {
+    #[error("follower actor is not an actor reference: {0}")]
+    Actor(GlobalFormId),
+    #[error("follower service faction is not a faction: {0}")]
+    Faction(GlobalFormId),
+    #[error("follower package is not a package: {0}")]
+    Package(GlobalFormId),
+    #[error("actor is already owned by a follower service: {0}")]
+    AlreadyRecruited(GlobalFormId),
+    #[error("actor has no follower service: {0}")]
+    NotRecruited(GlobalFormId),
+}
+
+impl World {
+    /// Recruit an actor into a follower service while retaining its ordinary
+    /// package stack underneath the service follow package.
+    ///
+    /// # Errors
+    /// Returns an error if the actor, faction or package is invalid, or if
+    /// the actor already belongs to a follower service.
+    pub fn recruit_follower(
+        &mut self,
+        actor: GlobalFormId,
+        faction: GlobalFormId,
+        package: GlobalFormId,
+        can_do_favors: bool,
+    ) -> Result<(), FollowerError> {
+        if !self
+            .reference(actor)
+            .is_some_and(|reference| reference.is_actor)
+        {
+            return Err(FollowerError::Actor(actor));
+        }
+        if !self
+            .record(faction)
+            .is_some_and(|record| record.tag == T(b"FACT") && !record.is_deleted())
+        {
+            return Err(FollowerError::Faction(faction));
+        }
+        if !self
+            .record(package)
+            .is_some_and(|record| record.tag == T(b"PACK") && !record.is_deleted())
+        {
+            return Err(FollowerError::Package(package));
+        }
+        if self.follower_services.contains_key(&actor) {
+            return Err(FollowerError::AlreadyRecruited(actor));
+        }
+        let actor_state = self.actor(actor).ok_or(FollowerError::Actor(actor))?;
+        let state = FollowerServiceState {
+            package,
+            faction,
+            previous_faction_rank: actor_state.factions.get(&faction).copied(),
+            previous_teammate: actor_state.teammate,
+            previous_can_do_favors: actor_state.can_do_favors,
+        };
+        actor_state.teammate = true;
+        actor_state.can_do_favors = can_do_favors;
+        actor_state.factions.insert(faction, 0);
+        actor_state.ai.reevaluate = true;
+        self.follower_services.insert(actor, state);
+        Ok(())
+    }
+
+    /// Dismiss an actor and restore the teammate, favor and service faction
+    /// values that were present before recruitment.
+    ///
+    /// # Errors
+    /// Returns an error if the actor has no active follower service.
+    pub fn dismiss_follower(&mut self, actor: GlobalFormId) -> Result<(), FollowerError> {
+        let state = self
+            .follower_services
+            .remove(&actor)
+            .ok_or(FollowerError::NotRecruited(actor))?;
+        if let Some(actor_state) = self.actor(actor) {
+            actor_state.teammate = state.previous_teammate;
+            actor_state.can_do_favors = state.previous_can_do_favors;
+            match state.previous_faction_rank {
+                Some(rank) => {
+                    actor_state.factions.insert(state.faction, rank);
+                }
+                None => {
+                    actor_state.factions.remove(&state.faction);
+                }
+            }
+            actor_state.ai.reevaluate = true;
+        }
+        Ok(())
+    }
+
+    /// Return the package temporarily owned by an active follower service.
+    pub fn follower_package(&self, actor: GlobalFormId) -> Option<GlobalFormId> {
+        self.follower_services
+            .get(&actor)
+            .map(|state| state.package)
+    }
+
+    /// Return actors currently registered with follower services in stable order.
+    pub fn followers(&self) -> Vec<GlobalFormId> {
+        self.follower_services.keys().copied().collect()
+    }
+}
 
 /// Service data decoded from a vendor faction and its referenced forms.
 #[derive(Debug, Clone, PartialEq)]

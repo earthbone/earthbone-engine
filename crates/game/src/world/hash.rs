@@ -345,6 +345,7 @@ fn actor_state(h: &mut StateHasher, a: &ActorState) {
     h.bool(a.dead);
     h.bool(a.in_combat);
     h.bool(a.teammate);
+    h.bool(a.can_do_favors);
     h.bool(a.ghost);
     h.bool(a.essential);
     h.bool(a.protected);
@@ -487,6 +488,21 @@ impl World {
             form(h, *id);
             actor_state(h, a);
         });
+        h.len(self.follower_services.len());
+        for (actor, service) in &self.follower_services {
+            form(&mut h, *actor);
+            form(&mut h, service.package);
+            form(&mut h, service.faction);
+            match service.previous_faction_rank {
+                Some(rank) => {
+                    h.u8(1);
+                    h.i32(rank);
+                }
+                None => h.u8(0),
+            }
+            h.bool(service.previous_teammate);
+            h.bool(service.previous_can_do_favors);
+        }
         let mut templates = soe_papyrus::vm::state::Writer::new();
         self.write_actor_templates(&mut templates);
         h.bytes(&templates.out);

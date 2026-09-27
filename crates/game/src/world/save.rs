@@ -60,7 +60,8 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// Version 34 retains last-visit game days for resettable encounter zones.
 /// Version 35 retains saved list flags and per-entry chance bytes in record overrides.
 /// Version 36 retains the active phase and completed action slots for each scene.
-pub const SAVE_VERSION: u16 = 36;
+/// Version 37 retains teammate favor permission and follower service ownership.
+pub const SAVE_VERSION: u16 = 37;
 
 #[derive(Clone, Copy)]
 pub(crate) enum FormNamespace {
@@ -426,6 +427,18 @@ impl World {
             for slot in &run.completed_actions {
                 body.u32(*slot);
             }
+        }
+        body.len(self.follower_services.len());
+        for (actor, service) in &self.follower_services {
+            write_form_id(&mut body, *actor);
+            write_form_id(&mut body, service.package);
+            write_form_id(&mut body, service.faction);
+            body.bool(service.previous_faction_rank.is_some());
+            if let Some(rank) = service.previous_faction_rank {
+                body.i32(rank);
+            }
+            body.bool(service.previous_teammate);
+            body.bool(service.previous_can_do_favors);
         }
         self.write_detection(&mut body);
         let mut out = Writer::new();
@@ -1046,6 +1059,39 @@ impl World {
                 .map(|id| (*id, super::SceneRunState::default()))
                 .collect()
         };
+        let follower_services = if version >= 37 {
+            let count = r.len()?;
+            let mut services = BTreeMap::new();
+            for _ in 0..count {
+                let actor = read_form_id(&mut r)?;
+                let package = read_form_id(&mut r)?;
+                let faction = read_form_id(&mut r)?;
+                let previous_faction_rank = if r.bool()? { Some(r.i32()?) } else { None };
+                let previous_teammate = r.bool()?;
+                let previous_can_do_favors = r.bool()?;
+                let service_state = crate::services::FollowerServiceState {
+                    package,
+                    faction,
+                    previous_faction_rank,
+                    previous_teammate,
+                    previous_can_do_favors,
+                };
+                if !refs.get(&actor).is_some_and(|reference| reference.is_actor)
+                    || self
+                        .record(package)
+                        .is_none_or(|record| record.tag != super::T(b"PACK"))
+                    || self
+                        .record(faction)
+                        .is_none_or(|record| record.tag != super::T(b"FACT"))
+                    || services.insert(actor, service_state).is_some()
+                {
+                    return Err(VmError::State("invalid follower service state".into()));
+                }
+            }
+            services
+        } else {
+            BTreeMap::new()
+        };
         let detection = if version >= 30 {
             super::detection::read_detection(&mut r)?
         } else {
@@ -1095,6 +1141,7 @@ impl World {
         self.encounter_levels = encounter_levels;
         self.encounter_zone_visits = encounter_zone_visits;
         self.detection = detection;
+        self.follower_services = follower_services;
         self.settings = settings;
         self.inventory_filters = inventory_filters;
         self.sleep_listeners = sleep_listeners;
@@ -1488,6 +1535,7 @@ fn write_actor_state(w: &mut Writer, a: &ActorState) {
     write_form_set(w, &a.witnessed_crimes);
     write_opt_form_id(w, a.left_spell);
     write_opt_form_id(w, a.right_spell);
+    w.bool(a.can_do_favors);
 }
 
 fn write_form_set(w: &mut Writer, set: &BTreeSet<GlobalFormId>) {
@@ -1610,6 +1658,9 @@ fn read_actor_state(r: &mut FormReader<'_, '_>, version: u16) -> Result<ActorSta
     if version >= 32 {
         a.left_spell = read_opt_form_id(r)?;
         a.right_spell = read_opt_form_id(r)?;
+    }
+    if version >= 37 {
+        a.can_do_favors = r.bool()?;
     }
     Ok(a)
 }
