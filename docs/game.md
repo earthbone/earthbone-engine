@@ -148,6 +148,18 @@ The location check supports near-reference, in-cell, near-editor-location and
 near-self modes. Other PLVD modes return a typed error. The 32-bit radius and
 location modes follow CommonLibSSE `TESFaction.h` and UESP `FACT.wikitext`.
 
+**Enchanting.** `Game::enchant_item` accepts one selected weapon or armor
+instance, one selected soul gem stack, an ENCH form and the caller's learned
+enchantment set. It checks the selected soul level against the gem's SLCP
+capacity from SLCP and its per-instance ExtraSoul value, writes
+ExtraEnchantment to only that item instance, consumes the gem, and queues its
+inventory removal event as one inventory transaction. The ENCH
+record and ExtraEnchantment fields follow `TES5Edit/Core/wbDefinitionsTES5.pas`
+and CommonLibSSE-NG `ExtraEnchantment.h`, `ExtraSoul.h` and `TESSoulGem.h`.
+The runtime does not yet own learned enchantment state, so the caller supplies
+that set. Enchantment strength and charge calculation are not part of this
+transaction.
+
 ## Conformance table
 
 Counts from `natives::register`: 364 natives with state behind them and 177
