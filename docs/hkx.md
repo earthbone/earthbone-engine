@@ -367,7 +367,11 @@ What each node does:
   the index changes.
 - `hkbModifierGenerator` and Skyrim's `BS*` wrappers (`BSiStateTagging`,
   `BSBoneSwitch`, `BSOffsetAnimation`, `BSSynchronizedClip`,
-  `BSCyclicBlendTransition`) pass their generator child through.
+  `BSCyclicBlendTransition`) pass their generator child through. A cyclic
+  blend wrapper freezes its child blender's current parameter on its freeze
+  event. Its cross-blend event moves from the frozen or current parameter to
+  `fBlendParameter` over `fTransitionDuration`, applying `eBlendCurve`, then
+  leaves the child blender at the target parameter.
   `hkbModifierGenerator` also gives an enabled modifier child activation and
   deactivation lifecycle.
 - `hkbBehaviorReferenceGenerator` and unmodelled classes yield the

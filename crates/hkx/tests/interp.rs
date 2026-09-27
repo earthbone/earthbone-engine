@@ -10,7 +10,7 @@ mod common;
 
 use common::{graph, Root};
 use soe_hkx::animation::SplineCompressedAnimation;
-use soe_hkx::behavior::{BehaviorGraph, NodeId, NodeKind};
+use soe_hkx::behavior::{BehaviorGraph, EventProperty, Node, NodeId, NodeKind};
 use soe_hkx::interp::{Clip, ClipLibrary, Event, Interpreter};
 use soe_hkx::spline::encode;
 use soe_hkx::{Packfile, QsTransform};
@@ -107,6 +107,36 @@ fn load(root: &Root) -> BehaviorGraph {
 
 fn clip_named(g: &BehaviorGraph, name: &str) -> NodeId {
     g.find_by_name(name).unwrap().id
+}
+
+fn cyclic_blend_graph() -> BehaviorGraph {
+    let mut graph = load(&Root::Blender { parametric: true });
+    let blender_generator = graph.root.expect("blender root");
+    let wrapper = NodeId(graph.nodes.len());
+    graph.nodes.push(Node {
+        id: wrapper,
+        offset: 0,
+        class: "BSCyclicBlendTransitionGenerator".into(),
+        name: "CyclicBlend".into(),
+        user_data: 0,
+        bindings: None,
+        kind: NodeKind::CyclicBlendTransition {
+            blender_generator: Some(blender_generator),
+            event_to_freeze_blend_value: EventProperty {
+                id: 10,
+                has_payload: false,
+            },
+            event_to_cross_blend: EventProperty {
+                id: 11,
+                has_payload: false,
+            },
+            blend_parameter: 0.0,
+            transition_duration: 0.5,
+            blend_curve: 2,
+        },
+    });
+    graph.root = Some(wrapper);
+    graph
 }
 
 #[test]
@@ -262,6 +292,74 @@ fn a_blender_mixes_children_by_normalized_weight() {
     );
     assert!(close(out.weight, 1.0));
     assert_eq!(vm.active_clips().len(), 2);
+}
+
+#[test]
+fn anm_21_freeze_event_holds_the_current_blend_parameter() {
+    let graph = cyclic_blend_graph();
+    let clips = library();
+    let mut vm = Interpreter::new(&graph, &clips, reference_pose());
+    let root = graph.root.unwrap();
+    vm.variables.set_by_name("Speed", 1.0);
+    vm.update(DT);
+    vm.send_event(10);
+    vm.update(DT);
+    vm.variables.set_by_name("Speed", 0.0);
+    let output = vm.update(DT);
+    let walk = graph.node(graph.root.unwrap()).children()[0];
+    let walk = graph.node(walk).children()[1];
+    assert!(
+        close(
+            output.pose[1].translation[0],
+            sampled_x(&clips, "mt_walkforward", vm.clip_time(walk).unwrap())
+        ),
+        "freeze keeps the parameter at the walk child"
+    );
+    assert!(vm.is_active(root));
+}
+
+#[test]
+fn anm_21_cross_blend_uses_authored_duration_and_curve() {
+    let graph = cyclic_blend_graph();
+    let clips = library();
+    let mut vm = Interpreter::new(&graph, &clips, reference_pose());
+    let blender = graph.node(graph.root.unwrap()).children()[0];
+    vm.variables.set_by_name("Speed", 1.0);
+    vm.update(DT);
+    vm.send_event(10);
+    vm.update(DT);
+    vm.variables.set_by_name("Speed", 0.0);
+    vm.update(DT);
+    vm.send_event(11);
+    vm.update(DT);
+    let output = vm.update(0.125).clone();
+    let idle = graph.node(blender).children()[0];
+    let walk = graph.node(blender).children()[1];
+    let idle_time = vm.clip_time(idle).unwrap();
+    let walk_time = vm.clip_time(walk).unwrap();
+    let idle_value = sampled_x(&clips, "mt_idle", idle_time);
+    let walk_value = sampled_x(&clips, "mt_walkforward", walk_time);
+    assert!(
+        close(
+            output.pose[1].translation[0],
+            idle_value * 0.75 + walk_value * 0.25
+        ),
+        "curve 2 reaches its authored 0.75 weight at half of the 0.5 s duration"
+    );
+    for _ in 0..2 {
+        vm.update(0.125);
+    }
+    let output = vm.output();
+    assert!(
+        close(
+            output.pose[1].translation[0],
+            sampled_x(&clips, "mt_idle", vm.clip_time(idle).unwrap())
+        ),
+        "the authored duration completes the blend after 0.5 s: output {}, idle {}, walk {:?}",
+        output.pose[1].translation[0],
+        sampled_x(&clips, "mt_idle", vm.clip_time(idle).unwrap()),
+        vm.clip_time(walk)
+    );
 }
 
 #[test]
