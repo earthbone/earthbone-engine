@@ -832,6 +832,11 @@ FallrimTools does not decode these type payloads, so its reader is used only
 to cross-check the type indices. Synthetic tests cover all eight combinations
 for each type and each truncated form-flags prefix. The external corpus test
 accounts for all matching PACK and NAVM payloads and records their flag counts.
+`World::restore_vanilla_pack_navmesh` in the game crate applies decoded fields
+to the shared record table only after validating the complete batch. The
+record override retains marker state that has no plugin subrecord, and SOEW
+version 37 carries it through engine save/load. Package and navmesh queries
+continue reading their records from the same world table.
 
 ## INFO, SMQN and SCEN changes
 
