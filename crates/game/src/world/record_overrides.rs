@@ -27,6 +27,13 @@ pub struct ListRecordExtra {
     pub entry_chances: Vec<u8>,
 }
 
+/// Shared change flags and the source-opaque saved payload for a projectile.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ProjectileRecordExtra {
+    pub flags: u32,
+    pub payload: Vec<u8>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct RecordOverride {
     pub origin: GlobalFormId,
@@ -37,6 +44,7 @@ pub(super) struct RecordOverride {
     pub plain_full: bool,
     pub npc: NpcRecordExtra,
     pub list: Option<ListRecordExtra>,
+    pub projectile: Option<ProjectileRecordExtra>,
 }
 
 pub(super) fn raw_words(record: &Record) -> BTreeSet<u32> {
@@ -61,6 +69,7 @@ impl RecordOverride {
             plain_full: false,
             npc: NpcRecordExtra::default(),
             list: None,
+            projectile: None,
         }
     }
 
@@ -120,5 +129,11 @@ impl World {
 
     pub fn restored_list_extra(&self, id: GlobalFormId) -> Option<&ListRecordExtra> {
         self.record_overrides.get(&id)?.list.as_ref()
+    }
+
+    /// Return saved projectile change data attached to the live record.
+    #[must_use]
+    pub fn restored_projectile_extra(&self, id: GlobalFormId) -> Option<&ProjectileRecordExtra> {
+        self.record_overrides.get(&id)?.projectile.as_ref()
     }
 }

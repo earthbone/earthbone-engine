@@ -161,6 +161,12 @@ decoder accepts every flag word without dropping bits and preserves the exact
 inflated payload bytes. It does not infer that a set change flag corresponds
 to a specific serialized payload field.
 
+The game importer stores these shared flags and raw payload bytes alongside
+the matching live PFLA, PHZD or PBAR record. `World::restored_projectile_extra`
+exposes that data, and SOEW version 37 preserves it through engine save/load.
+The importer does not decode projectile subtype fields or map them onto
+plugin subrecords.
+
 Most decoded state remains inspection data. The game crate can apply globals
 and quest state, but neither stack execution nor pending calls can be resumed from a
 vanilla save. The explicit instance-import API below can apply decoded

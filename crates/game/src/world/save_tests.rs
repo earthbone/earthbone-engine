@@ -374,7 +374,8 @@ fn without_exclusive_branches(world: &mut World) -> Vec<u8> {
         .windows(records.out.len())
         .position(|window| window == records.out)
         .expect("record override is serialized");
-    // CONTEXT: This fixture has one override with no list fields in version 23.
+    // CONTEXT: This fixture has one override with no list or projectile fields in version 23.
+    bytes.remove(at + 40);
     bytes.remove(at + 39);
     bytes
 }
@@ -477,7 +478,7 @@ fn sav_07_unknown_version_and_mixed_legacy_namespaces_are_rejected() {
     let mut world = rich_world(DYNAMIC_FILE);
     let before = world.save_state();
     for (version, message) in [
-        (37_u16, "world state version 37"),
+        (38_u16, "world state version 38"),
         (18, "created namespace in a legacy world state"),
     ] {
         let mut bytes = before.clone();
