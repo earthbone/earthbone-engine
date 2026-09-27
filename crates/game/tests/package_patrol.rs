@@ -29,7 +29,7 @@ struct Settings {
     linked: bool,
     horse: bool,
     static_path: bool,
-    omitted: bool,
+    omitted_optional: u8,
     non_root_cycle: bool,
     action: bool,
     null_topic_and_image_space: bool,
@@ -47,7 +47,7 @@ impl Default for Settings {
             linked: false,
             horse: false,
             static_path: false,
-            omitted: false,
+            omitted_optional: 0,
             non_root_cycle: false,
             action: false,
             null_topic_and_image_space: false,
@@ -79,12 +79,13 @@ fn template(settings: Settings, target: u32) -> Record {
     let rec = package::with_bool_input(rec, 9, settings.nearest);
     let rec = package::with_bool_input(rec, 14, settings.horse);
     let rec = package::finish(package::with_bool_input(rec, 15, settings.static_path));
-    package::with_procedure(
-        rec,
-        "Patrol",
-        &[7, 11, 3, 9, 14, if settings.omitted { 255 } else { 15 }],
-        false,
-    )
+    let mut inputs = [7, 11, 3, 9, 14, 15];
+    for (position, input) in inputs.iter_mut().enumerate() {
+        if settings.omitted_optional & (1 << position) != 0 {
+            *input = u8::MAX;
+        }
+    }
+    package::with_procedure(rec, "Patrol", &inputs, false)
 }
 
 fn placed(tag: [u8; 4], form: u32, base: u32, x: f32) -> Record {
@@ -301,14 +302,6 @@ fn moved_marker_replans_before_spending_the_movement_budget() {
 fn unsupported_actions_options_and_invalid_routes_hold_without_mutating_position() {
     for settings in [
         Settings {
-            static_path: true,
-            ..Settings::default()
-        },
-        Settings {
-            omitted: true,
-            ..Settings::default()
-        },
-        Settings {
             action: true,
             ..Settings::default()
         },
@@ -335,6 +328,105 @@ fn unsupported_actions_options_and_invalid_routes_hold_without_mutating_position
         assert!(matches!(state(&game).procedure, Procedure::Unsupported(_)));
         assert!(state(&game).completed.is_empty());
     }
+}
+
+#[test]
+fn ai_90_static_pathing_values_share_the_static_marker_walker() {
+    for static_path in [false, true] {
+        let mut game = game(Settings {
+            static_path,
+            ..Settings::default()
+        });
+        game.tick(1.0);
+        assert_eq!(position(&game), 110.0);
+        assert_eq!(state(&game).patrol.unwrap().current, id(A));
+    }
+}
+
+#[test]
+fn ai_90_omitted_optional_inputs_use_typed_zero_defaults() {
+    let mut explicit_defaults = game(Settings::default());
+    explicit_defaults.tick(1.0);
+    for input_position in 2..=5 {
+        let mut omitted = game(Settings {
+            omitted_optional: 1 << input_position,
+            ..Settings::default()
+        });
+        omitted.tick(1.0);
+        assert_eq!(position(&omitted), position(&explicit_defaults));
+        assert_eq!(state(&omitted), state(&explicit_defaults));
+    }
+    let mut all_omitted = game(Settings {
+        omitted_optional: 0b11_1100,
+        ..Settings::default()
+    });
+    all_omitted.tick(1.0);
+    assert_eq!(position(&all_omitted), position(&explicit_defaults));
+    assert_eq!(state(&all_omitted), state(&explicit_defaults));
+}
+
+#[test]
+fn ai_90_missing_path_start_or_point_radius_is_unsupported() {
+    for required_input in [0, 1] {
+        let mut game = game(Settings {
+            omitted_optional: 1 << required_input,
+            ..Settings::default()
+        });
+        game.tick(1.0);
+        assert_eq!(position(&game), 0.0);
+        assert!(matches!(state(&game).procedure, Procedure::Unsupported(_)));
+        assert!(state(&game).completed.is_empty());
+    }
+}
+
+#[test]
+fn ai_90_installed_patrol_branches_match_typed_input_positions() {
+    let Ok(data) = std::env::var("SKYRIM_DATA") else {
+        eprintln!("SKYRIM_DATA not set, skipping AI-90 Patrol survey");
+        return;
+    };
+    let bytes = std::fs::read(std::path::Path::new(&data).join("Skyrim.esm")).unwrap();
+    let mut order = LoadOrder::new();
+    order
+        .add("Skyrim.esm", Plugin::parse(&bytes).unwrap())
+        .unwrap();
+    let mut count = 0;
+    let mut omissions = [0usize; 6];
+    for (id, _) in order.winners_of(T(b"PACK")) {
+        let record = order.record(order.winner_ref(id).unwrap());
+        let parsed = package::Package::from_record(record).unwrap();
+        for branch in &parsed.tree {
+            if branch.procedure.as_deref() != Some("Patrol") {
+                continue;
+            }
+            assert!((2..=6).contains(&branch.inputs.len()), "PACK {id:?}");
+            for (input_position, omitted_count) in omissions.iter_mut().enumerate() {
+                let input = branch
+                    .inputs
+                    .get(input_position)
+                    .copied()
+                    .unwrap_or(u8::MAX);
+                if input == u8::MAX {
+                    assert!((2..=5).contains(&input_position), "PACK {id:?}");
+                    *omitted_count += 1;
+                    continue;
+                }
+                let value = parsed.input(input as i8).map(|entry| entry.value);
+                let correct = match input_position {
+                    0 => matches!(value, Some(package::DataValue::Target(_))),
+                    1 => matches!(value, Some(package::DataValue::Float(_))),
+                    _ => matches!(value, Some(package::DataValue::Bool(_))),
+                };
+                assert!(
+                    correct,
+                    "PACK {id:?} Patrol input {input_position}: {value:?}"
+                );
+            }
+            count += 1;
+        }
+    }
+    assert_eq!(count, 45, "vanilla Skyrim.esm Patrol branch count changed");
+    eprintln!("surveyed {count} Patrol branches, optional omissions by slot: {omissions:?}");
 }
 
 #[test]

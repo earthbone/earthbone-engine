@@ -2440,8 +2440,12 @@ AI-03 follows ordinary reference markers through keyword-free XLKR links.
 Its six ordered parameters are PathStart, PointRadius, Repeatable,
 StartAtNearestPoint, RideHorseIfPossible and StaticPathing. The read-only
 Skyrim.esm survey found 45 Patrol branches and confirmed the order on the
-vanilla Patrol template. Some branches omit optional inputs using index 255.
-Their defaults are not established, so those branches report Unsupported.
+vanilla Patrol template. The six inputs are PathStart (Target), PointRadius
+(Float), Repeatable, StartAtNearestPoint, RideHorseIfPossible and StaticPathing
+(Boolean). PathStart and PointRadius are required. The four Boolean options
+default to false when their PKC2 index is 255 or the input list ends before
+them. Both StaticPathing values use
+the same marker walker and shared navigation planner.
 Public parameter names do not determine execution.
 
 PathStart currently supports a specific reference or the actor's keyword-free
@@ -2484,20 +2488,25 @@ accepts null topic placeholders. The primary author's
 [Patrol tests](https://skyrimeasy.blog-rpg.com/ck/packagetemplate07) establish
 linked order, nearest entry, reversal and circular traversal. The
 [procedure authoring tutorial](https://skyrimeasy.blog-rpg.com/ck/proceduretree01)
-describes the parameter types. These sources provide no reusable runtime
-walker, so this implementation extends the existing actor driver.
+describes Patrol parameter types and identifies PathStart and PointRadius as
+required. CommonLibSSE-NG identifies Patrol as a typed package procedure. The
+four optional Boolean inputs use their zero value when omitted. These sources
+provide no reusable runtime walker, so this implementation extends the
+existing actor driver.
 
 The row was split before implementation. AI-88 covers marker idle, furniture
 and topic actions and depends on AI-23 and HST-09. AI-89 covers mounted Patrol.
 AI-90 establishes StaticPathing and omitted-input defaults. AI-91 covers
 additional target modes, including aliases and object-list results from AI-33.
-Requested marker actions, static mode, additional targets and malformed inputs
+Requested marker actions, additional targets and malformed inputs
 report Unsupported. They are not silently treated as ordinary walking.
 
 `tests/package_patrol.rs` exercises linked order, final dwell, open and circular
 repeat, nearest entry, radius budgets, menu timing, save/resume during travel,
 dwell and reversal, winning-template namespaces, live marker changes, action
-field contexts and invalid state. `tests/ai_89_mounted_patrol.rs` checks owned
+field contexts, invalid state and AI-90 input defaults and StaticPathing.
+Its installed-data survey checks all 45 Skyrim.esm Patrol branches when
+`SKYRIM_DATA` is set. `tests/ai_89_mounted_patrol.rs` checks owned
 horse selection, mounted movement, route retention after dismount and saved
 mount restoration. These are headless synthetic behavior checks.
 The installed-data survey establishes parameter representation, not a measured

@@ -115,10 +115,15 @@ impl Tree {
         &self,
         branch: &Branch,
     ) -> Result<super::patrol::Parameters, &'static str> {
-        let inputs = branch
-            .inputs
-            .iter()
-            .map(|&index| {
+        let inputs = (0..6)
+            .map(|position| {
+                let index = branch.inputs.get(position).copied().unwrap_or(u8::MAX);
+                if index == u8::MAX {
+                    return match position {
+                        2..=5 => Some((self.owner, DataValue::Bool(false))),
+                        _ => None,
+                    };
+                }
                 self.chain.iter().find_map(|(owner, package)| {
                     package
                         .input(index as i8)
@@ -126,7 +131,7 @@ impl Tree {
                 })
             })
             .collect::<Option<Vec<_>>>()
-            .ok_or("Patrol omitted input, AI-90")?;
+            .ok_or("Patrol omitted required input, AI-90")?;
         super::patrol::Parameters::from_inputs(&inputs)
     }
 
