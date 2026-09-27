@@ -49,6 +49,7 @@ pub mod quest;
 pub mod race;
 pub mod save;
 pub mod save_generations;
+pub mod services;
 pub mod sound;
 pub mod vanilla_save;
 pub mod vmad;
@@ -273,6 +274,21 @@ impl Game {
 
     pub fn world_mut(&self) -> RefMut<'_, World> {
         self.world.borrow_mut()
+    }
+
+    /// Resolve a vendor faction's current service for an actor.
+    ///
+    /// # Errors
+    /// Returns malformed vendor data, unsupported faction conditions or
+    /// invalid merchandise errors from [`services::resolve_vendor_service`].
+    pub fn resolve_vendor_service(
+        &mut self,
+        faction: GlobalFormId,
+        merchant: GlobalFormId,
+    ) -> Result<Option<services::VendorService>, services::VendorError> {
+        let vm = &self.vm;
+        let mut world = self.world.borrow_mut();
+        services::resolve_vendor_service(&mut world, vm, faction, merchant)
     }
 
     /// Return the selected damage difficulty tier.

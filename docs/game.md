@@ -133,6 +133,15 @@ faction can legally exist without one. No Papyrus native calls this
 function yet, `SendAssaultAlarm` and similar witness-driven natives are
 later work that can build on it.
 
+**Vendor service lookup.** `Game::resolve_vendor_service` reads the winning
+`FACT` vendor flag, `VEND`, `VENC`, `VENV` and faction conditions. It evaluates
+conditions for the merchant with the player as target, applies the authored
+hours and no-trade flag, expands direct and leveled merchandise, and reads
+gold from the merchant container. The result retains the service radius and
+stolen-item policy. Leveled merchandise uses the shared LVLI resolver, which
+retains entry metadata. This is service data for a caller. Trade transactions
+and the barter menu are separate work.
+
 ## Conformance table
 
 Counts from `natives::register`: 364 natives with state behind them and 177
@@ -1376,7 +1385,7 @@ outside this test.
 Remaining dialogue work includes missing conditions, automatic greetings and
 ForceGreet, refusal/invisible continuation,
 do-all-before-repeating, walk-away topic selection, scenes,
-services, complete alias behavior and interruption rules. Godot activation,
+barter transactions, complete alias behavior and interruption rules. Godot activation,
 menus, voice assets, LIP and idle playback are not connected to this API. This increment does not establish playable dialogue
 or complete the broader gameplay goal.
 
