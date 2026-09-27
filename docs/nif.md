@@ -80,6 +80,24 @@ Two layouts exist and both are normalised to the per-vertex form above.
   846 partitions across 400 meshes reorder the bone list. Use the
   `NiSkinPartition` bone tables declared in `nifxml/nif.xml`.
 
+## FaceGen head morphs
+
+`tri::parse_head_tri` reads FaceGen `FRTRI003` files. It retains the base
+positions and named morph deltas. Each morph stores three signed 16-bit values
+per vertex, multiplied by its file scale. The reader consumes topology, UVs
+and modifier lists to reach the morph data, while retaining only positions and
+morphs. The layout follows `TriHeadFile::Read` in the local
+`BodySlide-and-Outfit-Studio/src/files/TriFile.cpp` reference. A PyNifly source
+was not present in the local corpus. nif.xml's `NiMorphData` describes a
+separate NIF animation format, not this FaceGen TRI file. Race `PHTN` and
+`PHWT` are FaceFX phoneme name and weight records, not geometry morphs, as
+shown by Mutagen's Skyrim `Race.xml` and xEdit's `wbPHWT` definition.
+
+`HeadTri::apply_morph` adds a selected morph to caller supplied base positions.
+It checks that the mesh and TRI vertex counts match, returns an exact copy at
+zero weight, and does not mutate the caller's positions. Callers can evaluate
+each frame from the same base to avoid accumulating deltas.
+
 ## Transform controllers (2026-09-24, in progress)
 
 `controller` parses `NiTimeController` and the transform family
