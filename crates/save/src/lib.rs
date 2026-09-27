@@ -36,7 +36,7 @@ pub mod quest;
 pub mod reference;
 pub mod table;
 
-pub use change::{ChangeForm, QuestStage};
+pub use change::{ChangeForm, ParwChange, PconChange, QuestStage};
 pub use change::{
     ClassChange, FactionChange, FactionReaction, FactionReactions, RelationshipChange,
 };
