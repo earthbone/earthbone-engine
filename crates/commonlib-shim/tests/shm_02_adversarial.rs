@@ -6,7 +6,10 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 fn scratch(name: &str) -> PathBuf {
-    let path = std::env::temp_dir().join(format!("soe-shm-02-adversarial-{name}-{}", std::process::id()));
+    let path = std::env::temp_dir().join(format!(
+        "soe-shm-02-adversarial-{name}-{}",
+        std::process::id()
+    ));
     fs::create_dir_all(&path).unwrap();
     path
 }
@@ -14,7 +17,10 @@ fn scratch(name: &str) -> PathBuf {
 fn compile(source: &Path, output: &Path, shared: bool) {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let mut command = Command::new("c++");
-    command.arg("-std=c++20").arg("-I").arg(root.join("include"));
+    command
+        .arg("-std=c++20")
+        .arg("-I")
+        .arg(root.join("include"));
     if shared {
         command.args(["-shared", "-fPIC"]);
     } else {
@@ -60,11 +66,11 @@ fn shm_02_rejects_null_manifest_name() {
     let dir = scratch("null-name");
     let result = run_fixture(
         &dir,
-        r#"
+        r"
 #include <SKSE/Plugin.h>
 SOE_PLUGIN_MANIFEST = {SKSE::SOE_PLUGIN_ABI_VERSION, nullptr, nullptr, 0};
 SOE_PLUGIN_LOAD { return true; }
-"#,
+",
     );
     assert!(!result.status.success());
     assert!(String::from_utf8_lossy(&result.stderr).contains("invalid plugin manifest"));
