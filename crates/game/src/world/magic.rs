@@ -487,6 +487,11 @@ impl World {
                     return Err(MagicError::Target);
                 }
             }
+            if data.archetype == 40 {
+                return Err(MagicError::Unsupported(
+                    "spawn hazard requires the typed HAZD view from FMT-28",
+                ));
+            }
             if !matches!(data.archetype, 0 | 1 | 2 | 5 | 18) {
                 return Err(MagicError::Unsupported("effect archetype"));
             }

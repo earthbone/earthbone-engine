@@ -1049,6 +1049,21 @@ fn mag_68_unnamed_archetypes_reject_without_changes() {
 }
 
 #[test]
+fn mag_61_spawn_hazard_requires_typed_hazard_view_without_changes() {
+    let mut game = fixture(0, 40, 20.0, 5);
+    let before = game.save_state().unwrap();
+
+    assert!(matches!(
+        cast(&mut game, SPELL, OTHER),
+        Err(MagicError::Unsupported(
+            "spawn hazard requires the typed HAZD view from FMT-28"
+        ))
+    ));
+    assert_eq!(game.save_state().unwrap(), before);
+    assert_eq!(game.world().active_effects().count(), 0);
+}
+
+#[test]
 fn unsupported_second_effect_does_not_partially_apply_the_spell() {
     let good = effect(2, 0, 24, false);
     let mut bad = effect(0, 35, 24, false);

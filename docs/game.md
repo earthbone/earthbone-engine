@@ -1635,10 +1635,14 @@ The active-effect tick and finish paths only handle actor applications, with
 no owned hazard cleanup. [The host audit](godot-host.md#spawn-hazard-prerequisites-mag-61)
 records the corresponding resource boundary.
 
-MAG-61 stays blocked with its original acceptance check. No hazard spawning,
-target selection, contact application, save continuation or expiry cleanup
-was implemented or validated by this audit. The survey establishes record
-dependencies and the current direct-cast rejection boundary.
+The current worktree has no FMT-28 draft or typed HAZD view. Archetype 40
+therefore returns a specific unsupported error before any effect or world
+state changes. `mag_61_spawn_hazard_requires_typed_hazard_view_without_changes`
+checks this rejection. The row's acceptance check remains incomplete: no hazard
+is spawned at a target, and no owned collision or effect is removed on expiry.
+Target selection, contact application and save continuation also remain
+unimplemented. The survey establishes record dependencies and the direct-cast
+rejection boundary.
 
 ### Direct active-effect foundation
 
