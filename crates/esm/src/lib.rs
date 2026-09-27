@@ -37,6 +37,7 @@ pub mod cursor;
 pub mod dirty;
 pub mod error;
 pub mod load_order;
+pub mod patcher;
 pub mod plugin;
 pub mod records;
 pub mod strings;
@@ -46,6 +47,7 @@ pub use cell_index::{CellIndex, GridCell};
 pub use dirty::{DirtyReport, PluginDirt};
 pub use error::{Error, Result};
 pub use load_order::{GlobalFormId, LoadOrder, LoadedFile, RecordRef, Slot, CREATED_FILE};
+pub use patcher::PatcherSession;
 pub use plugin::{Entry, FileHeader, Group, GroupKind, Placement, Plugin, Record, Subrecord};
 pub use tag::Tag;
 

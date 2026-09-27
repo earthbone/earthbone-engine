@@ -727,7 +727,7 @@ fn append_masters(
     }
 }
 
-fn is_form_id_field(record: Tag, field: Tag) -> bool {
+pub(crate) fn is_form_id_field(record: Tag, field: Tag) -> bool {
     let pairs: &[(Tag, Tag)] = &[
         (tag::REFR, Tag(*b"NAME")),
         (tag::REFR, Tag(*b"XESP")),
