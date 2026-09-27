@@ -21,6 +21,8 @@ use crate::{Error, Result};
 /// for every bhk shape, OpenMW keeps the same constant.
 pub const UNITS_PER_METER: f32 = 69.991_25;
 
+const VERSION_10_1_0_0: u32 = 0x0A01_0000;
+
 /// Skyrim collision layers, the `Layer` byte of a HavokFilter.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Layer(pub u8);
@@ -199,6 +201,14 @@ pub enum Bhk {
         radius: f32,
     },
     CompressedMeshData(CompressedMeshData),
+    /// `bhkNiTriStripsShape`, whose geometry lives in ordinary NIF
+    /// `NiTriStripsData` blocks.
+    NiTriStrips {
+        material: u32,
+        scale: Vec3,
+        strips: Vec<BlockRef>,
+        filters: Vec<(Layer, u8, u16)>,
+    },
     /// A bhk block this crate does not decode: constraints, other phantoms, the
     /// pre-Skyrim packed strips, the Fallout 4 family.
     Other(String),
@@ -404,6 +414,42 @@ pub fn decode(type_name: &str, data: &[u8], header: &Header) -> Result<Bhk> {
             }
         }
         "bhkCompressedMeshShapeData" => Bhk::CompressedMeshData(compressed_mesh_data(s)?),
+        "bhkNiTriStripsShape" => {
+            let material = s.u32()?;
+            let radius = s.f32()?;
+            if !radius.is_finite() || radius < 0.0 {
+                return Err(Error::Invalid("triangle strip shape radius".into()));
+            }
+            skip(s, 20)?;
+            s.u32()?;
+            let scale = if header.version >= VERSION_10_1_0_0 {
+                let scale = vec4(s)?;
+                if !scale.is_finite() {
+                    return Err(Error::Invalid("triangle strip shape scale".into()));
+                }
+                scale
+            } else {
+                Vec3::new(1.0, 1.0, 1.0)
+            };
+            let strips = refs(s)?;
+            let n = s.counted(4)?;
+            if n != strips.len() {
+                return Err(Error::Invalid(format!(
+                    "triangle strip shape has {} data blocks and {n} filters",
+                    strips.len()
+                )));
+            }
+            let mut filters = Vec::with_capacity(n);
+            for _ in 0..n {
+                filters.push(filter(s)?);
+            }
+            Bhk::NiTriStrips {
+                material,
+                scale,
+                strips,
+                filters,
+            }
+        }
         other => Bhk::Other(other.to_string()),
     };
     Ok(block)

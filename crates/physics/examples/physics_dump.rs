@@ -119,6 +119,12 @@ fn summary(b: &Bhk) -> String {
             d.chunks.len(),
             d.big_triangles.len()
         ),
+        Bhk::NiTriStrips { strips, scale, .. } => {
+            format!(
+                "triangle strips, {} data blocks, scale {scale:?}",
+                strips.len()
+            )
+        }
         Bhk::RigidBody(_) | Bhk::Other(_) => String::new(),
     }
 }

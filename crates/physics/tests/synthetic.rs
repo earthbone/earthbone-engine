@@ -5,7 +5,7 @@
 //! in a block list the way `soe_nif` would parse them, then collected and
 //! dropped a character on. No file on disk is involved.
 
-use soe_nif::blocks::{Block, Node};
+use soe_nif::blocks::{Block, GeometryData, Node};
 use soe_nif::{BlockRef, Header};
 use soe_physics::bhk::{self, Bhk};
 use soe_physics::{
@@ -270,6 +270,27 @@ fn compressed_mesh_shape(data: i32) -> Block {
     }
 }
 
+fn ni_tri_strips_shape(strips: &[i32], material: u32, scale: [f32; 3]) -> Block {
+    let mut w = W::new();
+    w.u32(material)
+        .f32(0.1)
+        .zeros(20)
+        .u32(1)
+        .vec4(scale)
+        .u32(strips.len() as u32);
+    for &strip in strips {
+        w.i32(strip);
+    }
+    w.u32(strips.len() as u32);
+    for _ in strips {
+        w.u8(Layer::STATIC.0).u8(0).u16(0);
+    }
+    Block::Collision {
+        type_name: "bhkNiTriStripsShape".into(),
+        data: w.done(),
+    }
+}
+
 /// One chunk holding a strip and a triangle list, plus one big triangle.
 fn compressed_mesh_data(
     chunk_translation: [f32; 3],
@@ -516,6 +537,75 @@ fn unknown_and_dangling_references_are_reported_not_fatal() {
     let blocks = vec![node("Dangling", [0.0; 3], 7, vec![])];
     let c = collect_blocks(&header(), &blocks, &[BlockRef(0)]).unwrap();
     assert!(c.colliders.is_empty() && c.skipped.is_empty());
+}
+
+#[test]
+fn fmt_09_strips_fixture_preserves_collision_triangles_and_winding() {
+    let geometry = GeometryData {
+        vertices: vec![
+            soe_nif::Vec3::new(0.0, 0.0, 0.0),
+            soe_nif::Vec3::new(1.0, 0.0, 0.0),
+            soe_nif::Vec3::new(0.0, 1.0, 0.0),
+            soe_nif::Vec3::new(1.0, 1.0, 0.0),
+        ],
+        triangles: vec![[0, 1, 2], [2, 1, 3]],
+        from_strips: true,
+        ..Default::default()
+    };
+    let blocks = vec![
+        node("Strips", [0.0; 3], 1, vec![]),
+        collision_object(2),
+        rigid_body_t(3, Layer::STATIC.0, [0.0; 3], 7),
+        ni_tri_strips_shape(&[4], 0x1234, [2.0, 3.0, 1.0]),
+        Block::GeometryData(geometry),
+    ];
+
+    let Block::Collision { data, .. } = &blocks[3] else {
+        unreachable!()
+    };
+    let Bhk::NiTriStrips {
+        material,
+        scale,
+        strips,
+        filters,
+    } = bhk::decode("bhkNiTriStripsShape", data, &header()).unwrap()
+    else {
+        panic!("expected a triangle strip shape");
+    };
+    assert_eq!(material, 0x1234);
+    assert_eq!(scale, Vec3::new(2.0, 3.0, 1.0));
+    assert_eq!(strips, [BlockRef(4)]);
+    assert_eq!(filters, [(Layer::STATIC, 0, 0)]);
+
+    let collected = collect_blocks(&header(), &blocks, &[BlockRef(0)]).unwrap();
+    assert!(collected.skipped.is_empty(), "{:?}", collected.skipped);
+    let Shape::Material { id, shape } = &collected.colliders[0].shape else {
+        panic!("expected a material wrapper");
+    };
+    assert_eq!(*id, 0x1234);
+    let Shape::TriangleMesh {
+        vertices,
+        triangles,
+        materials,
+    } = shape.as_ref()
+    else {
+        panic!("expected a triangle mesh");
+    };
+    assert_eq!(triangles, &[[0, 1, 2], [2, 1, 3]]);
+    assert_eq!(materials, &[Some(0x1234), Some(0x1234)]);
+    assert_eq!(vertices[1], Vec3::new(2.0, 0.0, 0.0) * UNITS_PER_METER);
+    assert_eq!(vertices[3], Vec3::new(2.0, 3.0, 0.0) * UNITS_PER_METER);
+}
+
+#[test]
+fn fmt_09_rejects_a_filter_count_that_does_not_match_strip_data() {
+    let Block::Collision { data, .. } = ni_tri_strips_shape(&[4], 0, [1.0; 3]) else {
+        unreachable!()
+    };
+    let mut malformed = data;
+    let filter_count = malformed.len() - 8;
+    malformed[filter_count..filter_count + 4].copy_from_slice(&0u32.to_le_bytes());
+    assert!(bhk::decode("bhkNiTriStripsShape", &malformed, &header()).is_err());
 }
 
 #[test]

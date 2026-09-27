@@ -60,7 +60,8 @@ moves on. The `controller` item of round 6 is what will use the last of those.
   `bhkListShape`, `bhkMoppBvTreeShape` (the MOPP tree itself is Havok's
   closed code and is skipped, the wrapped shape is used),
   `bhkCompressedMeshShape` and its data with chunks, strips, big
-  triangles and per chunk transforms. Everything else comes back as
+  triangles and per chunk transforms, and `bhkNiTriStripsShape` with its
+  referenced `NiTriStripsData` geometry. Everything else comes back as
   `Bhk::Other(name)`.
 - `shape`: walks the scene graph the way `soe_nif::mesh` does, resolves
   each collision object to a `Collider` with a world `Iso` transform and a
@@ -85,6 +86,27 @@ against the archives.
   motion system 5 (`MO_SYS_BOX_STABILIZED`) with mass zero, and mass
   zero is what Havok treats as immovable. `Collider::is_static` therefore
   tests mass first and the motion type second.
+
+### `bhkNiTriStripsShape` collision meshes (FMT-09)
+
+The decoder reads the material, radius, grow-by value, versioned XYZ scale,
+strip-data references and one Havok filter per reference. It rejects invalid
+radii, non-finite scales and mismatched filter counts. The referenced blocks
+must be `NiTriStripsData`, represented by `soe-nif` as `GeometryData` with
+triangle strips already unrolled. Their vertices are scaled, their triangles
+are appended with adjusted indices, and each triangle inherits the shape's
+Havok material. A missing or wrong-type geometry reference is reported in
+`Collected::skipped`. The resulting `TriangleMesh` is the triangle input used
+by the host's concave shape path.
+
+The layout and scale version gate follow `engine-refs/nifxml/nif.xml` for
+`bhkNiTriStripsShape`. OpenMW's `components/nif/physics.cpp` cross-checks the
+field order and filter list. The NIF reader applies alternating triangle
+winding and drops degenerate triangles. Jolt's `MeshShape` accepts triangle
+geometry, which matches the neutral triangle-mesh representation; this
+decoder does not add a separate Jolt dependency. The synthetic
+`fmt_09_strips_fixture_preserves_collision_triangles_and_winding` test checks
+the output triangles, material and scale.
 
 ## SimpleWorld
 

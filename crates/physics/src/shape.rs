@@ -522,7 +522,8 @@ impl<'a> Walker<'a> {
             | Bhk::Capsule { material, .. }
             | Bhk::ConvexVertices { material, .. }
             | Bhk::Transform { material, .. }
-            | Bhk::List { material, .. } => Some(*material),
+            | Bhk::List { material, .. }
+            | Bhk::NiTriStrips { material, .. } => Some(*material),
             _ => None,
         };
         let shape = match b {
@@ -593,6 +594,60 @@ impl<'a> Walker<'a> {
                     None
                 }
             },
+            Bhk::NiTriStrips { strips, scale, .. } => {
+                let mut vertices = Vec::new();
+                let mut triangles = Vec::new();
+                let mut materials = Vec::new();
+                for strip_ref in strips {
+                    match self.block(strip_ref) {
+                        Some(Block::GeometryData(data)) if data.from_strips => {
+                            let base = u32::try_from(vertices.len()).map_err(|_| {
+                                Error::Invalid("triangle strip mesh has too many vertices".into())
+                            })?;
+                            let local_vertex_count = data.vertices.len();
+                            vertices.extend(
+                                data.vertices.iter().map(|v| {
+                                    Vec3::new(v.x * scale.x, v.y * scale.y, v.z * scale.z)
+                                }),
+                            );
+                            for (index, triangle) in data.triangles.iter().enumerate() {
+                                if triangle
+                                    .iter()
+                                    .any(|vertex| usize::from(*vertex) >= local_vertex_count)
+                                {
+                                    return Err(Error::Invalid(format!(
+                                        "triangle strip block {} triangle {index} indexes past its vertices",
+                                        strip_ref.get().unwrap_or_default()
+                                    )));
+                                }
+                                triangles.push([
+                                    base + u32::from(triangle[0]),
+                                    base + u32::from(triangle[1]),
+                                    base + u32::from(triangle[2]),
+                                ]);
+                                materials.push(material);
+                            }
+                        }
+                        Some(Block::GeometryData(_)) => self.out.skipped.push((
+                            strip_ref,
+                            "triangle strip reference is not NiTriStripsData".into(),
+                        )),
+                        Some(_) | None => self.out.skipped.push((
+                            strip_ref,
+                            "triangle strip reference is not geometry data".into(),
+                        )),
+                    }
+                }
+                if triangles.is_empty() {
+                    None
+                } else {
+                    Some(Shape::TriangleMesh {
+                        vertices,
+                        triangles,
+                        materials,
+                    })
+                }
+            }
             Bhk::Other(t) => {
                 self.out.skipped.push((r, format!("shape {t}")));
                 None
