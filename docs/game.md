@@ -2252,6 +2252,10 @@ weapon/armor records, current skills, equipment and game settings, then queues
 OnHit before any death notifications. It builds on the frozen lifecycle review.
 Host hit detection, special attacks, perks and full combat remain unfinished.
 See [physical melee execution](combat.md) for supported rules and sources.
+Ranged release reads the selected bow or crossbow and equipped compatible AMMO
+form from actor equipment. A valid release consumes one round, queues the
+ordinary item removal notification, and returns a transient PROJ flight
+request to the host. See [ranged release](combat.md#ranged-release-cmb-08).
 The combined full gate passes 1,163 Rust tests and 11 Python tests, with no
 warnings or skipped optional tools. Installed-data validation passes 12 melee
 and 11 death-lifecycle tests. It decodes 3,262 winning weapons and 3,675 armors,
