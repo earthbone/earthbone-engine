@@ -370,6 +370,7 @@ fn remap_node(node: &mut Node, map: &SymbolMap, offset: usize) {
         | NodeKind::GetTimeStepModifier { .. }
         | NodeKind::IsActiveModifier { .. }
         | NodeKind::DecomposeVector { .. }
+        | NodeKind::SpeedSampler { .. }
         | NodeKind::Modifier { .. }
         | NodeKind::Unknown => {}
     }

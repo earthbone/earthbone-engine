@@ -348,6 +348,11 @@ enum Target {
     DecomposeComponent(usize),
     /// Output: the elapsed time of this graph update.
     TimeStep,
+    SpeedSamplerState,
+    SpeedSamplerDirection,
+    SpeedSamplerGoalSpeed,
+    /// Output: the active sampler's sampled speed.
+    SpeedSamplerSpeedOut,
 }
 
 impl Target {
@@ -363,6 +368,7 @@ impl Target {
                 | Target::MachineIsActive
                 | Target::DecomposeComponent(_)
                 | Target::TimeStep
+                | Target::SpeedSamplerSpeedOut
         )
     }
 }
@@ -432,6 +438,8 @@ struct Runtime {
 
     /// A bound vector input for `BSDecomposeVectorModifier`.
     vector: Option<[f32; 4]>,
+    speed_sampler_goal_speed: Option<f32>,
+    speed_sampler_speed_out: f32,
 }
 
 /// A generator's result for one frame: a local pose and how much of it
@@ -703,6 +711,16 @@ impl<'a> Interpreter<'a> {
                         })
                 }
                 ("vector", None, NodeKind::DecomposeVector { .. }) => Some(Target::DecomposeVector),
+                ("state", None, NodeKind::SpeedSampler { .. }) => Some(Target::SpeedSamplerState),
+                ("direction", None, NodeKind::SpeedSampler { .. }) => {
+                    Some(Target::SpeedSamplerDirection)
+                }
+                ("goalSpeed", None, NodeKind::SpeedSampler { .. }) => {
+                    Some(Target::SpeedSamplerGoalSpeed)
+                }
+                ("speedOut", None, NodeKind::SpeedSampler { .. }) => {
+                    Some(Target::SpeedSamplerSpeedOut)
+                }
                 ("x", None, NodeKind::DecomposeVector { .. }) => {
                     Some(Target::DecomposeComponent(0))
                 }
@@ -971,6 +989,15 @@ impl<'a> Interpreter<'a> {
                 };
                 self.variables.set_real(b.variable, runtime.time_step);
             }
+            Target::SpeedSamplerSpeedOut => {
+                let Some(runtime) = self.nodes.get(b.node.0) else {
+                    return;
+                };
+                if runtime.active {
+                    self.variables
+                        .set_real(b.variable, runtime.speed_sampler_speed_out);
+                }
+            }
             _ => {}
         }
     }
@@ -1007,11 +1034,16 @@ impl<'a> Interpreter<'a> {
                 Target::StartStateId => rt.start_state = Some(value as i32),
                 Target::Duration => rt.duration = Some(value),
                 Target::DecomposeVector => rt.vector = table.quad(b.variable),
-                // Written by apply_output_bindings, skipped above.
+                Target::SpeedSamplerGoalSpeed => rt.speed_sampler_goal_speed = Some(value),
+                // Output targets are skipped above. State and direction are
+                // recognized inputs but do not affect the sampled speed.
                 Target::IsActive { .. }
                 | Target::MachineIsActive
                 | Target::DecomposeComponent(_)
-                | Target::TimeStep => {}
+                | Target::TimeStep
+                | Target::SpeedSamplerState
+                | Target::SpeedSamplerDirection
+                | Target::SpeedSamplerSpeedOut => {}
             }
         }
     }
@@ -1030,6 +1062,7 @@ impl<'a> Interpreter<'a> {
             | NodeKind::IsActiveModifier { enable, .. }
             | NodeKind::FalseToTrueModifier { enable, .. }
             | NodeKind::DecomposeVector { enable, .. }
+            | NodeKind::SpeedSampler { enable, .. }
             | NodeKind::Modifier { enable } => *enable,
             _ => true,
         };
@@ -1102,6 +1135,11 @@ impl<'a> Interpreter<'a> {
                     self.raise(slot.event.id);
                 }
             }
+        }
+        if let NodeKind::SpeedSampler { goal_speed, .. } = &self.graph.nodes[id.0].kind {
+            let runtime = &mut self.nodes[id.0];
+            runtime.speed_sampler_speed_out =
+                runtime.speed_sampler_goal_speed.unwrap_or(*goal_speed);
         }
     }
 
@@ -1202,6 +1240,7 @@ impl<'a> Interpreter<'a> {
             | NodeKind::GetTimeStepModifier { .. }
             | NodeKind::IsActiveModifier { .. }
             | NodeKind::DecomposeVector { .. }
+            | NodeKind::SpeedSampler { .. }
             | NodeKind::Modifier { .. }
             | NodeKind::Unknown => {}
         }
@@ -1688,6 +1727,7 @@ impl<'a> Interpreter<'a> {
             | NodeKind::IsActiveModifier { .. }
             | NodeKind::FalseToTrueModifier { .. }
             | NodeKind::DecomposeVector { .. }
+            | NodeKind::SpeedSampler { .. }
             | NodeKind::Modifier { .. } => self.reference_output(),
         }
     }
