@@ -189,3 +189,36 @@ fn ai_23_idle_marker_reservation_is_exclusive_and_released_on_package_change() {
         .clone();
     assert_eq!(selected, Procedure::UseIdleMarker { marker: Some(held) });
 }
+
+#[test]
+fn ai_23_idle_marker_skips_unusable_references() {
+    for unusable in 0..3 {
+        let mut game = game();
+        let marker = match game.world().actor_ref(id(ACTOR_A)).unwrap().ai.procedure {
+            Procedure::UseIdleMarker {
+                marker: Some(marker),
+            } => marker,
+            ref other => panic!("first actor did not reserve a marker: {other:?}"),
+        };
+        {
+            let mut world = game.world_mut();
+            let center = world.reference(marker).unwrap().position;
+            let reference = world.reference(marker).unwrap();
+            match unusable {
+                0 => reference.enabled = false,
+                1 => reference.deleted = true,
+                _ => reference.destroyed = true,
+            }
+            let ai = &mut world.actor(id(ACTOR_A)).unwrap().ai;
+            ai.procedure = Procedure::UseIdleMarker { marker: None };
+            ai.center = Some(center);
+            ai.radius = 0.0;
+        }
+        game.tick(0.1);
+        assert_eq!(
+            game.world().actor_ref(id(ACTOR_A)).unwrap().ai.procedure,
+            Procedure::UseIdleMarker { marker: None },
+            "unusable marker kind {unusable} was selected"
+        );
+    }
+}

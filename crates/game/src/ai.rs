@@ -1034,9 +1034,12 @@ fn begin_procedure(
         }
         Procedure::Find => {
             match tree::find_target(world, ai).and_then(|(owner, target, location)| {
-                let place = location.and_then(|(owner, location)| {
-                    resolve_location(world, actor, owner, ai.alias, ai, &location)
-                });
+                let place = match location {
+                    Some((owner, location)) => Some(resolve_location(
+                        world, actor, owner, ai.alias, ai, &location,
+                    )?),
+                    None => None,
+                };
                 find_reference(
                     world,
                     actor,
@@ -1106,7 +1109,7 @@ fn find_reference(
                     !state.deleted && !state.destroyed && state.enabled,
                 )
             })?;
-            if !eligible {
+            if !eligible || position.iter().any(|value| !value.is_finite()) {
                 return None;
             }
             let candidate_base = world.base_of(reference)?;
@@ -1362,10 +1365,12 @@ fn idle_markers(
         {
             continue;
         }
-        if !world
-            .reference(reference)
-            .is_some_and(|state| distance(state.position, center) <= radius)
-        {
+        if !world.reference(reference).is_some_and(|state| {
+            state.enabled
+                && !state.deleted
+                && !state.destroyed
+                && distance(state.position, center) <= radius
+        }) {
             continue;
         }
         let reserved = refs.iter().copied().any(|other| {
@@ -1524,6 +1529,12 @@ fn step(world: &mut World, actor: GlobalFormId, dt: f32) {
     }
     if ai.procedure == Procedure::Follow {
         follow_target(world, actor, &mut ai, position);
+    }
+    if matches!(
+        ai.procedure,
+        Procedure::ForceGreet | Procedure::Activate | Procedure::DialogueActivate
+    ) {
+        approach_assigned_target(world, actor, &mut ai, position);
     }
     if matches!(ai.procedure, Procedure::Orbit { .. }) {
         orbit(world, actor, &mut ai, position, dt);
@@ -1764,6 +1775,56 @@ fn follow_target(world: &mut World, actor: GlobalFormId, ai: &mut AiState, posit
             .map_or(speed::WALK, |p| p.general.preferred_speed)
     };
     ai.speed = movement_speed(world, actor, preferred);
+}
+
+fn approach_assigned_target(
+    world: &mut World,
+    actor: GlobalFormId,
+    ai: &mut AiState,
+    position: [f32; 3],
+) {
+    if ai.force_greet_started || ai.activate_started || ai.dialogue_activate_started {
+        return;
+    }
+    let target_data = match ai.procedure {
+        Procedure::ForceGreet => tree::force_greet_parameters(world, ai).map(|(target, _)| target),
+        Procedure::Activate | Procedure::DialogueActivate => tree::activate_target(world, ai),
+        _ => None,
+    };
+    let target = target_data
+        .and_then(|data| resolve_follow_target(world, actor, ai, data))
+        .and_then(|id| {
+            world
+                .reference(id)
+                .map(|reference| (reference.position, reference.cell))
+        });
+    let Some((target_position, target_cell)) = target else {
+        ai.procedure = Procedure::Unsupported("assigned target is not placed".into());
+        ai.destination = None;
+        ai.path.clear();
+        ai.path_cells.clear();
+        return;
+    };
+    if target_position.iter().any(|value| !value.is_finite()) {
+        ai.procedure = Procedure::Unsupported("assigned target position".into());
+        ai.destination = None;
+        ai.path.clear();
+        ai.path_cells.clear();
+        return;
+    }
+    if distance(position, target_position) <= ARRIVAL_DISTANCE {
+        ai.destination = None;
+        ai.path.clear();
+        ai.path_cells.clear();
+        ai.arrived = true;
+    } else if ai.destination != Some(target_position) || ai.center_cell != target_cell || ai.arrived
+    {
+        ai.destination = Some(target_position);
+        ai.center_cell = target_cell;
+        ai.path.clear();
+        ai.path_cells.clear();
+        ai.arrived = false;
+    }
 }
 
 fn orbit(world: &mut World, actor: GlobalFormId, ai: &mut AiState, position: [f32; 3], dt: f32) {

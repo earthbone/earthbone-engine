@@ -166,6 +166,23 @@ fn ai_35_dialogue_activate_starts_selected_conversation_once_in_range() {
 }
 
 #[test]
+fn ai_35_dialogue_activate_tracks_a_target_that_moves_before_start() {
+    let mut game = make_game(true, 700.0);
+    game.world_mut().reference(id(TARGET)).unwrap().position[0] = 900.0;
+    game.tick(0.1);
+    assert_eq!(
+        game.world()
+            .actor_ref(id(ACTOR))
+            .unwrap()
+            .ai
+            .destination
+            .unwrap()[0],
+        900.0
+    );
+    assert!(game.world().dialogue_session().is_none());
+}
+
+#[test]
 fn ai_35_dialogue_activate_waits_until_inside_configured_range() {
     let mut game = make_game(true, 700.0);
     for _ in 0..5 {

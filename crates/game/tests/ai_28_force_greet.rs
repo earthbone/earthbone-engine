@@ -169,6 +169,23 @@ fn ai_28_force_greet_approaches_and_opens_the_assigned_topic_once() {
 }
 
 #[test]
+fn ai_28_force_greet_tracks_a_target_that_moves_before_arrival() {
+    let mut game = game(1.0, false);
+    game.world_mut().reference(id(PLAYER)).unwrap().position[0] = 400.0;
+    game.tick(0.1);
+    assert_eq!(
+        game.world()
+            .actor_ref(id(ACTOR))
+            .unwrap()
+            .ai
+            .destination
+            .unwrap()[0],
+        400.0
+    );
+    assert!(game.world().dialogue_session().is_none());
+}
+
+#[test]
 fn ai_28_force_greet_invisible_actor_needs_ghost_flag_to_start() {
     let mut invisible = game(0.5, false);
     invisible.tick(2.0);

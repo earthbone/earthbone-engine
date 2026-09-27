@@ -142,6 +142,23 @@ fn ai_27_activate_reaches_and_activates_its_resolved_target_once() {
 }
 
 #[test]
+fn ai_27_activate_tracks_a_target_that_moves_before_arrival() {
+    let mut game = make_game(true);
+    game.world_mut().reference(id(TARGET)).unwrap().position[0] = 400.0;
+    game.tick(0.1);
+    assert_eq!(
+        game.world()
+            .actor_ref(id(ACTOR))
+            .unwrap()
+            .ai
+            .destination
+            .unwrap()[0],
+        400.0
+    );
+    assert!(!game.world_mut().reference(id(TARGET)).unwrap().opened);
+}
+
+#[test]
 fn ai_27_activate_rejects_a_missing_assigned_reference() {
     let mut game = make_game(false);
     for _ in 0..3 {
@@ -172,7 +189,7 @@ fn ai_27_activate_saves_attempt_state_and_rejects_old_and_future_versions() {
     );
 
     let mut old = bytes.clone();
-    old[4..6].copy_from_slice(&(soe_game::world::SAVE_VERSION - 1).to_le_bytes());
+    old[4..6].copy_from_slice(&40u16.to_le_bytes());
     assert!(restored
         .world_mut()
         .load_state(&old)

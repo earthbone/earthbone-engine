@@ -680,8 +680,9 @@ page defines the catch-up and follow thresholds. PACK input layout follows
 local xEdit `wbRecord(PACK)` and Mutagen Skyrim `Package.xml`. SOEW version 35
 adds the saved Follow procedure tag, and earlier saves cannot contain it.
 
-`UseIdleMarker` selects an IDLM reference in the procedure location's cell and
-radius, walks the actor to it, and holds that marker. An actor with an active
+`UseIdleMarker` selects an enabled IDLM reference in the procedure location's
+cell and radius, skips deleted and destroyed markers, walks the actor to it,
+and holds that marker. An actor with an active
 `UseIdleMarker` procedure reserves its selected marker. Other actors skip that
 reservation when choosing a marker. Changing or ending the package clears the
 reservation with the procedure state. This uses the PACK input layout from
@@ -725,13 +726,18 @@ corpus has no DialogueActivate procedure page. Package target inputs follow
 `wbRecord(PACK)` in xEdit. Range follows the existing dialogue distance rule
 in `dialogue.rs`.
 
+`ForceGreet`, `Activate` and `DialogueActivate` recalculate the assigned
+target's position while approaching it, so movement before the attempt does
+not leave the actor heading for an old position.
+
 `Find` reads the branch's target input through its package template chain.
 Object ID matches a placed reference's resolved base form. Object Type value
 11 matches weapon bases. Other Object Type values and target selectors are
 unsupported. A negative authored radius is unsupported. The search uses the
 authored location's cell and optional radius,
 or the actor's current cell when there is no location. Disabled, deleted,
-destroyed and self references are skipped. The nearest match wins, with
+destroyed, invalid-position and self references are skipped. An unresolved
+authored location does not fall back to the actor's cell. The nearest match wins, with
 resolved FormID as the deterministic tie break. The local CK corpus has no
 Find procedure page. The target layout and Object Type label follow xEdit's
 `wbRecord(PACK)` and the UESP PACK page, which documents value 11 as any
@@ -972,13 +978,6 @@ references. Versions 34 to 40 add Hover, Follow, UseIdleMarker, ForceGreet,
 HoldPosition, Orbit and Escort procedure state. Version 41 adds the Activate
 procedure and its saved one-shot state. Version 42 adds Find and its selected
 reference. Version 43 adds DialogueActivate and its saved one-shot state.
-version 5 adds active magic, version 6 adds dialogue, version 7 adds actor-value
-components, version 8 adds dialogue to those components, version 9 adds
-active magic. Version 10 adds per-reference leveled template choices.
-Version 11 adds quest journal instances and mapped runtime metadata. Versions
-12 to 15 add inventory, NPC, identity and deferred-death state. Version 16
-adds an actor's active exclusive dialogue branch, and version 17 adds active
-do-all dialogue cycles.
 Older formats load with empty state for absent subsystems.
 Legacy current and base values must agree. Otherwise their modifier domains
 are ambiguous and restoration returns an explicit error.

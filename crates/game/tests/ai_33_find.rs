@@ -47,7 +47,7 @@ fn with_target_input(record: Record, index: i8, target: Target) -> Record {
         .sub(T(b"UNAM"), [index as u8])
 }
 
-fn make_game(target: Target, search_radius: Option<i32>) -> Game {
+fn make_game(target: Target, search_location: Option<(Location, i32)>) -> Game {
     let mut plugin = Plugin::new(FileHeader::default());
     let template = package::close_header(package::build_template(TEMPLATE, "Find"), None);
     let template = with_target_input(template, 0, target);
@@ -62,9 +62,8 @@ fn make_game(target: Target, search_radius: Option<i32>) -> Game {
         Some(TEMPLATE),
     );
     let mut package_record = with_target_input(package_record, 0, target);
-    if let Some(radius) = search_radius {
-        package_record =
-            package::with_location_input(package_record, 1, Location::NearSelf, radius);
+    if let Some((location, radius)) = search_location {
+        package_record = package::with_location_input(package_record, 1, location, radius);
     }
     plugin.push_top(package::with_actions(package::finish(package_record)));
     plugin.push_top(
@@ -122,7 +121,10 @@ fn make_game(target: Target, search_radius: Option<i32>) -> Game {
 
 #[test]
 fn ai_33_find_returns_nearest_matching_object_inside_authored_radius() {
-    let game = make_game(Target::ObjectId(OBJECT_BASE), Some(35));
+    let game = make_game(
+        Target::ObjectId(OBJECT_BASE),
+        Some((Location::NearSelf, 35)),
+    );
     let world = game.world();
     let actor = world.actor_ref(id(ACTOR)).unwrap();
     assert_eq!(actor.ai.procedure, Procedure::Find);
@@ -145,6 +147,18 @@ fn ai_33_find_object_type_matches_any_weapon_and_breaks_ties_by_identity() {
 #[test]
 fn ai_33_find_rejects_object_type_values_without_a_known_match_rule() {
     let game = make_game(Target::ObjectType(99), None);
+    let world = game.world();
+    let ai = &world.actor_ref(id(ACTOR)).unwrap().ai;
+    assert!(matches!(ai.procedure, Procedure::Unsupported(_)));
+    assert_eq!(ai.found_reference, None);
+}
+
+#[test]
+fn ai_33_find_rejects_an_unresolved_authored_location() {
+    let game = make_game(
+        Target::ObjectId(OBJECT_BASE),
+        Some((Location::NearReference(0x999), 35)),
+    );
     let world = game.world();
     let ai = &world.actor_ref(id(ACTOR)).unwrap().ai;
     assert!(matches!(ai.procedure, Procedure::Unsupported(_)));
@@ -188,7 +202,10 @@ fn ai_33_find_result_survives_save_and_old_and_future_versions_are_checked() {
 
 #[test]
 fn ai_33_find_rejects_a_negative_authored_search_radius() {
-    let game = make_game(Target::ObjectId(OBJECT_BASE), Some(-1));
+    let game = make_game(
+        Target::ObjectId(OBJECT_BASE),
+        Some((Location::NearSelf, -1)),
+    );
     let world = game.world();
     let ai = &world.actor_ref(id(ACTOR)).unwrap().ai;
     assert!(matches!(ai.procedure, Procedure::Unsupported(_)));
