@@ -1812,6 +1812,13 @@ and rejected casts return false. The caller discards the projectile after a
 successful contact. This callback allocates no projectile node and stores no
 projectile or save state.
 
+`cast_location_spell(spell_file, spell_object, x, y, z)` sends the selected
+Skyrim world position to `World::cast_spell_at_location`. The player's static
+physics world raycasts from the player feet to the point. Missing physics data
+or any geometry hit rejects the cast before the world applies effects. The
+world checks the authored SPIT range and centers each effect's area at the
+selected point.
+
 Pose-derived segments come from two new entry points.
 `melee_pose_contact(name, skeleton)` finds the armed hand's weapon node in a
 Skeleton3D (`WEAPON` then `Weapon` then `NPC R Hand [RHnd]` for the right hand,

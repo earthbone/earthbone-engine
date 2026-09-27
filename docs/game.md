@@ -1587,6 +1587,15 @@ come from local `TES5Edit/Core/wbDefinitionsTES5.pas`. The CK
 applies a Target Actor spell regardless of battlefield distance, so that
 target-actor behavior is not used for touch delivery.
 
+`World::cast_spell_at_location` accepts a selected position for SPIT delivery
+4, checks the finite position and authored range from the source reference,
+and rejects the cast when the host reports an obstructed line to that point.
+Each effect applies to enabled, undeleted actor references inside its authored
+EFIT area around the selected point. A zero area selects only actors at the
+exact point. xEdit's SPIT definition and the local UESP SPEL format page name
+Target Location as delivery 4 and Range as valid for this delivery. The host
+collision result is supplied by `godot-host` and is not saved.
+
 Each SPEL effect group's CTDAs run before that group is prepared. MGEF CTDAs
 run separately, with FormIDs resolved against their owning MGEF. Both use the
 delivery recipient as subject and the credited caster as target. A false group

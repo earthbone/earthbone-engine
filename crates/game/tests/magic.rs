@@ -92,6 +92,12 @@ fn effect_with_resistance(resistance: i32) -> Record {
     effect
 }
 
+fn location_effect() -> Record {
+    let mut effect = effect(1 | (1 << 2), 0, 24, false);
+    effect.subrecords[1].data[84..88].copy_from_slice(&4u32.to_le_bytes());
+    effect
+}
+
 fn spell(form: u32, kind: u32, constant: bool, magnitude: f32, duration: u32) -> Record {
     spell_with_area(form, kind, constant, magnitude, duration, 0)
 }
@@ -117,6 +123,13 @@ fn spell_with_area(
         .sub(T(b"SPIT"), data)
         .sub(T(b"EFID"), EFFECT.to_le_bytes())
         .sub(T(b"EFIT"), efit)
+}
+
+fn location_spell(form: u32, range: f32, area: u32) -> Record {
+    let mut spell = spell_with_area(form, 0, false, 20.0, 0, area);
+    put(&mut spell.subrecords[0].data, 20, 4);
+    spell.subrecords[0].data[28..32].copy_from_slice(&range.to_le_bytes());
+    spell
 }
 
 fn touch_spell(form: u32, magnitude: f32, reach: f32) -> Record {
@@ -527,6 +540,24 @@ fn projectile_contact(
     result
 }
 
+fn location_cast(
+    game: &mut Game,
+    spell: u32,
+    position: [f32; 3],
+    line_of_sight_clear: bool,
+) -> Result<Vec<EffectId>, MagicError> {
+    let shared = game.shared_world();
+    let result = shared.borrow_mut().cast_spell_at_location(
+        id(spell),
+        id(ACTOR),
+        Some(id(ACTOR)),
+        position,
+        line_of_sight_clear,
+        &mut |name, class| game.vm.create_object_of(name, class),
+    );
+    result
+}
+
 #[test]
 fn mag_02_aimed_projectile_contact_hits_only_its_hostile_actor_once() {
     let mut game = game(plugin(aimed_effect(), vec![aimed_spell(SPELL, 20.0)]));
@@ -571,6 +602,111 @@ fn mag_02_aimed_projectile_contact_hits_only_its_hostile_actor_once() {
         )],
         "the contact emits one hostile hit for the resolved target"
     );
+}
+
+#[test]
+fn mag_17_location_cast_uses_selected_position_and_authored_area() {
+    let mut game = game(plugin_with_positions(
+        location_effect(),
+        vec![location_spell(SPELL, 100.0, 20)],
+        &[
+            (ACTOR, [0.0, 0.0, 0.0]),
+            (OTHER, [105.0, 0.0, 0.0]),
+            (SOURCE, [0.0, 500.0, 0.0]),
+        ],
+    ));
+
+    let applied = location_cast(&mut game, SPELL, [100.0, 0.0, 0.0], true).unwrap();
+
+    assert_eq!(applied.len(), 1);
+    let world = game.world();
+    let active = world.active_effects().next().unwrap();
+    assert_eq!(active.target, id(OTHER));
+    drop(world);
+    assert_eq!(game.world_mut().actor_value(id(OTHER), "health"), 80.0);
+    assert_eq!(game.world_mut().actor_value(id(ACTOR), "health"), 100.0);
+}
+
+#[test]
+fn mag_17_location_cast_rejects_a_point_beyond_authored_range() {
+    let mut game = game(plugin_with_positions(
+        location_effect(),
+        vec![location_spell(SPELL, 50.0, 20)],
+        &[(ACTOR, [0.0, 0.0, 0.0]), (OTHER, [105.0, 0.0, 0.0])],
+    ));
+
+    assert!(matches!(
+        location_cast(&mut game, SPELL, [100.0, 0.0, 0.0], true),
+        Err(MagicError::Target)
+    ));
+    assert_eq!(game.world().active_effects().count(), 0);
+    assert_eq!(game.world_mut().actor_value(id(OTHER), "health"), 100.0);
+}
+
+#[test]
+fn mag_17_location_cast_rejects_an_obstructed_point() {
+    let mut game = game(plugin_with_positions(
+        location_effect(),
+        vec![location_spell(SPELL, 200.0, 20)],
+        &[(ACTOR, [0.0, 0.0, 0.0]), (OTHER, [105.0, 0.0, 0.0])],
+    ));
+
+    assert!(matches!(
+        location_cast(&mut game, SPELL, [100.0, 0.0, 0.0], false),
+        Err(MagicError::Target)
+    ));
+    assert_eq!(game.world().active_effects().count(), 0);
+    assert_eq!(game.world_mut().actor_value(id(OTHER), "health"), 100.0);
+}
+
+#[test]
+fn mag_17_location_cast_rejects_non_finite_positions_and_range() {
+    let mut position_game = game(plugin_with_positions(
+        location_effect(),
+        vec![location_spell(SPELL, 200.0, 20)],
+        &[(ACTOR, [0.0, 0.0, 0.0]), (OTHER, [105.0, 0.0, 0.0])],
+    ));
+    assert!(matches!(
+        location_cast(&mut position_game, SPELL, [f32::NAN, 0.0, 0.0], true),
+        Err(MagicError::Number)
+    ));
+    let mut malformed = location_spell(SPELL, 200.0, 20);
+    malformed.subrecords[0].data[28..32].copy_from_slice(&f32::NAN.to_le_bytes());
+    let mut range_game = game(plugin_with_positions(
+        location_effect(),
+        vec![malformed],
+        &[(ACTOR, [0.0, 0.0, 0.0]), (OTHER, [105.0, 0.0, 0.0])],
+    ));
+    assert!(matches!(
+        location_cast(&mut range_game, SPELL, [100.0, 0.0, 0.0], true),
+        Err(MagicError::Number)
+    ));
+    assert_eq!(range_game.world().active_effects().count(), 0);
+
+    let mut negative_range_game = game(plugin_with_positions(
+        location_effect(),
+        vec![location_spell(SPELL, -1.0, 20)],
+        &[(ACTOR, [0.0, 0.0, 0.0]), (OTHER, [105.0, 0.0, 0.0])],
+    ));
+    assert!(matches!(
+        location_cast(&mut negative_range_game, SPELL, [100.0, 0.0, 0.0], true),
+        Err(MagicError::Number)
+    ));
+}
+
+#[test]
+fn mag_17_location_cast_rejects_a_non_location_spell() {
+    let mut game = game(plugin_with_positions(
+        effect(1, 0, 24, false),
+        vec![spell(SPELL, 0, false, 20.0, 0)],
+        &[(ACTOR, [0.0, 0.0, 0.0]), (OTHER, [105.0, 0.0, 0.0])],
+    ));
+
+    assert!(matches!(
+        location_cast(&mut game, SPELL, [100.0, 0.0, 0.0], true),
+        Err(MagicError::Unsupported("location delivery"))
+    ));
+    assert_eq!(game.world().active_effects().count(), 0);
 }
 
 #[test]

@@ -5,8 +5,8 @@
 //! enums. Definitions stay in the winning records. Per-cast magnitudes,
 //! elapsed time and reversible actor-value deltas belong to the world.
 //! Aimed delivery follows the SPIT field in xEdit and applies only through an
-//! actor target supplied by a projectile contact. Unsupported delivery and
-//! archetypes return errors before applying effects.
+//! actor target supplied by a projectile contact. Target-location delivery
+//! uses the selected point as the center for authored area effects.
 
 use soe_esm::records::gameplay::{Effect, Ingestible, MagicEffect, Spell};
 use soe_esm::{GlobalFormId, Record, Tag};
@@ -99,6 +99,7 @@ struct PreparedEffect {
 enum CastDelivery {
     Direct,
     ProjectileContact,
+    Location,
 }
 
 impl World {
@@ -573,11 +574,42 @@ impl World {
         if !(radius.is_finite() && radius > 0.0) {
             return vec![anchor];
         }
+        let mut selected = self.area_targets_at(center, radius);
+        if !selected.contains(&anchor) {
+            selected.push(anchor);
+            selected.sort_unstable();
+        }
+        selected
+    }
+
+    fn area_targets_at_position(&self, center: [f32; 3], radius: f32) -> Vec<GlobalFormId> {
+        self.area_targets_at(center, radius)
+    }
+
+    fn area_targets_at(&self, center: [f32; 3], radius: f32) -> Vec<GlobalFormId> {
+        if !center.iter().all(|value| value.is_finite()) {
+            return Vec::new();
+        }
+        if !(radius.is_finite() && radius >= 0.0) {
+            return Vec::new();
+        }
+        if !(radius.is_finite() && radius > 0.0) {
+            return self
+                .refs
+                .iter()
+                .filter_map(|(&candidate, reference)| {
+                    (reference.is_actor
+                        && reference.enabled
+                        && !reference.deleted
+                        && reference.position.iter().all(|v| v.is_finite())
+                        && reference.position == center)
+                        .then_some(candidate)
+                })
+                .collect();
+        }
         let mut selected = std::collections::BTreeSet::new();
-        selected.insert(anchor);
         for (&candidate, reference) in &self.refs {
-            if candidate == anchor
-                || !reference.is_actor
+            if !reference.is_actor
                 || !reference.enabled
                 || reference.deleted
                 || !reference.position.iter().all(|v| v.is_finite())
@@ -612,7 +644,15 @@ impl World {
         target: Option<GlobalFormId>,
         alloc: Alloc<'_>,
     ) -> Result<Vec<EffectId>, MagicError> {
-        let prepared = self.prepare_spell(spell, source, caster, target, CastDelivery::Direct)?;
+        let prepared = self.prepare_spell(
+            spell,
+            source,
+            caster,
+            target,
+            CastDelivery::Direct,
+            None,
+            true,
+        )?;
         self.apply_prepared_effects(prepared, alloc)
     }
 
@@ -637,6 +677,37 @@ impl World {
             caster,
             Some(target),
             CastDelivery::ProjectileContact,
+            None,
+            true,
+        )?;
+        self.apply_prepared_effects(prepared, alloc)
+    }
+
+    /// Apply a target-location spell at a selected world position.
+    /// `line_of_sight_clear` comes from the host collision query between the
+    /// casting reference and the selected point.
+    ///
+    /// # Errors
+    /// Returns an error before applying effects for a non-location spell, an
+    /// invalid or out-of-range position, an obstructed path, or an unsupported
+    /// effect.
+    pub fn cast_spell_at_location(
+        &mut self,
+        spell: GlobalFormId,
+        source: GlobalFormId,
+        caster: Option<GlobalFormId>,
+        position: [f32; 3],
+        line_of_sight_clear: bool,
+        alloc: Alloc<'_>,
+    ) -> Result<Vec<EffectId>, MagicError> {
+        let prepared = self.prepare_spell(
+            spell,
+            source,
+            caster,
+            None,
+            CastDelivery::Location,
+            Some(position),
+            line_of_sight_clear,
         )?;
         self.apply_prepared_effects(prepared, alloc)
     }
@@ -658,9 +729,15 @@ impl World {
             {
                 continue;
             }
-            let Ok(prepared) =
-                self.prepare_spell(spell, actor, Some(actor), Some(actor), CastDelivery::Direct)
-            else {
+            let Ok(prepared) = self.prepare_spell(
+                spell,
+                actor,
+                Some(actor),
+                Some(actor),
+                CastDelivery::Direct,
+                None,
+                true,
+            ) else {
                 continue;
             };
             let Ok(prepared) = self.prepare_effect_actions(prepared) else {
@@ -688,8 +765,13 @@ impl World {
         caster: Option<GlobalFormId>,
         target: Option<GlobalFormId>,
         cast_delivery: CastDelivery,
+        location: Option<[f32; 3]>,
+        line_of_sight_clear: bool,
     ) -> Result<Vec<PreparedEffect>, MagicError> {
         let definition = self.spell(spell)?;
+        if cast_delivery == CastDelivery::Location && definition.data.delivery != 4 {
+            return Err(MagicError::Unsupported("location delivery"));
+        }
         if !matches!(definition.data.cast_type, 0 | 1) {
             return Err(MagicError::Unsupported("concentration or scroll casting"));
         }
@@ -711,6 +793,34 @@ impl World {
                 target
             }
             3 => target.ok_or(MagicError::Target)?,
+            4 if cast_delivery == CastDelivery::Location => {
+                let position = location.ok_or(MagicError::Target)?;
+                if !position.iter().all(|value| value.is_finite())
+                    || !definition.data.range.is_finite()
+                    || definition.data.range < 0.0
+                {
+                    return Err(MagicError::Number);
+                }
+                let Some(source_position) = self.reference(source).map(|r| r.position) else {
+                    return Err(MagicError::Target);
+                };
+                if !source_position.iter().all(|value| value.is_finite()) {
+                    return Err(MagicError::Target);
+                }
+                let distance = source_position
+                    .iter()
+                    .zip(position)
+                    .map(|(a, b)| (a - b) * (a - b))
+                    .sum::<f32>()
+                    .sqrt();
+                if !distance.is_finite() || distance > definition.data.range {
+                    return Err(MagicError::Target);
+                }
+                if !line_of_sight_clear {
+                    return Err(MagicError::Target);
+                }
+                source
+            }
             2 if cast_delivery == CastDelivery::ProjectileContact => {
                 target.ok_or(MagicError::Target)?
             }
@@ -842,7 +952,11 @@ impl World {
             } else {
                 entry.data.area as f32
             };
-            let mut recipients = self.area_targets(target, radius);
+            let mut recipients = if definition.data.delivery == 4 {
+                self.area_targets_at_position(location.ok_or(MagicError::Target)?, radius)
+            } else {
+                self.area_targets(target, radius)
+            };
             if data.flags & HOSTILE != 0 {
                 recipients.retain(|&id| {
                     self.actor(id)
