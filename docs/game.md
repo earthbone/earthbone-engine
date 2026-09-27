@@ -962,6 +962,10 @@ update timers, notifications, message boxes, animation events, the INI
 overlay), is written and read in full since there is nothing to recompute it
 from.
 
+Actor values retain base, permanent, temporary and damage components. The
+SAV-06 `sav_06_actor_value_modifiers` tests verify current and maximum values
+through `Game::save_state` and `Game::load_state`.
+
 `Game::save_state(&self) -> Result<Vec<u8>, VmError>` and
 `Game::load_state(&mut self, bytes) -> Result<(), VmError>`
 (`crates/game/src/save.rs`) wrap `World::save_state`/`load_state` and
