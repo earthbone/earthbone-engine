@@ -2553,6 +2553,7 @@ are absent.
 Missing weather slots fall back to the loaded cell, and a missing cell source
 returns no base image space. Malformed authored fields return a state error.
 The selected weather, slots and blend survive SOEW version 35 save/load.
+Version 35 also writes an explicit empty detection count ahead of that state.
 Invalid selection leaves the previous one intact.
 Autonomous climate selection, weather scheduling and Papyrus weather natives
 are outside that row. SCR-54 needs the owning weather API before binding

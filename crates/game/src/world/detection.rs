@@ -191,17 +191,16 @@ impl World {
     }
 }
 
-/// Read the version 30 detection block. An absent block is an empty state,
-/// and a present one must hold at least one pool so each state has a single
-/// encoding. Actor identities are checked by the caller once references are
-/// known.
+/// Read the detection block. Versions 30 to 34 omit an empty block. Version
+/// 35 writes an explicit zero count before later state. Actor identities are
+/// checked by the caller once references are known.
 pub(super) fn read_detection(
     input: &mut FormReader<'_, '_>,
     framed: bool,
 ) -> Result<DetectionState, VmError> {
     let bad = || VmError::State("invalid detection state".into());
     let mut state = DetectionState::default();
-    if input.remaining() == 0 {
+    if input.remaining() == 0 && !framed {
         return Ok(state);
     }
     let pools = input.len()?;
