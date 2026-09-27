@@ -1592,12 +1592,11 @@ fn installed_dialogue_preserves_ownership_fragments_and_order() {
             topics.insert(topic);
             infos += 1;
             if let Some(bytes) = record.find(T(b"VMAD")) {
-                let mut vmad =
-                    Vmad::parse(bytes, T(b"INFO")).unwrap_or_else(|e| panic!("{id:?}: {e}"));
+                let vmad = Vmad::parse(bytes, T(b"INFO")).unwrap_or_else(|e| panic!("{id:?}: {e}"));
                 let encoded = vmad.write(T(b"INFO"));
-                // The existing writer canonicalizes the script header to v5/format2.
-                vmad.version = 5;
-                vmad.object_format = 2;
+                // The writer keeps the authored script header, so the record
+                // round-trips byte for byte.
+                assert_eq!(encoded, bytes, "{id:?}");
                 assert_eq!(Vmad::parse(&encoded, T(b"INFO")).unwrap(), vmad, "{id:?}");
                 let mut scripts_only = vmad.clone();
                 scripts_only.info_fragments = None;
