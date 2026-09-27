@@ -43,6 +43,7 @@ mod containers;
 mod exterior;
 mod footsteps;
 mod gameplay;
+mod hud;
 mod lockpicking;
 mod magic;
 mod melee;
@@ -103,6 +104,7 @@ pub struct PlayerNode {
     loaded_cell: Option<GlobalFormId>,
     door_fade: DoorFade,
     door_fade_view: Option<DoorFadeView>,
+    hud_view: Option<hud::HudView>,
     exterior: Option<exterior::ExteriorRuntime>,
     interior_prefetch: crate::interior_prefetch::InteriorPrefetch,
     interior_prefetch_elapsed: f64,
@@ -184,6 +186,7 @@ impl INode3D for PlayerNode {
             lockpick_angle: 0.0,
             lockpick_status: None,
             restore_mouse_on_focus: None,
+            hud_view: None,
         }
     }
 
@@ -199,6 +202,7 @@ impl INode3D for PlayerNode {
         self.register_actions();
         self.create_camera();
         self.create_door_fade();
+        self.create_hud();
 
         self.create_menu();
         if self.capture_mouse {
@@ -318,6 +322,13 @@ impl INode3D for PlayerNode {
             let (feet, height) = self.motion.sample(fraction);
             self.place_camera(feet, height);
         }
+        if let Some(game) = self.game.as_mut() {
+            if let Some(view) = self.hud_view.as_mut() {
+                view.refresh(game, self.rig.yaw());
+            }
+        } else if let Some(view) = self.hud_view.as_mut() {
+            view.hide();
+        }
     }
 
     fn exit_tree(&mut self) {
@@ -331,6 +342,7 @@ impl INode3D for PlayerNode {
             Input::singleton().set_mouse_mode(godot::classes::input::MouseMode::VISIBLE);
         }
         self.camera = None;
+        self.hud_view = None;
     }
 }
 

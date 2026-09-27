@@ -1861,6 +1861,22 @@ Interactive Godot resource installation after recovery remains untested.
 
 ## Native menu framework
 
+The HUD uses one CanvasLayer with three ProgressBars and a compass Label.
+PlayerNode refreshes it each process frame from the shared Game and its camera
+yaw. Health, magicka and stamina read their current and modified maximum actor
+values, then clamp the fill fraction to 0 through 1. The compass tape centers
+the nearest 45 degree cardinal or intercardinal direction under the heading.
+These are Godot-native controls. SkyUI's `MeterWidget` and `MiniMapWidget`
+informed the meter percentage and player-angle behavior, and CK
+`GetActorValue` and `GetActorValueMax` pages informed the values. Scaleform
+execution is not part of this HUD.
+
+`ui_06_hud.rs` checks all three shared actor values, current and modified
+maximums, a changed health value and the north-to-east compass update. Cargo
+tests cover the Rust data path.
+The controls compile with gdext, but their appearance in a running Godot
+window has not been exercised.
+
 UI-01 adds a modal Control tree to PlayerNode. One CanvasLayer, one
 PanelContainer, two VBoxContainers, one Label and one Button form the fixed
 shell. A Theme supplies shared text and panel styling. Opening sets keyboard
