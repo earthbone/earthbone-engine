@@ -1069,6 +1069,14 @@ twice from one seed and compares every tick, in one process and across two.
 The save carries the resident cell as well, so a loaded game knows what it is
 holding.
 
+`World::new_with_seed` derives independent xorshift streams for AI, behavior
+trees, dialogue, mod data, actor templates, leveled items and leveled spells.
+Those callers use `random_*_for`, so adding a draw in one system does not move
+another system's sequence. `random_*` remains the general Papyrus stream.
+SOEW version 37 stores the subsystem stream states, and `world.rng` hashes all
+of them. Older world saves derive the new streams from their saved general RNG
+state.
+
 ### Not done
 
 The renderer half. Nothing tells the host to stream the new cell or drop the

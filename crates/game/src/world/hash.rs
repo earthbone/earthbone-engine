@@ -459,6 +459,9 @@ impl World {
 
         let mut h = StateHasher::new();
         h.u64(self.rng);
+        for state in self.rng_streams {
+            h.u64(state);
+        }
         let rng = h.finish();
 
         let mut h = StateHasher::new();

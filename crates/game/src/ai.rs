@@ -563,7 +563,7 @@ fn function_value(
             let g = form(world, c.param1)?;
             world.global_value(g)
         }
-        77 => world.random_int(0, 99) as f32,
+        77 => world.random_int_for(crate::world::RngStream::Ai, 0, 99) as f32,
         80 => world.actor(subject).map_or(0.0, |a| a.level as f32),
         98 => bool_f(!world.player_controls),
         136 => {
@@ -1080,15 +1080,18 @@ fn step(world: &mut World, actor: GlobalFormId, dt: f32) {
             .map(|c| sandbox_markers(world, c, center, ai.radius))
             .unwrap_or_default();
         let target = if markers.is_empty() {
-            let angle = world.random_float(0.0, std::f32::consts::TAU);
-            let r = world.random_float(0.0, ai.radius);
+            let angle =
+                world.random_float_for(crate::world::RngStream::Ai, 0.0, std::f32::consts::TAU);
+            let r = world.random_float_for(crate::world::RngStream::Ai, 0.0, ai.radius);
             [
                 center[0] + r * angle.cos(),
                 center[1] + r * angle.sin(),
                 center[2],
             ]
         } else {
-            let pick = world.random_int(0, markers.len() as i32 - 1) as usize;
+            let pick =
+                world.random_int_for(crate::world::RngStream::Ai, 0, markers.len() as i32 - 1)
+                    as usize;
             world
                 .reference(markers[pick])
                 .map(|s| s.position)
@@ -1165,7 +1168,8 @@ fn step(world: &mut World, actor: GlobalFormId, dt: f32) {
         if ai.path.is_empty() && distance(pos, dest) <= ARRIVAL_DISTANCE {
             ai.arrived = true;
             if ai.procedure == Procedure::Sandbox {
-                ai.dwell_until = hours + f64::from(world.random_float(0.1, 0.4));
+                ai.dwell_until = hours
+                    + f64::from(world.random_float_for(crate::world::RngStream::Ai, 0.1, 0.4));
             }
             if ai.procedure == Procedure::Travel {
                 tree::succeeded(world, &mut ai);

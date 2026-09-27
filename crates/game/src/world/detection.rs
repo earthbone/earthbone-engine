@@ -173,12 +173,8 @@ impl World {
         })
     }
 
-    /// Writes the version 30 block, which is omitted while no pool exists
-    /// so a world without detection keeps the version 29 body bytes.
+    /// Writes the version 30 block, including an empty pool count.
     pub(super) fn write_detection(&self, out: &mut Writer) {
-        if self.detection.pools.is_empty() {
-            return;
-        }
         out.len(self.detection.pools.len());
         for (target, pool) in &self.detection.pools {
             write_form_id(out, *target);
@@ -206,9 +202,6 @@ pub(super) fn read_detection(input: &mut FormReader<'_, '_>) -> Result<Detection
         return Ok(state);
     }
     let pools = input.len()?;
-    if pools == 0 {
-        return Err(bad());
-    }
     for _ in 0..pools {
         let target = read_form_id(input)?;
         let points = input.f32()?;

@@ -60,7 +60,8 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// Version 34 retains last-visit game days for resettable encounter zones.
 /// Version 35 retains saved list flags and per-entry chance bytes in record overrides.
 /// Version 36 retains the active phase and completed action slots for each scene.
-pub const SAVE_VERSION: u16 = 36;
+/// Version 37 retains each subsystem's independent random stream.
+pub const SAVE_VERSION: u16 = 37;
 
 #[derive(Clone, Copy)]
 pub(crate) enum FormNamespace {
@@ -428,6 +429,9 @@ impl World {
             }
         }
         self.write_detection(&mut body);
+        for state in self.rng_streams {
+            body.u64(state);
+        }
         let mut out = Writer::new();
         out.out.extend_from_slice(SAVE_MAGIC);
         out.u16(SAVE_VERSION);
@@ -1051,6 +1055,15 @@ impl World {
         } else {
             crate::detection::DetectionState::default()
         };
+        let rng_streams = if version >= 37 {
+            let mut streams = [0; super::rng::STREAM_COUNT];
+            for state in &mut streams {
+                *state = r.u64()?;
+            }
+            streams
+        } else {
+            super::rng::derive_streams(rng)
+        };
         r.expect_end()?;
         for id in super::detection::detection_actors(&detection) {
             let actor = refs.get(&id).map_or_else(
@@ -1134,6 +1147,7 @@ impl World {
         self.player = player;
         self.loaded_cell = loaded_cell;
         self.rng = rng;
+        self.rng_streams = rng_streams;
         self.clock = GameClock {
             real_seconds,
             game_days,
