@@ -763,12 +763,16 @@ impl NavGraph {
             if !seen.insert(n) {
                 continue;
             }
+            if self.is_blocked(n) {
+                continue;
+            }
             out.push(n);
             for next in self.triangle(n).neighbors.iter().flatten() {
                 if self
                     .meshes
                     .get(next.mesh as usize)
                     .is_some_and(|m| (next.triangle as usize) < m.triangles.len())
+                    && !self.is_blocked(*next)
                 {
                     stack.push(*next);
                 }

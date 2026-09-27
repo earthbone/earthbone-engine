@@ -40,23 +40,36 @@ fn ai_87_installed_skyrim_authors_both_completion_policies() {
     };
     let bytes = std::fs::read(format!("{data}/Skyrim.esm")).unwrap();
     let mut order = LoadOrder::new();
-    order.add("Skyrim.esm", Plugin::parse(&bytes).unwrap()).unwrap();
+    order
+        .add("Skyrim.esm", Plugin::parse(&bytes).unwrap())
+        .unwrap();
     let mut completing = false;
     let mut non_completing = false;
     let ids: Vec<GlobalFormId> = order.winners_of(Tag(*b"PACK")).map(|(id, _)| id).collect();
     for id in ids {
         let record = order.winner(id).unwrap();
-        let parsed = Package::from_record(record).unwrap_or_else(|error| panic!("PACK {id:?}: {error}"));
+        let parsed =
+            Package::from_record(record).unwrap_or_else(|error| panic!("PACK {id:?}: {error}"));
         for (index, branch) in parsed.tree.iter().enumerate() {
-            if branch.kind != "Simultaneous" { continue; }
+            if branch.kind != "Simultaneous" {
+                continue;
+            }
             let end = (index + 1 + branch.child_count as usize).min(parsed.tree.len());
             for child in &parsed.tree[index + 1..end] {
-                if child.procedure.is_none() { continue; }
+                if child.procedure.is_none() {
+                    continue;
+                }
                 completing |= child.success_completes_package;
                 non_completing |= !child.success_completes_package;
             }
         }
     }
-    assert!(completing, "Skyrim.esm has a Simultaneous procedure with FNAM bit 0 set");
-    assert!(non_completing, "Skyrim.esm has a Simultaneous procedure with FNAM bit 0 clear");
+    assert!(
+        completing,
+        "Skyrim.esm has a Simultaneous procedure with FNAM bit 0 set"
+    );
+    assert!(
+        non_completing,
+        "Skyrim.esm has a Simultaneous procedure with FNAM bit 0 clear"
+    );
 }

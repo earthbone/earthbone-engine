@@ -10,7 +10,10 @@ fn id(object: u32) -> GlobalFormId {
 
 #[test]
 fn ai_18_required_location_alias_rejects_a_deleted_winning_lctn() {
-    let mut plugin = Plugin::new(FileHeader { flags: flags::MASTER, ..Default::default() });
+    let mut plugin = Plugin::new(FileHeader {
+        flags: flags::MASTER,
+        ..Default::default()
+    });
     plugin.push_top(Record::new(Tag(*b"LCTN"), 0x801));
     plugin.push_top(Record::new(Tag(*b"LCTN"), 0x802).with_flags(flags::DELETED));
     plugin.push_top(

@@ -28,8 +28,14 @@ fn ai_86_both_unavailable_contracts_report_diagnostics_for_all_comparison_shapes
                 &mut game.world_mut(),
                 &game.vm,
                 conditions::Context {
-                    owner: GlobalFormId { file: 0, object: 0x800 },
-                    subject: GlobalFormId { file: 0, object: 0x800 },
+                    owner: GlobalFormId {
+                        file: 0,
+                        object: 0x800,
+                    },
+                    subject: GlobalFormId {
+                        file: 0,
+                        object: 0x800,
+                    },
                     target: None,
                     quest: None,
                     tempering_enchanted: None,

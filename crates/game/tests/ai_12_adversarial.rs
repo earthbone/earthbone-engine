@@ -32,14 +32,23 @@ fn build_game(alias_flags: u32, references: &[(u32, u32, bool)]) -> Game {
         .sub(Tag(*b"FNAM"), alias_flags.to_le_bytes())
         .sub(Tag(*b"CTDA"), condition(BASE))
         .sub(Tag(*b"ALED"), Vec::new());
-    let mut plugin = Plugin::new(FileHeader { flags: flags::MASTER, ..Default::default() });
+    let mut plugin = Plugin::new(FileHeader {
+        flags: flags::MASTER,
+        ..Default::default()
+    });
     plugin.push_top(Record::new(Tag(*b"NPC_"), BASE));
     plugin.push_top(Record::new(Tag(*b"STAT"), OTHER));
     for (object, base, disabled) in references {
-        let flags = if *disabled { flags::INITIALLY_DISABLED } else { 0 };
-        plugin.push_top(Record::new(Tag(*b"REFR"), *object)
-            .with_flags(flags)
-            .sub(Tag(*b"NAME"), base.to_le_bytes()));
+        let flags = if *disabled {
+            flags::INITIALLY_DISABLED
+        } else {
+            0
+        };
+        plugin.push_top(
+            Record::new(Tag(*b"REFR"), *object)
+                .with_flags(flags)
+                .sub(Tag(*b"NAME"), base.to_le_bytes()),
+        );
     }
     plugin.push_top(alias);
     let mut order = LoadOrder::new();
@@ -63,7 +72,10 @@ fn ai_12_disabled_candidates_require_the_allow_disabled_flag() {
 
 #[test]
 fn ai_12_search_accepts_authored_achr_candidates_as_well_as_refr() {
-    let mut plugin = Plugin::new(FileHeader { flags: flags::MASTER, ..Default::default() });
+    let mut plugin = Plugin::new(FileHeader {
+        flags: flags::MASTER,
+        ..Default::default()
+    });
     plugin.push_top(Record::new(Tag(*b"NPC_"), BASE));
     plugin.push_top(Record::new(Tag(*b"ACHR"), 0x900).sub(Tag(*b"NAME"), BASE.to_le_bytes()));
     plugin.push_top(
