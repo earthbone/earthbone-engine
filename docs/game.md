@@ -1583,6 +1583,24 @@ the spellcaster. The common SPEL/MGEF context is inferred from that statement
 and the shared Effect Item layout, with the recipient as default subject and
 the caster as default target.
 
+### Spell absorption, MAG-23
+
+For each recipient with a prepared hostile MGEF, `World::cast_spell` checks the
+recipient's `AbsorbChance` actor value once for that cast. The chance is clamped
+to 0 through 100 percent and uses the world's saved random stream when it is
+between those limits. The SPEL `Disallow Absorb/Reflect` flag bypasses the
+check. On success, hostile applications for that recipient are omitted and the
+SPEL base cost is restored to that recipient's magicka once, up to its current
+maximum. Non-hostile applications are kept. `mag_23_` tests in
+`tests/magic.rs` cover absorption, one resource return across repeated effect
+entries, the SPEL flag, zero chance and non-hostile effects.
+
+The numeric flag and actor-value fields follow local
+`TES5Edit/Core/wbDefinitionsTES5.pas` and `uesp-modfileformat/SPEL.wikitext`.
+The local skymp `libespm/include/libespm/SPEL.h` and `ActorValue.h` confirm the
+same flag bit and `AbsorbChance` index. Those skymp files define records and
+names, not cast resolution or resource-return behavior.
+
 Each application gets an `EffectId` and a distinct `ActiveMagicEffect` VM object.
 MGEF scripts are attached when an effect is applied, rather than attached to the
 MGEF form at startup. VMAD properties use the winning MGEF's plugin context.

@@ -113,7 +113,22 @@ fn spell_with_area(
     duration: u32,
     area: u32,
 ) -> Record {
+    spell_with_settings(form, kind, constant, magnitude, duration, area, 0, 0)
+}
+
+fn spell_with_settings(
+    form: u32,
+    kind: u32,
+    constant: bool,
+    magnitude: f32,
+    duration: u32,
+    area: u32,
+    flags: u32,
+    cost: u32,
+) -> Record {
     let mut data = vec![0; 36];
+    put(&mut data, 0, cost);
+    put(&mut data, 4, flags);
     put(&mut data, 8, kind);
     put(&mut data, 16, u32::from(!constant));
     put(&mut data, 20, 3);
@@ -122,6 +137,15 @@ fn spell_with_area(
     efit.extend_from_slice(&duration.to_le_bytes());
     Record::new(T(b"SPEL"), form)
         .sub(T(b"SPIT"), data)
+        .sub(T(b"EFID"), EFFECT.to_le_bytes())
+        .sub(T(b"EFIT"), efit)
+}
+
+fn duplicate_spell_effect(spell: Record, magnitude: f32, duration: u32) -> Record {
+    let mut efit = magnitude.to_le_bytes().to_vec();
+    efit.extend_from_slice(&0u32.to_le_bytes());
+    efit.extend_from_slice(&duration.to_le_bytes());
+    spell
         .sub(T(b"EFID"), EFFECT.to_le_bytes())
         .sub(T(b"EFIT"), efit)
 }
@@ -406,6 +430,76 @@ fn cast(game: &mut Game, spell: u32, target: u32) -> Result<Vec<EffectId>, Magic
         &mut |name, class| game.vm.create_object_of(name, class),
     );
     result
+}
+
+#[test]
+fn mag_23_absorbed_cast_suppresses_hostile_effects_and_restores_base_cost_once() {
+    let spell = duplicate_spell_effect(
+        spell_with_settings(SPELL, 0, false, 10.0, 5, 0, 0, 15),
+        10.0,
+        5,
+    );
+    let mut game = game(plugin(effect(1, 0, 24, false), vec![spell]));
+    game.world_mut()
+        .set_actor_value(id(ACTOR), "absorbchance", 100.0)
+        .unwrap();
+    game.world_mut()
+        .damage_actor_value(id(ACTOR), "magicka", 30.0)
+        .unwrap();
+
+    assert!(cast(&mut game, SPELL, ACTOR).unwrap().is_empty());
+    assert_eq!(game.world().active_effects().count(), 0);
+    assert_eq!(game.world_mut().actor_value(id(ACTOR), "magicka"), 85.0);
+}
+
+#[test]
+fn mag_23_disallow_absorb_reflect_keeps_the_effect_and_magicka() {
+    let spell = spell_with_settings(SPELL, 0, false, 10.0, 5, 0, 1 << 21, 15);
+    let mut game = game(plugin(effect(1, 0, 24, false), vec![spell]));
+    game.world_mut()
+        .set_actor_value(id(ACTOR), "absorbchance", 100.0)
+        .unwrap();
+    game.world_mut()
+        .damage_actor_value(id(ACTOR), "magicka", 30.0)
+        .unwrap();
+
+    assert_eq!(cast(&mut game, SPELL, ACTOR).unwrap().len(), 1);
+    assert_eq!(game.world().active_effects().count(), 1);
+    assert_eq!(game.world_mut().actor_value(id(ACTOR), "magicka"), 70.0);
+}
+
+#[test]
+fn mag_23_zero_absorb_chance_keeps_the_effect_and_magicka() {
+    let mut game = game(plugin(
+        effect(1, 0, 24, false),
+        vec![spell_with_settings(SPELL, 0, false, 10.0, 5, 0, 0, 15)],
+    ));
+    game.world_mut()
+        .set_actor_value(id(ACTOR), "absorbchance", 0.0)
+        .unwrap();
+    game.world_mut()
+        .damage_actor_value(id(ACTOR), "magicka", 30.0)
+        .unwrap();
+
+    assert_eq!(cast(&mut game, SPELL, ACTOR).unwrap().len(), 1);
+    assert_eq!(game.world_mut().actor_value(id(ACTOR), "magicka"), 70.0);
+}
+
+#[test]
+fn mag_23_nonhostile_effect_is_not_absorbed() {
+    let mut game = game(plugin(
+        effect(0, 0, 24, false),
+        vec![spell_with_settings(SPELL, 0, false, 10.0, 5, 0, 0, 15)],
+    ));
+    game.world_mut()
+        .set_actor_value(id(ACTOR), "absorbchance", 100.0)
+        .unwrap();
+    game.world_mut()
+        .damage_actor_value(id(ACTOR), "magicka", 30.0)
+        .unwrap();
+
+    assert_eq!(cast(&mut game, SPELL, ACTOR).unwrap().len(), 1);
+    assert_eq!(game.world_mut().actor_value(id(ACTOR), "magicka"), 70.0);
 }
 
 #[test]

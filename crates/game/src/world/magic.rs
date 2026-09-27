@@ -20,6 +20,7 @@ mod state;
 pub(super) use state::read_magic;
 
 const HOSTILE: u32 = 1;
+const DISALLOW_ABSORB_REFLECT: u32 = 1 << 21;
 const RECOVER: u32 = 1 << 1;
 const DETRIMENTAL: u32 = 1 << 2;
 const NO_HIT_EVENT: u32 = 1 << 4;
@@ -67,6 +68,8 @@ pub enum MagicError {
     Missing(GlobalFormId),
     #[error("invalid magic record: {0}")]
     Record(#[from] soe_esm::Error),
+    #[error("actor value: {0}")]
+    ActorValue(#[from] crate::actor_values::Error),
     #[error("magic effect condition: {0}")]
     Condition(#[from] conditions::Error),
     #[error("unsupported magic behavior: {0}")]
@@ -87,6 +90,7 @@ enum DispelRule {
 
 struct PreparedEffect {
     effect: ActiveEffect,
+    absorbable: bool,
     summon_base: Option<GlobalFormId>,
     no_recast: bool,
     hit_event: bool,
@@ -389,6 +393,7 @@ impl World {
                     recover: data.flags & RECOVER != 0,
                     changes,
                 },
+                absorbable: false,
                 no_recast: data.flags & NO_RECAST != 0,
                 summon_base: None,
                 hit_event: false,
@@ -647,6 +652,7 @@ impl World {
                         recover: data.flags & RECOVER != 0,
                         changes: changes.clone(),
                     },
+                    absorbable: data.flags & HOSTILE != 0,
                     no_recast: data.flags & NO_RECAST != 0,
                     summon_base,
                     hit_event: data.flags & (HOSTILE | NO_HIT_EVENT) == HOSTILE,
@@ -655,9 +661,36 @@ impl World {
                 });
             }
         }
+        if definition.data.flags & DISALLOW_ABSORB_REFLECT == 0 {
+            self.absorb_spell_effects(&mut prepared, definition.data.base_cost)?;
+        }
         self.apply_prepared_effects(prepared, &mut |name, class| {
             execution.create_object(name, class)
         })
+    }
+
+    fn absorb_spell_effects(
+        &mut self,
+        prepared: &mut Vec<PreparedEffect>,
+        base_cost: u32,
+    ) -> Result<(), MagicError> {
+        let targets: std::collections::BTreeSet<_> = prepared
+            .iter()
+            .filter(|entry| entry.absorbable)
+            .map(|entry| entry.effect.target)
+            .collect();
+        let mut absorbed = std::collections::BTreeSet::new();
+        for target in targets {
+            let chance = self.actor_value(target, "absorbchance").clamp(0.0, 100.0);
+            if chance >= 100.0 || chance > 0.0 && self.random_float(0.0, 100.0) < chance {
+                absorbed.insert(target);
+                if base_cost != 0 {
+                    self.restore_actor_value(target, "magicka", base_cost as f32)?;
+                }
+            }
+        }
+        prepared.retain(|entry| !absorbed.contains(&entry.effect.target) || !entry.absorbable);
+        Ok(())
     }
 
     fn apply_prepared_effects(
