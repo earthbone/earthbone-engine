@@ -61,7 +61,8 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// Version 35 retains saved list flags and per-entry chance bytes in record overrides.
 /// Version 36 retains the active phase and completed action slots for each scene.
 /// Version 37 accompanies the provenance-aware native game save envelope.
-pub const SAVE_VERSION: u16 = 37;
+/// Version 38 retains opaque records by plugin name outside the live form table.
+pub const SAVE_VERSION: u16 = 38;
 
 #[derive(Clone, Copy)]
 pub(crate) enum FormNamespace {
@@ -433,6 +434,7 @@ impl World {
         out.out.extend_from_slice(SAVE_MAGIC);
         out.u16(SAVE_VERSION);
         pool.write_pool(&mut out);
+        self.write_unresolved_records(&mut out);
         out.out.extend_from_slice(&body.out);
         out.out
     }
@@ -468,6 +470,11 @@ impl World {
         };
         let mut r = FormReader::new(&mut r, namespace);
         let table = ArrayTable::read_pool(&mut r)?;
+        let unresolved_records = if version >= 38 {
+            self.read_unresolved_records(&mut r)?
+        } else {
+            BTreeMap::new()
+        };
 
         let n = r.len()?;
         let mut objects = HashMap::with_capacity(n);
@@ -1087,6 +1094,7 @@ impl World {
         }
 
         self.record_overrides = record_overrides;
+        self.unresolved_records = unresolved_records;
         self.actor_templates = actor_templates;
         self.leveled_lists = leveled_lists;
         self.locations = locations;
