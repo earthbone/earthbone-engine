@@ -22,8 +22,8 @@ use std::collections::HashMap;
 use crate::animation::{Animation, SplineCompressedAnimation};
 use crate::behavior::{
     transition_flags, BehaviorGraph, BehaviorGraphData, BlenderGenerator, ClipGenerator, Condition,
-    NodeId, NodeKind, StateMachine, TimeInterval, TransitionInfo, VariableBindingSet, VariableInfo,
-    VariableType, FALSE_TO_TRUE_SLOTS, IS_ACTIVE_SLOTS,
+    NodeId, NodeKind, PassByTargetTrigger, StateMachine, TimeInterval, TransitionInfo,
+    VariableBindingSet, VariableInfo, VariableType, FALSE_TO_TRUE_SLOTS, IS_ACTIVE_SLOTS,
 };
 use crate::expression::{Expression, ExpressionError};
 use crate::skeleton::AnimationContainer;
@@ -429,6 +429,8 @@ struct Runtime {
     edge_enabled: [Option<bool>; FALSE_TO_TRUE_SLOTS],
     edge_value: [Option<bool>; FALSE_TO_TRUE_SLOTS],
     edge_previous: [bool; FALSE_TO_TRUE_SLOTS],
+    pass_by_previous_position: Option<[f32; 3]>,
+    pass_by_target_passed: bool,
 
     /// A bound vector input for `BSDecomposeVectorModifier`.
     vector: Option<[f32; 4]>,
@@ -475,6 +477,64 @@ fn false_to_true_slot(path: &str, prefix: &str) -> Option<usize> {
         .filter(|slot| *slot < FALSE_TO_TRUE_SLOTS)
 }
 
+fn crossed_target(previous: [f32; 3], current: [f32; 3], trigger: &PassByTargetTrigger) -> bool {
+    let direction = [
+        trigger.movement_direction[0],
+        trigger.movement_direction[1],
+        trigger.movement_direction[2],
+    ];
+    if !previous
+        .iter()
+        .chain(current.iter())
+        .chain(direction.iter())
+        .all(|value| value.is_finite())
+        || !trigger.radius.is_finite()
+        || trigger.radius < 0.0
+    {
+        return false;
+    }
+    let length = direction
+        .iter()
+        .map(|value| value * value)
+        .sum::<f32>()
+        .sqrt();
+    if length <= f32::EPSILON {
+        return false;
+    }
+    let normal = direction.map(|value| value / length);
+    let target = [
+        trigger.target_position[0],
+        trigger.target_position[1],
+        trigger.target_position[2],
+    ];
+    if !target.iter().all(|value| value.is_finite()) {
+        return false;
+    }
+    let before = dot(subtract(previous, target), normal);
+    let after = dot(subtract(current, target), normal);
+    if before > 0.0 || after <= 0.0 {
+        return false;
+    }
+    let fraction = before / (before - after);
+    let crossing =
+        std::array::from_fn(|axis| previous[axis] + (current[axis] - previous[axis]) * fraction);
+    let offset = subtract(crossing, target);
+    let lateral = subtract(offset, scale(normal, dot(offset, normal)));
+    dot(lateral, lateral) <= trigger.radius * trigger.radius
+}
+
+fn subtract(left: [f32; 3], right: [f32; 3]) -> [f32; 3] {
+    std::array::from_fn(|axis| left[axis] - right[axis])
+}
+
+fn scale(vector: [f32; 3], scalar: f32) -> [f32; 3] {
+    vector.map(|value| value * scalar)
+}
+
+fn dot(left: [f32; 3], right: [f32; 3]) -> f32 {
+    left.iter().zip(right).map(|(a, b)| a * b).sum()
+}
+
 fn push_unique(list: &mut Vec<String>, item: String) {
     if !list.contains(&item) {
         list.push(item);
@@ -499,6 +559,7 @@ pub struct Interpreter<'a> {
     changes: Vec<StateChange>,
     unsupported: Unsupported,
     output: Output,
+    character_position: Option<[f32; 3]>,
     frame: u64,
     condition_frames: Vec<u64>,
 }
@@ -551,6 +612,7 @@ impl<'a> Interpreter<'a> {
                 bone_weights: vec![0.0; reference_pose.len()],
                 weight: 0.0,
             },
+            character_position: None,
             reference_pose,
             frame: 0,
             condition_frames: vec![0; graph.nodes.len()],
@@ -864,6 +926,13 @@ impl<'a> Interpreter<'a> {
         self.frame
     }
 
+    /// Set the character's world position for pass-by-target modifiers.
+    /// Call before `update` so the interpreter compares this sample with the
+    /// previous one. Position and modifier targets must use the same space.
+    pub fn set_character_position(&mut self, position: [f32; 3]) {
+        self.character_position = Some(position);
+    }
+
     /// One frame: bindings, activation, events, generate, raised events.
     pub fn update(&mut self, dt: f32) -> &Output {
         self.frame += 1;
@@ -1029,6 +1098,7 @@ impl<'a> Interpreter<'a> {
             | NodeKind::GetTimeStepModifier { enable, .. }
             | NodeKind::IsActiveModifier { enable, .. }
             | NodeKind::FalseToTrueModifier { enable, .. }
+            | NodeKind::PassByTargetTrigger { enable, .. }
             | NodeKind::DecomposeVector { enable, .. }
             | NodeKind::Modifier { enable } => *enable,
             _ => true,
@@ -1100,6 +1170,25 @@ impl<'a> Interpreter<'a> {
                 runtime.edge_previous[index] = active;
                 if rising {
                     self.raise(slot.event.id);
+                }
+            }
+        }
+        if let NodeKind::PassByTargetTrigger { trigger, .. } = &self.graph.nodes[id.0].kind {
+            if let Some(position) = self.character_position {
+                let crossed = {
+                    let runtime = &mut self.nodes[id.0];
+                    let crossed = !runtime.pass_by_target_passed
+                        && runtime
+                            .pass_by_previous_position
+                            .is_some_and(|previous| crossed_target(previous, position, trigger));
+                    if crossed {
+                        runtime.pass_by_target_passed = true;
+                    }
+                    runtime.pass_by_previous_position = Some(position);
+                    crossed
+                };
+                if crossed {
+                    self.raise(trigger.trigger_event.id);
                 }
             }
         }
@@ -1201,6 +1290,7 @@ impl<'a> Interpreter<'a> {
             | NodeKind::TimerModifier { .. }
             | NodeKind::GetTimeStepModifier { .. }
             | NodeKind::IsActiveModifier { .. }
+            | NodeKind::PassByTargetTrigger { .. }
             | NodeKind::DecomposeVector { .. }
             | NodeKind::Modifier { .. }
             | NodeKind::Unknown => {}
@@ -1687,6 +1777,7 @@ impl<'a> Interpreter<'a> {
             | NodeKind::GetTimeStepModifier { .. }
             | NodeKind::IsActiveModifier { .. }
             | NodeKind::FalseToTrueModifier { .. }
+            | NodeKind::PassByTargetTrigger { .. }
             | NodeKind::DecomposeVector { .. }
             | NodeKind::Modifier { .. } => self.reference_output(),
         }

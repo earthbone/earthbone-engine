@@ -364,6 +364,9 @@ fn remap_node(node: &mut Node, map: &SymbolMap, offset: usize) {
                 remap_event_property(&mut slot.event, map);
             }
         }
+        NodeKind::PassByTargetTrigger { trigger, .. } => {
+            remap_event_property(&mut trigger.trigger_event, map);
+        }
         // Nothing here carries a node id, an event or a variable. A blending
         // transition effect is timing only, the rest are leaves.
         NodeKind::BlendingTransition(_)

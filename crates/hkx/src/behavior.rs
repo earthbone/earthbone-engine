@@ -507,6 +507,15 @@ pub struct FalseToTrueSlot {
     pub event: EventProperty,
 }
 
+/// `BSPassByTargetTriggerModifier`: crossing parameters and the event to emit.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PassByTargetTrigger {
+    pub target_position: [f32; 4],
+    pub radius: f32,
+    pub movement_direction: [f32; 4],
+    pub trigger_event: EventProperty,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum NodeKind {
     StateMachine(StateMachine),
@@ -606,6 +615,10 @@ pub enum NodeKind {
         enable: bool,
         slots: [FalseToTrueSlot; FALSE_TO_TRUE_SLOTS],
     },
+    PassByTargetTrigger {
+        enable: bool,
+        trigger: PassByTargetTrigger,
+    },
     /// `BSDecomposeVectorModifier`: copies the four components of `vector`
     /// into its real outputs.
     DecomposeVector {
@@ -687,6 +700,7 @@ impl Node {
             | NodeKind::GetTimeStepModifier { .. }
             | NodeKind::IsActiveModifier { .. }
             | NodeKind::FalseToTrueModifier { .. }
+            | NodeKind::PassByTargetTrigger { .. }
             | NodeKind::DecomposeVector { .. }
             | NodeKind::Modifier { .. }
             | NodeKind::Unknown => {}
@@ -1125,6 +1139,15 @@ impl<'a> Loader<'a> {
             "BSDecomposeVectorModifier" => NodeKind::DecomposeVector {
                 enable: o.bool(o.layout_offset(40, 72))?,
                 vector: o.vec4(o.layout_offset(48, 80))?,
+            },
+            "BSPassByTargetTriggerModifier" => NodeKind::PassByTargetTrigger {
+                enable: o.bool(o.layout_offset(40, 72))?,
+                trigger: PassByTargetTrigger {
+                    target_position: o.vec4(o.layout_offset(48, 80))?,
+                    radius: o.f32(o.layout_offset(64, 96))?,
+                    movement_direction: o.vec4(o.layout_offset(80, 112))?,
+                    trigger_event: EventProperty::read(o, o.layout_offset(96, 128))?,
+                },
             },
             c if c.ends_with("Modifier") => NodeKind::Modifier {
                 enable: o.bool(o.layout_offset(40, 72))?,
