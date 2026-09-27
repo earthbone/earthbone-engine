@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! Reads a distant-terrain LOD block's BTR file through the same NIF and
+//! Reads distant terrain BTR and object BTO blocks through the same NIF and
 //! surface pipeline `load_static_surfaces` uses for placed statics, keyed by
 //! worldspace and grid block rather than by a `REFR`. See
 //! `crate::terrain_lod` for the block coordinates, the file naming and the
@@ -85,6 +85,59 @@ impl DataSource {
         block: LodBlockCoord,
     ) -> Result<Option<LoadedLodBlock>, DataSourceError> {
         let path = crate::terrain_lod::btr_path(world_editor_id, block);
+        let bytes = match self.vfs.read(&path) {
+            Ok(bytes) => bytes,
+            Err(soe_bsa::Error::NotFound { .. }) => return Ok(None),
+            Err(e) => return Err(e.into()),
+        };
+        let file = soe_nif::parse(&bytes)?;
+        let meshes = file.meshes()?;
+        if meshes.is_empty() {
+            return Ok(None);
+        }
+        let origin = block.origin_cell();
+        let placement = NifTransform {
+            translation: NifVec3::new(
+                origin.x as f32 * CELL_UNITS,
+                origin.y as f32 * CELL_UNITS,
+                0.0,
+            ),
+            ..NifTransform::IDENTITY
+        };
+        let mut surfaces = Vec::with_capacity(meshes.len());
+        let mut approx_bytes = 0u64;
+        for shape in &meshes {
+            approx_bytes += shape.approx_bytes();
+            let data = super::mesh_data_from(shape, &placement.then(&shape.transform));
+            let arrays = build_surface(&data, MeshOptions::default())?;
+            let textures = self.textures.resolve(&self.vfs, &arrays.material);
+            surfaces.push(LoadedSurface {
+                reference: world,
+                arrays,
+                textures,
+                placement: soe_physics::Iso::IDENTITY,
+                instance_transform: None,
+                mesh_identity: None,
+            });
+        }
+        Ok(Some(LoadedLodBlock {
+            surfaces,
+            approx_bytes,
+        }))
+    }
+
+    /// Reads and builds one worldspace object LOD block from its BTO file,
+    /// or `None` when no file exists. BTO geometry is grouped by worldspace
+    /// and block, so each returned surface keeps the resolved worldspace as
+    /// its form identity while the caller keeps its resident mesh instances
+    /// keyed by `LodBlockCoord`.
+    pub fn load_object_lod_block(
+        &self,
+        world: GlobalFormId,
+        world_editor_id: &str,
+        block: LodBlockCoord,
+    ) -> Result<Option<LoadedLodBlock>, DataSourceError> {
+        let path = crate::terrain_lod::bto_path(world_editor_id, block);
         let bytes = match self.vfs.read(&path) {
             Ok(bytes) => bytes,
             Err(soe_bsa::Error::NotFound { .. }) => return Ok(None),
