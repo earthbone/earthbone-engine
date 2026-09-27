@@ -200,7 +200,7 @@ fn ai_26_escort_round_trips_and_rejects_old_and_future_world_versions() {
     );
 
     let mut old = bytes.clone();
-    old[4..6].copy_from_slice(&(soe_game::world::SAVE_VERSION - 1).to_le_bytes());
+    old[4..6].copy_from_slice(&39_u16.to_le_bytes());
     assert!(restored
         .world_mut()
         .load_state(&old)

@@ -611,6 +611,12 @@ impl Game {
             w.ai_tick(real_seconds, &mut |n, c| vm.create_object_of(n, c));
         }
         if !menu_mode {
+            let activations = crate::ai::activate_ready(&mut self.world.borrow_mut());
+            for (actor, target) in activations {
+                self.activate(target, actor);
+            }
+        }
+        if !menu_mode {
             let greetings = crate::ai::force_greet_ready(&mut self.world.borrow_mut());
             for (speaker, listener, topic) in greetings {
                 if self.begin_dialogue(speaker, listener).is_err() {

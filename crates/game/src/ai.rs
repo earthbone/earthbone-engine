@@ -14,6 +14,8 @@
 //! within its authored follow radius and running beyond its catch-up radius.
 //! `Orbit` circles a resolved package location at its authored height and
 //! stays between its inner and outer radii on the navmesh.
+//! `Activate` walks to its resolved target and activates it once through the
+//! game's shared activation path.
 //! Walking follows the vanilla navmesh graph (`soe_navmesh::vanilla`)
 //! built once per world, and crossing into another navmesh moves the actor
 //! into that navmesh's cell. Its rates come from the actor race's `WKMV` and
@@ -104,6 +106,8 @@ pub enum Procedure {
     /// A procedure the driver does not run yet, by its template name. The
     /// actor holds where it stands.
     Unsupported(String),
+    /// Approach and activate the assigned reference once.
+    Activate,
 }
 
 /// Per-actor driver state, saved with the actor.
@@ -123,6 +127,8 @@ pub struct AiState {
     pub arrived: bool,
     /// A ForceGreet attempt was made for the current procedure branch.
     pub force_greet_started: bool,
+    /// The Activate procedure has handed its one attempt to the game driver.
+    pub activate_started: bool,
     pub sleeping: bool,
     pub bed: Option<GlobalFormId>,
     pub center: Option<[f32; 3]>,
@@ -314,6 +320,27 @@ pub(crate) fn force_greet_started(world: &mut World, actor: GlobalFormId) {
     if let Some(state) = world.actor(actor) {
         state.ai.force_greet_started = true;
     }
+}
+
+/// Ready Activate procedures, resolved to their assigned target. Attempt
+/// state is marked before returning so a save or later tick cannot duplicate
+/// the activation.
+pub(crate) fn activate_ready(world: &mut World) -> Vec<(GlobalFormId, GlobalFormId)> {
+    let actors = world.loaded_actors();
+    actors
+        .into_iter()
+        .filter_map(|actor| {
+            let ai = world.actor(actor)?.ai.clone();
+            if ai.procedure != Procedure::Activate || !ai.arrived || ai.activate_started {
+                return None;
+            }
+            let (owner, target) = tree::activate_target(world, &ai)?;
+            let target = resolve_follow_target(world, actor, &ai, (owner, target))?;
+            world.reference(target)?;
+            world.actor(actor)?.ai.activate_started = true;
+            Some((actor, target))
+        })
+        .collect()
 }
 
 // ----- the stack -----
@@ -720,6 +747,7 @@ pub fn evaluate(world: &mut World, actor: GlobalFormId, alloc: Alloc<'_>) -> Opt
     ai.path_cells.clear();
     ai.arrived = false;
     ai.force_greet_started = false;
+    ai.activate_started = false;
     ai.sleeping = false;
     ai.bed = None;
     ai.center = None;
@@ -776,6 +804,7 @@ fn begin_procedure(
     ai.path_cells.clear();
     ai.arrived = false;
     ai.force_greet_started = false;
+    ai.activate_started = false;
     ai.sleeping = false;
     ai.bed = None;
     ai.center = None;
@@ -882,6 +911,23 @@ fn begin_procedure(
                 }
             } else {
                 ai.procedure = Procedure::Unsupported("ForceGreet inputs".into());
+            }
+        }
+        Procedure::Activate => {
+            if let Some((owner, target)) = tree::activate_target(world, ai) {
+                if let Some(target) = resolve_follow_target(world, actor, ai, (owner, target)) {
+                    if let Some(target_ref) = world.reference(target) {
+                        ai.destination = Some(target_ref.position);
+                        ai.center_cell = target_ref.cell;
+                    } else {
+                        ai.procedure =
+                            Procedure::Unsupported("Activate target is not placed".into());
+                    }
+                } else {
+                    ai.procedure = Procedure::Unsupported("Activate target".into());
+                }
+            } else {
+                ai.procedure = Procedure::Unsupported("Activate inputs".into());
             }
         }
         Procedure::UseIdleMarker { .. } => match (place, location) {
@@ -1689,6 +1735,7 @@ pub(crate) fn write_record_state(w: &mut Writer, a: &AiState) {
             w.f32(*height);
         }
         Procedure::Escort => w.u8(13),
+        Procedure::Activate => w.u8(14),
         Procedure::UseIdleMarker { marker } => {
             w.u8(9);
             match marker {
@@ -1722,6 +1769,7 @@ pub(crate) fn write_record_state(w: &mut Writer, a: &AiState) {
     }
     w.bool(a.arrived);
     w.bool(a.force_greet_started);
+    w.bool(a.activate_started);
     w.bool(a.sleeping);
     write_opt_form_id(w, a.bed);
     match a.center {
@@ -1848,6 +1896,12 @@ pub(crate) fn read_state_mapped(
                 "Escort procedure requires world version 40".into(),
             ));
         }
+        14 if world_version >= 41 => Procedure::Activate,
+        14 => {
+            return Err(VmError::State(
+                "Activate procedure requires world version 41".into(),
+            ));
+        }
         9 => {
             let marker = if r.bool()? {
                 Some(read_form_id(r)?)
@@ -1871,6 +1925,7 @@ pub(crate) fn read_state_mapped(
     }
     a.arrived = r.bool()?;
     a.force_greet_started = has_force_greet_state && r.bool()?;
+    a.activate_started = world_version >= 41 && r.bool()?;
     a.sleeping = r.bool()?;
     a.bed = read_opt_form_id(r)?;
     if r.bool()? {
@@ -2078,6 +2133,7 @@ mod tests {
             path_cells: vec![Some(GlobalFormId { file: 0, object: 9 })],
             arrived: true,
             force_greet_started: false,
+            activate_started: false,
             sleeping: true,
             bed: None,
             center: Some([7.0, 8.0, 9.0]),

@@ -469,8 +469,11 @@ fn sav_07_unknown_version_and_mixed_legacy_namespaces_are_rejected() {
     let mut world = rich_world(DYNAMIC_FILE);
     let before = world.save_state();
     for (version, message) in [
-        (40_u16, "world state version 40"),
-        (18, "created namespace in a legacy world state"),
+        (
+            crate::world::SAVE_VERSION + 1,
+            format!("world state version {}", crate::world::SAVE_VERSION + 1),
+        ),
+        (18, "created namespace in a legacy world state".to_string()),
     ] {
         let mut bytes = before.clone();
         bytes[4..6].copy_from_slice(&version.to_le_bytes());
@@ -478,7 +481,7 @@ fn sav_07_unknown_version_and_mixed_legacy_namespaces_are_rejected() {
             .load_state(&bytes)
             .unwrap_err()
             .to_string()
-            .contains(message));
+            .contains(&message));
         assert_eq!(world.save_state(), before);
     }
 }

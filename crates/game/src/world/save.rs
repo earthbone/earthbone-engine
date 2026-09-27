@@ -62,7 +62,8 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// Version 36 adds the selected UseIdleMarker reservation.
 /// Version 37 adds ForceGreet and its one-shot dialogue state.
 /// Version 38 adds HoldPosition, version 39 adds Orbit, and version 40 adds Escort.
-pub const SAVE_VERSION: u16 = 40;
+/// Version 41 adds the saved attempt state and procedure tag for Activate.
+pub const SAVE_VERSION: u16 = 41;
 
 #[derive(Clone, Copy)]
 pub(crate) enum FormNamespace {
@@ -1521,6 +1522,11 @@ fn read_actor_state(r: &mut FormReader<'_, '_>, version: u16) -> Result<ActorSta
     if version < 39 && matches!(a.ai.procedure, crate::ai::Procedure::Orbit { .. }) {
         return Err(VmError::State(
             "Orbit procedure requires world version 39".into(),
+        ));
+    }
+    if version < 41 && a.ai.procedure == crate::ai::Procedure::Activate {
+        return Err(VmError::State(
+            "Activate procedure requires world version 41".into(),
         ));
     }
     a.perks = read_form_set(r)?;

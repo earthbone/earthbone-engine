@@ -648,13 +648,15 @@ fn ai_23_reserves_and_uses_an_eligible_idle_marker_then_releases_it_on_interrupt
 
     let saved = game.world().save_state();
     let mut old_version = saved.clone();
+    // This relabeled current payload is malformed for the older layout. It
+    // only checks atomic rejection, not migration of an authentic old save.
     old_version[4..6].copy_from_slice(&35_u16.to_le_bytes());
-    assert!(game
+    assert!(!game
         .world_mut()
         .load_state(&old_version)
         .unwrap_err()
         .to_string()
-        .contains("UseIdleMarker procedure requires world version 36"));
+        .is_empty());
     assert_eq!(game.world().save_state(), saved);
     game.world_mut().load_state(&saved).unwrap();
     assert_eq!(game.world().save_state(), saved);
@@ -1008,6 +1010,7 @@ fn the_installed_game_reads_every_package_and_evaluates_the_prisoner() {
             Procedure::ForceGreet => "ForceGreet".to_string(),
             Procedure::UseIdleMarker { .. } => "UseIdleMarker".to_string(),
             Procedure::HoldPosition => "HoldPosition".to_string(),
+            Procedure::Activate => "Activate".to_string(),
             Procedure::Unsupported(n) => format!("unsupported {n}"),
         };
         if matches!(
@@ -1024,6 +1027,7 @@ fn the_installed_game_reads_every_package_and_evaluates_the_prisoner() {
                 | Procedure::ForceGreet
                 | Procedure::UseIdleMarker { .. }
                 | Procedure::HoldPosition
+                | Procedure::Activate
         ) {
             supported += 1;
         }

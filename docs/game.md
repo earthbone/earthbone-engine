@@ -700,6 +700,15 @@ is a ghost, matching the CK wiki's `SetAlpha - Actor` rule. The attempt state an
 procedure tag are saved in SOEW version 37. The package remains active after the
 greeting, and a later branch or package selection resets the attempt state.
 
+`Activate` resolves the branch's target input to a placed reference, walks the
+actor to it, and calls the shared game activation path once on arrival. The
+actor is the activator, so default processing and `OnActivate` use the same
+behavior as other game activations. The attempt flag is saved in SOEW version
+41 and resets when the package or procedure branch changes. The local CK wiki
+`Activate - ObjectReference` page defines the default-processing and event
+rules. The target's event uses the local `OnActivate - ObjectReference`
+contract.
+
 `Hover` reads a location and finite height from its branch inputs, moves to
 the location's X and Y at its Z plus that height, and holds there. The actor
 reports flying state 3 and `IsFlying` true while Hover runs. Replacing the
@@ -910,7 +919,7 @@ either.
 
 `World::save_state(&self) -> Vec<u8>` and `World::load_state(&mut self,
 bytes) -> Result<(), VmError>` write and read the run-time half of the form
-table, magic `SOEW`, version 40. Versions 4 to 6 use legacy actor values,
+table, magic `SOEW`, version 41. Versions 4 to 6 use legacy actor values,
 version 5 adds active magic, version 6 adds dialogue, version 7 adds actor-value
 components, version 8 adds dialogue to those components, and version 9 adds
 active magic. Version 10 adds per-reference leveled template choices.
@@ -929,7 +938,8 @@ pools with each observer's detection level and timers, written only when a pool
 exists. Version 31 adds the set of perpetrators an actor witnessed committing a
 tracked crime. Versions 32 and 33 retain assigned hand spells and summoned
 references. Versions 34 to 40 add Hover, Follow, UseIdleMarker, ForceGreet,
-HoldPosition, Orbit and Escort procedure state.
+HoldPosition, Orbit and Escort procedure state. Version 41 adds the Activate
+procedure and its saved one-shot state.
 version 5 adds active magic, version 6 adds dialogue, version 7 adds actor-value
 components, version 8 adds dialogue to those components, version 9 adds
 active magic. Version 10 adds per-reference leveled template choices.
