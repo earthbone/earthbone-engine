@@ -57,7 +57,8 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// Version 32 retains each hand's explicitly assigned spell, so a menu or
 /// script equip survives a reload the way a hand weapon selection already did.
 /// Version 33 retains the spawned reference owned by each Summon Creature effect.
-pub const SAVE_VERSION: u16 = 33;
+/// Version 34 retains the active Hover package height.
+pub const SAVE_VERSION: u16 = 34;
 
 #[derive(Clone, Copy)]
 pub(crate) enum FormNamespace {
@@ -1491,6 +1492,11 @@ fn read_actor_state(r: &mut FormReader<'_, '_>, version: u16) -> Result<ActorSta
     if version < 22 && matches!(a.ai.procedure, crate::ai::Procedure::Wait { .. }) {
         return Err(VmError::State(
             "Wait procedure requires world version 22".into(),
+        ));
+    }
+    if version < 34 && a.ai.procedure == crate::ai::Procedure::Hover {
+        return Err(VmError::State(
+            "Hover procedure requires world version 34".into(),
         ));
     }
     a.perks = read_form_set(r)?;

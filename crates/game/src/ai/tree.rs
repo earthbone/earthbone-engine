@@ -81,6 +81,18 @@ impl Tree {
         }
     }
 
+    fn hover_parameters(&self, branch: &Branch) -> Option<f32> {
+        let height = branch.inputs.iter().find_map(|&index| {
+            self.chain.iter().find_map(|(_, package)| {
+                match package.input(index as i8).map(|input| input.value) {
+                    Some(DataValue::Float(height)) if height.is_finite() => Some(height),
+                    _ => None,
+                }
+            })
+        })?;
+        self.location(branch).map(|_| height)
+    }
+
     fn patrol_parameters(
         &self,
         branch: &Branch,
@@ -136,6 +148,7 @@ fn procedure(branch: &Branch) -> Procedure {
         Some("wait") => Procedure::Wait {
             stop_movement: false,
         },
+        Some("hover") => Procedure::Hover,
         Some(_) => Procedure::Unsupported(branch.procedure.clone().unwrap_or_default()),
         None => Procedure::Unsupported(branch.kind.clone()),
     }
@@ -161,6 +174,10 @@ pub(super) fn first(world: &World, id: GlobalFormId) -> (Procedure, Option<Locat
             Procedure::Wait { .. } => tree.wait_parameters(branch).map_or_else(
                 || Procedure::Unsupported("Wait inputs".into()),
                 |(_, stop_movement)| Procedure::Wait { stop_movement },
+            ),
+            Procedure::Hover => tree.hover_parameters(branch).map_or_else(
+                || Procedure::Unsupported("Hover inputs, AI-31".into()),
+                |_| Procedure::Hover,
             ),
             other => other,
         };
@@ -275,6 +292,8 @@ pub(super) fn enter(world: &mut World, actor: GlobalFormId, ai: &mut AiState) {
         }
         state.active = true;
         let mut chosen = procedure(branch);
+        let mut location = tree.location(branch);
+        let mut hover_height = None;
         let mut wait_until = None;
         if matches!(chosen, Procedure::Wait { .. }) {
             match tree.wait_parameters(branch) {
@@ -287,8 +306,14 @@ pub(super) fn enter(world: &mut World, actor: GlobalFormId, ai: &mut AiState) {
                 _ => chosen = Procedure::Unsupported("Wait inputs or clock".into()),
             }
         }
+        if chosen == Procedure::Hover {
+            match tree.hover_parameters(branch) {
+                Some(height) => hover_height = Some(height),
+                None => chosen = Procedure::Unsupported("Hover inputs, AI-31".into()),
+            }
+        }
         let is_patrol = chosen == Procedure::Patrol;
-        super::begin_procedure(world, actor, ai, chosen, tree.location(branch));
+        super::begin_procedure(world, actor, ai, chosen, location.take(), hover_height);
         if is_patrol {
             super::patrol::begin(world, actor, ai, tree.patrol_parameters(branch));
         }

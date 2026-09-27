@@ -9,11 +9,16 @@
 //! the actor on the clock: `Travel` walks to a place, `Sandbox` wanders
 //! between idle markers around a place, `Sleep` walks to a bed and holds.
 //! `Wait` uses the non-menu clock and holds until its duration expires.
+//! `Hover` flies to its authored location and height, then holds there until
+//! another package replaces it.
 //! Walking follows the vanilla navmesh graph (`soe_navmesh::vanilla`)
 //! built once per world, and crossing into another navmesh moves the actor
 //! into that navmesh's cell. Its rates come from the actor race's `WKMV` and
 //! `RNMV` movement types, with matching `MTYP`/`SPED` overrides. The layouts
 //! are from xEdit `wbRecord(RACE)` and Mutagen `Race.xml`.
+//! `Hover` reads a package location and height from `wbRecord(PACK)` inputs;
+//! the CK wiki defines its active flight state through `GetFlyingState` and
+//! `IsFlying`.
 //!
 //! Conditions are the `CTDA` subset listed in [`function_value`], the
 //! function indexes from xEdit's `wbConditionFunctions`. A function outside
@@ -77,6 +82,7 @@ pub enum Procedure {
     Wait {
         stop_movement: bool,
     },
+    Hover,
     /// A procedure the driver does not run yet, by its template name. The
     /// actor holds where it stands.
     Unsupported(String),
@@ -106,6 +112,8 @@ pub struct AiState {
     pub dwell_until: f64,
     /// Finite Wait deadline in non-menu real seconds. None means endless Wait.
     pub wait_until: Option<f64>,
+    /// Authored vertical offset while a Hover procedure is active.
+    pub hover_height: f32,
     pub patrol: Option<PatrolState>,
     pub speed: f32,
     pub start_position: [f32; 3],
@@ -660,6 +668,7 @@ pub fn evaluate(world: &mut World, actor: GlobalFormId, alloc: Alloc<'_>) -> Opt
     ai.radius = 0.0;
     ai.dwell_until = 0.0;
     ai.wait_until = None;
+    ai.hover_height = 0.0;
     ai.patrol = None;
     ai.speed = movement_speed(world, actor, speed::WALK);
     ai.start_position = position;
@@ -696,6 +705,7 @@ fn begin_procedure(
     ai: &mut AiState,
     procedure: Procedure,
     location: Option<(GlobalFormId, LocationData)>,
+    hover_height: Option<f32>,
 ) {
     let (position, cell) = world
         .reference(actor)
@@ -713,6 +723,7 @@ fn begin_procedure(
     ai.radius = 0.0;
     ai.dwell_until = 0.0;
     ai.wait_until = None;
+    ai.hover_height = 0.0;
     ai.patrol = None;
     let alias = ai.alias.or_else(|| {
         let id = ai.package?;
@@ -721,6 +732,9 @@ fn begin_procedure(
     });
     let place =
         location.and_then(|(owner, l)| resolve_location(world, actor, owner, alias, ai, &l));
+    if let Some(height) = hover_height {
+        ai.hover_height = height;
+    }
     match ai.procedure {
         Procedure::Travel => {
             ai.destination = place.map(|p| p.position);
@@ -751,6 +765,18 @@ fn begin_procedure(
             ai.center_cell = bed
                 .and_then(|b| world.reference(b).and_then(|r| r.cell))
                 .or_else(|| place.and_then(|p| p.cell));
+        }
+        Procedure::Hover => {
+            if let Some(place) = place {
+                ai.destination = Some([
+                    place.position[0],
+                    place.position[1],
+                    place.position[2] + ai.hover_height,
+                ]);
+                ai.center_cell = place.cell;
+            } else {
+                ai.procedure = Procedure::Unsupported("Hover location, AI-31".into());
+            }
         }
         Procedure::None
         | Procedure::Wait { .. }
@@ -1239,6 +1265,10 @@ pub(crate) fn write_record_state(w: &mut Writer, a: &AiState) {
                 w.f64(until);
             }
         }
+        Procedure::Hover => {
+            w.u8(7);
+            w.f32(a.hover_height);
+        }
         Procedure::Unsupported(name) => {
             w.u8(4);
             w.str(name);
@@ -1339,6 +1369,14 @@ pub(crate) fn read_state_mapped(r: &mut FormReader<'_, '_>) -> Result<AiState, V
                 a.wait_until = Some(until);
             }
             Procedure::Wait { stop_movement }
+        }
+        7 => {
+            let height = r.f32()?;
+            if !height.is_finite() {
+                return Err(VmError::State("invalid Hover height".into()));
+            }
+            a.hover_height = height;
+            Procedure::Hover
         }
         other => return Err(VmError::State(format!("unknown procedure {other}"))),
     };
@@ -1567,6 +1605,7 @@ mod tests {
             radius: 100.0,
             dwell_until: 12.5,
             wait_until: None,
+            hover_height: 0.0,
             patrol: None,
             speed: 180.0,
             start_position: [0.5, 0.25, 0.125],
