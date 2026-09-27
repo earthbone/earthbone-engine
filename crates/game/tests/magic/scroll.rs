@@ -43,6 +43,35 @@ fn mag_18_successful_scroll_cast_consumes_one_selected_item() {
 }
 
 #[test]
+fn mag_18_scroll_script_flag_does_not_bypass_magic_resistance() {
+    let mut definition = scroll(SPELL);
+    put(&mut definition.subrecords[0].data, 4, 1 << 20);
+    let mut game = game(plugin(effect_with_resistance(44), vec![definition]));
+    game.world_mut()
+        .set_actor_value(id(ACTOR), "resistmagic", 85.0)
+        .unwrap();
+    game.world_mut().add_item(id(ACTOR), id(SPELL), 1);
+    let selection = game
+        .world_mut()
+        .select_item(id(ACTOR), id(SPELL), StackSource::Plain, 1)
+        .unwrap();
+
+    game.shared_world()
+        .borrow_mut()
+        .cast_scroll(
+            id(ACTOR),
+            &selection,
+            id(SOURCE),
+            Some(id(ACTOR)),
+            Some(id(ACTOR)),
+            &mut |name, class| game.vm.create_object_of(name, class),
+        )
+        .unwrap();
+
+    assert_eq!(game.world_mut().actor_value(id(ACTOR), "health"), 97.0);
+}
+
+#[test]
 fn mag_18_rejected_scroll_cast_keeps_selected_item_and_effects_unchanged() {
     let mut game = game(plugin(effect(1 << 1, 0, 24, false), vec![scroll(SPELL)]));
     game.world_mut().add_item(id(ACTOR), id(SPELL), 2);

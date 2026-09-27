@@ -37,6 +37,7 @@ const MAX_RESISTANCE: f32 = 85.0;
 const RESIST_MAGIC: i32 = 44;
 const FIRST_SPECIFIC_RESISTANCE: i32 = 40;
 const LAST_SPECIFIC_RESISTANCE: i32 = 45;
+const IGNORE_RESISTANCE: u32 = 1 << 20;
 
 /// Identity of one effect application, independent of its MGEF FormID.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -973,27 +974,6 @@ impl World {
             if !magnitude.is_finite() || magnitude < 0.0 {
                 return Err(MagicError::Number);
             }
-            let magnitude = self.resisted_magnitude(target, data, magnitude)?;
-            let signed = if data.flags & DETRIMENTAL != 0 {
-                -magnitude
-            } else {
-                magnitude
-            };
-            let mut changes = Vec::new();
-            if matches!(data.archetype, 0 | 5) {
-                let name = actor_value_name(data.primary_actor_value)
-                    .ok_or(MagicError::Unsupported("actor value"))?;
-                changes.push((name.to_string(), signed));
-                if data.archetype == 5 {
-                    let name = actor_value_name(data.second_actor_value)
-                        .ok_or(MagicError::Unsupported("secondary actor value"))?;
-                    let amount = signed * data.second_actor_value_weight;
-                    if !amount.is_finite() {
-                        return Err(MagicError::Number);
-                    }
-                    changes.push((name.to_string(), amount));
-                }
-            }
             let summon_base = if data.archetype == 18 {
                 let base = self
                     .resolve_from(effect, data.associated_item)
@@ -1050,6 +1030,31 @@ impl World {
                 });
             }
             for recipient in recipients {
+                let magnitude = if !scroll && definition.data.flags & IGNORE_RESISTANCE != 0 {
+                    magnitude
+                } else {
+                    self.resisted_magnitude(recipient, data, magnitude)?
+                };
+                let signed = if data.flags & DETRIMENTAL != 0 {
+                    -magnitude
+                } else {
+                    magnitude
+                };
+                let mut changes = Vec::new();
+                if matches!(data.archetype, 0 | 5) {
+                    let name = actor_value_name(data.primary_actor_value)
+                        .ok_or(MagicError::Unsupported("actor value"))?;
+                    changes.push((name.to_string(), signed));
+                    if data.archetype == 5 {
+                        let name = actor_value_name(data.second_actor_value)
+                            .ok_or(MagicError::Unsupported("secondary actor value"))?;
+                        let amount = signed * data.second_actor_value_weight;
+                        if !amount.is_finite() {
+                            return Err(MagicError::Number);
+                        }
+                        changes.push((name.to_string(), amount));
+                    }
+                }
                 prepared.push(PreparedEffect {
                     effect: ActiveEffect {
                         id: EffectId(0),

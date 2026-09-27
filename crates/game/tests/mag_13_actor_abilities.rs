@@ -97,6 +97,20 @@ fn mag_13_repeated_actor_access_does_not_reapply_ability() {
 }
 
 #[test]
+fn mag_13_headless_spawn_ability_survives_world_save_load() {
+    let game = game();
+    let mut world = game.world_mut();
+    assert!(world.actor(id(ACTOR)).is_some());
+    let hash = world.state_hash();
+    let bytes = world.save_state();
+
+    world.load_state(&bytes).unwrap();
+
+    assert_eq!(world.state_hash(), hash);
+    assert_eq!(world.active_effects().count(), 1);
+}
+
+#[test]
 fn mag_13_add_spell_native_activates_a_new_constant_ability() {
     let mut game = game();
     game.world_mut().actor(id(ACTOR));

@@ -1812,7 +1812,7 @@ actor resolved from one projectile contact. A direct scripted cast of an aimed
 spell rejects before applying effects. The contact target passes through the
 same preparation and hostile-hit path as other spells, preserving caster and
 spell attribution and applying the authored effects only to that target. The
-host supplies the contact actor identity; this API does not create or simulate
+host supplies the contact actor identity. This API does not create or simulate
 projectile motion.
 
 Local `TES5Edit/Core/wbDefinitionsTES5.pas` and
@@ -1842,12 +1842,13 @@ worktree.
 When an actor is first built, constant-effect abilities from its resolved spell
 set apply to that actor. `Actor.AddSpell` does the same when it adds an ability
 later. Ordinary spells remain known without being cast. Repeated actor access
-does not apply an ability a second time.
+does not apply an ability a second time. Spawned abilities have no VM object
+until a VM path creates one. World save and load retain these headless effects.
 
 Local xEdit `wbDefinitionsTES5.pas` defines NPC `SPLO` as actor effects and
 labels spell type 4 as Ability. The CK `AddSpell_-_Actor.wikitext` page says
 the native adds the spell to the actor. `mag_13_actor_abilities.rs` covers
-NPC initialization and repeated access. `natives_dlc`'s MAG-13 adversarial
+NPC initialization, repeated access and world save and load. `natives_dlc`'s MAG-13 adversarial
 test drives `AddSpell` through Papyrus and checks the active effect. These
 tests use synthetic records and do not include a vanilla-data survey.
 
@@ -1857,7 +1858,7 @@ Equipping armor applies its ENCH effects to the wearer. Unequipping the item,
 or replacing it through an overlapping armor slot, removes only active effects
 from that item. The ENCH record supplies effect entries and ARMO's EITM link
 names the enchantment. These fields are defined in local xEdit
-`wbDefinitionsTES5.pas`. `magic/worn_enchantment.rs` covers apply and unequip;
+`wbDefinitionsTES5.pas`. `magic/worn_enchantment.rs` covers apply and unequip.
 `mag_10_adversarial.rs` covers removing the replaced source without disturbing
 other effects. Weapon enchantments and charge use remain outside this path.
 
@@ -1865,10 +1866,15 @@ other effects. Weapon enchantments and charge use remain outside this path.
 
 Hostile effect magnitude applies Resist Magic first, then the specific
 resistance named by MGEF, with each actor value independently capped at 85
-percent. MGEF resistance values 40 through 45 use their matching actor value;
-44 is Resist Magic and is not applied twice. Unresisted effects and
-non-hostile effects keep their authored magnitude. The mapping and resistance
-field are defined in local xEdit `wbDefinitionsTES5.pas`; the order and cap are
+percent. MGEF resistance values 40 through 45 use their matching actor value.
+44 is Resist Magic and is not applied twice. Each area recipient uses its own
+current actor values. A spell with SPIT Ignore Resistance skips both terms.
+The same SPIT bit on a scroll means Script Effect Always Applies and leaves
+resistance in place, as `uesp-modfileformat/SCRL.wikitext` records.
+Non-hostile effects keep their authored magnitude. The
+mapping and resistance field are defined in local xEdit
+`wbDefinitionsTES5.pas`. CommonLibSSE `include/RE/S/SpellItem.h` confirms the
+Ignore Resistance flag. The order and cap are
 the documented magic resistance behavior reviewed for this row. The
 `mag_12_adversarial.rs` and `magic.rs` tests cover the independent caps and
 actor-value modifier behavior with synthetic records.

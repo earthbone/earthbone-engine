@@ -856,7 +856,14 @@ impl World {
             (1, BTreeMap::new())
         };
         for (id, effect) in &active_effects {
-            if !objects.contains_key(&Handle::ActiveEffect(*id))
+            let headless_ability = effect.source == effect.target
+                && effect.caster == Some(effect.target)
+                && self.spell(effect.spell).is_ok_and(|spell| {
+                    spell.data.spell_type == 4
+                        && spell.data.cast_type == 0
+                        && spell.data.delivery == 0
+                });
+            if (!objects.contains_key(&Handle::ActiveEffect(*id)) && !headless_ability)
                 || !actors.contains_key(&effect.target)
             {
                 return Err(VmError::State(
