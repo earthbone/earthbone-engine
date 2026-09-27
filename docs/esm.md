@@ -77,6 +77,21 @@ the named fields and leave the record intact, so an unknown subrecord is never l
 FormIDs inside views are raw, as written in the file, so a view can be built without a
 load order and resolved later.
 
+`Cell::lighting` decodes XCLL's ambient, directional, fog, rotation and six
+directional ambient-color fields. Color values retain all four bytes,
+including xEdit's unused fourth byte. The optional fields after those six
+colors are specular color, Fresnel power, far-fog color, fog maximum, light
+fade distances and inheritance flags. Float values encode through their
+original IEEE-754 bits. The reader accepts complete prefixes of the optional
+fields from 64 to 92 bytes. This follows xEdit's `wbAmbientColors` and
+`SetOptionalFrom(11)` definitions in `wbDefinitionsTES5.pas`. UESP
+`CELL.wikitext` describes the same fields and notes a 64-byte duplicate cell.
+Repeated XCLL fields and partial optional fields are errors. No existing Rust
+reader exposes these fields with byte-exact re-encoding.
+`tests/fmt_01_cell_lighting.rs` checks malformed sizes, each optional-field
+prefix, float bit preservation and every winning installed CELL XCLL when
+`SKYRIM_DATA` is set.
+
 `Plugin::remap_form_ids` applies a caller-provided map to record identities,
 group labels that contain FormIDs and the TES4 ONAM override list. It also
 updates the FormID fields currently decoded by the CELL, WRLD, LCTN, REFR,
