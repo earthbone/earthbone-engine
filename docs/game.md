@@ -1525,6 +1525,16 @@ another Small favor).
 
 ## Active magic applications
 
+### Grab Actor, MAG-66
+
+Direct casts accept MGEF archetype 45 and retain the selected actor, caster and
+source in the active effect. `World::grab_actor_effect_on` exposes the live
+control relationship. Dispel, expiry and the existing death cleanup remove
+that relationship with the active effect. The CK Magic Effect page describes
+the archetype as picking up and throwing the selected NPC. This game-side
+relationship does not move the actor or apply a throw. The Godot host has no
+actor hold or throw controller yet.
+
 ### Telekinesis prerequisite audit, MAG-41
 
 The 2026-09-20 five-master survey found 1,573 non-deleted MGEF winners and

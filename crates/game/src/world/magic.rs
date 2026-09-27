@@ -107,6 +107,21 @@ impl World {
         self.active_effects.values()
     }
 
+    /// The active Grab Actor application controlling an actor, if any.
+    ///
+    /// The returned application identifies both the selected actor and its
+    /// caster. Host movement and throw behavior are separate from this world
+    /// relationship.
+    #[must_use]
+    pub fn grab_actor_effect_on(&self, target: GlobalFormId) -> Option<&ActiveEffect> {
+        self.active_effects.values().find(|effect| {
+            effect.target == target
+                && self
+                    .magic_effect(effect.effect)
+                    .is_ok_and(|definition| definition.data.archetype == 45)
+        })
+    }
+
     /// The live application represented by a Papyrus ActiveMagicEffect object.
     pub fn active_effect_of(&self, object: ObjectId) -> Option<&ActiveEffect> {
         let Handle::ActiveEffect(id) = self.handle_of(object)? else {
@@ -682,7 +697,7 @@ impl World {
                     return Err(MagicError::Target);
                 }
             }
-            if !matches!(data.archetype, 0 | 1 | 2 | 5 | 18) {
+            if !matches!(data.archetype, 0 | 1 | 2 | 5 | 18 | 45) {
                 return Err(MagicError::Unsupported("effect archetype"));
             }
             if data.taper_duration != 0.0 {
