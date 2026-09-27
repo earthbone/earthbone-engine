@@ -380,18 +380,78 @@ impl World {
         target: Option<GlobalFormId>,
         alloc: Alloc<'_>,
     ) -> Result<Vec<EffectId>, MagicError> {
+        let prepared = self.prepare_spell(spell, source, caster, target)?;
+        self.apply_prepared_effects(prepared, alloc)
+    }
+
+    /// Apply constant-effect abilities from an actor's resolved spell list.
+    ///
+    pub(crate) fn apply_actor_abilities(&mut self, actor: GlobalFormId) {
+        let Some(state) = self.actor(actor) else {
+            return;
+        };
+        let spells = state.spells.clone();
+        for spell in spells {
+            let Ok(definition) = self.spell(spell) else {
+                continue;
+            };
+            if definition.data.spell_type != 4
+                || definition.data.cast_type != 0
+                || definition.data.delivery != 0
+            {
+                continue;
+            }
+            let Ok(prepared) = self.prepare_spell(spell, actor, Some(actor), Some(actor)) else {
+                continue;
+            };
+            let Ok(prepared) = self.prepare_effect_actions(prepared) else {
+                continue;
+            };
+            for prepared in prepared {
+                let id = prepared.effect.id;
+                self.next_effect = id.0 + 1;
+                if prepared.effect.recover || prepared.effect.duration == Some(0.0) {
+                    if let Some(state) = self.actors.get_mut(&prepared.effect.target) {
+                        if change_values(&mut state.values, &prepared.effect, 1.0).is_err() {
+                            continue;
+                        }
+                    }
+                }
+                self.active_effects.insert(id, prepared.effect.clone());
+            }
+        }
+    }
+
+    fn prepare_spell(
+        &mut self,
+        spell: GlobalFormId,
+        source: GlobalFormId,
+        caster: Option<GlobalFormId>,
+        target: Option<GlobalFormId>,
+    ) -> Result<Vec<PreparedEffect>, MagicError> {
         let definition = self.spell(spell)?;
         if !matches!(definition.data.cast_type, 0 | 1) {
             return Err(MagicError::Unsupported("concentration or scroll casting"));
         }
         let target = match definition.data.delivery {
             0 => source,
-            3 => target.ok_or(MagicError::Target)?,
-            _ => {
-                return Err(MagicError::Unsupported(
-                    "projectile, contact or location delivery",
-                ))
+            1 => {
+                let target = target.ok_or(MagicError::Target)?;
+                if !definition.data.range.is_finite() || definition.data.range < 0.0 {
+                    return Err(MagicError::Number);
+                }
+                let distance = self.distance(source, target);
+                if self.reference(source).is_none()
+                    || self.actor(target).is_none()
+                    || !distance.is_finite()
+                    || distance > definition.data.range
+                {
+                    return Err(MagicError::Target);
+                }
+                target
             }
+            3 => target.ok_or(MagicError::Target)?,
+            _ => return Err(MagicError::Unsupported("aimed or location delivery")),
         };
         if self.reference(source).is_none() || self.actor(target).is_none() {
             return Err(MagicError::Target);
@@ -545,7 +605,7 @@ impl World {
                 });
             }
         }
-        self.apply_prepared_effects(prepared, alloc)
+        Ok(prepared)
     }
 
     fn apply_prepared_effects(

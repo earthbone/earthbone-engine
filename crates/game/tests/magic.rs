@@ -111,6 +111,20 @@ fn spell_with_area(
         .sub(T(b"EFIT"), efit)
 }
 
+fn touch_spell(form: u32, magnitude: f32, reach: f32) -> Record {
+    let mut spell = spell(form, 0, false, magnitude, 0);
+    let spit = &mut spell.subrecords[0].data;
+    spit[20..24].copy_from_slice(&1u32.to_le_bytes());
+    spit[28..32].copy_from_slice(&reach.to_le_bytes());
+    spell
+}
+
+fn touch_effect() -> Record {
+    let mut effect = effect(5, 0, 24, false);
+    effect.subrecords[1].data[84..88].copy_from_slice(&1u32.to_le_bytes());
+    effect
+}
+
 fn condition(function: u16, parameter: u32, expected: f32, run_on: u32) -> Vec<u8> {
     let mut data = vec![0; 32];
     data[4..8].copy_from_slice(&expected.to_le_bytes());
@@ -143,6 +157,14 @@ fn ingestible_with_flags(form: u32, flags: u32, magnitude: f32, duration: u32) -
 }
 
 fn plugin(effect: Record, spells: Vec<Record>) -> Plugin {
+    plugin_with_positions(effect, spells, &[])
+}
+
+fn plugin_with_positions(
+    effect: Record,
+    spells: Vec<Record>,
+    positions: &[(u32, [f32; 3])],
+) -> Plugin {
     let mut plugin = Plugin::new(FileHeader::default());
     plugin.push_top(Record::new(T(b"NPC_"), 0x500).sub(T(b"ACBS"), vec![0; 24]));
     let mut summon_acbs = vec![0; 24];
@@ -153,10 +175,17 @@ fn plugin(effect: Record, spells: Vec<Record>) -> Plugin {
             .sub(T(b"ACBS"), summon_acbs),
     );
     for actor in [ACTOR, OTHER, SOURCE] {
+        let mut data = vec![0; 24];
+        if let Some((_, position)) = positions.iter().find(|(form, _)| *form == actor) {
+            for (index, value) in position.iter().enumerate() {
+                let start = index * 4;
+                data[start..start + 4].copy_from_slice(&value.to_le_bytes());
+            }
+        }
         plugin.push_top(
             Record::new(T(b"ACHR"), actor)
                 .sub(T(b"NAME"), 0x500u32.to_le_bytes())
-                .sub(T(b"DATA"), vec![0; 24]),
+                .sub(T(b"DATA"), data),
         );
     }
     plugin.push_top(Record::new(T(b"KYWD"), KEYWORD).zsub(T(b"EDID"), "ProbeKeyword"));
@@ -372,6 +401,79 @@ fn cast(game: &mut Game, spell: u32, target: u32) -> Result<Vec<EffectId>, Magic
         &mut |name, class| game.vm.create_object_of(name, class),
     );
     result
+}
+
+#[test]
+fn mag_16_touch_spell_applies_at_its_authored_reach() {
+    let game_plugin = plugin_with_positions(
+        touch_effect(),
+        vec![touch_spell(SPELL, 15.0, 10.0)],
+        &[(ACTOR, [0.0, 0.0, 0.0]), (OTHER, [10.0, 0.0, 0.0])],
+    );
+    let mut game = game(game_plugin);
+
+    let applied = cast(&mut game, SPELL, OTHER).unwrap();
+
+    assert_eq!(applied.len(), 1, "the target at the reach boundary is hit");
+    assert_eq!(game.world_mut().actor_value(id(OTHER), "health"), 85.0);
+    assert_eq!(game.world_mut().actor_value(id(ACTOR), "health"), 100.0);
+}
+
+#[test]
+fn mag_16_touch_spell_rejects_a_target_beyond_its_authored_reach() {
+    let game_plugin = plugin_with_positions(
+        touch_effect(),
+        vec![touch_spell(SPELL, 15.0, 10.0)],
+        &[(ACTOR, [0.0, 0.0, 0.0]), (OTHER, [10.01, 0.0, 0.0])],
+    );
+    let mut game = game(game_plugin);
+
+    assert!(matches!(
+        cast(&mut game, SPELL, OTHER),
+        Err(MagicError::Target)
+    ));
+    assert_eq!(game.world().active_effects().count(), 0);
+    assert_eq!(game.world_mut().actor_value(id(OTHER), "health"), 100.0);
+}
+
+#[test]
+fn mag_16_touch_spell_rejects_a_non_actor_target() {
+    let mut game = game(plugin(touch_effect(), vec![touch_spell(SPELL, 15.0, 10.0)]));
+
+    assert!(matches!(
+        cast(&mut game, SPELL, ITEM),
+        Err(MagicError::Target)
+    ));
+    assert_eq!(game.world().active_effects().count(), 0);
+}
+
+#[test]
+fn mag_16_touch_hostile_spell_rejects_a_dead_target() {
+    let mut game = game(plugin(touch_effect(), vec![touch_spell(SPELL, 15.0, 10.0)]));
+    assert!(game
+        .world_mut()
+        .kill_actor_silent(id(OTHER), Some(id(ACTOR))));
+
+    assert!(matches!(
+        cast(&mut game, SPELL, OTHER),
+        Err(MagicError::Target)
+    ));
+    assert_eq!(game.world().active_effects().count(), 0);
+}
+
+#[test]
+fn mag_16_touch_spell_rejects_an_invalid_authored_reach() {
+    let mut game = game(plugin(
+        touch_effect(),
+        vec![touch_spell(SPELL, 15.0, f32::NAN)],
+    ));
+
+    assert!(matches!(
+        cast(&mut game, SPELL, OTHER),
+        Err(MagicError::Number)
+    ));
+    assert_eq!(game.world().active_effects().count(), 0);
+    assert_eq!(game.world_mut().actor_value(id(OTHER), "health"), 100.0);
 }
 
 #[test]
