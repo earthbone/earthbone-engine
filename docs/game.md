@@ -941,6 +941,9 @@ callbacks and does not mutate the running game.
 newest one loadable under the current definitions. `recover_generation` loads
 those verified bytes. Retention preserves loadable fallbacks before intact
 incompatible files, with a minimum configured limit of two generations.
+The `sav_63_` tests also corrupt a newly published generation after an
+interrupted rotation, then recover the older verified state and finish a
+bounded retry.
 
 A test in `tests/quest_flow.rs` calls the new `Game::activate_no_settle`
 (the part of `Game::activate` before `run_until_idle`) on the lever so the
