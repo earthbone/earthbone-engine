@@ -6,13 +6,23 @@ use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::World;
 
 fn fixture() -> (World, GlobalFormId) {
-    let id = GlobalFormId { file: 0, object: 0x123 };
+    let id = GlobalFormId {
+        file: 0,
+        object: 0x123,
+    };
     let mut plugin = Plugin::new(FileHeader::default());
     plugin.push_top(Record::new(Tag::new(b"STAT"), 0x124));
     plugin.push_top(
         Record::new(Tag::new(b"REFR"), id.object)
             .sub(Tag::new(b"NAME"), 0x124_u32.to_le_bytes())
-            .sub(Tag::new(b"DATA"), Transform { position: [1.0, 2.0, 3.0], rotation: [0.0; 3] }.to_bytes()),
+            .sub(
+                Tag::new(b"DATA"),
+                Transform {
+                    position: [1.0, 2.0, 3.0],
+                    rotation: [0.0; 3],
+                }
+                .to_bytes(),
+            ),
     );
     let mut order = LoadOrder::new();
     order.add("fixture.esp", plugin).unwrap();
@@ -30,7 +40,10 @@ fn hst_12_deleted_reference_rejects_a_late_physics_pose() {
 #[test]
 fn hst_12_missing_reference_does_not_materialize_from_a_late_pose() {
     let (mut world, id) = fixture();
-    let missing = GlobalFormId { file: id.file, object: 0x999 };
+    let missing = GlobalFormId {
+        file: id.file,
+        object: 0x999,
+    };
     assert!(!world.set_host_ref_pose(missing, [10.0; 3], [0.0; 3]));
     assert!(world.reference_ref(missing).is_none());
 }

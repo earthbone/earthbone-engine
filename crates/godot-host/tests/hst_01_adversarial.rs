@@ -4,7 +4,9 @@
 //! Source-defined edge cases for animated static controller playback.
 
 use soe_godot_host::animated_static::{self, AnimatedController};
-use soe_nif::controller::{ControllerFlags, CycleType, QuatTransform, TimeController, TransformInterpolator};
+use soe_nif::controller::{
+    ControllerFlags, CycleType, QuatTransform, TimeController, TransformInterpolator,
+};
 use soe_nif::types::BlockRef;
 
 #[test]
@@ -35,7 +37,16 @@ fn hst_01_controller_without_key_data_holds_its_authored_default_pose() {
         data: None,
     };
 
-    assert_eq!(animated_static::evaluate(&controller, 0.0).translation, default_value.translation);
-    assert_eq!(animated_static::evaluate(&controller, 25.0).translation, default_value.translation);
-    assert_eq!(animated_static::evaluate(&controller, 25.0).scale, default_value.scale);
+    assert_eq!(
+        animated_static::evaluate(&controller, 0.0).translation,
+        default_value.translation
+    );
+    assert_eq!(
+        animated_static::evaluate(&controller, 25.0).translation,
+        default_value.translation
+    );
+    assert_eq!(
+        animated_static::evaluate(&controller, 25.0).scale,
+        default_value.scale
+    );
 }
