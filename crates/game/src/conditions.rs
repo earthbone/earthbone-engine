@@ -173,6 +173,13 @@ pub fn supports_function(function: u16) -> bool {
             | 600
             | 601
             | 603
+            | 604
+            | 605
+            | 610
+            | 625
+            | 626
+            | 651
+            | 718
     )
 }
 
@@ -604,6 +611,87 @@ fn function_value(
                 .current_location(other)
                 .ok_or(Error::LocationContext(other))?;
             boolean(location == other_location && world.keywords(location).contains(&keyword))
+        }
+        604 => {
+            let quest = context.quest.ok_or(Error::Target(5))?;
+            if world.alias_is_location(quest, raw) {
+                return Err(Error::Target(5));
+            }
+            let other = world
+                .alias_ref(quest, raw)
+                .filter(|other| {
+                    let tag = world.tag_of(*other);
+                    tag == Some(Tag(*b"ACHR")) || tag == Some(Tag(*b"REFR"))
+                })
+                .ok_or(Error::Target(5))?;
+            let keyword = resolve(world, context.owner, c.parameters[1], Some(*b"KYWD"))?;
+            let location = world
+                .current_location(subject)
+                .ok_or(Error::LocationContext(subject))?;
+            let other_location = world
+                .current_location(other)
+                .ok_or(Error::LocationContext(other))?;
+            boolean(location == other_location && world.keywords(location).contains(&keyword))
+        }
+        605 => {
+            let quest = context.quest.ok_or(Error::Target(5))?;
+            if !world.alias_is_location(quest, raw) {
+                return Err(Error::Target(5));
+            }
+            let alias_location = world
+                .alias_ref(quest, raw)
+                .filter(|location| world.tag_of(*location) == Some(Tag(*b"LCTN")))
+                .ok_or(Error::Target(5))?;
+            let location = resolve(world, context.owner, c.parameters[1], Some(*b"LCTN"))?;
+            boolean(alias_location == location)
+        }
+        610 => {
+            let quest = context.quest.ok_or(Error::Target(5))?;
+            if !world.alias_is_location(quest, raw) {
+                return Err(Error::Target(5));
+            }
+            let location = world
+                .alias_ref(quest, raw)
+                .filter(|location| world.tag_of(*location) == Some(Tag(*b"LCTN")))
+                .ok_or(Error::Target(5))?;
+            let keyword = resolve(world, context.owner, c.parameters[1], Some(*b"KYWD"))?;
+            boolean(world.keywords(location).contains(&keyword))
+        }
+        625 => {
+            no_second_parameter(c)?;
+            let _location = resolve(world, context.owner, raw, Some(*b"LCTN"))?;
+            return Err(Error::Unavailable(c.function));
+        }
+        626 => {
+            no_second_parameter(c)?;
+            let quest = context.quest.ok_or(Error::Target(5))?;
+            if !world.alias_is_location(quest, raw) {
+                return Err(Error::Target(5));
+            }
+            let _location = world
+                .alias_ref(quest, raw)
+                .filter(|location| world.tag_of(*location) == Some(Tag(*b"LCTN")))
+                .ok_or(Error::Target(5))?;
+            return Err(Error::Unavailable(c.function));
+        }
+        651 => {
+            no_second_parameter(c)?;
+            let keyword = resolve(world, context.owner, raw, Some(*b"KYWD"))?;
+            let location = world
+                .current_location(subject)
+                .ok_or(Error::LocationContext(subject))?;
+            world
+                .location(location)
+                .and_then(|state| state.keyword_data.get(&keyword).copied())
+                .unwrap_or(0.0)
+        }
+        718 => {
+            no_parameter(c)?;
+            let base = world.base_of(subject).ok_or(Error::Form(subject))?;
+            if world.tag_of(base) != Some(Tag(*b"DOOR")) {
+                return Err(Error::Form(subject));
+            }
+            boolean(!world.reference(subject).ok_or(Error::Form(subject))?.locked)
         }
         69 => {
             let race = resolve(world, context.owner, raw, Some(*b"RACE"))?;

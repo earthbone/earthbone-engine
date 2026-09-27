@@ -1289,6 +1289,21 @@ batch, so the result behavior follows the function names and the referenced
 LCTN and live actor state models. Missing aliases and current locations return
 explicit context errors.
 
+AI-58 adds `IsInSameCurrentLocAsRefAlias`, `LocAliasIsLocation`,
+`LocAliasHasKeyword`, `GetKeywordDataForCurrentLocation` and
+`IsUnlockedDoor`. The alias location predicates require a filled alias of the
+declared kind. Same-current-location compares the subject and filled reference
+alias locations, then checks the keyword on that location. Location keyword
+data reads the subject's current location and returns zero for an unset key.
+`IsUnlockedDoor` reads the subject reference's lock bit and requires a `DOOR`
+base. `IsLocationLoaded` and `IsLocAliasLoaded` validate their location alias
+inputs, then report unavailable because local CK condition sources define no
+usable loaded-state result contract and the world does not model loaded state
+for locations or aliases. xEdit `wbConditionFunctions` supplies IDs and
+parameter types, and the local UESP raw function table supplies the matching
+Papyrus signatures. The CK corpus has no individual condition pages for this
+batch.
+
 Sources consulted were local xEdit `wbDefinitionsTES5.pas` for CTDA, COBJ and
 FURN WBDT, CK `GetItemCount_-_ObjectReference.wikitext` for the query forms,
 UESP COBJ notes for missing outputs, skymp `CraftService.cpp` and
