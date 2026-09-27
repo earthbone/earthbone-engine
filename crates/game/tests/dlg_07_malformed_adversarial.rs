@@ -57,7 +57,7 @@ fn evaluate(game: &Game, subject: GlobalFormId, c: &Condition) -> Result<bool, c
 /// IsIntimidatedbyPlayer (116) are documented as taking no parameter, but the
 /// dispatcher's own established convention (function 70 and function 448, see
 /// module docs) is to reject a nonzero value in a slot the function does not
-/// use, instead of silently ignoring it. A hand-edited or corrupted INFO
+/// use. A hand-edited or corrupted INFO
 /// record with garbage in that slot should fail closed the same way. It
 /// must not evaluate as though the slot were legitimately zero.
 #[test]

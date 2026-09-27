@@ -6,8 +6,9 @@
 //! magicka and stamina, and skills, both follow UESP CLAS.wikitext's
 //! "Weight Calculations": the class weighted formula for a fixed-level
 //! auto-calculated actor with a resolvable class, RACE starts plus the
-//! ACBS offset (attributes) or RACE Skill Boosts (skills) for a manual
-//! actor, and DNAM's own cache otherwise (no class, a class with a zero
+//! ACBS offset (attributes) for a manual actor, and DNAM's own skill cache
+//! because manual-mode race-bonus semantics are unresolved. Other cases use
+//! DNAM's cache (no class, a class with a zero
 //! weight sum, or `PC_LEVEL_MULT`, whose player-scaled level this store
 //! does not track).
 
@@ -251,10 +252,6 @@ impl World {
                     return Err(Error::Invalid("overflowing NPC attribute".into()));
                 }
                 values[index].1 = value;
-            }
-            for i in 0..18 {
-                let boost = race_skill_boost(&race, i);
-                values[3 + i].1 = (values[3 + i].1 + f32::from(boost)).clamp(0.0, 100.0);
             }
         }
         values.push(("speedmult".into(), f32::from(npc.config.speed)));

@@ -208,7 +208,7 @@ yet, so the swap and property overrides are held until the reference is built.
 An explicit reference rule takes precedence over a rule for the original base,
 and a rule for the original base applies when no reference rule exists. The
 runtime writes transform and flag changes to `RefState`. Applied flags persist
-in SOEW version 34. `World::base_inventory` does the same for a distributed
+in SOEW version 35. `World::base_inventory` does the same for a distributed
 item, so `GetItemCount` counts it the way it counts a shipped one.
 
 ### Chance, and what it costs

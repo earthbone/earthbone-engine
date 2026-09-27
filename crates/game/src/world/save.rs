@@ -57,8 +57,9 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// Version 32 retains each hand's explicitly assigned spell, so a menu or
 /// script equip survives a reload the way a hand weapon selection already did.
 /// Version 33 retains the spawned reference owned by each Summon Creature effect.
-/// Version 34 retains BOS record flags on instantiated references.
-pub const SAVE_VERSION: u16 = 34;
+/// Version 34 retains last-visit game days for resettable encounter zones.
+/// Version 35 retains BOS record flags on instantiated references.
+pub const SAVE_VERSION: u16 = 35;
 
 #[derive(Clone, Copy)]
 pub(crate) enum FormNamespace {
@@ -415,6 +416,7 @@ impl World {
         self.write_image_space(&mut body);
         self.write_loose_items(&mut body);
         self.write_encounter_levels(&mut body);
+        self.write_encounter_zone_visits(&mut body);
         self.write_dialogue_repeats(&mut body);
         self.write_detection(&mut body);
         let mut out = Writer::new();
@@ -945,7 +947,7 @@ impl World {
         for (id, state) in &mut refs {
             state.record_flags = self.order.winner(*id).map_or(0, |record| record.flags);
         }
-        if version >= 34 {
+        if version >= 35 {
             super::reference_extras::read_reference_flags(&mut r, &mut refs)?;
         }
         if version >= 21 {
@@ -978,6 +980,11 @@ impl World {
         }
         let encounter_levels = if version >= 27 {
             self.read_encounter_levels(&mut r)?
+        } else {
+            BTreeMap::new()
+        };
+        let encounter_zone_visits = if version >= 34 {
+            self.read_encounter_zone_visits(&mut r)?
         } else {
             BTreeMap::new()
         };
@@ -1033,6 +1040,7 @@ impl World {
         self.actor_bases = actor_bases;
         self.cells = cells;
         self.encounter_levels = encounter_levels;
+        self.encounter_zone_visits = encounter_zone_visits;
         self.detection = detection;
         self.settings = settings;
         self.inventory_filters = inventory_filters;

@@ -3,6 +3,7 @@
 
 //! Encounter-zone level sources, first-entry locks and saved actor selection.
 
+use soe_esm::plugin::flags as record_flags;
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::{npc, World};
 use soe_papyrus::Value;
@@ -63,6 +64,56 @@ fn fixture(minimum: u8, maximum: u8, flags: u8) -> World {
         reference(None),
         Record::new(T(b"WRLD"), WORLD),
     ])
+}
+
+fn reset_fixture(zone_flags: u8) -> World {
+    let mut base = Record::new(T(b"CONT"), BASE).sub(
+        T(b"CNTO"),
+        [
+            0x600_u32.to_le_bytes().as_slice(),
+            4_i32.to_le_bytes().as_slice(),
+        ]
+        .concat(),
+    );
+    base.placement.cell = Some(CELL);
+    let mut persistent = reference(None);
+    persistent.form_id = REF + 1;
+    persistent.flags = record_flags::PERSISTENT;
+    build_world(vec![
+        zone(ZONE, 6, 20, zone_flags),
+        cell(Some(ZONE)),
+        Record::new(T(b"CELL"), CELL + 1),
+        reference(None),
+        persistent,
+        Record::new(T(b"WRLD"), WORLD),
+        base,
+        Record::new(T(b"MISC"), 0x600),
+    ])
+}
+
+#[test]
+fn prg_10_streaming_focus_return_expires_zone_and_restores_contents() {
+    let mut world = reset_fixture(0);
+    world.player_level = 10;
+    world.clock.game_days = 1.0;
+    world
+        .update_streaming_cells(id(CELL), &[id(CELL)], &[])
+        .unwrap();
+    world.reference(id(REF)).unwrap().opened = true;
+    world.add_item(id(REF), id(0x600), -4);
+    world
+        .update_streaming_cells(id(CELL + 1), &[id(CELL + 1)], &[id(CELL)])
+        .unwrap();
+
+    world.player_level = 20;
+    world.clock.game_days = 11.0;
+    world
+        .update_streaming_cells(id(CELL), &[id(CELL)], &[id(CELL + 1)])
+        .unwrap();
+
+    assert_eq!(world.encounter_level(id(REF)).unwrap(), 14);
+    assert!(!world.reference(id(REF)).unwrap().opened);
+    assert_eq!(world.item_count(id(REF), id(0x600)), 4);
 }
 
 #[test]
@@ -188,26 +239,28 @@ fn old_save_clears_zone_locks_and_corrupt_zone_extension_is_atomic() {
     let mut world = fixture(6, 20, 0);
     world.player_level = 10;
     let mut old = world.save_state();
+    let flags_offset = old.len() - 37;
+    assert_eq!(&old[flags_offset..flags_offset + 4], &[0; 4]);
+    old.drain(flags_offset..flags_offset + 4);
     old.truncate(old.len() - 12);
-    // Version 26 is the last one written without the zone-level block.
+    // Version 26 predates encounter locks, visits and dialogue repeats.
     old[4..6].copy_from_slice(&26_u16.to_le_bytes());
     world.enter_encounter_zone(id(ZONE)).unwrap();
     let before = world.save_state();
     let hash = world.state_hash();
-    // The zone block is followed by the version 28 repeat history, so the
-    // zone count, its one entry and that trailing block are sliced apart.
-    let repeats = before.len() - 4;
-    let entry_at = repeats - 8;
+    // Visit history follows the lock table and precedes the repeat history.
+    let visits_end = before.len() - 4;
+    let entry_at = visits_end - 16;
     let count_at = entry_at - 4;
     let mut invalid = before.clone();
-    invalid[repeats - 2..repeats].fill(0);
+    invalid[entry_at + 8..visits_end].copy_from_slice(&f64::NAN.to_le_bytes());
     assert!(world.load_state(&invalid).is_err());
     assert_eq!(world.state_hash(), hash);
     let mut duplicate = before[..count_at].to_vec();
     duplicate.extend_from_slice(&2_u32.to_le_bytes());
-    duplicate.extend_from_slice(&before[entry_at..repeats]);
-    duplicate.extend_from_slice(&before[entry_at..repeats]);
-    duplicate.extend_from_slice(&before[repeats..]);
+    duplicate.extend_from_slice(&before[entry_at..visits_end]);
+    duplicate.extend_from_slice(&before[entry_at..visits_end]);
+    duplicate.extend_from_slice(&before[visits_end..]);
     assert!(world.load_state(&duplicate).is_err());
     assert_eq!(world.state_hash(), hash);
     world.load_state(&old).unwrap();
@@ -329,6 +382,104 @@ fn prefetch_does_not_lock_until_entry_and_invalid_entry_preserves_current_cell()
     world.change_cell(Some(id(CELL + 1)));
     assert_eq!(world.save_state(), before);
     assert_eq!(world.loaded_cell(), Some(id(CELL)));
+}
+
+#[test]
+fn prg_10_expired_zone_restores_reference_contents_and_relocks_at_current_level() {
+    let mut world = reset_fixture(0);
+    world.player_level = 10;
+    world.clock.game_days = 1.0;
+    assert_eq!(world.enter_encounter_zone(id(ZONE)).unwrap(), 8);
+    assert_eq!(world.item_count(id(REF), id(0x600)), 4);
+    world.reference(id(REF)).unwrap().opened = true;
+    world.add_item(id(REF), id(0x600), -4);
+    world.reference(id(REF + 1)).unwrap().opened = true;
+    world.add_item(id(REF + 1), id(0x600), -4);
+    let dynamic = world.place_at(id(BASE), id(REF), false);
+    world.reference(dynamic).unwrap().opened = true;
+    world.add_item(dynamic, id(0x600), -4);
+
+    world.player_level = 20;
+    world.clock.game_days = 11.0;
+    assert_eq!(world.enter_encounter_zone(id(ZONE)).unwrap(), 14);
+    assert!(!world.reference(id(REF)).unwrap().opened);
+    assert_eq!(world.item_count(id(REF), id(0x600)), 4);
+    assert!(world.reference(id(REF + 1)).unwrap().opened);
+    assert_eq!(world.item_count(id(REF + 1), id(0x600)), 0);
+    assert!(world.reference(dynamic).unwrap().opened);
+    assert_eq!(world.item_count(dynamic, id(0x600)), 0);
+    assert_eq!(world.encounter_level(id(REF)).unwrap(), 14);
+}
+
+#[test]
+fn prg_10_zone_contents_and_level_lock_remain_before_reset_interval() {
+    let mut world = reset_fixture(0);
+    world.player_level = 10;
+    world.clock.game_days = 1.0;
+    world.enter_encounter_zone(id(ZONE)).unwrap();
+    world.reference(id(REF)).unwrap().opened = true;
+    world.add_item(id(REF), id(0x600), -4);
+
+    world.player_level = 20;
+    world.clock.game_days = 10.999;
+    assert_eq!(world.enter_encounter_zone(id(ZONE)).unwrap(), 8);
+    assert!(world.reference(id(REF)).unwrap().opened);
+    assert_eq!(world.item_count(id(REF), id(0x600)), 0);
+}
+
+#[test]
+fn prg_10_recent_zone_entry_restarts_reset_interval() {
+    let mut world = reset_fixture(0);
+    world.player_level = 10;
+    world.clock.game_days = 1.0;
+    world.enter_encounter_zone(id(ZONE)).unwrap();
+    world.clock.game_days = 10.0;
+    world.enter_encounter_zone(id(ZONE)).unwrap();
+    world.reference(id(REF)).unwrap().opened = true;
+    world.add_item(id(REF), id(0x600), -4);
+
+    world.player_level = 20;
+    world.clock.game_days = 19.999;
+    assert_eq!(world.enter_encounter_zone(id(ZONE)).unwrap(), 8);
+    assert!(world.reference(id(REF)).unwrap().opened);
+}
+
+#[test]
+fn prg_10_never_resets_flag_preserves_contents_and_level_lock() {
+    let mut world = reset_fixture(1);
+    world.player_level = 10;
+    world.clock.game_days = 1.0;
+    world.enter_encounter_zone(id(ZONE)).unwrap();
+    world.reference(id(REF)).unwrap().opened = true;
+    world.add_item(id(REF), id(0x600), -4);
+
+    world.player_level = 20;
+    world.clock.game_days = 30.0;
+    assert_eq!(world.enter_encounter_zone(id(ZONE)).unwrap(), 8);
+    assert!(world.reference(id(REF)).unwrap().opened);
+    assert_eq!(world.item_count(id(REF), id(0x600)), 0);
+}
+
+#[test]
+fn prg_10_saved_visit_time_expires_zone_after_reload() {
+    let mut world = reset_fixture(0);
+    world.player_level = 10;
+    world.clock.game_days = 2.0;
+    world.enter_encounter_zone(id(ZONE)).unwrap();
+    let saved = world.save_state();
+    let mut master_34 = saved.clone();
+    // The version 34 layout carries the visit but lacks the flag block.
+    let flags_offset = master_34.len() - 59;
+    assert_eq!(&master_34[flags_offset..flags_offset + 4], &[0; 4]);
+    master_34.drain(flags_offset..flags_offset + 4);
+    master_34[4..6].copy_from_slice(&34_u16.to_le_bytes());
+    for bytes in [saved, master_34] {
+        let mut loaded = reset_fixture(0);
+        loaded.player_level = 20;
+        loaded.load_state(&bytes).unwrap();
+        loaded.clock.game_days = 12.0;
+        assert_eq!(loaded.enter_encounter_zone(id(ZONE)).unwrap(), 14);
+    }
 }
 
 #[test]

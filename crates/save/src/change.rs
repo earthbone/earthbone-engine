@@ -12,9 +12,12 @@
 //! The payload has its own compression, separate from the file's: when
 //! `length2` is non-zero the payload is zlib deflated and `length2` is its
 //! inflated size.
+//! The type indices follow UESP's Save File Format page. Typed field layouts
+//! use xEdit's `wbDefinitionsTES5Saves.pas` and FallrimTools change readers.
 
-use crate::cursor::{Cursor, RefId, VsVal};
+use crate::cursor::{Cursor, RefId, RefKind, VsVal};
 use crate::error::{Error, Result};
+use crate::quest::FormFlags;
 
 /// The record type a change form index names, in the order the type byte's
 /// low six bits use. Taken from the UESP Save File Format page and matched
@@ -175,6 +178,281 @@ impl ChangeForm {
             stages.push(QuestStage { stage, status });
         }
         Ok(Some(stages))
+    }
+
+    /// Decode CLAS form flags and the tag-skills change marker.
+    ///
+    /// # Errors
+    /// Rejects unknown bits and bytes outside the defined sections.
+    pub fn class_change(&self) -> Result<Option<ClassChange>> {
+        if self.record_type() != "CLAS" {
+            return Ok(None);
+        }
+        check_record_flags(self.change_flags, 0b11)?;
+        let payload = self.payload()?;
+        let mut cursor = Cursor::new(&payload, "CLAS change");
+        let form_flags = record_form_flags(&mut cursor, self.change_flags)?;
+        finish_record(&cursor)?;
+        Ok(Some(ClassChange {
+            form_flags,
+            tag_skills_changed: self.change_flags & 2 != 0,
+        }))
+    }
+
+    /// Decode FACT flags, reactions and crime words.
+    ///
+    /// # Errors
+    /// Rejects unknown bits, truncated fields, impossible reaction counts and
+    /// trailing bytes.
+    pub fn faction_change(&self) -> Result<Option<FactionChange>> {
+        if self.record_type() != "FACT" {
+            return Ok(None);
+        }
+        check_record_flags(self.change_flags, 0x8000_0007)?;
+        let payload = self.payload()?;
+        let mut cursor = Cursor::new(&payload, "FACT change");
+        let form_flags = record_form_flags(&mut cursor, self.change_flags)?;
+        let reactions = if self.change_flags & 4 != 0 {
+            let count = cursor.vsval()?;
+            if count.value() as usize > cursor.remaining() / 11 {
+                return Err(invalid_record("reaction count exceeds remaining payload"));
+            }
+            let mut entries = Vec::with_capacity(count.value() as usize);
+            for _ in 0..count.value() {
+                entries.push(FactionReaction {
+                    faction: cursor.ref_id()?,
+                    modifier: cursor.u32()? as i32,
+                    reaction: cursor.u32()?,
+                });
+            }
+            Some(FactionReactions { count, entries })
+        } else {
+            None
+        };
+        let faction_flags = if self.change_flags & 2 != 0 {
+            Some(cursor.u32()?)
+        } else {
+            None
+        };
+        let crime_counts = if self.change_flags & (1 << 31) != 0 {
+            Some([cursor.u32()?, cursor.u32()?, cursor.u32()?, cursor.u32()?])
+        } else {
+            None
+        };
+        finish_record(&cursor)?;
+        Ok(Some(FactionChange {
+            form_flags,
+            faction_flags,
+            reactions,
+            crime_counts,
+        }))
+    }
+
+    /// Decode RELA identities for created forms and the changed rank.
+    ///
+    /// # Errors
+    /// Rejects unknown bits, truncated fields and trailing bytes.
+    pub fn relationship_change(&self) -> Result<Option<RelationshipChange>> {
+        if self.record_type() != "RELA" {
+            return Ok(None);
+        }
+        check_record_flags(self.change_flags, 0b11)?;
+        let payload = self.payload()?;
+        let mut cursor = Cursor::new(&payload, "RELA change");
+        let form_flags = record_form_flags(&mut cursor, self.change_flags)?;
+        let created = if self.form.kind() == RefKind::Created {
+            Some([cursor.ref_id()?, cursor.ref_id()?, cursor.ref_id()?])
+        } else {
+            None
+        };
+        let rank = if self.change_flags & 2 != 0 {
+            Some(cursor.u32()? as i32)
+        } else {
+            None
+        };
+        finish_record(&cursor)?;
+        Ok(Some(RelationshipChange {
+            form_flags,
+            created,
+            rank,
+        }))
+    }
+}
+
+/// Saved CLAS sections. xEdit names tag skills but defines no payload for it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ClassChange {
+    pub form_flags: Option<FormFlags>,
+    pub tag_skills_changed: bool,
+}
+
+impl ClassChange {
+    /// Rebuild the flag word from the present section and change marker.
+    pub fn change_flags(self) -> u32 {
+        u32::from(self.form_flags.is_some()) | (u32::from(self.tag_skills_changed) << 1)
+    }
+
+    /// Rebuild the source-defined payload section.
+    pub fn data_bytes(self) -> Vec<u8> {
+        let mut out = Vec::new();
+        write_record_form_flags(self.form_flags, &mut out);
+        out
+    }
+}
+
+/// A saved faction reaction with its signed modifier and raw reaction value.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FactionReaction {
+    pub faction: RefId,
+    pub modifier: i32,
+    pub reaction: u32,
+}
+
+/// Reaction entries with the original variable-count encoding.
+#[derive(Clone, Debug)]
+pub struct FactionReactions {
+    count: VsVal,
+    pub entries: Vec<FactionReaction>,
+}
+
+impl FactionReactions {
+    /// Make a reaction array using the narrowest count encoding.
+    ///
+    /// # Errors
+    /// Rejects a count above the thirty-bit saved limit.
+    pub fn from_entries(entries: Vec<FactionReaction>) -> Result<Self> {
+        let count =
+            u32::try_from(entries.len()).map_err(|_| invalid_record("too many reactions"))?;
+        let count = VsVal::from_value(count).ok_or_else(|| invalid_record("too many reactions"))?;
+        Ok(Self { count, entries })
+    }
+
+    fn write(&self, out: &mut Vec<u8>) -> Result<()> {
+        if self.count.value() as usize != self.entries.len() {
+            return Err(invalid_record("reaction count differs from entries"));
+        }
+        self.count.write(out);
+        for entry in &self.entries {
+            entry.faction.write(out);
+            out.extend(entry.modifier.to_le_bytes());
+            out.extend(entry.reaction.to_le_bytes());
+        }
+        Ok(())
+    }
+}
+
+/// Saved FACT sections. Crime words retain their bits without assigned meaning.
+#[derive(Clone, Debug)]
+pub struct FactionChange {
+    pub form_flags: Option<FormFlags>,
+    pub faction_flags: Option<u32>,
+    pub reactions: Option<FactionReactions>,
+    pub crime_counts: Option<[u32; 4]>,
+}
+
+impl FactionChange {
+    /// Rebuild the flag word from the present sections.
+    pub fn change_flags(&self) -> u32 {
+        u32::from(self.form_flags.is_some())
+            | (u32::from(self.faction_flags.is_some()) << 1)
+            | (u32::from(self.reactions.is_some()) << 2)
+            | (u32::from(self.crime_counts.is_some()) << 31)
+    }
+
+    /// Rebuild the typed payload.
+    ///
+    /// # Errors
+    /// Rejects a reaction array whose retained count differs from its entries.
+    pub fn data_bytes(&self) -> Result<Vec<u8>> {
+        let mut out = Vec::new();
+        write_record_form_flags(self.form_flags, &mut out);
+        if let Some(reactions) = &self.reactions {
+            reactions.write(&mut out)?;
+        }
+        if let Some(flags) = self.faction_flags {
+            out.extend(flags.to_le_bytes());
+        }
+        if let Some(counts) = self.crime_counts {
+            for count in counts {
+                out.extend(count.to_le_bytes());
+            }
+        }
+        Ok(out)
+    }
+}
+
+/// Saved RELA fields. Created forms carry three identities even without bit one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RelationshipChange {
+    pub form_flags: Option<FormFlags>,
+    pub created: Option<[RefId; 3]>,
+    pub rank: Option<i32>,
+}
+
+impl RelationshipChange {
+    /// Rebuild the flag word from the present sections.
+    pub fn change_flags(self) -> u32 {
+        u32::from(self.form_flags.is_some()) | (u32::from(self.rank.is_some()) << 1)
+    }
+
+    /// Rebuild the typed payload for the form identity supplied by the caller.
+    ///
+    /// # Errors
+    /// Rejects a mismatch between created status and the identity section.
+    pub fn data_bytes(self, form: RefId) -> Result<Vec<u8>> {
+        if (form.kind() == RefKind::Created) != self.created.is_some() {
+            return Err(invalid_record(
+                "created identity section does not match form kind",
+            ));
+        }
+        let mut out = Vec::new();
+        write_record_form_flags(self.form_flags, &mut out);
+        if let Some(ids) = self.created {
+            for id in ids {
+                id.write(&mut out);
+            }
+        }
+        if let Some(rank) = self.rank {
+            out.extend(rank.to_le_bytes());
+        }
+        Ok(out)
+    }
+}
+
+fn check_record_flags(flags: u32, known: u32) -> Result<()> {
+    if flags & !known != 0 {
+        return Err(invalid_record("unknown change flags"));
+    }
+    Ok(())
+}
+
+fn record_form_flags(cursor: &mut Cursor<'_>, flags: u32) -> Result<Option<FormFlags>> {
+    if flags & 1 == 0 {
+        return Ok(None);
+    }
+    Ok(Some(FormFlags {
+        flags: cursor.u32()?,
+        unknown: cursor.u16()?,
+    }))
+}
+
+fn write_record_form_flags(flags: Option<FormFlags>, out: &mut Vec<u8>) {
+    if let Some(flags) = flags {
+        out.extend(flags.flags.to_le_bytes());
+        out.extend(flags.unknown.to_le_bytes());
+    }
+}
+
+fn finish_record(cursor: &Cursor<'_>) -> Result<()> {
+    if !cursor.is_empty() {
+        return Err(invalid_record("trailing change bytes"));
+    }
+    Ok(())
+}
+
+fn invalid_record(reason: &str) -> Error {
+    Error::RecordChange {
+        reason: reason.into(),
     }
 }
 

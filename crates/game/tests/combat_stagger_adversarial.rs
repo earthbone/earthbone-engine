@@ -433,9 +433,9 @@ fn cmb_14_version_28_save_loads_with_no_actor_staggered() {
         );
         bytes.drain(positions[0]..end + 6);
     }
-    // Version 34 writes an empty reference flag count before the trailing
+    // Version 35 writes an empty reference flag count before the trailing
     // cursor and world extension blocks. Version 28 has no such count.
-    let flags_offset = bytes.len() - 33;
+    let flags_offset = bytes.len() - 37;
     assert_eq!(&bytes[flags_offset..flags_offset + 4], &[0; 4]);
     bytes.drain(flags_offset..flags_offset + 4);
     assert_eq!(
@@ -443,6 +443,9 @@ fn cmb_14_version_28_save_loads_with_no_actor_staggered() {
         soe_game::world::SAVE_VERSION,
         "the save must carry the current world state version before the patch"
     );
+    let visit_count = bytes.len() - 12;
+    assert_eq!(bytes[visit_count..visit_count + 4], [0; 4]);
+    bytes.drain(visit_count..visit_count + 4);
     bytes[4..6].copy_from_slice(&28_u16.to_le_bytes());
 
     let loaded = fixture(
