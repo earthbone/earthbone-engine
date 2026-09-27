@@ -567,16 +567,16 @@ impl World {
             return Err(Error::Unsupported("perk entry points"));
         }
         for name in [
-            "onehandedmod",
-            "twohandedmod",
-            "marksmanmod",
-            "onehandedpowermod",
-            "twohandedpowermod",
-            "marksmanpowermod",
-            "lightarmormod",
-            "heavyarmormod",
-            "lightarmorpowermod",
-            "heavyarmorpowermod",
+            "onehandedmodifier",
+            "twohandedmodifier",
+            "marksmanmodifier",
+            "onehandedpowermodifier",
+            "twohandedpowermodifier",
+            "marksmanpowermodifier",
+            "lightarmormodifier",
+            "heavyarmormodifier",
+            "lightarmorpowermodifier",
+            "heavyarmorpowermodifier",
         ] {
             if actor.values.entries.contains_key(name) {
                 return Err(Error::Unsupported("combat actor-value multipliers"));
