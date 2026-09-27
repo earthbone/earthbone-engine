@@ -1425,6 +1425,19 @@ rule follows CK `SetAlpha_-_Actor.wikitext`. CK `MoveTo_-_ObjectReference`
 describes ForceGreet as an approach procedure. This increment selects dialogue
 after an actor is already in range and does not move actors toward the player.
 
+DLG-21 lets an eligible ForceGreet topic interrupt an open conversation when
+its owning quest has strictly higher priority than the current topic's quest.
+The incoming topic uses the ordinary quest and INFO condition checks. An
+active INFO's end fragment runs before its conversation closes and the new
+greeting starts. If it has no end fragment, closure still proceeds. Equal or
+lower priority and ineligible greetings leave the conversation in place. The
+range-entry latch prevents the same actor from interrupting again until it
+leaves and re-enters range. xEdit `wbRecord(QUST)` and UESP `QUST.wikitext`
+place quest priority in `DNAM` and describe its range as 0 to 100. The local
+CK dialogue corpus contains actor dialogue-state pages, but no page describing
+the interruption lifecycle; the callback sequence here reuses the existing
+INFO fragment lifecycle.
+
 DLG-07 adds the persuasion and intimidation CTDA functions: IsIntimidatedbyPlayer
 (116), GetPersuasionNumber (225), GetTotalPersuasionNumber (315) and
 GetIntimidateSuccess (655). All four take no parameter in `wbDefinitionsTES5.pas`

@@ -17,14 +17,17 @@ const SPEAKER: u32 = 0x100;
 const BASE: u32 = 0x500;
 const QUEST: u32 = 0x800;
 const OTHER_QUEST: u32 = 0x801;
+const GREETING_QUEST: u32 = 0x802;
 const TOPIC: u32 = 0x900;
 const LINKED_TOPIC: u32 = 0x901;
 const BLOCKING_TOPIC: u32 = 0x902;
 const EXCLUSIVE_A_TOPIC: u32 = 0x903;
 const EXCLUSIVE_B_TOPIC: u32 = 0x904;
 const OUTSIDE_TOPIC: u32 = 0x905;
+const GREETING_TOPIC: u32 = 0x906;
 const INFO: u32 = 0xA00;
 const SHARED: u32 = 0xA01;
+const GREETING_INFO: u32 = 0xA02;
 
 fn id(object: u32) -> GlobalFormId {
     GlobalFormId { file: 0, object }
@@ -100,6 +103,35 @@ fn add_branch(plugin: &mut Plugin, topic: u32, quest: Vec<u8>, flags: u32) {
             .sub(T(b"DNAM"), flags.to_le_bytes())
             .sub(T(b"SNAM"), topic.to_le_bytes()),
     );
+}
+
+fn add_force_greet(plugin: &mut Plugin, priority: u8, condition: Option<Vec<u8>>) {
+    plugin.push_top(quest(GREETING_QUEST, priority));
+    let mut topic = topic(GREETING_TOPIC, GREETING_QUEST);
+    topic
+        .subrecords
+        .iter_mut()
+        .find(|subrecord| subrecord.tag == T(b"SNAM"))
+        .unwrap()
+        .data = b"PFGT".to_vec();
+    add_branch(
+        plugin,
+        GREETING_TOPIC,
+        GREETING_QUEST.to_le_bytes().to_vec(),
+        1,
+    );
+    let mut greeting_info = info(GREETING_INFO, 0, &["Hello"], true);
+    if let Some(condition) = condition {
+        greeting_info = greeting_info.sub(T(b"CTDA"), condition);
+    }
+    let mut group = Group::new(GroupKind::Top(T(b"DIAL")));
+    group.entries.push(Entry::Record(plugin.push_record(topic)));
+    let mut children = Group::new(GroupKind::TopicChildren(GREETING_TOPIC));
+    children
+        .entries
+        .push(Entry::Record(plugin.push_record(greeting_info)));
+    group.entries.push(Entry::Group(children));
+    plugin.groups.push(group);
 }
 
 fn info(form: u32, flags: u16, lines: &[&str], scripts: bool) -> Record {
@@ -210,7 +242,11 @@ fn open(game: &mut Game) {
 }
 
 fn counter(game: &mut Game, variable: &str) -> i32 {
-    let object = game.object_of_form(id(INFO));
+    counter_on(game, INFO, variable)
+}
+
+fn counter_on(game: &mut Game, form: u32, variable: &str) -> i32 {
+    let object = game.object_of_form(id(form));
     game.vm
         .get_var(object, "TopicFragments", variable)
         .unwrap()
@@ -591,6 +627,81 @@ fn interrupted_response_does_not_run_end_fragment() {
     game.choose_dialogue(id(TOPIC)).unwrap();
     game.close_dialogue();
     assert_eq!(counter(&mut game, "ends"), 0);
+}
+
+#[test]
+fn dlg_21_higher_priority_eligible_greeting_interrupts_once_and_finishes_callbacks() {
+    let mut plugin = plugin(vec![info(INFO, 0, &["Current line"], true)]);
+    add_force_greet(&mut plugin, 80, None);
+    let mut game = game(plugin);
+    open(&mut game);
+    game.start_quest(id(GREETING_QUEST));
+    game.world_mut().drive_actor(id(SPEAKER));
+    game.choose_dialogue(id(TOPIC)).unwrap();
+
+    game.tick(0.0);
+    let (speaker, topic, current_info) = {
+        let world = game.world();
+        let session = world.dialogue_session().unwrap();
+        (session.speaker, session.topic, session.current_info)
+    };
+    assert_eq!(speaker, id(SPEAKER));
+    assert_eq!(topic, Some(id(GREETING_TOPIC)));
+    assert_eq!(current_info, Some(id(GREETING_INFO)));
+    assert_eq!(counter(&mut game, "ends"), 1);
+    assert_eq!(
+        game.world_mut()
+            .quest_state(id(GREETING_QUEST))
+            .unwrap()
+            .highest,
+        10
+    );
+    assert_eq!(counter_on(&mut game, GREETING_INFO, "begins"), 1);
+
+    game.tick(0.0);
+    assert_eq!(counter(&mut game, "ends"), 1);
+    assert_eq!(counter_on(&mut game, GREETING_INFO, "begins"), 1);
+    assert_eq!(
+        game.world_mut()
+            .quest_state(id(GREETING_QUEST))
+            .unwrap()
+            .highest,
+        10,
+        "the greeting edge must not replay its begin fragment"
+    );
+}
+
+#[test]
+fn dlg_21_lower_priority_or_ineligible_greeting_keeps_current_conversation() {
+    for (priority, greeting_condition) in [
+        (40, None),
+        (50, None),
+        (80, Some(condition(72, BASE + 1, 1.0, 0))),
+    ] {
+        let mut plugin = plugin(vec![info(INFO, 0, &["Current line"], true)]);
+        add_force_greet(&mut plugin, priority, greeting_condition);
+        let mut game = game(plugin);
+        open(&mut game);
+        game.start_quest(id(GREETING_QUEST));
+        game.world_mut().drive_actor(id(SPEAKER));
+        game.choose_dialogue(id(TOPIC)).unwrap();
+        game.tick(0.0);
+
+        {
+            let world = game.world();
+            let session = world.dialogue_session().unwrap();
+            assert_eq!(session.topic, Some(id(TOPIC)));
+            assert_eq!(session.current_info, Some(id(INFO)));
+        }
+        assert_eq!(counter(&mut game, "ends"), 0);
+        assert_eq!(
+            game.world_mut()
+                .quest_state(id(GREETING_QUEST))
+                .unwrap()
+                .highest,
+            0
+        );
+    }
 }
 
 #[test]

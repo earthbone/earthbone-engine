@@ -378,8 +378,39 @@ impl Game {
         self.greeting_range_actors = nearby;
 
         for actor in entering {
-            if self.world.borrow().dialogue.session.is_some() {
-                break;
+            let prior = self.world.borrow().dialogue.session.clone();
+            if let Some(prior) = prior {
+                let greeting = self.eligible_force_greet(actor, player)?;
+                let Some((topic, priority)) = greeting else {
+                    continue;
+                };
+                let prior_priority = {
+                    let mut world = self.world.borrow_mut();
+                    prior
+                        .topic
+                        .and_then(|topic| world.owning_quest(topic))
+                        .and_then(|quest| world.quest_state(quest))
+                        .map_or(0, |state| state.def.priority)
+                };
+                if priority <= prior_priority {
+                    continue;
+                }
+                if prior.current_info.is_some() {
+                    self.finish_dialogue_info()?;
+                }
+                self.close_dialogue();
+                self.begin_dialogue(actor, player)?;
+                self.world.borrow_mut().dialogue.greeting_actor = Some(actor);
+                let result = self.choose_dialogue(topic);
+                match result {
+                    Ok(Some(_)) => self.world.borrow_mut().dialogue.greeting_actor = None,
+                    Ok(None) => self.close_dialogue(),
+                    Err(error) => {
+                        self.close_dialogue();
+                        return Err(error);
+                    }
+                }
+                continue;
             }
             self.begin_dialogue(actor, player)?;
             self.world.borrow_mut().dialogue.greeting_actor = Some(actor);
@@ -405,6 +436,41 @@ impl Game {
             }
         }
         Ok(())
+    }
+
+    fn eligible_force_greet(
+        &mut self,
+        speaker: GlobalFormId,
+        listener: GlobalFormId,
+    ) -> Result<Option<(GlobalFormId, u8)>, Error> {
+        let prior = self.world.borrow().dialogue.session.clone();
+        {
+            let mut world = self.world.borrow_mut();
+            world.dialogue.session = Some(Session {
+                speaker,
+                listener,
+                topic: None,
+                current_info: None,
+                last_info: None,
+                response_index: 0,
+            });
+            world.dialogue.greeting_actor = Some(speaker);
+        }
+        let result = self.dialogue_choices();
+        {
+            let mut world = self.world.borrow_mut();
+            world.dialogue.session = prior;
+            world.dialogue.greeting_actor = None;
+        }
+        let choices = result?;
+        Ok(choices.available.into_iter().find_map(|choice| {
+            self.world
+                .borrow()
+                .dialogue_topic(choice.topic)
+                .ok()
+                .filter(Self::is_force_greet)
+                .map(|_| (choice.topic, choice.quest_priority))
+        }))
     }
 
     fn is_force_greet(topic: &DialogueTopic) -> bool {
