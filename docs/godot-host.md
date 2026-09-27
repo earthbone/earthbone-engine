@@ -1,5 +1,30 @@
 # godot-host: streaming, mesh and terrain for the Godot 4 host
 
+## Live detection observations, CMB-32
+
+PlayerNode samples each ordered pair of resident, living actors in the same
+cell after the player's pose reaches Game. Their FormIDs come from
+`World::contact_actors`. A Godot physics ray from eye to eye reports the first
+body, including an intervening actor or static obstruction. The query uses
+the existing RID-backed actor bodies and allocates no reference nodes.
+
+`detection::light_level` reads the winning CELL/XCLL ambient RGB, LGTM
+inheritance, and enabled placed LIGH/DATA radius, color, negative and
+off-by-default flags with FNAM fade. It samples
+current reference placement and enable state and bounds the resulting
+record-derived light estimate to 0 to 150. The host sends that value, sight,
+motion and queued detection sounds to `World::evaluate_detection` each step.
+A sound event uses its source position and owning actor FormID. Footsteps emit
+a detection sound after successful playback. World keeps the stealth pool and
+observer state across cell resource replacement.
+
+The estimate does not yet select a live WTHR from climate or apply WTHR
+ambient, sunlight and image-space sunlight scale. The current sound path
+covers `CreateDetectionEvent` and played player footsteps. The focused tests
+exercise record light, occlusion inputs, cross-cell identity and sound source
+ownership. The `SKYRIM_DATA` case reads a populated vanilla interior. No
+interactive Godot sight run or frame-cost measurement is recorded here.
+
 The [large world physics survey](physics.md#large-world-boundary-survey-2026-09-19)
 records the signed cell offsets, tolerances and Jolt measurements for the
 `large-world-physics` branch. Its Rust mesh conversion test and Godot server
