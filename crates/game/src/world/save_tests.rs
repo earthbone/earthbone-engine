@@ -374,9 +374,8 @@ fn without_exclusive_branches(world: &mut World) -> Vec<u8> {
 fn sav_07_legacy_ids_migrate_through_all_nested_world_state() {
     for version in 15..=18_u16 {
         let mut legacy = without_exclusive_branches(&mut rich_world(255));
-        // Drop the empty version 21 cursor block and the version 20 extras.
-        // Drop the empty image-space, cursor and extras blocks.
-        legacy.truncate(legacy.len() - 29);
+        // Drop the empty image-space, cursor, extras and scene-run blocks.
+        legacy.truncate(legacy.len() - 33);
         let tail = legacy.len() - 25;
         let mut expected = rich_world(DYNAMIC_FILE);
         match version {
@@ -439,7 +438,7 @@ fn sav_16_extras_preserve_created_namespace_and_all_existing_world_state() {
     assert_eq!(loaded.state_hash(), world.state_hash());
 
     let mut legacy = without_exclusive_branches(&mut rich_world(DYNAMIC_FILE));
-    legacy.truncate(legacy.len() - 29);
+    legacy.truncate(legacy.len() - 33);
     legacy[4..6].copy_from_slice(&19_u16.to_le_bytes());
     loaded.load_state(&legacy).unwrap();
     assert_eq!(loaded.save_state(), rich_world(DYNAMIC_FILE).save_state());
@@ -469,7 +468,7 @@ fn sav_07_unknown_version_and_mixed_legacy_namespaces_are_rejected() {
     let mut world = rich_world(DYNAMIC_FILE);
     let before = world.save_state();
     for (version, message) in [
-        (34_u16, "world state version 34"),
+        (35_u16, "world state version 35"),
         (18, "created namespace in a legacy world state"),
     ] {
         let mut bytes = before.clone();
@@ -498,7 +497,7 @@ fn sav_07_legacy_migration_boundary_is_the_first_colliding_plugin_position() {
             .unwrap();
     }
     let mut legacy = without_exclusive_branches(&mut rich_world(255));
-    legacy.truncate(legacy.len() - 29);
+    legacy.truncate(legacy.len() - 33);
     legacy[4..6].copy_from_slice(&18_u16.to_le_bytes());
     let mut world = World::new(order);
     world.load_state(&legacy).unwrap();

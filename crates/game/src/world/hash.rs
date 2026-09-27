@@ -727,6 +727,15 @@ impl World {
 
         let mut h = StateHasher::new();
         form_set(&mut h, &self.scenes);
+        h.len(self.scene_runs.len());
+        for (id, run) in &self.scene_runs {
+            form(&mut h, *id);
+            h.u32(run.phase);
+            h.len(run.completed_actions.len());
+            for slot in &run.completed_actions {
+                h.u32(*slot);
+            }
+        }
         h.len(self.sound_instances.len());
         for (id, (sound, source, volume)) in &self.sound_instances {
             h.i32(*id);

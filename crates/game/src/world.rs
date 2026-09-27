@@ -373,6 +373,13 @@ pub struct LosListener {
     pub gain: bool,
 }
 
+/// Runtime position and completed action slots for one playing scene.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub(crate) struct SceneRunState {
+    pub phase: u32,
+    pub completed_actions: BTreeSet<u32>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct ObjectiveState {
     pub displayed: bool,
@@ -523,6 +530,8 @@ pub struct World {
     pub perk_points: i32,
     /// Scenes that are playing.
     pub scenes: BTreeSet<GlobalFormId>,
+    /// Phase and action completion state for playing scenes.
+    pub(crate) scene_runs: BTreeMap<GlobalFormId, SceneRunState>,
     /// Sound instances by the id `Sound.Play` handed out: the sound, the
     /// source and the volume.
     pub sound_instances: BTreeMap<i32, (GlobalFormId, GlobalFormId, f32)>,
@@ -613,6 +622,7 @@ impl World {
             last_ridden_horse: None,
             perk_points: 0,
             scenes: BTreeSet::new(),
+            scene_runs: BTreeMap::new(),
             sound_instances: BTreeMap::new(),
             next_sound: 0,
             spell_casts: Vec::new(),

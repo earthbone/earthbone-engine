@@ -250,8 +250,17 @@ Current behavior and compatibility limits:
   listeners on that sender and name, `World::sleep_start`, `sleep_stop` and
   `line_of_sight` are the host's hooks for the other two.
 - `Message.Show` puts a `DNAM` message-box message in the box queue and any
-  other in the notification queue, and returns button 0. `Scene.Start` and
-  `Stop` deliver `OnBegin` and `OnEnd` to the scene's scripts. `Sound.Play`
+  other in the notification queue, and returns button 0. A scene starts at
+  phase zero. `World::complete_scene_action` marks an action slot complete,
+  and `World::advance_scene_phase` waits for every action ending in the current
+  phase before advancing. Reaching the last phase stops the scene and delivers
+  `OnEnd`. `Scene.Start` and `Stop` deliver `OnBegin` and `OnEnd` to the
+  scene's scripts. SOEW version 34 stores the current phase and completed
+  action slots. Action slots use zero-based positions from the SCEN action
+  list because two vanilla scenes reuse action numbers. The SCEN layout follows
+  `TES5Edit/Core/wbDefinitionsTES5.pas` and
+  `uesp-modfileformat/SCEN.wikitext`. Timer expiry, CTDA evaluation, automatic
+  action dispatch, and the scene flags are not implemented. `Sound.Play`
   hands out instance ids. `Spell.Cast` records the cast, no effect applies.
 - `SetGameSetting*` writes an overlay `GetGameSetting*` reads first.
 - A quest start delivers `OnInit` to its alias objects too, the ones a
@@ -959,8 +968,10 @@ notification fired, and the alias resolved to the lever.
   inheritance boundaries documented in [actor-values.md](actor-values.md).
 - Weapon combat remains unfinished. Dialogue and magic have the limited
   execution paths documented below. Packages run three
-  procedures, see the Packages section for the rest. Scenes play as a flag
-  with `OnBegin` and `OnEnd`, no phases or actions. Perks are a set on the
+  procedures, see the Packages section for the rest. Scene phase advancement
+  is action-gated, but action execution, phase and scene CTDA evaluation,
+  timer lifetimes, and repeat-while-conditions behavior are not implemented.
+  Perks are a set on the
   actor, no entry point applies. Leveled lists are never rolled. Spell casts
   are recorded, no effect applies. Crime has bounty and infamy ledgers, no
   jail or arrest.

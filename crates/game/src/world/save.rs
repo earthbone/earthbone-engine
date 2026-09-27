@@ -57,7 +57,8 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// Version 32 retains each hand's explicitly assigned spell, so a menu or
 /// script equip survives a reload the way a hand weapon selection already did.
 /// Version 33 retains the spawned reference owned by each Summon Creature effect.
-pub const SAVE_VERSION: u16 = 33;
+/// Version 34 retains the active phase and completed action slots for each scene.
+pub const SAVE_VERSION: u16 = 34;
 
 #[derive(Clone, Copy)]
 pub(crate) enum FormNamespace {
@@ -414,6 +415,15 @@ impl World {
         self.write_loose_items(&mut body);
         self.write_encounter_levels(&mut body);
         self.write_dialogue_repeats(&mut body);
+        body.len(self.scene_runs.len());
+        for (id, run) in &self.scene_runs {
+            write_form_id(&mut body, *id);
+            body.u32(run.phase);
+            body.len(run.completed_actions.len());
+            for slot in &run.completed_actions {
+                body.u32(*slot);
+            }
+        }
         self.write_detection(&mut body);
         let mut out = Writer::new();
         out.out.extend_from_slice(SAVE_MAGIC);
@@ -978,6 +988,56 @@ impl World {
         } else {
             BTreeMap::new()
         };
+        let scene_runs = if version >= 34 {
+            let count = r.len()?;
+            let mut runs = BTreeMap::new();
+            for _ in 0..count {
+                let id = read_form_id(&mut r)?;
+                let phase = r.u32()?;
+                let action_count = r.len()?;
+                let mut completed_actions = BTreeSet::new();
+                for _ in 0..action_count {
+                    if !completed_actions.insert(r.u32()?) {
+                        return Err(VmError::State("duplicate completed scene action".into()));
+                    }
+                }
+                let scene_record = self.record(id).ok_or_else(|| {
+                    VmError::State("scene runtime state names a missing form".into())
+                })?;
+                let scene = soe_esm::records::gameplay::Scene::from_record(scene_record).map_err(
+                    |error| VmError::State(format!("invalid scene runtime record: {error}")),
+                )?;
+                if !scenes.contains(&id)
+                    || phase as usize >= scene.phases.len()
+                    || completed_actions.iter().any(|slot| {
+                        scene
+                            .actions
+                            .get(*slot as usize)
+                            .is_none_or(|action| action.end_phase != Some(phase))
+                    })
+                    || runs
+                        .insert(
+                            id,
+                            super::SceneRunState {
+                                phase,
+                                completed_actions,
+                            },
+                        )
+                        .is_some()
+                {
+                    return Err(VmError::State("invalid scene runtime state".into()));
+                }
+            }
+            if runs.len() != scenes.len() || scenes.iter().any(|id| !runs.contains_key(id)) {
+                return Err(VmError::State("scene runtime state is incomplete".into()));
+            }
+            runs
+        } else {
+            scenes
+                .iter()
+                .map(|id| (*id, super::SceneRunState::default()))
+                .collect()
+        };
         let detection = if version >= 30 {
             super::detection::read_detection(&mut r)?
         } else {
@@ -1043,6 +1103,7 @@ impl World {
         self.last_ridden_horse = last_ridden_horse;
         self.perk_points = perk_points;
         self.scenes = scenes;
+        self.scene_runs = scene_runs;
         self.sound_instances = sound_instances;
         self.next_sound = next_sound;
         self.spell_casts = spell_casts;
