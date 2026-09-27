@@ -58,7 +58,8 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// script equip survives a reload the way a hand weapon selection already did.
 /// Version 33 retains the spawned reference owned by each Summon Creature effect.
 /// Version 34 retains the active Hover package height.
-pub const SAVE_VERSION: u16 = 34;
+/// Version 35 adds the Follow procedure tag.
+pub const SAVE_VERSION: u16 = 35;
 
 #[derive(Clone, Copy)]
 pub(crate) enum FormNamespace {
@@ -1497,6 +1498,11 @@ fn read_actor_state(r: &mut FormReader<'_, '_>, version: u16) -> Result<ActorSta
     if version < 34 && a.ai.procedure == crate::ai::Procedure::Hover {
         return Err(VmError::State(
             "Hover procedure requires world version 34".into(),
+        ));
+    }
+    if version < 35 && a.ai.procedure == crate::ai::Procedure::Follow {
+        return Err(VmError::State(
+            "Follow procedure requires world version 35".into(),
         ));
     }
     a.perks = read_form_set(r)?;

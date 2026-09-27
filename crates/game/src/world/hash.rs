@@ -305,6 +305,7 @@ fn ai_state(h: &mut StateHasher, a: &AiState) {
             h.u8(7);
             h.f32(a.hover_height);
         }
+        Procedure::Follow => h.u8(8),
         Procedure::Unsupported(name) => {
             h.u8(4);
             h.str(name);

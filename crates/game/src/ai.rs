@@ -10,7 +10,8 @@
 //! between idle markers around a place, `Sleep` walks to a bed and holds.
 //! `Wait` uses the non-menu clock and holds until its duration expires.
 //! `Hover` flies to its authored location and height, then holds there until
-//! another package replaces it.
+//! another package replaces it. `Follow` tracks a resolved target, stopping
+//! within its authored follow radius and running beyond its catch-up radius.
 //! Walking follows the vanilla navmesh graph (`soe_navmesh::vanilla`)
 //! built once per world, and crossing into another navmesh moves the actor
 //! into that navmesh's cell. Its rates come from the actor race's `WKMV` and
@@ -83,6 +84,7 @@ pub enum Procedure {
         stop_movement: bool,
     },
     Hover,
+    Follow,
     /// A procedure the driver does not run yet, by its template name. The
     /// actor holds where it stands.
     Unsupported(String),
@@ -778,10 +780,60 @@ fn begin_procedure(
                 ai.procedure = Procedure::Unsupported("Hover location, AI-31".into());
             }
         }
+        Procedure::Follow => {
+            if let Some((owner, target, _, _)) = tree::follow_parameters(world, ai) {
+                if resolve_follow_target(world, actor, ai, (owner, target)).is_none() {
+                    ai.procedure = Procedure::Unsupported("Follow target".into());
+                }
+            } else {
+                ai.procedure = Procedure::Unsupported("Follow inputs".into());
+            }
+        }
         Procedure::None
         | Procedure::Wait { .. }
         | Procedure::Patrol
         | Procedure::Unsupported(_) => {}
+    }
+}
+
+fn resolve_follow_target(
+    world: &mut World,
+    actor: GlobalFormId,
+    ai: &AiState,
+    target: (GlobalFormId, crate::package::Target),
+) -> Option<GlobalFormId> {
+    use crate::package::Target;
+
+    let (owner, target) = target;
+    match target {
+        Target::Reference(raw) if raw != 0 => world.resolve_from(owner, raw),
+        Target::Alias(alias) => {
+            let quest = ai.alias.map(|(quest, _)| quest).or_else(|| {
+                package(world, ai.package?)?
+                    .owner_quest
+                    .and_then(|raw| world.resolve_from(ai.package?, raw))
+            })?;
+            world.alias_ref(quest, alias)
+        }
+        Target::LinkedReference(keyword) => {
+            if keyword == 0 {
+                world
+                    .reference(actor)?
+                    .linked
+                    .first()
+                    .map(|(_, reference)| *reference)
+            } else {
+                let keyword = world.resolve_from(owner, keyword)?;
+                world
+                    .reference(actor)?
+                    .linked
+                    .iter()
+                    .find(|(key, _)| *key == Some(keyword))
+                    .map(|(_, reference)| *reference)
+            }
+        }
+        Target::Itself => Some(actor),
+        _ => None,
     }
 }
 
@@ -1078,6 +1130,9 @@ fn step(world: &mut World, actor: GlobalFormId, dt: f32) {
     if ai.procedure == Procedure::Patrol && ai.tree.as_ref().is_some_and(|tree| tree.active) {
         patrol::prepare(world, &mut ai);
     }
+    if ai.procedure == Procedure::Follow {
+        follow_target(world, actor, &mut ai, position);
+    }
     if matches!(ai.procedure, Procedure::Wait { .. })
         && ai
             .wait_until
@@ -1212,6 +1267,53 @@ fn step(world: &mut World, actor: GlobalFormId, dt: f32) {
     }
 }
 
+fn follow_target(world: &mut World, actor: GlobalFormId, ai: &mut AiState, position: [f32; 3]) {
+    let Some((owner, target_data, catch_up_radius, follow_radius)) =
+        tree::follow_parameters(world, ai)
+    else {
+        ai.procedure = Procedure::Unsupported("Follow inputs".into());
+        return;
+    };
+    let Some(target) = resolve_follow_target(world, actor, ai, (owner, target_data)) else {
+        ai.procedure = Procedure::Unsupported("Follow target".into());
+        return;
+    };
+    let Some((target_position, target_cell)) = world
+        .reference(target)
+        .map(|reference| (reference.position, reference.cell))
+    else {
+        ai.procedure = Procedure::Unsupported("Follow target is not placed".into());
+        return;
+    };
+    let separation = distance(position, target_position);
+    if separation <= follow_radius || separation == 0.0 {
+        ai.destination = None;
+        ai.path.clear();
+        ai.path_cells.clear();
+        ai.arrived = true;
+        return;
+    }
+    let desired_distance = follow_radius.min(separation);
+    let toward_target: [f32; 3] =
+        std::array::from_fn(|axis| (target_position[axis] - position[axis]) / separation);
+    let destination: [f32; 3] =
+        std::array::from_fn(|axis| target_position[axis] - toward_target[axis] * desired_distance);
+    ai.destination = Some(destination);
+    ai.center_cell = target_cell;
+    ai.path.clear();
+    ai.path_cells.clear();
+    ai.arrived = false;
+    let preferred = if separation > catch_up_radius {
+        speed::RUN
+    } else {
+        ai.package
+            .and_then(|id| package(world, id))
+            .filter(|p| p.has_flag(flags::PREFERRED_SPEED))
+            .map_or(speed::WALK, |p| p.general.preferred_speed)
+    };
+    ai.speed = movement_speed(world, actor, preferred);
+}
+
 // ----- save and load -----
 
 fn write_opt_form_id(w: &mut Writer, id: Option<GlobalFormId>) {
@@ -1269,6 +1371,7 @@ pub(crate) fn write_record_state(w: &mut Writer, a: &AiState) {
             w.u8(7);
             w.f32(a.hover_height);
         }
+        Procedure::Follow => w.u8(8),
         Procedure::Unsupported(name) => {
             w.u8(4);
             w.str(name);
@@ -1378,6 +1481,7 @@ pub(crate) fn read_state_mapped(r: &mut FormReader<'_, '_>) -> Result<AiState, V
             a.hover_height = height;
             Procedure::Hover
         }
+        8 => Procedure::Follow,
         other => return Err(VmError::State(format!("unknown procedure {other}"))),
     };
     if r.bool()? {

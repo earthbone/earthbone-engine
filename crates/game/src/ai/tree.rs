@@ -149,9 +149,54 @@ fn procedure(branch: &Branch) -> Procedure {
             stop_movement: false,
         },
         Some("hover") => Procedure::Hover,
+        Some("follow") => Procedure::Follow,
         Some(_) => Procedure::Unsupported(branch.procedure.clone().unwrap_or_default()),
         None => Procedure::Unsupported(branch.kind.clone()),
     }
+}
+
+pub(super) fn follow_parameters(
+    world: &World,
+    ai: &AiState,
+) -> Option<(GlobalFormId, crate::package::Target, f32, f32)> {
+    let package_id = ai.package?;
+    let tree = Tree::load(world, package_id)?;
+    let branch = tree.branches.get(ai.tree.as_ref()?.branch as usize)?;
+    let target_input = branch.inputs.iter().find_map(|&index| {
+        tree.chain.iter().find_map(|(owner, package)| {
+            match package.input(index as i8).map(|input| input.value) {
+                Some(DataValue::Target(target)) => Some((*owner, target.target)),
+                _ => None,
+            }
+        })
+    })?;
+    let radii: Vec<f32> = branch
+        .inputs
+        .iter()
+        .filter_map(|&index| {
+            tree.chain.iter().find_map(|(_, package)| {
+                match package.input(index as i8).map(|input| input.value) {
+                    Some(DataValue::Float(value)) => Some(value),
+                    _ => None,
+                }
+            })
+        })
+        .collect();
+    let catch_up_radius = radii.first().copied().unwrap_or(20.0);
+    let follow_radius = radii.get(1).copied().unwrap_or(5.0);
+    if !catch_up_radius.is_finite()
+        || !follow_radius.is_finite()
+        || catch_up_radius < follow_radius
+        || follow_radius < 0.0
+    {
+        return None;
+    }
+    Some((
+        target_input.0,
+        target_input.1,
+        catch_up_radius,
+        follow_radius,
+    ))
 }
 
 /// Static first procedure for tooling. Random choices have no static first leaf.
@@ -179,6 +224,7 @@ pub(super) fn first(world: &World, id: GlobalFormId) -> (Procedure, Option<Locat
                 || Procedure::Unsupported("Hover inputs, AI-31".into()),
                 |_| Procedure::Hover,
             ),
+            Procedure::Follow => Procedure::Follow,
             other => other,
         };
         return (
@@ -313,6 +359,7 @@ pub(super) fn enter(world: &mut World, actor: GlobalFormId, ai: &mut AiState) {
             }
         }
         let is_patrol = chosen == Procedure::Patrol;
+        ai.tree = Some(state.clone());
         super::begin_procedure(world, actor, ai, chosen, location.take(), hover_height);
         if is_patrol {
             super::patrol::begin(world, actor, ai, tree.patrol_parameters(branch));

@@ -664,6 +664,17 @@ near linked reference, alias reference, alias location and near self resolve.
 An alias location uses its filled `LCTN` form's `MNAM` world marker as its
 destination. Location alias fill rules remain separate quest work.
 
+`Follow` resolves its `PTDA` target as a specific reference, alias, linked
+reference or self. Its first two float inputs set catch-up and follow radii,
+defaulting to 20 and 5 units when omitted. Invalid radii or unresolved targets
+leave an unsupported procedure. Each driver tick recalculates a route to a
+point at the follow radius from the target, stops inside that radius, and
+selects run speed outside the catch-up radius. Routes use the same navmesh and
+cell updates described below. The CK wiki's `KeepOffsetFromActor - Actor`
+page defines the catch-up and follow thresholds. PACK input layout follows
+local xEdit `wbRecord(PACK)` and Mutagen Skyrim `Package.xml`. SOEW version 35
+adds the saved Follow procedure tag, and earlier saves cannot contain it.
+
 `Hover` reads a location and finite height from its branch inputs, moves to
 the location's X and Y at its Z plus that height, and holds there. The actor
 reports flying state 3 and `IsFlying` true while Hover runs. Replacing the
