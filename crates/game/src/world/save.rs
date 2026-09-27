@@ -56,7 +56,8 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// tracked crime.
 /// Version 32 retains each hand's explicitly assigned spell, so a menu or
 /// script equip survives a reload the way a hand weapon selection already did.
-pub const SAVE_VERSION: u16 = 32;
+/// Version 33 retains the spawned reference owned by each Summon Creature effect.
+pub const SAVE_VERSION: u16 = 33;
 
 #[derive(Clone, Copy)]
 pub(crate) enum FormNamespace {
@@ -850,7 +851,7 @@ impl World {
             }
         }
         let (next_effect, active_effects) = if version == 5 || version >= 9 {
-            super::magic::read_magic(&mut r)?
+            super::magic::read_magic(&mut r, version >= 33)?
         } else {
             (1, BTreeMap::new())
         };
@@ -868,8 +869,29 @@ impl World {
             if self.resolve_from(effect.spell, entry.base_effect) != Some(effect.effect) {
                 return Err(VmError::State("active effect definition mismatch".into()));
             }
-            self.magic_effect(effect.effect)
+            let definition = self
+                .magic_effect(effect.effect)
                 .map_err(|e| VmError::State(e.to_string()))?;
+            if let Some(summoned) = effect.summoned {
+                let base = self
+                    .resolve_from(effect.effect, definition.data.associated_item)
+                    .filter(|base| self.tag_of(*base) == Some(super::T(b"NPC_")));
+                let reference = refs.get(&summoned);
+                let owner = Some(effect.caster.unwrap_or(effect.target));
+                if definition.data.archetype != 18
+                    || base.is_none()
+                    || reference.is_none_or(|reference| {
+                        reference.base != base
+                            || reference.owner != owner
+                            || !reference.is_actor
+                            || reference.deleted
+                    })
+                {
+                    return Err(VmError::State("invalid summoned actor state".into()));
+                }
+            } else if definition.data.archetype == 18 && version >= 33 {
+                return Err(VmError::State("summon effect without actor".into()));
+            }
         }
         for handle in objects.keys() {
             if let Handle::ActiveEffect(id) = handle {

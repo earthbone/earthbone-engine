@@ -1619,10 +1619,10 @@ or ALCH record. Restoring an active potion effect retains its consumed inventory
 state and its existing modifier, then expires it from its saved elapsed time.
 
 Unsupported casts return a typed error before applying any of their effects,
-and Papyrus casts log that error. This includes hostile hit resolution,
-projectiles, contact and location delivery, concentration, taper, perk
-adjustments, equip abilities, keyword dispelling and other archetypes. Area
-selection is covered separately below, under Area targeting, MAG-06.
+and Papyrus casts log that error. This includes projectiles, contact and
+location delivery, concentration, taper, perk adjustments, equip abilities,
+keyword dispelling and other archetypes. Area selection is covered separately
+below, under Area targeting, MAG-06.
 Actor-value indices from 0 through 163 resolve through the shared mapping in
 [actor values](actor-values.md). Recover effects use the temporary modifier
 domain. Other effects damage or restore the damage component without changing
@@ -1636,6 +1636,31 @@ forwarding, effect inventory filters and VM object reclamation remain unfinished
 
 forwarding and effect inventory filters remain unfinished.
 This is an active-effect foundation, not complete magic execution.
+
+### Summon Creature, MAG-39
+
+Direct casts execute MGEF archetype 18 by resolving the effect's associated
+item as an `NPC_` base and placing one actor at the cast source. The spawned
+reference records the credited caster as its owner. Its active effect retains
+the dynamic reference identity, and ending or expiring that effect deletes
+and disables that actor. A summon reference is saved with the effect in SOEW
+version 33, so expiry still dismisses the same actor after loading.
+
+The source inventory is local `TES5Edit/Core/wbDefinitionsTES5.pas`: its
+archetype table names 18 as Summon Creature and its associated-item selector
+maps this archetype to the actor association field. The local CK wiki dump has
+no Magic Effect archetype page. Its `OnMagicEffectApply_-_ObjectReference.wikitext`
+defines the responsible caster argument used by the active effect. Placement,
+ownership and dismissal reuse `World::place_at` and the existing effect
+expiry path.
+
+`mag_39_summon_creature_spawns_associated_actor_owned_by_caster` and
+`mag_39_summon_creature_dismisses_spawned_actor_on_expiry` exercise the row's
+spawn, ownership and expiry check with synthetic records.
+`mag_39_saved_summon_keeps_its_actor_link_until_expiry` checks the extended
+save state. The check names no vanilla records, so it has no
+`SKYRIM_DATA`-gated case. Summon combat behavior, command and banish effects,
+visuals, sounds, and host presentation remain outside this check.
 
 Validation on the installed five-master load order found 1,354 non-deleted
 SPEL winners. The direct path accepted 178 spells and created 205 applications.

@@ -31,6 +31,7 @@ impl World {
                 w.f64(duration);
             }
             w.f64(effect.elapsed);
+            write_opt_form_id(w, effect.summoned);
             w.bool(effect.recover);
             w.len(effect.changes.len());
             for (name, amount) in &effect.changes {
@@ -43,6 +44,7 @@ impl World {
 
 pub(in crate::world) fn read_magic(
     r: &mut FormReader<'_, '_>,
+    has_summoned_reference: bool,
 ) -> Result<(u64, BTreeMap<EffectId, ActiveEffect>), VmError> {
     let next = r.u64()?;
     let count = r.len()?;
@@ -58,6 +60,11 @@ pub(in crate::world) fn read_magic(
         let magnitude = r.f32()?;
         let duration = if r.bool()? { Some(r.f64()?) } else { None };
         let elapsed = r.f64()?;
+        let summoned = if has_summoned_reference {
+            read_opt_form_id(r)?
+        } else {
+            None
+        };
         let recover = r.bool()?;
         if id.0 == 0
             || id.0 >= next
@@ -93,6 +100,7 @@ pub(in crate::world) fn read_magic(
             magnitude,
             duration,
             elapsed,
+            summoned,
             recover,
             changes,
         };
