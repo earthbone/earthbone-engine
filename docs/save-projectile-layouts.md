@@ -1,12 +1,13 @@
 # Saved projectile and hazard layout boundary
 
 SAV-55 records a shared source prerequisite for SAV-11, SAV-23 and SAV-25.
-Their original decoder completion checks remain unchanged. The sources below
-do not establish exact serialized layouts for all eight subtypes, so those
-decoders remain blocked. The parser keeps these payloads opaque. A synthetic
-SAV-55 regression test pins the eight public type indices and the generic
-change-form header's flag and payload round trip. It does not assert subtype
-field order or internal payload boundaries.
+The sources below do not establish exact serialized layouts for all eight
+subtypes. PCON and PARW therefore expose only typed change-form envelopes,
+including flags and version, while retaining the payload bytes as opaque data.
+SAV-25 tests truncated envelopes and has an optional external-corpus census
+for PCON/PARW flags, versions and stored byte counts. This census measures
+coverage and does not identify payload fields or prove that the flag meanings
+are understood.
 
 ## Local source evidence
 
@@ -52,12 +53,14 @@ boundaries for each subtype. Fixtures need recorded build versions, identities,
 operations and independently observed state. Parsing must account for the
 complete payload and reject unsupported combinations before state changes.
 
-The current regression test covers only the outer type-index mapping and
-generic header envelope. It cannot close this prerequisite. The local
-60-save survey cited below provides coverage counts, but not controlled
-operations or independent per-field observations.
+The regression tests cover the outer type-index mapping, generic and typed
+envelope round trips, and envelope truncation. They cannot close the subtype
+layout prerequisite. The local 60-save survey cited below provides coverage
+counts, but not controlled operations or independent per-field observations.
 
 The SAV-11 research checkpoint `4d2afa8` surveyed 60 saves and found 40 PMIS
 payloads totaling 10,854 bytes, 169 PGRE payloads totaling 29,169 bytes and no
-PBEA payloads. That is coverage evidence, not a decoded schema. PBEA and the
-other subtypes need their own coverage accounting when a decoder is available.
+PBEA payloads. That is coverage evidence, not a decoded schema. SAV-25's
+census records the matching PCON and PARW totals when `SOE_TEST_SAVES` is set.
+PBEA and the other subtypes need their own coverage accounting when decoders
+are available.
