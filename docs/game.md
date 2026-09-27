@@ -1749,6 +1749,29 @@ for summon ownership. Cure Paralysis names MAG-42 for the paralysis lifecycle.
 Werewolf and Vampire Lord transformations name MAG-13 for automatic abilities.
 The CSV remains the task list and stores every item's immediate dependencies.
 
+### Aimed projectile contacts, MAG-02
+
+`World::cast_spell_on_projectile_contact` accepts only an aimed SPEL and an
+actor resolved from one projectile contact. A direct scripted cast of an aimed
+spell rejects before applying effects. The contact target passes through the
+same preparation and hostile-hit path as other spells, preserving caster and
+spell attribution and applying the authored effects only to that target. The
+host supplies the contact actor identity; this API does not create or simulate
+projectile motion.
+
+Local `TES5Edit/Core/wbDefinitionsTES5.pas` and
+`uesp-modfileformat/SPEL.wikitext` define delivery value 2 as Aimed.
+`ck-wiki/OnMagicEffectApply_-_ObjectReference.wikitext` defines the caster and
+effect observed by scripts when the effect is applied. The CK corpus has no
+separate magic-delivery page, and `OnSpellCast` describes cast notification,
+not projectile movement. No projectile state or save data is added.
+
+`mag_02_aimed_projectile_contact_hits_only_its_hostile_actor_once` checks one
+resolved target, one application and one hostile hit with the expected caster
+and spell arguments. `mag_02_aimed_spell_requires_a_projectile_contact` checks
+that direct casts reject without changing target health or active effects.
+Neither check names vanilla records, so no `SKYRIM_DATA` case applies.
+
 The installed five-master survey reads 1,354 winning spells. It accepts 179
 and creates 206 applications, including one authored hostile effect. All 24
 magic tests pass with installed data. The other spells remain explicit

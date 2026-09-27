@@ -125,6 +125,18 @@ fn touch_effect() -> Record {
     effect
 }
 
+fn aimed_spell(form: u32, magnitude: f32) -> Record {
+    let mut spell = spell(form, 0, false, magnitude, 0);
+    spell.subrecords[0].data[20..24].copy_from_slice(&2u32.to_le_bytes());
+    spell
+}
+
+fn aimed_effect() -> Record {
+    let mut effect = effect(5, 0, 24, false);
+    effect.subrecords[1].data[84..88].copy_from_slice(&2u32.to_le_bytes());
+    effect
+}
+
 fn condition(function: u16, parameter: u32, expected: f32, run_on: u32) -> Vec<u8> {
     let mut data = vec![0; 32];
     data[4..8].copy_from_slice(&expected.to_le_bytes());
@@ -401,6 +413,79 @@ fn cast(game: &mut Game, spell: u32, target: u32) -> Result<Vec<EffectId>, Magic
         &mut |name, class| game.vm.create_object_of(name, class),
     );
     result
+}
+
+fn projectile_contact(
+    game: &mut Game,
+    spell: u32,
+    target: u32,
+) -> Result<Vec<EffectId>, MagicError> {
+    let shared = game.shared_world();
+    let result = shared.borrow_mut().cast_spell_on_projectile_contact(
+        id(spell),
+        id(ACTOR),
+        Some(id(ACTOR)),
+        id(target),
+        &mut |name, class| game.vm.create_object_of(name, class),
+    );
+    result
+}
+
+#[test]
+fn mag_02_aimed_projectile_contact_hits_only_its_hostile_actor_once() {
+    let mut game = game(plugin(aimed_effect(), vec![aimed_spell(SPELL, 20.0)]));
+    let target_object = game.object_of_form(id(OTHER));
+    let caster_object = game.object_of_form(id(ACTOR));
+    let spell_object = game.object_of_form(id(SPELL));
+    game.world_mut().pending.clear();
+
+    let applied = projectile_contact(&mut game, SPELL, OTHER).unwrap();
+
+    assert_eq!(
+        applied.len(),
+        1,
+        "one contact applies the one authored effect"
+    );
+    assert_eq!(game.world_mut().actor_value(id(OTHER), "health"), 80.0);
+    assert_eq!(game.world_mut().actor_value(id(ACTOR), "health"), 100.0);
+    let hits: Vec<_> = game
+        .world()
+        .pending
+        .iter()
+        .filter_map(|pending| match pending {
+            Pending::Event { object, name, args } if name == "OnHit" => {
+                Some((*object, args.clone()))
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        hits,
+        vec![(
+            target_object,
+            vec![
+                Value::Object(caster_object),
+                Value::Object(spell_object),
+                Value::None,
+                Value::Bool(false),
+                Value::Bool(false),
+                Value::Bool(false),
+                Value::Bool(false)
+            ]
+        )],
+        "the contact emits one hostile hit for the resolved target"
+    );
+}
+
+#[test]
+fn mag_02_aimed_spell_requires_a_projectile_contact() {
+    let mut game = game(plugin(aimed_effect(), vec![aimed_spell(SPELL, 20.0)]));
+
+    let error = cast(&mut game, SPELL, OTHER).unwrap_err();
+
+    assert!(matches!(error, MagicError::Unsupported(_)));
+    assert_eq!(game.world_mut().actor_value(id(OTHER), "health"), 100.0);
+    assert_eq!(game.world().active_effects().count(), 0);
 }
 
 #[test]

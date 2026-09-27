@@ -84,6 +84,44 @@ impl PlayerNode {
 
 #[godot_api(secondary)]
 impl PlayerNode {
+    /// Resolve one projectile's contacted actor body and apply the aimed spell.
+    /// The projectile caller should discard its projectile after this contact.
+    #[func]
+    pub fn aimed_spell_projectile_contact(
+        &mut self,
+        spell_file: i32,
+        spell_object: i64,
+        contact_body: Rid,
+    ) -> bool {
+        let (Ok(file), Ok(object)) = (u16::try_from(spell_file), u32::try_from(spell_object))
+        else {
+            return false;
+        };
+        let Some(target) = self.actor_bodies.owners().get(&contact_body).copied() else {
+            return false;
+        };
+        let Some(game) = &mut self.game else {
+            return false;
+        };
+        let spell = GlobalFormId { file, object };
+        let caster = game.player();
+        let shared = game.shared_world();
+        let result = shared.borrow_mut().cast_spell_on_projectile_contact(
+            spell,
+            caster,
+            Some(caster),
+            target,
+            &mut |name, class| game.vm.create_object_of(name, class),
+        );
+        match result {
+            Ok(_) => true,
+            Err(error) => {
+                godot_error!("PlayerNode: {error}");
+                false
+            }
+        }
+    }
+
     /// Open the shared player's known-spell list.
     #[func]
     pub fn open_magic_menu(&mut self) -> bool {

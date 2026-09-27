@@ -4,7 +4,9 @@
 //! DispelAllSpells contracts, xEdit SPEL/MGEF fields and CommonLib MagicSystem
 //! enums. Definitions stay in the winning records. Per-cast magnitudes,
 //! elapsed time and reversible actor-value deltas belong to the world.
-//! Unsupported delivery and archetypes return errors before applying effects.
+//! Aimed delivery follows the SPIT field in xEdit and applies only through an
+//! actor target supplied by a projectile contact. Unsupported delivery and
+//! archetypes return errors before applying effects.
 
 use soe_esm::records::gameplay::{Effect, Ingestible, MagicEffect, Spell};
 use soe_esm::GlobalFormId;
@@ -87,6 +89,12 @@ struct PreparedEffect {
     hit_event: bool,
     dispel_rules: Vec<DispelRule>,
     dispel: Vec<EffectId>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum CastDelivery {
+    Direct,
+    ProjectileContact,
 }
 
 impl World {
@@ -380,7 +388,32 @@ impl World {
         target: Option<GlobalFormId>,
         alloc: Alloc<'_>,
     ) -> Result<Vec<EffectId>, MagicError> {
-        let prepared = self.prepare_spell(spell, source, caster, target)?;
+        let prepared = self.prepare_spell(spell, source, caster, target, CastDelivery::Direct)?;
+        self.apply_prepared_effects(prepared, alloc)
+    }
+
+    /// Apply an aimed spell to the actor resolved from one projectile contact.
+    /// A host contact query supplies `target`; direct script casts cannot use
+    /// this delivery path.
+    ///
+    /// # Errors
+    /// Returns an error before applying effects when the spell is not aimed,
+    /// the contact target is not an eligible actor, or an effect is unsupported.
+    pub fn cast_spell_on_projectile_contact(
+        &mut self,
+        spell: GlobalFormId,
+        source: GlobalFormId,
+        caster: Option<GlobalFormId>,
+        target: GlobalFormId,
+        alloc: Alloc<'_>,
+    ) -> Result<Vec<EffectId>, MagicError> {
+        let prepared = self.prepare_spell(
+            spell,
+            source,
+            caster,
+            Some(target),
+            CastDelivery::ProjectileContact,
+        )?;
         self.apply_prepared_effects(prepared, alloc)
     }
 
@@ -401,7 +434,9 @@ impl World {
             {
                 continue;
             }
-            let Ok(prepared) = self.prepare_spell(spell, actor, Some(actor), Some(actor)) else {
+            let Ok(prepared) =
+                self.prepare_spell(spell, actor, Some(actor), Some(actor), CastDelivery::Direct)
+            else {
                 continue;
             };
             let Ok(prepared) = self.prepare_effect_actions(prepared) else {
@@ -428,6 +463,7 @@ impl World {
         source: GlobalFormId,
         caster: Option<GlobalFormId>,
         target: Option<GlobalFormId>,
+        cast_delivery: CastDelivery,
     ) -> Result<Vec<PreparedEffect>, MagicError> {
         let definition = self.spell(spell)?;
         if !matches!(definition.data.cast_type, 0 | 1) {
@@ -451,7 +487,15 @@ impl World {
                 target
             }
             3 => target.ok_or(MagicError::Target)?,
-            _ => return Err(MagicError::Unsupported("aimed or location delivery")),
+            2 if cast_delivery == CastDelivery::ProjectileContact => {
+                target.ok_or(MagicError::Target)?
+            }
+            2 => {
+                return Err(MagicError::Unsupported(
+                    "aimed cast requires projectile contact",
+                ))
+            }
+            _ => return Err(MagicError::Unsupported("location delivery")),
         };
         if self.reference(source).is_none() || self.actor(target).is_none() {
             return Err(MagicError::Target);

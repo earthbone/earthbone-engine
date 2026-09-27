@@ -1794,6 +1794,13 @@ The contact query now reads two owner maps: bodies registered through
 attacker in either map is excluded. `intersect_ray` returns the nearest hit
 along the segment, so the first actor or unmapped obstruction wins.
 
+`aimed_spell_projectile_contact(spell_file, spell_object, contact_body)` maps
+the contacted actor body RID through that same owner table and applies the
+aimed spell through `World::cast_spell_on_projectile_contact`. Unknown bodies
+and rejected casts return false. The caller discards the projectile after a
+successful contact. This callback allocates no projectile node and stores no
+projectile or save state.
+
 Pose-derived segments come from two new entry points.
 `melee_pose_contact(name, skeleton)` finds the armed hand's weapon node in a
 Skeleton3D (`WEAPON` then `Weapon` then `NPC R Hand [RHnd]` for the right hand,
