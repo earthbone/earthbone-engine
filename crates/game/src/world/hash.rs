@@ -306,6 +306,16 @@ fn ai_state(h: &mut StateHasher, a: &AiState) {
             h.f32(a.hover_height);
         }
         Procedure::Follow => h.u8(8),
+        Procedure::UseIdleMarker { marker } => {
+            h.u8(9);
+            if let Some(marker) = marker {
+                h.u8(1);
+                h.u16(marker.file);
+                h.u32(marker.object);
+            } else {
+                h.u8(0);
+            }
+        }
         Procedure::Unsupported(name) => {
             h.u8(4);
             h.str(name);

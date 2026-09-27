@@ -150,6 +150,7 @@ fn procedure(branch: &Branch) -> Procedure {
         },
         Some("hover") => Procedure::Hover,
         Some("follow") => Procedure::Follow,
+        Some("useidlemarker") => Procedure::UseIdleMarker { marker: None },
         Some(_) => Procedure::Unsupported(branch.procedure.clone().unwrap_or_default()),
         None => Procedure::Unsupported(branch.kind.clone()),
     }

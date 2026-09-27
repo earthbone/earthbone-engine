@@ -85,6 +85,10 @@ pub enum Procedure {
     },
     Hover,
     Follow,
+    /// Walk to and hold an exclusive idle marker selected by the package.
+    UseIdleMarker {
+        marker: Option<GlobalFormId>,
+    },
     /// A procedure the driver does not run yet, by its template name. The
     /// actor holds where it stands.
     Unsupported(String),
@@ -789,6 +793,17 @@ fn begin_procedure(
                 ai.procedure = Procedure::Unsupported("Follow inputs".into());
             }
         }
+        Procedure::UseIdleMarker { .. } => match (place, location) {
+            (Some(place), Some((_, location))) => {
+                ai.center = Some(place.position);
+                ai.center_cell = place.cell.or(cell);
+                ai.radius = location.radius as f32;
+                if !ai.radius.is_finite() || ai.radius < 0.0 {
+                    ai.procedure = Procedure::Unsupported("UseIdleMarker radius".into());
+                }
+            }
+            _ => ai.procedure = Procedure::Unsupported("UseIdleMarker location".into()),
+        },
         Procedure::None
         | Procedure::Wait { .. }
         | Procedure::Patrol
@@ -989,6 +1004,43 @@ fn sandbox_markers(
     out
 }
 
+/// Idle markers in the package location that no other actor's active
+/// UseIdleMarker procedure currently holds.
+fn idle_markers(
+    world: &mut World,
+    actor: GlobalFormId,
+    cell: GlobalFormId,
+    center: [f32; 3],
+    radius: f32,
+) -> Vec<GlobalFormId> {
+    let refs = references_in_cell(world, cell);
+    let mut eligible = Vec::new();
+    for reference in refs.iter().copied() {
+        if world
+            .base_of(reference)
+            .is_none_or(|base| world.tag_of(base) != Some(T(b"IDLM")))
+        {
+            continue;
+        }
+        if !world
+            .reference(reference)
+            .is_some_and(|state| distance(state.position, center) <= radius)
+        {
+            continue;
+        }
+        let reserved = refs.iter().copied().any(|other| {
+            other != actor
+                && world.actor(other).is_some_and(|state| {
+                    matches!(state.ai.procedure, Procedure::UseIdleMarker { marker: Some(held) } if held == reference)
+                })
+        });
+        if !reserved {
+            eligible.push(reference);
+        }
+    }
+    eligible
+}
+
 /// Every placed reference and actor in a cell, from an index built once
 /// over the load order.
 pub fn references_in_cell(world: &mut World, cell: GlobalFormId) -> Vec<GlobalFormId> {
@@ -1178,6 +1230,26 @@ fn step(world: &mut World, actor: GlobalFormId, dt: f32) {
         ai.destination = Some(target);
         ai.path.clear();
         ai.path_cells.clear();
+    }
+    if let Procedure::UseIdleMarker { marker: None } = ai.procedure {
+        let center = ai.center.unwrap_or(position);
+        let markers = ai
+            .center_cell
+            .or(cell)
+            .map(|c| idle_markers(world, actor, c, center, ai.radius))
+            .unwrap_or_default();
+        if !markers.is_empty() {
+            let pick = world.random_int(0, markers.len() as i32 - 1) as usize;
+            let marker = markers[pick];
+            if let Some(target) = world.reference(marker).map(|reference| reference.position) {
+                ai.procedure = Procedure::UseIdleMarker {
+                    marker: Some(marker),
+                };
+                ai.destination = Some(target);
+                ai.path.clear();
+                ai.path_cells.clear();
+            }
+        }
     }
     if ai.procedure == Procedure::Patrol
         && !ai.arrived
@@ -1372,6 +1444,17 @@ pub(crate) fn write_record_state(w: &mut Writer, a: &AiState) {
             w.f32(a.hover_height);
         }
         Procedure::Follow => w.u8(8),
+        Procedure::UseIdleMarker { marker } => {
+            w.u8(9);
+            match marker {
+                Some(marker) => {
+                    w.bool(true);
+                    w.u16(marker.file);
+                    w.u32(marker.object);
+                }
+                None => w.bool(false),
+            }
+        }
         Procedure::Unsupported(name) => {
             w.u8(4);
             w.str(name);
@@ -1482,6 +1565,14 @@ pub(crate) fn read_state_mapped(r: &mut FormReader<'_, '_>) -> Result<AiState, V
             Procedure::Hover
         }
         8 => Procedure::Follow,
+        9 => {
+            let marker = if r.bool()? {
+                Some(read_form_id(r)?)
+            } else {
+                None
+            };
+            Procedure::UseIdleMarker { marker }
+        }
         other => return Err(VmError::State(format!("unknown procedure {other}"))),
     };
     if r.bool()? {

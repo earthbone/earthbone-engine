@@ -59,7 +59,8 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// Version 33 retains the spawned reference owned by each Summon Creature effect.
 /// Version 34 retains the active Hover package height.
 /// Version 35 adds the Follow procedure tag.
-pub const SAVE_VERSION: u16 = 35;
+/// Version 36 adds the selected UseIdleMarker reservation.
+pub const SAVE_VERSION: u16 = 36;
 
 #[derive(Clone, Copy)]
 pub(crate) enum FormNamespace {
@@ -1503,6 +1504,11 @@ fn read_actor_state(r: &mut FormReader<'_, '_>, version: u16) -> Result<ActorSta
     if version < 35 && a.ai.procedure == crate::ai::Procedure::Follow {
         return Err(VmError::State(
             "Follow procedure requires world version 35".into(),
+        ));
+    }
+    if version < 36 && matches!(a.ai.procedure, crate::ai::Procedure::UseIdleMarker { .. }) {
+        return Err(VmError::State(
+            "UseIdleMarker procedure requires world version 36".into(),
         ));
     }
     a.perks = read_form_set(r)?;

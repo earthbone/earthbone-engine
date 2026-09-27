@@ -675,6 +675,16 @@ page defines the catch-up and follow thresholds. PACK input layout follows
 local xEdit `wbRecord(PACK)` and Mutagen Skyrim `Package.xml`. SOEW version 35
 adds the saved Follow procedure tag, and earlier saves cannot contain it.
 
+`UseIdleMarker` selects an IDLM reference in the procedure location's cell and
+radius, walks the actor to it, and holds that marker. An actor with an active
+`UseIdleMarker` procedure reserves its selected marker. Other actors skip that
+reservation when choosing a marker. Changing or ending the package clears the
+reservation with the procedure state. This uses the PACK input layout from
+local xEdit `wbRecord(PACK)` and the CK wiki's `IsFurnitureMarkerInUse`
+reservation semantics. It does not play the marker's authored idle animation.
+SOEW version 36 saves the selected marker, and earlier saves cannot contain
+this procedure tag.
+
 `Hover` reads a location and finite height from its branch inputs, moves to
 the location's X and Y at its Z plus that height, and holds there. The actor
 reports flying state 3 and `IsFlying` true while Hover runs. Replacing the
