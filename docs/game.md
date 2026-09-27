@@ -33,8 +33,9 @@ week 6 to 9 gate.
   (the determinism hash).
 - `vmad`: the `VMAD` subrecord. Scripts, their filled properties, quest stage
   fragments, INFO and PACK begin, end and change fragments, SCEN begin, end
-  and phase fragments, and alias
-  scripts. Round-trips through `write` at the version and object format the
+  and phase fragments, PERK entry-point fragments, and alias scripts.
+  PERK preserves each fragment index, marker byte, script and function name.
+  Round-trips through `write` at the version and object format the
   record was authored with, not a fixed one, since installed Skyrim.esm and
   DLC records mix object format 1 and 2 and VMAD versions 4 and 5.
 - `npc`: the `NPC_` view. `ACBS` configuration, `DNAM` stats and skills,
@@ -425,6 +426,11 @@ running original-game comparison.
   confirms the counted phase list. Champollion describes PEX functions but
   does not define this record tail, so its fragment names did not supply a
   reusable VMAD reader. Scene execution remains in DLG-09.
+- `tests/fmt_17_perk_vmad.rs` checks PERK fragment entry-point identity,
+  authored-byte round trips, truncation and trailing data. xEdit's
+  `wbVMADFragmentedPERK` defines the signed extra-bind version, host file,
+  counted fragments, 32-bit indices and marker byte. Champollion describes
+  PEX functions but does not define the PERK record tail.
 - `tests/quest_flow.rs`: a synthetic master with a start-game-enabled quest,
   a lever whose script sets stage 10, a fragment on stage 10 that completes the
   objective, gives the player gold and sets stage 20 which completes the quest,
