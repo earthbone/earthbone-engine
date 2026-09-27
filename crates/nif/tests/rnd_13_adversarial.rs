@@ -110,7 +110,7 @@ fn rnd_13_sampled_target_preserves_unselected_channels() {
             MaterialColorTarget::Diffuse => assert_eq!(material.diffuse, expected),
             MaterialColorTarget::Specular => assert_eq!(material.specular, expected),
             MaterialColorTarget::SelfIllumination => {
-                assert_eq!(material.self_illumination, expected)
+                assert_eq!(material.self_illumination, expected);
             }
         }
         if target != MaterialColorTarget::Ambient {

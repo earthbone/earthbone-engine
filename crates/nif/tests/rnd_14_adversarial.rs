@@ -100,3 +100,19 @@ fn rnd_14_visibility_off_after_key_stops_future_births() {
     assert_eq!(timeline.emitted(), 1);
     assert_eq!(timeline.particles()[0].born_at, 0.25);
 }
+
+#[test]
+fn rnd_14_visibility_off_key_excludes_birth_at_its_boundary() {
+    let mut timeline = Timeline::new(emitter(
+        4.0,
+        10.0,
+        true,
+        Visibility {
+            default: true,
+            keys: vec![(0.5, false)],
+        },
+    ));
+    timeline.advance(1.0);
+    assert_eq!(timeline.emitted(), 1);
+    assert_eq!(timeline.particles()[0].born_at, 0.25);
+}

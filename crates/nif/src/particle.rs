@@ -142,6 +142,9 @@ impl Timeline {
             for index in 0..births {
                 let born = self.elapsed
                     + ((skipped + index as f64 + 1.0 - old_credit) / f64::from(rate)) as f32;
+                if self.emitter.rate.at(born) <= 0.0 {
+                    continue;
+                }
                 self.particles.retain(|p| p.born_at + p.lifetime > born);
                 if self.particles.len() < self.emitter.capacity {
                     let random = random_fraction(self.emitted);

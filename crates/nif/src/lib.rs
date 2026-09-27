@@ -92,6 +92,9 @@ impl NifFile {
         let Some(Block::MaterialColorController(controller)) = self.get(controller_ref) else {
             return false;
         };
+        if !controller.time.flags.active {
+            return false;
+        }
         let Some(Block::Point3Interpolator(interpolator)) = self.get(controller.interpolator)
         else {
             return false;

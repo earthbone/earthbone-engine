@@ -78,6 +78,7 @@ fn rnd_14_named_emitter_spawns_at_authored_rate() {
     assert_eq!(emitters[0].name, "RND14SmokeEmitter");
     assert_eq!(emitters[0].system_name, "RND14SmokeSystem");
     assert_eq!(emitters[0].rate.at(0.0), 4.0);
+    assert_eq!(emitters[0].rate.time.target, soe_nif::types::BlockRef(0));
     assert_eq!(emitters[0].capacity, 16);
     let mut timeline = Timeline::new(emitters[0].clone());
     timeline.advance(0.5);
