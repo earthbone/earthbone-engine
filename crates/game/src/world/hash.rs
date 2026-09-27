@@ -293,6 +293,7 @@ fn ai_state(h: &mut StateHasher, a: &AiState) {
                 }
             }
         }
+        Procedure::ForceGreet => h.u8(7),
         Procedure::Wait { stop_movement } => {
             h.u8(5);
             h.bool(*stop_movement);

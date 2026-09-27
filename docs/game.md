@@ -273,7 +273,7 @@ Current behavior and compatibility limits:
   and `World::advance_scene_phase` waits for every action ending in the current
   phase before advancing. Reaching the last phase stops the scene and delivers
   `OnEnd`. `Scene.Start` and `Stop` deliver `OnBegin` and `OnEnd` to the
-  scene's scripts. SOEW version 36 stores the current phase and completed
+  scene's scripts. SOEW version 37 stores the current phase and completed
   action slots. Action slots use zero-based positions from the SCEN action
   list because two vanilla scenes reuse action numbers. The SCEN layout follows
   `TES5Edit/Core/wbDefinitionsTES5.pas` and
@@ -661,6 +661,13 @@ branch carrying that flag. `Success Completes Package` stops the whole tree,
 including enclosing repeats. Once Per Day is recorded after the tree finishes,
 not at every Travel arrival. Conditions are checked when entering each branch.
 Unsupported group types hold with an explicit `Procedure::Unsupported` value.
+`ForceGreet` is retained as an active package procedure. The actor follows the
+package driver's navmesh path toward the player while no greeting conversation
+is open. When the actor is within the dialogue distance and has an eligible
+Player-category ForceGreet topic, the ordinary dialogue selector opens it.
+Closing that conversation completes the active procedure branch. Package
+target and assigned-topic inputs are not read. SOEW version 37 retains the
+procedure identity.
 The tooling helper `procedure_of` reports the first procedure before conditions.
 
 Input locations retain their defining package's namespace when inherited from
@@ -1408,8 +1415,9 @@ verify named fragments changing quest stages. DLG-12 now resolves the localized
 text through the conversation API. Subtitle widgets and audible lines remain
 outside this test.
 
-Remaining dialogue work includes missing conditions, ForceGreet approach
-packages, walk-away topic selection, scene action execution and timers,
+Remaining dialogue work includes missing conditions, ForceGreet target and
+assigned-topic inputs, walk-away topic selection, scene action execution and
+timers,
 barter transactions, complete alias behavior and wider interruption rules. Godot activation,
 menus, voice assets, LIP and idle playback are not connected to this API. This increment does not establish playable dialogue
 or complete the broader gameplay goal.
