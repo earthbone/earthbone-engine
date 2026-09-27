@@ -14,13 +14,14 @@
 //! bytes, v2 is two unused bytes, alias, FormID. Arrays are a u32 count of
 //! elements. Names are Windows-1252, read here as Latin-1.
 //!
-//! Quest, INFO and PACK tails are decoded. PACK follows xEdit's
+//! Quest, INFO, PACK and SCEN tails are decoded. PACK follows xEdit's
 //! `wbVMADFragmentedPACK` (`wbScriptFragmentsPackCounter` for the fragment
 //! count) and Mutagen's `PackageScriptFragments`: an extra bind data
 //! version, a flags byte for `OnBegin`, `OnEnd` and `OnChange`, the fragment
 //! host file name, then a begin, end and change fragment in that fixed order
-//! for each flag bit set. The fragment tails of PERK and SCEN records are
-//! kept as bytes in `trailing` so the record still round-trips.
+//! for each flag bit set. SCEN follows xEdit's `wbVMADFragmentedSCEN` and
+//! FallrimTools' `FragmentScen`: begin and end entries precede a counted
+//! list of phase entries. PERK tails remain in `trailing`.
 
 use soe_esm::{Error, Result, Tag};
 
@@ -155,6 +156,26 @@ pub struct PackFragments {
     pub change: Option<PackFragment>,
 }
 
+/// A SCEN phase callback with its authored flag, phase index and marker.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ScenePhaseFragment {
+    pub flag: u8,
+    pub phase_index: u32,
+    pub marker: u8,
+    pub script: String,
+    pub function: String,
+}
+
+/// SCEN begin, end and ordered phase callbacks from its VMAD tail.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SceneFragments {
+    pub version: u8,
+    pub file: String,
+    pub begin: Option<InfoFragment>,
+    pub end: Option<InfoFragment>,
+    pub phases: Vec<ScenePhaseFragment>,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Vmad {
     pub version: i16,
@@ -166,7 +187,8 @@ pub struct Vmad {
     pub aliases: Vec<AliasScripts>,
     pub info_fragments: Option<InfoFragments>,
     pub pack_fragments: Option<PackFragments>,
-    /// Undecoded fragment tail of PERK and SCEN records.
+    pub scene_fragments: Option<SceneFragments>,
+    /// Undecoded fragment tail of PERK and other unsupported records.
     pub trailing: Vec<u8>,
 }
 
@@ -181,6 +203,7 @@ impl Default for Vmad {
             aliases: Vec::new(),
             info_fragments: None,
             pack_fragments: None,
+            scene_fragments: None,
             trailing: Vec::new(),
         }
     }
@@ -455,6 +478,53 @@ impl Vmad {
             });
             return Ok(vmad);
         }
+        if tag == Tag::new(b"SCEN") {
+            let version = r.u8()?;
+            let flags = r.u8()?;
+            if flags & !3 != 0 {
+                return Err(bad("unsupported SCEN fragment flags"));
+            }
+            let file = r.wstring()?;
+            let mut fragment = || -> Result<InfoFragment> {
+                Ok(InfoFragment {
+                    marker: r.u8()?,
+                    script: r.wstring()?,
+                    function: r.wstring()?,
+                })
+            };
+            let begin = if flags & 1 != 0 {
+                Some(fragment()?)
+            } else {
+                None
+            };
+            let end = if flags & 2 != 0 {
+                Some(fragment()?)
+            } else {
+                None
+            };
+            let count = r.u16()? as usize;
+            let mut phases = Vec::with_capacity(count.min(64));
+            for _ in 0..count {
+                phases.push(ScenePhaseFragment {
+                    flag: r.u8()?,
+                    phase_index: r.u32()?,
+                    marker: r.u8()?,
+                    script: r.wstring()?,
+                    function: r.wstring()?,
+                });
+            }
+            if r.pos != data.len() {
+                return Err(bad("trailing SCEN fragment bytes"));
+            }
+            vmad.scene_fragments = Some(SceneFragments {
+                version,
+                file,
+                begin,
+                end,
+                phases,
+            });
+            return Ok(vmad);
+        }
         if tag != Tag::new(b"QUST") {
             vmad.trailing = data[r.pos..].to_vec();
             return Ok(vmad);
@@ -555,6 +625,27 @@ impl Vmad {
                 out.push(fragment.marker);
                 write_wstring(&mut out, &fragment.script);
                 write_wstring(&mut out, &fragment.function);
+            }
+        } else if let Some(scene) = self
+            .scene_fragments
+            .as_ref()
+            .filter(|_| tag == Tag::new(b"SCEN"))
+        {
+            out.push(scene.version);
+            out.push(u8::from(scene.begin.is_some()) | (u8::from(scene.end.is_some()) << 1));
+            write_wstring(&mut out, &scene.file);
+            for fragment in [&scene.begin, &scene.end].into_iter().flatten() {
+                out.push(fragment.marker);
+                write_wstring(&mut out, &fragment.script);
+                write_wstring(&mut out, &fragment.function);
+            }
+            out.extend_from_slice(&(scene.phases.len() as u16).to_le_bytes());
+            for phase in &scene.phases {
+                out.push(phase.flag);
+                out.extend_from_slice(&phase.phase_index.to_le_bytes());
+                out.push(phase.marker);
+                write_wstring(&mut out, &phase.script);
+                write_wstring(&mut out, &phase.function);
             }
         } else {
             out.extend_from_slice(&self.trailing);
