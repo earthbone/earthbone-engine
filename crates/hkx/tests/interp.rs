@@ -411,6 +411,7 @@ fn transition_blends_preserve_a_zero_mask_through_nested_outputs() {
         ],
         bone_weights: vec![1.0, 0.0],
         weight: 1.0,
+        foot_ik_controls: None,
     };
     let b = Output {
         pose: vec![
@@ -422,6 +423,7 @@ fn transition_blends_preserve_a_zero_mask_through_nested_outputs() {
         ],
         bone_weights: vec![0.0, 1.0],
         weight: 1.0,
+        foot_ik_controls: None,
     };
     let output = blend_outputs(&a, &b, 0.5);
     assert_eq!(output.pose[0].translation[0], 10.0);
@@ -468,11 +470,13 @@ fn masked_transition_endpoints_equal_their_authored_outputs() {
         }],
         bone_weights: vec![1.0],
         weight: 1.0,
+        foot_ik_controls: None,
     };
     let to = Output {
         pose: vec![QsTransform::IDENTITY],
         bone_weights: vec![0.0],
         weight: 1.0,
+        foot_ik_controls: None,
     };
     assert_eq!(blend_outputs(&from, &to, 0.0), from);
     assert_eq!(blend_outputs(&from, &to, 1.0), to);

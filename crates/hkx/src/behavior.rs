@@ -263,6 +263,81 @@ impl EventProperty {
     }
 }
 
+/// Serialized gain values carried by `hkbFootIkControlData`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct FootIkGains {
+    pub on_off: f32,
+    pub ground_ascending: f32,
+    pub ground_descending: f32,
+    pub foot_planted: f32,
+    pub foot_raised: f32,
+    pub foot_unlock: f32,
+    pub world_from_model_feedback: f32,
+    pub error_up_down_bias: f32,
+    pub align_world_from_model: f32,
+    pub hip_orientation: f32,
+    pub max_knee_angle_difference: f32,
+    pub ankle_orientation: f32,
+}
+
+/// Per-leg state serialized by `hkbFootIkControlsModifier`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct FootIkLeg {
+    pub ground_position: [f32; 4],
+    pub ungrounded_event: EventProperty,
+    pub vertical_error: f32,
+    pub hit_something: bool,
+    pub planted_in_model_space: bool,
+}
+
+/// Authored foot IK controls emitted by `hkbFootIkControlsModifier`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FootIkControls {
+    pub gains: FootIkGains,
+    pub legs: Vec<FootIkLeg>,
+    pub error_out_translation: [f32; 4],
+    pub align_with_ground_rotation: [f32; 4],
+}
+
+impl FootIkControls {
+    fn read(o: Obj<'_>) -> Result<FootIkControls> {
+        let control = o.at(o.layout_offset(48, 80));
+        let gains = FootIkGains {
+            on_off: control.f32(0)?,
+            ground_ascending: control.f32(4)?,
+            ground_descending: control.f32(8)?,
+            foot_planted: control.f32(12)?,
+            foot_raised: control.f32(16)?,
+            foot_unlock: control.f32(20)?,
+            world_from_model_feedback: control.f32(24)?,
+            error_up_down_bias: control.f32(28)?,
+            align_world_from_model: control.f32(32)?,
+            hip_orientation: control.f32(36)?,
+            max_knee_angle_difference: control.f32(40)?,
+            ankle_orientation: control.f32(44)?,
+        };
+        let legs = o
+            .array_structs(o.layout_offset(96, 128), o.layout_offset(32, 48))?
+            .into_iter()
+            .map(|leg| {
+                Ok(FootIkLeg {
+                    ground_position: leg.vec4(0)?,
+                    ungrounded_event: EventProperty::read(leg, 16)?,
+                    vertical_error: leg.f32(leg.layout_offset(24, 32))?,
+                    hit_something: leg.bool(leg.layout_offset(28, 36))?,
+                    planted_in_model_space: leg.bool(leg.layout_offset(29, 37))?,
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
+        Ok(FootIkControls {
+            gains,
+            legs,
+            error_out_translation: o.vec4(o.layout_offset(112, 144))?,
+            align_with_ground_rotation: o.vec4(o.layout_offset(128, 160))?,
+        })
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct TimeInterval {
     pub enter_event_id: i32,
@@ -612,6 +687,10 @@ pub enum NodeKind {
         enable: bool,
         vector: [f32; 4],
     },
+    FootIkControls {
+        enable: bool,
+        controls: FootIkControls,
+    },
     /// Any other `hkbModifier` subclass: only the enable flag is read.
     Modifier {
         enable: bool,
@@ -688,6 +767,7 @@ impl Node {
             | NodeKind::IsActiveModifier { .. }
             | NodeKind::FalseToTrueModifier { .. }
             | NodeKind::DecomposeVector { .. }
+            | NodeKind::FootIkControls { .. }
             | NodeKind::Modifier { .. }
             | NodeKind::Unknown => {}
         }
@@ -1125,6 +1205,10 @@ impl<'a> Loader<'a> {
             "BSDecomposeVectorModifier" => NodeKind::DecomposeVector {
                 enable: o.bool(o.layout_offset(40, 72))?,
                 vector: o.vec4(o.layout_offset(48, 80))?,
+            },
+            "hkbFootIkControlsModifier" => NodeKind::FootIkControls {
+                enable: o.bool(o.layout_offset(40, 72))?,
+                controls: FootIkControls::read(o)?,
             },
             c if c.ends_with("Modifier") => NodeKind::Modifier {
                 enable: o.bool(o.layout_offset(40, 72))?,

@@ -364,6 +364,11 @@ fn remap_node(node: &mut Node, map: &SymbolMap, offset: usize) {
                 remap_event_property(&mut slot.event, map);
             }
         }
+        NodeKind::FootIkControls { controls, .. } => {
+            for leg in &mut controls.legs {
+                remap_event_property(&mut leg.ungrounded_event, map);
+            }
+        }
         // Nothing here carries a node id, an event or a variable. A blending
         // transition effect is timing only, the rest are leaves.
         NodeKind::BlendingTransition(_)
