@@ -145,10 +145,12 @@ fn ingestible_with_flags(form: u32, flags: u32, magnitude: f32, duration: u32) -
 fn plugin(effect: Record, spells: Vec<Record>) -> Plugin {
     let mut plugin = Plugin::new(FileHeader::default());
     plugin.push_top(Record::new(T(b"NPC_"), 0x500).sub(T(b"ACBS"), vec![0; 24]));
+    let mut summon_acbs = vec![0; 24];
+    put(&mut summon_acbs, 0, 0x4000);
     plugin.push_top(
         Record::new(T(b"NPC_"), SUMMON_BASE)
             .zsub(T(b"EDID"), "SummonedActor")
-            .sub(T(b"ACBS"), vec![0; 24]),
+            .sub(T(b"ACBS"), summon_acbs),
     );
     for actor in [ACTOR, OTHER, SOURCE] {
         plugin.push_top(
@@ -412,6 +414,37 @@ fn mag_39_summon_creature_dismisses_spawned_actor_on_expiry() {
     assert!(reference.deleted);
     assert!(!reference.enabled);
     assert_eq!(game.world().active_effects().count(), 0);
+}
+
+#[test]
+fn mag_39_summon_check_spawns_authored_actor_with_caster_ownership_and_dismisses_on_expiry() {
+    let summon = effect_with_associated_item(0, 18, 24, false, SUMMON_BASE);
+    let mut game = game(plugin(summon, vec![spell(SPELL, 0, false, 0.0, 3)]));
+
+    let effects = cast(&mut game, SPELL, ACTOR).unwrap();
+    let active = game
+        .world()
+        .active_effects()
+        .find(|effect| effect.id == effects[0])
+        .unwrap()
+        .clone();
+    let spawned = active
+        .summoned
+        .expect("summon effect must retain its actor");
+    {
+        let world = game.world();
+        let reference = world.reference_ref(spawned).unwrap();
+        assert_eq!(reference.base, Some(id(SUMMON_BASE)));
+        assert_eq!(reference.owner, Some(id(ACTOR)));
+        assert!(reference.enabled);
+    }
+
+    game.tick(3.0);
+
+    let world = game.world();
+    let reference = world.reference_ref(spawned).unwrap();
+    assert!(reference.deleted);
+    assert!(!reference.enabled);
 }
 
 #[test]

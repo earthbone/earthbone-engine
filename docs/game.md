@@ -1640,23 +1640,26 @@ This is an active-effect foundation, not complete magic execution.
 ### Summon Creature, MAG-39
 
 Direct casts execute MGEF archetype 18 by resolving the effect's associated
-item as an `NPC_` base and placing one actor at the cast source. The spawned
-reference records the credited caster as its owner. Its active effect retains
-the dynamic reference identity, and ending or expiring that effect deletes
-and disables that actor. A summon reference is saved with the effect in SOEW
-version 33, so expiry still dismisses the same actor after loading.
+item as an `NPC_` base whose effective ACBS flags include Summonable, then
+placing one actor at the cast source. The spawned reference records the
+credited caster as its owner. Its active effect retains the dynamic reference
+identity, and ending or expiring that effect deletes and disables that actor.
+A summon reference is saved with the effect in SOEW version 33, so expiry
+still dismisses the same actor after loading.
 
 The source inventory is local `TES5Edit/Core/wbDefinitionsTES5.pas`: its
 archetype table names 18 as Summon Creature and its associated-item selector
-maps this archetype to the actor association field. The local CK wiki dump has
-no Magic Effect archetype page. Its `OnMagicEffectApply_-_ObjectReference.wikitext`
-defines the responsible caster argument used by the active effect. Placement,
-ownership and dismissal reuse `World::place_at` and the existing effect
-expiry path.
+maps this archetype to the actor association field. UESP's local `MGEF.wikitext`
+requires that NPC to have the Summonable flag, and `NPC.wikitext` locates this
+flag at ACBS bit `0x4000`. The local CK wiki dump has no Magic Effect archetype
+page. Its `OnMagicEffectApply_-_ObjectReference.wikitext` defines the
+responsible caster argument used by the active effect. Placement, ownership
+and dismissal reuse `World::place_at` and the existing effect expiry path.
 
-`mag_39_summon_creature_spawns_associated_actor_owned_by_caster` and
-`mag_39_summon_creature_dismisses_spawned_actor_on_expiry` exercise the row's
-spawn, ownership and expiry check with synthetic records.
+`mag_39_summon_check_spawns_authored_actor_with_caster_ownership_and_dismisses_on_expiry`
+exercises the row's spawn, ownership and expiry check with synthetic records.
+`mag_39_rejects_an_actor_base_without_the_summonable_flag` checks the sourced
+ACBS requirement.
 `mag_39_saved_summon_keeps_its_actor_link_until_expiry` checks the extended
 save state. The check names no vanilla records, so it has no
 `SKYRIM_DATA`-gated case. Summon combat behavior, command and banish effects,

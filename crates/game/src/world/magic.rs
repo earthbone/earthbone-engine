@@ -478,6 +478,12 @@ impl World {
                 if self.tag_of(base) != Some(super::T(b"NPC_")) {
                     return Err(MagicError::Unsupported("summon actor base"));
                 }
+                if self
+                    .npc(base)
+                    .is_none_or(|npc| npc.config.flags & crate::npc::flags::SUMMONABLE == 0)
+                {
+                    return Err(MagicError::Unsupported("summon actor not summonable"));
+                }
                 Some(base)
             } else {
                 None
