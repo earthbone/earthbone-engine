@@ -1627,11 +1627,23 @@ dependencies and the current direct-cast rejection boundary.
 ### Direct active-effect foundation
 
 The runtime provides `World::cast_spell` for direct scripted casts
-of Script, Value Modifier, Dual Value Modifier and Dispel effects, including hostile hits. Definitions
-come from winning SPEL and MGEF records, with each FormID resolved in its winning
-plugin. Self and target-actor delivery are supported for constant and fire-and-forget
+of Script, Value Modifier, Dual Value Modifier, Dispel and Etherealize effects,
+including hostile hits. Definitions come from winning SPEL and MGEF records,
+with each FormID resolved in its winning plugin. Self and target-actor delivery
+are supported for constant and fire-and-forget
 casts. `Spell.Cast` credits an actor source. `RemoteCast` credits its explicit
 blame actor. Player charging, costs and hand input are separate unfinished work.
+
+Etherealize is MGEF archetype 41. The Creation Kit's
+[Magic Effect page](https://ck.uesp.net/wiki/Magic_Effect) says the archetype
+prevents targets from dealing or taking damage. While an application is active,
+the runtime blocks hostile magic and melee hits, melee attacks, hostile spell
+casts and reference activation by that actor. It derives status from the
+actor's live Etherealize applications. Ending one application removes only
+that application's status, leaving overlapping applications and the actor's
+separate ghost flag intact. The xEdit MGEF archetype table and UESP's MGEF
+layout identify archetype 41 and list no additional record data. No save fields
+were added because active effect identities already persist.
 
 Each SPEL effect group's CTDAs run before that group is prepared. MGEF CTDAs
 run separately, with FormIDs resolved against their owning MGEF. Both use the

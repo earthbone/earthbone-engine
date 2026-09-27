@@ -438,6 +438,9 @@ impl World {
         defer_unload: bool,
         alloc: Alloc<'_>,
     ) -> bool {
+        if self.is_ethereal(activator) {
+            return false;
+        }
         let Some((blocked, base, teleport)) = self
             .reference(target)
             .map(|r| (r.activation_blocked, r.base, r.teleport))

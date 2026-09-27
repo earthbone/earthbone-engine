@@ -28,6 +28,7 @@ const NO_MAGNITUDE: u32 = 1 << 10;
 const NO_AREA: u32 = 1 << 11;
 const NO_RECAST: u32 = 1 << 17;
 const NO_DEATH_DISPEL: u32 = 1 << 28;
+const ETHEREALIZE: u32 = 41;
 pub(super) const DISPEL_WITH_KEYWORDS: u32 = 1 << 8;
 const INGESTIBLE_POISON: u32 = 1 << 17;
 
@@ -101,6 +102,18 @@ impl World {
             return None;
         };
         self.active_effects.get(&id)
+    }
+
+    /// Whether an actor currently has a live Etherealize application.
+    /// The status belongs to the active effect identity, so ending one
+    /// application cannot clear another or an actor's independent ghost flag.
+    pub fn is_ethereal(&self, actor: GlobalFormId) -> bool {
+        self.active_effects.values().any(|effect| {
+            effect.target == actor
+                && self
+                    .magic_effect(effect.effect)
+                    .is_ok_and(|definition| definition.data.archetype == ETHEREALIZE)
+        })
     }
 
     /// Read the current winning SPEL definition.
@@ -232,6 +245,9 @@ impl World {
                 return Err(MagicError::Unsupported("magic condition evaluation"));
             }
             if data.flags & HOSTILE != 0 {
+                if caster.is_some_and(|actor| self.is_ethereal(actor)) {
+                    return Err(MagicError::Unsupported("ethereal action"));
+                }
                 let actor = self.actor(target).ok_or(MagicError::Target)?;
                 if actor.dead || actor.ghost {
                     return Err(MagicError::Target);
@@ -422,12 +438,15 @@ impl World {
                 continue;
             }
             if data.flags & HOSTILE != 0 {
+                if caster.is_some_and(|actor| self.is_ethereal(actor)) {
+                    return Err(MagicError::Unsupported("ethereal action"));
+                }
                 let actor = self.actor(target).ok_or(MagicError::Target)?;
                 if actor.dead || actor.ghost {
                     return Err(MagicError::Target);
                 }
             }
-            if !matches!(data.archetype, 0 | 1 | 2 | 5 | 18) {
+            if !matches!(data.archetype, 0 | 1 | 2 | 5 | 18 | ETHEREALIZE) {
                 return Err(MagicError::Unsupported("effect archetype"));
             }
             if data.taper_duration != 0.0 {
@@ -518,6 +537,7 @@ impl World {
                 recipients.retain(|&id| {
                     self.actor(id)
                         .is_some_and(|actor| !actor.dead && !actor.ghost)
+                        && !self.is_ethereal(id)
                 });
             }
             for recipient in recipients {
@@ -852,7 +872,13 @@ impl World {
         let (protected, essential) = (actor.protected, actor.essential);
         let before = actor.values.get("health").current();
         let mut values = actor.values.clone();
-        change_values(&mut values, effect, scale)?;
+        let mut applicable = effect.clone();
+        if self.is_ethereal(effect.target) {
+            applicable
+                .changes
+                .retain(|(name, amount)| name != "health" || f64::from(*amount) * scale >= 0.0);
+        }
+        change_values(&mut values, &applicable, scale)?;
         let touches_health = effect.changes.iter().any(|(name, _)| name == "health");
         // The caster stands in for melee_hit's attacker (combat.rs,
         // CMB-13/CMB-34): a merely protected, non-essential actor still

@@ -11,6 +11,7 @@ mod legacy;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
+use soe_game::combat::{Error as CombatError, MeleeHit};
 use soe_game::vmad::{ScriptEntry, Vmad};
 use soe_game::world::magic::{EffectId, MagicError};
 use soe_game::world::{Handle, Pending};
@@ -86,6 +87,20 @@ fn effect_with_associated_item(
 
 fn spell(form: u32, kind: u32, constant: bool, magnitude: f32, duration: u32) -> Record {
     spell_with_area(form, kind, constant, magnitude, duration, 0)
+}
+
+fn spell_for_effect(form: u32, effect_form: u32, magnitude: f32, duration: u32) -> Record {
+    let mut data = vec![0; 36];
+    put(&mut data, 8, 0);
+    put(&mut data, 16, 1);
+    put(&mut data, 20, 3);
+    let mut efit = magnitude.to_le_bytes().to_vec();
+    efit.extend_from_slice(&0u32.to_le_bytes());
+    efit.extend_from_slice(&duration.to_le_bytes());
+    Record::new(T(b"SPEL"), form)
+        .sub(T(b"SPIT"), data)
+        .sub(T(b"EFID"), effect_form.to_le_bytes())
+        .sub(T(b"EFIT"), efit)
 }
 
 /// Like [`spell`], with the EFIT `Area` field set to `area` game units
@@ -372,6 +387,87 @@ fn cast(game: &mut Game, spell: u32, target: u32) -> Result<Vec<EffectId>, Magic
         &mut |name, class| game.vm.create_object_of(name, class),
     );
     result
+}
+
+#[test]
+fn mag_62_etherealize_grants_immunity_and_blocks_hostile_actions_and_activation() {
+    let ethereal = effect(0, 41, 24, false);
+    let mut hostile = effect(5, 0, 24, false);
+    hostile.form_id = EFFECT + 1;
+    let mut plugin = plugin(
+        ethereal.clone(),
+        vec![
+            spell(SPELL, 0, false, 0.0, 10),
+            spell_for_effect(SPELL + 1, EFFECT + 1, 20.0, 0),
+        ],
+    );
+    plugin.push_top(hostile);
+    let mut game = game(plugin);
+
+    assert_eq!(cast(&mut game, SPELL, OTHER).unwrap().len(), 1);
+    assert!(game.world().is_ethereal(id(OTHER)));
+    assert!(cast(&mut game, SPELL + 1, OTHER).unwrap().is_empty());
+    assert!(matches!(
+        game.melee_hit(MeleeHit {
+            attacker: id(ACTOR),
+            target: id(OTHER),
+            weapon: GlobalFormId {
+                file: 0,
+                object: 0x1F4
+            },
+            is_bash: false,
+            is_power_attack: false,
+        }),
+        Err(CombatError::Unsupported("ethereal target"))
+    ));
+    assert_eq!(game.world_mut().actor_value(id(OTHER), "health"), 100.0);
+
+    assert_eq!(cast(&mut game, SPELL, ACTOR).unwrap().len(), 1);
+    assert!(matches!(
+        game.melee_hit(MeleeHit {
+            attacker: id(ACTOR),
+            target: id(OTHER),
+            weapon: GlobalFormId {
+                file: 0,
+                object: 0x1F4
+            },
+            is_bash: false,
+            is_power_attack: false,
+        }),
+        Err(CombatError::Unsupported("ethereal action"))
+    ));
+    assert!(matches!(
+        cast(&mut game, SPELL + 1, OTHER),
+        Err(MagicError::Unsupported("ethereal action"))
+    ));
+    let shared = game.shared_world();
+    let activated =
+        shared
+            .borrow_mut()
+            .activate(id(SOURCE), id(ACTOR), true, &mut |name, class| {
+                game.vm.create_object_of(name, class)
+            });
+    assert!(!activated);
+    assert_eq!(game.world().active_effects().count(), 2);
+}
+
+#[test]
+fn mag_62_ending_etherealize_removes_only_that_applications_restrictions() {
+    let mut game = fixture(0, 41, 0.0, 10);
+    game.world_mut().actor(id(OTHER)).unwrap().ghost = true;
+    let first = cast(&mut game, SPELL, OTHER).unwrap()[0];
+    let second = cast(&mut game, SPELL, OTHER).unwrap()[0];
+    assert_ne!(first, second);
+    assert!(game.world().is_ethereal(id(OTHER)));
+
+    assert!(dispel(&mut game, first));
+    assert!(game.world().is_ethereal(id(OTHER)));
+    assert!(game.world_mut().actor(id(OTHER)).unwrap().ghost);
+
+    assert!(dispel(&mut game, second));
+    assert!(!game.world().is_ethereal(id(OTHER)));
+    assert!(game.world_mut().actor(id(OTHER)).unwrap().ghost);
+    assert_eq!(game.world_mut().actor_value(id(OTHER), "health"), 100.0);
 }
 
 #[test]
