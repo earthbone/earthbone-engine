@@ -27,6 +27,7 @@ const EFFECT: u32 = 0x200;
 const SPELL: u32 = 0x300;
 const POTION: u32 = 0x301;
 const KEYWORD: u32 = 0x400;
+const DISEASE_KEYWORD: u32 = 0x401;
 const ITEM: u32 = 0x600;
 const OTHER_ITEM: u32 = 0x601;
 const SUMMON_BASE: u32 = 0x501;
@@ -67,6 +68,17 @@ fn effect_with_associated_item(
     constant: bool,
     associated_item: u32,
 ) -> Record {
+    effect_with_keywords(flags, archetype, av, constant, associated_item, &[KEYWORD])
+}
+
+fn effect_with_keywords(
+    flags: u32,
+    archetype: u32,
+    av: u32,
+    constant: bool,
+    associated_item: u32,
+    keywords: &[u32],
+) -> Record {
     let mut data = vec![0; 152];
     put(&mut data, 0, flags);
     put(&mut data, 8, associated_item);
@@ -79,10 +91,14 @@ fn effect_with_associated_item(
         scripts: vec![ScriptEntry::new("EffectProbe")],
         ..Vmad::default()
     };
+    let keyword_data: Vec<u8> = keywords
+        .iter()
+        .flat_map(|keyword| keyword.to_le_bytes())
+        .collect();
     Record::new(T(b"MGEF"), EFFECT)
         .zsub(T(b"EDID"), "ProbeEffect")
         .sub(T(b"DATA"), data)
-        .sub(T(b"KWDA"), KEYWORD.to_le_bytes())
+        .sub(T(b"KWDA"), keyword_data)
         .sub(T(b"VMAD"), vmad.write(T(b"MGEF")))
 }
 
@@ -100,6 +116,18 @@ fn spell_with_area(
     duration: u32,
     area: u32,
 ) -> Record {
+    spell_with_base_effect(form, kind, constant, magnitude, duration, area, EFFECT)
+}
+
+fn spell_with_base_effect(
+    form: u32,
+    kind: u32,
+    constant: bool,
+    magnitude: f32,
+    duration: u32,
+    area: u32,
+    effect: u32,
+) -> Record {
     let mut data = vec![0; 36];
     put(&mut data, 8, kind);
     put(&mut data, 16, u32::from(!constant));
@@ -109,7 +137,7 @@ fn spell_with_area(
     efit.extend_from_slice(&duration.to_le_bytes());
     Record::new(T(b"SPEL"), form)
         .sub(T(b"SPIT"), data)
-        .sub(T(b"EFID"), EFFECT.to_le_bytes())
+        .sub(T(b"EFID"), effect.to_le_bytes())
         .sub(T(b"EFIT"), efit)
 }
 
@@ -932,6 +960,62 @@ fn extended_actor_value_effect_survives_game_save_load_without_reapplying() {
     assert_eq!(
         restored.world_mut().actor_value(id(OTHER), "paralysis"),
         0.0
+    );
+}
+
+#[test]
+fn mag_27_cure_disease_removes_only_disease_effects_and_updates_keyword_queries() {
+    const DISEASE_EFFECT: u32 = EFFECT + 1;
+    const ORDINARY_EFFECT: u32 = EFFECT + 2;
+    const CURE_EFFECT: u32 = EFFECT + 3;
+    const DISEASE_SPELL: u32 = SPELL + 1;
+    const ORDINARY_SPELL: u32 = SPELL + 2;
+    const CURE_SPELL: u32 = SPELL + 3;
+
+    let mut disease = effect_with_keywords(1 << 8, 0, 24, false, 0, &[KEYWORD, DISEASE_KEYWORD]);
+    disease.form_id = DISEASE_EFFECT;
+    let mut ordinary = effect(0, 0, 24, false);
+    ordinary.form_id = ORDINARY_EFFECT;
+    let mut cure = effect(0, 3, 24, false);
+    cure.form_id = CURE_EFFECT;
+
+    let mut plugin = plugin(effect(0, 0, 24, false), Vec::new());
+    plugin.push_top(Record::new(T(b"KYWD"), DISEASE_KEYWORD).zsub(T(b"EDID"), "MagicDisease"));
+    plugin.push_top(disease);
+    plugin.push_top(ordinary);
+    plugin.push_top(cure);
+    for (form, effect) in [
+        (DISEASE_SPELL, DISEASE_EFFECT),
+        (ORDINARY_SPELL, ORDINARY_EFFECT),
+        (CURE_SPELL, CURE_EFFECT),
+    ] {
+        plugin.push_top(spell_with_base_effect(form, 0, false, 0.0, 0, 0, effect));
+    }
+    let mut game = game(plugin);
+
+    cast(&mut game, DISEASE_SPELL, OTHER).unwrap();
+    cast(&mut game, ORDINARY_SPELL, OTHER).unwrap();
+    assert!(game
+        .world_mut()
+        .has_magic_effect_with_keyword(id(OTHER), id(DISEASE_KEYWORD)));
+
+    cast(&mut game, CURE_SPELL, OTHER).unwrap();
+
+    assert!(!game
+        .world_mut()
+        .has_magic_effect_with_keyword(id(OTHER), id(DISEASE_KEYWORD)));
+    assert!(!game.world().has_magic_effect(id(OTHER), id(DISEASE_EFFECT)));
+    assert!(game
+        .world()
+        .has_magic_effect(id(OTHER), id(ORDINARY_EFFECT)));
+    let remaining: std::collections::BTreeSet<_> = game
+        .world()
+        .active_effects()
+        .map(|effect| effect.effect)
+        .collect();
+    assert_eq!(
+        remaining,
+        std::collections::BTreeSet::from([id(ORDINARY_EFFECT), id(CURE_EFFECT)])
     );
 }
 

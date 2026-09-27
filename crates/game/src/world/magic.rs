@@ -4,7 +4,8 @@
 //! DispelAllSpells contracts, xEdit SPEL/MGEF fields and CommonLib MagicSystem
 //! enums. Definitions stay in the winning records. Per-cast magnitudes,
 //! elapsed time and reversible actor-value deltas belong to the world.
-//! Unsupported delivery and archetypes return errors before applying effects.
+//! Cure Disease removes active MGEFs marked with MagicDisease. Unsupported
+//! delivery and archetypes return errors before applying effects.
 
 use soe_esm::records::gameplay::{Effect, Ingestible, MagicEffect, Spell};
 use soe_esm::GlobalFormId;
@@ -79,6 +80,7 @@ pub enum MagicError {
 #[derive(Clone)]
 enum DispelRule {
     Timed,
+    Disease,
     Keywords(Vec<GlobalFormId>),
 }
 
@@ -240,7 +242,7 @@ impl World {
                     return Err(MagicError::Target);
                 }
             }
-            if !matches!(data.archetype, 0 | 1 | 2 | 5) {
+            if !matches!(data.archetype, 0 | 1 | 2 | 3 | 5) {
                 return Err(MagicError::Unsupported("effect archetype"));
             }
             if entry.data.area != 0 || data.area != 0 || data.taper_duration != 0.0 {
@@ -282,6 +284,9 @@ impl World {
             let mut dispel_rules = Vec::new();
             if data.archetype == 2 {
                 dispel_rules.push(DispelRule::Timed);
+            }
+            if data.archetype == 3 {
+                dispel_rules.push(DispelRule::Disease);
             }
             if data.flags & DISPEL_WITH_KEYWORDS != 0 {
                 let keywords = self.keyword_entries(effect);
@@ -431,7 +436,7 @@ impl World {
                     return Err(MagicError::Target);
                 }
             }
-            if !matches!(data.archetype, 0 | 1 | 2 | 5 | 17 | 18) {
+            if !matches!(data.archetype, 0 | 1 | 2 | 3 | 5 | 17 | 18) {
                 return Err(MagicError::Unsupported("effect archetype"));
             }
             if data.taper_duration != 0.0 {
@@ -519,6 +524,9 @@ impl World {
             let mut dispel_rules = Vec::new();
             if data.archetype == 2 {
                 dispel_rules.push(DispelRule::Timed);
+            }
+            if data.archetype == 3 {
+                dispel_rules.push(DispelRule::Disease);
             }
             if data.flags & DISPEL_WITH_KEYWORDS != 0 {
                 let keywords = self.keyword_entries(effect);
@@ -716,6 +724,15 @@ impl World {
                             .filter(|effect| effect.duration.is_some_and(|duration| duration > 0.0))
                             .map(|effect| effect.id),
                     ),
+                    DispelRule::Disease => {
+                        if let Some(keyword) = self.form("MagicDisease") {
+                            for effect in live.iter() {
+                                if self.keyword_entries(effect.effect).contains(&keyword) {
+                                    selected.insert(effect.id);
+                                }
+                            }
+                        }
+                    }
                     DispelRule::Keywords(keywords) => {
                         for effect in live.iter() {
                             self.magic_effect(effect.effect)?;
@@ -765,7 +782,9 @@ impl World {
             .filter(|e| e.target == target)
             .map(|e| e.effect)
             .collect();
-        effects.into_iter().any(|id| self.has_keyword(id, keyword))
+        effects
+            .into_iter()
+            .any(|id| self.keyword_entries(id).contains(&keyword))
     }
 
     /// End every application from this spell on this actor.

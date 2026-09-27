@@ -1638,8 +1638,21 @@ state and its existing modifier, then expires it from its saved elapsed time.
 Unsupported casts return a typed error before applying any of their effects,
 and Papyrus casts log that error. This includes projectiles, contact and
 location delivery, concentration, taper, perk adjustments, equip abilities and
-other archetypes. Area selection is covered separately below, under Area
-targeting, MAG-06.
+other unsupported archetypes. Cure Disease is supported below. Area selection
+is covered separately under Area targeting, MAG-06.
+
+#### Cure Disease archetype, MAG-27
+
+MGEF archetype 3 removes active applications on the target whose MGEF lists the
+`MagicDisease` keyword. It uses the ordinary dispel path, so recovered values,
+effect timers, and finish callbacks follow the same cleanup as other dispels.
+`HasMagicEffectWithKeyword` reads authored MGEF keywords directly, including
+effects that use the Dispel With Keywords flag. It therefore reports disease
+applications before a cure and stops reporting them after removal. Learned
+spells and unrelated active effects remain unchanged. The scope follows CK's
+disease keyword query and xEdit's archetype table. The local skymp implementation
+instead removes learned spells of Disease type, which does not match this
+runtime's per-application active-effect model.
 
 #### Bound Weapon archetype, MAG-38
 
