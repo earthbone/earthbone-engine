@@ -27,6 +27,16 @@ pub struct ListRecordExtra {
     pub entry_chances: Vec<u8>,
 }
 
+/// Saved fields decoded from a CONT, MISC or FURN change form.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct StaticObjectRecordExtra {
+    pub change_flags: u32,
+    pub form_flags: Option<(u32, u16)>,
+    pub value_changed: bool,
+    pub full_name_changed: bool,
+    pub opaque_suffix: Vec<u8>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct RecordOverride {
     pub origin: GlobalFormId,
@@ -37,6 +47,7 @@ pub(super) struct RecordOverride {
     pub plain_full: bool,
     pub npc: NpcRecordExtra,
     pub list: Option<ListRecordExtra>,
+    pub static_object: Option<StaticObjectRecordExtra>,
 }
 
 pub(super) fn raw_words(record: &Record) -> BTreeSet<u32> {
@@ -61,6 +72,7 @@ impl RecordOverride {
             plain_full: false,
             npc: NpcRecordExtra::default(),
             list: None,
+            static_object: None,
         }
     }
 
@@ -120,5 +132,13 @@ impl World {
 
     pub fn restored_list_extra(&self, id: GlobalFormId) -> Option<&ListRecordExtra> {
         self.record_overrides.get(&id)?.list.as_ref()
+    }
+
+    /// Saved change fields for a restored CONT, MISC or FURN record.
+    pub fn restored_static_object_extra(
+        &self,
+        id: GlobalFormId,
+    ) -> Option<&StaticObjectRecordExtra> {
+        self.record_overrides.get(&id)?.static_object.as_ref()
     }
 }

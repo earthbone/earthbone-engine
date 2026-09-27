@@ -167,6 +167,14 @@ format page establishes the type indices but does not document these payload
 fields. FallrimTools `ChangeFormDefault` retains payload bytes without a typed
 layout, so it remains useful as a raw preservation reference.
 
+`World::restore_vanilla_static_objects` maps these changes through saved plugin
+names and applies the form-flags inversion mask to winning CONT, MISC and FURN
+records. It retains the value and full-name markers and opaque suffix bytes.
+The markers have zero-byte layouts in xEdit, so neither marker replaces a
+record subrecord. Restore prepares every record before installing any override.
+SOEW version 37 stores the decoded fields and reapplies the mask when loading
+engine state.
+
 ## Runtime instance import
 
 `Papyrus::restore_instances` joins parent-first member descriptors to saved

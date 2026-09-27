@@ -3352,6 +3352,19 @@ The row's range-exit and recorded-end checks are covered. TWAT reply selection,
 walk-away menu flags, voice cancellation and original-engine timing comparison
 are outside this range-exit implementation.
 
+## Saved static-object changes, SAV-42
+
+`World::restore_vanilla_static_objects` maps CONT, MISC and FURN references
+through the saved plugin names, then applies all prepared record overrides
+together. The xEdit form-flags word is an inversion mask over the live record
+flags. The value and full-name fields consume zero bytes, so their markers and
+opaque suffix bytes remain saved metadata without replacing record subrecords.
+Record lookup, names and container inventory read through the shared overridden
+record table. Duplicate, missing or malformed changes do not install a partial
+set. SOEW version 37 saves the decoded fields and reapplies the mask on load.
+Tests `sav_42_` cover all three record types, independent queries, engine
+save/load and rollback after a late invalid target.
+
 ## Saved list changes, SAV-52
 
 `World::restore_vanilla_lists` applies decoded FLST, LVLN, LVLI and LVSP

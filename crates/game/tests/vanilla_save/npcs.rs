@@ -288,7 +288,8 @@ fn record_overrides_persist_before_actor_initialization_and_old_saves_clear_them
     let mut v13 = before.clone();
     let origin_fields = empty.len() - 36;
     v13.drain(origin_fields..origin_fields + 13);
-    // CONTEXT: Version 13 has no list metadata byte in record overrides.
+    // CONTEXT: Version 13 predates list and static-object metadata bytes.
+    v13.remove(origin_fields + 15);
     v13.remove(origin_fields + 14);
     v13.truncate(v13.len() - 42);
     v13[4..6].copy_from_slice(&13_u16.to_le_bytes());
