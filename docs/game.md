@@ -1753,6 +1753,33 @@ forwarding, effect inventory filters and VM object reclamation remain unfinished
 forwarding and effect inventory filters remain unfinished.
 This is an active-effect foundation, not complete magic execution.
 
+### Demoralize, MAG-30
+
+Direct Demoralize effects use the active-effect lifecycle to lower the target's
+Confidence by the effect magnitude for the effect's duration. A live effect
+also overrides package and combat movement: the actor drops its combat target
+and follows a navmesh route away from the credited caster when one is
+available. The actor's package state remains stored underneath the override,
+so expiry or dispel lets package evaluation resume. Dead or ghosted hostile
+targets follow the existing hostile-hit rejection path.
+
+The local `TES5Edit/Core/wbDefinitionsTES5.pas` MGEF table names archetype 7
+Demoralize. The local `uesp-modfileformat/MGEF.wikitext` says its primary actor
+value is forced to Confidence. The CK wiki dump has no MGEF archetype page;
+its local `OnMagicEffectApply_-_ObjectReference.wikitext` and
+`HasMagicEffect_-_Actor.wikitext` establish the application event and active
+effect query contracts. The implementation uses the existing active-effect
+save data and reverses the Confidence modifier through the shared actor-value
+store. It adds no save field or version.
+
+`mag_30_demoralize_makes_eligible_actor_flee_and_lowers_confidence`,
+`mag_30_demoralize_rejects_dead_actor_without_applying_changes` and
+`mag_30_demoralize_expiry_releases_flee_override_and_restores_confidence` in
+`tests/magic.rs` cover application, target rejection and expiry with synthetic
+records. The check names no vanilla records, so no `SKYRIM_DATA` case applies.
+Flee movement requires a route on the loaded navmesh. Resistance, visuals and
+sound remain outside this row.
+
 ### Summon Creature, MAG-39
 
 Direct casts execute MGEF archetype 18 by resolving the effect's associated
