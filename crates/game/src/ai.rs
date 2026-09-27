@@ -1091,11 +1091,11 @@ fn find_reference(
     let actor_cell = world.reference(actor)?.cell;
     let cell = place.and_then(|place| place.cell).or(actor_cell)?;
     let center = place.map_or(world.reference(actor)?.position, |place| place.position);
-    let radius = radius.unwrap_or(0);
-    if radius < 0 {
-        return None;
-    }
-    let radius = radius as f32;
+    let radius = match radius {
+        Some(radius) if radius < 0 => return None,
+        Some(radius) => Some(radius as f32),
+        None => None,
+    };
     references_in_cell(world, cell)
         .into_iter()
         .filter(|reference| *reference != actor)
@@ -1112,7 +1112,7 @@ fn find_reference(
             let candidate_base = world.base_of(reference)?;
             let matches = base.is_some_and(|base| base == candidate_base)
                 || object_type.is_some_and(|tag| world.tag_of(candidate_base) == Some(tag));
-            if !matches || (radius > 0.0 && distance(center, position) > radius) {
+            if !matches || radius.is_some_and(|radius| distance(center, position) > radius) {
                 return None;
             }
             Some((distance(center, position), reference))

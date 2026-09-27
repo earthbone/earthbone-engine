@@ -168,7 +168,7 @@ fn ai_33_find_result_survives_save_and_old_and_future_versions_are_checked() {
     );
 
     let mut old = bytes.clone();
-    old[4..6].copy_from_slice(&(soe_game::world::SAVE_VERSION - 1).to_le_bytes());
+    old[4..6].copy_from_slice(&41u16.to_le_bytes());
     assert!(restored
         .world_mut()
         .load_state(&old)
