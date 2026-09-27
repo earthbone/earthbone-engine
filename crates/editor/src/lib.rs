@@ -45,6 +45,21 @@ pub enum EditorError {
         /// Subrecord tag that was repeated.
         tag: Tag,
     },
+    /// A quest subrecord has an invalid shape for the requested field.
+    #[error("quest form {form} has invalid {tag} data: {reason}")]
+    InvalidQuestField {
+        /// Quest being edited.
+        form: GlobalFormId,
+        /// Field whose layout is invalid.
+        tag: Tag,
+        /// Why the field could not be edited.
+        reason: &'static str,
+    },
+    /// The quest record stores localized string IDs that need a string-table writer.
+    #[error(
+        "quest form {0} uses localized strings, which cannot be updated by the plugin-only writer"
+    )]
+    LocalizedQuestText(GlobalFormId),
     /// Saving the active plugin failed.
     #[error("could not write plugin {path}: {source}")]
     Save {
@@ -218,6 +233,102 @@ impl EditorDocument {
         Ok(())
     }
 
+    /// Edit one existing quest stage log entry by stage and entry occurrence.
+    ///
+    /// Occurrence indices preserve distinct entries when stage numbers repeat.
+    ///
+    /// # Errors
+    /// Returns an error if the form is not a supported QUST record, its layout
+    /// is malformed, the selected entry has no CNAM text, or the quest uses
+    /// localized string IDs.
+    pub fn edit_quest_stage_log_entry_text(
+        &mut self,
+        form: GlobalFormId,
+        stage_occurrence: usize,
+        entry_occurrence: usize,
+        text: &str,
+    ) -> Result<(), EditorError> {
+        let mut record = self.quest_record_for_edit(form)?;
+        reject_localized_quest_text(form, &record)?;
+        let subrecord_index =
+            quest_stage_log_text_index(form, &record, stage_occurrence, entry_occurrence)?;
+        record.subrecords[subrecord_index].data = nul_terminated(text);
+        self.replace_edited_record(form, record)
+    }
+
+    /// Edit one existing quest objective's display text by occurrence.
+    ///
+    /// Occurrence indices preserve distinct objectives when objective numbers
+    /// repeat. Target aliases and conditions remain in their authored order.
+    ///
+    /// # Errors
+    /// Returns an error if the form is not a supported QUST record, its layout
+    /// is malformed, the selected objective has no NNAM text, or the quest
+    /// uses localized string IDs.
+    pub fn edit_quest_objective_text(
+        &mut self,
+        form: GlobalFormId,
+        objective_occurrence: usize,
+        text: &str,
+    ) -> Result<(), EditorError> {
+        let mut record = self.quest_record_for_edit(form)?;
+        reject_localized_quest_text(form, &record)?;
+        let subrecord_index = quest_objective_text_index(form, &record, objective_occurrence)?;
+        record.subrecords[subrecord_index].data = nul_terminated(text);
+        self.replace_edited_record(form, record)
+    }
+
+    fn quest_record_for_edit(&self, form: GlobalFormId) -> Result<Record, EditorError> {
+        let record_ref = self
+            .load_order
+            .winner_ref(form)
+            .ok_or(EditorError::MissingForm(form))?;
+        let source = self.load_order.record(record_ref);
+        if source.tag != Tag(*b"QUST") {
+            return Err(EditorError::UnsupportedEdit {
+                form,
+                reason: "quest text editing requires a QUST record",
+            });
+        }
+        let active = self.active_record(form).cloned();
+        if active.is_some() {
+            return active.ok_or(EditorError::MissingForm(form));
+        }
+        if !is_top_level(
+            &self.load_order.file(record_ref.file).plugin,
+            record_ref.record,
+        ) {
+            return Err(EditorError::UnsupportedEdit {
+                form,
+                reason: "nested record placement needs FMT-15 and FMT-26 FormID remapping",
+            });
+        }
+        if !quest_master_order_is_aligned(&self.load_order, self.active_index, record_ref.file) {
+            return Err(EditorError::UnsupportedEdit {
+                form,
+                reason: "quest reference relocation needs matching source and active master order",
+            });
+        }
+        let mut record = source.clone();
+        record.form_id = self.local_form_id(form)?;
+        Ok(record)
+    }
+
+    fn replace_edited_record(
+        &mut self,
+        form: GlobalFormId,
+        record: Record,
+    ) -> Result<(), EditorError> {
+        self.undo.push(self.active_plugin.clone());
+        if let Some(index) = self.active_record_index(form) {
+            self.active_plugin.records[index] = record;
+        } else {
+            self.active_plugin.push_top(record);
+        }
+        self.sync_record_count();
+        self.rebuild_load_order()
+    }
+
     /// Undo the most recent edit, returning whether an edit was available.
     ///
     /// # Errors
@@ -330,6 +441,152 @@ fn contains_ascii_case_insensitive(value: &[u8], query: &str) -> bool {
         .any(|window| window.eq_ignore_ascii_case(query.as_bytes()))
 }
 
+fn reject_localized_quest_text(form: GlobalFormId, record: &Record) -> Result<(), EditorError> {
+    if record.flags & soe_esm::plugin::flags::LOCALIZED != 0 {
+        return Err(EditorError::LocalizedQuestText(form));
+    }
+    Ok(())
+}
+
+fn nul_terminated(text: &str) -> Vec<u8> {
+    let mut data = text.as_bytes().to_vec();
+    data.push(0);
+    data
+}
+
+fn quest_stage_log_text_index(
+    form: GlobalFormId,
+    record: &Record,
+    stage_occurrence: usize,
+    entry_occurrence: usize,
+) -> Result<usize, EditorError> {
+    let stage_tag = Tag(*b"INDX");
+    let qobj = Tag(*b"QOBJ");
+    let qsdt = Tag(*b"QSDT");
+    let cnam = Tag(*b"CNAM");
+    let stages = record
+        .subrecords
+        .iter()
+        .enumerate()
+        .filter_map(|(index, subrecord)| (subrecord.tag == stage_tag).then_some(index))
+        .collect::<Vec<_>>();
+    let start = *stages
+        .get(stage_occurrence)
+        .ok_or(EditorError::InvalidQuestField {
+            form,
+            tag: stage_tag,
+            reason: "stage occurrence does not exist",
+        })?;
+    if record.subrecords[start].data.len() != 4 {
+        return Err(EditorError::InvalidQuestField {
+            form,
+            tag: stage_tag,
+            reason: "stage index must contain four bytes",
+        });
+    }
+    let end = stages
+        .get(stage_occurrence + 1)
+        .copied()
+        .unwrap_or(record.subrecords.len());
+    let end = (start + 1..end)
+        .find(|index| {
+            let tag = record.subrecords[*index].tag;
+            tag == qobj || tag == Tag(*b"ANAM") || tag == Tag(*b"ALST") || tag == Tag(*b"ALLS")
+        })
+        .unwrap_or(end);
+    let entries = (start + 1..end)
+        .filter(|index| record.subrecords[*index].tag == qsdt)
+        .collect::<Vec<_>>();
+    let entry_start = *entries
+        .get(entry_occurrence)
+        .ok_or(EditorError::InvalidQuestField {
+            form,
+            tag: qsdt,
+            reason: "stage log entry occurrence does not exist",
+        })?;
+    if record.subrecords[entry_start].data.len() != 1 {
+        return Err(EditorError::InvalidQuestField {
+            form,
+            tag: qsdt,
+            reason: "stage log flags must contain one byte",
+        });
+    }
+    let entry_end = entries.get(entry_occurrence + 1).copied().unwrap_or(end);
+    let text_fields = (entry_start + 1..entry_end)
+        .filter(|index| record.subrecords[*index].tag == cnam)
+        .collect::<Vec<_>>();
+    match text_fields.as_slice() {
+        [index] => Ok(*index),
+        [] => Err(EditorError::InvalidQuestField {
+            form,
+            tag: cnam,
+            reason: "stage log entry has no text field",
+        }),
+        _ => Err(EditorError::InvalidQuestField {
+            form,
+            tag: cnam,
+            reason: "stage log entry has repeated text fields",
+        }),
+    }
+}
+
+fn quest_objective_text_index(
+    form: GlobalFormId,
+    record: &Record,
+    objective_occurrence: usize,
+) -> Result<usize, EditorError> {
+    let qobj = Tag(*b"QOBJ");
+    let nnam = Tag(*b"NNAM");
+    let objectives = record
+        .subrecords
+        .iter()
+        .enumerate()
+        .filter_map(|(index, subrecord)| (subrecord.tag == qobj).then_some(index))
+        .collect::<Vec<_>>();
+    let start = *objectives
+        .get(objective_occurrence)
+        .ok_or(EditorError::InvalidQuestField {
+            form,
+            tag: qobj,
+            reason: "objective occurrence does not exist",
+        })?;
+    if record.subrecords[start].data.len() != 2 {
+        return Err(EditorError::InvalidQuestField {
+            form,
+            tag: qobj,
+            reason: "objective index must contain two bytes",
+        });
+    }
+    let end = objectives
+        .get(objective_occurrence + 1)
+        .copied()
+        .unwrap_or(record.subrecords.len());
+    let end = (start + 1..end)
+        .find(|index| {
+            matches!(
+                record.subrecords[*index].tag,
+                tag if tag == Tag(*b"ANAM") || tag == Tag(*b"ALST") || tag == Tag(*b"ALLS")
+            )
+        })
+        .unwrap_or(end);
+    let text_fields = (start + 1..end)
+        .filter(|index| record.subrecords[*index].tag == nnam)
+        .collect::<Vec<_>>();
+    match text_fields.as_slice() {
+        [index] => Ok(*index),
+        [] => Err(EditorError::InvalidQuestField {
+            form,
+            tag: nnam,
+            reason: "objective has no display text",
+        }),
+        _ => Err(EditorError::InvalidQuestField {
+            form,
+            tag: nnam,
+            reason: "objective has repeated display text",
+        }),
+    }
+}
+
 fn file_name(path: &Path) -> Result<String, EditorError> {
     path.file_name()
         .and_then(|name| name.to_str())
@@ -338,6 +595,22 @@ fn file_name(path: &Path) -> Result<String, EditorError> {
             name: path.display().to_string(),
             message: "plugin path has no UTF-8 file name".to_string(),
         })
+}
+
+fn quest_master_order_is_aligned(
+    load_order: &LoadOrder,
+    active_index: usize,
+    source_index: usize,
+) -> bool {
+    let active_masters = &load_order.file(active_index).plugin.header.masters;
+    let source_masters = &load_order.file(source_index).plugin.header.masters;
+    source_masters.len() == source_index
+        && active_masters.len() > source_index
+        && (0..source_index).all(|index| {
+            source_masters[index].eq_ignore_ascii_case(&load_order.file(index).name)
+                && active_masters[index].eq_ignore_ascii_case(&load_order.file(index).name)
+        })
+        && active_masters[source_index].eq_ignore_ascii_case(&load_order.file(source_index).name)
 }
 
 fn is_top_level(plugin: &Plugin, record_index: usize) -> bool {

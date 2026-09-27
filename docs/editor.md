@@ -273,14 +273,16 @@ year or more or blocked.
 
 `soe-editor` opens plugin paths in load-order order through `soe-esm`, keeps one active
 plugin, and updates the resolved order when an edit is applied or undone. A subrecord edit
-to a supported winning top-level `STAT` record creates an active-plugin override. Undo
-restores the prior active plugin. Saving writes the active plugin bytes and parses those
-bytes again before returning the saved plugin. The TES4 record count is updated with edits.
+to a supported winning top-level `STAT` record or a QUST text edit creates an active-plugin
+override. Undo restores the prior active plugin. Saving writes the active plugin bytes and
+parses those bytes again before returning the saved plugin. The TES4 record count is updated
+with edits.
 
 Copying a winning record whose owner differs from the active plugin requires relocating
-FormIDs in the record and its group path. The editor currently rejects nested records and
-supports copied top-level `STAT` records only. The FMT-15 FormID renumbering and FMT-26
-master relocation rows remain open. The Spriggit output guide describes separate text files
+FormIDs in the record and its group path. The editor currently rejects nested records,
+supports copied top-level `STAT` records, and supports QUST text edits only when source and
+active master order align. The FMT-15 FormID renumbering and FMT-26 master relocation rows
+remain open. The Spriggit output guide describes separate text files
 per record, while the current editor writes plugin files only. No text plugin translation
 or `.spriggit` configuration reader is implemented.
 
@@ -291,3 +293,32 @@ every form. The query walks `soe-esm::LoadOrder::winners`. The Godot editor's
 `tutorials/plugins/editor/making_plugins.rst` and `inspector_plugins.rst` describe the dock
 and inspector controls that can display those results. This row implements the Rust search
 operation only, not the Godot dock or inspector controls.
+
+### Quest stage and objective text edits, EDT-07
+
+`EditorDocument::edit_quest_stage_log_entry_text` edits an existing QUST `CNAM` journal
+entry, selected by the occurrence of its `INDX` stage and the occurrence of its `QSDT` log
+entry. `edit_quest_objective_text` edits an existing `NNAM` display string, selected by
+objective occurrence. Occurrences are used because stage and objective numbers may repeat.
+Both operations preserve the remaining ordered QUST subrecords, including stage flags,
+objective flags, targets, conditions and aliases. A winning top-level QUST becomes an
+override in the active plugin, and both operations use the editor document's undo history.
+
+The field grouping follows xEdit's `wbRecord(QUST)` definition in
+`engine-refs/TES5Edit/Core/wbDefinitionsTES5.pas` and UESP's `QUST.wikitext`: each `INDX`
+starts a stage, each `QSDT` starts a log entry, each `QOBJ` starts an objective, and
+`QSTA` targets and following conditions are retained. UESP notes that stage and objective
+numbers are not unique. xEdit's DIAL definition and UESP's `DIAL.wikitext` identify QNAM as
+the QUST owner link; DIAL editing is not part of this operation. No source implementation
+was copied.
+
+The plugin writer stores non-localized quest strings inline as NUL-terminated UTF-8. Editing
+a localized QUST string returns `LocalizedQuestText`, because this writer does not write
+the companion string tables. Creating an override from another plugin is allowed only when
+its masters and the active plugin's master prefix match the load-order prefix. That keeps
+the raw QUST links in their original FormID context. Nested records and QUST records with a
+different master order still require FMT-15 and FMT-26 relocation support. The editor does
+not add stages, log entries, objectives or targets, and it does not edit DIAL, INFO or SCEN.
+`crates/editor/tests/edt_07_quest_stages.rs` covers saving and reparsing both text changes,
+undo, duplicate stage and objective numbers, preserved targets and safe rejection of
+localized text.
