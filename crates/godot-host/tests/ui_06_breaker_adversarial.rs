@@ -8,7 +8,9 @@ use soe_godot_host::hud::Snapshot;
 #[test]
 fn ui_06_meter_recomputes_fraction_when_maximum_changes() {
     let mut order = LoadOrder::new();
-    order.add("Hud.esm", Plugin::new(FileHeader::default())).unwrap();
+    order
+        .add("Hud.esm", Plugin::new(FileHeader::default()))
+        .unwrap();
     let mut game = Game::new(order);
     let player = game.player();
     game.world_mut()
@@ -29,7 +31,9 @@ fn ui_06_meter_recomputes_fraction_when_maximum_changes() {
 #[test]
 fn ui_06_compass_wraps_negative_and_full_turn_headings() {
     let mut order = LoadOrder::new();
-    order.add("Hud.esm", Plugin::new(FileHeader::default())).unwrap();
+    order
+        .add("Hud.esm", Plugin::new(FileHeader::default()))
+        .unwrap();
     let mut game = Game::new(order);
     let player = game.player();
     let west = Snapshot::read(&mut game, player, -std::f32::consts::FRAC_PI_2);

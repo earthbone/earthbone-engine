@@ -10,7 +10,10 @@ use soe_papyrus::Opcode::*;
 use soe_papyrus::Value;
 
 fn form() -> GlobalFormId {
-    GlobalFormId { file: 0, object: 0x800 }
+    GlobalFormId {
+        file: 0,
+        object: 0x800,
+    }
 }
 
 fn fixture() -> Game {
@@ -18,7 +21,10 @@ fn fixture() -> Game {
         scripts: vec![ScriptEntry::new("Config")],
         ..Default::default()
     };
-    let mut plugin = Plugin::new(FileHeader { flags: flags::MASTER, ..Default::default() });
+    let mut plugin = Plugin::new(FileHeader {
+        flags: flags::MASTER,
+        ..Default::default()
+    });
     plugin.push_top(
         quest::build_record(0x800, "Config", quest_flags::START_GAME_ENABLED)
             .sub(Tag::new(b"VMAD"), vmad.write(Tag::new(b"QUST"))),
@@ -29,15 +35,67 @@ fn fixture() -> Game {
     let base = ScriptBuilder::new("SKI_ConfigBase", "Quest")
         .auto_property("ModName", "String", s(""))
         .auto_property("Pages", "String[]", soe_papyrus::asm::none())
-        .function(FunctionBuilder::new("OnInit", "None").ins(CallMethod, vec![s("OnConfigInit"), ident("self"), ident("::nonevar")]).build())
-        .function(FunctionBuilder::new("OpenConfig", "None").ins(CallMethod, vec![s("SetPage"), ident("self"), ident("::nonevar"), s(""), i(-1)]).ins(CallMethod, vec![s("OnConfigOpen"), ident("self"), ident("::nonevar")]).build())
-        .function(FunctionBuilder::new("SetPage", "None").param("page", "String").param("index", "Int").ins(CallMethod, vec![s("OnPageReset"), ident("self"), ident("::nonevar"), ident("page")]).build())
+        .function(
+            FunctionBuilder::new("OnInit", "None")
+                .ins(
+                    CallMethod,
+                    vec![s("OnConfigInit"), ident("self"), ident("::nonevar")],
+                )
+                .build(),
+        )
+        .function(
+            FunctionBuilder::new("OpenConfig", "None")
+                .ins(
+                    CallMethod,
+                    vec![
+                        s("SetPage"),
+                        ident("self"),
+                        ident("::nonevar"),
+                        s(""),
+                        i(-1),
+                    ],
+                )
+                .ins(
+                    CallMethod,
+                    vec![s("OnConfigOpen"), ident("self"), ident("::nonevar")],
+                )
+                .build(),
+        )
+        .function(
+            FunctionBuilder::new("SetPage", "None")
+                .param("page", "String")
+                .param("index", "Int")
+                .ins(
+                    CallMethod,
+                    vec![
+                        s("OnPageReset"),
+                        ident("self"),
+                        ident("::nonevar"),
+                        ident("page"),
+                    ],
+                )
+                .build(),
+        )
         .bytes();
     let child = ScriptBuilder::new("Config", "SKI_ConfigBase")
         .variable("reset_count", "Int", i(0))
         .variable("last_page", "String", s("unset"))
-        .function(FunctionBuilder::new("OnConfigInit", "None").local("pages", "String[]").ins(PropSet, vec![s("ModName"), ident("self"), s("Config")]).ins(ArrayCreate, vec![ident("pages"), i(1)]).ins(ArraySetElement, vec![ident("pages"), i(0), s("Only page")]).ins(PropSet, vec![s("Pages"), ident("self"), ident("pages")]).build())
-        .function(FunctionBuilder::new("OnPageReset", "None").param("page", "String").ins(IAdd, vec![ident("reset_count"), ident("reset_count"), i(1)]).ins(Assign, vec![ident("last_page"), ident("page")]).build())
+        .function(
+            FunctionBuilder::new("OnConfigInit", "None")
+                .local("pages", "String[]")
+                .ins(PropSet, vec![s("ModName"), ident("self"), s("Config")])
+                .ins(ArrayCreate, vec![ident("pages"), i(1)])
+                .ins(ArraySetElement, vec![ident("pages"), i(0), s("Only page")])
+                .ins(PropSet, vec![s("Pages"), ident("self"), ident("pages")])
+                .build(),
+        )
+        .function(
+            FunctionBuilder::new("OnPageReset", "None")
+                .param("page", "String")
+                .ins(IAdd, vec![ident("reset_count"), ident("reset_count"), i(1)])
+                .ins(Assign, vec![ident("last_page"), ident("page")])
+                .build(),
+        )
         .bytes();
     game.load_script(&base).unwrap();
     game.load_script(&child).unwrap();
@@ -47,7 +105,12 @@ fn fixture() -> Game {
 
 fn variable(game: &mut Game, name: &str) -> Value {
     let object = game.object_of_form(form());
-    game.vm.vars_on(object, "Config").into_iter().find(|(key, _)| key.eq_ignore_ascii_case(name)).unwrap().1
+    game.vm
+        .vars_on(object, "Config")
+        .into_iter()
+        .find(|(key, _)| key.eq_ignore_ascii_case(name))
+        .unwrap()
+        .1
 }
 
 #[test]
