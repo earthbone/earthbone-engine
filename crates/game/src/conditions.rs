@@ -222,6 +222,14 @@ fn no_parameter(c: &Condition) -> Result<(), Error> {
     }
 }
 
+fn one_parameter(c: &Condition) -> Result<(), Error> {
+    if c.parameters[1] == 0 {
+        Ok(())
+    } else {
+        Err(Error::Parameter(c.function, c.parameters[1]))
+    }
+}
+
 /// Mutagen Skyrim.Constants.Player is reserved even without a placed ACHR record.
 fn resolve_reference(
     world: &mut World,
@@ -279,6 +287,90 @@ fn function_value(
         1 => {
             let other = resolve_reference(world, context.owner, raw)?;
             world.distance(subject, other)
+        }
+        0 => {
+            no_parameter(c)?;
+            boolean(world.actor(subject).ok_or(Error::Form(subject))?.blocking)
+        }
+        5 => {
+            no_parameter(c)?;
+            boolean(world.reference(subject).ok_or(Error::Form(subject))?.locked)
+        }
+        32 => {
+            one_parameter(c)?;
+            let other = resolve_reference(world, context.owner, raw)?;
+            let subject_cell = world.reference(subject).ok_or(Error::Form(subject))?.cell;
+            let other_cell = world.reference(other).ok_or(Error::Form(other))?.cell;
+            boolean(subject_cell.is_some() && subject_cell == other_cell)
+        }
+        65 => {
+            no_parameter(c)?;
+            world
+                .reference(subject)
+                .ok_or(Error::Form(subject))?
+                .lock_level as f32
+        }
+        117 => {
+            one_parameter(c)?;
+            let region = resolve(world, context.owner, raw, Some(*b"REGN"))?;
+            let player = world.player();
+            let cell = world
+                .reference(player)
+                .ok_or(Error::Form(player))?
+                .cell
+                .ok_or(Error::Target(0))?;
+            let cell_ref = world.order().winner_ref(cell).ok_or(Error::Form(cell))?;
+            let record = world.order().record(cell_ref);
+            let cell_data = soe_esm::records::cell::Cell::from_record(record, false)
+                .map_err(|_| Error::Form(cell))?;
+            boolean(
+                cell_data
+                    .regions
+                    .iter()
+                    .any(|raw_region| world.order().resolve(cell_ref.file, *raw_region) == region),
+            )
+        }
+        146 => {
+            no_parameter(c)?;
+            let cell = world
+                .reference(subject)
+                .ok_or(Error::Form(subject))?
+                .cell
+                .ok_or(Error::Target(0))?;
+            let cell_owner = world.cell_state(cell).ok_or(Error::Form(cell))?.owner;
+            let owned = cell_owner.is_some_and(|owner| {
+                world.base_of(subject) == Some(owner)
+                    || world
+                        .actor(subject)
+                        .is_some_and(|actor| actor.factions.contains_key(&owner))
+            });
+            boolean(owned)
+        }
+        180 | 181 => {
+            let (reference, keyword) = if c.function == 180 {
+                (
+                    resolve_reference(world, context.owner, raw)?,
+                    resolve(world, context.owner, c.parameters[1], Some(*b"KYWD"))?,
+                )
+            } else {
+                let quest = context.quest.ok_or(Error::Target(5))?;
+                let alias = world.alias_ref(quest, raw).ok_or(Error::Target(5))?;
+                if world
+                    .reference(alias)
+                    .is_none_or(|reference| reference.deleted)
+                {
+                    return Err(Error::Form(alias));
+                }
+                (
+                    alias,
+                    resolve(world, context.owner, c.parameters[1], Some(*b"KYWD"))?,
+                )
+            };
+            let subject_location = world.editor_location(subject);
+            let other_location = world.editor_location(reference);
+            boolean(subject_location.is_some_and(|location| {
+                Some(location) == other_location && world.has_keyword(location, keyword)
+            }))
         }
         18 => world.calendar().hour as f32,
         46 => boolean(world.actor(subject).is_some_and(|actor| actor.dead)),
