@@ -11,6 +11,7 @@
 use soe_esm::Slot;
 use soe_papyrus::vm::state::{Reader, Writer};
 use soe_papyrus::VmError;
+use soe_save::{Papyrus, Save};
 
 use crate::Game;
 
@@ -36,6 +37,54 @@ pub struct PluginProvenance {
 pub struct ScriptProvenance {
     pub name: String,
     pub fingerprint: Option<[u8; 32]>,
+}
+
+/// Dependency differences found before importing a saved world or VM.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DependencyReport {
+    pub source: DependencySource,
+    pub findings: Vec<DependencyFinding>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// The save format whose dependency identities were checked.
+pub enum DependencySource {
+    Native,
+    Vanilla,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+/// The kind of content named by a dependency finding.
+pub enum DependencyKind {
+    Plugin,
+    Script,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+/// The saved state that depends on a plugin or script.
+pub enum SavedStateKind {
+    World,
+    Vm,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+/// The difference found between saved and current dependency information.
+pub enum DependencyChange {
+    Missing,
+    Added,
+    KindChanged,
+    FingerprintChanged,
+    SlotChanged,
+    ProvenanceUnknown,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+/// One dependency identity and its effect on saved state.
+pub struct DependencyFinding {
+    pub kind: DependencyKind,
+    pub identity: String,
+    pub affects: SavedStateKind,
+    pub change: DependencyChange,
 }
 
 impl SaveProvenance {
@@ -196,6 +245,238 @@ fn check_provenance(saved: &SaveProvenance, current: &SaveProvenance) -> Result<
     Ok(())
 }
 
+fn native_dependency_report(saved: &SaveProvenance, current: &SaveProvenance) -> DependencyReport {
+    let mut findings = Vec::new();
+    let current_plugins: std::collections::BTreeMap<_, _> = current
+        .plugins
+        .iter()
+        .map(|plugin| (plugin.name.to_ascii_lowercase(), plugin))
+        .collect();
+    let saved_plugins: std::collections::BTreeMap<_, _> = saved
+        .plugins
+        .iter()
+        .map(|plugin| (plugin.name.to_ascii_lowercase(), plugin))
+        .collect();
+    for (key, previous) in &saved_plugins {
+        let Some(now) = current_plugins.get(key) else {
+            findings.push(DependencyFinding {
+                kind: DependencyKind::Plugin,
+                identity: previous.name.clone(),
+                affects: SavedStateKind::World,
+                change: DependencyChange::Missing,
+            });
+            continue;
+        };
+        if previous.light != now.light {
+            findings.push(DependencyFinding {
+                kind: DependencyKind::Plugin,
+                identity: previous.name.clone(),
+                affects: SavedStateKind::World,
+                change: DependencyChange::KindChanged,
+            });
+        }
+        if previous.fingerprint != now.fingerprint {
+            findings.push(DependencyFinding {
+                kind: DependencyKind::Plugin,
+                identity: previous.name.clone(),
+                affects: SavedStateKind::World,
+                change: DependencyChange::FingerprintChanged,
+            });
+        }
+        if previous.slot != now.slot {
+            findings.push(DependencyFinding {
+                kind: DependencyKind::Plugin,
+                identity: previous.name.clone(),
+                affects: SavedStateKind::World,
+                change: DependencyChange::SlotChanged,
+            });
+        }
+    }
+    for (key, plugin) in &current_plugins {
+        if !saved_plugins.contains_key(key) {
+            findings.push(DependencyFinding {
+                kind: DependencyKind::Plugin,
+                identity: plugin.name.clone(),
+                affects: SavedStateKind::World,
+                change: DependencyChange::Added,
+            });
+        }
+    }
+
+    let current_scripts: std::collections::BTreeMap<_, _> = current
+        .scripts
+        .iter()
+        .map(|script| (script.name.to_ascii_lowercase(), script))
+        .collect();
+    let saved_scripts: std::collections::BTreeMap<_, _> = saved
+        .scripts
+        .iter()
+        .map(|script| (script.name.to_ascii_lowercase(), script))
+        .collect();
+    for (key, previous) in &saved_scripts {
+        let Some(now) = current_scripts.get(key) else {
+            findings.push(DependencyFinding {
+                kind: DependencyKind::Script,
+                identity: previous.name.clone(),
+                affects: SavedStateKind::Vm,
+                change: DependencyChange::Missing,
+            });
+            if previous.fingerprint.is_none() {
+                findings.push(DependencyFinding {
+                    kind: DependencyKind::Script,
+                    identity: previous.name.clone(),
+                    affects: SavedStateKind::Vm,
+                    change: DependencyChange::ProvenanceUnknown,
+                });
+            }
+            continue;
+        };
+        match (previous.fingerprint, now.fingerprint) {
+            (Some(old), Some(new)) if old != new => findings.push(DependencyFinding {
+                kind: DependencyKind::Script,
+                identity: previous.name.clone(),
+                affects: SavedStateKind::Vm,
+                change: DependencyChange::FingerprintChanged,
+            }),
+            (None, _) | (_, None) => findings.push(DependencyFinding {
+                kind: DependencyKind::Script,
+                identity: previous.name.clone(),
+                affects: SavedStateKind::Vm,
+                change: DependencyChange::ProvenanceUnknown,
+            }),
+            _ => {}
+        }
+    }
+    for (key, script) in &current_scripts {
+        if !saved_scripts.contains_key(key) {
+            findings.push(DependencyFinding {
+                kind: DependencyKind::Script,
+                identity: script.name.clone(),
+                affects: SavedStateKind::Vm,
+                change: DependencyChange::Added,
+            });
+        }
+    }
+    findings.sort();
+    DependencyReport {
+        source: DependencySource::Native,
+        findings,
+    }
+}
+
+fn vanilla_dependency_report(
+    plugins: &[soe_save::WString],
+    light_plugins: &[soe_save::WString],
+    papyrus: Option<&Papyrus>,
+    current: &SaveProvenance,
+) -> DependencyReport {
+    let current_plugins: std::collections::BTreeMap<_, _> = current
+        .plugins
+        .iter()
+        .map(|plugin| (plugin.name.to_ascii_lowercase(), plugin))
+        .collect();
+    let mut findings = Vec::new();
+    let mut saved_plugins = std::collections::BTreeMap::new();
+    for (names, light) in [(plugins, false), (light_plugins, true)] {
+        for entry in names {
+            let identity = entry.to_text();
+            let key = identity.to_ascii_lowercase();
+            if saved_plugins
+                .insert(key.clone(), (identity.clone(), light))
+                .is_some()
+            {
+                continue;
+            }
+            match current_plugins.get(&key) {
+                None => findings.push(DependencyFinding {
+                    kind: DependencyKind::Plugin,
+                    identity: identity.clone(),
+                    affects: SavedStateKind::World,
+                    change: DependencyChange::Missing,
+                }),
+                Some(now) if now.light != light => findings.push(DependencyFinding {
+                    kind: DependencyKind::Plugin,
+                    identity: identity.clone(),
+                    affects: SavedStateKind::World,
+                    change: DependencyChange::KindChanged,
+                }),
+                Some(_) => {}
+            }
+            findings.push(DependencyFinding {
+                kind: DependencyKind::Plugin,
+                identity,
+                affects: SavedStateKind::World,
+                change: DependencyChange::ProvenanceUnknown,
+            });
+        }
+    }
+    if let Some(papyrus) = papyrus {
+        let mut saved_scripts = std::collections::BTreeSet::new();
+        for script in &papyrus.scripts {
+            if let Some(name) = papyrus.string(script.name) {
+                saved_scripts.insert(name.to_owned());
+            }
+        }
+        for instance in &papyrus.instances {
+            if let Some(name) = papyrus.string(instance.script) {
+                saved_scripts.insert(name.to_owned());
+            }
+        }
+        for reference in &papyrus.references {
+            if let Some(name) = papyrus.string(reference.script) {
+                saved_scripts.insert(name.to_owned());
+            }
+        }
+        for active in &papyrus.execution.active_data {
+            for frame in &active.frames {
+                if let Some(name) = papyrus.string(frame.script_name) {
+                    saved_scripts.insert(name.to_owned());
+                }
+            }
+        }
+        for message in &papyrus.execution.messages {
+            if let Some(data) = &message.message {
+                if let Some(name) = papyrus.string(data.script_name) {
+                    saved_scripts.insert(name.to_owned());
+                }
+            }
+        }
+        for stack in papyrus.execution.suspended.iter().flatten() {
+            if let Some(data) = &stack.message {
+                if let Some(name) = papyrus.string(data.script_name) {
+                    saved_scripts.insert(name.to_owned());
+                }
+            }
+        }
+        let current_scripts: std::collections::BTreeSet<_> = current
+            .scripts
+            .iter()
+            .map(|script| script.name.to_ascii_lowercase())
+            .collect();
+        for name in saved_scripts {
+            if !current_scripts.contains(&name.to_ascii_lowercase()) {
+                findings.push(DependencyFinding {
+                    kind: DependencyKind::Script,
+                    identity: name.clone(),
+                    affects: SavedStateKind::Vm,
+                    change: DependencyChange::Missing,
+                });
+            }
+            findings.push(DependencyFinding {
+                kind: DependencyKind::Script,
+                identity: name,
+                affects: SavedStateKind::Vm,
+                change: DependencyChange::ProvenanceUnknown,
+            });
+        }
+    }
+    findings.sort();
+    DependencyReport {
+        source: DependencySource::Vanilla,
+        findings,
+    }
+}
+
 impl Game {
     /// Serialize the world's run-time state and the VM's.
     ///
@@ -274,5 +555,29 @@ impl Game {
     /// Return the dependency evidence recorded in a native save.
     pub fn saved_provenance(bytes: &[u8]) -> Result<SaveProvenance, VmError> {
         read_envelope(bytes).map(|(provenance, _, _)| provenance)
+    }
+
+    /// Compare native save dependencies with this game's definitions.
+    /// The report is read-only and lists every difference in stable order.
+    pub fn preflight_dependencies(&self, bytes: &[u8]) -> Result<DependencyReport, VmError> {
+        let (saved, _, _) = read_envelope(bytes)?;
+        Ok(native_dependency_report(&saved, &current_provenance(self)))
+    }
+
+    /// Compare vanilla save dependencies with this game's definitions.
+    /// ESS does not store content fingerprints, so every listed plugin and
+    /// script is reported with unknown provenance. Papyrus parsing errors are
+    /// returned before any saved state can be applied.
+    pub fn preflight_vanilla_dependencies(&self, save: &Save) -> Result<DependencyReport, VmError> {
+        let papyrus = save
+            .papyrus()
+            .transpose()
+            .map_err(|error| VmError::State(format!("invalid saved Papyrus data: {error}")))?;
+        Ok(vanilla_dependency_report(
+            &save.plugins,
+            &save.light_plugins,
+            papyrus.as_ref(),
+            &current_provenance(self),
+        ))
     }
 }

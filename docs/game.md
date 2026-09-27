@@ -957,6 +957,20 @@ Programmatically loaded scripts have unknown source fingerprints. Each world
 and VM blob remains length-prefixed. The caller loads the same definitions
 before restoring into a game that has not been bound or started.
 
+`Game::preflight_dependencies` compares native save provenance with the
+current load order and scripts. Its deterministic findings identify missing
+or added plugins and scripts, plugin kind or slot changes, changed
+fingerprints, and fingerprints that cannot be compared because source bytes
+are unknown. Each finding identifies whether it affects world or VM state.
+The method reads the save envelope and does not mutate the game.
+
+`Game::preflight_vanilla_dependencies` compares ESS plugin names and Papyrus
+script names from definitions, instances, references, active frames, queued
+messages and suspended calls with the current definitions. It reports missing
+plugins and scripts, regular/light kind changes and unknown provenance for
+each saved plugin or script because ESS stores no content fingerprints. A
+malformed Papyrus block returns an error. Findings have a stable ordering.
+
 `Game::write_file` serializes and validates native state before replacing an
 existing file. `Game::write_state_file` accepts previously serialized bytes and
 checks them against the current load order and scripts in scratch state. Both
