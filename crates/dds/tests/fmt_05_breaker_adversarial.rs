@@ -39,16 +39,18 @@ fn bc6h(width: u32, height: u32, format: u32, blocks: &[u8]) -> Vec<u8> {
 #[test]
 fn fmt_05_bc6h_both_dxgi_variants_produce_opaque_rgba_pixels() {
     let block = [0u8; 16];
-    for (format, signed) in [
-        (dxgi::BC6H_UF16, false),
-        (dxgi::BC6H_SF16, true),
-    ] {
+    for (format, signed) in [(dxgi::BC6H_UF16, false), (dxgi::BC6H_SF16, true)] {
         let bytes = bc6h(4, 4, format, &block);
         let dds = Dds::parse(&bytes).unwrap();
         assert_eq!(dds.format(), Format::Bc6h { signed });
         let image = dds.decode(0, 0).unwrap();
         assert_eq!(image.rgba.len(), 4 * 4 * 4);
-        assert!(image.rgba.as_chunks::<4>().0.iter().all(|pixel| pixel[3] == 255));
+        assert!(image
+            .rgba
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .all(|pixel| pixel[3] == 255));
         assert_eq!(image, dds.decode(0, 0).unwrap());
         let reference = image_dds::ddsfile::Dds::read(&mut std::io::Cursor::new(&bytes)).unwrap();
         let expected = image_dds::image_from_dds(&reference, 0).unwrap();
@@ -59,5 +61,8 @@ fn fmt_05_bc6h_both_dxgi_variants_produce_opaque_rgba_pixels() {
 #[test]
 fn fmt_05_bc6h_rejects_a_missing_block_byte() {
     let bytes = bc6h(4, 4, dxgi::BC6H_UF16, &[0; 15]);
-    assert!(matches!(Dds::parse(&bytes), Err(soe_dds::Error::Truncated { .. })));
+    assert!(matches!(
+        Dds::parse(&bytes),
+        Err(soe_dds::Error::Truncated { .. })
+    ));
 }

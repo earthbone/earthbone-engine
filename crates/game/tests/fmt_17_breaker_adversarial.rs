@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
 use soe_esm::Tag;
 use soe_game::vmad::Vmad;
 

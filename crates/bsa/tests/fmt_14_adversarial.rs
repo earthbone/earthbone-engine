@@ -39,14 +39,12 @@ fn fixture(folder: &str, name: &str, folder_hash: u64, file_hash: u64) -> Vec<u8
 fn fmt_14_independent_name_hash_fixture_is_accepted() {
     let folder = "textures/armor/amuletsandrings/elder council";
     let name = "elder_council_amulet_n.dds";
-    let data = fixture(
-        folder,
-        name,
-        folder_hash(folder),
-        file_name_hash(name),
-    );
+    let data = fixture(folder, name, 0x04BC_422C_742C_696C, 0xDC53_1E2F_6516_DFEE);
     let archive = index_archive_in(&data, Path::new("correct-hash.bsa"));
-    assert!(archive.is_ok(), "correct BSA hashes must be accepted: {archive:?}");
+    assert!(
+        archive.is_ok(),
+        "correct BSA hashes must be accepted: {archive:?}"
+    );
 }
 
 #[test]
