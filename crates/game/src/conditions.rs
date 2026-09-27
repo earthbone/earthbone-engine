@@ -149,6 +149,7 @@ pub fn supports_function(function: u16) -> bool {
             | 261
             | 365
             | 410
+            | 577
     )
 }
 
@@ -288,6 +289,17 @@ fn function_value(
         1 => {
             let other = resolve_reference(world, context.owner, raw)?;
             world.distance(subject, other)
+        }
+        577 => {
+            if world
+                .reference(subject)
+                .is_none_or(|reference| reference.deleted)
+            {
+                return Err(Error::Form(subject));
+            }
+            let first = resolve_reference(world, context.owner, raw)?;
+            let second = resolve_reference(world, context.owner, c.parameters[1])?;
+            boolean(world.distance(subject, first) < world.distance(subject, second))
         }
         18 => world.calendar().hour as f32,
         46 => boolean(world.actor(subject).is_some_and(|actor| actor.dead)),

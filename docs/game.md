@@ -113,8 +113,17 @@ player's NPC_ base, matching the optional-owner note in
 `TES5Edit/Core/wbDefinitionsTES5.pas`. The local CK corpus has no usable
 semantics for functions 262 `IsWarningAbout`, 274 `IsSmallBump`, 285
 `IsLeftUp` or 305 `GetPlayerAction`, so these remain unsupported with a
-function diagnostic. These contracts are covered by
-`ai_73_reference_conditions.rs`.
+function diagnostic. Function 577 `IsCloserToAThanB` compares the subject's
+world distance to both reference parameters and is true only when it is
+strictly closer to the first. Invalid reference parameters return a form
+diagnostic. Functions 608 `GetKeywordDataForAlias`, 611
+`IsNullPackageData`, 612 `GetNumericPackageData`, 631
+`IsEnteringInteractionQuick`, 638 `IsInFriendStateWithPlayer`, 642
+`GetLastBumpDirection` and 645 `GetIsInjured` remain unsupported with a
+function diagnostic because the local CK corpus provides no usable condition
+semantics and the required alias keyword, package or actor-process state is
+not represented. The reference conditions are covered by
+`ai_73_reference_conditions.rs` and `ai_77_reference_conditions.rs`.
 [The reference audit](reference-audit.md) records missed contracts and gaps.
 
 **World reads out, host never writes back.** `World::ref_placement` (in
