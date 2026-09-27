@@ -284,7 +284,7 @@ fn rich_world(namespace: u16) -> World {
 /// dialogue branch field that version 24 added, the stagger end time field
 /// that version 29 added, the witnessed crimes set that version 31 added,
 /// the hand spell fields that version 32 added, and the summon actor link
-/// that version 33 added, plus the record metadata byte from version 35.
+/// that version 33 added, plus record metadata from versions 35 and 37.
 /// Each is set to a unique sentinel so its serialized
 /// bytes can be located exactly, then cut back out.
 fn without_exclusive_branches(world: &mut World) -> Vec<u8> {
@@ -374,7 +374,8 @@ fn without_exclusive_branches(world: &mut World) -> Vec<u8> {
         .windows(records.out.len())
         .position(|window| window == records.out)
         .expect("record override is serialized");
-    // CONTEXT: This fixture has one override with no list fields in version 23.
+    // CONTEXT: This fixture has one override with no later record metadata.
+    bytes.remove(at + 39);
     bytes.remove(at + 39);
     bytes
 }
@@ -477,7 +478,7 @@ fn sav_07_unknown_version_and_mixed_legacy_namespaces_are_rejected() {
     let mut world = rich_world(DYNAMIC_FILE);
     let before = world.save_state();
     for (version, message) in [
-        (37_u16, "world state version 37"),
+        (38_u16, "world state version 38"),
         (18, "created namespace in a legacy world state"),
     ] {
         let mut bytes = before.clone();

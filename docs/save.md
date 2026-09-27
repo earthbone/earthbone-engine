@@ -148,6 +148,12 @@ types on demand. Unsupported types remain opaque. The Papyrus auxiliary data
 after the save-file version stays raw, as does the original payload used when
 writing the save body.
 
+`World::restore_vanilla_activators` applies ACTI, TACT and DOOR form-flag
+invert masks to shared live records. It retains the value, full-name and TACT
+speaker markers as record metadata because xEdit defines those fields with no
+payload bytes. A malformed or duplicate change leaves every record unchanged.
+SOEW version 37 persists this metadata.
+
 Most decoded state remains inspection data. The game crate can apply globals
 and quest state, but neither stack execution nor pending calls can be resumed from a
 vanilla save. The explicit instance-import API below can apply decoded
