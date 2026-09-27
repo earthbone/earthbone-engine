@@ -23,12 +23,9 @@ use soe_hkx::{Packfile, QsTransform};
 
 const CHARACTER: &str = "meshes/actors/character/";
 const PASSTHROUGH_MODIFIERS: &[(&str, usize, &str)] = &[
-    ("BSDecomposeVectorModifier", 1, "ANM-24"),
     ("BSDirectAtModifier", 23, "ANM-25"),
     ("BSEventEveryNEventsModifier", 85, "ANM-26"),
     ("BSEventOnDeactivateModifier", 98, "ANM-27"),
-    ("BSEventOnFalseToTrueModifier", 23, "ANM-03"),
-    ("BSGetTimeStepModifier", 1, "ANM-28"),
     ("BSIStateManagerModifier", 3, "ANM-29"),
     ("BSInterpValueModifier", 36, "ANM-30"),
     ("BSLimbIKModifier", 1, "ANM-31"),
@@ -37,7 +34,6 @@ const PASSTHROUGH_MODIFIERS: &[(&str, usize, &str)] = &[
     ("BSPassByTargetTriggerModifier", 1, "ANM-34"),
     ("BSRagdollContactListenerModifier", 50, "ANM-35"),
     ("BSSpeedSamplerModifier", 42, "ANM-36"),
-    ("BSTimerModifier", 1, "ANM-37"),
     ("BSTweenerModifier", 5, "ANM-38"),
     ("hkbDampingModifier", 41, "ANM-39"),
     ("hkbEvaluateExpressionModifier", 438, "ANM-40"),
