@@ -869,6 +869,24 @@ clips and behavior graphs, and since `behavior-2` it walks the vanilla
 `mt_behavior.hkx` and plays the standing idle at full weight. Nothing reached a
 screen. This connects the two.
 
+### Runtime animation requests, HST-10
+
+An appearance-bound `SkinnedActorNode` keeps its actor `GlobalFormId` and a
+cursor into the shared world's animation event log. On each `advance`, it
+passes new events for that actor to its HKX interpreter before updating the
+graph. Events for other forms and events already present when the actor was
+bound are skipped. The cursor advances across the whole log, so one request is
+submitted at most once to that host actor. The interpreter's emitted graph
+events continue through the node's `animation_event` signal after its pose is
+uploaded, once per event returned by `take_events()`.
+
+This uses Godot's `RenderingServer` skeleton RIDs and
+`skeleton_bone_set_transform` for pose upload, as documented in the local
+`godot-docs/classes/class_renderingserver.rst`. The request bridge only covers
+actors explicitly bound through `PlayerNode.bind_actor_appearance`. Animated static references
+still use their NIF transform controller path, and general reference animation
+graphs are not instantiated by this bridge.
+
 Three pieces, none of which touch Godot except the last:
 
 - `soe_hkx::pose::to_model_space_into` composes the interpreter's local pose
@@ -1555,8 +1573,22 @@ tested a different location. The corrected test asserts the requested
 Bannered Mare identity after startup. The first import aborted when sandbox
 restrictions denied an editor socket. Direct runtime execution succeeded.
 
-Swing animation remains unwired. Plain doors keep their authored
-mesh pose and immovable collision even when game state marks them open.
+### Animated static collision, HST-01
+
+`AnimatedStaticNode` can build a trimesh collider below each generated mesh
+when `collision_enabled` is set before `load_nif`. The controller updates the
+mesh transform, and the collider remains its descendant, so Godot applies the
+same scene transform to both. `open()` resets controller time and starts its
+per-frame evaluation. The collision option defaults off. This path is for
+small animated references and does not change bulk cell batching.
+
+The `hst_01_door_swing_test.gd` Godot check loads a synthetic NIF controller
+with a rotation track, advances it, and confirms the generated static body
+follows the visual mesh transform. It does not connect ordinary door
+activation in `PlayerNode` to an animated door instance. Plain gameplay doors
+still keep their authored mesh pose and static collision when game state marks
+them open.
+
 Locked player picks use the shared game's key check. Without the key they
 remain closed, pending lockpicking UI. Resource preparation is synchronous.
 Exterior streaming follows door landings only, not subsequent walking across
