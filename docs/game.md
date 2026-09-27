@@ -1205,8 +1205,9 @@ earlier member can change inventory or queue events.
 Active-effect recipients remain pending with magic execution.
 
 The condition evaluator implements functions 47, 53, 56, 58, 59, 72, 74, 79,
-136, 182, 230, 250, 264, 277, 280, 289, 310, 325, 359, 360, 444, 448, 470,
-528, 543, 560, 629, 630 and 659.
+136, 182, 230, 250, 264, 277, 280, 289, 310, 325, 359, 360, 444, 445, 446,
+448, 470, 491, 519, 528, 543, 560, 561, 562, 563, 565, 567, 569, 591, 592,
+598, 600, 601, 603, 629, 630 and 659.
 This is a bounded set, not the entire CTDA contract. It supports ordered
 AND/OR groups, numeric or
 global comparisons, explicit references and caller-supplied quest aliases.
@@ -1270,6 +1271,23 @@ not model velocity or broken locks. xEdit defines the parameter types. CK's
 contracts. CK's `HasKeyword`, `GetEditorLocation`, `Lock` and `IsLocked` pages
 describe the related form queries and state. The local CK corpus has no usable
 individual condition contract for the other functions.
+
+AI-57 adds `GetIsEditorLocAlias`, `IsBlocking`, `GetRefTypeDeadCount`,
+`GetRefTypeAliveCount`, `GetLocationAliasCleared`,
+`GetLocAliasRefTypeDeadCount`, `GetLocAliasRefTypeAliveCount` and
+`IsInSameCurrentLocAsRef`. Editor-location alias tests compare the subject's
+authored location with a filled location alias. Blocking reads the actor's
+current host-reported blocking flag. Ref-type counts read matching entries in
+the location's added and master special-reference lists, then count actor
+references by their current dead state, excluding references in the location's
+removal list. Alias count and cleared checks require
+a filled location alias. Same-current-location checks compare both references'
+current locations and require the supplied keyword on that location. xEdit's
+condition table and the local UESP raw function table provide names, parameter
+types and signatures. The CK corpus has no individual condition pages for this
+batch, so the result behavior follows the function names and the referenced
+LCTN and live actor state models. Missing aliases and current locations return
+explicit context errors.
 
 Sources consulted were local xEdit `wbDefinitionsTES5.pas` for CTDA, COBJ and
 FURN WBDT, CK `GetItemCount_-_ObjectReference.wikitext` for the query forms,

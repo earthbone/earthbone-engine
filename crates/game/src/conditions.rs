@@ -165,6 +165,14 @@ pub fn supports_function(function: u16) -> bool {
             | 562
             | 563
             | 565
+            | 567
+            | 569
+            | 591
+            | 592
+            | 598
+            | 600
+            | 601
+            | 603
     )
 }
 
@@ -236,6 +244,61 @@ fn boolean(value: bool) -> f32 {
     } else {
         0.0
     }
+}
+
+fn location_ref_type_count(
+    world: &mut World,
+    location: GlobalFormId,
+    ref_type: GlobalFormId,
+    dead_count: bool,
+) -> Result<f32, Error> {
+    let record = world.record(location).ok_or(Error::Form(location))?;
+    let mut removed = Vec::new();
+    for entry in record.all(Tag(*b"RCSR")) {
+        let (items, remainder) = entry.as_chunks::<4>();
+        if !remainder.is_empty() {
+            return Err(Error::Form(location));
+        }
+        for item in items {
+            let raw_ref = u32::from_le_bytes(*item);
+            if let Some(reference) = world.resolve_from(location, raw_ref) {
+                removed.push(reference);
+            }
+        }
+    }
+    let mut references = Vec::new();
+    for entry in record.all(Tag(*b"ACSR")).chain(record.all(Tag(*b"LCSR"))) {
+        let (items, remainder) = entry.as_chunks::<16>();
+        if !remainder.is_empty() {
+            return Err(Error::Form(location));
+        }
+        for item in items {
+            let raw_type =
+                u32::from_le_bytes(item[0..4].try_into().map_err(|_| Error::Form(location))?);
+            let raw_ref =
+                u32::from_le_bytes(item[4..8].try_into().map_err(|_| Error::Form(location))?);
+            if world.resolve_from(location, raw_type) == Some(ref_type) {
+                if let Some(reference) = world
+                    .resolve_from(location, raw_ref)
+                    .filter(|reference| !removed.contains(reference))
+                {
+                    references.push(reference);
+                }
+            }
+        }
+    }
+    references.sort_unstable();
+    references.dedup();
+    let mut count = 0_u32;
+    for reference in references {
+        if world
+            .actor(reference)
+            .is_some_and(|actor| actor.dead == dead_count)
+        {
+            count = count.checked_add(1).ok_or(Error::Inventory)?;
+        }
+    }
+    Ok(count as f32)
 }
 
 /// Rejects a value in either parameter slot of a function that takes none,
@@ -480,6 +543,67 @@ fn function_value(
             no_second_parameter(c)?;
             let location = resolve(world, context.owner, raw, Some(*b"LCTN"))?;
             boolean(world.editor_location(subject) == Some(location))
+        }
+        567 => {
+            no_second_parameter(c)?;
+            if !world.alias_is_location(context.quest.ok_or(Error::Target(5))?, raw) {
+                return Err(Error::Target(5));
+            }
+            let location = world
+                .alias_ref(context.quest.ok_or(Error::Target(5))?, raw)
+                .filter(|location| world.tag_of(*location) == Some(Tag(*b"LCTN")))
+                .ok_or(Error::Target(5))?;
+            boolean(world.editor_location(subject) == Some(location))
+        }
+        569 => {
+            no_parameter(c)?;
+            let actor = world.actor(subject).ok_or(Error::Form(subject))?;
+            boolean(actor.blocking)
+        }
+        591 | 592 => {
+            let location = resolve(world, context.owner, raw, Some(*b"LCTN"))?;
+            let ref_type = resolve(world, context.owner, c.parameters[1], Some(*b"LCRT"))?;
+            location_ref_type_count(world, location, ref_type, c.function == 591)?
+        }
+        598 => {
+            no_second_parameter(c)?;
+            let quest = context.quest.ok_or(Error::Target(5))?;
+            if !world.alias_is_location(quest, raw) {
+                return Err(Error::Target(5));
+            }
+            let location = world
+                .alias_ref(quest, raw)
+                .filter(|location| world.tag_of(*location) == Some(Tag(*b"LCTN")))
+                .ok_or(Error::Target(5))?;
+            boolean(
+                world
+                    .location(location)
+                    .ok_or(Error::Form(location))?
+                    .cleared,
+            )
+        }
+        600 | 601 => {
+            let quest = context.quest.ok_or(Error::Target(5))?;
+            if !world.alias_is_location(quest, raw) {
+                return Err(Error::Target(5));
+            }
+            let location = world
+                .alias_ref(quest, raw)
+                .filter(|location| world.tag_of(*location) == Some(Tag(*b"LCTN")))
+                .ok_or(Error::Target(5))?;
+            let ref_type = resolve(world, context.owner, c.parameters[1], Some(*b"LCRT"))?;
+            location_ref_type_count(world, location, ref_type, c.function == 600)?
+        }
+        603 => {
+            let other = resolve_reference(world, context.owner, raw)?;
+            let keyword = resolve(world, context.owner, c.parameters[1], Some(*b"KYWD"))?;
+            let location = world
+                .current_location(subject)
+                .ok_or(Error::LocationContext(subject))?;
+            let other_location = world
+                .current_location(other)
+                .ok_or(Error::LocationContext(other))?;
+            boolean(location == other_location && world.keywords(location).contains(&keyword))
         }
         69 => {
             let race = resolve(world, context.owner, raw, Some(*b"RACE"))?;
