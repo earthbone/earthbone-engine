@@ -1551,7 +1551,7 @@ When player activation reaches a locked, non-key-only reference without a
 matching key, `PlayerNode` retains its FormID as the pending lockpick target if
 the player carries a `Lockpick`. `pending_lockpick` exposes the target and
 authored lock level to an interaction UI. `resolve_pending_lockpick` applies
-the UI result through `Game::resolve_lockpick`; success then resumes ordinary
+the UI result through `Game::resolve_lockpick`. Success then resumes ordinary
 deferred activation, while failure consumes a pick and leaves the reference
 locked. Keyed activation remains on the regular game path.
 

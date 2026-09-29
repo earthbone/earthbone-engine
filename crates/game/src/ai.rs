@@ -1062,11 +1062,9 @@ fn step(world: &mut World, actor: GlobalFormId, dt: f32) {
     let hours = world.clock.game_hours();
     if ai.arrived {
         match ai.procedure {
-            Procedure::Sandbox => {
-                if hours >= ai.dwell_until {
-                    ai.arrived = false;
-                    ai.destination = None;
-                }
+            Procedure::Sandbox if hours >= ai.dwell_until => {
+                ai.arrived = false;
+                ai.destination = None;
             }
             Procedure::Sleep => ai.sleeping = true,
             _ => {}

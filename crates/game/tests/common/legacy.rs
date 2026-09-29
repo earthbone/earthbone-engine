@@ -8,7 +8,7 @@ use soe_game::world::World;
 /// Strips the exclusive dialogue branch version 24 added, the stagger end time
 /// version 29 added, the witnessed crime set version 31 added and the hand
 /// spell fields version 32 added, so fixtures built against any older header
-/// see none of those fields' bytes. Also strips the empty save-section table
+/// see none of those fields' bytes. Also strips the named save-section table
 /// version 37 appends to the actor's own record and, since `World::actor`
 /// requires a paired reference (`self.reference(id)` with `is_actor` set), to
 /// that reference's record too, so both records end exactly where a
@@ -172,9 +172,11 @@ pub fn without_exclusive_branches(world: &mut World, actors: &[GlobalFormId]) ->
         fields.push((right_spell_offsets[0], right_spell_marker.len()));
 
         // The right spell field is immediately followed by this actor's
-        // own empty save-section table (a `u16` count of 0, see
-        // `save_sections`), which a pre-version-37 writer never emitted.
-        fields.push((right_spell_offsets[0] + right_spell_marker.len(), 2));
+        // named save-section table, which a pre-version-37 writer never
+        // emitted. Read each length so this stays correct as sections are
+        // added to the actor registry.
+        let table_offset = right_spell_offsets[0] + right_spell_marker.len();
+        fields.push((table_offset, section_table_len(&bytes, table_offset)));
 
         // `alpha` itself is not version gated, so unlike the fields above
         // it must stay in the stream with its true value. Only the empty
@@ -198,6 +200,21 @@ pub fn without_exclusive_branches(world: &mut World, actors: &[GlobalFormId]) ->
         bytes.drain(offset..offset + len);
     }
     bytes
+}
+
+#[allow(dead_code)]
+pub(super) fn section_table_len(bytes: &[u8], offset: usize) -> usize {
+    let mut cursor = offset;
+    let count = u16::from_le_bytes(bytes[cursor..cursor + 2].try_into().unwrap());
+    cursor += 2;
+    for _ in 0..count {
+        let name_len = usize::from(bytes[cursor]);
+        cursor += 1 + name_len;
+        let payload_len =
+            u32::from_le_bytes(bytes[cursor..cursor + 4].try_into().unwrap()) as usize;
+        cursor += 4 + payload_len;
+    }
+    cursor - offset
 }
 
 /// Strip the empty save-section table version 37 appends to a standalone
