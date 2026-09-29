@@ -27,13 +27,21 @@ fresh parse. The same test checked cache equality for Update.esm, Dawnguard.esm,
 HearthFires.esm and Dragonborn.esm. This is one run, including the cache write
 on the first load. It is not a release benchmark.
 
+`soe-bench open-data` opens the installed data folder with its archives and
+reports the parsed-plugin cache cold and warm separately. On 2026-09-29, a
+release run with 24 threads and three samples measured a 4.713 s cold median
+(4.596 s minimum) and a 3.173 s warm median (3.091 s minimum). Each cold sample
+started with an empty cache directory. The warm samples reused the entries
+from the cold run. For comparison, the 2026-09-17 open-data result below was
+9.18 s median before the parsed-plugin cache integration.
+
 ## How to run
 
 ```text
 SKYRIM_DATA="<Data>" cargo run -p soe-bench --release -- [--runs N] [--out DIR] <subcommand>
 ```
 
-Subcommands: `load-order`, `archives`, `cell <editor id>`, `cell-index <editor
+Subcommands: `load-order`, `open-data`, `archives`, `cell <editor id>`, `cell-index <editor
 id>`, `exterior <editor id>`, `scripts`, `navmesh`, `save`, `overhead <editor
 id>`, `trace <subcommand
 ...>` (writes `soe-bench-trace-<name>.json` for Perfetto or `chrome://tracing`

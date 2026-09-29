@@ -208,6 +208,11 @@ hit requires matching identity fields, a valid digest and complete decoding of
 the payload. Invalid, truncated or stale entries are ignored. A successful
 source parse replaces the current entry through a temporary file and rename.
 Cache directory and cache write failures do not prevent source parsing.
+Concurrent writers use process-specific temporary files and replace the entry
+only after the complete encoded payload has been written. The
+`tests/fmt_30_parallel_cache.rs` test starts six writer processes together
+against one source and checks that the resulting entry decodes and matches a
+fresh parse.
 `tests/fmt_29_cache.rs` covers fixture equality, canonical-path reuse, changed
 file identity and modification time, cache format version, corrupt and
 truncated entries, and all five installed masters.

@@ -38,6 +38,14 @@ Crate `soe-godot-host` (`crates/godot-host`). A GDExtension in Rust on godot-rus
 because Jolt became the built-in physics there. The crate builds and tests with cargo alone.
 With `--no-default-features` the `godot` dependency is gone and what remains is the logic.
 
+`DataSource` parses the five base masters through `soe_esm::read_plugin_cached`.
+By default the entries live under the user cache directory
+(`$XDG_CACHE_HOME/skyrim-open-engine/plugins`, or `$HOME/.cache` when the XDG
+variable is unset). `SOE_PLUGIN_CACHE` selects another directory, and the value
+`off` disables disk caching. The explicit cache argument on
+`open_with_threads_and_cache` and `open_loadout_with_threads_and_cache` is used
+by the cold and warm `soe-bench open-data` measurements.
+
 ## Layout
 
 ### Movable reference physics, HST-12
