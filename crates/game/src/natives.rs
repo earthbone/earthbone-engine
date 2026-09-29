@@ -1674,8 +1674,13 @@ fn alias(vm: &mut Vm, w: &Shared) {
         });
     }
     alias_method!(vm, w, "ForceRefTo", |world, call, quest, alias| {
-        let target = world.form_arg(&call.arg(0));
-        world.force_alias(quest, alias, target);
+        if let Some(target) = world.form_arg(&call.arg(0)).filter(|target| {
+            world
+                .tag_of(*target)
+                .is_some_and(|tag| matches!(tag.as_bytes(), b"REFR" | b"ACHR"))
+        }) {
+            world.force_alias(quest, alias, Some(target));
+        }
         none()
     });
     alias_method!(vm, w, "ForceRefIfEmpty", |world, call, quest, alias| {
