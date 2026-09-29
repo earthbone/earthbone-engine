@@ -89,6 +89,19 @@ extender in the PAPER mould) and returns the functions it lost. First
 registration wins, the registry never replaces silently. This is the answer to
 the map's third open seam.
 
+**Debug globals.** `Debug.SetGodMode` writes `World::debug_god_mode`.
+`Debug.ToggleAI` flips `World::debug_ai_enabled`, and `Game::tick` skips the
+package driver while it is false. `Debug.ToggleCollisions` flips
+`World::debug_collisions_enabled`; the host collision path does not read this
+flag yet. `Debug.DumpAliasData` logs each runtime alias id and its filled form
+or `empty`, and logs a diagnostic when its argument is not a quest or has no
+runtime quest state. `Debug.DebugChannelNotify` logs its two string arguments
+as `[channel] message`. The CK `Debug` class page documents these global
+functions. The local Skyrim Platform function catalog supplies the two-string
+signature for `DebugChannelNotify`, which is absent from that CK page.
+God-mode damage immunity and host collision switching are not implemented by
+these runtime flags.
+
 **Semantics.** Consult the local Creation Kit function pages and shipped PSC
 wrappers before implementing natives. `engine-refs/ck-wiki/` contains 402
 wikitext pages as of 2026-09-19. When an individual page is absent, class pages
@@ -150,13 +163,8 @@ location modes follow CommonLibSSE `TESFaction.h` and UESP `FACT.wikitext`.
 
 ## Conformance table
 
-Counts from `natives::register`: 364 natives with state behind them and 177
-
-Counts from `natives::register`: 366 natives with state behind them and 175
-
-Counts from `natives::register`: 365 natives with state behind them and 180
-quiet stubs (141 and 176 before the natives round of 2026-09-18, 294 and 137
-before the DLC round). A stub returns the value the game gives when nothing
+Counts from `natives::register`: 371 natives with state behind them and 170
+quiet stubs. A stub returns the value the game gives when nothing
 is going on (`IsBleedingOut` false, `ShakeCamera` nothing) so vanilla scripts
 run past it.
 
@@ -172,7 +180,7 @@ run past it.
 | Location | GetKeywordData, SetKeywordData, IsCleared, SetCleared, IsChild, HasCommonParent, IsSameLocation | IsLoaded, HasRefType, GetRefTypeAliveCount, GetRefTypeDeadCount |
 | Faction | SetAlly, SetEnemy, GetReaction, SetReaction, GetCrimeGold, GetCrimeGoldViolent, GetCrimeGoldNonViolent, SetCrimeGold, SetCrimeGoldViolent, ModCrimeGold, CanPayCrimeGold, PlayerPayCrimeGold, GetInfamy, GetInfamyViolent, GetInfamyNonViolent, IsPlayerExpelled, SetPlayerExpelled, SetPlayerEnemy, IsFactionInCrimeGroup | SendAssaultAlarm, SendPlayerToJail, ModReaction |
 | Game | GetPlayer, GetForm, GetFormEx, GetFormFromFile, EnablePlayerControls, DisablePlayerControls, GetGameSettingFloat/Int/String, SetGameSettingFloat/Int/Bool/String, GetRealHoursPassed, IncrementStat, QueryStat, IsFastTravelEnabled, EnableFastTravel, SetPlayerAIDriven, SetInChargen, SetBeastForm, TeachWord, UnlockWord, IsWordUnlocked, AddAchievement, GetPlayersLastRiddenHorse, AddPerkPoints | ShakeCamera, FadeOutGame, RequestSave, ForceFirstPerson, ShowRaceMenu, AdvanceSkill and 16 more, plus the DLC crime and sky functions: SendWereWolfTransformation, ServeTime, ClearPrison, SetSunGazeImageSpaceModifier, GetSunPositionX/Y/Z |
-| Debug | Trace, TraceUser, TraceConditional, TraceStack, Notification, MessageBox, SendAnimationEvent | OpenUserLog, CloseUserLog, QuitGame, CenterOnCell, SetGodMode and 14 more |
+| Debug | Trace, TraceUser, TraceConditional, TraceStack, Notification, MessageBox, SendAnimationEvent, SetGodMode, ToggleAI, ToggleCollisions, DumpAliasData, DebugChannelNotify | OpenUserLog, CloseUserLog, QuitGame, CenterOnCell, CenterOnCellAndWait, StartScriptProfiling, StopScriptProfiling, StartStackProfiling, StopStackProfiling, TakeScreenshot, SetFootIK, ShowRefPosition, PlayerMoveToAndWait, MoveToCell |
 | Utility | RandomInt, RandomFloat, GetCurrentGameTime, GetCurrentRealTime, GameTimeToString, SetINI\* and GetINI\* (eight) | IsInMenuMode, the frame rate and budget functions (eleven). `Wait`, `WaitMenuMode`, `WaitGameTime` are the VM's own |
 | GlobalVariable | GetValue, GetValueInt, SetValue, SetValueInt, Mod | |
 | Keyword | GetString | SendStoryEvent, SendStoryEventAndWait |
