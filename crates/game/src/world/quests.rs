@@ -56,6 +56,42 @@ impl World {
         self.quests.get(&id)
     }
 
+    /// Whether a quest is between being enabled and starting to run.
+    ///
+    /// Quest start currently completes synchronously. Transitional state from
+    /// a restored save is not represented until SAV-10 adds resumed lifecycle
+    /// tasks, so this returns false for every quest in the current model.
+    ///
+    /// # Errors
+    ///
+    /// This query does not return errors.
+    ///
+    /// # Panics
+    ///
+    /// This query does not panic.
+    pub fn quest_is_starting(&mut self, id: GlobalFormId) -> bool {
+        let _state = self.quest_state(id);
+        false
+    }
+
+    /// Whether a quest is between being disabled and finishing its shutdown.
+    ///
+    /// Quest stop currently completes synchronously. Transitional state from
+    /// a restored save is not represented until SAV-10 adds resumed lifecycle
+    /// tasks, so this returns false for every quest in the current model.
+    ///
+    /// # Errors
+    ///
+    /// This query does not return errors.
+    ///
+    /// # Panics
+    ///
+    /// This query does not panic.
+    pub fn quest_is_stopping(&mut self, id: GlobalFormId) -> bool {
+        let _state = self.quest_state(id);
+        false
+    }
+
     /// `Quest.Start`: true when the quest was not running. Delivers `OnInit`
     /// to the quest's scripts, then sets the start-up stage.
     pub fn start_quest(&mut self, id: GlobalFormId, alloc: Alloc<'_>) -> bool {

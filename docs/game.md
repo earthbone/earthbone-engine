@@ -95,6 +95,11 @@ wikitext pages as of 2026-09-19. When an individual page is absent, class pages
 and `engine-refs/skse64/scripts/vanilla` can establish the contract.
 [The reference audit](reference-audit.md) records missed contracts and gaps.
 
+`Quest.IsStarting` and `Quest.IsStopping` are registered natives backed by the
+quest system. Quest start and stop currently complete synchronously, so both
+queries return false. Restored transitional startup and shutdown tasks are not
+represented until SAV-10 is implemented.
+
 **World reads out, host never writes back.** `World::ref_placement` (in
 `world/refs.rs`) is the read-only view a host uses to keep its own rendering
 and collision resources in step with a reference's runtime state: current
