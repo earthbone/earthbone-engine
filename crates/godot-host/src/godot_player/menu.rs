@@ -249,12 +249,21 @@ impl PlayerNode {
     #[func]
     pub fn close_menu(&mut self) -> bool {
         let closing_dialogue = self.menu.title() == Some("Dialogue");
+        let closing_gift = self
+            .menu
+            .title()
+            .is_some_and(|title| title.starts_with("Gift: "));
         if !self.menu.close() {
             return false;
         }
         if closing_dialogue {
             if let Some(game) = self.game.as_mut() {
                 game.close_dialogue();
+            }
+        }
+        if closing_gift {
+            if let Some(game) = self.game.as_mut() {
+                game.close_gift_menu();
             }
         }
         let focused = self.input_focused;
