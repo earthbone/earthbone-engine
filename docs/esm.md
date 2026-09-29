@@ -70,6 +70,11 @@ definition changes its fingerprint. This is dependency evidence, not an
 authenticity check. `tests/sav_67_fingerprints.rs` covers slot reordering,
 same-name replacements and the engine-added global.
 
+`LoadOrder::fingerprint` hashes each plugin's ASCII case-folded name and
+serialized-definition fingerprint in load order. It is suitable as a cache
+identity for data derived from this resolved order. It does not fingerprint
+loose assets or archive contents.
+
 OpenMW's `apps/openmw/mwstate/savegame.hpp` writes content file names to saves,
 and `loadgame.hpp` checks dependencies and maps saved indices on load.
 `statemanagerimp.cpp` passes the active content list to its character manager.

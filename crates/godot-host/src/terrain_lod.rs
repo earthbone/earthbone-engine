@@ -162,6 +162,15 @@ pub fn btr_path(world_editor_id: &str, block: LodBlockCoord) -> String {
     )
 }
 
+/// The BTO file path for one worldspace object LOD block. TES5Edit writes
+/// object LOD meshes below `Objects` with the same block stem as BTR files.
+pub fn bto_path(world_editor_id: &str, block: LodBlockCoord) -> String {
+    format!(
+        "meshes/terrain/{world_editor_id}/Objects/{}.bto",
+        btr_stem(world_editor_id, block)
+    )
+}
+
 /// The worldspace's LOD settings file, `TwbLodSettings.GetFileName` for
 /// Skyrim.
 pub fn lodsettings_path(world_editor_id: &str) -> String {
