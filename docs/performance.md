@@ -25,7 +25,7 @@ load parsed and wrote the entry in 15.226 seconds. The second load read and
 decoded the cached plugin in 10.743 seconds. Both returned plugins equaled a
 fresh parse. The same test checked cache equality for Update.esm, Dawnguard.esm,
 HearthFires.esm and Dragonborn.esm. This is one run, including the cache write
-on the first load; it is not a release benchmark.
+on the first load. It is not a release benchmark.
 
 ## How to run
 
