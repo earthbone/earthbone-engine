@@ -3546,6 +3546,7 @@ subrecords are replaced. A malformed or duplicate later change leaves every
 record unchanged. SOEW version 37 persists the metadata in named world sections.
 The layouts follow local xEdit `Core/wbDefinitionsTES5Saves.pas` change types
 19, 27, 34 and 35.
+
 ## Saved PACK and NAVM changes, SAV-48
 
 `World::restore_vanilla_pack_navmesh` validates all decoded PACK and NAVM

@@ -418,6 +418,13 @@ fn without_exclusive_branches(world: &mut World) -> Vec<u8> {
         .expect("record override is serialized");
     // CONTEXT: Version 23 predates list metadata. Remove its list marker.
     bytes.remove(at + 39);
+    let mut world_sections = Writer::new();
+    save_sections::write_sections(&mut world_sections, world, WORLD_SECTIONS);
+    if !world_sections.out.is_empty() {
+        assert!(bytes.ends_with(&world_sections.out));
+        bytes.truncate(bytes.len() - world_sections.out.len());
+        bytes.extend_from_slice(&[0, 0]);
+    }
     bytes
 }
 

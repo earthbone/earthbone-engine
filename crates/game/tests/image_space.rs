@@ -3,6 +3,8 @@
 
 #[path = "common/installed.rs"]
 mod installed;
+#[path = "common/legacy.rs"]
+mod legacy;
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::Game;
@@ -165,6 +167,7 @@ fn invalid_apply_and_pop_leave_the_existing_stack_unchanged() {
 fn corrupt_fade_load_is_atomic_and_an_older_save_starts_without_modifiers() {
     let mut game = game();
     let mut legacy = game.world().save_state();
+    legacy::empty_world_sections(&mut legacy);
     // Version 24 is the last one written without an image-space block.
     legacy[4..6].copy_from_slice(&24u16.to_le_bytes());
     // Drop the image-space block and the loose-item and zone blocks after it,

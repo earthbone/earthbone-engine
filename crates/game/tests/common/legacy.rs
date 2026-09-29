@@ -11,8 +11,8 @@ use soe_game::world::World;
 /// see none of those fields' bytes. Also strips the named save-section table
 /// version 37 appends to the actor's own record and, since `World::actor`
 /// requires a paired reference (`self.reference(id)` with `is_actor` set), to
-/// that reference's record too, so both records end exactly where a
-/// pre-version-37 writer would have left them.
+/// that reference's record too. It also reduces world-level section payloads
+/// to the empty table expected by legacy fixture offsets.
 ///
 /// This file is pulled into many test binaries through `#[path]`, and each
 /// binary compiles its own copy. Only some of them call this particular
@@ -199,6 +199,7 @@ pub fn without_exclusive_branches(world: &mut World, actors: &[GlobalFormId]) ->
     for (offset, len) in fields {
         bytes.drain(offset..offset + len);
     }
+    empty_world_sections(&mut bytes);
     bytes
 }
 
@@ -250,6 +251,7 @@ pub fn without_ref_sections(world: &mut World, refs: &[GlobalFormId]) -> Vec<u8>
     for (offset, len) in offsets {
         bytes.drain(offset..offset + len);
     }
+    empty_world_sections(&mut bytes);
     bytes
 }
 
@@ -269,6 +271,70 @@ pub fn section_table_len(bytes: &[u8], start: usize) -> usize {
         cursor += 4 + payload_len;
     }
     cursor - start
+}
+
+/// Restore the empty world-level table used by legacy fixtures before newer
+/// branches added saved world sections.
+pub fn empty_world_sections(bytes: &mut Vec<u8>) {
+    let names = ["SAV-53", "SAV-42", "SAV-44", "SAV-50", "SAV-48"];
+    for start in (6..bytes.len().saturating_sub(1)).rev() {
+        let count = usize::from(u16::from_le_bytes([bytes[start], bytes[start + 1]]));
+        if count == 0 || count > names.len() {
+            continue;
+        }
+        let mut cursor = start + 2;
+        let mut valid = true;
+        for _ in 0..count {
+            if cursor >= bytes.len() {
+                valid = false;
+                break;
+            }
+            let name_len = usize::from(bytes[cursor]);
+            cursor += 1;
+            let Some(name_end) = cursor.checked_add(name_len) else {
+                valid = false;
+                break;
+            };
+            if name_end + 4 > bytes.len() {
+                valid = false;
+                break;
+            }
+            let name = std::str::from_utf8(&bytes[cursor..name_end]).ok();
+            if !name.is_some_and(|name| names.contains(&name)) {
+                valid = false;
+                break;
+            }
+            cursor = name_end;
+            let payload_len = u32::from_le_bytes([
+                bytes[cursor],
+                bytes[cursor + 1],
+                bytes[cursor + 2],
+                bytes[cursor + 3],
+            ]) as usize;
+            cursor += 4;
+            let Some(payload_end) = cursor.checked_add(payload_len) else {
+                valid = false;
+                break;
+            };
+            if payload_end > bytes.len() {
+                valid = false;
+                break;
+            }
+            cursor = payload_end;
+        }
+        if valid && cursor == bytes.len() {
+            bytes.truncate(start);
+            bytes.extend_from_slice(&[0, 0]);
+            return;
+        }
+    }
+}
+
+#[allow(dead_code)]
+pub fn world_section_growth(bytes: &[u8]) -> usize {
+    let mut reduced = bytes.to_vec();
+    empty_world_sections(&mut reduced);
+    bytes.len() - reduced.len()
 }
 
 /// One actor's replaced fields and the sentinels written in their place.
