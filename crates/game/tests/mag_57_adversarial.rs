@@ -108,16 +108,13 @@ fn cast(game: &mut Game) -> EffectId {
 
 fn cast_spell(game: &mut Game, spell: u32) -> Result<EffectId, soe_game::world::magic::MagicError> {
     let shared = game.shared_world();
-    let result = shared
-        .borrow_mut()
-        .cast_spell(
-            id(spell),
-            id(ACTOR),
-            Some(id(ACTOR)),
-            Some(id(ACTOR)),
-            &mut |name, class| game.vm.create_object_of(name, class),
-        )
-        ?;
+    let result = shared.borrow_mut().cast_spell(
+        id(spell),
+        id(ACTOR),
+        Some(id(ACTOR)),
+        Some(id(ACTOR)),
+        &mut |name, class| game.vm.create_object_of(name, class),
+    )?;
     Ok(result[0])
 }
 

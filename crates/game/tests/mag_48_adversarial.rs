@@ -49,8 +49,7 @@ fn game() -> Game {
     let mut plugin = Plugin::new(FileHeader::default());
     for actor in [ACTOR, OTHER] {
         plugin.push_top(
-            Record::new(Tag::new(b"NPC_"), actor + 0x1000)
-                .sub(Tag::new(b"ACBS"), vec![0; 24]),
+            Record::new(Tag::new(b"NPC_"), actor + 0x1000).sub(Tag::new(b"ACBS"), vec![0; 24]),
         );
         plugin.push_top(
             Record::new(Tag::new(b"ACHR"), actor)
@@ -119,5 +118,8 @@ fn mag_48_saved_paralysis_remains_curable_after_load() {
     cast(&mut restored, CURE_SPELL, ACTOR);
 
     assert!(!restored.world().actor_is_paralyzed(id(ACTOR)));
-    assert_eq!(restored.world_mut().actor_value(id(ACTOR), "paralysis"), 0.0);
+    assert_eq!(
+        restored.world_mut().actor_value(id(ACTOR), "paralysis"),
+        0.0
+    );
 }
