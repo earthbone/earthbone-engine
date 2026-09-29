@@ -75,6 +75,12 @@ metadata in the existing Rust PEX model rather than adding a C++ parser
 dependency. The 3.9 parser test builds a small byte fixture with each extended
 section populated.
 
+Champollion's `Pex/Instruction.cpp` and Caprica's
+`Caprica/pex/PexInstruction.cpp` supply the opcode IDs and arities for `Is`
+and struct access. Caprica's `PapyrusStruct.h` and
+`PapyrusStructMember.h` establish the declared member types and defaults used
+when a runtime struct is created.
+
 Checked on the installed game: all 14,026 `.pex` files in `Skyrim - Misc.bsa`
 parse, 54,620 functions, zero failures, and every one loads into the VM.
 
@@ -270,9 +276,10 @@ written by a small `Writer` and `Reader`, the same shape as `crates/game/src/vma
 same way the VM itself never owns PEX bytes across a save, only the objects
 and threads built from them.
 
-Magic `SOEV`, a `u16` version (3), then an array pool, then the VM body.
+Magic `SOEV`, a `u16` version (4), then an array pool, then the VM body.
 Everything a script variable can hold round trips: objects by id, strings,
-ints, floats, bools, and arrays. An array is a shared reference
+ints, floats, bools, arrays and Fallout 4 struct values. Struct members are
+written in name order. An array is a shared reference
 (`Rc<RefCell<Vec<Value>>>`), so it is pooled once by first-seen order and
 every variable or stack slot that names it writes only its pool index. Two
 variables pointing at the same array come back pointing at the same array
@@ -306,9 +313,10 @@ queries can name the parent or child declaration through the script argument.
 The internal key prefixes the lowercase script name with its byte length,
 so names cannot collide through separator characters.
 
-Version 1 and 2 files still load. Their flat value is copied into each matching
+Version 1 to 3 files still load. Their flat value is copied into each matching
 declaration. Those files cannot recover a parent value already discarded by
-the old VM. Distinct slots then remain independent in version 3.
+the old VM. Distinct slots then remain independent in version 3. Version 4
+adds struct values to the value encoding.
 
 This follows the declaring-object resolution in Caprica's
 `PapyrusResolutionContext.cpp`, the inherited slot layout in FallrimTools
@@ -374,8 +382,12 @@ VM that carries `Actor`, `ObjectReference` and `Form`.
 
 ## Not done, and known gaps
 
-- Fallout 4 opcodes (`Is`, structs, the array mutators) parse but abort the
-  thread with the line number when executed. Skyrim never emits them.
+- Fallout 4 `Is` and struct create/get/set opcodes run only in Fallout 4 3.9
+  scripts. `Is` checks object classes and attached script inheritance. Struct
+  creation uses the declared PEX member defaults, member writes enforce the
+  member type and const flag, and invalid field operands log an error without
+  changing the struct. The remaining Fallout 4 array mutators still abort the
+  thread with the line number when executed. Skyrim never emits these opcodes.
 - The lookup order inside a chain is per script, state then empty state. The
   original engine's exact precedence when a parent defines a state function
   and the child defines only the empty-state one is not documented and was

@@ -25,7 +25,7 @@ use std::fmt;
 use std::rc::Rc;
 
 use crate::pex::{Function, Object, Opcode, Operand, Script};
-use crate::value::{ArrayRef, ElementKind, ObjectId, Value};
+use crate::value::{ArrayRef, ElementKind, ObjectId, StructRef, Value};
 
 /// The most elements `ArrayCreate` will allocate.
 ///
@@ -265,6 +265,9 @@ impl NativeRegistry {
 /// them.
 struct LoadedScript {
     name: String,
+    game_id: u16,
+    major: u8,
+    minor: u8,
     source_fingerprint: Option<[u8; 32]>,
     parent: Option<String>,
     object: Object,
@@ -416,6 +419,9 @@ impl Vm {
             };
             let loaded = LoadedScript {
                 name: name.clone(),
+                game_id: script.header.game_id,
+                major: script.header.major,
+                minor: script.header.minor,
                 source_fingerprint,
                 parent,
                 object,
@@ -952,6 +958,7 @@ impl Vm {
                 let parts: Vec<String> = items.iter().map(|v| self.describe(v)).collect();
                 format!("[{}]", parts.join(", "))
             }
+            Value::Struct(s) => format!("[Struct {}]", s.name),
             other => other.to_string(),
         }
     }
