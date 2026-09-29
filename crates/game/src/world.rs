@@ -503,6 +503,9 @@ pub struct World {
     pub pending: Vec<Pending>,
     pub timers: Vec<UpdateTimer>,
     pub notifications: Vec<String>,
+    /// Requests for operations owned by the presentation and persistence host.
+    /// These are transient commands and are not part of game saves.
+    pub(crate) host_requests: Vec<HostRequest>,
     pub message_boxes: Vec<String>,
     pub animation_events: Vec<(GlobalFormId, String)>,
     pub player_controls: bool,
@@ -547,6 +550,22 @@ pub struct World {
     pub(crate) image_space: image_space::ImageSpaceState,
     /// Stealth-point pools by target, each with its observers' awareness.
     pub(crate) detection: crate::detection::DetectionState,
+}
+
+/// A Papyrus request that the game simulation cannot perform without its host.
+#[derive(Debug, Clone, PartialEq)]
+pub enum HostRequest {
+    FadeOutGame {
+        fading_out: bool,
+        black: bool,
+        seconds_before_fade: f32,
+        fade_duration: f32,
+    },
+    Save {
+        automatic: bool,
+    },
+    CameraFirstPerson,
+    CameraThirdPerson,
 }
 
 impl World {
@@ -603,6 +622,7 @@ impl World {
             pending: Vec::new(),
             timers: Vec::new(),
             notifications: Vec::new(),
+            host_requests: Vec::new(),
             message_boxes: Vec::new(),
             animation_events: Vec::new(),
             player_controls: true,
@@ -643,6 +663,17 @@ impl World {
 
     pub fn order(&self) -> &LoadOrder {
         &self.order
+    }
+
+    /// Drain operations that must be carried out by the active host.
+    ///
+    /// # Errors
+    /// This method does not fail.
+    ///
+    /// # Panics
+    /// This method does not panic.
+    pub fn take_host_requests(&mut self) -> Vec<HostRequest> {
+        std::mem::take(&mut self.host_requests)
     }
 }
 

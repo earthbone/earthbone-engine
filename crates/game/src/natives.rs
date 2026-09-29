@@ -19,7 +19,9 @@ use soe_papyrus::{NativeCall, NativeReturn, ObjectId, Value, Vm};
 use crate::clock::GameClock;
 use crate::combat::Hand;
 use crate::conditions;
-use crate::world::{reaction, AnimationListener, Handle, LeveledEntry, LosListener, World};
+use crate::world::{
+    reaction, AnimationListener, Handle, HostRequest, LeveledEntry, LosListener, World,
+};
 
 pub type Shared = Rc<RefCell<World>>;
 
@@ -202,7 +204,7 @@ pub fn register(vm: &mut Vm, world: &Shared) -> Registered {
 
 /// Hand-kept count of the non-stub natives registered below. The test in
 /// this module checks it against the registry.
-pub const NATIVE_COUNT: usize = 366;
+pub const NATIVE_COUNT: usize = 371;
 
 fn declare_parents(vm: &mut Vm) {
     for (class, parent) in [
@@ -1717,6 +1719,48 @@ fn game(vm: &mut Vm, w: &Shared) {
     global!(vm, w, "Game", "GetPlayer", |world, call| {
         let p = world.player();
         form_value(world, call, Some(p))
+    });
+    global!(vm, w, "Game", "FadeOutGame", |world, call| {
+        let seconds_before_fade = call.arg(2).as_float();
+        let fade_duration = call.arg(3).as_float();
+        if !seconds_before_fade.is_finite()
+            || !fade_duration.is_finite()
+            || seconds_before_fade < 0.0
+            || fade_duration < 0.0
+        {
+            call.log.push(
+                call.time,
+                "Game.FadeOutGame: fade timings must be finite and non-negative".to_string(),
+            );
+            return none();
+        }
+        world.host_requests.push(HostRequest::FadeOutGame {
+            fading_out: call.arg(0).as_bool(),
+            black: call.arg(1).as_bool(),
+            seconds_before_fade,
+            fade_duration,
+        });
+        none()
+    });
+    global!(vm, w, "Game", "RequestSave", |world, _call| {
+        world
+            .host_requests
+            .push(HostRequest::Save { automatic: false });
+        none()
+    });
+    global!(vm, w, "Game", "RequestAutoSave", |world, _call| {
+        world
+            .host_requests
+            .push(HostRequest::Save { automatic: true });
+        none()
+    });
+    global!(vm, w, "Game", "ForceFirstPerson", |world, _call| {
+        world.host_requests.push(HostRequest::CameraFirstPerson);
+        none()
+    });
+    global!(vm, w, "Game", "ForceThirdPerson", |world, _call| {
+        world.host_requests.push(HostRequest::CameraThirdPerson);
+        none()
     });
     for name in ["GetForm", "GetFormEx"] {
         global!(vm, w, "Game", name, |world, call| {
@@ -3354,11 +3398,6 @@ fn stubs(vm: &mut Vm) -> usize {
         ("Game", "SetSunGazeImageSpaceModifier"),
         ("Message", "ResetHelpMessage"),
         ("Game", "ShakeController"),
-        ("Game", "FadeOutGame"),
-        ("Game", "RequestSave"),
-        ("Game", "RequestAutoSave"),
-        ("Game", "ForceFirstPerson"),
-        ("Game", "ForceThirdPerson"),
         ("Game", "SetHudCartMode"),
         ("Game", "ShowRaceMenu"),
         ("Game", "TriggerScreenBlood"),

@@ -21,6 +21,7 @@ use soe_esm::{plugin::flags, Entry, FileHeader, Group, GroupKind, LoadOrder, Plu
 use soe_game::inventory::{Extra, Field, Stack};
 use soe_game::quest::{self, stage_flags};
 use soe_game::vmad::{AliasScripts, ObjectRef, ScriptEntry, Vmad};
+use soe_game::HostRequest;
 use soe_game::{Game, Handle, Pending};
 use soe_papyrus::asm::{f, i, ident, s, FunctionBuilder, ScriptBuilder};
 use soe_papyrus::pex::Function;
@@ -2243,6 +2244,67 @@ fn game_state_natives_round_trip() {
         Value::string("x")
     );
     assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
+/// Game presentation and save natives preserve their typed arguments and
+/// enqueue ordered work for the owning host subsystems.
+#[test]
+fn scr_28_game_presentation_and_save_requests() {
+    let mut g = game();
+    for name in [
+        "RequestSave",
+        "RequestAutoSave",
+        "ForceFirstPerson",
+        "ForceThirdPerson",
+    ] {
+        assert_eq!(call_global(&mut g, "Game", name, &[]), Value::None);
+    }
+    assert_eq!(
+        call_global(
+            &mut g,
+            "Game",
+            "FadeOutGame",
+            &[
+                Value::Bool(true),
+                Value::Bool(false),
+                Value::Float(0.25),
+                Value::Float(1.5),
+            ],
+        ),
+        Value::None
+    );
+    assert_eq!(
+        g.world_mut().take_host_requests(),
+        vec![
+            HostRequest::Save { automatic: false },
+            HostRequest::Save { automatic: true },
+            HostRequest::CameraFirstPerson,
+            HostRequest::CameraThirdPerson,
+            HostRequest::FadeOutGame {
+                fading_out: true,
+                black: false,
+                seconds_before_fade: 0.25,
+                fade_duration: 1.5,
+            },
+        ]
+    );
+    assert!(g.world_mut().take_host_requests().is_empty());
+    assert_eq!(
+        call_global(
+            &mut g,
+            "Game",
+            "FadeOutGame",
+            &[
+                Value::Bool(false),
+                Value::Bool(true),
+                Value::Float(f32::NAN),
+                Value::Float(1.0),
+            ],
+        ),
+        Value::None
+    );
+    assert!(g.world_mut().take_host_requests().is_empty());
+    assert!(g.vm.log.contains("Game.FadeOutGame"));
 }
 
 /// Everything above survives a save and load: the leveled list addition,

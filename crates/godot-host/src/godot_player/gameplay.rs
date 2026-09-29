@@ -4,8 +4,8 @@
 //! Scripted moves and door landings then flow back into collision and rendering.
 
 use super::{
-    godot_error, godot_print, CameraMotion, CharacterSettings, GlobalFormId, PhysicsWorld,
-    PlayerNode, Vec3,
+    godot_error, godot_print, CameraMode, CameraMotion, CharacterSettings, GlobalFormId,
+    PhysicsWorld, PlayerNode, Vec3,
 };
 
 impl PlayerNode {
@@ -94,11 +94,51 @@ impl PlayerNode {
             self.menu.tick(game, delta);
             self.image_space.sync(&game.world());
         }
+        self.process_host_requests();
         if self.sync_game_pose() {
             self.prefetch_nearby_interior(delta);
         } else {
             self.auto_step = false;
             godot_error!("PlayerNode: gameplay stopped because destination resources failed");
+        }
+    }
+
+    fn process_host_requests(&mut self) {
+        let requests = self
+            .game
+            .as_mut()
+            .map(|game| game.world_mut().take_host_requests())
+            .unwrap_or_default();
+        for request in requests {
+            match request {
+                soe_game::HostRequest::CameraFirstPerson => {
+                    self.rig.mode = CameraMode::First;
+                    self.update_camera();
+                }
+                soe_game::HostRequest::CameraThirdPerson => {
+                    self.rig.mode = CameraMode::Third;
+                    self.update_camera();
+                }
+                soe_game::HostRequest::FadeOutGame {
+                    fading_out,
+                    black,
+                    seconds_before_fade,
+                    fade_duration,
+                } => {
+                    if !self.game_fade.request(
+                        fading_out,
+                        black,
+                        seconds_before_fade,
+                        fade_duration,
+                    ) {
+                        godot_error!("PlayerNode: rejected invalid Game.FadeOutGame timing");
+                    }
+                    self.refresh_door_fade();
+                }
+                soe_game::HostRequest::Save { automatic } => {
+                    self.write_requested_save(automatic);
+                }
+            }
         }
     }
 
