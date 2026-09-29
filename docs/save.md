@@ -159,7 +159,9 @@ writing the save body.
 invert masks to shared live records. It retains the value, full-name and TACT
 speaker markers as record metadata because xEdit defines those fields with no
 payload bytes. A malformed or duplicate change leaves every record unchanged.
-SOEW version 37 persists this metadata.
+SOEW version 37 persists this metadata. The extension is keyed by record type,
+so earlier version-37 NPC, race and list overrides keep their existing byte
+layout and remain readable.
 
 Most decoded state remains inspection data. The game crate can apply globals
 and quest state, but neither stack execution nor pending calls can be resumed from a

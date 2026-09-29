@@ -292,8 +292,8 @@ fn record_overrides_persist_before_actor_initialization_and_old_saves_clear_them
     // so the offset grows by 6 to still land on record overrides' start.
     let origin_fields = empty.len() - 42;
     v13.drain(origin_fields..origin_fields + 13);
-    // CONTEXT: Remove the version 35 and 37 override metadata markers.
-    v13.remove(origin_fields + 14);
+    // CONTEXT: Remove the version 35 list metadata marker. NPC records do
+    // not carry the base-object extension marker introduced in version 37.
     v13.remove(origin_fields + 14);
     // The extra 6 bytes beyond the old 42 are the same detection and
     // world-level save-section growth, always present at the tail

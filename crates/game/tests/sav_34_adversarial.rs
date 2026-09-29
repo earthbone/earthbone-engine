@@ -55,7 +55,11 @@ fn empty_save() -> Save {
         unused: [0; 15],
     }
     .write(&mut bytes);
-    GlobalData { kind: 1000, data: vec![] }.write(&mut bytes);
+    GlobalData {
+        kind: 1000,
+        data: vec![],
+    }
+    .write(&mut bytes);
     bytes.extend_from_slice(&[0; 8]);
     let mut save = Save::parse(&bytes).unwrap();
     save.plugins = [WString::from_text("Skyrim.esm")].to_vec();
@@ -81,7 +85,11 @@ fn sav_34_retains_mask_metadata_without_guessing_a_live_flag_operation() {
         type_field: 23,
         version: 78,
         uncompressed_len: 0,
-        data: [0x05_u32.to_le_bytes().as_slice(), 0_u16.to_le_bytes().as_slice()].concat(),
+        data: [
+            0x05_u32.to_le_bytes().as_slice(),
+            0_u16.to_le_bytes().as_slice(),
+        ]
+        .concat(),
     });
     let order = Arc::new(order);
     let mut world = World::from_shared_order(order.clone());

@@ -55,19 +55,33 @@ fn empty_save() -> Save {
         unused: [0; 15],
     }
     .write(&mut bytes);
-    GlobalData { kind: 1000, data: vec![] }.write(&mut bytes);
+    GlobalData {
+        kind: 1000,
+        data: vec![],
+    }
+    .write(&mut bytes);
     bytes.extend_from_slice(&[0; 8]);
     Save::parse(&bytes).unwrap()
 }
 
-fn change(raw_ref: u32, type_index: u8, flags: u32, mask: u32, unknown: u16) -> soe_save::ChangeForm {
+fn change(
+    raw_ref: u32,
+    type_index: u8,
+    flags: u32,
+    mask: u32,
+    unknown: u16,
+) -> soe_save::ChangeForm {
     soe_save::ChangeForm {
         form: reference(raw_ref),
         change_flags: flags,
         type_field: type_index,
         version: 78,
         uncompressed_len: 0,
-        data: [mask.to_le_bytes().as_slice(), unknown.to_le_bytes().as_slice()].concat(),
+        data: [
+            mask.to_le_bytes().as_slice(),
+            unknown.to_le_bytes().as_slice(),
+        ]
+        .concat(),
     }
 }
 

@@ -54,7 +54,11 @@ fn empty_save() -> Save {
         unused: [0; 15],
     }
     .write(&mut bytes);
-    GlobalData { kind: 1000, data: vec![] }.write(&mut bytes);
+    GlobalData {
+        kind: 1000,
+        data: vec![],
+    }
+    .write(&mut bytes);
     bytes.extend_from_slice(&[0; 8]);
     let mut save = Save::parse(&bytes).unwrap();
     save.plugins = [WString::from_text("Skyrim.esm")].to_vec();
@@ -80,7 +84,11 @@ fn sav_32_mask_invert_flags_toggle_only_the_saved_bits() {
         type_field: 11,
         version: 78,
         uncompressed_len: 0,
-        data: [0x05_u32.to_le_bytes().as_slice(), 0_u16.to_le_bytes().as_slice()].concat(),
+        data: [
+            0x05_u32.to_le_bytes().as_slice(),
+            0_u16.to_le_bytes().as_slice(),
+        ]
+        .concat(),
     });
     let mut world = World::new(order);
     assert_eq!(world.restore_vanilla_activators(&saved).unwrap(), 1);

@@ -68,10 +68,12 @@ impl World {
                 w.bool(list.section_present);
                 w.bytes(&list.entry_chances);
             }
-            let has_base_object_extra =
-                value.activator.is_some() || value.item.is_some() || value.book_note_key.is_some();
-            w.bool(has_base_object_extra);
-            if has_base_object_extra {
+            // Versions before this extension already wrote NPC, race and
+            // leveled-list overrides without a marker here. Keep those
+            // version-37 records byte-compatible by writing the added
+            // metadata only for the newly supported base-object record tags.
+            if value.activator.is_some() || value.item.is_some() || value.book_note_key.is_some() {
+                w.bool(true);
                 let form_flags = value
                     .activator
                     .as_ref()
@@ -248,7 +250,26 @@ impl World {
             } else {
                 None
             };
-            let (activator, item, book_note_key) = if version >= 37 && r.bool()? {
+            let has_base_object_extra = version >= 37
+                && matches!(
+                    original.tag.as_bytes(),
+                    b"ACTI"
+                        | b"TACT"
+                        | b"DOOR"
+                        | b"ARMO"
+                        | b"WEAP"
+                        | b"AMMO"
+                        | b"INGR"
+                        | b"ALCH"
+                        | b"ENCH"
+                        | b"BOOK"
+                        | b"NOTE"
+                        | b"KEYM"
+                );
+            let (activator, item, book_note_key) = if has_base_object_extra {
+                if !r.bool()? {
+                    return Err(bad("base-object metadata missing"));
+                }
                 let form_flags = if r.bool()? {
                     Some((r.u32()?, r.u16()?))
                 } else {

@@ -55,7 +55,11 @@ fn empty_save() -> Save {
         unused: [0; 15],
     }
     .write(&mut bytes);
-    GlobalData { kind: 1000, data: vec![] }.write(&mut bytes);
+    GlobalData {
+        kind: 1000,
+        data: vec![],
+    }
+    .write(&mut bytes);
     bytes.extend_from_slice(&[0; 8]);
     Save::parse(&bytes).unwrap()
 }
@@ -85,7 +89,11 @@ fn sav_36_shared_form_flags_are_mask_inverts_for_book_note_and_key() {
             type_field: 13,
             version: 78,
             uncompressed_len: 0,
-            data: [0x05_u32.to_le_bytes().as_slice(), 0_u16.to_le_bytes().as_slice()].concat(),
+            data: [
+                0x05_u32.to_le_bytes().as_slice(),
+                0_u16.to_le_bytes().as_slice(),
+            ]
+            .concat(),
         },
         soe_save::ChangeForm {
             form: reference(0x400811),
@@ -93,7 +101,11 @@ fn sav_36_shared_form_flags_are_mask_inverts_for_book_note_and_key() {
             type_field: 28,
             version: 78,
             uncompressed_len: 0,
-            data: [0x0A_u32.to_le_bytes().as_slice(), 0_u16.to_le_bytes().as_slice()].concat(),
+            data: [
+                0x0A_u32.to_le_bytes().as_slice(),
+                0_u16.to_le_bytes().as_slice(),
+            ]
+            .concat(),
         },
         soe_save::ChangeForm {
             form: reference(0x400812),
@@ -101,7 +113,11 @@ fn sav_36_shared_form_flags_are_mask_inverts_for_book_note_and_key() {
             type_field: 25,
             version: 78,
             uncompressed_len: 0,
-            data: [0x0F_u32.to_le_bytes().as_slice(), 0_u16.to_le_bytes().as_slice()].concat(),
+            data: [
+                0x0F_u32.to_le_bytes().as_slice(),
+                0_u16.to_le_bytes().as_slice(),
+            ]
+            .concat(),
         },
     ];
     let order = Arc::new(order);
