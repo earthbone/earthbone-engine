@@ -1811,6 +1811,23 @@ fn game(vm: &mut Vm, w: &Shared) {
         world.camera_controls.sitting_rotation_degrees = call.arg(0).as_float();
         none()
     });
+    global!(vm, w, "Game", "ShowTrainingMenu", |world, call| {
+        let trainer = match call.arg(0) {
+            Value::Object(object) => world.form_of(object),
+            _ => None,
+        };
+        if let Some(trainer) = trainer {
+            world.request_training_menu(trainer);
+        }
+        none()
+    });
+    global!(vm, w, "Game", "AdvanceSkill", |world, call| {
+        let skill = text(&call.arg(0));
+        let magnitude = call.arg(1).as_float();
+        let player = world.player();
+        let _ = world.advance_skill(player, &skill, magnitude);
+        none()
+    });
     for name in ["GetForm", "GetFormEx"] {
         global!(vm, w, "Game", name, |world, call| {
             let id = world.from_runtime_id(call.arg(0).as_int() as u32);
@@ -3526,10 +3543,8 @@ fn stubs(vm: &mut Vm) -> usize {
         ("Game", "ShowRaceMenu"),
         ("Game", "TriggerScreenBlood"),
         ("Game", "PlayBink"),
-        ("Game", "AdvanceSkill"),
         ("Game", "PrecacheCharGen"),
         ("Game", "PrecacheCharGenClear"),
-        ("Game", "ShowTrainingMenu"),
         ("Game", "QuitToMainMenu"),
         ("Game", "StartTitleSequence"),
         ("Game", "FindClosestActor"),

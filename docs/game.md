@@ -285,6 +285,18 @@ Current behavior and compatibility limits:
   initialized actor values, so reload does not seed bonuses again. Leveled
   templates return an error pending spawn selection. Missing race DATA
   retains the synthetic-record fallback. See [actor values](actor-values.md).
+- `Game.AdvanceSkill` records player skill use from the winning AVIF `AVSK`
+  multipliers and offsets. The improve multiplier and offset plus
+  `fSkillUseCurve` determine experience needed at each current skill level.
+  Earned levels update the shared actor-value base and stop at 100. Partial
+  skill experience is stored per actor in the `PRG-01` section of SOEW version
+  37 actor records. This path applies only explicitly recorded skill use.
+- Character experience advances actor levels using
+  `fXPLevelUpBase + level * fXPLevelUpMult`. Each crossed threshold adds one
+  available attribute choice. Choosing Health, Magicka or Stamina spends one
+  choice and adds 10 to that base actor value. Current-level experience and
+  unspent choices are stored in the `PRG-07` actor section. On load, the player
+  level cache follows the restored player actor level.
 - PlayerRef keeps form 0x14 and binds to the Player NPC base when available.
   A base-less synthetic player starts at 100 for the three main values.
   Health reaching zero uses the shared death lifecycle, including essential
@@ -3467,6 +3479,36 @@ synthetic scripted conversation. It does not execute a shipped quest fragment.
 The row's range-exit and recorded-end checks are covered. TWAT reply selection,
 walk-away menu flags, voice cancellation and original-engine timing comparison
 are outside this range-exit implementation.
+
+## Trainer purchases, DLG-16
+
+`World::purchase_training` reads the trainer reference's NPC_ base, resolves
+its winning `CNAM` class, and uses CLAS DATA to select the taught skill and
+trainer tier. The tier limits training to skill levels 25, 50, 75, 90 or 100.
+One purchase raises that skill's base actor value by one and removes the price
+from the player's Gold001 inventory, transferring it to the trainer. Price is
+the current skill value times `fTrainingMultCost`, rounded up. The shared
+inventory transaction queues the ordinary item count event for both actors.
+
+The player can buy five training sessions per character level. The world save
+section named `DLG-16` retains the session count and its level, and the
+determinism hash includes both values. A level change begins a fresh count.
+Invalid trainer data, an exhausted tier or session limit, invalid price data,
+and insufficient gold are rejected before gold, skill or session state changes.
+
+The field layout follows xEdit `wbRecord(CLAS)` and UESP CLAS. UESP describes
+the taught skill as an actor value index minus six and the training level as
+the trainer's maximum skill level. CommonLibSSE-NG `PlayerCharacter.h` names
+the per-level session counter, and the CK `Game.ShowTrainingMenu` page
+establishes the trainer actor passed to the menu. The trainer purchase path
+and a transient menu request are available through `World`.
+
+`Game.ShowTrainingMenu(actor)` queues a transient host request for a valid
+trainer actor. The request is consumed by PlayerNode after a game tick. A
+training offer reads the skill, current value, tier cap, current price and
+remaining sessions from the same World state used by `purchase_training`.
+The offer remains visible when the skill cap or per-level purchase limit has
+been reached, while the purchase path rejects it without changing state.
 
 ## Saved list changes, SAV-52
 

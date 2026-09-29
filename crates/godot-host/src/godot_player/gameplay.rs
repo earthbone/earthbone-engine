@@ -95,6 +95,13 @@ impl PlayerNode {
             self.image_space.sync(&game.world());
         }
         self.capture_screenshot_requests();
+        let training_request = self
+            .game
+            .as_mut()
+            .and_then(|game| game.world_mut().take_training_menu_request());
+        if let Some(trainer) = training_request {
+            self.open_training_menu(trainer);
+        }
         if self.sync_game_pose() {
             self.prefetch_nearby_interior(delta);
         } else {

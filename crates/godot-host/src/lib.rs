@@ -37,6 +37,7 @@ pub mod skinned;
 pub mod streaming;
 pub mod terrain;
 pub mod terrain_lod;
+pub mod training_menu;
 pub mod ui;
 pub mod units;
 
