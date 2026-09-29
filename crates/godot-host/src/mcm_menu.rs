@@ -18,11 +18,13 @@ pub const OPTION_FLAG_DISABLED: u32 = 0x01;
 const PAGE_STRIDE: u32 = 0x100;
 const PAGE_CAPACITY: usize = 128;
 
-/// The option row types supported by UI-11.
+/// The option row types supported by the native MCM presenter.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum OptionKind {
     Text { value: String },
     Toggle { checked: bool },
+    Color { value: i32 },
+    KeyMap { key_code: i32 },
 }
 
 /// One rendered MCM row with its SkyUI option ID and flags.
@@ -54,6 +56,7 @@ pub struct ConfigPage {
     page: u32,
     next_slot: usize,
     rows: Vec<OptionRow>,
+    active_color_dialog: Option<u32>,
 }
 
 impl ConfigPage {
@@ -63,6 +66,7 @@ impl ConfigPage {
             page,
             next_slot: 0,
             rows: Vec::new(),
+            active_color_dialog: None,
         }
     }
 
@@ -90,6 +94,21 @@ impl ConfigPage {
         flags: u32,
     ) -> Option<u32> {
         self.add(label.into(), OptionKind::Toggle { checked }, flags)
+    }
+
+    /// Add a color row and return its SkyUI option ID, or `None` at capacity.
+    pub fn add_color(&mut self, label: impl Into<String>, value: i32, flags: u32) -> Option<u32> {
+        self.add(label.into(), OptionKind::Color { value }, flags)
+    }
+
+    /// Add a key-map row and return its SkyUI option ID, or `None` at capacity.
+    pub fn add_keymap(
+        &mut self,
+        label: impl Into<String>,
+        key_code: i32,
+        flags: u32,
+    ) -> Option<u32> {
+        self.add(label.into(), OptionKind::KeyMap { key_code }, flags)
     }
 
     fn add(&mut self, label: String, kind: OptionKind, flags: u32) -> Option<u32> {
@@ -141,6 +160,112 @@ impl ConfigPage {
         game.send_event(script, "OnOptionSelect", &[Value::Int(option_id)]);
         true
     }
+
+    /// Send the SkyUI key-map callback with vanilla and mod conflict details.
+    pub fn remap_key(
+        &self,
+        game: &mut Game,
+        script: GlobalFormId,
+        id: u32,
+        key_code: i32,
+        conflict_control: &str,
+        conflict_name: &str,
+    ) -> bool {
+        if !self.accepts_callback(id, |kind| matches!(kind, OptionKind::KeyMap { .. })) {
+            return false;
+        }
+        game.send_event(
+            script,
+            "OnOptionKeyMapChange",
+            &[
+                Value::Int(id as i32),
+                Value::Int(key_code),
+                Value::string(conflict_control),
+                Value::string(conflict_name),
+            ],
+        );
+        true
+    }
+
+    /// Open a color dialog and request its start and default colors from the config script.
+    pub fn open_color_dialog(&mut self, game: &mut Game, script: GlobalFormId, id: u32) -> bool {
+        if !self.accepts_callback(id, |kind| matches!(kind, OptionKind::Color { .. }))
+            || self.active_color_dialog.is_some()
+        {
+            return false;
+        }
+        let Ok(option_id) = i32::try_from(id) else {
+            return false;
+        };
+        game.send_event(script, "OnOptionColorOpen", &[Value::Int(option_id)]);
+        self.active_color_dialog = Some(id);
+        true
+    }
+
+    /// Accept a color only for the open option, then call the SkyUI accept callback.
+    pub fn accept_color(
+        &mut self,
+        game: &mut Game,
+        script: GlobalFormId,
+        id: u32,
+        color: i32,
+    ) -> bool {
+        if self.active_color_dialog != Some(id)
+            || !self.accepts_callback(id, |kind| matches!(kind, OptionKind::Color { .. }))
+        {
+            return false;
+        }
+        let Ok(option_id) = i32::try_from(id) else {
+            return false;
+        };
+        game.send_event(
+            script,
+            "OnOptionColorAccept",
+            &[Value::Int(option_id), Value::Int(color)],
+        );
+        self.active_color_dialog = None;
+        true
+    }
+
+    /// Cancel the open color dialog without changing the option value or sending an accept event.
+    pub fn cancel_color_dialog(&mut self, id: u32) -> bool {
+        if self.active_color_dialog != Some(id) {
+            return false;
+        }
+        self.active_color_dialog = None;
+        true
+    }
+
+    /// Apply a color value supplied by the config script's accept callback.
+    pub fn set_color_value(&mut self, id: u32, value: i32) -> bool {
+        let Some(row) = self.rows.iter_mut().find(|row| row.id == id) else {
+            return false;
+        };
+        let OptionKind::Color { value: current } = &mut row.kind else {
+            return false;
+        };
+        *current = value;
+        true
+    }
+
+    /// Apply a key code supplied by the config script's key-map callback.
+    pub fn set_keymap_value(&mut self, id: u32, key_code: i32) -> bool {
+        let Some(row) = self.rows.iter_mut().find(|row| row.id == id) else {
+            return false;
+        };
+        let OptionKind::KeyMap { key_code: current } = &mut row.kind else {
+            return false;
+        };
+        *current = key_code;
+        true
+    }
+
+    fn accepts_callback(&self, id: u32, accepts_kind: impl FnOnce(&OptionKind) -> bool) -> bool {
+        self.rows
+            .iter()
+            .find(|row| row.id == id)
+            .is_some_and(|row| row.enabled() && row.visible() && accepts_kind(&row.kind))
+    }
 }
 
 /// Build Godot rows for a page and bind each selection to the supplied host callback.
@@ -174,6 +299,26 @@ pub fn render_rows(content: &mut Gd<VBoxContainer>, page: &ConfigPage, callback:
                     &callback.clone().bindv(&varray![i64::from(row.id)]),
                 );
                 line.add_child(&toggle);
+            }
+            OptionKind::Color { value } => {
+                let mut button = Button::new_alloc();
+                button.set_text(&format!("#{:08X}", *value as u32));
+                button.set_disabled(!row.enabled());
+                button.connect(
+                    "pressed",
+                    &callback.clone().bindv(&varray![i64::from(row.id)]),
+                );
+                line.add_child(&button);
+            }
+            OptionKind::KeyMap { key_code } => {
+                let mut button = Button::new_alloc();
+                button.set_text(&key_code.to_string());
+                button.set_disabled(!row.enabled());
+                button.connect(
+                    "pressed",
+                    &callback.clone().bindv(&varray![i64::from(row.id)]),
+                );
+                line.add_child(&button);
             }
         }
         content.add_child(&line);
