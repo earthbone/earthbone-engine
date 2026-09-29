@@ -2036,14 +2036,14 @@ post-processing through the host stack, including renderer resource cleanup.
 
 ## Image-space renderer prerequisites, MAG-71
 
-The MAG-71 source audit confirms that the host needs the MAG-72 base IMGS
-pipeline before the complete modifier renderer can be accepted. PlayerNode
-currently synchronizes identity, age and strength only. No Environment,
-CameraAttributes or Compositor consumes that snapshot. `godot/walkthrough.gd`
-constructs a fixed background, ambient light and directional light. Those
-constants are not the cell or weather's authored image space. Substituting
-them for IMGS values would change multiply curves and restoration after a
-modifier ends.
+`ImageSpaceStack::render_layers` samples the active modifiers' authored IMAD
+curves through the shared World and returns their channels beside each layer's
+active strength. It does not attach an Environment, CameraAttributes or
+Compositor to the camera. `godot/walkthrough.gd` constructs a fixed background,
+ambient light and directional light. Those constants are not the cell or
+weather's authored image space. MAG-72's shared base IMGS pipeline is absent
+from this worktree, so the host does not apply the sampled values to rendered
+frames. The rendered acceptance check remains open.
 
 MAG-72 owns resolution and rendering of base IMGS HDR, cinematic, tint and
 depth fields for CELL/XCIM and explicitly selected WTHR/IMSP inputs. Its
@@ -2079,12 +2079,19 @@ Sources read under `engine-refs`:
   `tutorials/shaders/advanced_postprocessing.rst` describes depth access and
   reconstruction. No custom compositor was installed during this audit.
 
+`mag_71_host_frame_keeps_curve_samples_with_their_active_weights` checks that
+the host frame preserves the sample and the independent active weight. The
+game test `mag_71_samples_authored_color_blur_depth_and_hdr_curves` checks
+synthetic animated color, blur, depth and HDR keys.
+`mag_71_installed_imad_curves_sample_winning_records` is gated on `SKYRIM_DATA`
+and samples each winning IMAD at its active normalized age. These checks do not
+create rendered image fixtures or verify GPU resource cleanup.
+
 The repeatable installed survey and its exact counts are recorded in
 [game.md](game.md#image-space-rendering-prerequisite-audit-mag-71). It verifies
-record layout and dependency reach. It does not render, measure frame time or
-test GPU resource cleanup. No Godot process was launched and no visible
-image-space behavior is claimed for this audit. The full MAG-71 acceptance
-check remains in BACKLOG.csv without a narrowed color-only substitute.
+record layout and dependency reach. No Godot process was launched, no frame
+time was measured, and no visible image-space behavior is claimed. MAG-71's
+full rendered acceptance check remains in BACKLOG.csv.
 
 ## Record-driven skin refresh (INV-08)
 

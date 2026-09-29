@@ -2599,10 +2599,15 @@ parity with Skyrim.
 
 ## Image-space rendering prerequisite audit, MAG-71
 
-MAG-71 is blocked on MAG-25 and MAG-72. Its acceptance check still requires
-rendered animated color, blur, depth and HDR fixtures at the active stack
-weights. MAG-72 owns the missing shared base image-space inputs and renderer.
-No curve evaluator or partial rendering path was added by this audit.
+MAG-71 depends on MAG-25's active modifier lifetimes and MAG-72's shared base
+image-space inputs. `World::image_space_curve_samples` resolves each active
+modifier through its winning IMAD record, validates the authored key arrays,
+and samples float and RGBA keys at normalized age. Float keys use linear
+interpolation, with values held at the first or last key outside the key range.
+The host frame carries those samples with the independent active stack
+strength. This does not combine modifier values with base IMGS data or render
+a screen pass. The rendered acceptance check remains open until MAG-72 supplies
+the base values and rendering path.
 
 The local xEdit `Core/wbDefinitionsTES5.pas` IMGS and IMAD definitions,
 `Core/wbDefinitionsCommon.pas` interpolation and weather helpers, and Mutagen
