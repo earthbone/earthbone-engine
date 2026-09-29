@@ -3461,15 +3461,17 @@ the existing typed save decoder and record override layer perform the mapping.
 reference to the supplied actor, preserving negative force as a pull.
 `KnockAreaEffect` validates a finite magnitude from 0 to 1 and a positive
 finite radius, then queues impulses for enabled actor references inside that
-radius. Its linear attenuation is an engine approximation: the CK page gives
-magnitude and radius but does not specify a falloff formula. Both operations
-mark the target actor unconscious in the shared actor state. The host consumes
-the queued vectors once; they are transient and do not enter the save.
+radius. Zero vectors are discarded without changing actor state. Its linear
+attenuation is an engine approximation: the CK page gives magnitude and radius
+but does not specify a falloff formula. Nonzero impulses mark the target actor
+unconscious in the shared actor state. The host consumes queued vectors once;
+they are transient and do not enter the save.
 
 `ForceAddRagdollToWorld` and `ForceRemoveRagdollFromWorld` store an explicit
 ragdoll override in the actor state. The `CMB-38` named actor save section
 persists that override without changing `SAVE_VERSION`. An absent override
-continues to follow the death state. The CK pages do not define an impulse
+continues to follow death or unconscious state. Removing a ragdoll preserves
+the actor's independent unconscious state. The CK pages do not define an impulse
 unit conversion or explosion game-setting evaluation, so those details remain
 outside this implementation.
 

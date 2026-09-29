@@ -81,7 +81,6 @@ impl World {
     ) -> Result<(), &'static str> {
         let state = self.actor(actor).ok_or("reference is not an actor")?;
         state.ragdoll_forced = Some(enabled);
-        state.unconscious = enabled;
         Ok(())
     }
 
@@ -100,6 +99,9 @@ impl World {
     }
 
     fn queue_actor_impulse(&mut self, actor: GlobalFormId, vector: [f32; 3]) {
+        if vector.iter().all(|component| *component == 0.0) {
+            return;
+        }
         if let Some(state) = self.actor(actor) {
             state.unconscious = true;
         }
@@ -224,7 +226,7 @@ mod tests {
         let mut world = world_with_actors();
         world.force_ragdoll(id(2), true).unwrap();
         assert_eq!(world.actor_ref(id(2)).unwrap().ragdoll_forced, Some(true));
-        assert!(world.actor_ref(id(2)).unwrap().unconscious);
+        assert!(!world.actor_ref(id(2)).unwrap().unconscious);
         world.force_ragdoll(id(2), false).unwrap();
         assert_eq!(world.actor_ref(id(2)).unwrap().ragdoll_forced, Some(false));
         assert!(!world.actor_ref(id(2)).unwrap().unconscious);
