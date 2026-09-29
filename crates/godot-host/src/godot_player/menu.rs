@@ -253,6 +253,10 @@ impl PlayerNode {
             .menu
             .title()
             .is_some_and(|title| title.starts_with("Gift: "));
+        if self.menu.title() == Some("Race") {
+            self.race_choice = None;
+            self.appearance_choice = None;
+        }
         if !self.menu.close() {
             return false;
         }

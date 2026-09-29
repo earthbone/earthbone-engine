@@ -19,7 +19,9 @@ use soe_papyrus::{NativeCall, NativeReturn, ObjectId, Value, Vm};
 use crate::clock::GameClock;
 use crate::combat::Hand;
 use crate::conditions;
-use crate::world::{reaction, AnimationListener, Handle, LeveledEntry, LosListener, World};
+use crate::world::{
+    reaction, AnimationListener, Handle, LeveledEntry, LosListener, MenuRequest, World,
+};
 
 pub type Shared = Rc<RefCell<World>>;
 
@@ -195,7 +197,7 @@ pub fn register(vm: &mut Vm, world: &Shared) -> Registered {
     fragments_and_effects(vm, world);
     active_magic(vm, world);
     image_space(vm, world);
-    let stubs = stubs(vm);
+    let stubs = stubs(vm, world);
     let natives = NATIVE_COUNT + stubs - (vm.natives.duplicates.len() - before);
     Registered { natives, stubs }
 }
@@ -3364,8 +3366,33 @@ fn fragments_and_effects(vm: &mut Vm, w: &Shared) {
 
 /// Natives whose systems the engine does not have yet. They return the
 /// value the game gives in the quiet case so vanilla scripts run past them.
-fn stubs(vm: &mut Vm) -> usize {
+fn stubs(vm: &mut Vm, world: &Shared) -> usize {
     let mut n = 0;
+    let shared = world.clone();
+    vm.natives.register_global(
+        "Game",
+        "ShowRaceMenu",
+        Box::new(move |_| {
+            shared.borrow_mut().menu_requests.push(MenuRequest::Race);
+            none()
+        }),
+    );
+    n += 1;
+    for (name, request) in [
+        ("PrecacheCharGen", MenuRequest::PrecacheCharGen),
+        ("PrecacheCharGenClear", MenuRequest::PrecacheCharGenClear),
+    ] {
+        let shared = world.clone();
+        vm.natives.register_global(
+            "Game",
+            name,
+            Box::new(move |_| {
+                shared.borrow_mut().menu_requests.push(request);
+                none()
+            }),
+        );
+        n += 1;
+    }
     let bools: &[(&str, &str, bool)] = &[
         ("ObjectReference", "Is3DLoaded", true),
         ("ObjectReference", "IsFurnitureInUse", false),
@@ -3540,11 +3567,14 @@ fn stubs(vm: &mut Vm) -> usize {
         ("Game", "ForceFirstPerson"),
         ("Game", "ForceThirdPerson"),
         ("Game", "SetHudCartMode"),
-        ("Game", "ShowRaceMenu"),
         ("Game", "TriggerScreenBlood"),
         ("Game", "PlayBink"),
         ("Game", "PrecacheCharGen"),
         ("Game", "PrecacheCharGenClear"),
+        ("Game", "AdvanceSkill"),
+        ("Game", "ShowTrainingMenu"),
+        ("Game", "ShowFirstPersonGeometry"),
+        ("Game", "SetCameraTarget"),
         ("Game", "QuitToMainMenu"),
         ("Game", "StartTitleSequence"),
         ("Game", "FindClosestActor"),

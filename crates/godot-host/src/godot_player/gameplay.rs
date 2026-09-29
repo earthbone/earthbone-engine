@@ -102,6 +102,28 @@ impl PlayerNode {
         if let Some(trainer) = training_request {
             self.open_training_menu(trainer);
         }
+        let requests = self.game.as_mut().map_or_else(Vec::new, |game| {
+            std::mem::take(&mut game.world_mut().menu_requests)
+        });
+        for request in requests {
+            match request {
+                soe_game::world::MenuRequest::PrecacheCharGen => {
+                    if let (Some(game), Some(streamer)) =
+                        (self.game.as_ref(), self.game_streamer.as_mut())
+                    {
+                        streamer.bind_mut().precache_chargen(game);
+                    }
+                }
+                soe_game::world::MenuRequest::PrecacheCharGenClear => {
+                    if let Some(streamer) = self.game_streamer.as_mut() {
+                        streamer.bind_mut().precache_chargen_clear();
+                    }
+                }
+                soe_game::world::MenuRequest::Race => {
+                    self.show_race_menu();
+                }
+            }
+        }
         if self.sync_game_pose() {
             self.prefetch_nearby_interior(delta);
         } else {

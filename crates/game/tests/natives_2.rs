@@ -1894,6 +1894,31 @@ fn tracked_stats_fire_events() {
     assert!(errors(&g).is_empty(), "{:?}", errors(&g));
 }
 
+#[test]
+fn ui_17_chargen_requests_precache_before_menu_and_clear_afterward() {
+    let mut g = game();
+    assert_eq!(
+        call_global(&mut g, "Game", "PrecacheCharGen", &[]),
+        Value::None
+    );
+    assert_eq!(
+        call_global(&mut g, "Game", "ShowRaceMenu", &[]),
+        Value::None
+    );
+    assert_eq!(
+        call_global(&mut g, "Game", "PrecacheCharGenClear", &[]),
+        Value::None
+    );
+    assert_eq!(
+        g.world_mut().menu_requests,
+        [
+            soe_game::world::MenuRequest::PrecacheCharGen,
+            soe_game::world::MenuRequest::Race,
+            soe_game::world::MenuRequest::PrecacheCharGenClear,
+        ]
+    );
+}
+
 /// RegisterForSleep delivers OnSleepStart and OnSleepStop when the player
 /// sleeps and wakes, UnregisterForSleep stops them.
 #[test]

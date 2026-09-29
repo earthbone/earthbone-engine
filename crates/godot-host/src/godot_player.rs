@@ -47,6 +47,7 @@ mod gameplay;
 mod magic;
 mod melee;
 mod menu;
+mod race;
 mod saves;
 mod training;
 
@@ -141,6 +142,8 @@ pub struct PlayerNode {
     training_trainer: Option<GlobalFormId>,
     inventory_category: crate::inventory_menu::Category,
     magic_hand: soe_game::combat::Hand,
+    race_choice: Option<(GlobalFormId, bool)>,
+    appearance_choice: Option<soe_game::appearance::PlayerAppearance>,
     menu_view: Option<menu::MenuView>,
     container_menu: Option<(GlobalFormId, crate::inventory_menu::Category)>,
     restore_mouse_on_focus: Option<godot::classes::input::MouseMode>,
@@ -198,6 +201,8 @@ impl INode3D for PlayerNode {
             training_trainer: None,
             inventory_category: crate::inventory_menu::Category::All,
             magic_hand: soe_game::combat::Hand::Right,
+            race_choice: None,
+            appearance_choice: None,
             menu_view: None,
             container_menu: None,
             restore_mouse_on_focus: None,

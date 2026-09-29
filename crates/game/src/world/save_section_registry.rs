@@ -27,6 +27,7 @@ pub(crate) const ACTOR_SECTIONS: &[Section<ActorState>] = &[
     Section { name: "ANM-59", write: World::write_expression_override, read: World::read_expression_override },
     Section { name: "PRG-01", write: super::super::progression::write_skill_experience, read: super::super::progression::read_skill_experience },
     Section { name: "PRG-07", write: super::super::progression::write_character_progression, read: super::super::progression::read_character_progression },
+    Section { name: "UI-14", write: super::actors::write_ui_14, read: super::actors::read_ui_14 },
 ];
 
 /// Sections read and written once per reference, at the end of every
