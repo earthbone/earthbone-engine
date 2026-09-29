@@ -428,6 +428,30 @@ gates remain unimplemented. They need separate measurements of worker startup,
 first-use latency and peak memory. The failed repeated startup run that retained
 two full archive sets is not included in the table.
 
+## Persistent data-source workers, PRF-05
+
+The worker pool change was measured on the same machine and with the release
+`soe-bench cell WhiterunBanneredMare` command, five warm stream samples at one
+and 24 workers. The baseline ran before the pool change, then the command ran
+again after it. Both runs reported 690 references, 318 statics with models,
+393 meshes parsed and no failed meshes.
+
+| Measurement | Scoped workers before | Persistent workers after |
+|---|---:|---:|
+| Warm stream, 1 worker | 20 ms | 22 ms |
+| Warm stream, 24 workers | 6 ms | 5 ms |
+
+The focused startup test measured 21 repeated batches of 512 integer items.
+Its scoped-worker median was 100 microseconds per batch. Creating the four
+thread pool and running its first batch took 344 microseconds, while later
+batches on that pool had a 30 microsecond median. This synthetic measurement
+isolates worker creation; it is not a substitute for the real-cell stream
+measurements above. The stream medians are close to the observed run-to-run
+variation, so this sample does not show a reliable stream-time change. The
+gated debug test also streamed Bannered Mare five times with 24 workers and
+recorded a 50 ms median. That figure is kept separate from the release
+benchmark.
+
 ## Cold interior texture preparation, 2026-09-20
 
 HST-06 fixed a 50 ms cold texture preparation budget before its first timing
