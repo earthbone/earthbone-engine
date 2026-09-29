@@ -35,7 +35,12 @@ fn collision_vertex_limit_accepts_1024_and_rejects_1025() {
 #[test]
 fn collision_export_preserves_asymmetric_points_after_physics_collection() {
     let mut input = mesh("asymmetric_collision", 4);
-    input.positions = vec![[-140.0, 35.0, 70.0], [21.0, 98.0, -7.0], [0.0, 0.0, 0.0], [70.0, -70.0, 140.0]];
+    input.positions = vec![
+        [-140.0, 35.0, 70.0],
+        [21.0, 98.0, -7.0],
+        [0.0, 0.0, 0.0],
+        [70.0, -70.0, 140.0],
+    ];
     let exported = export_collision_mesh(&input).unwrap().unwrap();
     let colliders = collect(&exported).unwrap();
     let Shape::Material { shape, .. } = &colliders.colliders[0].shape else {

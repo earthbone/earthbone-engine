@@ -11,11 +11,8 @@ fn block_for_cell_uses_tes5edit_division_west_and_south_of_anchor() {
     // TES5Edit's TwbLodSettings.BlockForCell uses Pascal integer `div`,
     // which truncates toward zero for a cell just before the anchor.
     for level in [LodLevel::L4, LodLevel::L8, LodLevel::L16, LodLevel::L32] {
-        let block = LodBlockCoord::containing_from(
-            CellCoord::new(99, -1),
-            level,
-            CellCoord::new(100, 0),
-        );
+        let block =
+            LodBlockCoord::containing_from(CellCoord::new(99, -1), level, CellCoord::new(100, 0));
         assert_eq!(block.x, 100, "{level:?} x block must follow BlockForCell");
         assert_eq!(block.y, 0, "{level:?} y block must follow BlockForCell");
     }
