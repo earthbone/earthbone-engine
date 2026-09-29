@@ -54,6 +54,12 @@ fn cmb_04_simultaneous_device_bindings_still_make_one_action_edge() {
     devices.mouse_button(2, true, &bindings);
     devices.pad_button(0, 0, true, &bindings);
     let presses = devices.take_pressed();
-    assert_eq!(presses.iter().filter(|&&action| action == Action::RightAttack).count(), 1);
+    assert_eq!(
+        presses
+            .iter()
+            .filter(|&&action| action == Action::RightAttack)
+            .count(),
+        1
+    );
     assert!(devices.take_pressed().is_empty());
 }

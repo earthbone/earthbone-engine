@@ -51,12 +51,30 @@ fn cmb_19_installed_joint_endpoints_and_body_properties_are_usable() {
         }
         match &constraint.kind {
             ConstraintKind::Ragdoll(joint) => {
-                assert!(joint.frames.iter().flat_map(|f| f.rotation).flatten().all(f32::is_finite));
-                assert!(joint.frames.iter().flat_map(|f| f.translation).all(f32::is_finite));
+                assert!(joint
+                    .frames
+                    .iter()
+                    .flat_map(|f| f.rotation)
+                    .flatten()
+                    .all(f32::is_finite));
+                assert!(joint
+                    .frames
+                    .iter()
+                    .flat_map(|f| f.translation)
+                    .all(f32::is_finite));
             }
             ConstraintKind::LimitedHinge(joint) => {
-                assert!(joint.frames.iter().flat_map(|f| f.rotation).flatten().all(f32::is_finite));
-                assert!(joint.frames.iter().flat_map(|f| f.translation).all(f32::is_finite));
+                assert!(joint
+                    .frames
+                    .iter()
+                    .flat_map(|f| f.rotation)
+                    .flatten()
+                    .all(f32::is_finite));
+                assert!(joint
+                    .frames
+                    .iter()
+                    .flat_map(|f| f.translation)
+                    .all(f32::is_finite));
             }
         }
     }

@@ -38,6 +38,7 @@ fn cmb_27_vanilla_stagger_stop_returns_to_the_state_active_at_the_hit() {
         assets.skeleton.reference_pose.clone(),
     );
     vm.variables.set_by_name("iRightHandType", 1.0);
+    vm.variables.set_by_name("Speed", 1.0);
     assert!(assets.graph.data.event_id("moveStart").is_some());
     assert!(vm.send_event_named("moveStart"));
     for _ in 0..30 {
@@ -51,7 +52,12 @@ fn cmb_27_vanilla_stagger_stop_returns_to_the_state_active_at_the_hit() {
         vm.update(1.0 / 60.0);
     }
     assert!(vm.active_clips().iter().any(|(id, _)| {
-        assets.graph.node(*id).name.to_ascii_lowercase().contains("stagger")
+        assets
+            .graph
+            .node(*id)
+            .name
+            .to_ascii_lowercase()
+            .contains("stagger")
     }));
     assert!(vm.send_event_named("staggerStop"));
     for _ in 0..180 {
