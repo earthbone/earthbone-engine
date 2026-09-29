@@ -5,7 +5,7 @@
 //! cells and game settings.
 
 use soe_esm::records::lctn::Location;
-use soe_esm::GlobalFormId;
+use soe_esm::{cursor::Fields, Error, GlobalFormId, Result};
 use soe_papyrus::Value;
 use std::collections::HashSet;
 
@@ -42,6 +42,41 @@ pub(super) fn add_saved_form_list_entries(
 }
 
 impl World {
+    /// Read the optional `NPC_.GNAM` gift filter.
+    ///
+    /// # Errors
+    /// Rejects a missing or deleted actor base, malformed GNAM data, or a
+    /// link that does not resolve to a live FormList.
+    pub fn actor_base_gift_filter(&self, base: GlobalFormId) -> Result<Option<GlobalFormId>> {
+        let record = self
+            .record(base)
+            .filter(|record| record.tag == T(b"NPC_") && !record.is_deleted())
+            .ok_or_else(|| {
+                Error::Invalid(format!("gift filter owner is not a live NPC_: {base}"))
+            })?;
+        let Some(bytes) = record.find(T(b"GNAM")) else {
+            return Ok(None);
+        };
+        let mut field = Fields::new(record.tag, T(b"GNAM"), bytes);
+        field.exact(4)?;
+        let raw = field.u32()?;
+        if raw == 0 {
+            return Ok(None);
+        }
+        let filter = self.resolve_from(base, raw).ok_or_else(|| {
+            Error::Invalid(format!("gift filter on NPC_ {base} does not resolve"))
+        })?;
+        if self
+            .record(filter)
+            .is_none_or(|record| record.tag != T(b"FLST") || record.is_deleted())
+        {
+            return Err(Error::Invalid(format!(
+                "gift filter on NPC_ {base} is not a live FLST: {filter}"
+            )));
+        }
+        Ok(Some(filter))
+    }
+
     pub fn global_value(&mut self, id: GlobalFormId) -> f32 {
         if let Some(v) = self.globals.get(&id) {
             return *v;
