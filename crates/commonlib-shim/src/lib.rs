@@ -22,3 +22,6 @@ pub mod skse;
 pub mod support;
 pub mod util;
 pub mod vm;
+
+pub use form::FileInfo;
+pub use refr::{ObjectRefPtr, Unsupported, WeaponState};

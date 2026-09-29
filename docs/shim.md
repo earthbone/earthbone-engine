@@ -77,6 +77,25 @@ The mapping follows the Rust API while adapting Rust names and types to C++, inc
 `NativeRegistry::register`, which is emitted as `register_native` because `register` is a C++
 keyword.
 
+## Live world views, SHM-16
+
+`soe-game` implements the MIT data-handler and reference traits over its winning-form table
+and instantiated reference and actor state. The form view carries resolved runtime FormIDs, record
+signatures, editor IDs and associated keywords. `TESFile` views expose load-order names and
+regular or light compile indices. `TESObjectREFRPtr` is a nullable runtime FormID handle.
+`WEAPON_STATE` exposes the six CommonLib numeric values. Since the game currently stores only
+whether an actor's weapon is drawn, live actor queries return `kSheathed` or `kDrawn`; the four
+animation transition states are available in the contract but not produced by the runtime.
+
+The runtime does not implement `TESObjectREFR::SetBaseObject` for an existing reference. Its
+MIT trait returns an `Unsupported` value naming that operation, leaving the current base intact.
+The C++ fixture compiles and calls the exported contracts, while game tests query the live
+`World` adapter. These are source-level contracts, not a compiled SKSE plugin or binary ABI.
+The declarations were checked against alandtse CommonLib's `TESDataHandler.h`, `TESFile.h`,
+`TESObjectREFR.h` and `ActorState.h`.
+The existing `SKSE::TRAMPOLINE` declaration continues to identify machine-code patching as
+unsupported, and the C++ contract fixture checks that diagnostic.
+
 ## Untested
 
 The SHM-01 test compiles the generated umbrella headers with a C++20 compiler and checks C++

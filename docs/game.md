@@ -148,6 +148,22 @@ The location check supports near-reference, in-cell, near-editor-location and
 near-self modes. Other PLVD modes return a typed error. The 32-bit radius and
 location modes follow CommonLibSSE `TESFaction.h` and UESP `FACT.wikitext`.
 
+## CommonLib world views, SHM-16
+
+`World::commonlib_data_handler` returns the MIT `TESDataHandler` view over winning records and
+load-order files. A lookup exposes the resolved runtime FormID, record signature, editor ID
+and associated keywords. `World::commonlib_reference` builds a reference through the normal
+world path, then exposes its current base, transform, cell and enabled/deleted flags through
+the MIT `TESObjectREFR` contract. Its nullable pointer stores the reference's runtime FormID.
+File views retain the load-order filename and regular or light slot.
+
+`World::commonlib_actor` exposes the already-instantiated actor through the same MIT trait.
+Actor-value reads and writes use the shared actor values, and weapon state maps the actor's
+`weapon_drawn` field to `Drawn` or `Sheathed`. The world does not yet track animation transition
+states. `SetBaseObject` and invalid actor-value requests return an unsupported result without
+changing state. Tests exercise these views against a synthetic load order. No installed-data
+records or SKSE binary plugin are required for this contract.
+
 ## Conformance table
 
 Counts from `natives::register`: 364 natives with state behind them and 177
