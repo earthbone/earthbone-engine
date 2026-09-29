@@ -2123,6 +2123,16 @@ Argonian and Khajiit tails. Both tails name `TailBone01` through `TailBone05`, w
 the current human rig does not contain. Live binding reports this mismatch and
 keeps the previous geometry. Breton, High Elf and Nord addons match that rig.
 ANM-55 tracks record-selected animation rigs without narrowing skin selection.
+
+## Facial expression target mapping (ANM-59)
+
+`facial::expression_weights` maps CK expression ids 0 through 16 to the
+corresponding named head blend shape and returns weights for available
+expression names only. `apply_expression` sets the selected shape to the
+requested percentage and zeros competing expression shapes while preserving
+other morph values. The actor NIF pipeline does not currently load Skyrim
+`.tri` targets or upload Godot blend shape arrays, so this mapping is not yet
+connected to a rendered vanilla head.
 The installed body/hand/null refresh fixture measured a 8.2 us cached view against
 the declared 2 ms budget. This measures record resolution, not rendered frame time.
 

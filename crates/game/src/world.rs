@@ -286,6 +286,17 @@ pub struct ActorState {
     /// `FactionState`, this is the actor's own memory of who it saw do it.
     /// See `World::record_witnessed_crime`.
     pub witnessed_crimes: BTreeSet<GlobalFormId>,
+    /// Papyrus expression override, retained until `ClearExpressionOverride`.
+    pub expression_override: Option<ExpressionOverride>,
+}
+
+/// A CK facial expression id and its 0 to 100 strength.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ExpressionOverride {
+    /// CK `aiMood` value, from 0 through 15.
+    pub mood: u8,
+    /// Expression strength in percent.
+    pub strength: u8,
 }
 
 /// One `LVLO` entry of a leveled list.

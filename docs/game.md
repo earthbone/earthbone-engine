@@ -148,6 +148,15 @@ The location check supports near-reference, in-cell, near-editor-location and
 near-self modes. Other PLVD modes return a typed error. The 32-bit radius and
 location modes follow CommonLibSSE `TESFaction.h` and UESP `FACT.wikitext`.
 
+**Facial expression override, ANM-59.** `Actor.SetExpressionOverride` stores a
+CK expression id from 0 through 16 and strength from 0 through 100 on the
+actor. `ClearExpressionOverride` removes it. `World::facial_expression`
+returns the active override, or maps the actor's record-backed AIDT mood to
+the corresponding mood expression at full strength after clearing. The
+override is an actor save section named `ANM-59` and participates in the
+determinism hash. The host maps expression ids to head blend shape names;
+loading Skyrim `.tri` morph targets into actor surfaces is not implemented.
+
 ## Conformance table
 
 Counts from `natives::register`: 364 natives with state behind them and 177
