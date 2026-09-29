@@ -7,7 +7,8 @@
 //! The local PC control map names the event `Right Attack/Block`; device edges
 //! come from `input::devices::Devices::observe` and are consumed once.
 
-use soe_godot_host::input::{Action, Bindings, ControlMap, Devices, InputState};
+use soe_godot_host::input::devices::Devices;
+use soe_godot_host::input::{Action, Bindings, ControlMap, InputState};
 
 #[test]
 fn cmb_04_keyboard_attack_fires_once_per_press_not_once_per_held_frame() {

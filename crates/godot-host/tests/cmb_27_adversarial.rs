@@ -38,7 +38,11 @@ fn cmb_27_vanilla_stagger_stop_returns_to_the_state_active_at_the_hit() {
         assets.skeleton.reference_pose.clone(),
     );
     vm.variables.set_by_name("iRightHandType", 1.0);
-    vm.update(0.0);
+    assert!(assets.graph.data.event_id("moveStart").is_some());
+    assert!(vm.send_event_named("moveStart"));
+    for _ in 0..30 {
+        vm.update(1.0 / 60.0);
+    }
     let before_hit = vm.active_states();
     assert!(!before_hit.is_empty());
     vm.variables.set_by_name("staggerMagnitude", 1.0);
