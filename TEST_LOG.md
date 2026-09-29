@@ -329,13 +329,17 @@ env -C <repo> PATH=$HOME/.cargo/bin:/usr/bin:/bin RUSTUP_TOOLCHAIN=nightly \
   cargo fuzz run fuzz-dds-grammar -- -max_total_time=300
 ```
 
-**No mesh grammar target, and the reason.** A valid `NIF` is a block graph with
-a string table and version-dependent layouts, so a grammar that produces one is
-a large piece of work rather than a session's. A shallow version would mostly
-generate files the parser rejects, which is what `fuzz-nif` already covers with
-plain bytes. Left undone deliberately rather than done badly. The mesh reader
-did get a real defect fixed today by other means, the partition-local bone
-indices, found by rendering rather than by fuzzing.
+**NIF grammar follow-up.** `fuzz-nif-grammar` now builds a complete Skyrim SE
+stream-100 header and tables, a root `NiNode`, and a packed `BSTriShape` with
+one triangle. The bounded grammar varies positions, UVs, normals, colors, and
+node flags, then requires parsing and mesh extraction to succeed. The writer
+follows local `engine-refs/nifxml/nif.xml` block definitions, avoiding the
+rejected shallow inputs this earlier note warned against. Run
+`cargo fuzz coverage fuzz-nif-grammar` to generate an HTML coverage report.
+This target focuses on the node, shape, packed-vertex, and mesh paths. Other
+block families remain covered by the byte target and crate tests. A 15 second
+run on 2026-09-29 completed 497,357 executions with `cov: 1045`, `ft: 1063`
+from 17,307 instrumented counters.
 
 **What these cannot catch.** The DDS target never builds a legal payload on
 purpose, so it exercises truncation and bad geometry far more than correct

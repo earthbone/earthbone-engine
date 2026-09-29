@@ -131,6 +131,15 @@ effect shaders, Fallout 4 half positions, truncation at every third byte,
 two thousand random bit flips, a hostile block count, a wrong block size, a
 lying vertex descriptor, cycles and dangling references.
 
+`fuzz/fuzz_targets/fuzz_nif_grammar.rs` uses a bounded stream-100 grammar
+from `fuzz/src/nif_grammar.rs`. It writes a complete header, type and size
+tables, string table, root reference, `NiNode`, and `BSTriShape` with three
+packed vertices and one triangle. The generated fields vary vertex positions,
+UVs, normals, colors, and node flags. The grammar follows nifxml's local
+`nif.xml` block definitions and expects parsing and mesh extraction to accept
+every generated file. `tst_07` tests assert the generated block decoders and
+mesh path are reached.
+
 `tests/real_files.rs` runs over `$SKYRIM_DATA/meshes` and
 `$SOE_NIF_SAMPLES` when set. Skyrim SE ships nearly every mesh inside
 `Skyrim - Meshes0.bsa` and `Skyrim - Meshes1.bsa`, so the useful input is an
