@@ -25,7 +25,13 @@ fn sav_65_effect_payload_truncations_never_shift_the_next_table() {
     object.extend((-0.0_f32).to_le_bytes());
     let mut payload = object.clone();
     payload.extend([0, 0, 0]);
-    assert_eq!(CreatedObjects::read(&payload).unwrap().data_bytes().unwrap(), payload);
+    assert_eq!(
+        CreatedObjects::read(&payload)
+            .unwrap()
+            .data_bytes()
+            .unwrap(),
+        payload
+    );
     for cut in 0..object.len() {
         assert!(CreatedObjects::read(&object[..cut]).is_err(), "cut={cut}");
     }
@@ -84,10 +90,16 @@ fn sav_65_external_corpus_accounts_for_every_created_objects_payload() {
             &decoded.poisons,
         ] {
             objects += table.len();
-            effects += table.iter().map(|object| object.effects.len()).sum::<usize>();
+            effects += table
+                .iter()
+                .map(|object| object.effects.len())
+                .sum::<usize>();
         }
     }
-    assert!(payload_bytes > 0, "no Created Objects payload bytes accounted for");
+    assert!(
+        payload_bytes > 0,
+        "no Created Objects payload bytes accounted for"
+    );
     eprintln!(
         "SAV-65 corpus: saves={} objects={objects} effects={effects} payload_bytes={payload_bytes}",
         paths.len()
