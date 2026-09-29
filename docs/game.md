@@ -150,6 +150,15 @@ location modes follow CommonLibSSE `TESFaction.h` and UESP `FACT.wikitext`.
 
 ## Conformance table
 
+The SCR-61 registry audit found four `GetID` and `GetName` method bindings.
+`Form.GetName` returns the form's name-column text, `Quest.GetID` returns its
+EditorID, and `Alias.GetID` and `Alias.GetName` return the alias's numeric ID
+and unique name. These match the CK pages `GetName - Form`, `Quest Script`,
+and `Alias Script`. Form.GetName returns an empty string for actor and
+object-reference instances, as the CK page specifies. Regression coverage is
+in `tests/scr_61_native_contracts.rs`. The Form page identifies `GetName` as
+an SKSE member.
+
 Counts from `natives::register`: 364 natives with state behind them and 177
 
 Counts from `natives::register`: 366 natives with state behind them and 175
