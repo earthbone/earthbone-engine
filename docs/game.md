@@ -95,6 +95,17 @@ wikitext pages as of 2026-09-19. When an individual page is absent, class pages
 and `engine-refs/skse64/scripts/vanilla` can establish the contract.
 [The reference audit](reference-audit.md) records missed contracts and gaps.
 
+`Actor.SetEssential` delegates to `World::set_actor_essential`. For actors
+with a base-data source it updates that source and initialized inheriting
+actors, using the same path as `ActorBase.SetEssential`. Baseless actors update
+their runtime flag. SCR-11's `GetSitState` and `GetFlyingState` still return
+their quiet default because no actor animation-state source exists. `SetVehicle`
+and `SetLookAt` remain stubs because vehicle-follow movement and forced
+look-at behavior have no owning world or host implementation yet. The local
+CK pages define sit values 0, 2, 3 and 4, flying values 0 through 4, and
+`SetVehicle(None)` or self as detachment. These bindings need those owning
+systems before they can be completed.
+
 **World reads out, host never writes back.** `World::ref_placement` (in
 `world/refs.rs`) is the read-only view a host uses to keep its own rendering
 and collision resources in step with a reference's runtime state: current

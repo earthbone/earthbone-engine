@@ -1414,6 +1414,29 @@ fn actor_base_flags_and_setters() {
     assert!(errors(&g).is_empty(), "{:?}", errors(&g));
 }
 
+/// SCR-11: Actor.SetEssential updates its base-data source and every loaded
+/// actor inheriting that source through the shared world API.
+#[test]
+fn scr_11_actor_set_essential_updates_shared_actor_state() {
+    let mut g = game();
+    let actor = obj(&mut g, "GuardRef");
+    let base = g.form("GuardBase").unwrap();
+    let actor_id = g.form("GuardRef").unwrap();
+
+    assert_eq!(call(&mut g, &actor, "IsEssential", &[]), Value::Bool(true));
+    assert_eq!(
+        call(&mut g, &actor, "SetEssential", &[Value::Bool(false)]),
+        Value::None
+    );
+    assert!(!g.world_mut().actor_base(base).unwrap().essential);
+    assert!(!g.world_mut().actor(actor_id).unwrap().essential);
+    assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+
+    call(&mut g, &actor, "SetEssential", &[Value::Bool(true)]);
+    assert!(g.world_mut().actor_base(base).unwrap().essential);
+    assert!(g.world_mut().actor(actor_id).unwrap().essential);
+}
+
 // ----- references, cells, ownership -----
 
 /// GetActorOwner "gets the ActorBase that owns this object", None when

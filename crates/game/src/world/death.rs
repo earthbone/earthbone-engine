@@ -11,6 +11,23 @@ use soe_papyrus::VmError;
 use super::{ActorState, Handle, Pending, World};
 
 impl World {
+    /// Set essential status through an actor's base-data source when it has
+    /// one, or on its runtime state when it does not.
+    pub fn set_actor_essential(&mut self, actor: GlobalFormId, essential: bool) {
+        let base = self
+            .reference(actor)
+            .and_then(|reference| reference.base)
+            .and_then(|_| {
+                self.actor_component_source(actor, crate::npc::template::BASE_DATA)
+                    .ok()
+            });
+        if let Some(base) = base {
+            self.set_actor_base_essential(base, essential);
+        } else if let Some(state) = self.actor(actor) {
+            state.essential = essential;
+        }
+    }
+
     /// Update the source base and every initialized actor inheriting its essential flag.
     pub fn set_actor_base_essential(&mut self, base: GlobalFormId, essential: bool) {
         let Some(state) = self.actor_base(base) else {

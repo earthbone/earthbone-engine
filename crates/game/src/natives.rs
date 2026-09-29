@@ -1030,6 +1030,10 @@ fn actor(vm: &mut Vm, w: &Shared) {
     method!(vm, w, "Actor", "IsDead", |world, call, me| b(world
         .actor(me)
         .is_some_and(|a| a.dead)));
+    method!(vm, w, "Actor", "SetEssential", |world, call, me| {
+        world.set_actor_essential(me, call.arg(0).as_bool());
+        none()
+    });
     method!(vm, w, "Actor", "Kill", |world, call, me| {
         let killer = world.form_arg(&call.arg(0));
         world.kill_actor(me, killer);
@@ -3254,7 +3258,6 @@ fn stubs(vm: &mut Vm) -> usize {
         ("ObjectReference", "DamageObject"),
         ("ObjectReference", "KnockAreaEffect"),
         ("ObjectReference", "PushActorAway"),
-        ("Actor", "SetEssential"),
         ("Actor", "SetVehicle"),
         ("Actor", "SetLookAt"),
         ("Actor", "ClearLookAt"),
