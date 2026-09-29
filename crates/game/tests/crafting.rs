@@ -87,6 +87,7 @@ fn pending(game: &Game) -> Vec<(soe_papyrus::ObjectId, String, Vec<Value>)> {
             Pending::Event { object, name, args } => (*object, name.clone(), args.clone()),
             Pending::Call { .. } => panic!("unexpected function call"),
             Pending::BindEffect { .. } => panic!("unexpected magic effect binding"),
+            Pending::BindReference { .. } => panic!("unexpected reference binding"),
             Pending::DeferredDeath { .. } | Pending::ActorDeath { .. } => {
                 panic!("unexpected actor death")
             }

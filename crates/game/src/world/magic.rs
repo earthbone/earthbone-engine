@@ -2,8 +2,10 @@
 
 //! Active spell applications, following CK Magic Effect, DispelSpell and
 //! DispelAllSpells contracts, xEdit SPEL/MGEF fields and CommonLib MagicSystem
-//! enums. Definitions stay in the winning records. Per-cast magnitudes,
-//! elapsed time and reversible actor-value deltas belong to the world.
+//! enums. MGEF and EXPL links follow xEdit's `wbDefinitionsTES5.pas` and
+//! UESP's local MGEF and EXPL layouts. Definitions stay in the winning
+//! records. Per-cast magnitudes, elapsed time and reversible actor-value
+//! deltas belong to the world.
 //! Unsupported delivery and archetypes return errors before applying effects.
 
 use soe_esm::records::gameplay::{Effect, Ingestible, MagicEffect, Spell};
@@ -28,6 +30,7 @@ const NO_MAGNITUDE: u32 = 1 << 10;
 const NO_AREA: u32 = 1 << 11;
 const NO_RECAST: u32 = 1 << 17;
 const NO_DEATH_DISPEL: u32 = 1 << 28;
+const SPAWN_SCRIPTED_REF: u32 = 43;
 pub(super) const DISPEL_WITH_KEYWORDS: u32 = 1 << 8;
 const INGESTIBLE_POISON: u32 = 1 << 17;
 
@@ -83,6 +86,8 @@ enum DispelRule {
 struct PreparedEffect {
     effect: ActiveEffect,
     summon_base: Option<GlobalFormId>,
+    scripted_ref_base: Option<GlobalFormId>,
+    scripted_ref_anchor: Option<GlobalFormId>,
     no_recast: bool,
     hit_event: bool,
     dispel_rules: Vec<DispelRule>,
@@ -311,6 +316,8 @@ impl World {
                 },
                 no_recast: data.flags & NO_RECAST != 0,
                 summon_base: None,
+                scripted_ref_base: None,
+                scripted_ref_anchor: None,
                 hit_event: false,
                 dispel_rules,
                 dispel: Vec::new(),
@@ -387,13 +394,25 @@ impl World {
         let target = match definition.data.delivery {
             0 => source,
             3 => target.ok_or(MagicError::Target)?,
+            4 if !definition.effects.is_empty()
+                && definition.effects.iter().all(|entry| {
+                    self.resolve_from(spell, entry.base_effect)
+                        .and_then(|effect| self.magic_effect(effect).ok())
+                        .is_some_and(|effect| effect.data.archetype == SPAWN_SCRIPTED_REF)
+                }) =>
+            {
+                target.unwrap_or(source)
+            }
             _ => {
                 return Err(MagicError::Unsupported(
                     "projectile, contact or location delivery",
                 ))
             }
         };
-        if self.reference(source).is_none() || self.actor(target).is_none() {
+        if self.reference(source).is_none()
+            || (definition.data.delivery != 4 && self.actor(target).is_none())
+            || (definition.data.delivery == 4 && self.reference(target).is_none())
+        {
             return Err(MagicError::Target);
         }
         let caster = caster.filter(|id| self.actor(*id).is_some());
@@ -404,9 +423,14 @@ impl World {
                 .ok_or(MagicError::Missing(spell))?;
             let base = self.magic_effect(effect)?;
             let data = &base.data;
+            let condition_target = if data.archetype == SPAWN_SCRIPTED_REF {
+                source
+            } else {
+                target
+            };
             let context = Context {
                 owner: spell,
-                subject: target,
+                subject: condition_target,
                 target: caster,
                 quest: None,
                 tempering_enchanted: None,
@@ -427,7 +451,7 @@ impl World {
                     return Err(MagicError::Target);
                 }
             }
-            if !matches!(data.archetype, 0 | 1 | 2 | 5 | 18) {
+            if !matches!(data.archetype, 0 | 1 | 2 | 5 | 18 | SPAWN_SCRIPTED_REF) {
                 return Err(MagicError::Unsupported("effect archetype"));
             }
             if data.taper_duration != 0.0 {
@@ -486,6 +510,16 @@ impl World {
             } else {
                 None
             };
+            let scripted_ref_base = if data.archetype == SPAWN_SCRIPTED_REF {
+                if definition.data.delivery != 4 || magnitude == 0.0 {
+                    return Err(MagicError::Unsupported(
+                        "scripted reference delivery or magnitude",
+                    ));
+                }
+                Some(self.scripted_ref_base(effect)?)
+            } else {
+                None
+            };
             let duration = if definition.data.cast_type == 0 {
                 None
             } else {
@@ -513,7 +547,16 @@ impl World {
             } else {
                 entry.data.area as f32
             };
-            let mut recipients = self.area_targets(target, radius);
+            let effect_target = if scripted_ref_base.is_some() {
+                source
+            } else {
+                target
+            };
+            let mut recipients = if scripted_ref_base.is_some() {
+                vec![source]
+            } else {
+                self.area_targets(effect_target, radius)
+            };
             if data.flags & HOSTILE != 0 {
                 recipients.retain(|&id| {
                     self.actor(id)
@@ -539,6 +582,8 @@ impl World {
                     },
                     no_recast: data.flags & NO_RECAST != 0,
                     summon_base,
+                    scripted_ref_base,
+                    scripted_ref_anchor: scripted_ref_base.map(|_| target),
                     hit_event: data.flags & (HOSTILE | NO_HIT_EVENT) == HOSTILE,
                     dispel_rules: dispel_rules.clone(),
                     dispel: Vec::new(),
@@ -546,6 +591,38 @@ impl World {
             }
         }
         self.apply_prepared_effects(prepared, alloc)
+    }
+
+    fn scripted_ref_base(&self, effect: GlobalFormId) -> Result<GlobalFormId, MagicError> {
+        let effect_ref = self
+            .order
+            .winner_ref(effect)
+            .ok_or(MagicError::Missing(effect))?;
+        let effect_record = self.order.record(effect_ref);
+        let data = effect_record
+            .find(super::T(b"DATA"))
+            .filter(|data| data.len() >= 80)
+            .ok_or(MagicError::Unsupported("scripted reference effect data"))?;
+        let explosion_raw = u32::from_le_bytes([data[76], data[77], data[78], data[79]]);
+        let explosion = self
+            .resolve_from(effect, explosion_raw)
+            .ok_or(MagicError::Missing(effect))?;
+        let explosion_ref = self
+            .order
+            .winner_ref(explosion)
+            .ok_or(MagicError::Missing(explosion))?;
+        let explosion_record = self.order.record(explosion_ref);
+        if explosion_record.tag != super::T(b"EXPL") {
+            return Err(MagicError::Unsupported("scripted reference explosion"));
+        }
+        let data = explosion_record
+            .find(super::T(b"DATA"))
+            .filter(|data| data.len() >= 20)
+            .ok_or(MagicError::Unsupported("scripted reference explosion data"))?;
+        let base_raw = u32::from_le_bytes([data[16], data[17], data[18], data[19]]);
+        self.resolve_from(explosion, base_raw)
+            .filter(|base| self.tag_of(*base).is_some())
+            .ok_or(MagicError::Missing(explosion))
     }
 
     fn apply_prepared_effects(
@@ -563,6 +640,13 @@ impl World {
                     reference.owner = Some(owner);
                 }
                 prepared.effect.summoned = Some(summon);
+            }
+            if let (Some(base), Some(anchor)) =
+                (prepared.scripted_ref_base, prepared.scripted_ref_anchor)
+            {
+                let spawned = self.place_at(base, anchor, false);
+                let object = self.object_of(Handle::Form(spawned), alloc);
+                self.pending.push(Pending::BindReference { object, base });
             }
             if prepared.hit_event {
                 let aggressor = self.form_value(

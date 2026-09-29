@@ -705,6 +705,34 @@ impl Game {
                         }
                     }
                 }
+                Pending::BindReference { object, base } => {
+                    let definition = {
+                        let world = self.world.borrow();
+                        world.order().winner_ref(base).and_then(|rref| {
+                            let record = world.order().record(rref);
+                            let raw = record.find(Tag::new(b"VMAD"))?;
+                            Some((rref.file, Vmad::parse(raw, record.tag)))
+                        })
+                    };
+                    if let Some((file, definition)) = definition {
+                        match definition {
+                            Ok(vmad) => {
+                                let mut report = BindReport::default();
+                                self.attach_all(object, base, file, &vmad.scripts, &mut report);
+                                for (script, _) in report.scripts_missing {
+                                    self.vm.log.push(
+                                        self.vm.time(),
+                                        format!("reference script missing: {script}"),
+                                    );
+                                }
+                            }
+                            Err(error) => self
+                                .vm
+                                .log
+                                .push(self.vm.time(), format!("reference VMAD: {error}")),
+                        }
+                    }
+                }
                 Pending::Event { object, name, args } => {
                     self.vm.send_event(object, &name, &args);
                 }

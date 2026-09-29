@@ -30,6 +30,8 @@ const KEYWORD: u32 = 0x400;
 const ITEM: u32 = 0x600;
 const OTHER_ITEM: u32 = 0x601;
 const SUMMON_BASE: u32 = 0x501;
+const SCRIPTED_REF_BASE: u32 = 0x602;
+const SCRIPTED_REF_EXPLOSION: u32 = 0x603;
 
 #[path = "magic/collection.rs"]
 mod collection;
@@ -474,6 +476,81 @@ fn mag_39_saved_summon_keeps_its_actor_link_until_expiry() {
     let reference = world.reference_ref(spawned).unwrap();
     assert!(reference.deleted);
     assert!(!reference.enabled);
+}
+
+#[test]
+fn mag_64_spawn_scripted_ref_places_authored_base_with_scripts_and_preserves_identity_on_load() {
+    let mut data = vec![0; 152];
+    put(&mut data, 64, 43);
+    put(&mut data, 76, SCRIPTED_REF_EXPLOSION);
+    put(&mut data, 80, 1);
+    put(&mut data, 84, 4);
+    let effect = Record::new(T(b"MGEF"), EFFECT).sub(T(b"DATA"), data);
+    let mut spell_data = vec![0; 36];
+    put(&mut spell_data, 8, 1);
+    put(&mut spell_data, 16, 1);
+    put(&mut spell_data, 20, 4);
+    let mut efit = 1.0f32.to_le_bytes().to_vec();
+    efit.extend_from_slice(&0u32.to_le_bytes());
+    efit.extend_from_slice(&10u32.to_le_bytes());
+    let scripted_spell = Record::new(T(b"SPEL"), SPELL)
+        .sub(T(b"SPIT"), spell_data)
+        .sub(T(b"EFID"), EFFECT.to_le_bytes())
+        .sub(T(b"EFIT"), efit);
+    let mut plugin = plugin(effect, vec![scripted_spell]);
+    let mut explosion_data = vec![0; 52];
+    put(&mut explosion_data, 16, SCRIPTED_REF_BASE);
+    plugin
+        .push_top(Record::new(T(b"EXPL"), SCRIPTED_REF_EXPLOSION).sub(T(b"DATA"), explosion_data));
+    let script = ScriptBuilder::new("SpawnedRefProbe", "ObjectReference")
+        .function(FunctionBuilder::new("OnLoad", "None").build())
+        .bytes();
+    plugin.push_top(
+        Record::new(T(b"ACTI"), SCRIPTED_REF_BASE)
+            .zsub(T(b"EDID"), "SpawnedRef")
+            .sub(
+                T(b"VMAD"),
+                Vmad {
+                    scripts: vec![ScriptEntry::new("SpawnedRefProbe")],
+                    ..Vmad::default()
+                }
+                .write(T(b"ACTI")),
+            ),
+    );
+    let mut original = game(plugin.clone());
+    original.load_script(&script).unwrap();
+    original.world_mut().reference(id(ACTOR)).unwrap().position = [12.0, 34.0, 56.0];
+
+    assert_eq!(cast(&mut original, SPELL, ACTOR).unwrap().len(), 1);
+    let spawned = GlobalFormId {
+        file: soe_game::world::DYNAMIC_FILE,
+        object: 0x1001,
+    };
+    let saved = original.save_state().unwrap();
+    original.run_until_idle(64);
+    {
+        let world = original.world();
+        let reference = world.reference_ref(spawned).unwrap();
+        assert_eq!(reference.base, Some(id(SCRIPTED_REF_BASE)));
+        assert_eq!(reference.position, [12.0, 34.0, 56.0]);
+    }
+    let spawned_object = original.object_of(Handle::Form(spawned));
+    assert!(original
+        .vm
+        .has_script_method(spawned_object, "SpawnedRefProbe", "OnLoad"));
+
+    let mut restored = game(plugin);
+    restored.load_script(&script).unwrap();
+    restored.load_state(&saved).unwrap();
+    restored.run_until_idle(64);
+    assert_eq!(
+        restored.world().reference_ref(spawned).unwrap().base,
+        Some(id(SCRIPTED_REF_BASE))
+    );
+    let spawned_object = restored.object_of(Handle::Form(spawned));
+    assert!(restored
+        .vm
+        .has_script_method(spawned_object, "SpawnedRefProbe", "OnLoad"));
 }
 
 #[test]
