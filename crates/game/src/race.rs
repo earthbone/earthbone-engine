@@ -87,3 +87,29 @@ impl Attributes {
         }))
     }
 }
+
+/// Whether the race's `DATA` flags mark it as a child race.
+///
+/// The flag is the `0x00000004` bit at bytes 32 to 35 in the RACE DATA
+/// prefix, following the four height and weight floats. The field layout follows
+/// xEdit's `wbRecord(RACE)` and UESP's RACE page.
+///
+/// # Errors
+/// Rejects a wrong record type or a `DATA` subrecord shorter than 36 bytes.
+pub fn is_child(record: &Record) -> Result<Option<bool>, Error> {
+    if record.tag != Tag(*b"RACE") {
+        return Err(Error::Invalid("race flags require RACE".into()));
+    }
+    let Some(data) = record.find(Tag(*b"DATA")) else {
+        return Ok(None);
+    };
+    let flags = data
+        .get(32..36)
+        .ok_or_else(|| Error::Invalid("short RACE DATA flags".into()))?;
+    let flags = u32::from_le_bytes(
+        flags
+            .try_into()
+            .map_err(|_| Error::Invalid("short RACE DATA flags".into()))?,
+    );
+    Ok(Some(flags & 0x4 != 0))
+}

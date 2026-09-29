@@ -261,6 +261,11 @@ Current behavior and compatibility limits:
   `GetEditorLocation` reads the same from the record and ignores `MoveTo`.
   Ownership is one `XOWN` slot on the reference or cell, `GetActorOwner` and
   `GetFactionOwner` answer by the owner's record type.
+- `Actor.IsChild` reads the Child bit from the actor's current race `DATA`.
+  `Actor.IsDetectedBy` reads the target's current observer-specific awareness
+  from the shared detection state and returns true for Alert or Combat. The
+  query does not generate an observation or advance detection. Commanded actor,
+  mount and trespass state do not yet have runtime producers.
 - The listener registrations (`RegisterForSleep`, `RegisterForTrackedStatsEvent`,
   `RegisterForAnimationEvent`, `RegisterForLOS` and the single variants) keep
   lists of VM objects. `Game.IncrementStat` fires `OnTrackedStatsEvent`,

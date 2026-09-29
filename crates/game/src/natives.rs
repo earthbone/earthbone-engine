@@ -956,6 +956,27 @@ fn object_reference(vm: &mut Vm, w: &Shared) {
 }
 
 fn actor(vm: &mut Vm, w: &Shared) {
+    method!(vm, w, "Actor", "IsChild", |world, call, me| {
+        match world.actor_is_child(me) {
+            Ok(child) => b(child),
+            Err(error) => {
+                call.log.push(call.time, error.to_string());
+                b(false)
+            }
+        }
+    });
+    method!(vm, w, "Actor", "IsDetectedBy", |world, call, me| {
+        let Some(observer) = world.form_arg(&call.arg(0)) else {
+            return b(false);
+        };
+        match world.is_actor_detected_by(me, observer) {
+            Ok(detected) => b(detected),
+            Err(error) => {
+                call.log.push(call.time, error.to_string());
+                b(false)
+            }
+        }
+    });
     for name in ["GetActorValue", "GetAV"] {
         method!(vm, w, "Actor", name, |world, call, me| f(
             world.actor_value(me, &text(&call.arg(0)))
@@ -3190,11 +3211,9 @@ fn stubs(vm: &mut Vm) -> usize {
         ("Actor", "IsRunning", false),
         ("Actor", "IsSprinting", false),
         ("Actor", "IsHostileToActor", false),
-        ("Actor", "IsChild", false),
         ("Actor", "IsCommandedActor", false),
         ("Actor", "IsOnMount", false),
         ("Actor", "IsTrespassing", false),
-        ("Actor", "IsDetectedBy", true),
         ("Actor", "HasLOS", true),
         ("Actor", "PathToReference", true),
         ("Quest", "IsStarting", false),

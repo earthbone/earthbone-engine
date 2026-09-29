@@ -42,6 +42,26 @@ fn apply_distributed(a: &mut ActorState, d: Distributed) {
 }
 
 impl World {
+    /// Whether an actor's current winning race has the RACE DATA Child flag.
+    ///
+    /// # Errors
+    /// Returns an error for a non-actor, a missing or invalid race record, or
+    /// malformed RACE DATA.
+    pub fn actor_is_child(&mut self, id: GlobalFormId) -> Result<bool, soe_esm::Error> {
+        let race = self
+            .actor(id)
+            .ok_or_else(|| soe_esm::Error::Invalid("form is not an actor".into()))?
+            .race;
+        let Some(race) = race else {
+            return Ok(false);
+        };
+        let record = self
+            .record(race)
+            .filter(|record| !record.is_deleted())
+            .ok_or_else(|| soe_esm::Error::Invalid("missing actor race".into()))?;
+        crate::race::is_child(record).map(|child| child.unwrap_or(false))
+    }
+
     /// The `NPC_` view of an actor base, with one level of `TPLT` applied.
     pub fn npc(&self, base: GlobalFormId) -> Option<Npc> {
         let mut npc = self.npc_record(base).ok()?;
