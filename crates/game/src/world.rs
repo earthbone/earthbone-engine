@@ -90,6 +90,7 @@ mod rng;
 pub(crate) mod save;
 mod save_section_registry;
 mod save_sections;
+mod scr_40;
 mod template_restore;
 mod templates;
 pub use template_restore::TemplateRestoreReport;
@@ -159,6 +160,10 @@ pub struct RefState {
     /// Remaining health and active DEST stage for this placed object.
     pub destruction_health: Option<f32>,
     pub destruction_stage: i32,
+    /// Set by `ObjectReference.SetNoFavorAllowed` for follower interactions.
+    pub no_favor_allowed: bool,
+    /// Cleared destruction effects do not return on subsequent damage.
+    pub destruction_cleared: bool,
     pub ignore_friendly_hits: bool,
     /// Animation graph variables set through `SetAnimationVariable*`, keyed
     /// by lowercase name. The graph has one value per name, the three
@@ -200,6 +205,8 @@ impl RefState {
             destroyed: false,
             destruction_health: None,
             destruction_stage: -1,
+            no_favor_allowed: false,
+            destruction_cleared: false,
             ignore_friendly_hits: false,
             anim_floats: BTreeMap::new(),
             anim_ints: BTreeMap::new(),

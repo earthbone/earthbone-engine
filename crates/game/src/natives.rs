@@ -455,6 +455,17 @@ fn object_reference(vm: &mut Vm, w: &Shared) {
         vm,
         w,
         "ObjectReference",
+        "SetNoFavorAllowed",
+        |world, call, me| {
+            let allowed = call.args.first().is_none_or(Value::as_bool);
+            let _ = world.set_no_favor_allowed(me, allowed);
+            none()
+        }
+    );
+    method!(
+        vm,
+        w,
+        "ObjectReference",
         "DamageObject",
         |world, call, me| {
             world.damage_object(me, call.arg(0).as_float(), alloc!(call));
@@ -3275,7 +3286,6 @@ fn stubs(vm: &mut Vm) -> usize {
         ("ObjectReference", "PlayGamebryoAnimation"),
         ("ObjectReference", "SetMotionType"),
         ("ObjectReference", "ApplyHavokImpulse"),
-        ("ObjectReference", "SetNoFavorAllowed"),
         ("ObjectReference", "KnockAreaEffect"),
         ("ObjectReference", "PushActorAway"),
         ("Actor", "SetEssential"),

@@ -29,4 +29,5 @@ pub(crate) const ACTOR_SECTIONS: &[Section<ActorState>] = &[
 #[rustfmt::skip]
 pub(crate) const REF_SECTIONS: &[Section<RefState>] = &[
     super::destruction::SECTION,
+    super::scr_40::SECTION,
 ];

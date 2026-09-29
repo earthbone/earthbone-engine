@@ -195,6 +195,8 @@ fn ref_state(h: &mut StateHasher, s: &RefState) {
         None => h.u8(0),
     }
     h.i32(s.destruction_stage);
+    h.bool(s.no_favor_allowed);
+    h.bool(s.destruction_cleared);
     h.bool(s.ignore_friendly_hits);
     h.len(s.anim_floats.len());
     for (k, v) in &s.anim_floats {
