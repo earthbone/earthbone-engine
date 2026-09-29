@@ -277,6 +277,75 @@ impl ChangeForm {
             rank,
         }))
     }
+
+    /// Decode ACTI, TACT and DOOR base-object change fields.
+    ///
+    /// xEdit defines zero-byte markers for value, full-name and TACT speaker
+    /// changes. The optional form flags are the only payload bytes these
+    /// records define.
+    ///
+    /// # Errors
+    /// Rejects unknown flag bits, truncated form flags and trailing payload
+    /// bytes.
+    pub fn activator_change(&self) -> Result<Option<ActivatorChange>> {
+        let known = match self.record_type() {
+            "ACTI" | "DOOR" => 0b111,
+            "TACT" => 0x0080_0007,
+            _ => return Ok(None),
+        };
+        check_record_flags(self.change_flags, known)?;
+        let payload = self.payload()?;
+        let mut cursor = Cursor::new(&payload, "activator change");
+        let form_flags = record_form_flags(&mut cursor, self.change_flags)?;
+        finish_record(&cursor)?;
+        Ok(Some(ActivatorChange {
+            form_flags,
+            value_changed: self.change_flags & 2 != 0,
+            full_name_changed: self.change_flags & 4 != 0,
+            speaker_changed: self.record_type() == "TACT" && self.change_flags & (1 << 23) != 0,
+        }))
+    }
+}
+
+/// Saved ACTI, TACT and DOOR change markers.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ActivatorChange {
+    /// The optional six-byte form flags section.
+    pub form_flags: Option<FormFlags>,
+    /// Whether the source marks the zero-byte base-object value field changed.
+    pub value_changed: bool,
+    /// Whether the source marks the zero-byte full-name field changed.
+    pub full_name_changed: bool,
+    /// Whether the TACT zero-byte speaker field is marked changed.
+    pub speaker_changed: bool,
+}
+
+impl ActivatorChange {
+    /// Rebuild the record's change flag word.
+    pub fn change_flags(self, record_type: &str) -> Result<u32> {
+        let speaker = if self.speaker_changed {
+            if record_type != "TACT" {
+                return Err(invalid_record("speaker marker belongs only to TACT"));
+            }
+            1 << 23
+        } else {
+            0
+        };
+        if !matches!(record_type, "ACTI" | "TACT" | "DOOR") {
+            return Err(invalid_record("unsupported activator change type"));
+        }
+        Ok(u32::from(self.form_flags.is_some())
+            | (u32::from(self.value_changed) << 1)
+            | (u32::from(self.full_name_changed) << 2)
+            | speaker)
+    }
+
+    /// Rebuild the source-defined payload bytes.
+    pub fn data_bytes(self) -> Vec<u8> {
+        let mut out = Vec::new();
+        write_record_form_flags(self.form_flags, &mut out);
+        out
+    }
 }
 
 /// Saved CLAS sections. xEdit names tag skills but defines no payload for it.
