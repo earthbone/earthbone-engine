@@ -21,15 +21,27 @@ fn game() -> Game {
     plugin.push_top(Record::new(Tag(*b"MISC"), INGREDIENT));
     plugin.push_top(Record::new(Tag(*b"MISC"), OUTPUT));
     plugin.push_top(Record::new(Tag(*b"ACHR"), PLAYER).sub(Tag(*b"NAME"), BASE.to_le_bytes()));
-    plugin.push_top(Record::new(Tag(*b"FURN"), FURNITURE)
-        .sub(Tag(*b"WBDT"), [1, 0xff]).sub(Tag(*b"KWDA"), KEYWORD.to_le_bytes()));
+    plugin.push_top(
+        Record::new(Tag(*b"FURN"), FURNITURE)
+            .sub(Tag(*b"WBDT"), [1, 0xff])
+            .sub(Tag(*b"KWDA"), KEYWORD.to_le_bytes()),
+    );
     plugin.push_top(Record::new(Tag(*b"REFR"), BENCH).sub(Tag(*b"NAME"), FURNITURE.to_le_bytes()));
     plugin.push_top(quest::build_record(QUEST, "CraftQuest", 0));
-    plugin.push_top(Record::new(Tag(*b"COBJ"), RECIPE)
-        .sub(Tag(*b"CNAM"), OUTPUT.to_le_bytes())
-        .sub(Tag(*b"BNAM"), KEYWORD.to_le_bytes())
-        .sub(Tag(*b"NAM1"), 1u16.to_le_bytes())
-        .sub(Tag(*b"CNTO"), [INGREDIENT.to_le_bytes().as_slice(), 1i32.to_le_bytes().as_slice()].concat()));
+    plugin.push_top(
+        Record::new(Tag(*b"COBJ"), RECIPE)
+            .sub(Tag(*b"CNAM"), OUTPUT.to_le_bytes())
+            .sub(Tag(*b"BNAM"), KEYWORD.to_le_bytes())
+            .sub(Tag(*b"NAM1"), 1u16.to_le_bytes())
+            .sub(
+                Tag(*b"CNTO"),
+                [
+                    INGREDIENT.to_le_bytes().as_slice(),
+                    1i32.to_le_bytes().as_slice(),
+                ]
+                .concat(),
+            ),
+    );
     let mut order = LoadOrder::new();
     order.add("Craft.esm", plugin).unwrap();
     Game::new(order)
@@ -53,8 +65,14 @@ fn crf_05_breaker_each_success_dispatches_once_and_later_rejection_adds_none() {
     let events = game.world_mut().take_story_manager_events();
     assert_eq!(events.len(), 2);
     for event in &events {
-        assert_eq!(event.kind, soe_game::quest::state::StoryManagerEventKind::CraftItem);
-        assert_eq!(event.parameters, vec![Some(bench), None, Some(id(&game, OUTPUT))]);
+        assert_eq!(
+            event.kind,
+            soe_game::quest::state::StoryManagerEventKind::CraftItem
+        );
+        assert_eq!(
+            event.parameters,
+            vec![Some(bench), None, Some(id(&game, OUTPUT))]
+        );
     }
     assert!(game.craft(player, bench, recipe).is_err());
     assert!(game.world_mut().take_story_manager_events().is_empty());

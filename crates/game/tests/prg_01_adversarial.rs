@@ -2,22 +2,44 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
-use soe_game::{npc::{self, Config, Stats}, Game};
+use soe_game::{
+    npc::{self, Config, Stats},
+    Game,
+};
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
-const ACTOR: GlobalFormId = GlobalFormId { file: 0, object: 0x800 };
+const ACTOR: GlobalFormId = GlobalFormId {
+    file: 0,
+    object: 0x800,
+};
 
 fn game() -> Game {
     let mut plugin = Plugin::new(FileHeader::default());
     let mut stats = Stats::default();
     stats.skills[0] = 5;
-    plugin.push_top(npc::build_record(0x800, "Skill Actor", "Skill Actor", Config::default(), stats));
-    plugin.push_top(Record::new(T(b"AVIF"), 0x801)
-        .sub(T(b"EDID"), b"AVOneHanded\0".to_vec())
-        .sub(T(b"AVSK"), [2.0f32, 1.0, 0.2, 2.0].into_iter().flat_map(f32::to_le_bytes).collect::<Vec<_>>()));
-    plugin.push_top(Record::new(T(b"GMST"), 0x802)
-        .sub(T(b"EDID"), b"fSkillUseCurve\0".to_vec())
-        .sub(T(b"DATA"), 2.0f32.to_le_bytes()));
+    plugin.push_top(npc::build_record(
+        0x800,
+        "Skill Actor",
+        "Skill Actor",
+        Config::default(),
+        stats,
+    ));
+    plugin.push_top(
+        Record::new(T(b"AVIF"), 0x801)
+            .sub(T(b"EDID"), b"AVOneHanded\0".to_vec())
+            .sub(
+                T(b"AVSK"),
+                [2.0f32, 1.0, 0.2, 2.0]
+                    .into_iter()
+                    .flat_map(f32::to_le_bytes)
+                    .collect::<Vec<_>>(),
+            ),
+    );
+    plugin.push_top(
+        Record::new(T(b"GMST"), 0x802)
+            .sub(T(b"EDID"), b"fSkillUseCurve\0".to_vec())
+            .sub(T(b"DATA"), 2.0f32.to_le_bytes()),
+    );
     let mut order = LoadOrder::new();
     order.add("Progression.esm", plugin).unwrap();
     Game::new(order)

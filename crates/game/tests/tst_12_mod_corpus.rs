@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
-
-//! Weekly mod corpus sweep. Point `SOE_MOD_CORPUS` at a directory containing
-//! one installed mod directory per child. The sweep reads local files only.
+// Weekly mod corpus sweep. Point `SOE_MOD_CORPUS` at a directory containing
+// one installed mod directory per child. The sweep reads local files only.
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -337,6 +335,7 @@ fn render(reports: &[ModReport]) -> String {
 struct TempDir(PathBuf);
 
 impl TempDir {
+    #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
     fn new(case: &str) -> Self {
         let path = std::env::temp_dir().join(format!("soe-tst-12-{}-{case}", std::process::id()));
         let _ = std::fs::remove_dir_all(&path);
@@ -351,6 +350,7 @@ impl Drop for TempDir {
     }
 }
 
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #[test]
 fn tst_12_reports_parser_failures_per_mod() {
     let temp = TempDir::new("parser");
@@ -370,6 +370,7 @@ fn tst_12_reports_parser_failures_per_mod() {
     assert!(rendered.contains("bad.nif"), "{rendered}");
 }
 
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #[test]
 fn tst_12_reports_unresolved_natives_per_mod() {
     let temp = TempDir::new("native");
@@ -395,6 +396,7 @@ fn tst_12_reports_unresolved_natives_per_mod() {
     );
 }
 
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #[test]
 fn tst_12_reports_missing_assets_per_mod() {
     let temp = TempDir::new("asset");
@@ -419,6 +421,7 @@ fn tst_12_reports_missing_assets_per_mod() {
     assert!(rendered.contains("meshes/custom/missing.nif"), "{rendered}");
 }
 
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #[test]
 fn tst_12_mod_corpus_sweep() {
     let Some(root) = std::env::var_os("SOE_MOD_CORPUS").map(PathBuf::from) else {

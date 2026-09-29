@@ -449,12 +449,19 @@ fn tst_12_adversarial_mixed_children_keep_each_mod_report_separate() {
     std::fs::write(broken.join("bad.esp"), b"not a plugin").unwrap();
 
     let mut plugin = Plugin::new(FileHeader::default());
-    plugin.push_top(Record::new(Tag::new(b"STAT"), 0x800)
-        .zsub(Tag::new(b"MODL"), "meshes/absent/item.nif"));
+    plugin.push_top(
+        Record::new(Tag::new(b"STAT"), 0x800).zsub(Tag::new(b"MODL"), "meshes/absent/item.nif"),
+    );
     std::fs::write(missing.join("MissingPack.esp"), plugin.to_bytes()).unwrap();
 
     let reports = run_corpus(&temp.0);
-    assert_eq!(reports.iter().map(|report| report.name.as_str()).collect::<Vec<_>>(), ["BrokenPack", "MissingPack"]);
+    assert_eq!(
+        reports
+            .iter()
+            .map(|report| report.name.as_str())
+            .collect::<Vec<_>>(),
+        ["BrokenPack", "MissingPack"]
+    );
     assert_eq!(reports[0].parser_failures.len(), 1);
     assert!(reports[0].missing_assets.is_empty());
     assert!(reports[1].parser_failures.is_empty());
