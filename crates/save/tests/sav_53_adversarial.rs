@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use soe_save::{ChangeForm, RefId, base_object::flags};
+use soe_save::{base_object::flags, ChangeForm, RefId};
 
 fn form(change_flags: u32, data: Vec<u8>) -> ChangeForm {
     ChangeForm {
