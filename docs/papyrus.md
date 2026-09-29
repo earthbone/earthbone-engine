@@ -205,7 +205,7 @@ arrays. Nonpositive counts do nothing. Invalid insertion and removal indexes
 are logged and leave the array unchanged. Mutations that would exceed
 `MAX_ARRAY_LEN` are logged and leave it unchanged. A None array logs an error.
 The PEX opcode names and operand layout follow Champollion's
-`Pex/Instruction.cpp` and Caprica's `pex/PexFunctionBuilder.h`; Caprica's
+`Pex/Instruction.cpp` and Caprica's `pex/PexFunctionBuilder.h`. Caprica's
 `PapyrusFunctionCallExpression.cpp` shows the default Add and Remove count is
 one and that these mutation calls do not produce a result value. The state
 format already saves array identity and contents through the shared array pool,

@@ -696,7 +696,7 @@ fn fallout_4_opcodes_abort_the_thread_with_the_line() {
     assert_eq!(vm.thread_state(tid), Some(ThreadState::Done));
     let msg = vm.log.messages().join("\n");
     assert!(
-        msg.contains("StructCreate") && msg.contains("Fo4.Bad line 21"),
+        msg.contains("struct_create") && msg.contains("Fo4.Bad line 21"),
         "{msg}"
     );
 }
