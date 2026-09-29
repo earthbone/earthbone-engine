@@ -11,7 +11,10 @@
 mod installed;
 
 use soe_esm::records::navm::{EdgeLink, Geometry, NavGrid, Parent, Triangle};
-use soe_esm::{plugin::flags, Entry, FileHeader, Group, GroupKind, LoadOrder, Plugin, Record, Tag};
+use soe_esm::{
+    plugin::flags, Entry, FileHeader, GlobalFormId, Group, GroupKind, LoadOrder, Plugin, Record,
+    Tag,
+};
 use soe_game::ai::{self, AiState, Procedure};
 use soe_game::npc::{self, Config, Stats};
 use soe_game::package::{self, condition, CompValue, Condition, Location, LocationData, Schedule};
@@ -58,6 +61,10 @@ const MARKER_A: u32 = 0x808;
 const NAVM_A: u32 = 0x810;
 const NAVM_B: u32 = 0x811;
 const IDLE_A: u32 = 0x822;
+
+fn id(object: u32) -> GlobalFormId {
+    GlobalFormId { file: 0, object }
+}
 
 fn placed(tag: [u8; 4], id: u32, edid: &str, base: u32, at: [f32; 3]) -> Record {
     let mut data = Vec::with_capacity(24);
@@ -443,6 +450,39 @@ fn game_at_hour_with_race(hour: f64, race: Record) -> Game {
     let mut game = Game::new(order);
     game.load_script(&guard_script()).unwrap();
     game.world_mut().clock.game_days = hour / 24.0;
+    let guard = game.form("GuardRef").unwrap();
+    assert!(game.world_mut().drive_actor(guard));
+    game
+}
+
+fn paralysis_game() -> Game {
+    const PARALYSIS_EFFECT: u32 = 0x790;
+    const PARALYSIS_SPELL: u32 = 0x791;
+    let mut plugin = test_plugin();
+    let mut effect_data = vec![0; 152];
+    effect_data[64..68].copy_from_slice(&21u32.to_le_bytes());
+    effect_data[80..84].copy_from_slice(&1u32.to_le_bytes());
+    effect_data[84..88].copy_from_slice(&3u32.to_le_bytes());
+    plugin.push_top(Record::new(T(b"MGEF"), PARALYSIS_EFFECT).sub(T(b"DATA"), effect_data));
+    let mut spell_data = vec![0; 36];
+    spell_data[16..20].copy_from_slice(&1u32.to_le_bytes());
+    spell_data[20..24].copy_from_slice(&3u32.to_le_bytes());
+    let mut efit = 1.0f32.to_le_bytes().to_vec();
+    efit.extend_from_slice(&0u32.to_le_bytes());
+    efit.extend_from_slice(&1u32.to_le_bytes());
+    plugin.push_top(
+        Record::new(T(b"SPEL"), PARALYSIS_SPELL)
+            .sub(T(b"SPIT"), spell_data)
+            .sub(T(b"EFID"), PARALYSIS_EFFECT.to_le_bytes())
+            .sub(T(b"EFIT"), efit),
+    );
+    let mut order = LoadOrder::new();
+    order
+        .add("Packages.esm", Plugin::parse(&plugin.to_bytes()).unwrap())
+        .unwrap();
+    let mut game = Game::new(order);
+    game.load_script(&guard_script()).unwrap();
+    game.world_mut().clock.game_days = 12.0 / 24.0;
     let guard = game.form("GuardRef").unwrap();
     assert!(game.world_mut().drive_actor(guard));
     game
@@ -846,6 +886,46 @@ fn the_driver_state_survives_a_save() {
         (pos[0] - 190.0).abs() < 5.0,
         "kept walking after the load, at {pos:?}"
     );
+}
+
+#[test]
+fn mag_42_paralysis_stops_npc_travel_until_effect_expires() {
+    const PARALYSIS_SPELL: u32 = 0x791;
+    let mut game = paralysis_game();
+    let guard = game.form("GuardRef").unwrap();
+    let quest = game.form("GuardQuest").unwrap();
+    game.set_stage(quest, 10);
+    tick(&mut game, 0.5);
+    let before = game.world_mut().reference(guard).unwrap().position;
+    let player = game.player();
+    let shared = game.shared_world();
+    shared
+        .borrow_mut()
+        .cast_spell(
+            id(PARALYSIS_SPELL),
+            player,
+            Some(player),
+            Some(guard),
+            &mut |name, class| game.vm.create_object_of(name, class),
+        )
+        .unwrap();
+    assert_eq!(
+        game.world().magic_effect(id(0x790)).unwrap().data.archetype,
+        21
+    );
+    assert_eq!(game.world().active_effects().count(), 1);
+    assert!(game.world().actor_is_paralyzed(guard));
+    assert!(!game.world().actor_is_paralyzed(player));
+    assert_eq!(game.world_mut().actor_value(guard, "paralysis"), 1.0);
+
+    tick(&mut game, 0.5);
+    assert_eq!(game.world_mut().reference(guard).unwrap().position, before);
+    assert!(game.world().actor_is_paralyzed(guard));
+
+    tick(&mut game, 0.6);
+    assert!(!game.world().actor_is_paralyzed(guard));
+    assert_eq!(game.world_mut().actor_value(guard, "paralysis"), 0.0);
+    assert_ne!(game.world_mut().reference(guard).unwrap().position, before);
 }
 
 #[test]

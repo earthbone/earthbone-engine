@@ -30,6 +30,8 @@ const NO_RECAST: u32 = 1 << 17;
 const NO_DEATH_DISPEL: u32 = 1 << 28;
 pub(super) const DISPEL_WITH_KEYWORDS: u32 = 1 << 8;
 const INGESTIBLE_POISON: u32 = 1 << 17;
+const PARALYSIS_ARCHETYPE: u32 = 21;
+const CURE_PARALYSIS_ARCHETYPE: u32 = 27;
 
 /// Identity of one effect application, independent of its MGEF FormID.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -80,6 +82,7 @@ pub enum MagicError {
 enum DispelRule {
     Timed,
     Keywords(Vec<GlobalFormId>),
+    Paralysis,
 }
 
 struct PreparedEffect {
@@ -92,6 +95,16 @@ struct PreparedEffect {
 }
 
 impl World {
+    /// Whether a live Paralysis archetype currently suppresses actor motion.
+    pub fn actor_is_paralyzed(&self, actor: GlobalFormId) -> bool {
+        self.active_effects.values().any(|active| {
+            active.target == actor
+                && self
+                    .magic_effect(active.effect)
+                    .is_ok_and(|effect| effect.data.archetype == PARALYSIS_ARCHETYPE)
+        })
+    }
+
     /// All currently applied effects, in application order.
     pub fn active_effects(&self) -> impl Iterator<Item = &ActiveEffect> {
         self.active_effects.values()
@@ -239,7 +252,10 @@ impl World {
                     return Err(MagicError::Target);
                 }
             }
-            if !matches!(data.archetype, 0 | 1 | 2 | 5) {
+            if !matches!(
+                data.archetype,
+                0 | 1 | 2 | 5 | PARALYSIS_ARCHETYPE | CURE_PARALYSIS_ARCHETYPE
+            ) {
                 return Err(MagicError::Unsupported("effect archetype"));
             }
             if entry.data.area != 0 || data.area != 0 || data.taper_duration != 0.0 {
@@ -263,7 +279,9 @@ impl World {
                 magnitude
             };
             let mut changes = Vec::new();
-            if matches!(data.archetype, 0 | 5) {
+            if data.archetype == PARALYSIS_ARCHETYPE {
+                changes.push(("paralysis".to_string(), signed));
+            } else if matches!(data.archetype, 0 | 5) {
                 let name = actor_value_name(data.primary_actor_value)
                     .ok_or(MagicError::Unsupported("actor value"))?;
                 changes.push((name.to_string(), signed));
@@ -282,6 +300,9 @@ impl World {
             let mut dispel_rules = Vec::new();
             if data.archetype == 2 {
                 dispel_rules.push(DispelRule::Timed);
+            }
+            if data.archetype == CURE_PARALYSIS_ARCHETYPE {
+                dispel_rules.push(DispelRule::Paralysis);
             }
             if data.flags & DISPEL_WITH_KEYWORDS != 0 {
                 let keywords = self.keyword_entries(effect);
@@ -309,7 +330,7 @@ impl World {
                     }),
                     elapsed: 0.0,
                     summoned: None,
-                    recover: data.flags & RECOVER != 0,
+                    recover: data.flags & RECOVER != 0 || data.archetype == PARALYSIS_ARCHETYPE,
                     changes,
                 },
                 no_recast: data.flags & NO_RECAST != 0,
@@ -573,7 +594,10 @@ impl World {
                     return Err(MagicError::Target);
                 }
             }
-            if !matches!(data.archetype, 0 | 1 | 2 | 5 | 18) {
+            if !matches!(
+                data.archetype,
+                0 | 1 | 2 | 5 | 18 | PARALYSIS_ARCHETYPE | CURE_PARALYSIS_ARCHETYPE
+            ) {
                 return Err(MagicError::Unsupported("effect archetype"));
             }
             if data.taper_duration != 0.0 {
@@ -602,7 +626,9 @@ impl World {
                 magnitude
             };
             let mut changes = Vec::new();
-            if matches!(data.archetype, 0 | 5) {
+            if data.archetype == PARALYSIS_ARCHETYPE {
+                changes.push(("paralysis".to_string(), signed));
+            } else if matches!(data.archetype, 0 | 5) {
                 let name = actor_value_name(data.primary_actor_value)
                     .ok_or(MagicError::Unsupported("actor value"))?;
                 changes.push((name.to_string(), signed));
@@ -646,6 +672,9 @@ impl World {
             if data.archetype == 2 {
                 dispel_rules.push(DispelRule::Timed);
             }
+            if data.archetype == CURE_PARALYSIS_ARCHETYPE {
+                dispel_rules.push(DispelRule::Paralysis);
+            }
             if data.flags & DISPEL_WITH_KEYWORDS != 0 {
                 let keywords = self.keyword_entries(effect);
                 for keyword in &keywords {
@@ -681,7 +710,7 @@ impl World {
                         duration,
                         elapsed: 0.0,
                         summoned: None,
-                        recover: data.flags & RECOVER != 0,
+                        recover: data.flags & RECOVER != 0 || data.archetype == PARALYSIS_ARCHETYPE,
                         changes: changes.clone(),
                     },
                     no_recast: data.flags & NO_RECAST != 0,
@@ -836,6 +865,15 @@ impl World {
                                 .keywords(effect.effect)
                                 .iter()
                                 .any(|keyword| keywords.contains(keyword))
+                            {
+                                selected.insert(effect.id);
+                            }
+                        }
+                    }
+                    DispelRule::Paralysis => {
+                        for effect in live.iter() {
+                            if self.magic_effect(effect.effect)?.data.archetype
+                                == PARALYSIS_ARCHETYPE
                             {
                                 selected.insert(effect.id);
                             }
