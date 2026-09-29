@@ -504,7 +504,7 @@ impl World {
     /// Every reference the index files under a cell, persistent and
     /// temporary. Collected into a vector because the index borrows the load
     /// order and building a reference needs the world.
-    fn cell_reference_ids(&mut self, cell: GlobalFormId) -> Vec<GlobalFormId> {
+    pub(crate) fn cell_reference_ids(&mut self, cell: GlobalFormId) -> Vec<GlobalFormId> {
         if self.order.cell_index().is_none() {
             self.order.build_cell_index();
         }

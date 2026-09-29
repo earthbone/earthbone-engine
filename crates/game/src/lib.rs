@@ -136,11 +136,21 @@ fn data_archives_for(plugin_name: &str, data_dir: &Path) -> Vec<PathBuf> {
     found
 }
 
+fn is_placed_reference(tag: Tag) -> bool {
+    [
+        b"REFR", b"ACHR", b"ACRE", b"PGRE", b"PBEA", b"PMIS", b"PARW", b"PHZD",
+    ]
+    .iter()
+    .any(|bytes| tag == Tag::new(bytes))
+}
+
 pub struct Game {
     pub vm: Vm,
     world: Rc<RefCell<World>>,
     pub registered: Registered,
     bound: Option<BindReport>,
+    bound_forms: BTreeSet<GlobalFormId>,
+    bound_cells: BTreeSet<GlobalFormId>,
     /// Instructions per pump round before the loop yields.
     pub budget: usize,
     /// One hash per tick once [`Game::record_hashes`] turned it on.
@@ -164,6 +174,8 @@ impl Game {
             world,
             registered,
             bound: None,
+            bound_forms: BTreeSet::new(),
+            bound_cells: BTreeSet::new(),
             budget: 100_000,
             hash_log: None,
             greeting_range_actors: BTreeSet::new(),
@@ -321,8 +333,8 @@ impl Game {
         self.object_of(Handle::Form(id))
     }
 
-    /// Attach every script the load order names and fill its properties.
-    /// Runs once, later calls return the first report.
+    /// Attach non-reference scripts in the load order and fill their properties.
+    /// Placed-reference scripts are attached by [`Game::bind_cell`].
     pub fn bind(&mut self) -> BindReport {
         if let Some(r) = &self.bound {
             return r.clone();
@@ -334,13 +346,13 @@ impl Game {
             let mut out = Vec::new();
             for (file_index, file) in order.files().iter().enumerate() {
                 for (i, rec) in file.plugin.records.iter().enumerate() {
-                    if rec.tag == Tag::new(b"MGEF") {
-                        continue;
-                    }
                     let Some(raw) = rec.find(Tag::new(b"VMAD")) else {
                         continue;
                     };
                     let id = order.resolve(file_index, rec.form_id);
+                    if is_placed_reference(rec.tag) {
+                        continue;
+                    }
                     let rref = RecordRef {
                         file: file_index,
                         record: i,
@@ -356,23 +368,81 @@ impl Game {
             out
         };
         let _bind_span = soe_trace::Span::with_payload("game.bind", "game", carriers.len() as u64);
-        for (id, rref, _tag, vmad) in carriers {
+        for (id, rref, tag, vmad) in carriers {
             let _span = soe_trace::Span::new("game.bind_form", "game");
-            report.forms_with_scripts += 1;
-            let object = self.object_of(Handle::Form(id));
-            self.attach_all(object, id, rref.file, &vmad.scripts, &mut report);
-            for alias in &vmad.aliases {
-                let alias_id = u32::try_from(alias.object.alias).unwrap_or(u32::MAX);
-                let handle = Handle::Alias {
-                    quest: id,
-                    id: alias_id,
-                };
-                let object = self.object_of(handle);
-                self.attach_all(object, id, rref.file, &alias.scripts, &mut report);
+            if tag == Tag::new(b"MGEF") {
+                for entry in &vmad.scripts {
+                    if entry.status != 3 && !self.vm.has_script(&entry.name) {
+                        report.scripts_missing.push((entry.name.clone(), id));
+                    }
+                }
+            } else {
+                self.bind_carrier(id, rref.file, &vmad, &mut report);
             }
         }
         self.bound = Some(report.clone());
         report
+    }
+
+    /// Build a cell's references and attach the VMAD scripts they carry.
+    /// Each cell and form is bound once. Missing script files are listed in
+    /// the returned report with their owning form.
+    pub fn load_cell(&mut self, cell: GlobalFormId) -> BindReport {
+        self.world.borrow_mut().load_cell(cell);
+        self.bind_cell(cell)
+    }
+
+    /// Attach scripts on placed references in a cell that has been loaded.
+    /// Calls for the same cell return an empty report after the first call.
+    pub fn bind_cell(&mut self, cell: GlobalFormId) -> BindReport {
+        if !self.bound_cells.insert(cell) {
+            return BindReport::default();
+        }
+        let ids = self.world.borrow_mut().cell_reference_ids(cell);
+        let carriers = {
+            let world = self.world.borrow();
+            let order = world.order();
+            ids.into_iter()
+                .filter_map(|id| {
+                    if self.bound_forms.contains(&id) {
+                        return None;
+                    }
+                    let rref = order.winner_ref(id)?;
+                    let record = order.record(rref);
+                    let raw = record.find(Tag::new(b"VMAD"))?;
+                    let vmad = Vmad::parse(raw, record.tag).ok()?;
+                    Some((id, rref.file, vmad))
+                })
+                .collect::<Vec<_>>()
+        };
+        let mut report = BindReport::default();
+        for (id, file, vmad) in carriers {
+            if self.bound_forms.insert(id) {
+                self.bind_carrier(id, file, &vmad, &mut report);
+            }
+        }
+        report
+    }
+
+    fn bind_carrier(
+        &mut self,
+        id: GlobalFormId,
+        file: usize,
+        vmad: &Vmad,
+        report: &mut BindReport,
+    ) {
+        report.forms_with_scripts += 1;
+        let object = self.object_of(Handle::Form(id));
+        self.attach_all(object, id, file, &vmad.scripts, report);
+        for alias in &vmad.aliases {
+            let alias_id = u32::try_from(alias.object.alias).unwrap_or(u32::MAX);
+            let handle = Handle::Alias {
+                quest: id,
+                id: alias_id,
+            };
+            let object = self.object_of(handle);
+            self.attach_all(object, id, file, &alias.scripts, report);
+        }
     }
 
     fn attach_all(
@@ -727,6 +797,10 @@ impl Game {
     /// Alternate VM runs and pumps until nothing is runnable and nothing is
     /// queued, or `max_rounds` passes. Returns true when settled.
     pub fn run_until_idle(&mut self, max_rounds: usize) -> bool {
+        let loaded_cell = self.world.borrow().loaded_cell();
+        if let Some(cell) = loaded_cell {
+            self.bind_cell(cell);
+        }
         for _ in 0..max_rounds {
             self.pump();
             self.vm.run(self.budget);
