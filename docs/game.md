@@ -150,6 +150,61 @@ location modes follow CommonLibSSE `TESFaction.h` and UESP `FACT.wikitext`.
 
 ## Conformance table
 
+### ActiveMagicEffect and Actor native contract audit, SCR-02
+
+The registry binds methods by declaring class. Actor also resolves inherited
+ObjectReference and Form methods through the Papyrus class chain. There are no
+global bindings declared on Actor or ActiveMagicEffect. The Effect object's
+own bindings are listed below; each is a method registration, not a Form
+registration. CK's corpus has no ActiveMagicEffect function pages, so those
+contracts come from the shipped `skse64/scripts/vanilla/ActiveMagicEffect.psc`
+in `engine-refs`.
+
+| Binding | Contract comparison | Disposition |
+|---|---|---|
+| ActiveMagicEffect.GetBaseObject | Returns the MagicEffect form attached to this active effect. | Returns the effect form from its active-effect record. |
+| ActiveMagicEffect.GetTargetActor | Returns the actor this spell effect targets. | Returns the recorded target actor. |
+| ActiveMagicEffect.GetCasterActor | Returns the actor that cast the spell, or None. | Returns the recorded optional caster. |
+| ActiveMagicEffect.Dispel | Removes this active effect. | Queues removal for the effect represented by this script object. |
+| ActiveMagicEffect.AddInventoryEventFilter | Accepts a Form filter for item added and removed events. | Adds the filter under this script object's identity. |
+| ActiveMagicEffect.RemoveInventoryEventFilter | Removes the matching Form filter. | Removes matching entries for this script object. |
+| ActiveMagicEffect.RemoveAllInventoryEventFilters | Removes all filters for this effect. | Clears this script object's filter set. |
+| ActiveMagicEffect.RegisterForSingleUpdate | Takes an interval in seconds and schedules one update. | Uses the real-time update scheduler with repeat disabled. |
+| ActiveMagicEffect.RegisterForUpdate | Takes an interval in seconds and schedules repeating updates. | Uses the real-time update scheduler with repeat enabled. |
+| ActiveMagicEffect.RegisterForSingleUpdateGameTime | Takes an interval in game hours and schedules one update. | Uses the game-time scheduler with repeat disabled. |
+| ActiveMagicEffect.RegisterForUpdateGameTime | Takes an interval in game hours and schedules repeating updates. | Uses the game-time scheduler with repeat enabled. |
+| ActiveMagicEffect.UnregisterForUpdate | Stops real-time update delivery. | Removes this object's real-time update registration. |
+| ActiveMagicEffect.UnregisterForUpdateGameTime | Stops game-time update delivery. | Removes this object's game-time update registration. |
+| ActiveMagicEffect.RegisterForAnimationEvent | Takes sender and event name, returns whether registration succeeded. | Rejects a missing sender, de-duplicates the listener and returns success. |
+| ActiveMagicEffect.UnregisterForAnimationEvent | Takes sender and event name and removes the registration. | Removes only the matching listener and event. |
+
+The CK `Actor_Script.wikitext` member and Special Edition sections were
+compared against each Actor-class registration in `natives.rs`. Named
+function pages were opened for registered contracts with argument-specific
+semantics, including actor values, death, combat, faction membership,
+equipment, relationship ranks, spell management, outfit selection, sneaking,
+restraint, and active magic. The concrete contract differences found were:
+
+| Binding | CK contract | Current registry behavior | Owning work |
+|---|---|---|---|
+| Actor.GetCombatState | Returns 0 not in combat, 1 in combat, or 2 searching. | Quietly returns 0 because search state is not represented. | SCR-10, with AI engagement state prerequisite CMB-17. |
+| Actor.GetEquippedWeapon | Returns the left or right hand weapon selected by its Boolean argument. | Quietly returns None. | SCR-14. |
+| Actor.GetEquippedShield | Returns the currently equipped shield. | Quietly returns None. | SCR-14. |
+| Actor.HasLOS, Actor.PathToReference | Use viewer/target or target-reference arguments to query or start navigation. | Quietly return the safe defaults. | SCR-10. |
+| Actor.IsFlying | Reports the actor's flight state. | Quietly returns false. | SCR-10, with flight state prerequisite AI-65 through AI-68. |
+| Actor.GetSleepState, Actor.GetSitState, Actor.GetFlyingState | Return the documented state code. | Quietly return 0. | SCR-10 and SCR-11; flight state also depends on AI-66. |
+| Actor.SetEssential | Changes the actor's essential flag. | Quietly returns None without changing the flag. | SCR-11. |
+| Actor.EquipItem | `abPreventRemoval` prevents replacement through EquipItem; `abSilent` suppresses the equip message. | Both arguments are ignored; no lock or message state is represented. | No current backlog row owns the lock and message behavior. |
+
+`Actor.GetActorValueMax` and its `GetAVMax` alias include current modifiers;
+the value path reads the shared actor-value components. `Actor.StartSneaking`
+toggles sneaking when called on an already sneaking actor, matching the
+function page note. `Actor.SetRestrained(true)` clears unconscious state,
+matching the mutually exclusive state described by its function page. The
+SCR-02 registry regression checks the ActiveMagicEffect registrations and the
+Actor discrepancy bindings against this inventory. It does not claim original
+runtime parity for state which the engine does not model yet.
+
 Counts from `natives::register`: 364 natives with state behind them and 177
 
 Counts from `natives::register`: 366 natives with state behind them and 175
