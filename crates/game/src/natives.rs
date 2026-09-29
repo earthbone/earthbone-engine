@@ -3437,4 +3437,24 @@ mod tests {
         assert!(vm.natives.has_global("game", "getplayer"));
         assert!(vm.natives.has_method("alias", "getowningquest"));
     }
+
+    #[test]
+    fn scr_62_registry_contains_every_audited_binding() {
+        let mut vm = Vm::new();
+        let world = Rc::new(RefCell::new(World::new(LoadOrder::new())));
+        register(&mut vm, &world);
+
+        for class in ["Alias", "Scene", "Package", "TopicInfo"] {
+            assert!(
+                vm.natives.has_method(class, "GetOwningQuest"),
+                "missing {class}.GetOwningQuest"
+            );
+        }
+        for name in ["GetValue", "GetValueInt", "SetValue", "SetValueInt", "Mod"] {
+            assert!(
+                vm.natives.has_method("GlobalVariable", name),
+                "missing GlobalVariable.{name}"
+            );
+        }
+    }
 }

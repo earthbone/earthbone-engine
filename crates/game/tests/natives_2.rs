@@ -1508,6 +1508,34 @@ fn inventory_event_filters_stack() {
     assert!(errors(&g).is_empty(), "{:?}", errors(&g));
 }
 
+/// CK lists Alias.GetOwningQuest and the five GlobalVariable members. The
+/// shipped GlobalVariable script defines the integer methods through casts.
+#[test]
+fn scr_62_alias_owner_and_global_variable_methods_follow_script_contracts() {
+    let mut g = game();
+    let quest = g.form("LocQuest").unwrap();
+    let alias = Value::Object(g.object_of(Handle::Alias { quest, id: 1 }));
+    assert_eq!(
+        call(&mut g, &alias, "GetOwningQuest", &[]),
+        obj(&mut g, "LocQuest")
+    );
+
+    let global = obj(&mut g, "Counter");
+    assert_eq!(call(&mut g, &global, "GetValue", &[]), Value::Float(0.0));
+    assert_eq!(call(&mut g, &global, "GetValueInt", &[]), Value::Int(0));
+    call(&mut g, &global, "SetValue", &[Value::Float(7.75)]);
+    assert_eq!(call(&mut g, &global, "GetValue", &[]), Value::Float(7.75));
+    assert_eq!(call(&mut g, &global, "GetValueInt", &[]), Value::Int(7));
+    call(&mut g, &global, "SetValueInt", &[Value::Int(4)]);
+    assert_eq!(call(&mut g, &global, "GetValue", &[]), Value::Float(4.0));
+    assert_eq!(
+        call(&mut g, &global, "Mod", &[Value::Float(1.5)]),
+        Value::Float(5.5)
+    );
+    assert_eq!(call(&mut g, &global, "GetValue", &[]), Value::Float(5.5));
+    assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
 /// CK's AddItem page says that a FormList adds aiCount of every member. The
 /// queued events are one OnItemAdded per base form, carrying that same count.
 #[test]
