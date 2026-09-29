@@ -83,7 +83,7 @@ fn mag_71_duplicate_authored_channel_rejects_the_frame() {
     plugin.push_top(record);
     let mut order = LoadOrder::new();
     order.add("BadMag71.esm", plugin).unwrap();
-    let mut game = Game::new(order);
+    let game = Game::new(order);
     game.world_mut().apply_image_space(id(1), 1.0).unwrap();
     let mut stack = ImageSpaceStack::default();
     stack.sync(&game.world());
