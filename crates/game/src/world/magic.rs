@@ -35,6 +35,21 @@ const INGESTIBLE_POISON: u32 = 1 << 17;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct EffectId(pub u64);
 
+/// A spell waiting for its release input or held for concentration.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SpellCast {
+    pub spell: GlobalFormId,
+    pub target: Option<GlobalFormId>,
+    pub kind: SpellCastKind,
+}
+
+/// The cast types that have an interruptible live phase.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SpellCastKind {
+    FireAndForget,
+    Concentration,
+}
+
 /// Mutable state of one application. Actor values include the recoverable
 /// deltas until this instance ends, so loading must never apply them again.
 #[derive(Debug, Clone, PartialEq)]
@@ -90,6 +105,70 @@ struct PreparedEffect {
 }
 
 impl World {
+    /// Begin a fire-and-forget charge or a held concentration cast.
+    /// Starting a cast does not apply effects or spend magicka.
+    ///
+    /// # Errors
+    /// Returns an error for a missing spell or a cast type without an
+    /// interruptible live phase.
+    pub fn begin_spell_cast(
+        &mut self,
+        caster: GlobalFormId,
+        spell: GlobalFormId,
+        target: Option<GlobalFormId>,
+    ) -> Result<(), MagicError> {
+        let definition = self.spell(spell)?;
+        let kind = match definition.data.cast_type {
+            1 => SpellCastKind::FireAndForget,
+            2 => SpellCastKind::Concentration,
+            _ => return Err(MagicError::Unsupported("non-interruptible cast type")),
+        };
+        self.spell_casts_in_progress.insert(
+            caster,
+            SpellCast {
+                spell,
+                target,
+                kind,
+            },
+        );
+        Ok(())
+    }
+
+    /// Release a charged fire-and-forget cast through normal spell effects.
+    /// The cast remains pending if effect preparation fails.
+    ///
+    /// # Errors
+    /// Returns an error when there is no pending cast, when the cast is not
+    /// fire-and-forget, or when the existing spell execution path rejects it.
+    pub fn release_spell_cast(
+        &mut self,
+        caster: GlobalFormId,
+        alloc: Alloc<'_>,
+    ) -> Result<Vec<EffectId>, MagicError> {
+        let cast = self
+            .spell_casts_in_progress
+            .get(&caster)
+            .copied()
+            .ok_or(MagicError::Unsupported("no pending spell cast"))?;
+        if cast.kind != SpellCastKind::FireAndForget {
+            return Err(MagicError::Unsupported("concentration release"));
+        }
+        let effects = self.cast_spell(cast.spell, caster, Some(caster), cast.target, alloc)?;
+        self.spell_casts_in_progress.remove(&caster);
+        Ok(effects)
+    }
+
+    /// Stop a reference's pending charge or concentration cast.
+    /// Released casts have no pending session and their effects remain live.
+    pub fn interrupt_spell_cast(&mut self, caster: GlobalFormId) -> bool {
+        self.spell_casts_in_progress.remove(&caster).is_some()
+    }
+
+    /// Read the pending cast phase for a reference.
+    pub fn pending_spell_cast(&self, caster: GlobalFormId) -> Option<SpellCast> {
+        self.spell_casts_in_progress.get(&caster).copied()
+    }
+
     /// All currently applied effects, in application order.
     pub fn active_effects(&self) -> impl Iterator<Item = &ActiveEffect> {
         self.active_effects.values()

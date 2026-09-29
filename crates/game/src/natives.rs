@@ -451,6 +451,16 @@ fn form(vm: &mut Vm, w: &Shared) {
 }
 
 fn object_reference(vm: &mut Vm, w: &Shared) {
+    method!(
+        vm,
+        w,
+        "ObjectReference",
+        "InterruptCast",
+        |world, _call, me| {
+            world.interrupt_spell_cast(me);
+            none()
+        }
+    );
     for name in ["Enable", "EnableNoWait"] {
         method!(vm, w, "ObjectReference", name, |world, call, me| {
             if let Some(r) = world.reference(me) {
@@ -3279,7 +3289,6 @@ fn stubs(vm: &mut Vm) -> usize {
         ("Keyword", "SendStoryEvent"),
         ("ActorBase", "GetGiftFilter"),
         ("ObjectReference", "WaitForAnimationEvent"),
-        ("ObjectReference", "InterruptCast"),
         ("Actor", "PlayIdleWithTarget"),
         ("Spell", "Preload"),
         ("Spell", "Unload"),
