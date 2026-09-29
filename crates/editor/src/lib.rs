@@ -6,7 +6,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use soe_esm::records::navm::{Geometry, NavMesh, Triangle};
-use soe_esm::{Entry, GlobalFormId, GroupKind, LoadOrder, Plugin, Record, Subrecord, Tag};
+use soe_esm::{Entry, GlobalFormId, Group, GroupKind, LoadOrder, Plugin, Record, Subrecord, Tag};
 use soe_papyrus::{pex, psc};
 use thiserror::Error;
 
@@ -83,6 +83,14 @@ pub enum EditorError {
         "quest form {0} uses localized strings, which cannot be updated by the plugin-only writer"
     )]
     LocalizedQuestText(GlobalFormId),
+    /// The requested response is absent from an INFO record.
+    #[error("form {form} has no response at index {response}")]
+    MissingResponse {
+        /// INFO form being edited.
+        form: GlobalFormId,
+        /// Zero-based response index.
+        response: usize,
+    },
     /// Saving the active plugin failed.
     #[error("could not write plugin {path}: {source}")]
     Save {
@@ -324,16 +332,25 @@ impl EditorDocument {
                     .winner_ref(form)
                     .ok_or(EditorError::MissingForm(form))?;
                 let source = self.load_order.record(record_ref);
-                if !is_top_level(
-                    &self.load_order.file(record_ref.file).plugin,
-                    record_ref.record,
-                ) {
+                let source_plugin = &self.load_order.file(record_ref.file).plugin;
+                let dialogue_topic =
+                    source.tag == Tag(*b"DIAL") && is_top_level(source_plugin, record_ref.record);
+                let dialogue_info = source.tag == Tag(*b"INFO")
+                    && matches!(source.placement.group, Some(GroupKind::TopicChildren(_)));
+                if !dialogue_topic
+                    && !dialogue_info
+                    && !is_top_level(source_plugin, record_ref.record)
+                {
                     return Err(EditorError::UnsupportedEdit {
                         form,
                         reason: "nested record placement needs FMT-15 and FMT-26 FormID remapping",
                     });
                 }
-                if source.tag != Tag(*b"STAT") && source.tag != Tag(*b"GLOB") {
+                if source.tag != Tag(*b"STAT")
+                    && source.tag != Tag(*b"GLOB")
+                    && !dialogue_topic
+                    && !dialogue_info
+                {
                     return Err(EditorError::UnsupportedEdit {
                         form,
                         reason: "record reference relocation is not available before FMT-15",
@@ -341,6 +358,9 @@ impl EditorDocument {
                 }
                 let mut record = source.clone();
                 record.form_id = self.local_form_id(form)?;
+                if dialogue_topic {
+                    self.remap_dialogue_topic_links(&mut record, record_ref.file, form)?;
+                }
                 (record, true)
             }
         };
@@ -360,7 +380,16 @@ impl EditorDocument {
 
         self.undo.push(self.active_plugin.clone());
         if add_override {
-            self.active_plugin.push_top(record);
+            if record.tag == Tag(*b"INFO") {
+                self.push_dialogue_info(
+                    record,
+                    self.load_order
+                        .winner_ref(form)
+                        .map_or(self.active_index, |record_ref| record_ref.file),
+                )?;
+            } else {
+                self.active_plugin.push_top(record);
+            }
         } else if let Some(index) = self.active_record_index(form) {
             self.active_plugin.records[index] = record;
         }
@@ -520,6 +549,69 @@ impl EditorDocument {
         }
         self.sync_record_count();
         self.rebuild_load_order()
+    }
+
+    /// Replace the text of one response in an INFO record.
+    ///
+    /// Responses are selected by the order of their TRDT subrecords. Their
+    /// following NAM1 fields remain attached to the same response.
+    ///
+    /// # Errors
+    /// Returns an error if the INFO form or response is missing, the INFO
+    /// record is not in a topic group, or the active plugin cannot represent
+    /// the override.
+    pub fn set_dialogue_response_text(
+        &mut self,
+        form: GlobalFormId,
+        response_index: usize,
+        data: Vec<u8>,
+    ) -> Result<(), EditorError> {
+        let active_index = self.active_record_index(form);
+        let record_ref = self
+            .load_order
+            .winner_ref(form)
+            .ok_or(EditorError::MissingForm(form))?;
+        let mut record = active_index
+            .and_then(|index| self.active_plugin.records.get(index).cloned())
+            .unwrap_or_else(|| self.load_order.record(record_ref).clone());
+        if record.tag != Tag(*b"INFO") {
+            return Err(EditorError::UnsupportedEdit {
+                form,
+                reason: "response text can only be edited on INFO records",
+            });
+        }
+        let mut response = 0;
+        let mut response_text = None;
+        for (index, subrecord) in record.subrecords.iter().enumerate() {
+            if subrecord.tag == Tag(*b"TRDT") {
+                if response == response_index {
+                    response_text = record.subrecords[index + 1..]
+                        .iter()
+                        .take_while(|next| next.tag != Tag(*b"TRDT"))
+                        .position(|next| next.tag == Tag(*b"NAM1"))
+                        .map(|offset| index + 1 + offset);
+                    break;
+                }
+                response += 1;
+            }
+        }
+        let text_index = response_text.ok_or(EditorError::MissingResponse {
+            form,
+            response: response_index,
+        })?;
+        record.subrecords[text_index].data = data;
+
+        self.undo.push(self.active_plugin.clone());
+        if let Some(index) = active_index {
+            self.active_plugin.records[index] = record;
+        } else {
+            let source_file = record_ref.file;
+            record.form_id = self.local_form_id(form)?;
+            self.push_dialogue_info(record, source_file)?;
+        }
+        self.sync_record_count();
+        self.rebuild_load_order()?;
+        Ok(())
     }
 
     /// Undo the most recent edit, returning whether an edit was available.
@@ -737,6 +829,79 @@ impl EditorDocument {
                 reason: "the active plugin does not list the owning plugin as a master",
             })?;
         Ok(((master as u32) << 24) | form.object)
+    }
+
+    fn remap_dialogue_topic_links(
+        &self,
+        record: &mut Record,
+        source_file: usize,
+        form: GlobalFormId,
+    ) -> Result<(), EditorError> {
+        for tag in [Tag(*b"BNAM"), Tag(*b"QNAM")] {
+            let Some(subrecord) = record.subrecords.iter_mut().find(|sub| sub.tag == tag) else {
+                continue;
+            };
+            if subrecord.data.len() != 4 {
+                return Err(EditorError::UnsupportedEdit {
+                    form,
+                    reason: "dialogue topic link has an invalid size",
+                });
+            }
+            let bytes = &subrecord.data;
+            let raw = u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
+            if raw == 0 {
+                continue;
+            }
+            let target = self.load_order.resolve(source_file, raw);
+            subrecord.data[..4].copy_from_slice(&self.local_form_id(target)?.to_le_bytes());
+        }
+        Ok(())
+    }
+
+    fn push_dialogue_info(
+        &mut self,
+        mut record: Record,
+        source_file: usize,
+    ) -> Result<(), EditorError> {
+        let source_group = record.placement.group.ok_or(EditorError::UnsupportedEdit {
+            form: self.load_order.resolve(self.active_index, record.form_id),
+            reason: "INFO override has no owning dialogue topic group",
+        })?;
+        let GroupKind::TopicChildren(source_topic) = source_group else {
+            return Err(EditorError::UnsupportedEdit {
+                form: self.load_order.resolve(self.active_index, record.form_id),
+                reason: "INFO override has no owning dialogue topic group",
+            });
+        };
+        let topic = self.load_order.resolve(source_file, source_topic);
+        let local_topic = self.local_form_id(topic)?;
+        let top_kind = GroupKind::Top(Tag(*b"DIAL"));
+        if self.active_plugin.find_group_mut(top_kind).is_none() {
+            self.active_plugin.groups.push(Group::new(top_kind));
+        }
+        let child = GroupKind::TopicChildren(local_topic);
+        let index = self.active_plugin.push_record(record.clone());
+        let top =
+            self.active_plugin
+                .find_group_mut(top_kind)
+                .ok_or(EditorError::UnsupportedEdit {
+                    form: self.load_order.resolve(source_file, record.form_id),
+                    reason: "cannot place INFO override in the dialogue group",
+                })?;
+        if let Some(Entry::Group(group)) = top
+            .entries
+            .iter_mut()
+            .find(|entry| matches!(entry, Entry::Group(group) if group.kind == child))
+        {
+            group.entries.push(Entry::Record(index));
+        } else {
+            let mut group = Group::new(child);
+            group.entries.push(Entry::Record(index));
+            top.entries.push(Entry::Group(group));
+        }
+        record.placement.group = Some(child);
+        self.active_plugin.records[index].placement = record.placement;
+        Ok(())
     }
 
     fn rebuild_load_order(&mut self) -> Result<(), EditorError> {
