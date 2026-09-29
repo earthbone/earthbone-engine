@@ -41,6 +41,7 @@ mod game_settings;
 pub mod harness;
 pub mod inventory;
 pub mod moddata;
+pub mod music;
 pub mod natives;
 pub mod npc;
 pub mod package;

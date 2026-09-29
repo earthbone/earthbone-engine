@@ -2050,6 +2050,26 @@ cycles and output links supplied by overrides. All 48 installed footstep sound
 links prepared successfully in the existing 24-case survey. Host execution and
 its output-model limits are documented in [godot-host.md](godot-host.md).
 
+## Record-backed music selection (AUD-05)
+
+`music::select` reads a winning `MUSC`, evaluates each candidate `MUST`'s CTDA
+list through the shared condition evaluator, and descends eligible MUST
+palettes to one leaf. A leaf returns its normalized filename or silent-track
+marker, duration, fade-out, loop range and count, cue points, and the parent
+music type's fade, priority, ducking amount, and flags. Unsupported condition
+functions and malformed links or fields return errors. An abrupt-transition
+flag makes the selected fade-in zero. A missing candidate or a palette with no
+eligible child returns an error instead of selecting an ineligible track.
+
+The selection draw is supplied by the caller, must be finite in 0 to 1, and
+selects among eligible entries in their record order. The chooser does not own
+cycle history or save music playback state.
+
+The installed `MUSCombat` winner contains `GetCombatTargetHasKeyword`
+(condition function 707), which the shared evaluator rejects under AI-41's
+combat-state contract. The installed-data music test surveys for an eligible
+track with supported conditions and skips that known unsupported predicate.
+
 ## Authored locks and keys (2026-09-19)
 
 Placed references initialize their lock state and level from XLOC, which was
