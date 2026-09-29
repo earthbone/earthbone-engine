@@ -1909,6 +1909,23 @@ lifecycle work is not present in this worktree, so the option model and
 presenter are callable host pieces rather than a complete unmodified MCM script
 execution path. UI-11 tests exercise their protocol without Skyrim data.
 
+### MCM slider and menu dialogs, UI-12
+
+`ConfigPage` also stores slider rows with their current value, authored minimum,
+maximum and interval, and menu rows with their choices and selected value.
+Selecting a slider or menu row dispatches `OnOptionSliderOpen(int)` or
+`OnOptionMenuOpen(int)`. The returned dialog parameters use the row's current
+value as both slider start and default, and the current menu choice as both
+menu start and default. Accepting a slider clamps to its authored range and
+snaps to its interval before updating the row and dispatching
+`OnOptionSliderAccept(int, float)`. Accepting a menu updates the displayed
+choice and dispatches `OnOptionMenuAccept(int, int)` with its choice index.
+Cancelling closes the dialog without changing the row or dispatching an accept
+event. `SKI_ConfigBase.psc` defines no cancel event. The callback names and
+arguments match that source, while `SKI_ConfigManager.psc` confirms the manager
+routes slider and menu selection and acceptance to those callbacks. The
+`ui_12` fixtures use synthetic scripts and do not require Skyrim data.
+
 The host keeps the scene tree running. PlayerNode routes its existing Game
 through MenuState::tick and Game::tick_menu_mode. While a menu is open, host
 physics, camera input and activation do not advance. The game clock, ordinary
