@@ -258,6 +258,7 @@ year or more or blocked.
    classes the Skyrim Behavior Editor exposes, clip and event tables, and the load-time
    merge that replaces Nemesis and Pandora. Blocked on the behaviour runtime design
    (`docs/hkx.md`) for what a merged graph must preserve.
+
 10. **FaceGen and NPC editing** (L). Head part assembly, morphs, tint layers to DDS, the
     NPC dialog, and export in the paths the game expects. Needs morph support in the mesh
     pipeline.
@@ -267,3 +268,18 @@ year or more or blocked.
 12. **LOD generation** (XL, deferred). Object and terrain LOD from the form table and the
     mesh pipeline, replacing DynDOLOD and xLODGen output. Consuming their output is the
     policy until the mesh pipeline has been stable for a release cycle.
+
+### Editor core implementation
+
+`soe-editor` opens plugin paths in load-order order through `soe-esm`, keeps one active
+plugin, and updates the resolved order when an edit is applied or undone. A subrecord edit
+to a supported winning top-level `STAT` record creates an active-plugin override. Undo
+restores the prior active plugin. Saving writes the active plugin bytes and parses those
+bytes again before returning the saved plugin. The TES4 record count is updated with edits.
+
+Copying a winning record whose owner differs from the active plugin requires relocating
+FormIDs in the record and its group path. The editor currently rejects nested records and
+supports copied top-level `STAT` records only. The FMT-15 FormID renumbering and FMT-26
+master relocation rows remain open. The Spriggit output guide describes separate text files
+per record, while the current editor writes plugin files only. No text plugin translation
+or `.spriggit` configuration reader is implemented.
