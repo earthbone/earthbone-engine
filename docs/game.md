@@ -62,6 +62,19 @@ week 6 to 9 gate.
   `activate` and `send_event` do what a player or the engine would, `pump`
   drains what natives queued.
 
+`World::commonlib_event_sources` exposes the in-process CommonLib event
+channels for disarm, dragon souls gained, level increase and location
+discovery. The matching `commonlib_*` methods send those event payloads to
+registered sinks. Form identities retain both the load-order file index and
+object id. Level increase reads `player_level` and the current player identity
+from the live world, and rejects levels outside the event's `u16` field before
+dispatch. These events add no saved state. Disarm, dragon soul awards and
+location discovery are event entry points for their gameplay callers; this
+crate does not currently implement those gameplay systems. Binary hook
+requests return the requested hook name as an unsupported result without
+changing runtime state. The corresponding source-level API and C++ contract
+fixture are in `crates/commonlib-shim`.
+
 ## Design
 
 `vanilla_save::SavedFormMap` remaps ESS references through saved plugin names,
