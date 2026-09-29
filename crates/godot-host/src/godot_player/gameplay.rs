@@ -73,6 +73,8 @@ impl PlayerNode {
                     reference.position = [feet.x, feet.y, feet.z];
                     reference.rotation = rotation;
                 }
+                let look = self.rig.look_direction();
+                world.camera_look = [look.x, look.y, look.z];
             }
         }
         // Reflect the frame's enable and placement changes (activation,
@@ -92,6 +94,11 @@ impl PlayerNode {
         }
         if let Some(game) = &mut self.game {
             self.menu.tick(game, delta);
+            let shakes = std::mem::take(&mut game.world_mut().camera_shakes);
+            for shake in shakes {
+                self.camera_shake = Some((0.0, shake.duration, shake.strength));
+                self.camera_shake_time = 0.0;
+            }
             self.image_space.sync(&game.world());
         }
         if self.sync_game_pose() {

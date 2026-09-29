@@ -95,6 +95,21 @@ wikitext pages as of 2026-09-19. When an individual page is absent, class pages
 and `engine-refs/skse64/scripts/vanilla` can establish the contract.
 [The reference audit](reference-audit.md) records missed contracts and gaps.
 
+**Sun and camera natives, SCR-26.** `Game.GetSunPositionX/Y/Z` return the
+current time-driven sun position in Skyrim units, using a 100,000-unit orbit
+with sunrise at 06:00, overhead at 12:00 and sunset at 18:00. The sun position
+is relative to the player's current placement. `Game.IsPlayerSungazing`
+compares the host camera direction with the sun direction and returns true
+within one degree. `Game.ShakeCamera` queues a transient request for the host;
+its source defaults to the player, strength defaults to 0.5 and clamps to 0
+through 1, and duration zero uses `fCameraShakeDuration` or a 0.25-second
+fallback. Invalid source types, non-finite values and negative durations do
+not queue an effect. These camera requests are transient and are not saved.
+The CK pages define the returned coordinates and gaze meaning, while the
+shipped `Game.psc` defines the shake defaults and clamping. The CK corpus does
+not specify the sun orbit formula or gaze angular tolerance, so those are
+engine model choices rather than claimed vanilla measurements.
+
 **World reads out, host never writes back.** `World::ref_placement` (in
 `world/refs.rs`) is the read-only view a host uses to keep its own rendering
 and collision resources in step with a reference's runtime state: current
@@ -154,11 +169,10 @@ Counts from `natives::register`: 364 natives with state behind them and 177
 
 Counts from `natives::register`: 366 natives with state behind them and 175
 
-Counts from `natives::register`: 365 natives with state behind them and 180
+Counts from `natives::register`: 371 natives with state behind them and 170
 quiet stubs (141 and 176 before the natives round of 2026-09-18, 294 and 137
 before the DLC round). A stub returns the value the game gives when nothing
-is going on (`IsBleedingOut` false, `ShakeCamera` nothing) so vanilla scripts
-run past it.
+is going on (`IsBleedingOut` false) so vanilla scripts run past it.
 
 | Class | Implemented | Stubbed |
 |---|---|---|
@@ -171,7 +185,7 @@ run past it.
 | LeveledItem, LeveledActor, LeveledSpell | AddForm, Revert, GetNumForms, GetNthForm, GetNthLevel, GetNthCount, GetChanceNone, SetChanceNone (the last six are SKSE's, the state is there anyway) | |
 | Location | GetKeywordData, SetKeywordData, IsCleared, SetCleared, IsChild, HasCommonParent, IsSameLocation | IsLoaded, HasRefType, GetRefTypeAliveCount, GetRefTypeDeadCount |
 | Faction | SetAlly, SetEnemy, GetReaction, SetReaction, GetCrimeGold, GetCrimeGoldViolent, GetCrimeGoldNonViolent, SetCrimeGold, SetCrimeGoldViolent, ModCrimeGold, CanPayCrimeGold, PlayerPayCrimeGold, GetInfamy, GetInfamyViolent, GetInfamyNonViolent, IsPlayerExpelled, SetPlayerExpelled, SetPlayerEnemy, IsFactionInCrimeGroup | SendAssaultAlarm, SendPlayerToJail, ModReaction |
-| Game | GetPlayer, GetForm, GetFormEx, GetFormFromFile, EnablePlayerControls, DisablePlayerControls, GetGameSettingFloat/Int/String, SetGameSettingFloat/Int/Bool/String, GetRealHoursPassed, IncrementStat, QueryStat, IsFastTravelEnabled, EnableFastTravel, SetPlayerAIDriven, SetInChargen, SetBeastForm, TeachWord, UnlockWord, IsWordUnlocked, AddAchievement, GetPlayersLastRiddenHorse, AddPerkPoints | ShakeCamera, FadeOutGame, RequestSave, ForceFirstPerson, ShowRaceMenu, AdvanceSkill and 16 more, plus the DLC crime and sky functions: SendWereWolfTransformation, ServeTime, ClearPrison, SetSunGazeImageSpaceModifier, GetSunPositionX/Y/Z |
+| Game | GetPlayer, GetForm, GetFormEx, GetFormFromFile, EnablePlayerControls, DisablePlayerControls, GetGameSettingFloat/Int/String, SetGameSettingFloat/Int/Bool/String, GetRealHoursPassed, GetSunPositionX/Y/Z, IsPlayerSungazing, ShakeCamera, IncrementStat, QueryStat, IsFastTravelEnabled, EnableFastTravel, SetPlayerAIDriven, SetInChargen, SetBeastForm, TeachWord, UnlockWord, IsWordUnlocked, AddAchievement, GetPlayersLastRiddenHorse, AddPerkPoints | FadeOutGame, RequestSave, ForceFirstPerson, ShowRaceMenu, AdvanceSkill and 16 more, plus the DLC crime functions: SendWereWolfTransformation, ServeTime, ClearPrison, SetSunGazeImageSpaceModifier |
 | Debug | Trace, TraceUser, TraceConditional, TraceStack, Notification, MessageBox, SendAnimationEvent | OpenUserLog, CloseUserLog, QuitGame, CenterOnCell, SetGodMode and 14 more |
 | Utility | RandomInt, RandomFloat, GetCurrentGameTime, GetCurrentRealTime, GameTimeToString, SetINI\* and GetINI\* (eight) | IsInMenuMode, the frame rate and budget functions (eleven). `Wait`, `WaitMenuMode`, `WaitGameTime` are the VM's own |
 | GlobalVariable | GetValue, GetValueInt, SetValue, SetValueInt, Mod | |

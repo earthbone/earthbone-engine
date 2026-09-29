@@ -107,6 +107,8 @@ pub struct PlayerNode {
     interior_prefetch: crate::interior_prefetch::InteriorPrefetch,
     interior_prefetch_elapsed: f64,
     camera: Option<Gd<Camera3D>>,
+    camera_shake: Option<(f32, f32, f32)>,
+    camera_shake_time: f32,
     /// Mouse motion accumulated since the last camera or physics update, so a frame that
     /// delivers two motion events turns twice as far rather than once.
     pending_look: (f32, f32),
@@ -162,6 +164,8 @@ impl INode3D for PlayerNode {
             interior_prefetch: crate::interior_prefetch::InteriorPrefetch::default(),
             interior_prefetch_elapsed: 0.0,
             camera: None,
+            camera_shake: None,
+            camera_shake_time: 0.0,
             pending_look: (0.0, 0.0),
             last_activate_hit: false,
             last_activate_reference: None,
@@ -293,6 +297,7 @@ impl INode3D for PlayerNode {
             self.rig.look(dx, dy);
             let fraction = Engine::singleton().get_physics_interpolation_fraction() as f32;
             let (feet, height) = self.motion.sample(fraction);
+            self.update_camera_shake(delta as f32);
             self.place_camera(feet, height);
         }
     }
@@ -981,6 +986,32 @@ impl PlayerNode {
     /// Place the camera where the rig says, converting into Godot's space.
     fn update_camera(&mut self) {
         self.place_camera(self.feet(), self.capsule_height());
+    }
+
+    fn update_camera_shake(&mut self, delta: f32) {
+        let offsets = if let Some((elapsed, duration, strength)) = self.camera_shake {
+            let next = elapsed + delta.max(0.0);
+            if next >= duration {
+                self.camera_shake = None;
+                self.camera_shake_time = 0.0;
+                (0.0, 0.0)
+            } else {
+                self.camera_shake = Some((next, duration, strength));
+                self.camera_shake_time += delta.max(0.0);
+                let fade = (1.0 - next / duration.max(f32::EPSILON)).clamp(0.0, 1.0);
+                let phase = self.camera_shake_time * 38.0;
+                (
+                    strength * fade * 0.012 * phase.sin(),
+                    strength * fade * 0.012 * (phase * 1.37).cos(),
+                )
+            }
+        } else {
+            (0.0, 0.0)
+        };
+        if let Some(camera) = &mut self.camera {
+            camera.set_h_offset(offsets.0);
+            camera.set_v_offset(offsets.1);
+        }
     }
 
     fn place_camera(&mut self, feet: Vec3, height: f32) {

@@ -202,7 +202,7 @@ pub fn register(vm: &mut Vm, world: &Shared) -> Registered {
 
 /// Hand-kept count of the non-stub natives registered below. The test in
 /// this module checks it against the registry.
-pub const NATIVE_COUNT: usize = 366;
+pub const NATIVE_COUNT: usize = 371;
 
 fn declare_parents(vm: &mut Vm) {
     for (class, parent) in [
@@ -1754,6 +1754,39 @@ fn game(vm: &mut Vm, w: &Shared) {
     global!(vm, w, "Game", "GetRealHoursPassed", |world, _call| f(
         (world.clock.real_seconds / 3600.0) as f32
     ));
+    for (name, axis) in [
+        ("GetSunPositionX", 0),
+        ("GetSunPositionY", 1),
+        ("GetSunPositionZ", 2),
+    ] {
+        global!(vm, w, "Game", name, |world, _call| f(
+            world.sun_position()[axis]
+        ));
+    }
+    global!(vm, w, "Game", "IsPlayerSungazing", |world, _call| {
+        b(world.player_is_sungazing())
+    });
+    global!(vm, w, "Game", "ShakeCamera", |world, call| {
+        let player = world.player();
+        let source = match call.args.first() {
+            None | Some(Value::None) => Some(player),
+            Some(Value::Object(object)) => world.form_of(*object),
+            _ => None,
+        };
+        if let Some(source) = source {
+            let strength = call.args.get(1).map_or(0.5, Value::as_float);
+            let duration = call.args.get(2).map_or(0.0, Value::as_float);
+            if duration == 0.0 {
+                let setting = world
+                    .game_setting("fCameraShakeDuration")
+                    .map_or(0.25, |v| v.as_float());
+                world.shake_camera(source, strength, setting);
+            } else {
+                world.shake_camera(source, strength, duration);
+            }
+        }
+        none()
+    });
     global!(vm, w, "Game", "IncrementStat", |world, call| {
         let amount = call.args.get(1).map_or(1, Value::as_int);
         world.increment_stat(&text(&call.arg(0)), amount);
@@ -3204,7 +3237,6 @@ fn stubs(vm: &mut Vm) -> usize {
         ("Location", "HasRefType", false),
         ("Scene", "IsActionComplete", false),
         ("Keyword", "SendStoryEventAndWait", false),
-        ("Game", "IsPlayerSungazing", false),
         // CONTEXT: Flight and ragdoll execution are not implemented.
         ("Actor", "IsFlying", false),
         ("ObjectReference", "IsFurnitureMarkerInUse", false),
@@ -3327,12 +3359,7 @@ fn stubs(vm: &mut Vm) -> usize {
     }
     // No warmth system (the survival plugin is not loaded) and no sun to
     // take a position from.
-    let floats: &[(&str, &str, f32)] = &[
-        ("Actor", "GetWarmthRating", 0.0),
-        ("Game", "GetSunPositionX", 0.0),
-        ("Game", "GetSunPositionY", 0.0),
-        ("Game", "GetSunPositionZ", 0.0),
-    ];
+    let floats: &[(&str, &str, f32)] = &[("Actor", "GetWarmthRating", 0.0)];
     for (class, name, value) in floats {
         let global = *class == "Game";
         let v = *value;
@@ -3345,9 +3372,7 @@ fn stubs(vm: &mut Vm) -> usize {
         n += 1;
     }
     let globals_none: &[(&str, &str)] = &[
-        ("Game", "ShakeCamera"),
-        // Werewolf crime, jail time and sun gazing are crime and weather
-        // systems the engine has not written yet.
+        // Werewolf crime and jail time are systems the engine has not written yet.
         ("Game", "SendWereWolfTransformation"),
         ("Game", "ServeTime"),
         ("Game", "ClearPrison"),
