@@ -7,6 +7,66 @@
 use crate::form::FormId;
 use crate::ni::NiPoint3;
 
+/// Runtime data exposed by CommonLib's ExtraLeveledItemBase.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct ExtraLeveledItemBase {
+    pub leveled_item: FormId,
+}
+
+/// Runtime light override values carried by ExtraLightData.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct ExtraLightData {
+    pub fov: f32,
+    pub fade: f32,
+    pub end_distance_cap: f32,
+    pub shadow_depth_bias: f32,
+    pub unknown: u8,
+}
+
+/// A keyword and reference pair from ExtraLinkedRefChildren.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct LinkedRefChild {
+    pub keyword: FormId,
+    pub reference: ObjectRefHandle,
+}
+
+/// Map marker data exposed by ExtraMapMarker.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct ExtraMapMarker {
+    pub name: String,
+    pub flags: u8,
+    pub marker_type: u16,
+}
+
+/// A keyword and unresolved target id from ExtraMissingLinkedRefIDs.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct MissingLinkedRefId {
+    pub keyword: FormId,
+    pub linked_reference: FormId,
+}
+
+/// Read-only view of the five reference extra-data types in this batch.
+/// Missing values mean the reference has no corresponding extra data.
+pub trait ReferenceExtraData {
+    fn leveled_item_base(&self) -> Option<ExtraLeveledItemBase>;
+    fn light_data(&self) -> Option<ExtraLightData>;
+    fn linked_ref_children(&self) -> &[LinkedRefChild];
+    fn map_marker(&self) -> Option<ExtraMapMarker>;
+    fn missing_linked_ref_ids(&self) -> &[MissingLinkedRefId];
+}
+
+/// Executable-address and vtable hooks have no implementation in this engine.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct UnsupportedHook {
+    pub name: &'static str,
+    pub reason: &'static str,
+}
+
+pub const EXTRA_DATA_HOOKS: &[UnsupportedHook] = &[UnsupportedHook {
+    name: "CommonLib extra-data vtable hooks",
+    reason: "Skyrim executable vtables have no target in the Rust engine",
+}];
+
 /// `RE::ObjectRefHandle`: a reference that may have been unloaded since.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct ObjectRefHandle(pub u32);

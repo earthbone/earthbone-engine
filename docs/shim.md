@@ -77,6 +77,13 @@ The mapping follows the Rust API while adapting Rust names and types to C++, inc
 `NativeRegistry::register`, which is emitted as `register_native` because `register` is a C++
 keyword.
 
+The reference-extra API names `ExtraLeveledItemBase`, `ExtraLightData`,
+`ExtraLinkedRefChildren`, `ExtraMapMarker` and `ExtraMissingLinkedRefIDs` with
+read-only value views. `ReferenceExtraData` is the boundary a runtime adapter
+implements for those values. Missing optional values mean the reference has no
+such extra. `EXTRA_DATA_HOOKS` reports that executable vtable hooks are not
+supported by this engine.
+
 ## Untested
 
 The SHM-01 test compiles the generated umbrella headers with a C++20 compiler and checks C++
