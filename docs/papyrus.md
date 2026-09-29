@@ -137,6 +137,11 @@ first `start` of the installed game reached 63 natives through 1,095 calls
 after the fix and none before it. `NativeRegistry::calls` counts calls per
 `class.function` so a host can see which natives real scripts hit.
 
+`NativeRegistry::method_bindings` and `global_bindings` expose read-only
+iterators over the registered keys, normalized to lowercase. The game crate
+uses the method and global iterators to compare its Cell and `Clear` inventory
+against the local Creation Kit contract corpus.
+
 **Redeclared natives.** `Alias.pex` declares `RegisterForUpdate` and its
 relatives as natives of its own, `ReferenceAlias.pex` declares `GetReference`,
 and a host registers each once, on `Form` and `Alias`. `call_method` used to
