@@ -2388,6 +2388,13 @@ fn cell(vm: &mut Vm, w: &Shared) {
         }
         none()
     });
+    method!(vm, w, "Cell", "IsAttached", |world, _call, me| {
+        b(world.cell_is_attached(me))
+    });
+    method!(vm, w, "Cell", "Reset", |world, _call, me| {
+        let _ = world.reset_cell(me);
+        none()
+    });
 }
 
 fn message_scene_sound_spell(vm: &mut Vm, w: &Shared) {
@@ -3199,7 +3206,6 @@ fn stubs(vm: &mut Vm) -> usize {
         ("Actor", "PathToReference", true),
         ("Quest", "IsStarting", false),
         ("Quest", "IsStopping", false),
-        ("Cell", "IsAttached", true),
         ("Location", "IsLoaded", false),
         ("Location", "HasRefType", false),
         ("Scene", "IsActionComplete", false),

@@ -176,7 +176,7 @@ run past it.
 | Utility | RandomInt, RandomFloat, GetCurrentGameTime, GetCurrentRealTime, GameTimeToString, SetINI\* and GetINI\* (eight) | IsInMenuMode, the frame rate and budget functions (eleven). `Wait`, `WaitMenuMode`, `WaitGameTime` are the VM's own |
 | GlobalVariable | GetValue, GetValueInt, SetValue, SetValueInt, Mod | |
 | Keyword | GetString | SendStoryEvent, SendStoryEventAndWait |
-| Cell | IsInterior, GetActorOwner, GetFactionOwner, SetActorOwner, SetFactionOwner, SetPublic | IsAttached, Reset |
+| Cell | IsInterior, IsAttached, Reset, GetActorOwner, GetFactionOwner, SetActorOwner, SetFactionOwner, SetPublic | |
 | FormList | GetSize, GetAt, HasForm, Find, AddForm | |
 | Message | Show, ShowAsHelpMessage | ResetHelpMessage |
 | Scene | Start, ForceStart, Stop, IsPlaying | IsActionComplete |
@@ -213,6 +213,11 @@ Current behavior and compatibility limits:
   `WaitMenuMode` continues. `tick(dt)` remains the unpaused entry point.
   The UI must supply the pause state when menus are implemented.
 - Inventories start from the base record's `CNTO` list.
+- `Cell.IsAttached` reads whether host streaming currently holds the cell.
+  `Cell.Reset` queues a record-backed rebuild of its temporary references for
+  the next cell load. The pending cell ids are saved in the `SCR-19` world
+  section and validated as live CELL forms when read. Prefetch does not attach
+  a cell, and host attachment state is rebuilt after loading a save.
 - Actor values keep base, permanent, temporary and damage components in one
   store. Set changes base, Mod changes permanent, Force adjusts permanent
   to reach the requested current value, Damage subtracts from the damage

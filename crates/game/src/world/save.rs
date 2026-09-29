@@ -1159,6 +1159,8 @@ impl World {
         self.difficulty = difficulty;
         self.player = player;
         self.loaded_cell = loaded_cell;
+        self.streamed_cells.clear();
+        self.attached_cells.clear();
         self.rng = rng;
         self.clock = GameClock {
             real_seconds,
