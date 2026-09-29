@@ -1652,6 +1652,17 @@ plugin. Self and target-actor delivery are supported for constant and fire-and-f
 casts. `Spell.Cast` credits an actor source. `RemoteCast` credits its explicit
 blame actor. Player charging, costs and hand input are separate unfinished work.
 
+`Scroll.Cast(source, target)` calls `World::cast_scroll` on its owning SPEL
+record. A SPEL record with cast type 3 answers as Papyrus class `Scroll`,
+which lets VM method dispatch reach this native. The record must use cast type
+3. Source and optional target references flow into the shared cast executor,
+which applies supported effects and keeps the source, caster and target on
+each active effect. A missing required actor target or an unsupported effect
+logs the typed error under `Scroll.Cast`. This path does not charge the player
+or consume an item. The local
+`skse64/scripts/vanilla/Scroll.psc` supplies the method signature and optional
+target contract. The CK dump has no `Scroll.Cast` page.
+
 Each SPEL effect group's CTDAs run before that group is prepared. MGEF CTDAs
 run separately, with FormIDs resolved against their owning MGEF. Both use the
 delivery recipient as subject and the credited caster as target. A false group
@@ -1736,6 +1747,12 @@ and Papyrus casts log that error. This includes projectiles, contact and
 location delivery, concentration, taper, perk adjustments, equip abilities and
 other archetypes. Area selection is covered separately below, under Area
 targeting, MAG-06.
+`scr_45_scroll_cast_uses_source_target_and_applies_the_scroll_effect` checks
+native arguments, cast attribution, effect application and the void result.
+`scr_45_scroll_cast_logs_missing_target_and_rejects_non_scroll_records`
+checks the typed failure log and no-effect error paths. The CK dump has no
+`Scroll.Cast` page. Its signature and optional target come from local
+`skse64/scripts/vanilla/Scroll.psc`.
 An MGEF with the Dispel with Keywords flag reads its KWDA entries as the
 cancellation list. Casting that effect, or applying it from an ingestible,
 ends only live effects on the recipient whose winning MGEF carries a matching

@@ -380,8 +380,43 @@ impl World {
         target: Option<GlobalFormId>,
         alloc: Alloc<'_>,
     ) -> Result<Vec<EffectId>, MagicError> {
+        self.cast_magic_item(spell, source, caster, target, alloc, false)
+    }
+
+    /// Execute a scroll cast from a reference, optionally toward a target.
+    /// Scroll effects use the same prepared-effect and application path as
+    /// direct spell casts, without player charging or item consumption.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error before applying effects when the record is not a
+    /// scroll cast or its delivery and effects need an unsupported path.
+    pub fn cast_scroll(
+        &mut self,
+        scroll: GlobalFormId,
+        source: GlobalFormId,
+        target: Option<GlobalFormId>,
+        alloc: Alloc<'_>,
+    ) -> Result<Vec<EffectId>, MagicError> {
+        self.cast_magic_item(scroll, source, Some(source), target, alloc, true)
+    }
+
+    fn cast_magic_item(
+        &mut self,
+        spell: GlobalFormId,
+        source: GlobalFormId,
+        caster: Option<GlobalFormId>,
+        target: Option<GlobalFormId>,
+        alloc: Alloc<'_>,
+        scroll: bool,
+    ) -> Result<Vec<EffectId>, MagicError> {
         let definition = self.spell(spell)?;
-        if !matches!(definition.data.cast_type, 0 | 1) {
+        if (scroll && definition.data.cast_type != 3)
+            || (!scroll && !matches!(definition.data.cast_type, 0 | 1))
+        {
+            if scroll {
+                return Err(MagicError::Unsupported("not a scroll cast"));
+            }
             return Err(MagicError::Unsupported("concentration or scroll casting"));
         }
         let target = match definition.data.delivery {
