@@ -55,6 +55,7 @@ pub mod godot_physics;
 pub mod godot_player;
 #[cfg(feature = "godot")]
 pub mod godot_ragdoll;
+pub mod godot_tether;
 #[cfg(feature = "godot")]
 mod godot_world;
 
