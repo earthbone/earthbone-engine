@@ -239,14 +239,22 @@ fn old_save_clears_zone_locks_and_corrupt_zone_extension_is_atomic() {
     let mut world = fixture(6, 20, 0);
     world.player_level = 10;
     let mut old = world.save_state();
-    old.truncate(old.len() - 12);
+    // The extra 6 bytes beyond the old 16 are detection's now-unconditional
+    // empty pool count (4 bytes) and the world-level save-section table
+    // version 37 added (2 bytes), both always present at the tail regardless
+    // of the simulated version. No reference is materialized yet at this
+    // point, so none carries its own section table to strip.
+    old.truncate(old.len() - 22);
     // Version 26 predates encounter locks, visits and dialogue repeats.
     old[4..6].copy_from_slice(&26_u16.to_le_bytes());
     world.enter_encounter_zone(id(ZONE)).unwrap();
     let before = world.save_state();
     let hash = world.state_hash();
     // Visit history follows the lock table and precedes the repeat history.
-    let visits_end = before.len() - 4;
+    // The extra 6 bytes are detection's now-unconditional empty pool count
+    // and the world-level save-section table version 37 added, both always
+    // present past the visit history regardless of version.
+    let visits_end = before.len() - 10;
     let entry_at = visits_end - 16;
     let count_at = entry_at - 4;
     let mut invalid = before.clone();
@@ -463,13 +471,29 @@ fn prg_10_saved_visit_time_expires_zone_after_reload() {
     world.player_level = 10;
     world.clock.game_days = 2.0;
     world.enter_encounter_zone(id(ZONE)).unwrap();
-    let saved = world.save_state();
-    let mut loaded = reset_fixture(0);
-    loaded.player_level = 20;
-    loaded.load_state(&saved).unwrap();
-    loaded.clock.game_days = 12.0;
-
-    assert_eq!(loaded.enter_encounter_zone(id(ZONE)).unwrap(), 14);
+    let current = world.save_state();
+    for version in [34_u16, 35, 36] {
+        let mut saved = current.clone();
+        // Detection's now-unconditional empty pool count (4 bytes) and the
+        // empty world-level save-section table version 37 added (2 bytes)
+        // are always past a version 36 or older save's end, since a genuine
+        // save that old never wrote either.
+        saved.truncate(saved.len() - 6);
+        if version < 36 {
+            // CONTEXT: Versions 34 and 35 end before the scene-run table.
+            saved.truncate(saved.len() - 4);
+        }
+        saved[4..6].copy_from_slice(&version.to_le_bytes());
+        let mut loaded = reset_fixture(0);
+        loaded.player_level = 20;
+        loaded.load_state(&saved).unwrap();
+        loaded.clock.game_days = 12.0;
+        assert_eq!(
+            loaded.enter_encounter_zone(id(ZONE)).unwrap(),
+            14,
+            "version {version} retains the visit time"
+        );
+    }
 }
 
 #[test]

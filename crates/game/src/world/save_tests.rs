@@ -352,6 +352,36 @@ fn without_exclusive_branches(world: &mut World) -> Vec<u8> {
     summon_marker.extend_from_slice(&summon_sentinel.object.to_le_bytes());
     markers.push(summon_marker);
     let mut bytes = world.save_state();
+    // Every actor and reference record now ends with an empty save-section
+    // table (a `u16` count of 0, see `save_sections`), which a
+    // pre-version-37 writer never emitted. Locate each record's own tail by
+    // re-serializing it exactly as `save_state` just did, form id then
+    // state, while the sentinels set above are still in place, then drop
+    // the matched span's last two bytes. `rich_world`'s two references
+    // carry identical `RefState` content, so the form id prefix is what
+    // tells their tails apart.
+    for id in &ids {
+        let actor = world.actors.get(id).unwrap();
+        let mut probe = Writer::new();
+        write_form_id(&mut probe, *id);
+        write_actor_state(&mut probe, actor);
+        let at = bytes
+            .windows(probe.out.len())
+            .position(|window| window == probe.out)
+            .expect("actor record is serialized");
+        bytes.drain(at + probe.out.len() - 2..at + probe.out.len());
+    }
+    for id in world.refs.keys().copied().collect::<Vec<_>>() {
+        let reference = world.refs.get(&id).unwrap();
+        let mut probe = Writer::new();
+        write_form_id(&mut probe, id);
+        write_ref_state(&mut probe, reference);
+        let at = bytes
+            .windows(probe.out.len())
+            .position(|window| window == probe.out)
+            .expect("reference record is serialized");
+        bytes.drain(at + probe.out.len() - 2..at + probe.out.len());
+    }
     world.active_effects.get_mut(&EffectId(1)).unwrap().summoned = None;
     for id in &ids {
         let actor = world.actors.get_mut(id).unwrap();
@@ -383,8 +413,11 @@ fn without_exclusive_branches(world: &mut World) -> Vec<u8> {
 fn sav_07_legacy_ids_migrate_through_all_nested_world_state() {
     for version in 15..=18_u16 {
         let mut legacy = without_exclusive_branches(&mut rich_world(255));
-        // Drop empty post-version-19 blocks, including zone visit history.
-        legacy.truncate(legacy.len() - 33);
+        // Drop empty post-version-19 blocks, including zone visit and scene
+        // history, the version 30 detection block's now-unconditional empty
+        // pool count, and the world-level save-section table version 37
+        // added.
+        legacy.truncate(legacy.len() - 43);
         let tail = legacy.len() - 25;
         let mut expected = rich_world(DYNAMIC_FILE);
         match version {
@@ -447,7 +480,9 @@ fn sav_16_extras_preserve_created_namespace_and_all_existing_world_state() {
     assert_eq!(loaded.state_hash(), world.state_hash());
 
     let mut legacy = without_exclusive_branches(&mut rich_world(DYNAMIC_FILE));
-    legacy.truncate(legacy.len() - 33);
+    // See sav_07_legacy_ids_migrate_through_all_nested_world_state for what
+    // these trailing bytes are.
+    legacy.truncate(legacy.len() - 43);
     legacy[4..6].copy_from_slice(&19_u16.to_le_bytes());
     loaded.load_state(&legacy).unwrap();
     assert_eq!(loaded.save_state(), rich_world(DYNAMIC_FILE).save_state());
@@ -476,9 +511,13 @@ fn sav_07_ambiguous_legacy_loadouts_fail_before_world_or_vm_mutation() {
 fn sav_07_unknown_version_and_mixed_legacy_namespaces_are_rejected() {
     let mut world = rich_world(DYNAMIC_FILE);
     let before = world.save_state();
+    let unknown_version = SAVE_VERSION + 1;
     for (version, message) in [
-        (36_u16, "world state version 36"),
-        (18, "created namespace in a legacy world state"),
+        (
+            unknown_version,
+            format!("world state version {unknown_version}"),
+        ),
+        (18, "created namespace in a legacy world state".to_string()),
     ] {
         let mut bytes = before.clone();
         bytes[4..6].copy_from_slice(&version.to_le_bytes());
@@ -486,7 +525,7 @@ fn sav_07_unknown_version_and_mixed_legacy_namespaces_are_rejected() {
             .load_state(&bytes)
             .unwrap_err()
             .to_string()
-            .contains(message));
+            .contains(message.as_str()));
         assert_eq!(world.save_state(), before);
     }
 }
@@ -506,7 +545,9 @@ fn sav_07_legacy_migration_boundary_is_the_first_colliding_plugin_position() {
             .unwrap();
     }
     let mut legacy = without_exclusive_branches(&mut rich_world(255));
-    legacy.truncate(legacy.len() - 33);
+    // See sav_07_legacy_ids_migrate_through_all_nested_world_state for what
+    // these trailing bytes are.
+    legacy.truncate(legacy.len() - 43);
     legacy[4..6].copy_from_slice(&18_u16.to_le_bytes());
     let mut world = World::new(order);
     world.load_state(&legacy).unwrap();
@@ -560,5 +601,165 @@ fn an_actor_state_before_version_24_defaults_an_absent_exclusive_branch() {
     let mut reader = Reader::new(&writer.out);
     let mut reader = FormReader::new(&mut reader, FormNamespace::Current);
     let restored = read_actor_state(&mut reader, 23).unwrap();
+    assert_eq!(restored, actor);
+}
+
+#[test]
+fn no_section_name_repeats_within_or_across_the_three_registries() {
+    fn names<T>(sections: &[save_sections::Section<T>]) -> Vec<&'static str> {
+        sections.iter().map(|s| s.name).collect()
+    }
+    let mut all = names(WORLD_SECTIONS);
+    all.extend(names(ACTOR_SECTIONS));
+    all.extend(names(REF_SECTIONS));
+    let mut sorted = all.clone();
+    sorted.sort_unstable();
+    sorted.dedup();
+    assert_eq!(
+        sorted.len(),
+        all.len(),
+        "duplicate save-section name across the registries: {all:?}"
+    );
+}
+
+/// The generic mechanism in `save_sections` is exercised against the three
+/// real types it serves (not only a test stand-in), each with a local
+/// section list kept out of the production registries.
+#[test]
+fn write_sections_and_read_sections_round_trip_for_world_actor_and_reference() {
+    fn write_world_note(w: &World, out: &mut Writer) {
+        out.u32(w.next_dynamic);
+    }
+    fn read_world_note(w: &mut World, r: &mut FormReader<'_, '_>) -> Result<(), VmError> {
+        w.next_dynamic = r.u32()?;
+        Ok(())
+    }
+    let world_sections = [save_sections::Section {
+        name: "TEST-world",
+        write: write_world_note,
+        read: read_world_note,
+    }];
+    let mut world = World::new(legacy_order());
+    world.next_dynamic = 0x900;
+    let mut writer = Writer::new();
+    save_sections::write_sections(&mut writer, &world, &world_sections);
+    let mut restored_world = World::new(legacy_order());
+    let mut reader = Reader::new(&writer.out);
+    let mut form_reader = FormReader::new(&mut reader, FormNamespace::Current);
+    save_sections::read_sections(
+        &mut form_reader,
+        "world",
+        &mut restored_world,
+        &world_sections,
+    )
+    .unwrap();
+    assert_eq!(restored_world.next_dynamic, 0x900);
+
+    fn write_actor_note(a: &ActorState, out: &mut Writer) {
+        out.u32(a.level);
+    }
+    fn read_actor_note(a: &mut ActorState, r: &mut FormReader<'_, '_>) -> Result<(), VmError> {
+        a.level = r.u32()?;
+        Ok(())
+    }
+    let actor_sections = [save_sections::Section {
+        name: "TEST-actor",
+        write: write_actor_note,
+        read: read_actor_note,
+    }];
+    let actor = ActorState {
+        level: 12,
+        ..ActorState::default()
+    };
+    let mut writer = Writer::new();
+    save_sections::write_sections(&mut writer, &actor, &actor_sections);
+    let mut restored_actor = ActorState::default();
+    let mut reader = Reader::new(&writer.out);
+    let mut form_reader = FormReader::new(&mut reader, FormNamespace::Current);
+    save_sections::read_sections(
+        &mut form_reader,
+        "actor",
+        &mut restored_actor,
+        &actor_sections,
+    )
+    .unwrap();
+    assert_eq!(restored_actor.level, 12);
+
+    fn write_ref_note(s: &RefState, out: &mut Writer) {
+        out.f32(s.scale);
+    }
+    fn read_ref_note(s: &mut RefState, r: &mut FormReader<'_, '_>) -> Result<(), VmError> {
+        s.scale = r.f32()?;
+        Ok(())
+    }
+    let ref_sections = [save_sections::Section {
+        name: "TEST-ref",
+        write: write_ref_note,
+        read: read_ref_note,
+    }];
+    let mut reference = RefState::new(None);
+    reference.scale = 2.5;
+    let mut writer = Writer::new();
+    save_sections::write_sections(&mut writer, &reference, &ref_sections);
+    let mut restored_ref = RefState::new(None);
+    let mut reader = Reader::new(&writer.out);
+    let mut form_reader = FormReader::new(&mut reader, FormNamespace::Current);
+    save_sections::read_sections(
+        &mut form_reader,
+        "reference",
+        &mut restored_ref,
+        &ref_sections,
+    )
+    .unwrap();
+    assert_eq!(restored_ref.scale, 2.5);
+}
+
+/// Version 36 predates the save-section table. Its writer produces none (the
+/// production registries are empty today, so the table is a bare zero
+/// count), and the reader must not look for one below version 37.
+#[test]
+fn a_reference_saved_at_version_36_loads_without_its_absent_section_table() {
+    let mut reference = RefState::new(Some(GlobalFormId {
+        file: 0,
+        object: 0x820,
+    }));
+    reference.cell = Some(GlobalFormId {
+        file: 0,
+        object: 0x910,
+    });
+    reference.scale = 1.5;
+    reference.owner = Some(GlobalFormId {
+        file: 2,
+        object: 0x1234,
+    });
+    let mut writer = Writer::new();
+    write_ref_state(&mut writer, &reference);
+    assert_eq!(&writer.out[writer.out.len() - 2..], &[0, 0]);
+    writer.out.truncate(writer.out.len() - 2);
+
+    let mut reader = Reader::new(&writer.out);
+    let mut reader = FormReader::new(&mut reader, FormNamespace::Current);
+    let restored = read_ref_state(&mut reader, 36).unwrap();
+    assert_eq!(restored, reference);
+}
+
+#[test]
+fn an_actor_saved_at_version_36_loads_without_its_absent_section_table() {
+    let mut actor = ActorState {
+        level: 14,
+        ..ActorState::default()
+    };
+    actor.spells.insert(GlobalFormId {
+        file: 0,
+        object: 0x850,
+    });
+    let mut writer = Writer::new();
+    write_actor_state(&mut writer, &actor);
+    assert_eq!(&writer.out[writer.out.len() - 2..], &[0, 0]);
+    writer.out.truncate(writer.out.len() - 2);
+
+    let mut reader = Reader::new(&writer.out);
+    let mut reader = FormReader::new(&mut reader, FormNamespace::Current);
+    let restored = read_actor_state(&mut reader, 36).unwrap();
     assert_eq!(restored, actor);
 }
