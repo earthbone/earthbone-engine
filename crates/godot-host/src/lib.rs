@@ -28,6 +28,7 @@ pub mod input;
 pub mod interior_prefetch;
 pub mod inventory_menu;
 pub mod magic_menu;
+pub mod mcm_menu;
 pub mod mesh;
 pub mod skinned;
 pub mod streaming;
