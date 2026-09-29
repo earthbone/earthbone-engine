@@ -133,6 +133,15 @@ faction can legally exist without one. No Papyrus native calls this
 function yet, `SendAssaultAlarm` and similar witness-driven natives are
 later work that can build on it.
 
+`Actor.SendTrespassAlarm` calls `World::record_witnessed_crime` with its self
+actor as witness and the argument as the trespasser. Invalid or untracked
+actors leave bounty and witness state unchanged and add a native trace.
+`Actor.StopCombatAlarm` clears the actor's combat target, combat flag and alert
+flag through `World::stop_combat_alarm`. `ShowBarterMenu`, `OpenInventory` and
+`ClearForcedMovement` report their missing runtime capabilities in the native
+trace. Barter transactions and presentation, an actor inventory presenter,
+and forced movement state are not implemented.
+
 **Vendor service lookup.** `Game::resolve_vendor_service` reads the winning
 `FACT` vendor flag, `VEND`, `VENC`, `VENV`, `PLVD` and faction conditions. It evaluates
 conditions for a loaded merchant with the player as target and applies the

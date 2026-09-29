@@ -42,6 +42,19 @@ fn apply_distributed(a: &mut ActorState, d: Distributed) {
 }
 
 impl World {
+    /// Stop this actor's current combat and clear its local alarm state.
+    ///
+    /// Returns false when `id` is not an actor reference.
+    pub fn stop_combat_alarm(&mut self, id: GlobalFormId) -> bool {
+        let Some(actor) = self.actor(id) else {
+            return false;
+        };
+        actor.in_combat = false;
+        actor.combat_target = None;
+        actor.alerted = false;
+        true
+    }
+
     /// The `NPC_` view of an actor base, with one level of `TPLT` applied.
     pub fn npc(&self, base: GlobalFormId) -> Option<Npc> {
         let mut npc = self.npc_record(base).ok()?;
