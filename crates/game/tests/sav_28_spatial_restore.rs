@@ -132,6 +132,8 @@ fn sav_28_spatial_record_changes_are_atomic_and_survive_engine_reload() {
     assert_eq!(loaded.cell_state(id(0x800)).unwrap().owner, Some(id(0x810)));
     assert_eq!(loaded.record(id(0x801)).unwrap().flags, 0x8765_4321);
     assert_eq!(loaded.record(id(0x802)).unwrap().flags, 0x7654_3210);
+    assert_eq!(loaded.restored_spatial_payload(id(0x801)), Some(&[][..]));
+    assert_eq!(loaded.restored_spatial_payload(id(0x802)), Some(&[][..]));
 }
 
 #[test]

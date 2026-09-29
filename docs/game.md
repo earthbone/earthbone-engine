@@ -2095,17 +2095,19 @@ and transforms to a fresh reference table, reserves dynamic IDs and restores
 the player location without queuing events. It validates the entire pass
 before changing the world. Its report identifies missing dependencies and
 unapplied state. Inventory, actor values, extra data and saved execution remain
-separate requirements. PCON and PARW saved placements use the same reference
-table and record-backed base queries. Their runtime state uses the existing
-SOEW reference encoding. See [save.md](save.md#reference-placements) for
+separate requirements. PCON saved placements use the reference table and
+record-backed base queries. xEdit does not bind PARW type 47 to an initial
+placement prefix, so PARW placement is not applied. Runtime reference state
+uses the existing SOEW reference encoding. See [save.md](save.md#reference-placements) for
 sources, validation and the limits of this intermediate reconstruction pass.
 
 `World::restore_vanilla_spatial_records` applies decoded CELL common flags,
 cell flags, full name and mapped owner links to shared record overrides. LCTN
-and ECZN common flags update their record headers. Their placeholder payload
-tails stay opaque. The pass is atomic, refreshes warm CELL state and persists
-through the existing record-override table in SOEW. CELL ownership queries
-use the mapped override link after reload.
+and ECZN common flags update their record headers. LCTN and ECZN placeholder
+payload tails stay opaque and persist in the named `SAV-28` world section.
+The pass is atomic, refreshes warm CELL state and persists records through the
+existing record-override table in SOEW. CELL ownership queries use the mapped
+override link after reload.
 
 ## Inventory instances and ESS application, work in progress
 

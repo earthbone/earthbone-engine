@@ -765,6 +765,9 @@ impl World {
         let mut records = soe_papyrus::vm::state::Writer::new();
         self.write_record_overrides(&mut records);
         h.bytes(&records.out);
+        let mut spatial = soe_papyrus::vm::state::Writer::new();
+        super::spatial_restore::write_spatial_payloads(self, &mut spatial);
+        h.bytes(&spatial.out);
         let scenes = h.finish();
 
         // These three are `BTreeMap`, already in key order, so they are walked

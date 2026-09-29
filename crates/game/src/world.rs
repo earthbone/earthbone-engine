@@ -461,6 +461,7 @@ pub struct World {
     localized_strings: BTreeMap<(u16, StringTableKind), StringTable>,
     order: Arc<LoadOrder>,
     record_overrides: BTreeMap<GlobalFormId, record_overrides::RecordOverride>,
+    spatial_change_payloads: BTreeMap<GlobalFormId, Vec<u8>>,
     editor_ids: HashMap<String, GlobalFormId>,
     objects: HashMap<Handle, ObjectId>,
     handles: HashMap<ObjectId, Handle>,
@@ -579,6 +580,7 @@ impl World {
         World {
             order,
             record_overrides: BTreeMap::new(),
+            spatial_change_payloads: BTreeMap::new(),
             editor_ids,
             objects: HashMap::new(),
             handles: HashMap::new(),

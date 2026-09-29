@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 //! SAV-24 saved projectile envelopes reach runtime queries and engine saves.
-//! PCON and PARW restore their shared saved placement into the reference table.
+//! PCON restores its xEdit-defined saved placement into the reference table.
 
 use super::*;
 
@@ -110,27 +110,22 @@ fn sav_26_projectile_save() -> Save {
     let mut save = references::fixture();
     save.change_forms
         .push(moved_projectile(0x400A02, 42, [11.0, 12.0, 13.0]));
-    save.change_forms
-        .push(moved_projectile(0x400A03, 47, [21.0, 22.0, 23.0]));
     save
 }
 
 #[test]
-fn sav_26_pcon_parw_changes_restore_runtime_placement_and_survive_engine_save_load() {
+fn sav_26_pcon_placement_restores_runtime_and_survives_engine_save_load() {
     let mut world = World::new(references::fixture_order());
     let report = world
         .restore_vanilla_reference_placements(&sav_26_projectile_save())
         .unwrap();
 
-    assert_eq!(report.references, 5);
+    assert_eq!(report.references, 4);
     assert_eq!(
         world.reference_ref(id(0, 0xA02)).unwrap().position,
         [11.0, 12.0, 13.0]
     );
-    assert_eq!(
-        world.reference_ref(id(0, 0xA03)).unwrap().position,
-        [21.0, 22.0, 23.0]
-    );
+    assert!(world.reference_ref(id(0, 0xA03)).is_none());
     assert_eq!(
         world.reference(id(0, 0xA02)).unwrap().base,
         Some(id(0, 0x900))
@@ -146,10 +141,6 @@ fn sav_26_pcon_parw_changes_restore_runtime_placement_and_survive_engine_save_lo
     assert_eq!(
         restored.reference_ref(id(0, 0xA02)).unwrap().position,
         [11.0, 12.0, 13.0]
-    );
-    assert_eq!(
-        restored.reference_ref(id(0, 0xA03)).unwrap().position,
-        [21.0, 22.0, 23.0]
     );
     assert_eq!(
         restored.reference(id(0, 0xA02)).unwrap().base,

@@ -132,4 +132,19 @@ fn sav_28_location_placeholder_tail_changes_survive_engine_save() {
         .restore_vanilla_spatial_records(&location_save(&[0xCC, 0xDD]))
         .unwrap();
     assert_ne!(first.save_state(), second.save_state());
+    assert_ne!(first.state_hash(), second.state_hash());
+    assert_eq!(
+        first.restored_spatial_payload(id(0x820)),
+        Some(&[0xAA, 0xBB][..])
+    );
+    assert_eq!(
+        second.restored_spatial_payload(id(0x820)),
+        Some(&[0xCC, 0xDD][..])
+    );
+    let mut reloaded = World::new(order());
+    reloaded.load_state(&first.save_state()).unwrap();
+    assert_eq!(
+        reloaded.restored_spatial_payload(id(0x820)),
+        Some(&[0xAA, 0xBB][..])
+    );
 }

@@ -15,7 +15,8 @@ because xEdit does not define their serialized fields. ECZN and LCTN decode
 their common form flags and retain other flagged bytes as opaque payloads,
 because the available schema marks those fields as placeholders. See
 [saved spatial fields](save-spatial-fields.md) for the source boundary and
-60-save corpus accounting. Live restoration remains unfinished.
+60-save corpus accounting. SAV-28 applies decoded fields to live records and
+retains opaque LCTN and ECZN tails without interpreting their fields.
 
 The projectile and hazard decoder tasks share a missing subtype-layout
 prerequisite. See [saved projectile layouts](save-projectile-layouts.md) for
@@ -33,8 +34,10 @@ PCON and PARW expose typed envelopes containing their change flags, version,
 compression length and exact stored bytes. Their subtype payloads remain
 opaque because the inspected Skyrim xEdit structures are empty and
 FallrimTools has no typed reader. SAV-25 tests envelope truncation and reports
-PCON/PARW flag and byte coverage across the external save corpus. See
-[saved projectile layouts](save-projectile-layouts.md) for the source review
+PCON/PARW flag and byte coverage across the external save corpus. Only PCON
+has an xEdit-defined initial placement prefix. The xEdit initial-data dispatch
+omits PARW type 47, so its payload is not interpreted as reference placement.
+See [saved projectile layouts](save-projectile-layouts.md) for the source review
 and remaining evidence requirement.
 
 The format was not reverse engineered. It is documented and it has a mature
@@ -123,9 +126,9 @@ does not claim runtime support for opaque payloads.
 - Every change form header. `ChangeForm::quest_change` decodes documented QUST
   flags, stages, objectives, runtime aliases/events and quest instances.
 - PCON and PARW change-form envelopes, with original stored payload bytes
-  retained without subtype interpretation. Their shared initial placement
-  prefixes decode into the normal reference reconstruction path. The xEdit
-  subtype structs are empty, so any remaining bytes stay opaque.
+  retained without subtype interpretation. PCON's initial placement prefix
+  decodes into the normal reference reconstruction path. The xEdit
+  initial-data dispatch omits PARW type 47, so PARW placement remains opaque.
 - `ChangeForm::info_change`, `story_manager_quest_node_change` and
   `scene_change` decode the defined INFO, SMQN and SCEN flag sections and state
   markers.
