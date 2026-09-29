@@ -117,6 +117,7 @@ impl DataSource {
         let mut colliders = Vec::new();
         let mut world = SimpleWorld::new();
         let mut references = HashMap::new();
+        let mut placed_colliders = Vec::new();
         let mut collision_cells = BTreeMap::new();
         let mut stats = CollisionStats::default();
         for (id, loaded) in &cells {
@@ -132,7 +133,8 @@ impl DataSource {
                 let body = world.add_static(&placed.collider);
                 references.insert(body, placed.reference);
                 bodies.push(body);
-                colliders.push(placed.collider);
+                colliders.push(placed.collider.clone());
+                placed_colliders.push(placed);
                 stats.bodies += 1;
                 stats.primitives += world.primitive_count() - before;
             }
@@ -146,6 +148,7 @@ impl DataSource {
                 world,
                 stats,
                 references,
+                placed: placed_colliders,
             },
         })
     }

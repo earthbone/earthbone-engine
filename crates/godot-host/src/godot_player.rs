@@ -53,6 +53,13 @@ mod saves;
 /// a later pass can read `fActivatePickLength` from the INI.
 const ACTIVATE_REACH: f32 = 180.0;
 
+fn crosshair_reference(
+    hit: Option<soe_physics::world::RayHit>,
+    references: &HashMap<BodyId, GlobalFormId>,
+) -> Option<GlobalFormId> {
+    hit.and_then(|hit| references.get(&hit.body).copied())
+}
+
 struct DoorFadeView {
     overlay: Gd<ColorRect>,
 }
@@ -114,6 +121,7 @@ pub struct PlayerNode {
     /// GDScript so a prompt can be drawn without a second raycast.
     last_activate_hit: bool,
     last_activate_reference: Option<GlobalFormId>,
+    grabbed_host: Option<(GlobalFormId, Vec3)>,
     action_latches: BTreeMap<Action, u64>,
     held_actions: BTreeSet<Action>,
     devices: Devices,
@@ -165,6 +173,7 @@ impl INode3D for PlayerNode {
             pending_look: (0.0, 0.0),
             last_activate_hit: false,
             last_activate_reference: None,
+            grabbed_host: None,
             action_latches: BTreeMap::new(),
             held_actions: BTreeSet::new(),
             devices: Devices::default(),
@@ -490,6 +499,11 @@ impl PlayerNode {
         self.collision_references = collision.references;
         self.last_activate_hit = false;
         self.last_activate_reference = None;
+        self.grabbed_host = None;
+        if let Some(game) = &mut self.game {
+            game.world_mut().set_grabbed_reference(None);
+            game.world_mut().set_crosshair_reference(None);
+        }
         self.motion = CameraMotion::new(self.feet(), self.capsule_height());
         self.update_camera();
         bodies as i32
@@ -542,14 +556,53 @@ impl PlayerNode {
 
         self.advance_footsteps(before, was_grounded, &input);
 
-        let activation_hit = if input.activate_pressed {
-            self.activate_ray()
+        let crosshair_hit = self.activate_ray();
+        let crosshair_reference = crosshair_reference(crosshair_hit, &self.collision_references);
+        if let Some(game) = &mut self.game {
+            game.world_mut()
+                .set_crosshair_reference(crosshair_reference);
+        }
+        let activate_held = self.held_actions.contains(&Action::Activate);
+        if input.activate_pressed && self.grabbed_host.is_none() {
+            if let (Some(reference), Some(hit)) = (crosshair_reference, crosshair_hit) {
+                if self.query_collision.set_held(reference, true) {
+                    self.grabbed_host = Some((reference, hit.point));
+                    if let Some(game) = &mut self.game {
+                        game.world_mut().set_grabbed_reference(Some(reference));
+                    }
+                }
+            }
+        }
+        if let Some((reference, origin_hit)) = self.grabbed_host {
+            if activate_held {
+                let eye = self.rig.head(self.feet(), self.capsule_height());
+                let direction = self.rig.look_direction();
+                let reach = ACTIVATE_REACH * 0.55;
+                let target = Vec3::new(
+                    eye.x + direction.x * reach,
+                    eye.y + direction.y * reach,
+                    eye.z + direction.z * reach,
+                );
+                let offset = Vector3::new(
+                    (target.x - origin_hit.x) * crate::units::METRES_PER_UNIT,
+                    (target.z - origin_hit.z) * crate::units::METRES_PER_UNIT,
+                    -(target.y - origin_hit.y) * crate::units::METRES_PER_UNIT,
+                );
+                self.query_collision.move_held(reference, offset);
+            } else {
+                self.query_collision.set_held(reference, false);
+                self.grabbed_host = None;
+                if let Some(game) = &mut self.game {
+                    game.world_mut().set_grabbed_reference(None);
+                }
+            }
+        }
+        self.last_activate_hit = input.activate_pressed && crosshair_hit.is_some();
+        self.last_activate_reference = if input.activate_pressed {
+            crosshair_reference
         } else {
             None
         };
-        self.last_activate_hit = activation_hit.is_some();
-        self.last_activate_reference =
-            activation_hit.and_then(|hit| self.collision_references.get(&hit.body).copied());
 
         self.advance_game(delta);
         self.advance_door_fade(delta);
@@ -1030,4 +1083,28 @@ fn godot_transform(eye: &Eye) -> Transform3D {
         Basis::from_cols(col(x), col(y), col(z)),
         Vector3::new(origin.x, origin.y, origin.z),
     )
+}
+
+#[cfg(test)]
+mod hst_18_tests {
+    use super::*;
+
+    #[test]
+    fn hst_18_crosshair_reports_hit_reference_and_clears_on_miss() {
+        let body = BodyId(4);
+        let reference = GlobalFormId {
+            file: 2,
+            object: 0x123,
+        };
+        let references = HashMap::from([(body, reference)]);
+        let hit = soe_physics::world::RayHit {
+            body,
+            material: None,
+            point: Vec3::ZERO,
+            normal: Vec3::Z,
+            fraction: 0.5,
+        };
+        assert_eq!(crosshair_reference(Some(hit), &references), Some(reference));
+        assert_eq!(crosshair_reference(None, &references), None);
+    }
 }

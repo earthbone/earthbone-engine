@@ -202,7 +202,7 @@ pub fn register(vm: &mut Vm, world: &Shared) -> Registered {
 
 /// Hand-kept count of the non-stub natives registered below. The test in
 /// this module checks it against the registry.
-pub const NATIVE_COUNT: usize = 366;
+pub const NATIVE_COUNT: usize = 368;
 
 fn declare_parents(vm: &mut Vm) {
     for (class, parent) in [
@@ -1714,6 +1714,12 @@ fn alias(vm: &mut Vm, w: &Shared) {
 }
 
 fn game(vm: &mut Vm, w: &Shared) {
+    global!(vm, w, "Game", "GetCurrentCrosshairRef", |world, call| {
+        form_value(world, call, world.crosshair_reference())
+    });
+    global!(vm, w, "Game", "GetPlayerGrabbedRef", |world, call| {
+        form_value(world, call, world.grabbed_reference())
+    });
     global!(vm, w, "Game", "GetPlayer", |world, call| {
         let p = world.player();
         form_value(world, call, Some(p))
@@ -3372,8 +3378,6 @@ fn stubs(vm: &mut Vm) -> usize {
         ("Game", "QuitToMainMenu"),
         ("Game", "SetSittingRotation"),
         ("Game", "StartTitleSequence"),
-        ("Game", "GetCurrentCrosshairRef"),
-        ("Game", "GetPlayerGrabbedRef"),
         ("Game", "FindClosestActor"),
         ("Game", "FindRandomActor"),
         ("Game", "FindClosestReferenceOfType"),
@@ -3435,6 +3439,35 @@ mod tests {
         assert_eq!(r.natives - r.stubs, NATIVE_COUNT);
         assert!(vm.natives.has_method("quest", "setstage"));
         assert!(vm.natives.has_global("game", "getplayer"));
+        assert!(vm.natives.has_global("game", "getcurrentcrosshairref"));
+        assert!(vm.natives.has_global("game", "getplayergrabbedref"));
         assert!(vm.natives.has_method("alias", "getowningquest"));
+    }
+
+    #[test]
+    fn hst_18_world_exposes_current_crosshair_and_grabbed_references() {
+        let mut world = World::new(LoadOrder::new());
+        let crosshair = GlobalFormId {
+            file: 1,
+            object: 0x123,
+        };
+        let grabbed = GlobalFormId {
+            file: 2,
+            object: 0x456,
+        };
+        world.set_crosshair_reference(Some(crosshair));
+        world.set_grabbed_reference(Some(grabbed));
+        assert_eq!(world.crosshair_reference(), Some(crosshair));
+        assert_eq!(world.grabbed_reference(), Some(grabbed));
+        world.set_crosshair_reference(None);
+        world.set_grabbed_reference(None);
+        assert_eq!(world.crosshair_reference(), None);
+        assert_eq!(world.grabbed_reference(), None);
+
+        let mut vm = Vm::new();
+        let shared = Rc::new(RefCell::new(world));
+        register(&mut vm, &shared);
+        assert!(vm.natives.has_global("game", "getcurrentcrosshairref"));
+        assert!(vm.natives.has_global("game", "getplayergrabbedref"));
     }
 }

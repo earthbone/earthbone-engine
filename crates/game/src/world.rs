@@ -496,6 +496,9 @@ pub struct World {
     pending_unload: Option<GlobalFormId>,
     next_dynamic: u32,
     player: Option<GlobalFormId>,
+    /// Host interaction results for the current rendered frame.
+    crosshair_reference: Option<GlobalFormId>,
+    grabbed_reference: Option<GlobalFormId>,
     /// What `PC_LEVEL_MULT` actors scale against.
     pub player_level: u32,
     rng: u64,
@@ -597,6 +600,8 @@ impl World {
             pending_unload: None,
             next_dynamic: 0x1000,
             player: None,
+            crosshair_reference: None,
+            grabbed_reference: None,
             player_level: 1,
             rng: 0x9E37_79B9_7F4A_7C15,
             clock: GameClock::default(),
