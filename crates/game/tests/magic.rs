@@ -37,6 +37,8 @@ mod collection;
 mod mag_03_concentration;
 #[path = "magic/mag_09_cast_cost.rs"]
 mod mag_09_cast_cost;
+#[path = "magic/mag_70_conditions.rs"]
+mod mag_70_conditions;
 
 fn retain_effect(game: &mut Game, effect: soe_papyrus::ObjectId) {
     let script = ScriptBuilder::new("EffectHolder", "Actor")

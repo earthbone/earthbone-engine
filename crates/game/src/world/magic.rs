@@ -1084,16 +1084,82 @@ impl World {
                 self.dispel_effect(id, alloc);
                 continue;
             }
-            let dt = effect.duration.map_or(seconds, |duration| {
-                seconds.min((duration - effect.elapsed).max(0.0))
-            });
-            if !effect.recover && effect.duration != Some(0.0) {
-                if let Err(error) = self.apply_effect_values(&effect, dt, alloc) {
-                    errors.push(error);
-                    continue;
+            let spell_conditions = if self.tag_of(effect.spell) == Some(super::T(b"SPEL")) {
+                match self
+                    .magic_item_effect(effect.spell, effect.effect_index)
+                    .and_then(|entry| {
+                        let base = self.magic_effect(effect.effect)?;
+                        Ok(!entry.conditions.is_empty() || !base.conditions.is_empty())
+                    }) {
+                    Ok(has_conditions) => has_conditions,
+                    Err(error) => {
+                        errors.push(error);
+                        continue;
+                    }
+                }
+            } else {
+                false
+            };
+            let mut remaining = seconds;
+            let mut failed = false;
+            while remaining > 0.0 {
+                let until_expiry = effect
+                    .duration
+                    .map_or(remaining, |duration| (duration - effect.elapsed).max(0.0));
+                let to_check = if spell_conditions {
+                    let fraction = effect.elapsed.rem_euclid(1.0);
+                    if fraction == 0.0 {
+                        1.0
+                    } else {
+                        1.0 - fraction
+                    }
+                } else {
+                    remaining
+                };
+                let dt = remaining.min(until_expiry).min(to_check);
+                if dt <= 0.0 {
+                    break;
+                }
+                let reached_check = spell_conditions && dt + 1e-9 >= to_check;
+                if !effect.recover && effect.duration != Some(0.0) {
+                    if let Err(error) = self.apply_effect_values(&effect, dt, alloc) {
+                        errors.push(error);
+                        failed = true;
+                        break;
+                    }
+                }
+                effect.elapsed = (effect.elapsed + dt).min(f64::MAX);
+                if reached_check {
+                    effect.elapsed = effect.elapsed.round();
+                }
+                remaining -= dt;
+                let expired = effect
+                    .duration
+                    .is_some_and(|duration| effect.elapsed >= duration);
+                if expired {
+                    break;
+                }
+                if reached_check {
+                    match self.spell_effect_conditions_hold(&effect) {
+                        Ok(true) => {}
+                        Ok(false) => {
+                            self.active_effects.insert(id, effect.clone());
+                            self.dispel_effect(id, alloc);
+                            failed = true;
+                            break;
+                        }
+                        Err(error) => {
+                            errors.push(error);
+                            self.active_effects.insert(id, effect.clone());
+                            failed = true;
+                            break;
+                        }
+                    }
                 }
             }
-            effect.elapsed = (effect.elapsed + dt).min(f64::MAX);
+            if failed {
+                continue;
+            }
             let expired = effect
                 .duration
                 .is_some_and(|duration| effect.elapsed >= duration);
@@ -1103,6 +1169,26 @@ impl World {
             }
         }
         errors
+    }
+
+    fn spell_effect_conditions_hold(&mut self, effect: &ActiveEffect) -> Result<bool, MagicError> {
+        let definition = self.spell(effect.spell)?;
+        let entry = definition
+            .effects
+            .get(effect.effect_index as usize)
+            .ok_or(MagicError::Unsupported("active effect entry"))?;
+        let base = self.magic_effect(effect.effect)?;
+        let context = |owner| Context {
+            owner,
+            subject: effect.target,
+            target: effect.caster,
+            quest: None,
+            tempering_enchanted: None,
+        };
+        Ok(
+            conditions::evaluate_without_vm(self, context(effect.spell), &entry.conditions)?
+                && conditions::evaluate_without_vm(self, context(effect.effect), &base.conditions)?,
+        )
     }
 
     fn apply_effect_values(
