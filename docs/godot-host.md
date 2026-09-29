@@ -110,6 +110,24 @@ switch, default on, and the generated normals follow it.
 
 ## Streaming
 
+### Attaching a restored player, SAV-19
+
+`PlayerNode::attach_restored_game` accepts a `Game` after its vanilla-save
+restoration has succeeded. It requires shared data and a live cell streamer,
+checks that the player has a cell and finite position and rotation, then uses
+`sync_game_pose` to load the restored location, collision and camera state. It
+advances one 1/60 second host step and reports success only while the game,
+character, cell and camera remain attached. The caller should retain its active
+`Game` until this call succeeds.
+
+The UESP `Player_Location.wikitext` describes a world or cell, exterior cell
+coordinates and a position. FallrimTools' ESS player-location handling keeps
+that data separate from the player's ACHR change form. The game crate in this
+worktree does not expose the SAV-09 atomic world and VM restoration entry point,
+so no vanilla-save import currently calls this host adapter. The host check is
+therefore limited to the adapter's restored-pose validation; an end-to-end
+vanilla import, attached cell and advanced frame still require SAV-09.
+
 `CellStreamer::update(focus)` returns a `StreamPlan`: cells to load, nearest first, and cells
 to unload, farthest first. The load square is `load_radius` cells each side of the focus cell
 (2 gives the game's `uGridsToLoad=5`). Cells are released only beyond `unload_radius`, which
