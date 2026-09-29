@@ -120,14 +120,14 @@ fn placement(r: &mut Cursor<'_>) -> Result<Placement> {
 }
 
 impl ChangeForm {
-    /// Read the placement prefix of a REFR, ACHR, PCON or PARW payload.
+    /// Read the placement prefix of a REFR, ACHR, projectile, PCON or PARW payload.
     ///
     /// # Errors
     /// A malformed compressed payload, invalid identity tag, truncated prefix
     /// or a Havok count exceeding the payload. The reported remainder is not
     /// validated, decoded or implicitly considered restored.
     pub fn reference_header(&self, form_version: u8) -> Result<Option<ReferenceHeader>> {
-        if !matches!(self.type_index(), 0 | 1 | 42 | 47) {
+        if !matches!(self.type_index(), 0 | 1 | 2 | 3 | 4 | 42 | 47) {
             return Ok(None);
         }
         if self.form.kind() == RefKind::Invalid {

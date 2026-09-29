@@ -69,7 +69,11 @@ fn save(owner: u32) -> Save {
         unused: [0; 15],
     }
     .write(&mut bytes);
-    soe_save::GlobalData { kind: 1000, data: vec![] }.write(&mut bytes);
+    soe_save::GlobalData {
+        kind: 1000,
+        data: vec![],
+    }
+    .write(&mut bytes);
     bytes.extend_from_slice(&[0; 8]);
     let mut save = Save::parse(&bytes).unwrap();
     save.plugins = vec![WString::from_text("Skyrim.esm")];
@@ -92,8 +96,12 @@ fn location_save(tail: &[u8]) -> Save {
         type_field: 38,
         version: 78,
         uncompressed_len: 0,
-        data: [0x12_34_56_78_u32.to_le_bytes().as_slice(), &[0x34, 0x12], tail]
-            .concat(),
+        data: [
+            0x12_34_56_78_u32.to_le_bytes().as_slice(),
+            &[0x34, 0x12],
+            tail,
+        ]
+        .concat(),
     }];
     saved
 }

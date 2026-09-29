@@ -3,9 +3,7 @@
 
 use soe_esm::{plugin::FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::World;
-use soe_save::{
-    reference::PlayerLocation, Compression, GlobalData, Header, RefId, Save, WString,
-};
+use soe_save::{reference::PlayerLocation, Compression, GlobalData, Header, RefId, Save, WString};
 
 fn id(object: u32) -> GlobalFormId {
     GlobalFormId { file: 0, object }
@@ -20,7 +18,13 @@ fn fixture_order() -> LoadOrder {
     plugin.push_top(Record::new(Tag(*b"CELL"), 0x800).sub(Tag(*b"DATA"), [0, 0]));
     plugin.push_top(Record::new(Tag(*b"ACHR"), 0x14).sub(Tag(*b"NAME"), 0x810_u32.to_le_bytes()));
     plugin.push_top(Record::new(Tag(*b"NPC_"), 0x810));
-    plugin.push_top(Record::new(Tag(*b"PMIS"), 0x900).sub(Tag(*b"NAME"), 0x820_u32.to_le_bytes()));
+    for (tag, object) in [(*b"PMIS", 0x900), (*b"PGRE", 0x901), (*b"PBEA", 0x902)] {
+        plugin.push_top(
+            Record::new(Tag(tag), object)
+                .sub(Tag(*b"NAME"), 0x820_u32.to_le_bytes())
+                .sub(Tag(*b"DATA"), [0_u8; 24]),
+        );
+    }
     plugin.push_top(Record::new(Tag(*b"STAT"), 0x820));
     let mut order = LoadOrder::new();
     order.add("Skyrim.esm", plugin).unwrap();
@@ -68,7 +72,11 @@ fn saved() -> Save {
         unused: [0; 15],
     }
     .write(&mut bytes);
-    soe_save::GlobalData { kind: 1000, data: vec![] }.write(&mut bytes);
+    soe_save::GlobalData {
+        kind: 1000,
+        data: vec![],
+    }
+    .write(&mut bytes);
     bytes.extend_from_slice(&[0; 8]);
     let mut save = Save::parse(&bytes).unwrap();
     save.plugins = vec![WString::from_text("Skyrim.esm")];
@@ -89,39 +97,75 @@ fn saved() -> Save {
         player.extend(value.to_le_bytes());
     }
     player.extend([0; 8]);
-    let mut projectile = reference(0x400800).raw().to_be_bytes()[1..].to_vec();
-    for value in [4.0_f32, 5.0, 6.0, 0.0, 0.5, 0.0] {
-        projectile.extend(value.to_le_bytes());
+    let mut changes = vec![soe_save::ChangeForm {
+        form: reference(0x400014),
+        change_flags: 1 << 1,
+        type_field: 1,
+        version: 0,
+        uncompressed_len: 0,
+        data: player,
+    }];
+    for (object, type_field, position) in [
+        (0x900, 2, [4.0_f32, 5.0, 6.0]),
+        (0x901, 3, [7.0_f32, 8.0, 9.0]),
+        (0x902, 4, [10.0_f32, 11.0, 12.0]),
+    ] {
+        let mut data = reference(0x400800).raw().to_be_bytes()[1..].to_vec();
+        for value in position.into_iter().chain([0.0, 0.5, 0.0]) {
+            data.extend(value.to_le_bytes());
+        }
+        changes.push(soe_save::ChangeForm {
+            form: reference(0x400000 | object),
+            change_flags: 1 << 1,
+            type_field,
+            version: 0,
+            uncompressed_len: 0,
+            data,
+        });
     }
-    save.change_forms = vec![
-        soe_save::ChangeForm {
-            form: reference(0x400014),
-            change_flags: 1 << 1,
-            type_field: 1,
-            version: 0,
-            uncompressed_len: 0,
-            data: player,
-        },
-        soe_save::ChangeForm {
-            form: reference(0x400900),
-            change_flags: 1 << 1,
-            type_field: 2,
-            version: 0,
-            uncompressed_len: 0,
-            data: projectile,
-        },
-    ];
+    save.change_forms = changes;
     save
 }
 
 #[test]
 fn sav_01_pmis_saved_move_resolves_its_record_type_and_survives_engine_reload() {
     let mut world = World::new(fixture_order());
-    world.restore_vanilla_reference_placements(&saved()).unwrap();
-    assert_eq!(world.reference_ref(id(0x900)).unwrap().position, [4.0, 5.0, 6.0]);
-    assert_eq!(world.reference(id(0x900)).unwrap().base, Some(id(0x820)));
+    world
+        .restore_vanilla_reference_placements(&saved())
+        .unwrap();
+    for (object, position) in [
+        (0x900, [4.0, 5.0, 6.0]),
+        (0x901, [7.0, 8.0, 9.0]),
+        (0x902, [10.0, 11.0, 12.0]),
+    ] {
+        assert_eq!(world.reference_ref(id(object)).unwrap().position, position);
+        assert_eq!(world.reference(id(object)).unwrap().base, Some(id(0x820)));
+    }
     let bytes = world.save_state();
     let mut loaded = World::new(fixture_order());
     loaded.load_state(&bytes).unwrap();
-    assert_eq!(loaded.reference_ref(id(0x900)).unwrap().position, [4.0, 5.0, 6.0]);
+    for (object, position) in [
+        (0x900, [4.0, 5.0, 6.0]),
+        (0x901, [7.0, 8.0, 9.0]),
+        (0x902, [10.0, 11.0, 12.0]),
+    ] {
+        assert_eq!(loaded.reference_ref(id(object)).unwrap().position, position);
+        assert_eq!(loaded.reference(id(object)).unwrap().base, Some(id(0x820)));
+    }
+}
+
+#[test]
+fn sav_01_late_projectile_failure_leaves_reference_restore_atomic() {
+    let mut world = World::new(fixture_order());
+    let before = world.save_state();
+    let mut invalid = saved();
+    invalid.change_forms[3].form = reference(0x400999);
+
+    assert!(world
+        .restore_vanilla_reference_placements(&invalid)
+        .is_err());
+    assert_eq!(world.save_state(), before);
+    for object in 0x900..=0x902 {
+        assert!(world.reference_ref(id(object)).is_none());
+    }
 }

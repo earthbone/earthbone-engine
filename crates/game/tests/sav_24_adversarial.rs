@@ -62,7 +62,11 @@ fn save() -> Save {
         unused: [0; 15],
     }
     .write(&mut bytes);
-    soe_save::GlobalData { kind: 1000, data: vec![] }.write(&mut bytes);
+    soe_save::GlobalData {
+        kind: 1000,
+        data: vec![],
+    }
+    .write(&mut bytes);
     bytes.extend_from_slice(&[0; 8]);
     let mut save = Save::parse(&bytes).unwrap();
     save.plugins = vec![WString::from_text("Skyrim.esm")];

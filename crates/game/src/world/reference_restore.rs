@@ -256,6 +256,9 @@ impl World {
                     .ok_or_else(|| invalid(id, "missing reference record"))?;
                 let expected = match form.type_index() {
                     1 => T(b"ACHR"),
+                    2 => T(b"PMIS"),
+                    3 => T(b"PGRE"),
+                    4 => T(b"PBEA"),
                     42 => T(b"PCON"),
                     47 => T(b"PARW"),
                     _ => T(b"REFR"),
