@@ -334,8 +334,9 @@ application. They also cover misses, cancellation, equipment changes, rejected
 damage, slot-parent cycles, animation-independent hand occupancy and save/load.
 These tests use synthetic records and query results. A live Godot swing and
 installed attack-animation corpus have not been exercised. CMB-28 owns the
-scene wiring that supplies weapon segments and registered bodies. CMB-04 owns
-device input and depends on both CMB-03 and CMB-28.
+scene wiring that supplies weapon segments and registered bodies. CMB-04 binds
+the PC `Right Attack/Block` input to the right-hand swing latch. Left-hand attack
+input remains outside that row.
 
 Additional local sources read for this increment:
 
@@ -348,6 +349,32 @@ Additional local sources read for this increment:
 - godot-docs/classes/class_physicsdirectspacestate3d.rst for first-contact
   ray results, RID identity and exclusions.
 
+## Ranged release, CMB-08
+
+`World::ranged_equipment` reads the explicitly assigned right-hand weapon and
+the actor's equipped AMMO forms. WEAP animation types 7 and 9 identify bows
+and crossbows. AMMO DATA bit 2 selects arrows versus bolts, so a bow accepts
+arrows and a crossbow accepts bolts. Missing, exhausted or ambiguous compatible
+ammo rejects the release.
+
+`World::release_projectile` validates the AMMO projectile link, AMMO damage,
+PROJ arrow type, gravity, speed, range, origin and direction before consuming
+one selected round. It queues the ordinary OnItemRemoved inventory event and
+returns a transient `FlightRequest` with normalized direction and record-backed
+flight fields. A rejected request leaves ammunition unchanged. The host's
+`RangedRelease` captures the weapon at draw start and invokes that transaction
+only on `bowRelease`; `attackStop` and `bowCancel` clear the armed shot. Flight
+movement and impact remain CMB-22 work. No runtime or save field was added.
+
+Sources read for CMB-08:
+
+- TES5Edit/Core/wbDefinitionsTES5.pas AMMO DATA, WEAP animation types and PROJ
+  DATA.
+- uesp-modfileformat/AMMO.wikitext and PROJ.wikitext for ammo flags and
+  projectile field meanings.
+- ck-wiki/Actor_Script.wikitext for `OnPlayerBowShot`, and
+  ck-wiki/OnHit_-_ObjectReference.wikitext for projectile event arguments.
+
 ### Live contact prerequisites
 
 PlayerNode now owns actor collision RIDs keyed by the shared World's resident
@@ -355,8 +382,8 @@ actors. A SkinnedActorNode bound to that World supplies its model-space weapon
 attachment pose at HitFrame. The one-handed graph emits the authored marker,
 and PlayerNode queries the first actor or obstruction using the selected
 weapon's reach. The installed-data contact script runs the path across a load
-door. Input binding remains CMB-04, and the host script forwards the relevant
-HitFrame marker while a swing is armed.
+door. The host script forwards the relevant HitFrame marker while a swing is
+armed by CMB-04 or another caller.
 
 CMB-29 exposes and validates character controller metadata first. The local
 serde-hkx hkbCharacterDataCharacterControllerInfo declaration places height,

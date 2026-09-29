@@ -9,11 +9,12 @@ body, including an intervening actor or static obstruction. The query uses
 the existing RID-backed actor bodies and allocates no reference nodes.
 
 `detection::light_level` reads the winning CELL/XCLL ambient RGB, LGTM
-inheritance, and enabled placed LIGH/DATA radius, color, negative and
-off-by-default flags with FNAM fade. It samples
-current reference placement and enable state and bounds the resulting
-record-derived light estimate to 0 to 150. The host sends that value, sight,
-motion and queued detection sounds to `World::evaluate_detection` each step.
+inheritance, and enabled authored or runtime placed LIGH/DATA radius, color,
+negative and off-by-default flags with FNAM fade. It samples current reference
+placement and enable state, including `PlaceAtMe` references, and bounds the
+resulting record-derived light estimate to 0 to 150. The host sends that
+value, sight, motion and queued detection sounds to
+`World::evaluate_detection` each step.
 A sound event uses its source position and owning actor FormID. Footsteps emit
 a detection sound after successful playback. World keeps the stealth pool and
 observer state across cell resource replacement.
@@ -1102,6 +1103,13 @@ Only its gameplay context supplies gameplay actions. The hold-to-walk action
 is named `Run` in that file, and Toggle Always Run uses Caps Lock. Camera
 offsets remain this engine's choices, as `camera` documents separately.
 
+The `Right Attack/Block` gameplay event is also registered from the PC control
+map. Its press edge arms one right-hand melee contact in PlayerNode. The
+authored animation's `HitFrame` marker still supplies the contact pose and
+reaches the same shared Game path as other melee contacts. A single-key or
+single-button action can also be pressed through Godot's Input action API,
+while chorded bindings continue to require every device input.
+
 ### The camera basis
 
 Skyrim's yaw is zero facing north and grows clockwise from above, so forward is
@@ -1790,6 +1798,18 @@ and installed survey. The host examples `controller_geometry_survey` and
 copying assets. CMB-28 installs and synchronizes actor bodies, and CMB-33
 supplies generated controller geometry when authored geometry is absent.
 
+## Ranged release latch, CMB-08
+
+`combat::RangedRelease` stores the actor and bow or crossbow selected when a
+shot is armed. It calls `Game::release_projectile` once on `bowRelease` and
+clears the pending shot on `attackStop` or `bowCancel`. The returned request
+contains the launch vector and winning AMMO/PROJ inputs. This latch does not
+move projectiles or resolve impacts, which remain CMB-22 work.
+
+The synthetic host tests cover one returned request, duplicate release markers
+and cancellation with the ammunition count unchanged. No Godot node or
+per-reference resource is created for this release state.
+
 ## Actor contact bodies and pose segments, CMB-28
 
 `godot_physics::ActorBodies` gives every resident actor one static query body
@@ -1844,7 +1864,9 @@ attacker. It reads the weapon attachment from the rig's model-space pose, the
 same buffer used for skinning, and resolves the segment using the armed hand's
 reach. For a bound rig, position, rotation and scale come from the actor's
 current shared World placement. A rig without a matching weapon or hand bone
-rejects the contact.
+rejects the contact. CMB-04's `Right Attack/Block` press arms this contact for
+the right hand, and the authored `HitFrame` remains the only event that queries
+and applies damage.
 `last_melee_obstruction` exposes the first unmapped body RID when an
 obstruction stops a swing. It is invalid for an actor contact or a miss.
 

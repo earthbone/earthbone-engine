@@ -74,6 +74,7 @@ mod record_overrides;
 mod skins;
 mod temporary_npc;
 pub use record_overrides::NpcRecordExtra;
+mod projectiles;
 mod quest_restore;
 mod quest_save;
 mod quests;
@@ -97,6 +98,7 @@ mod transition;
 
 pub use contact::{ContactActor, DEFAULT_COMBAT_DISTANCE};
 pub use doorway::{Doorway, InteriorDestination, Side, Threshold, THRESHOLD_BAND, UNITS_PER_METRE};
+pub use projectiles::RangedEquipment;
 pub use reference_extras::{ReferenceExtrasRestoreReport, ReferenceLock};
 pub use save::{SAVE_MAGIC, SAVE_VERSION};
 pub use transition::CellTransition;

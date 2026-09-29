@@ -84,6 +84,27 @@ impl Inventory {
         })
     }
 
+    /// Select one item from the undescribed remainder or first available stack.
+    ///
+    /// # Errors
+    /// Missing items, ambiguous overlapping stack counts or insufficient quantity.
+    pub fn select_any(&self, item: GlobalFormId, count: i32) -> Result<Selection, Error> {
+        match self.select(item, StackSource::Plain, count) {
+            Ok(selected) => return Ok(selected),
+            Err(Error::AmbiguousStacks) => return Err(Error::AmbiguousStacks),
+            Err(_) => {}
+        }
+        let entry = self.entries.get(&item).ok_or(Error::Selection)?;
+        for (index, stack) in entry.stacks.iter().enumerate() {
+            if stack.count >= count {
+                if let Ok(selected) = self.select(item, StackSource::Extra(index), count) {
+                    return Ok(selected);
+                }
+            }
+        }
+        Err(Error::Selection)
+    }
+
     /// Inspect the selected metadata. Plain items return `None`.
     ///
     /// # Errors
