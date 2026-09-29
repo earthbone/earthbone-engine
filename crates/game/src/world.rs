@@ -464,6 +464,8 @@ pub struct World {
     refs: HashMap<GlobalFormId, RefState>,
     actors: HashMap<GlobalFormId, ActorState>,
     quests: HashMap<GlobalFormId, QuestState>,
+    quest_start_stop_events:
+        soe_commonlib_shim::events::EventSource<soe_commonlib_shim::events::QuestStartStopEvent>,
     globals: HashMap<GlobalFormId, f32>,
     form_lists: HashMap<GlobalFormId, Vec<GlobalFormId>>,
     leveled_lists: HashMap<GlobalFormId, LeveledList>,
@@ -582,6 +584,7 @@ impl World {
             refs: HashMap::new(),
             actors: HashMap::new(),
             quests: HashMap::new(),
+            quest_start_stop_events: soe_commonlib_shim::events::EventSource::default(),
             globals: HashMap::new(),
             form_lists: HashMap::new(),
             leveled_lists: HashMap::new(),

@@ -75,13 +75,18 @@ after changing the header mapping with `cargo run -p soe-commonlib-shim --bin ge
 The declarations are source-level headers only. They do not provide a C ABI or engine bindings.
 The mapping follows the Rust API while adapting Rust names and types to C++, including
 `NativeRegistry::register`, which is emitted as `register_native` because `register` is a C++
-keyword.
+keyword. `RE::TESQuestStartStopEvent` matches CommonLib's 8-byte form id, started flag, failed
+flag and two-byte padding layout. The Rust shim event carries the resolved runtime form id and
+the quest's failed state. `soe-game` emits it after successful start and stop transitions through
+the MIT event sink API.
 
 ## Untested
 
 The SHM-01 test compiles the generated umbrella headers with a C++20 compiler and checks C++
-signatures for the Rust methods they project. No sample plugin has been compiled against the
-headers, and the declarations are not linked to engine behavior. The counts are token counts,
+signatures for the Rust methods they project. The SHM-23 fixture compiles and runs the quest
+event payload and verifies the explicit trampoline rejection marker. A game integration test
+checks that live quest start and failed-stop transitions reach the MIT sink with current state.
+The generated declarations are not linked to a C++ plugin ABI. The counts are token counts,
 so a name mentioned only in a comment is counted and a type reached only through `auto` is not.
 Four plugins are a sample, not the population: the map's 70 to 90 percent open-source estimate
 is from a six-plugin sample and the shimmable share here is 3 of 4 by plugin, far less by hook

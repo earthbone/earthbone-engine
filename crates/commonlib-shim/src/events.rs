@@ -14,6 +14,14 @@ pub trait EventSink<E> {
     fn process(&mut self, event: &E) -> NotifyControl;
 }
 
+/// The CommonLib `RE::TESQuestStartStopEvent` payload.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct QuestStartStopEvent {
+    pub form_id: crate::form::FormId,
+    pub started: bool,
+    pub failed: bool,
+}
+
 /// A source owns its sinks and delivers in registration order, stopping
 /// at the first sink that says so, as the game's does.
 pub struct EventSource<E> {

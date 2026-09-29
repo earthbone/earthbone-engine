@@ -1,11 +1,22 @@
 // Generated from crates/commonlib-shim/src/events.rs. Do not edit.
 #pragma once
+#include <cstdint>
 #include <cstddef>
 #include <memory>
 #include <utility>
 #include <vector>
 
 namespace RE {
+using FormID = std::uint32_t;
+
+struct TESQuestStartStopEvent {
+    FormID formID;
+    bool started;
+    bool failed;
+    std::uint16_t pad06;
+};
+static_assert(sizeof(TESQuestStartStopEvent) == 0x8);
+
 enum class NotifyControl { Continue, Stop };
 
 template <class Event>
