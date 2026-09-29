@@ -441,19 +441,20 @@ fn cmb_14_version_28_save_loads_with_no_actor_staggered() {
         );
         // The right spell field is immediately followed by this actor's own
         // named save-section table, which a version 28 writer never emitted.
-        let table_len = legacy::section_table_len(&bytes, end + 6);
-        bytes.drain(positions[0]..end + 6 + table_len);
+        let section_start = end + 6;
+        let section_len = legacy::section_table_len(&bytes, section_start);
+        bytes.drain(positions[0]..section_start + section_len);
     }
     assert_eq!(
         u16::from_le_bytes([bytes[4], bytes[5]]),
         soe_game::world::SAVE_VERSION,
         "the save must carry the current world state version before the patch"
     );
+    legacy::strip_world_sections(&mut bytes);
     // The scene runtime count (version 36), the now-unconditional detection
-    // pool count (version 37) and the empty world-level save-section table
-    // (version 37) are the last three fields, ten bytes together, all past
-    // where a version 28 save ends.
-    bytes.truncate(bytes.len() - 10);
+    // pool count (version 37) are the last two fields, eight bytes together,
+    // all past where a version 28 save ends.
+    bytes.truncate(bytes.len() - 8);
     let visit_count = bytes.len() - 12;
     assert_eq!(bytes[visit_count..visit_count + 4], [0; 4]);
     bytes.drain(visit_count..visit_count + 4);

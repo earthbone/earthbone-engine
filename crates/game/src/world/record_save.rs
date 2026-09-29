@@ -7,12 +7,30 @@ use std::collections::BTreeMap;
 use soe_esm::{plugin::Subrecord, GlobalFormId, Slot, Tag};
 use soe_papyrus::{vm::state::Writer, VmError};
 
-use super::record_overrides::{raw_words, ListRecordExtra, NpcRecordExtra, RecordOverride};
+use super::record_overrides::{
+    raw_words, ListRecordExtra, NavmeshRecordExtra, NpcRecordExtra, PackRecordExtra, RecordOverride,
+};
 use super::save::{read_form_id, read_opt_form_id, write_form_id, write_opt_form_id, FormReader};
 use super::{World, T};
 
 fn bad(reason: &str) -> VmError {
     VmError::State(format!("record override: {reason}"))
+}
+
+fn write_extra_flags(w: &mut Writer, flags: Option<(u32, u16)>) {
+    w.bool(flags.is_some());
+    if let Some((mask, value)) = flags {
+        w.u32(mask);
+        w.u16(value);
+    }
+}
+
+fn read_extra_flags(r: &mut FormReader<'_, '_>) -> Result<Option<(u32, u16)>, VmError> {
+    if r.bool()? {
+        Ok(Some((r.u32()?, r.u16()?)))
+    } else {
+        Ok(None)
+    }
 }
 
 impl World {
@@ -103,7 +121,14 @@ impl World {
                 || self.order.winner(text_origin).is_none_or(|r| {
                     !matches!(
                         &r.tag.0,
-                        b"NPC_" | b"RACE" | b"FLST" | b"LVLN" | b"LVLI" | b"LVSP"
+                        b"NPC_"
+                            | b"RACE"
+                            | b"FLST"
+                            | b"LVLN"
+                            | b"LVLI"
+                            | b"LVSP"
+                            | b"PACK"
+                            | b"NAVM"
                     )
                 })
             {
@@ -115,7 +140,14 @@ impl World {
                 .filter(|rec| {
                     matches!(
                         &rec.tag.0,
-                        b"NPC_" | b"RACE" | b"FLST" | b"LVLN" | b"LVLI" | b"LVSP"
+                        b"NPC_"
+                            | b"RACE"
+                            | b"FLST"
+                            | b"LVLN"
+                            | b"LVLI"
+                            | b"LVSP"
+                            | b"PACK"
+                            | b"NAVM"
                     ) && !rec.is_deleted()
                 })
                 .ok_or_else(|| bad("missing record origin"))?;
@@ -159,6 +191,7 @@ impl World {
             } else {
                 None
             };
+            let (pack, navmesh) = (None, None);
             let mut links = BTreeMap::new();
             let used = raw_words(original);
             let count = r.len()?;
@@ -197,13 +230,13 @@ impl World {
                     .winner_ref(text_origin)
                     .is_some_and(|owner| self.order.file(owner.file).plugin.header.is_localized());
             if record.tag == T(b"NPC_") {
-                if list.is_some() {
+                if list.is_some() || pack.is_some() || navmesh.is_some() {
                     return Err(bad("NPC has list metadata"));
                 }
                 crate::npc::Npc::from_record(&record, localized)
                     .map_err(|e| VmError::State(e.to_string()))?;
             } else if record.tag == T(b"RACE") {
-                if list.is_some() {
+                if list.is_some() || pack.is_some() || navmesh.is_some() {
                     return Err(bad("race has list metadata"));
                 }
                 // Race overrides currently expose only WNAM. Reject other
@@ -253,7 +286,34 @@ impl World {
                 {
                     return Err(bad("invalid race skin link"));
                 }
+            } else if record.tag == T(b"PACK") || record.tag == T(b"NAVM") {
+                let expected_pack = record.tag == T(b"PACK");
+                if temporary_for.is_some()
+                    || text_origin != id
+                    || plain_full
+                    || original_race.is_some()
+                    || body_tint.is_some()
+                    || pending_form_flags.is_some()
+                    || list.is_some()
+                    || !links.is_empty()
+                    || (expected_pack && navmesh.is_some())
+                    || (!expected_pack && pack.is_some())
+                    || unchanged_record(&record) != unchanged_record(original)
+                    || record.editor_id() != original.editor_id()
+                {
+                    return Err(bad("invalid saved PACK or NAVM override"));
+                }
+                if expected_pack {
+                    crate::package::Package::from_record(&record)
+                        .map_err(|error| VmError::State(error.to_string()))?;
+                } else {
+                    soe_esm::records::navm::NavMesh::from_record(&record)
+                        .map_err(|error| VmError::State(error.to_string()))?;
+                }
             } else {
+                if pack.is_some() || navmesh.is_some() {
+                    return Err(bad("list record has PACK or NAVM metadata"));
+                }
                 let tag = if record.tag == T(b"FLST") {
                     T(b"LNAM")
                 } else {
@@ -318,6 +378,8 @@ impl World {
                     pending_form_flags,
                 },
                 list,
+                pack,
+                navmesh,
             };
             if values.insert(id, value).is_some() {
                 return Err(bad("duplicate NPC record"));
@@ -325,4 +387,87 @@ impl World {
         }
         Ok(values)
     }
+}
+
+pub(super) fn write_pack_navmesh_section(world: &World, w: &mut Writer) {
+    let entries: Vec<_> = world
+        .record_overrides
+        .iter()
+        .filter(|(_, value)| value.pack.is_some() || value.navmesh.is_some())
+        .collect();
+    if entries.is_empty() {
+        return;
+    }
+    w.len(entries.len());
+    for (id, value) in entries {
+        write_form_id(w, *id);
+        w.bool(value.pack.is_some());
+        if let Some(pack) = value.pack {
+            write_extra_flags(w, pack.form_flags);
+            w.bool(pack.waiting);
+            w.bool(pack.never_run);
+        }
+        w.bool(value.navmesh.is_some());
+        if let Some(navmesh) = value.navmesh {
+            write_extra_flags(w, navmesh.form_flags);
+            w.bool(navmesh.value_changed);
+            w.bool(navmesh.full_name_changed);
+        }
+    }
+}
+
+pub(super) fn read_pack_navmesh_section(
+    world: &mut World,
+    r: &mut FormReader<'_, '_>,
+) -> Result<(), VmError> {
+    let mut seen = std::collections::BTreeSet::new();
+    for _ in 0..r.len()? {
+        let id = read_form_id(r)?;
+        if !seen.insert(id) {
+            return Err(bad("duplicate PACK or NAVM section record"));
+        }
+        let pack = if r.bool()? {
+            Some(PackRecordExtra {
+                form_flags: read_extra_flags(r)?,
+                waiting: r.bool()?,
+                never_run: r.bool()?,
+            })
+        } else {
+            None
+        };
+        let navmesh = if r.bool()? {
+            Some(NavmeshRecordExtra {
+                form_flags: read_extra_flags(r)?,
+                value_changed: r.bool()?,
+                full_name_changed: r.bool()?,
+            })
+        } else {
+            None
+        };
+        let value = world
+            .record_overrides
+            .get_mut(&id)
+            .ok_or_else(|| bad("PACK or NAVM section names a missing override"))?;
+        match value.record.tag {
+            tag if tag == T(b"PACK") && pack.is_some() && navmesh.is_none() => {
+                value.pack = pack;
+            }
+            tag if tag == T(b"NAVM") && navmesh.is_some() && pack.is_none() => {
+                value.navmesh = navmesh;
+            }
+            _ => return Err(bad("PACK or NAVM section has mismatched record metadata")),
+        }
+    }
+    if world.record_overrides.iter().any(|(id, value)| {
+        (value.record.tag == T(b"PACK") && value.pack.is_none())
+            || (value.record.tag == T(b"NAVM") && value.navmesh.is_none())
+            || (!seen.contains(id) && (value.pack.is_some() || value.navmesh.is_some()))
+    }) {
+        return Err(bad("PACK or NAVM section is incomplete"));
+    }
+    Ok(())
+}
+
+fn unchanged_record(record: &soe_esm::Record) -> Vec<Subrecord> {
+    record.subrecords.clone()
 }

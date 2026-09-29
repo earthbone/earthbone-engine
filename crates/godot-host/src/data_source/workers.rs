@@ -93,29 +93,20 @@ mod tests {
 
     #[test]
     fn parallel_archive_construction_preserves_last_archive_wins() {
-        use soe_bsa::{Archive, Vfs};
+        use soe_bsa::{write_bsa, Archive, BsaFile, BsaVersion, Vfs};
         use std::path::Path;
 
         // Reduced from bsa::archive::testdata::sse_bsa, which is test-private
         // to that crate. One folder, one uncompressed file, two payload bytes.
         fn archive_bytes(payload: [u8; 2]) -> Vec<u8> {
-            let mut bytes = b"BSA\0".to_vec();
-            for value in [105u32, 36, 3, 1, 1, 7, 9, 0] {
-                bytes.extend_from_slice(&value.to_le_bytes());
-            }
-            bytes.extend_from_slice(&0u64.to_le_bytes());
-            bytes.extend_from_slice(&1u32.to_le_bytes());
-            bytes.extend_from_slice(&0u32.to_le_bytes());
-            bytes.extend_from_slice(&0u64.to_le_bytes());
-            bytes.push(7);
-            bytes.extend_from_slice(b"meshes\0");
-            bytes.extend_from_slice(&0u64.to_le_bytes());
-            bytes.extend_from_slice(&2u32.to_le_bytes());
-            bytes.extend_from_slice(&93u32.to_le_bytes());
-            bytes.extend_from_slice(b"same.nif\0");
-            assert_eq!(bytes.len(), 93);
-            bytes.extend_from_slice(&payload);
-            bytes
+            write_bsa(
+                &[BsaFile {
+                    path: r"meshes\same.nif",
+                    bytes: &payload,
+                }],
+                BsaVersion::SkyrimSe,
+            )
+            .unwrap()
         }
         for workers in [1, 2, 8] {
             let archives = ordered_map(&[0u8, 1, 2, 3], workers, |i| {

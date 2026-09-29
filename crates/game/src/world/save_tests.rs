@@ -341,6 +341,13 @@ fn without_exclusive_branches(world: &mut World) -> Vec<u8> {
         right_spell_marker.extend_from_slice(&right_spell_sentinel.file.to_le_bytes());
         right_spell_marker.extend_from_slice(&right_spell_sentinel.object.to_le_bytes());
         markers.push(right_spell_marker);
+        let furniture_sentinel = GlobalFormId {
+            file: u16::MAX,
+            object: 0xE300_0000 + index as u32,
+        };
+        let furniture_marker = 0xA000_u16 + index as u16;
+        world.actors.get_mut(id).unwrap().furniture_seat =
+            Some((furniture_sentinel, furniture_marker));
     }
     let summon_sentinel = GlobalFormId {
         file: u16::MAX,
@@ -501,9 +508,28 @@ fn sav_07_ambiguous_legacy_loadouts_fail_before_world_or_vm_mutation() {
         .notifications
         .push("keep existing state".into());
     let before = game.save_state().unwrap();
+    let mut world_at = 6;
+    let plugin_count = u32::from_le_bytes(before[world_at..world_at + 4].try_into().unwrap());
+    world_at += 4;
+    for _ in 0..plugin_count {
+        let name_len = u32::from_le_bytes(before[world_at..world_at + 4].try_into().unwrap());
+        world_at += 4 + name_len as usize + 1 + 2 + 32;
+    }
+    let script_count = u32::from_le_bytes(before[world_at..world_at + 4].try_into().unwrap());
+    world_at += 4;
+    for _ in 0..script_count {
+        let name_len = u32::from_le_bytes(before[world_at..world_at + 4].try_into().unwrap());
+        world_at += 4 + name_len as usize;
+        if before[world_at] != 0 {
+            world_at += 1 + 32;
+        } else {
+            world_at += 1;
+        }
+    }
+    world_at += 4;
     for version in 4..=18_u16 {
         let mut bytes = before.clone();
-        bytes[14..16].copy_from_slice(&version.to_le_bytes());
+        bytes[world_at + 4..world_at + 6].copy_from_slice(&version.to_le_bytes());
         assert!(game
             .load_state(&bytes)
             .unwrap_err()
@@ -761,8 +787,9 @@ fn an_actor_saved_at_version_36_loads_without_its_absent_section_table() {
     });
     let mut writer = Writer::new();
     write_actor_state(&mut writer, &actor);
-    assert_eq!(&writer.out[writer.out.len() - 2..], &[0, 0]);
-    writer.out.truncate(writer.out.len() - 2);
+    let mut sections = Writer::new();
+    save_sections::write_sections(&mut sections, &actor, ACTOR_SECTIONS);
+    writer.out.truncate(writer.out.len() - sections.out.len());
 
     let mut reader = Reader::new(&writer.out);
     let mut reader = FormReader::new(&mut reader, FormNamespace::Current);

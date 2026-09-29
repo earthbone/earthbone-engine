@@ -65,6 +65,9 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// Version 37 appends named section tables to world, actor and reference
 /// records. It is the last version bump. New saved state uses a section in
 /// `save_section_registry` at the level that owns it.
+/// Version 37 accompanies the provenance-aware native game save envelope.
+/// The same version carries Fallout 4 struct values in saved Papyrus state.
+/// AI-88 retains each actor's reserved furniture marker in an actor section.
 pub const SAVE_VERSION: u16 = 37;
 
 #[derive(Clone, Copy)]
@@ -936,7 +939,7 @@ impl World {
         if version >= 12 {
             super::item_save::read_item_stacks(&mut r, &mut refs)?;
         }
-        let record_overrides = if version >= 13 {
+        let mut record_overrides = if version >= 13 {
             self.read_record_overrides(&mut r, version)?
         } else {
             BTreeMap::new()
@@ -1073,7 +1076,12 @@ impl World {
         // tells the caller to discard it.
         self.brewed_potions.clear();
         if version >= 37 {
-            save_sections::read_sections(&mut r, "world", self, WORLD_SECTIONS)?;
+            let previous_overrides =
+                std::mem::replace(&mut self.record_overrides, record_overrides);
+            let section_result =
+                save_sections::read_sections(&mut r, "world", self, WORLD_SECTIONS);
+            record_overrides = std::mem::replace(&mut self.record_overrides, previous_overrides);
+            section_result?;
         }
         r.expect_end()?;
         for id in super::detection::detection_actors(&detection) {
@@ -1135,6 +1143,7 @@ impl World {
         self.encounter_levels = encounter_levels;
         self.encounter_zone_visits = encounter_zone_visits;
         self.detection = detection;
+        self.detection_events.clear();
         self.settings = settings;
         self.inventory_filters = inventory_filters;
         self.sleep_listeners = sleep_listeners;

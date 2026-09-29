@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 use soe_esm::GlobalFormId;
-use soe_godot_host::animation_dispatch::{report_completed_events, AnimationEventCursor};
+use soe_godot_host::animation_dispatch::{report_graph_events, AnimationEventCursor};
 
 fn id(object: u32) -> GlobalFormId {
     GlobalFormId { file: 0, object }
@@ -33,11 +33,11 @@ fn hst_10_delivers_a_request_once_and_skips_prebinding_events() {
 }
 
 #[test]
-fn hst_10_reports_each_graph_completion_once() {
+fn hst_10_reports_each_graph_event_once() {
     let mut completions = vec!["IdleStop".to_string(), "WeaponSwing".to_string()];
     let mut reported = Vec::new();
-    report_completed_events(&mut completions, |event| reported.push(event.to_string()));
-    report_completed_events(&mut completions, |event| reported.push(event.to_string()));
+    report_graph_events(&mut completions, |event| reported.push(event.to_string()));
+    report_graph_events(&mut completions, |event| reported.push(event.to_string()));
 
     assert!(completions.is_empty());
     assert_eq!(reported, ["IdleStop", "WeaponSwing"]);

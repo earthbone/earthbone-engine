@@ -252,6 +252,37 @@ fn duplicate_ingredients_are_gross_requirements_and_failure_is_atomic() {
 }
 
 #[test]
+fn crf_05_successful_craft_queues_one_authored_event_context() {
+    let mut g = game(recipe(&[(IRON, 1)], NAILS, 10), 1);
+    stock(&g, IRON, 1);
+
+    craft(&mut g).unwrap();
+
+    let expected_parameters = vec![Some(id(&g, BENCH)), None, Some(id(&g, NAILS))];
+    let mut world = g.world_mut();
+    let events = world.take_story_manager_events();
+    assert_eq!(events.len(), 1);
+    assert_eq!(
+        events[0].kind,
+        soe_game::quest::state::StoryManagerEventKind::CraftItem
+    );
+    assert_eq!(events[0].parameters, expected_parameters);
+    assert!(world.take_story_manager_events().is_empty());
+}
+
+#[test]
+fn crf_05_rejected_craft_queues_no_story_event() {
+    let mut g = game(recipe(&[(IRON, 2)], NAILS, 10), 1);
+    stock(&g, IRON, 1);
+
+    assert!(matches!(
+        craft(&mut g),
+        Err(Error::MissingIngredient { .. })
+    ));
+    assert!(g.world_mut().take_story_manager_events().is_empty());
+}
+
+#[test]
 fn missing_later_ingredient_and_output_overflow_do_not_consume_inputs() {
     let mut g = game(recipe(&[(IRON, 1), (NAILS, 2)], IRON, 1), 1);
     stock(&g, IRON, 1);

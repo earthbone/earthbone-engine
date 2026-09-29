@@ -12,6 +12,41 @@ use super::PlayerNode;
 
 #[godot_api(secondary)]
 impl PlayerNode {
+    /// Request a World death for a resident actor and remove its contact capsule.
+    #[func]
+    pub fn kill_actor(&mut self, file: i32, object: i64) -> bool {
+        let (Ok(file), Ok(object), Some(game)) =
+            (u16::try_from(file), u32::try_from(object), &self.game)
+        else {
+            return false;
+        };
+        let died = game
+            .world_mut()
+            .kill_actor(GlobalFormId { file, object }, None);
+        if died {
+            self.sync_actor_bodies();
+        }
+        died
+    }
+
+    /// Clear a World death and restore its contact capsule on the next sync.
+    #[func]
+    pub fn resurrect_actor(&mut self, file: i32, object: i64) -> bool {
+        let (Ok(file), Ok(object), Some(game)) =
+            (u16::try_from(file), u32::try_from(object), &self.game)
+        else {
+            return false;
+        };
+        let restored = game
+            .world_mut()
+            .resurrect_actor(GlobalFormId { file, object })
+            .is_ok();
+        if restored {
+            self.sync_actor_bodies();
+        }
+        restored
+    }
+
     /// Static body RIDs belonging to the currently loaded controller location.
     /// Diagnostic callers may inspect these handles, but must not free them.
     #[func]
@@ -244,8 +279,13 @@ impl PlayerNode {
         let Some(game) = &self.game else {
             return false;
         };
-        let actors = game.world_mut().contact_actors();
-        self.actor_bodies.sync(space, &actors);
+        let mut shared = game.world_mut();
+        let actors = shared.contact_actors();
+        let living: Vec<_> = actors
+            .into_iter()
+            .filter(|actor| shared.actor(actor.actor).is_none_or(|state| !state.dead))
+            .collect();
+        self.actor_bodies.sync(space, &living);
         true
     }
 

@@ -1053,3 +1053,26 @@ Two tests use `SKYRIM_DATA` and skip when it is unset:
 ANM-06 has no backlog prerequisite. Reading 32-bit ragdolls requires the layout
 work in ANM-07. Consumers implementing death ragdolls can depend on this reader
 without requiring behavior evaluation or extracted motion.
+
+## Behavior transition edits, EDT-09
+
+`BehaviorGraph::edit_transition_destination` changes the destination state of
+one transition in an existing state machine. It checks that the source state,
+transition slot and destination state exist, then updates the serialized
+`toStateId` field in the transition's original array slot. It does not resize
+the array or change conditions, events, priorities, flags or transition
+effects. The caller serializes the changed opaque-preserving document with
+`PackfileDocument::to_bytes` and can read the result back through the normal
+packfile and behavior graph readers. Synthetic transitions without serialized
+source offsets cannot be edited this way. The edit rejects a document whose
+current serialized destination no longer matches the loaded graph.
+
+The editor scope follows the Skyrim Behavior Editor's state machine and
+transition editing model. Pandora Behaviour Engine+ describes typed graph
+changes and reverting invalid edited nodes. This operation narrows its
+supported edit to a destination state already declared in the machine, so it
+can preserve all unrelated objects and fixups through the existing document
+writer. The `edt_09_transition_edit` tests check a one-transition edit through
+write and reread, plus rejection without mutation when the destination is
+missing. They use a synthetic graph and do not claim to validate rewritten
+files in Havok or Skyrim.

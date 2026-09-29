@@ -2161,6 +2161,7 @@ impl TransitionInfo {
             exit_time: 0.0,
         };
         TransitionInfo {
+            source_offset: None,
             trigger_interval: never,
             initiate_interval: never,
             transition: None,

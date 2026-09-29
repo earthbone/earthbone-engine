@@ -95,8 +95,11 @@ pub enum Error {
     #[error("invalid list change data: {reason}")]
     List { reason: String },
 
-    #[error("invalid CLAS, FACT or RELA change data: {reason}")]
+    #[error("invalid typed record change data: {reason}")]
     RecordChange { reason: String },
+
+    #[error("invalid CELL, ECZN or LCTN change data: {reason}")]
+    SpatialChange { reason: String },
 
     #[error("invalid INFO, SCEN or SMQN change data: {reason}")]
     DialogueScene { reason: String },

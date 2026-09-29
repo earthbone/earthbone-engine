@@ -70,11 +70,12 @@ pub mod magic;
 mod npc_restore;
 mod objects;
 mod outfits;
+mod package_navmesh_restore;
 pub use npc_restore::NpcRestoreReport;
 mod record_overrides;
 mod skins;
 mod temporary_npc;
-pub use record_overrides::NpcRecordExtra;
+pub use record_overrides::{NavmeshRecordExtra, NpcRecordExtra, PackRecordExtra};
 mod quest_restore;
 mod quest_save;
 mod quests;
@@ -292,6 +293,8 @@ pub struct ActorState {
     /// `FactionState`, this is the actor's own memory of who it saw do it.
     /// See `World::record_witnessed_crime`.
     pub witnessed_crimes: BTreeSet<GlobalFormId>,
+    /// Partial use experience for each actor skill, keyed by lowercase name.
+    pub skill_experience: BTreeMap<String, f32>,
 }
 
 /// One `LVLO` entry of a leveled list.
@@ -507,6 +510,8 @@ pub struct World {
     rng: u64,
     pub clock: GameClock,
     pub pending: Vec<Pending>,
+    /// Story Manager inputs awaiting PRG-14 node selection.
+    pub story_manager_events: Vec<crate::quest::state::StoryManagerEvent>,
     pub timers: Vec<UpdateTimer>,
     pub notifications: Vec<String>,
     pub message_boxes: Vec<String>,
@@ -557,6 +562,8 @@ pub struct World {
     pub(crate) detection: crate::detection::DetectionState,
     pub(crate) story_history: BTreeMap<GlobalFormId, (u32, f64)>,
     pub(crate) story_selection: BTreeMap<GlobalFormId, BTreeSet<GlobalFormId>>,
+    /// Detection sounds awaiting one host observation step.
+    pub(crate) detection_events: Vec<crate::detection::DetectionEvent>,
 }
 
 impl World {
@@ -611,6 +618,7 @@ impl World {
             rng: 0x9E37_79B9_7F4A_7C15,
             clock: GameClock::default(),
             pending: Vec::new(),
+            story_manager_events: Vec::new(),
             timers: Vec::new(),
             notifications: Vec::new(),
             message_boxes: Vec::new(),
@@ -651,6 +659,7 @@ impl World {
             detection: crate::detection::DetectionState::default(),
             story_history: BTreeMap::new(),
             story_selection: BTreeMap::new(),
+            detection_events: Vec::new(),
         }
     }
 

@@ -224,6 +224,20 @@ impl World {
         out
     }
 
+    /// Loaded references created at runtime in a cell, in FormID order.
+    #[must_use]
+    pub fn runtime_references_in_cell(&self, cell: GlobalFormId) -> Vec<GlobalFormId> {
+        let mut references = self
+            .refs
+            .iter()
+            .filter_map(|(&id, reference)| {
+                (id.file == DYNAMIC_FILE && reference.cell == Some(cell)).then_some(id)
+            })
+            .collect::<Vec<_>>();
+        references.sort_unstable();
+        references
+    }
+
     /// Associated keywords, including Keyword Item Distributor additions.
     /// MGEF cancellation lists are not associations under CK Magic Effect.
     pub fn keywords(&self, id: GlobalFormId) -> Vec<GlobalFormId> {

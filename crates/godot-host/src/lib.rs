@@ -22,6 +22,7 @@ pub mod camera;
 pub mod collision;
 pub mod combat;
 pub mod data_source;
+pub mod detection;
 pub mod dialogue_menu;
 pub mod door_fade;
 pub mod facial;
@@ -31,6 +32,7 @@ pub mod interior_prefetch;
 pub mod inventory_menu;
 pub mod magic_menu;
 pub mod mesh;
+pub mod ragdoll;
 pub mod skinned;
 pub mod streaming;
 pub mod terrain;
@@ -52,6 +54,8 @@ pub mod godot_layer;
 pub mod godot_physics;
 #[cfg(feature = "godot")]
 pub mod godot_player;
+#[cfg(feature = "godot")]
+pub mod godot_ragdoll;
 #[cfg(feature = "godot")]
 mod godot_world;
 

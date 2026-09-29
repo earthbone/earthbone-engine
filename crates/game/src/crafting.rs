@@ -3,6 +3,9 @@
 //! COBJ creation transactions from xEdit/UESP layouts and skymp CraftService.
 //! Bench WBDT selects creation versus improvement. Inventory events follow CK.
 //! Tempering applies COBJ improvement recipes to exact item instances.
+//! CraftItem event arguments follow CK Quest_Script. Bench WBDT selects
+//! creation versus improvement. Inventory events follow CK.
+//! Item improvement and the other crafting menus have separate execution paths.
 
 use crate::{
     conditions,
@@ -547,6 +550,13 @@ impl Game {
             None,
             alloc,
         );
+        let location = world.current_location(actor);
+        world
+            .story_manager_events
+            .push(crate::quest::state::StoryManagerEvent {
+                kind: crate::quest::state::StoryManagerEventKind::CraftItem,
+                parameters: vec![Some(bench), location, Some(prepared.outcome.created)],
+            });
         Ok(prepared.outcome)
     }
 
