@@ -16,6 +16,7 @@
 
 pub mod asm;
 pub mod pex;
+pub mod psc;
 pub mod value;
 pub mod vm;
 

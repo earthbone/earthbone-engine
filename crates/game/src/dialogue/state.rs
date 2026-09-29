@@ -97,6 +97,7 @@ pub(crate) fn read_dialogue(r: &mut FormReader<'_, '_>) -> Result<State, VmError
     Ok(State {
         session,
         said,
+        greeting_actor: None,
         repeated: BTreeMap::new(),
     })
 }

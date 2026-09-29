@@ -93,6 +93,7 @@ pub struct PlayerNode {
     actor_bodies: crate::godot_physics::ActorBodies,
     /// The form the last HitFrame contact query struck, for diagnostics.
     last_melee_target: Option<GlobalFormId>,
+    last_melee_obstruction: Option<Rid>,
     image_space: crate::image_space::ImageSpaceStack,
     sound_bank: Option<Gd<crate::godot_audio::SoundBank>>,
     footstep_cadence: crate::audio::FootstepCadence,
@@ -147,6 +148,7 @@ impl INode3D for PlayerNode {
             melee_bodies: HashMap::new(),
             actor_bodies: crate::godot_physics::ActorBodies::default(),
             last_melee_target: None,
+            last_melee_obstruction: None,
             image_space: crate::image_space::ImageSpaceStack::default(),
             sound_bank: None,
             footstep_cadence: crate::audio::FootstepCadence::default(),
