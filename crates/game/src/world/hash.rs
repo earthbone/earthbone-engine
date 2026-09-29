@@ -423,6 +423,7 @@ fn actor_state(h: &mut StateHasher, a: &ActorState) {
     opt_form(h, a.left_spell);
     opt_form(h, a.right_spell);
     form_set(h, &a.witnessed_crimes);
+    h.u32(a.days_in_jail);
 }
 
 fn quest_state(h: &mut StateHasher, q: &QuestState) {

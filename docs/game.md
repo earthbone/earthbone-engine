@@ -133,6 +133,16 @@ faction can legally exist without one. No Papyrus native calls this
 function yet, `SendAssaultAlarm` and similar witness-driven natives are
 later work that can build on it.
 
+**Jail sentence accounting.** `Game.ServeTime` serves the player's tracked
+crime faction at one in-game day per 100 gold of bounty, rounded up and
+capped at seven days. It advances the shared clock, clears that faction's
+violent and nonviolent bounty, clears partial skill-use experience, and adds
+the served days to the player's `days_in_jail`. That counter is stored in the
+`PRG-13` actor save section. `Game.ClearPrison` clears the counter. Crime
+record references `JAIL`, `STOL`, `PLCN` and `JOUT` are not yet consumed by
+this path, so prison placement and stolen-item confiscation or belongings
+restoration are not implemented.
+
 **Vendor service lookup.** `Game::resolve_vendor_service` reads the winning
 `FACT` vendor flag, `VEND`, `VENC`, `VENV`, `PLVD` and faction conditions. It evaluates
 conditions for a loaded merchant with the player as target and applies the
