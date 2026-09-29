@@ -69,6 +69,7 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// it, not into a new version.
 /// The same version carries Fallout 4 struct values in saved Papyrus state.
 /// AI-88 retains each actor's reserved furniture marker in an actor section.
+/// Version 37 retains pending quest start and stop promotion tasks.
 pub const SAVE_VERSION: u16 = 37;
 
 #[derive(Clone, Copy)]
@@ -561,6 +562,7 @@ impl World {
                     aliases,
                     journal: crate::quest::state::Journal::legacy(instance_globals),
                     runtime: initial.runtime,
+                    lifecycle_task: None,
                 },
             );
         }
@@ -1078,8 +1080,10 @@ impl World {
         if version >= 37 {
             let previous_overrides =
                 std::mem::replace(&mut self.record_overrides, record_overrides);
+            let previous_quests = std::mem::replace(&mut self.quests, quests);
             let section_result =
                 save_sections::read_sections(&mut r, "world", self, WORLD_SECTIONS);
+            quests = std::mem::replace(&mut self.quests, previous_quests);
             record_overrides = std::mem::replace(&mut self.record_overrides, previous_overrides);
             section_result?;
         }
