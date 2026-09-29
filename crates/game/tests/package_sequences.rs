@@ -355,8 +355,11 @@ fn a_world_saved_before_cursors_existed_starts_its_authored_tree() {
     );
     let mut game = game(tree, 0);
     let mut bytes = legacy::without_exclusive_branches(&mut game.world_mut(), &[id(ACTOR)]);
-    // Drop the zone, loose-item and image-space blocks, then the cursor count.
-    bytes.truncate(bytes.len() - 25);
+    // Drop the zone, loose-item and image-space blocks, plus detection's
+    // now-unconditional empty pool count and the empty world-level
+    // save-section table version 37 added, six bytes always past those
+    // blocks regardless of version. What remains is the cursor count.
+    bytes.truncate(bytes.len() - 35);
     assert_eq!(&bytes[bytes.len() - 4..], &[0; 4]);
     bytes.truncate(bytes.len() - 4);
     // Version 20 is the last one written without a cursor block.
@@ -373,7 +376,12 @@ fn a_corrupt_cursor_is_rejected_before_replacing_the_world() {
     game.tick(0.1);
     let original = game.world().save_state();
     let mut invalid = original.clone();
-    let finished = invalid.len() - 26;
+    // The cursor block sits ahead of the image-space, loose-item and zone
+    // blocks, and detection's now-unconditional empty pool count and the
+    // world-level save-section table version 37 added, six bytes always
+    // past those blocks regardless of version, push it 6 bytes further
+    // from the end than before.
+    let finished = invalid.len() - 36;
     invalid[finished] = 1;
     assert!(
         game.world_mut().load_state(&invalid).is_err(),
@@ -381,7 +389,8 @@ fn a_corrupt_cursor_is_rejected_before_replacing_the_world() {
     );
     assert_eq!(game.world().save_state(), original);
     let mut invalid = original.clone();
-    let actor_object = invalid.len() - 42;
+    // Same 6-byte push as `finished` above.
+    let actor_object = invalid.len() - 52;
     invalid[actor_object..actor_object + 4].copy_from_slice(&0xffffu32.to_le_bytes());
     assert!(
         game.world_mut().load_state(&invalid).is_err(),

@@ -16,6 +16,87 @@ use crate::error::{Error, Result};
 use crate::format::dxgi;
 use crate::Dds;
 
+/// A compression profile selected for a Skyrim texture slot.
+///
+/// The profiles keep color textures in sRGB and data textures linear. The
+/// tangent normal profile uses BC3 because Skyrim also reads its alpha as
+/// specular input.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SlotFormat {
+    /// Opaque diffuse color, encoded as BC1 sRGB.
+    DiffuseOpaque,
+    /// Diffuse color with alpha, encoded as BC3 sRGB.
+    DiffuseAlpha,
+    /// Skyrim tangent-space normal with specular data in alpha, encoded as linear BC3.
+    TangentNormal,
+    /// A single-channel linear mask, encoded as BC4.
+    LinearMask,
+}
+
+impl SlotFormat {
+    const fn dxgi(self) -> u32 {
+        match self {
+            Self::DiffuseOpaque => dxgi::BC1_UNORM_SRGB,
+            Self::DiffuseAlpha => dxgi::BC3_UNORM_SRGB,
+            Self::TangentNormal => dxgi::BC3_UNORM,
+            Self::LinearMask => dxgi::BC4_UNORM,
+        }
+    }
+}
+
+/// Mip levels requested for a PNG texture export.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MipChain {
+    /// Only encode the source image.
+    BaseOnly,
+    /// Generate levels down to one pixel on the longest axis.
+    Full,
+    /// Generate exactly this many levels, including the source image.
+    Levels(u32),
+}
+
+impl MipChain {
+    fn count(self, width: u32, height: u32) -> Result<u32> {
+        if width == 0 || height == 0 {
+            return Err(Error::Encode(
+                "mip generation requires nonzero image dimensions".into(),
+            ));
+        }
+        let full = width.max(height).ilog2() + 1;
+        match self {
+            Self::BaseOnly => Ok(1),
+            Self::Full => Ok(0),
+            Self::Levels(count) if (1..=full).contains(&count) => Ok(count),
+            Self::Levels(count) => Err(Error::Encode(format!(
+                "mip count {count} must be between 1 and {full} for {width} by {height}"
+            ))),
+        }
+    }
+}
+
+/// Decode a PNG and encode it as a slot-profiled Skyrim DDS texture.
+///
+/// The PNG dimensions are retained. Color profiles use sRGB formats, while
+/// normal and mask profiles use linear formats. BC1 discards alpha and BC4
+/// retains only the red channel. The mip chain comes from the decoded image.
+///
+/// # Errors
+/// Returns an error when PNG decoding, mip validation, or DDS encoding fails.
+pub fn export_png(png: &[u8], slot_format: SlotFormat, mip_chain: MipChain) -> Result<Vec<u8>> {
+    let image =
+        image_dds::image::load_from_memory_with_format(png, image_dds::image::ImageFormat::Png)
+            .map_err(|error| Error::Encode(format!("PNG decode failed: {error}")))?
+            .to_rgba8();
+    let mip_levels = mip_chain.count(image.width(), image.height())?;
+    encode_rgba8(
+        image.width(),
+        image.height(),
+        image.as_raw(),
+        mip_levels,
+        slot_format.dxgi(),
+    )
+}
+
 /// What to produce: size, mip count (zero means a full chain) and DXGI format.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Target {

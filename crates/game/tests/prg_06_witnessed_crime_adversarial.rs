@@ -12,6 +12,9 @@
 //! `crates/game/src/world/save.rs`'s own version log, which documents
 //! version 31 as the one that added `witnessed_crimes`.
 
+#[path = "common/legacy.rs"]
+mod legacy;
+
 use soe_esm::plugin::flags;
 use soe_esm::{Entry, FileHeader, GlobalFormId, Group, GroupKind, LoadOrder, Plugin, Record, Tag};
 use soe_game::crime::CrimeType;
@@ -182,7 +185,10 @@ fn a_genuine_pre_prg_06_save_loads_cleanly_with_no_witnessed_crimes() {
     };
     let mut w = game.world_mut();
     w.actor(witness).unwrap().witnessed_crimes.insert(sentinel);
-    let mut bytes = w.save_state();
+    // The witness's paired reference ends with its own empty save-section
+    // table version 37 added, in the references block ahead of the actors
+    // block this test searches below. Strip it before anything else.
+    let mut bytes = legacy::without_ref_sections(&mut w, &[witness]);
 
     // `witnessed_crimes` is a length-prefixed set, written last in
     // `write_actor_state`. With a single entry it serializes as a u32
@@ -209,7 +215,15 @@ fn a_genuine_pre_prg_06_save_loads_cleanly_with_no_witnessed_crimes() {
         [0, 0],
         "an actor with no hand spells must write two unset presence bytes after its crime set"
     );
-    bytes.drain(offsets[0]..end + 2);
+    // The right spell field is immediately followed by this actor's own
+    // empty save-section table, a `u16` count of zero, which a version 29
+    // writer never emitted either.
+    bytes.drain(offsets[0]..end + 2 + 2);
+    // The scene runtime count (version 36), the now-unconditional detection
+    // pool count (version 37) and the empty world-level save-section table
+    // (version 37) are the last three fields, ten bytes together, all past
+    // where a version 29 save ends.
+    bytes.truncate(bytes.len() - 10);
     let visit_count = bytes.len() - 12;
     assert_eq!(bytes[visit_count..visit_count + 4], [0; 4]);
     bytes.drain(visit_count..visit_count + 4);

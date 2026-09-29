@@ -50,6 +50,8 @@ impl PlayerNode {
     /// Arm an ordinary swing. Input binding is owned by CMB-04.
     #[func]
     pub fn begin_melee_swing(&mut self, left_hand: bool) -> bool {
+        self.last_melee_target = None;
+        self.last_melee_obstruction = None;
         let Some(game) = &mut self.game else {
             return false;
         };
@@ -100,6 +102,27 @@ impl PlayerNode {
         self.contact_event(&name.to_string(), |game, attacker, hand| {
             let reach = game.world_mut().melee_reach(attacker, hand)?;
             crate::godot_combat::pose_segment(weapon_bone, reach)
+        })
+    }
+
+    /// Apply an authored graph event using the current pose of a bound
+    /// SkinnedActorNode. Its bone pose is the one uploaded for rendering.
+    #[func]
+    #[allow(clippy::needless_pass_by_value)]
+    pub fn melee_skinned_contact(
+        &mut self,
+        name: GString,
+        visual: Gd<crate::godot_actor::SkinnedActorNode>,
+    ) -> bool {
+        self.contact_event(&name.to_string(), |game, attacker, hand| {
+            let reach = game.world_mut().melee_reach(attacker, hand)?;
+            let visual = visual.bind();
+            if visual.bound_actor() != Some(attacker) {
+                return Err(soe_game::combat::Error::Unsupported(
+                    "animated rig is not bound to the swing attacker",
+                ));
+            }
+            crate::godot_combat::pose_segment(visual.weapon_pose(hand)?, reach)
         })
     }
 
@@ -172,6 +195,13 @@ impl PlayerNode {
             row.set("object", i64::from(form.object));
         }
         row
+    }
+
+    /// The body RID that blocked the last HitFrame, or an invalid RID when
+    /// the segment struck an actor or crossed empty space.
+    #[func]
+    pub fn last_melee_obstruction(&self) -> Rid {
+        self.last_melee_obstruction.unwrap_or(Rid::Invalid)
     }
 
     /// Give the player one copy of a melee weapon and select it for a hand
@@ -255,15 +285,26 @@ impl PlayerNode {
                 return Ok(None);
             };
             let (from, to) = segment?;
-            let target = crate::godot_combat::first_contact(space, &owners, attacker, from, to)?;
-            queried = Some(target);
-            Ok(target)
+            let hit = crate::godot_combat::first_contact(space, &owners, attacker, from, to)?;
+            queried = Some(hit);
+            Ok(match hit {
+                crate::godot_combat::ContactHit::Actor(actor) => Some(actor),
+                crate::godot_combat::ContactHit::Empty
+                | crate::godot_combat::ContactHit::Obstruction(_) => None,
+            })
         });
         // The contact query and the hit resolution are separate steps: record
         // what the segment struck even when the World then refuses the hit,
         // and record an obstruction or a miss as no actor.
-        if let Some(target) = queried {
-            self.last_melee_target = target;
+        if let Some(hit) = queried {
+            self.last_melee_target = match hit {
+                crate::godot_combat::ContactHit::Actor(actor) => Some(actor),
+                _ => None,
+            };
+            self.last_melee_obstruction = match hit {
+                crate::godot_combat::ContactHit::Obstruction(rid) => Some(rid),
+                _ => None,
+            };
         }
         match result {
             Ok(Some(_)) => true,

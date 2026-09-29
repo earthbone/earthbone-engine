@@ -44,6 +44,21 @@ The form table maps every global id to the list of records that carry it, in loa
 order. `winner` is the last one, which is the rule the game, xEdit and Mutagen all apply.
 `overridden` lists the ids whose winner is not their owner.
 
+Each `LoadedFile` exposes a SHA-256 fingerprint of its plugin's serialized
+definition before the load order adds engine-owned forms. It is independent of
+regular and light slot positions. For parsed files, serialization preserves
+record content but normalizes compressed records, so the fingerprint describes
+the loaded definition rather than the exact source file bytes. A changed
+definition changes its fingerprint. This is dependency evidence, not an
+authenticity check. `tests/sav_67_fingerprints.rs` covers slot reordering,
+same-name replacements and the engine-added global.
+
+OpenMW's `apps/openmw/mwstate/savegame.hpp` writes content file names to saves,
+and `loadgame.hpp` checks dependencies and maps saved indices on load.
+`statemanagerimp.cpp` passes the active content list to its character manager.
+These paths do not provide content fingerprints, so this crate hashes the
+definition it loads.
+
 Light plugins (`ESL` header flag) do not take a top-byte slot at runtime. The game packs
 them as `FE:sss:ooo`, a twelve-bit slot and a twelve-bit object. `LoadOrder::runtime_id`
 produces that 32-bit form for save files and scripts. The table itself never needs it.

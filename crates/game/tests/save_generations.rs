@@ -130,7 +130,7 @@ fn numbered_generations_have_deterministic_bounded_retention() {
 }
 
 #[test]
-fn checksum_rejects_a_different_but_individually_loadable_native_payload() {
+fn sav_63_corrupt_latest_recovers_an_intact_generation() {
     let directory = Directory::new();
     game(1).write_generation(&directory.store(2)).unwrap();
     game(2).write_generation(&directory.store(2)).unwrap();
@@ -413,7 +413,7 @@ mod failures {
     }
 
     #[test]
-    fn every_store_and_atomic_boundary_preserves_recoverable_generations() {
+    fn sav_63_every_write_boundary_preserves_recoverable_generations() {
         let mut cases = 0;
         for (event, count) in boundaries() {
             for occurrence in 1..=count {
@@ -516,7 +516,7 @@ mod failures {
     }
 
     #[test]
-    fn termination_during_publication_and_each_rotation_deletion_is_recoverable() {
+    fn sav_63_termination_during_rotation_preserves_verified_generations() {
         let mut cases = 0;
         for (event, count) in boundaries() {
             for occurrence in 1..=count {
@@ -579,6 +579,40 @@ mod failures {
                 &fs::read(directory.generation(index as u64 + 1)).unwrap(),
                 bytes
             );
+        }
+    }
+
+    #[test]
+    fn sav_63_corrupt_latest_after_interrupted_rotation_keeps_last_verified() {
+        for occurrence in 1..=3 {
+            for after in [false, true] {
+                let directory = seed();
+                let prior = fs::read(directory.generation(4)).unwrap();
+                kill(spawn_paused(
+                    &directory,
+                    Event::Store(Step::RemoveGeneration),
+                    occurrence,
+                    after,
+                ));
+                fs::write(directory.generation(5), b"damaged after publication").unwrap();
+
+                let mut recovered = game(77);
+                let selected = recovered.recover_generation(&directory.store(2)).unwrap();
+                assert_eq!(selected.generation, 4);
+                assert!(matches!(
+                    selected.rejected[0].reason,
+                    RejectionReason::Integrity(_)
+                ));
+                assert_eq!(
+                    recovered.save_state().unwrap(),
+                    game(4).save_state().unwrap()
+                );
+                assert_eq!(fs::read(directory.generation(4)).unwrap(), prior);
+
+                let report = game(6).write_generation(&directory.store(2)).unwrap();
+                assert_eq!(report.retained, [6, 4]);
+                assert_eq!(directory.ids(), [4, 6]);
+            }
         }
     }
 

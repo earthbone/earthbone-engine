@@ -10,6 +10,8 @@ use soe_esm::GlobalFormId;
 use soe_papyrus::vm::state::{ArrayPool, ArrayTable, Reader, Writer};
 use soe_papyrus::{ObjectId, VmError};
 
+use super::save_section_registry::{ACTOR_SECTIONS, REF_SECTIONS, WORLD_SECTIONS};
+use super::save_sections;
 use super::{
     ActorBaseState, ActorState, AnimationListener, CellState, FactionState, Handle, LeveledEntry,
     LeveledList, LocationState, LosListener, ObjectiveState, Pending, QuestState, RefState,
@@ -58,7 +60,14 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// script equip survives a reload the way a hand weapon selection already did.
 /// Version 33 retains the spawned reference owned by each Summon Creature effect.
 /// Version 34 retains last-visit game days for resettable encounter zones.
-pub const SAVE_VERSION: u16 = 34;
+/// Version 35 retains saved list flags and per-entry chance bytes in record overrides.
+/// Version 36 retains the active phase and completed action slots for each scene.
+/// Version 37 appends a named section table (`save_sections`) to the world,
+/// to every actor record and to every reference record, and is the last
+/// version this constant will ever reach: new saved state goes into a
+/// section registered in `save_section_registry`, at the level that owns
+/// it, not into a new version.
+pub const SAVE_VERSION: u16 = 37;
 
 #[derive(Clone, Copy)]
 pub(crate) enum FormNamespace {
@@ -75,6 +84,12 @@ pub(crate) struct FormReader<'reader, 'data> {
 impl<'reader, 'data> FormReader<'reader, 'data> {
     pub(crate) fn new(reader: &'reader mut Reader<'data>, namespace: FormNamespace) -> Self {
         Self { reader, namespace }
+    }
+
+    /// The namespace a nested reader over one section's payload should
+    /// resolve `FormId`s against, matching this reader's own.
+    pub(crate) fn namespace(&self) -> FormNamespace {
+        self.namespace
     }
 }
 
@@ -416,7 +431,17 @@ impl World {
         self.write_encounter_levels(&mut body);
         self.write_encounter_zone_visits(&mut body);
         self.write_dialogue_repeats(&mut body);
+        body.len(self.scene_runs.len());
+        for (id, run) in &self.scene_runs {
+            write_form_id(&mut body, *id);
+            body.u32(run.phase);
+            body.len(run.completed_actions.len());
+            for slot in &run.completed_actions {
+                body.u32(*slot);
+            }
+        }
         self.write_detection(&mut body);
+        save_sections::write_sections(&mut body, self, WORLD_SECTIONS);
         let mut out = Writer::new();
         out.out.extend_from_slice(SAVE_MAGIC);
         out.u16(SAVE_VERSION);
@@ -471,7 +496,7 @@ impl World {
         let mut refs = HashMap::with_capacity(n);
         for _ in 0..n {
             let id = read_form_id(&mut r)?;
-            refs.insert(id, read_ref_state(&mut r)?);
+            refs.insert(id, read_ref_state(&mut r, version)?);
         }
 
         let n = r.len()?;
@@ -985,11 +1010,73 @@ impl World {
         } else {
             BTreeMap::new()
         };
+        let scene_runs = if version >= 36 {
+            let count = r.len()?;
+            let mut runs = BTreeMap::new();
+            for _ in 0..count {
+                let id = read_form_id(&mut r)?;
+                let phase = r.u32()?;
+                let action_count = r.len()?;
+                let mut completed_actions = BTreeSet::new();
+                for _ in 0..action_count {
+                    if !completed_actions.insert(r.u32()?) {
+                        return Err(VmError::State("duplicate completed scene action".into()));
+                    }
+                }
+                let scene_record = self.record(id).ok_or_else(|| {
+                    VmError::State("scene runtime state names a missing form".into())
+                })?;
+                let scene = soe_esm::records::gameplay::Scene::from_record(scene_record).map_err(
+                    |error| VmError::State(format!("invalid scene runtime record: {error}")),
+                )?;
+                if !scenes.contains(&id)
+                    || phase as usize >= scene.phases.len()
+                    || completed_actions.iter().any(|slot| {
+                        scene
+                            .actions
+                            .get(*slot as usize)
+                            .is_none_or(|action| action.end_phase != Some(phase))
+                    })
+                    || runs
+                        .insert(
+                            id,
+                            super::SceneRunState {
+                                phase,
+                                completed_actions,
+                            },
+                        )
+                        .is_some()
+                {
+                    return Err(VmError::State("invalid scene runtime state".into()));
+                }
+            }
+            if runs.len() != scenes.len() || scenes.iter().any(|id| !runs.contains_key(id)) {
+                return Err(VmError::State("scene runtime state is incomplete".into()));
+            }
+            runs
+        } else {
+            scenes
+                .iter()
+                .map(|id| (*id, super::SceneRunState::default()))
+                .collect()
+        };
         let detection = if version >= 30 {
-            super::detection::read_detection(&mut r)?
+            super::detection::read_detection(&mut r, version)?
         } else {
             crate::detection::DetectionState::default()
         };
+        // World-level sections are read straight into `self`, unlike every
+        // field above, which lands in a local and is only committed to
+        // `self` in the block below once the whole stream has parsed
+        // cleanly. A registered section may touch any field on `World`, so
+        // there is no local `World` to stage it in. If a section later in
+        // this table fails, sections read earlier in the same call have
+        // already mutated `self`, and the `Err` this function returns
+        // tells the caller to discard it. No section is registered today,
+        // so this call is a no-op until one is.
+        if version >= 37 {
+            save_sections::read_sections(&mut r, "world", self, WORLD_SECTIONS)?;
+        }
         r.expect_end()?;
         for id in super::detection::detection_actors(&detection) {
             let actor = refs.get(&id).map_or_else(
@@ -1051,6 +1138,7 @@ impl World {
         self.last_ridden_horse = last_ridden_horse;
         self.perk_points = perk_points;
         self.scenes = scenes;
+        self.scene_runs = scene_runs;
         self.sound_instances = sound_instances;
         self.next_sound = next_sound;
         self.spell_casts = spell_casts;
@@ -1239,9 +1327,10 @@ fn write_ref_state(w: &mut Writer, s: &RefState) {
         w.bool(*v);
     }
     w.f32(s.alpha);
+    save_sections::write_sections(w, s, REF_SECTIONS);
 }
 
-fn read_ref_state(r: &mut FormReader<'_, '_>) -> Result<RefState, VmError> {
+fn read_ref_state(r: &mut FormReader<'_, '_>, version: u16) -> Result<RefState, VmError> {
     let base = read_opt_form_id(r)?;
     let cell = read_opt_form_id(r)?;
     let mut position = [0f32; 3];
@@ -1308,7 +1397,7 @@ fn read_ref_state(r: &mut FormReader<'_, '_>) -> Result<RefState, VmError> {
         anim_bools.insert(k, r.bool()?);
     }
     let alpha = r.f32()?;
-    Ok(RefState {
+    let mut state = RefState {
         base,
         cell,
         position,
@@ -1339,7 +1428,11 @@ fn read_ref_state(r: &mut FormReader<'_, '_>) -> Result<RefState, VmError> {
         anim_ints,
         anim_bools,
         alpha,
-    })
+    };
+    if version >= 37 {
+        save_sections::read_sections(r, "reference", &mut state, REF_SECTIONS)?;
+    }
+    Ok(state)
 }
 
 fn write_actor_state(w: &mut Writer, a: &ActorState) {
@@ -1426,6 +1519,7 @@ fn write_actor_state(w: &mut Writer, a: &ActorState) {
     write_form_set(w, &a.witnessed_crimes);
     write_opt_form_id(w, a.left_spell);
     write_opt_form_id(w, a.right_spell);
+    save_sections::write_sections(w, a, ACTOR_SECTIONS);
 }
 
 fn write_form_set(w: &mut Writer, set: &BTreeSet<GlobalFormId>) {
@@ -1548,6 +1642,9 @@ fn read_actor_state(r: &mut FormReader<'_, '_>, version: u16) -> Result<ActorSta
     if version >= 32 {
         a.left_spell = read_opt_form_id(r)?;
         a.right_spell = read_opt_form_id(r)?;
+    }
+    if version >= 37 {
+        save_sections::read_sections(r, "actor", &mut a, ACTOR_SECTIONS)?;
     }
     Ok(a)
 }
