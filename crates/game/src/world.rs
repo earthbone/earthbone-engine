@@ -22,6 +22,7 @@
 //!   bases, cells, game settings.
 //! - `events`: what natives raise for registered listeners, scenes, sounds.
 //! - `timers`: `RegisterForUpdate` timers.
+//! - `training`: trainer eligibility, costs and saved use limits.
 //! - `rng`: the random number stream.
 //! - `driver`: what the package driver reads and calls.
 //! - `save`: the `SOEW` save format.
@@ -93,6 +94,7 @@ mod template_restore;
 mod templates;
 pub use template_restore::TemplateRestoreReport;
 mod timers;
+pub mod training;
 mod transition;
 
 pub use contact::{ContactActor, DEFAULT_COMBAT_DISTANCE};
@@ -504,6 +506,9 @@ pub struct World {
     player: Option<GlobalFormId>,
     /// What `PC_LEVEL_MULT` actors scale against.
     pub player_level: u32,
+    /// Player training purchases used at the current character level.
+    pub(crate) training_sessions_this_level: u32,
+    pub(crate) training_session_level: u32,
     rng: u64,
     pub clock: GameClock,
     pub pending: Vec<Pending>,
@@ -604,6 +609,8 @@ impl World {
             next_dynamic: 0x1000,
             player: None,
             player_level: 1,
+            training_sessions_this_level: 0,
+            training_session_level: 1,
             rng: 0x9E37_79B9_7F4A_7C15,
             clock: GameClock::default(),
             pending: Vec::new(),

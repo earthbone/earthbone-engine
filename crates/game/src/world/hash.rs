@@ -476,6 +476,8 @@ impl World {
         h.u32(self.next_dynamic);
         opt_form(&mut h, self.player);
         h.u32(self.player_level);
+        h.u32(self.training_sessions_this_level);
+        h.u32(self.training_session_level);
         let objects = h.finish();
 
         let mut h = StateHasher::new();

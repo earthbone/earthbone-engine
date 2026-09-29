@@ -16,6 +16,7 @@ use super::{ActorState, RefState, World};
 /// and [`World::load_state`].
 #[rustfmt::skip]
 pub(crate) const WORLD_SECTIONS: &[Section<World>] = &[
+    Section { name: "DLG-16", write: super::training::write_training_sessions, read: super::training::read_training_sessions },
 ];
 
 /// Sections read and written once per actor, at the end of every actor

@@ -3383,6 +3383,29 @@ The row's range-exit and recorded-end checks are covered. TWAT reply selection,
 walk-away menu flags, voice cancellation and original-engine timing comparison
 are outside this range-exit implementation.
 
+## Trainer purchases, DLG-16
+
+`World::purchase_training` reads the trainer reference's NPC_ base, resolves
+its winning `CNAM` class, and uses CLAS DATA to select the taught skill and
+trainer tier. The tier limits training to skill levels 25, 50, 75, 90 or 100.
+One purchase raises that skill's base actor value by one and removes the price
+from the player's Gold001 inventory, transferring it to the trainer. Price is
+the current skill value times `fTrainingMultCost`, rounded up. The shared
+inventory transaction queues the ordinary item count event for both actors.
+
+The player can buy five training sessions per character level. The world save
+section named `DLG-16` retains the session count and its level, and the
+determinism hash includes both values. A level change begins a fresh count.
+Invalid trainer data, an exhausted tier or session limit, invalid price data,
+and insufficient gold are rejected before gold, skill or session state changes.
+
+The field layout follows xEdit `wbRecord(CLAS)` and UESP CLAS. UESP describes
+the taught skill as an actor value index minus six and the training level as
+the trainer's maximum skill level. CommonLibSSE-NG `PlayerCharacter.h` names
+the per-level session counter, and the CK `Game.ShowTrainingMenu` page
+establishes the trainer actor passed to the menu. The trainer purchase path is
+available on `World`; the CK menu itself is not connected here.
+
 ## Saved list changes, SAV-52
 
 `World::restore_vanilla_lists` applies decoded FLST, LVLN, LVLI and LVSP
