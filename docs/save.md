@@ -696,6 +696,23 @@ both authored bit values, both reference types and supported versions.
 Those outcomes must drive native enable queries and unload decisions, then
 survive engine save/load. The backlog done check remains unchanged.
 
+The SAV-54 follow-up on 2026-09-27 checked the same xEdit definition,
+FallrimTools `ChangeFormFlags.java` and CommonLibSSE-NG
+`TESObjectREFR.cpp`. xEdit's `ChangedFlag00Decider` selects whether the mask
+payload is present. It does not select an application operation or a version
+specific layout for the two words. FallrimTools reads and writes the words
+without applying them. CommonLib checks authored runtime flags for disabled
+and persistent state, but its public code does not connect those checks to the
+saved words.
+
+The recorded corpus survey has masks only in saves with header version 12,
+form version 78 and change-form version 78. It records word values and byte
+round trips, not the reference state before and after a save. It cannot
+establish how either word changes authored enable or persistence state, and
+does not cover other save versions. No application change is justified by
+these sources or observations. SAV-54 remains open pending public loading code
+or controlled before and after observations for each supported version.
+
 ## ARMO, WEAP and AMMO change coverage
 
 SAV-33 remains blocked on field-layout evidence. Local xEdit
