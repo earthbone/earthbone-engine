@@ -73,6 +73,25 @@ impl PlayerNode {
                     reference.position = [feet.x, feet.y, feet.z];
                     reference.rotation = rotation;
                 }
+                let should_stand = world
+                    .furniture_seat(player)
+                    .and_then(|(furniture, _)| {
+                        let (actor_position, actor_cell) = world
+                            .reference_ref(player)
+                            .map(|actor| (actor.position, actor.cell))?;
+                        let seat = world.reference(furniture)?;
+                        let moved = actor_position
+                            .iter()
+                            .zip(seat.position)
+                            .map(|(actor, seat)| (*actor - seat).powi(2))
+                            .sum::<f32>()
+                            > 24.0_f32.powi(2);
+                        Some(moved || actor_cell != seat.cell)
+                    })
+                    .unwrap_or(false);
+                if should_stand {
+                    world.stand_from_furniture(player);
+                }
             }
         }
         // Reflect the frame's enable and placement changes (activation,

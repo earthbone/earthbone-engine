@@ -418,6 +418,13 @@ fn actor_state(h: &mut StateHasher, a: &ActorState) {
     opt_form(h, a.left_spell);
     opt_form(h, a.right_spell);
     form_set(h, &a.witnessed_crimes);
+    if let Some((furniture, marker)) = a.furniture_seat {
+        h.bool(true);
+        form(h, furniture);
+        h.u16(marker);
+    } else {
+        h.bool(false);
+    }
 }
 
 fn quest_state(h: &mut StateHasher, q: &QuestState) {

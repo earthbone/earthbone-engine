@@ -25,6 +25,7 @@ week 6 to 9 gate.
   concern, each an `impl World`: `lookup` (editor ids, records, run-time
   FormIDs, keywords, names, classes), `objects` (handle to VM object table),
   `refs` (reference state, placement, the player, inventory, activation),
+  `furniture` (Sit marker reservations and actor seating),
   `actors` (the `NPC_` view, actor state and values), `quests` (stages,
   objectives, aliases), `forms` (globals, form lists, leveled lists,
   locations, factions, actor bases, cells, game settings), `events` (what
@@ -63,6 +64,20 @@ week 6 to 9 gate.
   drains what natives queued.
 
 ## Design
+
+### Furniture activation, HST-09
+
+Activating a FURN reference selects the first unreserved Sit marker from its
+FNPR entries whose corresponding low MNAM bit is active. The actor reserves
+that marker and moves to the furniture reference transform. Activating the
+same furniture again, or calling `World::stand_from_furniture`, releases the
+reservation. `World::furniture_seat` exposes the actor's current furniture and
+marker, and `World::furniture_marker_in_use` reports active reservations.
+SOEW version 37 stores the furniture reference and marker with actor state.
+The FURN field layout follows local xEdit `wbRecord(FURN)` and
+`uesp-modfileformat/FURN.wikitext`. Marker types and the active MNAM mask come
+from those definitions. Marker transforms are not read from the furniture
+model by this path.
 
 `vanilla_save::SavedFormMap` remaps ESS references through saved plugin names,
 including regular and light slots. `World::restore_vanilla_globals` atomically
