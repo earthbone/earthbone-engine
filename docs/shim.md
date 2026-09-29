@@ -77,6 +77,24 @@ The mapping follows the Rust API while adapting Rust names and types to C++, inc
 `NativeRegistry::register`, which is emitted as `register_native` because `register` is a C++
 keyword.
 
+The event API includes payloads for `TESGrabReleaseEvent`,
+`TESHarvestedEvent::ItemHarvested`, `TESHitEvent`, `TESObjectLoadedEvent` and
+`TESQuestStageEvent`. References and actors use the shim's `ObjectRefHandle`
+and `ActorHandle`, form identities use `FormId`, hit flags retain their
+CommonLib bit values, and the executable quest callback pointer is omitted.
+`EventSource` sends each typed payload to registered sinks in registration
+order and stops when a sink returns `Stop`. `request_hook` returns an explicit
+`Unsupported` error for call-site, branch and vtable hooks. The SHM-22 C++
+fixture routes all five payloads into stateful receiver methods and checks the
+three hook results. It exercises the source-level API contract and does not
+link a plugin to a running game process.
+
+The payload field layout was checked against the alandtse
+`TESGrabReleaseEvent.h`, `ItemHarvested.h`, `TESHitEvent.h`,
+`TESObjectLoadedEvent.h` and `TESQuestStageEvent.h` headers. The Rust handles
+and omission of executable callback state follow this shim's source-level
+boundary rather than copying CommonLib's pointer representation.
+
 ## Untested
 
 The SHM-01 test compiles the generated umbrella headers with a C++20 compiler and checks C++
