@@ -1001,6 +1001,9 @@ pub fn tick(world: &mut World, dt: f64, alloc: Alloc<'_>) {
         if dead || unconscious {
             continue;
         }
+        if ignores_combat(world, actor) {
+            clear_combat_engagement(world, actor);
+        }
         let active_target = combat_target(world, actor);
         if active_target.is_some() && !ignores_combat(world, actor) {
             let due = world.actor(actor).is_some_and(|a| {
@@ -1037,6 +1040,21 @@ fn ignores_combat(world: &mut World, actor: GlobalFormId) -> bool {
         .is_some_and(|pack| pack.has_flag(flags::IGNORE_COMBAT))
 }
 
+fn clear_combat_engagement(world: &mut World, actor: GlobalFormId) {
+    if let Some(state) = world.actor(actor) {
+        if !state.in_combat && state.combat_target.is_none() {
+            return;
+        }
+        state.in_combat = false;
+        state.combat_target = None;
+        state.ai.reevaluate = true;
+        state.ai.path.clear();
+        state.ai.path_cells.clear();
+        state.ai.destination = None;
+        state.ai.arrived = false;
+    }
+}
+
 /// Drop dead or missing targets, otherwise return the current target.
 fn combat_target(world: &mut World, actor: GlobalFormId) -> Option<GlobalFormId> {
     let target = world
@@ -1048,14 +1066,9 @@ fn combat_target(world: &mut World, actor: GlobalFormId) -> Option<GlobalFormId>
     if valid {
         return Some(target);
     }
+    clear_combat_engagement(world, actor);
     if let Some(state) = world.actor(actor) {
-        state.in_combat = false;
-        state.combat_target = None;
         state.ai.reevaluate = true;
-        state.ai.path.clear();
-        state.ai.path_cells.clear();
-        state.ai.destination = None;
-        state.ai.arrived = false;
     }
     None
 }
