@@ -69,6 +69,7 @@ pub mod magic;
 mod npc_restore;
 mod objects;
 mod outfits;
+mod performance;
 pub use npc_restore::NpcRestoreReport;
 mod record_overrides;
 mod skins;
@@ -500,6 +501,8 @@ pub struct World {
     pub player_level: u32,
     rng: u64,
     pub clock: GameClock,
+    pub(crate) menu_mode: bool,
+    pub(crate) frame_rate: performance::FrameRateState,
     pub pending: Vec<Pending>,
     pub timers: Vec<UpdateTimer>,
     pub notifications: Vec<String>,
@@ -600,6 +603,8 @@ impl World {
             player_level: 1,
             rng: 0x9E37_79B9_7F4A_7C15,
             clock: GameClock::default(),
+            menu_mode: false,
+            frame_rate: performance::FrameRateState::default(),
             pending: Vec::new(),
             timers: Vec::new(),
             notifications: Vec::new(),

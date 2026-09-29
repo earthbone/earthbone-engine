@@ -615,6 +615,11 @@ impl Game {
     /// Tick with the host's menu pause state. Real-time menu waits continue
     /// while world simulation, ordinary waits and game-time waits pause.
     pub fn tick_menu_mode(&mut self, real_seconds: f64, menu_mode: bool) {
+        {
+            let mut world = self.world.borrow_mut();
+            world.menu_mode = menu_mode;
+            world.frame_rate.record_frame(real_seconds);
+        }
         let mut game_hours = 0.0;
         if !menu_mode {
             let vm = &mut self.vm;
