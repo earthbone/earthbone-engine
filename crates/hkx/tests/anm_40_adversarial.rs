@@ -6,6 +6,8 @@ use soe_hkx::behavior::{
     VariableType,
 };
 use soe_hkx::interp::{ClipLibrary, Interpreter};
+use soe_hkx::writer::PackfileBuilder;
+use soe_hkx::Packfile;
 
 fn graph(
     expressions: Vec<ExpressionData>,
@@ -65,6 +67,39 @@ fn assignment(expression: &str, target: i32) -> ExpressionData {
     }
 }
 
+fn serialized_expression_graph() -> Vec<u8> {
+    let mut b = PackfileBuilder::new();
+    let container = b.object("hkRootLevelContainer", 16);
+    let graph = b.object("hkbBehaviorGraph", 304);
+    let variant = b.array_structs(container, 0, 24, 1);
+    b.string(variant, 0, "hkbBehaviorGraph");
+    b.string(variant, 8, "hkbBehaviorGraph");
+    b.ptr(variant, 16, graph);
+
+    let data = b.object("hkbBehaviorGraphData", 128);
+    let strings = b.object("hkbBehaviorGraphStringData", 80);
+    b.ptr(graph, 136, data);
+    b.ptr(data, 120, strings);
+    b.array_strings(strings, 48, &["Input", "Result"]);
+    let infos = b.array_structs(data, 32, 6, 2);
+    b.set_i8(infos, 4, 4);
+    b.set_i8(infos + 6, 4, 4);
+
+    let wrapper = b.object("hkbModifierGenerator", 88);
+    let modifier = b.object("hkbEvaluateExpressionModifier", 96);
+    b.ptr(graph, 128, wrapper);
+    b.ptr(wrapper, 72, modifier);
+    b.set_bool(modifier, 72, true);
+    let expressions = b.object("hkbExpressionDataArray", 32);
+    b.ptr(modifier, 80, expressions);
+    let entry = b.array_structs(expressions, 16, 24, 1);
+    b.string(entry, 0, "Input * 2 + 1");
+    b.set_i32(entry, 8, 1);
+    b.set_i32(entry, 12, -1);
+    b.set_i8(entry, 16, 0);
+    b.finish()
+}
+
 #[test]
 fn typed_integer_expression_writes_the_expected_result() {
     let graph = graph(
@@ -79,6 +114,30 @@ fn typed_integer_expression_writes_the_expected_result() {
     interpreter.update(1.0 / 60.0);
 
     assert_eq!(interpreter.variables.word(1), Some(15));
+    assert!(interpreter.unsupported().expression_modifiers.is_empty());
+}
+
+#[test]
+fn serialized_expression_modifier_decodes_and_writes_its_typed_result() {
+    let bytes = serialized_expression_graph();
+    let packfile = Packfile::parse(&bytes).unwrap();
+    let graph = BehaviorGraph::from_packfile(&packfile).unwrap();
+    let modifier = graph
+        .nodes
+        .iter()
+        .find(|node| node.class == "hkbEvaluateExpressionModifier")
+        .unwrap();
+    let NodeKind::EvaluateExpression { expressions, .. } = &modifier.kind else {
+        panic!("serialized expression modifier was not decoded");
+    };
+    assert_eq!(expressions, &[assignment("Input * 2 + 1", 1)]);
+
+    let clips = ClipLibrary::new();
+    let mut interpreter = Interpreter::new(&graph, &clips, Vec::new());
+    interpreter.variables.set_real(0, 7.0);
+    interpreter.update(1.0 / 60.0);
+
+    assert_eq!(interpreter.variables.real(1), Some(15.0));
     assert!(interpreter.unsupported().expression_modifiers.is_empty());
 }
 
