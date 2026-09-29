@@ -238,10 +238,12 @@ impl World {
         let mut built = 0;
         for id in ids {
             if self.refs.contains_key(&id) {
+                self.loaded_3d_references.insert(id);
                 continue;
             }
             if self.reference(id).is_some() {
                 built += 1;
+                self.loaded_3d_references.insert(id);
             }
         }
         self.streamed_cells.insert(cell);
@@ -266,12 +268,29 @@ impl World {
         self.streamed_cells.contains(&cell)
     }
 
+    /// Whether a reference currently has 3D through its streamed cell.
+    ///
+    /// The host reports cell resource arrivals and departures through the
+    /// streaming-cell APIs. This query uses that derived residency set, not
+    /// whether a reference was merely built by a form lookup. Visibility and
+    /// room-bound culling do not change the result while the cell stays
+    /// resident. Disabled references have no loaded 3D.
+    #[must_use]
+    pub fn is_reference_3d_loaded(&self, id: GlobalFormId) -> bool {
+        self.refs
+            .get(&id)
+            .is_some_and(|reference| reference.enabled && self.loaded_3d_references.contains(&id))
+    }
+
     /// Drop what `cell` owns and nothing else. Returns the count dropped and
     /// the count kept because dropping would have lost something.
     pub fn unload_cell(&mut self, cell: GlobalFormId) -> (usize, usize) {
         let player = self.player();
         // The 3D goes here, so the next entry owes `OnCellLoad` again.
         self.streamed_cells.remove(&cell);
+        for id in self.cell_reference_ids(cell) {
+            self.loaded_3d_references.remove(&id);
+        }
         let ids = self.cell_temporary_ids(cell);
         let (mut dropped, mut kept) = (0, 0);
         for id in ids {
