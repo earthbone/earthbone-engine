@@ -49,6 +49,8 @@ pub enum RestoreError {
     Projectile { id: GlobalFormId, reason: String },
     #[error("cannot restore reference {id}: {reason}")]
     WorldReference { id: GlobalFormId, reason: String },
+    #[error("cannot restore spatial record {id}: {reason}")]
+    SpatialRecord { id: GlobalFormId, reason: String },
 }
 
 /// Plugin positions in a save mapped to positions in the current load order.

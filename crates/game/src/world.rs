@@ -84,6 +84,7 @@ pub use quest_restore::QuestRestoreReport;
 mod reference_extras;
 mod reference_restore;
 mod refs;
+mod spatial_restore;
 pub use reference_restore::{MissingPlacementCell, ReferenceRemainder, ReferenceRestoreReport};
 pub use refs::RefPlacement;
 mod leveled_items;
