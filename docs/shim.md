@@ -50,7 +50,7 @@ and events next, everything below the line waits on a runtime that does not exis
 | Group | Types | SPID | BOS | PO3 | TDM | No header | Engine |
 |---|---|---|---|---|---|---|---|
 | Forms and record enums | 86 | 23 | 12 | 78 | 15 | 16 | Bound now. `soe-esm` carries every record as subrecords and six typed views, the rest of the typed views are per-record work. |
-| References, actors, inventory and world singletons | 70 | 19 | 6 | 53 | 18 | 18 | Planned, round 2 `game` crate. The runtime object model Papyrus sees is the same one these types describe. |
+| References, actors, inventory and world singletons | 70 | 19 | 6 | 53 | 18 | 18 | Partial, round 2 `game` crate. SHM-12 binds inventory factory descriptors, inventory views and reference handle lookup. The rest remains planned. |
 | Papyrus VM | 11 | 3 | 0 | 11 | 3 | 11 | Bound now. `soe-papyrus` has the native registry with the first-registered-wins rule, `StaticFunctionTag` and the stack and handle ids map onto its thread and object ids. |
 | Conditions | 4 | 0 | 0 | 4 | 2 | 3 | Planned. `soe-esm` keeps CTDA bytes, the evaluator over the 736 function ids lands with the `game` crate. |
 | Event sources, sinks and story events | 26 | 7 | 0 | 23 | 6 | 4 | Planned as typed channels in the `game` crate. Each `TES*Event` becomes an enum variant, the sink trait keeps the continue or stop control. |
@@ -76,6 +76,25 @@ The declarations are source-level headers only. They do not provide a C ABI or e
 The mapping follows the Rust API while adapting Rust names and types to C++, including
 `NativeRegistry::register`, which is emitted as `register_native` because `register` is a C++
 keyword.
+
+### Live inventory and reference views (SHM-12)
+
+`RE::IFormFactory` describes a loaded record signature and name. `Create` reports the
+`FormCreation` unsupported hook because forms are supplied by the immutable load order.
+`InventoryChanges` and `InventoryEntryData` project current reference inventory totals,
+distinct stack quantities, extra-data kind ids and worn state from `World`. Inventory mutation
+reports `InventoryMutation` so writes continue through validated game transactions. `ItemList`
+is a menu-neutral copy of those rows. Selection and update report `ItemSelection` and
+`ItemListUpdate` because the runtime does not provide Scaleform menu state.
+`LookupReferenceByHandle` resolves a source-level handle represented by the reference's runtime
+FormID and reports whether the reference is an actor.
+
+The C++ fixture compiles and calls these declarations, including all unsupported results. The
+Rust game fixture exercises the same views against loaded records and live `World` state. The
+CommonLibSSE-NG `IFormFactory.h`, `InventoryChanges.h`, `InventoryEntryData.h`, `ItemList.h`,
+`Misc.h` and `Misc.cpp` supplied the source-level names and signatures. The shim declarations
+are original MIT code and do not copy upstream implementation code. These views are not binary
+compatible with Skyrim's objects or handle representation.
 
 ## Untested
 

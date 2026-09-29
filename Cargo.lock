@@ -1354,6 +1354,7 @@ version = "0.1.0"
 dependencies = [
  "crc32fast",
  "soe-bsa",
+ "soe-commonlib-shim",
  "soe-esm",
  "soe-moddata",
  "soe-navmesh",
