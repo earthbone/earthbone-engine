@@ -22,10 +22,7 @@ fn waiting_script() -> Vec<u8> {
         .function(
             FunctionBuilder::new("Nested", "Int")
                 .local("marker", "Int")
-                .ins(
-                    Opcode::IAdd,
-                    vec![ident("marker"), i(40), i(2)],
-                )
+                .ins(Opcode::IAdd, vec![ident("marker"), i(40), i(2)])
                 .ins(
                     Opcode::CallStatic,
                     vec![s("Utility"), s("Wait"), ident("::nonevar"), f(5.0)],
@@ -59,15 +56,27 @@ fn sav_03_wait_remaining_time_excludes_menu_time_after_repeated_load() {
 
     restored_again.advance_clocks(30.0, 0.0, true);
     restored_again.run(100);
-    assert_eq!(restored_again.thread_state(thread), Some(ThreadState::Sleeping(5.0)));
-    assert_eq!(restored_again.get_var(object, "Sav03Breaker", "::fired"), Some(Value::Int(0)));
+    assert_eq!(
+        restored_again.thread_state(thread),
+        Some(ThreadState::Sleeping(5.0))
+    );
+    assert_eq!(
+        restored_again.get_var(object, "Sav03Breaker", "::fired"),
+        Some(Value::Int(0))
+    );
 
     restored_again.advance_clocks(2.99, 0.0, false);
     restored_again.run(100);
-    assert_eq!(restored_again.get_var(object, "Sav03Breaker", "::fired"), Some(Value::Int(0)));
+    assert_eq!(
+        restored_again.get_var(object, "Sav03Breaker", "::fired"),
+        Some(Value::Int(0))
+    );
     restored_again.advance_clocks(0.02, 0.0, false);
     restored_again.run(100);
-    assert_eq!(restored_again.get_var(object, "Sav03Breaker", "::fired"), Some(Value::Int(1)));
+    assert_eq!(
+        restored_again.get_var(object, "Sav03Breaker", "::fired"),
+        Some(Value::Int(1))
+    );
     assert_eq!(restored_again.thread_result(thread), Some(Value::Int(1)));
 }
 
@@ -80,7 +89,10 @@ fn sav_03_nested_wait_resumes_saved_call_frame_once() {
     original.attach(object, "Sav03Breaker").unwrap();
     let thread = original.call(object, "Run", &[]).unwrap();
     original.run(100);
-    assert!(matches!(original.thread_state(thread), Some(ThreadState::Sleeping(_))));
+    assert!(matches!(
+        original.thread_state(thread),
+        Some(ThreadState::Sleeping(_))
+    ));
     original.advance(4.0);
 
     let saved = original.save_state().unwrap();
