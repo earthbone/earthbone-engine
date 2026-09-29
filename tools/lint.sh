@@ -36,6 +36,12 @@ cargo clippy --workspace --all-features --all-targets -- -D warnings
 step "cargo clippy --workspace --no-default-features --all-targets -- -D warnings"
 cargo clippy --workspace --no-default-features --all-targets -- -D warnings
 
+step "cargo deny check"
+cargo deny check
+
+step "cargo audit"
+cargo audit
+
 step "comment-lint crates docs"
 if command -v comment-lint >/dev/null 2>&1; then
   comment-lint crates docs
