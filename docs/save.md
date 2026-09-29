@@ -750,11 +750,11 @@ remaining bytes, and the external corpus currently has no item change forms.
 `World::restore_vanilla_items` in the game crate attaches each decoded item
 change to the matching live record override after validating the entire pass.
 This keeps `World::record`, name queries and other record-backed readers on the
-shared form table. SOEW version 37 retains the form mask, value and full-name
-markers, unnamed flags and trailing bytes across engine save/load. xEdit labels
-the first word Mask Invert Flags and the second word unknown, but provides no
-application rule. The runtime preserves both without applying a guessed flag
-operation. Value and full-name alternatives are `wbNull`, so they carry no
+shared form table. For INGR, ALCH and ENCH, saved Mask Invert Flags are XORed
+with the winning record's header flags, preserving bits outside the mask. SOEW
+version 37 retains the form mask, value and full-name markers, unnamed flags
+and trailing bytes across engine save/load. The second word is retained as
+unknown. Value and full-name alternatives are `wbNull`, so they carry no
 replacement value or name in these payloads. SAV-34 covers all three item
 types, atomic failure, post-load queries and installed Skyrim records.
 
@@ -1044,7 +1044,8 @@ payload re-encoding.
 
 `World::restore_vanilla_book_note_keys` maps each saved base through the saved
 plugin names and prepares all BOOK, NOTE and KEYM record overrides before
-installing any. Saved form flags update the live record header flags. The
+installing any. The saved Mask Invert Flags are XORed with the winning record's
+header flags, preserving bits outside the mask. The
 VALUE and FULL_NAME bits, teaching-skill and read markers, and opaque suffix
 are retained as runtime metadata because xEdit defines those markers without
 payload values or plugin-subrecord equivalents. Duplicate changes and records

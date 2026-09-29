@@ -78,7 +78,7 @@ impl World {
                         .ingredient_change()?
                         .ok_or_else(|| invalid(id, "missing INGR change"))?;
                     if let Some(flags) = decoded.form_flags {
-                        value.record.flags = flags.flags;
+                        value.record.flags ^= flags.flags;
                     }
                     ItemRecordExtra {
                         form_flags: decoded.form_flags.map(|f| (f.flags, f.unknown)),
@@ -95,7 +95,7 @@ impl World {
                     }
                     .ok_or_else(|| invalid(id, "missing base object change"))?;
                     if let Some(flags) = decoded.form_flags {
-                        value.record.flags = flags.flags;
+                        value.record.flags ^= flags.flags;
                     }
                     ItemRecordExtra {
                         form_flags: decoded.form_flags.map(|f| (f.flags, f.unknown)),

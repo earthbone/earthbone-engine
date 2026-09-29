@@ -345,7 +345,7 @@ impl World {
                         .flatten()
                 })
             {
-                record.flags = flags;
+                record.flags ^= flags;
             }
             let mut links = BTreeMap::new();
             let used = raw_words(original);
@@ -514,7 +514,10 @@ impl World {
                     || pending_form_flags.is_some()
                     || (extra.teaches_skill && record.tag != T(b"BOOK"))
                     || (extra.read && !matches!(&record.tag.0, b"BOOK" | b"NOTE"))
-                    || record.flags != extra.form_flags.map_or(original.flags, |(flags, _)| flags)
+                    || record.flags
+                        != extra
+                            .form_flags
+                            .map_or(original.flags, |(flags, _)| original.flags ^ flags)
                     || record.subrecords != original.subrecords
                 {
                     return Err(bad("invalid BOOK, NOTE or KEYM record override"));

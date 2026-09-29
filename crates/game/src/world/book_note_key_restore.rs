@@ -87,7 +87,7 @@ impl World {
                 }
             };
             if let Some((flags, _)) = extra.form_flags {
-                value.record.flags = flags;
+                value.record.flags ^= flags;
             }
             value.book_note_key = Some(extra);
             prepared.insert(id, value);
