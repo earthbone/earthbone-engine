@@ -94,6 +94,9 @@ wrappers before implementing natives. `engine-refs/ck-wiki/` contains 402
 wikitext pages as of 2026-09-19. When an individual page is absent, class pages
 and `engine-refs/skse64/scripts/vanilla` can establish the contract.
 [The reference audit](reference-audit.md) records missed contracts and gaps.
+Its SCR-57 section compares all 26 registered Debug globals and both
+EffectShader methods with the local CK and PSC contracts, including quiet
+stubs and the host behavior they still require.
 
 **World reads out, host never writes back.** `World::ref_placement` (in
 `world/refs.rs`) is the read-only view a host uses to keep its own rendering

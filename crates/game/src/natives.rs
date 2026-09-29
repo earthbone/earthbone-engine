@@ -1849,13 +1849,10 @@ fn debug(vm: &mut Vm, w: &Shared) {
         none()
     });
     global!(vm, w, "Debug", "SendAnimationEvent", |world, call| {
-        match world.form_arg(&call.arg(0)) {
-            Some(target) => {
-                world.animation_event(target, &text(&call.arg(1)), alloc!(call));
-                b(true)
-            }
-            None => b(false),
+        if let Some(target) = world.form_arg(&call.arg(0)) {
+            world.animation_event(target, &text(&call.arg(1)), alloc!(call));
         }
+        none()
     });
 }
 
@@ -3381,7 +3378,6 @@ fn stubs(vm: &mut Vm) -> usize {
         ("Game", "GetFormEx2"),
         ("Debug", "QuitGame"),
         ("Debug", "CenterOnCell"),
-        ("Debug", "CenterOnCellAndWait"),
         ("Debug", "CloseUserLog"),
         ("Debug", "SetGodMode"),
         ("Debug", "ToggleAI"),
@@ -3395,7 +3391,6 @@ fn stubs(vm: &mut Vm) -> usize {
         ("Debug", "TakeScreenshot"),
         ("Debug", "SetFootIK"),
         ("Debug", "ShowRefPosition"),
-        ("Debug", "PlayerMoveToAndWait"),
         ("Debug", "MoveToCell"),
         ("Utility", "CaptureFrameRate"),
         ("Utility", "StartFrameRateCapture"),
@@ -3412,6 +3407,11 @@ fn stubs(vm: &mut Vm) -> usize {
     for (class, name) in globals_none {
         vm.natives
             .register_global(class, name, Box::new(|_| none()));
+        n += 1;
+    }
+    for name in ["CenterOnCellAndWait", "PlayerMoveToAndWait"] {
+        vm.natives
+            .register_global("Debug", name, Box::new(|_| f(0.0)));
         n += 1;
     }
     n
