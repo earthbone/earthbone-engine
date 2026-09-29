@@ -69,6 +69,16 @@ traits, reference and actor handles, the VM registry types with the collision ru
 sources with continue-or-stop control, SKSE plugin interfaces as traits, NetImmerse math types,
 and a `support` table that keeps the group counts aligned with this document.
 
+The event API includes typed payloads for `ShoutAttack`, `SkillIncrease`,
+`SoulsTrapped`, `SpellsLearned` and `TESCellFullyLoadedEvent`. Their fields
+carry resolved form ids, actor handles or actor values so a sink can resolve
+the event against the same engine state used by the other shim interfaces.
+The payload layouts follow alandtse CommonLibSSE-NG's
+`include/RE/S/ShoutAttack.h`, `SkillIncrease.h`, `SoulsTrapped.h`,
+`SpellsLearned.h` and `include/RE/T/TESCellFullyLoadedEvent.h`. The source-level
+headers do not connect these channels to runtime producers. The game must
+raise them when those mechanics are implemented.
+
 `src/headers.rs` generates the corresponding supported C++ surface under `include/RE` and
 `include/SKSE`. `RE/Skyrim.h` and `SKSE/SKSE.h` are the umbrella includes. Regenerate the files
 after changing the header mapping with `cargo run -p soe-commonlib-shim --bin generate-headers`.
@@ -80,8 +90,10 @@ keyword.
 ## Untested
 
 The SHM-01 test compiles the generated umbrella headers with a C++20 compiler and checks C++
-signatures for the Rust methods they project. No sample plugin has been compiled against the
-headers, and the declarations are not linked to engine behavior. The counts are token counts,
+signatures for the Rust methods they project. SHM-20 compiles the five typed event payload
+contracts and checks sink dispatch against synthetic state fixtures. Runtime event production
+is not wired to these channels, and no sample plugin has been compiled against the headers.
+The declarations are not linked to engine behavior. The counts are token counts,
 so a name mentioned only in a comment is counted and a type reached only through `auto` is not.
 Four plugins are a sample, not the population: the map's 70 to 90 percent open-source estimate
 is from a six-plugin sample and the shimmable share here is 3 of 4 by plugin, far less by hook

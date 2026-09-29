@@ -3,6 +3,9 @@
 //! `RE::BSTEventSource` and `RE::BSTEventSink`: typed channels with the
 //! continue-or-stop control a sink returns.
 
+use crate::form::FormId;
+use crate::refr::{ActorHandle, ActorValue};
+
 /// `RE::BSEventNotifyControl`.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum NotifyControl {
@@ -12,6 +15,38 @@ pub enum NotifyControl {
 
 pub trait EventSink<E> {
     fn process(&mut self, event: &E) -> NotifyControl;
+}
+
+/// `RE::ShoutAttack::Event`, identifying the shout form used by the actor.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ShoutAttack {
+    pub shout: FormId,
+}
+
+/// `RE::SkillIncrease::Event`, identifying the player and advanced skill.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SkillIncrease {
+    pub player: ActorHandle,
+    pub actor_value: ActorValue,
+}
+
+/// `RE::SoulsTrapped::Event`, identifying the actor and its target.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SoulsTrapped {
+    pub trapper: ActorHandle,
+    pub target: ActorHandle,
+}
+
+/// `RE::SpellsLearned::Event`, identifying the spell form learned.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SpellsLearned {
+    pub spell: FormId,
+}
+
+/// `RE::TESCellFullyLoadedEvent`, identifying the cell that finished loading.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TESCellFullyLoadedEvent {
+    pub cell: FormId,
 }
 
 /// A source owns its sinks and delivers in registration order, stopping
