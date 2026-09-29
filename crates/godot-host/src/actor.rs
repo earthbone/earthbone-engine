@@ -14,6 +14,7 @@
 use soe_bsa::Vfs;
 use soe_hkx::behavior::BehaviorGraph;
 use soe_hkx::interp::{Clip, ClipLibrary};
+use soe_hkx::ragdoll::Ragdoll;
 use soe_hkx::skeleton::{AnimationContainer, Skeleton};
 use soe_hkx::Packfile;
 use soe_nif::mesh::Skin;
@@ -98,6 +99,7 @@ pub struct ActorSurface {
 /// A character's skeleton, graph, clips and skinned shapes.
 pub struct ActorAssets {
     pub skeleton: Skeleton,
+    pub ragdoll: Option<Ragdoll>,
     pub graph: BehaviorGraph,
     pub clips: ClipLibrary,
     pub surfaces: Vec<ActorSurface>,
@@ -197,13 +199,14 @@ impl ActorAssets {
         mesh_path: &str,
         behavior: &str,
     ) -> Result<ActorAssets, ActorError> {
-        let skeleton = Self::load_skeleton(vfs)?;
+        let (skeleton, ragdoll) = Self::load_skeleton(vfs)?;
         let (mut graph, unresolved_references) = Self::load_graph(vfs, behavior)?;
         let (clips, missing_clips) = Self::load_clips(vfs, &graph);
         crate::combat::contact_annotation_triggers(&mut graph, &clips);
         let surfaces = Self::load_surfaces(vfs, mesh_path, &skeleton)?;
         Ok(ActorAssets {
             skeleton,
+            ragdoll,
             graph,
             clips,
             surfaces,
@@ -212,7 +215,7 @@ impl ActorAssets {
         })
     }
 
-    fn load_skeleton(vfs: &Vfs) -> Result<Skeleton, ActorError> {
+    fn load_skeleton(vfs: &Vfs) -> Result<(Skeleton, Option<Ragdoll>), ActorError> {
         let path = format!("{CHARACTER_ROOT}{HUMAN_SKELETON}");
         let bytes = read(vfs, &path)?;
         let pf = packfile(&bytes, &path)?;
@@ -221,11 +224,22 @@ impl ActorAssets {
                 path: path.clone(),
                 source,
             })?;
-        container
+        let ragdoll = match Ragdoll::from_packfile(&pf) {
+            Ok(ragdoll) => Some(ragdoll),
+            Err(soe_hkx::Error::NullPointer("hkaRagdollInstance")) => None,
+            Err(source) => {
+                return Err(ActorError::Havok {
+                    path: path.clone(),
+                    source,
+                })
+            }
+        };
+        let skeleton = container
             .skeletons
             .into_iter()
             .next()
-            .ok_or(ActorError::NoSkeleton { path })
+            .ok_or(ActorError::NoSkeleton { path })?;
+        Ok((skeleton, ragdoll))
     }
 
     fn load_graph(vfs: &Vfs, behavior: &str) -> Result<(BehaviorGraph, Vec<String>), ActorError> {

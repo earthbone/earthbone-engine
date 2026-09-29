@@ -30,6 +30,8 @@ use soe_hkx::QsTransform;
 use crate::actor::{ActorAssets, ActorSurface, HUMAN_SKELETON};
 use crate::data_source::DataSource;
 use crate::godot_layer::array_mesh_from;
+use crate::godot_ragdoll::LiveRagdoll;
+use crate::ragdoll::{ActorRenderMode, RagdollBoneMap};
 use crate::skinned::{skinning_transforms_into, Affine};
 
 /// The archives a character reads from, in load order.
@@ -87,8 +89,11 @@ pub struct SkinnedActorNode {
     /// Reused every frame so a tick allocates nothing.
     model: Vec<QsTransform>,
     skins: Vec<Affine>,
+    uploaded_skins: Vec<Transform3D>,
     stats: VarDictionary,
     elapsed: f64,
+    ragdoll_map: Option<RagdollBoneMap>,
+    ragdoll: Option<LiveRagdoll>,
 }
 
 #[godot_api]
@@ -105,16 +110,28 @@ impl INode3D for SkinnedActorNode {
             meshes: Vec::new(),
             model: Vec::new(),
             skins: Vec::new(),
+            uploaded_skins: Vec::new(),
             stats: VarDictionary::new(),
             elapsed: 0.0,
+            ragdoll_map: None,
+            ragdoll: None,
         }
     }
 
     fn exit_tree(&mut self) {
+        if let Some(mut ragdoll) = self.ragdoll.take() {
+            ragdoll.free();
+        }
         self.free_rids();
     }
 
     fn process(&mut self, delta: f64) {
+        self.sync_death_rendering();
+        if self.ragdoll.is_some() {
+            self.refresh_appearance();
+            self.push_pose();
+            return;
+        }
         if !self.playing {
             self.refresh_appearance();
             return;
@@ -205,6 +222,10 @@ impl SkinnedActorNode {
             assets.skeleton.reference_pose.clone(),
         ));
         self.assets = Some(assets);
+        self.ragdoll_map = assets
+            .ragdoll
+            .as_ref()
+            .map(|ragdoll| RagdollBoneMap::new(&assets.skeleton, ragdoll));
         true
     }
 
@@ -302,7 +323,12 @@ impl SkinnedActorNode {
     /// this while `playing`, and a test can call it directly.
     #[func]
     pub fn advance(&mut self, delta: f32) {
+        self.sync_death_rendering();
         self.refresh_appearance();
+        if self.ragdoll.is_some() {
+            self.push_pose();
+            return;
+        }
         let (Some(assets), Some(vm)) = (self.assets, self.vm.as_mut()) else {
             return;
         };
@@ -328,8 +354,14 @@ impl SkinnedActorNode {
     }
 
     fn push_pose(&mut self) {
+        let placement = self
+            .ragdoll
+            .as_ref()
+            .map_or_else(|| self.actor_placement(), LiveRagdoll::actor_transform);
         let mut server = RenderingServer::singleton();
+        self.uploaded_skins.clear();
         for (surface, rids) in self.surfaces.iter().zip(&self.shapes) {
+            server.instance_set_transform(rids.instance, placement);
             if let Err(e) =
                 skinning_transforms_into(&surface.map, &surface.skin, &self.model, &mut self.skins)
             {
@@ -337,7 +369,20 @@ impl SkinnedActorNode {
                 return;
             }
             for (i, skin) in self.skins.iter().enumerate() {
-                server.skeleton_bone_set_transform(rids.skeleton, i as i32, to_transform3d(skin));
+                let mut pose = to_transform3d(skin);
+                if let (Some(ragdoll), Some(map), Some(Some(bone))) = (
+                    &self.ragdoll,
+                    &self.ragdoll_map,
+                    surface.map.skeleton_index.get(i),
+                ) {
+                    if let Some(Some(body)) = map.animated_to_body.get(*bone) {
+                        if let Some(delta) = ragdoll.local_delta(body.0) {
+                            pose = delta * pose;
+                        }
+                    }
+                }
+                server.skeleton_bone_set_transform(rids.skeleton, i as i32, pose);
+                self.uploaded_skins.push(pose);
             }
         }
     }
@@ -346,6 +391,30 @@ impl SkinnedActorNode {
     #[func]
     pub fn stats(&self) -> VarDictionary {
         self.stats.clone()
+    }
+
+    /// Whether the actor currently draws from animation or simulated bodies.
+    #[func]
+    pub fn render_mode(&self) -> GString {
+        GString::from(if self.ragdoll.is_some() {
+            "ragdoll"
+        } else {
+            "animated"
+        })
+    }
+
+    /// The Jolt body handles owned by this actor's current death ragdoll.
+    #[func]
+    pub fn ragdoll_bodies(&self) -> Array<Rid> {
+        self.ragdoll
+            .as_ref()
+            .map_or_else(Array::new, |r| r.bodies().iter().copied().collect())
+    }
+
+    /// Skin transforms most recently sent to RenderingServer, in surface order.
+    #[func]
+    pub fn uploaded_skin_poses(&self) -> Array<Transform3D> {
+        self.uploaded_skins.iter().copied().collect()
     }
 
     /// Seconds of animation played since the load.
@@ -470,6 +539,76 @@ impl SkinnedActorNode {
 }
 
 impl SkinnedActorNode {
+    fn sync_death_rendering(&mut self) {
+        let Some(binding) = &self.appearance else {
+            return;
+        };
+        let dead = binding
+            .world
+            .borrow_mut()
+            .actor(binding.actor)
+            .is_some_and(|state| state.dead);
+        match (ActorRenderMode::for_dead(dead), self.ragdoll.is_some()) {
+            (ActorRenderMode::Ragdoll, false) => {
+                let (Some(assets), Some(map)) = (self.assets, &self.ragdoll_map) else {
+                    return;
+                };
+                let Some(source) = &assets.ragdoll else {
+                    return;
+                };
+                if self.model.is_empty() {
+                    if let Err(error) = to_model_space_into(
+                        &assets.skeleton,
+                        &assets.skeleton.reference_pose,
+                        &mut self.model,
+                    ) {
+                        godot_error!("SkinnedActorNode ragdoll pose: {error}");
+                        return;
+                    }
+                }
+                let Some(world) = self.base().get_world_3d() else {
+                    return;
+                };
+                let placement = self.actor_placement();
+                match LiveRagdoll::create(world.get_space(), placement, source, map, &self.model) {
+                    Ok(ragdoll) => self.ragdoll = Some(ragdoll),
+                    Err(error) => godot_error!("SkinnedActorNode ragdoll: {error}"),
+                }
+            }
+            (ActorRenderMode::Animated, true) => {
+                if let Some(mut ragdoll) = self.ragdoll.take() {
+                    ragdoll.free();
+                }
+                self.push_pose();
+            }
+            _ => {}
+        }
+    }
+
+    fn actor_placement(&self) -> Transform3D {
+        let Some(binding) = &self.appearance else {
+            return self.base().get_global_transform();
+        };
+        let placement = binding
+            .world
+            .borrow_mut()
+            .contact_actors()
+            .into_iter()
+            .find(|entry| entry.actor == binding.actor);
+        let Some(actor) = placement else {
+            return self.base().get_global_transform();
+        };
+        let placed = crate::units::placement_to_godot(
+            crate::units::skyrim_euler_matrix(actor.rotation),
+            actor.position,
+            actor.scale,
+        );
+        to_transform3d(&Affine {
+            basis: placed.basis,
+            origin: [placed.origin.x, placed.origin.y, placed.origin.z],
+        })
+    }
+
     /// Bind an existing rig to a live actor. Geometry is replaced only after
     /// every selected model loads, so failed refreshes preserve the last view.
     pub(crate) fn bind_appearance(

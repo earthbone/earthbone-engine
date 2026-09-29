@@ -40,6 +40,7 @@ use crate::input::devices::{godot_mouse_for, godot_pad_for, Devices, PadControl}
 use crate::input::{godot_key_for, Action, Bindings, ControlMap, Driver, InputState};
 
 mod containers;
+mod detection;
 mod exterior;
 mod footsteps;
 mod gameplay;
@@ -525,6 +526,9 @@ impl PlayerNode {
         if input.toggle_pov_pressed {
             self.rig.mode = self.rig.mode.toggled();
         }
+        if input.right_attack_pressed {
+            self.begin_melee_swing(false);
+        }
 
         let camera = self.rig;
         let intent = self.driver.update(&input, &camera);
@@ -552,6 +556,16 @@ impl PlayerNode {
             activation_hit.and_then(|hit| self.collision_references.get(&hit.body).copied());
 
         self.advance_game(delta);
+        let player_motion = if input.is_moving() {
+            if input.sprint || self.driver.always_run != input.walk {
+                soe_game::detection::Motion::Running
+            } else {
+                soe_game::detection::Motion::Walking
+            }
+        } else {
+            soe_game::detection::Motion::Still
+        };
+        self.advance_detection(delta, player_motion);
         self.advance_door_fade(delta);
 
         self.motion.step(self.feet(), self.capsule_height());
@@ -914,6 +928,7 @@ impl PlayerNode {
             activate_pressed: pressed(Action::Activate),
             toggle_pov_pressed: pressed(Action::TogglePov),
             toggle_always_run_pressed: pressed(Action::ToggleAlwaysRun),
+            right_attack_pressed: pressed(Action::RightAttack),
         };
         self.held_actions = held_now;
         state

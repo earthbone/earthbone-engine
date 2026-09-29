@@ -1,5 +1,31 @@
 # godot-host: streaming, mesh and terrain for the Godot 4 host
 
+## Live detection observations, CMB-32
+
+PlayerNode samples each ordered pair of resident, living actors in the same
+cell after the player's pose reaches Game. Their FormIDs come from
+`World::contact_actors`. A Godot physics ray from eye to eye reports the first
+body, including an intervening actor or static obstruction. The query uses
+the existing RID-backed actor bodies and allocates no reference nodes.
+
+`detection::light_level` reads the winning CELL/XCLL ambient RGB, LGTM
+inheritance, and enabled authored or runtime placed LIGH/DATA radius, color,
+negative and off-by-default flags with FNAM fade. It samples current reference
+placement and enable state, including `PlaceAtMe` references, and bounds the
+resulting record-derived light estimate to 0 to 150. The host sends that
+value, sight, motion and queued detection sounds to
+`World::evaluate_detection` each step.
+A sound event uses its source position and owning actor FormID. Footsteps emit
+a detection sound after successful playback. World keeps the stealth pool and
+observer state across cell resource replacement.
+
+The estimate does not yet select a live WTHR from climate or apply WTHR
+ambient, sunlight and image-space sunlight scale. The current sound path
+covers `CreateDetectionEvent` and played player footsteps. The focused tests
+exercise record light, occlusion inputs, cross-cell identity and sound source
+ownership. The `SKYRIM_DATA` case reads a populated vanilla interior. No
+interactive Godot sight run or frame-cost measurement is recorded here.
+
 The [large world physics survey](physics.md#large-world-boundary-survey-2026-09-19)
 records the signed cell offsets, tolerances and Jolt measurements for the
 `large-world-physics` branch. Its Rust mesh conversion test and Godot server
@@ -1077,6 +1103,13 @@ Only its gameplay context supplies gameplay actions. The hold-to-walk action
 is named `Run` in that file, and Toggle Always Run uses Caps Lock. Camera
 offsets remain this engine's choices, as `camera` documents separately.
 
+The `Right Attack/Block` gameplay event is also registered from the PC control
+map. Its press edge arms one right-hand melee contact in PlayerNode. The
+authored animation's `HitFrame` marker still supplies the contact pose and
+reaches the same shared Game path as other melee contacts. A single-key or
+single-button action can also be pressed through Godot's Input action API,
+while chorded bindings continue to require every device input.
+
 ### The camera basis
 
 Skyrim's yaw is zero facing north and grows clockwise from above, so forward is
@@ -1819,7 +1852,9 @@ attacker. It reads the weapon attachment from the rig's model-space pose, the
 same buffer used for skinning, and resolves the segment using the armed hand's
 reach. For a bound rig, position, rotation and scale come from the actor's
 current shared World placement. A rig without a matching weapon or hand bone
-rejects the contact.
+rejects the contact. CMB-04's `Right Attack/Block` press arms this contact for
+the right hand, and the authored `HitFrame` remains the only event that queries
+and applies damage.
 `last_melee_obstruction` exposes the first unmapped body RID when an
 obstruction stops a swing. It is invalid for an actor contact or a miss.
 
@@ -1857,6 +1892,56 @@ behavior: perk entry points", so hit resolution is still open and belongs to
 the combat rows, not to this one. Actor bodies are static query bodies, not
 kinematic: Jolt applies a kinematic transform only on the next physics step,
 so a body placed and queried in the same tick sat at the origin.
+
+## Death ragdoll rendering, CMB-19
+
+`SkinnedActorNode` loads the human `hkaRagdollInstance` from the same skeleton
+HKX as its animated rig. A bound actor reads the shared World's death flag on
+each host tick. At death, the node freezes its animated pose, creates one
+dynamic `PhysicsServer3D` body and collision shape for each authored ragdoll
+body, and creates cone twist or hinge joints from the authored body-space
+frames, rebasing one frame so both pivots meet at the last animated pose.
+The bodies use the decoded mass, friction, restitution and shape geometry.
+Capsule, box, sphere, convex hull, translated and transformed
+shapes are converted to Godot metres and axes at the actor's reference scale.
+World-endpoint constraints use a static anchor RID. A joint's connected bodies
+do not collide with one another. Hinge angular limits and the symmetric spans
+of cone twist joints are sent to the server.
+
+The low resolution ragdoll skeleton prefixes human bone names with
+`Ragdoll_`. `ragdoll::RagdollBoneMap` removes that prefix for matching and
+assigns animated descendants to their closest ragdoll ancestor. The initial
+body pose follows the final animated model pose. Each rendered skin matrix
+then follows its assigned body's movement relative to that initial pose. The
+bound mesh instances use the actor's World placement. `render_mode` and
+`ragdoll_bodies` expose the current representation and body RIDs for host
+diagnostics.
+
+`PlayerNode` removes its static contact capsule for dead actors on the next
+body sync. Its `kill_actor` and `resurrect_actor` host calls forward to the
+shared World and sync that capsule. On resurrection, the visual node frees
+every ragdoll body, shape and joint RID and resumes its animation interpreter.
+`PlayerNode` recreates
+the actor's contact capsule from the World on its next sync. These server
+resources are transient and are rebuilt from the World death flag, so the
+SOEW save format is unchanged. The automatic visual transition applies to
+actors bound through `bind_actor_appearance` to a loaded `SkinnedActorNode`.
+
+The local `activeragdoll` Havok structures and `soe-hkx` reader establish the
+body order and body-space joint frames. The Godot class reference under
+`engine-refs/godot-docs/classes/class_physicsserver3d.rst` supplies the body,
+shape, joint and RID lifetime calls. The host uses a cone twist span for the
+ragdoll joint's cone and twist limits. Godot's cone twist API does not express
+the separate authored plane range, asymmetric limits or position motors.
+
+The `cmb_19_` unit tests check bone assignment, frame conversion and the
+death-to-resurrection mode transition. The installed-data gated
+`cmb_19_vanilla_human_death_has_renderable_bodies_and_joints` test checks the
+vanilla human's 18 bodies, 17 constraints and mapped animated bones.
+`godot/cmb_19_ragdoll_test.gd` drives a World death and resurrection in Godot
+and checks the body modes, physics space, contact capsule, render mode, Jolt
+body movement and uploaded skin movement. It does not assess the resulting
+motion visually.
 
 ## Native save generations
 
