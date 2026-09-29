@@ -63,8 +63,9 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// Version 35 retains saved list flags and per-entry chance bytes in record overrides.
 /// Version 36 retains the active phase and completed action slots for each scene.
 /// Version 37 appends named sections at world, actor and reference levels,
-/// including the SAV-15 reference section for persistent flags. It is the
-/// last version this constant will ever reach: new saved state goes into a
+/// including the SAV-15 reference section for persistent flags and the SAV-46
+/// world section for restored record form flags and their unknown words. It is
+/// the last version this constant will ever reach: new saved state goes into a
 /// section registered in `save_section_registry`, at the level that owns it.
 pub const SAVE_VERSION: u16 = 37;
 
@@ -943,7 +944,7 @@ impl World {
         if version >= 12 {
             super::item_save::read_item_stacks(&mut r, &mut refs)?;
         }
-        let record_overrides = if version >= 13 {
+        let mut record_overrides = if version >= 13 {
             self.read_record_overrides(&mut r, version)?
         } else {
             BTreeMap::new()
@@ -1077,10 +1078,11 @@ impl World {
         // there is no local `World` to stage it in. If a section later in
         // this table fails, sections read earlier in the same call have
         // already mutated `self`, and the `Err` this function returns
-        // tells the caller to discard it. No section is registered today,
-        // so this call is a no-op until one is.
+        // tells the caller to discard it.
         if version >= 37 {
+            self.record_overrides.clone_from(&record_overrides);
             save_sections::read_sections(&mut r, "world", self, WORLD_SECTIONS)?;
+            record_overrides.clone_from(&self.record_overrides);
         }
         r.expect_end()?;
         for id in super::detection::detection_actors(&detection) {

@@ -415,9 +415,8 @@ fn sav_07_legacy_ids_migrate_through_all_nested_world_state() {
         let mut legacy = without_exclusive_branches(&mut rich_world(255));
         // Drop empty post-version-19 blocks, including zone visit and scene
         // history, the version 30 detection block's now-unconditional empty
-        // pool count, and the world-level save-section table version 37
-        // added.
-        legacy.truncate(legacy.len() - 43);
+        // pool count, and the 17-byte empty SAV-46 world section table.
+        legacy.truncate(legacy.len() - 58);
         let tail = legacy.len() - 25;
         let mut expected = rich_world(DYNAMIC_FILE);
         match version {
@@ -482,7 +481,7 @@ fn sav_16_extras_preserve_created_namespace_and_all_existing_world_state() {
     let mut legacy = without_exclusive_branches(&mut rich_world(DYNAMIC_FILE));
     // See sav_07_legacy_ids_migrate_through_all_nested_world_state for what
     // these trailing bytes are.
-    legacy.truncate(legacy.len() - 43);
+    legacy.truncate(legacy.len() - 58);
     legacy[4..6].copy_from_slice(&19_u16.to_le_bytes());
     loaded.load_state(&legacy).unwrap();
     assert_eq!(loaded.save_state(), rich_world(DYNAMIC_FILE).save_state());
@@ -547,7 +546,7 @@ fn sav_07_legacy_migration_boundary_is_the_first_colliding_plugin_position() {
     let mut legacy = without_exclusive_branches(&mut rich_world(255));
     // See sav_07_legacy_ids_migrate_through_all_nested_world_state for what
     // these trailing bytes are.
-    legacy.truncate(legacy.len() - 43);
+    legacy.truncate(legacy.len() - 58);
     legacy[4..6].copy_from_slice(&18_u16.to_le_bytes());
     let mut world = World::new(order);
     world.load_state(&legacy).unwrap();

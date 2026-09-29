@@ -70,6 +70,7 @@ mod npc_restore;
 mod objects;
 mod outfits;
 pub use npc_restore::NpcRestoreReport;
+mod record_change_restore;
 mod record_overrides;
 mod skins;
 mod temporary_npc;

@@ -831,6 +831,12 @@ including empty versus absent reaction arrays. `Save::write` still uses the
 original change-form bytes. The decoder does not apply these changes to live
 records. The local UESP save format page supplies the three change type
 indices. FallrimTools handles CLAS and FACT as opaque forms.
+The game crate's `World::restore_vanilla_record_changes` validates CLAS
+changes and applies FACT and RELA fields to winning record overrides. FACT
+reactions update warm faction runtime state in the same transaction. xEdit's
+CLAS tag-skills marker has no payload and therefore changes no live record
+field. The shared six-byte form-flags section updates `Record::flags` and its
+unknown final word is retained in SOEW version 37.
 The 60-save external check reproduced all 345,703 payload bytes from 4,702
 FACT and 547 RELA changes. It found no CLAS changes, so CLAS field coverage is
 synthetic only.

@@ -16,6 +16,7 @@ use super::{ActorState, RefState, World};
 /// and [`World::load_state`].
 #[rustfmt::skip]
 pub(crate) const WORLD_SECTIONS: &[Section<World>] = &[
+    Section { name: "SAV-46", write: write_saved_form_flags, read: read_saved_form_flags },
 ];
 
 /// Sections read and written once per actor, at the end of every actor
@@ -40,5 +41,49 @@ fn read_reference_persistence(
     reader: &mut super::save::FormReader<'_, '_>,
 ) -> Result<(), soe_papyrus::VmError> {
     state.persistent = reader.bool()?;
+    Ok(())
+}
+
+fn write_saved_form_flags(world: &World, writer: &mut soe_papyrus::vm::state::Writer) {
+    let saved: Vec<_> = world
+        .record_overrides
+        .iter()
+        .filter_map(|(id, value)| value.saved_form_flags.map(|flags| (*id, flags)))
+        .collect();
+    writer.len(saved.len());
+    for (id, (flags, unknown)) in saved {
+        super::save::write_form_id(writer, id);
+        writer.u32(flags);
+        writer.u16(unknown);
+    }
+}
+
+fn read_saved_form_flags(
+    world: &mut World,
+    reader: &mut super::save::FormReader<'_, '_>,
+) -> Result<(), soe_papyrus::VmError> {
+    let count = reader.len()?;
+    if count > reader.remaining() / 12 {
+        return Err(soe_papyrus::VmError::State(
+            "SAV-46 record count exceeds remaining bytes".into(),
+        ));
+    }
+    let mut seen = std::collections::BTreeSet::new();
+    for _ in 0..count {
+        let id = super::save::read_form_id(reader)?;
+        if !seen.insert(id) {
+            return Err(soe_papyrus::VmError::State(
+                "SAV-46 duplicate record override".into(),
+            ));
+        }
+        let flags = reader.u32()?;
+        let unknown = reader.u16()?;
+        let value = world
+            .record_overrides
+            .get_mut(&id)
+            .ok_or_else(|| soe_papyrus::VmError::State("SAV-46 missing record override".into()))?;
+        value.saved_form_flags = Some((flags, unknown));
+        value.record.flags = flags;
+    }
     Ok(())
 }

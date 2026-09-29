@@ -4,7 +4,7 @@
 
 use std::collections::BTreeMap;
 
-use soe_esm::{plugin::Subrecord, GlobalFormId, Slot, Tag};
+use soe_esm::{plugin::Subrecord, GlobalFormId, Record, Slot, Tag};
 use soe_papyrus::{vm::state::Writer, VmError};
 
 use super::record_overrides::{raw_words, ListRecordExtra, NpcRecordExtra, RecordOverride};
@@ -98,31 +98,58 @@ impl World {
             } else {
                 None
             };
+            let synthetic_relationship = id.file == super::DYNAMIC_FILE
+                && origin == id
+                && text_origin == id
+                && temporary_for.is_none();
             if (temporary_for.is_some() && id.file != super::DYNAMIC_FILE)
                 || (temporary_for.is_none() && origin != id)
-                || self.order.winner(text_origin).is_none_or(|r| {
-                    !matches!(
-                        &r.tag.0,
-                        b"NPC_" | b"RACE" | b"FLST" | b"LVLN" | b"LVLI" | b"LVSP"
-                    )
-                })
+                || (!synthetic_relationship
+                    && self.order.winner(text_origin).is_none_or(|r| {
+                        !matches!(
+                            &r.tag.0,
+                            b"NPC_"
+                                | b"RACE"
+                                | b"FLST"
+                                | b"LVLN"
+                                | b"LVLI"
+                                | b"LVSP"
+                                | b"CLAS"
+                                | b"FACT"
+                                | b"RELA"
+                        )
+                    }))
             {
                 return Err(bad("invalid NPC origin or temporary identity"));
             }
-            let original = self
-                .order
-                .winner(origin)
-                .filter(|rec| {
-                    matches!(
-                        &rec.tag.0,
-                        b"NPC_" | b"RACE" | b"FLST" | b"LVLN" | b"LVLI" | b"LVSP"
-                    ) && !rec.is_deleted()
-                })
-                .ok_or_else(|| bad("missing record origin"))?;
-            if self
-                .order
-                .winner(text_origin)
-                .is_none_or(|record| record.tag != original.tag)
+            let original_record = if synthetic_relationship {
+                Record::new(T(b"RELA"), 0xFF00_0000 | id.object)
+            } else {
+                self.order
+                    .winner(origin)
+                    .filter(|rec| {
+                        matches!(
+                            &rec.tag.0,
+                            b"NPC_"
+                                | b"RACE"
+                                | b"FLST"
+                                | b"LVLN"
+                                | b"LVLI"
+                                | b"LVSP"
+                                | b"CLAS"
+                                | b"FACT"
+                                | b"RELA"
+                        ) && !rec.is_deleted()
+                    })
+                    .ok_or_else(|| bad("missing record origin"))?
+                    .clone()
+            };
+            let original = &original_record;
+            if !synthetic_relationship
+                && self
+                    .order
+                    .winner(text_origin)
+                    .is_none_or(|record| record.tag != original.tag)
             {
                 return Err(bad("record and text origins have different types"));
             }
@@ -253,6 +280,47 @@ impl World {
                 {
                     return Err(bad("invalid race skin link"));
                 }
+            } else if matches!(record.tag.as_bytes(), b"CLAS" | b"FACT" | b"RELA") {
+                let unchanged = |source: &soe_esm::Record| {
+                    source
+                        .subrecords
+                        .iter()
+                        .filter(|sub| match &record.tag.0 {
+                            b"FACT" => {
+                                sub.tag != T(b"DATA")
+                                    && sub.tag != T(b"XNAM")
+                                    && sub.tag != T(b"CRVA")
+                            }
+                            b"RELA" => sub.tag != T(b"DATA"),
+                            _ => true,
+                        })
+                        .cloned()
+                        .collect::<Vec<_>>()
+                };
+                let data_valid = match &record.tag.0 {
+                    b"CLAS" => true,
+                    b"FACT" => {
+                        record.all(T(b"DATA")).all(|data| data.len() == 4)
+                            && record.all(T(b"XNAM")).all(|data| data.len() == 12)
+                            && record.all(T(b"CRVA")).all(|data| data.len() == 16)
+                    }
+                    _ => {
+                        record.all(T(b"DATA")).count() == 1
+                            && record.find(T(b"DATA")).is_some_and(|data| data.len() == 16)
+                    }
+                };
+                if temporary_for.is_some()
+                    || text_origin != id
+                    || plain_full
+                    || original_race.is_some()
+                    || body_tint.is_some()
+                    || pending_form_flags.is_some()
+                    || list.is_some()
+                    || unchanged(original) != unchanged(&record)
+                    || !data_valid
+                {
+                    return Err(bad("invalid saved record change"));
+                }
             } else {
                 let tag = if record.tag == T(b"FLST") {
                     T(b"LNAM")
@@ -318,6 +386,7 @@ impl World {
                     pending_form_flags,
                 },
                 list,
+                saved_form_flags: None,
             };
             if values.insert(id, value).is_some() {
                 return Err(bad("duplicate NPC record"));
