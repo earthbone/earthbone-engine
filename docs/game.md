@@ -52,6 +52,9 @@ week 6 to 9 gate.
 - `clock`: real seconds drive the scheduler and update timers, game time runs
   at `timescale` (20) for `GetCurrentGameTime`.
 - `harness`: the conformance scenario runner, see `docs/validation.md`.
+  `Scenario::append_papyrus_log_expectations` adds a vanilla log's ordered
+  trace lines as one expectation. Differential reports list every missing
+  expected trace and allow extra runtime output.
 - `Game`: owns the VM and the world. `load_scripts_from_data` builds the load
   order's `soe_bsa::Vfs` (each plugin's `<stem> - Misc.bsa` or `<stem>.bsa`
   archive if the install shipped one, loose files on top) and loads every
