@@ -131,3 +131,49 @@ fn prf_09_starting_profile_inside_target_script_counts_its_call_once() {
     assert!(json.contains("\"calls\":1"));
     let _ = std::fs::remove_dir_all(dir);
 }
+
+#[test]
+fn prf_09_stack_profile_counts_the_starting_frame_once() {
+    let dir = std::env::temp_dir().join(format!("soe-prf09-stack-self-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let run = FunctionBuilder::new("Run", "None")
+        .global()
+        .ins(
+            CallStatic,
+            vec![s("Debug"), s("StartStackProfiling"), ident("::nonevar")],
+        )
+        .ins(
+            CallStatic,
+            vec![s("ProfileWorker"), s("Work"), ident("::nonevar")],
+        )
+        .ins(
+            CallStatic,
+            vec![s("Debug"), s("StopStackProfiling"), ident("::nonevar")],
+        )
+        .ins(Return, vec![none()])
+        .build();
+    let mut game = Game::new(LoadOrder::new());
+    game.vm.set_profile_directory(&dir);
+    game.load_script(&worker()).unwrap();
+    game.load_script(
+        &ScriptBuilder::new("StackProfileProbe", "")
+            .function(run)
+            .bytes(),
+    )
+    .unwrap();
+    game.vm
+        .call_global("StackProfileProbe", "Run", &[])
+        .unwrap();
+    assert!(game.run_until_idle(100));
+    let path = std::fs::read_dir(&dir)
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .path();
+    let json = std::fs::read_to_string(path).unwrap();
+    assert!(json.contains("StackProfileProbe.Run"));
+    assert!(json.contains("ProfileWorker.Work"));
+    assert!(json.contains("\"calls\":1"));
+    let _ = std::fs::remove_dir_all(dir);
+}

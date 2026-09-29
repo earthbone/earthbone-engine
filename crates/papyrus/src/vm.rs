@@ -173,7 +173,6 @@ pub struct NativeCall<'a> {
     next_object: &'a mut u64,
     profiling: Rc<RefCell<Profiler>>,
     thread_id: ThreadId,
-    stack: Vec<(String, String)>,
 }
 
 impl NativeCall<'_> {
@@ -208,17 +207,7 @@ impl NativeCall<'_> {
     pub fn start_script_profiling(&mut self, script: &str) {
         let target = script.to_ascii_lowercase();
         let mut profiler = self.profiling.borrow_mut();
-        profiler.start(ProfileScope::Script(target.clone()));
-        for (owner, function) in &self.stack {
-            if owner.eq_ignore_ascii_case(&target) {
-                profiler
-                    .functions
-                    .entry(format!("{owner}.{function}"))
-                    .or_default()
-                    .0 += 1;
-                break;
-            }
-        }
+        profiler.start(ProfileScope::Script(target));
     }
     /// Stop script profiling and write the collected Chrome trace profile.
     pub fn stop_script_profiling(&mut self, script: &str) -> std::io::Result<()> {
@@ -230,13 +219,6 @@ impl NativeCall<'_> {
     pub fn start_stack_profiling(&mut self) {
         let mut profiler = self.profiling.borrow_mut();
         profiler.start(ProfileScope::Stack(self.thread_id));
-        for (script, function) in &self.stack {
-            profiler
-                .functions
-                .entry(format!("{script}.{function}"))
-                .or_default()
-                .0 += 1;
-        }
     }
     /// Stop profiling the current Papyrus thread's call stack.
     pub fn stop_stack_profiling(&mut self) -> std::io::Result<()> {
@@ -298,13 +280,32 @@ impl Profiler {
         ));
         let mut events = Vec::new();
         for (name, (calls, elapsed)) in &self.functions {
-            events.push(format!("{{\"name\":\"{}\",\"cat\":\"papyrus.profile\",\"ph\":\"X\",\"ts\":0,\"dur\":{:.3},\"pid\":1,\"tid\":1,\"args\":{{\"calls\":{},\"duration_ns\":{}}}}}", name.replace('\\', "\\\\").replace('"', "\\\""), *elapsed as f64 / 1000.0, calls, elapsed));
+            events.push(format!("{{\"name\":\"{}\",\"cat\":\"papyrus.profile\",\"ph\":\"X\",\"ts\":0,\"dur\":{:.3},\"pid\":1,\"tid\":1,\"args\":{{\"calls\":{},\"duration_ns\":{}}}}}", json_escape(name), *elapsed as f64 / 1000.0, calls, elapsed));
         }
         std::fs::write(
             path,
             format!("{{\"traceEvents\":[{}]}}\n", events.join(",")),
         )
     }
+}
+
+fn json_escape(value: &str) -> String {
+    let mut escaped = String::with_capacity(value.len());
+    for character in value.chars() {
+        match character {
+            '"' => escaped.push_str("\\\""),
+            '\\' => escaped.push_str("\\\\"),
+            '\n' => escaped.push_str("\\n"),
+            '\r' => escaped.push_str("\\r"),
+            '\t' => escaped.push_str("\\t"),
+            character if character.is_control() => {
+                use std::fmt::Write as _;
+                let _ = write!(escaped, "\\u{:04x}", character as u32);
+            }
+            character => escaped.push(character),
+        }
+    }
+    escaped
 }
 
 pub type NativeFn = Box<dyn FnMut(&mut NativeCall<'_>) -> NativeReturn>;

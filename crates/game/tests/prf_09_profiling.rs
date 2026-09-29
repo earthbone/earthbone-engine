@@ -13,6 +13,25 @@ fn profile_dir(tag: &str) -> PathBuf {
     path
 }
 
+fn assert_trace_event_fields(json: &str) {
+    for field in [
+        "\"traceEvents\"",
+        "\"cat\":\"papyrus.profile\"",
+        "\"ph\":\"X\"",
+        "\"ts\":",
+        "\"dur\":",
+        "\"pid\":1",
+        "\"tid\":1",
+        "\"args\":{\"calls\":",
+        "\"duration_ns\":",
+    ] {
+        assert!(
+            json.contains(field),
+            "Chrome trace event is missing {field}"
+        );
+    }
+}
+
 fn worker() -> Vec<u8> {
     ScriptBuilder::new("ProfileWorker", "")
         .function(
@@ -73,10 +92,7 @@ fn prf_09_script_profile_writes_worker_call_count_and_timing() {
         Some("ProfileWorker"),
         "script",
     );
-    assert!(
-        json.contains("\"traceEvents\""),
-        "profile is Chrome trace JSON"
-    );
+    assert_trace_event_fields(&json);
     assert!(
         json.contains("ProfileWorker.Work"),
         "profile names the target function"
@@ -95,10 +111,7 @@ fn prf_09_script_profile_writes_worker_call_count_and_timing() {
 #[test]
 fn prf_09_stack_profile_writes_worker_call_count_and_timing() {
     let (dir, json) = run_profile("StartStackProfiling", "StopStackProfiling", None, "stack");
-    assert!(
-        json.contains("\"traceEvents\""),
-        "profile is Chrome trace JSON"
-    );
+    assert_trace_event_fields(&json);
     assert!(
         json.contains("ProfileWorker.Work"),
         "profile names a function on the profiled stack"
