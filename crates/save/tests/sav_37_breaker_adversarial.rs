@@ -40,7 +40,11 @@ fn sav_37_every_unnamed_flag_round_trips_for_each_item_type() {
                 }
                 _ => unreachable!(),
             };
-            assert_eq!(encoded, (flags, form_flags.to_vec()), "type {kind}, bit {bit}");
+            assert_eq!(
+                encoded,
+                (flags, form_flags.to_vec()),
+                "type {kind}, bit {bit}"
+            );
         }
     }
 }

@@ -285,15 +285,13 @@ impl ChangeForm {
     /// records define.
     ///
     /// # Errors
-    /// Rejects unknown flag bits, truncated form flags and trailing payload
-    /// bytes.
+    /// Rejects truncated form flags and trailing payload bytes.
     pub fn activator_change(&self) -> Result<Option<ActivatorChange>> {
-        let known = match self.record_type() {
+        let source_flags = match self.record_type() {
             "ACTI" | "DOOR" => 0b111,
             "TACT" => 0x0080_0007,
             _ => return Ok(None),
         };
-        check_record_flags(self.change_flags, known)?;
         let payload = self.payload()?;
         let mut cursor = Cursor::new(&payload, "activator change");
         let form_flags = record_form_flags(&mut cursor, self.change_flags)?;
@@ -303,6 +301,7 @@ impl ChangeForm {
             value_changed: self.change_flags & 2 != 0,
             full_name_changed: self.change_flags & 4 != 0,
             speaker_changed: self.record_type() == "TACT" && self.change_flags & (1 << 23) != 0,
+            other_flags: self.change_flags & !source_flags,
         }))
     }
 
@@ -372,6 +371,8 @@ pub struct ActivatorChange {
     pub full_name_changed: bool,
     /// Whether the TACT zero-byte speaker field is marked changed.
     pub speaker_changed: bool,
+    /// Bits xEdit labels unnamed, retained without assigning meaning.
+    pub other_flags: u32,
 }
 
 impl ActivatorChange {
@@ -391,7 +392,8 @@ impl ActivatorChange {
         Ok(u32::from(self.form_flags.is_some())
             | (u32::from(self.value_changed) << 1)
             | (u32::from(self.full_name_changed) << 2)
-            | speaker)
+            | speaker
+            | self.other_flags)
     }
 
     /// Rebuild the source-defined payload bytes.

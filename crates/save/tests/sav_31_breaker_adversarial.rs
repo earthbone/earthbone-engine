@@ -53,10 +53,7 @@ fn sav_31_wrong_record_types_do_not_consume_payload() {
 #[test]
 fn sav_31_compressed_form_flags_preserve_bytes_on_repeated_reads() {
     let raw = [0x81, 0x92, 0xA3, 0xB4, 0xC5, 0xD6];
-    let mut encoder = flate2::write::ZlibEncoder::new(
-        Vec::new(),
-        flate2::Compression::default(),
-    );
+    let mut encoder = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::default());
     std::io::Write::write_all(&mut encoder, &raw).unwrap();
     let mut form = change(11, (1 << 23) | 1, encoder.finish().unwrap());
     form.uncompressed_len = raw.len() as u32;

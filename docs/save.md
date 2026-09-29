@@ -108,7 +108,8 @@ does not claim runtime support for opaque payloads.
   CLAS, FACT and RELA change sections on demand.
 - `ChangeForm::activator_change` decodes ACTI, TACT and DOOR form flags and
   their value, full-name and TACT speaker change markers. The markers consume
-  no payload bytes, as defined by xEdit.
+  no payload bytes, as defined by xEdit. Unnamed xEdit flag bits remain in the
+  typed value without assigned meaning.
 - `ChangeForm::ingredient_change`, `alchemy_change` and
   `enchantment_change` decode INGR, ALCH and ENCH change markers. Unnamed flag
   bits remain available, marker sections add no payload bytes, and form flags
