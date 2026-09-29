@@ -6,7 +6,12 @@
 
 use std::collections::{HashMap, HashSet};
 
-use super::{operand_to_value, variable_key, Instance, InstanceId, ObjectId, Value, Vm, VmError};
+use crate::pex::Instruction;
+
+use super::{
+    operand_to_value, variable_key, Frame, Instance, InstanceId, ObjectId, Thread, ThreadId,
+    ThreadState, Value, Vm, VmError,
+};
 
 /// One saved instance after its object identity and variable names are resolved.
 #[derive(Clone, Debug)]
@@ -26,7 +31,128 @@ pub struct SavedVariable {
     pub value: Value,
 }
 
+/// One saved Papyrus frame after save-format names and values are resolved.
+#[derive(Clone, Debug)]
+pub struct SavedFrame {
+    pub object: ObjectId,
+    pub script: String,
+    pub function: String,
+    pub pc: usize,
+    pub locals: Vec<(String, Value)>,
+    pub code: Vec<Instruction>,
+    pub return_dest: Option<String>,
+}
+
+/// A saved thread in caller to callee frame order.
+#[derive(Clone, Debug)]
+pub struct SavedThread {
+    pub frames: Vec<SavedFrame>,
+}
+
 impl Vm {
+    /// Restore active threads after their objects and instances are restored.
+    /// The full batch is checked before any thread is added.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for missing functions, mismatched bytecode, invalid
+    /// positions or locals, unresolved owners, or existing live threads.
+    pub fn restore_threads(&mut self, saved: &[SavedThread]) -> Result<Vec<ThreadId>, VmError> {
+        if self
+            .threads
+            .iter()
+            .any(|thread| thread.state != ThreadState::Done)
+        {
+            return Err(VmError::State(
+                "thread restoration requires no live threads".into(),
+            ));
+        }
+        let mut threads = Vec::with_capacity(saved.len());
+        for saved_thread in saved {
+            if saved_thread.frames.is_empty() || saved_thread.frames.len() > super::MAX_DEPTH {
+                return Err(VmError::State(
+                    "saved thread has an invalid frame count".into(),
+                ));
+            }
+            let mut frames = Vec::with_capacity(saved_thread.frames.len());
+            for (index, saved_frame) in saved_thread.frames.iter().enumerate() {
+                let (instance, script, function) = self
+                    .find_script_method(
+                        saved_frame.object,
+                        &saved_frame.script,
+                        &saved_frame.function,
+                    )
+                    .ok_or_else(|| {
+                        VmError::State(format!(
+                            "saved function {}.{} is unavailable",
+                            saved_frame.script, saved_frame.function
+                        ))
+                    })?;
+                if saved_frame.code != function.code {
+                    return Err(VmError::State(format!(
+                        "saved function {}.{} differs from loaded PEX",
+                        saved_frame.script, saved_frame.function
+                    )));
+                }
+                if saved_frame.pc > function.code.len()
+                    || saved_frame.locals.len() != function.params.len() + function.locals.len()
+                {
+                    return Err(VmError::State(
+                        "saved frame position or local count is invalid".into(),
+                    ));
+                }
+                let mut locals = HashMap::new();
+                let mut local_types = HashMap::new();
+                for (desc, (name, value)) in function
+                    .params
+                    .iter()
+                    .chain(&function.locals)
+                    .zip(&saved_frame.locals)
+                {
+                    if !desc.name.eq_ignore_ascii_case(name) {
+                        return Err(VmError::State(format!(
+                            "saved local {name} differs from PEX"
+                        )));
+                    }
+                    let key = name.to_ascii_lowercase();
+                    locals.insert(key.clone(), value.clone());
+                    local_types.insert(key, desc.type_name.clone());
+                }
+                if index > 0 && saved_frame.return_dest.is_none() {
+                    return Err(VmError::State(
+                        "saved caller has no return destination".into(),
+                    ));
+                }
+                frames.push(Frame {
+                    coverage_recorded: false,
+                    instance: Some(instance),
+                    self_object: Some(saved_frame.object),
+                    script: Some(script),
+                    function,
+                    pc: saved_frame.pc,
+                    locals,
+                    local_types,
+                    ret_dest: saved_frame.return_dest.clone(),
+                });
+            }
+            threads.push(frames);
+        }
+        let mut ids = Vec::with_capacity(threads.len());
+        for frames in threads {
+            self.next_thread += 1;
+            let id = ThreadId(self.next_thread);
+            self.threads.push(Thread {
+                id,
+                frames,
+                state: ThreadState::Runnable,
+                result: Value::None,
+                pending_dest: None,
+            });
+            ids.push(id);
+        }
+        Ok(ids)
+    }
+
     /// Replace attached instances after validating the entire batch.
     ///
     /// Objects and PEX scripts must already exist. No events or functions run.

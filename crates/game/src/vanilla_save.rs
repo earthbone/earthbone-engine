@@ -50,6 +50,8 @@ pub enum RestoreError {
     WorldReference { id: GlobalFormId, reason: String },
     #[error("saved Papyrus block is missing")]
     PapyrusBlock,
+    #[error("cannot restore Papyrus execution: {0}")]
+    PapyrusExecution(String),
     #[error("saved Papyrus instance {instance:#x} targets missing form {form:?}")]
     PapyrusTarget { instance: u64, form: GlobalFormId },
 }
@@ -273,6 +275,42 @@ impl crate::Game {
     ) -> Result<soe_save::papyrus::restore::RestoredInstances, RestoreError> {
         let papyrus = save.papyrus().ok_or(RestoreError::PapyrusBlock)??;
         self.restore_saved_papyrus(save, &papyrus)
+    }
+
+    /// Atomically restore saved Papyrus instances and schedule active frames.
+    /// Queued messages and suspended call tables stay inert.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the save cannot be mapped to this load order or
+    /// any active frame is incompatible with the loaded scripts.
+    pub fn restore_vanilla_papyrus_execution(
+        &mut self,
+        save: &Save,
+    ) -> Result<Vec<soe_papyrus::ThreadId>, RestoreError> {
+        let papyrus = save.papyrus().ok_or(RestoreError::PapyrusBlock)??;
+        let before = self
+            .vm
+            .save_state()
+            .map_err(|error| RestoreError::PapyrusExecution(error.to_string()))?;
+        let result = self
+            .restore_saved_papyrus(save, &papyrus)
+            .and_then(|restored| {
+                papyrus
+                    .restore_execution(&mut self.vm, &restored)
+                    .map_err(RestoreError::Save)
+            });
+        match result {
+            Ok(threads) => Ok(threads),
+            Err(error) => {
+                self.vm.load_state(&before).map_err(|rollback| {
+                    RestoreError::PapyrusExecution(format!(
+                        "{error}; VM rollback failed: {rollback}"
+                    ))
+                })?;
+                Err(error)
+            }
+        }
     }
 
     fn restore_saved_papyrus(
