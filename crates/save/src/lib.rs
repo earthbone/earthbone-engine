@@ -38,10 +38,9 @@ pub mod reference;
 pub mod table;
 
 pub use base_object::{BaseObjectFields, LightStaticChange};
-pub use change::{ChangeForm, QuestStage};
 pub use change::{
-    ClassChange, FactionChange, FactionReaction, FactionReactions, NavmeshChange, PackChange,
-    RelationshipChange,
+    BaseObjectChange, ChangeForm, ClassChange, FactionChange, FactionReaction, FactionReactions,
+    NavmeshChange, PackChange, QuestStage, RelationshipChange,
 };
 pub use created_objects::{CreatedEffect, CreatedObject, CreatedObjects};
 pub use cursor::{RefId, RefKind, WString};

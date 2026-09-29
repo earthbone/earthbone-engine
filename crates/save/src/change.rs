@@ -319,6 +319,38 @@ impl ChangeForm {
             full_name_changed: self.change_flags & 4 != 0,
         }))
     }
+
+    /// Decode the source-defined WOOP payload sections.
+    ///
+    /// # Errors
+    /// Rejects truncated form flags and trailing payload bytes.
+    pub fn word_of_power_change(&self) -> Result<Option<BaseObjectChange>> {
+        self.base_object_change("WOOP")
+    }
+
+    /// Decode the source-defined MGEF payload sections.
+    ///
+    /// # Errors
+    /// Rejects truncated form flags and trailing payload bytes.
+    pub fn magic_effect_change(&self) -> Result<Option<BaseObjectChange>> {
+        self.base_object_change("MGEF")
+    }
+
+    fn base_object_change(&self, expected: &'static str) -> Result<Option<BaseObjectChange>> {
+        if self.record_type() != expected {
+            return Ok(None);
+        }
+        let payload = self.payload()?;
+        let mut cursor = Cursor::new(&payload, "base object change");
+        let form_flags = record_form_flags(&mut cursor, self.change_flags)?;
+        finish_record(&cursor)?;
+        Ok(Some(BaseObjectChange {
+            form_flags,
+            base_object_value_changed: self.change_flags & (1 << 1) != 0,
+            base_object_fullname_changed: self.change_flags & (1 << 2) != 0,
+            unnamed_flags: self.change_flags & !0b111,
+        }))
+    }
 }
 
 /// Saved CLAS sections. xEdit names tag skills but defines no payload for it.
@@ -472,6 +504,33 @@ impl NavmeshChange {
     }
 
     /// Rebuild the source-defined NAVM payload.
+    pub fn data_bytes(self) -> Vec<u8> {
+        let mut out = Vec::new();
+        write_record_form_flags(self.form_flags, &mut out);
+        out
+    }
+}
+
+/// Saved WOOP or MGEF change sections. The two named base-object sections
+/// carry no payload bytes in xEdit's schema. Unnamed change bits remain raw.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct BaseObjectChange {
+    pub form_flags: Option<FormFlags>,
+    pub base_object_value_changed: bool,
+    pub base_object_fullname_changed: bool,
+    pub unnamed_flags: u32,
+}
+
+impl BaseObjectChange {
+    /// Rebuild the complete change flag word.
+    pub fn change_flags(self) -> u32 {
+        u32::from(self.form_flags.is_some())
+            | (u32::from(self.base_object_value_changed) << 1)
+            | (u32::from(self.base_object_fullname_changed) << 2)
+            | (self.unnamed_flags & !0b111)
+    }
+
+    /// Rebuild the source-defined payload bytes.
     pub fn data_bytes(self) -> Vec<u8> {
         let mut out = Vec::new();
         write_record_form_flags(self.form_flags, &mut out);
