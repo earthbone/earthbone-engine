@@ -19,6 +19,29 @@ LOD and TRI morph data.
 | `godot-docs/classes/class_physicsserver3d.rst::body_add_shape` accepts a shape transform | `godot-host/src/godot_physics.rs` preserves native boxes, spheres, capsules and convex hulls, with dimensions in metres. Tests check translated spheres, both capsule endpoint orders and compound box corners. | The Bannered Mare Jolt contact smoke test passes, as recorded in `physics.md`. No performance improvement is claimed. Shell radius and unsupported bhk shapes remain listed in `physics.md`. |
 | `godotwind/src/core/nif/nif_material_info.gd::get_cache_key` includes alpha and culling | `mesh::MaterialKey` and `godot_layer::MaterialMap` separate material state from path-keyed uploads. `shared_textures_keep_distinct_alpha_and_culling_in_both_orders` covers all supported states. | Glow, environment and other shader inputs remain unwired. This is not a new shading model. |
 
+## SCR-66 LocationAlias and Message contracts
+
+The native registry tests derive the inventory by filtering contract
+candidates against registered method and global names, then assert the exact
+sets. The CK wiki corpus contains `Alias` and
+`GetOwningQuest` pages, but does not contain the named `LocationAlias` or
+`Message` function pages. The CK-derived signatures and descriptions were
+cross-checked with the Skyrim Papyrus Index, which links back to those CK
+function pages.
+
+| Registry binding | CK contract comparison | Result and owner for remaining work |
+|---|---|---|
+| `LocationAlias.GetLocation` method ([CK-derived reference](https://papyrus.bellcube.dev/skyrimse/script/locationalias/function/getlocation/)) | Returns the Location held by this alias, or None when empty. | Reads the alias's current form through the shared quest alias state. Covered by `scr_66_location_alias_holds_a_location`. |
+| `LocationAlias.ForceLocationTo` method ([CK-derived reference](https://papyrus.bellcube.dev/skyrimse/script/locationalias/function/forcelocationto/)) | Takes a Location and assigns it to this alias. | Resolves the form argument and writes shared quest alias state. Covered by `scr_66_location_alias_holds_a_location`. |
+| `Message.Show` method ([CK-derived reference](https://papyrus.bellcube.dev/skyrimse/script/message/function/show/)) | Takes nine optional float substitutions. Returns the selected button for a message box, and -1 when it is not a message box or display fails. | The registry binding queues record text and immediately returns 0. Numeric formatting and blocking selection belong to `UI-01`, the host menu lifecycle. |
+| `Message.ShowAsHelpMessage` method ([CK-derived reference](https://papyrus.bellcube.dev/skyrimse/script/message/function/showashelpmessage/)) | Takes an input event, duration, interval and maximum display count. The event suppresses later displays until reset or triggered. | The binding only queues a notification. Help prompt rendering and display lifetime belong to `UI-06`, the HUD. |
+| `Message.ResetHelpMessage` global ([CK-derived reference](https://papyrus.bellcube.dev/skyrimse/script/message/function/resethelpmessage/)) | Takes an input event and clears the event's prior help-message status. | It remains a quiet stub under the explicit native work in `SCR-36`. The incorrect `Message.ResetHelpMessage` method registration was removed. |
+
+The inventory test also checks that `GetID` remains registered on `Alias`,
+where `LocationAlias` inherits it, and that the invalid instance form of
+`Message.ResetHelpMessage` is absent. The CK comparison covers every direct
+registry binding for both classes and the Message global.
+
 No new runtime dependency or upstream source file was imported. Core code is
 GPL-3.0-or-later. No derived code belongs in the MIT shim. tes4skyrim's own
 MIT license does not cover every bundled external component. PyNifly shares

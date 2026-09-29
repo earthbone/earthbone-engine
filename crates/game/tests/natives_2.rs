@@ -1034,7 +1034,7 @@ fn references_report_their_location() {
 /// GetLocation on a location alias, ForceLocationTo fills it, Clear
 /// (declared on Alias) empties it.
 #[test]
-fn a_location_alias_holds_a_location() {
+fn scr_66_location_alias_holds_a_location() {
     let mut g = game();
     g.start();
     let quest = g.form("LocQuest").unwrap();
@@ -2064,7 +2064,7 @@ fn objective_globals_count_to_a_target() {
 /// any other in the notification queue, returning the button index (0),
 /// ShowAsHelpMessage is a notification.
 #[test]
-fn messages_show_by_their_flag() {
+fn scr_66_messages_show_by_their_flag() {
     let mut g = game();
     let boxed = obj(&mut g, "BoxMessage");
     let note = obj(&mut g, "NoteMessage");

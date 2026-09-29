@@ -3283,7 +3283,6 @@ fn stubs(vm: &mut Vm) -> usize {
         ("Actor", "PlayIdleWithTarget"),
         ("Spell", "Preload"),
         ("Spell", "Unload"),
-        ("Message", "ResetHelpMessage"),
         ("Actor", "Dismount"),
         ("Actor", "Trespass"),
         ("Actor", "UnequipAll"),
@@ -3436,5 +3435,55 @@ mod tests {
         assert!(vm.natives.has_method("quest", "setstage"));
         assert!(vm.natives.has_global("game", "getplayer"));
         assert!(vm.natives.has_method("alias", "getowningquest"));
+    }
+
+    #[test]
+    fn scr_66_location_alias_bindings_match_ck_pages() {
+        let mut vm = Vm::new();
+        let world = Rc::new(RefCell::new(World::new(LoadOrder::new())));
+        register(&mut vm, &world);
+
+        let candidates = ["GetLocation", "ForceLocationTo", "Clear", "GetID"];
+        let inventory: Vec<_> = candidates
+            .into_iter()
+            .filter(|name| vm.natives.has_method("LocationAlias", name))
+            .collect();
+        assert_eq!(
+            inventory,
+            ["GetLocation", "ForceLocationTo"],
+            "LocationAlias direct bindings must match the CK contract"
+        );
+        assert!(
+            vm.natives.has_method("Alias", "GetID"),
+            "GetID is inherited from Alias, not registered on LocationAlias"
+        );
+    }
+
+    #[test]
+    fn scr_66_message_bindings_match_ck_pages() {
+        let mut vm = Vm::new();
+        let world = Rc::new(RefCell::new(World::new(LoadOrder::new())));
+        register(&mut vm, &world);
+
+        let methods = ["Show", "ShowAsHelpMessage", "ResetHelpMessage"];
+        let method_inventory: Vec<_> = methods
+            .into_iter()
+            .filter(|name| vm.natives.has_method("Message", name))
+            .collect();
+        assert_eq!(
+            method_inventory,
+            ["Show", "ShowAsHelpMessage"],
+            "Message instance bindings must match the CK contract"
+        );
+        let globals = ["Show", "ShowAsHelpMessage", "ResetHelpMessage"];
+        let global_inventory: Vec<_> = globals
+            .into_iter()
+            .filter(|name| vm.natives.has_global("Message", name))
+            .collect();
+        assert_eq!(
+            global_inventory,
+            ["ResetHelpMessage"],
+            "Message global bindings must match the CK contract"
+        );
     }
 }
