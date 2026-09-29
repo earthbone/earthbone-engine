@@ -58,6 +58,7 @@ mod inventory;
 mod inventory_restore;
 mod spell_hand;
 mod weapon_hands;
+pub mod weather;
 pub use inventory_restore::InventoryRestoreReport;
 pub mod image_space;
 mod item_save;
@@ -100,6 +101,7 @@ pub use doorway::{Doorway, InteriorDestination, Side, Threshold, THRESHOLD_BAND,
 pub use reference_extras::{ReferenceExtrasRestoreReport, ReferenceLock};
 pub use save::{SAVE_MAGIC, SAVE_VERSION};
 pub use transition::CellTransition;
+pub use weather::WeatherRequest;
 
 /// Created references and temporary bases share an internal namespace outside
 /// the plugin positions. Runtime FormIDs still use the `FF` prefix.
@@ -547,6 +549,7 @@ pub struct World {
     pub(crate) image_space: image_space::ImageSpaceState,
     /// Stealth-point pools by target, each with its observers' awareness.
     pub(crate) detection: crate::detection::DetectionState,
+    pub(crate) weather: weather::WeatherState,
 }
 
 impl World {
@@ -638,6 +641,7 @@ impl World {
             next_effect: 1,
             image_space: image_space::ImageSpaceState::default(),
             detection: crate::detection::DetectionState::default(),
+            weather: weather::WeatherState::default(),
         }
     }
 
