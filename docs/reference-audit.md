@@ -12,6 +12,7 @@ LOD and TRI morph data.
 
 | Contract and exact source | Implementation and regression | Remaining boundary |
 |---|---|---|
+| `skse64/scripts/vanilla/LeveledSpell.psc`, modified `LeveledSpell.psc`, `PapyrusLeveledSpell.cpp` and `PapyrusLeveledItem.cpp`; `skse64/scripts/vanilla/Location.psc` | `game/src/natives.rs` registers each listed method and tests the registry inventory. `SetNthLevel` is implemented for all leveled-list classes with the SKSE 16-bit cap. `SetChanceNone` stores the supplied byte as SKSE does. The LeveledSpell-only count getter was removed. `Location.IsSameLocation` now follows the script's shared-ancestor and keyworded parent/child cases. Tests `scr_65_registry_inventory_matches_location_and_leveled_spell_contracts`, `scr_65_leveled_spell_setters_match_skse_contract`, `scr_65_same_location_matches_keyworded_parent_child_contract` | CK pages for these Location methods are absent locally. The shipped script is the source. `Location.IsLoaded`, `HasRefType`, `GetRefTypeAliveCount` and `GetRefTypeDeadCount` are quiet stubs assigned to SCR-35. |
 | `skse64/scripts/vanilla/Utility.psc` and `ck-wiki/Utility_Script.wikitext` distinguish wait seconds, menu seconds and game hours | `papyrus/src/vm.rs`, `vm/state.rs`, `vm/hash.rs`, `game/src/lib.rs`. Tests `utility_wait_domains_survive_save_and_timescale_changes`, `version_one_clock_loads_with_legacy_defaults`, `game_tick_supplies_timescale_and_menu_pause_to_waits` | Menu UI must call `tick_menu_mode`. Version 1 saves cannot recover which wait function produced a legacy sleep. |
 | `ck-wiki/DispelSpell_-_Actor.wikitext` and `DispelAllSpells_-_Actor.wikitext` require active-effect removal | `game/src/natives.rs` no longer destroys known or equipped spells. Test `dispelling_never_removes_known_or_equipped_spells` replaces the incorrect test oracle. Both calls are counted as stubs. | Active-effect ownership, expiry, removal and protected categories remain unimplemented. Cast recording is not magic execution. |
 | SPID `SPID/src/LookupConfigs.h::ChanceComponentParser` accepts trailing `!`. `Defs.h::Chance` preserves deterministic mode. `LookupFilters.cpp` seeds per actor. | `moddata/src/spid.rs` preserves the percent and marker, rejects malformed values. `game/src/moddata.rs` rolls ordinary chance per matching base and reports unsupported deterministic fractional rules. Parser and runtime regressions cover `0!`, `50!`, `100!`. | Exact SPID per-actor lifecycle and seed, and KID's separate seed in `src/Data/BaseFilters.cpp`, remain work. |
@@ -129,6 +130,58 @@ lifecycle test or full distributor lifecycle comparison was run. The safe
 stub and unsupported-rule behavior above are limitations, not completed
 magic or distributor implementations. No changes were made to the MIT shim,
 the user's game files, save corpus or other active worktrees.
+
+## SCR-65 binding contract inventory
+
+The integration test builds candidates from the script contract inventory,
+queries the native registry for each method and checks that no candidate is
+registered as a global. Every binding below is a method. Vanilla SKSE scripts
+are the available declaration source for LeveledSpell and Location. The
+modified LeveledSpell script supplies the extra getters and setter.
+
+| Binding | Contract comparison |
+|---|---|
+| `LeveledItem.AddForm` | Vanilla SKSE takes a form, level and count; the native appends one entry with those values. |
+| `LeveledItem.Revert` | Vanilla SKSE removes script-added forms; the native truncates to the base entry count and resets chance none. |
+| `LeveledItem.GetNumForms` | Modified SKSE returns the entry count; the native returns the list length. |
+| `LeveledItem.GetNthForm` | Modified SKSE returns the entry at the requested index or None; the native does the same. |
+| `LeveledItem.GetNthLevel` | Modified SKSE returns the entry level or zero for an invalid index; the native does the same. |
+| `LeveledItem.SetNthLevel` | Modified SKSE updates an existing entry and caps the level at 65535; the native does the same. |
+| `LeveledItem.GetNthCount` | Modified SKSE returns the entry count or zero for an invalid index; the native does the same. |
+| `LeveledItem.GetChanceNone` | Modified SKSE returns the list chance-none byte; the native returns that field. |
+| `LeveledItem.SetChanceNone` | Modified SKSE writes the supplied byte to the list chance-none field; the native stores its low byte. |
+| `LeveledActor.AddForm` | Vanilla SKSE takes an actor base, level and count; the native appends one entry with those values. |
+| `LeveledActor.Revert` | Vanilla SKSE removes script-added forms; the native truncates to the base entry count and resets chance none. |
+| `LeveledActor.GetNumForms` | Modified SKSE returns the entry count; the native returns the list length. |
+| `LeveledActor.GetNthForm` | Modified SKSE returns the entry at the requested index or None; the native does the same. |
+| `LeveledActor.GetNthLevel` | Modified SKSE returns the entry level or zero for an invalid index; the native does the same. |
+| `LeveledActor.SetNthLevel` | Modified SKSE updates an existing entry and caps the level at 65535; the native does the same. |
+| `LeveledActor.GetNthCount` | Modified SKSE returns the entry count or zero for an invalid index; the native does the same. |
+| `LeveledActor.GetChanceNone` | Modified SKSE returns the list chance-none byte; the native returns that field. |
+| `LeveledActor.SetChanceNone` | Modified SKSE writes the supplied byte to the list chance-none field; the native stores its low byte. |
+| `LeveledSpell.AddForm` | Vanilla SKSE takes a form and level only; the native appends one spell entry with count one. |
+| `LeveledSpell.Revert` | Vanilla SKSE removes script-added forms; the native truncates to the base entry count and resets chance none. |
+| `LeveledSpell.GetNumForms` | Modified SKSE returns the entry count; the native returns the list length. |
+| `LeveledSpell.GetNthForm` | Modified SKSE returns the entry at the requested index or None; the native does the same. |
+| `LeveledSpell.GetNthLevel` | Modified SKSE returns the entry level or zero for an invalid index; the native does the same. |
+| `LeveledSpell.SetNthLevel` | Modified SKSE updates an existing entry and caps the level at 65535; the native does the same. |
+| `LeveledSpell.GetChanceNone` | Modified SKSE returns the list chance-none byte; the native returns that field. |
+| `LeveledSpell.SetChanceNone` | Modified SKSE writes the supplied byte to the list chance-none field; the native stores its low byte. |
+| `Location.GetKeywordData` | Shipped `Location.psc` returns a keyword's float data; the native returns zero when no value is stored. |
+| `Location.SetKeywordData` | Shipped `Location.psc` stores a keyword float; the native updates the location's value. |
+| `Location.IsCleared` | Shipped `Location.psc` returns the cleared flag; the native returns it. |
+| `Location.SetCleared` | Shipped `Location.psc` sets the flag and defaults the argument to true; the native does the same. |
+| `Location.IsChild` | Shipped `Location.psc` checks whether the argument is a descendant of self; the native does so. |
+| `Location.HasCommonParent` | Shipped `Location.psc` checks shared ancestors and optionally filters by keyword; the native does so. |
+| `Location.IsSameLocation` | Shipped wrapper checks identity, filtered shared ancestors and a keyworded parent/child in either direction; the native now does so. |
+| `Location.IsLoaded` | Shipped `Location.psc` asks whether the location is loaded; this remains a false quiet stub, assigned to SCR-35. |
+| `Location.HasRefType` | Shipped `Location.psc` asks whether the location has the reference type; this remains a false quiet stub, assigned to SCR-35. |
+| `Location.GetRefTypeAliveCount` | Shipped `Location.psc` returns the alive count for a reference type; this remains a zero quiet stub, assigned to SCR-35. |
+| `Location.GetRefTypeDeadCount` | Shipped `Location.psc` returns the dead count for a reference type; this remains a zero quiet stub, assigned to SCR-35. |
+
+`LeveledSpell.GetNthCount` is not part of either shipped LeveledSpell script,
+so it is not registered. This corrected an accidental binding shared from
+LeveledItem and LeveledActor.
 
 ## Inventory disposition
 
