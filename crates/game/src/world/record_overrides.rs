@@ -32,6 +32,8 @@ pub struct ListRecordExtra {
 pub struct BaseObjectRecordExtra {
     /// Optional saved form flag mask and its trailing word.
     pub form_flags: Option<(u32, u16)>,
+    /// The complete saved change-flags word.
+    pub change_flags: u32,
     /// Whether the value change marker is set.
     pub value_changed: bool,
     /// Whether the full-name change marker is set.
@@ -147,16 +149,16 @@ impl World {
         self.record_overrides.get(&id)?.list.as_ref()
     }
 
-    /// Saved LIGH, STAT or MSTT metadata attached to a restored record.
-    pub fn restored_base_object_extra(&self, id: GlobalFormId) -> Option<BaseObjectRecordExtra> {
-        self.record_overrides.get(&id)?.base_object
-    }
-
     /// Saved change fields for a restored CONT, MISC or FURN record.
     pub fn restored_static_object_extra(
         &self,
         id: GlobalFormId,
     ) -> Option<&StaticObjectRecordExtra> {
         self.record_overrides.get(&id)?.static_object.as_ref()
+    }
+
+    /// Return saved base-object metadata for an overridden record.
+    pub fn restored_base_object_extra(&self, id: GlobalFormId) -> Option<&BaseObjectRecordExtra> {
+        self.record_overrides.get(&id)?.base_object.as_ref()
     }
 }

@@ -1032,4 +1032,19 @@ remain available through `World::record`, while
 `World::restored_base_object_extra` returns the saved form-flag words and the
 two zero-byte change markers. Since the markers contain no replacement value
 or name, record-backed value and name queries continue to use the winning
-plugin record. SOEW version 37 retains this metadata through engine save/load.
+plugin record. SOEW version 37 retains this metadata through engine save/load
+in the SAV-53 world section.
+
+`ChangeForm::apparatus_change` and `ChangeForm::idle_marker_change` decode
+APPA and IDLM payloads from the xEdit `Change APPA Data` and `Change IDLM Data`
+definitions. Both have an optional six-byte form-flags section. The value and
+full-name change flags consume no payload bytes. The complete change-flags
+word, including unnamed bits, is retained. Typed payloads re-encode the known
+fields, and trailing or truncated form-flags data returns an error. FallrimTools
+keeps both types raw. The gated SAV-43 survey accounts for both types across
+the external save corpus and checks exact typed re-encoding. The 60-save corpus
+contains no APPA or IDLM changes, so payload coverage comes from synthetic
+fixtures. UESP's local mod-file format pages describe the APPA and IDLM records,
+not their save payloads. The game applies their form-flag inversion masks to
+winning records and keeps the decoded fields in the SAV-44 world section.
+This section leaves older version-37 saves unchanged when absent.

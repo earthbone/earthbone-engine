@@ -3419,3 +3419,17 @@ CK `AddForm_-_FormList.wikitext` for import order and duplicate handling, and
 FallrimTools `ChangeFormFLST.java`, `ChangeFormLeveled.java` and
 `LeveledEntry.java`. Their Java readers cannot serve as Rust runtime code, so
 the existing typed save decoder and record override layer perform the mapping.
+
+## Saved APPA and IDLM changes, SAV-44
+
+`World::restore_vanilla_base_objects` applies decoded APPA and IDLM change
+forms to the winning records. Saved identities map through plugin names before
+an override is installed. The form-flag mask is XORed with the winning record
+flags. The six-byte unknown field and all change-flag bits are retained in
+record override metadata. xEdit defines the changed value and full-name fields
+as zero-byte unions, so those bits add no payload fields. A malformed or
+duplicate later change leaves every record unchanged. SOEW version 37 saves
+the resulting record and its decoded metadata. Runtime record, type and name
+queries read the override after restore and after loading the engine save.
+The field layout follows local xEdit
+`Core/wbDefinitionsTES5Saves.pas` change types 19 and 27.

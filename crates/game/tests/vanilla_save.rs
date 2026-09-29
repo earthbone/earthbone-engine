@@ -22,6 +22,8 @@ mod actor_sources;
 #[path = "vanilla_save/lists.rs"]
 mod lists;
 
+#[path = "vanilla_save/appa_idlm.rs"]
+mod appa_idlm;
 #[path = "vanilla_save/base_objects.rs"]
 mod base_objects;
 #[path = "vanilla_save/static_objects.rs"]

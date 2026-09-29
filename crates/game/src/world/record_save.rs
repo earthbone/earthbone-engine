@@ -118,6 +118,8 @@ impl World {
                             | b"CONT"
                             | b"MISC"
                             | b"FURN"
+                            | b"APPA"
+                            | b"IDLM"
                     )
                 })
             {
@@ -141,6 +143,8 @@ impl World {
                             | b"CONT"
                             | b"MISC"
                             | b"FURN"
+                            | b"APPA"
+                            | b"IDLM"
                     ) && !rec.is_deleted()
                 })
                 .ok_or_else(|| bad("missing record origin"))?;
@@ -302,6 +306,19 @@ impl World {
                 {
                     return Err(bad("invalid saved base-object override"));
                 }
+            } else if matches!(&record.tag.0, b"APPA" | b"IDLM") {
+                if list.is_some()
+                    || temporary_for.is_some()
+                    || text_origin != id
+                    || plain_full
+                    || original_race.is_some()
+                    || body_tint.is_some()
+                    || pending_form_flags.is_some()
+                    || record.flags != original.flags
+                    || record.subrecords != original.subrecords
+                {
+                    return Err(bad("invalid saved APPA or IDLM override"));
+                }
             } else {
                 let tag = if record.tag == T(b"FLST") {
                     T(b"LNAM")
@@ -381,7 +398,11 @@ impl World {
         let values: Vec<_> = self
             .record_overrides
             .iter()
-            .filter_map(|(id, value)| value.base_object.map(|extra| (*id, extra)))
+            .filter_map(|(id, value)| {
+                (matches!(&value.record.tag.0, b"LIGH" | b"STAT" | b"MSTT"))
+                    .then(|| value.base_object.map(|extra| (*id, extra)))
+                    .flatten()
+            })
             .collect();
         w.len(values.len());
         for (id, extra) in values {
@@ -414,10 +435,15 @@ impl World {
             } else {
                 None
             };
+            let value_changed = r.bool()?;
+            let full_name_changed = r.bool()?;
             let extra = BaseObjectRecordExtra {
                 form_flags,
-                value_changed: r.bool()?,
-                full_name_changed: r.bool()?,
+                change_flags: u32::from(form_flags.is_some())
+                    | (u32::from(value_changed) << 1)
+                    | (u32::from(full_name_changed) << 2),
+                value_changed,
+                full_name_changed,
             };
             let value = self
                 .record_overrides
@@ -436,6 +462,91 @@ impl World {
                 .get_mut(&id)
                 .ok_or_else(|| bad("base-object override disappeared during load"))?
                 .base_object = Some(extra);
+        }
+        Ok(())
+    }
+
+    pub(super) fn write_appa_idlm_section(&self, w: &mut Writer) {
+        let values: Vec<_> = self
+            .record_overrides
+            .iter()
+            .filter_map(|(id, value)| {
+                (matches!(&value.record.tag.0, b"APPA" | b"IDLM"))
+                    .then(|| value.base_object.map(|extra| (*id, extra)))
+                    .flatten()
+            })
+            .collect();
+        w.len(values.len());
+        for (id, extra) in values {
+            write_form_id(w, id);
+            w.u32(extra.change_flags);
+            w.bool(extra.form_flags.is_some());
+            if let Some((flags, unknown)) = extra.form_flags {
+                w.u32(flags);
+                w.u16(unknown);
+            }
+            w.bool(extra.value_changed);
+            w.bool(extra.full_name_changed);
+        }
+    }
+
+    pub(super) fn read_appa_idlm_section(
+        &mut self,
+        r: &mut FormReader<'_, '_>,
+    ) -> Result<(), VmError> {
+        let count = r.len()?;
+        if count > r.remaining() / 11 {
+            return Err(bad("APPA/IDLM section count exceeds remaining bytes"));
+        }
+        let flags = soe_save::base_object::flags::FORM;
+        let value = soe_save::base_object::flags::VALUE;
+        let full_name = soe_save::base_object::flags::FULL_NAME;
+        let mut values = Vec::with_capacity(count);
+        let mut seen = std::collections::BTreeSet::new();
+        for _ in 0..count {
+            let id = read_form_id(r)?;
+            self.saved_record_identity(id)?;
+            let change_flags = r.u32()?;
+            let form_flags = if r.bool()? {
+                Some((r.u32()?, r.u16()?))
+            } else {
+                None
+            };
+            let value_changed = r.bool()?;
+            let full_name_changed = r.bool()?;
+            let record = self
+                .record_overrides
+                .get(&id)
+                .ok_or_else(|| bad("APPA/IDLM section names a missing record override"))?;
+            if !matches!(&record.record.tag.0, b"APPA" | b"IDLM")
+                || record.base_object.is_some()
+                || record.static_object.is_some()
+                || form_flags.is_some() != (change_flags & flags != 0)
+                || value_changed != (change_flags & value != 0)
+                || full_name_changed != (change_flags & full_name != 0)
+                || !seen.insert(id)
+            {
+                return Err(bad("invalid or duplicate APPA/IDLM section entry"));
+            }
+            values.push((
+                id,
+                BaseObjectRecordExtra {
+                    form_flags,
+                    change_flags,
+                    value_changed,
+                    full_name_changed,
+                },
+            ));
+        }
+        for (id, extra) in values {
+            let record = self
+                .record_overrides
+                .get_mut(&id)
+                .ok_or_else(|| bad("APPA/IDLM override disappeared during load"))?;
+            if let Some((mask, _)) = extra.form_flags {
+                record.record.flags ^= mask;
+            }
+            record.base_object = Some(extra);
         }
         Ok(())
     }

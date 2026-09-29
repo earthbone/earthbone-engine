@@ -37,6 +37,7 @@ pub mod quest;
 pub mod reference;
 pub mod table;
 
+pub use base_object::BaseObjectChange;
 pub use base_object::{BaseObjectFields, LightStaticChange, StaticObjectChange};
 pub use change::{ChangeForm, QuestStage};
 pub use change::{

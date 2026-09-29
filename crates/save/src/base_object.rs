@@ -233,4 +233,84 @@ impl ChangeForm {
             remaining_bytes: cursor.remaining(),
         }))
     }
+
+    /// Decode the saved fields of an APPA record.
+    ///
+    /// # Errors
+    /// Returns a decompression error, a truncation error, or an error when
+    /// bytes remain after the fields defined by xEdit.
+    ///
+    /// # Panics
+    /// Does not panic for malformed payloads.
+    pub fn apparatus_change(&self) -> Result<Option<BaseObjectChange>> {
+        if self.record_type() != "APPA" {
+            return Ok(None);
+        }
+        decode_base_object_change(self)
+    }
+
+    /// Decode the saved fields of an IDLM record.
+    ///
+    /// # Errors
+    /// Returns a decompression error, a truncation error, or an error when
+    /// bytes remain after the fields defined by xEdit.
+    ///
+    /// # Panics
+    /// Does not panic for malformed payloads.
+    pub fn idle_marker_change(&self) -> Result<Option<BaseObjectChange>> {
+        if self.record_type() != "IDLM" {
+            return Ok(None);
+        }
+        decode_base_object_change(self)
+    }
+}
+
+/// The fields shared by APPA and IDLM change forms.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BaseObjectChange {
+    /// The complete change-flags word, including unnamed bits.
+    pub change_flags: u32,
+    /// The optional six-byte form-flags section.
+    pub form_flags: Option<(u32, u16)>,
+    /// Whether xEdit's zero-byte base-object value field is flagged changed.
+    pub value_changed: bool,
+    /// Whether xEdit's zero-byte full-name field is flagged changed.
+    pub full_name_changed: bool,
+}
+
+impl BaseObjectChange {
+    /// Rebuild the payload from the decoded fields.
+    ///
+    /// # Panics
+    /// Does not panic.
+    #[must_use]
+    pub fn data_bytes(&self) -> Vec<u8> {
+        let mut out = Vec::new();
+        if let Some((flags, unknown)) = self.form_flags {
+            out.extend(flags.to_le_bytes());
+            out.extend(unknown.to_le_bytes());
+        }
+        out
+    }
+}
+
+fn decode_base_object_change(change: &ChangeForm) -> Result<Option<BaseObjectChange>> {
+    let payload = change.payload()?;
+    let mut cursor = Cursor::new(&payload, "base-object change");
+    let form_flags = if change.change_flags & flags::FORM != 0 {
+        Some((cursor.u32()?, cursor.u16()?))
+    } else {
+        None
+    };
+    if !cursor.is_empty() {
+        return Err(Error::RecordChange {
+            reason: "trailing base-object change bytes".into(),
+        });
+    }
+    Ok(Some(BaseObjectChange {
+        change_flags: change.change_flags,
+        form_flags,
+        value_changed: change.change_flags & flags::VALUE != 0,
+        full_name_changed: change.change_flags & flags::FULL_NAME != 0,
+    }))
 }

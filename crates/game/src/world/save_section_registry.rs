@@ -18,6 +18,7 @@ use super::{ActorState, RefState, World};
 pub(crate) const WORLD_SECTIONS: &[Section<World>] = &[
     Section { name: "SAV-53", write: World::write_base_object_section, read: World::read_base_object_section },
     Section { name: "SAV-42", write: World::write_static_object_section, read: World::read_static_object_section },
+    Section { name: "SAV-44", write: World::write_appa_idlm_section, read: World::read_appa_idlm_section },
 ];
 
 /// Sections read and written once per actor, at the end of every actor
