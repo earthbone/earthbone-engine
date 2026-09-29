@@ -202,7 +202,7 @@ pub fn register(vm: &mut Vm, world: &Shared) -> Registered {
 
 /// Hand-kept count of the non-stub natives registered below. The test in
 /// this module checks it against the registry.
-pub const NATIVE_COUNT: usize = 366;
+pub const NATIVE_COUNT: usize = 367;
 
 fn declare_parents(vm: &mut Vm) {
     for (class, parent) in [
@@ -1717,6 +1717,16 @@ fn game(vm: &mut Vm, w: &Shared) {
     global!(vm, w, "Game", "GetPlayer", |world, call| {
         let p = world.player();
         form_value(world, call, Some(p))
+    });
+    global!(vm, w, "Game", "ShowTrainingMenu", |world, call| {
+        let trainer = match call.arg(0) {
+            Value::Object(object) => world.form_of(object),
+            _ => None,
+        };
+        if let Some(trainer) = trainer {
+            world.request_training_menu(trainer);
+        }
+        none()
     });
     global!(vm, w, "Game", "AdvanceSkill", |world, call| {
         let skill = text(&call.arg(0));
@@ -3372,7 +3382,6 @@ fn stubs(vm: &mut Vm) -> usize {
         ("Game", "PlayBink"),
         ("Game", "PrecacheCharGen"),
         ("Game", "PrecacheCharGenClear"),
-        ("Game", "ShowTrainingMenu"),
         ("Game", "ShowFirstPersonGeometry"),
         ("Game", "SetCameraTarget"),
         ("Game", "QuitToMainMenu"),

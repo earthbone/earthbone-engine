@@ -47,6 +47,7 @@ mod magic;
 mod melee;
 mod menu;
 mod saves;
+mod training;
 
 /// How far ahead of the eye an activate ray reaches, in Skyrim units. The
 /// vanilla reach is about this, and it is a setting rather than a constant so
@@ -119,6 +120,7 @@ pub struct PlayerNode {
     devices: Devices,
     input_focused: bool,
     menu: crate::ui::MenuState,
+    training_trainer: Option<GlobalFormId>,
     inventory_category: crate::inventory_menu::Category,
     magic_hand: soe_game::combat::Hand,
     menu_view: Option<menu::MenuView>,
@@ -170,6 +172,7 @@ impl INode3D for PlayerNode {
             devices: Devices::default(),
             input_focused: true,
             menu: crate::ui::MenuState::default(),
+            training_trainer: None,
             inventory_category: crate::inventory_menu::Category::All,
             magic_hand: soe_game::combat::Hand::Right,
             menu_view: None,

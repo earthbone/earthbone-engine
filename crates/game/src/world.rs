@@ -509,6 +509,7 @@ pub struct World {
     /// Player training purchases used at the current character level.
     pub(crate) training_sessions_this_level: u32,
     pub(crate) training_session_level: u32,
+    pub(crate) pending_training_menu: Option<GlobalFormId>,
     rng: u64,
     pub clock: GameClock,
     pub pending: Vec<Pending>,
@@ -611,6 +612,7 @@ impl World {
             player_level: 1,
             training_sessions_this_level: 0,
             training_session_level: 1,
+            pending_training_menu: None,
             rng: 0x9E37_79B9_7F4A_7C15,
             clock: GameClock::default(),
             pending: Vec::new(),

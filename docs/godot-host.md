@@ -1956,6 +1956,12 @@ equipped.
 The native M shortcut opens the magic menu the same way I opens inventory,
 gated on an active Game. No shortcut is yet remapped through controlmap.txt.
 
+`Game.ShowTrainingMenu(actor)` requests this presenter through a transient
+World request. The presenter shows the trainer's skill, current value, tier
+cap, DLG-16 price and remaining per-level sessions. The purchase button is
+disabled when the player lacks gold or has reached the skill or session cap.
+Purchases call the shared World transaction and redraw the offer afterward.
+
 ## Dialogue menu, DLG-10
 
 `open_dialogue_menu(file, object)` begins a conversation between the selected

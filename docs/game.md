@@ -3403,8 +3403,15 @@ The field layout follows xEdit `wbRecord(CLAS)` and UESP CLAS. UESP describes
 the taught skill as an actor value index minus six and the training level as
 the trainer's maximum skill level. CommonLibSSE-NG `PlayerCharacter.h` names
 the per-level session counter, and the CK `Game.ShowTrainingMenu` page
-establishes the trainer actor passed to the menu. The trainer purchase path is
-available on `World`; the CK menu itself is not connected here.
+establishes the trainer actor passed to the menu. The trainer purchase path
+and a transient menu request are available through `World`.
+
+`Game.ShowTrainingMenu(actor)` queues a transient host request for a valid
+trainer actor. The request is consumed by PlayerNode after a game tick. A
+training offer reads the skill, current value, tier cap, current price and
+remaining sessions from the same World state used by `purchase_training`.
+The offer remains visible when the skill cap or per-level purchase limit has
+been reached, while the purchase path rejects it without changing state.
 
 ## Saved list changes, SAV-52
 
