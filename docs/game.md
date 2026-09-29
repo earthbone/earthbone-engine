@@ -962,6 +962,12 @@ including read-back validation, file and directory synchronization, a prior
 link during replacement and explicit error paths. Validation executes no
 callbacks and does not mutate the running game.
 
+The `tst_06_process_termination_at_every_boundary_preserves_a_readable_generation`
+test in `tests/atomic_save.rs` kills separate native and ESS writers at each
+fault-injection boundary. The destination and any retained prior link must
+remain readable as a complete generation. Run it with
+`cargo test -p soe-game --features save-fault-tests --test atomic_save`.
+
 `GenerationStore` adds [verified native generations](save-resilience.md#sav-63-verified-generations).
 `Game::write_generation` validates a new file before bounded rotation.
 `select_generation` reports damaged or incompatible candidates and returns the
