@@ -114,6 +114,12 @@ and their chargen TRI files before processing later race menu requests. The
 clear request drops those retained file buffers. These requests add no saved
 state.
 
+`Game.ShowTrainingMenu(actor)` queues a training-menu request containing the
+actor form when the argument resolves to an actor reference. Invalid or missing
+arguments return quietly without a request. The UI-16 training presenter is
+not present in this checkout, so the host currently consumes the request
+without opening a menu.
+
 **Witnessed crime.** `crime.rs` decodes `FACT.CRVA`, the bounty table a
 faction charges for murder, assault, trespass, pickpocketing, theft
 (scaled by a steal multiplier against the stolen item's value), escape

@@ -1720,6 +1720,31 @@ fn game(vm: &mut Vm, w: &Shared) {
         let p = world.player();
         form_value(world, call, Some(p))
     });
+    for (name, request) in [
+        ("PrecacheCharGen", MenuRequest::PrecacheCharGen),
+        ("PrecacheCharGenClear", MenuRequest::PrecacheCharGenClear),
+    ] {
+        let shared = w.clone();
+        vm.natives.register_global(
+            "Game",
+            name,
+            Box::new(move |_| {
+                shared.borrow_mut().menu_requests.push(request);
+                none()
+            }),
+        );
+    }
+    global!(vm, w, "Game", "ShowTrainingMenu", |world, call| {
+        let Some(trainer) = world.form_arg(&call.arg(0)).filter(|id| {
+            world
+                .reference(*id)
+                .is_some_and(|reference| reference.is_actor)
+        }) else {
+            return none();
+        };
+        world.menu_requests.push(MenuRequest::Training(trainer));
+        none()
+    });
     global!(vm, w, "Game", "SetCameraTarget", |world, call| {
         let target = world.form_arg(&call.arg(0));
         if let Some(target) = target.filter(|id| {
@@ -3213,21 +3238,6 @@ fn stubs(vm: &mut Vm, world: &Shared) -> usize {
         }),
     );
     n += 1;
-    for (name, request) in [
-        ("PrecacheCharGen", MenuRequest::PrecacheCharGen),
-        ("PrecacheCharGenClear", MenuRequest::PrecacheCharGenClear),
-    ] {
-        let shared = world.clone();
-        vm.natives.register_global(
-            "Game",
-            name,
-            Box::new(move |_| {
-                shared.borrow_mut().menu_requests.push(request);
-                none()
-            }),
-        );
-        n += 1;
-    }
     let bools: &[(&str, &str, bool)] = &[
         ("ObjectReference", "Is3DLoaded", true),
         ("ObjectReference", "IsFurnitureInUse", false),
@@ -3409,7 +3419,6 @@ fn stubs(vm: &mut Vm, world: &Shared) -> usize {
         ("Game", "TriggerScreenBlood"),
         ("Game", "PlayBink"),
         ("Game", "AdvanceSkill"),
-        ("Game", "ShowTrainingMenu"),
         ("Game", "QuitToMainMenu"),
         ("Game", "StartTitleSequence"),
         ("Game", "GetCurrentCrosshairRef"),

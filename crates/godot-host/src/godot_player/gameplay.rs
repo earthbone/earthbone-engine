@@ -115,6 +115,9 @@ impl PlayerNode {
                 soe_game::world::MenuRequest::Race => {
                     self.show_race_menu();
                 }
+                // UI-16 owns the training presenter, which is not present in
+                // this checkout. Keep native dispatch typed until that UI lands.
+                soe_game::world::MenuRequest::Training(_) => {}
             }
         }
         if self.sync_game_pose() {
