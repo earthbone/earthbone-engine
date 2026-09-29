@@ -3,6 +3,9 @@
 
 //! CK AddItem reference moves, original identity, events and SOEW persistence.
 
+#[path = "common/legacy.rs"]
+mod legacy;
+
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::{
     inventory::{Extra, Field, Stack},
@@ -268,10 +271,16 @@ fn version_fifteen_migrates_authored_loose_items_and_rejects_truncated_new_exten
     let mut w = world(3);
     w.reference(id(LOOSE)).unwrap();
     let hash = w.state_hash();
-    let mut bytes = w.save_state();
+    let mut bytes = legacy::without_ref_sections(&mut w, &[id(LOOSE)]);
     // CONTEXT: One entry: table count, FormID, stack count and three typed extras.
     let extension = 4 + 6 + 4 + 4 + (1 + 4 + 1 + 1 + 6) + 2 * (1 + 4 + 1 + 4);
-    bytes.truncate(bytes.len() - extension - 16);
+    // The extra 6 bytes beyond the old 16 are detection's now-unconditional
+    // empty pool count (4 bytes) and the world-level save-section table
+    // version 37 added (2 bytes), both always present at the tail regardless
+    // of the simulated version. LOOSE's own empty save-section table is
+    // stripped above, since it sits mid stream in the refs list rather than
+    // at this tail.
+    bytes.truncate(bytes.len() - extension - 22);
     let mut loaded = world(3);
     assert!(loaded.load_state(&bytes).is_err());
     bytes[4..6].copy_from_slice(&25_u16.to_le_bytes());
@@ -295,7 +304,11 @@ fn corrupt_loose_metadata_and_duplicate_reference_identity_reject_atomically() {
         assert_eq!(w.state_hash(), hash);
     }
     let mut corrupt = bytes.clone();
-    let last = corrupt.len() - 17;
+    // The extra 6 bytes are detection's now-unconditional empty pool count
+    // (4 bytes) and the world-level save-section table version 37 added
+    // (2 bytes). This is a same-version round trip, so no section table
+    // needs stripping, only the flipped byte's position shifted by 6.
+    let last = corrupt.len() - 23;
     corrupt[last] ^= 1;
     let mut changed = world(1);
     changed.load_state(&corrupt).unwrap();
@@ -424,8 +437,22 @@ fn legacy_contained_identity_does_not_recreate_its_authored_loose_item() {
             .inventory
             .restore(id(ITEM), 1, vec![stack])
             .unwrap();
-        let mut bytes = w.save_state();
-        bytes.truncate(bytes.len() - 20);
+        // FIRST is always a materialized standalone reference here, and
+        // LOOSE joins it whenever this iteration already touched it above.
+        // Both own an empty save-section table version 37 appends to their
+        // own record, sitting mid stream in the refs list, so it is
+        // stripped before the tail truncation below.
+        let refs: &[GlobalFormId] = if materialized {
+            &[id(FIRST), id(LOOSE)]
+        } else {
+            &[id(FIRST)]
+        };
+        let mut bytes = legacy::without_ref_sections(&mut w, refs);
+        // The extra 6 bytes beyond the old 20 are detection's now-
+        // unconditional empty pool count (4 bytes) and the world-level
+        // save-section table version 37 added (2 bytes), both always
+        // present at the tail regardless of the simulated version.
+        bytes.truncate(bytes.len() - 26);
         bytes[4..6].copy_from_slice(&25_u16.to_le_bytes());
         let mut loaded = world(1);
         loaded.load_state(&bytes).unwrap();
