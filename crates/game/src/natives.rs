@@ -1180,9 +1180,15 @@ fn actor(vm: &mut Vm, w: &Shared) {
             none()
         });
     }
-    method!(vm, w, "Actor", "IsAlerted", |world, call, me| b(world
-        .actor(me)
-        .is_some_and(|a| a.alerted)));
+    method!(vm, w, "Actor", "IsAlerted", |world, call, me| b(
+        world.actor_is_alarmed(me)
+    ));
+    method!(vm, w, "Actor", "IsAlarmed", |world, call, me| b(
+        world.actor_is_alarmed(me)
+    ));
+    method!(vm, w, "Actor", "IsBleedingOut", |world, call, me| b(
+        world.actor_is_bleeding_out(me)
+    ));
     // StartSneaking toggles (the page's note), IsSneaking reads it.
     method!(vm, w, "Actor", "StartSneaking", |world, call, me| {
         if let Some(a) = world.actor(me) {
@@ -3197,8 +3203,6 @@ fn stubs(vm: &mut Vm) -> usize {
     let bools: &[(&str, &str, bool)] = &[
         ("ObjectReference", "Is3DLoaded", true),
         ("ObjectReference", "IsFurnitureInUse", false),
-        ("Actor", "IsAlarmed", false),
-        ("Actor", "IsBleedingOut", false),
         ("Actor", "IsRunning", false),
         ("Actor", "IsSprinting", false),
         ("Actor", "IsHostileToActor", false),
