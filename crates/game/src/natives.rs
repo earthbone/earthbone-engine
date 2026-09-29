@@ -451,6 +451,16 @@ fn form(vm: &mut Vm, w: &Shared) {
 }
 
 fn object_reference(vm: &mut Vm, w: &Shared) {
+    method!(
+        vm,
+        w,
+        "ObjectReference",
+        "GetCurrentScene",
+        |world, call, me| {
+            let scene = world.current_scene(me);
+            form_value(world, call, scene)
+        }
+    );
     for name in ["Enable", "EnableNoWait"] {
         method!(vm, w, "ObjectReference", name, |world, call, me| {
             if let Some(r) = world.reference(me) {
@@ -3244,7 +3254,6 @@ fn stubs(vm: &mut Vm) -> usize {
         n += 1;
     }
     let methods_none: &[(&str, &str)] = &[
-        ("ObjectReference", "GetCurrentScene"),
         ("ObjectReference", "PlayAnimationAndWait"),
         ("ObjectReference", "PlayGamebryoAnimation"),
         ("ObjectReference", "SetMotionType"),
