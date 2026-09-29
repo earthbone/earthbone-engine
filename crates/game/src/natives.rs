@@ -1978,11 +1978,7 @@ fn globals_and_lists(vm: &mut Vm, w: &Shared) {
             .map_or(-1, |p| p as i32))
     });
     method!(vm, w, "FormList", "AddForm", |world, call, me| {
-        if let Some(item) = world.form_arg(&call.arg(0)) {
-            if let Some(l) = world.form_list(me) {
-                l.push(item);
-            }
-        }
+        world.add_form_list_entry(me, world.form_arg(&call.arg(0)));
         none()
     });
 }
@@ -3436,5 +3432,104 @@ mod tests {
         assert!(vm.natives.has_method("quest", "setstage"));
         assert!(vm.natives.has_global("game", "getplayer"));
         assert!(vm.natives.has_method("alias", "getowningquest"));
+    }
+
+    #[test]
+    fn scr_60_registry_inventory_matches_formlist_and_game_contracts() {
+        let mut vm = Vm::new();
+        let world = Rc::new(RefCell::new(World::new(LoadOrder::new())));
+        register(&mut vm, &world);
+
+        for name in ["GetSize", "GetAt", "HasForm", "Find", "AddForm"] {
+            assert!(vm.natives.has_method("FormList", name), "FormList.{name}");
+        }
+
+        let implemented = [
+            "GetPlayer",
+            "GetForm",
+            "GetFormEx",
+            "GetFormFromFile",
+            "EnablePlayerControls",
+            "DisablePlayerControls",
+            "GetGameSettingFloat",
+            "GetGameSettingInt",
+            "GetGameSettingString",
+            "SetGameSettingFloat",
+            "SetGameSettingInt",
+            "SetGameSettingBool",
+            "SetGameSettingString",
+            "GetRealHoursPassed",
+            "IncrementStat",
+            "QueryStat",
+            "IsFastTravelEnabled",
+            "EnableFastTravel",
+            "SetPlayerAIDriven",
+            "SetInChargen",
+            "SetBeastForm",
+            "TeachWord",
+            "UnlockWord",
+            "IsWordUnlocked",
+            "AddAchievement",
+            "GetPlayersLastRiddenHorse",
+            "AddPerkPoints",
+            "GetDialogueTarget",
+        ];
+        for name in implemented {
+            assert!(vm.natives.has_global("Game", name), "Game.{name}");
+        }
+
+        let stubbed = [
+            "IsPlayerSungazing",
+            "GetSunPositionX",
+            "GetSunPositionY",
+            "GetSunPositionZ",
+            "ShakeCamera",
+            "SendWereWolfTransformation",
+            "ServeTime",
+            "ClearPrison",
+            "SetSunGazeImageSpaceModifier",
+            "ShakeController",
+            "FadeOutGame",
+            "RequestSave",
+            "RequestAutoSave",
+            "ForceFirstPerson",
+            "ForceThirdPerson",
+            "SetHudCartMode",
+            "ShowRaceMenu",
+            "TriggerScreenBlood",
+            "PlayBink",
+            "AdvanceSkill",
+            "PrecacheCharGen",
+            "PrecacheCharGenClear",
+            "ShowTrainingMenu",
+            "ShowFirstPersonGeometry",
+            "SetCameraTarget",
+            "QuitToMainMenu",
+            "SetSittingRotation",
+            "StartTitleSequence",
+            "GetCurrentCrosshairRef",
+            "GetPlayerGrabbedRef",
+            "FindClosestActor",
+            "FindRandomActor",
+            "FindClosestReferenceOfType",
+            "FindRandomReferenceOfType",
+            "GetFormEx2",
+        ];
+        for name in stubbed {
+            assert!(vm.natives.has_global("Game", name), "Game.{name}");
+        }
+    }
+
+    #[test]
+    fn scr_60_contract_fixes_name_existing_backlog_owners() {
+        let backlog = include_str!("../../../BACKLOG.csv");
+        let audit = include_str!("../../../docs/game.md");
+        for row in [
+            "SCR-26", "SCR-27", "SCR-28", "SCR-29", "SCR-30", "SCR-31", "SCR-32",
+        ] {
+            assert!(backlog.contains(&format!("\"{row}\"")), "missing {row}");
+            assert!(audit.contains(&format!("- {row}:")), "unassigned {row}");
+        }
+        assert!(audit.contains("assigned to SCR-60"));
     }
 }
