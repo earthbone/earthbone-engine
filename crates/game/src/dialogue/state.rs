@@ -15,6 +15,33 @@ use crate::world::save::{
 };
 use crate::World;
 
+pub(crate) fn write_known_topics(world: &World, w: &mut Writer) {
+    w.len(world.known_dialogue_topics.len());
+    for topic in &world.known_dialogue_topics {
+        write_form_id(w, *topic);
+    }
+}
+
+pub(crate) fn read_known_topics(
+    world: &mut World,
+    r: &mut FormReader<'_, '_>,
+) -> Result<(), VmError> {
+    let mut topics = BTreeSet::new();
+    for _ in 0..r.len()? {
+        let topic = read_form_id(r)?;
+        let valid = world
+            .record(topic)
+            .is_some_and(|record| !record.is_deleted())
+            && world.dialogue_topic(topic).is_ok()
+            && world.owning_quest(topic).is_some();
+        if !valid || !topics.insert(topic) {
+            return Err(VmError::State("invalid SCR-48 dialogue topic".into()));
+        }
+    }
+    world.known_dialogue_topics = topics;
+    Ok(())
+}
+
 impl World {
     /// The do-all repeat history is its own version 28 block at the end of the
     /// body, so an older reader stops before it rather than mid stream.
