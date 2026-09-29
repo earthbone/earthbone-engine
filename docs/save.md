@@ -105,6 +105,9 @@ does not claim runtime support for opaque payloads.
 - Type 3, the global variable table, as references and floats.
 - Every change form header. `ChangeForm::quest_change` decodes documented QUST
   flags, stages, objectives, runtime aliases/events and quest instances.
+- `ChangeForm::static_object_change` decodes the named form flags for CONT,
+  MISC and FURN. The xEdit value and full-name fields have zero-byte layouts.
+  Unnamed flags and suffix bytes remain available for exact payload re-encoding.
 - `ChangeForm::info_change`, `story_manager_quest_node_change` and
   `scene_change` decode the defined INFO, SMQN and SCEN flag sections and state
   markers.
@@ -164,6 +167,20 @@ Most decoded state remains inspection data. The game crate can apply globals
 and quest state, but neither stack execution nor pending calls can be resumed from a
 vanilla save. The explicit instance-import API below can apply decoded
 variables to a prepared VM, but it is not a complete save loader.
+
+## CONT, MISC and FURN payloads
+
+`ChangeForm::static_object_change` reads the optional six-byte form-flags
+prefix and exposes the value and full-name markers. The xEdit definitions
+resolve both of those marked fields to zero bytes. Other flag bits and bytes
+after the defined prefix stay in the decoded value, and its `data_bytes`
+method rebuilds the original payload. A short form-flags prefix returns a
+truncation error.
+
+The implementation follows xEdit's `wbDefinitionsTES5Saves.pas`. UESP's save
+format page establishes the type indices but does not document these payload
+fields. FallrimTools `ChangeFormDefault` retains payload bytes without a typed
+layout, so it remains useful as a raw preservation reference.
 
 ## Runtime instance import
 
