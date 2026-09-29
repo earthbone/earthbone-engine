@@ -77,11 +77,24 @@ The mapping follows the Rust API while adapting Rust names and types to C++, inc
 `NativeRegistry::register`, which is emitted as `register_native` because `register` is a C++
 keyword.
 
+`RE/ExtraData.h` declares the SHM-10 views for `ExtraMissingRefIDs`,
+`ExtraNorthRotation`, `ExtraOutfitItem`, `ExtraPoison` and `ExtraTeleport`.
+The value field names and types were checked against the alandtse CommonLib
+headers `include/RE/E/ExtraMissingRefIDs.h`,
+`include/RE/E/ExtraNorthRotation.h`, `include/RE/E/ExtraOutfitItem.h`,
+`include/RE/E/ExtraPoison.h` and `include/RE/E/ExtraTeleport.h`.
+The `ReferenceExtraData` interface distinguishes unsupported kinds from an
+absent value. The game adapter reads outfit item, poison and door teleport
+values from shared reference and inventory state. Missing reference IDs and
+north rotation have no runtime backing field and report unsupported. Binary
+hook requests return a diagnostic through `HookRegistry::reject`.
+
 ## Untested
 
 The SHM-01 test compiles the generated umbrella headers with a C++20 compiler and checks C++
-signatures for the Rust methods they project. No sample plugin has been compiled against the
-headers, and the declarations are not linked to engine behavior. The counts are token counts,
+signatures for the Rust methods they project. SHM-10 compiles an extra-data C++ fixture and
+checks live game reads in Rust. No sample plugin has been compiled against the headers, and the
+declarations are not linked to engine behavior. The counts are token counts,
 so a name mentioned only in a comment is counted and a type reached only through `auto` is not.
 Four plugins are a sample, not the population: the map's 70 to 90 percent open-source estimate
 is from a six-plugin sample and the shimmable share here is 3 of 4 by plugin, far less by hook

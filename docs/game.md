@@ -31,6 +31,10 @@ week 6 to 9 gate.
   natives raise for listeners, scenes, sounds), `timers`, `rng`, `driver`
   (what the package driver reads), `save` (the `SOEW` format) and `hash`
   (the determinism hash).
+- `world/shim_extras`: CommonLib extra-data views over reference teleport
+  destinations and inventory outfit/poison extras. Missing reference IDs and
+  north rotation have no authoritative runtime field and are reported as
+  unsupported by the shim adapter.
 - `vmad`: the `VMAD` subrecord. Scripts, their filled properties, quest stage
   fragments, INFO and PACK begin, end and change fragments, SCEN begin, end
   and phase fragments, and alias

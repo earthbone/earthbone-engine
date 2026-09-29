@@ -119,6 +119,57 @@ public:
 } // namespace RE
 "#;
 
+const RE_EXTRA_DATA: &str = r#"// Generated from crates/commonlib-shim/src/extra_data.rs. Do not edit.
+#pragma once
+#include "RE/Form.h"
+#include "RE/Math.h"
+#include "RE/Reference.h"
+#include <cstdint>
+#include <optional>
+#include <string>
+#include <vector>
+
+namespace RE {
+struct ActivateParentID {
+    FormId refID;
+    float activateDelay;
+};
+
+struct DoorTeleportData {
+    ObjectRefHandle linkedDoor;
+    NiPoint3 position;
+    NiPoint3 rotation;
+    std::int8_t flags;
+};
+
+enum class ReferenceExtraKind { MissingRefIDs, NorthRotation, OutfitItem, Poison, Teleport };
+struct ReferenceExtraValue {
+    ReferenceExtraKind kind;
+    std::vector<ActivateParentID> missingRefIDs;
+    std::optional<float> northRotation;
+    std::optional<FormId> outfitItem;
+    std::optional<FormId> poison;
+    std::int32_t poisonCount{};
+    std::optional<DoorTeleportData> teleport;
+};
+
+class ReferenceExtraData {
+public:
+    virtual ~ReferenceExtraData() = default;
+    virtual bool supports_extra(ReferenceExtraKind kind) const = 0;
+    virtual std::optional<ReferenceExtraValue> extra(ObjectRefHandle reference, ReferenceExtraKind kind) const = 0;
+};
+
+class HookRegistry {
+public:
+    static bool reject(const std::string& name, std::string& error) {
+        error = "unsupported binary hook: " + name;
+        return false;
+    }
+};
+} // namespace RE
+"#;
+
 const RE_MATH: &str = r"// Generated from crates/commonlib-shim/src/ni.rs. Do not edit.
 #pragma once
 #include <cstdint>
@@ -327,11 +378,12 @@ inline constexpr Unsupported TRAMPOLINE{
 const FILES: &[(&str, &str)] = &[
     ("RE/Form.h", RE_FORM),
     ("RE/Reference.h", RE_REFERENCE),
+    ("RE/ExtraData.h", RE_EXTRA_DATA),
     ("RE/Math.h", RE_MATH),
     ("RE/Events.h", RE_EVENTS),
     ("RE/Utility.h", RE_UTILITY),
     ("RE/VirtualMachine.h", RE_VM),
-    ("RE/Skyrim.h", "// Generated umbrella for the supported RE surface. Do not edit.\n#pragma once\n#include \"RE/Form.h\"\n#include \"RE/Reference.h\"\n#include \"RE/Events.h\"\n#include \"RE/Utility.h\"\n#include \"RE/VirtualMachine.h\"\n"),
+    ("RE/Skyrim.h", "// Generated umbrella for the supported RE surface. Do not edit.\n#pragma once\n#include \"RE/Form.h\"\n#include \"RE/Reference.h\"\n#include \"RE/ExtraData.h\"\n#include \"RE/Events.h\"\n#include \"RE/Utility.h\"\n#include \"RE/VirtualMachine.h\"\n"),
     ("SKSE/Interfaces.h", SKSE_INTERFACES),
     ("SKSE/SKSE.h", "// Generated umbrella for the supported SKSE surface. Do not edit.\n#pragma once\n#include \"SKSE/Interfaces.h\"\n"),
 ];

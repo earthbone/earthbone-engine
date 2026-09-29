@@ -14,6 +14,7 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
 pub mod events;
+pub mod extra_data;
 pub mod form;
 pub mod headers;
 pub mod ni;
