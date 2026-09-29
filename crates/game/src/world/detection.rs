@@ -12,11 +12,44 @@ use soe_papyrus::{Value, VmError};
 use super::save::{read_form_id, write_form_id, FormReader};
 use super::World;
 use crate::detection::{
-    Awareness, DetectionLevel, DetectionSettings, DetectionState, Error, Observation, Senses,
-    StealthPool,
+    Awareness, DetectionEvent, DetectionLevel, DetectionSettings, DetectionState, Error,
+    Observation, Senses, StealthPool,
 };
 
 impl World {
+    /// Queue a sound at `source` for the next host detection step.
+    /// The CK permits levels above 100, and a separate actor may own the sound.
+    /// Invalid actors, references and negative levels leave the queue unchanged.
+    pub fn create_detection_event(
+        &mut self,
+        source: GlobalFormId,
+        owner: GlobalFormId,
+        sound_level: i32,
+    ) -> bool {
+        if sound_level < 0 || self.tag_of(owner) != Some(super::T(b"ACHR")) {
+            return false;
+        }
+        let Some(reference) = self.reference(source) else {
+            return false;
+        };
+        let (Some(cell), true) = (reference.cell, reference.enabled && !reference.deleted) else {
+            return false;
+        };
+        let position = reference.position;
+        self.detection_events.push(DetectionEvent {
+            owner,
+            cell,
+            position,
+            sound_level: sound_level as f32,
+        });
+        true
+    }
+
+    /// Take the sounds emitted since the previous observation step.
+    pub fn take_detection_events(&mut self) -> Vec<DetectionEvent> {
+        std::mem::take(&mut self.detection_events)
+    }
+
     /// Detection settings from the load order's GMST records.
     ///
     /// # Errors
@@ -71,7 +104,12 @@ impl World {
         let settings = self.detection_settings()?;
         let mut pairs = BTreeSet::new();
         for o in observations {
-            let numbers = [o.distance, o.light_level, o.action_sound];
+            let numbers = [
+                o.distance,
+                o.light_level,
+                o.action_sound,
+                o.action_sound_distance.unwrap_or(0.0),
+            ];
             if numbers.iter().any(|n| !n.is_finite() || *n < 0.0) {
                 return Err(Error::Observation);
             }
