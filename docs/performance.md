@@ -16,6 +16,17 @@ measurements below remain tied to their recorded revisions.
 - NVIDIA GeForce RTX 5070 Ti, Vulkan 1.4, Godot 4.4.1 Forward+
 - Fedora Atomic, release build, the installed Skyrim SE under Steam
 
+## Parsed plugin cache, 2026-09-29
+
+`crates/esm/tests/fmt_29_cache.rs::fmt_29_installed_skyrim_master_cache_hit_matches_and_times_second_load`
+loaded the installed `Skyrim.esm` through `read_plugin_cached` twice with an
+empty cache directory before the first call. In the test profile, the first
+load parsed and wrote the entry in 15.226 seconds. The second load read and
+decoded the cached plugin in 10.743 seconds. Both returned plugins equaled a
+fresh parse. The same test checked cache equality for Update.esm, Dawnguard.esm,
+HearthFires.esm and Dragonborn.esm. This is one run, including the cache write
+on the first load; it is not a release benchmark.
+
 ## How to run
 
 ```text
