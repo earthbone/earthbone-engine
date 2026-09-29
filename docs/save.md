@@ -642,6 +642,11 @@ inventory sections. See [saved package runtime state](save-package-data.md) for
 source evidence, boundaries and integration validation. Runtime package
 restoration and complete ESS resumption remain unfinished.
 
+The nine observed kind-18 `Stacked` payloads remain rejected. The local public
+save readers name the variant but do not define its fields or termination, so
+the decoder does not guess where following extra data begins. The SAV-21
+regression test keeps this unsupported case explicit.
+
 ## Reference mask semantics, SAV-15 partial
 
 The runtime applies the first `CHANGE_FORM_FLAGS` word to authored REFR and
