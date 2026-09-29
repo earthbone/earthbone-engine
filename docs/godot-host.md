@@ -1201,9 +1201,11 @@ is retained as host camera state for the renderer. Sitting rotation offsets
 the camera yaw while leaving movement facing unchanged.
 
 `PlayerNode.camera_state()` reports the applied target FormID, geometry flag
-and sitting offset for host inspection. `hst_17_camera_controls.rs` exercises
-these readbacks and verifies the third-person camera yaw and position respond
-to the sitting offset.
+and sitting offset for host inspection. When a skinned appearance is bound to
+the player, the geometry flag controls its RenderingServer instances in first
+person. Third-person view keeps the player appearance visible. The
+`hst_17_camera_controls.rs` test exercises the state readbacks and verifies
+the third-person camera yaw and position respond to the sitting offset.
 
 ### Mouse and gamepad bindings
 

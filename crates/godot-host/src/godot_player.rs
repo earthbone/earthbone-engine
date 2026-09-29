@@ -100,6 +100,8 @@ pub struct PlayerNode {
     character: Option<BodyId>,
     data_source: Option<Arc<DataSource>>,
     game: Option<soe_game::Game>,
+    /// The existing skinned node bound to the player's own appearance.
+    player_appearance: Option<Gd<crate::godot_actor::SkinnedActorNode>>,
     melee_contact: crate::combat::MeleeContact,
     melee_bodies: HashMap<Rid, GlobalFormId>,
     /// One server body per loaded actor, rebuilt from the shared World on
@@ -162,6 +164,7 @@ impl INode3D for PlayerNode {
             character: None,
             data_source: None,
             game: None,
+            player_appearance: None,
             melee_contact: crate::combat::MeleeContact::default(),
             melee_bodies: HashMap::new(),
             actor_bodies: crate::godot_physics::ActorBodies::default(),
@@ -377,18 +380,30 @@ impl PlayerNode {
         file: i32,
         object: i64,
     ) -> bool {
-        let (Some(game), Some(source)) = (&self.game, &self.data_source) else {
+        let (Some(game), Some(source)) = (self.game.as_mut(), self.data_source.as_ref()) else {
             return false;
         };
         let (Ok(file), Ok(object)) = (u16::try_from(file), u32::try_from(object)) else {
             return false;
         };
-        match visual.bind_mut().bind_appearance(
-            game.shared_world(),
-            Arc::clone(source),
-            soe_esm::GlobalFormId { file, object },
-        ) {
-            Ok(()) => true,
+        let actor = soe_esm::GlobalFormId { file, object };
+        let is_player = actor == game.player();
+        let bind_result = {
+            visual
+                .bind_mut()
+                .bind_appearance(game.shared_world(), Arc::clone(source), actor)
+        };
+        match bind_result {
+            Ok(()) => {
+                if is_player {
+                    visual.bind_mut().set_first_person_geometry_visible(
+                        self.rig.mode != CameraMode::First
+                            || self.camera_state.first_person_geometry_visible(),
+                    );
+                    self.player_appearance = Some(visual);
+                }
+                true
+            }
             Err(error) => {
                 godot_error!("PlayerNode actor appearance: {error}");
                 false
@@ -591,6 +606,13 @@ impl PlayerNode {
                     self.grabbed_host = Some((reference, hit.point));
                     if let Some(game) = &mut self.game {
                         game.world_mut().set_grabbed_reference(Some(reference));
+                        let player = game.player();
+                        let grabber = game.object_of_form(player);
+                        game.send_event(
+                            reference,
+                            "OnGrab",
+                            &[soe_papyrus::Value::Object(grabber)],
+                        );
                     }
                 }
             }
@@ -616,6 +638,13 @@ impl PlayerNode {
                 self.grabbed_host = None;
                 if let Some(game) = &mut self.game {
                     game.world_mut().set_grabbed_reference(None);
+                    let player = game.player();
+                    let releaser = game.object_of_form(player);
+                    game.send_event(
+                        reference,
+                        "OnRelease",
+                        &[soe_papyrus::Value::Object(releaser)],
+                    );
                 }
             }
         }

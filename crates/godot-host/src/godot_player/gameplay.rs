@@ -111,6 +111,16 @@ impl PlayerNode {
         self.camera_state.apply(controls);
         self.rig
             .set_camera_yaw_offset_degrees(self.camera_state.sitting_rotation_degrees());
+        if let Some(visual) = &mut self.player_appearance {
+            if visual.is_instance_valid() {
+                visual.bind_mut().set_first_person_geometry_visible(
+                    self.rig.mode != super::CameraMode::First
+                        || self.camera_state.first_person_geometry_visible(),
+                );
+            } else {
+                self.player_appearance = None;
+            }
+        }
     }
 
     pub(super) fn capture_screenshot_requests(&mut self) -> bool {
