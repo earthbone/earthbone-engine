@@ -10,6 +10,7 @@ use std::collections::HashMap;
 use std::hint::black_box;
 use std::time::{Duration, Instant};
 
+use crate::allocations;
 use soe_esm::{GlobalFormId, LoadOrder};
 use soe_game::Game;
 use soe_godot_host::mesh::{build_surface, MeshData, MeshOptions, SurfaceArrays};
@@ -236,9 +237,16 @@ pub(super) fn run(args: &[String]) -> Result<(), String> {
         let mut samples = Vec::with_capacity(config.samples);
         let mut backlog_peak = workload.game.vm.live_threads();
         let mut telemetry_ms = 0.0;
+        let mut peak_allocations = 0;
+        let mut peak_allocation_bytes = 0;
         for _ in 0..config.samples {
+            let allocation_sample = allocations::begin_sample();
             let tick = Instant::now();
-            workload.step(&config)?;
+            let step_result = workload.step(&config);
+            let allocation_peak = allocations::end_sample(&allocation_sample);
+            peak_allocations = peak_allocations.max(allocation_peak.calls);
+            peak_allocation_bytes = peak_allocation_bytes.max(allocation_peak.bytes);
+            step_result?;
             samples.push(tick.elapsed().as_secs_f64() * 1000.0);
             let probe = Instant::now();
             backlog_peak = backlog_peak.max(workload.game.vm.live_threads());
@@ -255,7 +263,7 @@ pub(super) fn run(args: &[String]) -> Result<(), String> {
         let completed = workload.verify()?;
         samples.sort_by(f64::total_cmp);
         let rss = rss_mib().map_or_else(|| "null".into(), |v| format!("{v:.6}"));
-        println!("SOE_SAMPLE {{\"window\":{window},\"load\":{},\"samples\":{},\"ticks\":{},\"elapsed_s\":{:.6},\"setup_ms\":{setup_ms:.6},\"p50_ms\":{:.6},\"p99_ms\":{:.6},\"p999_ms\":{:.6},\"worst_ms\":{:.6},\"backlog\":{},\"backlog_peak\":{backlog_peak},\"completed\":{completed},\"actors\":{},\"resident_cells\":{},\"work_units\":{},\"rss_mib\":{rss},\"telemetry_ms\":{telemetry_ms:.6}}}",
+        println!("SOE_SAMPLE {{\"window\":{window},\"load\":{},\"samples\":{},\"ticks\":{},\"elapsed_s\":{:.6},\"setup_ms\":{setup_ms:.6},\"p50_ms\":{:.6},\"p99_ms\":{:.6},\"p999_ms\":{:.6},\"worst_ms\":{:.6},\"backlog\":{},\"backlog_peak\":{backlog_peak},\"completed\":{completed},\"actors\":{},\"resident_cells\":{},\"work_units\":{},\"peak_allocations\":{peak_allocations},\"peak_allocation_bytes\":{peak_allocation_bytes},\"rss_mib\":{rss},\"telemetry_ms\":{telemetry_ms:.6}}}",
             config.load, samples.len(), workload.tick, started.elapsed().as_secs_f64(),
             percentile(&samples, 50, 100), percentile(&samples, 99, 100), percentile(&samples, 999, 1000),
             samples[samples.len()-1], workload.game.vm.live_threads(), workload.actors.len(), workload.cells.len(), workload.work);

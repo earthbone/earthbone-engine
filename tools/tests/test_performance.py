@@ -17,19 +17,49 @@ SPEC.loader.exec_module(perf)
 def arguments(**overrides):
     values = dict(mode="check", backend="cpu", scenario="scripts", binary=Path(sys.executable),
                   samples=120, warmup=10, seed=1, vm_budget=100000, p99_ms=16.7, worst_ms=33,
-                  max_backlog=0, max_video_mib=4096, max_rss_mib=2048, max_growth_mib=64, timeout=2, duration=10)
+                  max_backlog=0, max_video_mib=4096, max_rss_mib=2048, max_growth_mib=64,
+                  max_allocations=100000, timeout=2, duration=10)
     values.update(overrides)
     return SimpleNamespace(**values)
 
 
 def sample(**overrides):
     values = dict(samples=120, p50_ms=1, p99_ms=2, p999_ms=3, worst_ms=3, backlog_peak=0,
-                  rss_mib=32, elapsed_s=10)
+                  rss_mib=32, elapsed_s=10, peak_allocations=12, peak_allocation_bytes=2048)
     values.update(overrides)
     return values
 
 
 class CapacityTests(unittest.TestCase):
+    def test_prf_06_allocation_peak_regression_fails_the_gate(self):
+        reasons, invalid = perf.assess([sample(peak_allocations=101)], arguments(max_allocations=100))
+        self.assertFalse(invalid)
+        self.assertEqual(reasons, ["peak_allocations=101 exceeds 100"])
+
+    def test_prf_06_runner_reports_allocation_overage_as_breach(self):
+        old = perf.command
+        row = sample(peak_allocations=101)
+        try:
+            with tempfile.TemporaryDirectory() as directory:
+                perf.command = lambda *_: (
+                    [sys.executable, "-c", f"import time; print('SOE_SAMPLE {json.dumps(row)}', flush=True); time.sleep(0.2)"],
+                    {},
+                )
+                result = perf.run_once(
+                    arguments(out=Path(directory), max_allocations=100), 1, 0
+                )
+                self.assertEqual(result["status"], "breach")
+                self.assertEqual(result["reasons"], ["peak_allocations=101 exceeds 100"])
+        finally:
+            perf.command = old
+
+    def test_prf_06_missing_allocation_peak_is_invalid(self):
+        row = sample()
+        del row["peak_allocations"]
+        reasons, invalid = perf.assess([row], arguments())
+        self.assertTrue(invalid)
+        self.assertIn("missing allocation telemetry", reasons[0])
+
     def test_sweep_repeats_boundary_measurement_and_refines_bracket(self):
         visited = []
 

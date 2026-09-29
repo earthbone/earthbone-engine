@@ -381,9 +381,9 @@ first measured run. No measured number in this report automatically becomes a
 threshold.
 
 Navigation also reports lazy point-index construction separately from repeated
-1,000-point lookup cohorts. Allocation counting is not included. A process-local
-allocation harness is needed to separate engine allocations from concurrent
-tests and Godot's allocations.
+1,000-point lookup cohorts. The synthetic CPU stress harness counts allocation
+and reallocation requests per timed tick in an isolated child process. It does
+not alter the installed-game timings below and does not measure live heap size.
 
 The cell benchmark reports its cold texture-cache stream separately, then
 compares warm-cache one-worker and multi-worker streams. Each timing sample
@@ -423,10 +423,11 @@ Every cell run retained 690 references, 318 parsed meshes, zero failed meshes,
 not compared because its first one-worker stream had a cold texture cache and
 its multi-worker stream had a warm cache.
 
-Persistent worker pools, lazy archive payload storage and allocation-count
-gates remain unimplemented. They need separate measurements of worker startup,
-first-use latency and peak memory. The failed repeated startup run that retained
-two full archive sets is not included in the table.
+Persistent worker pools and lazy archive payload storage remain unimplemented.
+They need separate measurements of worker startup, first-use latency and peak
+memory. The failed repeated startup run that retained two full archive sets is
+not included in the table. The allocation-count gate covers synthetic CPU
+scenarios only, as documented in [performance-limits.md](performance-limits.md).
 
 ## Cold interior texture preparation, 2026-09-20
 
