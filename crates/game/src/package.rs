@@ -251,6 +251,10 @@ pub struct Action {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Package {
     pub form_id: u32,
+    /// Saved change-form waiting marker, when imported from an ESS.
+    pub saved_waiting: bool,
+    /// Saved change-form never-run marker, when imported from an ESS.
+    pub saved_never_run: bool,
     pub editor_id: Option<String>,
     pub general: General,
     pub schedule: Schedule,
@@ -289,6 +293,8 @@ impl Package {
         }
         let mut p = Package {
             form_id: rec.form_id,
+            saved_waiting: false,
+            saved_never_run: false,
             editor_id: rec.editor_id(),
             general: General::default(),
             schedule: Schedule::default(),

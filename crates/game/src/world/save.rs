@@ -66,7 +66,8 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// records, and is the last version this constant will reach. New saved state
 /// goes into a section registered in `save_section_registry` at its owning
 /// level. World sections include SAV-53 base-object fields, SAV-42 static-object
-/// fields, SAV-44 APPA and IDLM fields, and SAV-50 WOOP and MGEF markers.
+/// fields, SAV-44 APPA and IDLM fields, SAV-50 WOOP and MGEF markers, and
+/// SAV-48 PACK and NAVM markers.
 pub const SAVE_VERSION: u16 = 37;
 
 #[derive(Clone, Copy)]

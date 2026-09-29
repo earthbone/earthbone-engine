@@ -40,7 +40,7 @@ pub mod table;
 pub use base_object::{BaseObjectChange, BaseObjectFields, LightStaticChange, StaticObjectChange};
 pub use change::{
     BaseObjectChange as BaseObjectMarkerChange, ClassChange, FactionChange, FactionReaction,
-    FactionReactions, RelationshipChange,
+    FactionReactions, NavmeshChange, PackChange, RelationshipChange,
 };
 pub use change::{ChangeForm, QuestStage};
 pub use created_objects::{CreatedEffect, CreatedObject, CreatedObjects};
@@ -50,6 +50,7 @@ pub use error::{Error, Result};
 pub use globals::{GlobalVariable, GlobalVariables};
 pub use header::{Compression, Header};
 pub use papyrus::Papyrus;
+pub use quest::FormFlags;
 pub use table::{FileLocationTable, GlobalData};
 
 /// The lowest form version Special Edition writes.

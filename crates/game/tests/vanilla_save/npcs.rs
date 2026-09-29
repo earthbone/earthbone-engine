@@ -287,16 +287,16 @@ fn record_overrides_persist_before_actor_initialization_and_old_saves_clear_them
     let hash = world.state_hash();
     let mut v13 = before.clone();
     // `empty` carries 60 more bytes of tail growth for SAV-53, SAV-42, SAV-44 and
-    // SAV-50 than the earlier empty world section table used to locate record
+    // SAV-50 and SAV-48 than the earlier empty world section table used to locate record
     // overrides. It also carries the same 36 bytes of unconditional tail
     // growth as `before` past record overrides (detection's empty pool count
     // and the world sections added in version 37).
-    let origin_fields = empty.len() - 102;
+    let origin_fields = empty.len() - 117;
     v13.drain(origin_fields..origin_fields + 13);
     // CONTEXT: Version 13 predates list and static-object metadata bytes.
-    v13.remove(origin_fields + 14);
+    v13.drain(origin_fields + 14..origin_fields + 16);
     // The tail contains version 37 world sections and detection state.
-    v13.truncate(v13.len() - 108);
+    v13.truncate(v13.len() - 123);
     v13[4..6].copy_from_slice(&13_u16.to_le_bytes());
     let mut legacy = World::new(fixture_order());
     legacy.load_state(&v13).unwrap();

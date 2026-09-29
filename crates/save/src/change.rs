@@ -309,6 +309,48 @@ impl ChangeForm {
             unnamed_flags: self.change_flags & !0b111,
         }))
     }
+
+    /// Decode the saved package flags and their zero-byte markers.
+    ///
+    /// # Errors
+    /// Rejects unknown flag bits, truncated form flags and trailing payload
+    /// bytes.
+    pub fn pack_change(&self) -> Result<Option<PackChange>> {
+        if self.record_type() != "PACK" {
+            return Ok(None);
+        }
+        check_record_flags(self.change_flags, 0xC000_0001)?;
+        let payload = self.payload()?;
+        let mut cursor = Cursor::new(&payload, "PACK change");
+        let form_flags = record_form_flags(&mut cursor, self.change_flags)?;
+        finish_record(&cursor)?;
+        Ok(Some(PackChange {
+            form_flags,
+            waiting: self.change_flags & (1 << 30) != 0,
+            never_run: self.change_flags & (1 << 31) != 0,
+        }))
+    }
+
+    /// Decode the saved navigation-mesh base-object fields.
+    ///
+    /// # Errors
+    /// Rejects unknown flag bits, truncated form flags and trailing payload
+    /// bytes.
+    pub fn navmesh_change(&self) -> Result<Option<NavmeshChange>> {
+        if self.record_type() != "NAVM" {
+            return Ok(None);
+        }
+        check_record_flags(self.change_flags, 0b111)?;
+        let payload = self.payload()?;
+        let mut cursor = Cursor::new(&payload, "NAVM change");
+        let form_flags = record_form_flags(&mut cursor, self.change_flags)?;
+        finish_record(&cursor)?;
+        Ok(Some(NavmeshChange {
+            form_flags,
+            value_changed: self.change_flags & 2 != 0,
+            full_name_changed: self.change_flags & 4 != 0,
+        }))
+    }
 }
 
 /// Saved CLAS sections. xEdit names tag skills but defines no payload for it.
@@ -441,6 +483,54 @@ impl BaseObjectChange {
     }
 
     /// Rebuild the source-defined payload bytes.
+    pub fn data_bytes(self) -> Vec<u8> {
+        let mut out = Vec::new();
+        write_record_form_flags(self.form_flags, &mut out);
+        out
+    }
+}
+
+/// Saved PACK fields. Waiting and never-run are zero-byte change markers.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PackChange {
+    pub form_flags: Option<FormFlags>,
+    pub waiting: bool,
+    pub never_run: bool,
+}
+
+impl PackChange {
+    /// Rebuild the change flag word from the present sections.
+    pub fn change_flags(self) -> u32 {
+        u32::from(self.form_flags.is_some())
+            | (u32::from(self.waiting) << 30)
+            | (u32::from(self.never_run) << 31)
+    }
+
+    /// Rebuild the source-defined PACK payload.
+    pub fn data_bytes(self) -> Vec<u8> {
+        let mut out = Vec::new();
+        write_record_form_flags(self.form_flags, &mut out);
+        out
+    }
+}
+
+/// Saved NAVM fields. Value and full-name changes are zero-byte markers.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct NavmeshChange {
+    pub form_flags: Option<FormFlags>,
+    pub value_changed: bool,
+    pub full_name_changed: bool,
+}
+
+impl NavmeshChange {
+    /// Rebuild the change flag word from the present sections.
+    pub fn change_flags(self) -> u32 {
+        u32::from(self.form_flags.is_some())
+            | (u32::from(self.value_changed) << 1)
+            | (u32::from(self.full_name_changed) << 2)
+    }
+
+    /// Rebuild the source-defined NAVM payload.
     pub fn data_bytes(self) -> Vec<u8> {
         let mut out = Vec::new();
         write_record_form_flags(self.form_flags, &mut out);

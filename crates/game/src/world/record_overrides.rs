@@ -47,6 +47,22 @@ pub struct StaticObjectRecordExtra {
     pub opaque_suffix: Vec<u8>,
 }
 
+/// Saved change markers that have no plugin-subrecord representation.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct PackRecordExtra {
+    pub form_flags: Option<(u32, u16)>,
+    pub waiting: bool,
+    pub never_run: bool,
+}
+
+/// Saved NAVM change markers that have no plugin-subrecord representation.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct NavmeshRecordExtra {
+    pub form_flags: Option<(u32, u16)>,
+    pub value_changed: bool,
+    pub full_name_changed: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct RecordOverride {
     pub origin: GlobalFormId,
@@ -59,6 +75,8 @@ pub(super) struct RecordOverride {
     pub list: Option<ListRecordExtra>,
     pub base_object: Option<BaseObjectRecordExtra>,
     pub static_object: Option<StaticObjectRecordExtra>,
+    pub pack: Option<PackRecordExtra>,
+    pub navmesh: Option<NavmeshRecordExtra>,
 }
 
 pub(super) fn raw_words(record: &Record) -> BTreeSet<u32> {
@@ -85,6 +103,8 @@ impl RecordOverride {
             list: None,
             base_object: None,
             static_object: None,
+            pack: None,
+            navmesh: None,
         }
     }
 
@@ -157,5 +177,15 @@ impl World {
     /// Return saved base-object metadata for an overridden record.
     pub fn restored_base_object_extra(&self, id: GlobalFormId) -> Option<&BaseObjectRecordExtra> {
         self.record_overrides.get(&id)?.base_object.as_ref()
+    }
+
+    /// Saved PACK markers used by package consumers.
+    pub fn restored_pack_extra(&self, id: GlobalFormId) -> Option<PackRecordExtra> {
+        self.record_overrides.get(&id)?.pack
+    }
+
+    /// Saved NAVM markers used by navmesh consumers.
+    pub fn restored_navmesh_extra(&self, id: GlobalFormId) -> Option<NavmeshRecordExtra> {
+        self.record_overrides.get(&id)?.navmesh
     }
 }
