@@ -277,6 +277,217 @@ impl ChangeForm {
             rank,
         }))
     }
+
+    /// Decode the CELL fields whose serialized layouts xEdit defines.
+    ///
+    /// Seen data precedes the name and owner. Its shape is selected by matching
+    /// a fixed exterior block or a sequence of interior entries against those
+    /// following fields. CELL flags 28 to 30 have no serialized layout and are
+    /// rejected so their bytes are not assigned an inferred meaning.
+    ///
+    /// # Errors
+    /// Rejects unsupported flags, truncated fields, invalid seen-data lengths
+    /// and trailing bytes.
+    pub fn cell_change(&self) -> Result<Option<CellChange>> {
+        if self.record_type() != "CELL" {
+            return Ok(None);
+        }
+        let supported = 1 | 2 | 4 | 8 | (1 << 31);
+        check_spatial_flags(self.change_flags, supported)?;
+        let payload = self.payload()?;
+        let mut cursor = Cursor::new(&payload, "CELL change");
+        let form_flags = record_form_flags(&mut cursor, self.change_flags)?;
+        let cell_flags = if self.change_flags & 2 != 0 {
+            Some(cursor.u16()?)
+        } else {
+            None
+        };
+        let remainder = cursor.rest();
+        let (seen_data, suffix_offset) = if self.change_flags & (1 << 31) != 0 {
+            let mut matches = Vec::new();
+            for seen_len in std::iter::once(32).chain((0..=254).map(|count| count * 34)) {
+                if seen_len <= remainder.len()
+                    && parse_cell_suffix(&remainder[seen_len..], self.change_flags).is_ok()
+                {
+                    matches.push(seen_len);
+                }
+            }
+            if matches.len() != 1 {
+                return Err(invalid_spatial_change(
+                    "CELL seen-data boundary is invalid or ambiguous",
+                ));
+            }
+            let seen_len = matches[0];
+            let seen = if seen_len == 32 {
+                CellSeenData::Exterior(remainder[..seen_len].to_vec())
+            } else {
+                let mut seen_cursor = Cursor::new(&remainder[..seen_len], "CELL seen data");
+                let mut entries = Vec::with_capacity(seen_len / 34);
+                while !seen_cursor.is_empty() {
+                    entries.push(CellInteriorSeenEntry {
+                        first: seen_cursor.u8()?,
+                        second: seen_cursor.u8()? as i8,
+                        data: seen_cursor.take(32)?.to_vec(),
+                    });
+                }
+                CellSeenData::Interior(entries)
+            };
+            (Some(seen), seen_len)
+        } else {
+            (None, 0)
+        };
+        let (full_name, owner) = parse_cell_suffix(&remainder[suffix_offset..], self.change_flags)?;
+        Ok(Some(CellChange {
+            form_flags,
+            cell_flags,
+            full_name,
+            owner,
+            seen_data,
+        }))
+    }
+
+    /// Decode the defined common flags of an ECZN change and retain its
+    /// source-undefined flagged payload bytes verbatim.
+    ///
+    /// # Errors
+    /// Rejects unknown flags and truncated common form flags.
+    pub fn encounter_zone_change(&self) -> Result<Option<OpaqueSpatialChange>> {
+        self.opaque_spatial_change("ECZN", 0x8000_0003)
+    }
+
+    /// Decode the defined common flags of an LCTN change and retain its
+    /// source-undefined flagged payload bytes verbatim.
+    ///
+    /// # Errors
+    /// Rejects unknown flags and truncated common form flags.
+    pub fn location_change(&self) -> Result<Option<OpaqueSpatialChange>> {
+        self.opaque_spatial_change("LCTN", 0xC000_0001)
+    }
+
+    fn opaque_spatial_change(
+        &self,
+        record_type: &'static str,
+        supported_flags: u32,
+    ) -> Result<Option<OpaqueSpatialChange>> {
+        if self.record_type() != record_type {
+            return Ok(None);
+        }
+        check_spatial_flags(self.change_flags, supported_flags)?;
+        let payload = self.payload()?;
+        let mut cursor = Cursor::new(&payload, "spatial change");
+        let form_flags = record_form_flags(&mut cursor, self.change_flags)?;
+        Ok(Some(OpaqueSpatialChange {
+            form_flags,
+            change_flags: self.change_flags,
+            opaque_payload: cursor.rest().to_vec(),
+        }))
+    }
+}
+
+/// Defined CELL change fields.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CellChange {
+    pub form_flags: Option<FormFlags>,
+    pub cell_flags: Option<u16>,
+    pub full_name: Option<crate::cursor::WString>,
+    pub owner: Option<RefId>,
+    pub seen_data: Option<CellSeenData>,
+}
+
+/// CELL seen data in the fixed exterior or repeated interior shape from xEdit.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum CellSeenData {
+    Exterior(Vec<u8>),
+    Interior(Vec<CellInteriorSeenEntry>),
+}
+
+/// One interior CELL seen-data entry.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CellInteriorSeenEntry {
+    pub first: u8,
+    pub second: i8,
+    pub data: Vec<u8>,
+}
+
+impl CellChange {
+    /// Rebuild the decoded fields in their serialized order.
+    pub fn data_bytes(&self) -> Vec<u8> {
+        let mut out = Vec::new();
+        write_record_form_flags(self.form_flags, &mut out);
+        if let Some(flags) = self.cell_flags {
+            out.extend(flags.to_le_bytes());
+        }
+        if let Some(seen_data) = &self.seen_data {
+            match seen_data {
+                CellSeenData::Exterior(bytes) => out.extend(bytes),
+                CellSeenData::Interior(entries) => {
+                    for entry in entries {
+                        out.push(entry.first);
+                        out.push(entry.second as u8);
+                        out.extend(&entry.data);
+                    }
+                }
+            }
+        }
+        if let Some(name) = &self.full_name {
+            name.write(&mut out);
+        }
+        if let Some(owner) = self.owner {
+            owner.write(&mut out);
+        }
+        out
+    }
+}
+
+/// Common form flags and untouched payload bytes for spatial records whose
+/// flagged field layouts are placeholders in the available save schema.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OpaqueSpatialChange {
+    pub form_flags: Option<FormFlags>,
+    pub change_flags: u32,
+    pub opaque_payload: Vec<u8>,
+}
+
+fn check_spatial_flags(flags: u32, known: u32) -> Result<()> {
+    if flags & !known != 0 {
+        return Err(invalid_spatial_change("unknown change flags"));
+    }
+    Ok(())
+}
+
+fn invalid_spatial_change(reason: &str) -> Error {
+    Error::SpatialChange {
+        reason: reason.into(),
+    }
+}
+
+fn parse_cell_suffix(
+    bytes: &[u8],
+    change_flags: u32,
+) -> Result<(Option<crate::cursor::WString>, Option<RefId>)> {
+    let mut cursor = Cursor::new(bytes, "CELL change");
+    let full_name = if change_flags & 4 != 0 {
+        Some(cursor.wstring()?)
+    } else {
+        None
+    };
+    let owner = if change_flags & 8 != 0 {
+        Some(cursor.ref_id()?)
+    } else {
+        None
+    };
+    finish_record(&cursor)?;
+    Ok((full_name, owner))
+}
+
+impl OpaqueSpatialChange {
+    /// Rebuild the common form flags followed by the retained opaque bytes.
+    pub fn data_bytes(&self) -> Vec<u8> {
+        let mut out = Vec::new();
+        write_record_form_flags(self.form_flags, &mut out);
+        out.extend(&self.opaque_payload);
+        out
+    }
 }
 
 /// Saved CLAS sections. xEdit names tag skills but defines no payload for it.

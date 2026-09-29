@@ -1,8 +1,11 @@
 # Saved cell, location and encounter-zone fields
 
-SAV-27 remains blocked on SAV-66 as of 2026-09-20. The source audit and corpus
-census below do not implement a typed decoder or live restoration. SAV-28
-continues to depend on SAV-27. Its original completion check is unchanged.
+SAV-27 has partial typed decoding. CELL's documented fields and seen-data
+shape are decoded, while the high CELL flags with missing schemas are rejected.
+ECZN and LCTN common form flags are decoded and their other flagged bytes are
+retained as one opaque tail. This does not identify the fields inside those
+tails or implement live restoration. SAV-28 continues to depend on complete
+decoding from SAV-27.
 
 ## Source boundary
 
@@ -96,7 +99,28 @@ exact encodings and malformed-input checks for all supported combinations.
 The census does not satisfy that decoder completion check. No user save was
 modified or copied into this repository.
 
-The save crate continues to preserve the full CELL, LCTN and ECZN payload
-bytes. `sav_66_raw_spatial_payloads_preserve_observed_flag_boundaries` checks
-the observed CELL `60000000`, LCTN `40000000` and `80000000`, and ECZN
-`80000000` combinations without assigning meaning to their opaque fields.
+`ChangeForm::cell_change` decodes CELL bits 0 to 3 and 31 in xEdit's order:
+common flags, cell flags, seen data, full name and ownership. It checks the
+remaining bytes against the 32-byte exterior shape or repeated interior
+entries of two one-byte fields plus 32 bytes, then validates the following
+name and owner. A truncated interior that leaves exactly 32 bytes remains
+indistinguishable from exterior data. CELL bits 28 to 30 remain unsupported
+because xEdit gives them placeholder unions and does not dispatch them in the
+CELL schema.
+
+`ChangeForm::encounter_zone_change` accepts ECZN bits 0, 1 and 31, and
+`ChangeForm::location_change` accepts LCTN bits 0, 30 and 31. They decode the
+six-byte common form flags when present and retain the remaining bytes as an
+opaque tail. The source does not provide section boundaries inside that tail,
+so this does not reject truncations in those fields or name their values.
+`sav_27_spatial_changes.rs` covers source-defined flag combinations, exact
+re-encoding and known truncation cases. The existing external corpus survey
+continues to report per-type flag and payload-size counts without interpreting
+the opaque fields.
+
+The survey also tries the typed decoders and checks exact bytes for every
+successful result. Its 60-save run decoded 7,754 CELL records and preserved
+71,052 other CELL payloads as rejected or unsupported. All 4,135 LCTN and 573
+ECZN records retained their payload bytes through the partial decoders. This
+accounts for the corpus without treating successful opaque preservation as a
+field interpretation.
