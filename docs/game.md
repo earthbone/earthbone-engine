@@ -188,7 +188,8 @@ run past it.
 | EffectShader, VisualEffect | | Play, Stop |
 | ImageSpaceModifier | Apply, ApplyCrossFade, Remove, RemoveCrossFade, PopTo | |
 | ShaderParticleGeometry | | Apply, Remove |
-| MusicType, Topic | | Add, Remove |
+| MusicType | Add, Remove | |
+| Topic | | Add |
 | Weather, Weapon, Scroll | | SetActive, Fire, Cast |
 
 Current behavior and compatibility limits:
@@ -209,6 +210,12 @@ Current behavior and compatibility limits:
   whether anything was removed. Neither dispel native changes known or equipped
   spells. `DispelAllSpells` preserves diseases, abilities, addictions and constant
   enchantments. Worn enchantment application is not implemented yet.
+- `MusicType.Add` and `MusicType.Remove` validate the receiver as a live `MUSC`
+  record and add or remove it from the world's transient active music type list.
+  Duplicate additions and removing an inactive type leave the list unchanged.
+  The list is not saved. The local CK wiki has no pages for these methods; their
+  no-argument, no-return signatures match the local Skyrim Platform
+  `FunctionsDump.txt` entry for `MusicType`.
 - `tick_menu_mode(dt, true)` pauses world time and ordinary waits while
   `WaitMenuMode` continues. `tick(dt)` remains the unpaused entry point.
   The UI must supply the pause state when menus are implemented.
