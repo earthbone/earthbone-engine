@@ -3395,3 +3395,23 @@ CK `AddForm_-_FormList.wikitext` for import order and duplicate handling, and
 FallrimTools `ChangeFormFLST.java`, `ChangeFormLeveled.java` and
 `LeveledEntry.java`. Their Java readers cannot serve as Rust runtime code, so
 the existing typed save decoder and record override layer perform the mapping.
+
+## Trigger occupants, HST-14
+
+`World::update_trigger_actor_position` reads winning placed `REFR` records in
+the actor's current cell and recognizes XPRM box and sphere primitives. Their
+bounds, placement transform and reference scale determine containment. The
+world retains current actor membership as derived state. A membership change
+queues `OnTriggerEnter(akActionRef)` or `OnTriggerLeave(akActionRef)` on the
+trigger reference once, and `World::trigger_object_count` returns the current
+count for a supported trigger. Unsupported primitive kinds and malformed
+XPRM payloads are not treated as triggers. Calling
+`GetTriggerObjectCount` on one records an error diagnostic and returns zero.
+
+The XPRM field layout follows local xEdit `Core/wbDefinitionsTES5.pas`.
+Event signatures and the count contract follow local CK wiki pages
+`OnTriggerEnter_-_ObjectReference.wikitext`,
+`OnTriggerLeave_-_ObjectReference.wikitext` and
+`GetTriggerObjectCount_-_ObjectReference.wikitext`. Occupancy is derived and
+is not included in saves. Movement updates must be supplied by the host or
+another actor movement system.

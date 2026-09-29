@@ -65,7 +65,11 @@ impl PlayerNode {
         let rotation = [-self.rig.pitch(), 0.0, self.rig.yaw()];
         if let Some(game) = &mut self.game {
             let player = game.player();
-            {
+            let prior = game
+                .world()
+                .reference_ref(player)
+                .map(|reference| (reference.cell, reference.position));
+            let cell = {
                 let mut world = game.world_mut();
                 // The previous frame has already installed the new host resources.
                 world.settle_unload();
@@ -73,7 +77,12 @@ impl PlayerNode {
                     reference.position = [feet.x, feet.y, feet.z];
                     reference.rotation = rotation;
                 }
-            }
+                world
+                    .reference_ref(player)
+                    .and_then(|reference| reference.cell)
+            };
+            let from = prior.map_or([feet.x, feet.y, feet.z], |(_, position)| position);
+            game.update_trigger_actor_position(player, cell, from, [feet.x, feet.y, feet.z]);
         }
         // Reflect the frame's enable and placement changes (activation,
         // scripted moves, editor drags) into the streamed geometry and its
