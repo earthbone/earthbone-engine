@@ -22,10 +22,19 @@ everything after it.
 
 Block families with trailing fields the mesh path does not need are read as
 their base type and skipped to their recorded end: the NiNode family
-(`BSFadeNode`, `BSMultiBoundNode`, `NiSwitchNode`, ...), the NiTriShape
-family (`BSLODTriShape`) and the BSTriShape family (`BSDynamicTriShape`,
-`BSSubIndexTriShape`). Every subtype in nif.xml appends its fields after the
-base's, so the prefix read is exact.
+(`BSFadeNode`, `BSMultiBoundNode`, `NiSwitchNode`, ...) and the BSTriShape
+family (`BSSubIndexTriShape`). `BSDynamicTriShape` is read as a `BsTriShape`
+and exposes its full precision dynamic positions as `dynamic_positions`, one
+`[f32; 4]` per vertex. Its dynamic data byte size must equal 16 times the
+shape's vertex count. This follows `BSDynamicTriShape` in
+`../engine-refs/nifxml/nif.xml` and nifly's `BSDynamicTriShape::Sync` in
+`../engine-refs/nifly/src/Geometry.cpp`. `BSLODTriShape` is read as a
+`TriShape` and also exposes its three trailing LOD size values as
+`lod_sizes: Some([lod0, lod1, lod2])`. Each value remains a `u32` in the order
+declared by nif.xml. Ordinary `NiTriShape` and `NiTriStrips` blocks use
+`lod_sizes: None`. The field layout follows
+`../engine-refs/nifxml/nif.xml` and nifly's `BSLODTriShape::Sync` in
+`../engine-refs/nifly/src/Geometry.cpp`.
 
 `BSSegmentedTriShape` is read through its `NiTriShape` geometry prefix. Its
 segment table is skipped with the trailing fields, while the mesh output keeps
@@ -50,8 +59,18 @@ draws that full list for each selected BTO block.
 
 `mesh::Mesh` is what the Godot host mirrors:
 
-- `positions`, `normals`, `tangents` (`[x, y, z, handedness]`), `uvs`,
-  `colors`, `indices` as a triangle list.
+- `positions`, `normals`, `tangents` (`[x, y, z, handedness]`), `uv_sets`,
+  `colors`, `indices` as a triangle list. `uv_sets` contains one
+  vertex-aligned coordinate array per source set. `uvs` remains an alias for
+  the first set for callers that only use one. `BSTriShape` stores one set in
+  its packed vertex stream. `NiGeometryData` stores the UV set count in its
+  data flags where its stream version supports multiple sets, followed by one
+  coordinate array per set. This follows the layouts in
+  `../engine-refs/nifxml/nif.xml` and the corresponding `uvSets` handling in
+  `../engine-refs/nifly/src/Geometry.cpp`. For the supported Skyrim 20.2
+  streams, BS Data Flags bit 0 marks UV presence, so serialized geometry has
+  at most one UV set. The FMT-06 mesh-walker test adds a second set to parsed
+  geometry data to verify that the neutral mesh output preserves every set.
 - `bone_weights` and `bone_indices`, four per vertex, indexing `skin.bones`.
 - `skin`: skeleton root, per-bone name, node reference and inverse bind
   transform.
@@ -71,6 +90,16 @@ the top of `mesh.rs`.
 ## Skinning
 
 Two layouts exist and both are normalised to the per-vertex form above.
+
+`NiSkinInstance` and `BSDismemberSkinInstance` store their bone-reference count
+as a `u32`, followed by that many references. Skyrim skeleton files also use
+`0xFFFF_FFFF` as an empty-array sentinel, which the reader maps to no bones.
+The field order follows `NiSkinInstance` in
+`../engine-refs/nifxml/nif.xml`. Nifly's `NiSkinInstance::Sync` in
+`../engine-refs/nifly/src/Skin.cpp` confirms the bone references are one
+counted array. Neither source specifies the sentinel, so the explicit empty
+array behavior follows the vanilla skeleton files covered by
+`fmt_11_all_vanilla_skeleton_meshes_parse`.
 
 - Skyrim LE NiTriShape: weights and bone indices live in `NiSkinPartition`
   partitions with a vertex map, and bone indices there are partition-local,
@@ -136,11 +165,11 @@ Open items, read against `../engine-refs/openmw`'s `components/nif`:
   our version, so this follows OpenMW's own fallback case rather than a
   documented source. Unverified against a real Skyrim SE static that actually
   uses Euler rather than quaternion keys.
-- The `godot-host` side that calls `evaluate_transform` once per frame and
-  applies the result to a scene node is not wired yet. Today the host bakes a
-  static's transform into its vertex world space at streaming time, so an
-  animated static needs its node kept separate from that bake before this
-  evaluator has anywhere to write its output.
+- `godot-host::AnimatedStaticNode` resolves a controller, builds child meshes
+  outside the cell batch, and applies `evaluate_transform` on each frame. It
+  can also create a trimesh collider under each child mesh so the collider
+  follows its animated transform. Ordinary game door activation does not yet
+  instantiate this node or start its controller.
 
 ## Tests
 
@@ -153,6 +182,14 @@ and through skin data, strip unrolling, the SSE partition vertex buffer,
 effect shaders, Fallout 4 half positions, truncation at every third byte,
 two thousand random bit flips, a hostile block count, a wrong block size, a
 lying vertex descriptor, cycles and dangling references.
+`tests/fmt_08_bs_lod_tri_shape.rs` checks the three BSLODTriShape LOD size
+values, including values above `u16`, and verifies ordinary NiTriShape blocks
+do not report LOD sizes.
+`tests/fmt_11_skeleton_sentinel.rs` checks the empty-bones sentinel for both
+skin-instance block types and parses all skeleton NIFs in the installed
+vanilla mesh archives when `SKYRIM_DATA` is set.
+`tests/fmt_19_dynamic_tri_shape.rs` checks dynamic position values, vertex
+count validation and truncated dynamic position arrays.
 
 `tests/real_files.rs` runs over `$SKYRIM_DATA/meshes` and
 `$SOE_NIF_SAMPLES` when set. Skyrim SE ships nearly every mesh inside
@@ -192,8 +229,9 @@ The archived mesh test is the one that exercises real content on a plain install
 
 `Mesh::approx_bytes()` sums each vertex's natural width, 12 bytes for
 positions plus 12 for normals charged unconditionally, plus 16 for tangents,
-8 for UVs, 16 for bone weights and 4 for bone indices when each is present,
-and adds 4 bytes an index. Colors are never charged. Added for RND-03's
+8 for each UV set, or one set when only the legacy `uvs` field is filled, 16
+for bone weights and 4 for bone indices when each is present, and adds 4 bytes
+an index. Colors are never charged. Added for RND-03's
 terrain LOD residency budget in `godot-host`, which needs a recorded byte
 cost per loaded block to weigh against a budget.
 
@@ -216,6 +254,5 @@ differently.
 - Collision shapes are opaque bytes, the physics layer decodes them.
 - Fallout 4 lighting shader fields past specular strength, and Fallout 76
   entirely.
-- Controllers, particles, `BSLODTriShape` levels, `BSDynamicTriShape`
-  dynamic positions, multiple UV sets beyond the first in the mesh output
-  (the block layer keeps them all).
+- Controllers, particles, `BSLODTriShape` levels, multiple UV sets beyond the
+  first in the host renderer. The neutral mesh output retains every source set.

@@ -157,7 +157,12 @@ pub struct Candidate {
 /// The `PACK` view of a winning record.
 pub fn package(world: &World, id: GlobalFormId) -> Option<Package> {
     let rec = world.record(id)?;
-    Package::from_record(rec).ok()
+    let mut package = Package::from_record(rec).ok()?;
+    if let Some(saved) = world.restored_pack_extra(id) {
+        package.saved_waiting = saved.waiting;
+        package.saved_never_run = saved.never_run;
+    }
+    Some(package)
 }
 
 fn movement_speed(world: &mut World, actor: GlobalFormId, preferred: u8) -> f32 {

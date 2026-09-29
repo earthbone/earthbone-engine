@@ -70,11 +70,12 @@ pub mod magic;
 mod npc_restore;
 mod objects;
 mod outfits;
+mod package_navmesh_restore;
 pub use npc_restore::NpcRestoreReport;
 mod record_overrides;
 mod skins;
 mod temporary_npc;
-pub use record_overrides::NpcRecordExtra;
+pub use record_overrides::{NavmeshRecordExtra, NpcRecordExtra, PackRecordExtra};
 mod quest_restore;
 mod quest_save;
 mod quests;
@@ -555,6 +556,8 @@ pub struct World {
     pub(crate) image_space: image_space::ImageSpaceState,
     /// Stealth-point pools by target, each with its observers' awareness.
     pub(crate) detection: crate::detection::DetectionState,
+    /// Detection sounds awaiting one host observation step.
+    pub(crate) detection_events: Vec<crate::detection::DetectionEvent>,
 }
 
 impl World {
@@ -647,6 +650,7 @@ impl World {
             next_effect: 1,
             image_space: image_space::ImageSpaceState::default(),
             detection: crate::detection::DetectionState::default(),
+            detection_events: Vec::new(),
         }
     }
 

@@ -16,6 +16,7 @@ use super::{ActorState, RefState, World};
 /// and [`World::load_state`].
 #[rustfmt::skip]
 pub(crate) const WORLD_SECTIONS: &[Section<World>] = &[
+    Section { name: "SAV-48", write: super::record_save::write_pack_navmesh_section, read: super::record_save::read_pack_navmesh_section },
 ];
 
 /// Sections read and written once per actor, at the end of every actor
