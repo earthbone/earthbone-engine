@@ -52,7 +52,11 @@ fn change(object: u32, kind: u8, flags: u32, data: Vec<u8>) -> ChangeForm {
 }
 
 fn form_flags(mask: u32, unknown: u16) -> Vec<u8> {
-    [mask.to_le_bytes().as_slice(), unknown.to_le_bytes().as_slice()].concat()
+    [
+        mask.to_le_bytes().as_slice(),
+        unknown.to_le_bytes().as_slice(),
+    ]
+    .concat()
 }
 
 fn save(changes: Vec<ChangeForm>) -> Save {
@@ -109,7 +113,7 @@ fn save(changes: Vec<ChangeForm>) -> Save {
 }
 
 #[test]
-fn sav_50_all_defined_flags_and_high_unnamed_bit_roundtrip_without_rewriting_records() {
+fn sav_50_all_defined_flags_and_high_unnamed_bit_roundtrip_with_record_masks() {
     for kind_object in [(34, WOOP), (35, MGEF)] {
         for flags in (0..8).chain([1 << 31]) {
             let mut data = Vec::new();
@@ -122,11 +126,21 @@ fn sav_50_all_defined_flags_and_high_unnamed_bit_roundtrip_without_rewriting_rec
             let saved = save(vec![change(kind_object.1, kind_object.0, flags, data)]);
             assert_eq!(world.restore_vanilla_base_objects(&saved).unwrap(), 1);
             let authored_flags = if kind_object.1 == WOOP { 0x10 } else { 0x05 };
-            assert_eq!(world.record(id(kind_object.1)).unwrap().flags, authored_flags);
+            let expected_flags = authored_flags ^ if flags & 1 != 0 { 0xA5A5_5A5A } else { 0 };
+            assert_eq!(
+                world.record(id(kind_object.1)).unwrap().flags,
+                expected_flags
+            );
             let bytes = world.save_state();
             let mut loaded = World::from_shared_order(order);
             loaded.load_state(&bytes).unwrap();
-            let extra = loaded.restored_base_object_extra(id(kind_object.1)).unwrap();
+            assert_eq!(
+                loaded.record(id(kind_object.1)).unwrap().flags,
+                expected_flags
+            );
+            let extra = loaded
+                .restored_base_object_extra(id(kind_object.1))
+                .unwrap();
             assert_eq!(extra.change_flags, flags);
             assert_eq!(extra.form_flags.is_some(), flags & 1 != 0);
             assert_eq!(extra.value_changed, flags & 2 != 0);
@@ -167,10 +181,7 @@ fn sav_50_truncated_or_extra_payload_rejects_entire_restore() {
         let mut world = World::new(order(true));
         let before = world.save_state();
         assert!(world
-            .restore_vanilla_base_objects(&save(vec![
-                change(WOOP, 34, 1, vec![0; 6]),
-                bad_change,
-            ]))
+            .restore_vanilla_base_objects(&save(vec![change(WOOP, 34, 1, vec![0; 6]), bad_change,]))
             .is_err());
         assert_eq!(world.save_state(), before);
         assert_eq!(world.restored_base_object_extra(id(WOOP)), None);
@@ -182,13 +193,15 @@ fn sav_50_truncated_or_extra_payload_rejects_entire_restore() {
 fn sav_50_invalid_mgef_record_rejects_prior_woop_atomically() {
     let mut world = World::new(order(false));
     let before = world.save_state();
+    assert_eq!(world.record(id(WOOP)).unwrap().flags, 0x10);
     assert!(world
         .restore_vanilla_base_objects(&save(vec![
-            change(WOOP, 34, 0, vec![]),
+            change(WOOP, 34, 1, form_flags(0x03, 0xBEEF)),
             change(MGEF, 35, 0, vec![]),
         ]))
         .is_err());
     assert_eq!(world.save_state(), before);
+    assert_eq!(world.record(id(WOOP)).unwrap().flags, 0x10);
     assert_eq!(world.restored_base_object_extra(id(WOOP)), None);
 }
 
@@ -205,8 +218,6 @@ fn sav_50_duplicate_and_repeated_restore_reject_without_mutation() {
         ]))
         .is_err());
     assert_eq!(world.save_state(), after_first);
-    assert!(world
-        .restore_vanilla_base_objects(&one)
-        .is_err());
+    assert!(world.restore_vanilla_base_objects(&one).is_err());
     assert_eq!(world.save_state(), after_first);
 }

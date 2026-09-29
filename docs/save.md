@@ -926,11 +926,13 @@ game crate applies decoded changes to live record overrides.
 
 `World::restore_vanilla_base_objects` maps all WOOP and MGEF changes before
 installing their record overrides. It retains the optional six-byte form flag
-pair, both zero-byte change markers and unnamed flag bits. The mask pair stays
-pending until its application semantics are established. The base-object value
-and full-name markers do not include replacement data, so saved records keep
-their authored subrecords. MGEF runtime views read through the override-aware
-record lookup. SOEW version 37 stores the retained metadata, and earlier
+pair, both zero-byte change markers and unnamed flag bits. It validates every
+change before installing overrides. The optional form-flag mask is XORed with
+the winning record flags, following xEdit's `CHANGE_FORM_FLAGS` definition as
+"Mask Invert Flags". The base-object value and full-name markers do not include
+replacement data, so saved records keep their authored subrecords. MGEF runtime
+views read through the override-aware record lookup. SOEW version 37 stores
+the retained metadata and reapplies the mask after engine save/load. Earlier
 versions still load without that extension.
 
 ## Reference ownership and locks, SAV-16, blocked

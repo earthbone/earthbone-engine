@@ -117,7 +117,10 @@ impl World {
                     }
                 };
             let mut value = RecordOverride::new(id, record.clone());
-            if matches!(&tag.0, b"LIGH" | b"STAT" | b"MSTT" | b"APPA" | b"IDLM") {
+            if matches!(
+                &tag.0,
+                b"LIGH" | b"STAT" | b"MSTT" | b"APPA" | b"IDLM" | b"WOOP" | b"MGEF"
+            ) {
                 if let Some((mask, _)) = form_flags {
                     value.record.flags ^= mask;
                 }

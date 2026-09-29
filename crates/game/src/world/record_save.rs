@@ -573,10 +573,14 @@ impl World {
             ));
         }
         for (id, extra) in values {
-            self.record_overrides
+            let record = self
+                .record_overrides
                 .get_mut(&id)
-                .ok_or_else(|| bad("WOOP/MGEF override disappeared during load"))?
-                .base_object = Some(extra);
+                .ok_or_else(|| bad("WOOP/MGEF override disappeared during load"))?;
+            if let Some((mask, _)) = extra.form_flags {
+                record.record.flags ^= mask;
+            }
+            record.base_object = Some(extra);
         }
         Ok(())
     }
