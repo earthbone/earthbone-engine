@@ -39,8 +39,8 @@ pub mod table;
 
 pub use base_object::BaseObjectFields;
 pub use change::{
-    ActivatorChange, ClassChange, FactionChange, FactionReaction, FactionReactions,
-    RelationshipChange,
+    ActivatorChange, BaseObjectChange, ClassChange, FactionChange, FactionReaction,
+    FactionReactions, IngredientChange, RelationshipChange,
 };
 pub use change::{ChangeForm, QuestStage};
 pub use created_objects::{CreatedEffect, CreatedObject, CreatedObjects};

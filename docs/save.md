@@ -109,6 +109,10 @@ does not claim runtime support for opaque payloads.
 - `ChangeForm::activator_change` decodes ACTI, TACT and DOOR form flags and
   their value, full-name and TACT speaker change markers. The markers consume
   no payload bytes, as defined by xEdit.
+- `ChangeForm::ingredient_change`, `alchemy_change` and
+  `enchantment_change` decode INGR, ALCH and ENCH change markers. Unnamed flag
+  bits remain available, marker sections add no payload bytes, and form flags
+  retain their six bytes.
 - Type 107, quest static data, including its two event arrays, three reference
   arrays, reference-keyed values and final byte.
 - Type 1001, the Papyrus block: the string table, the script definitions with
@@ -811,6 +815,27 @@ indices. FallrimTools handles CLAS and FACT as opaque forms.
 The 60-save external check reproduced all 345,703 payload bytes from 4,702
 FACT and 547 RELA changes. It found no CLAS changes, so CLAS field coverage is
 synthetic only.
+
+## INGR, ALCH and ENCH changes
+
+`ChangeForm::ingredient_change` reads INGR's optional six-byte form flags and
+retains the ingredient-use marker. `alchemy_change` and `enchantment_change`
+read the same form flags and retain the base-object value and fullname markers.
+These marker unions have no payload in xEdit's `wbDefinitionsTES5Saves.pas`.
+All remaining flag bits are named unnamed by xEdit and remain in the typed
+value without assigned meaning. The typed encoders reproduce the markers and
+the form-flag bytes, and the readers reject truncated form flags or trailing
+payload bytes.
+
+The local UESP save format page and FallrimTools `ChangeForm.Type` establish
+the INGR, ALCH and ENCH type indices. FallrimTools has no typed item change
+reader, and UESP has no dedicated pages for these three records. The local
+xEdit save definitions establish their flags and payload layout. The
+`sav_37_external_corpus_accounts_for_every_item_change` survey accounts for
+all matching changes, flag combinations and payload bytes in the supplied
+save corpus. The `sav_37_installed_skyrim_records_use_expected_record_types`
+test checks that the installed Skyrim.esm contains all three corresponding
+record types.
 
 ## INFO, SMQN and SCEN changes
 
