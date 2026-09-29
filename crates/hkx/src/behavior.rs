@@ -782,6 +782,51 @@ pub struct BehaviorGraph {
     pub nodes: Vec<Node>,
 }
 
+/// One named set of changes applied to a behavior graph after it is loaded.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BehaviorPatch {
+    pub name: String,
+    pub edits: Vec<BehaviorPatchEdit>,
+}
+
+/// A supported edit made by a [`BehaviorPatch`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BehaviorPatchEdit {
+    /// Change a clip generator's animation path, identified by its node name.
+    SetClipAnimation { node: String, animation: String },
+    /// Change a state machine transition destination, identified by machine
+    /// name, source state id and transition index.
+    SetTransitionDestination {
+        machine: String,
+        from_state_id: i32,
+        transition_index: usize,
+        to_state_id: i32,
+    },
+}
+
+/// A patch merge issue that callers can surface in their diagnostics.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BehaviorPatchDiagnostic {
+    /// Two patches wrote different values to the same graph field. The patch
+    /// with the lexicographically later name supplies the final value.
+    Conflict {
+        target: String,
+        previous_patch: String,
+        winning_patch: String,
+    },
+    /// A patch could not be applied because it was duplicated or invalid.
+    Rejected { patch: String, reason: String },
+}
+
+/// Summary of patches applied to one loaded graph.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct BehaviorPatchReport {
+    /// Names applied in deterministic order.
+    pub applied: Vec<String>,
+    /// Conflicts and rejected patches in deterministic order.
+    pub diagnostics: Vec<BehaviorPatchDiagnostic>,
+}
+
 impl BehaviorGraph {
     pub fn node(&self, id: NodeId) -> &Node {
         &self.nodes[id.0]
@@ -793,6 +838,171 @@ impl BehaviorGraph {
 
     pub fn nodes_of_class<'a>(&'a self, class: &'a str) -> impl Iterator<Item = &'a Node> {
         self.nodes.iter().filter(move |n| n.class == class)
+    }
+
+    /// Apply named graph patches in lexicographic name order.
+    ///
+    /// Conflicting writes are diagnosed and resolved by the later patch name.
+    /// Duplicate or empty patch names are rejected as a group, so input order
+    /// cannot decide which duplicate is applied. Edits inside one patch retain
+    /// their authored order.
+    pub fn apply_patches(&mut self, patches: &[BehaviorPatch]) -> BehaviorPatchReport {
+        use std::collections::{BTreeMap, HashMap};
+
+        let mut counts = HashMap::<&str, usize>::new();
+        for patch in patches {
+            *counts.entry(&patch.name).or_default() += 1;
+        }
+        let mut ordered: Vec<&BehaviorPatch> = patches
+            .iter()
+            .filter(|patch| !patch.name.is_empty() && counts[patch.name.as_str()] == 1)
+            .collect();
+        ordered.sort_by(|left, right| left.name.cmp(&right.name));
+
+        let mut report = BehaviorPatchReport::default();
+        for patch in patches {
+            let reason = if patch.name.is_empty() {
+                Some("patch name is empty")
+            } else if counts[patch.name.as_str()] > 1 {
+                Some("patch name is duplicated")
+            } else {
+                None
+            };
+            if let Some(reason) = reason {
+                report.diagnostics.push(BehaviorPatchDiagnostic::Rejected {
+                    patch: patch.name.clone(),
+                    reason: reason.to_string(),
+                });
+            }
+        }
+        report
+            .diagnostics
+            .sort_by(|left, right| match (left, right) {
+                (
+                    BehaviorPatchDiagnostic::Rejected { patch: left, .. },
+                    BehaviorPatchDiagnostic::Rejected { patch: right, .. },
+                ) => left.cmp(right),
+                _ => std::cmp::Ordering::Equal,
+            });
+
+        let mut writes = BTreeMap::<String, (String, String)>::new();
+        for patch in ordered {
+            let mut candidate = self.clone();
+            let mut rejected = None;
+            let mut patch_writes = Vec::with_capacity(patch.edits.len());
+            for edit in &patch.edits {
+                match candidate.apply_patch_edit(edit) {
+                    Ok(write) => patch_writes.push(write),
+                    Err(reason) => {
+                        rejected = Some(reason);
+                        break;
+                    }
+                }
+            }
+            if let Some(reason) = rejected {
+                report.diagnostics.push(BehaviorPatchDiagnostic::Rejected {
+                    patch: patch.name.clone(),
+                    reason: reason.to_string(),
+                });
+            } else {
+                *self = candidate;
+                for (target, value) in patch_writes {
+                    if let Some((previous_patch, previous_value)) = writes.get(&target) {
+                        if previous_value != &value {
+                            report.diagnostics.push(BehaviorPatchDiagnostic::Conflict {
+                                target: target.clone(),
+                                previous_patch: previous_patch.clone(),
+                                winning_patch: patch.name.clone(),
+                            });
+                        }
+                    }
+                    writes.insert(target, (patch.name.clone(), value));
+                }
+                report.applied.push(patch.name.clone());
+            }
+        }
+        report.diagnostics.sort_by(|left, right| {
+            let key = |diagnostic: &BehaviorPatchDiagnostic| match diagnostic {
+                BehaviorPatchDiagnostic::Conflict { target, .. } => target.clone(),
+                BehaviorPatchDiagnostic::Rejected { patch, .. } => patch.clone(),
+            };
+            key(left).cmp(&key(right))
+        });
+        report
+    }
+
+    fn apply_patch_edit(&mut self, edit: &BehaviorPatchEdit) -> Result<(String, String)> {
+        let unsupported = |message: String| crate::Error::Unsupported(message);
+        match edit {
+            BehaviorPatchEdit::SetClipAnimation { node, animation } => {
+                let matches: Vec<usize> = self
+                    .nodes
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(index, candidate)| (candidate.name == *node).then_some(index))
+                    .collect();
+                let [index] = matches.as_slice() else {
+                    return Err(unsupported(if matches.is_empty() {
+                        format!("clip node {node:?} does not exist")
+                    } else {
+                        format!("clip node name {node:?} is ambiguous")
+                    }));
+                };
+                let NodeKind::Clip(clip) = &mut self.nodes[*index].kind else {
+                    return Err(unsupported(format!(
+                        "node {node:?} is not a clip generator"
+                    )));
+                };
+                clip.animation_name.clone_from(animation);
+                Ok((format!("node:{node}:animation"), animation.clone()))
+            }
+            BehaviorPatchEdit::SetTransitionDestination {
+                machine,
+                from_state_id,
+                transition_index,
+                to_state_id,
+            } => {
+                let matches: Vec<usize> = self
+                    .nodes
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(index, candidate)| (candidate.name == *machine).then_some(index))
+                    .collect();
+                let [index] = matches.as_slice() else {
+                    return Err(unsupported(if matches.is_empty() {
+                        format!("state machine {machine:?} does not exist")
+                    } else {
+                        format!("state machine name {machine:?} is ambiguous")
+                    }));
+                };
+                let NodeKind::StateMachine(state_machine) = &mut self.nodes[*index].kind else {
+                    return Err(unsupported(format!(
+                        "node {machine:?} is not a state machine"
+                    )));
+                };
+                if state_machine.state(*to_state_id).is_none() {
+                    return Err(unsupported(format!(
+                        "destination state {to_state_id} does not exist"
+                    )));
+                }
+                let state = state_machine
+                    .states
+                    .iter_mut()
+                    .find(|state| state.state_id == *from_state_id)
+                    .ok_or_else(|| {
+                        unsupported(format!("source state {from_state_id} does not exist"))
+                    })?;
+                let transition = state
+                    .transitions
+                    .get_mut(*transition_index)
+                    .ok_or_else(|| unsupported("transition index is out of range".to_string()))?;
+                transition.to_state_id = *to_state_id;
+                Ok((
+                    format!("machine:{machine}:state:{from_state_id}:transition:{transition_index}:destination"),
+                    to_state_id.to_string(),
+                ))
+            }
+        }
     }
 
     /// Animation names every clip generator refers to, deduplicated.
