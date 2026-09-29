@@ -648,6 +648,60 @@ impl Game {
         threads
     }
 
+    /// Resume mapped quest story events whose handlers are loaded.
+    ///
+    /// Saved `SCPT` contexts resume through `OnStoryScript`. Their mapped
+    /// arguments remain on the quest if the script has not been loaded yet or
+    /// a mapped reference is unresolved.
+    ///
+    /// # Errors
+    /// This operation currently has no error path.
+    pub fn resume_vanilla_quest_story_events(&mut self) -> usize {
+        let mut resumed = 0;
+        let events = self.world.borrow().saved_story_events();
+        for (id, event) in events {
+            if event.code != *b"SCPT" || event.parameters.len() != 6 {
+                continue;
+            }
+            let (object, args) = {
+                let vm = &mut self.vm;
+                let mut world = self.world.borrow_mut();
+                if event.parameters.iter().any(|parameter| match parameter {
+                    crate::quest::state::StoryParameter::Reference {
+                        reference: Some(reference),
+                        ..
+                    } => !world.exists(*reference),
+                    _ => false,
+                }) {
+                    continue;
+                }
+                let mut args = Vec::with_capacity(event.parameters.len());
+                for parameter in event.parameters {
+                    args.push(match parameter {
+                        crate::quest::state::StoryParameter::Reference { reference, .. } => world
+                            .form_value(reference, &mut |name, class| {
+                                vm.create_object_of(name, class)
+                            }),
+                        crate::quest::state::StoryParameter::Integer(value) => {
+                            Value::Int(i32::from_le_bytes(value.to_le_bytes()))
+                        }
+                    });
+                }
+                let object = world.object_of(Handle::Form(id), &mut |name, class| {
+                    vm.create_object_of(name, class)
+                });
+                (object, args)
+            };
+            let threads = self.vm.send_event(object, "OnStoryScript", &args);
+            if !threads.is_empty() {
+                self.world.borrow_mut().clear_saved_story_event(id);
+                resumed += threads.len();
+            }
+            self.run_until_idle(64);
+        }
+        resumed
+    }
+
     pub fn player(&mut self) -> GlobalFormId {
         self.world.borrow_mut().player()
     }

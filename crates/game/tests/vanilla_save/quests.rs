@@ -126,6 +126,40 @@ fn native(game: &mut Game, target: Value, name: &str, args: &[Value]) -> Value {
     game.vm.thread_result(thread).unwrap()
 }
 
+fn story_resume_handler() -> Vec<u8> {
+    let handler = FunctionBuilder::new("OnStoryScript", "None")
+        .param("keyword", "Var")
+        .param("location", "Var")
+        .param("reference1", "Var")
+        .param("reference2", "Var")
+        .param("value1", "Var")
+        .param("value2", "Var")
+        .ins(
+            Opcode::CallStatic,
+            vec![
+                s("Debug"),
+                s("Trace"),
+                ident("::nonevar"),
+                ident("keyword"),
+                soe_papyrus::asm::i(0),
+            ],
+        )
+        .ins(
+            Opcode::CallStatic,
+            vec![
+                s("Debug"),
+                s("Trace"),
+                ident("::nonevar"),
+                ident("value1"),
+                soe_papyrus::asm::i(0),
+            ],
+        )
+        .build();
+    ScriptBuilder::new("StoryResumeProbe", "Quest")
+        .function(handler)
+        .bytes()
+}
+
 #[test]
 fn restored_quest_drives_natives_without_replaying_events() {
     let mut game = fixture();
@@ -182,6 +216,200 @@ fn restored_quest_drives_natives_without_replaying_events() {
     );
     assert_eq!(run.event.as_ref().unwrap().code, *b"SCPT");
     assert_eq!(run.event.as_ref().unwrap().parameters.len(), 2);
+}
+
+#[test]
+fn sav_20_mapped_story_arguments_wait_for_handler_and_resume_once() {
+    let mut game = fixture();
+    let mut save = saved();
+    let mut change = save.change_forms[0].quest_change().unwrap().unwrap();
+    let event = change.runtime.as_mut().unwrap().event.as_mut().unwrap();
+    event.parameters = (0..4)
+        .map(|_| soe_save::quest::EventParameter::Reference {
+            kind: 0,
+            reference: reference(1),
+        })
+        .chain([
+            soe_save::quest::EventParameter::Integer(41),
+            soe_save::quest::EventParameter::Integer(42),
+        ])
+        .collect();
+    save.change_forms[0].data = change.data_bytes().unwrap();
+    game.world_mut().restore_vanilla_quests(&save).unwrap();
+    let quest_id = id(3, QUEST);
+    {
+        let world = game.world();
+        let event = world
+            .quest(quest_id)
+            .unwrap()
+            .runtime
+            .run_data
+            .as_ref()
+            .unwrap()
+            .event
+            .as_ref()
+            .unwrap();
+        assert_eq!(event.parameters.len(), 6);
+        assert_eq!(
+            event.parameters[0],
+            soe_game::quest::state::StoryParameter::Reference {
+                kind: 0,
+                reference: Some(id(3, QUEST)),
+            }
+        );
+        assert_eq!(
+            event.parameters[5],
+            soe_game::quest::state::StoryParameter::Integer(42)
+        );
+    }
+    assert_eq!(game.resume_vanilla_quest_story_events(), 0);
+    assert!(game
+        .world()
+        .quest(quest_id)
+        .unwrap()
+        .runtime
+        .run_data
+        .as_ref()
+        .unwrap()
+        .event
+        .is_some());
+    let bytes = game.world().save_state();
+    game = fixture();
+    let object = game.object_of_form(quest_id);
+    game.world_mut().load_state(&bytes).unwrap();
+    assert_eq!(
+        game.world()
+            .quest(quest_id)
+            .unwrap()
+            .runtime
+            .run_data
+            .as_ref()
+            .unwrap()
+            .event
+            .as_ref()
+            .unwrap()
+            .parameters[5],
+        soe_game::quest::state::StoryParameter::Integer(42)
+    );
+
+    game.load_script(&story_resume_handler()).unwrap();
+    game.vm.attach(object, "StoryResumeProbe").unwrap();
+    assert!(game
+        .vm
+        .has_script_method(object, "StoryResumeProbe", "OnStoryScript"));
+    assert_eq!(game.resume_vanilla_quest_story_events(), 1);
+    assert!(game
+        .world()
+        .quest(quest_id)
+        .unwrap()
+        .runtime
+        .run_data
+        .as_ref()
+        .unwrap()
+        .event
+        .is_none());
+    assert_eq!(game.resume_vanilla_quest_story_events(), 0);
+    assert!(game
+        .vm
+        .log
+        .messages()
+        .iter()
+        .any(|message| message.to_string().contains("41")));
+    assert!(
+        game.vm
+            .log
+            .messages()
+            .iter()
+            .any(|message| message.to_string().contains("02000900")),
+        "{:?}",
+        game.vm.log.messages()
+    );
+}
+
+#[test]
+fn sav_20_unresolved_story_argument_remains_pending() {
+    let mut game = fixture();
+    let mut save = saved();
+    let mut change = save.change_forms[0].quest_change().unwrap().unwrap();
+    let event = change.runtime.as_mut().unwrap().event.as_mut().unwrap();
+    event.parameters = (0..4)
+        .map(|_| soe_save::quest::EventParameter::Reference {
+            kind: 0,
+            reference: reference(2),
+        })
+        .chain([
+            soe_save::quest::EventParameter::Integer(41),
+            soe_save::quest::EventParameter::Integer(42),
+        ])
+        .collect();
+    save.change_forms[0].data = change.data_bytes().unwrap();
+    let quest_id = id(3, QUEST);
+    game.world_mut().restore_vanilla_quests(&save).unwrap();
+    let object = game.object_of_form(quest_id);
+    game.load_script(&story_resume_handler()).unwrap();
+    game.vm.attach(object, "StoryResumeProbe").unwrap();
+
+    assert_eq!(game.resume_vanilla_quest_story_events(), 0);
+    assert!(game
+        .world()
+        .quest(quest_id)
+        .unwrap()
+        .runtime
+        .run_data
+        .as_ref()
+        .unwrap()
+        .event
+        .is_some());
+    assert!(game.vm.log.messages().is_empty());
+}
+
+#[test]
+fn sav_10_restored_transitional_quest_resumes_start_and_stop_tasks() {
+    for (flags, expected_starting, expected_stopping, expected_task) in [
+        (
+            u16::MAX,
+            true,
+            false,
+            soe_game::quest::state::LifecycleTask::Starting,
+        ),
+        (
+            u16::MAX - 1,
+            false,
+            true,
+            soe_game::quest::state::LifecycleTask::Stopping,
+        ),
+    ] {
+        let mut game = fixture();
+        let mut save = saved();
+        let mut change = save.change_forms[0].quest_change().unwrap().unwrap();
+        change.quest_flags = Some(flags);
+        save.change_forms[0].data = change.data_bytes().unwrap();
+        game.world_mut().restore_vanilla_quests(&save).unwrap();
+        let quest = Value::Object(game.object_of_form(id(3, QUEST)));
+        for (native_name, expected) in [
+            ("IsStarting", expected_starting),
+            ("IsStopping", expected_stopping),
+            ("IsRunning", false),
+        ] {
+            assert_eq!(
+                native(&mut game, quest.clone(), native_name, &[]),
+                Value::Bool(expected),
+                "{native_name} for flags {flags:#06x}"
+            );
+        }
+        assert_eq!(
+            game.world().quest(id(3, QUEST)).unwrap().lifecycle_task,
+            Some(expected_task)
+        );
+
+        let bytes = game.world().save_state();
+        let restored = fixture();
+        restored.world_mut().load_state(&bytes).unwrap();
+        assert_eq!(
+            restored.world().quest(id(3, QUEST)).unwrap().lifecycle_task,
+            Some(expected_task)
+        );
+    }
 }
 
 #[test]

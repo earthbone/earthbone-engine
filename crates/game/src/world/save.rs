@@ -562,6 +562,7 @@ impl World {
                     aliases,
                     journal: crate::quest::state::Journal::legacy(instance_globals),
                     runtime: initial.runtime,
+                    lifecycle_task: None,
                 },
             );
         }
@@ -1077,11 +1078,13 @@ impl World {
         // already mutated `self`, and the `Err` this function returns
         // tells the caller to discard it.
         if version >= 37 {
+            let previous_quests = std::mem::replace(&mut self.quests, quests.clone());
             let previous_overrides =
                 std::mem::replace(&mut self.record_overrides, record_overrides);
             let section_result =
                 save_sections::read_sections(&mut r, "world", self, WORLD_SECTIONS);
             record_overrides = std::mem::replace(&mut self.record_overrides, previous_overrides);
+            quests = std::mem::replace(&mut self.quests, previous_quests);
             section_result?;
         }
         r.expect_end()?;

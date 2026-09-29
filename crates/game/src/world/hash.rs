@@ -437,6 +437,11 @@ fn quest_state(h: &mut StateHasher, q: &QuestState) {
     h.bool(q.completed);
     h.bool(q.failed);
     h.bool(q.active);
+    h.u8(match q.lifecycle_task {
+        None => 0,
+        Some(crate::quest::state::LifecycleTask::Starting) => 1,
+        Some(crate::quest::state::LifecycleTask::Stopping) => 2,
+    });
     h.u16(q.current);
     h.u16(q.highest);
     h.len(q.done.len());
@@ -874,6 +879,7 @@ mod tests {
                 aliases: HashMap::new(),
                 journal: crate::quest::state::Journal::default(),
                 runtime: crate::quest::state::Runtime::default(),
+                lifecycle_task: None,
             },
         );
         w

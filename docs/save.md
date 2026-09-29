@@ -301,9 +301,9 @@ Their event arrays are empty in this corpus and have synthetic coverage only.
 Synthetic tests cover all 512 section-presence combinations, wide counts,
 every truncated fixture prefix, compressed payloads and rejected mutations.
 
-The game application path below uses the decoded quest state. Story-event and
-quest lifecycle task resumption still need implementation. Flags alone cannot
-establish whether a quest is starting, stopping or waiting for a scheduled task.
+The game application path below uses the decoded quest state. Story-event
+execution remains unimplemented. Transitional QUST flags restore a pending
+start or stop promotion task, and those task states survive SOEW save/load.
 Full ESS restoration remains unfinished.
 
 ## Applying saved quests
@@ -340,24 +340,28 @@ quest alias maps are sorted during serialization. Hashes include the extension.
 No OnInit, startup stage, fragment, alias-fill or story event is dispatched by
 restoration. The report lists identities missing from both current records and
 resident references, and quests carrying stage-wait. Created references retain
-their identity even before world change forms allocate them. This report does
-not prove that saved VM objects or lifecycle tasks are bound and ready to run.
-In particular, the existing running flag receives the saved enabled bit, which
-cannot represent an in-flight promotion task. IsStarting and IsStopping remain
-stubs until execution restoration supplies that state.
+their identity even before world change forms allocate them. QUST's transitional
+stop/start flag word restores a pending promotion task. IsStarting and
+IsStopping report its direction, and IsRunning remains false until the task
+completes. SOEW version 37 persists pending quest promotion tasks in the
+`SAV-20` world section. Older world states and version-37 saves without that
+section load without a pending task.
 
 The first 60-save application survey restores 32,256 quests and preserves every
 engine-save byte and the world hash after reloading. It reports 6,816 unresolved
 world identities across saves and one stage-wait quest. Synthetic checks cover
 plugin reordering, native queries, all objective statuses, created aliases,
-current versus historical globals, metadata persistence, old saves and atomic
-failure. Runtime reference alias kind one has synthetic coverage only. The
-corpus contains kind zero. No game has resumed its quests from an ESS yet.
+current versus historical globals, metadata persistence, old saves, lifecycle
+task resumption and atomic failure. Runtime reference alias kind one has
+synthetic coverage only. The corpus contains kind zero. No game has resumed
+its quests from an ESS yet.
 
 Sources were local Quest.psc, UESP QUST_Changeform, xEdit's QUST save definitions,
-CommonLib TESQuest.h and QuestObjectiveStates.h. Existing form mapping, World,
-VM native and binary state paths are reused. No dependency was added. Type-107
-quest-static state remains decoded inspection data. The remaining work includes
+CommonLib TESQuest.h, TESQuest.cpp and QuestObjectiveStates.h. CommonLib's
+reserved stop/start flag and the CK Quest_Script descriptions define the
+restored lifecycle task direction. Existing form mapping, World, VM native and
+binary state paths are reused. No dependency was added. Type-107 quest-static
+state remains decoded inspection data. The remaining work includes
 created/world forms, live Papyrus object bindings, scheduler state,
 saved stacks and latent calls, atomic whole-game loading and host resumption.
 
