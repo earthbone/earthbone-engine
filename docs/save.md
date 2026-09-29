@@ -928,6 +928,7 @@ all matching changes, flag combinations and payload bytes in the supplied
 save corpus. The `sav_37_installed_skyrim_records_use_expected_record_types`
 test checks that the installed Skyrim.esm contains all three corresponding
 record types.
+
 ## PACK and NAVM changes
 
 `ChangeForm::pack_change` reads the optional six-byte form flags and records
