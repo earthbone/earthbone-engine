@@ -72,10 +72,20 @@ and a `support` table that keeps the group counts aligned with this document.
 `src/headers.rs` generates the corresponding supported C++ surface under `include/RE` and
 `include/SKSE`. `RE/Skyrim.h` and `SKSE/SKSE.h` are the umbrella includes. Regenerate the files
 after changing the header mapping with `cargo run -p soe-commonlib-shim --bin generate-headers`.
-The declarations are source-level headers only. They do not provide a C ABI or engine bindings.
+The declarations are source-level headers and do not provide a C ABI. Selected contracts are
+implemented by adapters in the game crate.
 The mapping follows the Rust API while adapting Rust names and types to C++, including
 `NativeRegistry::register`, which is emitted as `register_native` because `register` is a C++
 keyword.
+
+The world API includes `Calendar`, `Character`, `DEFAULT_OBJECTS`,
+`ExtraActivateRefChildren` and `ExtraAliasInstanceArray` contracts. The game
+adapts calendar values, loaded actor state, resolved DOBJ entries and attached
+quest aliases from its existing world tables. Alias results are sorted by
+quest and alias id. Default-object lookup preserves malformed-record errors.
+The runtime has no activate-children extra state, so that call returns an
+explicit unsupported-hook result. These contracts do not expose CommonLib
+memory layouts or executable hooks.
 
 ## Untested
 

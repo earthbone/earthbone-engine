@@ -163,6 +163,59 @@ public:
 } // namespace RE
 ";
 
+const RE_WORLD: &str = r#"// Generated from crates/commonlib-shim/src/world.rs. Do not edit.
+#pragma once
+#include "RE/Form.h"
+#include <array>
+#include <cstdint>
+#include <optional>
+#include <string>
+#include <vector>
+
+namespace RE {
+enum class UnsupportedHook { ActivateReferenceChildren };
+class Calendar {
+public:
+    virtual ~Calendar() = default;
+    virtual std::uint32_t year() const = 0;
+    virtual std::uint32_t month() const = 0;
+    virtual std::uint32_t day() const = 0;
+    virtual double hour() const = 0;
+    virtual double days_passed() const = 0;
+    virtual double timescale() const = 0;
+};
+class Character {
+public:
+    virtual ~Character() = default;
+    virtual FormId form_id() const = 0;
+    virtual std::optional<float> actor_value(const std::string& name) const = 0;
+    virtual bool is_dead() const = 0;
+    virtual std::optional<FormId> race() const = 0;
+};
+class DEFAULT_OBJECTS {
+public:
+    virtual ~DEFAULT_OBJECTS() = default;
+    struct Result { bool success; std::optional<FormId> form; std::string error; };
+    virtual Result get(const std::array<char, 4>& key) const = 0;
+};
+struct AliasInstance { FormId quest; std::uint32_t alias_id; std::optional<FormId> reference; std::vector<FormId> packages; };
+class ExtraAliasInstanceArray {
+public:
+    virtual ~ExtraAliasInstanceArray() = default;
+    virtual std::vector<AliasInstance> instances(FormId reference) const = 0;
+};
+class ExtraActivateRefChildren {
+public:
+    virtual ~ExtraActivateRefChildren() = default;
+    struct ChildrenResult { bool success; std::vector<FormId> children; UnsupportedHook error; };
+    struct TimerResult { bool success; float seconds; UnsupportedHook error; };
+    virtual ChildrenResult children(FormId reference) const = 0;
+    virtual TimerResult timer(FormId reference) const = 0;
+    virtual std::optional<UnsupportedHook> activate_children(FormId reference) const = 0;
+};
+} // namespace RE
+"#;
+
 const RE_EVENTS: &str = r"// Generated from crates/commonlib-shim/src/events.rs. Do not edit.
 #pragma once
 #include <cstddef>
@@ -328,10 +381,11 @@ const FILES: &[(&str, &str)] = &[
     ("RE/Form.h", RE_FORM),
     ("RE/Reference.h", RE_REFERENCE),
     ("RE/Math.h", RE_MATH),
+    ("RE/World.h", RE_WORLD),
     ("RE/Events.h", RE_EVENTS),
     ("RE/Utility.h", RE_UTILITY),
     ("RE/VirtualMachine.h", RE_VM),
-    ("RE/Skyrim.h", "// Generated umbrella for the supported RE surface. Do not edit.\n#pragma once\n#include \"RE/Form.h\"\n#include \"RE/Reference.h\"\n#include \"RE/Events.h\"\n#include \"RE/Utility.h\"\n#include \"RE/VirtualMachine.h\"\n"),
+    ("RE/Skyrim.h", "// Generated umbrella for the supported RE surface. Do not edit.\n#pragma once\n#include \"RE/Form.h\"\n#include \"RE/Reference.h\"\n#include \"RE/World.h\"\n#include \"RE/Events.h\"\n#include \"RE/Utility.h\"\n#include \"RE/VirtualMachine.h\"\n"),
     ("SKSE/Interfaces.h", SKSE_INTERFACES),
     ("SKSE/SKSE.h", "// Generated umbrella for the supported SKSE surface. Do not edit.\n#pragma once\n#include \"SKSE/Interfaces.h\"\n"),
 ];
