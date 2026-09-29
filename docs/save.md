@@ -9,6 +9,10 @@ remains unfinished.
 CELL, LCTN and ECZN decoding remains blocked on missing serialized layouts.
 See [saved spatial fields](save-spatial-fields.md) for the source boundary and
 60-save coverage census supporting SAV-27 and its SAV-66 prerequisite.
+The SAV-66 source audit confirms xEdit's `wbNull` placeholders, FallrimTools'
+raw fallback and runtime-only CommonLib declarations do not establish those
+serialized layouts. The save crate preserves these payloads as opaque bytes,
+with observed high-flag boundaries covered by `sav_66_spatial_boundaries.rs`.
 
 The projectile and hazard decoder tasks share a missing subtype-layout
 prerequisite. See [saved projectile layouts](save-projectile-layouts.md) for
