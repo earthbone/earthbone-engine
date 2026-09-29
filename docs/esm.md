@@ -44,6 +44,23 @@ The form table maps every global id to the list of records that carry it, in loa
 order. `winner` is the last one, which is the rule the game, xEdit and Mutagen all apply.
 `overridden` lists the ids whose winner is not their owner.
 
+`Plugin::set_masters` reorders existing masters or adds new ones while retaining
+all current masters. It relocates record FormIDs, FormID group labels, TES4
+`ONAM`, and recognized four-byte links in the typed world record set. It updates
+the TES4 `MAST` and paired `DATA` entries, keeping existing master data with its
+name. Duplicate and removed masters, malformed recognized links and lists over
+255 masters return an error before changing the plugin. Unknown subrecords and
+unmodeled link fields remain byte-for-byte unchanged. In particular this method
+does not inspect nested `VMAD` links.
+
+The operation follows local Mutagen `Plugins/FormID.cs` for the master-index
+and object-id split, and `docs/plugins/Remapping-FormLinks.md` for the rule that
+links must retain their target identity while a mod is reorganized. Spriggit's
+`docs/spriggit-file.md` describes stable plugin identity across text
+serialization. The Rust plugin model retains raw subrecords instead of
+Mutagen's complete typed record graph, so this implementation relocates its
+known typed links and preserves other fields unchanged.
+
 Each `LoadedFile` exposes a SHA-256 fingerprint of its plugin's serialized
 definition before the load order adds engine-owned forms. It is independent of
 regular and light slot positions. For parsed files, serialization preserves
@@ -145,7 +162,9 @@ parser change was needed, every record type the checks touch read cleanly.
 
 - Typed gameplay views do not evaluate conditions or implement game systems.
   Their coverage and remaining raw fields are listed below.
-- No writer beyond the round trip: no FormID renumbering, no master list editing.
+- `Plugin::set_masters` covers structural identities and the recognized links
+  listed above. Full link relocation, including nested VMAD and arbitrary
+  unmodeled fields, is not implemented.
 - `XCLL` lighting and `XPRM` primitives are kept as bytes.
 - No fuzzing harness beyond the malformed-input unit tests. `cargo-fuzz` over
   `Plugin::parse` and `Geometry::parse` is the obvious next step.
