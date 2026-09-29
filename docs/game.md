@@ -108,6 +108,12 @@ between collision and rendering change detection, is documented in
 `World` stays the only writer of reference state either way, so no host code
 takes the mutable `reference` accessor.
 
+`Game.PrecacheCharGen` and `Game.PrecacheCharGenClear` enqueue transient host
+requests. The host loads model files for head parts offered by playable races
+and their chargen TRI files before processing later race menu requests. The
+clear request drops those retained file buffers. These requests add no saved
+state.
+
 **Witnessed crime.** `crime.rs` decodes `FACT.CRVA`, the bounty table a
 faction charges for murder, assault, trespass, pickpocketing, theft
 (scaled by a steal multiplier against the stolen item's value), escape

@@ -99,6 +99,18 @@ impl PlayerNode {
         });
         for request in requests {
             match request {
+                soe_game::world::MenuRequest::PrecacheCharGen => {
+                    if let (Some(game), Some(streamer)) =
+                        (self.game.as_ref(), self.game_streamer.as_mut())
+                    {
+                        streamer.bind_mut().precache_chargen(game);
+                    }
+                }
+                soe_game::world::MenuRequest::PrecacheCharGenClear => {
+                    if let Some(streamer) = self.game_streamer.as_mut() {
+                        streamer.bind_mut().precache_chargen_clear();
+                    }
+                }
                 soe_game::world::MenuRequest::Race => {
                     self.show_race_menu();
                 }

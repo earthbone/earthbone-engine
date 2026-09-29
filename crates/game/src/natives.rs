@@ -3194,6 +3194,21 @@ fn stubs(vm: &mut Vm, world: &Shared) -> usize {
         }),
     );
     n += 1;
+    for (name, request) in [
+        ("PrecacheCharGen", MenuRequest::PrecacheCharGen),
+        ("PrecacheCharGenClear", MenuRequest::PrecacheCharGenClear),
+    ] {
+        let shared = world.clone();
+        vm.natives.register_global(
+            "Game",
+            name,
+            Box::new(move |_| {
+                shared.borrow_mut().menu_requests.push(request);
+                none()
+            }),
+        );
+        n += 1;
+    }
     let bools: &[(&str, &str, bool)] = &[
         ("ObjectReference", "Is3DLoaded", true),
         ("ObjectReference", "IsFurnitureInUse", false),
@@ -3375,8 +3390,6 @@ fn stubs(vm: &mut Vm, world: &Shared) -> usize {
         ("Game", "TriggerScreenBlood"),
         ("Game", "PlayBink"),
         ("Game", "AdvanceSkill"),
-        ("Game", "PrecacheCharGen"),
-        ("Game", "PrecacheCharGenClear"),
         ("Game", "ShowTrainingMenu"),
         ("Game", "ShowFirstPersonGeometry"),
         ("Game", "SetCameraTarget"),

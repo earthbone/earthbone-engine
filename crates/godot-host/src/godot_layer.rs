@@ -72,6 +72,7 @@ pub struct CellStreamerNode {
     /// Set by `load_data`. `stream_cell` needs this before it can read a
     /// real cell, the synthetic streaming above never touches it.
     data_source: Option<Arc<DataSource>>,
+    chargen_cache: crate::data_source::ChargenCache,
     data_load: Option<JoinHandle<Result<DataSource, crate::data_source::DataSourceError>>>,
     /// One entry per `RenderingServer` instance `stream_cell` or
     /// `stream_exterior` created, in creation order. The scene tree never
@@ -299,6 +300,7 @@ impl INode3D for CellStreamerNode {
             batch_surfaces: true,
             streamer: None,
             data_source: None,
+            chargen_cache: crate::data_source::ChargenCache::default(),
             data_load: None,
             instances: Vec::new(),
             exterior_cells: std::collections::HashMap::new(),
@@ -513,6 +515,59 @@ impl CellStreamerNode {
         self.streamer
             .as_ref()
             .is_some_and(|s| s.is_resident(CellCoord::new(cell_x, cell_y)))
+    }
+
+    /// Load race menu head part models and chargen morph files into the host cache.
+    pub fn precache_chargen(&mut self, game: &soe_game::Game) -> bool {
+        let Some(source) = self.data_source.as_ref() else {
+            godot_error!("CellStreamer: chargen cache requires loaded game data");
+            return false;
+        };
+        match crate::data_source::ChargenCache::load(source, game) {
+            Ok(cache) => {
+                self.chargen_cache = cache;
+                true
+            }
+            Err(error) => {
+                godot_error!("CellStreamer: precaching chargen data failed: {error}");
+                false
+            }
+        }
+    }
+
+    /// Release race menu models and morph files retained by `precache_chargen`.
+    pub fn precache_chargen_clear(&mut self) {
+        self.chargen_cache.clear();
+    }
+
+    /// Number of retained chargen asset files, for stream residency diagnostics.
+    #[func]
+    pub fn chargen_resident_count(&self) -> i32 {
+        self.chargen_cache.file_count() as i32
+    }
+
+    /// Number of retained chargen TRI morph files.
+    #[func]
+    pub fn chargen_morph_count(&self) -> i32 {
+        self.chargen_cache.morph_count() as i32
+    }
+
+    /// Number of retained chargen NIF model files.
+    #[func]
+    pub fn chargen_model_count(&self) -> i32 {
+        self.chargen_cache.model_count() as i32
+    }
+
+    /// Number of chargen asset paths absent from the active data VFS.
+    #[func]
+    pub fn chargen_missing_count(&self) -> i32 {
+        self.chargen_cache.missing_count() as i32
+    }
+
+    /// Retained chargen asset bytes, for stream memory diagnostics.
+    #[func]
+    pub fn chargen_resident_bytes(&self) -> i64 {
+        self.chargen_cache.resident_bytes() as i64
     }
 
     /// Opens `path` as a Skyrim SE `Data` folder: the five base masters and

@@ -42,6 +42,7 @@ use crate::mesh::{
     WaterMaterial,
 };
 
+mod chargen;
 mod exterior;
 mod grass;
 mod location;
@@ -54,6 +55,7 @@ mod workers;
 #[cfg(test)]
 mod marker_survey_tests;
 
+pub(crate) use chargen::ChargenCache;
 pub use location::LoadedLocation;
 #[cfg(feature = "godot")]
 pub(crate) use location::PreparedCell;

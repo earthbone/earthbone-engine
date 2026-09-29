@@ -357,6 +357,10 @@ pub struct ActorBaseState {
 /// A host menu request raised by a Papyrus native.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MenuRequest {
+    /// Load race menu head part models and morph data before opening it.
+    PrecacheCharGen,
+    /// Release data retained by `PrecacheCharGen`.
+    PrecacheCharGenClear,
     /// Open the player's race and sex selection screen.
     Race,
 }

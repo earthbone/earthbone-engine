@@ -29,6 +29,20 @@ actor section. Closing the menu discards the draft and leaves the saved actor
 appearance unchanged. The preview is a menu summary of selected records and
 morph values.
 
+### Race menu asset cache, UI-17
+
+`Game.PrecacheCharGen` asks the host to read model files for playable race
+head-part choices and the TRI files tagged as chargen morphs on those parts.
+The streamer retains each available path once and reports retained file count,
+NIF count, TRI count, byte total and paths missing from the active data VFS.
+`Game.PrecacheCharGenClear` drops the buffers and resets residency and byte
+counts. The asset buffers are CPU-side file data; this does not upload preview
+meshes or apply morphs to a rendered actor.
+
+The CK `engine-refs/ck-wiki/Game_Script.wikitext` defines the paired cache and
+clear semantics. xEdit's `wbRecord(HDPT)` and UESP's `HDPT.wikitext` define the
+model field and the NAM0 chargen TRI path.
+
 The [large world physics survey](physics.md#large-world-boundary-survey-2026-09-19)
 records the signed cell offsets, tolerances and Jolt measurements for the
 `large-world-physics` branch. Its Rust mesh conversion test and Godot server
