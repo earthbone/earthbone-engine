@@ -398,6 +398,13 @@ fn actor_state(h: &mut StateHasher, a: &ActorState) {
         h.str(k);
         h.f32(*v);
     }
+    h.len(a.skill_experience.len());
+    for (skill, experience) in &a.skill_experience {
+        h.str(skill);
+        h.f32(*experience);
+    }
+    h.f32(a.character_experience);
+    h.u32(a.level_up_choices);
     for flag in [
         a.allow_flying,
         a.deferred_kill,
@@ -469,6 +476,8 @@ impl World {
         h.u32(self.next_dynamic);
         opt_form(&mut h, self.player);
         h.u32(self.player_level);
+        h.u32(self.training_sessions_this_level);
+        h.u32(self.training_session_level);
         let objects = h.finish();
 
         let mut h = StateHasher::new();
