@@ -11,6 +11,11 @@ separate unfinished rows. See [combat](combat.md) and BACKLOG.csv.
 Crate `crates/game`. Round 2 of `ENGINE-PLAN.md`, written 2026-09-14. The map's
 week 6 to 9 gate.
 
+HST-18 adds transient crosshair and grabbed-reference values to `World`.
+`Game.GetCurrentCrosshairRef` and `Game.GetPlayerGrabbedRef` create the
+corresponding Papyrus form object when a host value is present, and return
+`None` when it is absent. The values are host frame state and are not saved.
+
 ## What is in it
 
 - `world`: the runtime form table. A `LoadOrder` from `soe-esm` plus the state

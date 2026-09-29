@@ -26,6 +26,21 @@ exercise record light, occlusion inputs, cross-cell identity and sound source
 ownership. The `SKYRIM_DATA` case reads a populated vanilla interior. No
 interactive Godot sight run or frame-cost measurement is recorded here.
 
+### Crosshair and held references, HST-18
+
+`PlayerNode` raycasts from the eye along the camera look direction on each
+advance and stores the hit reference in the shared game world. The Game
+Papyrus globals `GetCurrentCrosshairRef` and `GetPlayerGrabbedRef` return those
+current host values. Holding the mapped Activate input converts a hit
+reference's collision body to kinematic mode and moves it with the look ray.
+Releasing Activate returns its body to rigid mode. The grabbed reference is
+cleared when the cell is replaced. These values are transient and are not
+saved.
+
+The grab path currently uses references with static collision bodies loaded
+for the active cell. Movable-reference body creation and synchronizing their
+physics pose into the shared world remain HST-12 work.
+
 The [large world physics survey](physics.md#large-world-boundary-survey-2026-09-19)
 records the signed cell offsets, tolerances and Jolt measurements for the
 `large-world-physics` branch. Its Rust mesh conversion test and Godot server
