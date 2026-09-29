@@ -202,7 +202,7 @@ pub fn register(vm: &mut Vm, world: &Shared) -> Registered {
 
 /// Hand-kept count of the non-stub natives registered below. The test in
 /// this module checks it against the registry.
-pub const NATIVE_COUNT: usize = 366;
+pub const NATIVE_COUNT: usize = 367;
 
 fn declare_parents(vm: &mut Vm) {
     for (class, parent) in [
@@ -2431,6 +2431,9 @@ fn message_scene_sound_spell(vm: &mut Vm, w: &Shared) {
     method!(vm, w, "Scene", "IsPlaying", |world, call, me| b(world
         .scenes
         .contains(&me)));
+    method!(vm, w, "Scene", "IsActionComplete", |world, call, me| b(
+        world.scene_action_complete(me, call.arg(0).as_int())
+    ));
     method!(vm, w, "Sound", "Play", |world, call, me| {
         let Some(source) = world.form_arg(&call.arg(0)) else {
             return i(0);
@@ -3202,7 +3205,6 @@ fn stubs(vm: &mut Vm) -> usize {
         ("Cell", "IsAttached", true),
         ("Location", "IsLoaded", false),
         ("Location", "HasRefType", false),
-        ("Scene", "IsActionComplete", false),
         ("Keyword", "SendStoryEventAndWait", false),
         ("Game", "IsPlayerSungazing", false),
         // CONTEXT: Flight and ragdoll execution are not implemented.

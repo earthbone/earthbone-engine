@@ -171,6 +171,35 @@ impl World {
         self.scene_runs.get(&id).map(|run| run.phase)
     }
 
+    /// Return whether the action with the Papyrus action ID has completed.
+    ///
+    /// # Errors
+    ///
+    /// This query has no error result. Invalid, unknown and nonplaying actions
+    /// return `false`.
+    ///
+    /// # Panics
+    ///
+    /// This method does not panic.
+    #[must_use]
+    pub fn scene_action_complete(&self, id: GlobalFormId, action_id: i32) -> bool {
+        let Ok(action_id) = u32::try_from(action_id) else {
+            return false;
+        };
+        let Some(run) = self.scene_runs.get(&id) else {
+            return false;
+        };
+        let Some(record) = self.record(id) else {
+            return false;
+        };
+        let Ok(scene) = Scene::from_record(record) else {
+            return false;
+        };
+        scene.actions.iter().enumerate().any(|(slot, action)| {
+            action.index == Some(action_id) && run.completed_actions.contains(&(slot as u32))
+        })
+    }
+
     /// Mark an action slot complete when it ends in the current phase.
     /// `action_slot` is its zero-based position in the SCEN Actions list.
     pub fn complete_scene_action(&mut self, id: GlobalFormId, action_slot: u32) -> bool {

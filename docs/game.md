@@ -150,15 +150,9 @@ location modes follow CommonLibSSE `TESFaction.h` and UESP `FACT.wikitext`.
 
 ## Conformance table
 
-Counts from `natives::register`: 364 natives with state behind them and 177
-
-Counts from `natives::register`: 366 natives with state behind them and 175
-
-Counts from `natives::register`: 365 natives with state behind them and 180
-quiet stubs (141 and 176 before the natives round of 2026-09-18, 294 and 137
-before the DLC round). A stub returns the value the game gives when nothing
-is going on (`IsBleedingOut` false, `ShakeCamera` nothing) so vanilla scripts
-run past it.
+Counts from `natives::register`: 367 natives with state behind them and 179
+quiet stubs. A stub returns the value the game gives when nothing is going on
+(`IsBleedingOut` false, `ShakeCamera` nothing) so vanilla scripts run past it.
 
 | Class | Implemented | Stubbed |
 |---|---|---|
@@ -179,7 +173,7 @@ run past it.
 | Cell | IsInterior, GetActorOwner, GetFactionOwner, SetActorOwner, SetFactionOwner, SetPublic | IsAttached, Reset |
 | FormList | GetSize, GetAt, HasForm, Find, AddForm | |
 | Message | Show, ShowAsHelpMessage | ResetHelpMessage |
-| Scene | Start, ForceStart, Stop, IsPlaying | IsActionComplete |
+| Scene | Start, ForceStart, Stop, IsPlaying, IsActionComplete | |
 | Sound | Play, StopInstance, SetInstanceVolume | |
 | Spell | Cast, RemoteCast | |
 | Scene, Package | GetOwningQuest | |
@@ -269,17 +263,22 @@ Current behavior and compatibility limits:
   `line_of_sight` are the host's hooks for the other two.
 - `Message.Show` puts a `DNAM` message-box message in the box queue and any
   other in the notification queue, and returns button 0. A scene starts at
-  phase zero. `World::complete_scene_action` marks an action slot complete,
-  and `World::advance_scene_phase` waits for every action ending in the current
-  phase before advancing. Reaching the last phase stops the scene and delivers
-  `OnEnd`. `Scene.Start` and `Stop` deliver `OnBegin` and `OnEnd` to the
-  scene's scripts. SOEW version 36 stores the current phase and completed
+  phase zero. `World::complete_scene_action` marks an action slot complete.
+  `Scene.IsActionComplete(actionID)` looks up that action's SCEN `INAM`
+  identifier and reports whether its slot is complete in the playing scene.
+  Negative or unknown identifiers, and actions outside a playing scene, return
+  false. `World::advance_scene_phase` waits for every action ending in the
+  current phase before advancing. Reaching the last phase stops the scene and
+  delivers `OnEnd`. `Scene.Start` and `Stop` deliver `OnBegin` and `OnEnd` to
+  the scene's scripts. SOEW version 36 stores the current phase and completed
   action slots. Action slots use zero-based positions from the SCEN action
   list because two vanilla scenes reuse action numbers. The SCEN layout follows
   `TES5Edit/Core/wbDefinitionsTES5.pas` and
   `uesp-modfileformat/SCEN.wikitext`. Timer expiry, CTDA evaluation, automatic
-  action dispatch, and the scene flags are not implemented. `Sound.Play`
-  hands out instance ids. `Spell.Cast` records the cast, no effect applies.
+  action dispatch, and the scene flags are not implemented. Scene dialogue
+  dispatch is assigned to DLG-18; package and timer dispatch is assigned to
+  DLG-19. `Sound.Play` hands out instance ids. `Spell.Cast` records the cast,
+  no effect applies.
 - `SetGameSetting*` writes an overlay `GetGameSetting*` reads first.
 - A quest start delivers `OnInit` to its alias objects too, the ones a
   script is attached to, since the alias kind (`ALST` or `ALLS`) now decides
