@@ -1015,3 +1015,11 @@ flags do not consume payload. The decoder returns the byte boundary and
 remaining suffix length for type-specific readers. It does not restore a
 value or name. See [saved base-object fields](save-base-fields.md) for the
 source audit and scope.
+
+`ChangeForm::light_static_change` fully decodes LIGH, STAT and MSTT. It accepts
+the three defined flag bits, retains the optional form flag words, and treats
+the value and full-name markers as zero-byte fields. It rejects other flag
+bits, incomplete form flags and trailing payload bytes. The typed fields
+rebuild the same flags and payload bytes. SAV-39 tests all eight defined flag
+combinations for each record type and reports record counts, distinct flag
+sets and payload bytes from `SOE_TEST_SAVES` when that corpus is configured.
