@@ -1,11 +1,15 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use soe_save::{reference::flags, ChangeForm, RefId};
+use soe_save::{ChangeForm, RefId, reference::flags};
 
 fn change(version: u8, form_flags: Option<(u32, u16)>) -> ChangeForm {
     let data = form_flags.map_or_else(Vec::new, |(mask, unknown)| {
-        [mask.to_le_bytes().as_slice(), unknown.to_le_bytes().as_slice()].concat()
+        [
+            mask.to_le_bytes().as_slice(),
+            unknown.to_le_bytes().as_slice(),
+        ]
+        .concat()
     });
     ChangeForm {
         form: RefId::from_bytes([0x40, 0x0A, 0x00]),
