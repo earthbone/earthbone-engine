@@ -271,6 +271,10 @@ Current behavior and compatibility limits:
   matching graph event fires, then returns true. Graph unload or disabling the
   reference completes the wait with false. Waiting latent IDs and completed
   results are stored in the world `ANM-58` save section.
+- `ObjectReference.InterruptCast`, `ForceAddRagdollToWorld`,
+  `ForceRemoveRagdollFromWorld` and `TetherToHorse` remain registered quiet
+  stubs. The game native layer does not call a cast interruption, ragdoll or
+  host tether API for these methods.
 - `Message.Show` puts a `DNAM` message-box message in the box queue and any
   other in the notification queue, and returns button 0. A scene starts at
   phase zero. `World::complete_scene_action` marks an action slot complete,

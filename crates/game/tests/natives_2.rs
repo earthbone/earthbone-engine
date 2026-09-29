@@ -1858,6 +1858,49 @@ fn anm_58_graph_events_resume_named_waits_true() {
     );
 }
 
+/// `WaitForAnimationEvent` takes the event name from its sole argument and
+/// waits on the called reference, matching names without case sensitivity.
+#[test]
+fn scr_41_wait_for_animation_event_uses_reference_and_event_argument() {
+    let mut g = game();
+    let sender = obj(&mut g, "GuardRef");
+    let source = g.form("GuardRef").unwrap();
+    let thread = wait_for_animation_thread(&mut g, &sender, "finished");
+
+    let unrelated = g.form("MarkerRef").unwrap();
+    g.report_animation_event(unrelated, "finished");
+    g.run_until_idle(64);
+    assert_eq!(g.vm.thread_result(thread), None);
+
+    g.report_animation_event(source, "other");
+    g.run_until_idle(64);
+    assert_eq!(g.vm.thread_result(thread), None);
+
+    g.report_animation_event(source, "FINISHED");
+    g.run_until_idle(64);
+    assert_eq!(g.vm.thread_result(thread), Some(Value::Bool(true)));
+    assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
+/// A disabled reference and an unloaded animation graph finish the wait
+/// with false.
+#[test]
+fn scr_41_wait_for_animation_event_reports_false_when_unavailable() {
+    let mut g = game();
+    let sender = obj(&mut g, "GuardRef");
+    let source = g.form("GuardRef").unwrap();
+    let unloaded = wait_for_animation_thread(&mut g, &sender, "finished");
+    g.animation_graph_unloaded(source);
+    g.run_until_idle(64);
+    assert_eq!(g.vm.thread_result(unloaded), Some(Value::Bool(false)));
+
+    let disabled = wait_for_animation_thread(&mut g, &sender, "finished");
+    call(&mut g, &sender, "DisableNoWait", &[]);
+    g.run_until_idle(64);
+    assert_eq!(g.vm.thread_result(disabled), Some(Value::Bool(false)));
+    assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
 #[test]
 fn anm_58_graph_unload_and_reference_disable_resume_false() {
     let mut g = game();
