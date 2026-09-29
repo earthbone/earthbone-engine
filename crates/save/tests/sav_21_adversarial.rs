@@ -50,13 +50,12 @@ fn all_observed_stacked_payloads_roundtrip_and_keep_the_following_boundary() {
         for form in &save.change_forms {
             let contents = match form.reference_contents(save.form_version) {
                 Ok(Some(contents)) => contents,
-                Ok(None) => continue,
                 Err(error) if error.to_string().contains("Stacked") => {
                     stacked += 1;
                     rejected += 1;
                     continue;
                 }
-                Err(_) => continue,
+                Ok(None) | Err(_) => continue,
             };
             let mut count = contents.extra.as_ref().map_or(0, stacked_count);
             if let Some(inventory) = &contents.inventory {
