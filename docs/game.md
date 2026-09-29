@@ -61,6 +61,10 @@ week 6 to 9 gate.
   also starts the quests flagged Start Game Enabled, `tick` advances time,
   `activate` and `send_event` do what a player or the engine would, `pump`
   drains what natives queued.
+- The MIT CommonLib world adapter reads GMST settings, calendar hour, and active
+  reanimation effects from this same `World`. Sit and sleep animation state is
+  not stored by the runtime, so the adapter reports it as unsupported. Binary
+  address and vtable hooks have no runtime target.
 
 ## Design
 

@@ -70,7 +70,13 @@ sources with continue-or-stop control, SKSE plugin interfaces as traits, NetImme
 and a `support` table that keeps the group counts aligned with this document.
 
 `src/headers.rs` generates the corresponding supported C++ surface under `include/RE` and
-`include/SKSE`. `RE/Skyrim.h` and `SKSE/SKSE.h` are the umbrella includes. Regenerate the files
+`include/SKSE`. `RE/Skyrim.h` and `SKSE/SKSE.h` are the umbrella includes. The world view
+binds settings, calendar hour, and active MGEF effects with the reanimation archetype to the
+game runtime. Actor sit and sleep animation state is not represented, and returns an explicit
+unsupported result. Binary address and vtable hooks also return an unsupported result. The
+mapping follows the local CommonLibSSE-NG `ReanimateEffect.h`, `EffectArchetypes.h`,
+`ActorState.h`, `Setting.h`, `Sky.h` and `TES.h` declarations. These declarations remain
+source-level contracts without a C ABI. Regenerate the files
 after changing the header mapping with `cargo run -p soe-commonlib-shim --bin generate-headers`.
 The declarations are source-level headers only. They do not provide a C ABI or engine bindings.
 The mapping follows the Rust API while adapting Rust names and types to C++, including
