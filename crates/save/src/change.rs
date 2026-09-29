@@ -279,6 +279,48 @@ impl ChangeForm {
     }
 }
 
+#[cfg(test)]
+mod sav_55_projectile_envelope_tests {
+    use super::ChangeForm;
+    use crate::{cursor::Cursor, cursor::RefId};
+
+    #[test]
+    fn sav_55_projectile_subtype_ids_preserve_flags_and_payload_envelope() {
+        let subtypes = [
+            (2, "PMIS"),
+            (3, "PGRE"),
+            (4, "PBEA"),
+            (5, "PFLA"),
+            (40, "PHZD"),
+            (41, "PBAR"),
+            (42, "PCON"),
+            (47, "PARW"),
+        ];
+        let payload = [0x10, 0x20, 0x30, 0x40, 0x50];
+
+        for (index, expected_type) in subtypes {
+            let flags = 1_u32 << (index % 32);
+            let form = ChangeForm {
+                form: RefId::from_bytes([0; 3]),
+                change_flags: flags,
+                type_field: index,
+                version: 0,
+                uncompressed_len: 0,
+                data: payload.to_vec(),
+            };
+            let mut bytes = Vec::new();
+            form.write(&mut bytes);
+            let mut cursor = Cursor::new(&bytes, "SAV-55 projectile fixture");
+            let decoded = ChangeForm::read(&mut cursor).unwrap();
+
+            assert_eq!(decoded.record_type(), expected_type);
+            assert_eq!(decoded.change_flags, flags);
+            assert_eq!(decoded.data, payload);
+            assert_eq!(cursor.remaining(), 0);
+        }
+    }
+}
+
 /// Saved CLAS sections. xEdit names tag skills but defines no payload for it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ClassChange {
@@ -481,4 +523,83 @@ pub fn quest_payload(stages: &[QuestStage]) -> Option<Vec<u8>> {
         out.push(stage.status);
     }
     Some(out)
+}
+
+#[cfg(test)]
+mod sav_11_tests {
+    use super::{ChangeForm, TYPES};
+    use crate::cursor::{Cursor, RefId};
+
+    fn projectile_change(type_index: u8, flags: u32) -> ChangeForm {
+        ChangeForm {
+            form: RefId::from_bytes([0x40, 0, 1]),
+            change_flags: flags,
+            type_field: type_index,
+            version: 78,
+            uncompressed_len: 0,
+            data: vec![0x01, 0x23, 0x45, 0x67],
+        }
+    }
+
+    #[test]
+    fn sav_11_projectile_headers_and_payload_bytes_round_trip_for_each_flag_word() {
+        let flags = [
+            0,
+            1 << 0,
+            1 << 1,
+            1 << 2,
+            1 << 3,
+            1 << 4,
+            1 << 5,
+            1 << 6,
+            1 << 7,
+            1 << 10,
+            1 << 11,
+            1 << 12,
+            1 << 21,
+            1 << 22,
+            1 << 23,
+            1 << 25,
+            1 << 26,
+            1 << 27,
+            1 << 28,
+            1 << 29,
+            1 << 30,
+            1 << 31,
+            0x1000_0002,
+            u32::MAX,
+        ];
+        for type_index in 2..=4 {
+            for change_flags in flags {
+                let original = projectile_change(type_index, change_flags);
+                let mut bytes = Vec::new();
+                original.write(&mut bytes);
+
+                let mut cursor = Cursor::new(&bytes, "SAV-11 change form");
+                let decoded = ChangeForm::read(&mut cursor).unwrap();
+                assert_eq!(decoded.record_type(), TYPES[type_index as usize]);
+                assert_eq!(decoded.change_flags, change_flags);
+                assert_eq!(decoded.version, original.version);
+                assert_eq!(decoded.data, original.data);
+                let mut reencoded = Vec::new();
+                decoded.write(&mut reencoded);
+                assert_eq!(reencoded, bytes);
+            }
+        }
+    }
+
+    #[test]
+    fn sav_11_truncated_projectile_headers_and_payloads_are_rejected() {
+        for type_index in 2..=4 {
+            let mut bytes = Vec::new();
+            projectile_change(type_index, 1 << 1).write(&mut bytes);
+            for end in 0..bytes.len() {
+                let mut cursor = Cursor::new(&bytes[..end], "SAV-11 change form");
+                assert!(
+                    ChangeForm::read(&mut cursor).is_err(),
+                    "type {type_index} accepted a prefix ending at byte {end}"
+                );
+            }
+        }
+    }
 }

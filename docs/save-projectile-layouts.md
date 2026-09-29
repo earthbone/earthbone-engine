@@ -3,7 +3,10 @@
 SAV-55 records a shared source prerequisite for SAV-11, SAV-23 and SAV-25.
 Their original decoder completion checks remain unchanged. The sources below
 do not establish exact serialized layouts for all eight subtypes, so those
-decoders remain blocked. This audit adds no parser or runtime behavior.
+decoders remain blocked. The parser keeps these payloads opaque. A synthetic
+SAV-55 regression test pins the eight public type indices and the generic
+change-form header's flag and payload round trip. It does not assert subtype
+field order or internal payload boundaries.
 
 ## Local source evidence
 
@@ -34,6 +37,13 @@ offsets alone do not define ESS serialization. In particular, neither applying
 the unused projectile structure to hazards nor assuming PARW equals PMIS is
 justified by these declarations.
 
+The FO4 and earlier xEdit save definitions contain related projectile
+structures, but they are for different games and do not establish Skyrim SE
+field layouts. The Skyrim definitions remain the only relevant xEdit source
+consulted here. FallrimTools' `ChangeForm.java` reads the payload as raw bytes
+when no typed reader is registered. These references therefore do not supply
+the missing field order or flag semantics.
+
 ## Required evidence
 
 A public Skyrim serialization definition or controlled vanilla fixtures must
@@ -41,6 +51,11 @@ establish the subtype binding, supported versions, flag order and exact field
 boundaries for each subtype. Fixtures need recorded build versions, identities,
 operations and independently observed state. Parsing must account for the
 complete payload and reject unsupported combinations before state changes.
+
+The current regression test covers only the outer type-index mapping and
+generic header envelope. It cannot close this prerequisite. The local
+60-save survey cited below provides coverage counts, but not controlled
+operations or independent per-field observations.
 
 The SAV-11 research checkpoint `4d2afa8` surveyed 60 saves and found 40 PMIS
 payloads totaling 10,854 bytes, 169 PGRE payloads totaling 29,169 bytes and no
