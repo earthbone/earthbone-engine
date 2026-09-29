@@ -1523,6 +1523,20 @@ formula, which the engine does not run yet. The Papyrus native
 LastBribedIntimidated yet either, so `IsIntimidatedbyPlayer` reads false until
 a bribe or intimidate native writes it.
 
+AI-46 adds `GetBribeSuccess` (654) and `GetArrestedState` (656). Both take no
+parameters. Bribe success reads the subject's `LastBribedIntimidated` actor
+value, the shared flag described by CK's `SetBribed` and `IsBribed` pages.
+Arrested state reads the subject actor's `arrested` field, matching CK's
+`IsArrested`. Nonzero unused parameter slots and subjects without actor state
+return explicit errors. `GetArrestingActor` (657) remains unsupported: CK's
+`IsArrestingTarget` describes a live guard arrest interaction, but the runtime
+has no arresting-target state to evaluate. Its condition is reported as
+`Error::Function(657)` instead of guessing from combat or alert state. The
+function names and parameter counts follow local xEdit
+`wbDefinitionsTES5.pas` and UESP `Raw_Function_Data.wikitext`; the actor
+contracts follow the local CK `SetBribed`, `IsBribed`, `IsArrested` and
+`IsArrestingTarget` pages.
+
 DLG-04 implements favor spending, INFO response DATA/ENAM flag bit 14 in
 `wbDefinitionsTES5.pas` ("Spends Favor Points"). `info_eligible` now treats
 refusal records as fallback responses. Invisible continuation runs after an

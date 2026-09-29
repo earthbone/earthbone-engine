@@ -138,7 +138,9 @@ pub fn supports_function(function: u16) -> bool {
             | 606
             | 629
             | 630
+            | 654
             | 655
+            | 656
             | 659
     )
 }
@@ -346,6 +348,22 @@ fn function_value(
             no_parameter(c)?;
             boolean(world.dialogue.greeting_actor == Some(subject))
         }
+        654 => {
+            // GetBribeSuccess observes the player's bribe outcome. The CK
+            // SetBribed/IsBribed contract stores bribed and intimidated
+            // outcomes in LastBribedIntimidated, which is also used by
+            // IsIntimidatedbyPlayer (function 116).
+            no_parameter(c)?;
+            boolean(
+                world
+                    .actor(subject)
+                    .ok_or(Error::Form(subject))?
+                    .values
+                    .get("lastbribedintimidated")
+                    .current()
+                    != 0.0,
+            )
+        }
         225 | 315 => {
             // GetPersuasionNumber and GetTotalPersuasionNumber take no parameter
             // either (wbDefinitionsTES5.pas:340,385, Raw_Function_Data.wikitext
@@ -499,6 +517,11 @@ fn function_value(
                 // dlg_07_missing_aidt_adversarial.rs).
                 boolean(false)
             }
+        }
+        656 => {
+            // CK Actor.IsArrested reports the actor's current arrest state.
+            no_parameter(c)?;
+            boolean(world.actor(subject).ok_or(Error::Form(subject))?.arrested)
         }
         659 => boolean(context.tempering_enchanted.ok_or(Error::TemperingContext)?),
         other => return Err(Error::Function(other)),
