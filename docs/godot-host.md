@@ -1051,8 +1051,8 @@ The last step, a speaker. These tests prove the chain up to the exact bytes
 `AudioStreamWav` is handed, which is where a conversion bug lives. Whether a
 device makes noise needs a windowed Godot run with a `SoundBank` in the tree,
 `open_data` pointed at the install, and `play_effect` called with a footstep
-path. Nothing yet drives `SoundBank` from the game loop, so footsteps are not
-wired to the character controller and voice lines are not wired to dialogue.
+path. Footsteps are driven by the character controller. Dialogue response
+audio is now driven by the dialogue menu.
 `SoundBank::open_data` and the profile-taking `DataSource` entry point build
 their VFS from resolved profile archives and loose roots. Both direct paths
 retain the supplied data directory. The selected
@@ -1726,6 +1726,34 @@ with selection limits described in [game.md](game.md). Animation timing,
 landing/scuff sounds and NPC footstep delivery remain pending. The current
 controller does not supply submerged state to audio.
 
+## Dialogue voice playback
+
+When a selected INFO response starts, the dialogue menu resolves its voice
+asset from the response and current speaker. An explicit TRDT sound override
+does not use the generated voice path. Otherwise the path uses the response
+INFO's owning plugin filename, the DIAL and QUST editor IDs, the response
+INFO's local FormID, its response number and the speaker's VTYP editor ID.
+NPC speakers take VTCK from their Traits template source. Talking activators
+take VNAM. The current speaker reference position is converted from Skyrim
+units to Godot metres and passed to `AudioStreamPlayer3D`. The filename rule
+follows `../engine-refs/Mutagen/Mutagen.Bethesda.Skyrim/Records/Assets/VoiceType/VoiceTypeAssetLookup.cs`.
+The runtime already has the selected speaker, so it resolves that speaker's
+voice type rather than enumerating the static candidate set used by the asset
+lookup.
+
+The menu remembers the voice slot returned by `SoundBank`. Starting a later
+response stops the prior dialogue slot first. Closing the dialogue menu and
+advancing past the final response also stop the tracked voice. SoundBank
+refuses to stop a slot that has since been released or reused for an effect.
+
+The selected FUZ's LIP block is decoded with the voice buffer. SoundBank
+samples the native mouth targets against that player's playback position,
+spreading the stored frames over the decoded voice duration. The
+`dialogue_mouth_weights` method returns the current weights in LIP target
+order. Stopping or finishing the voice clears the track and returns its
+weights to zero. Lines without a decodable LIP block keep the mouth weights
+empty or neutral.
+
 `godot/sound_descriptor_test.gd` verifies real descriptor playback and cache
 reuse through AudioEffectCapture. Its Godot 4.7.2 run captured 20,480 frames with
 peak 0.01579 and exactly one decode across two plays. This is mixer output,
@@ -2154,6 +2182,31 @@ parser or dependency was added. Other dismember states are unchanged.
 checks failed-model rollback, null skins and unchanged inventory. Its cached-view
 cost threshold is 2 ms per actor, written before measurement. A five-race survey
 checks authored human and beast addon paths against the installed archives.
+
+## Facial viseme pose mapping (ANM-13)
+
+`facial::sample_facial_pose` samples a `VisemeTrack`, maps its shapes through
+the supplied race's `PHTN` target names and `PHWT` weights, then applies matching
+FaceGen TRI deltas to the TRI base vertices. The returned weights retain every
+race target in record order. Targets without a matching TRI morph remain in the
+weight list and leave the geometry unchanged. Each sample starts from base
+vertices, so an idle cue whose authored weights are zero restores the neutral
+pose without accumulating prior frames. `sample_shape_weights` accepts weighted
+shapes directly for consumers of native LIP curves.
+
+The bridge uses `audio::viseme::morph_weights`, `nif::HeadTri::apply_morph`,
+and the race parser. The local `nifly/include/Animation.hpp` models the
+`NiMorphData` NIF block as named frame morph vectors, while `nifxml/nif.xml`
+documents that block and its controller separately from FaceGen TRI. The
+`TES5Edit/Core/wbDefinitionsTES5.pas` and Mutagen Skyrim `Race.xml` sources
+confirm that `PHTN` carries target names and `PHWT` stores per-phoneme weights.
+This API returns evaluated positions for the caller to install on a face mesh.
+It does not load a race-specific TRI or update a Godot rendering instance.
+
+`anm_13_viseme_sequence_drives_race_declared_morphs_and_returns_to_neutral`
+checks that a sequence applies its race-declared target to the matching TRI
+morph, leaves unrelated vertices unchanged, and returns the head to its base
+pose for an authored idle cue.
 
 The installed five-race survey assembles six model paths and 22 shapes, including
 Argonian and Khajiit tails. Both tails name `TailBone01` through `TailBone05`, which
