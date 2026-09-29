@@ -177,6 +177,39 @@ fn a_patch_carries_where_it_came_from() {
 }
 
 #[test]
+fn mod_07_each_patch_kind_retains_fixture_provenance() {
+    let order = order();
+    let kid = KidFile::from_ini(&Ini::parse(
+        "Example_KID.ini",
+        "; source: test-authored fixture\nKeyword = MyKeyword|Armor|Iron\n",
+    ));
+    let spid = DistrFile::from_ini(&Ini::parse(
+        "Example_DISTR.ini",
+        "; source: test-authored fixture\nSpell = MySpell|Bandit\n",
+    ));
+    let bos = SwapFile::from_ini(&Ini::parse(
+        "Example_SWAP.ini",
+        "; source: test-authored fixture\n[Forms]\nRock|Tree\n",
+    ));
+
+    let patches = [
+        resolve_kid(&kid, &order).remove(0),
+        resolve_spid(&spid, &order).remove(0),
+        resolve_bos(&bos, &order).remove(0),
+    ];
+    let expected = [
+        ("Example_KID.ini", 2),
+        ("Example_DISTR.ini", 2),
+        ("Example_SWAP.ini", 3),
+    ];
+
+    for (patch, (source, line)) in patches.iter().zip(expected) {
+        assert_eq!(patch.source.to_str(), Some(source));
+        assert_eq!(patch.line, line);
+    }
+}
+
+#[test]
 fn resolution_preserves_deterministic_chance_instead_of_erasing_it() {
     let file = DistrFile::from_ini(&Ini::parse(
         "t_DISTR.ini",
