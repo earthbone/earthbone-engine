@@ -195,6 +195,7 @@ pub fn register(vm: &mut Vm, world: &Shared) -> Registered {
     fragments_and_effects(vm, world);
     active_magic(vm, world);
     image_space(vm, world);
+    shader_particle_geometry(vm, world);
     let stubs = stubs(vm);
     let natives = NATIVE_COUNT + stubs - (vm.natives.duplicates.len() - before);
     Registered { natives, stubs }
@@ -202,7 +203,7 @@ pub fn register(vm: &mut Vm, world: &Shared) -> Registered {
 
 /// Hand-kept count of the non-stub natives registered below. The test in
 /// this module checks it against the registry.
-pub const NATIVE_COUNT: usize = 366;
+pub const NATIVE_COUNT: usize = 368;
 
 fn declare_parents(vm: &mut Vm) {
     for (class, parent) in [
@@ -2525,6 +2526,37 @@ fn image_space(vm: &mut Vm, w: &Shared) {
     );
 }
 
+/// Shipped ShaderParticleGeometry methods operate on the SPGD-backed host
+/// effect state. The float is the fade time in seconds.
+fn shader_particle_geometry(vm: &mut Vm, w: &Shared) {
+    method!(
+        vm,
+        w,
+        "ShaderParticleGeometry",
+        "Apply",
+        |world, call, me| {
+            let fade_seconds = call.args.first().map_or(0.0, Value::as_float);
+            if let Err(error) = world.apply_shader_particle_geometry(me, fade_seconds) {
+                call.log.push(call.time, error.to_string());
+            }
+            none()
+        }
+    );
+    method!(
+        vm,
+        w,
+        "ShaderParticleGeometry",
+        "Remove",
+        |world, call, me| {
+            let fade_seconds = call.args.first().map_or(0.0, Value::as_float);
+            if let Err(error) = world.remove_shader_particle_geometry(me, fade_seconds) {
+                call.log.push(call.time, error.to_string());
+            }
+            none()
+        }
+    );
+}
+
 /// CK active-effect identity, queries and dispelling contracts.
 fn active_magic(vm: &mut Vm, w: &Shared) {
     method!(vm, w, "Actor", "HasMagicEffect", |world, call, me| {
@@ -3296,14 +3328,11 @@ fn stubs(vm: &mut Vm) -> usize {
         ("ObjectReference", "ForceAddRagdollToWorld"),
         ("ObjectReference", "ForceRemoveRagdollFromWorld"),
         ("ObjectReference", "TetherToHorse"),
-        // The shader, effect and music systems the DLC scripts lean on
-        // hardest. Nothing renders or sounds yet, so each one is quiet.
+        // Effect shader and music systems remain host work.
         ("EffectShader", "Play"),
         ("EffectShader", "Stop"),
         ("VisualEffect", "Play"),
         ("VisualEffect", "Stop"),
-        ("ShaderParticleGeometry", "Apply"),
-        ("ShaderParticleGeometry", "Remove"),
         ("MusicType", "Add"),
         ("MusicType", "Remove"),
         ("Topic", "Add"),

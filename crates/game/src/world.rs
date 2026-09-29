@@ -69,6 +69,7 @@ pub mod magic;
 mod npc_restore;
 mod objects;
 mod outfits;
+pub mod shader_particles;
 pub use npc_restore::NpcRestoreReport;
 mod record_overrides;
 mod skins;
@@ -545,6 +546,8 @@ pub struct World {
     pub(crate) active_effects: BTreeMap<magic::EffectId, magic::ActiveEffect>,
     pub(crate) next_effect: u64,
     pub(crate) image_space: image_space::ImageSpaceState,
+    /// Active shader particle geometries derived from winning SPGD records.
+    pub(crate) shader_particles: shader_particles::ShaderParticleState,
     /// Stealth-point pools by target, each with its observers' awareness.
     pub(crate) detection: crate::detection::DetectionState,
 }
@@ -637,6 +640,7 @@ impl World {
             active_effects: BTreeMap::new(),
             next_effect: 1,
             image_space: image_space::ImageSpaceState::default(),
+            shader_particles: shader_particles::ShaderParticleState::default(),
             detection: crate::detection::DetectionState::default(),
         }
     }
