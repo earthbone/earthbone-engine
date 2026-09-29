@@ -52,6 +52,9 @@ week 6 to 9 gate.
 - `clock`: real seconds drive the scheduler and update timers, game time runs
   at `timescale` (20) for `GetCurrentGameTime`.
 - `harness`: the conformance scenario runner, see `docs/validation.md`.
+- `wasm`: the Wasmtime component host. `wit/mod-api.wit` defines the versioned
+  `soe:mod-api` interface with `subscribe-on-activate` and `set-stage` imports
+  plus the initialization and activation exports.
 - `Game`: owns the VM and the world. `load_scripts_from_data` builds the load
   order's `soe_bsa::Vfs` (each plugin's `<stem> - Misc.bsa` or `<stem>.bsa`
   archive if the install shipped one, loose files on top) and loads every
@@ -3395,3 +3398,26 @@ CK `AddForm_-_FormList.wikitext` for import order and duplicate handling, and
 FallrimTools `ChangeFormFLST.java`, `ChangeFormLeveled.java` and
 `LeveledEntry.java`. Their Java readers cannot serve as Rust runtime code, so
 the existing typed save decoder and record override layer perform the mapping.
+
+## Component mods, SCR-03
+
+`Game::load_wasm_mod` compiles and initializes a Wasmtime component using the
+versioned `soe:mod-api@0.1.0` WIT package in `crates/game/wit/mod-api.wit`.
+Components can subscribe to `OnActivate` and request `SetStage` with a resolved
+form file and object pair. The host queues the request and applies it through
+`Game::set_stage`, so quest state and queued Papyrus work remain in the shared
+world and VM. Each guest call has a 100,000 instruction fuel budget. The
+linker provides the engine interface and WASI Preview 2 with an empty context,
+without inherited stdio, environment, arguments or preopened directories.
+
+`Game::activate` and `Game::activate_deferred` dispatch subscribed callbacks
+after the normal activation succeeds. The Rust guest fixture in
+`tests/fixtures/scr_03_mod` builds to `wasm32-wasip2`; its integration test
+subscribes during initialization and advances a synthetic quest from its
+activation callback. The host API currently contains these two operations.
+
+The component embedding follows [Wasmtime's component model
+API](https://docs.wasmtime.dev/api/wasmtime/component/index.html) and the
+[Rust component build
+guide](https://component-model.bytecodealliance.org/language-support/creating-runnable-components/rust.html).
+The project decision and acceptance check are in `ENGINE-PLAN.md`, round 4.
