@@ -1305,8 +1305,16 @@ iron ingot and produced ten nails. Explicit PlayerRef inventory conditions
 also passed. Predicate presence across the survey does not establish that
 every recipe is executable or that all predicate contexts match vanilla.
 
-Tempering, alchemy, enchanting, skill advancement, crafting story events,
-item instance state and host menus remain unfinished. The full requested
+Successful `Game::craft` transactions enqueue one `CraftItem` Story Manager
+input with bench, current location and created item arguments. Rejected
+transactions enqueue none. `World::take_story_manager_events` transfers these
+inputs to the scheduler. PRG-14 node selection and quest start are absent from
+this branch, so the inputs do not yet start a quest or deliver
+`OnStoryCraftItem` to its scripts.
+
+Tempering, alchemy, enchanting, skill advancement, Story Manager quest
+selection for crafting events, item instance state and host menus remain
+unfinished. The full requested
 execution scope is tracked in [execution-plan.md](execution-plan.md).
 
 The game crate now directly uses the workspace's existing thiserror 2.0.20

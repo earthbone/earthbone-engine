@@ -503,6 +503,8 @@ pub struct World {
     rng: u64,
     pub clock: GameClock,
     pub pending: Vec<Pending>,
+    /// Story Manager inputs awaiting PRG-14 node selection.
+    pub story_manager_events: Vec<crate::quest::state::StoryManagerEvent>,
     pub timers: Vec<UpdateTimer>,
     pub notifications: Vec<String>,
     pub message_boxes: Vec<String>,
@@ -603,6 +605,7 @@ impl World {
             rng: 0x9E37_79B9_7F4A_7C15,
             clock: GameClock::default(),
             pending: Vec::new(),
+            story_manager_events: Vec::new(),
             timers: Vec::new(),
             notifications: Vec::new(),
             message_boxes: Vec::new(),
