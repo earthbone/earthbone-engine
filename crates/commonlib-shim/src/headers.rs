@@ -70,6 +70,7 @@ const RE_REFERENCE: &str = r#"// Generated from crates/commonlib-shim/src/refr.r
 #pragma once
 #include "RE/Math.h"
 #include "RE/Form.h"
+#include "RE/World.h"
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -80,16 +81,6 @@ struct ActorHandle {
     std::uint32_t value;
     constexpr operator ObjectRefHandle() const noexcept { return {value}; }
 };
-struct ActorValue {
-    std::uint32_t value;
-    static const ActorValue HEALTH;
-    static const ActorValue MAGICKA;
-    static const ActorValue STAMINA;
-};
-inline const ActorValue ActorValue::HEALTH{24};
-inline const ActorValue ActorValue::MAGICKA{25};
-inline const ActorValue ActorValue::STAMINA{26};
-
 class ObjectRef {
 public:
     virtual ~ObjectRef() = default;
@@ -162,6 +153,78 @@ public:
 };
 } // namespace RE
 ";
+
+const RE_WORLD: &str = r#"// Generated from crates/commonlib-shim/src/world.rs. Do not edit.
+#pragma once
+#include "RE/Form.h"
+#include <array>
+#include <cstdint>
+#include <optional>
+#include <string>
+
+namespace RE {
+struct ActorValue {
+    std::uint32_t value;
+    static const ActorValue HEALTH;
+    static const ActorValue MAGICKA;
+    static const ActorValue STAMINA;
+};
+inline const ActorValue ActorValue::HEALTH{24};
+inline const ActorValue ActorValue::MAGICKA{25};
+inline const ActorValue ActorValue::STAMINA{26};
+enum class UnsupportedHook { ArrowProjectile, LoadFormBuffer };
+
+class WorldState {
+public:
+    virtual ~WorldState() = default;
+    virtual std::optional<float> actor_value(std::uint32_t actor, ActorValue value) const = 0;
+    virtual bool set_actor_value(std::uint32_t actor, ActorValue value, float amount) = 0;
+    virtual std::optional<std::string> actor_value_name(ActorValue value) const = 0;
+    virtual std::optional<ActorValue> actor_value_by_name(const std::string& name) const = 0;
+    virtual std::optional<FormId> default_object(std::array<char, 4> key) const = 0;
+};
+
+class ActorValueList {
+public:
+    explicit ActorValueList(WorldState& state) : state_(state) {}
+    std::optional<float> get_actor_value_info(std::uint32_t actor, ActorValue value) const {
+        return state_.actor_value(actor, value);
+    }
+    bool set_actor_value(std::uint32_t actor, ActorValue value, float amount) {
+        return state_.set_actor_value(actor, value, amount);
+    }
+    std::optional<std::string> get_actor_value_info(ActorValue value) const {
+        return state_.actor_value_name(value);
+    }
+    std::optional<std::string> get_actor_value_name(ActorValue value) const {
+        return state_.actor_value_name(value);
+    }
+    std::optional<ActorValue> lookup_actor_value_by_name(const std::string& name) const {
+        return state_.actor_value_by_name(name);
+    }
+private:
+    WorldState& state_;
+};
+
+class BGSDefaultObjectManager {
+public:
+    explicit BGSDefaultObjectManager(const WorldState& state) : state_(state) {}
+    std::optional<FormId> get(std::array<char, 4> key) const { return state_.default_object(key); }
+private:
+    const WorldState& state_;
+};
+
+struct ArrowProjectile {
+    static constexpr UnsupportedHook save_game() noexcept { return UnsupportedHook::ArrowProjectile; }
+    static constexpr UnsupportedHook load_game() noexcept { return UnsupportedHook::ArrowProjectile; }
+    static constexpr UnsupportedHook process_impacts() noexcept { return UnsupportedHook::ArrowProjectile; }
+};
+struct BGSLoadFormBuffer {
+    static constexpr UnsupportedHook get_version() noexcept { return UnsupportedHook::LoadFormBuffer; }
+    static constexpr UnsupportedHook load_form() noexcept { return UnsupportedHook::LoadFormBuffer; }
+};
+} // namespace RE
+"#;
 
 const RE_EVENTS: &str = r"// Generated from crates/commonlib-shim/src/events.rs. Do not edit.
 #pragma once
@@ -327,11 +390,12 @@ inline constexpr Unsupported TRAMPOLINE{
 const FILES: &[(&str, &str)] = &[
     ("RE/Form.h", RE_FORM),
     ("RE/Reference.h", RE_REFERENCE),
+    ("RE/World.h", RE_WORLD),
     ("RE/Math.h", RE_MATH),
     ("RE/Events.h", RE_EVENTS),
     ("RE/Utility.h", RE_UTILITY),
     ("RE/VirtualMachine.h", RE_VM),
-    ("RE/Skyrim.h", "// Generated umbrella for the supported RE surface. Do not edit.\n#pragma once\n#include \"RE/Form.h\"\n#include \"RE/Reference.h\"\n#include \"RE/Events.h\"\n#include \"RE/Utility.h\"\n#include \"RE/VirtualMachine.h\"\n"),
+    ("RE/Skyrim.h", "// Generated umbrella for the supported RE surface. Do not edit.\n#pragma once\n#include \"RE/Form.h\"\n#include \"RE/Reference.h\"\n#include \"RE/World.h\"\n#include \"RE/Events.h\"\n#include \"RE/Utility.h\"\n#include \"RE/VirtualMachine.h\"\n"),
     ("SKSE/Interfaces.h", SKSE_INTERFACES),
     ("SKSE/SKSE.h", "// Generated umbrella for the supported SKSE surface. Do not edit.\n#pragma once\n#include \"SKSE/Interfaces.h\"\n"),
 ];

@@ -2,6 +2,7 @@
 #pragma once
 #include "RE/Math.h"
 #include "RE/Form.h"
+#include "RE/World.h"
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -12,16 +13,6 @@ struct ActorHandle {
     std::uint32_t value;
     constexpr operator ObjectRefHandle() const noexcept { return {value}; }
 };
-struct ActorValue {
-    std::uint32_t value;
-    static const ActorValue HEALTH;
-    static const ActorValue MAGICKA;
-    static const ActorValue STAMINA;
-};
-inline const ActorValue ActorValue::HEALTH{24};
-inline const ActorValue ActorValue::MAGICKA{25};
-inline const ActorValue ActorValue::STAMINA{26};
-
 class ObjectRef {
 public:
     virtual ~ObjectRef() = default;

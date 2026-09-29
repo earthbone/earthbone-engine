@@ -1,5 +1,11 @@
 # soe-game: the runtime form table and the first natives
 
+The MIT CommonLib shim's `WorldState` implementation reads and writes actor
+values in the existing actor component store for actors already built in the
+world. It resolves actor-value indices through the vanilla actor-value name
+table. Its default-object lookup reads DOBJ records through the footstep
+record view and returns the resolved FormID. It does not cache either result.
+
 The combat integration includes race-based unarmed damage, difficulty selection,
 template-backed hits,
 armor slot replacement and explicit weapon hands. SOEW version 20 retains
