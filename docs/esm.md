@@ -183,6 +183,10 @@ cell moves it in the index, and a winner with the deleted flag is dropped.
 `tests/cell_index.rs` checks both on a synthetic master plus a patch, round
 tripped through bytes so the placements come from the parser, and that adding a
 file drops the cached index.
+`tests/tst_03_load_order.rs` checks empty and populated form-table queries and
+created FormID packing. The TST-03 case in `tests/cell_index.rs` checks deleted
+reference and world counts, plus lowest-id selection within an interior class
+and interior priority when a lower-id exterior cell shares its editor id.
 
 `soe-godot-host`'s `DataSource` builds the index at open and streams a cell from
 it, see `docs/performance.md` for what that changed.

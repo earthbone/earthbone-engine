@@ -382,6 +382,10 @@ It checks PEX model and byte round trips, then resumes in a fresh VM and compare
 state and results against uninterrupted execution and an independent integer
 sum. The test uses the workspace's existing proptest dependency.
 
+`tests/tst_03_mutation.rs` checks value-kind defaults, scalar conversions,
+array identity, comparisons between value kinds and leading-number parsing. It
+also runs an assembled static call whose callee performs integer addition.
+
 State loading now rejects a frame instance index outside the instance table
 before replacing live state. A regression test corrupts a saved frame and checks
 both rejection and preservation of the original state. The new
