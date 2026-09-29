@@ -2,6 +2,7 @@
 
 //! NPC changes must reach shared records and actors across file namespaces.
 
+use super::legacy;
 use super::*;
 use soe_game::npc::{self, Config, Stats};
 use soe_save::npc::flags as saved_flags;
@@ -286,15 +287,18 @@ fn record_overrides_persist_before_actor_initialization_and_old_saves_clear_them
     let before = world.save_state();
     let hash = world.state_hash();
     let mut v13 = before.clone();
-    // `empty` carries 75 more tail bytes than the earlier section table when
-    // locating the version 13 record fields.
-    let origin_fields = empty.len() - 117;
+    let mut marker = 1_u32.to_le_bytes().to_vec();
+    marker.extend(0_u16.to_le_bytes());
+    marker.extend(0x800_u32.to_le_bytes());
+    let origin_fields = legacy::unique_offset(&before, &marker) + marker.len();
     v13.drain(origin_fields..origin_fields + 13);
     // CONTEXT: Version 13 has no list metadata byte in record overrides.
     v13.remove(origin_fields + 14);
-    // Remove version 37 world sections and detection state from the tail.
-    v13.truncate(v13.len() - 123);
     v13[4..6].copy_from_slice(&13_u16.to_le_bytes());
+    let tail = legacy::version_tail_len(&v13, |candidate| {
+        World::new(fixture_order()).load_state(candidate).is_ok()
+    });
+    v13.truncate(v13.len() - tail);
     let mut legacy = World::new(fixture_order());
     legacy.load_state(&v13).unwrap();
     assert_eq!(legacy.save_state(), before);
@@ -311,9 +315,11 @@ fn record_overrides_persist_before_actor_initialization_and_old_saves_clear_them
         assert_eq!(loaded.save_state(), stable);
     }
     let mut v12 = empty;
-    // Same tail growth as v13 above plus 15 bytes for SAV-53.
-    v12.truncate(v12.len() - 112);
     v12[4..6].copy_from_slice(&12_u16.to_le_bytes());
+    let tail = legacy::version_tail_len(&v12, |candidate| {
+        World::new(fixture_order()).load_state(candidate).is_ok()
+    });
+    v12.truncate(v12.len() - tail);
     loaded.load_state(&v12).unwrap();
     assert!(loaded.restored_npc_extra(id(0, 0x800)).is_none());
     assert_eq!(

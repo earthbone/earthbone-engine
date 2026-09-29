@@ -33,6 +33,9 @@ mod static_objects;
 #[path = "vanilla_save/woop_mgef.rs"]
 mod woop_mgef;
 
+#[path = "common/legacy.rs"]
+mod legacy;
+
 #[path = "common/installed.rs"]
 mod installed;
 

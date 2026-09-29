@@ -337,6 +337,35 @@ pub fn world_section_growth(bytes: &[u8]) -> usize {
     bytes.len() - reduced.len()
 }
 
+/// Return the number of trailing bytes a versioned reader rejects before the
+/// first prefix it accepts. The callback should parse with a fresh fixture.
+#[allow(dead_code)]
+pub fn version_tail_len(bytes: &[u8], accepts: impl Fn(&[u8]) -> bool) -> usize {
+    (0..=bytes.len())
+        .find(|cut| accepts(&bytes[..bytes.len() - cut]))
+        .expect("a legacy save prefix is accepted")
+}
+
+#[allow(dead_code)]
+pub fn unique_offset(bytes: &[u8], marker: &[u8]) -> usize {
+    let offsets: Vec<_> = bytes
+        .windows(marker.len())
+        .enumerate()
+        .filter_map(|(offset, window)| (window == marker).then_some(offset))
+        .collect();
+    assert_eq!(offsets.len(), 1, "save marker is not unique");
+    offsets[0]
+}
+
+#[allow(dead_code)]
+pub fn common_suffix_len(left: &[u8], right: &[u8]) -> usize {
+    left.iter()
+        .rev()
+        .zip(right.iter().rev())
+        .take_while(|(left, right)| left == right)
+        .count()
+}
+
 /// One actor's replaced fields and the sentinels written in their place.
 struct Saved {
     id: GlobalFormId,
