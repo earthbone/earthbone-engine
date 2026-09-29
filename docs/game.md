@@ -287,6 +287,12 @@ Current behavior and compatibility limits:
 
 ## Tests
 
+Installed integration tests use `tests/common/installed.rs`. Each test
+process caches parsed plugin files and load orders by their installed master
+set, then gives each `Game` its own mutable world over the shared immutable
+load order. `tst_14` checks in `combat_hits.rs` and `dialogue.rs` verify the
+cache reuse and world isolation.
+
 The `leveled-lists` follow-up adds `World::roll_leveled_items` for ordinary
 LVLI quantities. Callers supply the selection level and requested count.
 Highest eligible level, all eligible levels, per-count rolls, Use All,
