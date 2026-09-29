@@ -53,6 +53,7 @@ levels above 100 remain valid. Invalid actors, references and negative levels
 leave the queue unchanged. The host takes queued events once per observation
 step. Emitted sound uses the source's distance and line of sight, independently
 of the owner's position. The queue is transient and adds no save field.
+
 - `quest`: the `QUST` view. Flags, stages with log entries, objectives, aliases
   with forced references.
 - `natives`: the base game's natives, closed over the shared world.

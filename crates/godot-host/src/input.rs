@@ -780,7 +780,13 @@ PreviousFocus\t0x10+0x09,0xa1+0x09\t0xff\t0x0100\t0\t0\t0\t0x10
     fn the_defaults_cover_every_action() {
         let b = Bindings::default();
         for a in Action::all() {
-            assert!(b.get(a).is_some(), "{a:?} has no default binding");
+            assert!(
+                [b.get(a), b.mouse(a), b.gamepad(a)]
+                    .into_iter()
+                    .flatten()
+                    .any(|binding| !binding.is_unmapped()),
+                "{a:?} has no default binding"
+            );
         }
     }
 
@@ -1015,12 +1021,12 @@ PreviousFocus\t0x10+0x09,0xa1+0x09\t0xff\t0x0100\t0\t0\t0\t0x10
     #[test]
     fn every_default_binding_reaches_a_real_godot_key() {
         let b = Bindings::default();
-        for a in Action::all() {
-            for chord in &b.get(a).expect("a default").0 {
+        for (action, binding) in &b.keyboard {
+            for chord in &binding.0 {
                 for key in &chord.0 {
                     assert!(
                         godot_key_for(*key).is_some(),
-                        "{a:?} binds {key:#x}, which does not translate"
+                        "{action:?} binds {key:#x}, which does not translate"
                     );
                 }
             }

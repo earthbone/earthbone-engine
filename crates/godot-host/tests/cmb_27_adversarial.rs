@@ -48,17 +48,18 @@ fn cmb_27_vanilla_stagger_stop_returns_to_the_state_active_at_the_hit() {
     assert!(!before_hit.is_empty());
     vm.variables.set_by_name("staggerMagnitude", 1.0);
     assert!(vm.send_event_named("staggerStart"));
-    for _ in 0..90 {
+    let stagger_clip_active = (0..90).any(|_| {
         vm.update(1.0 / 60.0);
-    }
-    assert!(vm.active_clips().iter().any(|(id, _)| {
-        assets
-            .graph
-            .node(*id)
-            .name
-            .to_ascii_lowercase()
-            .contains("stagger")
-    }));
+        vm.active_clips().iter().any(|(id, _)| {
+            assets
+                .graph
+                .node(*id)
+                .name
+                .to_ascii_lowercase()
+                .contains("stagger")
+        })
+    });
+    assert!(stagger_clip_active);
     assert!(vm.send_event_named("staggerStop"));
     for _ in 0..180 {
         vm.update(1.0 / 60.0);
