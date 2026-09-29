@@ -13,6 +13,7 @@ const AMMO_NON_BOLT: u32 = 1 << 2;
 const AMMO_NON_PLAYABLE: u32 = 1 << 1;
 const AMMO_RECORD_NON_PLAYABLE: u32 = 1 << 2;
 const PROJ_HITSCAN: u16 = 1;
+const PROJ_CAN_BE_PICKED_UP: u16 = 1 << 6;
 const PROJ_ARROW: u16 = 1 << 6;
 
 /// Bow and crossbow equipment selected for a release.
@@ -158,7 +159,8 @@ impl World {
             speed,
             range,
             damage,
-            recoverable: ammo_record_playable
+            recoverable: flags & PROJ_CAN_BE_PICKED_UP != 0
+                && ammo_record_playable
                 && ammo_flags & AMMO_NON_PLAYABLE == 0
                 && ammo_flags & AMMO_NON_BOLT != 0,
         })

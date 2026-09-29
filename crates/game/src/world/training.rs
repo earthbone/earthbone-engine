@@ -115,7 +115,7 @@ impl World {
             .ok_or(Error::Trainer)?;
         let current = self.base_actor_value(player, skill);
         let cap = TRAINER_SKILL_CAPS[usize::from(class.maximum_training_level - 1)];
-        if !current.is_finite() || current < 0.0 || current >= cap {
+        if !current.is_finite() || current < 0.0 || current + 1.0 > cap {
             return Err(Error::Limit);
         }
         let raw_cost = current * cost_multiplier(self)?;

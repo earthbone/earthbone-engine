@@ -27,7 +27,9 @@ fn arrest_game() -> Game {
     );
     plugin.push_top(Record::new(T(b"MISC"), 0x702).zsub(T(b"EDID"), "Gold001"));
     let mut order = LoadOrder::new();
-    order.add("Base.esm", Plugin::parse(&plugin.to_bytes()).unwrap()).unwrap();
+    order
+        .add("Base.esm", Plugin::parse(&plugin.to_bytes()).unwrap())
+        .unwrap();
     let mut game = Game::new(order);
     let player = game.player();
     game.world_mut().actor(player).unwrap().crime_faction = Some(FACTION);
@@ -43,7 +45,7 @@ fn crime_values() -> [u8; 20] {
 
 #[test]
 fn prg_12_jail_resolution_survives_engine_save_load_without_reapplying() {
-    let mut game = arrest_game();
+    let game = arrest_game();
     {
         let mut world = game.world_mut();
         let faction = world.faction(FACTION).unwrap();
@@ -66,5 +68,8 @@ fn prg_12_jail_resolution_survives_engine_save_load_without_reapplying() {
     let faction = world.faction(FACTION).unwrap();
     assert_eq!(faction.crime_gold_violent, 0);
     assert_eq!(faction.crime_gold_nonviolent, 0);
-    assert_eq!(world.resolve_arrest(ArrestChoice::Jail), Err(soe_game::crime::Error::NoBounty));
+    assert_eq!(
+        world.resolve_arrest(ArrestChoice::Jail),
+        Err(soe_game::crime::Error::NoBounty)
+    );
 }

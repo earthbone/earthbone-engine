@@ -31,6 +31,7 @@ fn ranged_game(ammo_flags: u32, ammo_record_flags: u32) -> Game {
     ammo.flags = ammo_record_flags;
     plugin.push_top(ammo);
     let mut projectile = vec![0; 92];
+    projectile[0..2].copy_from_slice(&(1_u16 << 6).to_le_bytes());
     projectile[2..4].copy_from_slice(&(1_u16 << 6).to_le_bytes());
     projectile[4..8].copy_from_slice(&0.1_f32.to_le_bytes());
     projectile[8..12].copy_from_slice(&3000_f32.to_le_bytes());

@@ -47,12 +47,14 @@ fn dlg_16_training_never_crosses_class_skill_cap() {
     }
     let mut allocate = |_: &str, _: &str| ObjectId(1);
 
-    let result = game
-        .world_mut()
-        .purchase_training(trainer, &mut allocate);
+    let result = game.world_mut().purchase_training(trainer, &mut allocate);
 
-    assert!(
-        result.is_err() || game.world_mut().base_actor_value(player, "onehanded") <= 25.0,
-        "CLAS maximum training level is a cap, so a fractional skill cannot train above it"
+    assert_eq!(
+        result,
+        Err(soe_game::world::training::Error::Limit),
+        "a purchase cannot raise the skill above the CLAS maximum training level"
     );
+    let mut world = game.world_mut();
+    assert_eq!(world.base_actor_value(player, "onehanded"), 24.5);
+    assert_eq!(world.item_count(player, id(0x800)), 500);
 }
