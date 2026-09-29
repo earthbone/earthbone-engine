@@ -663,6 +663,7 @@ impl Game {
     pub fn tick_menu_mode(&mut self, real_seconds: f64, menu_mode: bool) {
         let mut game_hours = 0.0;
         if !menu_mode {
+            self.resume_quest_lifecycle_tasks();
             let vm = &mut self.vm;
             let mut w = self.world.borrow_mut();
             let before = w.clock.game_days;
@@ -687,6 +688,20 @@ impl Game {
             }
         }
         self.push_tick_hash();
+    }
+
+    fn resume_quest_lifecycle_tasks(&mut self) {
+        let tasks = self.world.borrow().lifecycle_tasks();
+        for (id, task) in tasks {
+            match task {
+                quest::state::LifecycleTask::Starting => {
+                    self.start_quest(id);
+                }
+                quest::state::LifecycleTask::Stopping => {
+                    self.world.borrow_mut().stop_quest(id);
+                }
+            }
+        }
     }
 
     /// Drain queued events and calls into the VM. Returns how many.

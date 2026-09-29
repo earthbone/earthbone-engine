@@ -220,6 +220,11 @@ impl Context<'_, '_> {
             } else {
                 None
             };
+            match q.lifecycle_task {
+                Some(crate::quest::state::LifecycleTask::Starting) => q.running = false,
+                Some(crate::quest::state::LifecycleTask::Stopping) => q.running = true,
+                None => {}
+            }
             if flags & 0x80 != 0 {
                 self.report.stage_wait.insert(id);
             }
