@@ -577,8 +577,9 @@ fn object_reference(vm: &mut Vm, w: &Shared) {
             call.arg(2).as_float(),
             call.arg(3).as_float(),
         ];
+        let match_rotation = call.args.get(4).is_none_or(Value::as_bool);
         if let Some(target) = world.form_arg(&call.arg(0)) {
-            world.move_to(me, target, offset);
+            world.move_to_with_rotation(me, target, offset, match_rotation);
         }
         none()
     });

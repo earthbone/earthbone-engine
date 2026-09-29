@@ -2067,6 +2067,11 @@ the event when the level changes, retaining the current locked state. Level
 zero is a novice lock, not an unlocked marker. Existing engine state saves and
 hashes already retain the mutable lock fields, so no save layout changed.
 
+`ObjectReference.MoveTo` applies its optional `abMatchRotation` argument. The
+Papyrus default is true, so a call without the fifth argument copies the
+target's rotation. Passing false preserves the moved reference's current
+rotation. Position offsets and destination cell are applied in both cases.
+
 Sources are local CK Lock, GetLockLevel, OnLockStateChanged and Activate pages,
 the shipped ObjectReference.psc declarations, and xEdit's XLOC definition.
 OpenMW's esm4 loader confirms that XLOC presence initializes a locked object.
