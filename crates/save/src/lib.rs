@@ -20,6 +20,7 @@
 //! the round trip test asserts.
 
 pub mod atomic;
+pub mod base_object;
 pub mod change;
 mod compress;
 pub mod created_objects;
@@ -36,9 +37,11 @@ pub mod quest;
 pub mod reference;
 pub mod table;
 
+pub use base_object::BaseObjectFields;
 pub use change::{ChangeForm, QuestStage};
 pub use change::{
-    ClassChange, FactionChange, FactionReaction, FactionReactions, RelationshipChange,
+    ClassChange, FactionChange, FactionReaction, FactionReactions, NavmeshChange, PackChange,
+    RelationshipChange,
 };
 pub use created_objects::{CreatedEffect, CreatedObject, CreatedObjects};
 pub use cursor::{RefId, RefKind, WString};
@@ -47,6 +50,7 @@ pub use error::{Error, Result};
 pub use globals::{GlobalVariable, GlobalVariables};
 pub use header::{Compression, Header};
 pub use papyrus::Papyrus;
+pub use quest::FormFlags;
 pub use table::{FileLocationTable, GlobalData};
 
 /// The lowest form version Special Edition writes.

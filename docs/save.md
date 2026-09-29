@@ -106,6 +106,11 @@ does not claim runtime support for opaque payloads.
   factions, spells, AI data, names, skills, class, race, face, gender and outfits.
 - `ChangeForm::class_change`, `faction_change` and `relationship_change` decode
   CLAS, FACT and RELA change sections on demand.
+- `ChangeForm::pack_change` and `navmesh_change` decode PACK and NAVM sections.
+  PACK retains optional form flags plus waiting and never-run markers. NAVM
+  retains optional form flags plus base-object value and full-name markers.
+  The four markers after the form flags have no payload bytes in xEdit's
+  definitions, so typed output re-encodes to the exact source payload.
 - Type 107, quest static data, including its two event arrays, three reference
   arrays, reference-keyed values and final byte.
 - Type 1001, the Papyrus block: the string table, the script definitions with
@@ -654,6 +659,11 @@ inventory sections. See [saved package runtime state](save-package-data.md) for
 source evidence, boundaries and integration validation. Runtime package
 restoration and complete ESS resumption remain unfinished.
 
+The nine observed kind-18 `Stacked` payloads remain rejected. The local public
+save readers name the variant but do not define its fields or termination, so
+the decoder does not guess where following extra data begins. The SAV-21
+regression test keeps this unsupported case explicit.
+
 ## Reference mask semantics, SAV-15 blocked
 
 SAV-15 still requires saved reference masks to override authored enable and
@@ -820,6 +830,30 @@ indices. FallrimTools handles CLAS and FACT as opaque forms.
 The 60-save external check reproduced all 345,703 payload bytes from 4,702
 FACT and 547 RELA changes. It found no CLAS changes, so CLAS field coverage is
 synthetic only.
+
+## PACK and NAVM changes
+
+`ChangeForm::pack_change` reads the optional six-byte form flags and records
+the waiting and never-run bits as typed zero-byte markers. `navmesh_change`
+reads the same form-flags section and records the base-object value and
+full-name markers. Both readers reject unknown bits, incomplete form flags,
+and payload suffixes. Their encoders reproduce the change flag word and
+payload exactly.
+
+The field order and bit names follow xEdit's
+`Core/wbDefinitionsTES5Saves.pas`. That file defines PACK as form flags,
+waiting and never-run, and NAVM as form flags, base-object value and full name.
+Its `wbNull` marker definitions consume no bytes. The UESP save format table
+and FallrimTools `ChangeForm.Type` confirm change type indices 32 and 33.
+FallrimTools does not decode these type payloads, so its reader is used only
+to cross-check the type indices. Synthetic tests cover all eight combinations
+for each type and each truncated form-flags prefix. The external corpus test
+accounts for all matching PACK and NAVM payloads and records their flag counts.
+`World::restore_vanilla_pack_navmesh` in the game crate applies decoded fields
+to the shared record table only after validating the complete batch. The
+record override retains marker state that has no plugin subrecord, and SOEW
+version 37 carries it through engine save/load. Package and navmesh queries
+continue reading their records from the same world table.
 
 ## INFO, SMQN and SCEN changes
 
@@ -993,9 +1027,13 @@ the required fixtures and SAV-17's separate live-record restoration boundary.
 
 ## Base-object value and full-name field evidence
 
-SAV-53 remains blocked on exact Skyrim field-layout evidence. The local and
-current public xEdit definitions leave both target payloads as placeholders.
-Additional public readers do not supply the missing boundaries. The audit
-records pinned sources, the limits of the existing corpus result and the
-controlled observations required to proceed in
-[saved base-object fields](save-base-fields.md). No decoder was added.
+`ChangeForm::base_object_fields` decodes the shared prefix used by ACTI, TACT,
+ARMO, BOOK, CONT, DOOR, LIGH, MISC, APPA, STAT, MSTT, FURN, WEAP, AMMO, KEYM,
+ALCH, IDLM, NAVM, WOOP, MGEF and ENCH. xEdit defines optional six-byte form
+flags followed by `CHANGE_BASE_OBJECT_VALUE` and
+`CHANGE_BASE_OBJECT_FULLNAME`. Their masks are `0x2` and `0x4`. The xEdit
+`wbNull` definition maps to zero bytes in `TwbByteArrayDef.GetSize`, so these
+flags do not consume payload. The decoder returns the byte boundary and
+remaining suffix length for type-specific readers. It does not restore a
+value or name. See [saved base-object fields](save-base-fields.md) for the
+source audit and scope.
