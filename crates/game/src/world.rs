@@ -505,6 +505,9 @@ pub struct World {
     /// does not fire for the first cells after loading a save, which is the
     /// behaviour an empty set gives.
     streamed_cells: std::collections::HashSet<GlobalFormId>,
+    /// References whose host cell has loaded 3D. Rebuilt from cell streaming
+    /// transitions and not saved, like `streamed_cells`.
+    loaded_3d_references: std::collections::HashSet<GlobalFormId>,
     /// A cell whose detach events have fired and whose references are still
     /// resident, waiting for [`World::settle_unload`].
     ///
@@ -630,6 +633,7 @@ impl World {
             encounter_zone_visits: BTreeMap::new(),
             loaded_cell: None,
             streamed_cells: std::collections::HashSet::new(),
+            loaded_3d_references: std::collections::HashSet::new(),
             pending_unload: None,
             next_dynamic: 0x1000,
             player: None,

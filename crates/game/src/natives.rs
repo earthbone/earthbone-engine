@@ -537,6 +537,9 @@ fn object_reference(vm: &mut Vm, w: &Shared) {
     method!(vm, w, "ObjectReference", "IsDisabled", |world, call, me| b(
         world.reference(me).is_some_and(|r| !r.enabled)
     ));
+    method!(vm, w, "ObjectReference", "Is3DLoaded", |world, call, me| b(
+        world.is_reference_3d_loaded(me)
+    ));
     method!(vm, w, "ObjectReference", "Delete", |world, call, me| {
         if let Some(r) = world.reference(me) {
             r.deleted = true;
@@ -3278,7 +3281,6 @@ fn fragments_and_effects(vm: &mut Vm, w: &Shared) {
 fn stubs(vm: &mut Vm) -> usize {
     let mut n = 0;
     let bools: &[(&str, &str, bool)] = &[
-        ("ObjectReference", "Is3DLoaded", true),
         ("ObjectReference", "IsFurnitureInUse", false),
         ("Actor", "IsAlarmed", false),
         ("Actor", "IsBleedingOut", false),
