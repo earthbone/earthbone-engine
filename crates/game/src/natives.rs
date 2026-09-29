@@ -509,6 +509,16 @@ fn object_reference(vm: &mut Vm, w: &Shared) {
             NativeReturn::Latent(latent)
         }),
     );
+    method!(
+        vm,
+        w,
+        "ObjectReference",
+        "InterruptCast",
+        |world, _call, me| {
+            world.interrupt_spell_cast(me);
+            none()
+        }
+    );
     for name in ["Enable", "EnableNoWait"] {
         method!(vm, w, "ObjectReference", name, |world, call, me| {
             world.set_reference_enabled(me, true);
@@ -3362,7 +3372,6 @@ fn stubs(vm: &mut Vm) -> usize {
         ("Faction", "ModReaction"),
         ("Keyword", "SendStoryEvent"),
         ("ActorBase", "GetGiftFilter"),
-        ("ObjectReference", "InterruptCast"),
         ("Actor", "PlayIdleWithTarget"),
         ("Spell", "Preload"),
         ("Spell", "Unload"),

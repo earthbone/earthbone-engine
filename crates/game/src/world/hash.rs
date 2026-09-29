@@ -779,6 +779,16 @@ impl World {
             form(&mut h, *source);
             opt_form(&mut h, *target);
         }
+        h.len(self.spell_casts_in_progress.len());
+        for (caster, cast) in &self.spell_casts_in_progress {
+            form(&mut h, *caster);
+            form(&mut h, cast.spell);
+            opt_form(&mut h, cast.target);
+            h.u8(match cast.kind {
+                super::magic::SpellCastKind::FireAndForget => 0,
+                super::magic::SpellCastKind::Concentration => 1,
+            });
+        }
         let mut dialogue = soe_papyrus::vm::state::Writer::new();
         self.write_dialogue(&mut dialogue);
         h.bytes(&dialogue.out);
@@ -1142,6 +1152,16 @@ mod tests {
         moves("next_sound", scenes, |w| w.next_sound = 1);
         moves("spell_casts", scenes, |w| {
             w.spell_casts.push((id(8), id(1), None));
+        });
+        moves("spell_casts_in_progress", scenes, |w| {
+            w.spell_casts_in_progress.insert(
+                id(1),
+                super::super::magic::SpellCast {
+                    spell: id(8),
+                    target: Some(id(9)),
+                    kind: super::super::magic::SpellCastKind::FireAndForget,
+                },
+            );
         });
     }
 }

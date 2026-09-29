@@ -1766,6 +1766,18 @@ and Papyrus casts log that error. This includes projectiles, contact and
 location delivery, concentration, taper, perk adjustments, equip abilities and
 other archetypes. Area selection is covered separately below, under Area
 targeting, MAG-06.
+
+`ObjectReference.InterruptCast` clears a pending fire-and-forget charge or
+concentration session for that reference. Beginning either session applies no
+effects and spends no magicka. Releasing a fire-and-forget session calls the
+existing direct effect path, after which `InterruptCast` leaves its effects
+alone. Concentration sessions can be interrupted, but sustained effect ticks
+and casting costs are not implemented. Pending cast sessions are transient and
+are not part of SOEW save state. The contract comes from the local CK
+`InterruptCast_-_ObjectReference.wikitext`; `tests/magic/mag_73.rs` covers
+charging interruption, concentration interruption and interruption after
+fire-and-forget release.
+
 An MGEF with the Dispel with Keywords flag reads its KWDA entries as the
 cancellation list. Casting that effect, or applying it from an ingestible,
 ends only live effects on the recipient whose winning MGEF carries a matching

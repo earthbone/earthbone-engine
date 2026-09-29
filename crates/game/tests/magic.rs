@@ -36,6 +36,8 @@ const SUMMON_BASE: u32 = 0x501;
 
 #[path = "magic/collection.rs"]
 mod collection;
+#[path = "magic/mag_73.rs"]
+mod mag_73;
 
 fn retain_effect(game: &mut Game, effect: soe_papyrus::ObjectId) {
     let script = ScriptBuilder::new("EffectHolder", "Actor")
