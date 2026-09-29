@@ -61,6 +61,7 @@ impl PlayerNode {
         if self.game.is_none() {
             return;
         }
+        self.sync_camera_controls();
         let feet = self.feet();
         let rotation = [-self.rig.pitch(), 0.0, self.rig.yaw()];
         if let Some(game) = &mut self.game {
@@ -98,6 +99,16 @@ impl PlayerNode {
             self.auto_step = false;
             godot_error!("PlayerNode: gameplay stopped because destination resources failed");
         }
+    }
+
+    pub(super) fn sync_camera_controls(&mut self) {
+        let Some(game) = &self.game else {
+            return;
+        };
+        let controls = game.world().camera_controls;
+        self.camera_state.apply(controls);
+        self.rig
+            .set_camera_yaw_offset_degrees(self.camera_state.sitting_rotation_degrees());
     }
 
     fn prefetch_nearby_interior(&mut self, delta: f64) {

@@ -33,7 +33,7 @@ use godot::prelude::*;
 use soe_esm::GlobalFormId;
 use soe_physics::{BodyId, CharacterSettings, PhysicsWorld, SimpleWorld, Vec3};
 
-use crate::camera::{CameraMode, CameraMotion, CameraRig, Eye};
+use crate::camera::{CameraHostState, CameraMode, CameraMotion, CameraRig, Eye};
 use crate::data_source::DataSource;
 use crate::door_fade::DoorFade;
 use crate::input::devices::{godot_mouse_for, godot_pad_for, Devices, PadControl};
@@ -114,6 +114,7 @@ pub struct PlayerNode {
     interior_prefetch: crate::interior_prefetch::InteriorPrefetch,
     interior_prefetch_elapsed: f64,
     camera: Option<Gd<Camera3D>>,
+    camera_state: CameraHostState,
     /// Mouse motion accumulated since the last camera or physics update, so a frame that
     /// delivers two motion events turns twice as far rather than once.
     pending_look: (f32, f32),
@@ -171,6 +172,7 @@ impl INode3D for PlayerNode {
             interior_prefetch: crate::interior_prefetch::InteriorPrefetch::default(),
             interior_prefetch_elapsed: 0.0,
             camera: None,
+            camera_state: CameraHostState::default(),
             pending_look: (0.0, 0.0),
             last_activate_hit: false,
             last_activate_reference: None,
@@ -818,6 +820,27 @@ impl PlayerNode {
         self.update_camera();
     }
 
+    /// Read the camera controls currently applied from Game natives.
+    #[func]
+    pub fn camera_state(&self) -> VarDictionary {
+        let mut state = VarDictionary::new();
+        let target = self.camera_state.target();
+        state.set("target_file", target.map_or(-1, |id| i64::from(id.file)));
+        state.set(
+            "target_object",
+            target.map_or(-1, |id| i64::from(id.object)),
+        );
+        state.set(
+            "first_person_geometry",
+            self.camera_state.first_person_geometry_visible(),
+        );
+        state.set(
+            "sitting_rotation_degrees",
+            self.camera_state.sitting_rotation_degrees(),
+        );
+        state
+    }
+
     /// The action names this node registered, for a test or a rebinding UI.
     #[func]
     pub fn action_names(&self) -> PackedStringArray {
@@ -1076,6 +1099,7 @@ impl PlayerNode {
         if self.camera.is_none() {
             return;
         }
+        let (feet, height) = self.camera_anchor(feet, height);
 
         // In third person the boom is pulled in by whatever it would pass
         // through, so the camera never ends up inside a wall.
@@ -1102,6 +1126,29 @@ impl PlayerNode {
             camera.set_global_transform(transform);
             camera.set_fov(self.rig.fov());
         }
+    }
+
+    fn camera_anchor(&mut self, player_feet: Vec3, player_height: f32) -> (Vec3, f32) {
+        let Some(target) = self.camera_state.target() else {
+            return (player_feet, player_height);
+        };
+        let Some(game) = &self.game else {
+            return (player_feet, player_height);
+        };
+        let mut world = game.world_mut();
+        let target_pose = world.reference(target).map(|reference| {
+            (
+                target,
+                Vec3::new(
+                    reference.position[0],
+                    reference.position[1],
+                    reference.position[2],
+                ),
+                CharacterSettings::default().height,
+            )
+        });
+        self.camera_state
+            .anchor(player_feet, player_height, target_pose)
     }
 }
 
