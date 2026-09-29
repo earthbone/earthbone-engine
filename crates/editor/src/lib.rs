@@ -5,6 +5,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use soe_esm::records::gameplay::{Scene, SceneActionData};
 use soe_esm::records::navm::{Geometry, NavMesh, Triangle};
 use soe_esm::{Entry, GlobalFormId, Group, GroupKind, LoadOrder, Plugin, Record, Subrecord, Tag};
 use soe_papyrus::{pex, psc};
@@ -90,6 +91,14 @@ pub enum EditorError {
         form: GlobalFormId,
         /// Zero-based response index.
         response: usize,
+    },
+    /// A scene edit would create an invalid record or link.
+    #[error("cannot edit scene {form}: {reason}")]
+    InvalidScene {
+        /// Scene being edited.
+        form: GlobalFormId,
+        /// Reason the scene edit was refused.
+        reason: &'static str,
     },
     /// Saving the active plugin failed.
     #[error("could not write plugin {path}: {source}")]
@@ -612,6 +621,292 @@ impl EditorDocument {
         self.sync_record_count();
         self.rebuild_load_order()?;
         Ok(())
+    }
+
+    /// Undo the most recent edit, returning whether an edit was available.
+    ///
+    /// # Errors
+    /// Returns an error if the restored plugin no longer forms a valid load order.
+    /// Rename one SCEN phase while retaining its other subrecords.
+    ///
+    /// # Errors
+    /// Returns an error if the form is not an editable top-level SCEN, the
+    /// phase index is out of range, or its links are invalid.
+    ///
+    /// # Panics
+    /// This method does not panic.
+    pub fn set_scene_phase_name(
+        &mut self,
+        form: GlobalFormId,
+        phase_index: usize,
+        name: &str,
+    ) -> Result<(), EditorError> {
+        let (mut record, add_override) = self.scene_for_edit(form)?;
+        let scene = Scene::from_record(&record).map_err(|_| EditorError::InvalidScene {
+            form,
+            reason: "SCEN fields are malformed",
+        })?;
+        if phase_index >= scene.phases.len() {
+            return Err(EditorError::InvalidScene {
+                form,
+                reason: "phase index is out of range",
+            });
+        }
+        let range = scene_phase_ranges(&record)
+            .get(phase_index)
+            .copied()
+            .ok_or(EditorError::InvalidScene {
+                form,
+                reason: "phase markers do not match the decoded phases",
+            })?;
+        set_scene_field(&mut record, range, Tag(*b"NAM0"), zstring_bytes(name), form)?;
+        self.commit_scene(form, record, add_override)
+    }
+
+    /// Set a Dialogue action's topic to a resolved DIAL form.
+    ///
+    /// The FormID is written using the active plugin's master table. Other
+    /// SCEN subrecords in the source record are preserved.
+    ///
+    /// # Errors
+    /// Returns an error if the scene, action or topic is invalid, if the
+    /// active plugin cannot represent the topic, or if scene links are bad.
+    ///
+    /// # Panics
+    /// This method does not panic.
+    pub fn set_scene_action_topic(
+        &mut self,
+        form: GlobalFormId,
+        action_index: usize,
+        topic: GlobalFormId,
+    ) -> Result<(), EditorError> {
+        let topic_record = self
+            .load_order
+            .winner(topic)
+            .ok_or(EditorError::InvalidScene {
+                form,
+                reason: "dialogue topic is missing from the load order",
+            })?;
+        if topic_record.tag != Tag(*b"DIAL") {
+            return Err(EditorError::InvalidScene {
+                form,
+                reason: "dialogue action topic does not resolve to DIAL",
+            });
+        }
+        let topic_raw = self
+            .local_form_id(topic)
+            .map_err(|_| EditorError::InvalidScene {
+                form,
+                reason: "active plugin does not list the dialogue topic owner as a master",
+            })?;
+
+        let (mut record, add_override) = self.scene_for_edit(form)?;
+        let scene = Scene::from_record(&record).map_err(|_| EditorError::InvalidScene {
+            form,
+            reason: "SCEN fields are malformed",
+        })?;
+        let action = scene
+            .actions
+            .get(action_index)
+            .ok_or(EditorError::InvalidScene {
+                form,
+                reason: "action index is out of range",
+            })?;
+        if action.action_type != 0 {
+            return Err(EditorError::InvalidScene {
+                form,
+                reason: "only Dialogue actions have a topic field",
+            });
+        }
+        let range = scene_action_ranges(&record)
+            .get(action_index)
+            .copied()
+            .ok_or(EditorError::InvalidScene {
+                form,
+                reason: "action markers do not match the decoded actions",
+            })?;
+        set_scene_field(
+            &mut record,
+            range,
+            Tag(*b"DATA"),
+            topic_raw.to_le_bytes().to_vec(),
+            form,
+        )?;
+        self.commit_scene(form, record, add_override)
+    }
+
+    fn scene_for_edit(&self, form: GlobalFormId) -> Result<(Record, bool), EditorError> {
+        if let Some(record) = self.active_record(form) {
+            if record.tag != Tag(*b"SCEN") {
+                return Err(EditorError::InvalidScene {
+                    form,
+                    reason: "record is not SCEN",
+                });
+            }
+            self.validate_scene_links(record, self.active_index, form)?;
+            return Ok((record.clone(), false));
+        }
+
+        let record_ref = self
+            .load_order
+            .winner_ref(form)
+            .ok_or(EditorError::MissingForm(form))?;
+        let source_file = record_ref.file;
+        let plugin = &self.load_order.file(source_file).plugin;
+        let source = self.load_order.record(record_ref);
+        if source.tag != Tag(*b"SCEN") {
+            return Err(EditorError::InvalidScene {
+                form,
+                reason: "record is not SCEN",
+            });
+        }
+        if !is_top_level(plugin, record_ref.record) {
+            return Err(EditorError::InvalidScene {
+                form,
+                reason: "nested SCEN records cannot be overridden safely",
+            });
+        }
+        let mut record = source.clone();
+        self.relocate_scene_links(&mut record, source_file, form)?;
+        record.form_id = self
+            .local_form_id(form)
+            .map_err(|_| EditorError::InvalidScene {
+                form,
+                reason: "active plugin does not list the scene owner as a master",
+            })?;
+        self.validate_scene_links(&record, self.active_index, form)?;
+        Ok((record, true))
+    }
+
+    fn relocate_scene_links(
+        &self,
+        record: &mut Record,
+        source_file: usize,
+        form: GlobalFormId,
+    ) -> Result<(), EditorError> {
+        let mut action_type = None;
+        for subrecord in &mut record.subrecords {
+            match subrecord.tag.as_bytes() {
+                b"ANAM" if subrecord.data.is_empty() => action_type = None,
+                b"ANAM" => {
+                    if subrecord.data.len() != 2 {
+                        return Err(EditorError::InvalidScene {
+                            form,
+                            reason: "action type has an invalid size",
+                        });
+                    }
+                    action_type = Some(u16::from_le_bytes([subrecord.data[0], subrecord.data[1]]));
+                }
+                b"DATA" if action_type == Some(0) => {
+                    relocate_scene_form_id(self, subrecord, source_file, *b"DIAL", form)?;
+                }
+                b"PNAM" if action_type == Some(1) => {
+                    if subrecord.data.len() % 4 != 0 {
+                        return Err(EditorError::InvalidScene {
+                            form,
+                            reason: "package list has an invalid size",
+                        });
+                    }
+                    for bytes in subrecord.data.as_chunks_mut::<4>().0 {
+                        relocate_scene_id(self, bytes, source_file, *b"PACK", form)?;
+                    }
+                }
+                // Outside a Package action PNAM is the required parent QUST.
+                b"PNAM" => {
+                    relocate_scene_form_id(self, subrecord, source_file, *b"QUST", form)?;
+                }
+                _ => {}
+            }
+        }
+        Ok(())
+    }
+
+    fn validate_scene_links(
+        &self,
+        record: &Record,
+        source_file: usize,
+        form: GlobalFormId,
+    ) -> Result<(), EditorError> {
+        let scene = Scene::from_record(record).map_err(|_| EditorError::InvalidScene {
+            form,
+            reason: "SCEN fields are malformed",
+        })?;
+        let quest = scene.quest.ok_or(EditorError::InvalidScene {
+            form,
+            reason: "parent quest is missing",
+        })?;
+        self.validate_scene_link(source_file, quest, *b"QUST", false, form)?;
+        for action in &scene.actions {
+            if action
+                .start_phase
+                .is_some_and(|phase| phase as usize >= scene.phases.len())
+                || action
+                    .end_phase
+                    .is_some_and(|phase| phase as usize >= scene.phases.len())
+            {
+                return Err(EditorError::InvalidScene {
+                    form,
+                    reason: "action phase link is out of range",
+                });
+            }
+            match &action.data {
+                SceneActionData::Dialogue { topic: Some(topic) } => {
+                    self.validate_scene_link(source_file, *topic, *b"DIAL", true, form)?;
+                }
+                SceneActionData::Package { packages } => {
+                    for package in packages {
+                        self.validate_scene_link(source_file, *package, *b"PACK", true, form)?;
+                    }
+                }
+                _ => {}
+            }
+        }
+        Ok(())
+    }
+
+    fn validate_scene_link(
+        &self,
+        source_file: usize,
+        raw: u32,
+        expected_tag: [u8; 4],
+        allow_null: bool,
+        form: GlobalFormId,
+    ) -> Result<(), EditorError> {
+        if raw == 0 && allow_null {
+            return Ok(());
+        }
+        let target = self.load_order.resolve(source_file, raw);
+        let tag = self
+            .load_order
+            .winner(target)
+            .map(|record| record.tag)
+            .ok_or(EditorError::InvalidScene {
+                form,
+                reason: "a linked form is missing from the load order",
+            })?;
+        if tag != Tag(expected_tag) {
+            return Err(EditorError::InvalidScene {
+                form,
+                reason: "a linked form has the wrong record type",
+            });
+        }
+        Ok(())
+    }
+
+    fn commit_scene(
+        &mut self,
+        form: GlobalFormId,
+        record: Record,
+        add_override: bool,
+    ) -> Result<(), EditorError> {
+        self.undo.push(self.active_plugin.clone());
+        if add_override {
+            self.active_plugin.push_top(record);
+        } else if let Some(index) = self.active_record_index(form) {
+            self.active_plugin.records[index] = record;
+        }
+        self.sync_record_count();
+        self.rebuild_load_order()
     }
 
     /// Undo the most recent edit, returning whether an edit was available.
@@ -1272,6 +1567,129 @@ fn quest_objective_text_index(
             reason: "objective has repeated display text",
         }),
     }
+}
+
+fn zstring_bytes(value: &str) -> Vec<u8> {
+    let mut bytes = value.as_bytes().to_vec();
+    bytes.push(0);
+    bytes
+}
+
+fn scene_phase_ranges(record: &Record) -> Vec<(usize, usize)> {
+    let mut ranges = Vec::new();
+    let mut start = None;
+    for (index, subrecord) in record.subrecords.iter().enumerate() {
+        if subrecord.tag != Tag(*b"HNAM") || !subrecord.data.is_empty() {
+            continue;
+        }
+        if let Some(phase_start) = start.take() {
+            ranges.push((phase_start, index));
+        } else {
+            start = Some(index + 1);
+        }
+    }
+    if let Some(phase_start) = start {
+        ranges.push((phase_start, record.subrecords.len()));
+    }
+    ranges
+}
+
+fn scene_action_ranges(record: &Record) -> Vec<(usize, usize)> {
+    let mut ranges = Vec::new();
+    let mut start = None;
+    for (index, subrecord) in record.subrecords.iter().enumerate() {
+        if subrecord.tag != Tag(*b"ANAM") {
+            continue;
+        }
+        if subrecord.data.is_empty() {
+            if let Some(action_start) = start.take() {
+                ranges.push((action_start, index));
+            }
+        } else if start.is_none() {
+            start = Some(index + 1);
+        }
+    }
+    if let Some(action_start) = start {
+        ranges.push((action_start, record.subrecords.len()));
+    }
+    ranges
+}
+
+fn set_scene_field(
+    record: &mut Record,
+    range: (usize, usize),
+    tag: Tag,
+    data: Vec<u8>,
+    form: GlobalFormId,
+) -> Result<(), EditorError> {
+    let matching = record.subrecords[range.0..range.1]
+        .iter()
+        .enumerate()
+        .filter(|(_, subrecord)| subrecord.tag == tag)
+        .map(|(offset, _)| range.0 + offset)
+        .collect::<Vec<_>>();
+    match matching.as_slice() {
+        [index] => record.subrecords[*index].data = data,
+        [] => record.subrecords.insert(range.1, Subrecord::new(tag, data)),
+        _ => {
+            return Err(EditorError::InvalidScene {
+                form,
+                reason: "field repeats inside its scene block",
+            });
+        }
+    }
+    Ok(())
+}
+
+fn relocate_scene_form_id(
+    document: &EditorDocument,
+    subrecord: &mut Subrecord,
+    source_file: usize,
+    expected_tag: [u8; 4],
+    form: GlobalFormId,
+) -> Result<(), EditorError> {
+    if subrecord.data.len() != 4 {
+        return Err(EditorError::InvalidScene {
+            form,
+            reason: "linked FormID has an invalid size",
+        });
+    }
+    relocate_scene_id(
+        document,
+        &mut subrecord.data,
+        source_file,
+        expected_tag,
+        form,
+    )
+}
+
+fn relocate_scene_id(
+    document: &EditorDocument,
+    bytes: &mut [u8],
+    source_file: usize,
+    expected_tag: [u8; 4],
+    form: GlobalFormId,
+) -> Result<(), EditorError> {
+    if bytes.len() != 4 {
+        return Err(EditorError::InvalidScene {
+            form,
+            reason: "linked FormID has an invalid size",
+        });
+    }
+    let raw = u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
+    if raw == 0 && expected_tag == *b"DIAL" {
+        return Ok(());
+    }
+    document.validate_scene_link(source_file, raw, expected_tag, false, form)?;
+    let resolved = document.load_order.resolve(source_file, raw);
+    let relocated = document
+        .local_form_id(resolved)
+        .map_err(|_| EditorError::InvalidScene {
+            form,
+            reason: "active plugin does not list a linked form owner as a master",
+        })?;
+    bytes.copy_from_slice(&relocated.to_le_bytes());
+    Ok(())
 }
 
 fn file_name(path: &Path) -> Result<String, EditorError> {

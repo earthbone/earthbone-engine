@@ -300,6 +300,14 @@ xEdit declares the DIAL branch and quest link types, and UESP documents INFO rec
 children of their DIAL topic. No source code was copied. Dialogue edits change existing
 fields, they do not create dialogue records or change quest ownership.
 
+Scene edits can rename a SCEN phase or set a Dialogue action's DIAL topic. A copied
+top-level SCEN override relocates its parent QUST, dialogue DIAL and package PACK links from
+the source plugin's master table into the active plugin's master table. The editor checks those
+link types and each action's zero-based phase indexes before accepting the edit, and keeps the
+other SCEN subrecords in order. Undo restores the prior active plugin. Saving writes the active
+plugin bytes and parses those bytes again before returning the saved plugin. The TES4 record
+count is updated with edits.
+
 Copying a winning record whose owner differs from the active plugin requires relocating
 FormIDs in the record and its group path. The editor supports copied top-level `STAT` and
 `GLOB` records, top-level DIAL records, nested INFO placement, and QUST text edits when
@@ -361,7 +369,7 @@ the companion string tables. Creating an override from another plugin is allowed
 its masters and the active plugin's master prefix match the load-order prefix. That keeps
 the raw QUST links in their original FormID context. Nested records and QUST records with a
 different master order still require FMT-15 and FMT-26 relocation support. The editor does
-not add stages, log entries, objectives or targets, and it does not edit DIAL, INFO or SCEN.
+not add stages, log entries, objectives or targets, and it does not add DIAL or INFO records.
 `crates/editor/tests/edt_07_quest_stages.rs` covers saving and reparsing both text changes,
 undo, duplicate stage and objective numbers, preserved targets and safe rejection of
 localized text.
