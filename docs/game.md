@@ -1337,7 +1337,15 @@ resolved MGEF links persist in a named world save section. A CK wiki Ingredient
 page is absent. The shipped `Ingredient.psc` defines `LearnEffect`,
 `LearnNextEffect` and `LearnAllEffects`, which remain outside this transaction.
 Ingredient and effect layouts follow xEdit `wbDefinitionsTES5.pas` and UESP
-ALCH/INGR format pages.
+ALCH/INGR format pages. CommonLibSSE-NG `TESFurniture.h` defines WBDT value 5
+as alchemy, value 4 as enchanting experiment, and value 6 as alchemy experiment.
+
+The tempering station check follows xEdit's `wbDefinitionsTES5.pas` WBDT
+enumeration: value 2 is weapon smithing and value 7 is armor smithing. The
+station keyword must match that type. Enchanting reads the ENCH ENIT enchant
+type at bytes 20 to 23, as xEdit defines it. Type 0x06 is ordinary enchanting
+and type 0x0C is staff enchanting. Staff enchantments can be applied to weapon
+forms, while armor accepts only ordinary enchantments.
 
 Enchanting, skill advancement, crafting story events, item instance state and
 host menus remain unfinished. The full requested execution scope is tracked in

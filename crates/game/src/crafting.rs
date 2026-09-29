@@ -407,6 +407,11 @@ impl Game {
             .record(enchantment)
             .filter(|record| !record.is_deleted() && record.tag == Tag(*b"ENCH"))
             .ok_or(Error::Enchantment(enchantment))?;
+        let enchantment_type = enchantment_record
+            .find(Tag(*b"ENIT"))
+            .and_then(|data| data.get(20..24))
+            .map(|bytes| u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
+            .ok_or(Error::Enchantment(enchantment))?;
         let effect_ids: Vec<_> = enchantment_record
             .all(Tag(*b"EFID"))
             .filter(|effect| effect.len() == 4)
@@ -441,12 +446,17 @@ impl Game {
             .ok_or(Error::EnchantActor(actor))?
             .inventory
             .clone();
-        world
+        let item_record = world
             .record(item.item())
             .filter(|record| {
                 !record.is_deleted() && matches!(record.tag.as_bytes(), b"WEAP" | b"ARMO")
             })
             .ok_or(Error::EnchantItem)?;
+        match enchantment_type {
+            0x06 => {}
+            0x0c if item_record.tag == Tag(*b"WEAP") => {}
+            _ => return Err(Error::EnchantItem),
+        }
         let item_stack = inventory.selected_stack(item)?;
         if item_stack.is_some_and(|stack| stack.extra(155).is_some()) {
             return Err(Error::EnchantItem);
@@ -696,7 +706,7 @@ fn validate_alchemy_bench(world: &mut World, bench: GlobalFormId) -> Result<(), 
                 .find(Tag(*b"WBDT"))
                 .filter(|data| data.len() == 2)
                 .ok_or(Error::Bench(bench))?;
-            if data[0] != 4 {
+            if data[0] != 5 {
                 return Err(Error::BenchType(data[0]));
             }
         }
@@ -734,21 +744,19 @@ fn validate_temper_bench(
                 .find(Tag(*b"WBDT"))
                 .filter(|data| data.len() == 2)
                 .ok_or(Error::Bench(bench))?;
-            if data[0] != 2 {
+            if !matches!(data[0], 2 | 7) {
                 return Err(Error::BenchType(data[0]));
             }
         }
         b"ACTI" => {}
         _ => return Err(Error::Bench(bench)),
     }
-    let valid_keyword = [
-        "CraftingSmithingArmorTable",
-        "CraftingSmithingSharpeningWheel",
-    ]
-    .into_iter()
-    .filter_map(|name| world.form(name))
-    .any(|form| form == keyword);
-    if !valid_keyword || !world.has_keyword(base, keyword) {
+    let valid_pair = match record.find(Tag(*b"WBDT")).and_then(|data| data.first()) {
+        Some(2) => world.form("CraftingSmithingSharpeningWheel") == Some(keyword),
+        Some(7) => world.form("CraftingSmithingArmorTable") == Some(keyword),
+        _ => false,
+    };
+    if !valid_pair || !world.has_keyword(base, keyword) {
         return Err(Error::Bench(bench));
     }
     Ok(())

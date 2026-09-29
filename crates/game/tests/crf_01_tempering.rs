@@ -172,7 +172,7 @@ fn crf_01_tempering_failure_preserves_quality_ingredients_and_events() {
 
 #[test]
 fn crf_01_tempering_accepts_weapons_and_armor_at_their_smithing_station() {
-    for (tag, station) in [(*b"WEAP", 2), (*b"ARMO", 2)] {
+    for (tag, station) in [(*b"WEAP", 2), (*b"ARMO", 7)] {
         let mut game = game(tag, station);
         game.world_mut()
             .reference(id(PLAYER))

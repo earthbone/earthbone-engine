@@ -42,6 +42,8 @@ fn recipe(ingredients: &[(u32, i32)], output: u32, count: u16) -> Record {
 }
 
 fn game(record: Record, bench_type: u8) -> Game {
+    let mut enchantment_data = vec![0; 36];
+    enchantment_data[20..24].copy_from_slice(&6_u32.to_le_bytes());
     let mut plugin = Plugin::new(FileHeader::default());
     for (tag, id) in [
         (*b"NPC_", BASE),
@@ -66,7 +68,7 @@ fn game(record: Record, bench_type: u8) -> Game {
     plugin.push_top(Record::new(Tag(*b"ARMO"), ARMOR));
     plugin.push_top(
         Record::new(Tag(*b"ENCH"), ENCHANTMENT)
-            .sub(Tag(*b"ENIT"), [0; 36])
+            .sub(Tag(*b"ENIT"), enchantment_data)
             .sub(Tag(*b"EFID"), 0x900u32.to_le_bytes())
             .sub(Tag(*b"EFIT"), [0; 12]),
     );

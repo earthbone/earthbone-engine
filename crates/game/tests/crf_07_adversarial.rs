@@ -16,7 +16,10 @@ const ENCHANTMENT: u32 = 0x803;
 const EFFECT: u32 = 0x804;
 
 fn id(raw: u32) -> GlobalFormId {
-    GlobalFormId { file: 0, object: raw }
+    GlobalFormId {
+        file: 0,
+        object: raw,
+    }
 }
 
 #[test]

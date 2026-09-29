@@ -37,7 +37,7 @@ fn game() -> Game {
     plugin.push_top(Record::new(Tag(*b"KYWD"), KEYWORD).sub(Tag(*b"EDID"), b"CraftingAlchemy\0"));
     plugin.push_top(
         Record::new(Tag(*b"FURN"), BENCH_BASE)
-            .sub(Tag(*b"WBDT"), [4, 0xff])
+            .sub(Tag(*b"WBDT"), [5, 0xff])
             .sub(Tag(*b"KWDA"), KEYWORD.to_le_bytes()),
     );
     plugin.push_top(Record::new(Tag(*b"REFR"), BENCH).sub(Tag(*b"NAME"), BENCH_BASE.to_le_bytes()));

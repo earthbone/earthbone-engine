@@ -14,7 +14,10 @@ const INGREDIENT_B: u32 = 0x805;
 const EFFECT: u32 = 0x806;
 
 fn id(raw: u32) -> GlobalFormId {
-    GlobalFormId { file: 0, object: raw }
+    GlobalFormId {
+        file: 0,
+        object: raw,
+    }
 }
 
 fn ingredient(raw: u32) -> Record {
@@ -40,7 +43,7 @@ fn game(bench_type: u8) -> Game {
     plugin.push_top(Record::new(Tag(*b"MGEF"), EFFECT));
     let mut order = LoadOrder::new();
     order.add("AlchemyWrongBench.esm", plugin).unwrap();
-    let mut game = Game::new(order);
+    let game = Game::new(order);
     game.world_mut().add_item(id(PLAYER), id(INGREDIENT_A), 1);
     game.world_mut().add_item(id(PLAYER), id(INGREDIENT_B), 1);
     game
@@ -50,11 +53,7 @@ fn game(bench_type: u8) -> Game {
 fn alchemy_rejects_a_non_alchemy_furniture_type_atomically() {
     let mut game = game(4);
     assert_eq!(
-        game.brew_potion(
-            id(PLAYER),
-            id(BENCH),
-            &[id(INGREDIENT_A), id(INGREDIENT_B)],
-        ),
+        game.brew_potion(id(PLAYER), id(BENCH), &[id(INGREDIENT_A), id(INGREDIENT_B)],),
         Err(Error::BenchType(4))
     );
     assert_eq!(game.world_mut().item_count(id(PLAYER), id(INGREDIENT_A)), 1);
@@ -64,10 +63,9 @@ fn alchemy_rejects_a_non_alchemy_furniture_type_atomically() {
 #[test]
 fn alchemy_accepts_the_alchemy_furniture_type() {
     let mut game = game(5);
-    let result = game.brew_potion(
-        id(PLAYER),
-        id(BENCH),
-        &[id(INGREDIENT_A), id(INGREDIENT_B)],
+    let result = game.brew_potion(id(PLAYER), id(BENCH), &[id(INGREDIENT_A), id(INGREDIENT_B)]);
+    assert!(
+        result.is_ok(),
+        "WBDT=5 alchemy station was rejected: {result:?}"
     );
-    assert!(result.is_ok(), "WBDT=5 alchemy station was rejected: {result:?}");
 }

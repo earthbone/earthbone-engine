@@ -14,7 +14,10 @@ const MATERIAL: u32 = 0x805;
 const RECIPE: u32 = 0x806;
 
 fn id(raw: u32) -> GlobalFormId {
-    GlobalFormId { file: 0, object: raw }
+    GlobalFormId {
+        file: 0,
+        object: raw,
+    }
 }
 
 #[test]
@@ -53,5 +56,8 @@ fn armor_tempering_accepts_the_armor_workbench_type() {
     game.world_mut().add_item(id(PLAYER), id(MATERIAL), 1);
 
     let result = game.temper(id(PLAYER), id(BENCH), id(RECIPE));
-    assert!(result.is_ok(), "armor workbench should temper armor: {result:?}");
+    assert!(
+        result.is_ok(),
+        "armor workbench should temper armor: {result:?}"
+    );
 }
