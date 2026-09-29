@@ -167,7 +167,8 @@ run past it.
 | Actor | GetActorValue, GetBaseActorValue, SetActorValue, ModActorValue, DamageActorValue, RestoreActorValue, GetActorValuePercentage (and the AV short names), IsDead, Kill, GetKiller, Resurrect, IsInCombat, StartCombat, StopCombat, GetCombatTarget, GetActorBase, GetLeveledActorBase, IsEssential, IsPlayerTeammate, SetPlayerTeammate, IsGhost, SetGhost, IsProtected, GetLevel, GetRace, IsUnconscious, SetUnconscious, SetRestrained, IsDoingFavor, SetDoingFavor, AddSpell, RemoveSpell, HasSpell, EquipItem, UnequipItem, IsEquipped, IsInFaction, GetFactionRank, AddToFaction, RemoveFromFaction, SetFactionRank, AddPerk, RemovePerk, HasPerk, SetAlert, IsAlerted, StartSneaking, IsSneaking, DrawWeapon, SheatheWeapon, IsWeaponDrawn, IsArrested, ClearArrested, SetAttackActorOnSight, SetDontMove, SetAllowPCDialogue, SetRelationshipRank, GetRelationshipRank, GetHighestRelationshipRank, GetLowestRelationshipRank, GetCrimeFaction, SetCrimeFaction, SetOutfit, and from the DLC: SendVampirismStateChanged, SendLycanthropyStateChanged, SetAllowFlying, SetAllowFlyingEx, IsAllowedToFly, CanFlyHere, StartDeferredKill, EndDeferredKill, KillSilent, SetRace, SetEyeTexture, SetCriticalStage, AttachAshPile, SetNoBleedoutRecovery, GetNoBleedoutRecovery, EnableAI, AddShout, RemoveShout, EquipShout, UnequipShout, GetEquippedShout, EquipSpell, UnequipSpell, SetSubGraphFloatVariable, PlaySubGraphAnimation, WornHasKeyword, IsPlayersLastRiddenHorse, SetAlpha, PlayIdle, HasMagicEffect, HasMagicEffectWithKeyword, DispelSpell, DispelAllSpells | IsAlarmed, IsBleedingOut, GetCombatState, EvaluatePackage, GetEquippedWeapon, SetLookAt and 34 more, plus the DLC ones without a system: IsFlying, GetWarmthRating, ClearExtraArrows, DoCombatSpellApply, MoveToPackageLocation |
 | ActorBase | GetRace, GetClass, GetSex, GetDeadCount, IsEssential, IsProtected, IsInvulnerable, IsUnique, SetEssential, SetProtected, SetInvulnerable, SetOutfit | GetGiftFilter |
 | Quest | Start, Stop, Reset, IsRunning, IsCompleted, IsActive, SetActive, CompleteQuest, CompleteAllObjectives, FailAllObjectives, SetStage, SetCurrentStageID, GetStage, GetCurrentStageID, GetStageDone, IsStageDone, SetObjectiveDisplayed, SetObjectiveDisplayedNoWait, SetObjectiveCompleted, SetObjectiveFailed, IsObjectiveDisplayed, IsObjectiveCompleted, IsObjectiveFailed, ModObjectiveGlobal, UpdateCurrentInstanceGlobal, GetAlias, GetAliasById, GetAliasByName, GetID, GetPriority, GetQuest | IsStarting, IsStopping |
-| Alias, ReferenceAlias, LocationAlias | GetOwningQuest, GetID, GetName, GetReference, GetRef, GetActorReference, GetActorRef, ForceRefTo, ForceRefIfEmpty, Clear, GetLocation, ForceLocationTo, AddInventoryEventFilter, RemoveInventoryEventFilter, RemoveAllInventoryEventFilters | |
+| Alias, ReferenceAlias, LocationAlias | GetOwningQuest, GetID, GetName, GetReference, GetRef, GetActorReference, GetActorRef, ForceRefTo, Clear, GetLocation, ForceLocationTo, AddInventoryEventFilter, RemoveInventoryEventFilter, RemoveAllInventoryEventFilters | |
+| ReferenceAlias | ForceRefIfEmpty | |
 | LeveledItem, LeveledActor, LeveledSpell | AddForm, Revert, GetNumForms, GetNthForm, GetNthLevel, GetNthCount, GetChanceNone, SetChanceNone (the last six are SKSE's, the state is there anyway) | |
 | Location | GetKeywordData, SetKeywordData, IsCleared, SetCleared, IsChild, HasCommonParent, IsSameLocation | IsLoaded, HasRefType, GetRefTypeAliveCount, GetRefTypeDeadCount |
 | Faction | SetAlly, SetEnemy, GetReaction, SetReaction, GetCrimeGold, GetCrimeGoldViolent, GetCrimeGoldNonViolent, SetCrimeGold, SetCrimeGoldViolent, ModCrimeGold, CanPayCrimeGold, PlayerPayCrimeGold, GetInfamy, GetInfamyViolent, GetInfamyNonViolent, IsPlayerExpelled, SetPlayerExpelled, SetPlayerEnemy, IsFactionInCrimeGroup | SendAssaultAlarm, SendPlayerToJail, ModReaction |
@@ -190,6 +191,47 @@ run past it.
 | ShaderParticleGeometry | | Apply, Remove |
 | MusicType, Topic | | Add, Remove |
 | Weather, Weapon, Scroll | | SetActive, Fire, Cast |
+
+## Faction and alias native contract audit
+
+The SCR-58 inventory is checked against the registered methods. The local
+`engine-refs/skse64/scripts/vanilla/Faction.psc` supplies the Faction native
+signatures, defaults and comments. The CK wiki's `ReferenceAlias_Script`
+documents `ForceRefIfEmpty` as a Boolean member of `ReferenceAlias`. The named
+Faction function pages are not present in the local CK wiki corpus, so each
+Faction contract below is compared to that shipped Papyrus interface and its
+comments. No bindings in this inventory are globals.
+
+| Binding | Source contract compared to the registration |
+|---|---|
+| Faction.SetAlly | Takes another faction and two false-by-default direction flags. A true flag stores Friend for that direction, otherwise Ally. |
+| Faction.SetEnemy | Takes another faction and two false-by-default direction flags. A true flag stores Neutral for that direction, otherwise Enemy. |
+| Faction.GetReaction | Takes another faction and returns this faction's reaction toward it. Missing relation defaults to Neutral. |
+| Faction.SetReaction | Takes another faction and an integer reaction, then changes only this faction's direction. |
+| Faction.GetCrimeGold | Returns the combined violent and non-violent bounty. |
+| Faction.GetCrimeGoldViolent | Returns the violent bounty. |
+| Faction.GetCrimeGoldNonViolent | Returns the non-violent bounty. |
+| Faction.SetCrimeGold | Sets the non-violent bounty. |
+| Faction.SetCrimeGoldViolent | Sets the violent bounty. |
+| Faction.ModCrimeGold | Adds to the violent or non-violent bounty. The second argument defaults false. Positive additions grow matching accumulated infamy. |
+| Faction.GetInfamy | Returns accumulated violent and non-violent infamy. |
+| Faction.GetInfamyViolent | Returns accumulated violent infamy. |
+| Faction.GetInfamyNonViolent | Returns accumulated non-violent infamy. |
+| Faction.CanPayCrimeGold | Compares the player's Gold001 count with the faction's combined bounty. |
+| Faction.PlayerPayCrimeGold | The source has `abRemoveStolenItems = true` and `abGoToJail = true`. Current code takes Gold001 and clears both bounty fields, but does not honor either flag or the unable-to-pay path. Assign those payment and arrest choices to PRG-12, with jail consequences in PRG-13. |
+| Faction.IsPlayerExpelled | Returns this faction's player-expelled flag. |
+| Faction.SetPlayerExpelled | Sets the player-expelled flag. The argument defaults true. |
+| Faction.SetPlayerEnemy | Sets the player-enemy flag. The argument defaults true. |
+| Faction.IsFactionInCrimeGroup | Takes another faction and checks it against this faction's `CRGR` shared-crime FLST. It now resolves the winning FACT record and the winning list entries. |
+| Faction.SendAssaultAlarm | The native is a registered quiet stub. SCR-25 owns this binding; witnessed assault handling is part of PRG-12's arrest path. |
+| Faction.SendPlayerToJail | The native is a registered quiet stub. SCR-25 owns this binding; jail, property handling and sentence effects belong to PRG-13. |
+| Faction.ModReaction | The native is a registered quiet stub. The source takes another faction and an integer amount. SCR-25 owns this binding. |
+| ReferenceAlias.ForceRefIfEmpty | Takes an ObjectReference, tries to fill only an empty alias and returns whether it filled it. It is registered on ReferenceAlias, not Alias, so LocationAlias does not inherit it. |
+
+The shipped `ReferenceAlias.psc` also returns false when already filled and
+otherwise delegates to `ForceRefTo`. `CRGR` is a form link to an FLST, as
+declared by TES5Edit and the UESP FACT layout. Crime-group membership is
+derived from those records and adds no saved state.
 
 Current behavior and compatibility limits:
 
