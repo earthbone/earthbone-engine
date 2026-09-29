@@ -163,6 +163,10 @@ impl PlayerNode {
                 return false;
             }
             let player = game.player();
+            if game.world_mut().can_sleep_at_furniture(target) {
+                let activated = game.activate_deferred(target, player);
+                return activated && game.sleep_player_at_furniture(target, 8.0, false);
+            }
             let (container, blocked) = {
                 let mut world = game.world_mut();
                 let container = world.base_of(target).is_some_and(|base| {

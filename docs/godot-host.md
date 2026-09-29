@@ -1547,6 +1547,16 @@ from that transform or changing cells. Activating the same furniture again
 also releases the reservation. The marker selection and saved actor state are
 described in [game.md](game.md#furniture-activation-hst-09).
 
+### Player sleep, HST-11
+
+Activating a FURN reference with an available active Sleep marker completes
+an eight-hour player sleep through `Game::sleep_player_at_furniture`. The
+shared game path emits the sleep events, advances the calendar, and releases
+the marker on wake. The sleep marker requirements and interruption result are
+described in [game.md](game.md#player-sleep-hst-11). The host activation path
+currently always completes normally. The game API accepts an interruption
+result for interrupted completion callers.
+
 The ordinary load-door path uses deferred activation, including
 `arm_doorway`, `commit_doorway` and later `settle_unload`. Destination geometry
 and collision are prepared together before replacing host resources. Exterior
