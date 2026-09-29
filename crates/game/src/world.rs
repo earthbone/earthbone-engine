@@ -108,6 +108,26 @@ pub const PLAYER_OBJECT: u32 = 0x14;
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
 
+/// Transient camera controls requested by Game natives for the host player.
+/// These affect presentation and are not part of the saved world state.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct CameraControls {
+    pub target: Option<GlobalFormId>,
+    pub first_person_geometry: bool,
+    /// Degrees offset from the normal camera angle while sitting.
+    pub sitting_rotation_degrees: f32,
+}
+
+impl Default for CameraControls {
+    fn default() -> Self {
+        Self {
+            target: None,
+            first_person_geometry: true,
+            sitting_rotation_degrees: 0.0,
+        }
+    }
+}
+
 /// What a VM object stands for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Handle {
@@ -523,6 +543,8 @@ pub struct World {
     pub message_boxes: Vec<String>,
     pub animation_events: Vec<(GlobalFormId, String)>,
     pub player_controls: bool,
+    /// Camera state requested by Papyrus and consumed by the host.
+    pub camera_controls: CameraControls,
     pub ini: HashMap<String, String>,
     /// The package driver's per-world caches, see `crate::ai`.
     pub ai: crate::ai::AiWorld,
@@ -624,6 +646,7 @@ impl World {
             message_boxes: Vec::new(),
             animation_events: Vec::new(),
             player_controls: true,
+            camera_controls: CameraControls::default(),
             ini: HashMap::new(),
             ai: crate::ai::AiWorld::default(),
             mod_data: crate::moddata::ModDataState::default(),

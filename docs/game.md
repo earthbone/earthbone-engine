@@ -218,6 +218,11 @@ Current behavior and compatibility limits:
 - `tick_menu_mode(dt, true)` pauses world time and ordinary waits while
   `WaitMenuMode` continues. `tick(dt)` remains the unpaused entry point.
   The UI must supply the pause state when menus are implemented.
+- `Game.SetCameraTarget` accepts an actor form and stores it as the host
+  camera target. Non-actor values leave the current target unchanged.
+  `Game.ShowFirstPersonGeometry` sets the host's first-person geometry
+  visibility state, and `Game.SetSittingRotation` stores the camera offset in
+  degrees. These presentation controls are transient and are not saved.
 - Inventories start from the base record's `CNTO` list.
 - Actor values keep base, permanent, temporary and damage components in one
   store. Set changes base, Mod changes permanent, Force adjusts permanent

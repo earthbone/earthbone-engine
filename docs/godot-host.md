@@ -1163,6 +1163,23 @@ modifier keys, so side-specific chords are not distinguished. The walkthrough
 is a movement prototype. It does not activate game references, cross doors,
 play footsteps or run the gameplay VM.
 
+### Papyrus camera controls, HST-17
+
+The CK `Game_Script.wikitext` describes `SetCameraTarget` as setting the camera
+target actor, `ShowFirstPersonGeometry` as showing or hiding first-person
+geometry, and `SetSittingRotation` as setting the sitting camera offset.
+`skse64/scripts/vanilla/Game.psc` specifies that sitting offset in degrees.
+`soe-game` stores these transient requests in `World::camera_controls`, and
+`PlayerNode` applies them on its next game advance. A selected actor's current
+reference position becomes the camera anchor. The first-person geometry flag
+is retained as host camera state for the renderer. Sitting rotation offsets
+the camera yaw while leaving movement facing unchanged.
+
+`PlayerNode.camera_state()` reports the applied target FormID, geometry flag
+and sitting offset for host inspection. `hst_17_camera_controls.rs` exercises
+these readbacks and verifies the third-person camera yaw and position respond
+to the sitting offset.
+
 ### Mouse and gamepad bindings
 
 `input::devices` translates the codes declared in CommonLibSSE-NG's

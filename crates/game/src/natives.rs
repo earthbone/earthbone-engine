@@ -204,7 +204,7 @@ pub fn register(vm: &mut Vm, world: &Shared) -> Registered {
 
 /// Hand-kept count of the non-stub natives registered below. The test in
 /// this module checks it against the registry.
-pub const NATIVE_COUNT: usize = 366;
+pub const NATIVE_COUNT: usize = 369;
 
 fn declare_parents(vm: &mut Vm) {
     for (class, parent) in [
@@ -1719,6 +1719,25 @@ fn game(vm: &mut Vm, w: &Shared) {
     global!(vm, w, "Game", "GetPlayer", |world, call| {
         let p = world.player();
         form_value(world, call, Some(p))
+    });
+    global!(vm, w, "Game", "SetCameraTarget", |world, call| {
+        let target = world.form_arg(&call.arg(0));
+        if let Some(target) = target.filter(|id| {
+            world
+                .reference(*id)
+                .is_some_and(|reference| reference.is_actor)
+        }) {
+            world.camera_controls.target = Some(target);
+        }
+        none()
+    });
+    global!(vm, w, "Game", "ShowFirstPersonGeometry", |world, call| {
+        world.camera_controls.first_person_geometry = call.arg(0).as_bool();
+        none()
+    });
+    global!(vm, w, "Game", "SetSittingRotation", |world, call| {
+        world.camera_controls.sitting_rotation_degrees = call.arg(0).as_float();
+        none()
     });
     for name in ["GetForm", "GetFormEx"] {
         global!(vm, w, "Game", name, |world, call| {
@@ -3391,10 +3410,7 @@ fn stubs(vm: &mut Vm, world: &Shared) -> usize {
         ("Game", "PlayBink"),
         ("Game", "AdvanceSkill"),
         ("Game", "ShowTrainingMenu"),
-        ("Game", "ShowFirstPersonGeometry"),
-        ("Game", "SetCameraTarget"),
         ("Game", "QuitToMainMenu"),
-        ("Game", "SetSittingRotation"),
         ("Game", "StartTitleSequence"),
         ("Game", "GetCurrentCrosshairRef"),
         ("Game", "GetPlayerGrabbedRef"),
