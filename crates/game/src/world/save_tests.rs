@@ -433,9 +433,10 @@ fn sav_07_legacy_ids_migrate_through_all_nested_world_state() {
     for version in 15..=18_u16 {
         let mut legacy = without_exclusive_branches(&mut rich_world(255));
         // Drop empty post-version-19 blocks, including zone visit and scene
-        // history, the version 30 detection block's now-unconditional empty
-        // pool count, and the world-level version 37 section payloads.
-        legacy.truncate(legacy.len() - 103);
+        // history, plus the version 30 detection block's now-unconditional
+        // empty pool count. `without_exclusive_branches` already stripped the
+        // version 37 section payloads.
+        legacy.truncate(legacy.len() - 43);
         let tail = legacy.len() - 25;
         let mut expected = rich_world(DYNAMIC_FILE);
         match version {

@@ -941,7 +941,7 @@ impl World {
         if version >= 12 {
             super::item_save::read_item_stacks(&mut r, &mut refs)?;
         }
-        let record_overrides = if version >= 13 {
+        let mut record_overrides = if version >= 13 {
             self.read_record_overrides(&mut r, version)?
         } else {
             BTreeMap::new()
@@ -1068,6 +1068,23 @@ impl World {
         } else {
             crate::detection::DetectionState::default()
         };
+        // World-level sections are read straight into `self`, unlike every
+        // field above, which lands in a local and is only committed to
+        // `self` in the block below once the whole stream has parsed
+        // cleanly. A registered section may touch any field on `World`, so
+        // there is no local `World` to stage it in. If a section later in
+        // this table fails, sections read earlier in the same call have
+        // already mutated `self`, and the `Err` this function returns
+        // tells the caller to discard it.
+        if version >= 37 {
+            let previous_overrides =
+                std::mem::replace(&mut self.record_overrides, record_overrides);
+            let section_result =
+                save_sections::read_sections(&mut r, "world", self, WORLD_SECTIONS);
+            record_overrides = std::mem::replace(&mut self.record_overrides, previous_overrides);
+            section_result?;
+        }
+        r.expect_end()?;
         for id in super::detection::detection_actors(&detection) {
             let actor = refs.get(&id).map_or_else(
                 || {
@@ -1102,14 +1119,6 @@ impl World {
         }
 
         self.record_overrides = record_overrides;
-        // World-level sections can depend on local state parsed above, such
-        // as record overrides, so apply them after those fields are committed.
-        // As with other world sections, a section error leaves this world
-        // unsuitable for continued use and the caller should discard it.
-        if version >= 37 {
-            save_sections::read_sections(&mut r, "world", self, WORLD_SECTIONS)?;
-        }
-        r.expect_end()?;
         self.actor_templates = actor_templates;
         self.leveled_lists = leveled_lists;
         self.locations = locations;

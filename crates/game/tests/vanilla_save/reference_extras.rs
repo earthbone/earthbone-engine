@@ -288,18 +288,16 @@ fn engine_extras_reject_truncation_duplicates_and_bad_flags_atomically_and_read_
     // Both references' own empty save-section tables (version 37) are
     // stripped here, since version 19 predates them.
     let mut legacy = legacy::without_ref_sections(&mut world, &[id(0, 0x100), id(0, 0x101)]);
-    // The extra 21 bytes beyond the old 37 are detection's now-unconditional
-    // empty pool count and the five world-level save sections version 37
-    // added, all always present at the tail regardless of the simulated
-    // version.
-    legacy.truncate(legacy.len() - 118);
+    // Detection's pool count and the world sections add 66 bytes past the
+    // earlier tail, with 15 bytes reserved for SAV-53.
+    legacy.truncate(legacy.len() - 103);
     legacy[4..6].copy_from_slice(&19_u16.to_le_bytes());
     let mut save = save();
     save.change_forms = vec![change(0x400100, 0x400811, 0, 5, 0x400801)];
     world.restore_vanilla_reference_extras(&save).unwrap();
     let before = world.save_state();
     let mut bad_flags = before.clone();
-    let at = bad_flags.len() - 123;
+    let at = bad_flags.len() - 108;
     bad_flags[at] |= 1;
     // `legacy` had both references' own save-section tables stripped above
     // (2 bytes each), which `before` still carries, so add the 4 bytes back
@@ -308,7 +306,7 @@ fn engine_extras_reject_truncation_duplicates_and_bad_flags_atomically_and_read_
     let start = legacy.len() + 4;
     // The extras block is followed by the package cursor block, so repeat the
     // entry inside the extras block rather than past the end of the save.
-    let entry = &before[start + 4..before.len() - 114];
+    let entry = &before[start + 4..before.len() - 99];
     let mut duplicate = before[..start].to_vec();
     duplicate.extend_from_slice(&2_u32.to_le_bytes());
     duplicate.extend_from_slice(entry);
@@ -320,7 +318,7 @@ fn engine_extras_reject_truncation_duplicates_and_bad_flags_atomically_and_read_
         .to_string()
         .contains("duplicate reference extras"));
     let mut bad_key = before.clone();
-    let at = bad_key.len() - 102;
+    let at = bad_key.len() - 87;
     bad_key[at..at + 4].copy_from_slice(&0x811_u32.to_le_bytes());
     let mut cases = vec![bad_flags, duplicate, bad_key];
     for cut in 1..=28 {
