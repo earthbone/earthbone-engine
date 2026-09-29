@@ -398,6 +398,11 @@ fn actor_state(h: &mut StateHasher, a: &ActorState) {
         h.str(k);
         h.f32(*v);
     }
+    h.len(a.skill_experience.len());
+    for (skill, experience) in &a.skill_experience {
+        h.str(skill);
+        h.f32(*experience);
+    }
     for flag in [
         a.allow_flying,
         a.deferred_kill,
@@ -418,6 +423,13 @@ fn actor_state(h: &mut StateHasher, a: &ActorState) {
     opt_form(h, a.left_spell);
     opt_form(h, a.right_spell);
     form_set(h, &a.witnessed_crimes);
+    if let Some((furniture, marker)) = a.furniture_seat {
+        h.bool(true);
+        form(h, furniture);
+        h.u16(marker);
+    } else {
+        h.bool(false);
+    }
 }
 
 fn quest_state(h: &mut StateHasher, q: &QuestState) {

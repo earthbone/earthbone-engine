@@ -29,7 +29,7 @@ use godot::classes::{
     audio_stream_player_3d, audio_stream_wav, AudioStreamPlayer3D, AudioStreamWav, INode3D, Node3D,
 };
 use godot::prelude::*;
-use soe_audio::{Pcm, SoundSource};
+use soe_audio::{LipWeightTrack, Pcm, SoundSource};
 use soe_bsa::Vfs;
 
 use crate::audio::{to_i16_bytes, to_mono, Kind, VoicePool};
@@ -53,13 +53,29 @@ pub struct SoundBank {
     max_distance: f32,
     vfs: Option<Vfs>,
     source: Option<Arc<DataSource>>,
-    streams: HashMap<String, (Gd<AudioStreamWav>, usize)>,
+    streams: HashMap<String, (Gd<AudioStreamWav>, usize, f64, Option<LipWeightTrack>)>,
     stream_order: VecDeque<String>,
     stream_bytes: usize,
     decoded_count: u64,
     pool: VoicePool,
     players: Vec<Gd<AudioStreamPlayer3D>>,
+    dialogue_mouth: crate::dialogue_menu::DialogueMouth,
+    dialogue_mouth_slot: Option<usize>,
     last_error: GString,
+}
+
+impl crate::dialogue_menu::VoiceOutput for SoundBank {
+    fn play_voice(&mut self, path: &str, position: [f32; 3]) -> i32 {
+        SoundBank::play_voice(
+            self,
+            GString::from(path),
+            Vector3::new(position[0], position[1], position[2]),
+        )
+    }
+
+    fn stop_voice(&mut self, slot: i32) -> bool {
+        SoundBank::stop_voice(self, slot)
+    }
 }
 
 #[godot_api]
@@ -76,6 +92,8 @@ impl INode3D for SoundBank {
             decoded_count: 0,
             pool: VoicePool::new(SLOTS),
             players: Vec::new(),
+            dialogue_mouth: crate::dialogue_menu::DialogueMouth::default(),
+            dialogue_mouth_slot: None,
             last_error: GString::new(),
         }
     }
@@ -98,6 +116,14 @@ impl INode3D for SoundBank {
         for i in 0..self.players.len() {
             if !self.players[i].is_playing() && self.pool.peek(i).is_some() {
                 self.pool.release(i);
+                if self.dialogue_mouth_slot == Some(i) {
+                    self.dialogue_mouth.clear();
+                    self.dialogue_mouth_slot = None;
+                }
+            }
+            if self.dialogue_mouth_slot == Some(i) && self.players[i].is_playing() {
+                self.dialogue_mouth
+                    .sample(f64::from(self.players[i].get_playback_position()));
             }
         }
     }
@@ -226,14 +252,44 @@ impl SoundBank {
     /// full, so a footstep cannot cut dialogue off.
     #[allow(clippy::needless_pass_by_value)]
     #[func]
-    fn play_voice(&mut self, data_path: GString, position: Vector3) -> i32 {
+    pub(crate) fn play_voice(&mut self, data_path: GString, position: Vector3) -> i32 {
         self.play(&data_path.to_string(), position, Kind::Voice)
+    }
+
+    /// Stops a voice slot while leaving effect playback untouched.
+    pub(crate) fn stop_voice(&mut self, slot: i32) -> bool {
+        let Ok(slot) = usize::try_from(slot) else {
+            return false;
+        };
+        if self
+            .pool
+            .peek(slot)
+            .is_none_or(|playing| playing.kind != Kind::Voice)
+        {
+            return false;
+        }
+        let Some(player) = self.players.get_mut(slot) else {
+            return false;
+        };
+        player.stop();
+        self.pool.release(slot);
+        if self.dialogue_mouth_slot == Some(slot) {
+            self.dialogue_mouth.clear();
+            self.dialogue_mouth_slot = None;
+        }
+        true
     }
 
     /// How many slots are playing right now.
     #[func]
     fn playing_count(&self) -> i32 {
         self.pool.busy() as i32
+    }
+
+    /// Mouth target weights from the active dialogue voice, in LIP order.
+    #[func]
+    fn dialogue_mouth_weights(&self) -> PackedFloat32Array {
+        PackedFloat32Array::from(self.dialogue_mouth.weights().to_vec())
     }
 
     /// Why the last call that returned false or -1 failed.
@@ -252,10 +308,13 @@ impl SoundBank {
         self.stream_bytes = 0;
     }
 
-    fn stream(&mut self, data_path: &str) -> Result<Gd<AudioStreamWav>, String> {
+    fn stream(
+        &mut self,
+        data_path: &str,
+    ) -> Result<(Gd<AudioStreamWav>, f64, Option<LipWeightTrack>), String> {
         let key = soe_bsa::normalize(data_path);
-        if let Some((stream, _)) = self.streams.get(&key) {
-            return Ok(stream.clone());
+        if let Some((stream, _, duration, lip)) = self.streams.get(&key) {
+            return Ok((stream.clone(), *duration, lip.clone()));
         }
         let vfs = self
             .source
@@ -280,23 +339,37 @@ impl SoundBank {
         if sound.pcm.is_empty() {
             return Err(format!("{data_path}: decoded to no samples"));
         }
+        let duration = sound.pcm.duration_seconds();
+        let lip = sound.lip.as_deref().and_then(|bytes| {
+            soe_audio::Lip::parse(bytes)
+                .and_then(|lip| lip.decode())
+                .ok()
+        });
         self.decoded_count += 1;
         let stream = wav_from(&sound.pcm);
-        let bytes = sound.pcm.frames().saturating_mul(2);
+        let pcm_bytes = sound.pcm.frames().saturating_mul(2);
+        let lip_bytes = lip.as_ref().map_or(0, |track| {
+            usize::try_from(track.frame_count())
+                .unwrap_or(usize::MAX)
+                .saturating_mul(track.target_count().saturating_add(track.gesture_count()))
+                .saturating_mul(std::mem::size_of::<f32>())
+        });
+        let bytes = pcm_bytes.saturating_add(lip_bytes);
         if bytes <= CACHE_BYTES {
             while self.stream_bytes + bytes > CACHE_BYTES {
                 let Some(oldest) = self.stream_order.pop_front() else {
                     break;
                 };
-                if let Some((_, size)) = self.streams.remove(&oldest) {
+                if let Some((_, size, _, _)) = self.streams.remove(&oldest) {
                     self.stream_bytes -= size;
                 }
             }
             self.stream_bytes += bytes;
             self.stream_order.push_back(key.clone());
-            self.streams.insert(key, (stream.clone(), bytes));
+            self.streams
+                .insert(key, (stream.clone(), bytes, duration, lip.clone()));
         }
-        Ok(stream)
+        Ok((stream, duration, lip))
     }
 
     fn play_with(
@@ -310,8 +383,8 @@ impl SoundBank {
             self.last_error = "SoundBank must be inside the scene tree".into();
             return -1;
         }
-        let stream = match self.stream(data_path) {
-            Ok(stream) => stream,
+        let (stream, duration, lip) = match self.stream(data_path) {
+            Ok(decoded) => decoded,
             Err(error) => {
                 self.last_error = error.as_str().into();
                 return -1;
@@ -353,6 +426,10 @@ impl SoundBank {
             0.0
         });
         player.play();
+        if kind == Kind::Voice {
+            self.dialogue_mouth.start(lip, duration);
+            self.dialogue_mouth_slot = Some(slot);
+        }
         self.last_error = GString::new();
         slot as i32
     }
