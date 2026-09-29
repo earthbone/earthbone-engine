@@ -202,7 +202,7 @@ pub fn register(vm: &mut Vm, world: &Shared) -> Registered {
 
 /// Hand-kept count of the non-stub natives registered below. The test in
 /// this module checks it against the registry.
-pub const NATIVE_COUNT: usize = 366;
+pub const NATIVE_COUNT: usize = 367;
 
 fn declare_parents(vm: &mut Vm) {
     for (class, parent) in [
@@ -486,6 +486,22 @@ fn object_reference(vm: &mut Vm, w: &Shared) {
     method!(vm, w, "ObjectReference", "IsDeleted", |world, call, me| b(
         world.reference(me).is_some_and(|r| r.deleted)
     ));
+    method!(
+        vm,
+        w,
+        "ObjectReference",
+        "GetTriggerObjectCount",
+        |world, call, me| match world.trigger_object_count(me) {
+            Some(count) => i(count as i32),
+            None => {
+                call.log.push(
+                    call.time,
+                    "Error: GetTriggerObjectCount called on a non-trigger",
+                );
+                i(0)
+            }
+        }
+    );
     method!(
         vm,
         w,
@@ -3225,7 +3241,6 @@ fn stubs(vm: &mut Vm) -> usize {
         n += 1;
     }
     let ints: &[(&str, &str, i32)] = &[
-        ("ObjectReference", "GetTriggerObjectCount", 0),
         ("ObjectReference", "GetCurrentDestructionStage", 0),
         ("Actor", "GetCombatState", 0),
         ("Actor", "GetSleepState", 0),
