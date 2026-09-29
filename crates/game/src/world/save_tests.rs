@@ -352,14 +352,14 @@ fn without_exclusive_branches(world: &mut World) -> Vec<u8> {
     summon_marker.extend_from_slice(&summon_sentinel.object.to_le_bytes());
     markers.push(summon_marker);
     let mut bytes = world.save_state();
-    // Every actor and reference record now ends with an empty save-section
-    // table (a `u16` count of 0, see `save_sections`), which a
-    // pre-version-37 writer never emitted. Locate each record's own tail by
-    // re-serializing it exactly as `save_state` just did, form id then
-    // state, while the sentinels set above are still in place, then drop
-    // the matched span's last two bytes. `rich_world`'s two references
-    // carry identical `RefState` content, so the form id prefix is what
-    // tells their tails apart.
+    // Actor records end with an empty save-section table (a `u16` count
+    // of 0). Reference records end with the SAV-15 persistence section,
+    // whose table occupies 14 bytes. Neither table was present before
+    // version 37. Locate each record's own tail by re-serializing it
+    // exactly as `save_state` just did, form id then state, while the
+    // sentinels set above are still in place, then drop its table.
+    // `rich_world`'s two references carry identical `RefState` content, so
+    // the form id prefix is what tells their tails apart.
     for id in &ids {
         let actor = world.actors.get(id).unwrap();
         let mut probe = Writer::new();
@@ -380,7 +380,7 @@ fn without_exclusive_branches(world: &mut World) -> Vec<u8> {
             .windows(probe.out.len())
             .position(|window| window == probe.out)
             .expect("reference record is serialized");
-        bytes.drain(at + probe.out.len() - 2..at + probe.out.len());
+        bytes.drain(at + probe.out.len() - 14..at + probe.out.len());
     }
     world.active_effects.get_mut(&EffectId(1)).unwrap().summoned = None;
     for id in &ids {

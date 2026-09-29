@@ -300,7 +300,9 @@ fn version_ten_current_globals_migrate_to_one_journal_instance() {
         .unwrap()
         .journal
         .update_global(id(3, 0x800), -0.0);
-    let mut bytes = game.world().save_state();
+    let current = game.world().save_state();
+    let mut bytes =
+        without_sav37_reference_persistence_tail(&current, game.world().loaded_reference_count());
     // CONTEXT: One quest extension: count, FormID, empty runtime, and one
     // journal instance with a single global and no alias text.
     let extension_bytes = 4 + 6 + 6 + 8 + 4 + 2 + 1 + 4 + 4 + 6 + 4;

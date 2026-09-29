@@ -642,12 +642,14 @@ inventory sections. See [saved package runtime state](save-package-data.md) for
 source evidence, boundaries and integration validation. Runtime package
 restoration and complete ESS resumption remain unfinished.
 
-## Reference mask semantics, SAV-15 blocked
+## Reference mask semantics, SAV-15 partial
 
-SAV-15 still requires saved reference masks to override authored enable and
-persistence state with validated version-specific semantics. The byte layout
-is established, but the application operation has not been established.
-No reference behavior or engine-save layout changed in this investigation.
+The runtime applies the first `CHANGE_FORM_FLAGS` word to authored REFR and
+ACHR `INITIALLY_DISABLED` and `PERSISTENT` bits as XOR. It accepts this
+operation only for the observed Skyrim SE tuple of ESS header version 12,
+form version 78 and change-form version 78. Other tuples with a mask fail
+before reference state is inserted. The second 16-bit word remains available
+in the restore report and is not assigned runtime meaning.
 
 Local xEdit `Core/wbDefinitionsTES5Saves.pas`, at
 `wbUnionCHANGE_FORM_FLAGS`, names a 32-bit Mask Invert Flags followed by a
@@ -664,8 +666,12 @@ bit 10. `src/RE/T/TESObjectREFR.cpp` checks those bits in IsDisabled and
 IsPersistent. Its load declarations do not supply the saved-mask operation.
 Searches of CommonLibSSE, SKSE64, TiltedEvolution, OpenSkyrim, skymp,
 Skyrim-NX-Toolkit and Wrye Bash found no independent Skyrim mask application.
-An inversion label alone is insufficient evidence to choose XOR over a
-clear/set operation or establish the role of the second word.
+The XOR operation is an interpretation of xEdit's `Mask Invert Flags` label
+limited to the disabled and persistent bits. The local sources do not define
+the second word, and no controlled reference-game comparison of resulting
+flags was available. Synthetic and installed-record tests exercise the
+interpretation, but they do not independently verify vanilla save outcomes.
+The SAV-15 check therefore remains partial pending that comparison.
 
 The existing `all_external_reference_headers_reencode_and_compare_player_locations`
 test now reports mask counts after re-encoding the complete typed prefix.
@@ -695,6 +701,23 @@ operation or controlled vanilla saves with observed before/after flags for
 both authored bit values, both reference types and supported versions.
 Those outcomes must drive native enable queries and unload decisions, then
 survive engine save/load. The backlog done check remains unchanged.
+
+The SAV-54 follow-up on 2026-09-27 checked the same xEdit definition,
+FallrimTools `ChangeFormFlags.java` and CommonLibSSE-NG
+`TESObjectREFR.cpp`. xEdit's `ChangedFlag00Decider` selects whether the mask
+payload is present. It does not select an application operation or a version
+specific layout for the two words. FallrimTools reads and writes the words
+without applying them. CommonLib checks authored runtime flags for disabled
+and persistent state, but its public code does not connect those checks to the
+saved words.
+
+The recorded corpus survey has masks only in saves with header version 12,
+form version 78 and change-form version 78. It records word values and byte
+round trips, not the reference state before and after a save. It cannot
+establish how either word changes authored enable or persistence state, and
+does not cover other save versions. No application change is justified by
+these sources or observations. SAV-54 remains open pending public loading code
+or controlled before and after observations for each supported version.
 
 ## ARMO, WEAP and AMMO change coverage
 

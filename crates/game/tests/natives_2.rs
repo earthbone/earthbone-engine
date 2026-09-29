@@ -16,6 +16,7 @@
 //! Kit wiki page states, quoted in the test's doc comment.
 
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Mutex, OnceLock};
 
 use soe_esm::{plugin::flags, Entry, FileHeader, Group, GroupKind, LoadOrder, Plugin, Record, Tag};
 use soe_game::inventory::{Extra, Field, Stack};
@@ -555,6 +556,30 @@ fn game() -> Game {
 }
 
 static PROBES: AtomicUsize = AtomicUsize::new(0);
+type ProbeScript = (String, Vec<u8>);
+
+static PROBE_SCRIPTS: OnceLock<Mutex<Vec<ProbeScript>>> = OnceLock::new();
+
+fn remember_probe(script: &str, bytes: &[u8]) {
+    PROBE_SCRIPTS
+        .get_or_init(|| Mutex::new(Vec::new()))
+        .lock()
+        .unwrap()
+        .push((script.to_string(), bytes.to_vec()));
+}
+
+fn load_probe_scripts(game: &mut Game) {
+    let probes = PROBE_SCRIPTS
+        .get_or_init(|| Mutex::new(Vec::new()))
+        .lock()
+        .unwrap();
+    for (name, source) in probes.iter() {
+        if game.vm.has_script(name) {
+            continue;
+        }
+        game.load_script(source).unwrap();
+    }
+}
 
 fn type_of(v: &Value) -> &'static str {
     match v {
@@ -586,6 +611,7 @@ fn call(game: &mut Game, target: &Value, name: &str, args: &[Value]) -> Value {
         .ins(Return, vec![ident("r")])
         .build();
     let bytes = ScriptBuilder::new(&script, "Form").function(fun).bytes();
+    remember_probe(&script, &bytes);
     game.load_script(&bytes).unwrap();
     let mut all = vec![target.clone()];
     all.extend_from_slice(args);
@@ -612,6 +638,7 @@ fn call_global(game: &mut Game, class: &str, name: &str, args: &[Value]) -> Valu
         .ins(Return, vec![ident("r")])
         .build();
     let bytes = ScriptBuilder::new(&script, "Form").function(fun).bytes();
+    remember_probe(&script, &bytes);
     game.load_script(&bytes).unwrap();
     let thread = game.vm.call_global(&script, "Run", args).unwrap();
     game.run_until_idle(64);
@@ -2279,6 +2306,7 @@ fn the_new_state_survives_save_and_load() {
     let bytes = g.save_state().unwrap();
 
     let mut h = game();
+    load_probe_scripts(&mut h);
     h.load_state(&bytes).unwrap();
     let list = obj(&mut h, "LootList");
     assert_eq!(call(&mut h, &list, "GetNumForms", &[]), Value::Int(3));

@@ -142,6 +142,7 @@ fn ref_state(h: &mut StateHasher, s: &RefState) {
     point(h, s.rotation);
     h.f32(s.scale);
     h.bool(s.enabled);
+    h.bool(s.persistent);
     h.bool(s.deleted);
     h.bool(s.activation_blocked);
     h.bool(s.opened);

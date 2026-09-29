@@ -286,8 +286,9 @@ Current behavior and compatibility limits:
   phase before advancing. Reaching the last phase stops the scene and delivers
   `OnEnd`. `Scene.Start` and `Stop` deliver `OnBegin` and `OnEnd` to the
   scene's scripts. SOEW version 36 stores the current phase and completed
-  action slots. Action slots use zero-based positions from the SCEN action
-  list because two vanilla scenes reuse action numbers. The SCEN layout follows
+  action slots. Version 37 stores each reference's persistent flag. Action
+  slots use zero-based positions from the SCEN action list because two vanilla
+  scenes reuse action numbers. The SCEN layout follows
   `TES5Edit/Core/wbDefinitionsTES5.pas` and
   `uesp-modfileformat/SCEN.wikitext`. Timer expiry, CTDA evaluation, automatic
   action dispatch, and the scene flags are not implemented. `Sound.Play`
@@ -2114,6 +2115,15 @@ unapplied state. Inventory, actor values, extra data and saved execution remain
 separate requirements. See [save.md](save.md#reference-placements) for sources,
 validation and the limits of this intermediate reconstruction pass.
 
+For reference headers with the generic form-flags bit, the pass applies the
+`Mask Invert Flags` word to authored `INITIALLY_DISABLED` and `PERSISTENT`
+record bits with XOR. It accepts only ESS header version 12, form version 78
+and change-form version 78 when that mask is present. The second 16-bit word
+is retained in the report and does not affect these two runtime properties.
+The effective persistence value feeds cell-unload retention and
+encounter-zone reset decisions. SOEW version 37 stores it with each reference.
+Older SOEW states derive persistence from the current winning record.
+
 ## Inventory instances and ESS application, work in progress
 
 `RefState::inventory` now holds one canonical per-item total and ordered
@@ -3253,8 +3263,7 @@ written unconditionally (the writer always emits the current format) and read
 behind `if version >= 32`, the same pattern `witnessed_crimes` used for
 version 31. An older save simply loads with both hands empty, matching how a
 pre-31 save loads with no witnessed crimes. The version-31 unknown-version
-probe in `save_tests.rs` moved to 33 so it still names a version past the
-current one.
+probe in `save_tests.rs` tracks the current version and remains one past it.
 
 `natives.rs`'s `EquipSpell`/`UnequipSpell`/`GetEquippedSpell` now share
 `equip_hand_spell`/`unequip_hand_spell`/`hand_spell` with the menu for source

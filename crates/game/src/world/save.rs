@@ -62,11 +62,10 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// Version 34 retains last-visit game days for resettable encounter zones.
 /// Version 35 retains saved list flags and per-entry chance bytes in record overrides.
 /// Version 36 retains the active phase and completed action slots for each scene.
-/// Version 37 appends a named section table (`save_sections`) to the world,
-/// to every actor record and to every reference record, and is the last
-/// version this constant will ever reach: new saved state goes into a
-/// section registered in `save_section_registry`, at the level that owns
-/// it, not into a new version.
+/// Version 37 appends named sections at world, actor and reference levels,
+/// including the SAV-15 reference section for persistent flags. It is the
+/// last version this constant will ever reach: new saved state goes into a
+/// section registered in `save_section_registry`, at the level that owns it.
 pub const SAVE_VERSION: u16 = 37;
 
 #[derive(Clone, Copy)]
@@ -496,7 +495,13 @@ impl World {
         let mut refs = HashMap::with_capacity(n);
         for _ in 0..n {
             let id = read_form_id(&mut r)?;
-            refs.insert(id, read_ref_state(&mut r, version)?);
+            let mut state = read_ref_state(&mut r, version)?;
+            if version < 37 {
+                state.persistent = self.order.winner_ref(id).is_some_and(|record_ref| {
+                    self.order.record(record_ref).flags & soe_esm::plugin::flags::PERSISTENT != 0
+                });
+            }
+            refs.insert(id, state);
         }
 
         let n = r.len()?;
@@ -1428,6 +1433,7 @@ fn read_ref_state(r: &mut FormReader<'_, '_>, version: u16) -> Result<RefState, 
         anim_ints,
         anim_bools,
         alpha,
+        persistent: false,
     };
     if version >= 37 {
         save_sections::read_sections(r, "reference", &mut state, REF_SECTIONS)?;

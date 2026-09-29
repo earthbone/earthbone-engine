@@ -140,6 +140,22 @@ fn save() -> Save {
     save
 }
 
+fn without_sav37_reference_persistence_tail(bytes: &[u8], references: usize) -> Vec<u8> {
+    let marker = [1, 0, 6, b'S', b'A', b'V', b'-', b'1', b'5', 1, 0, 0, 0];
+    let mut offsets = bytes
+        .windows(marker.len())
+        .enumerate()
+        .filter_map(|(offset, window)| (window == marker).then_some(offset))
+        .collect::<Vec<_>>();
+    assert_eq!(offsets.len(), references, "SAV-15 reference section count");
+    offsets.sort_unstable_by_key(|offset| std::cmp::Reverse(*offset));
+    let mut legacy = bytes.to_vec();
+    for offset in offsets {
+        legacy.drain(offset..offset + marker.len());
+    }
+    legacy
+}
+
 fn globals(save: &mut Save, values: &[(u32, f32)]) {
     save.form_id_array = values.iter().map(|(raw, _)| *raw).collect();
     let globals = GlobalVariables {

@@ -177,10 +177,8 @@ pub fn without_exclusive_branches(world: &mut World, actors: &[GlobalFormId]) ->
         fields.push((right_spell_offsets[0] + right_spell_marker.len(), 2));
 
         // `alpha` itself is not version gated, so unlike the fields above
-        // it must stay in the stream with its true value. Only the empty
-        // save-section table that follows it is a version 37 addition and
-        // gets stripped. The marker bytes are overwritten back to
-        // `prior_alpha` in place rather than added to `fields`.
+        // it stays in the stream with its true value. The marker bytes are
+        // overwritten back in place rather than added to `fields`.
         let alpha_marker = alpha_sentinel.to_le_bytes().to_vec();
         let alpha_offsets: Vec<_> = bytes
             .windows(alpha_marker.len())
@@ -191,16 +189,30 @@ pub fn without_exclusive_branches(world: &mut World, actors: &[GlobalFormId]) ->
         let alpha_offset = alpha_offsets[0];
         bytes[alpha_offset..alpha_offset + alpha_marker.len()]
             .copy_from_slice(&prior_alpha.to_le_bytes());
-        fields.push((alpha_offset + alpha_marker.len(), 2));
     }
     fields.sort_by_key(|(offset, _)| std::cmp::Reverse(*offset));
     for (offset, len) in fields {
         bytes.drain(offset..offset + len);
     }
+    strip_reference_sections(&mut bytes, world.loaded_reference_count());
     bytes
 }
 
-/// Strip the empty save-section table version 37 appends to a standalone
+fn strip_reference_sections(bytes: &mut Vec<u8>, references: usize) {
+    let marker = [1, 0, 6, b'S', b'A', b'V', b'-', b'1', b'5', 1, 0, 0, 0];
+    let mut offsets = bytes
+        .windows(marker.len())
+        .enumerate()
+        .filter_map(|(offset, window)| (window == marker).then_some(offset))
+        .collect::<Vec<_>>();
+    assert_eq!(offsets.len(), references, "SAV-15 reference section count");
+    offsets.sort_unstable_by_key(|offset| std::cmp::Reverse(*offset));
+    for offset in offsets {
+        bytes.drain(offset..offset + marker.len());
+    }
+}
+
+/// Strip the save-section table version 37 appends to a standalone
 /// reference's own record. `without_exclusive_branches` only locates this
 /// table for a reference paired with an actor, through the actor's own
 /// alpha value. A fixture that materializes a bare reference, such as an
@@ -241,11 +253,23 @@ pub fn without_ref_sections(world: &mut World, refs: &[GlobalFormId]) -> Vec<u8>
         assert_eq!(found.len(), 1, "reference alpha sentinel is not unique");
         let offset = found[0];
         bytes[offset..offset + marker.len()].copy_from_slice(&prior_alpha.to_le_bytes());
-        offsets.push(offset + marker.len());
+        let table_start = offset + marker.len();
+        let section_count = usize::from(u16::from_le_bytes(
+            bytes[table_start..table_start + 2].try_into().unwrap(),
+        ));
+        let mut table_end = table_start + 2;
+        for _ in 0..section_count {
+            let name_len = usize::from(bytes[table_end]);
+            table_end += 1 + name_len;
+            let payload_len =
+                u32::from_le_bytes(bytes[table_end..table_end + 4].try_into().unwrap()) as usize;
+            table_end += 4 + payload_len;
+        }
+        offsets.push((table_start, table_end - table_start));
     }
-    offsets.sort_by_key(|offset| std::cmp::Reverse(*offset));
-    for offset in offsets {
-        bytes.drain(offset..offset + 2);
+    offsets.sort_by_key(|(offset, _)| std::cmp::Reverse(*offset));
+    for (offset, len) in offsets {
+        bytes.drain(offset..offset + len);
     }
     bytes
 }

@@ -28,4 +28,17 @@ pub(crate) const ACTOR_SECTIONS: &[Section<ActorState>] = &[
 /// reference record.
 #[rustfmt::skip]
 pub(crate) const REF_SECTIONS: &[Section<RefState>] = &[
+    Section { name: "SAV-15", write: write_reference_persistence, read: read_reference_persistence },
 ];
+
+fn write_reference_persistence(state: &RefState, writer: &mut soe_papyrus::vm::state::Writer) {
+    writer.bool(state.persistent);
+}
+
+fn read_reference_persistence(
+    state: &mut RefState,
+    reader: &mut super::save::FormReader<'_, '_>,
+) -> Result<(), soe_papyrus::VmError> {
+    state.persistent = reader.bool()?;
+    Ok(())
+}
