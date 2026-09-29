@@ -3,7 +3,10 @@
 
 //! SCEN VMAD fixtures follow xEdit's `wbVMADFragmentedSCEN` field order.
 
-use soe_esm::{LoadOrder, Plugin, Tag};
+#[path = "common/installed.rs"]
+mod installed;
+
+use soe_esm::Tag;
 use soe_game::vmad::Vmad;
 
 const SCEN: Tag = Tag::new(b"SCEN");
@@ -88,21 +91,18 @@ fn fmt_18_scene_fragment_truncation_and_unknown_flags_return_errors() {
 
 #[test]
 fn fmt_18_installed_scen_fragments_reproduce_authored_vmad_bytes() {
-    let Ok(data) = std::env::var("SKYRIM_DATA") else {
+    let Ok(_data) = std::env::var("SKYRIM_DATA") else {
         eprintln!("SKYRIM_DATA not set, skipping");
         return;
     };
-    let mut order = LoadOrder::new();
-    for name in [
+    let order = installed::load_order(&[
         "Skyrim.esm",
         "Update.esm",
         "Dawnguard.esm",
         "HearthFires.esm",
         "Dragonborn.esm",
-    ] {
-        let bytes = std::fs::read(format!("{data}/{name}")).unwrap();
-        order.add(name, Plugin::parse(&bytes).unwrap()).unwrap();
-    }
+    ])
+    .unwrap();
 
     let mut decoded = 0;
     let mut begin = 0;
