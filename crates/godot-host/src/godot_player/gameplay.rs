@@ -130,7 +130,7 @@ impl PlayerNode {
     }
 
     pub(super) fn activate_game_reference(&mut self, target: GlobalFormId) -> bool {
-        let (activated, show_container) = {
+        let (activated, show_container, lockpick_request) = {
             let Some(game) = &mut self.game else {
                 return false;
             };
@@ -156,13 +156,30 @@ impl PlayerNode {
                     .is_some_and(|reference| reference.activation_blocked);
                 (container, blocked)
             };
-            let activated = game.activate_deferred(target, player);
+            let lockpick = game.world().form("Lockpick");
+            let key = game.world().key(target);
+            let has_key = key.is_some_and(|key| game.world_mut().item_count(player, key) > 0);
+            let lockpick_request = !blocked
+                && game.world().reference_ref(target).is_some_and(|reference| {
+                    reference.locked && reference.lock_level != 255 && !has_key
+                })
+                && lockpick.is_some_and(|pick| game.world_mut().item_count(player, pick) > 0);
+            let activated = if lockpick_request {
+                false
+            } else {
+                game.activate_deferred(target, player)
+            };
             let opened = game
                 .world_mut()
                 .reference_ref(target)
                 .is_some_and(|reference| reference.opened);
-            (activated, activated && container && !blocked && opened)
+            (
+                activated,
+                activated && container && !blocked && opened,
+                lockpick_request,
+            )
         };
+        self.pending_lockpick = lockpick_request.then_some(target);
         if show_container {
             self.open_container_menu(target);
         }

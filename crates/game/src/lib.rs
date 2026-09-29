@@ -572,6 +572,27 @@ impl Game {
         ok
     }
 
+    /// Apply a lockpick result supplied by the host interaction UI.
+    ///
+    /// A broken pick is removed from inventory. Successful picks unlock the
+    /// reference through the shared lock state and run its lock event.
+    pub fn resolve_lockpick(
+        &mut self,
+        target: GlobalFormId,
+        activator: GlobalFormId,
+        success: bool,
+    ) -> bool {
+        let vm = &mut self.vm;
+        let unlocked = self.world.borrow_mut().resolve_lockpick(
+            target,
+            activator,
+            success,
+            &mut |name, class| vm.create_object_of(name, class),
+        );
+        self.run_until_idle(64);
+        unlocked
+    }
+
     /// Move an inventory item between two references through the same notified
     /// transaction that Papyrus `RemoveItem` uses. A rejected transfer leaves
     /// both holders unchanged.
