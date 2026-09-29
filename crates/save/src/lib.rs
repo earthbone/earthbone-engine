@@ -37,7 +37,8 @@ pub mod reference;
 pub mod table;
 
 pub use change::{
-    CellChange, CellInteriorSeenEntry, CellSeenData, ChangeForm, OpaqueSpatialChange, QuestStage,
+    CellChange, CellInteriorSeenEntry, CellSeenData, ChangeForm, OpaqueSpatialChange, ParwChange,
+    PconChange, QuestStage,
 };
 pub use change::{
     ClassChange, FactionChange, FactionReaction, FactionReactions, ProjectileChange,

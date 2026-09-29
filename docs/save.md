@@ -27,8 +27,13 @@ flags and payload bytes. SAV-23 exposes all 32 xEdit-defined shared PFLA, PHZD
 and PBAR change flag bits through `ProjectileChange`, while retaining the
 inflated subtype payload as exact bytes. The payload fields remain undecoded:
 xEdit's subtype dispatch structures are empty and FallrimTools uses its raw
-fallback. See [saved projectile layouts](save-projectile-layouts.md) for the
-source review and remaining evidence requirement.
+fallback. PCON and PARW expose typed envelopes containing their change flags,
+version, compression length and exact stored bytes. Their
+subtype payloads remain opaque because the inspected Skyrim xEdit structures
+are empty and FallrimTools has no typed reader. SAV-25 tests envelope
+truncation and reports PCON/PARW flag and byte coverage across the external
+save corpus. See [saved projectile layouts](save-projectile-layouts.md) for
+the source review and remaining evidence requirement.
 
 The format was not reverse engineered. It is documented and it has a mature
 open implementation, so both were read first.
@@ -115,6 +120,8 @@ does not claim runtime support for opaque payloads.
 - Type 3, the global variable table, as references and floats.
 - Every change form header. `ChangeForm::quest_change` decodes documented QUST
   flags, stages, objectives, runtime aliases/events and quest instances.
+- PCON and PARW change-form envelopes, with original stored payload bytes
+  retained without subtype interpretation.
 - `ChangeForm::info_change`, `story_manager_quest_node_change` and
   `scene_change` decode the defined INFO, SMQN and SCEN flag sections and state
   markers.

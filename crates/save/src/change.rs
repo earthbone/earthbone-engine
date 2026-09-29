@@ -88,6 +88,28 @@ impl ChangeForm {
         }))
     }
 
+    /// Return the known PCON change-form envelope without interpreting its
+    /// source-opaque payload.
+    pub fn pcon_change(&self) -> Option<PconChange> {
+        (self.record_type() == "PCON").then(|| PconChange {
+            change_flags: self.change_flags,
+            version: self.version,
+            uncompressed_len: self.uncompressed_len,
+            data: self.data.clone(),
+        })
+    }
+
+    /// Return the known PARW change-form envelope without interpreting its
+    /// source-opaque payload.
+    pub fn parw_change(&self) -> Option<ParwChange> {
+        (self.record_type() == "PARW").then(|| ParwChange {
+            change_flags: self.change_flags,
+            version: self.version,
+            uncompressed_len: self.uncompressed_len,
+            data: self.data.clone(),
+        })
+    }
+
     fn length_width(&self) -> usize {
         match self.type_field >> 6 {
             0 => 1,
@@ -648,6 +670,28 @@ pub struct ProjectileChange {
     pub payload: Vec<u8>,
 }
 
+/// PCON change-form data as defined by the known Skyrim save schema.
+///
+/// The schema defines no subtype fields, so `data` retains its original bytes.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PconChange {
+    pub change_flags: u32,
+    pub version: u8,
+    pub uncompressed_len: u32,
+    pub data: Vec<u8>,
+}
+
+/// PARW change-form data as defined by the known Skyrim save schema.
+///
+/// The schema defines no subtype fields, so `data` retains its original bytes.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ParwChange {
+    pub change_flags: u32,
+    pub version: u8,
+    pub uncompressed_len: u32,
+    pub data: Vec<u8>,
+}
+
 #[cfg(test)]
 mod sav_55_projectile_envelope_tests {
     use super::ChangeForm;
@@ -751,6 +795,36 @@ mod sav_23_projectile_tests {
         bytes.extend_from_slice(&[5, 0, 4, 0, 1, 2]);
         let error = ChangeForm::read(&mut Cursor::new(&bytes, "change form")).unwrap_err();
         assert!(matches!(error, crate::Error::Truncated { .. }));
+    }
+}
+
+#[cfg(test)]
+mod sav_25_projectile_truncation_tests {
+    use super::ChangeForm;
+    use crate::{cursor::Cursor, cursor::RefId};
+
+    #[test]
+    fn sav_25_change_form_reader_rejects_each_truncated_envelope_field() {
+        for kind in [42, 47] {
+            let form = ChangeForm {
+                form: RefId::from_bytes([0; 3]),
+                change_flags: u32::MAX,
+                type_field: kind,
+                version: 74,
+                uncompressed_len: 0,
+                data: vec![0x10, 0x20, 0x30],
+            };
+            let mut bytes = Vec::new();
+            form.write(&mut bytes);
+
+            for end in 0..bytes.len() {
+                let mut cursor = Cursor::new(&bytes[..end], "SAV-25 truncated change form");
+                assert!(
+                    ChangeForm::read(&mut cursor).is_err(),
+                    "kind {kind}, end {end}"
+                );
+            }
+        }
     }
 }
 
