@@ -345,6 +345,14 @@ fn test_plugin() -> Plugin {
             .zsub(T(b"NAM0"), "First")
             .sub(T(b"NEXT"), [])
             .sub(T(b"HNAM"), [])
+            .sub(T(b"ANAM"), 0u16.to_le_bytes())
+            .zsub(T(b"NAM0"), "Action")
+            .sub(T(b"ALID"), 1i32.to_le_bytes())
+            .sub(T(b"INAM"), 0u32.to_le_bytes())
+            .sub(T(b"SNAM"), 0u32.to_le_bytes())
+            .sub(T(b"ENAM"), 0u32.to_le_bytes())
+            .sub(T(b"DATA"), 0x900u32.to_le_bytes())
+            .sub(T(b"ANAM"), [])
             .sub(
                 T(b"VMAD"),
                 Vmad {
@@ -355,6 +363,7 @@ fn test_plugin() -> Plugin {
             ),
     );
     p.push_top(Record::new(T(b"SNDR"), SOUND).zsub(EDID, "TestSound"));
+    p.push_top(Record::new(T(b"SCRL"), 0xA00).zsub(EDID, "TestScroll"));
     p.push_top(Record::new(T(b"WOOP"), WORD).zsub(EDID, "WordFus"));
     p.push_top(
         Record::new(T(b"GLOB"), COUNTER)
@@ -2109,6 +2118,51 @@ fn scenes_begin_and_end() {
     call(&mut g, &scene, "Stop", &[]);
     assert_eq!(call(&mut g, &scene, "IsPlaying", &[]), Value::Bool(false));
     assert!(g.traces().iter().any(|t| t == "scene end"));
+    assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
+/// scr_69_scene_scroll_registry_inventory_calls_each_vanilla_binding
+#[test]
+fn scr_69_scene_scroll_registry_inventory_calls_each_vanilla_binding() {
+    let mut g = game();
+    let scene = obj(&mut g, "TestScene");
+    assert_eq!(call(&mut g, &scene, "IsPlaying", &[]), Value::Bool(false));
+    call(&mut g, &scene, "Start", &[]);
+    assert_eq!(call(&mut g, &scene, "IsPlaying", &[]), Value::Bool(true));
+    assert_eq!(
+        call(&mut g, &scene, "IsActionComplete", &[Value::Int(0)]),
+        Value::Bool(false)
+    );
+    call(&mut g, &scene, "ForceStart", &[]);
+    assert_eq!(call(&mut g, &scene, "GetOwningQuest", &[]), Value::None);
+    call(&mut g, &scene, "Stop", &[]);
+    assert_eq!(call(&mut g, &scene, "IsPlaying", &[]), Value::Bool(false));
+
+    let scroll = obj(&mut g, "TestScroll");
+    call(&mut g, &scroll, "Cast", &[Value::None, Value::None]);
+    assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
+/// scr_69_scene_is_action_complete_reads_completed_action_slots
+#[test]
+fn scr_69_scene_is_action_complete_reads_completed_action_slots() {
+    let mut g = game();
+    let scene = obj(&mut g, "TestScene");
+    call(&mut g, &scene, "Start", &[]);
+    assert_eq!(
+        call(&mut g, &scene, "IsActionComplete", &[Value::Int(0)]),
+        Value::Bool(false)
+    );
+    let scene_id = g.form("TestScene").unwrap();
+    assert!(g.world_mut().complete_scene_action(scene_id, 0));
+    assert_eq!(
+        call(&mut g, &scene, "IsActionComplete", &[Value::Int(0)]),
+        Value::Bool(true)
+    );
+    assert_eq!(
+        call(&mut g, &scene, "IsActionComplete", &[Value::Int(-1)]),
+        Value::Bool(false)
+    );
     assert!(errors(&g).is_empty(), "{:?}", errors(&g));
 }
 
