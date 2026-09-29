@@ -1088,6 +1088,10 @@ twice from one seed and compares every tick, in one process and across two.
 The save carries the resident cell as well, so a loaded game knows what it is
 holding.
 
+`TickHash::with_host_builder_hash` adds or replaces a `host.builders` part
+and recomputes the total. A host caller can attach its per-tick builder result
+hash to the game hash, then use the same comparison and text log format.
+
 ### Not done
 
 The renderer half. Nothing tells the host to stream the new cell or drop the
