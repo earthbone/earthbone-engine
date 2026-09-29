@@ -67,6 +67,7 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// world section for restored record form flags and their unknown words. It is
 /// the last version this constant will ever reach: new saved state goes into a
 /// section registered in `save_section_registry`, at the level that owns it.
+/// The native game save envelope also records dependency provenance.
 pub const SAVE_VERSION: u16 = 37;
 
 #[derive(Clone, Copy)]
