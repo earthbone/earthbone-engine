@@ -117,6 +117,30 @@ checked against OpenMW's `components/esm4/loadltex.cpp` for `GNAM`'s repeated si
 FormID shape. `godot-host` resolves a cell's `LAND` alpha layers through `LTEX` to
 `GRAS` for procedural grass placement (`docs/godot-host.md`, "Grass placement").
 
+## Parsed plugin cache
+
+`read_plugin_cached(path, cache_dir)` stores and reuses the parsed `Plugin`
+tree in the caller's cache directory. The cache filename hashes the canonical
+source path, source length, modification time at nanosecond resolution and
+cache format version. The entry repeats those fields and stores the full
+parsed tree, including placements, offsets, record order and group structure.
+It uses a compact binary encoding of the owned plugin structs, so no
+serialization crate is added.
+The local `engine-refs/godotwind/src/native/ESMCache.cs` uses a versioned
+binary ESM cache with source validation and a parse fallback. Its cache stores
+selected host-facing record projections, so it cannot restore this crate's
+complete raw records, subrecords and group tree. The cache here keeps the
+existing `Plugin` model intact.
+
+Each cache file has a magic value, payload length and SHA-256 digest. A cache
+hit requires matching identity fields, a valid digest and complete decoding of
+the payload. Invalid, truncated or stale entries are ignored. A successful
+source parse replaces the current entry through a temporary file and rename.
+Cache directory and cache write failures do not prevent source parsing.
+`tests/fmt_29_cache.rs` covers fixture equality, canonical-path reuse, changed
+file identity and modification time, cache format version, corrupt and
+truncated entries, and all five installed masters.
+
 ## Tests
 
 - Unit tests in every module: round trips, compressed and `XXXX` records, truncation
