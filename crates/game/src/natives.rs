@@ -1898,6 +1898,28 @@ fn debug(vm: &mut Vm, w: &Shared) {
             None => b(false),
         }
     });
+    global!(vm, w, "Debug", "StartScriptProfiling", |_world, call| {
+        call.start_script_profiling(&text(&call.arg(0)));
+        none()
+    });
+    global!(vm, w, "Debug", "StopScriptProfiling", |_world, call| {
+        if let Err(error) = call.stop_script_profiling(&text(&call.arg(0))) {
+            call.log
+                .push(call.time, format!("Papyrus profile write failed: {error}"));
+        }
+        none()
+    });
+    global!(vm, w, "Debug", "StartStackProfiling", |_world, call| {
+        call.start_stack_profiling();
+        none()
+    });
+    global!(vm, w, "Debug", "StopStackProfiling", |_world, call| {
+        if let Err(error) = call.stop_stack_profiling() {
+            call.log
+                .push(call.time, format!("Papyrus profile write failed: {error}"));
+        }
+        none()
+    });
 }
 
 fn utility(vm: &mut Vm, w: &Shared) {
@@ -3427,6 +3449,7 @@ fn stubs(vm: &mut Vm) -> usize {
         ("Debug", "StopScriptProfiling"),
         ("Debug", "StartStackProfiling"),
         ("Debug", "StopStackProfiling"),
+        ("Debug", "TakeScreenshot"),
         ("Debug", "SetFootIK"),
         ("Debug", "ShowRefPosition"),
         ("Debug", "PlayerMoveToAndWait"),

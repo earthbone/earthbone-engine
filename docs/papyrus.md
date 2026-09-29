@@ -176,6 +176,19 @@ functions all take that path. The stack depth limit is 128 frames and a
 runaway recursion is logged and the thread dropped. Only host API misuse
 returns `VmError`.
 
+**Script profiling.** `Debug.StartScriptProfiling` and
+`Debug.StopScriptProfiling` select a script by name. The matching script's
+function entries are counted and elapsed time around each executed VM
+instruction is summed per function. `Debug.StartStackProfiling` and
+`Debug.StopStackProfiling` apply the same counters to the calling VM thread.
+Stopping writes Chrome trace JSON events with function names, summed
+instruction time in the trace's microsecond duration and exact nanoseconds in
+each event's `duration_ns` argument. The call count is in `calls`. Perfetto and
+`chrome://tracing` read the output. The host may set
+`Vm::set_profile_directory`; otherwise `SOE_PROFILE_DIR` is used, falling back
+to `logs/Script/Profiling`. Profiling requests are transient and are not part
+of saved VM state.
+
 **Values.** Strings compare without case, numbers compare across int and
 float, arrays are shared references compared by identity, objects compare by
 handle. Casts follow the declared type of the destination variable, which is

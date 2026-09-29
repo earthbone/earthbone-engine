@@ -727,6 +727,7 @@ impl Vm {
                 let ret_dest = r.opt_str()?;
                 frames.push(Frame {
                     coverage_recorded: false,
+                    profile_recorded: false,
                     instance,
                     self_object,
                     script: Some(script),
