@@ -229,6 +229,12 @@ Current behavior and compatibility limits:
   initialized actor values, so reload does not seed bonuses again. Leveled
   templates return an error pending spawn selection. Missing race DATA
   retains the synthetic-record fallback. See [actor values](actor-values.md).
+- `Game.AdvanceSkill` records player skill use from the winning AVIF `AVSK`
+  multipliers and offsets. The improve multiplier and offset plus
+  `fSkillUseCurve` determine experience needed at each current skill level.
+  Earned levels update the shared actor-value base and stop at 100. Partial
+  skill experience is stored per actor in the `PRG-01` section of SOEW version
+  37 actor records. This path applies only explicitly recorded skill use.
 - PlayerRef keeps form 0x14 and binds to the Player NPC base when available.
   A base-less synthetic player starts at 100 for the three main values.
   Health reaching zero uses the shared death lifecycle, including essential

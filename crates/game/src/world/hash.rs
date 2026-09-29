@@ -398,6 +398,11 @@ fn actor_state(h: &mut StateHasher, a: &ActorState) {
         h.str(k);
         h.f32(*v);
     }
+    h.len(a.skill_experience.len());
+    for (skill, experience) in &a.skill_experience {
+        h.str(skill);
+        h.f32(*experience);
+    }
     for flag in [
         a.allow_flying,
         a.deferred_kill,

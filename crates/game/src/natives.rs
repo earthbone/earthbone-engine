@@ -1718,6 +1718,13 @@ fn game(vm: &mut Vm, w: &Shared) {
         let p = world.player();
         form_value(world, call, Some(p))
     });
+    global!(vm, w, "Game", "AdvanceSkill", |world, call| {
+        let skill = text(&call.arg(0));
+        let magnitude = call.arg(1).as_float();
+        let player = world.player();
+        let _ = world.advance_skill(player, &skill, magnitude);
+        none()
+    });
     for name in ["GetForm", "GetFormEx"] {
         global!(vm, w, "Game", name, |world, call| {
             let id = world.from_runtime_id(call.arg(0).as_int() as u32);
@@ -3363,7 +3370,6 @@ fn stubs(vm: &mut Vm) -> usize {
         ("Game", "ShowRaceMenu"),
         ("Game", "TriggerScreenBlood"),
         ("Game", "PlayBink"),
-        ("Game", "AdvanceSkill"),
         ("Game", "PrecacheCharGen"),
         ("Game", "PrecacheCharGenClear"),
         ("Game", "ShowTrainingMenu"),
