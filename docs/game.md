@@ -142,8 +142,15 @@ from the same container. An unloaded merchant has an
 unavailable service with no exposed merchandise or gold, matching the CK
 `ShowBarterMenu_-_Actor` note. The result retains the service radius and
 stolen-item policy. Leveled stock uses the shared LVLI resolver, which
-retains entry metadata. This is service data for a caller. Trade transactions
-and the barter menu are separate work.
+retains entry metadata. `Game::buy_vendor_item` accepts an already-adjusted
+unit price and exchanges listed stock for player gold. It requires the
+merchant service to be available and prepares both holder inventories before
+committing either. Insufficient stock or gold and inventory overflow leave
+both holders unchanged. The exchange emits the ordinary inventory events for
+each side. SkyUI's `BarterMenu.as` confirms a selected quantity with its
+per-item price, while `BarterDataSetter.as` applies buy/sell multipliers and
+rounding before the transaction callback. Price calculation, selling items
+to a merchant and the visible barter menu remain outside this API.
 The location check supports near-reference, in-cell, near-editor-location and
 near-self modes. Other PLVD modes return a typed error. The 32-bit radius and
 location modes follow CommonLibSSE `TESFaction.h` and UESP `FACT.wikitext`.

@@ -291,6 +291,56 @@ impl Game {
         services::resolve_vendor_service(&mut world, vm, faction, merchant)
     }
 
+    /// Buy an exact quantity from an available vendor, exchanging gold and
+    /// merchandise as one inventory transaction.
+    ///
+    /// `unit_price` is the already-adjusted menu price per item. A caller
+    /// applies the barter multiplier and rounding before calling this method.
+    ///
+    /// # Errors
+    /// Returns an error when vendor service data is invalid or unavailable,
+    /// the item is not listed, the price is invalid, or either holder cannot
+    /// complete the full exchange.
+    pub fn buy_vendor_item(
+        &mut self,
+        faction: GlobalFormId,
+        merchant: GlobalFormId,
+        item: GlobalFormId,
+        count: i32,
+        unit_price: i32,
+    ) -> Result<(), services::TradeError> {
+        if count <= 0 || unit_price <= 0 {
+            return Err(services::TradeError::Price);
+        }
+        let service = self
+            .resolve_vendor_service(faction, merchant)?
+            .filter(|service| service.available)
+            .ok_or(services::TradeError::Unavailable)?;
+        if service.merchandise.count(item) < count {
+            return Err(services::TradeError::Stock);
+        }
+        let total = count
+            .checked_mul(unit_price)
+            .ok_or(services::TradeError::Price)?;
+        let currency = self.form("Gold001").unwrap_or(GlobalFormId {
+            file: 0,
+            object: 0xF,
+        });
+        let player = self.player();
+        let vm = &mut self.vm;
+        self.world.borrow_mut().trade_items_notified(
+            service.merchant_container,
+            item,
+            count,
+            player,
+            currency,
+            total,
+            &mut |name, class| vm.create_object_of(name, class),
+        )?;
+        self.run_until_idle(64);
+        Ok(())
+    }
+
     /// Return the selected damage difficulty tier.
     #[must_use]
     pub fn difficulty(&self) -> combat::Difficulty {
