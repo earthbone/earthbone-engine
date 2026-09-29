@@ -30,7 +30,7 @@ fn mgef(form: u32, archetype: u32, associated: u32) -> Record {
     put(&mut data, 16, u32::MAX);
     put(&mut data, 64, archetype);
     put(&mut data, 68, 24);
-    put(&mut data, 80, if archetype == 0 { 0 } else { 1 });
+    put(&mut data, 80, u32::from(archetype != 0));
     put(&mut data, 84, if form == ABILITY_EFFECT { 0 } else { 3 });
     Record::new(Tag::new(b"MGEF"), form).sub(Tag::new(b"DATA"), data)
 }
@@ -97,15 +97,26 @@ fn mag_67_racial_ability_binds_and_receives_effect_start_on_transformation() {
         game.world_mut().actor(id(TARGET)).unwrap().race,
         Some(id(VAMPIRE_RACE))
     );
-    assert!(game.world_mut().actor(id(TARGET)).unwrap().spells.contains(&id(ABILITY)));
+    assert!(game
+        .world_mut()
+        .actor(id(TARGET))
+        .unwrap()
+        .spells
+        .contains(&id(ABILITY)));
     assert!(game
         .world()
         .active_effects()
         .any(|effect| effect.target == id(TARGET) && effect.spell == id(ABILITY)));
-    let ability_object = game.world().pending.iter().find_map(|pending| match pending {
-        Pending::BindEffect { object, effect } if *effect == id(ABILITY_EFFECT) => Some(*object),
-        _ => None,
-    });
+    let ability_object = game
+        .world()
+        .pending
+        .iter()
+        .find_map(|pending| match pending {
+            Pending::BindEffect { object, effect } if *effect == id(ABILITY_EFFECT) => {
+                Some(*object)
+            }
+            _ => None,
+        });
     let Some(ability_object) = ability_object else {
         panic!("racial ability did not bind its ActiveMagicEffect object");
     };
@@ -128,9 +139,11 @@ fn mag_67_transformation_reverts_owned_race_and_ability_after_save_load() {
         Some(id(VAMPIRE_RACE))
     );
     let shared = restored.shared_world();
-    assert!(shared.borrow_mut().dispel_effect(transformation, &mut |name, class| {
-        restored.vm.create_object_of(name, class)
-    }));
+    assert!(shared
+        .borrow_mut()
+        .dispel_effect(transformation, &mut |name, class| {
+            restored.vm.create_object_of(name, class)
+        }));
     let mut world = restored.world_mut();
     let actor = world.actor(id(TARGET)).unwrap();
     assert_eq!(actor.race, Some(id(OLD_RACE)));
