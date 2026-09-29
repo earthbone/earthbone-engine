@@ -38,9 +38,11 @@ pub mod reference;
 pub mod table;
 
 pub use base_object::{BaseObjectFields, ItemChange};
+pub use change::book_note_key_flags;
 pub use change::{
-    ActivatorChange, BaseObjectChange, ChangeForm, ClassChange, FactionChange, FactionReaction,
-    FactionReactions, IngredientChange, QuestStage, RelationshipChange,
+    ActivatorChange, BaseObjectChange, BookChange, ChangeForm, ClassChange, FactionChange,
+    FactionReaction, FactionReactions, IngredientChange, KeyChange, NoteChange, QuestStage,
+    RelationshipChange,
 };
 pub use created_objects::{CreatedEffect, CreatedObject, CreatedObjects};
 pub use cursor::{RefId, RefKind, WString};

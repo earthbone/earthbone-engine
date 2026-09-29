@@ -180,6 +180,67 @@ impl ChangeForm {
         Ok(Some(stages))
     }
 
+    /// Decode the source-defined BOOK saved fields.
+    ///
+    /// # Errors
+    /// Rejects reserved flags and truncated form flags.
+    pub fn book_change(&self) -> Result<Option<BookChange>> {
+        if self.record_type() != "BOOK" {
+            return Ok(None);
+        }
+        check_record_flags(self.change_flags, book_note_key_flags::BOOK_KNOWN)?;
+        let payload = self.payload()?;
+        let mut cursor = Cursor::new(&payload, "BOOK change");
+        let form_flags = record_form_flags(&mut cursor, self.change_flags)?;
+        Ok(Some(BookChange {
+            form_flags,
+            value_changed: self.change_flags & book_note_key_flags::VALUE != 0,
+            full_name_changed: self.change_flags & book_note_key_flags::FULL_NAME != 0,
+            teaches_skill: self.change_flags & book_note_key_flags::BOOK_TEACHES != 0,
+            read: self.change_flags & book_note_key_flags::BOOK_READ != 0,
+            opaque_suffix: cursor.rest().to_vec(),
+        }))
+    }
+
+    /// Decode the source-defined KEYM saved fields.
+    ///
+    /// # Errors
+    /// Rejects reserved flags and truncated form flags.
+    pub fn key_change(&self) -> Result<Option<KeyChange>> {
+        if self.record_type() != "KEYM" {
+            return Ok(None);
+        }
+        check_record_flags(self.change_flags, book_note_key_flags::KEY_KNOWN)?;
+        let payload = self.payload()?;
+        let mut cursor = Cursor::new(&payload, "KEYM change");
+        let form_flags = record_form_flags(&mut cursor, self.change_flags)?;
+        Ok(Some(KeyChange {
+            form_flags,
+            value_changed: self.change_flags & book_note_key_flags::VALUE != 0,
+            full_name_changed: self.change_flags & book_note_key_flags::FULL_NAME != 0,
+            opaque_suffix: cursor.rest().to_vec(),
+        }))
+    }
+
+    /// Decode the source-defined NOTE saved fields.
+    ///
+    /// # Errors
+    /// Rejects reserved flags and truncated form flags.
+    pub fn note_change(&self) -> Result<Option<NoteChange>> {
+        if self.record_type() != "NOTE" {
+            return Ok(None);
+        }
+        check_record_flags(self.change_flags, book_note_key_flags::NOTE_KNOWN)?;
+        let payload = self.payload()?;
+        let mut cursor = Cursor::new(&payload, "NOTE change");
+        let form_flags = record_form_flags(&mut cursor, self.change_flags)?;
+        Ok(Some(NoteChange {
+            form_flags,
+            read: self.change_flags & book_note_key_flags::NOTE_READ != 0,
+            opaque_suffix: cursor.rest().to_vec(),
+        }))
+    }
+
     /// Decode CLAS form flags and the tag-skills change marker.
     ///
     /// # Errors
@@ -357,6 +418,119 @@ impl ChangeForm {
             fullname_changed: self.change_flags & 4 != 0,
             other_flags: self.change_flags & !7,
         })
+    }
+}
+
+/// Change flags for BOOK, KEYM and NOTE saved forms.
+pub mod book_note_key_flags {
+    /// Presence of the six-byte form-flags section.
+    pub const FORM: u32 = 1;
+    /// xEdit marks this base-object field changed without payload bytes.
+    pub const VALUE: u32 = 1 << 1;
+    /// xEdit marks this base-object field changed without payload bytes.
+    pub const FULL_NAME: u32 = 1 << 2;
+    /// BOOK teaches a skill, with no payload bytes.
+    pub const BOOK_TEACHES: u32 = 1 << 5;
+    /// BOOK has been read, with no payload bytes.
+    pub const BOOK_READ: u32 = 1 << 6;
+    /// NOTE has been read, with no payload bytes.
+    pub const NOTE_READ: u32 = 1 << 31;
+    /// Flags represented by the BOOK change decoder.
+    pub const BOOK_KNOWN: u32 = FORM | VALUE | FULL_NAME | BOOK_TEACHES | BOOK_READ;
+    /// Flags represented by the KEYM change decoder.
+    pub const KEY_KNOWN: u32 = FORM | VALUE | FULL_NAME;
+    /// Flags represented by the NOTE change decoder.
+    pub const NOTE_KNOWN: u32 = FORM | NOTE_READ;
+}
+
+/// Typed BOOK saved fields. The named markers consume no payload bytes.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BookChange {
+    pub form_flags: Option<FormFlags>,
+    pub value_changed: bool,
+    pub full_name_changed: bool,
+    pub teaches_skill: bool,
+    pub read: bool,
+    /// Bytes after the xEdit-defined fields, retained without interpretation.
+    pub opaque_suffix: Vec<u8>,
+}
+
+impl BookChange {
+    /// Rebuild the source-defined change flag word.
+    pub fn change_flags(&self) -> u32 {
+        optional_flag(self.form_flags.is_some(), book_note_key_flags::FORM)
+            | optional_flag(self.value_changed, book_note_key_flags::VALUE)
+            | optional_flag(self.full_name_changed, book_note_key_flags::FULL_NAME)
+            | optional_flag(self.teaches_skill, book_note_key_flags::BOOK_TEACHES)
+            | optional_flag(self.read, book_note_key_flags::BOOK_READ)
+    }
+
+    /// Rebuild the BOOK payload.
+    pub fn data_bytes(&self) -> Vec<u8> {
+        let mut out = Vec::new();
+        write_record_form_flags(self.form_flags, &mut out);
+        out.extend_from_slice(&self.opaque_suffix);
+        out
+    }
+}
+
+/// Typed KEYM saved fields. The named base-object markers consume no bytes.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct KeyChange {
+    pub form_flags: Option<FormFlags>,
+    pub value_changed: bool,
+    pub full_name_changed: bool,
+    /// Bytes after the xEdit-defined fields, retained without interpretation.
+    pub opaque_suffix: Vec<u8>,
+}
+
+impl KeyChange {
+    /// Rebuild the source-defined change flag word.
+    pub fn change_flags(&self) -> u32 {
+        optional_flag(self.form_flags.is_some(), book_note_key_flags::FORM)
+            | optional_flag(self.value_changed, book_note_key_flags::VALUE)
+            | optional_flag(self.full_name_changed, book_note_key_flags::FULL_NAME)
+    }
+
+    /// Rebuild the KEYM payload.
+    pub fn data_bytes(&self) -> Vec<u8> {
+        let mut out = Vec::new();
+        write_record_form_flags(self.form_flags, &mut out);
+        out.extend_from_slice(&self.opaque_suffix);
+        out
+    }
+}
+
+/// Typed NOTE saved fields. The read marker consumes no payload bytes.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NoteChange {
+    pub form_flags: Option<FormFlags>,
+    pub read: bool,
+    /// Bytes after the xEdit-defined fields, retained without interpretation.
+    pub opaque_suffix: Vec<u8>,
+}
+
+impl NoteChange {
+    /// Rebuild the source-defined change flag word.
+    pub fn change_flags(&self) -> u32 {
+        optional_flag(self.form_flags.is_some(), book_note_key_flags::FORM)
+            | optional_flag(self.read, book_note_key_flags::NOTE_READ)
+    }
+
+    /// Rebuild the NOTE payload.
+    pub fn data_bytes(&self) -> Vec<u8> {
+        let mut out = Vec::new();
+        write_record_form_flags(self.form_flags, &mut out);
+        out.extend_from_slice(&self.opaque_suffix);
+        out
+    }
+}
+
+fn optional_flag(present: bool, flag: u32) -> u32 {
+    if present {
+        flag
+    } else {
+        0
     }
 }
 
