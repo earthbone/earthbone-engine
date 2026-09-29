@@ -266,6 +266,10 @@ pub struct ActorState {
     pub werewolf: bool,
     /// `SetEyeTexture`, the Dawnguard vampire eyes.
     pub eye_texture: Option<GlobalFormId>,
+    /// Player character head parts selected in the race menu, keyed by HDPT type.
+    pub head_parts: BTreeMap<u32, GlobalFormId>,
+    /// Player character morph controls selected in the race menu.
+    pub face_morphs: BTreeMap<String, f32>,
     /// `SetCriticalStage`, the death-by-critical stages.
     pub critical_stage: i32,
     /// `SetNoBleedoutRecovery`: this actor stays down once it bleeds out.

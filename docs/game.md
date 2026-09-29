@@ -1004,6 +1004,15 @@ fully consume are all load errors naming the section and the level.
 Versions before 37 have no section table at any level, and the reader
 skips looking for one below version 37.
 
+### Player appearance editing, UI-14
+
+The player actor stores selected HDPT forms by part type and normalized face
+morph values by name. The race menu validates a head part's DATA playability
+and sex flags and its PNAM part type before changing the actor. Morph names
+must be nonempty and values must be finite and between -1 and 1. The `UI-14`
+actor save section stores these form links and values. Missing sections leave
+the appearance empty.
+
 ## Not done, and known gaps
 
 - Race starting attributes are read. Live class/level calculations, racial

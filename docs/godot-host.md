@@ -16,8 +16,18 @@ The race flag and head-part field definitions were read in local
 `engine-refs/uesp-modfileformat/RACE.wikitext` and
 `engine-refs/uesp-modfileformat/HDPT.wikitext`. The CK
 `engine-refs/ck-wiki/Game_Script.wikitext` describes `ShowRaceMenu` as the
-race and sex change screen. This row presents race and sex only. Head-part
-editing and appearance rendering remain outside this menu.
+race and sex change screen.
+
+### Player head parts and morph values, UI-14
+
+The race menu lists winning, live HDPT records marked playable and compatible
+with the selected sex. Each entry uses its PNAM part type, and selection
+updates the menu's appearance preview summary. Face, Nose and Jaw morph
+controls adjust normalized values from -1 to 1 in 0.1 steps. Confirm writes
+the draft to the player's shared actor state, which SOEW stores in the UI-14
+actor section. Closing the menu discards the draft and leaves the saved actor
+appearance unchanged. The preview is a menu summary of selected records and
+morph values.
 
 The [large world physics survey](physics.md#large-world-boundary-survey-2026-09-19)
 records the signed cell offsets, tolerances and Jolt measurements for the
