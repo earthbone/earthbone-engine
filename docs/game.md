@@ -13,6 +13,13 @@ week 6 to 9 gate.
 
 ## What is in it
 
+The CommonLib shim's read-only extra-data adapter borrows a live inventory
+stack and resolves stored `GlobalFormId` values through its current load order.
+It exposes enchantment identity and charge, hotkey slot, and leveled-creature
+base links to the MIT API. The serialized stack does not retain the runtime
+enchantment removal flag, so that field is returned as unknown. Malformed
+layouts and unsupported mutation hooks do not produce editable extra data.
+
 - `world`: the runtime form table. A `LoadOrder` from `soe-esm` plus the state
   a running game adds per form: references (position, cell, enable state,
   inventory, links, door teleports), actors (actor values, death, combat,

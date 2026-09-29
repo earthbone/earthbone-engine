@@ -13,6 +13,12 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use soe_esm::GlobalFormId;
+use soe_esm::LoadOrder;
+
+use soe_commonlib_shim::extra::{
+    ExtraDataSource, ExtraDataType, ExtraEnchantment, ExtraHotkey, ExtraLeveledCreature,
+};
+use soe_commonlib_shim::form::FormId;
 
 /// Extra-data fields with mapped identities and exact floating-point bits.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -118,6 +124,11 @@ impl Stack {
         self.extras.iter().find(|extra| extra.kind == kind)
     }
 
+    /// Borrow the live stack through the source-level CommonLib extra-data API.
+    pub fn commonlib_extra_data<'a>(&'a self, order: &'a LoadOrder) -> StackExtraData<'a> {
+        StackExtraData { stack: self, order }
+    }
+
     /// The concrete item identity from CommonLib's ExtraOriginalReference.
     /// ExtraReferenceHandle names a container and is not an item identity.
     pub fn reference(&self) -> Option<GlobalFormId> {
@@ -168,6 +179,51 @@ impl Stack {
     /// stack does not carry that kind.
     pub(crate) fn clear_extra(&mut self, kind: u8) {
         self.extras.retain(|extra| extra.kind != kind);
+    }
+}
+
+pub struct StackExtraData<'a> {
+    stack: &'a Stack,
+    order: &'a LoadOrder,
+}
+
+impl ExtraDataSource for StackExtraData<'_> {
+    fn has_type(&self, kind: ExtraDataType) -> bool {
+        self.stack.extra(kind as u8).is_some()
+    }
+
+    fn enchantment(&self) -> Option<ExtraEnchantment> {
+        let [Field::Form(Some(id)), Field::Short(charge)] =
+            self.stack.extra(0x9B)?.fields.as_slice()
+        else {
+            return None;
+        };
+        Some(ExtraEnchantment {
+            enchantment: FormId(self.order.runtime_id(*id)),
+            charge: *charge,
+            remove_on_unequip: None,
+        })
+    }
+
+    fn hotkey(&self) -> Option<ExtraHotkey> {
+        let [Field::Byte(slot)] = self.stack.extra(0x49)?.fields.as_slice() else {
+            return None;
+        };
+        Some(ExtraHotkey {
+            slot: (*slot <= 7).then_some(*slot),
+        })
+    }
+
+    fn leveled_creature(&self) -> Option<ExtraLeveledCreature> {
+        let [Field::Form(Some(original)), Field::Form(Some(template))] =
+            self.stack.extra(0x2D)?.fields.as_slice()
+        else {
+            return None;
+        };
+        Some(ExtraLeveledCreature {
+            original_base: FormId(self.order.runtime_id(*original)),
+            template_base: FormId(self.order.runtime_id(*template)),
+        })
     }
 }
 

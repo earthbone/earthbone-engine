@@ -77,6 +77,25 @@ The mapping follows the Rust API while adapting Rust names and types to C++, inc
 `NativeRegistry::register`, which is emitted as `register_native` because `register` is a C++
 keyword.
 
+## Extra-data stack views (SHM-08)
+
+`RE/ExtraData.h` exposes read-only views for `ExtraDataList`, the selected
+`ExtraDataType` values, `ExtraEnchantment`, `ExtraHotkey` and
+`ExtraLeveledCreature`. The game crate adapts its live inventory `Stack` and
+the active load order to this MIT API. Enchantment identity and charge,
+hotkey slot, and original/template actor-base identities are read from that
+stack. `remove_on_unequip` is optional because the engine stack save model
+does not retain CommonLib's runtime flag. Invalid field layouts return no
+typed view. Hotkey values outside slots 0 to 7 are represented as unbound.
+
+Adding, removing or changing enchantment extras remains unsupported because
+those operations mutate engine-owned stack state. Their C++ declarations carry
+explicit unsupported reasons. The API does not copy or retain stack state.
+The declarations follow `CommonLibSSE-NG-alandtse/include/RE/E/ExtraDataList.h`,
+`ExtraDataTypes.h`, `ExtraEnchantment.h`, `ExtraHotkey.h` and
+`ExtraLeveledCreature.h`. The CommonLib implementation confirms enchantment
+equality includes its runtime removal flag and hotkey's unbound value is -1.
+
 ## Untested
 
 The SHM-01 test compiles the generated umbrella headers with a C++20 compiler and checks C++
