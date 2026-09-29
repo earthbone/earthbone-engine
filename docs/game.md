@@ -235,6 +235,12 @@ Current behavior and compatibility limits:
   Earned levels update the shared actor-value base and stop at 100. Partial
   skill experience is stored per actor in the `PRG-01` section of SOEW version
   37 actor records. This path applies only explicitly recorded skill use.
+- Character experience advances actor levels using
+  `fXPLevelUpBase + level * fXPLevelUpMult`. Each crossed threshold adds one
+  available attribute choice. Choosing Health, Magicka or Stamina spends one
+  choice and adds 10 to that base actor value. Current-level experience and
+  unspent choices are stored in the `PRG-07` actor section. On load, the player
+  level cache follows the restored player actor level.
 - PlayerRef keeps form 0x14 and binds to the Player NPC base when available.
   A base-less synthetic player starts at 100 for the three main values.
   Health reaching zero uses the shared death lifecycle, including essential
