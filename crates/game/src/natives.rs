@@ -1042,6 +1042,11 @@ fn object_reference(vm: &mut Vm, w: &Shared) {
         "MoveToMyEditorLocation",
         |world, call, me| b(world.move_to_editor_location(me))
     );
+    method!(vm, w, "ObjectReference", "Reset", |world, call, me| {
+        let target = world.form_arg(&call.arg(0));
+        world.reset_reference(me, target);
+        none()
+    });
     for (name, tag) in [("GetActorOwner", *b"NPC_"), ("GetFactionOwner", *b"FACT")] {
         method!(vm, w, "ObjectReference", name, |world, call, me| {
             let owner = world
