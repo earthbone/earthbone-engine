@@ -145,6 +145,25 @@ FormID shape. `godot-host` resolves a cell's `LAND` alpha layers through `LTEX` 
   `file  TAG  count` lines for diffing against xDump, and checks that every CELL and
   REFR under Tamriel resolves and every REFR base is in the table.
 
+## Scripted patch passes
+
+`PatcherSession` applies a callback to winning top-level `STAT` records in resolved
+FormID order. The output plugin must include each changed record's owner as a master and
+preserve the source plugin's master order, with that source immediately after its masters.
+Changed records keep their FormID and are appended to the output, while unchanged records
+are omitted. An existing output override is reused on later passes, and the TES4 record
+count is synchronized. The pass rejects nested records, incompatible master layouts,
+known FormID subrecords and `VMAD` rather than moving group paths or remapping embedded
+FormIDs. It currently applies only to top-level `STAT` records.
+
+The API follows Mutagen's local `docs/loadorder/Winning-Overrides.md` and
+`docs/plugins/Create,-Duplicate,-and-Override.md` for winner selection and preserving form
+identity in an override. Wrye Bash's local `[dev]-PBash-Patching-Procedure.md` informed the
+ordered passes and omission of records no patcher changed. The Rust implementation uses
+the existing raw record model because the crate does not provide Mutagen's generated typed
+record graph. `tests/edt_24_patcher.rs` verifies deterministic output, reloads the patch,
+checks the new winner, and confirms unchanged records are not emitted.
+
 ```text
 SKYRIM_DATA="/run/host/media/pengolodh/Data/SteamLibrary/steamapps/common/Skyrim Special Edition/Data" \
   cargo test -p soe-esm --release --test real_files -- --nocapture
