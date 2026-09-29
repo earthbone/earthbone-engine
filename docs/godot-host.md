@@ -160,6 +160,11 @@ The streamer assumes a requested load lands. A load that fails has to be reporte
 the streamer tracking load state itself, puts engine state into the decision logic and was
 what made every mod manager VFS in the notes hard to test.
 
+`PlayerNode` starts at most `soe_game::EXTERIOR_CELL_LOADS_PER_UPDATE` exterior cell loads
+per update. The same value is exposed to Papyrus as the `Exterior cell loads per update`
+budget category through `Utility.GetBudgetCount`, `GetBudgetName`, `GetCurrentBudget` and
+`OverBudget`.
+
 `stream_cell_id` walks the cell index, which keeps a placed object whose winning
 record carries the deleted flag out of the drawn list and files it under
 `deleted_references` instead (`docs/esm.md`, "Dirty plugins"). A deleted

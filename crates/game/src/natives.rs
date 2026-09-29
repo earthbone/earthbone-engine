@@ -1943,6 +1943,41 @@ fn utility(vm: &mut Vm, w: &Shared) {
     global!(vm, w, "Utility", "GetCurrentRealTime", |world, _call| f(
         world.clock.real_seconds as f32
     ));
+    vm.natives.register_global(
+        "Utility",
+        "GetBudgetCount",
+        Box::new(|_| i(ENGINE_BUDGETS.len() as i32)),
+    );
+    vm.natives.register_global(
+        "Utility",
+        "GetBudgetName",
+        Box::new(|call| {
+            let index = call.arg(0).as_int();
+            ENGINE_BUDGETS
+                .get(usize::try_from(index).unwrap_or(usize::MAX))
+                .map_or_else(|| s(""), |budget| s(budget.0))
+        }),
+    );
+    vm.natives.register_global(
+        "Utility",
+        "GetCurrentBudget",
+        Box::new(|call| {
+            let index = call.arg(0).as_int();
+            ENGINE_BUDGETS
+                .get(usize::try_from(index).unwrap_or(usize::MAX))
+                .map_or_else(|| i(0), |budget| i(budget.1))
+        }),
+    );
+    vm.natives.register_global(
+        "Utility",
+        "OverBudget",
+        Box::new(|call| {
+            let index = call.arg(0).as_int();
+            b(ENGINE_BUDGETS
+                .get(usize::try_from(index).unwrap_or(usize::MAX))
+                .is_some_and(|budget| budget.2))
+        }),
+    );
     global!(vm, w, "Utility", "GameTimeToString", |_world, call| s(
         &GameClock::format_game_time(call.arg(0).as_float())
     ));
@@ -1990,6 +2025,19 @@ fn utility(vm: &mut Vm, w: &Shared) {
             .map_or("", String::as_str))
     });
 }
+
+const ENGINE_BUDGETS: [(&str, i32, bool); 2] = [
+    (
+        "Papyrus instructions per slice",
+        crate::PAPYRUS_INSTRUCTIONS_PER_SLICE as i32,
+        false,
+    ),
+    (
+        "Exterior cell loads per update",
+        crate::EXTERIOR_CELL_LOADS_PER_UPDATE as i32,
+        false,
+    ),
+];
 
 fn globals_and_lists(vm: &mut Vm, w: &Shared) {
     method!(vm, w, "GlobalVariable", "GetValue", |world, call, me| f(
@@ -3461,10 +3509,6 @@ fn stubs(vm: &mut Vm) -> usize {
         ("Utility", "GetMinFrameRate"),
         ("Utility", "GetMaxFrameRate"),
         ("Utility", "GetCurrentMemory"),
-        ("Utility", "GetBudgetCount"),
-        ("Utility", "GetBudgetName"),
-        ("Utility", "GetCurrentBudget"),
-        ("Utility", "OverBudget"),
     ];
     for (class, name) in globals_none {
         vm.natives
