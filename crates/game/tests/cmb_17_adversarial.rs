@@ -85,12 +85,14 @@ fn fixture() -> World {
     plugin.push_top(actor_ref(HUNTER, HUNTER_BASE, [5.0, 10.0, 0.0]));
     plugin.push_top(actor_ref(TARGET, TARGET_BASE, [80.0, 80.0, 0.0]));
     plugin.push_top(Record::new(Tag(*b"NAVM"), 0x810).sub(Tag(*b"NVNM"), navmesh().to_bytes()));
-    plugin.push_top(package::with_actions(package::finish(package::build_record(
-        IGNORE_PACKAGE,
-        "IgnoreCombat",
-        package::flags::IGNORE_COMBAT,
-        Schedule::default(),
-    ))));
+    plugin.push_top(package::with_actions(package::finish(
+        package::build_record(
+            IGNORE_PACKAGE,
+            "IgnoreCombat",
+            package::flags::IGNORE_COMBAT,
+            Schedule::default(),
+        ),
+    )));
     for (index, (name, value)) in [
         ("fSneakBaseValue", 0.0_f32),
         ("fSneakMaxDistance", 100.0),
@@ -169,7 +171,10 @@ fn cmb_17_ignore_combat_package_clears_existing_engagement() {
     let mut world = fixture();
     detect_target(&mut world);
     world.ai_tick(0.0, &mut |_, _| panic!("unexpected package script binding"));
-    assert_eq!(world.actor(id(HUNTER)).unwrap().combat_target, Some(id(TARGET)));
+    assert_eq!(
+        world.actor(id(HUNTER)).unwrap().combat_target,
+        Some(id(TARGET))
+    );
 
     world.actor(id(HUNTER)).unwrap().ai.package = Some(id(IGNORE_PACKAGE));
     world.ai_tick(0.0, &mut |_, _| soe_papyrus::ObjectId(1));

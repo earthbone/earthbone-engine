@@ -74,7 +74,9 @@ fn cmb_08_non_arrow_projectile_rejects_before_consuming_ammunition() {
     let player = game.player();
     assert!(matches!(
         game.release_projectile(player, id(0x800), [0.0; 3], [0.0, 0.0, 1.0]),
-        Err(Error::Unsupported("ammunition does not use an arrow projectile"))
+        Err(Error::Unsupported(
+            "ammunition does not use an arrow projectile"
+        ))
     ));
     assert_eq!(game.world_mut().item_count(player, id(0x801)), 1);
 }
