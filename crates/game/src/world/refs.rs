@@ -26,6 +26,76 @@ pub struct RefPlacement {
 }
 
 impl World {
+    /// Find a placed actor or reference with a matching base inside a radius.
+    /// Record-backed references are read without constructing runtime state,
+    /// while already instantiated references use their current position and
+    /// enabled state.
+    pub fn find_reference_of_base(
+        &mut self,
+        base: Option<GlobalFormId>,
+        center: [f32; 3],
+        radius: f32,
+        actors_only: bool,
+        random: bool,
+    ) -> Option<GlobalFormId> {
+        if !center.iter().all(|value| value.is_finite()) || !radius.is_finite() || radius < 0.0 {
+            return None;
+        }
+
+        let radius_squared = radius * radius;
+        let mut candidates: Vec<_> = self
+            .order
+            .winners_of(T(b"ACHR"))
+            .map(|(id, _)| id)
+            .chain(self.order.winners_of(T(b"REFR")).map(|(id, _)| id))
+            .chain(self.refs.keys().copied())
+            .collect();
+        candidates.sort_unstable();
+        candidates.dedup();
+
+        let mut matches = Vec::new();
+        for id in candidates {
+            let Some(state) = self
+                .refs
+                .get(&id)
+                .cloned()
+                .or_else(|| self.load_ref_record(id))
+            else {
+                continue;
+            };
+            if !state.enabled || state.deleted || (actors_only && !state.is_actor) {
+                continue;
+            }
+            if base.is_some_and(|expected| state.base != Some(expected)) {
+                continue;
+            }
+            let distance_squared = state
+                .position
+                .iter()
+                .zip(center)
+                .map(|(position, origin)| (position - origin).powi(2))
+                .sum::<f32>();
+            if distance_squared.is_finite() && distance_squared <= radius_squared {
+                matches.push((id, distance_squared));
+            }
+        }
+
+        if matches.is_empty() {
+            return None;
+        }
+        if random {
+            return Some(matches[(self.random_u64() % matches.len() as u64) as usize].0);
+        }
+        matches
+            .into_iter()
+            .min_by(|(left_id, left_distance), (right_id, right_distance)| {
+                left_distance
+                    .total_cmp(right_distance)
+                    .then_with(|| left_id.cmp(right_id))
+            })
+            .map(|(id, _)| id)
+    }
+
     pub(super) fn load_ref(&mut self, id: GlobalFormId) -> Option<RefState> {
         let mut st = self.load_ref_record(id)?;
         if let Some(base) = st.base {
