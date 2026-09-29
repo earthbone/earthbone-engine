@@ -150,11 +150,7 @@ location modes follow CommonLibSSE `TESFaction.h` and UESP `FACT.wikitext`.
 
 ## Conformance table
 
-Counts from `natives::register`: 364 natives with state behind them and 177
-
-Counts from `natives::register`: 366 natives with state behind them and 175
-
-Counts from `natives::register`: 365 natives with state behind them and 180
+Counts from `natives::register`: 368 natives with state behind them and 178
 quiet stubs (141 and 176 before the natives round of 2026-09-18, 294 and 137
 before the DLC round). A stub returns the value the game gives when nothing
 is going on (`IsBleedingOut` false, `ShakeCamera` nothing) so vanilla scripts
@@ -175,7 +171,7 @@ run past it.
 | Debug | Trace, TraceUser, TraceConditional, TraceStack, Notification, MessageBox, SendAnimationEvent | OpenUserLog, CloseUserLog, QuitGame, CenterOnCell, SetGodMode and 14 more |
 | Utility | RandomInt, RandomFloat, GetCurrentGameTime, GetCurrentRealTime, GameTimeToString, SetINI\* and GetINI\* (eight) | IsInMenuMode, the frame rate and budget functions (eleven). `Wait`, `WaitMenuMode`, `WaitGameTime` are the VM's own |
 | GlobalVariable | GetValue, GetValueInt, SetValue, SetValueInt, Mod | |
-| Keyword | GetString | SendStoryEvent, SendStoryEventAndWait |
+| Keyword | GetString, SendStoryEvent, SendStoryEventAndWait | |
 | Cell | IsInterior, GetActorOwner, GetFactionOwner, SetActorOwner, SetFactionOwner, SetPublic | IsAttached, Reset |
 | FormList | GetSize, GetAt, HasForm, Find, AddForm | |
 | Message | Show, ShowAsHelpMessage | ResetHelpMessage |
@@ -1333,6 +1329,13 @@ worktree. Its condition functions `GetScriptVariable`, `GetQuestVariable`,
 conditioned trees. Unsupported or unavailable predicates return a typed
 routing error. Unknown event codes queue `OnStoryEvent` because this branch
 has no authored Papyrus event name for them.
+
+`Keyword.SendStoryEvent` and `SendStoryEventAndWait` submit the `SCRP` event
+with the keyword, location, two references and two integer arguments in CK
+order. The waiting native returns whether routing started a quest. These
+natives evaluate direct world conditions without Papyrus variable lookup;
+conditions that require Papyrus state return a routing error, logged by the
+native, and the waiting native returns false.
 
 The game crate now directly uses the workspace's existing thiserror 2.0.20
 for typed execution errors. `cargo tree -p soe-game -i thiserror` confirms
