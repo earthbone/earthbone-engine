@@ -7,11 +7,109 @@ use soe_esm::GlobalFormId;
 use soe_papyrus::vm::state::Writer;
 use soe_papyrus::VmError;
 
-use crate::crime::{CrimeType, Error};
+use crate::crime::{ArrestChoice, ArrestOptions, ArrestResult, CrimeType, Error};
 
 use super::World;
 
 impl World {
+    /// Return the choices offered for an arrest by the player's crime faction.
+    ///
+    /// Payment is offered only when the player has enough `Gold001`, jail is
+    /// offered for a positive bounty, and resisting is always available.
+    /// The faction must track crime and its `CRVA` record must enable arrest.
+    ///
+    /// # Errors
+    /// Returns [`Error::Actor`] when the player is not a valid actor,
+    /// [`Error::NoCrimeFaction`] when no crime faction is assigned, or
+    /// [`Error::NotTracked`] and [`Error::ArrestDisabled`] when the faction
+    /// cannot arrest the player.
+    pub fn arrest_options(&mut self) -> Result<ArrestOptions, Error> {
+        let player = self.player();
+        let faction_id = self
+            .actor(player)
+            .ok_or(Error::Actor(player))?
+            .crime_faction
+            .ok_or(Error::NoCrimeFaction(player))?;
+        let values = self.crime_values(faction_id);
+        let faction = self
+            .faction(faction_id)
+            .ok_or(Error::NotTracked(faction_id))?;
+        if !faction.tracks_crime {
+            return Err(Error::NotTracked(faction_id));
+        }
+        if !values.arrest {
+            return Err(Error::ArrestDisabled);
+        }
+        let bounty = faction
+            .crime_gold_violent
+            .saturating_add(faction.crime_gold_nonviolent)
+            .max(0);
+        let can_pay = if bounty > 0 {
+            self.form("Gold001")
+                .is_some_and(|gold| self.item_count(player, gold) >= bounty)
+        } else {
+            false
+        };
+        Ok(ArrestOptions {
+            bounty,
+            can_pay,
+            can_serve_time: bounty > 0,
+            can_resist: true,
+        })
+    }
+
+    /// Resolve the selected arrest choice against the player's crime faction.
+    ///
+    /// A payment deducts the full bounty and clears both bounty ledgers. Jail
+    /// delegates to `serve_jail_time`. Resistance leaves the purse, bounty,
+    /// infamy and jail state unchanged. Invalid choices fail before mutation.
+    ///
+    /// # Errors
+    /// Returns the validation errors from [`Self::arrest_options`],
+    /// [`Error::NoBounty`] when a payment or jail choice has no positive
+    /// bounty, [`Error::CannotPay`] when the player lacks enough gold, or
+    /// [`Error::MissingGold`] when `Gold001` is unavailable.
+    pub fn resolve_arrest(&mut self, choice: ArrestChoice) -> Result<ArrestResult, Error> {
+        let options = self.arrest_options()?;
+        let player = self.player();
+        let faction_id = self
+            .actor(player)
+            .ok_or(Error::Actor(player))?
+            .crime_faction
+            .ok_or(Error::NoCrimeFaction(player))?;
+        match choice {
+            ArrestChoice::Pay => {
+                if options.bounty == 0 {
+                    return Err(Error::NoBounty);
+                }
+                let gold = self.form("Gold001").ok_or(Error::MissingGold)?;
+                if !options.can_pay {
+                    return Err(Error::CannotPay);
+                }
+                let removed = self.remove_item(player, gold, options.bounty, None);
+                if removed != options.bounty {
+                    return Err(Error::CannotPay);
+                }
+                let faction = self
+                    .faction(faction_id)
+                    .ok_or(Error::NotTracked(faction_id))?;
+                faction.crime_gold_violent = 0;
+                faction.crime_gold_nonviolent = 0;
+                Ok(ArrestResult::Paid {
+                    amount: options.bounty,
+                })
+            }
+            ArrestChoice::Jail => {
+                if !options.can_serve_time {
+                    return Err(Error::NoBounty);
+                }
+                let days = self.serve_jail_time(faction_id)?;
+                Ok(ArrestResult::Jailed { days })
+            }
+            ArrestChoice::Resist => Ok(ArrestResult::Resisted),
+        }
+    }
+
     /// Serve the player's bounty in `faction` as jail time.
     ///
     /// The sentence is one day per 100 gold, rounded up and capped at seven
