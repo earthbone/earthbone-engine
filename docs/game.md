@@ -181,7 +181,7 @@ run past it.
 | Message | Show, ShowAsHelpMessage | ResetHelpMessage |
 | Scene | Start, ForceStart, Stop, IsPlaying | IsActionComplete |
 | Sound | Play, StopInstance, SetInstanceVolume | |
-| Spell | Cast, RemoteCast | |
+| Spell | Cast, RemoteCast, Preload and Unload record validation | |
 | Scene, Package | GetOwningQuest | |
 | TopicInfo | GetOwningQuest | |
 | ActiveMagicEffect | RegisterForUpdate, RegisterForSingleUpdate, RegisterForUpdateGameTime, RegisterForSingleUpdateGameTime, UnregisterForUpdate, UnregisterForUpdateGameTime, RegisterForAnimationEvent, UnregisterForAnimationEvent, GetBaseObject, GetTargetActor, GetCasterActor, Dispel, AddInventoryEventFilter, RemoveInventoryEventFilter, RemoveAllInventoryEventFilters | |
@@ -209,6 +209,12 @@ Current behavior and compatibility limits:
   whether anything was removed. Neither dispel native changes known or equipped
   spells. `DispelAllSpells` preserves diseases, abilities, addictions and constant
   enchantments. Worn enchantment application is not implemented yet.
+- `Spell.Preload` and `Spell.Unload` validate the receiver through the winning
+  SPEL reader, then report that spell art resource loading is unsupported. They
+  do not change cast or active-effect state. The shipped `Spell.psc` describes
+  these as art-resource operations and warns against misuse. The game crate has
+  no art resource loader, so implementing their load and unload effects requires
+  a separate resource-system prerequisite.
 - `tick_menu_mode(dt, true)` pauses world time and ordinary waits while
   `WaitMenuMode` continues. `tick(dt)` remains the unpaused entry point.
   The UI must supply the pause state when menus are implemented.

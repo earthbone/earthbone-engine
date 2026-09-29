@@ -211,7 +211,11 @@ fn test_plugin() -> Plugin {
             .sub(T(b"LNAM"), le(CYCLIC_LIST)),
     );
     p.push_top(Record::new(T(b"CONT"), CHEST_BASE).zsub(EDID, "QueryChest"));
-    p.push_top(Record::new(T(b"SPEL"), FLAMES).zsub(EDID, "Flames"));
+    p.push_top(
+        Record::new(T(b"SPEL"), FLAMES)
+            .zsub(EDID, "Flames")
+            .sub(T(b"SPIT"), vec![0; 36]),
+    );
     p.push_top(
         Record::new(T(b"LVLI"), LOOT_LIST)
             .zsub(EDID, "LootList")
@@ -2144,6 +2148,36 @@ fn sounds_and_spells_are_recorded() {
     );
     assert_eq!(g.world().spell_casts, vec![(f, gd, Some(p)), (f, gd, None)]);
     assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
+/// Spell.Preload and Spell.Unload take no arguments. The game validates the
+/// spell record and reports the missing art-resource system without changing
+/// cast or active-effect state.
+#[test]
+fn scr_47_spell_art_methods_report_missing_resource_system() {
+    let mut g = game();
+    let flames = obj(&mut g, "Flames");
+    let spells_before = g.world().spell_casts.clone();
+    let effects_before = g.world().active_effects().count();
+
+    assert_eq!(call(&mut g, &flames, "Preload", &[]), Value::None);
+    assert_eq!(call(&mut g, &flames, "Unload", &[]), Value::None);
+
+    let traces = g.traces();
+    assert!(
+        traces
+            .iter()
+            .any(|line| { line == "Spell.Preload: spell art resource loading is unsupported" }),
+        "{traces:?}"
+    );
+    assert!(
+        traces
+            .iter()
+            .any(|line| { line == "Spell.Unload: spell art resource loading is unsupported" }),
+        "{traces:?}"
+    );
+    assert_eq!(g.world().spell_casts, spells_before);
+    assert_eq!(g.world().active_effects().count(), effects_before);
 }
 
 /// The Game flags: fast travel, AI driven, chargen, beast form, words
