@@ -93,10 +93,25 @@ impl World {
                     w.bool(extra.full_name_changed);
                     w.bool(extra.speaker_changed);
                 } else if let Some(extra) = &value.item {
-                    w.bool(extra.value_changed);
-                    w.bool(extra.full_name_changed);
-                    w.u32(extra.unnamed_flags);
-                    w.bytes(&extra.trailing_data);
+                    match value.record.tag.as_bytes() {
+                        b"INGR" => {
+                            w.bool(extra.ingredient_use_changed);
+                            w.bool(extra.value_changed);
+                            w.bool(extra.fullname_changed);
+                            w.u32(extra.other_flags);
+                        }
+                        b"ALCH" | b"ENCH" => {
+                            w.bool(extra.value_changed);
+                            w.bool(extra.fullname_changed);
+                            w.u32(extra.other_flags);
+                        }
+                        _ => {
+                            w.bool(extra.value_changed);
+                            w.bool(extra.full_name_changed);
+                            w.u32(extra.unnamed_flags);
+                            w.bytes(&extra.trailing_data);
+                        }
+                    }
                 } else if let Some(extra) = &value.book_note_key {
                     w.bool(extra.value_changed);
                     w.bool(extra.full_name_changed);
@@ -158,6 +173,9 @@ impl World {
                             | b"BOOK"
                             | b"NOTE"
                             | b"KEYM"
+                            | b"INGR"
+                            | b"ALCH"
+                            | b"ENCH"
                     )
                 })
             {
@@ -184,6 +202,9 @@ impl World {
                             | b"BOOK"
                             | b"NOTE"
                             | b"KEYM"
+                            | b"INGR"
+                            | b"ALCH"
+                            | b"ENCH"
                     ) && !rec.is_deleted()
                 })
                 .ok_or_else(|| bad("missing record origin"))?;
@@ -253,6 +274,28 @@ impl World {
                             full_name_changed: r.bool()?,
                             unnamed_flags: r.u32()?,
                             trailing_data: r.bytes()?.to_vec(),
+                            ..ItemRecordExtra::default()
+                        }),
+                        None,
+                    )
+                } else if matches!(original.tag.as_bytes(), b"INGR" | b"ALCH" | b"ENCH") {
+                    let ingredient_use_changed = if original.tag == T(b"INGR") {
+                        r.bool()?
+                    } else {
+                        false
+                    };
+                    let value_changed = r.bool()?;
+                    let fullname_changed = r.bool()?;
+                    let other_flags = r.u32()?;
+                    (
+                        None,
+                        Some(ItemRecordExtra {
+                            form_flags,
+                            value_changed,
+                            ingredient_use_changed,
+                            fullname_changed,
+                            other_flags,
+                            ..ItemRecordExtra::default()
                         }),
                         None,
                     )
@@ -272,7 +315,15 @@ impl World {
             } else {
                 (None, None, None)
             };
-            if let Some((flags, _)) = book_note_key.as_ref().and_then(|extra| extra.form_flags) {
+            if let Some((flags, _)) = book_note_key
+                .as_ref()
+                .and_then(|extra| extra.form_flags)
+                .or_else(|| {
+                    matches!(original.tag.as_bytes(), b"INGR" | b"ALCH" | b"ENCH")
+                        .then(|| item.as_ref().and_then(|extra| extra.form_flags))
+                        .flatten()
+                })
+            {
                 record.flags = flags;
             }
             let mut links = BTreeMap::new();
@@ -412,6 +463,21 @@ impl World {
                     || record != *original
                 {
                     return Err(bad("invalid saved item override"));
+                }
+            } else if matches!(record.tag.as_bytes(), b"INGR" | b"ALCH" | b"ENCH") {
+                if item.is_none()
+                    || book_note_key.is_some()
+                    || list.is_some()
+                    || temporary_for.is_some()
+                    || text_origin != id
+                    || plain_full
+                    || original_race.is_some()
+                    || body_tint.is_some()
+                    || pending_form_flags.is_some()
+                    || !links.is_empty()
+                    || record.subrecords != original.subrecords
+                {
+                    return Err(bad("invalid saved item change"));
                 }
             } else if matches!(record.tag.as_bytes(), b"BOOK" | b"NOTE" | b"KEYM") {
                 let extra = book_note_key

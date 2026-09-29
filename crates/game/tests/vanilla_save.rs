@@ -28,6 +28,9 @@ mod installed;
 #[path = "vanilla_save/activators.rs"]
 mod activators;
 
+#[path = "vanilla_save/item_changes.rs"]
+mod item_changes;
+
 #[path = "vanilla_save/sav_34.rs"]
 mod sav_34;
 

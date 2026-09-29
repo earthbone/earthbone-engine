@@ -88,6 +88,9 @@ fn sav_34_item_changes_update_shared_records_and_survive_engine_save_load() {
             form_flags: Some((0x7856_3412, 0xBC9A)),
             value_changed: true,
             full_name_changed: false,
+            ingredient_use_changed: false,
+            fullname_changed: false,
+            other_flags: 0,
             unnamed_flags: 0x8000_0020,
             trailing_data: vec![0xA5, 0x5A],
         }
@@ -111,6 +114,9 @@ fn sav_34_item_changes_update_shared_records_and_survive_engine_save_load() {
             form_flags: None,
             value_changed: false,
             full_name_changed: true,
+            ingredient_use_changed: false,
+            fullname_changed: false,
+            other_flags: 0,
             unnamed_flags: 0x100,
             trailing_data: vec![0xDD, 0xEE],
         }

@@ -300,6 +300,60 @@ impl ChangeForm {
         }))
     }
 
+    /// Decode INGR form flags and the ingredient-use change marker.
+    ///
+    /// # Errors
+    /// Rejects truncated form flags and payload bytes outside xEdit's layout.
+    pub fn ingredient_change(&self) -> Result<Option<IngredientChange>> {
+        if self.record_type() != "INGR" {
+            return Ok(None);
+        }
+        let payload = self.payload()?;
+        let mut cursor = Cursor::new(&payload, "INGR change");
+        let form_flags = record_form_flags(&mut cursor, self.change_flags)?;
+        finish_record(&cursor)?;
+        Ok(Some(IngredientChange {
+            form_flags,
+            ingredient_use_changed: self.change_flags & (1 << 31) != 0,
+            other_flags: self.change_flags & 0x7FFF_FFFE,
+        }))
+    }
+
+    /// Decode ALCH form flags and base-object change markers.
+    ///
+    /// # Errors
+    /// Rejects truncated form flags and payload bytes outside xEdit's layout.
+    pub fn alchemy_change(&self) -> Result<Option<BaseObjectChange>> {
+        if self.record_type() != "ALCH" {
+            return Ok(None);
+        }
+        self.base_object_change("ALCH change").map(Some)
+    }
+
+    /// Decode ENCH form flags and base-object change markers.
+    ///
+    /// # Errors
+    /// Rejects truncated form flags and payload bytes outside xEdit's layout.
+    pub fn enchantment_change(&self) -> Result<Option<BaseObjectChange>> {
+        if self.record_type() != "ENCH" {
+            return Ok(None);
+        }
+        self.base_object_change("ENCH change").map(Some)
+    }
+
+    fn base_object_change(&self, region: &'static str) -> Result<BaseObjectChange> {
+        let payload = self.payload()?;
+        let mut cursor = Cursor::new(&payload, region);
+        let form_flags = record_form_flags(&mut cursor, self.change_flags)?;
+        finish_record(&cursor)?;
+        Ok(BaseObjectChange {
+            form_flags,
+            value_changed: self.change_flags & 2 != 0,
+            fullname_changed: self.change_flags & 4 != 0,
+            other_flags: self.change_flags & !7,
+        })
+    }
+
     /// Decode ACTI, TACT and DOOR base-object change fields.
     ///
     /// xEdit defines zero-byte markers for value, full-name and TACT speaker
@@ -424,6 +478,58 @@ impl ActivatorChange {
     }
 
     /// Rebuild the source-defined payload bytes.
+    pub fn data_bytes(self) -> Vec<u8> {
+        let mut out = Vec::new();
+        write_record_form_flags(self.form_flags, &mut out);
+        out
+    }
+}
+
+/// Saved INGR sections. The ingredient-use marker has no payload in xEdit.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct IngredientChange {
+    pub form_flags: Option<FormFlags>,
+    pub ingredient_use_changed: bool,
+    /// Bits that xEdit labels unnamed, retained without assigning meaning.
+    pub other_flags: u32,
+}
+
+impl IngredientChange {
+    /// Rebuild source-defined and unnamed change bits.
+    pub fn change_flags(self) -> u32 {
+        u32::from(self.form_flags.is_some())
+            | (u32::from(self.ingredient_use_changed) << 31)
+            | self.other_flags
+    }
+
+    /// Rebuild the typed payload.
+    pub fn data_bytes(self) -> Vec<u8> {
+        let mut out = Vec::new();
+        write_record_form_flags(self.form_flags, &mut out);
+        out
+    }
+}
+
+/// Saved ALCH or ENCH sections. Marker bits carry no payload in xEdit.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct BaseObjectChange {
+    pub form_flags: Option<FormFlags>,
+    pub value_changed: bool,
+    pub fullname_changed: bool,
+    /// Bits that xEdit labels unnamed, retained without assigning meaning.
+    pub other_flags: u32,
+}
+
+impl BaseObjectChange {
+    /// Rebuild source-defined and unnamed change bits.
+    pub fn change_flags(self) -> u32 {
+        u32::from(self.form_flags.is_some())
+            | (u32::from(self.value_changed) << 1)
+            | (u32::from(self.fullname_changed) << 2)
+            | self.other_flags
+    }
+
+    /// Rebuild the typed payload.
     pub fn data_bytes(self) -> Vec<u8> {
         let mut out = Vec::new();
         write_record_form_flags(self.form_flags, &mut out);

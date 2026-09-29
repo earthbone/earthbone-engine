@@ -36,18 +36,16 @@ pub struct ActivatorRecordExtra {
     pub speaker_changed: bool,
 }
 
-/// Saved base-object fields retained for ARMO, WEAP and AMMO records.
+/// Saved item fields retained for ARMO, WEAP, AMMO, INGR, ALCH and ENCH.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ItemRecordExtra {
-    /// The 32-bit mask and following 16-bit word from the saved form flags.
     pub form_flags: Option<(u32, u16)>,
-    /// Whether the zero-byte object-value field is marked changed.
     pub value_changed: bool,
-    /// Whether the zero-byte full-name field is marked changed.
     pub full_name_changed: bool,
-    /// Change flags without a named xEdit field.
+    pub ingredient_use_changed: bool,
+    pub fullname_changed: bool,
     pub unnamed_flags: u32,
-    /// Payload bytes after the defined saved fields.
+    pub other_flags: u32,
     pub trailing_data: Vec<u8>,
 }
 

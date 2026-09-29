@@ -112,6 +112,10 @@ does not claim runtime support for opaque payloads.
 - `ChangeForm::item_change` decodes the shared ARMO, WEAP and AMMO form-flags
   section and the value/name change markers. Unnamed bits and any remaining
   bytes stay available in the typed value.
+- `ChangeForm::ingredient_change`, `alchemy_change` and
+  `enchantment_change` decode INGR, ALCH and ENCH change markers. Unnamed flag
+  bits remain available, marker sections add no payload bytes, and form flags
+  retain their six bytes.
 - Type 107, quest static data, including its two event arrays, three reference
   arrays, reference-keyed values and final byte.
 - Type 1001, the Papyrus block: the string table, the script definitions with

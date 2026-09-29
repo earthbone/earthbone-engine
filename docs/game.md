@@ -66,10 +66,14 @@ week 6 to 9 gate.
 
 `vanilla_save::SavedFormMap` remaps ESS references through saved plugin names,
 including regular and light slots. `World::restore_vanilla_globals` atomically
-applies the global table to winning GLOB forms. Values reach the existing
-Papyrus native path and engine save state. This is one restoration component,
-not a full ESS load or resumed game. See [save.md](save.md) for mapping rules,
-failure behavior and the remaining world and VM work.
+applies the global table to winning GLOB forms. `World::restore_vanilla_items`
+applies INGR, ALCH and ENCH change markers to shared record overrides, with
+form flags visible through record queries and marker state retained in SOEW
+version 37. ALCH parsing reads the same shared record view. xEdit defines the
+item value, fullname and ingredient-use fields as payload-free markers, so
+those markers do not supply replacement field values. These are restoration
+components, not a full ESS load or resumed game. See [save.md](save.md) for
+mapping rules, failure behavior and the remaining world and VM work.
 
 `World::restore_vanilla_activators` applies decoded ACTI, TACT and DOOR flag
 masks to shared records. It validates the full change set before publishing
