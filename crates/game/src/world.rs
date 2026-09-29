@@ -452,6 +452,15 @@ pub struct UpdateTimer {
 /// `NativeCall::create_object`, outside it is `Vm::create_object_of`.
 pub type Alloc<'a> = &'a mut dyn FnMut(&str, &str) -> ObjectId;
 
+/// One-shot request for a host-owned screen or presentation action.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum HostRequest {
+    /// Tear down gameplay and return to the main menu.
+    QuitToMainMenu,
+    /// Start the named title sequence on the main menu.
+    StartTitleSequence(String),
+}
+
 pub struct World {
     pub(crate) dialogue_index: std::sync::OnceLock<crate::dialogue::Index>,
     pub(crate) dialogue: crate::dialogue::State,
@@ -501,6 +510,8 @@ pub struct World {
     rng: u64,
     pub clock: GameClock,
     pub pending: Vec<Pending>,
+    /// Transient requests for work that only the host can present.
+    pub host_requests: Vec<HostRequest>,
     pub timers: Vec<UpdateTimer>,
     pub notifications: Vec<String>,
     pub message_boxes: Vec<String>,
@@ -601,6 +612,7 @@ impl World {
             rng: 0x9E37_79B9_7F4A_7C15,
             clock: GameClock::default(),
             pending: Vec::new(),
+            host_requests: Vec::new(),
             timers: Vec::new(),
             notifications: Vec::new(),
             message_boxes: Vec::new(),

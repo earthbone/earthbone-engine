@@ -119,6 +119,7 @@ pub struct PlayerNode {
     devices: Devices,
     input_focused: bool,
     menu: crate::ui::MenuState,
+    main_menu: crate::ui::MainMenuState,
     inventory_category: crate::inventory_menu::Category,
     magic_hand: soe_game::combat::Hand,
     menu_view: Option<menu::MenuView>,
@@ -170,6 +171,7 @@ impl INode3D for PlayerNode {
             devices: Devices::default(),
             input_focused: true,
             menu: crate::ui::MenuState::default(),
+            main_menu: crate::ui::MainMenuState::default(),
             inventory_category: crate::inventory_menu::Category::All,
             magic_hand: soe_game::combat::Hand::Right,
             menu_view: None,
@@ -346,6 +348,28 @@ impl PlayerNode {
         // Godot can retain just-pressed flags until the frame ends.
         let until = Engine::singleton().get_process_frames() + 1;
         self.action_latches = Action::all().into_iter().map(|a| (a, until)).collect();
+    }
+
+    /// Emitted after gameplay is released and the host enters the main menu.
+    #[signal]
+    fn returned_to_main_menu();
+
+    /// Emitted when the host starts a named title sequence on the main menu.
+    #[signal]
+    fn title_sequence_started(name: GString);
+
+    /// Report whether PlayerNode has released gameplay and returned to its main menu state.
+    #[func]
+    pub fn is_main_menu(&self) -> bool {
+        self.main_menu.is_active()
+    }
+
+    /// Return the currently playing title sequence name, if one was requested.
+    #[func]
+    pub fn active_title_sequence(&self) -> GString {
+        self.main_menu
+            .title_sequence()
+            .map_or_else(GString::new, GString::from)
     }
 
     /// Connect an already loaded character rig to this gameplay world's live

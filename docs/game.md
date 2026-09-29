@@ -84,6 +84,11 @@ queue with running the VM until no runnable work remains. Deferred death
 requests stay queued until EndDeferredKill. Timers are the same: `tick`
 moves due registrations into the queue as `OnUpdate` events.
 
+`Game.QuitToMainMenu` and `Game.StartTitleSequence` enqueue transient
+`HostRequest` values on the world for Godot to consume. Those requests are not
+saved because they describe host presentation actions, not game state. The
+host drops them after each runtime tick.
+
 **Provider collisions.** `Game::add_natives` runs a second provider (an
 extender in the PAPER mould) and returns the functions it lost. First
 registration wins, the registry never replaces silently. This is the answer to
@@ -152,7 +157,8 @@ location modes follow CommonLibSSE `TESFaction.h` and UESP `FACT.wikitext`.
 
 Counts from `natives::register`: 364 natives with state behind them and 177
 
-Counts from `natives::register`: 366 natives with state behind them and 175
+Counts from `natives::register`: 368 natives with state behind them and 178
+quiet stubs after UI-18.
 
 Counts from `natives::register`: 365 natives with state behind them and 180
 quiet stubs (141 and 176 before the natives round of 2026-09-18, 294 and 137

@@ -19,7 +19,9 @@ use soe_papyrus::{NativeCall, NativeReturn, ObjectId, Value, Vm};
 use crate::clock::GameClock;
 use crate::combat::Hand;
 use crate::conditions;
-use crate::world::{reaction, AnimationListener, Handle, LeveledEntry, LosListener, World};
+use crate::world::{
+    reaction, AnimationListener, Handle, HostRequest, LeveledEntry, LosListener, World,
+};
 
 pub type Shared = Rc<RefCell<World>>;
 
@@ -202,7 +204,7 @@ pub fn register(vm: &mut Vm, world: &Shared) -> Registered {
 
 /// Hand-kept count of the non-stub natives registered below. The test in
 /// this module checks it against the registry.
-pub const NATIVE_COUNT: usize = 366;
+pub const NATIVE_COUNT: usize = 368;
 
 fn declare_parents(vm: &mut Vm) {
     for (class, parent) in [
@@ -1714,6 +1716,16 @@ fn alias(vm: &mut Vm, w: &Shared) {
 }
 
 fn game(vm: &mut Vm, w: &Shared) {
+    global!(vm, w, "Game", "QuitToMainMenu", |world, _call| {
+        world.host_requests.push(HostRequest::QuitToMainMenu);
+        none()
+    });
+    global!(vm, w, "Game", "StartTitleSequence", |world, call| {
+        world
+            .host_requests
+            .push(HostRequest::StartTitleSequence(text(&call.arg(0))));
+        none()
+    });
     global!(vm, w, "Game", "GetPlayer", |world, call| {
         let p = world.player();
         form_value(world, call, Some(p))
@@ -3369,9 +3381,7 @@ fn stubs(vm: &mut Vm) -> usize {
         ("Game", "ShowTrainingMenu"),
         ("Game", "ShowFirstPersonGeometry"),
         ("Game", "SetCameraTarget"),
-        ("Game", "QuitToMainMenu"),
         ("Game", "SetSittingRotation"),
-        ("Game", "StartTitleSequence"),
         ("Game", "GetCurrentCrosshairRef"),
         ("Game", "GetPlayerGrabbedRef"),
         ("Game", "FindClosestActor"),
