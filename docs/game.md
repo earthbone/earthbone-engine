@@ -49,6 +49,11 @@ week 6 to 9 gate.
 - `quest`: the `QUST` view. Flags, stages with log entries, objectives, aliases
   with forced references.
 - `natives`: the base game's natives, closed over the shared world.
+- `world::visual_effects`: transient `VisualEffect.Play` instances keyed by
+  resolved RFCT and placed-reference forms. Calls stack, finite durations
+  expire on unpaused game ticks, and `Stop` removes all matching instances.
+  Hosts can inspect the active requests in stable call order. Rendering the
+  RFCT art object is not connected yet.
 - `clock`: real seconds drive the scheduler and update timers, game time runs
   at `timescale` (20) for `GetCurrentGameTime`.
 - `harness`: the conformance scenario runner, see `docs/validation.md`.
@@ -152,7 +157,7 @@ location modes follow CommonLibSSE `TESFaction.h` and UESP `FACT.wikitext`.
 
 Counts from `natives::register`: 364 natives with state behind them and 177
 
-Counts from `natives::register`: 366 natives with state behind them and 175
+Counts from `natives::register`: 368 natives with state behind them and 173
 
 Counts from `natives::register`: 365 natives with state behind them and 180
 quiet stubs (141 and 176 before the natives round of 2026-09-18, 294 and 137
@@ -185,7 +190,8 @@ run past it.
 | Scene, Package | GetOwningQuest | |
 | TopicInfo | GetOwningQuest | |
 | ActiveMagicEffect | RegisterForUpdate, RegisterForSingleUpdate, RegisterForUpdateGameTime, RegisterForSingleUpdateGameTime, UnregisterForUpdate, UnregisterForUpdateGameTime, RegisterForAnimationEvent, UnregisterForAnimationEvent, GetBaseObject, GetTargetActor, GetCasterActor, Dispel, AddInventoryEventFilter, RemoveInventoryEventFilter, RemoveAllInventoryEventFilters | |
-| EffectShader, VisualEffect | | Play, Stop |
+| EffectShader | | Play, Stop |
+| VisualEffect | Play, Stop | |
 | ImageSpaceModifier | Apply, ApplyCrossFade, Remove, RemoveCrossFade, PopTo | |
 | ShaderParticleGeometry | | Apply, Remove |
 | MusicType, Topic | | Add, Remove |
@@ -209,6 +215,11 @@ Current behavior and compatibility limits:
   whether anything was removed. Neither dispel native changes known or equipped
   spells. `DispelAllSpells` preserves diseases, abilities, addictions and constant
   enchantments. Worn enchantment application is not implemented yet.
+- `VisualEffect.Play` adds a transient effect instance for the RFCT form and
+  placed target. Calls stack, negative durations remain until stopped, and a
+  finite duration expires on an unpaused game tick. The optional facing
+  reference is retained. `VisualEffect.Stop` removes every matching instance
+  on its target. Rendering the RFCT art object is not connected yet.
 - `tick_menu_mode(dt, true)` pauses world time and ordinary waits while
   `WaitMenuMode` continues. `tick(dt)` remains the unpaused entry point.
   The UI must supply the pause state when menus are implemented.

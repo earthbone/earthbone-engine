@@ -94,12 +94,14 @@ mod templates;
 pub use template_restore::TemplateRestoreReport;
 mod timers;
 mod transition;
+mod visual_effects;
 
 pub use contact::{ContactActor, DEFAULT_COMBAT_DISTANCE};
 pub use doorway::{Doorway, InteriorDestination, Side, Threshold, THRESHOLD_BAND, UNITS_PER_METRE};
 pub use reference_extras::{ReferenceExtrasRestoreReport, ReferenceLock};
 pub use save::{SAVE_MAGIC, SAVE_VERSION};
 pub use transition::CellTransition;
+pub use visual_effects::{VisualEffectError, VisualEffectId, VisualEffectInstance};
 
 /// Created references and temporary bases share an internal namespace outside
 /// the plugin positions. Runtime FormIDs still use the `FF` prefix.
@@ -544,6 +546,9 @@ pub struct World {
     pub spell_casts: Vec<(GlobalFormId, GlobalFormId, Option<GlobalFormId>)>,
     pub(crate) active_effects: BTreeMap<magic::EffectId, magic::ActiveEffect>,
     pub(crate) next_effect: u64,
+    pub(crate) visual_effects:
+        BTreeMap<visual_effects::VisualEffectId, visual_effects::VisualEffectInstance>,
+    pub(crate) next_visual_effect: u64,
     pub(crate) image_space: image_space::ImageSpaceState,
     /// Stealth-point pools by target, each with its observers' awareness.
     pub(crate) detection: crate::detection::DetectionState,
@@ -636,6 +641,8 @@ impl World {
             localized_strings: BTreeMap::new(),
             active_effects: BTreeMap::new(),
             next_effect: 1,
+            visual_effects: BTreeMap::new(),
+            next_visual_effect: 1,
             image_space: image_space::ImageSpaceState::default(),
             detection: crate::detection::DetectionState::default(),
         }
