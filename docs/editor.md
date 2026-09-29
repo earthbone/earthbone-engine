@@ -312,3 +312,12 @@ checked against NVNM limits, malformed or degenerate edits are rejected before c
 plugin, and save writes the packed geometry back through the plugin writer. Editing a
 winning navmesh owned by another plugin is not supported yet because its parent, door and
 edge-link FormIDs need relocation when an override is created.
+
+`EditorDocument::stat_model_field` reads `STAT.MODL` through the typed
+`soe-esm::records::stat::Static` view and returns the value with the file name of the winning
+record. `set_stat_model_field` accepts a NIF path without embedded NUL bytes, stores it as the
+record's NUL-terminated `MODL` string, and creates or updates the active-plugin record through
+the undoable edit log. Undo restores both the prior field value and the prior winning plugin.
+The typed access uses xEdit's `STAT` definition, where the generic model data is part of the
+record, and follows Godot's inspector plugin guidance to route property edits through the
+document model. It does not add a Godot inspector control.
