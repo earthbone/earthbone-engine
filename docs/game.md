@@ -653,11 +653,17 @@ GetFactionRank, GetGlobalValue, GetRandomPercent, GetLevel,
 GetPlayerControlsDisabled, GetIsReference, GetIsCurrentPackage,
 GetDayOfWeek, IsSneaking (always false, no sneak state yet), IsInCombat,
 IsInInterior, GetQuestCompleted, HasKeyword, GetIsAliasRef,
-GetActorValuePercent. The AI-01 increment also shares GetStaminaPercentage,
-GetBaseActorValue, IsKiller, GetHealthPercentage and GetPermanentActorValue
-with the gameplay evaluator. Any other function fails its condition and is
-counted in `World::ai.unsupported_functions` by index, so a live run
-prints what the next round should add.
+GetActorValuePercent. AI-37 adds EPModSkillUsage_AdvanceObjectHasKeyword and
+EPModSkillUsage_IsAdvanceAction when the caller supplies a matching skill-use
+event to the PERK entry-point context, GetLightLevel from a caller-supplied
+sample in the CK range 0 to 150, and IsOverEncumbered when InventoryWeight is
+greater than CarryWeight. GetActorWarmth returns an explicit unavailable
+contract error because xEdit names it but the local CK corpus defines no usable
+semantics. Missing event or light context is an error. The AI-01 increment also
+shares GetStaminaPercentage, GetBaseActorValue, IsKiller, GetHealthPercentage
+and GetPermanentActorValue with the gameplay evaluator. Any other function
+fails its condition and is counted in `World::ai.unsupported_functions` by
+index, so a live run prints what the next round should add.
 
 **Procedures.** AI-02 walks sequential branches in authored preorder. The
 actor retains the active child and its completion state. A completed Travel
@@ -1259,7 +1265,8 @@ earlier member can change inventory or queue events.
 Active-effect recipients remain pending with magic execution.
 
 The condition evaluator implements functions 47, 56, 58, 59, 72, 74, 136,
-182, 264, 277, 289, 359, 448, 543, 560, 629, 630 and 659. This is a bounded set,
+182, 264, 277, 289, 359, 448, 543, 560, 629, 630, 640, 659, 691, 692, 711,
+734 and 735. This is a bounded set,
 not the entire CTDA contract. It supports ordered AND/OR groups, numeric or
 global comparisons, explicit references and caller-supplied quest aliases.
 Reserved PlayerRef resolves to the runtime player even without a placed record.
@@ -1268,7 +1275,8 @@ base when present, so forced player aliases and inventory notifications agree.
 Conditional Papyrus variables come from current attached instances, with
 ambiguous or nonnumeric values reported as errors. Unavailable targets,
 unsupported flags/functions, nonzero HasPerk parameter 2 and missing tempering
-context are explicit errors. Crafting does not invent a target or quest context.
+context are explicit errors. Crafting does not invent target, quest, skill-use
+or light-level context.
 Float comparisons are exact and have not been compared against vanilla
 near-equality behavior. `ObjectReference.GetItemCount` totals an exact base
 form, each FormList member or every carried item whose base has the supplied
@@ -1280,7 +1288,13 @@ inventories and CK-defined reference inventories. The engine uses its shared
 inventory totals for both actors and containers, so keyword queries have the
 same defined result for either holder.
 
-Sources consulted were local xEdit `wbDefinitionsTES5.pas` for CTDA, COBJ and
+Sources consulted were local xEdit `wbDefinitionsTES5.pas` for CTDA, including
+the six AI-37 function identities and parameter types, CK `GetActorValuePercentage`,
+`GetLightLevel` and `IsOverEncumbered` pages, and Mutagen's `PlayerAction.cs`
+for the skill action numbers. No CK page defines GetActorWarmth's condition
+contract. The evaluator uses caller-supplied light and skill-use context because
+the runtime does not calculate either value. Other crafting sources were xEdit
+for COBJ and
 FURN WBDT, CK `GetItemCount_-_ObjectReference.wikitext` for the query forms,
 UESP COBJ notes for missing outputs, skymp `CraftService.cpp` and
 `unit/CraftTest.cpp` for bench matching and DLC cases, Mutagen

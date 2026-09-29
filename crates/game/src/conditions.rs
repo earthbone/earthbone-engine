@@ -21,6 +21,18 @@ pub struct Context {
     pub target: Option<GlobalFormId>,
     pub quest: Option<GlobalFormId>,
     pub tempering_enchanted: Option<bool>,
+    /// The skill-use event whose PERK conditions are being evaluated.
+    pub skill_use: Option<SkillUseContext>,
+    /// Light level supplied by the host for the subject actor.
+    pub light_level: Option<f32>,
+}
+
+/// Skill-use information visible to EPModSkillUsage PERK conditions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SkillUseContext {
+    pub actor: GlobalFormId,
+    pub action: u32,
+    pub advance_object: Option<GlobalFormId>,
 }
 
 /// A condition could not be evaluated. It must not be treated as true.
@@ -46,6 +58,12 @@ pub enum Error {
     NonFinite,
     #[error("condition requires tempering item context")]
     TemperingContext,
+    #[error("condition function {0} requires matching skill-use event context")]
+    SkillUseContext(u16),
+    #[error("condition function {0} requires a light level from 0 to 150")]
+    LightLevelContext(u16),
+    #[error("condition function {0} has no usable CK contract")]
+    UnavailableContract(u16),
     #[error("condition count overflow or cyclic form list")]
     Inventory,
 }
@@ -140,6 +158,12 @@ pub fn supports_function(function: u16) -> bool {
             | 630
             | 655
             | 659
+            | 640
+            | 691
+            | 692
+            | 711
+            | 734
+            | 735
     )
 }
 
@@ -276,6 +300,47 @@ fn function_value(
         14 | 128 | 277 | 408 | 430 | 494 => {
             actor_query(world, context.owner, subject, c.function, raw)?
         }
+        640 => {
+            no_parameter_second(c)?;
+            actor_query(world, context.owner, subject, c.function, raw)?
+        }
+        691 | 692 => {
+            let event = context
+                .skill_use
+                .filter(|event| event.actor == subject && world.actor(event.actor).is_some())
+                .ok_or(Error::SkillUseContext(c.function))?;
+            match c.function {
+                691 => {
+                    let keyword = resolve(world, context.owner, raw, Some(*b"KYWD"))?;
+                    no_parameter_second(c)?;
+                    boolean(
+                        event
+                            .advance_object
+                            .is_some_and(|object| world.has_keyword(object, keyword)),
+                    )
+                }
+                _ => {
+                    no_parameter_second(c)?;
+                    if !(1..=14).contains(&raw) {
+                        return Err(Error::Parameter(c.function, raw));
+                    }
+                    boolean(event.action == raw)
+                }
+            }
+        }
+        711 => {
+            no_parameter(c)?;
+            context
+                .light_level
+                .filter(|value| value.is_finite() && (0.0..=150.0).contains(value))
+                .ok_or(Error::LightLevelContext(c.function))?
+        }
+        734 => {
+            no_parameter(c)?;
+            let values = &world.actor(subject).ok_or(Error::Form(subject))?.values;
+            boolean(values.get("inventoryweight").current() > values.get("carryweight").current())
+        }
+        735 => return Err(Error::UnavailableContract(c.function)),
         1 => {
             let other = resolve_reference(world, context.owner, raw)?;
             world.distance(subject, other)
@@ -530,7 +595,9 @@ pub(crate) fn actor_query(
     let name = match function {
         128 => "stamina",
         430 => "health",
-        14 | 277 | 494 => actor_values::name(parameter).ok_or(Error::ActorValue(parameter))?,
+        14 | 277 | 494 | 640 => {
+            actor_values::name(parameter).ok_or(Error::ActorValue(parameter))?
+        }
         _ => return Err(Error::Function(function)),
     };
     let actor = world.actor(subject).ok_or(Error::Form(subject))?;
@@ -545,6 +612,14 @@ pub(crate) fn actor_query(
         Ok(value)
     } else {
         Err(Error::NonFinite)
+    }
+}
+
+fn no_parameter_second(c: &Condition) -> Result<(), Error> {
+    if c.parameters[1] == 0 {
+        Ok(())
+    } else {
+        Err(Error::Parameter(c.function, c.parameters[1]))
     }
 }
 

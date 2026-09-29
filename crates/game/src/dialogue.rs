@@ -769,6 +769,8 @@ impl Game {
             target: Some(session.listener),
             quest: Some(quest),
             tempering_enchanted: None,
+            skill_use: None,
+            light_level: None,
         };
         if !conditions::evaluate(&mut world, &self.vm, context, &quest_conditions)? {
             return Ok(Candidates {
@@ -856,6 +858,8 @@ impl Game {
             target: Some(session.listener),
             quest: Some(quest),
             tempering_enchanted: None,
+            skill_use: None,
+            light_level: None,
         };
         if !conditions::evaluate(world, vm, context, &info.conditions)? {
             return Ok(false);
