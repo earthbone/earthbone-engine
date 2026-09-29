@@ -77,6 +77,15 @@ record overrides, so consumers such as `World::record` and `World::name_of`
 observe one restored result. Marker-only saved fields are available through
 `World::restored_activator_extra`.
 
+`World::restore_vanilla_items` applies decoded ARMO, WEAP and AMMO changes as
+shared record overrides. It prepares and validates every target before
+installing any override. `World::record` and record-backed consumers continue
+to read the same winning record. `restored_item_extra` exposes the six-byte
+form flags, zero-byte value and full-name markers, unnamed flags and remaining
+payload bytes. xEdit defines no application operation for the mask, so this
+pass retains it without changing record flags. SOEW version 37 saves this
+metadata, and earlier versions remain readable.
+
 **Forms, not structs.** Every native takes and returns forms by
 `GlobalFormId`. The VM sees them as objects created on first use with the
 class the record's signature implies (`QUST` is a `Quest`, `ACHR` an `Actor`),

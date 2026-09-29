@@ -28,6 +28,9 @@ mod installed;
 #[path = "vanilla_save/activators.rs"]
 mod activators;
 
+#[path = "vanilla_save/sav_34.rs"]
+mod sav_34;
+
 use std::{
     path::{Path, PathBuf},
     sync::Arc,

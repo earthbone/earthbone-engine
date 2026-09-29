@@ -32,10 +32,11 @@ the value or name themselves.
 
 The same skeleton appears for ACTI, TACT, ARMO, BOOK, CONT, DOOR, LIGH, MISC,
 APPA, STAT, MSTT, FURN, WEAP, AMMO, KEYM, ALCH, IDLM, NAVM, WOOP, MGEF and
-ENCH. INGR, NOTE and PACK have different type-specific sections. Resolving
-the shared fields will not establish those other layouts, or TACT's speaker
-and BOOK's teaches/read sections. Each dependent decoder still needs its own
-complete field and flag evidence.
+ENCH. SAV-33 uses this boundary for ARMO, WEAP and AMMO. Their named value
+and full-name fields are zero bytes in xEdit, while unnamed flag bits and
+trailing bytes remain uninterpreted. INGR, NOTE and PACK have different
+type-specific sections. Other types still need their own complete field and
+flag evidence, including TACT's speaker and BOOK's teaches/read sections.
 
 No field width is inferred from an in-memory C++ member, a plugin record's
 `DATA` or `FULL`, a different game's save, or a successful raw-byte round
@@ -67,9 +68,9 @@ was found in the local UESP save pages.
 
 The public [UESP ChangeFlags revision 2308895](https://en.uesp.net/w/index.php?title=Skyrim_Mod:ChangeFlags&oldid=2308895),
 dated 2021-01-07, was also retrieved through the wiki API. It identifies
-the two base-object masks and defines the generic six-byte section. It does
-not supply either target field's payload layout. These are positive findings
-about that page's contents, not a claim that all public sources were exhausted.
+the two base-object masks and defines the generic six-byte section. UESP's
+local format conventions define null fields as zero bytes, consistent with
+xEdit's explicit `wbNull` size handling.
 
 ## Why setter-only fixtures would be inconclusive
 
@@ -90,19 +91,20 @@ was built or run in this checkpoint. No Bethesda executable was disassembled.
 
 ## Corpus evidence and the completion requirement
 
-The prior SAV-33 survey, documented in its `docs/save.md` section
+The SAV-33 survey, documented in its `docs/save.md` section
 `ARMO, WEAP and AMMO change coverage`, read all 60 external saves and found
 zero ARMO, WEAP or AMMO change forms. Its test is
 `sav_33_corpus_reports_item_change_field_coverage` in
-`crates/save/tests/item_change_coverage.rs`. This checkpoint reviewed that
-recorded result and did not rerun or extend the survey. It does not establish
-coverage for the other base-object types. No user save was copied or changed.
+`crates/save/tests/item_change_coverage.rs`. The survey reports type, flags,
+payload size and count, then decodes and re-encodes observed item payloads.
+It does not establish coverage for other base-object types. No user save is
+copied or changed.
 
-The public xEdit definitions now satisfy SAV-53's field-boundary requirement.
-Controlled reference-game fixtures would be needed to establish serialized
-value or name content if a future source changes either field from `wbNull`.
+The public xEdit definitions and UESP null-field convention establish the
+SAV-33 layout for the named value and name bits. Controlled reference-game
+fixtures would be needed if a future source changes either field from `wbNull`.
 Such fixtures must establish the following before a decoder can consume such
-content:
+new content:
 
 1. Record game build, save version, change-form version, load order, source
    form identity, authored probe and original/new values. Preserve the
@@ -124,6 +126,7 @@ content:
 
 Only sanitized observations and authored probe material belong in this
 repository. No fixtures with this provenance were located during the audit.
-SAV-31, SAV-33, SAV-35, SAV-37, SAV-39, SAV-41, SAV-43, SAV-47 and SAV-49
-can use the established zero-byte boundaries. Their type-specific payload
-decoders still need their own field evidence and corpus checks.
+SAV-31, SAV-35, SAV-37, SAV-39, SAV-41, SAV-43, SAV-47 and SAV-49 can use
+the established zero-byte boundaries. Their payload decoders still need
+their own field evidence and corpus checks. SAV-33's ARMO, WEAP and AMMO
+decoder is documented in `save.md`.

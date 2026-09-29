@@ -8,7 +8,8 @@ use soe_esm::{plugin::Subrecord, GlobalFormId, Slot, Tag};
 use soe_papyrus::{vm::state::Writer, VmError};
 
 use super::record_overrides::{
-    raw_words, ActivatorRecordExtra, ListRecordExtra, NpcRecordExtra, RecordOverride,
+    raw_words, ActivatorRecordExtra, ItemRecordExtra, ListRecordExtra, NpcRecordExtra,
+    RecordOverride,
 };
 use super::save::{read_form_id, read_opt_form_id, write_form_id, write_opt_form_id, FormReader};
 use super::{World, T};
@@ -67,8 +68,8 @@ impl World {
                 w.bool(list.section_present);
                 w.bytes(&list.entry_chances);
             }
-            w.bool(value.activator.is_some());
-            if let Some(activator) = value.activator {
+            w.bool(value.activator.is_some() || value.item.is_some());
+            if let Some(activator) = &value.activator {
                 w.bool(activator.form_flags.is_some());
                 if let Some((flags, unknown)) = activator.form_flags {
                     w.u32(flags);
@@ -77,6 +78,16 @@ impl World {
                 w.bool(activator.value_changed);
                 w.bool(activator.full_name_changed);
                 w.bool(activator.speaker_changed);
+            } else if let Some(item) = &value.item {
+                w.bool(item.form_flags.is_some());
+                if let Some((flags, unknown)) = item.form_flags {
+                    w.u32(flags);
+                    w.u16(unknown);
+                }
+                w.bool(item.value_changed);
+                w.bool(item.full_name_changed);
+                w.u32(item.unnamed_flags);
+                w.bytes(&item.trailing_data);
             }
             w.len(value.links.len());
             for (raw, link) in &value.links {
@@ -125,6 +136,9 @@ impl World {
                             | b"ACTI"
                             | b"TACT"
                             | b"DOOR"
+                            | b"ARMO"
+                            | b"WEAP"
+                            | b"AMMO"
                     )
                 })
             {
@@ -145,6 +159,9 @@ impl World {
                             | b"ACTI"
                             | b"TACT"
                             | b"DOOR"
+                            | b"ARMO"
+                            | b"WEAP"
+                            | b"AMMO"
                     ) && !rec.is_deleted()
                 })
                 .ok_or_else(|| bad("missing record origin"))?;
@@ -188,20 +205,38 @@ impl World {
             } else {
                 None
             };
-            let activator = if version >= 37 && r.bool()? {
+            let (activator, item) = if version >= 37 && r.bool()? {
                 let form_flags = if r.bool()? {
                     Some((r.u32()?, r.u16()?))
                 } else {
                     None
                 };
-                Some(ActivatorRecordExtra {
-                    form_flags,
-                    value_changed: r.bool()?,
-                    full_name_changed: r.bool()?,
-                    speaker_changed: r.bool()?,
-                })
+                if matches!(original.tag.as_bytes(), b"ACTI" | b"TACT" | b"DOOR") {
+                    (
+                        Some(ActivatorRecordExtra {
+                            form_flags,
+                            value_changed: r.bool()?,
+                            full_name_changed: r.bool()?,
+                            speaker_changed: r.bool()?,
+                        }),
+                        None,
+                    )
+                } else if matches!(original.tag.as_bytes(), b"ARMO" | b"WEAP" | b"AMMO") {
+                    (
+                        None,
+                        Some(ItemRecordExtra {
+                            form_flags,
+                            value_changed: r.bool()?,
+                            full_name_changed: r.bool()?,
+                            unnamed_flags: r.u32()?,
+                            trailing_data: r.bytes()?.to_vec(),
+                        }),
+                    )
+                } else {
+                    return Err(bad("metadata on an unsupported record type"));
+                }
             } else {
-                None
+                (None, None)
             };
             let mut links = BTreeMap::new();
             let used = raw_words(original);
@@ -266,6 +301,9 @@ impl World {
                 if list.is_some() {
                     return Err(bad("NPC has list metadata"));
                 }
+                if item.is_some() {
+                    return Err(bad("NPC has item metadata"));
+                }
                 crate::npc::Npc::from_record(&record, localized)
                     .map_err(|e| VmError::State(e.to_string()))?;
             } else if record.tag == T(b"RACE") {
@@ -288,6 +326,7 @@ impl World {
                     || original_race.is_some()
                     || body_tint.is_some()
                     || pending_form_flags.is_some()
+                    || item.is_some()
                     || unchanged(&record) != unchanged(original)
                     || record.all(T(b"WNAM")).count() != 1
                 {
@@ -318,6 +357,19 @@ impl World {
                     || links.keys().any(|token| *token != raw)
                 {
                     return Err(bad("invalid race skin link"));
+                }
+            } else if matches!(record.tag.as_bytes(), b"ARMO" | b"WEAP" | b"AMMO") {
+                if item.is_none()
+                    || temporary_for.is_some()
+                    || text_origin != id
+                    || plain_full
+                    || original_race.is_some()
+                    || body_tint.is_some()
+                    || pending_form_flags.is_some()
+                    || list.is_some()
+                    || record != *original
+                {
+                    return Err(bad("invalid saved item override"));
                 }
             } else {
                 let tag = if record.tag == T(b"FLST") {
@@ -352,6 +404,7 @@ impl World {
                     || original_race.is_some()
                     || body_tint.is_some()
                     || pending_form_flags.is_some()
+                    || item.is_some()
                     || unchanged(original) != unchanged(&record)
                     || !new.starts_with(&old)
                     || new
@@ -385,6 +438,7 @@ impl World {
                 },
                 list,
                 activator,
+                item,
             };
             if values.insert(id, value).is_some() {
                 return Err(bad("duplicate NPC record"));

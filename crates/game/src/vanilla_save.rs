@@ -47,6 +47,8 @@ pub enum RestoreError {
     List { id: GlobalFormId, reason: String },
     #[error("cannot restore activator {id}: {reason}")]
     Activator { id: GlobalFormId, reason: String },
+    #[error("cannot restore item record {id}: {reason}")]
+    Item { id: GlobalFormId, reason: String },
     #[error("cannot restore reference {id}: {reason}")]
     WorldReference { id: GlobalFormId, reason: String },
 }

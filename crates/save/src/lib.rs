@@ -37,7 +37,7 @@ pub mod quest;
 pub mod reference;
 pub mod table;
 
-pub use base_object::BaseObjectFields;
+pub use base_object::{BaseObjectFields, ItemChange};
 pub use change::{
     ActivatorChange, ClassChange, FactionChange, FactionReaction, FactionReactions,
     RelationshipChange,
