@@ -2133,6 +2133,31 @@ checks failed-model rollback, null skins and unchanged inventory. Its cached-vie
 cost threshold is 2 ms per actor, written before measurement. A five-race survey
 checks authored human and beast addon paths against the installed archives.
 
+## Facial viseme pose mapping (ANM-13)
+
+`facial::sample_facial_pose` samples a `VisemeTrack`, maps its shapes through
+the supplied race's `PHTN` target names and `PHWT` weights, then applies matching
+FaceGen TRI deltas to the TRI base vertices. The returned weights retain every
+race target in record order. Targets without a matching TRI morph remain in the
+weight list and leave the geometry unchanged. Each sample starts from base
+vertices, so an idle cue whose authored weights are zero restores the neutral
+pose without accumulating prior frames. `sample_shape_weights` accepts weighted
+shapes directly for consumers of native LIP curves.
+
+The bridge uses `audio::viseme::morph_weights`, `nif::HeadTri::apply_morph`,
+and the race parser. The local `nifly/include/Animation.hpp` models the
+`NiMorphData` NIF block as named frame morph vectors, while `nifxml/nif.xml`
+documents that block and its controller separately from FaceGen TRI. The
+`TES5Edit/Core/wbDefinitionsTES5.pas` and Mutagen Skyrim `Race.xml` sources
+confirm that `PHTN` carries target names and `PHWT` stores per-phoneme weights.
+This API returns evaluated positions for the caller to install on a face mesh.
+It does not load a race-specific TRI or update a Godot rendering instance.
+
+`anm_13_viseme_sequence_drives_race_declared_morphs_and_returns_to_neutral`
+checks that a sequence applies its race-declared target to the matching TRI
+morph, leaves unrelated vertices unchanged, and returns the head to its base
+pose for an authored idle cue.
+
 The installed five-race survey assembles six model paths and 22 shapes, including
 Argonian and Khajiit tails. Both tails name `TailBone01` through `TailBone05`, which
 the current human rig does not contain. Live binding reports this mismatch and
