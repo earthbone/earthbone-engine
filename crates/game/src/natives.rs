@@ -202,7 +202,7 @@ pub fn register(vm: &mut Vm, world: &Shared) -> Registered {
 
 /// Hand-kept count of the non-stub natives registered below. The test in
 /// this module checks it against the registry.
-pub const NATIVE_COUNT: usize = 367;
+pub const NATIVE_COUNT: usize = 368;
 
 fn declare_parents(vm: &mut Vm) {
     for (class, parent) in [
@@ -1047,6 +1047,29 @@ fn object_reference(vm: &mut Vm, w: &Shared) {
         world.reset_reference(me, target);
         none()
     });
+    method!(
+        vm,
+        w,
+        "ObjectReference",
+        "TetherToHorse",
+        |world, call, me| {
+            let Some(horse) = world.form_arg(&call.arg(0)) else {
+                return none();
+            };
+            let Some((position, rotation, cell)) = world
+                .reference(me)
+                .map(|cart| (cart.position, cart.rotation, cart.cell))
+            else {
+                return none();
+            };
+            if let Some(horse) = world.reference(horse) {
+                horse.position = position;
+                horse.rotation = rotation;
+                horse.cell = cell;
+            }
+            none()
+        }
+    );
     for (name, tag) in [("GetActorOwner", *b"NPC_"), ("GetFactionOwner", *b"FACT")] {
         method!(vm, w, "ObjectReference", name, |world, call, me| {
             let owner = world
@@ -3470,10 +3493,9 @@ fn stubs(vm: &mut Vm) -> usize {
         ("Actor", "RemoveAllSpells"),
         ("Actor", "StartCannibal"),
         ("Actor", "StartVampireFeed"),
-        // The arrow 3d, the ragdoll and the cart tether are renderer and
-        // physics work, the DLC scripts only ask for them.
+        // The arrow 3d and the ragdoll are renderer and physics work, the
+        // DLC scripts only ask for them.
         ("Actor", "ClearExtraArrows"),
-        ("ObjectReference", "TetherToHorse"),
         // The shader, effect and music systems the DLC scripts lean on
         // hardest. Nothing renders or sounds yet, so each one is quiet.
         ("EffectShader", "Play"),

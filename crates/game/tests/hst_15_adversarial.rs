@@ -3,7 +3,11 @@
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::Game;
-use soe_papyrus::{asm::{ident, FunctionBuilder, ScriptBuilder}, Opcode::CallMethod, Value};
+use soe_papyrus::{
+    asm::{ident, FunctionBuilder, ScriptBuilder},
+    Opcode::CallMethod,
+    Value,
+};
 
 const CART: u32 = 0x900;
 const HORSE: u32 = 0x901;
@@ -39,7 +43,15 @@ fn hst_15_tether_native_positions_horse_at_cart_on_call() {
             FunctionBuilder::new("Run", "None")
                 .param("horse", "ObjectReference")
                 .local("result", "None")
-                .ins(CallMethod, vec![ident("TetherToHorse"), ident("horse"), ident("result")])
+                .ins(
+                    CallMethod,
+                    vec![
+                        ident("TetherToHorse"),
+                        ident("self"),
+                        ident("result"),
+                        ident("horse"),
+                    ],
+                )
                 .build(),
         )
         .bytes();
@@ -51,5 +63,8 @@ fn hst_15_tether_native_positions_horse_at_cart_on_call() {
     assert!(game.run_until_idle(32));
 
     let after = game.world().reference_ref(id(HORSE)).unwrap().position;
-    assert_ne!(after, before, "CK TetherToHorse moves the horse into cart position");
+    assert_ne!(
+        after, before,
+        "CK TetherToHorse moves the horse into cart position"
+    );
 }

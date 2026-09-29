@@ -2,21 +2,29 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
-use soe_game::{Game, world::Pending};
-use soe_papyrus::{asm::{f, ident, s, FunctionBuilder, ScriptBuilder}, Opcode::CallMethod};
+use soe_game::{world::Pending, Game};
+use soe_papyrus::{
+    asm::{f, ident, s, FunctionBuilder, ScriptBuilder},
+    Opcode::CallMethod,
+};
 
 const REF: u32 = 0x900;
 
 fn id() -> GlobalFormId {
-    GlobalFormId { file: 0, object: REF }
+    GlobalFormId {
+        file: 0,
+        object: REF,
+    }
 }
 
 fn game() -> Game {
     let mut plugin = Plugin::new(FileHeader::default());
     plugin.push_top(Record::new(Tag(*b"STAT"), 0x800));
-    plugin.push_top(Record::new(Tag(*b"REFR"), REF)
-        .sub(Tag(*b"NAME"), 0x800_u32.to_le_bytes())
-        .sub(Tag(*b"DATA"), vec![0; 24]));
+    plugin.push_top(
+        Record::new(Tag(*b"REFR"), REF)
+            .sub(Tag(*b"NAME"), 0x800_u32.to_le_bytes())
+            .sub(Tag(*b"DATA"), vec![0; 24]),
+    );
     let mut order = LoadOrder::new();
     order.add("Translate.esm", plugin).unwrap();
     Game::new(order)
@@ -29,10 +37,22 @@ fn hst_16_translate_native_converts_angles_and_honors_rotation_speed() {
         .function(
             FunctionBuilder::new("Run", "None")
                 .local("result", "None")
-                .ins(CallMethod, vec![
-                    s("TranslateTo"), ident("self"), ident("result"),
-                    f(10.0), f(0.0), f(0.0), f(0.0), f(0.0), f(90.0), f(10.0), f(30.0),
-                ])
+                .ins(
+                    CallMethod,
+                    vec![
+                        s("TranslateTo"),
+                        ident("self"),
+                        ident("result"),
+                        f(10.0),
+                        f(0.0),
+                        f(0.0),
+                        f(0.0),
+                        f(0.0),
+                        f(90.0),
+                        f(10.0),
+                        f(30.0),
+                    ],
+                )
                 .build(),
         )
         .bytes();
@@ -41,7 +61,8 @@ fn hst_16_translate_native_converts_angles_and_honors_rotation_speed() {
     game.vm.attach(object, "Hst16Probe").unwrap();
     game.vm.call(object, "Run", &[]).unwrap();
     assert!(game.run_until_idle(32));
-    game.world_mut().tick_translations(0.5, &mut |_, _| soe_papyrus::ObjectId(1));
+    game.world_mut()
+        .tick_translations(0.5, &mut |_, _| soe_papyrus::ObjectId(1));
 
     let world = game.world();
     let reference = world.reference_ref(id()).unwrap();

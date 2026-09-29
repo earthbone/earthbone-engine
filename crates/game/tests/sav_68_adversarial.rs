@@ -16,9 +16,11 @@ fn fixture_order() -> LoadOrder {
     let mut plugin = Plugin::new(FileHeader::default());
     plugin.push_top(Record::new(Tag(*b"NPC_"), 0x302));
     plugin.push_top(Record::new(Tag(*b"MISC"), ITEM));
-    plugin.push_top(Record::new(Tag(*b"ACHR"), ACTOR)
-        .sub(Tag(*b"NAME"), 0x302_u32.to_le_bytes())
-        .sub(Tag(*b"DATA"), vec![0; 24]));
+    plugin.push_top(
+        Record::new(Tag(*b"ACHR"), ACTOR)
+            .sub(Tag(*b"NAME"), 0x302_u32.to_le_bytes())
+            .sub(Tag(*b"DATA"), vec![0; 24]),
+    );
     let mut order = LoadOrder::new();
     order.add("ResetActor.esm", plugin).unwrap();
     order
@@ -30,7 +32,11 @@ fn sav_68_reset_keeps_actor_factions_and_relationships_after_save_load() {
     let actor_id = id(ACTOR);
     let other = id(0x200);
     world.actor(actor_id).unwrap().factions.insert(id(ITEM), 2);
-    world.actor(actor_id).unwrap().relationships.insert(other, 3);
+    world
+        .actor(actor_id)
+        .unwrap()
+        .relationships
+        .insert(other, 3);
     world.reset_reference(actor_id, None);
     let saved = world.save_state();
 
@@ -50,16 +56,27 @@ fn sav_68_changed_vanilla_container_resets_to_winning_record_after_load() {
     let path = data.join("Skyrim.esm");
     let bytes = std::fs::read(&path).unwrap_or_else(|error| panic!("{}: {error}", path.display()));
     let mut order = LoadOrder::new();
-    order.add("Skyrim.esm", Plugin::parse(&bytes).unwrap()).unwrap();
+    order
+        .add("Skyrim.esm", Plugin::parse(&bytes).unwrap())
+        .unwrap();
     let mut world = World::new(order);
-    let reference = world.order().winners_of(Tag(*b"REFR")).find_map(|(id, record)| {
-        let base = record.find(Tag(*b"NAME"))?;
-        let raw = u32::from_le_bytes(base.try_into().ok()?);
-        let base_id = GlobalFormId { file: id.file, object: raw };
-        world.order().winner(base_id)
-            .filter(|base| base.tag == Tag(*b"CONT") && base.find(Tag(*b"CNTO")).is_some())
-            .map(|_| id)
-    }).expect("Skyrim.esm contains a placed container with base inventory");
+    let reference = world
+        .order()
+        .winners_of(Tag(*b"REFR"))
+        .find_map(|(id, record)| {
+            let base = record.find(Tag(*b"NAME"))?;
+            let raw = u32::from_le_bytes(base.try_into().ok()?);
+            let base_id = GlobalFormId {
+                file: id.file,
+                object: raw,
+            };
+            world
+                .order()
+                .winner(base_id)
+                .filter(|base| base.tag == Tag(*b"CONT") && base.find(Tag(*b"CNTO")).is_some())
+                .map(|_| id)
+        })
+        .expect("Skyrim.esm contains a placed container with base inventory");
     let authored = world.reference(reference).unwrap().clone();
     {
         let changed = world.reference(reference).unwrap();
@@ -73,7 +90,9 @@ fn sav_68_changed_vanilla_container_resets_to_winning_record_after_load() {
     let saved = world.save_state();
 
     let mut restored_order = LoadOrder::new();
-    restored_order.add("Skyrim.esm", Plugin::parse(&bytes).unwrap()).unwrap();
+    restored_order
+        .add("Skyrim.esm", Plugin::parse(&bytes).unwrap())
+        .unwrap();
     let mut restored = World::new(restored_order);
     restored.load_state(&saved).unwrap();
     let reset = restored.reference_ref(reference).unwrap();
