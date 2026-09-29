@@ -13,7 +13,7 @@ fn crate_root() -> PathBuf {
 fn shm_01_generated_headers_match_the_rust_surface_map() {
     let include = crate_root().join("include");
     let generated = soe_commonlib_shim::headers::generated_headers();
-    assert_eq!(generated.len(), 9);
+    assert_eq!(generated.len(), 10);
     for (relative, expected) in generated {
         let path = include.join(relative);
         let actual = fs::read_to_string(&path).unwrap_or_else(|error| {
@@ -61,6 +61,20 @@ fn shm_01_generated_headers_match_the_rust_surface_map() {
         assert!(
             math.contains(declaration),
             "missing Rust math API {declaration}"
+        );
+    }
+    let world = fs::read_to_string(include.join("RE/World.h")).unwrap();
+    for declaration in [
+        "class BGSSaveLoadGame",
+        "class BGSSaveLoadManager",
+        "class BeamProjectile",
+        "struct CALCED_OBJECT",
+        "enum class CHARACTER_FLAGS",
+        "struct UnsupportedHook",
+    ] {
+        assert!(
+            world.contains(declaration),
+            "missing world API {declaration}"
         );
     }
     let events = fs::read_to_string(include.join("RE/Events.h")).unwrap();

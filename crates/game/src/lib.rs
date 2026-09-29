@@ -28,6 +28,7 @@ pub mod appearance;
 pub mod class;
 pub mod clock;
 pub mod combat;
+pub mod commonlib_world;
 pub mod conditions;
 pub mod coverage;
 pub mod crafting;

@@ -77,6 +77,17 @@ The mapping follows the Rust API while adapting Rust names and types to C++, inc
 `NativeRegistry::register`, which is emitted as `register_native` because `register` is a C++
 keyword.
 
+The world API binds `BGSSaveLoadGame` and `BGSSaveLoadManager` to the
+world's engine save bytes, and `CALCED_OBJECT` form, count and supported COED
+metadata to record-backed LVLI selection. The `BeamProjectile::AddImpact` and
+`bhkCharacterController::flags` hooks return named unsupported-hook results
+because aimed projectile delivery and per-character Havok state have no
+runtime path yet. `CHARACTER_FLAGS` preserves the source enum names and bit
+values. Change-map queries and filename-based save catalog operations also
+return named unsupported-hook results. The generated headers and fixtures check this
+source-level API. The shim has no C ABI, so C++ declarations alone cannot call
+into the Rust engine from a compiled binary.
+
 ## Untested
 
 The SHM-01 test compiles the generated umbrella headers with a C++20 compiler and checks C++
