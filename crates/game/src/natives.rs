@@ -2459,6 +2459,16 @@ fn message_scene_sound_spell(vm: &mut Vm, w: &Shared) {
         }
         none()
     });
+    method!(vm, w, "Spell", "IsHostile", |world, call, me| {
+        match world.spell_is_hostile(me) {
+            Ok(hostile) => b(hostile),
+            Err(error) => {
+                call.log
+                    .push(call.time, format!("Spell.IsHostile: {error}"));
+                b(false)
+            }
+        }
+    });
     method!(vm, w, "Spell", "RemoteCast", |world, call, me| {
         let Some(source) = world.form_arg(&call.arg(0)) else {
             return none();
@@ -3436,5 +3446,33 @@ mod tests {
         assert!(vm.natives.has_method("quest", "setstage"));
         assert!(vm.natives.has_global("game", "getplayer"));
         assert!(vm.natives.has_method("alias", "getowningquest"));
+    }
+
+    #[test]
+    fn scr_71_registry_inventory_matches_spell_and_topic_script_bindings() {
+        let mut vm = Vm::new();
+        let world = Rc::new(RefCell::new(World::new(LoadOrder::new())));
+        register(&mut vm, &world);
+
+        let script_bindings = [
+            ("Spell", "Cast"),
+            ("Spell", "IsHostile"),
+            ("Spell", "RemoteCast"),
+            ("Spell", "Preload"),
+            ("Spell", "Unload"),
+            ("Topic", "Add"),
+        ];
+        let registered: Vec<_> = script_bindings
+            .iter()
+            .copied()
+            .filter(|(class, name)| vm.natives.has_method(class, name))
+            .collect();
+        assert_eq!(registered, script_bindings);
+
+        for (class, name) in script_bindings {
+            assert!(vm.natives.has_method(class, name), "{class}.{name}");
+            assert!(!vm.natives.has_global(class, name), "{class}.{name}");
+        }
+        assert!(!vm.natives.has_method("Topic", "Remove"));
     }
 }

@@ -181,17 +181,27 @@ run past it.
 | Message | Show, ShowAsHelpMessage | ResetHelpMessage |
 | Scene | Start, ForceStart, Stop, IsPlaying | IsActionComplete |
 | Sound | Play, StopInstance, SetInstanceVolume | |
-| Spell | Cast, RemoteCast | |
+| Spell | Cast, IsHostile, RemoteCast | Preload, Unload |
 | Scene, Package | GetOwningQuest | |
 | TopicInfo | GetOwningQuest | |
 | ActiveMagicEffect | RegisterForUpdate, RegisterForSingleUpdate, RegisterForUpdateGameTime, RegisterForSingleUpdateGameTime, UnregisterForUpdate, UnregisterForUpdateGameTime, RegisterForAnimationEvent, UnregisterForAnimationEvent, GetBaseObject, GetTargetActor, GetCasterActor, Dispel, AddInventoryEventFilter, RemoveInventoryEventFilter, RemoveAllInventoryEventFilters | |
 | EffectShader, VisualEffect | | Play, Stop |
 | ImageSpaceModifier | Apply, ApplyCrossFade, Remove, RemoveCrossFade, PopTo | |
 | ShaderParticleGeometry | | Apply, Remove |
-| MusicType, Topic | | Add, Remove |
+| MusicType | | Add, Remove |
+| Topic | | Add |
 | Weather, Weapon, Scroll | | SetActive, Fire, Cast |
 
 Current behavior and compatibility limits:
+
+- `Spell.IsHostile` resolves every effect through the spell's winning plugin
+  and returns true when any referenced MGEF has its hostile flag. Missing or
+  malformed spell/effect records are logged and return false. `Spell.Cast` and
+  `RemoteCast` use the direct-cast path described below. `Spell.Preload`,
+  `Spell.Unload` and `Topic.Add` remain quiet stubs.
+- The shipped `Topic.psc` declares `Topic.Add()` only. There is no
+  `Topic.Remove` native or Spell/Topic global native in the local vanilla
+  Papyrus sources.
 
 - `SetStage` on a quest that is not running starts it (`OnInit`, then the
   stage), records the stage in the done set, updates the current and highest
