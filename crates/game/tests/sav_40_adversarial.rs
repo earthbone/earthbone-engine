@@ -91,7 +91,7 @@ fn sav_40_form_flag_mask_changes_the_live_record_and_is_atomic() {
     let mut order = LoadOrder::new();
     order.add("Skyrim.esm", plugin).unwrap();
     let shared = Arc::new(order);
-    let mut world = World::from_shared_order(shared);
+    let mut world = World::from_shared_order(Arc::clone(&shared));
 
     assert_eq!(
         world
@@ -106,6 +106,14 @@ fn sav_40_form_flag_mask_changes_the_live_record_and_is_atomic() {
     assert_eq!(world.record(id(0x800)).unwrap().flags, 0x28);
     assert_eq!(world.record(id(0x801)).unwrap().flags, 0x30);
     assert_eq!(world.record(id(0x802)).unwrap().flags, 0x60);
+
+    let saved_world = world.save_state();
+    let mut restored = World::from_shared_order(shared);
+    restored.load_state(&saved_world).unwrap();
+    assert_eq!(restored.record(id(0x800)).unwrap().flags, 0x28);
+    assert_eq!(restored.record(id(0x801)).unwrap().flags, 0x30);
+    assert_eq!(restored.record(id(0x802)).unwrap().flags, 0x60);
+    assert_eq!(restored.save_state(), saved_world);
 
     let before = world.save_state();
     let mut malformed = change(0x802, 21, 1);

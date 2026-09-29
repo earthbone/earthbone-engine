@@ -89,14 +89,18 @@ fn sav_42_each_record_type_xors_its_mask_and_keeps_unrelated_inventory_data() {
     ));
     plugin.push_top(
         Record::new(Tag(*b"MISC"), 0x801)
-            .with_flags(0x22)
+            .with_flags(0x02)
             .zsub(Tag(*b"FULL"), "Item"),
     );
     plugin.push_top(Record::new(Tag(*b"FURN"), 0x802).with_flags(0x44));
     plugin.push_top(Record::new(Tag(*b"REFR"), 0x810).sub(Tag(*b"NAME"), 0x800_u32.to_le_bytes()));
     let mut order = LoadOrder::new();
     order.add("Skyrim.esm", plugin).unwrap();
-    let mut world = World::from_shared_order(Arc::new(order));
+    let shared = Arc::new(order);
+    let mut world = World::from_shared_order(Arc::clone(&shared));
+    assert_eq!(world.record(id(0x800)).unwrap().tag, Tag(*b"CONT"));
+    assert_eq!(world.record(id(0x801)).unwrap().tag, Tag(*b"MISC"));
+    assert_eq!(world.record(id(0x802)).unwrap().tag, Tag(*b"FURN"));
     let saved = fixture(vec![
         change(0x800, 14, 0x10),
         change(0x801, 18, 0x20),
@@ -104,9 +108,18 @@ fn sav_42_each_record_type_xors_its_mask_and_keeps_unrelated_inventory_data() {
     ]);
     assert_eq!(world.restore_vanilla_static_objects(&saved).unwrap(), 3);
     assert_eq!(world.record(id(0x800)).unwrap().flags, 0x01);
-    assert_eq!(world.record(id(0x801)).unwrap().flags, 0x02);
+    assert_eq!(world.record(id(0x801)).unwrap().flags, 0x22);
     assert_eq!(world.record(id(0x802)).unwrap().flags, 0x04);
     assert_eq!(world.item_count(id(0x810), id(0x801)), 4);
+
+    let saved_world = world.save_state();
+    let mut restored = World::from_shared_order(shared);
+    restored.load_state(&saved_world).unwrap();
+    assert_eq!(restored.record(id(0x800)).unwrap().flags, 0x01);
+    assert_eq!(restored.record(id(0x801)).unwrap().flags, 0x22);
+    assert_eq!(restored.record(id(0x802)).unwrap().flags, 0x04);
+    assert_eq!(restored.item_count(id(0x810), id(0x801)), 4);
+    assert_eq!(restored.save_state(), saved_world);
 
     let before = world.save_state();
     let duplicate = fixture(vec![change(0x802, 22, 1), change(0x802, 22, 2)]);
