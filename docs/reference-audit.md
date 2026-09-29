@@ -26,6 +26,31 @@ HavokLib ancestry, so it is not an independent codec oracle. HKX2's missing
 license must be resolved before code reuse. Do not execute bundled tools
 merely because the repository includes them.
 
+## Native contract audit, SCR-73
+
+`crates/game/tests/scr_73_native_contract_audit.rs` derives the audited
+Weapon and Weather entries from the registry by checking each class binding
+registered by `natives.rs`. The class-specific inventory has two methods and
+no globals: `Weapon.Fire` and `Weather.SetActive`. Both are quiet stubs.
+
+The local `ck-wiki/Function_Reference.wikitext` and named-page corpus contain
+no Weapon or Weather Papyrus contracts. The vanilla
+`skse64/scripts/vanilla/Weapon.psc` declares `Fire(ObjectReference akSource,
+Ammo akAmmo = None)` as an instance method. The registry has the matching
+instance binding. `Weather.psc` declares `SetActive(bool abOverride = false,
+bool abAccelerate = false)` as an instance method, also matching the registry.
+There is no signature or method/global discrepancy for either registered
+binding. The PSC comments state that Fire uses a source and optional ammo,
+while SetActive sets the active sky weather.
+
+The Weather PSC also declares eight natives absent from the registry:
+instance methods `ForceActive` and `GetClassification`, and globals
+`ReleaseOverride`, `FindWeather`, `GetCurrentWeather`, `GetOutgoingWeather`,
+`GetCurrentWeatherTransition` and `GetSkyMode`. SCR-54 owns adding these
+bindings with weather-system behavior. SCR-53 owns replacing the quiet
+`Weapon.Fire` stub with weapon-system behavior. The audit does not claim that
+either current stub implements the vanilla contract.
+
 ## Sources to use for current gaps and future systems
 
 | System and current entry point | Existing sources to use | What tes4skyrim or its references add | Boundary |

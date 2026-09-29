@@ -2637,9 +2637,11 @@ sunrise, day, sunset and night. The game and host currently have no consumer
 for these selected base values. MAG-72 must resolve winning records through
 their owning load-order namespace and expose the resulting shared base state.
 Its weather input is an explicitly selected weather and time blend.
-Autonomous climate selection, weather scheduling and Papyrus weather natives
-are outside that row. SCR-54 needs the owning weather API before binding
-`Weather.SetActive`, which is still a quiet stub.
+Autonomous climate selection and weather scheduling are outside that row.
+SCR-73's audit records the registered `Weather.SetActive` method and eight
+additional vanilla Weather natives missing from the registry. SCR-54 owns the
+weather bindings, including the quiet `Weather.SetActive` stub. Its current
+implementation does not select or release weather.
 
 Several rendering contracts need further evidence within MAG-71. The local
 UESP `IMAD.wikitext` describes normalized times but leaves interpolation
