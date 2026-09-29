@@ -22,6 +22,7 @@ pub(crate) const WORLD_SECTIONS: &[Section<World>] = &[
 /// record.
 #[rustfmt::skip]
 pub(crate) const ACTOR_SECTIONS: &[Section<ActorState>] = &[
+    Section { name: "UI-14", write: super::actors::write_ui_14, read: super::actors::read_ui_14 },
 ];
 
 /// Sections read and written once per reference, at the end of every
