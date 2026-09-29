@@ -104,6 +104,21 @@ pub struct StreamPlan {
     pub unload: Vec<CellCoord>,
 }
 
+/// Measured or estimated mesh work for one cell load.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct StreamCost {
+    pub triangles: usize,
+    pub bytes: usize,
+}
+
+/// Maximum mesh work selected for one streaming tick. A zero limit is
+/// unlimited, matching the cell-count limits in [`StreamConfig`].
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct StreamBudget {
+    pub triangles: usize,
+    pub bytes: usize,
+}
+
 impl StreamPlan {
     pub fn is_empty(&self) -> bool {
         self.load.is_empty() && self.unload.is_empty()
@@ -146,6 +161,23 @@ impl CellStreamer {
         self.resident.contains(&cell)
     }
 
+    /// Missing cells in nearest-first order before the per-tick caps apply.
+    pub fn candidates(&self, focus: SkyrimPos) -> Vec<CellCoord> {
+        let centre = CellCoord::containing(focus);
+        let r = self.config.load_radius;
+        let mut wanted = Vec::with_capacity(((2 * r + 1) * (2 * r + 1)) as usize);
+        for y in (centre.y - r)..=(centre.y + r) {
+            for x in (centre.x - r)..=(centre.x + r) {
+                let cell = CellCoord::new(x, y);
+                if !self.resident.contains(&cell) {
+                    wanted.push(cell);
+                }
+            }
+        }
+        wanted.sort_by_key(|cell| (cell.distance_sq(centre), cell.x, cell.y));
+        wanted
+    }
+
     /// The caller failed to load, or dropped, a cell on its own.
     pub fn mark_unloaded(&mut self, cell: CellCoord) {
         self.resident.remove(&cell);
@@ -154,24 +186,53 @@ impl CellStreamer {
     /// Decide loads and unloads for a focus position. Cheap enough to call
     /// every frame: it is quadratic in the load radius, which is tiny.
     pub fn update(&mut self, focus: SkyrimPos) -> StreamPlan {
+        self.update_inner(focus, None)
+    }
+
+    /// Decide cell work while keeping the selected loads within both mesh
+    /// budgets. Costs must describe the work needed to load each candidate.
+    /// A cell larger than either limit is deferred, while later smaller cells
+    /// may still fit this tick.
+    pub fn update_with_budget(
+        &mut self,
+        focus: SkyrimPos,
+        budget: StreamBudget,
+        mut cost_of: impl FnMut(CellCoord) -> StreamCost,
+    ) -> StreamPlan {
+        self.update_inner(focus, Some((budget, &mut cost_of)))
+    }
+
+    fn update_inner(
+        &mut self,
+        focus: SkyrimPos,
+        mut budgeted: Option<(StreamBudget, &mut dyn FnMut(CellCoord) -> StreamCost)>,
+    ) -> StreamPlan {
         let centre = CellCoord::containing(focus);
         self.last_focus = Some(centre);
 
-        let r = self.config.load_radius;
-        let mut wanted: Vec<CellCoord> = Vec::with_capacity(((2 * r + 1) * (2 * r + 1)) as usize);
-        for y in (centre.y - r)..=(centre.y + r) {
-            for x in (centre.x - r)..=(centre.x + r) {
-                let c = CellCoord::new(x, y);
-                if !self.resident.contains(&c) {
-                    wanted.push(c);
-                }
+        let wanted = self.candidates(focus);
+        let mut selected = Vec::new();
+        let mut used = StreamCost::default();
+        for cell in wanted {
+            if self.config.max_loads_per_tick > 0
+                && selected.len() >= self.config.max_loads_per_tick
+            {
+                break;
             }
-        }
-        // Nearest first. The tie-break on coordinates keeps the order stable
-        // across runs, which the tests and the benchmark rely on.
-        wanted.sort_by_key(|c| (c.distance_sq(centre), c.x, c.y));
-        if self.config.max_loads_per_tick > 0 {
-            wanted.truncate(self.config.max_loads_per_tick);
+            let cost = budgeted
+                .as_mut()
+                .map(|(_, cost_of)| cost_of(cell))
+                .unwrap_or_default();
+            let fits = budgeted.as_ref().is_none_or(|(budget, _)| {
+                (budget.triangles == 0
+                    || cost.triangles <= budget.triangles.saturating_sub(used.triangles))
+                    && (budget.bytes == 0 || cost.bytes <= budget.bytes.saturating_sub(used.bytes))
+            });
+            if fits {
+                used.triangles = used.triangles.saturating_add(cost.triangles);
+                used.bytes = used.bytes.saturating_add(cost.bytes);
+                selected.push(cell);
+            }
         }
 
         let ur = self.config.unload_radius;
@@ -186,14 +247,14 @@ impl CellStreamer {
             stale.truncate(self.config.max_unloads_per_tick);
         }
 
-        for c in &wanted {
+        for c in &selected {
             self.resident.insert(*c);
         }
         for c in &stale {
             self.resident.remove(c);
         }
         StreamPlan {
-            load: wanted,
+            load: selected,
             unload: stale,
         }
     }

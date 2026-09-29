@@ -21,7 +21,7 @@ fn collect(path: &Path, paths: &mut Vec<PathBuf>) {
 }
 
 #[test]
-fn corpus_projectile_change_forms_report_type_flags_and_versions() {
+fn sav_11_external_corpus_accounts_for_projectile_types_flags_and_versions() {
     let Some(root) = std::env::var_os("SOE_TEST_SAVES") else {
         eprintln!("SOE_TEST_SAVES unset, skipping projectile coverage census");
         return;
@@ -63,6 +63,8 @@ fn corpus_projectile_change_forms_report_type_flags_and_versions() {
         changes > 100_000,
         "survey must inspect the full change table"
     );
+    assert!(totals[0].0 > 0, "survey did not account for PMIS forms");
+    assert!(totals[1].0 > 0, "survey did not account for PGRE forms");
     eprintln!("{} saves, {changes} change forms inspected", paths.len());
     for (name, (count, bytes)) in ["PMIS", "PGRE", "PBEA"].into_iter().zip(totals) {
         eprintln!("{name}: {count} changes, {bytes} decompressed payload bytes");

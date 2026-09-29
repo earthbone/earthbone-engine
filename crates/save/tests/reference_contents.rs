@@ -178,6 +178,18 @@ fn nonempty_or_unknown_packages_cannot_be_mistaken_for_empty_state() {
     }
 }
 
+#[test]
+fn sav_21_stacked_state_stays_rejected_until_its_boundary_is_known() {
+    let mut change = fixture();
+    change.change_flags = 1 << 11;
+    change.data = vec![4, 108, 18, 0];
+    soe_save::WString::from_text("Stacked").write(&mut change.data);
+    change.data.extend([0x00, 0x01, 0x02, 0x03, 0x04, 0x05]);
+
+    let error = change.reference_contents(78).unwrap_err().to_string();
+    assert!(error.contains("Stacked"), "{error}");
+}
+
 fn collect(path: &Path, paths: &mut Vec<PathBuf>) {
     for entry in std::fs::read_dir(path).unwrap() {
         let path = entry.unwrap().path();

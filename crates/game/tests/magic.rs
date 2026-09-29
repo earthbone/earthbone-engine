@@ -8,6 +8,9 @@
 #[path = "common/legacy.rs"]
 mod legacy;
 
+#[path = "common/installed.rs"]
+mod installed;
+
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
@@ -1171,25 +1174,18 @@ fn long_constant_effect_tick_keeps_values_and_saved_time_finite() {
 
 #[test]
 fn installed_spell_survey_reports_supported_applications_without_running_scripts() {
-    let Some(data) = std::env::var_os("SKYRIM_DATA").map(std::path::PathBuf::from) else {
+    let Some(_data) = installed::data_dir() else {
         eprintln!("SKYRIM_DATA not set, skipping magic survey");
         return;
     };
-    let mut order = LoadOrder::new();
-    for name in [
+    let order = installed::load_order(&[
         "Skyrim.esm",
         "Update.esm",
         "Dawnguard.esm",
         "HearthFires.esm",
         "Dragonborn.esm",
-    ] {
-        order
-            .add(
-                name,
-                Plugin::parse(&std::fs::read(data.join(name)).unwrap()).unwrap(),
-            )
-            .unwrap();
-    }
+    ])
+    .unwrap();
     let spells: Vec<_> = order
         .winners_of(T(b"SPEL"))
         .filter(|(_, rec)| rec.flags & 0x20 == 0)
@@ -1199,7 +1195,7 @@ fn installed_spell_survey_reports_supported_applications_without_running_scripts
         spells.len() > 1000,
         "survey must cover the five-master spell corpus"
     );
-    let mut game = Game::new(order);
+    let mut game = Game::from_shared_order(order);
     let player = game.player();
     game.world_mut()
         .set_actor_value(player, "health", 100.0)
@@ -1268,25 +1264,18 @@ fn installed_spell_survey_reports_supported_applications_without_running_scripts
 
 #[test]
 fn installed_ingestible_survey_reports_supported_applications() {
-    let Some(data) = std::env::var_os("SKYRIM_DATA").map(std::path::PathBuf::from) else {
+    let Some(_data) = std::env::var_os("SKYRIM_DATA").map(std::path::PathBuf::from) else {
         eprintln!("SKYRIM_DATA not set, skipping ingestible survey");
         return;
     };
-    let mut order = LoadOrder::new();
-    for name in [
+    let order = installed::load_order(&[
         "Skyrim.esm",
         "Update.esm",
         "Dawnguard.esm",
         "HearthFires.esm",
         "Dragonborn.esm",
-    ] {
-        order
-            .add(
-                name,
-                Plugin::parse(&std::fs::read(data.join(name)).unwrap()).unwrap(),
-            )
-            .unwrap();
-    }
+    ])
+    .unwrap();
     let items: Vec<_> = order
         .winners_of(T(b"ALCH"))
         .filter(|(_, rec)| rec.flags & 0x20 == 0)
@@ -1296,7 +1285,7 @@ fn installed_ingestible_survey_reports_supported_applications() {
         items.len() > 100,
         "survey must cover the five-master ingestible corpus"
     );
-    let mut game = Game::new(order);
+    let mut game = Game::from_shared_order(order);
     let player = game.player();
     game.world_mut()
         .set_actor_value(player, "health", 100.0)

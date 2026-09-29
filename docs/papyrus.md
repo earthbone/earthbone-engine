@@ -13,8 +13,9 @@ Crate `crates/papyrus`. Round 1 of `ENGINE-PLAN.md`, written 2026-09-06.
   every VM test. It is also the seed of an assembler for tooling.
 - `psc`: a bounded Skyrim source compiler using the assembler. It accepts a
   script header with `extends`, `Hidden` and `Conditional`, native functions
-  without parameters, and functions with literal returns. Other declarations
-  and statements return a source line error. It checks the source filename
+  without parameters, scalar `Auto` properties, and functions with literal
+  returns. Other declarations and statements return a source line error. It
+  checks the source filename
   against `ScriptName` without case, generates Skyrim's `GetState` and
   `GotoState` functions, and emits a Skyrim PEX file. The parser follows the
   Open Papyrus script header, identifier, keyword and `.psc` filename rules
@@ -302,9 +303,14 @@ invalidate their frames. Saved state names remain valid even when the loaded
 PEX has no body for that state, as the existing `GoToState` path permits.
 Function lookup then uses its normal empty-state fallback.
 
-The save crate supplies the vanilla slot-to-name adapter. This API restores
-instance data only. It does not restore saved stacks, schedule latent calls
-or resolve a vanilla object's game-world identity.
+The save crate supplies the vanilla slot-to-name adapter and converts decoded
+active frames into VM frames after object identities and instances are mapped.
+`Vm::restore_threads` checks every owner, script, function, instruction body,
+program counter and local slot before adding any thread. Caller return targets
+come from the saved call instruction. The game import entry point restores
+instances and schedules the saved active scripts. Queued messages, suspended
+stack tables and latent native waits remain inert. Object identity mapping is
+still supplied by the host.
 
 A thread saved mid-`Utility.Wait` is a saved `Sleeping(seconds)` state on a
 frame sitting inside the wait, nothing about the scheduler is special-cased,

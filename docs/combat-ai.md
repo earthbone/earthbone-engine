@@ -106,9 +106,11 @@ world's detection state with the saved one, and a save without the block
 loads as an empty state.
 
 Not done here: the sleep bonus and ambush modifiers, `fSneakSkillMult`,
-per-size detection multipliers, detection events and the alert list, target
-list timeouts, `fSneakLightExteriorMult`, and theft witnessing. No live-host
-observation feeds this yet, CMB-32 owns that.
+per-size detection multipliers, the alert list, target list timeouts,
+`fSneakLightExteriorMult`, and theft witnessing. The host now feeds resident
+actor sight, record-derived interior light and detection sounds into this
+path. See [godot-host.md](godot-host.md#live-detection-observations-cmb-32) for
+the current light and sound limits.
 
 ## Source boundary
 

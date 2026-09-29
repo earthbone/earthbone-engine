@@ -19,6 +19,9 @@
 //! health, magicka and stamina from records instead of cached hand-supplied
 //! values".
 
+#[path = "common/installed.rs"]
+mod installed;
+
 use std::path::PathBuf;
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
@@ -524,22 +527,19 @@ fn deleted_class_record_keeps_the_dnam_attribute_cache_instead_of_stale_weights(
 // actors. Skipped without SKYRIM_DATA.
 #[test]
 fn vanilla_autocalculated_attributes_stay_finite_across_the_dlc() {
-    let Some(data) = std::env::var_os("SKYRIM_DATA").map(PathBuf::from) else {
+    let Some(_data) = std::env::var_os("SKYRIM_DATA").map(PathBuf::from) else {
         eprintln!("SKYRIM_DATA not set, skipping PRG-03 vanilla attribute survey");
         return;
     };
-    let mut order = LoadOrder::new();
-    for name in [
+    let order = installed::load_order(&[
         "Skyrim.esm",
         "Update.esm",
         "Dawnguard.esm",
         "HearthFires.esm",
         "Dragonborn.esm",
-    ] {
-        let bytes = std::fs::read(data.join(name)).unwrap();
-        order.add(name, Plugin::parse(&bytes).unwrap()).unwrap();
-    }
-    let game = Game::new(order);
+    ])
+    .unwrap();
+    let game = Game::from_shared_order(order);
     let world = game.world();
     let mut checked = 0usize;
     let mut class_formula_eligible = 0usize;
