@@ -410,6 +410,8 @@ impl World {
                 target: caster,
                 quest: None,
                 tempering_enchanted: None,
+                skill_use: None,
+                light_level: None,
             };
             if !conditions::evaluate_without_vm(self, context, &entry.conditions)? {
                 continue;

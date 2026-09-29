@@ -66,6 +66,8 @@ pub struct EntryPointContext {
     pub tabs: Vec<GlobalFormId>,
     pub target: Option<GlobalFormId>,
     pub quest: Option<GlobalFormId>,
+    /// Skill-use inputs for EPModSkillUsage entry point conditions.
+    pub skill_use: Option<conditions::SkillUseContext>,
 }
 
 /// The decoded fields needed by an entry point handler.
@@ -336,6 +338,8 @@ fn entry_conditions(
             target: context.target,
             quest: context.quest,
             tempering_enchanted: None,
+            skill_use: context.skill_use,
+            light_level: None,
         };
         if !conditions::evaluate(world, vm, condition_context, conditions)
             .map_err(|error| DispatchError::Condition(perk, error))?
@@ -429,6 +433,8 @@ impl Game {
             target: None,
             quest: None,
             tempering_enchanted: None,
+            skill_use: None,
+            light_level: None,
         };
         if !conditions::evaluate(&mut world, &self.vm, context, &perk.conditions)? {
             return Err(Error::Ineligible);
