@@ -24,21 +24,20 @@ the xEdit dispatch gap, runtime type boundaries and evidence needed by SAV-55.
 
 The SAV-55 regression test pins the type indices for PMIS, PGRE, PBEA, PFLA,
 PHZD, PBAR, PCON and PARW and checks the generic change-form header preserves
-flags and payload bytes. SAV-23 exposes all 32 xEdit-defined shared PFLA, PHZD
-and PBAR change flag bits through `ProjectileChange`, while retaining the
-inflated subtype payload as exact bytes. The payload fields remain undecoded:
-xEdit's subtype dispatch structures are empty and FallrimTools uses its raw
-fallback. See [saved projectile layouts](save-projectile-layouts.md) for the
-source review and remaining evidence requirement.
-PCON and PARW expose typed envelopes containing their change flags, version,
-compression length and exact stored bytes. Their subtype payloads remain
-opaque because the inspected Skyrim xEdit structures are empty and
-FallrimTools has no typed reader. SAV-25 tests envelope truncation and reports
-PCON/PARW flag and byte coverage across the external save corpus. Only PCON
-has an xEdit-defined initial placement prefix. The xEdit initial-data dispatch
-omits PARW type 47, so its payload is not interpreted as reference placement.
-See [saved projectile layouts](save-projectile-layouts.md) for the source review
-and remaining evidence requirement.
+flags and payload bytes. SAV-11 exposes all 32 xEdit-defined PMIS, PGRE and
+PBEA change flag bits through `saved_projectile_change`. SAV-23 exposes all
+shared PFLA, PHZD and PBAR flag positions through `projectile_change`. Both
+retain their inflated subtype payload as exact bytes. Payload fields remain
+undecoded because xEdit's subtype dispatch structures are empty and
+FallrimTools uses a raw fallback. PCON and PARW expose typed envelopes with
+change flags, version, compression length and exact stored bytes. Their
+subtype payloads remain opaque because the inspected Skyrim xEdit structures
+are empty and FallrimTools has no typed reader. SAV-25 tests envelope
+truncation and reports PCON/PARW flag and byte coverage across the external
+save corpus. Only PCON has an xEdit-defined initial placement prefix. The
+xEdit initial-data dispatch omits PARW type 47, so its payload is not
+interpreted as reference placement. See [saved projectile layouts](save-projectile-layouts.md)
+for the source review and remaining evidence requirement.
 
 The format was not reverse engineered. It is documented and it has a mature
 open implementation, so both were read first.
@@ -136,6 +135,22 @@ does not claim runtime support for opaque payloads.
   factions, spells, AI data, names, skills, class, race, face, gender and outfits.
 - `ChangeForm::class_change`, `faction_change` and `relationship_change` decode
   CLAS, FACT and RELA change sections on demand.
+- `ChangeForm::activator_change` decodes ACTI, TACT and DOOR form flags and
+  their value, full-name and TACT speaker change markers. The markers consume
+  no payload bytes, as defined by xEdit. Unnamed xEdit flag bits remain in the
+  typed value without assigned meaning.
+- `ChangeForm::ingredient_change`, `alchemy_change` and
+  `enchantment_change` decode INGR, ALCH and ENCH change markers. Unnamed flag
+  bits remain available, marker sections add no payload bytes, and form flags
+  retain their six bytes.
+- `ChangeForm::item_change` decodes the shared ARMO, WEAP and AMMO form-flags
+  section and the value/name change markers. Unnamed bits and any remaining
+  bytes stay available in the typed value.
+- `ChangeForm::pack_change` and `navmesh_change` decode PACK and NAVM sections.
+  PACK retains optional form flags plus waiting and never-run markers. NAVM
+  retains optional form flags plus base-object value and full-name markers.
+  The four markers after the form flags have no payload bytes in xEdit's
+  definitions, so typed output re-encodes to the exact source payload.
 - `ChangeForm::cell_change` decodes defined CELL fields, and the ECZN/LCTN
   decoders retain their placeholder payload bytes with the common form flags.
 - Type 107, quest static data, including its two event arrays, three reference
@@ -177,6 +192,10 @@ types on demand. Unsupported types remain opaque. The Papyrus auxiliary data
 after the save-file version stays raw, as does the original payload used when
 writing the save body.
 
+Most decoded state remains inspection data. The game crate can apply globals,
+quest state, Papyrus instances and active script frames. Queued messages,
+suspended stack tables, latent native waits and other world state are not
+resumed by this path. This is not a complete save loader.
 PFLA, PHZD and PBAR expose their shared xEdit change flag word as typed flag
 positions, including unnamed bits. Their subtype payload fields remain raw
 because the inspected sources do not establish subtype field layouts. The
@@ -184,25 +203,29 @@ decoder accepts every flag word without dropping bits and preserves the exact
 inflated payload bytes. It does not infer that a set change flag corresponds
 to a specific serialized payload field.
 
-The game importer stores these shared flags and raw payload bytes alongside
-the matching live PFLA, PHZD or PBAR record. `World::restored_projectile_extra`
-exposes that data, and SOEW version 37 preserves it through engine save/load.
-The importer does not decode projectile subtype fields or map them onto
-plugin subrecords.
+The game importer stores PFLA, PHZD and PBAR shared flags and raw payload bytes
+alongside the matching live record. `World::restored_projectile_extra` exposes
+the data, and the `SAV-24` world section preserves it through engine save/load.
+The importer does not decode subtype fields or map them onto plugin subrecords.
 
-Most decoded state remains inspection data. The game crate can apply globals
-and quest state, but neither stack execution nor pending calls can be resumed from a
-vanilla save. The explicit instance-import API below can apply decoded
-variables to a prepared VM, but it is not a complete save loader.
+Most decoded state remains inspection data. The game crate can apply globals,
+quest state, Papyrus instances and active script frames. Queued messages,
+suspended stack tables, latent native waits and other world state are not
+resumed by this path. The explicit instance-import API below can apply decoded
+variables to a prepared VM, but this is not a complete save loader.
 
 ## Runtime instance import
 
 `Papyrus::restore_instances` joins parent-first member descriptors to saved
-slots by ID. The host must supply an explicit map from each saved instance or
-reference ID to an existing VM object. A value-only reference may map to
-`None` when the host explicitly determines it is unresolved. Missing mappings
-are errors. Saved form/script pairs are not used as unique identities, since
-the corpus contains repeated pairs and unbound instances.
+slots by ID. Its low-level API takes an explicit map from each saved instance
+or reference ID to a VM object. `Game::restore_vanilla_papyrus` builds that map
+from the ESS plugin list, FormID array and RefIDs. Script instances share the
+VM object for their resolved live form. Reference-only objects use their saved
+runtime type. An instance whose signed `unknown` field is `-1` ignores its
+RefID and gets a standalone VM object. A missing plugin, invalid bound RefID or
+form absent from the current world is an error. Saved form/script pairs are
+not used as unique identities, since the corpus contains repeated pairs and
+unbound instances.
 
 Arrays are allocated once per saved ID, then filled and shared by every
 variable naming that ID. Scalar, object and array references become VM values.
@@ -227,6 +250,14 @@ instances, inheritance cycles, missing identities, invalid array elements
 and unsupported variant/struct runtime values. Arrays use the existing VM
 allocation ceiling. It also refuses to replace instances beneath existing
 threads. It does not invent a form or alias binding from an opaque saved ID.
+
+`Papyrus::restore_execution` converts active script frames after instance
+import. It resolves frame owners through the supplied saved-object mapping,
+checks saved instruction bodies against loaded PEX, and validates frame
+positions and local slots before scheduling any thread. A nested call returns
+through the destination operand in the saved caller instruction. Invalid
+frame references leave the VM thread list unchanged. Queued messages and
+suspended stack tables remain decoded data.
 
 ## Quest change and static data
 
@@ -687,6 +718,11 @@ inventory sections. See [saved package runtime state](save-package-data.md) for
 source evidence, boundaries and integration validation. Runtime package
 restoration and complete ESS resumption remain unfinished.
 
+The nine observed kind-18 `Stacked` payloads remain rejected. The local public
+save readers name the variant but do not define its fields or termination, so
+the decoder does not guess where following extra data begins. The SAV-21
+regression test keeps this unsupported case explicit.
+
 ## Reference mask semantics, SAV-15 blocked
 
 SAV-15 still requires saved reference masks to override authored enable and
@@ -753,33 +789,55 @@ both authored bit values, both reference types and supported versions.
 Those outcomes must drive native enable queries and unload decisions, then
 survive engine save/load. The backlog done check remains unchanged.
 
+The SAV-54 follow-up on 2026-09-27 checked the same xEdit definition,
+FallrimTools `ChangeFormFlags.java` and CommonLibSSE-NG
+`TESObjectREFR.cpp`. xEdit's `ChangedFlag00Decider` selects whether the mask
+payload is present. It does not select an application operation or a version
+specific layout for the two words. FallrimTools reads and writes the words
+without applying them. CommonLib checks authored runtime flags for disabled
+and persistent state, but its public code does not connect those checks to the
+saved words.
+
+The recorded corpus survey has masks only in saves with header version 12,
+form version 78 and change-form version 78. It records word values and byte
+round trips, not the reference state before and after a save. It cannot
+establish how either word changes authored enable or persistence state, and
+does not cover other save versions. No application change is justified by
+these sources or observations. SAV-54 remains open pending public loading code
+or controlled before and after observations for each supported version.
+
 ## ARMO, WEAP and AMMO change coverage
 
-SAV-33 remains blocked on field-layout evidence. Local xEdit
-`Core/wbDefinitionsTES5Saves.pas` names change types 12, 23 and 24 and their
-form-flags, value and full-name bits. The form-flags section contains a
-32-bit mask and a 16-bit word. However, `wbUnionCHANGE_BASE_OBJECT_VALUE`
-and `wbUnionCHANGE_BASE_OBJECT_FULLNAME` each select `wbNull` for both flag
-states. They do not establish the value or name field encoding. Treating
-those placeholders as proof that the fields have no payload is not justified.
+SAV-33 decodes change types 12, 23 and 24 with the shared base-object fields
+defined in xEdit `Core/wbDefinitionsTES5Saves.pas`. For all three types, bit 0
+selects a 32-bit mask and a 16-bit word. Bits 1 and 2 select the object-value
+and full-name fields. Both xEdit unions use `wbNull` in their changed and
+unchanged alternatives. The local UESP format conventions define null as a
+zero-byte field, so these bits are typed markers and add no payload bytes.
+Bits 3 through 31 are unnamed by xEdit and remain in the change flag word.
+Any bytes after the defined fields are preserved without interpretation.
 
-Local FallrimTools `ChangeForm.java::getData` has no decoder for these three
-types. Its fallback `ChangeFormDefault` retains bytes without field names.
-The local UESP save corpus has no matching field definitions. No parser was
-added from assumptions about the similarly named plugin record fields.
+Local FallrimTools `ChangeForm.java::getData` dispatches none of these three
+types to a typed reader. Its `ChangeFormDefault` fallback stores the raw bytes.
+The UESP save pages identify the three change-type indices but do not describe
+their payload fields. xEdit plus the UESP null-field convention establish the
+shared fields, while the FallrimTools fallback supports retaining unclassified
+bytes. No in-memory plugin record layout is used for the save payload.
 
 The gated `sav_33_corpus_reports_item_change_field_coverage` survey records
 save version, change version, record type, flags, payload size and count in
-sorted order. Its threshold is at least 50 saves. The 2026-09-20 run read all
-60 external saves and found zero ARMO, WEAP and AMMO change forms, with zero
-payload bytes for those types. That result establishes the coverage gap and
-does not pass the planned SAV-33 decoder acceptance check. The external saves
-were read in place. No save bytes were copied into the repository.
+sorted order. Its threshold is at least 50 saves. The 2026-09-20 corpus run
+read all 60 external saves and found zero ARMO, WEAP and AMMO change forms.
+Each subsequently observed item payload is decoded and re-encoded byte for
+byte by the survey. External saves are read in place and are not copied into
+the repository.
 
-Completing SAV-33 requires a field definition from a public implementation
-or controlled reference-game saves isolating the value and full-name flags.
-The planned all-flags, exact-byte and truncation checks remain required.
-SAV-34 still depends on that completed decoder before applying its fields.
+Synthetic `sav_33_` tests cover all eight combinations of the three named
+flags across all three item types, preservation of unnamed bits and remaining
+bytes, and truncation at every byte boundary of the six-byte form-flags
+section. An installed-data test checks that Skyrim.esm contains all three
+vanilla record types. Decoding does not assign meaning to unnamed flag bits or
+remaining bytes, and the external corpus currently has no item change forms.
 
 ## Projectile payload source audit
 
@@ -870,6 +928,51 @@ indices. FallrimTools handles CLAS and FACT as opaque forms.
 The 60-save external check reproduced all 345,703 payload bytes from 4,702
 FACT and 547 RELA changes. It found no CLAS changes, so CLAS field coverage is
 synthetic only.
+
+## INGR, ALCH and ENCH changes
+
+`ChangeForm::ingredient_change` reads INGR's optional six-byte form flags and
+retains the ingredient-use marker. `alchemy_change` and `enchantment_change`
+read the same form flags and retain the base-object value and fullname markers.
+These marker unions have no payload in xEdit's `wbDefinitionsTES5Saves.pas`.
+All remaining flag bits are named unnamed by xEdit and remain in the typed
+value without assigned meaning. The typed encoders reproduce the markers and
+the form-flag bytes, and the readers reject truncated form flags or trailing
+payload bytes.
+
+The local UESP save format page and FallrimTools `ChangeForm.Type` establish
+the INGR, ALCH and ENCH type indices. FallrimTools has no typed item change
+reader, and UESP has no dedicated pages for these three records. The local
+xEdit save definitions establish their flags and payload layout. The
+`sav_37_external_corpus_accounts_for_every_item_change` survey accounts for
+all matching changes, flag combinations and payload bytes in the supplied
+save corpus. The `sav_37_installed_skyrim_records_use_expected_record_types`
+test checks that the installed Skyrim.esm contains all three corresponding
+record types.
+
+## PACK and NAVM changes
+
+`ChangeForm::pack_change` reads the optional six-byte form flags and records
+the waiting and never-run bits as typed zero-byte markers. `navmesh_change`
+reads the same form-flags section and records the base-object value and
+full-name markers. Both readers reject unknown bits, incomplete form flags,
+and payload suffixes. Their encoders reproduce the change flag word and
+payload exactly.
+
+The field order and bit names follow xEdit's
+`Core/wbDefinitionsTES5Saves.pas`. That file defines PACK as form flags,
+waiting and never-run, and NAVM as form flags, base-object value and full name.
+Its `wbNull` marker definitions consume no bytes. The UESP save format table
+and FallrimTools `ChangeForm.Type` confirm change type indices 32 and 33.
+FallrimTools does not decode these type payloads, so its reader is used only
+to cross-check the type indices. Synthetic tests cover all eight combinations
+for each type and each truncated form-flags prefix. The external corpus test
+accounts for all matching PACK and NAVM payloads and records their flag counts.
+`World::restore_vanilla_pack_navmesh` in the game crate applies decoded fields
+to the shared record table only after validating the complete batch. The
+record override retains marker state that has no plugin subrecord, and SOEW
+version 37 carries it through engine save/load. Package and navmesh queries
+continue reading their records from the same world table.
 
 ## INFO, SMQN and SCEN changes
 
@@ -1043,9 +1146,29 @@ the required fixtures and SAV-17's separate live-record restoration boundary.
 
 ## Base-object value and full-name field evidence
 
-SAV-53 remains blocked on exact Skyrim field-layout evidence. The local and
-current public xEdit definitions leave both target payloads as placeholders.
-Additional public readers do not supply the missing boundaries. The audit
-records pinned sources, the limits of the existing corpus result and the
-controlled observations required to proceed in
-[saved base-object fields](save-base-fields.md). No decoder was added.
+`ChangeForm::base_object_fields` decodes the shared prefix used by ACTI, TACT,
+ARMO, BOOK, CONT, DOOR, LIGH, MISC, APPA, STAT, MSTT, FURN, WEAP, AMMO, KEYM,
+ALCH, IDLM, NAVM, WOOP, MGEF and ENCH. xEdit defines optional six-byte form
+flags followed by `CHANGE_BASE_OBJECT_VALUE` and
+`CHANGE_BASE_OBJECT_FULLNAME`. Their masks are `0x2` and `0x4`. The xEdit
+`wbNull` definition maps to zero bytes in `TwbByteArrayDef.GetSize`, so these
+flags do not consume payload. The decoder returns the byte boundary and
+remaining suffix length for type-specific readers. It does not restore a
+value or name. See [saved base-object fields](save-base-fields.md) for the
+source audit and scope.
+
+## BOOK, NOTE and KEYM saved fields
+
+`ChangeForm::book_change`, `key_change` and `note_change` decode the xEdit
+source-defined fields for these three record types. Each has an optional
+six-byte form-flags section. BOOK also reports the value, full-name, teaches
+skill and read markers. KEYM reports the value and full-name markers. NOTE
+reports its read marker. Those named marker fields consume no payload bytes in
+xEdit's `wbNull` schema. The decoders reject reserved flag bits and truncated
+form flags. Bytes after the defined fields remain an opaque suffix and are
+written back unchanged. This retains corpus data such as the byte `08` on a
+BOOK carrying only the read marker, whose meaning is not defined by xEdit.
+FallrimTools keeps these payloads raw, and UESP documents the outer
+change-form framing rather than these record layouts. The corpus test accounts
+for every BOOK, NOTE and KEYM change in the external save set and checks exact
+payload re-encoding.

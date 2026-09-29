@@ -215,6 +215,23 @@ impl World {
                 next_dynamic = next_dynamic.max(raw & 0xFFFFFF);
             }
         }
+        // Created Objects identities can exist without a reference change
+        // form or a FormID array entry. Reserve them before placement.
+        if let Some(objects) = save.created_objects()? {
+            for object in objects
+                .weapon_enchantments
+                .iter()
+                .chain(&objects.armor_enchantments)
+                .chain(&objects.potions)
+                .chain(&objects.poisons)
+            {
+                if let Some(id) = mapping.reference(object.form)? {
+                    if id.file == DYNAMIC_FILE {
+                        next_dynamic = next_dynamic.max(id.object);
+                    }
+                }
+            }
+        }
         if next_dynamic == 0xFFFFFF {
             return Err(invalid(player, "created-object identity space exhausted"));
         }

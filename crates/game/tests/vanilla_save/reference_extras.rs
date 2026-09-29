@@ -2,37 +2,27 @@
 
 //! Saved ownership and lock state through shared reference queries and activation.
 
-#[path = "../common/legacy.rs"]
-mod legacy;
-
 use super::*;
 use soe_game::Handle;
 use soe_save::{reference::Field, ChangeForm};
 
 #[test]
 fn installed_lock_byte_mapping_matches_authored_levels() {
-    let (Some(data), Some(saves)) = (
+    let (Some(_data), Some(saves)) = (
         std::env::var_os("SKYRIM_DATA"),
         std::env::var_os("SOE_TEST_SAVES"),
     ) else {
         eprintln!("SKYRIM_DATA or SOE_TEST_SAVES unset, skipping lock schema survey");
         return;
     };
-    let mut order = LoadOrder::new();
-    for name in [
+    let order = installed::load_order(&[
         "Skyrim.esm",
         "Update.esm",
         "Dawnguard.esm",
         "HearthFires.esm",
         "Dragonborn.esm",
-    ] {
-        order
-            .add(
-                name,
-                Plugin::parse(&std::fs::read(Path::new(&data).join(name)).unwrap()).unwrap(),
-            )
-            .unwrap();
-    }
+    ])
+    .unwrap();
     let mut paths = vec![];
     collect_saves(Path::new(&saves), &mut paths);
     paths.sort();
@@ -295,17 +285,17 @@ fn engine_extras_reject_truncation_duplicates_and_bad_flags_atomically_and_read_
     // Both references' own empty save-section tables (version 37) are
     // stripped here, since version 19 predates them.
     let mut legacy = legacy::without_ref_sections(&mut world, &[id(0, 0x100), id(0, 0x101)]);
-    // The extra 21 bytes beyond the old 37 are the detection pool count and
-    // world-level save-section table, always present at the tail regardless
-    // of the simulated version.
-    legacy.truncate(legacy.len() - 58);
+    // Version 19 predates the detection count and the world-section table.
+    legacy.truncate(legacy.len() - 43);
     legacy[4..6].copy_from_slice(&19_u16.to_le_bytes());
     let mut save = save();
     save.change_forms = vec![change(0x400100, 0x400811, 0, 5, 0x400801)];
     world.restore_vanilla_reference_extras(&save).unwrap();
     let before = world.save_state();
+    let mut without_sections = before.clone();
+    let extra_sections = legacy::strip_world_sections(&mut without_sections) - 2;
     let mut bad_flags = before.clone();
-    let at = bad_flags.len() - 48;
+    let at = bad_flags.len() - 48 - extra_sections;
     bad_flags[at] |= 1;
     // `legacy` had both references' own save-section tables stripped above
     // (2 bytes each), which `before` still carries, so add the 4 bytes back
@@ -314,12 +304,12 @@ fn engine_extras_reject_truncation_duplicates_and_bad_flags_atomically_and_read_
     let start = legacy.len() + 4;
     // The extras block is followed by the package cursor block, so repeat the
     // entry inside the extras block rather than past the end of the save.
-    let entry = &before[start + 4..before.len() - 54];
+    let entry = &before[start + 4..before.len() - 39 - extra_sections];
     let mut duplicate = before[..start].to_vec();
     duplicate.extend_from_slice(&2_u32.to_le_bytes());
     duplicate.extend_from_slice(entry);
     duplicate.extend_from_slice(entry);
-    duplicate.extend_from_slice(&before[before.len() - 54..]);
+    duplicate.extend_from_slice(&before[before.len() - 39 - extra_sections..]);
     let duplicate_error = world.load_state(&duplicate).unwrap_err();
     assert!(
         duplicate_error
@@ -328,7 +318,7 @@ fn engine_extras_reject_truncation_duplicates_and_bad_flags_atomically_and_read_
         "{duplicate_error}"
     );
     let mut bad_key = before.clone();
-    let at = bad_key.len() - 27;
+    let at = bad_key.len() - 27 - extra_sections;
     bad_key[at..at + 4].copy_from_slice(&0x811_u32.to_le_bytes());
     let mut cases = vec![bad_flags, duplicate, bad_key];
     for cut in 1..=28 {
@@ -349,7 +339,7 @@ fn engine_extras_reject_truncation_duplicates_and_bad_flags_atomically_and_read_
 
 #[test]
 fn installed_all_ownership_and_lock_extras_restore_and_persist() {
-    let (Some(data), Some(saves)) = (
+    let (Some(_data), Some(saves)) = (
         std::env::var_os("SKYRIM_DATA"),
         std::env::var_os("SOE_TEST_SAVES"),
     ) else {
@@ -358,21 +348,14 @@ fn installed_all_ownership_and_lock_extras_restore_and_persist() {
         );
         return;
     };
-    let mut order = LoadOrder::new();
-    for name in [
+    let order = installed::load_order(&[
         "Skyrim.esm",
         "Update.esm",
         "Dawnguard.esm",
         "HearthFires.esm",
         "Dragonborn.esm",
-    ] {
-        order
-            .add(
-                name,
-                Plugin::parse(&std::fs::read(Path::new(&data).join(name)).unwrap()).unwrap(),
-            )
-            .unwrap();
-    }
+    ])
+    .unwrap();
     let order = Arc::new(order);
     let mut paths = vec![];
     collect_saves(Path::new(&saves), &mut paths);

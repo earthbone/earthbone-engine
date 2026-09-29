@@ -16,7 +16,9 @@
 pub fn tes4_hash(name: &str, ext: &str) -> u64 {
     let name = name.to_lowercase();
     let ext = ext.to_lowercase();
-    let n: Vec<u8> = name.bytes().collect();
+    let (n, _, _) = encoding_rs::WINDOWS_1252.encode(&name);
+    let (ext_bytes, _, _) = encoding_rs::WINDOWS_1252.encode(&ext);
+    let n = n.as_ref();
     if n.is_empty() {
         return 0;
     }
@@ -42,7 +44,7 @@ pub fn tes4_hash(name: &str, ext: &str) -> u64 {
         i += 1;
     }
     let mut hash3: u32 = 0;
-    for c in ext.bytes() {
+    for &c in ext_bytes.as_ref() {
         hash3 = hash3.wrapping_mul(0x1003f).wrapping_add(u32::from(c));
     }
     (u64::from(hash2.wrapping_add(hash3)) << 32) + u64::from(hash1)
@@ -96,5 +98,10 @@ mod tests {
         assert_eq!(file_name_hash("Body.NIF"), tes4_hash("body", ".nif"));
         assert_eq!(file_name_hash(".hidden"), tes4_hash(".hidden", ""));
         assert_eq!(file_name_hash("noext"), tes4_hash("noext", ""));
+    }
+
+    #[test]
+    fn fmt_14_windows_1252_names_match_the_reference() {
+        assert_eq!(file_name_hash("María_F.fuz"), 0x690E_0782_6D07_5F66);
     }
 }
