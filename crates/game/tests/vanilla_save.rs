@@ -31,6 +31,9 @@ mod activators;
 #[path = "vanilla_save/sav_34.rs"]
 mod sav_34;
 
+#[path = "vanilla_save/sav_36_book_note_key.rs"]
+mod sav_36_book_note_key;
+
 use std::{
     path::{Path, PathBuf},
     sync::Arc,

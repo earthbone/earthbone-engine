@@ -8,8 +8,8 @@ use soe_esm::{plugin::Subrecord, GlobalFormId, Slot, Tag};
 use soe_papyrus::{vm::state::Writer, VmError};
 
 use super::record_overrides::{
-    raw_words, ActivatorRecordExtra, ItemRecordExtra, ListRecordExtra, NpcRecordExtra,
-    RecordOverride,
+    raw_words, ActivatorRecordExtra, BookNoteKeyRecordExtra, ItemRecordExtra, ListRecordExtra,
+    NpcRecordExtra, RecordOverride,
 };
 use super::save::{read_form_id, read_opt_form_id, write_form_id, write_opt_form_id, FormReader};
 use super::{World, T};
@@ -68,26 +68,42 @@ impl World {
                 w.bool(list.section_present);
                 w.bytes(&list.entry_chances);
             }
-            w.bool(value.activator.is_some() || value.item.is_some());
-            if let Some(activator) = &value.activator {
-                w.bool(activator.form_flags.is_some());
-                if let Some((flags, unknown)) = activator.form_flags {
+            let has_base_object_extra =
+                value.activator.is_some() || value.item.is_some() || value.book_note_key.is_some();
+            w.bool(has_base_object_extra);
+            if has_base_object_extra {
+                let form_flags = value
+                    .activator
+                    .as_ref()
+                    .and_then(|extra| extra.form_flags)
+                    .or_else(|| value.item.as_ref().and_then(|extra| extra.form_flags))
+                    .or_else(|| {
+                        value
+                            .book_note_key
+                            .as_ref()
+                            .and_then(|extra| extra.form_flags)
+                    });
+                w.bool(form_flags.is_some());
+                if let Some((flags, unknown)) = form_flags {
                     w.u32(flags);
                     w.u16(unknown);
                 }
-                w.bool(activator.value_changed);
-                w.bool(activator.full_name_changed);
-                w.bool(activator.speaker_changed);
-            } else if let Some(item) = &value.item {
-                w.bool(item.form_flags.is_some());
-                if let Some((flags, unknown)) = item.form_flags {
-                    w.u32(flags);
-                    w.u16(unknown);
+                if let Some(extra) = &value.activator {
+                    w.bool(extra.value_changed);
+                    w.bool(extra.full_name_changed);
+                    w.bool(extra.speaker_changed);
+                } else if let Some(extra) = &value.item {
+                    w.bool(extra.value_changed);
+                    w.bool(extra.full_name_changed);
+                    w.u32(extra.unnamed_flags);
+                    w.bytes(&extra.trailing_data);
+                } else if let Some(extra) = &value.book_note_key {
+                    w.bool(extra.value_changed);
+                    w.bool(extra.full_name_changed);
+                    w.bool(extra.teaches_skill);
+                    w.bool(extra.read);
+                    w.bytes(&extra.opaque_suffix);
                 }
-                w.bool(item.value_changed);
-                w.bool(item.full_name_changed);
-                w.u32(item.unnamed_flags);
-                w.bytes(&item.trailing_data);
             }
             w.len(value.links.len());
             for (raw, link) in &value.links {
@@ -139,6 +155,9 @@ impl World {
                             | b"ARMO"
                             | b"WEAP"
                             | b"AMMO"
+                            | b"BOOK"
+                            | b"NOTE"
+                            | b"KEYM"
                     )
                 })
             {
@@ -162,6 +181,9 @@ impl World {
                             | b"ARMO"
                             | b"WEAP"
                             | b"AMMO"
+                            | b"BOOK"
+                            | b"NOTE"
+                            | b"KEYM"
                     ) && !rec.is_deleted()
                 })
                 .ok_or_else(|| bad("missing record origin"))?;
@@ -205,7 +227,7 @@ impl World {
             } else {
                 None
             };
-            let (activator, item) = if version >= 37 && r.bool()? {
+            let (activator, item, book_note_key) = if version >= 37 && r.bool()? {
                 let form_flags = if r.bool()? {
                     Some((r.u32()?, r.u16()?))
                 } else {
@@ -220,6 +242,7 @@ impl World {
                             speaker_changed: r.bool()?,
                         }),
                         None,
+                        None,
                     )
                 } else if matches!(original.tag.as_bytes(), b"ARMO" | b"WEAP" | b"AMMO") {
                     (
@@ -231,13 +254,27 @@ impl World {
                             unnamed_flags: r.u32()?,
                             trailing_data: r.bytes()?.to_vec(),
                         }),
+                        None,
                     )
+                } else if matches!(original.tag.as_bytes(), b"BOOK" | b"NOTE" | b"KEYM") {
+                    let extra = BookNoteKeyRecordExtra {
+                        form_flags,
+                        value_changed: r.bool()?,
+                        full_name_changed: r.bool()?,
+                        teaches_skill: r.bool()?,
+                        read: r.bool()?,
+                        opaque_suffix: r.bytes()?.to_vec(),
+                    };
+                    (None, None, Some(extra))
                 } else {
                     return Err(bad("metadata on an unsupported record type"));
                 }
             } else {
-                (None, None)
+                (None, None, None)
             };
+            if let Some((flags, _)) = book_note_key.as_ref().and_then(|extra| extra.form_flags) {
+                record.flags = flags;
+            }
             let mut links = BTreeMap::new();
             let used = raw_words(original);
             let count = r.len()?;
@@ -263,8 +300,8 @@ impl World {
                 subrecords.push(Subrecord { tag, data });
             }
             record.subrecords = subrecords;
-            if record.tag == T(b"ACTI") || record.tag == T(b"TACT") || record.tag == T(b"DOOR") {
-                if let Some((flags, _)) = activator.and_then(|extra| extra.form_flags) {
+            if matches!(record.tag.as_bytes(), b"ACTI" | b"TACT" | b"DOOR") {
+                if let Some((flags, _)) = activator.as_ref().and_then(|extra| extra.form_flags) {
                     record.flags ^= flags;
                 }
             }
@@ -280,9 +317,11 @@ impl World {
                     .order
                     .winner_ref(text_origin)
                     .is_some_and(|owner| self.order.file(owner.file).plugin.header.is_localized());
-            if record.tag == T(b"ACTI") || record.tag == T(b"TACT") || record.tag == T(b"DOOR") {
+            if matches!(record.tag.as_bytes(), b"ACTI" | b"TACT" | b"DOOR") {
                 let extra = activator.ok_or_else(|| bad("activator metadata missing"))?;
-                if list.is_some()
+                if item.is_some()
+                    || book_note_key.is_some()
+                    || list.is_some()
                     || original_race.is_some()
                     || body_tint.is_some()
                     || pending_form_flags.is_some()
@@ -301,8 +340,8 @@ impl World {
                 if list.is_some() {
                     return Err(bad("NPC has list metadata"));
                 }
-                if item.is_some() {
-                    return Err(bad("NPC has item metadata"));
+                if item.is_some() || book_note_key.is_some() {
+                    return Err(bad("NPC has base-object metadata"));
                 }
                 crate::npc::Npc::from_record(&record, localized)
                     .map_err(|e| VmError::State(e.to_string()))?;
@@ -327,6 +366,7 @@ impl World {
                     || body_tint.is_some()
                     || pending_form_flags.is_some()
                     || item.is_some()
+                    || book_note_key.is_some()
                     || unchanged(&record) != unchanged(original)
                     || record.all(T(b"WNAM")).count() != 1
                 {
@@ -360,18 +400,42 @@ impl World {
                 }
             } else if matches!(record.tag.as_bytes(), b"ARMO" | b"WEAP" | b"AMMO") {
                 if item.is_none()
+                    || book_note_key.is_some()
+                    || list.is_some()
                     || temporary_for.is_some()
                     || text_origin != id
                     || plain_full
                     || original_race.is_some()
                     || body_tint.is_some()
                     || pending_form_flags.is_some()
-                    || list.is_some()
+                    || !links.is_empty()
                     || record != *original
                 {
                     return Err(bad("invalid saved item override"));
                 }
+            } else if matches!(record.tag.as_bytes(), b"BOOK" | b"NOTE" | b"KEYM") {
+                let extra = book_note_key
+                    .as_ref()
+                    .ok_or_else(|| bad("BOOK, NOTE or KEYM metadata missing"))?;
+                if item.is_some()
+                    || list.is_some()
+                    || temporary_for.is_some()
+                    || text_origin != id
+                    || plain_full
+                    || original_race.is_some()
+                    || body_tint.is_some()
+                    || pending_form_flags.is_some()
+                    || (extra.teaches_skill && record.tag != T(b"BOOK"))
+                    || (extra.read && !matches!(&record.tag.0, b"BOOK" | b"NOTE"))
+                    || record.flags != extra.form_flags.map_or(original.flags, |(flags, _)| flags)
+                    || record.subrecords != original.subrecords
+                {
+                    return Err(bad("invalid BOOK, NOTE or KEYM record override"));
+                }
             } else {
+                if book_note_key.is_some() || item.is_some() {
+                    return Err(bad("unexpected base-object metadata"));
+                }
                 let tag = if record.tag == T(b"FLST") {
                     T(b"LNAM")
                 } else {
@@ -439,6 +503,7 @@ impl World {
                 list,
                 activator,
                 item,
+                book_note_key,
             };
             if values.insert(id, value).is_some() {
                 return Err(bad("duplicate NPC record"));

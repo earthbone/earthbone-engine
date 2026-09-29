@@ -69,6 +69,7 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// it, not into a new version.
 /// Version 37 retains ACTI, TACT and DOOR saved change markers.
 /// Version 37 retains decoded item-record change fields in shared overrides.
+/// Version 37 retains BOOK, NOTE and KEYM change markers with their record overrides.
 pub const SAVE_VERSION: u16 = 37;
 
 #[derive(Clone, Copy)]

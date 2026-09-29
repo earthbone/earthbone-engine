@@ -51,6 +51,17 @@ pub struct ItemRecordExtra {
     pub trailing_data: Vec<u8>,
 }
 
+/// Saved BOOK, NOTE or KEYM fields that have no plugin-subrecord equivalent.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct BookNoteKeyRecordExtra {
+    pub form_flags: Option<(u32, u16)>,
+    pub value_changed: bool,
+    pub full_name_changed: bool,
+    pub teaches_skill: bool,
+    pub read: bool,
+    pub opaque_suffix: Vec<u8>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct RecordOverride {
     pub origin: GlobalFormId,
@@ -63,6 +74,7 @@ pub(super) struct RecordOverride {
     pub list: Option<ListRecordExtra>,
     pub activator: Option<ActivatorRecordExtra>,
     pub item: Option<ItemRecordExtra>,
+    pub book_note_key: Option<BookNoteKeyRecordExtra>,
 }
 
 pub(super) fn raw_words(record: &Record) -> BTreeSet<u32> {
@@ -89,6 +101,7 @@ impl RecordOverride {
             list: None,
             activator: None,
             item: None,
+            book_note_key: None,
         }
     }
 
@@ -154,5 +167,12 @@ impl World {
     #[must_use]
     pub fn restored_item_extra(&self, id: GlobalFormId) -> Option<&ItemRecordExtra> {
         self.record_overrides.get(&id)?.item.as_ref()
+    }
+
+    pub fn restored_book_note_key_extra(
+        &self,
+        id: GlobalFormId,
+    ) -> Option<&BookNoteKeyRecordExtra> {
+        self.record_overrides.get(&id)?.book_note_key.as_ref()
     }
 }

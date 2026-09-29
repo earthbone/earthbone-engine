@@ -49,6 +49,8 @@ pub enum RestoreError {
     Activator { id: GlobalFormId, reason: String },
     #[error("cannot restore item record {id}: {reason}")]
     Item { id: GlobalFormId, reason: String },
+    #[error("cannot restore BOOK, NOTE or KEYM {id}: {reason}")]
+    BookNoteKey { id: GlobalFormId, reason: String },
     #[error("cannot restore reference {id}: {reason}")]
     WorldReference { id: GlobalFormId, reason: String },
 }

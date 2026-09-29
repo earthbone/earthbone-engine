@@ -61,6 +61,7 @@ mod spell_hand;
 mod weapon_hands;
 pub use inventory_restore::InventoryRestoreReport;
 mod activator_restore;
+mod book_note_key_restore;
 pub mod image_space;
 mod item_save;
 mod list_restore;
@@ -75,7 +76,9 @@ pub use npc_restore::NpcRestoreReport;
 mod record_overrides;
 mod skins;
 mod temporary_npc;
-pub use record_overrides::{ActivatorRecordExtra, ItemRecordExtra, NpcRecordExtra};
+pub use record_overrides::{
+    ActivatorRecordExtra, BookNoteKeyRecordExtra, ItemRecordExtra, NpcRecordExtra,
+};
 mod quest_restore;
 mod quest_save;
 mod quests;

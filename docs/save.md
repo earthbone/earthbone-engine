@@ -1019,3 +1019,31 @@ flags do not consume payload. The decoder returns the byte boundary and
 remaining suffix length for type-specific readers. It does not restore a
 value or name. See [saved base-object fields](save-base-fields.md) for the
 source audit and scope.
+
+## BOOK, NOTE and KEYM saved fields
+
+`ChangeForm::book_change`, `key_change` and `note_change` decode the xEdit
+source-defined fields for these three record types. Each has an optional
+six-byte form-flags section. BOOK also reports the value, full-name, teaches
+skill and read markers. KEYM reports the value and full-name markers. NOTE
+reports its read marker. Those named marker fields consume no payload bytes in
+xEdit's `wbNull` schema. The decoders reject reserved flag bits and truncated
+form flags. Bytes after the defined fields remain an opaque suffix and are
+written back unchanged. This retains corpus data such as the byte `08` on a
+BOOK carrying only the read marker, whose meaning is not defined by xEdit.
+FallrimTools keeps these payloads raw, and UESP documents the outer
+change-form framing rather than these record layouts. The corpus test accounts
+for every BOOK, NOTE and KEYM change in the external save set and checks exact
+payload re-encoding.
+
+`World::restore_vanilla_book_note_keys` maps each saved base through the saved
+plugin names and prepares all BOOK, NOTE and KEYM record overrides before
+installing any. Saved form flags update the live record header flags. The
+VALUE and FULL_NAME bits, teaching-skill and read markers, and opaque suffix
+are retained as runtime metadata because xEdit defines those markers without
+payload values or plugin-subrecord equivalents. Duplicate changes and records
+already overridden by another restoration path fail without partial mutation.
+These fields persist in SOEW version 37.
+The change-field meanings follow xEdit `Core/wbDefinitionsTES5Saves.pas`,
+`wbUnionCHANGE_BASE_OBJECT_VALUE`, `wbUnionCHANGE_BASE_OBJECT_FULLNAME`, and
+the BOOK and NOTE marker unions.
