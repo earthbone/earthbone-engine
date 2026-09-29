@@ -762,6 +762,17 @@ impl World {
         self.write_magic(&mut magic);
         self.write_image_space(&mut magic);
         h.bytes(&magic.out);
+        h.len(self.brewed_potions.len());
+        for (id, effects) in &self.brewed_potions {
+            form(&mut h, *id);
+            h.len(effects.len());
+            for (effect, magnitude, area, duration) in effects {
+                form(&mut h, *effect);
+                h.f32(*magnitude);
+                h.u32(*area);
+                h.u32(*duration);
+            }
+        }
         let mut records = soe_papyrus::vm::state::Writer::new();
         self.write_record_overrides(&mut records);
         h.bytes(&records.out);

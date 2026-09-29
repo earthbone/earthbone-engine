@@ -406,6 +406,8 @@ fn without_exclusive_branches(world: &mut World) -> Vec<u8> {
         .expect("record override is serialized");
     // CONTEXT: This fixture has one override with no list fields in version 23.
     bytes.remove(at + 39);
+    // Drop the empty version 37 potion table for the legacy fixture.
+    bytes.truncate(bytes.len() - 4);
     bytes
 }
 

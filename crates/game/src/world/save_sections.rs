@@ -67,13 +67,16 @@ pub(crate) fn read_sections<T>(
         let name = std::str::from_utf8(r.take(name_len)?)
             .map_err(|_| VmError::State(format!("non UTF-8 section name at {level}")))?
             .to_string();
-        let payload = r.bytes()?;
+        let payload = r
+            .bytes()
+            .map_err(|error| VmError::State(format!("section {name} at {level}: {error}")))?;
         let Some(section) = sections.iter().find(|s| s.name == name) else {
             return Err(VmError::State(format!("unknown section {name} at {level}")));
         };
         let mut sub_reader = Reader::new(payload);
         let mut sub = FormReader::new(&mut sub_reader, r.namespace());
-        (section.read)(value, &mut sub)?;
+        (section.read)(value, &mut sub)
+            .map_err(|error| VmError::State(format!("section {name} at {level}: {error}")))?;
         sub.expect_end()
             .map_err(|_| VmError::State(format!("section {name} at {level} left unread bytes")))?;
     }
