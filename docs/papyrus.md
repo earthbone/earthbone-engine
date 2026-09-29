@@ -336,6 +336,23 @@ SOE_PEX_DIR=/path/to/extracted cargo test -p soe-papyrus --test vm real_scripts 
 
 `SKYRIM_DATA=<Data>` works once a loose `Data/Scripts` exists.
 
+### Instruction count gates
+
+`benches/tst_04_perf_gate.rs` contains two synthetic workloads. PEX parsing
+reads a serialized function with 256 NOP instructions and has a 500,000
+instruction hard limit. VM execution runs a Papyrus loop for 10,000 iterations
+and has a 2,000,000 instruction hard limit. Both limits count Callgrind's
+`EventKind::Ir`, and exceeding either recorded ceiling fails the benchmark
+command. Setup that builds the PEX bytes or VM thread is outside the measured
+region. `tests/tst_04_perf_gate.rs` checks the parser reads the full body and
+that the VM loop returns the expected sum.
+
+The `performance` CI workflow runs it with
+`cargo bench --locked -p soe-papyrus --bench tst_04_perf_gate`. The benchmark
+uses `iai-callgrind` 0.16.1 and the absolute hard-limit API documented by its
+upstream library docs. Running requires Valgrind and a matching
+`iai-callgrind-runner` 0.16.1 in PATH.
+
 ## Live run (2026-09-14)
 
 `real_scripts_from_the_game_load_when_present` always skipped on a plain Steam

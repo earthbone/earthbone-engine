@@ -128,6 +128,21 @@ FormID shape. `godot-host` resolves a cell's `LAND` alpha layers through `LTEX` 
   `file  TAG  count` lines for diffing against xDump, and checks that every CELL and
   REFR under Tamriel resolves and every REFR base is in the table.
 
+### Instruction count gate
+
+`benches/tst_04_perf_gate.rs` measures `Plugin::parse` on a generated plugin with
+128 MISC records. The input is assembled before Callgrind starts counting. Its
+hard limit is 500,000 instructions, enforced by `iai-callgrind` so exceeding the
+recorded ceiling fails the benchmark command. The companion
+`tests/tst_04_perf_gate.rs` checks the fixture parses all 128 records and retains
+the final editor id.
+
+The `performance` CI workflow runs it with
+`cargo bench --locked -p soe-esm --bench tst_04_perf_gate`. The benchmark
+uses `iai-callgrind` 0.16.1 and its absolute `EventKind::Ir` hard limit, as
+documented in the upstream iai-callgrind library docs. Running requires Valgrind
+and a matching `iai-callgrind-runner` 0.16.1 in PATH.
+
 ```text
 SKYRIM_DATA="/run/host/media/pengolodh/Data/SteamLibrary/steamapps/common/Skyrim Special Edition/Data" \
   cargo test -p soe-esm --release --test real_files -- --nocapture
