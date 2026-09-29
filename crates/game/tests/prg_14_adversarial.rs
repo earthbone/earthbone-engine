@@ -16,7 +16,10 @@ const LOCATION: u32 = 0x805;
 const ITEM: u32 = 0x806;
 
 fn id(form: u32) -> GlobalFormId {
-    GlobalFormId { file: 0, object: form }
+    GlobalFormId {
+        file: 0,
+        object: form,
+    }
 }
 
 fn fixture() -> Game {
@@ -105,9 +108,7 @@ fn prg_14_matching_authored_event_starts_quest_once_with_ck_arguments() {
         .pending
         .iter()
         .filter_map(|pending| match pending {
-            Pending::Event { name, args, .. } if name == "OnStoryCraftItem" => {
-                Some(args.clone())
-            }
+            Pending::Event { name, args, .. } if name == "OnStoryCraftItem" => Some(args.clone()),
             _ => None,
         })
         .collect();
