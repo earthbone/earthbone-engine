@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 use soe_papyrus::vm::state::Writer;
 use soe_papyrus::VmError;
 
-use super::{ActiveEffect, EffectId, World};
+use super::{ActiveEffect, CloakState, EffectId, World};
 use crate::world::save::{
     read_form_id, read_opt_form_id, write_form_id, write_opt_form_id, FormReader,
 };
@@ -39,6 +39,66 @@ impl World {
                 w.f32(*amount);
             }
         }
+    }
+
+    pub(crate) fn write_cloaks(&self, w: &mut Writer) {
+        w.len(self.cloak_effects.len());
+        for (id, state) in &self.cloak_effects {
+            w.u64(id.0);
+            w.f64(state.elapsed);
+            w.len(state.owned.len());
+            for owned in &state.owned {
+                w.u64(owned.0);
+            }
+        }
+    }
+
+    pub(crate) fn read_cloaks(&mut self, r: &mut FormReader<'_, '_>) -> Result<(), VmError> {
+        let count = r.len()?;
+        let mut cloaks = BTreeMap::new();
+        for _ in 0..count {
+            let id = EffectId(r.u64()?);
+            let elapsed = r.f64()?;
+            let owned_count = r.len()?;
+            let mut owned = Vec::with_capacity(owned_count);
+            let mut seen = std::collections::BTreeSet::new();
+            for _ in 0..owned_count {
+                let owned_id = EffectId(r.u64()?);
+                if owned_id.0 == 0 || !seen.insert(owned_id) {
+                    return Err(VmError::State("invalid cloak owned effect identity".into()));
+                }
+                owned.push(owned_id);
+            }
+            if !elapsed.is_finite()
+                || !(0.0..1.0).contains(&elapsed)
+                || id.0 == 0
+                || cloaks.insert(id, CloakState { elapsed, owned }).is_some()
+            {
+                return Err(VmError::State("invalid cloak effect state".into()));
+            }
+        }
+        self.cloak_effects = cloaks;
+        Ok(())
+    }
+
+    pub(crate) fn validate_cloaks(&self) -> Result<(), VmError> {
+        for (id, state) in &self.cloak_effects {
+            let parent = self
+                .active_effects
+                .get(id)
+                .ok_or_else(|| VmError::State("cloak state names a missing effect".into()))?;
+            if !self
+                .magic_effect(parent.effect)
+                .is_ok_and(|base| base.data.archetype == 35)
+                || state
+                    .owned
+                    .iter()
+                    .any(|owned| !self.active_effects.contains_key(owned))
+            {
+                return Err(VmError::State("invalid cloak effect ownership".into()));
+            }
+        }
+        Ok(())
     }
 }
 

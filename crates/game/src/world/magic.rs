@@ -30,6 +30,7 @@ const NO_RECAST: u32 = 1 << 17;
 const NO_DEATH_DISPEL: u32 = 1 << 28;
 pub(super) const DISPEL_WITH_KEYWORDS: u32 = 1 << 8;
 const INGESTIBLE_POISON: u32 = 1 << 17;
+const CLOAK_CADENCE: f64 = 1.0;
 
 /// Identity of one effect application, independent of its MGEF FormID.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -53,6 +54,13 @@ pub struct ActiveEffect {
     pub summoned: Option<GlobalFormId>,
     pub(crate) recover: bool,
     pub(crate) changes: Vec<(String, f32)>,
+}
+
+/// Pulse phase and applications last created by one Cloak effect.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub(crate) struct CloakState {
+    pub(crate) elapsed: f64,
+    pub(crate) owned: Vec<EffectId>,
 }
 
 /// A spell was rejected before any of its effects were applied.
@@ -380,13 +388,26 @@ impl World {
         target: Option<GlobalFormId>,
         alloc: Alloc<'_>,
     ) -> Result<Vec<EffectId>, MagicError> {
+        self.cast_spell_inner(spell, source, caster, target, false, alloc)
+    }
+
+    fn cast_spell_inner(
+        &mut self,
+        spell: GlobalFormId,
+        source: GlobalFormId,
+        caster: Option<GlobalFormId>,
+        target: Option<GlobalFormId>,
+        cloak_pulse: bool,
+        alloc: Alloc<'_>,
+    ) -> Result<Vec<EffectId>, MagicError> {
         let definition = self.spell(spell)?;
-        if !matches!(definition.data.cast_type, 0 | 1) {
+        if !matches!(definition.data.cast_type, 0..=2) {
             return Err(MagicError::Unsupported("concentration or scroll casting"));
         }
         let target = match definition.data.delivery {
             0 => source,
             3 => target.ok_or(MagicError::Target)?,
+            2 if definition.data.cast_type == 2 => target.unwrap_or(source),
             _ => {
                 return Err(MagicError::Unsupported(
                     "projectile, contact or location delivery",
@@ -427,8 +448,11 @@ impl World {
                     return Err(MagicError::Target);
                 }
             }
-            if !matches!(data.archetype, 0 | 1 | 2 | 5 | 18) {
+            if !matches!(data.archetype, 0 | 1 | 2 | 5 | 18 | 35) {
                 return Err(MagicError::Unsupported("effect archetype"));
+            }
+            if definition.data.cast_type == 2 && data.archetype != 35 && !cloak_pulse {
+                return Err(MagicError::Unsupported("concentration or scroll casting"));
             }
             if data.taper_duration != 0.0 {
                 return Err(MagicError::Unsupported("taper"));
@@ -441,7 +465,7 @@ impl World {
             {
                 return Err(MagicError::Unsupported("mixed casting types or delivery"));
             }
-            let magnitude = if data.flags & NO_MAGNITUDE != 0 {
+            let magnitude = if data.flags & NO_MAGNITUDE != 0 && data.archetype != 35 {
                 0.0
             } else {
                 entry.data.magnitude
@@ -486,7 +510,21 @@ impl World {
             } else {
                 None
             };
-            let duration = if definition.data.cast_type == 0 {
+            if data.archetype == 35 {
+                let associated = self
+                    .resolve_from(effect, data.associated_item)
+                    .ok_or(MagicError::Missing(effect))?;
+                if self.tag_of(associated) != Some(super::T(b"SPEL")) {
+                    return Err(MagicError::Unsupported("cloak associated spell"));
+                }
+                let cloak_spell = self.spell(associated)?;
+                if cloak_spell.data.cast_type != 2 || !matches!(cloak_spell.data.delivery, 2 | 3) {
+                    return Err(MagicError::Unsupported(
+                        "cloak spell must be concentration aimed or target",
+                    ));
+                }
+            }
+            let duration = if matches!(definition.data.cast_type, 0 | 2) && !cloak_pulse {
                 None
             } else {
                 Some(if data.flags & NO_DURATION != 0 {
@@ -612,6 +650,12 @@ impl World {
             );
             // An instant lethal effect must receive its target's death events too.
             self.active_effects.insert(id, prepared.effect.clone());
+            if self
+                .magic_effect(prepared.effect.effect)
+                .is_ok_and(|base| base.data.archetype == 35)
+            {
+                self.cloak_effects.insert(id, CloakState::default());
+            }
             for victim in prepared.dispel {
                 self.dispel_effect(victim, alloc);
             }
@@ -774,6 +818,14 @@ impl World {
         if effect.recover && self.apply_effect_values(&effect, -1.0, alloc).is_err() {
             return false;
         }
+        if let Some(cloak) = self.cloak_effects.remove(&id) {
+            for owned in cloak.owned {
+                self.dispel_effect(owned, alloc);
+            }
+        }
+        for cloak in self.cloak_effects.values_mut() {
+            cloak.owned.retain(|owned| *owned != id);
+        }
         if let Some(summon) = effect.summoned {
             if let Some(reference) = self.reference(summon) {
                 reference.deleted = true;
@@ -821,6 +873,21 @@ impl World {
                 self.dispel_effect(id, alloc);
                 continue;
             }
+            if self.cloak_effects.contains_key(&id) {
+                if let Err(error) = self.tick_cloak(id, seconds, alloc) {
+                    errors.push(error);
+                    continue;
+                }
+                let expired = self.active_effects.get(&id).is_some_and(|current| {
+                    current
+                        .duration
+                        .is_some_and(|duration| current.elapsed >= duration)
+                });
+                if expired {
+                    self.dispel_effect(id, alloc);
+                }
+                continue;
+            }
             let dt = effect.duration.map_or(seconds, |duration| {
                 seconds.min((duration - effect.elapsed).max(0.0))
             });
@@ -840,6 +907,59 @@ impl World {
             }
         }
         errors
+    }
+
+    fn tick_cloak(
+        &mut self,
+        id: EffectId,
+        seconds: f64,
+        alloc: Alloc<'_>,
+    ) -> Result<(), MagicError> {
+        let Some(effect) = self.active_effects.get(&id).cloned() else {
+            return Ok(());
+        };
+        let base = self.magic_effect(effect.effect)?;
+        let associated = self
+            .resolve_from(effect.effect, base.data.associated_item)
+            .ok_or(MagicError::Missing(effect.effect))?;
+        let radius = effect.magnitude;
+        let dt = effect.duration.map_or(seconds, |duration| {
+            seconds.min((duration - effect.elapsed).max(0.0))
+        });
+        let state = self.cloak_effects.get_mut(&id).ok_or(MagicError::Target)?;
+        let elapsed = (state.elapsed + dt).min(f64::MAX);
+        let pulse_due = elapsed >= CLOAK_CADENCE;
+        if !pulse_due {
+            state.elapsed = elapsed;
+            if let Some(active) = self.active_effects.get_mut(&id) {
+                active.elapsed = (active.elapsed + dt).min(f64::MAX);
+            }
+            return Ok(());
+        }
+        state.elapsed = elapsed.rem_euclid(CLOAK_CADENCE);
+        let old_owned = std::mem::take(&mut state.owned);
+        for child in old_owned {
+            self.dispel_effect(child, alloc);
+        }
+        let targets = self.area_targets(effect.target, radius);
+        let mut owned = Vec::new();
+        for target in targets {
+            owned.extend(self.cast_spell_inner(
+                associated,
+                target,
+                effect.caster,
+                Some(target),
+                true,
+                alloc,
+            )?);
+        }
+        if let Some(state) = self.cloak_effects.get_mut(&id) {
+            state.owned = owned;
+        }
+        if let Some(active) = self.active_effects.get_mut(&id) {
+            active.elapsed = (active.elapsed + dt).min(f64::MAX);
+        }
+        Ok(())
     }
 
     fn apply_effect_values(

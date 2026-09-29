@@ -543,6 +543,7 @@ pub struct World {
     /// `(spell, source, target)` per `Spell.Cast`, in order.
     pub spell_casts: Vec<(GlobalFormId, GlobalFormId, Option<GlobalFormId>)>,
     pub(crate) active_effects: BTreeMap<magic::EffectId, magic::ActiveEffect>,
+    pub(crate) cloak_effects: BTreeMap<magic::EffectId, magic::CloakState>,
     pub(crate) next_effect: u64,
     pub(crate) image_space: image_space::ImageSpaceState,
     /// Stealth-point pools by target, each with its observers' awareness.
@@ -635,6 +636,7 @@ impl World {
             dialogue: crate::dialogue::State::default(),
             localized_strings: BTreeMap::new(),
             active_effects: BTreeMap::new(),
+            cloak_effects: BTreeMap::new(),
             next_effect: 1,
             image_space: image_space::ImageSpaceState::default(),
             detection: crate::detection::DetectionState::default(),

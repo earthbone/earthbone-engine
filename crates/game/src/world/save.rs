@@ -1066,14 +1066,11 @@ impl World {
             crate::detection::DetectionState::default()
         };
         // World-level sections are read straight into `self`, unlike every
-        // field above, which lands in a local and is only committed to
-        // `self` in the block below once the whole stream has parsed
-        // cleanly. A registered section may touch any field on `World`, so
-        // there is no local `World` to stage it in. If a section later in
-        // this table fails, sections read earlier in the same call have
-        // already mutated `self`, and the `Err` this function returns
-        // tells the caller to discard it. No section is registered today,
-        // so this call is a no-op until one is.
+        // field above, which lands in a local and is committed below. A
+        // section may touch any field on `World`, so it cannot be staged in
+        // a local record. If a section later in this table fails, sections
+        // read earlier in the same call have already mutated `self`, and
+        // the caller must discard this world after the returned error.
         if version >= 37 {
             save_sections::read_sections(&mut r, "world", self, WORLD_SECTIONS)?;
         }
@@ -1146,6 +1143,11 @@ impl World {
         self.dialogue.repeated = dialogue_repeats;
         self.next_effect = next_effect;
         self.active_effects = active_effects;
+        if version >= 37 {
+            self.validate_cloaks()?;
+        } else {
+            self.cloak_effects.clear();
+        }
         self.image_space = image_space;
 
         self.objects = objects;
