@@ -541,11 +541,39 @@ impl Game {
     /// # Errors
     /// See World::melee_hit for the current supported contact rules.
     pub fn melee_hit(&mut self, hit: combat::MeleeHit) -> Result<combat::HitResult, combat::Error> {
+        let (outgoing, incoming) = if hit.is_bash {
+            (Vec::new(), Vec::new())
+        } else {
+            let vm = &self.vm;
+            let mut world = self.world.borrow_mut();
+            let outgoing_context = perks::EntryPointContext {
+                tabs: vec![hit.attacker, hit.weapon, hit.target],
+                target: Some(hit.target),
+                quest: None,
+            };
+            let incoming_context = perks::EntryPointContext {
+                tabs: vec![hit.target, hit.attacker, hit.weapon],
+                target: Some(hit.attacker),
+                quest: None,
+            };
+            (
+                perks::entry_point_invocations(
+                    &mut world,
+                    vm,
+                    hit.attacker,
+                    35,
+                    &outgoing_context,
+                )?,
+                perks::entry_point_invocations(&mut world, vm, hit.target, 36, &incoming_context)?,
+            )
+        };
         let vm = &mut self.vm;
-        let result = self
-            .world
-            .borrow_mut()
-            .melee_hit(hit, &mut |name, class| vm.create_object_of(name, class))?;
+        let result =
+            self.world
+                .borrow_mut()
+                .melee_hit(hit, outgoing, incoming, &mut |name, class| {
+                    vm.create_object_of(name, class)
+                })?;
         self.run_until_idle(64);
         Ok(result)
     }

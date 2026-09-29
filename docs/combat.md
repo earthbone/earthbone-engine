@@ -1,5 +1,26 @@
 # Physical melee execution
 
+## Perk hit damage, CMB-09
+
+Ordinary non-bash hits evaluate owned winning PERK records for entry point 35
+(`ModAttackDamage`) on the attacker and entry point 36
+(`ModIncomingDamage`) on the target. Each entry receives the authored tabs:
+owner, weapon, target for outgoing damage, and owner, attacker, weapon for
+incoming damage. Entry CTDAs use the shared condition evaluator. Outgoing
+operations run before incoming operations, after weapon skill, power attack,
+`AttackDamageMult` and item quality, and before armor, block, resistance and
+difficulty reduction.
+
+The numeric functions supported for these two entry points are set, add,
+multiply, absolute value, negative absolute value, add actor-value multiplier,
+set actor-value multiplier, multiply actor-value multiplier and multiply by
+one plus actor-value multiplier. Handler data and actor values are validated
+before damage or events commit. Unsupported functions and malformed data
+reject the contact. Eligible operations follow the dispatcher's current
+winning-record load order and each PERK record's section order. Local sources
+do not establish priority ties, acquisition ordering, or exact versus
+cumulative PRKE rank selection, so those remain unverified.
+
 The combat-hits worktree builds on the frozen 63-file NPC and death-lifecycle
 review. Game::melee_hit accepts a host-confirmed ordinary melee contact and
 settles its scripts. World::melee_hit retains the queued events for save/load
@@ -334,8 +355,9 @@ application. They also cover misses, cancellation, equipment changes, rejected
 damage, slot-parent cycles, animation-independent hand occupancy and save/load.
 These tests use synthetic records and query results. A live Godot swing and
 installed attack-animation corpus have not been exercised. CMB-28 owns the
-scene wiring that supplies weapon segments and registered bodies. CMB-04 owns
-device input and depends on both CMB-03 and CMB-28.
+scene wiring that supplies weapon segments and registered bodies. CMB-04 binds
+the PC `Right Attack/Block` input to the right-hand swing latch. Left-hand attack
+input remains outside that row.
 
 Additional local sources read for this increment:
 
@@ -355,8 +377,8 @@ actors. A SkinnedActorNode bound to that World supplies its model-space weapon
 attachment pose at HitFrame. The one-handed graph emits the authored marker,
 and PlayerNode queries the first actor or obstruction using the selected
 weapon's reach. The installed-data contact script runs the path across a load
-door. Input binding remains CMB-04, and the host script forwards the relevant
-HitFrame marker while a swing is armed.
+door. The host script forwards the relevant HitFrame marker while a swing is
+armed by CMB-04 or another caller.
 
 CMB-29 exposes and validates character controller metadata first. The local
 serde-hkx hkbCharacterDataCharacterControllerInfo declaration places height,

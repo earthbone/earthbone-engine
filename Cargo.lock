@@ -1337,6 +1337,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "soe-editor"
+version = "0.1.0"
+dependencies = [
+ "soe-esm",
+ "soe-papyrus",
+ "thiserror 2.0.20",
+]
+
+[[package]]
 name = "soe-esm"
 version = "0.1.0"
 dependencies = [

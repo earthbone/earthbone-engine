@@ -75,13 +75,11 @@ impl PlayerNode {
                 }
             }
         }
-        // Reflect the frame's enable and placement changes (activation,
-        // scripted moves, editor drags) into the streamed geometry and its
-        // collision before anything else reads either this tick. World stays
-        // the source of truth, the streamer only presents it (HST-04).
-        if let (Some(game), Some(streamer)) = (&self.game, self.game_streamer.as_mut()) {
-            let world = game.world();
-            streamer.bind_mut().sync_reference_changes(&world);
+        // CONTEXT: Apply game edits before reading simulated body poses back
+        // into World, then draw the shared placement on this tick.
+        if let (Some(game), Some(streamer)) = (&mut self.game, self.game_streamer.as_mut()) {
+            let mut world = game.world_mut();
+            streamer.bind_mut().sync_reference_changes(&mut world);
         }
         if !self.advance_exterior() {
             self.auto_step = false;
