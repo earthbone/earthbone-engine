@@ -131,6 +131,22 @@ impl World {
                 st.is_actor = true;
                 st
             }
+            b"PCON" | b"PARW" => {
+                let base = le_u32(rec.find(T(b"NAME"))?)?;
+                let mut st = RefState::new(Some(self.order.resolve(file, base)));
+                if let Some(data) = rec.find(T(b"DATA")).filter(|data| data.len() >= 24) {
+                    for (i, value) in st.position.iter_mut().enumerate() {
+                        *value = le_f32(&data[i * 4..]);
+                    }
+                    for (i, value) in st.rotation.iter_mut().enumerate() {
+                        *value = le_f32(&data[12 + i * 4..]);
+                    }
+                }
+                if let Some(scale) = rec.find(T(b"XSCL")).filter(|data| data.len() >= 4) {
+                    st.scale = le_f32(scale);
+                }
+                st
+            }
             _ => return None,
         };
         // A deleted winner starts disabled, the way xEdit's undelete and

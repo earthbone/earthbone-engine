@@ -13,6 +13,9 @@ mod npcs;
 #[path = "vanilla_save/references.rs"]
 mod references;
 
+#[path = "vanilla_save/projectiles.rs"]
+mod projectiles;
+
 #[path = "vanilla_save/inventory.rs"]
 mod inventory;
 
@@ -21,9 +24,6 @@ mod actor_sources;
 
 #[path = "vanilla_save/lists.rs"]
 mod lists;
-
-#[path = "vanilla_save/projectiles.rs"]
-mod projectiles;
 
 use std::{
     path::{Path, PathBuf},

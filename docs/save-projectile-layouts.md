@@ -8,6 +8,11 @@ eight public type indices and the generic change-form header's flag and
 payload round trip. SAV-23 additionally exposes all shared xEdit PFLA, PHZD
 and PBAR change flag bits as typed positions and retains the inflated payload
 bytes. It does not assign payload fields or establish internal boundaries.
+PCON and PARW expose only typed change-form envelopes, including flags and
+version, while retaining the payload bytes as opaque data. SAV-25 tests
+truncated envelopes and has an optional external-corpus census for PCON/PARW
+flags, versions and stored byte counts. This census measures coverage and does
+not identify payload fields or prove that the flag meanings are understood.
 
 ## Local source evidence
 
@@ -71,8 +76,15 @@ version 78. This is coverage evidence, not controlled operations or
 independent per-field observations. A typed payload decoder still needs an
 authoritative subtype layout or controlled fixtures before it can close this
 prerequisite.
+The regression tests cover the outer type-index mapping, generic and typed
+envelope round trips, and envelope truncation. They cannot close the subtype
+layout prerequisite. The local 60-save survey cited below provides coverage
+counts, including the PCON and PARW census described below, but not controlled
+operations or independent per-field observations.
 
 The SAV-11 research checkpoint `4d2afa8` surveyed 60 saves and found 40 PMIS
 payloads totaling 10,854 bytes, 169 PGRE payloads totaling 29,169 bytes and no
-PBEA payloads. That is coverage evidence, not a decoded schema. PBEA and the
-other subtypes need their own coverage accounting when a decoder is available.
+PBEA payloads. That is coverage evidence, not a decoded schema. SAV-25's
+census records the matching PCON and PARW totals when `SOE_TEST_SAVES` is set.
+PBEA and the other subtypes need their own coverage accounting when decoders
+are available.
