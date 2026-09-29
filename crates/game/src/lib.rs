@@ -45,6 +45,7 @@ pub mod natives;
 pub mod npc;
 pub mod package;
 pub mod perks;
+pub mod progression;
 pub mod quest;
 pub mod race;
 pub mod save;

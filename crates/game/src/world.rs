@@ -286,6 +286,8 @@ pub struct ActorState {
     /// `FactionState`, this is the actor's own memory of who it saw do it.
     /// See `World::record_witnessed_crime`.
     pub witnessed_crimes: BTreeSet<GlobalFormId>,
+    /// Partial use experience for each actor skill, keyed by lowercase name.
+    pub skill_experience: BTreeMap<String, f32>,
 }
 
 /// One `LVLO` entry of a leveled list.
