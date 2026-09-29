@@ -37,13 +37,31 @@ fn game() -> Game {
 fn sav_18_round_trip_keeps_divergent_wait_clock_origins() {
     let mut source = game();
     source.vm.advance_clocks(100.0, 5.0, false);
-    let real = source.vm.call_global("Sav18SplitClock", "Real", &[]).unwrap();
-    let menu = source.vm.call_global("Sav18SplitClock", "Menu", &[]).unwrap();
-    let game_time = source.vm.call_global("Sav18SplitClock", "Game", &[]).unwrap();
+    let real = source
+        .vm
+        .call_global("Sav18SplitClock", "Real", &[])
+        .unwrap();
+    let menu = source
+        .vm
+        .call_global("Sav18SplitClock", "Menu", &[])
+        .unwrap();
+    let game_time = source
+        .vm
+        .call_global("Sav18SplitClock", "Game", &[])
+        .unwrap();
     source.run_until_idle(100);
-    assert!(matches!(source.vm.thread_state(real), Some(ThreadState::Sleeping(_))));
-    assert!(matches!(source.vm.thread_state(menu), Some(ThreadState::SleepingMenu(_))));
-    assert!(matches!(source.vm.thread_state(game_time), Some(ThreadState::SleepingGame(_))));
+    assert!(matches!(
+        source.vm.thread_state(real),
+        Some(ThreadState::Sleeping(_))
+    ));
+    assert!(matches!(
+        source.vm.thread_state(menu),
+        Some(ThreadState::SleepingMenu(_))
+    ));
+    assert!(matches!(
+        source.vm.thread_state(game_time),
+        Some(ThreadState::SleepingGame(_))
+    ));
     let saved = source.save_state().unwrap();
 
     let mut restored = game();

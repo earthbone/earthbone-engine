@@ -8,7 +8,6 @@ use soe_game::Game;
 use soe_papyrus::{
     asm::{i, none, FunctionBuilder, ScriptBuilder},
     value::{ArrayRef, ElementKind, Value},
-    vm::ThreadState,
 };
 
 fn script(name: &str, result: i32, incompatible: bool) -> Vec<u8> {
@@ -44,7 +43,10 @@ fn sav_60_partial_dependency_rebind_is_atomic_and_resumes_once() {
     source.vm.attach(first_owner, "RecoverFirst").unwrap();
     source.vm.attach(second_owner, "RecoverSecond").unwrap();
     let shared = ArrayRef::new(ElementKind::Int, 2);
-    for (owner, name) in [(first_owner, "RecoverFirst"), (second_owner, "RecoverSecond")] {
+    for (owner, name) in [
+        (first_owner, "RecoverFirst"),
+        (second_owner, "RecoverSecond"),
+    ] {
         source
             .vm
             .set_var(owner, name, "shared", Value::Array(shared.clone()))
@@ -59,7 +61,10 @@ fn sav_60_partial_dependency_rebind_is_atomic_and_resumes_once() {
     partial.load_script(&first).unwrap();
     assert!(partial.vm.has_suspended_state());
     assert_eq!(partial.vm.run(100), 0);
-    assert_eq!(partial.vm.get_var(first_owner, "RecoverFirst", "shared"), None);
+    assert_eq!(
+        partial.vm.get_var(first_owner, "RecoverFirst", "shared"),
+        None
+    );
 
     partial.load_script(&bad_second).unwrap();
     assert!(partial.vm.has_suspended_state());
@@ -68,16 +73,27 @@ fn sav_60_partial_dependency_rebind_is_atomic_and_resumes_once() {
 
     partial.load_script(&second).unwrap();
     assert!(!partial.vm.has_suspended_state());
-    let Value::Array(left) = partial.vm.get_var(first_owner, "RecoverFirst", "shared").unwrap() else {
+    let Value::Array(left) = partial
+        .vm
+        .get_var(first_owner, "RecoverFirst", "shared")
+        .unwrap()
+    else {
         panic!("first dependency variable should be restored")
     };
-    let Value::Array(right) = partial.vm.get_var(second_owner, "RecoverSecond", "shared").unwrap() else {
+    let Value::Array(right) = partial
+        .vm
+        .get_var(second_owner, "RecoverSecond", "shared")
+        .unwrap()
+    else {
         panic!("second dependency variable should be restored")
     };
     assert!(Rc::ptr_eq(&left.items, &right.items));
     assert!(partial.vm.run(100) > 0);
     assert_eq!(partial.vm.thread_result(first_thread), Some(Value::Int(37)));
-    assert_eq!(partial.vm.thread_result(second_thread), Some(Value::Int(82)));
+    assert_eq!(
+        partial.vm.thread_result(second_thread),
+        Some(Value::Int(82))
+    );
     assert_eq!(partial.vm.run(100), 0);
     assert_eq!(partial.vm.live_threads(), 0);
     assert!(!partial.vm.resume_suspended_state().unwrap());
