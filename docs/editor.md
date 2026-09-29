@@ -277,6 +277,15 @@ to a supported winning top-level `STAT` record creates an active-plugin override
 restores the prior active plugin. Saving writes the active plugin bytes and parses those
 bytes again before returning the saved plugin. The TES4 record count is updated with edits.
 
+`save_with_script` compiles PSC source through `soe-papyrus`, attaches its scalar auto
+properties to the selected record in an unfragmented Skyrim VMAD subrecord, and saves the
+active plugin. It creates the normal active-plugin override for a supported top-level STAT
+record. The editor rejects records that already have VMAD data and unsupported PSC
+declarations. PEX bytes are returned to the caller. This crate does not write PSC or PEX
+files, run a language server, edit existing script bindings, or generate quest fragments.
+The VMAD primary section follows UESP's `VMAD_Field` description and
+`TES5Edit/Core/wbDefinitionsTES5.pas`'s `wbVMAD` definition.
+
 Copying a winning record whose owner differs from the active plugin requires relocating
 FormIDs in the record and its group path. The editor currently rejects nested records and
 supports copied top-level `STAT` records only. The FMT-15 FormID renumbering and FMT-26

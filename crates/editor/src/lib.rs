@@ -6,6 +6,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use soe_esm::{Entry, GlobalFormId, GroupKind, LoadOrder, Plugin, Record, Subrecord, Tag};
+use soe_papyrus::{pex, psc};
 use thiserror::Error;
 
 /// Errors produced while opening or editing a plugin document.
@@ -45,6 +46,9 @@ pub enum EditorError {
         /// Subrecord tag that was repeated.
         tag: Tag,
     },
+    /// Papyrus compilation or VMAD binding failed.
+    #[error("Papyrus script could not be attached: {0}")]
+    Papyrus(String),
     /// Saving the active plugin failed.
     #[error("could not write plugin {path}: {source}")]
     Save {
@@ -218,6 +222,63 @@ impl EditorDocument {
         Ok(())
     }
 
+    /// Compile a PSC source and bind its declared auto properties to a record.
+    ///
+    /// The returned bytes are the Skyrim PEX output. This editor milestone
+    /// writes scalar property bindings into an otherwise empty VMAD subrecord.
+    ///
+    /// # Errors
+    /// Returns an error for unsupported source, invalid ownership, records
+    /// without an existing active-plugin override, or records with VMAD data.
+    pub fn compile_script_for_form(
+        &mut self,
+        form: GlobalFormId,
+        source_name: &str,
+        source: &str,
+    ) -> Result<Vec<u8>, EditorError> {
+        let pex_bytes = psc::compile(source_name, source)
+            .map_err(|error| EditorError::Papyrus(error.to_string()))?;
+        let script =
+            pex::parse(&pex_bytes).map_err(|error| EditorError::Papyrus(error.to_string()))?;
+        let object = script
+            .objects
+            .first()
+            .ok_or_else(|| EditorError::Papyrus("compiled PEX has no object".into()))?;
+        let vmad = encode_vmad(object)?;
+
+        let record = self
+            .load_order
+            .winner(form)
+            .ok_or(EditorError::MissingForm(form))?;
+        if record.find(Tag(*b"VMAD")).is_some() {
+            return Err(EditorError::Papyrus(
+                "record already has VMAD data, preserving existing bindings is not supported"
+                    .into(),
+            ));
+        }
+        self.set_subrecord(form, Tag(*b"VMAD"), vmad)?;
+        Ok(pex_bytes)
+    }
+
+    /// Compile and bind a script, then save the edited plugin.
+    ///
+    /// Returns the compiled PEX bytes and the plugin parsed from the written
+    /// output.
+    ///
+    /// # Errors
+    /// Returns an error if compilation, binding, or plugin output fails.
+    pub fn save_with_script(
+        &mut self,
+        form: GlobalFormId,
+        source_name: &str,
+        source: &str,
+        plugin_path: impl AsRef<Path>,
+    ) -> Result<(Vec<u8>, Plugin), EditorError> {
+        let pex_bytes = self.compile_script_for_form(form, source_name, source)?;
+        let plugin = self.save(plugin_path)?;
+        Ok((pex_bytes, plugin))
+    }
+
     /// Undo the most recent edit, returning whether an edit was available.
     ///
     /// # Errors
@@ -338,6 +399,54 @@ fn file_name(path: &Path) -> Result<String, EditorError> {
             name: path.display().to_string(),
             message: "plugin path has no UTF-8 file name".to_string(),
         })
+}
+
+fn encode_vmad(object: &pex::Object) -> Result<Vec<u8>, EditorError> {
+    let mut bytes = Vec::new();
+    bytes.extend_from_slice(&5u16.to_le_bytes());
+    bytes.extend_from_slice(&2u16.to_le_bytes());
+    bytes.extend_from_slice(&1u16.to_le_bytes());
+    write_vmad_string(&mut bytes, &object.name)?;
+    bytes.push(0);
+    let property_count = u16::try_from(object.properties.len())
+        .map_err(|_| EditorError::Papyrus("too many script properties".into()))?;
+    bytes.extend_from_slice(&property_count.to_le_bytes());
+    for property in &object.properties {
+        write_vmad_string(&mut bytes, &property.name)?;
+        let property_type = if property.type_name.eq_ignore_ascii_case("string") {
+            2
+        } else if property.type_name.eq_ignore_ascii_case("int") {
+            3
+        } else if property.type_name.eq_ignore_ascii_case("float") {
+            4
+        } else if property.type_name.eq_ignore_ascii_case("bool") {
+            5
+        } else {
+            1
+        };
+        bytes.push(property_type);
+        bytes.push(1);
+        match property_type {
+            1 => bytes.extend_from_slice(&[0; 8]),
+            2 => write_vmad_string(&mut bytes, "")?,
+            3 => bytes.extend_from_slice(&0i32.to_le_bytes()),
+            4 => bytes.extend_from_slice(&0f32.to_le_bytes()),
+            5 => bytes.push(0),
+            _ => return Err(EditorError::Papyrus("unsupported property type".into())),
+        }
+    }
+    Ok(bytes)
+}
+
+fn write_vmad_string(bytes: &mut Vec<u8>, value: &str) -> Result<(), EditorError> {
+    let utf16: Vec<u16> = value.encode_utf16().collect();
+    let length = u16::try_from(utf16.len())
+        .map_err(|_| EditorError::Papyrus("VMAD string exceeds 65535 UTF-16 units".into()))?;
+    bytes.extend_from_slice(&length.to_le_bytes());
+    for unit in utf16 {
+        bytes.extend_from_slice(&unit.to_le_bytes());
+    }
+    Ok(())
 }
 
 fn is_top_level(plugin: &Plugin, record_index: usize) -> bool {

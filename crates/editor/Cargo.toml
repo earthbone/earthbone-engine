@@ -10,4 +10,5 @@ workspace = true
 
 [dependencies]
 soe-esm = { path = "../esm" }
+soe-papyrus = { path = "../papyrus" }
 thiserror = "2.0"
