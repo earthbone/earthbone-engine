@@ -200,6 +200,7 @@ pub fn without_exclusive_branches(world: &mut World, actors: &[GlobalFormId]) ->
     for (offset, len) in fields {
         bytes.drain(offset..offset + len);
     }
+    normalize_world_sections(&mut bytes);
     bytes
 }
 
@@ -251,6 +252,7 @@ pub fn without_ref_sections(world: &mut World, refs: &[GlobalFormId]) -> Vec<u8>
     for (offset, len) in offsets {
         bytes.drain(offset..offset + len);
     }
+    normalize_world_sections(&mut bytes);
     bytes
 }
 
@@ -275,11 +277,18 @@ pub fn section_table_len(bytes: &[u8], start: usize) -> usize {
 /// Remove the world save-section table appended at the end of a version 37
 /// save when constructing a pre-version-37 fixture.
 #[allow(dead_code)]
-pub fn strip_world_sections(bytes: &mut Vec<u8>) {
+pub fn strip_world_sections(bytes: &mut Vec<u8>) -> usize {
     let start = (0..bytes.len())
         .find(|start| section_table_end(bytes, *start) == Some(bytes.len()))
         .expect("world save-section table is present at the end of the save");
+    let length = bytes.len() - start;
     bytes.truncate(start);
+    length
+}
+
+pub fn normalize_world_sections(bytes: &mut Vec<u8>) {
+    let _ = strip_world_sections(bytes);
+    bytes.extend_from_slice(&0u16.to_le_bytes());
 }
 
 #[allow(dead_code)]
@@ -289,9 +298,6 @@ fn section_table_end(bytes: &[u8], start: usize) -> Option<usize> {
         *bytes.get(cursor)?,
         *bytes.get(cursor.checked_add(1)?)?,
     ]));
-    if count == 0 {
-        return None;
-    }
     cursor = cursor.checked_add(2)?;
     for _ in 0..count {
         let name_len = usize::from(*bytes.get(cursor)?);

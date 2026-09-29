@@ -138,38 +138,30 @@ fn approx_bytes_charges_for_vertex_colors_build_surface_never_builds() {
     );
 }
 
-/// Chebyshev block assignment must hold west and south of the worldspace
-/// origin, not only in the positive quadrant real test cells happen to
-/// sit in. `LodBlockCoord::containing` uses `div_euclid`, the floor
-/// division that keeps a block's cell span contiguous across zero. A
-/// naive `/` would instead round toward zero and put cell -1 in the same
-/// block as cell 0 at every level, splitting a block's western or
-/// southern edge onto the wrong side of the origin.
+/// `LodBlockCoord::containing` follows `TwbLodSettings.BlockForCell`, which
+/// uses integer division truncated toward zero relative to the worldspace
+/// anchor. Negative cells just west or south of the anchor can therefore
+/// still name the anchor's block.
 #[test]
-fn lod_block_coord_containing_is_contiguous_across_the_origin() {
+fn lod_block_coord_containing_uses_anchor_division_across_the_origin() {
     let span = LodLevel::L4.cells();
     for x in -(span * 3)..(span * 3) {
         let cell = CellCoord::new(x, 0);
         let block = LodBlockCoord::containing(cell, LodLevel::L4);
-        let origin = block.origin_cell();
         assert!(
-            cell.x >= origin.x && cell.x < origin.x + span,
-            "cell x={} must fall inside its own block's span [{}, {}), \
-             block x index {}",
+            block.x == (x / span) * span,
+            "cell x={} must follow anchor division, got block x {}",
             cell.x,
-            origin.x,
-            origin.x + span,
             block.x,
         );
     }
-    // The classic off-by-one: cell -1 and cell 0 must land in different
-    // blocks at every level, since block 0 starts exactly at cell 0.
+    // With an anchor at zero, cells -1 and 0 both name the anchor's block.
     for level in [LodLevel::L4, LodLevel::L8, LodLevel::L16, LodLevel::L32] {
         let west_of_origin = LodBlockCoord::containing(CellCoord::new(-1, -1), level);
         let at_origin = LodBlockCoord::containing(CellCoord::new(0, 0), level);
-        assert_ne!(
+        assert_eq!(
             west_of_origin, at_origin,
-            "cell (-1, -1) and cell (0, 0) must not share a block at level {level:?}"
+            "cell (-1, -1) and cell (0, 0) share the anchor block at {level:?}"
         );
     }
 }

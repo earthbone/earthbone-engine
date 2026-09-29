@@ -2,9 +2,9 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
+use soe_game::quest::state::{StoryEvent, StoryParameter};
 use soe_game::{quest, Game, Pending};
-use soe_papyrus::asm::{ident, s, FunctionBuilder, ScriptBuilder};
-use soe_papyrus::{Opcode::*, Value};
+use soe_papyrus::Value;
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
 const KEYWORD: u32 = 0x800;
@@ -53,54 +53,37 @@ fn fixture() -> Game {
     Game::new(order)
 }
 
-fn send_craft_event(game: &mut Game) -> Value {
-    let script = ScriptBuilder::new("StoryProbe", "Form")
-        .function(
-            FunctionBuilder::new("Run", "Var")
-                .global()
-                .param("keyword", "Keyword")
-                .param("location", "Location")
-                .param("bench", "ObjectReference")
-                .param("item", "Form")
-                .local("result", "Var")
-                .ins(
-                    CallMethod,
-                    vec![
-                        s("SendStoryEventAndWait"),
-                        ident("keyword"),
-                        ident("result"),
-                        ident("location"),
-                        ident("bench"),
-                        ident("item"),
-                        soe_papyrus::asm::i(0),
-                        soe_papyrus::asm::i(0),
-                    ],
-                )
-                .ins(Return, vec![ident("result")])
-                .build(),
-        )
-        .bytes();
-    game.load_script(&script).unwrap();
-    let args = [
-        Value::Object(game.object_of_form(id(KEYWORD))),
-        Value::Object(game.object_of_form(id(LOCATION))),
-        Value::Object(game.object_of_form(id(BENCH))),
-        Value::Object(game.object_of_form(id(ITEM))),
-    ];
-    let thread = game.vm.call_global("StoryProbe", "Run", &args).unwrap();
-    game.vm.run(game.budget);
-    game.vm.thread_result(thread).unwrap()
+fn send_craft_event(game: &mut Game) -> bool {
+    let event = StoryEvent {
+        id: KEYWORD,
+        code: *b"CRFT",
+        parameters: vec![
+            StoryParameter::Reference {
+                kind: 0,
+                reference: Some(id(BENCH)),
+            },
+            StoryParameter::Reference {
+                kind: 2,
+                reference: Some(id(LOCATION)),
+            },
+            StoryParameter::Reference {
+                kind: 1,
+                reference: Some(id(ITEM)),
+            },
+        ],
+    };
+    game.send_story_event(&event).unwrap().contains(&id(QUEST))
 }
 
 #[test]
-fn prg_14_matching_authored_event_starts_quest_once_with_ck_arguments() {
+fn prg_14_matching_authored_event_starts_quest_once_with_ordered_arguments() {
     let mut game = fixture();
     let expected_args = [
         Value::Object(game.object_of_form(id(BENCH))),
         Value::Object(game.object_of_form(id(LOCATION))),
         Value::Object(game.object_of_form(id(ITEM))),
     ];
-    assert_eq!(send_craft_event(&mut game), Value::Bool(true));
+    assert!(send_craft_event(&mut game));
     let world = game.world();
     let quest = world.quest(id(QUEST)).unwrap();
     assert!(quest.running);
@@ -116,7 +99,7 @@ fn prg_14_matching_authored_event_starts_quest_once_with_ck_arguments() {
     assert_eq!(events.len(), 1);
     assert_eq!(events[0].len(), 3);
     assert_eq!(events[0], expected_args);
-    assert_eq!(send_craft_event(&mut game), Value::Bool(false));
+    assert!(!send_craft_event(&mut game));
     assert_eq!(
         game.world()
             .pending
