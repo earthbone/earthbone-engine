@@ -49,6 +49,8 @@ pub enum RestoreError {
     RecordChange { id: GlobalFormId, reason: String },
     #[error("cannot restore reference {id}: {reason}")]
     WorldReference { id: GlobalFormId, reason: String },
+    #[error("cannot restore dialogue or scene record {id}: {reason}")]
+    DialogueScene { id: GlobalFormId, reason: String },
 }
 
 /// Plugin positions in a save mapped to positions in the current load order.

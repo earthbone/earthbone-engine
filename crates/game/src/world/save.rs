@@ -68,6 +68,7 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// the last version this constant will ever reach: new saved state goes into a
 /// section registered in `save_section_registry`, at the level that owns it.
 /// The native game save envelope also records dependency provenance.
+/// It also retains saved INFO, SMQN and SCEN record runtime fields.
 pub const SAVE_VERSION: u16 = 37;
 
 #[derive(Clone, Copy)]

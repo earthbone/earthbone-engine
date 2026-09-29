@@ -25,6 +25,9 @@ mod lists;
 #[path = "vanilla_save/record_changes.rs"]
 mod record_changes;
 
+#[path = "vanilla_save/sav_30_dialogue_scene.rs"]
+mod sav_30_dialogue_scene;
+
 use std::{
     path::{Path, PathBuf},
     sync::Arc,

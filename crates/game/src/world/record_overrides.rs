@@ -27,6 +27,16 @@ pub struct ListRecordExtra {
     pub entry_chances: Vec<u8>,
 }
 
+/// Saved runtime fields whose owning record has no plugin-subrecord equivalent.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct DialogueRecordExtra {
+    pub form_flags: Option<(u32, u16)>,
+    pub info_said_once: Option<bool>,
+    pub smqn_last_run_times: Option<Vec<u32>>,
+    pub scene_active: Option<bool>,
+    pub scene_active_data: Option<Vec<u8>>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct RecordOverride {
     pub origin: GlobalFormId,
@@ -38,6 +48,7 @@ pub(super) struct RecordOverride {
     pub npc: NpcRecordExtra,
     pub list: Option<ListRecordExtra>,
     pub saved_form_flags: Option<(u32, u16)>,
+    pub dialogue: Option<DialogueRecordExtra>,
 }
 
 pub(super) fn raw_words(record: &Record) -> BTreeSet<u32> {
@@ -63,6 +74,7 @@ impl RecordOverride {
             npc: NpcRecordExtra::default(),
             list: None,
             saved_form_flags: None,
+            dialogue: None,
         }
     }
 
@@ -122,5 +134,43 @@ impl World {
 
     pub fn restored_list_extra(&self, id: GlobalFormId) -> Option<&ListRecordExtra> {
         self.record_overrides.get(&id)?.list.as_ref()
+    }
+
+    /// Saved INFO said-once state, when a save supplied an explicit marker.
+    pub fn restored_info_said_once(&self, id: GlobalFormId) -> Option<bool> {
+        self.record_overrides
+            .get(&id)?
+            .dialogue
+            .as_ref()?
+            .info_said_once
+    }
+
+    /// The unmodified six-byte saved change-form flags for a record.
+    pub fn restored_dialogue_form_flags(&self, id: GlobalFormId) -> Option<(u32, u16)> {
+        self.record_overrides
+            .get(&id)?
+            .dialogue
+            .as_ref()?
+            .form_flags
+    }
+
+    /// Saved SMQN last-run values, retaining each value's exact float bits.
+    pub fn restored_smqn_last_run_times(&self, id: GlobalFormId) -> Option<&[u32]> {
+        self.record_overrides
+            .get(&id)?
+            .dialogue
+            .as_ref()?
+            .smqn_last_run_times
+            .as_deref()
+    }
+
+    /// Opaque runtime bytes from an active saved SCEN record.
+    pub fn restored_scene_active_data(&self, id: GlobalFormId) -> Option<&[u8]> {
+        self.record_overrides
+            .get(&id)?
+            .dialogue
+            .as_ref()?
+            .scene_active_data
+            .as_deref()
     }
 }
