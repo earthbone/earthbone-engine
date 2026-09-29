@@ -116,6 +116,11 @@ queue with running the VM until no runnable work remains. Deferred death
 requests stay queued until EndDeferredKill. Timers are the same: `tick`
 moves due registrations into the queue as `OnUpdate` events.
 
+`Game.QuitToMainMenu` and `Game.StartTitleSequence` enqueue transient
+`HostRequest` values on the world for Godot to consume. Those requests are not
+saved because they describe host presentation actions, not game state. The
+host drops them after each runtime tick.
+
 **Provider collisions.** `Game::add_natives` runs a second provider (an
 extender in the PAPER mould) and returns the functions it lost. First
 registration wins, the registry never replaces silently. This is the answer to
@@ -207,8 +212,8 @@ loading Skyrim `.tri` morph targets into actor surfaces is not implemented.
 ## Conformance table
 
 `natives::register` has 371 stateful registrations, including
-`CreateDetectionEvent`. Quiet stubs still return an idle value so vanilla
-scripts can continue when their owning system has no behavior yet.
+`CreateDetectionEvent`. Quiet stubs return the idle value expected when their
+owning system has no behavior yet, so vanilla scripts can continue.
 
 | Class | Implemented | Stubbed |
 |---|---|---|

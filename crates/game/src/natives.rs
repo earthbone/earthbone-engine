@@ -20,7 +20,7 @@ use crate::clock::GameClock;
 use crate::combat::Hand;
 use crate::conditions;
 use crate::world::{
-    reaction, AnimationListener, Handle, LeveledEntry, LosListener, MenuRequest, World,
+    reaction, AnimationListener, Handle, HostRequest, LeveledEntry, LosListener, MenuRequest, World,
 };
 
 pub type Shared = Rc<RefCell<World>>;
@@ -1789,6 +1789,16 @@ fn game(vm: &mut Vm, w: &Shared) {
     });
     global!(vm, w, "Game", "GetPlayerGrabbedRef", |world, call| {
         form_value(world, call, world.grabbed_reference())
+    });
+    global!(vm, w, "Game", "QuitToMainMenu", |world, _call| {
+        world.host_requests.push(HostRequest::QuitToMainMenu);
+        none()
+    });
+    global!(vm, w, "Game", "StartTitleSequence", |world, call| {
+        world
+            .host_requests
+            .push(HostRequest::StartTitleSequence(text(&call.arg(0))));
+        none()
     });
     global!(vm, w, "Game", "GetPlayer", |world, call| {
         let p = world.player();
@@ -3575,8 +3585,6 @@ fn stubs(vm: &mut Vm, world: &Shared) -> usize {
         ("Game", "ShowTrainingMenu"),
         ("Game", "ShowFirstPersonGeometry"),
         ("Game", "SetCameraTarget"),
-        ("Game", "QuitToMainMenu"),
-        ("Game", "StartTitleSequence"),
         ("Game", "FindClosestActor"),
         ("Game", "FindRandomActor"),
         ("Game", "FindClosestReferenceOfType"),

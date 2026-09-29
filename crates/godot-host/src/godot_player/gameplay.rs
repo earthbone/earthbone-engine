@@ -8,6 +8,7 @@ use super::{
     PlayerNode, Vec3,
 };
 use godot::obj::WithBaseField;
+use godot::prelude::GString;
 
 impl PlayerNode {
     pub(super) fn start_game_runtime(&mut self) -> bool {
@@ -55,11 +56,12 @@ impl PlayerNode {
         self.image_space.sync(&game.world());
         self.start_footstep_audio();
         self.game = Some(game);
+        self.main_menu.leave();
         self.sync_game_pose()
     }
 
     pub(super) fn advance_game(&mut self, delta: f64) {
-        if self.game.is_none() {
+        if self.game.is_none() || self.main_menu.is_active() {
             return;
         }
         self.sync_camera_controls();
@@ -124,6 +126,10 @@ impl PlayerNode {
                 }
             }
         }
+        self.apply_host_requests();
+        if self.main_menu.is_active() {
+            return;
+        }
         if self.sync_game_pose() {
             self.prefetch_nearby_interior(delta);
         } else {
@@ -181,6 +187,53 @@ impl PlayerNode {
             }
         }
         succeeded
+    }
+
+    fn apply_host_requests(&mut self) {
+        let requests = self.game.as_mut().map_or_else(Vec::new, |game| {
+            std::mem::take(&mut game.world_mut().host_requests)
+        });
+        for request in requests {
+            match request {
+                soe_game::world::HostRequest::QuitToMainMenu => {
+                    self.enter_main_menu();
+                }
+                soe_game::world::HostRequest::StartTitleSequence(name) => {
+                    self.enter_main_menu();
+                    self.main_menu.start_sequence(name.clone());
+                    self.base_mut().emit_signal(
+                        "title_sequence_started",
+                        &[godot::builtin::Variant::from(GString::from(name.as_str()))],
+                    );
+                }
+            }
+        }
+    }
+
+    fn enter_main_menu(&mut self) {
+        if self.main_menu.is_active() {
+            return;
+        }
+        self.close_menu();
+        if let Some(streamer) = self.game_streamer.as_mut() {
+            streamer.bind_mut().clear();
+        }
+        self.game = None;
+        self.data_source = None;
+        self.game_streamer = None;
+        self.loaded_cell = None;
+        self.exterior = None;
+        self.interior_prefetch = crate::interior_prefetch::InteriorPrefetch::default();
+        self.collision_references.clear();
+        self.melee_bodies.clear();
+        self.last_melee_target = None;
+        self.last_melee_obstruction = None;
+        self.world = None;
+        self.query_collision.free();
+        self.actor_bodies.free();
+        self.character = None;
+        self.main_menu.enter();
+        self.base_mut().emit_signal("returned_to_main_menu", &[]);
     }
 
     fn prefetch_nearby_interior(&mut self, delta: f64) {

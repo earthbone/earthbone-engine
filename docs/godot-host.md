@@ -2809,6 +2809,18 @@ the unload of the grass cell and restreaming the new set leaves it out.
 `godot/rnd_11_test.gd` runs the same path inside Godot through
 `stream_exterior` and `release_exterior_cell`.
 
+## Main menu lifecycle, UI-18
+
+The Game globals `QuitToMainMenu` and `StartTitleSequence` queue transient
+host requests on the shared World. PlayerNode consumes them after a gameplay
+tick. Returning to the main menu closes any modal menu, drops the active Game,
+streaming source, cell and host physics resources, and emits
+`returned_to_main_menu`. `is_main_menu` reports this state. Starting a title
+sequence first enters the main menu, stores the requested name as the active
+sequence, and emits `title_sequence_started(name)`. `active_title_sequence`
+returns that name or an empty string when none is active. A plain return clears
+any active sequence. Starting a new game leaves the main menu state.
+
 Open gaps, none closed by this row:
 
 - Only the alpha layers (`ATXT`/`VTXT`) are read as grass sources. A
