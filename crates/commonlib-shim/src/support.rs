@@ -38,7 +38,7 @@ pub const GROUPS: &[Group] = &[
     Group {
         name: "References, actors, inventory and world singletons",
         types: 70,
-        support: Support::Planned,
+        support: Support::Bound,
     },
     Group {
         name: "Papyrus VM",
