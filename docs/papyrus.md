@@ -70,6 +70,17 @@ source fingerprints, so the VM records them at the PEX load boundary.
 Checked on the installed game: all 14,026 `.pex` files in `Skyrim - Misc.bsa`
 parse, 54,620 functions, zero failures, and every one loads into the VM.
 
+`tests/tst_10_champollion.rs` compares function names, parameter types and
+instruction counts from every PEX in that archive with Champollion's assembly
+output. Set `SKYRIM_DATA` to the game Data directory and `CHAMPOLLION` to the
+Champollion executable. Differences are written per script to
+`$CARGO_TARGET_DIR/tst-10-champollion-differences.txt`, or to the path in
+`SOE_TST_10_REPORT`. An empty report means the compared inventories agree.
+When either environment variable is unset, the corpus test skips. The assembly
+fields follow Champollion's `AsmCoder` output in
+`engine-refs/Champollion/Decompiler/AsmCoder.cpp`; the test uses the decoder as
+an external tool and does not port its implementation.
+
 ## VM design
 
 **Frames on threads.** A thread owns a stack of frames. A script function call
