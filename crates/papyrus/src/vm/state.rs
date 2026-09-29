@@ -4,9 +4,10 @@
 //! variables, threads with their frame stacks, the clock and the log.
 //!
 //! The format is the engine's own, versioned by `VERSION`, little-endian,
-//! with no dependency outside the standard library. Scripts are not stored,
-//! the host loads the same PEX files before `load_state`, and every frame
-//! names its function by script, state and name so it can be found again.
+//! with no dependency outside the standard library. Scripts are not stored.
+//! Saved state with missing or changed definitions stays suspended until
+//! compatible PEX files load. Every frame names its function by script, state
+//! and name so it can be found again.
 //! Arrays keep their identity: every distinct array reachable from a
 //! variable, local, result or pending argument goes into a pool once and
 //! values refer to it by index, so two variables that shared an array before
@@ -16,7 +17,7 @@
 //! write its own state in the same encoding, including `Value`s.
 
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::rc::Rc;
 
 use crate::pex::Function;
@@ -507,6 +508,63 @@ fn find_fn(script: &LoadedScript, key: &FnKey) -> Option<Rc<Function>> {
     }
 }
 
+fn saved_script_fingerprints(vm: &Vm) -> Vec<(String, Option<[u8; 32]>)> {
+    let mut scripts = BTreeMap::new();
+    for script in vm
+        .instances
+        .iter()
+        .flat_map(|instance| instance.chain.iter())
+        .chain(
+            vm.threads
+                .iter()
+                .flat_map(|thread| thread.frames.iter())
+                .filter_map(|frame| frame.script.as_ref()),
+        )
+    {
+        scripts
+            .entry(script.name.to_ascii_lowercase())
+            .or_insert_with(|| (script.name.clone(), script.source_fingerprint));
+    }
+    scripts.into_values().collect()
+}
+
+fn read_script_fingerprints(
+    reader: &mut Reader<'_>,
+) -> Result<HashMap<String, Option<[u8; 32]>>, VmError> {
+    let count = reader.len()?;
+    let mut scripts = HashMap::with_capacity(count);
+    for _ in 0..count {
+        let name = reader.str()?;
+        let fingerprint = if reader.bool()? {
+            let bytes = reader.take(32)?;
+            let mut fingerprint = [0; 32];
+            fingerprint.copy_from_slice(bytes);
+            Some(fingerprint)
+        } else {
+            None
+        };
+        if scripts
+            .insert(name.to_ascii_lowercase(), fingerprint)
+            .is_some()
+        {
+            return Err(bad("duplicate script fingerprint entry"));
+        }
+    }
+    Ok(scripts)
+}
+
+fn check_script_fingerprint(
+    saved: &HashMap<String, Option<[u8; 32]>>,
+    loaded: &LoadedScript,
+) -> Result<(), VmError> {
+    if let Some(Some(fingerprint)) = saved.get(&loaded.name.to_ascii_lowercase()) {
+        if loaded.source_fingerprint.as_ref() != Some(fingerprint) {
+            return Err(VmError::IncompatibleScript(loaded.name.clone()));
+        }
+    }
+    Ok(())
+}
+
 impl Vm {
     /// Serialize everything but the loaded scripts and the native registry.
     ///
@@ -515,6 +573,9 @@ impl Vm {
     /// A frame whose function cannot be named (no script attached to it)
     /// cannot be restored and is refused.
     pub fn save_state(&self) -> Result<Vec<u8>, VmError> {
+        if let Some(bytes) = &self.suspended_state {
+            return Ok(bytes.clone());
+        }
         let mut pool = ArrayPool::new();
         let mut body = Writer::new();
 
@@ -607,6 +668,18 @@ impl Vm {
         out.out.extend_from_slice(MAGIC);
         out.u16(VERSION);
         pool.write_pool(&mut out);
+        let fingerprints = saved_script_fingerprints(self);
+        out.len(fingerprints.len());
+        for (name, fingerprint) in fingerprints {
+            out.str(&name);
+            match fingerprint {
+                Some(fingerprint) => {
+                    out.bool(true);
+                    out.out.extend_from_slice(&fingerprint);
+                }
+                None => out.bool(false),
+            }
+        }
         out.out.extend_from_slice(&body.out);
         Ok(out.out)
     }
@@ -616,9 +689,41 @@ impl Vm {
     ///
     /// # Errors
     ///
-    /// A wrong magic or version, a truncated or inconsistent stream, or a
-    /// script or function the save names that is not loaded.
+    /// A wrong magic or version, a truncated or inconsistent stream.
     pub fn load_state(&mut self, bytes: &[u8]) -> Result<(), VmError> {
+        match self.load_state_inner(bytes) {
+            Ok(()) => {
+                self.suspended_state = None;
+                Ok(())
+            }
+            Err(
+                VmError::UnknownScript(_)
+                | VmError::UnknownFunction { .. }
+                | VmError::IncompatibleScript(_),
+            ) => {
+                self.clear_runtime_state();
+                self.suspended_state = Some(bytes.to_vec());
+                Ok(())
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    fn clear_runtime_state(&mut self) {
+        self.objects.clear();
+        self.next_object = 0;
+        self.instances.clear();
+        self.threads.clear();
+        self.next_thread = 0;
+        self.latent_counter = 0;
+        self.latent_waiters.clear();
+        self.time = 0.0;
+        self.menu_time = 0.0;
+        self.game_hours = 0.0;
+        self.log.entries.clear();
+    }
+
+    pub(super) fn load_state_inner(&mut self, bytes: &[u8]) -> Result<(), VmError> {
         let mut r = Reader::new(bytes);
         if r.take(4)? != MAGIC {
             return Err(bad("not a VM state file"));
@@ -630,6 +735,11 @@ impl Vm {
             )));
         }
         let table = ArrayTable::read_pool(&mut r)?;
+        let fingerprints = if version >= 4 {
+            read_script_fingerprints(&mut r)?
+        } else {
+            HashMap::new()
+        };
 
         let next_object = r.u64()?;
         let n = r.len()?;
@@ -661,7 +771,9 @@ impl Vm {
             let mut chain = Vec::with_capacity(k);
             for _ in 0..k {
                 let name = r.str()?;
-                chain.push(self.script(&name).ok_or(VmError::UnknownScript(name))?);
+                let script = self.script(&name).ok_or(VmError::UnknownScript(name))?;
+                check_script_fingerprint(&fingerprints, &script)?;
+                chain.push(script);
             }
             let state = r.str()?;
             let (mut vars, mut var_types) = read_vars(&table, &mut r)?;
@@ -732,6 +844,7 @@ impl Vm {
                 let script = self
                     .script(&script_name)
                     .ok_or_else(|| VmError::UnknownScript(script_name.clone()))?;
+                check_script_fingerprint(&fingerprints, &script)?;
                 let key = match r.u8()? {
                     0 => FnKey::Method {
                         state: r.str()?,
@@ -840,6 +953,124 @@ impl Vm {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::vm::variable_key;
+
+    #[test]
+    fn sav_59_unavailable_state_survives_two_save_cycles_and_resumes() {
+        use crate::asm::{ident, none, s, FunctionBuilder, ScriptBuilder};
+
+        let script = ScriptBuilder::new("LostScript", "")
+            .variable("left", "Int[]", none())
+            .variable("right", "Int[]", none())
+            .function(
+                FunctionBuilder::new("Run", "None")
+                    .local("ignored", "None")
+                    .ins(
+                        crate::pex::Opcode::CallStatic,
+                        vec![s("LostScript"), s("Inner"), ident("ignored")],
+                    )
+                    .ins(crate::pex::Opcode::Return, vec![none()])
+                    .build(),
+            )
+            .function(
+                FunctionBuilder::new("Inner", "None")
+                    .ins(crate::pex::Opcode::Return, vec![none()])
+                    .build(),
+            )
+            .bytes();
+        let incompatible = ScriptBuilder::new("LostScript", "")
+            .variable("left", "Int[]", none())
+            .variable("right", "Int[]", none())
+            .variable("changedSchema", "Int", crate::asm::i(1))
+            .function(
+                FunctionBuilder::new("Run", "None")
+                    .local("ignored", "None")
+                    .ins(
+                        crate::pex::Opcode::CallStatic,
+                        vec![s("LostScript"), s("Inner"), ident("ignored")],
+                    )
+                    .ins(crate::pex::Opcode::Return, vec![none()])
+                    .build(),
+            )
+            .function(
+                FunctionBuilder::new("Inner", "None")
+                    .ins(crate::pex::Opcode::Return, vec![none()])
+                    .build(),
+            )
+            .bytes();
+
+        let mut source = Vm::new();
+        source.load_bytes(&script).unwrap();
+        let object = source.create_object("saved owner");
+        let instance = source.attach(object, "LostScript").unwrap();
+        let shared = ArrayRef::new(ElementKind::Int, 1);
+        source.instances[instance.0].vars.insert(
+            variable_key("LostScript", "left"),
+            Value::Array(shared.clone()),
+        );
+        source.instances[instance.0].vars.insert(
+            variable_key("LostScript", "right"),
+            Value::Array(shared.clone()),
+        );
+        let thread = source.call_global("LostScript", "Run", &[]).unwrap();
+        assert_eq!(source.run(1), 1);
+        let active = source.threads.iter_mut().find(|t| t.id == thread).unwrap();
+        active.state = ThreadState::Latent(LatentId(41));
+        active.pending_dest = Some("pendingResult".into());
+        active.result = Value::Array(shared.clone());
+        active.frames[1]
+            .locals
+            .insert("pendingArgument".into(), Value::Array(shared));
+        source.latent_waiters.insert(LatentId(41), thread);
+        let original = source.save_state().unwrap();
+
+        let mut recovering = Vm::new();
+        recovering.load_state(&original).unwrap();
+        assert!(recovering.has_suspended_state());
+        assert_eq!(recovering.run(100), 0);
+        let first_cycle = recovering.save_state().unwrap();
+        assert_eq!(first_cycle, original);
+
+        let mut recovering = Vm::new();
+        recovering.load_state(&first_cycle).unwrap();
+        assert!(recovering.has_suspended_state());
+        let second_cycle = recovering.save_state().unwrap();
+        assert_eq!(second_cycle, original);
+
+        recovering.load_bytes(&incompatible).unwrap();
+        assert!(recovering.has_suspended_state());
+        assert_eq!(recovering.run(100), 0);
+        recovering.load_bytes(&script).unwrap();
+        assert!(!recovering.has_suspended_state());
+        assert_eq!(recovering.live_threads(), 1);
+        assert_eq!(recovering.threads[0].frames.len(), 2);
+        assert_eq!(
+            recovering.thread_state(thread),
+            Some(ThreadState::Latent(LatentId(41)))
+        );
+        assert_eq!(recovering.latent_waiters.get(&LatentId(41)), Some(&thread));
+        assert_eq!(
+            recovering.threads[0].pending_dest.as_deref(),
+            Some("pendingResult")
+        );
+
+        let vars = &recovering.instances[instance.0].vars;
+        let Value::Array(left) = &vars[&variable_key("LostScript", "left")] else {
+            panic!("left variable should remain an array")
+        };
+        let Value::Array(right) = &vars[&variable_key("LostScript", "right")] else {
+            panic!("right variable should remain an array")
+        };
+        let Value::Array(result) = &recovering.threads[0].result else {
+            panic!("thread result should remain an array")
+        };
+        let Value::Array(local) = &recovering.threads[0].frames[1].locals["pendingArgument"] else {
+            panic!("frame local should remain an array")
+        };
+        assert!(Rc::ptr_eq(&left.items, &right.items));
+        assert!(Rc::ptr_eq(&left.items, &result.items));
+        assert!(Rc::ptr_eq(&left.items, &local.items));
+    }
 
     #[test]
     fn serialized_waiters_do_not_depend_on_hashmap_insertion_order() {

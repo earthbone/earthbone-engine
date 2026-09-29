@@ -70,6 +70,7 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// The same version carries Fallout 4 struct values in saved Papyrus state.
 /// AI-88 retains each actor's reserved furniture marker in an actor section.
 /// Version 37 retains pending quest start and stop promotion tasks.
+/// SAV-59 retains opaque records by plugin name in a world section.
 pub const SAVE_VERSION: u16 = 37;
 
 #[derive(Clone, Copy)]
@@ -1077,16 +1078,22 @@ impl World {
         // this table fails, sections read earlier in the same call have
         // already mutated `self`, and the `Err` this function returns
         // tells the caller to discard it.
-        if version >= 37 {
+        let unresolved_records = if version >= 37 {
             let previous_overrides =
                 std::mem::replace(&mut self.record_overrides, record_overrides);
             let previous_quests = std::mem::replace(&mut self.quests, quests);
+            let previous_unresolved = std::mem::take(&mut self.unresolved_records);
             let section_result =
                 save_sections::read_sections(&mut r, "world", self, WORLD_SECTIONS);
+            let unresolved_records = std::mem::take(&mut self.unresolved_records);
+            self.unresolved_records = previous_unresolved;
             quests = std::mem::replace(&mut self.quests, previous_quests);
             record_overrides = std::mem::replace(&mut self.record_overrides, previous_overrides);
             section_result?;
-        }
+            unresolved_records
+        } else {
+            BTreeMap::new()
+        };
         r.expect_end()?;
         for id in super::detection::detection_actors(&detection) {
             let actor = refs.get(&id).map_or_else(
@@ -1122,6 +1129,7 @@ impl World {
         }
 
         self.record_overrides = record_overrides;
+        self.unresolved_records = unresolved_records;
         self.actor_templates = actor_templates;
         self.leveled_lists = leveled_lists;
         self.locations = locations;
