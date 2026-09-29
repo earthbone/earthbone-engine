@@ -191,8 +191,8 @@ values, and `wbPackageFlags` plus UESP `PACK.wikitext` supply `Ignore Combat`.
 The local TiltedEvolution `CombatView.cpp` scores recent detection, the current
 target, distance, reachability, death and fleeing, but several scoring helpers
 call executable addresses, so their formulas are not copied. SkyMP's
-`movementGet.ts` reads `GetCombatTarget` to orient an actor toward that target;
-its player combat service handles attack timing and does not select targets.
+`movementGet.ts` reads `GetCombatTarget` to orient an actor toward that target.
+Its player combat service handles attack timing and does not select targets.
 
 ## Validation
 
