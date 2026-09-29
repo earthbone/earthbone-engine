@@ -77,11 +77,21 @@ The mapping follows the Rust API while adapting Rust names and types to C++, inc
 `NativeRegistry::register`, which is emitted as `register_native` because `register` is a C++
 keyword.
 
+The SHM-13 `RE/Magic.h` projects interfaces for favorite forms, cast rejection reasons, active
+magic target queries and dispel, map-marker visibility and travel flags, and the supported subset
+of equip parameters. Binary-address calls and vtable patches have explicit unsupported-hook
+values. Equip options outside the supported plain single-item operation are reported through
+`UnsupportedEquipOption`. The C++ fixture checks these declarations with in-process test doubles.
+They do not call the Rust `World` or prove a live engine binding. `game` currently owns actor
+spell hands, active effects, reference map flags and inventory equipment, but this source-level
+shim has no bridge from C++ into that state.
+
 ## Untested
 
 The SHM-01 test compiles the generated umbrella headers with a C++20 compiler and checks C++
-signatures for the Rust methods they project. No sample plugin has been compiled against the
-headers, and the declarations are not linked to engine behavior. The counts are token counts,
+signatures for the Rust methods they project. The SHM-13 fixture checks magic API contracts with
+test doubles, not the live game state. No sample plugin has been compiled against the headers,
+and the declarations are not linked to engine behavior. The counts are token counts,
 so a name mentioned only in a comment is counted and a type reached only through `auto` is not.
 Four plugins are a sample, not the population: the map's 70 to 90 percent open-source estimate
 is from a six-plugin sample and the shimmable share here is 3 of 4 by plugin, far less by hook
