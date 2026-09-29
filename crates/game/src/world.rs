@@ -33,6 +33,7 @@ use std::sync::Arc;
 use soe_esm::records::{Text, Transform};
 use soe_esm::strings::{StringTable, StringTableKind};
 use soe_esm::{GlobalFormId, LoadOrder, RecordRef, Tag};
+use soe_papyrus::vm::LatentId;
 use soe_papyrus::{ObjectId, Value};
 
 use crate::clock::GameClock;
@@ -365,6 +366,14 @@ pub struct AnimationListener {
     pub event: String,
 }
 
+/// A latent `WaitForAnimationEvent` call waiting on one reference.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AnimationWaiter {
+    pub source: GlobalFormId,
+    pub event: String,
+    pub latent: LatentId,
+}
+
 /// A line-of-sight registration. `single` is a one-shot gain or lost
 /// registration, `gain` says which of the two.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -519,6 +528,10 @@ pub struct World {
     pub sleep_listeners: Vec<ObjectId>,
     pub stats_listeners: Vec<ObjectId>,
     pub animation_listeners: Vec<AnimationListener>,
+    /// Papyrus waits keyed by their reference and case-insensitive event name.
+    pub animation_waiters: Vec<AnimationWaiter>,
+    /// Results ready for `Game::pump` to deliver to the VM.
+    pub completed_animation_waits: Vec<(LatentId, bool)>,
     pub los_listeners: Vec<LosListener>,
     /// Tracked stats by name, `IncrementStat` and `QueryStat`.
     pub stats: BTreeMap<String, i32>,
@@ -615,6 +628,8 @@ impl World {
             sleep_listeners: Vec::new(),
             stats_listeners: Vec::new(),
             animation_listeners: Vec::new(),
+            animation_waiters: Vec::new(),
+            completed_animation_waits: Vec::new(),
             los_listeners: Vec::new(),
             stats: BTreeMap::new(),
             fast_travel: true,

@@ -885,6 +885,11 @@ Three pieces, none of which touch Godot except the last:
   address its own bone list, so two shapes naming different bones would read
   each other's transforms.
 
+After each pose upload, the actor node emits every graph event by its authored
+name. `PlayerNode.bind_actor_appearance` connects those signals to the shared
+game and reports graph unload when the visual leaves the scene tree. This
+resolves Papyrus event listeners and animation waits against the bound actor.
+
 ### Measured on the installed game
 
 `malebody_1.nif` with the vanilla human skeleton and `mt_behavior.hkx`:

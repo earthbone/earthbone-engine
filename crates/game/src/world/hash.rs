@@ -604,6 +604,17 @@ impl World {
             form(&mut h, *id);
             h.str(name);
         }
+        h.len(self.animation_waiters.len());
+        for waiter in &self.animation_waiters {
+            form(&mut h, waiter.source);
+            h.str(&waiter.event);
+            h.u64(waiter.latent.0);
+        }
+        h.len(self.completed_animation_waits.len());
+        for (latent, result) in &self.completed_animation_waits {
+            h.u64(latent.0);
+            h.bool(*result);
+        }
         h.bool(self.player_controls);
         let output = h.finish();
 

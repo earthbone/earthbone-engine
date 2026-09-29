@@ -86,6 +86,7 @@ pub struct PlayerNode {
     character: Option<BodyId>,
     data_source: Option<Arc<DataSource>>,
     game: Option<soe_game::Game>,
+    animation_source: Option<GlobalFormId>,
     melee_contact: crate::combat::MeleeContact,
     melee_bodies: HashMap<Rid, GlobalFormId>,
     /// One server body per loaded actor, rebuilt from the shared World on
@@ -144,6 +145,7 @@ impl INode3D for PlayerNode {
             character: None,
             data_source: None,
             game: None,
+            animation_source: None,
             melee_contact: crate::combat::MeleeContact::default(),
             melee_bodies: HashMap::new(),
             actor_bodies: crate::godot_physics::ActorBodies::default(),
@@ -363,16 +365,49 @@ impl PlayerNode {
         let (Ok(file), Ok(object)) = (u16::try_from(file), u32::try_from(object)) else {
             return false;
         };
-        match visual.bind_mut().bind_appearance(
+        let appearance = visual.bind_mut().bind_appearance(
             game.shared_world(),
             Arc::clone(source),
             soe_esm::GlobalFormId { file, object },
-        ) {
-            Ok(()) => true,
+        );
+        match appearance {
+            Ok(()) => {
+                self.animation_source = Some(soe_esm::GlobalFormId { file, object });
+                visual.connect(
+                    "animation_event",
+                    &self.base().callable("report_animation_event"),
+                );
+                visual.connect(
+                    "animation_graph_unloaded",
+                    &self.base().callable("report_animation_graph_unloaded"),
+                );
+                true
+            }
             Err(error) => {
                 godot_error!("PlayerNode actor appearance: {error}");
                 false
             }
+        }
+    }
+
+    /// Forward one authored behavior event from the bound actor rig.
+    #[func]
+    #[allow(clippy::needless_pass_by_value)]
+    fn report_animation_event(&mut self, name: GString) {
+        if let (Some(game), Some(source)) = (&mut self.game, self.animation_source) {
+            game.report_animation_event(source, &name.to_string());
+            game.pump();
+            game.run_until_idle(64);
+        }
+    }
+
+    /// Complete animation-event waits when the bound rig leaves the tree.
+    #[func]
+    fn report_animation_graph_unloaded(&mut self) {
+        if let (Some(game), Some(source)) = (&mut self.game, self.animation_source) {
+            game.animation_graph_unloaded(source);
+            game.pump();
+            game.run_until_idle(64);
         }
     }
 

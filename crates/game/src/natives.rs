@@ -202,7 +202,7 @@ pub fn register(vm: &mut Vm, world: &Shared) -> Registered {
 
 /// Hand-kept count of the non-stub natives registered below. The test in
 /// this module checks it against the registry.
-pub const NATIVE_COUNT: usize = 366;
+pub const NATIVE_COUNT: usize = 367;
 
 fn declare_parents(vm: &mut Vm) {
     for (class, parent) in [
@@ -451,19 +451,34 @@ fn form(vm: &mut Vm, w: &Shared) {
 }
 
 fn object_reference(vm: &mut Vm, w: &Shared) {
+    let waits = w.clone();
+    vm.natives.register_method(
+        "ObjectReference",
+        "WaitForAnimationEvent",
+        Box::new(move |call| {
+            let Some(source) = call
+                .self_object
+                .and_then(|object| waits.borrow().form_of(object))
+            else {
+                return b(false);
+            };
+            let event = text(&call.arg(0));
+            let latent = call.defer();
+            waits
+                .borrow_mut()
+                .wait_for_animation_event(source, &event, latent);
+            NativeReturn::Latent(latent)
+        }),
+    );
     for name in ["Enable", "EnableNoWait"] {
         method!(vm, w, "ObjectReference", name, |world, call, me| {
-            if let Some(r) = world.reference(me) {
-                r.enabled = true;
-            }
+            world.set_reference_enabled(me, true);
             none()
         });
     }
     for name in ["Disable", "DisableNoWait"] {
         method!(vm, w, "ObjectReference", name, |world, call, me| {
-            if let Some(r) = world.reference(me) {
-                r.enabled = false;
-            }
+            world.set_reference_enabled(me, false);
             none()
         });
     }
@@ -476,8 +491,8 @@ fn object_reference(vm: &mut Vm, w: &Shared) {
     method!(vm, w, "ObjectReference", "Delete", |world, call, me| {
         if let Some(r) = world.reference(me) {
             r.deleted = true;
-            r.enabled = false;
         }
+        world.set_reference_enabled(me, false);
         none()
     });
     method!(vm, w, "ObjectReference", "IsDeleted", |world, call, me| b(
@@ -3278,7 +3293,6 @@ fn stubs(vm: &mut Vm) -> usize {
         ("Faction", "ModReaction"),
         ("Keyword", "SendStoryEvent"),
         ("ActorBase", "GetGiftFilter"),
-        ("ObjectReference", "WaitForAnimationEvent"),
         ("ObjectReference", "InterruptCast"),
         ("Actor", "PlayIdleWithTarget"),
         ("Spell", "Preload"),
