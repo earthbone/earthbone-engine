@@ -77,6 +77,22 @@ class the record's signature implies (`QUST` is a `Quest`, `ACHR` an `Actor`),
 so a form with no script still answers its class's natives. The VM gained
 `create_object_of` and `NativeCall::create_object` for this.
 
+**Destructible references.** `ObjectReference.DamageObject` reads the base
+record's DEST header and ordered DSTD stages. Damage lowers reference-owned
+destruction health, advances every crossed percentage threshold, and queues
+`OnDestructionStageChanged` with each stage number. DSTD flags can cap damage,
+disable the reference, mark it destroyed, or ignore external damage. The
+active DSTD model-stage index selects a DMDL path through
+`World::destruction_model`; a host can use that path in place of the base
+model. `GetCurrentDestructionStage` returns `-1` before a stage and the
+zero-based DSTD position afterward. `ClearDestruction` restores full health,
+clears the destroyed flag and returns the stage to `-1`. Health and stage are
+saved in the reference-level `CMB-37` section. DEST field widths and flags
+follow `TES5Edit/Core/wbDefinitionsTES5.pas`; the UESP format corpus indexes
+DEST and its subrecords but does not include the linked DEST field page. The
+Creation Kit `DamageObject` and `GetCurrentDestructionStage` pages establish
+native behavior and the undamaged return value.
+
 **Natives cannot touch the VM.** They run inside a VM thread. Anything they
 want the VM to do, an `OnActivate` event, an `OnInit`, a stage fragment call,
 goes into `World::pending`, and `Game::run_until_idle` alternates draining that

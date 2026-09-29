@@ -187,6 +187,14 @@ fn ref_state(h: &mut StateHasher, s: &RefState) {
     h.bool(s.on_map);
     h.bool(s.fast_travel);
     h.bool(s.destroyed);
+    match s.destruction_health {
+        Some(health) => {
+            h.u8(1);
+            h.f32(health);
+        }
+        None => h.u8(0),
+    }
+    h.i32(s.destruction_stage);
     h.bool(s.ignore_friendly_hits);
     h.len(s.anim_floats.len());
     for (k, v) in &s.anim_floats {
