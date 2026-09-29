@@ -924,7 +924,7 @@ fn object_reference(vm: &mut Vm, w: &Shared) {
             "AddInventoryEventFilter",
             |world, call, me| {
                 if let Some(filter) = world.form_arg(&call.arg(0)) {
-                    world.inventory_filters.entry(me).or_default().push(filter);
+                    world.add_inventory_event_filter(me, filter);
                 }
                 none()
             }
@@ -936,9 +936,7 @@ fn object_reference(vm: &mut Vm, w: &Shared) {
             "RemoveInventoryEventFilter",
             |world, call, me| {
                 let filter = world.form_arg(&call.arg(0));
-                if let Some(list) = world.inventory_filters.get_mut(&me) {
-                    list.retain(|f| Some(*f) != filter);
-                }
+                world.remove_inventory_event_filter(me, filter);
                 none()
             }
         );
@@ -948,7 +946,7 @@ fn object_reference(vm: &mut Vm, w: &Shared) {
             class,
             "RemoveAllInventoryEventFilters",
             |world, call, me| {
-                world.inventory_filters.remove(&me);
+                world.remove_all_inventory_event_filters(me);
                 none()
             }
         );
@@ -2595,7 +2593,7 @@ fn active_magic(vm: &mut Vm, w: &Shared) {
         "AddInventoryEventFilter",
         |world, call, me| {
             if let Some(filter) = world.form_arg(&call.arg(0)) {
-                world.inventory_filters.entry(me).or_default().push(filter);
+                world.add_inventory_event_filter(me, filter);
             }
             none()
         }
@@ -2607,9 +2605,7 @@ fn active_magic(vm: &mut Vm, w: &Shared) {
         "RemoveInventoryEventFilter",
         |world, call, me| {
             let filter = world.form_arg(&call.arg(0));
-            if let Some(list) = world.inventory_filters.get_mut(&me) {
-                list.retain(|entry| Some(*entry) != filter);
-            }
+            world.remove_inventory_event_filter(me, filter);
             none()
         }
     );
@@ -2619,7 +2615,7 @@ fn active_magic(vm: &mut Vm, w: &Shared) {
         "ActiveMagicEffect",
         "RemoveAllInventoryEventFilters",
         |world, _call, me| {
-            world.inventory_filters.remove(&me);
+            world.remove_all_inventory_event_filters(me);
             none()
         }
     );

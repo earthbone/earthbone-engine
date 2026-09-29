@@ -8,7 +8,7 @@
 use super::{Alloc, Handle, Pending, World, T};
 use crate::inventory::{Bundle, Error, Extra, Field, Selection, Stack, StackSource};
 use soe_esm::{GlobalFormId, Record, Tag};
-use soe_papyrus::Value;
+use soe_papyrus::{ObjectId, Value};
 
 enum FormListAddition {
     Base(GlobalFormId, i32),
@@ -38,6 +38,32 @@ enum ReferenceSource {
 }
 
 impl World {
+    /// Add an inventory event filter to one Papyrus listener.
+    /// Filters on the same listener stack and match either a form or members
+    /// of a form list when inventory events are queued.
+    pub fn add_inventory_event_filter(&mut self, listener: ObjectId, filter: GlobalFormId) {
+        self.inventory_filters
+            .entry(listener)
+            .or_default()
+            .push(filter);
+    }
+
+    /// Remove a form filter from one Papyrus listener.
+    pub fn remove_inventory_event_filter(
+        &mut self,
+        listener: ObjectId,
+        filter: Option<GlobalFormId>,
+    ) {
+        if let Some(filters) = self.inventory_filters.get_mut(&listener) {
+            filters.retain(|candidate| Some(*candidate) != filter);
+        }
+    }
+
+    /// Remove every inventory event filter from one Papyrus listener.
+    pub fn remove_all_inventory_event_filters(&mut self, listener: ObjectId) {
+        self.inventory_filters.remove(&listener);
+    }
+
     /// Select a quantity from one stack or the plain remainder of a holder's items.
     ///
     /// # Errors
