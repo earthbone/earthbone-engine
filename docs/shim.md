@@ -52,7 +52,7 @@ and events next, everything below the line waits on a runtime that does not exis
 | Forms and record enums | 86 | 23 | 12 | 78 | 15 | 16 | Bound now. `soe-esm` carries every record as subrecords and six typed views, the rest of the typed views are per-record work. |
 | References, actors, inventory and world singletons | 70 | 19 | 6 | 53 | 18 | 18 | Planned, round 2 `game` crate. The runtime object model Papyrus sees is the same one these types describe. |
 | Papyrus VM | 11 | 3 | 0 | 11 | 3 | 11 | Bound now. `soe-papyrus` has the native registry with the first-registered-wins rule, `StaticFunctionTag` and the stack and handle ids map onto its thread and object ids. |
-| Conditions | 4 | 0 | 0 | 4 | 2 | 3 | Planned. `soe-esm` keeps CTDA bytes, the evaluator over the 736 function ids lands with the `game` crate. |
+| Conditions | 4 | 0 | 0 | 4 | 2 | 3 | Bound. `CONDITIONITEMOBJECT`, `CONDITION_ITEM_DATA`, `TESConditionItem` and `TESCondition` pass condition calls through the MIT `ConditionRuntime` trait. `soe-game` reads its live world and VM. Unsupported copy hooks return a typed error. |
 | Event sources, sinks and story events | 26 | 7 | 0 | 23 | 6 | 4 | Planned as typed channels in the `game` crate. Each `TES*Event` becomes an enum variant, the sink trait keeps the continue or stop control. |
 | Containers, strings, locks and memory | 23 | 7 | 1 | 19 | 6 | 9 | Shim-provided from Rust std. `BSFixedString` is an interned string, arrays are `Vec`, locks are `RwLock`. Nothing engine-side. |
 | NetImmerse scene graph and materials | 35 | 1 | 3 | 30 | 8 | 7 | Different shape. The engine scene is a Godot tree, so `NiAVObject` and `NiNode` become opaque node handles with name lookup, the math types are shim-provided, shader material fields map to the `soe-nif` material struct where a field exists. |
@@ -65,14 +65,18 @@ and events next, everything below the line waits on a runtime that does not exis
 
 `crates/commonlib-shim` (MIT, unlike the GPL core) compiles with no engine dependency. Its Rust
 surface includes `FormId` with the master and light index rules, the `Form` and `DataHandler`
-traits, reference and actor handles, the VM registry types with the collision rule, event
-sources with continue-or-stop control, SKSE plugin interfaces as traits, NetImmerse math types,
-and a `support` table that keeps the group counts aligned with this document.
+traits, reference and actor handles, condition types that call a host-provided
+runtime trait, the VM registry types with the collision rule, event sources
+with continue-or-stop control, SKSE plugin interfaces as traits, NetImmerse
+math types, and a `support` table that keeps the group counts aligned with this
+document.
 
 `src/headers.rs` generates the corresponding supported C++ surface under `include/RE` and
 `include/SKSE`. `RE/Skyrim.h` and `SKSE/SKSE.h` are the umbrella includes. Regenerate the files
 after changing the header mapping with `cargo run -p soe-commonlib-shim --bin generate-headers`.
 The declarations are source-level headers only. They do not provide a C ABI or engine bindings.
+Condition methods delegate to `ConditionRuntime`; the game implementation evaluates against the
+current world and VM. Native condition copying reports `UnsupportedHook`.
 The mapping follows the Rust API while adapting Rust names and types to C++, including
 `NativeRegistry::register`, which is emitted as `register_native` because `register` is a C++
 keyword.
