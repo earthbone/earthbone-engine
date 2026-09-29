@@ -3,7 +3,7 @@
 
 //! SAV-11 adversarial checks for the generic PMIS, PGRE and PBEA envelope.
 
-use soe_save::{ChangeForm, RefId, Save};
+use soe_save::{ChangeForm, ProjectileChangeFlag, RefId, Save};
 use std::{
     collections::BTreeMap,
     path::{Path, PathBuf},
@@ -44,6 +44,29 @@ fn sav_11_projectile_type_ids_do_not_invent_payload_layouts() {
         assert_eq!(value.record_type(), name);
         assert_eq!(value.payload().unwrap().as_ref(), &[0, 0x80, 0xff]);
     }
+}
+
+#[test]
+fn sav_11_source_flags_are_typed_and_opaque_payload_bytes_are_retained() {
+    for kind in [2, 3, 4] {
+        for flag in ProjectileChangeFlag::ALL {
+            let bits = 1_u32 << flag as u8;
+            let payload = vec![0, 0x80, 0xff];
+            let change = form(kind, bits, payload.clone(), 0);
+            let decoded = change.saved_projectile_change().unwrap().unwrap();
+            assert_eq!(decoded.flags.bits(), bits);
+            assert!(decoded.flags.contains(flag));
+            assert_eq!(decoded.payload, payload);
+        }
+        let all_flags = form(kind, u32::MAX, vec![0xfe, 0, 0x7f], 0);
+        let decoded = all_flags.saved_projectile_change().unwrap().unwrap();
+        assert_eq!(decoded.flags.bits(), u32::MAX);
+        assert_eq!(decoded.payload, all_flags.data);
+    }
+    assert!(form(5, u32::MAX, vec![1], 0)
+        .saved_projectile_change()
+        .unwrap()
+        .is_none());
 }
 
 #[test]
@@ -108,7 +131,9 @@ fn sav_11_external_corpus_accounts_for_projectile_subtypes_and_payload_bytes() {
             total.0 += 1;
             total.1 += payload.len();
             assert_eq!(payload.as_ref(), change.payload().unwrap().as_ref());
-            assert!(change.projectile_change().unwrap().is_none());
+            let decoded = change.saved_projectile_change().unwrap().unwrap();
+            assert_eq!(decoded.flags.bits(), change.change_flags);
+            assert_eq!(decoded.payload, payload.as_ref());
         }
     }
     assert!(totals["PMIS"].0 > 0 && totals["PGRE"].0 > 0);

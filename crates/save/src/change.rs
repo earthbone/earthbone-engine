@@ -88,6 +88,24 @@ impl ChangeForm {
         }))
     }
 
+    /// Decode the source-defined flags and retain the opaque payload for
+    /// PMIS, PGRE or PBEA change forms.
+    ///
+    /// xEdit defines the common 32-bit change flag word for these types, but
+    /// its subtype payload branches are empty. The payload remains raw.
+    ///
+    /// # Errors
+    /// Returns an error if an internally compressed payload is malformed.
+    pub fn saved_projectile_change(&self) -> Result<Option<ProjectileChange>> {
+        if !matches!(self.record_type(), "PMIS" | "PGRE" | "PBEA") {
+            return Ok(None);
+        }
+        Ok(Some(ProjectileChange {
+            flags: ProjectileChangeFlags(self.change_flags),
+            payload: self.payload()?.into_owned(),
+        }))
+    }
+
     /// Return the known PCON change-form envelope without interpreting its
     /// source-opaque payload.
     pub fn pcon_change(&self) -> Option<PconChange> {
@@ -805,7 +823,7 @@ mod sav_25_projectile_truncation_tests {
 
     #[test]
     fn sav_25_change_form_reader_rejects_each_truncated_envelope_field() {
-        for kind in [42, 47] {
+        for kind in [2, 3, 4, 5, 40, 41, 42, 47] {
             let form = ChangeForm {
                 form: RefId::from_bytes([0; 3]),
                 change_flags: u32::MAX,
@@ -818,7 +836,7 @@ mod sav_25_projectile_truncation_tests {
             form.write(&mut bytes);
 
             for end in 0..bytes.len() {
-                let mut cursor = Cursor::new(&bytes[..end], "SAV-25 truncated change form");
+                let mut cursor = Cursor::new(&bytes[..end], "truncated projectile change form");
                 assert!(
                     ChangeForm::read(&mut cursor).is_err(),
                     "kind {kind}, end {end}"

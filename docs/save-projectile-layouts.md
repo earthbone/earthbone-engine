@@ -5,9 +5,13 @@ Their original decoder completion checks remain unchanged. The sources below
 do not establish exact serialized layouts for all eight subtypes, so their
 payload fields remain undecoded. A synthetic SAV-55 regression test pins the
 eight public type indices and the generic change-form header's flag and
-payload round trip. SAV-23 additionally exposes all shared xEdit PFLA, PHZD
-and PBAR change flag bits as typed positions and retains the inflated payload
-bytes. It does not assign payload fields or establish internal boundaries.
+payload round trip. SAV-11 exposes all shared xEdit PMIS, PGRE and PBEA
+change flag bits through `saved_projectile_change`. SAV-23 exposes the same
+positions for PFLA, PHZD and PBAR through `projectile_change`. Both APIs retain
+the inflated payload bytes without assigning payload fields or internal
+boundaries. Their regression coverage rejects truncation of the outer
+length-delimited change-form envelope, not truncation of an opaque subtype
+field.
 PCON and PARW expose only typed change-form envelopes, including flags and
 version, while retaining the payload bytes as opaque data. SAV-25 tests
 truncated envelopes and has an optional external-corpus census for PCON/PARW

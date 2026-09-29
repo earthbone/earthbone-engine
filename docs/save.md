@@ -23,9 +23,11 @@ the xEdit dispatch gap, runtime type boundaries and evidence needed by SAV-55.
 
 The SAV-55 regression test pins the type indices for PMIS, PGRE, PBEA, PFLA,
 PHZD, PBAR, PCON and PARW and checks the generic change-form header preserves
-flags and payload bytes. SAV-23 exposes all 32 xEdit-defined shared PFLA, PHZD
-and PBAR change flag bits through `ProjectileChange`, while retaining the
-inflated subtype payload as exact bytes. The payload fields remain undecoded:
+flags and payload bytes. SAV-11 exposes all 32 xEdit-defined PMIS, PGRE and
+PBEA change flag bits through `saved_projectile_change`. SAV-23 exposes the
+same flag positions for PFLA, PHZD and PBAR through `projectile_change`. Both
+retain their inflated subtype payload as exact bytes. The payload fields
+remain undecoded:
 xEdit's subtype dispatch structures are empty and FallrimTools uses its raw
 fallback. PCON and PARW expose typed envelopes containing their change flags,
 version, compression length and exact stored bytes. Their
