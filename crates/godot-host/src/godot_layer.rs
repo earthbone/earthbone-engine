@@ -40,6 +40,13 @@ use crate::terrain_lod::{LodBlockCoord, LodLevel, TerrainLodConfig, TerrainLodSt
 use crate::units::{direction_to_godot, direction_to_skyrim, GodotPos, GodotTransform, SkyrimPos};
 use soe_physics::{Iso, Vec3};
 
+fn tether_form_id(encoded: i64) -> Option<GlobalFormId> {
+    let encoded = u64::try_from(encoded).ok()?;
+    let file = u16::try_from(encoded >> 32).ok()?;
+    let object = u32::try_from(encoded & 0xffff_ffff).ok()?;
+    (object <= 0x00ff_ffff).then_some(GlobalFormId { file, object })
+}
+
 /// Keeps a square of exterior cells requested around `focus`. Connect
 /// `cell_load_requested` and `cell_unload_requested` to whatever builds
 /// and frees cell scenes. A load that fails must be reported back with
@@ -98,6 +105,8 @@ pub struct CellStreamerNode {
     /// `sync_reference_changes` can push moves and hides on the tick after,
     /// without re-resolving `get_world_3d` itself.
     collision_space: Option<Rid>,
+    /// Host joints between linked references, released with either endpoint.
+    tethers: crate::godot_tether::TetherConstraints,
     /// Every reference's last observed visibility and placement, gating the
     /// rendering rebake so an untouched cell costs one map lookup per
     /// reference per tick rather than a mesh rebuild. Collision has no such
@@ -308,6 +317,7 @@ impl INode3D for CellStreamerNode {
             collision: crate::godot_physics::CellBodies::default(),
             last_collision_stats: VarDictionary::new(),
             collision_space: None,
+            tethers: crate::godot_tether::TetherConstraints::default(),
             ref_cache: std::collections::HashMap::new(),
             terrain_lod: None,
         }
@@ -321,6 +331,7 @@ impl INode3D for CellStreamerNode {
         self.free_instances();
         self.clear_terrain_lod();
         self.collision.free();
+        self.tethers.free();
         self.collision_space = None;
         self.ref_cache.clear();
     }
@@ -422,6 +433,18 @@ impl CellStreamerNode {
     /// upload, never from an already patched copy, matching
     /// `StaticEntry::source` on the collision side.
     pub(crate) fn sync_reference_changes(&mut self, world: &soe_game::World) {
+        let stale_tethers: Vec<_> = self
+            .tether_endpoints()
+            .into_iter()
+            .filter(|id| {
+                world
+                    .ref_placement(*id)
+                    .is_none_or(|placement| !placement.visible)
+            })
+            .collect();
+        for id in stale_tethers {
+            self.tethers.release_reference(id);
+        }
         if let Some(space) = self.collision_space {
             self.collision.sync_placements(world, space);
         }
@@ -464,6 +487,10 @@ impl CellStreamerNode {
             instance.mesh = InstanceMesh::Array(new_mesh);
         }
     }
+
+    fn tether_endpoints(&self) -> Vec<GlobalFormId> {
+        self.tethers.endpoints()
+    }
 }
 
 #[godot_api]
@@ -499,6 +526,43 @@ impl CellStreamerNode {
         if let Some(s) = self.streamer.as_mut() {
             s.mark_unloaded(CellCoord::new(cell_x, cell_y));
         }
+    }
+
+    /// Creates the cart-to-horse host pin joint once both rigid bodies are
+    /// resident. This node owns the joint RID and frees it with either form.
+    #[func]
+    pub fn tether_bodies(
+        &mut self,
+        cart_form: i64,
+        horse_form: i64,
+        cart_body: Rid,
+        horse_body: Rid,
+        cart_pivot: Vector3,
+        horse_pivot: Vector3,
+    ) -> bool {
+        let Some(cart) = tether_form_id(cart_form) else {
+            return false;
+        };
+        let Some(horse) = tether_form_id(horse_form) else {
+            return false;
+        };
+        self.tethers
+            .tether(cart, horse, cart_body, horse_body, cart_pivot, horse_pivot)
+    }
+
+    /// Explicitly removes every tether touching a reference.
+    #[func]
+    pub fn untether_reference(&mut self, file: i32, object: i64) -> i32 {
+        let (Ok(file), Ok(object)) = (u16::try_from(file), u32::try_from(object)) else {
+            return 0;
+        };
+        self.tethers
+            .release_reference(GlobalFormId { file, object }) as i32
+    }
+
+    #[func]
+    pub fn tether_count(&self) -> i32 {
+        self.tethers.link_count() as i32
     }
 
     #[func]
@@ -1049,6 +1113,7 @@ impl CellStreamerNode {
     #[func]
     pub fn clear(&mut self) {
         self.collision.free();
+        self.tethers.free();
         self.collision_space = None;
         self.free_instances();
         self.exterior_cells.clear();

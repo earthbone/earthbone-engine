@@ -12,6 +12,18 @@ Crate `soe-godot-host` (`crates/godot-host`). A GDExtension in Rust on godot-rus
 because Jolt became the built-in physics there. The crate builds and tests with cargo alone.
 With `--no-default-features` the `godot` dependency is gone and what remains is the logic.
 
+### Cart and horse host tether
+
+`CellStreamerNode::tether_bodies` creates a Godot pin joint between caller-
+supplied cart and horse body RIDs and keys ownership by both resolved
+reference IDs, each encoded as `(file << 32) | object`. Creating another link
+for either endpoint first frees the old one. `untether_reference` frees links
+for explicit untethering. The player
+sync path also releases a link when either endpoint is missing or disabled,
+and `clear` or node teardown frees every remaining joint. The caller supplies
+the rigid bodies and local pivots. The host API does not infer cart bones or
+build the wheel, pole, chassis or horse rig from NIF collision data.
+
 ## Layout
 
 ### Movable-reference physics prerequisite, HST-12
