@@ -66,6 +66,7 @@ use soe_papyrus::{ArrayRef, ObjectId, ThreadId, Value, Vm, VmError};
 
 pub use clock::GameClock;
 pub use natives::Registered;
+pub use world::StoryError;
 pub use world::{Handle, Pending, RefPlacement, World};
 
 use vmad::{ObjectRef, PropertyValue, ScriptEntry, Vmad};
@@ -274,6 +275,19 @@ impl Game {
 
     pub fn world_mut(&self) -> RefMut<'_, World> {
         self.world.borrow_mut()
+    }
+
+    /// Route an authored Story Manager event through the shared runtime.
+    ///
+    /// # Errors
+    /// Returns malformed record, condition, or reset data errors.
+    pub fn send_story_event(
+        &mut self,
+        event: &crate::quest::state::StoryEvent,
+    ) -> Result<Vec<GlobalFormId>, StoryError> {
+        let vm = &mut self.vm;
+        let mut world = self.world.borrow_mut();
+        world.send_story_event(vm, event)
     }
 
     /// Resolve a vendor faction's current service for an actor.

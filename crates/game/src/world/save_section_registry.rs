@@ -17,6 +17,7 @@ use super::{ActorState, RefState, World};
 #[rustfmt::skip]
 pub(crate) const WORLD_SECTIONS: &[Section<World>] = &[
     Section { name: "CRF-02", write: super::save::write_brewed_potions, read: super::save::read_brewed_potions },
+    super::story_manager::SECTION,
 ];
 
 /// Sections read and written once per actor, at the end of every actor

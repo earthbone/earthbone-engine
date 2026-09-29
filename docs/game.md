@@ -1351,6 +1351,37 @@ Enchanting, skill advancement, crafting story events, item instance state and
 host menus remain unfinished. The full requested execution scope is tracked in
 [execution-plan.md](execution-plan.md).
 
+## Story Manager quest routing
+
+`Game::send_story_event` accepts a typed story event and routes it through
+winning `SMEN`, `SMBN` and `SMQN` records. Parent links and previous-node links
+determine the authored tree and sibling order. Node conditions use the game
+condition evaluator. Random nodes draw from the world's saved random stream.
+Quest nodes read their `NNAM`, `FNAM` and `RNAM` quest entries, respect their
+concurrent-quest limit, `MNAM` run count, run-once quest flag, reset deadline,
+and do-all-before-repeating cursor. Nodes with the warning flag append a
+notification when none of their child quests starts.
+
+A started quest records the event code and ordered arguments in its existing
+quest run data, starts through the normal `Quest.Start` path, then queues its
+mapped `OnStory...` event after `OnInit`. `PRG-14` world save state retains
+per-quest start counts and reset deadlines plus the selected quest set for
+each do-all quest node. The implementation reads record fields described in
+`TES5Edit/Core/wbDefinitionsTES5.pas` and event signatures listed in
+`ck-wiki/Quest_Script.wikitext` and node field descriptions in
+`uesp-modfileformat/SMEN.wikitext`, `SMBN.wikitext` and `SMQN.wikitext` under
+`../engine-refs`. This state is included in the quest part of the world
+determinism hash.
+
+Story event submission is an explicit runtime API. It does not automatically
+emit events from gameplay actions. The AI-69 draft was not present in this
+worktree. Its condition functions `GetScriptVariable`, `GetQuestVariable`,
+`GetDestructionStage`, `IsInCriticalStage`, `GetEventData`,
+`GetIsCrashLandRequest` and `GetIsHastyLandRequest` remain a dependency of
+conditioned trees. Unsupported or unavailable predicates return a typed
+routing error. Unknown event codes queue `OnStoryEvent` because this branch
+has no authored Papyrus event name for them.
+
 The game crate now directly uses the workspace's existing thiserror 2.0.20
 for typed execution errors. `cargo tree -p soe-game -i thiserror` confirms
 the dependency was already present through esm, bsa, navmesh and profile.
