@@ -8,7 +8,8 @@ use soe_esm::{GlobalFormId, Tag};
 
 #[test]
 fn edt_11_winning_deleted_override_remains_the_final_chain_version() {
-    let root = std::env::temp_dir().join(format!("soe-editor-edt-11-deleted-{}", std::process::id()));
+    let root =
+        std::env::temp_dir().join(format!("soe-editor-edt-11-deleted-{}", std::process::id()));
     let base = root.with_extension("Base.esm");
     let patch = root.with_extension("Patch.esp");
     let mut source = Plugin::new(FileHeader::default());
@@ -25,7 +26,10 @@ fn edt_11_winning_deleted_override_remains_the_final_chain_version() {
     let active = patch.file_name().unwrap().to_string_lossy();
     let document = EditorDocument::open(&[base.clone(), patch.clone()], &active).unwrap();
 
-    let chain = document.override_chain(GlobalFormId { file: 0, object: 0x800 });
+    let chain = document.override_chain(GlobalFormId {
+        file: 0,
+        object: 0x800,
+    });
     assert_eq!(chain.len(), 2);
     assert!(!chain[0].is_winner);
     assert!(chain[1].is_winner);

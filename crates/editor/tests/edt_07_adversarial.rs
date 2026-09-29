@@ -26,18 +26,36 @@ fn edt_07_repeated_same_field_edits_undo_to_each_prior_state() {
     fs::write(&base, source.to_bytes()).unwrap();
     fs::write(&patch, override_plugin.to_bytes()).unwrap();
     let active = patch.file_name().unwrap().to_string_lossy();
-    let mut document = EditorDocument::open(&[PathBuf::from(&base), PathBuf::from(&patch)], &active).unwrap();
-    let form = GlobalFormId { file: 0, object: 0x800 };
+    let mut document =
+        EditorDocument::open(&[PathBuf::from(&base), PathBuf::from(&patch)], &active).unwrap();
+    let form = GlobalFormId {
+        file: 0,
+        object: 0x800,
+    };
     let original = document.active_plugin().clone();
 
-    document.edit_quest_objective_text(form, 0, "First edit").unwrap();
-    document.edit_quest_objective_text(form, 0, "Second edit").unwrap();
+    document
+        .edit_quest_objective_text(form, 0, "First edit")
+        .unwrap();
+    document
+        .edit_quest_objective_text(form, 0, "Second edit")
+        .unwrap();
     assert!(document.undo().unwrap());
-    assert_eq!(document.load_order().winner(form).unwrap().find(Tag(*b"NNAM")), Some(&b"First edit\0"[..]));
+    assert_eq!(
+        document
+            .load_order()
+            .winner(form)
+            .unwrap()
+            .find(Tag(*b"NNAM")),
+        Some(&b"First edit\0"[..])
+    );
     assert!(document.undo().unwrap());
     assert_eq!(document.active_plugin(), &original);
     document.save(&patch).unwrap();
-    assert!(Plugin::parse(&fs::read(&patch).unwrap()).unwrap().records.is_empty());
+    assert!(Plugin::parse(&fs::read(&patch).unwrap())
+        .unwrap()
+        .records
+        .is_empty());
     let _ = fs::remove_file(base);
     let _ = fs::remove_file(patch);
 }

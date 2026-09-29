@@ -49,7 +49,11 @@ fn edt_20_second_action_edit_survives_reload_and_preserves_first_action() {
     let override_plugin = Plugin::new(FileHeader {
         masters: vec![
             base.file_name().unwrap().to_string_lossy().into_owned(),
-            source_path.file_name().unwrap().to_string_lossy().into_owned(),
+            source_path
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .into_owned(),
         ],
         ..Default::default()
     });
@@ -57,20 +61,41 @@ fn edt_20_second_action_edit_survives_reload_and_preserves_first_action() {
     fs::write(&source_path, source.to_bytes()).unwrap();
     fs::write(&patch, override_plugin.to_bytes()).unwrap();
     let active = patch.file_name().unwrap().to_string_lossy();
-    let mut document = EditorDocument::open(&[base.clone(), source_path.clone(), patch.clone()], &active).unwrap();
-    let scene_id = GlobalFormId { file: 1, object: 0x820 };
-    let replacement = GlobalFormId { file: 0, object: 0x802 };
+    let mut document =
+        EditorDocument::open(&[base.clone(), source_path.clone(), patch.clone()], &active).unwrap();
+    let scene_id = GlobalFormId {
+        file: 1,
+        object: 0x820,
+    };
+    let replacement = GlobalFormId {
+        file: 0,
+        object: 0x802,
+    };
 
-    document.set_scene_action_topic(scene_id, 1, replacement).unwrap();
-    document.set_scene_phase_name(scene_id, 0, "Renamed phase").unwrap();
+    document
+        .set_scene_action_topic(scene_id, 1, replacement)
+        .unwrap();
+    document
+        .set_scene_phase_name(scene_id, 0, "Renamed phase")
+        .unwrap();
     document.save(&patch).unwrap();
     let saved = Plugin::parse(&fs::read(&patch).unwrap()).unwrap();
     let record = saved.records_of(Tag(*b"SCEN")).next().unwrap();
     let view = Scene::from_record(record).unwrap();
     assert_eq!(view.phases[0].name.as_deref(), Some("Renamed phase"));
     assert_eq!(view.actions.len(), 2);
-    assert_eq!(view.actions[0].data, SceneActionData::Dialogue { topic: Some(0x0000_0801) });
-    assert_eq!(view.actions[1].data, SceneActionData::Dialogue { topic: Some(0x0000_0802) });
+    assert_eq!(
+        view.actions[0].data,
+        SceneActionData::Dialogue {
+            topic: Some(0x0000_0801)
+        }
+    );
+    assert_eq!(
+        view.actions[1].data,
+        SceneActionData::Dialogue {
+            topic: Some(0x0000_0802)
+        }
+    );
     let _ = fs::remove_file(base);
     let _ = fs::remove_file(source_path);
     let _ = fs::remove_file(patch);

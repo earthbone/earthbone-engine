@@ -4,6 +4,7 @@
 
 use std::fs;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use soe_editor::EditorDocument;
 use soe_esm::plugin::{FileHeader, Record};
@@ -37,7 +38,12 @@ impl Drop for Fixture {
 }
 
 fn fixture() -> Fixture {
-    let root = std::env::temp_dir().join(format!("soe-editor-edt-11-{}", std::process::id()));
+    static NEXT_FIXTURE: AtomicUsize = AtomicUsize::new(0);
+    let fixture_id = NEXT_FIXTURE.fetch_add(1, Ordering::Relaxed);
+    let root = std::env::temp_dir().join(format!(
+        "soe-editor-edt-11-{}-{fixture_id}",
+        std::process::id()
+    ));
     let paths = ["Base.esm", "Middle.esp", "Final.esp"]
         .into_iter()
         .map(|name| {

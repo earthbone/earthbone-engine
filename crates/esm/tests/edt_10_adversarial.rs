@@ -41,14 +41,8 @@ fn edt_10_repeated_head_part_links_keep_their_authored_order_on_edit() {
         )
         .unwrap();
 
-    let edited = NpcFace::edit_record(
-        &npc,
-        &[0x0100_0801, 0x0100_0800],
-        [0.0; FACE_MORPH_COUNT],
-        &order,
-        1,
-    )
-    .unwrap();
+    let edited =
+        NpcFace::edit_record(&npc, &[0x801, 0x800], [0.0; FACE_MORPH_COUNT], &order, 1).unwrap();
     let face = NpcFace::from_record(&edited).unwrap();
-    assert_eq!(face.head_parts, [0x0100_0801, 0x0100_0800]);
+    assert_eq!(face.head_parts, [0x801, 0x800]);
 }

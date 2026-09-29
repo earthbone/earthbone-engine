@@ -62,7 +62,14 @@ impl NpcFace {
         }
 
         let mut morph = [0.0; FACE_MORPH_COUNT];
-        if let Some(data) = record.find(FACE_MORPH) {
+        let mut morph_fields = record.all(FACE_MORPH);
+        let first_morph = morph_fields.next();
+        if morph_fields.next().is_some() {
+            return Err(Error::Invalid(
+                "NPC_ record has repeated NAM9 face morph fields".into(),
+            ));
+        }
+        if let Some(data) = first_morph {
             let mut fields = Fields::new(record.tag, FACE_MORPH, data);
             fields.exact(FACE_MORPH_COUNT * 4)?;
             for value in &mut morph {
