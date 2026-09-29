@@ -1880,6 +1880,48 @@ fn utility(vm: &mut Vm, w: &Shared) {
     global!(vm, w, "Utility", "GetCurrentRealTime", |world, _call| f(
         world.clock.real_seconds as f32
     ));
+    // These queries depend on engine services that are not available in the
+    // shared World. Keep their unsupported state visible to Papyrus instead
+    // of returning the quiet `None` used by the old stub registrations.
+    for (name, arity, reason) in [
+        (
+            "GetMinFrameRate",
+            0,
+            "beta frame-rate capture is unavailable",
+        ),
+        (
+            "GetMaxFrameRate",
+            0,
+            "beta frame-rate capture is unavailable",
+        ),
+        ("GetCurrentMemory", 0, "memory tracking is unavailable"),
+        ("GetBudgetCount", 0, "memory tracking is unavailable"),
+        ("GetBudgetName", 1, "memory tracking is unavailable"),
+    ] {
+        let reason = reason.to_owned();
+        global!(vm, w, "Utility", name, |_world, call| {
+            if call.args.len() != arity {
+                call.log.push(
+                    call.time,
+                    format!(
+                        "error: Utility.{name} expects {arity} argument(s), got {}",
+                        call.args.len()
+                    ),
+                );
+                return none();
+            }
+            if name == "GetBudgetName" && !matches!(call.args.first(), Some(Value::Int(_))) {
+                call.log.push(
+                    call.time,
+                    "error: Utility.GetBudgetName expects an integer budget index".to_owned(),
+                );
+                return none();
+            }
+            call.log
+                .push(call.time, format!("error: Utility.{name}: {reason}"));
+            none()
+        });
+    }
     global!(vm, w, "Utility", "GameTimeToString", |_world, call| s(
         &GameClock::format_game_time(call.arg(0).as_float())
     ));
@@ -3401,11 +3443,6 @@ fn stubs(vm: &mut Vm) -> usize {
         ("Utility", "StartFrameRateCapture"),
         ("Utility", "EndFrameRateCapture"),
         ("Utility", "GetAverageFrameRate"),
-        ("Utility", "GetMinFrameRate"),
-        ("Utility", "GetMaxFrameRate"),
-        ("Utility", "GetCurrentMemory"),
-        ("Utility", "GetBudgetCount"),
-        ("Utility", "GetBudgetName"),
         ("Utility", "GetCurrentBudget"),
         ("Utility", "OverBudget"),
     ];
