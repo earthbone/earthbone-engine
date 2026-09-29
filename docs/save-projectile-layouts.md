@@ -2,11 +2,12 @@
 
 SAV-55 records a shared source prerequisite for SAV-11, SAV-23 and SAV-25.
 Their original decoder completion checks remain unchanged. The sources below
-do not establish exact serialized layouts for all eight subtypes, so those
-decoders remain blocked. The parser keeps these payloads opaque. A synthetic
-SAV-55 regression test pins the eight public type indices and the generic
-change-form header's flag and payload round trip. It does not assert subtype
-field order or internal payload boundaries.
+do not establish exact serialized layouts for all eight subtypes, so their
+payload fields remain undecoded. A synthetic SAV-55 regression test pins the
+eight public type indices and the generic change-form header's flag and
+payload round trip. SAV-23 additionally exposes all shared xEdit PFLA, PHZD
+and PBAR change flag bits as typed positions and retains the inflated payload
+bytes. It does not assign payload fields or establish internal boundaries.
 
 ## Local source evidence
 
@@ -23,6 +24,13 @@ does not establish which subtype uses it or whether those fields are complete.
 `InitialDataTypeDecider` includes several projectile types but omits PARW,
 while `ChangedFormExtraDecider` includes PARW. That difference needs evidence
 before reusing the reference prefix for arrows.
+
+xEdit does define the shared 32-bit change flag word for PFLA, PHZD and PBAR.
+Those definitions reuse reference change names and retain unnamed positions.
+The UESP `REFR_Changeform.wikitext` describes a REFR payload, but does not bind
+that payload layout to projectile or hazard subtypes. The PFLA, PHZD and PBAR
+payload branches in xEdit's changed-form union are empty, so the shared flag
+word does not establish the bytes that follow it.
 
 FallrimTools `ChangeForm.java` at revision
 `61bb57d895f023617cb55045a4907849fd1ff566` supplies no typed reader for these
@@ -52,10 +60,17 @@ boundaries for each subtype. Fixtures need recorded build versions, identities,
 operations and independently observed state. Parsing must account for the
 complete payload and reject unsupported combinations before state changes.
 
-The current regression test covers only the outer type-index mapping and
-generic header envelope. It cannot close this prerequisite. The local
-60-save survey cited below provides coverage counts, but not controlled
-operations or independent per-field observations.
+The current decoder covers the shared flag word and exact payload retention,
+not subtype fields. Its truncation check covers the generic length-delimited
+change-form envelope. The SAV-23 survey of 60 local saves inspected 1,344,172
+change forms and found 13,240 PHZD payloads totaling 525,606 inflated bytes.
+It found no PFLA or PBAR payloads. The observed PHZD flags were
+`00000001`, `10000000`, `80000002`, `80000006`, `82000002`, `82000003`,
+`90000002`, `a000000a`, `a000000e` and `a200000a`, all at form and change
+version 78. This is coverage evidence, not controlled operations or
+independent per-field observations. A typed payload decoder still needs an
+authoritative subtype layout or controlled fixtures before it can close this
+prerequisite.
 
 The SAV-11 research checkpoint `4d2afa8` surveyed 60 saves and found 40 PMIS
 payloads totaling 10,854 bytes, 169 PGRE payloads totaling 29,169 bytes and no
