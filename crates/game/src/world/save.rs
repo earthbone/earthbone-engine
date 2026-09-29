@@ -1072,10 +1072,12 @@ impl World {
         // there is no local `World` to stage it in. If a section later in
         // this table fails, sections read earlier in the same call have
         // already mutated `self`, and the `Err` this function returns
-        // tells the caller to discard it. No section is registered today,
-        // so this call is a no-op until one is.
+        // tells the caller to discard it. Registered sections only run for
+        // version 37 and later saves.
+        self.vampire_lord_forms.clear();
         if version >= 37 {
             save_sections::read_sections(&mut r, "world", self, WORLD_SECTIONS)?;
+            super::magic::validate_vampire_lord_state(self, &actors, &active_effects)?;
         }
         r.expect_end()?;
         for id in super::detection::detection_actors(&detection) {

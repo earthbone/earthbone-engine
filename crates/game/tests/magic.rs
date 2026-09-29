@@ -33,6 +33,8 @@ const SUMMON_BASE: u32 = 0x501;
 
 #[path = "magic/collection.rs"]
 mod collection;
+#[path = "magic/mag_67_vampire_lord.rs"]
+mod mag_67_vampire_lord;
 
 fn retain_effect(game: &mut Game, effect: soe_papyrus::ObjectId) {
     let script = ScriptBuilder::new("EffectHolder", "Actor")
@@ -1112,12 +1114,12 @@ fn version_eight_worlds_load_without_active_effects() {
     let mut game = fixture(0, 1, 0.0, 10);
     let actors = game.world().loaded_actors();
     let mut old = legacy::without_exclusive_branches(&mut game.world_mut(), &actors);
-    // The extra 6 bytes beyond the old 70 are detection's now-unconditional
-    // empty pool count (4 bytes) and the world-level save-section table
-    // version 37 added (2 bytes), both always present at the tail regardless
-    // of the simulated version. `without_exclusive_branches` already strips
-    // each actor's and reference's own mid-stream section table.
-    old.truncate(old.len() - 76);
+    // The extra 21 bytes beyond the old 70 are detection's now-unconditional
+    // empty pool count (4 bytes) and the world-level save-section table (17
+    // bytes), both always present at the tail regardless of the simulated
+    // version. `without_exclusive_branches` already strips each actor's and
+    // reference's own mid-stream section table.
+    old.truncate(old.len() - 91);
     old[4..6].copy_from_slice(&8u16.to_le_bytes());
     cast(&mut game, SPELL, OTHER).unwrap();
     game.world_mut().load_state(&old).unwrap();

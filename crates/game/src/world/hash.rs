@@ -760,6 +760,7 @@ impl World {
         h.bytes(&dialogue.out);
         let mut magic = soe_papyrus::vm::state::Writer::new();
         self.write_magic(&mut magic);
+        crate::world::magic::write_vampire_lord_state(self, &mut magic);
         self.write_image_space(&mut magic);
         h.bytes(&magic.out);
         let mut records = soe_papyrus::vm::state::Writer::new();

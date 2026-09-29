@@ -544,6 +544,7 @@ pub struct World {
     pub spell_casts: Vec<(GlobalFormId, GlobalFormId, Option<GlobalFormId>)>,
     pub(crate) active_effects: BTreeMap<magic::EffectId, magic::ActiveEffect>,
     pub(crate) next_effect: u64,
+    pub(crate) vampire_lord_forms: BTreeMap<magic::EffectId, magic::VampireLordForm>,
     pub(crate) image_space: image_space::ImageSpaceState,
     /// Stealth-point pools by target, each with its observers' awareness.
     pub(crate) detection: crate::detection::DetectionState,
@@ -636,6 +637,7 @@ impl World {
             localized_strings: BTreeMap::new(),
             active_effects: BTreeMap::new(),
             next_effect: 1,
+            vampire_lord_forms: BTreeMap::new(),
             image_space: image_space::ImageSpaceState::default(),
             detection: crate::detection::DetectionState::default(),
         }

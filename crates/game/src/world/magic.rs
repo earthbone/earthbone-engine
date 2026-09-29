@@ -5,6 +5,9 @@
 //! enums. Definitions stay in the winning records. Per-cast magnitudes,
 //! elapsed time and reversible actor-value deltas belong to the world.
 //! Unsupported delivery and archetypes return errors before applying effects.
+//! Vampire Lord transformations use their associated race and own its ability changes.
+
+use std::collections::BTreeMap;
 
 use soe_esm::records::gameplay::{Effect, Ingestible, MagicEffect, Spell};
 use soe_esm::GlobalFormId;
@@ -14,6 +17,7 @@ use crate::actor_values::actor_value_name;
 
 use crate::conditions::{self, Context};
 
+use super::save::{read_form_id, read_opt_form_id, write_form_id, write_opt_form_id, FormReader};
 use super::{Alloc, Handle, Pending, World};
 
 mod state;
@@ -55,6 +59,16 @@ pub struct ActiveEffect {
     pub(crate) changes: Vec<(String, f32)>,
 }
 
+/// State owned by one live Vampire Lord transformation effect.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct VampireLordForm {
+    pub actor: GlobalFormId,
+    pub previous_race: Option<GlobalFormId>,
+    pub vampire_race: GlobalFormId,
+    pub added_spells: std::collections::BTreeSet<GlobalFormId>,
+    pub ability_effects: Vec<EffectId>,
+}
+
 /// A spell was rejected before any of its effects were applied.
 #[derive(Debug, thiserror::Error)]
 pub enum MagicError {
@@ -87,6 +101,7 @@ struct PreparedEffect {
     hit_event: bool,
     dispel_rules: Vec<DispelRule>,
     dispel: Vec<EffectId>,
+    vampire_form: Option<(GlobalFormId, std::collections::BTreeSet<GlobalFormId>)>,
 }
 
 impl World {
@@ -314,6 +329,7 @@ impl World {
                 hit_event: false,
                 dispel_rules,
                 dispel: Vec::new(),
+                vampire_form: None,
             });
         }
         Ok(prepared)
@@ -391,8 +407,17 @@ impl World {
             return;
         };
         let spells = state.spells.clone();
+        self.apply_actor_abilities_from(actor, &spells);
+    }
+
+    fn apply_actor_abilities_from(
+        &mut self,
+        actor: GlobalFormId,
+        spells: &std::collections::BTreeSet<GlobalFormId>,
+    ) -> Vec<EffectId> {
+        let mut applied = Vec::new();
         for spell in spells {
-            let Ok(definition) = self.spell(spell) else {
+            let Ok(definition) = self.spell(*spell) else {
                 continue;
             };
             if definition.data.spell_type != 4
@@ -401,7 +426,7 @@ impl World {
             {
                 continue;
             }
-            let Ok(prepared) = self.prepare_spell(spell, actor, Some(actor), Some(actor)) else {
+            let Ok(prepared) = self.prepare_spell(*spell, actor, Some(actor), Some(actor)) else {
                 continue;
             };
             let Ok(prepared) = self.prepare_effect_actions(prepared) else {
@@ -418,8 +443,45 @@ impl World {
                     }
                 }
                 self.active_effects.insert(id, prepared.effect.clone());
+                applied.push(id);
             }
         }
+        applied
+    }
+
+    fn vampire_lord_race(
+        &self,
+        effect: GlobalFormId,
+        raw_race: u32,
+    ) -> Result<(GlobalFormId, std::collections::BTreeSet<GlobalFormId>), MagicError> {
+        let race = self
+            .resolve_from(effect, raw_race)
+            .filter(|race| self.tag_of(*race) == Some(super::T(b"RACE")))
+            .ok_or(MagicError::Missing(effect))?;
+        let record_ref = self
+            .order
+            .winner_ref(race)
+            .ok_or(MagicError::Missing(race))?;
+        let record = self.order.record(record_ref);
+        if record.is_deleted() {
+            return Err(MagicError::Missing(race));
+        }
+        let mut spells = std::collections::BTreeSet::new();
+        for raw in record.all(super::T(b"SPLO")) {
+            if raw.len() != 4 {
+                return Err(MagicError::Unsupported("race ability layout"));
+            }
+            let form = u32::from_le_bytes([raw[0], raw[1], raw[2], raw[3]]);
+            let Some(spell) = self.resolve_from(race, form) else {
+                return Err(MagicError::Missing(race));
+            };
+            if self.tag_of(spell) == Some(super::T(b"SPEL"))
+                && self.spell(spell)?.data.spell_type == 4
+            {
+                spells.insert(spell);
+            }
+        }
+        Ok((race, spells))
     }
 
     fn prepare_spell(
@@ -476,7 +538,7 @@ impl World {
                     return Err(MagicError::Target);
                 }
             }
-            if !matches!(data.archetype, 0 | 1 | 2 | 5 | 18) {
+            if !matches!(data.archetype, 0 | 1 | 2 | 5 | 18 | 46) {
                 return Err(MagicError::Unsupported("effect archetype"));
             }
             if data.taper_duration != 0.0 {
@@ -535,6 +597,11 @@ impl World {
             } else {
                 None
             };
+            let vampire_form = if data.archetype == 46 {
+                Some(self.vampire_lord_race(effect, data.associated_item)?)
+            } else {
+                None
+            };
             let duration = if definition.data.cast_type == 0 {
                 None
             } else {
@@ -586,11 +653,12 @@ impl World {
                         recover: data.flags & RECOVER != 0,
                         changes: changes.clone(),
                     },
-                    no_recast: data.flags & NO_RECAST != 0,
+                    no_recast: data.flags & NO_RECAST != 0 || data.archetype == 46,
                     summon_base,
                     hit_event: data.flags & (HOSTILE | NO_HIT_EVENT) == HOSTILE,
                     dispel_rules: dispel_rules.clone(),
                     dispel: Vec::new(),
+                    vampire_form: vampire_form.clone(),
                 });
             }
         }
@@ -661,6 +729,49 @@ impl World {
             );
             // An instant lethal effect must receive its target's death events too.
             self.active_effects.insert(id, prepared.effect.clone());
+            if let Some((vampire_race, race_spells)) = prepared.vampire_form.clone() {
+                let actor_id = prepared.effect.target;
+                let previous_race = self.actor(actor_id).and_then(|actor| actor.race);
+                let added_spells: std::collections::BTreeSet<_> = {
+                    let actor = self.actor(actor_id).ok_or(MagicError::Target)?;
+                    actor.race = Some(vampire_race);
+                    race_spells
+                        .into_iter()
+                        .filter(|spell| actor.spells.insert(*spell))
+                        .collect()
+                };
+                let ability_effects = self.apply_actor_abilities_from(actor_id, &added_spells);
+                for ability_effect in &ability_effects {
+                    let Some(effect_form) = self
+                        .active_effects
+                        .get(ability_effect)
+                        .map(|active| active.effect)
+                    else {
+                        continue;
+                    };
+                    let object = self.object_of(Handle::ActiveEffect(*ability_effect), alloc);
+                    self.pending.push(Pending::BindEffect {
+                        object,
+                        effect: effect_form,
+                    });
+                    let target_value = self.form_value(Some(actor_id), alloc);
+                    self.pending.push(Pending::Event {
+                        object,
+                        name: "OnEffectStart".into(),
+                        args: vec![target_value.clone(), target_value],
+                    });
+                }
+                self.vampire_lord_forms.insert(
+                    id,
+                    VampireLordForm {
+                        actor: actor_id,
+                        previous_race,
+                        vampire_race,
+                        added_spells,
+                        ability_effects,
+                    },
+                );
+            }
             for victim in prepared.dispel {
                 self.dispel_effect(victim, alloc);
             }
@@ -829,6 +940,19 @@ impl World {
                 reference.enabled = false;
             }
         }
+        if let Some(form) = self.vampire_lord_forms.remove(&id) {
+            if let Some(actor) = self.actor(form.actor) {
+                if actor.race == Some(form.vampire_race) {
+                    actor.race = form.previous_race;
+                }
+                for spell in &form.added_spells {
+                    actor.spells.remove(spell);
+                }
+            }
+            for ability_effect in form.ability_effects {
+                self.dispel_effect(ability_effect, alloc);
+            }
+        }
         self.active_effects.remove(&id);
         if let Some(object) = self.object_id(Handle::ActiveEffect(id)) {
             self.timers.retain(|t| t.object != object);
@@ -962,6 +1086,98 @@ impl World {
         }
         Ok(())
     }
+}
+
+pub(super) fn write_vampire_lord_state(world: &World, writer: &mut soe_papyrus::vm::state::Writer) {
+    writer.len(world.vampire_lord_forms.len());
+    for (effect, form) in &world.vampire_lord_forms {
+        writer.u64(effect.0);
+        write_form_id(writer, form.actor);
+        write_opt_form_id(writer, form.previous_race);
+        write_form_id(writer, form.vampire_race);
+        writer.len(form.added_spells.len());
+        for spell in &form.added_spells {
+            write_form_id(writer, *spell);
+        }
+        writer.len(form.ability_effects.len());
+        for ability in &form.ability_effects {
+            writer.u64(ability.0);
+        }
+    }
+}
+
+pub(super) fn read_vampire_lord_state(
+    world: &mut World,
+    reader: &mut FormReader<'_, '_>,
+) -> Result<(), soe_papyrus::VmError> {
+    let count = reader.len()?;
+    let mut forms = BTreeMap::new();
+    for _ in 0..count {
+        let id = EffectId(reader.u64()?);
+        let actor = read_form_id(reader)?;
+        let previous_race = read_opt_form_id(reader)?;
+        let vampire_race = read_form_id(reader)?;
+        let spell_count = reader.len()?;
+        let mut added_spells = std::collections::BTreeSet::new();
+        for _ in 0..spell_count {
+            if !added_spells.insert(read_form_id(reader)?) {
+                return Err(soe_papyrus::VmError::State(
+                    "duplicate Vampire Lord ability".into(),
+                ));
+            }
+        }
+        let ability_count = reader.len()?;
+        let mut ability_effects = Vec::with_capacity(ability_count);
+        for _ in 0..ability_count {
+            ability_effects.push(EffectId(reader.u64()?));
+        }
+        if id.0 == 0 {
+            return Err(soe_papyrus::VmError::State(
+                "invalid Vampire Lord transformation state".into(),
+            ));
+        }
+        if forms
+            .insert(
+                id,
+                VampireLordForm {
+                    actor,
+                    previous_race,
+                    vampire_race,
+                    added_spells,
+                    ability_effects,
+                },
+            )
+            .is_some()
+        {
+            return Err(soe_papyrus::VmError::State(
+                "duplicate Vampire Lord transformation".into(),
+            ));
+        }
+    }
+    world.vampire_lord_forms = forms;
+    Ok(())
+}
+
+pub(super) fn validate_vampire_lord_state(
+    world: &World,
+    actors: &std::collections::HashMap<GlobalFormId, super::ActorState>,
+    effects: &BTreeMap<EffectId, ActiveEffect>,
+) -> Result<(), soe_papyrus::VmError> {
+    for (id, form) in &world.vampire_lord_forms {
+        if effects.get(id).is_none_or(|effect| {
+            effect.target != form.actor
+                || !world
+                    .magic_effect(effect.effect)
+                    .is_ok_and(|definition| definition.data.archetype == 46)
+        }) || !actors.contains_key(&form.actor)
+            || world.tag_of(form.vampire_race) != Some(super::T(b"RACE"))
+        {
+            return Err(soe_papyrus::VmError::State(
+                "invalid Vampire Lord transformation state".into(),
+            ));
+        }
+    }
+    Ok(())
 }
 
 fn change_values(

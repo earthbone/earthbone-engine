@@ -16,6 +16,7 @@ use super::{ActorState, RefState, World};
 /// and [`World::load_state`].
 #[rustfmt::skip]
 pub(crate) const WORLD_SECTIONS: &[Section<World>] = &[
+    Section { name: "MAG-67", write: super::magic::write_vampire_lord_state, read: super::magic::read_vampire_lord_state },
 ];
 
 /// Sections read and written once per actor, at the end of every actor
