@@ -304,7 +304,11 @@ fn version_ten_current_globals_migrate_to_one_journal_instance() {
     // CONTEXT: One quest extension: count, FormID, empty runtime, and one
     // journal instance with a single global and no alias text.
     let extension_bytes = 4 + 6 + 6 + 8 + 4 + 2 + 1 + 4 + 4 + 6 + 4;
-    bytes.truncate(bytes.len() - extension_bytes - 50);
+    // The extra 6 bytes beyond the old 50 are detection's now-unconditional
+    // empty pool count and the world-level save-section table version 37
+    // added, both always present at the tail regardless of the simulated
+    // version.
+    bytes.truncate(bytes.len() - extension_bytes - 56);
     bytes[4..6].copy_from_slice(&10_u16.to_le_bytes());
     let restored = fixture();
     restored.world_mut().load_state(&bytes).unwrap();

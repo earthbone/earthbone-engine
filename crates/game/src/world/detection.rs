@@ -173,12 +173,12 @@ impl World {
         })
     }
 
-    /// Writes the version 30 block, which is omitted while no pool exists
-    /// so a world without detection keeps the version 29 body bytes.
+    /// Writes the detection block, always as an explicit pool count. Versions
+    /// 30 to 36 instead omit the whole block while no pool exists, relying on
+    /// detection being the last thing in the stream. That stops holding once
+    /// a save section table can follow it, so this write is unconditional
+    /// and `read_detection` picks the right reading by version.
     pub(super) fn write_detection(&self, out: &mut Writer) {
-        if self.detection.pools.is_empty() {
-            return;
-        }
         out.len(self.detection.pools.len());
         for (target, pool) in &self.detection.pools {
             write_form_id(out, *target);
@@ -195,18 +195,29 @@ impl World {
     }
 }
 
-/// Read the version 30 detection block. An absent block is an empty state,
-/// and a present one must hold at least one pool so each state has a single
-/// encoding. Actor identities are checked by the caller once references are
-/// known.
-pub(super) fn read_detection(input: &mut FormReader<'_, '_>) -> Result<DetectionState, VmError> {
+/// Read the version 30 detection block.
+///
+/// Versions 30 to 36 write nothing at all when there is no pool, so an
+/// absent block reads back as the default state, and a present one must
+/// hold at least one pool so each state has a single encoding. That relies
+/// on detection being the last thing in the stream, which stopped holding
+/// once a save section table could follow it, so version 37 onward instead
+/// writes an explicit pool count, zero included, and reads it unconditionally.
+/// Actor identities are checked by the caller once references are known.
+pub(super) fn read_detection(
+    input: &mut FormReader<'_, '_>,
+    version: u16,
+) -> Result<DetectionState, VmError> {
     let bad = || VmError::State("invalid detection state".into());
     let mut state = DetectionState::default();
-    if input.remaining() == 0 {
+    if version < 37 && input.remaining() == 0 {
         return Ok(state);
     }
     let pools = input.len()?;
     if pools == 0 {
+        if version >= 37 {
+            return Ok(state);
+        }
         return Err(bad());
     }
     for _ in 0..pools {
