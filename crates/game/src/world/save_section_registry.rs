@@ -23,6 +23,7 @@ pub(crate) const WORLD_SECTIONS: &[Section<World>] = &[
 #[rustfmt::skip]
 pub(crate) const ACTOR_SECTIONS: &[Section<ActorState>] = &[
     Section { name: "PRG-01", write: super::super::progression::write_skill_experience, read: super::super::progression::read_skill_experience },
+    Section { name: "AI-88", write: super::furniture::write_furniture_seat, read: super::furniture::read_furniture_seat },
 ];
 
 /// Sections read and written once per reference, at the end of every

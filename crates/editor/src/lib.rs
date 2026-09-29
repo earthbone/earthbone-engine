@@ -124,9 +124,9 @@ impl EditorDocument {
 
     /// Replace or append one subrecord, creating an active-plugin override.
     ///
-    /// This milestone accepts top-level records only. Existing linked fields
-    /// are copied as authored, so forms requiring FormID remapping are
-    /// rejected until the ESM renumbering work is available.
+    /// This milestone accepts top-level STAT and GLOB records only. Existing
+    /// linked fields are copied as authored, so forms requiring FormID
+    /// remapping are rejected until the ESM renumbering work is available.
     ///
     /// # Errors
     /// Returns an error if the form is missing, the winning record is nested,
@@ -155,7 +155,7 @@ impl EditorDocument {
                         reason: "nested record placement needs FMT-15 and FMT-26 FormID remapping",
                     });
                 }
-                if source.tag != Tag(*b"STAT") {
+                if source.tag != Tag(*b"STAT") && source.tag != Tag(*b"GLOB") {
                     return Err(EditorError::UnsupportedEdit {
                         form,
                         reason: "record reference relocation is not available before FMT-15",

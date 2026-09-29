@@ -1004,7 +1004,7 @@ pub fn tick(world: &mut World, dt: f64, alloc: Alloc<'_>) {
         if due {
             evaluate(world, actor, alloc);
         }
-        step(world, actor, dt as f32);
+        step(world, actor, dt as f32, alloc);
     }
 }
 
@@ -1037,7 +1037,7 @@ fn plan(
     (vec![to], vec![to_cell])
 }
 
-fn step(world: &mut World, actor: GlobalFormId, dt: f32) {
+fn step(world: &mut World, actor: GlobalFormId, dt: f32, alloc: Alloc<'_>) {
     let Some((position, cell)) = world.reference(actor).map(|r| (r.position, r.cell)) else {
         return;
     };
@@ -1179,7 +1179,7 @@ fn step(world: &mut World, actor: GlobalFormId, dt: f32) {
         }
     }
     if ai.procedure == Procedure::Patrol {
-        patrol::tick(world, &mut ai);
+        patrol::tick(world, actor, &mut ai, alloc);
     }
     if let Some(a) = world.actor(actor) {
         a.ai = ai;

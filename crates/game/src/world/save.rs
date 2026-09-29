@@ -67,6 +67,7 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// version this constant will ever reach: new saved state goes into a
 /// section registered in `save_section_registry`, at the level that owns
 /// it, not into a new version.
+/// AI-88 retains each actor's reserved furniture marker in an actor section.
 pub const SAVE_VERSION: u16 = 37;
 
 #[derive(Clone, Copy)]

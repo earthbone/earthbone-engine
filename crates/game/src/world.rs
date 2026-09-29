@@ -53,6 +53,7 @@ mod driver;
 mod encounter_zones;
 mod events;
 mod forms;
+mod furniture;
 pub mod hash;
 mod inventory;
 mod inventory_restore;
@@ -260,6 +261,9 @@ pub struct ActorState {
     pub allow_flying: bool,
     /// Between `StartDeferredKill` and `EndDeferredKill` death waits.
     pub deferred_kill: bool,
+    /// The furniture reference and zero-based marker currently reserved by
+    /// this actor. The marker remains reserved until the actor stands.
+    pub furniture_seat: Option<(GlobalFormId, u16)>,
     /// The last state `SendVampirismStateChanged` announced for this actor.
     pub vampire: bool,
     /// The last state `SendLycanthropyStateChanged` announced.
