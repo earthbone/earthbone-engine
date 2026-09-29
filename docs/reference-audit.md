@@ -19,6 +19,46 @@ LOD and TRI morph data.
 | `godot-docs/classes/class_physicsserver3d.rst::body_add_shape` accepts a shape transform | `godot-host/src/godot_physics.rs` preserves native boxes, spheres, capsules and convex hulls, with dimensions in metres. Tests check translated spheres, both capsule endpoint orders and compound box corners. | The Bannered Mare Jolt contact smoke test passes, as recorded in `physics.md`. No performance improvement is claimed. Shell radius and unsupported bhk shapes remain listed in `physics.md`. |
 | `godotwind/src/core/nif/nif_material_info.gd::get_cache_key` includes alpha and culling | `mesh::MaterialKey` and `godot_layer::MaterialMap` separate material state from path-keyed uploads. `shared_textures_keep_distinct_alpha_and_culling_in_both_orders` covers all supported states. | Glow, environment and other shader inputs remain unwired. This is not a new shading model. |
 
+## Leveled-list native contracts
+
+The registry in `game/src/natives.rs::leveled` registers methods, not Papyrus
+globals, for these classes. CK's `LeveledItem` record page describes list
+fields but does not define Papyrus methods. No matching method pages exist in
+the local `ck-wiki` dump. The Papyrus method contracts therefore compare the
+CK record behavior with SKSE's shipped declarations in
+`skse64/scripts/vanilla/LeveledItem.psc` and `LeveledActor.psc`, and its
+extended declarations in `skse64/scripts/modified/LeveledItem.psc` and
+`LeveledActor.psc`.
+
+| Class and binding | Contract compared | Registry result |
+|---|---|---|
+| LeveledItem.AddForm | CK list entry; SKSE accepts `Form, level, count` | Registered with level and count |
+| LeveledItem.Revert | SKSE removes script-added forms | Registered; restores authored entries and chance-none |
+| LeveledItem.GetNumForms | SKSE returns entry count | Registered |
+| LeveledItem.GetNthForm | SKSE returns the indexed form or None | Registered |
+| LeveledItem.GetNthLevel | SKSE returns indexed entry level or zero out of range | Registered |
+| LeveledItem.SetNthLevel | SKSE sets an indexed level, caps it at 65535, and ignores an invalid index | Added; caps to the stored 16-bit range and ignores invalid indices |
+| LeveledItem.GetNthCount | SKSE returns indexed entry count or zero out of range | Registered |
+| LeveledItem.SetNthCount | SKSE sets an indexed count, caps it at 65535, and ignores an invalid index | Added; caps to the stored 16-bit range and ignores invalid indices |
+| LeveledItem.GetChanceNone | SKSE returns the list chance-none value | Registered |
+| LeveledItem.SetChanceNone | SKSE sets the list chance-none value | Registered, constrained to the record's 0 to 100 range |
+| LeveledItem.GetChanceGlobal | SKSE returns the list's chance-global form | Missing; record-backed support belongs to PRG-05, the leveled-item selection owner |
+| LeveledItem.SetChanceGlobal | SKSE stores the list's chance-global form | Missing; same PRG-05 ownership, since it needs record override and saved-state handling |
+| LeveledActor.AddForm | SKSE accepts `Form, level` | Registered; count defaults to one |
+| LeveledActor.Revert | SKSE removes script-added forms | Registered; restores authored entries |
+| LeveledActor.GetNumForms | SKSE returns entry count | Registered |
+| LeveledActor.GetNthForm | SKSE returns the indexed form or None | Registered |
+| LeveledActor.GetNthLevel | SKSE returns indexed entry level or zero out of range | Registered |
+| LeveledActor.SetNthLevel | SKSE sets an indexed level, caps it at 65535, and ignores an invalid index | Added; caps to the stored 16-bit range and ignores invalid indices |
+| LeveledActor.GetNthCount | SKSE returns indexed entry count or zero out of range | Registered |
+| LeveledActor.SetNthCount | SKSE sets an indexed count, caps it at 65535, and ignores an invalid index | Added; caps to the stored 16-bit range and ignores invalid indices |
+
+The `scr_64_leveled_actor_and_item_bindings_match_skse_contracts` test drives
+the registered list methods on both classes, including 16-bit saturation and
+invalid-index no-ops. Chance-global access remains unsupported and is assigned
+to PRG-05 because resolving that field affects leveled-item selection as well
+as the Papyrus API.
+
 No new runtime dependency or upstream source file was imported. Core code is
 GPL-3.0-or-later. No derived code belongs in the MIT shim. tes4skyrim's own
 MIT license does not cover every bundled external component. PyNifly shares

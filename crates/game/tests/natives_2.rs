@@ -891,6 +891,87 @@ fn leveled_actor_and_spell_lists_share_the_shape() {
     assert!(errors(&g).is_empty(), "{:?}", errors(&g));
 }
 
+#[test]
+fn scr_64_leveled_actor_and_item_bindings_match_skse_contracts() {
+    let mut g = game();
+    let items = obj(&mut g, "LootList");
+    let actors = obj(&mut g, "EnemyList");
+
+    let actor_base = obj(&mut g, "GuardBase");
+    call(&mut g, &actors, "AddForm", &[actor_base, Value::Int(24)]);
+    assert_eq!(call(&mut g, &actors, "GetNumForms", &[]), Value::Int(2));
+    assert_eq!(
+        call(&mut g, &actors, "GetNthCount", &[Value::Int(1)]),
+        Value::Int(1)
+    );
+    for list in [&items, &actors] {
+        assert_eq!(call(&mut g, list, "GetNumForms", &[]), Value::Int(2));
+    }
+    call(&mut g, &items, "SetChanceNone", &[Value::Int(42)]);
+    assert_eq!(call(&mut g, &items, "GetChanceNone", &[]), Value::Int(42));
+
+    for list in [&items, &actors] {
+        assert_ne!(
+            call(&mut g, list, "GetNthForm", &[Value::Int(0)]),
+            Value::None
+        );
+        call(
+            &mut g,
+            list,
+            "SetNthLevel",
+            &[Value::Int(0), Value::Int(70_000)],
+        );
+        call(
+            &mut g,
+            list,
+            "SetNthCount",
+            &[Value::Int(0), Value::Int(70_000)],
+        );
+        assert_eq!(
+            call(&mut g, list, "GetNthLevel", &[Value::Int(0)]),
+            Value::Int(i32::from(u16::MAX))
+        );
+        assert_eq!(
+            call(&mut g, list, "GetNthCount", &[Value::Int(0)]),
+            Value::Int(i32::from(u16::MAX))
+        );
+        call(
+            &mut g,
+            list,
+            "SetNthLevel",
+            &[Value::Int(99), Value::Int(12)],
+        );
+        call(
+            &mut g,
+            list,
+            "SetNthCount",
+            &[Value::Int(99), Value::Int(12)],
+        );
+        assert_eq!(
+            call(&mut g, list, "GetNthLevel", &[Value::Int(0)]),
+            Value::Int(i32::from(u16::MAX))
+        );
+        assert_eq!(
+            call(&mut g, list, "GetNthCount", &[Value::Int(0)]),
+            Value::Int(i32::from(u16::MAX))
+        );
+    }
+    assert_eq!(call(&mut g, &actors, "GetChanceNone", &[]), Value::None);
+    assert_eq!(call(&mut g, &items, "GetChanceGlobal", &[]), Value::None);
+    let chance_global = obj(&mut g, "Counter");
+    assert_eq!(
+        call(&mut g, &items, "SetChanceGlobal", &[chance_global]),
+        Value::None
+    );
+    let binding_errors = errors(&g);
+    assert!(
+        binding_errors
+            .iter()
+            .any(|trace| trace.contains("no function")),
+        "{binding_errors:?}"
+    );
+}
+
 // ----- locations -----
 
 /// SetKeywordData stores a float per keyword on the location and

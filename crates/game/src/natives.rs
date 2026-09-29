@@ -2037,6 +2037,17 @@ fn leveled(vm: &mut Vm, w: &Shared) {
                 })
                 .map_or(0, i32::from))
         });
+        method!(vm, w, class, "SetNthLevel", |world, call, me| {
+            let idx = usize::try_from(call.arg(0).as_int()).ok();
+            let raw_level = u32::try_from(call.arg(1).as_int()).unwrap_or(u32::MAX);
+            let level = raw_level.min(u32::from(u16::MAX)) as u16;
+            if let Some(entry) =
+                idx.and_then(|index| world.leveled_list(me)?.entries.get_mut(index))
+            {
+                entry.level = level;
+            }
+            none()
+        });
         method!(vm, w, class, "GetNthCount", |world, call, me| {
             let idx = usize::try_from(call.arg(0).as_int()).ok();
             i(idx
@@ -2047,16 +2058,29 @@ fn leveled(vm: &mut Vm, w: &Shared) {
                 })
                 .map_or(0, i32::from))
         });
-        method!(vm, w, class, "GetChanceNone", |world, call, me| i(world
-            .leveled_list(me)
-            .map_or(0, |l| i32::from(l.chance_none))));
-        method!(vm, w, class, "SetChanceNone", |world, call, me| {
-            let chance = u8::try_from(call.arg(0).as_int().clamp(0, 100)).unwrap_or(0);
-            if let Some(l) = world.leveled_list(me) {
-                l.chance_none = chance;
+        method!(vm, w, class, "SetNthCount", |world, call, me| {
+            let idx = usize::try_from(call.arg(0).as_int()).ok();
+            let raw_count = u32::try_from(call.arg(1).as_int()).unwrap_or(u32::MAX);
+            let count = raw_count.min(u32::from(u16::MAX)) as u16;
+            if let Some(entry) =
+                idx.and_then(|index| world.leveled_list(me)?.entries.get_mut(index))
+            {
+                entry.count = count;
             }
             none()
         });
+        if class != "LeveledActor" {
+            method!(vm, w, class, "GetChanceNone", |world, call, me| i(world
+                .leveled_list(me)
+                .map_or(0, |l| i32::from(l.chance_none))));
+            method!(vm, w, class, "SetChanceNone", |world, call, me| {
+                let chance = u8::try_from(call.arg(0).as_int().clamp(0, 100)).unwrap_or(0);
+                if let Some(l) = world.leveled_list(me) {
+                    l.chance_none = chance;
+                }
+                none()
+            });
+        }
     }
 }
 
