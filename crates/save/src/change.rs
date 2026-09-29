@@ -69,6 +69,25 @@ impl ChangeForm {
         self.uncompressed_len > 0
     }
 
+    /// Decode the source-defined change flags and preserve the subtype payload
+    /// for PFLA, PHZD or PBAR.
+    ///
+    /// The available save definitions do not establish subtype payload fields.
+    /// The bytes therefore remain opaque while the shared change flag word is
+    /// exposed as typed flags.
+    ///
+    /// # Errors
+    /// Returns an error if an internally compressed payload is malformed.
+    pub fn projectile_change(&self) -> Result<Option<ProjectileChange>> {
+        if !matches!(self.record_type(), "PFLA" | "PHZD" | "PBAR") {
+            return Ok(None);
+        }
+        Ok(Some(ProjectileChange {
+            flags: ProjectileChangeFlags(self.change_flags),
+            payload: self.payload()?.into_owned(),
+        }))
+    }
+
     fn length_width(&self) -> usize {
         match self.type_field >> 6 {
             0 => 1,
@@ -279,6 +298,145 @@ impl ChangeForm {
     }
 }
 
+/// One source-defined PFLA, PHZD or PBAR change flag.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u8)]
+pub enum ProjectileChangeFlag {
+    /// Record form flags changed.
+    FormFlags = 0,
+    /// The reference moved.
+    Move = 1,
+    /// Havok movement changed.
+    HavokMove = 2,
+    /// The reference changed cells.
+    CellChanged = 3,
+    /// The reference scale changed.
+    Scale = 4,
+    /// Inventory changed.
+    Inventory = 5,
+    /// Ownership extra data changed.
+    ExtraOwnership = 6,
+    /// The base object changed.
+    BaseObject = 7,
+    /// Source flag without an assigned name.
+    Unnamed08 = 8,
+    /// Source flag without an assigned name.
+    Unnamed09 = 9,
+    /// Item data extra changed.
+    ExtraItemData = 10,
+    /// Ammo extra changed.
+    ExtraAmmo = 11,
+    /// Lock extra changed.
+    ExtraLock = 12,
+    /// Source flag without an assigned name.
+    Unnamed13 = 13,
+    /// Source flag without an assigned name.
+    Unnamed14 = 14,
+    /// Source flag without an assigned name.
+    Unnamed15 = 15,
+    /// Source flag without an assigned name.
+    Unnamed16 = 16,
+    /// Source flag without an assigned name.
+    Unnamed17 = 17,
+    /// Source flag without an assigned name.
+    Unnamed18 = 18,
+    /// Source flag without an assigned name.
+    Unnamed19 = 19,
+    /// Source flag without an assigned name.
+    Unnamed20 = 20,
+    /// Object empty state changed.
+    Empty = 21,
+    /// Object default open state changed.
+    OpenDefaultState = 22,
+    /// Object open state changed.
+    OpenState = 23,
+    /// Source flag without an assigned name.
+    Unnamed24 = 24,
+    /// The reference was promoted.
+    Promoted = 25,
+    /// Activating children extra data changed.
+    ExtraActivatingChildren = 26,
+    /// Leveled inventory changed.
+    LeveledInventory = 27,
+    /// Animation changed.
+    Animation = 28,
+    /// Encounter zone extra data changed.
+    ExtraEncounterZone = 29,
+    /// Created-only extra data changed.
+    ExtraCreatedOnly = 30,
+    /// Game-only extra data changed.
+    ExtraGameOnly = 31,
+}
+
+impl ProjectileChangeFlag {
+    /// All bit positions defined by xEdit for these change types.
+    pub const ALL: [Self; 32] = [
+        Self::FormFlags,
+        Self::Move,
+        Self::HavokMove,
+        Self::CellChanged,
+        Self::Scale,
+        Self::Inventory,
+        Self::ExtraOwnership,
+        Self::BaseObject,
+        Self::Unnamed08,
+        Self::Unnamed09,
+        Self::ExtraItemData,
+        Self::ExtraAmmo,
+        Self::ExtraLock,
+        Self::Unnamed13,
+        Self::Unnamed14,
+        Self::Unnamed15,
+        Self::Unnamed16,
+        Self::Unnamed17,
+        Self::Unnamed18,
+        Self::Unnamed19,
+        Self::Unnamed20,
+        Self::Empty,
+        Self::OpenDefaultState,
+        Self::OpenState,
+        Self::Unnamed24,
+        Self::Promoted,
+        Self::ExtraActivatingChildren,
+        Self::LeveledInventory,
+        Self::Animation,
+        Self::ExtraEncounterZone,
+        Self::ExtraCreatedOnly,
+        Self::ExtraGameOnly,
+    ];
+
+    const fn mask(self) -> u32 {
+        1_u32 << self as u8
+    }
+}
+
+/// The shared xEdit change flag word used by PFLA, PHZD and PBAR.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ProjectileChangeFlags(u32);
+
+impl ProjectileChangeFlags {
+    /// Return the original flag word, including unnamed source bits.
+    #[must_use]
+    pub const fn bits(self) -> u32 {
+        self.0
+    }
+
+    /// Check whether a source-defined flag is set.
+    #[must_use]
+    pub const fn contains(self, flag: ProjectileChangeFlag) -> bool {
+        self.0 & flag.mask() != 0
+    }
+}
+
+/// Typed change flags and the preserved payload for a projectile or hazard.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ProjectileChange {
+    /// The shared, source-defined change flags.
+    pub flags: ProjectileChangeFlags,
+    /// The exact payload bytes, since no inspected source defines subtype fields.
+    pub payload: Vec<u8>,
+}
+
 #[cfg(test)]
 mod sav_55_projectile_envelope_tests {
     use super::ChangeForm;
@@ -318,6 +476,70 @@ mod sav_55_projectile_envelope_tests {
             assert_eq!(decoded.data, payload);
             assert_eq!(cursor.remaining(), 0);
         }
+    }
+}
+
+#[cfg(test)]
+mod sav_23_projectile_tests {
+    use super::{ChangeForm, ProjectileChangeFlag};
+    use crate::{cursor::Cursor, cursor::RefId};
+
+    #[test]
+    fn sav_23_projectile_flags_and_payload_bytes_survive_all_types() {
+        for type_index in [5_u8, 40, 41] {
+            for flag in ProjectileChangeFlag::ALL {
+                let bits = 1_u32 << flag as u8;
+                let change = ChangeForm {
+                    form: RefId::from_bytes([0; 3]),
+                    change_flags: bits,
+                    type_field: type_index,
+                    version: 0,
+                    uncompressed_len: 0,
+                    data: vec![0x00, 0x81, 0xFF, flag as u8],
+                };
+                let decoded = change
+                    .projectile_change()
+                    .unwrap()
+                    .expect("projectile type must decode");
+                assert_eq!(decoded.flags.bits(), bits);
+                assert!(decoded.flags.contains(flag));
+                assert_eq!(decoded.payload, change.data);
+            }
+
+            let change = ChangeForm {
+                form: RefId::from_bytes([0; 3]),
+                change_flags: u32::MAX,
+                type_field: type_index,
+                version: 0,
+                uncompressed_len: 0,
+                data: vec![0xFE, 0x00, 0x7F],
+            };
+            let decoded = change.projectile_change().unwrap().unwrap();
+            assert_eq!(decoded.flags.bits(), u32::MAX);
+            assert_eq!(decoded.payload, change.data);
+        }
+    }
+
+    #[test]
+    fn sav_23_non_projectile_change_returns_none() {
+        let change = ChangeForm {
+            form: RefId::from_bytes([0; 3]),
+            change_flags: 0,
+            type_field: 2,
+            version: 0,
+            uncompressed_len: 0,
+            data: vec![],
+        };
+        assert!(change.projectile_change().unwrap().is_none());
+    }
+
+    #[test]
+    fn sav_23_truncated_projectile_change_envelope_is_rejected() {
+        let mut bytes = vec![0, 0, 0];
+        bytes.extend_from_slice(&0x1234_u32.to_le_bytes());
+        bytes.extend_from_slice(&[5, 0, 4, 0, 1, 2]);
+        let error = ChangeForm::read(&mut Cursor::new(&bytes, "change form")).unwrap_err();
+        assert!(matches!(error, crate::Error::Truncated { .. }));
     }
 }
 

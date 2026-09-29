@@ -3395,3 +3395,14 @@ CK `AddForm_-_FormList.wikitext` for import order and duplicate handling, and
 FallrimTools `ChangeFormFLST.java`, `ChangeFormLeveled.java` and
 `LeveledEntry.java`. Their Java readers cannot serve as Rust runtime code, so
 the existing typed save decoder and record override layer perform the mapping.
+
+## Saved projectile changes, SAV-24
+
+`World::restore_vanilla_projectiles` maps decoded PFLA, PHZD and PBAR change
+forms to winning records and installs all changes atomically. The runtime
+query `World::restored_projectile_extra` returns the shared change flag word
+and the exact payload bytes for each restored form. SOEW version 37 persists
+the result. TES5Edit `Core/wbDefinitionsTES5Saves.pas` defines the shared
+flags but leaves these subtype payload structures empty, so the importer does
+not map the raw payload onto plugin subrecords or claim subtype fields are
+implemented.

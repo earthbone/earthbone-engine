@@ -62,11 +62,11 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// Version 34 retains last-visit game days for resettable encounter zones.
 /// Version 35 retains saved list flags and per-entry chance bytes in record overrides.
 /// Version 36 retains the active phase and completed action slots for each scene.
-/// Version 37 appends a named section table (`save_sections`) to the world,
-/// to every actor record and to every reference record, and is the last
-/// version this constant will ever reach: new saved state goes into a
-/// section registered in `save_section_registry`, at the level that owns
-/// it, not into a new version.
+/// Version 37 retains PFLA, PHZD and PBAR saved change envelopes. It appends
+/// a named section table (`save_sections`) to the world, to every actor record
+/// and to every reference record, and is the last version this constant will
+/// ever reach: new saved state goes into a section registered in
+/// `save_section_registry`, at the level that owns it, not into a new version.
 pub const SAVE_VERSION: u16 = 37;
 
 #[derive(Clone, Copy)]

@@ -7,7 +7,9 @@ use std::collections::BTreeMap;
 use soe_esm::{plugin::Subrecord, GlobalFormId, Slot, Tag};
 use soe_papyrus::{vm::state::Writer, VmError};
 
-use super::record_overrides::{raw_words, ListRecordExtra, NpcRecordExtra, RecordOverride};
+use super::record_overrides::{
+    raw_words, ListRecordExtra, NpcRecordExtra, ProjectileRecordExtra, RecordOverride,
+};
 use super::save::{read_form_id, read_opt_form_id, write_form_id, write_opt_form_id, FormReader};
 use super::{World, T};
 
@@ -65,6 +67,11 @@ impl World {
                 w.bool(list.section_present);
                 w.bytes(&list.entry_chances);
             }
+            w.bool(value.projectile.is_some());
+            if let Some(projectile) = &value.projectile {
+                w.u32(projectile.flags);
+                w.bytes(&projectile.payload);
+            }
             w.len(value.links.len());
             for (raw, link) in &value.links {
                 w.u32(*raw);
@@ -103,7 +110,15 @@ impl World {
                 || self.order.winner(text_origin).is_none_or(|r| {
                     !matches!(
                         &r.tag.0,
-                        b"NPC_" | b"RACE" | b"FLST" | b"LVLN" | b"LVLI" | b"LVSP"
+                        b"NPC_"
+                            | b"RACE"
+                            | b"FLST"
+                            | b"LVLN"
+                            | b"LVLI"
+                            | b"LVSP"
+                            | b"PFLA"
+                            | b"PHZD"
+                            | b"PBAR"
                     )
                 })
             {
@@ -115,7 +130,15 @@ impl World {
                 .filter(|rec| {
                     matches!(
                         &rec.tag.0,
-                        b"NPC_" | b"RACE" | b"FLST" | b"LVLN" | b"LVLI" | b"LVSP"
+                        b"NPC_"
+                            | b"RACE"
+                            | b"FLST"
+                            | b"LVLN"
+                            | b"LVLI"
+                            | b"LVSP"
+                            | b"PFLA"
+                            | b"PHZD"
+                            | b"PBAR"
                     ) && !rec.is_deleted()
                 })
                 .ok_or_else(|| bad("missing record origin"))?;
@@ -155,6 +178,14 @@ impl World {
                     form_flags,
                     section_present: r.bool()?,
                     entry_chances: r.bytes()?.to_vec(),
+                })
+            } else {
+                None
+            };
+            let projectile = if version >= 37 && r.bool()? {
+                Some(ProjectileRecordExtra {
+                    flags: r.u32()?,
+                    payload: r.bytes()?.to_vec(),
                 })
             } else {
                 None
@@ -253,6 +284,20 @@ impl World {
                 {
                     return Err(bad("invalid race skin link"));
                 }
+            } else if matches!(&record.tag.0, b"PFLA" | b"PHZD" | b"PBAR") {
+                if temporary_for.is_some()
+                    || text_origin != id
+                    || plain_full
+                    || original_race.is_some()
+                    || body_tint.is_some()
+                    || pending_form_flags.is_some()
+                    || list.is_some()
+                    || projectile.is_none()
+                    || !links.is_empty()
+                    || record.subrecords != original.subrecords
+                {
+                    return Err(bad("invalid saved projectile override"));
+                }
             } else {
                 let tag = if record.tag == T(b"FLST") {
                     T(b"LNAM")
@@ -318,6 +363,7 @@ impl World {
                     pending_form_flags,
                 },
                 list,
+                projectile,
             };
             if values.insert(id, value).is_some() {
                 return Err(bad("duplicate NPC record"));

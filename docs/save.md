@@ -16,11 +16,12 @@ the xEdit dispatch gap, runtime type boundaries and evidence needed by SAV-55.
 
 The SAV-55 regression test pins the type indices for PMIS, PGRE, PBEA, PFLA,
 PHZD, PBAR, PCON and PARW and checks the generic change-form header preserves
-flags and payload bytes. It does not assign subtype fields. The inspected
-Skyrim xEdit definitions have empty subtype dispatch structures, FallrimTools
-keeps these payloads raw, and CommonLib runtime inheritance does not define
-save serialization. See [saved projectile layouts](save-projectile-layouts.md)
-for the source review and remaining evidence requirement.
+flags and payload bytes. SAV-23 exposes all 32 xEdit-defined shared PFLA, PHZD
+and PBAR change flag bits through `ProjectileChange`, while retaining the
+inflated subtype payload as exact bytes. The payload fields remain undecoded:
+xEdit's subtype dispatch structures are empty and FallrimTools uses its raw
+fallback. See [saved projectile layouts](save-projectile-layouts.md) for the
+source review and remaining evidence requirement.
 
 The format was not reverse engineered. It is documented and it has a mature
 open implementation, so both were read first.
@@ -152,6 +153,19 @@ Change form payloads stay as original bytes and typed readers decode supported
 types on demand. Unsupported types remain opaque. The Papyrus auxiliary data
 after the save-file version stays raw, as does the original payload used when
 writing the save body.
+
+PFLA, PHZD and PBAR expose their shared xEdit change flag word as typed flag
+positions, including unnamed bits. Their subtype payload fields remain raw
+because the inspected sources do not establish subtype field layouts. The
+decoder accepts every flag word without dropping bits and preserves the exact
+inflated payload bytes. It does not infer that a set change flag corresponds
+to a specific serialized payload field.
+
+The game importer stores these shared flags and raw payload bytes alongside
+the matching live PFLA, PHZD or PBAR record. `World::restored_projectile_extra`
+exposes that data, and SOEW version 37 preserves it through engine save/load.
+The importer does not decode projectile subtype fields or map them onto
+plugin subrecords.
 
 Most decoded state remains inspection data. The game crate can apply globals
 and quest state, but neither stack execution nor pending calls can be resumed from a
