@@ -71,14 +71,37 @@ should call the same function.
 ## Hash
 
 `tes4_hash`, `file_name_hash` and `folder_hash` compute the value stored next
-to every BSA name. The reader does not verify hashes, since names are present
-in every archive the game ships, but a writer or a repair tool needs the exact
-value, including the reference implementation's quirk of stopping the middle
-loop two bytes short of the end of the name.
+to every BSA name. The BSA reader checks each file hash against its filename
+and, when directory names are stored, checks each directory hash against its
+path. A mismatch returns a format error naming the path and stored and
+calculated values. Archives without directory names still have their file
+hashes checked. Hashing follows Wabbajack's `GetBSAHash` behavior and the
+independent `bsa` reference vectors, including the quirk where the middle
+loop stops two bytes short of the end of the name. Names are encoded as
+Windows-1252 bytes for hashing, including accented Skyrim SE names.
+
+## Writing
+
+`write_bsa` builds a compressed BSA in memory for versions 103, 104 and 105.
+It writes the uncompressed byte count before each compressed payload, using
+zlib for versions 103 and 104 and an LZ4 frame for version 105. Archive entries
+are grouped by folder hash and files are ordered by file hash. Lowercase path
+and original path spellings break hash ties so input order does not affect the
+archive bytes. File and folder hashes use the same TES4 hash verified by the
+reader.
+
+The writer includes folder and file names and stores names as Windows-1252.
+Paths may use either slash direction, but absolute paths, empty components,
+`.` and `..` components, duplicate paths ignoring case, and names outside
+Windows-1252 are rejected. The implementation follows the table and payload
+layout in Wabbajack's `Wabbajack.Compression.BSA/TES5Archive/Builder.cs` and
+the compressed record framing read by the local Linux Mod Organizer BSA
+parser. It writes each file compressed and does not embed paths in payloads.
 
 ## Tests
 
-Synthetic archives cover every format and both compression paths, a name
+Synthetic archives cover every format and both compression paths, valid and
+invalid BSA path hashes, a name
 with a non-ASCII byte, a truncated payload, absurd header counts, a DX10
 texture rebuilt into a DDS file, concurrent disk reads, a sparse 64 MiB
 payload that stays off heap at open time, and the override rules of the view.

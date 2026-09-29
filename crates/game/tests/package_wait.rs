@@ -6,6 +6,9 @@
 #[path = "common/legacy.rs"]
 mod legacy;
 
+#[path = "common/installed.rs"]
+mod installed;
+
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::ai::{AiState, Procedure};
 use soe_game::npc::{self, Config, Stats};
@@ -252,14 +255,10 @@ fn worlds_saved_before_wait_tags_remain_readable() {
 
 #[test]
 fn installed_wait_branches_have_seconds_then_movement_inputs() {
-    let Ok(data) = std::env::var("SKYRIM_DATA") else {
+    let Ok(_data) = std::env::var("SKYRIM_DATA") else {
         return;
     };
-    let bytes = std::fs::read(std::path::Path::new(&data).join("Skyrim.esm")).unwrap();
-    let mut order = LoadOrder::new();
-    order
-        .add("Skyrim.esm", Plugin::parse(&bytes).unwrap())
-        .unwrap();
+    let order = installed::load_order(&["Skyrim.esm"]).unwrap();
     let mut count = 0;
     for (id, _) in order.winners_of(T(b"PACK")) {
         let record = order.record(order.winner_ref(id).unwrap());

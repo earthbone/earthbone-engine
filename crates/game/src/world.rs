@@ -54,6 +54,7 @@ mod driver;
 mod encounter_zones;
 mod events;
 mod forms;
+mod furniture;
 pub mod hash;
 mod inventory;
 mod inventory_restore;
@@ -264,6 +265,9 @@ pub struct ActorState {
     pub allow_flying: bool,
     /// Between `StartDeferredKill` and `EndDeferredKill` death waits.
     pub deferred_kill: bool,
+    /// The furniture reference and zero-based marker currently reserved by
+    /// this actor. The marker remains reserved until the actor stands.
+    pub furniture_seat: Option<(GlobalFormId, u16)>,
     /// The last state `SendVampirismStateChanged` announced for this actor.
     pub vampire: bool,
     /// The last state `SendLycanthropyStateChanged` announced.
@@ -290,6 +294,8 @@ pub struct ActorState {
     /// `FactionState`, this is the actor's own memory of who it saw do it.
     /// See `World::record_witnessed_crime`.
     pub witnessed_crimes: BTreeSet<GlobalFormId>,
+    /// Partial use experience for each actor skill, keyed by lowercase name.
+    pub skill_experience: BTreeMap<String, f32>,
 }
 
 /// One `LVLO` entry of a leveled list.
@@ -505,6 +511,8 @@ pub struct World {
     rng: u64,
     pub clock: GameClock,
     pub pending: Vec<Pending>,
+    /// Story Manager inputs awaiting PRG-14 node selection.
+    pub story_manager_events: Vec<crate::quest::state::StoryManagerEvent>,
     pub timers: Vec<UpdateTimer>,
     pub notifications: Vec<String>,
     pub message_boxes: Vec<String>,
@@ -551,6 +559,8 @@ pub struct World {
     pub(crate) image_space: image_space::ImageSpaceState,
     /// Stealth-point pools by target, each with its observers' awareness.
     pub(crate) detection: crate::detection::DetectionState,
+    /// Detection sounds awaiting one host observation step.
+    pub(crate) detection_events: Vec<crate::detection::DetectionEvent>,
 }
 
 impl World {
@@ -605,6 +615,7 @@ impl World {
             rng: 0x9E37_79B9_7F4A_7C15,
             clock: GameClock::default(),
             pending: Vec::new(),
+            story_manager_events: Vec::new(),
             timers: Vec::new(),
             notifications: Vec::new(),
             message_boxes: Vec::new(),
@@ -642,6 +653,7 @@ impl World {
             next_effect: 1,
             image_space: image_space::ImageSpaceState::default(),
             detection: crate::detection::DetectionState::default(),
+            detection_events: Vec::new(),
         }
     }
 

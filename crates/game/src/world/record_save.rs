@@ -35,80 +35,6 @@ fn read_extra_flags(r: &mut FormReader<'_, '_>) -> Result<Option<(u32, u16)>, Vm
 }
 
 impl World {
-    pub(super) fn write_pack_navmesh_section(&self, w: &mut Writer) {
-        let values: Vec<_> = self
-            .record_overrides
-            .iter()
-            .filter_map(|(id, value)| {
-                value
-                    .pack
-                    .map(|extra| (*id, Some(extra), None))
-                    .or_else(|| value.navmesh.map(|extra| (*id, None, Some(extra))))
-            })
-            .collect();
-        w.len(values.len());
-        for (id, pack, navmesh) in values {
-            write_form_id(w, id);
-            w.bool(pack.is_some());
-            if let Some(extra) = pack {
-                write_extra_flags(w, extra.form_flags);
-                w.bool(extra.waiting);
-                w.bool(extra.never_run);
-            }
-            w.bool(navmesh.is_some());
-            if let Some(extra) = navmesh {
-                write_extra_flags(w, extra.form_flags);
-                w.bool(extra.value_changed);
-                w.bool(extra.full_name_changed);
-            }
-        }
-    }
-
-    pub(super) fn read_pack_navmesh_section(
-        &mut self,
-        r: &mut FormReader<'_, '_>,
-    ) -> Result<(), VmError> {
-        let count = r.len()?;
-        if count > r.remaining() / 6 {
-            return Err(bad("PACK/NAVM section count exceeds remaining bytes"));
-        }
-        let mut seen = std::collections::BTreeSet::new();
-        for _ in 0..count {
-            let id = read_form_id(r)?;
-            self.saved_record_identity(id)?;
-            let pack = if r.bool()? {
-                Some(PackRecordExtra {
-                    form_flags: read_extra_flags(r)?,
-                    waiting: r.bool()?,
-                    never_run: r.bool()?,
-                })
-            } else {
-                None
-            };
-            let navmesh = if r.bool()? {
-                Some(NavmeshRecordExtra {
-                    form_flags: read_extra_flags(r)?,
-                    value_changed: r.bool()?,
-                    full_name_changed: r.bool()?,
-                })
-            } else {
-                None
-            };
-            let record = self
-                .record_overrides
-                .get(&id)
-                .ok_or_else(|| bad("PACK/NAVM section names a missing record override"))?;
-            if !seen.insert(id)
-                || (pack.is_some() == navmesh.is_some())
-                || record.pack != pack
-                || record.navmesh != navmesh
-            {
-                return Err(bad("invalid or duplicate PACK/NAVM section entry"));
-            }
-        }
-        Ok(())
-    }
-
     fn saved_record_identity(&self, id: GlobalFormId) -> Result<(), VmError> {
         let limit = if id.file == super::DYNAMIC_FILE {
             0xFFFFFF
@@ -157,18 +83,6 @@ impl World {
                 }
                 w.bool(list.section_present);
                 w.bytes(&list.entry_chances);
-            }
-            w.bool(value.pack.is_some());
-            if let Some(pack) = value.pack {
-                write_extra_flags(w, pack.form_flags);
-                w.bool(pack.waiting);
-                w.bool(pack.never_run);
-            }
-            w.bool(value.navmesh.is_some());
-            if let Some(navmesh) = value.navmesh {
-                write_extra_flags(w, navmesh.form_flags);
-                w.bool(navmesh.value_changed);
-                w.bool(navmesh.full_name_changed);
             }
             w.len(value.links.len());
             for (raw, link) in &value.links {
@@ -298,29 +212,7 @@ impl World {
             } else {
                 None
             };
-            let (pack, navmesh) = if version >= 37 {
-                let pack = if r.bool()? {
-                    Some(PackRecordExtra {
-                        form_flags: read_extra_flags(r)?,
-                        waiting: r.bool()?,
-                        never_run: r.bool()?,
-                    })
-                } else {
-                    None
-                };
-                let navmesh = if r.bool()? {
-                    Some(NavmeshRecordExtra {
-                        form_flags: read_extra_flags(r)?,
-                        value_changed: r.bool()?,
-                        full_name_changed: r.bool()?,
-                    })
-                } else {
-                    None
-                };
-                (pack, navmesh)
-            } else {
-                (None, None)
-            };
+            let (pack, navmesh) = (None, None);
             let mut links = BTreeMap::new();
             let used = raw_words(original);
             let count = r.len()?;
@@ -479,7 +371,6 @@ impl World {
                     || pending_form_flags.is_some()
                     || list.is_some()
                     || !links.is_empty()
-                    || (expected_pack != pack.is_some())
                     || (expected_pack && navmesh.is_some())
                     || (!expected_pack && pack.is_some())
                     || unchanged_record(&record) != unchanged_record(original)
@@ -913,6 +804,85 @@ impl World {
         }
         Ok(())
     }
+}
+
+pub(super) fn write_pack_navmesh_section(world: &World, w: &mut Writer) {
+    let entries: Vec<_> = world
+        .record_overrides
+        .iter()
+        .filter(|(_, value)| value.pack.is_some() || value.navmesh.is_some())
+        .collect();
+    if entries.is_empty() {
+        return;
+    }
+    w.len(entries.len());
+    for (id, value) in entries {
+        write_form_id(w, *id);
+        w.bool(value.pack.is_some());
+        if let Some(pack) = value.pack {
+            write_extra_flags(w, pack.form_flags);
+            w.bool(pack.waiting);
+            w.bool(pack.never_run);
+        }
+        w.bool(value.navmesh.is_some());
+        if let Some(navmesh) = value.navmesh {
+            write_extra_flags(w, navmesh.form_flags);
+            w.bool(navmesh.value_changed);
+            w.bool(navmesh.full_name_changed);
+        }
+    }
+}
+
+pub(super) fn read_pack_navmesh_section(
+    world: &mut World,
+    r: &mut FormReader<'_, '_>,
+) -> Result<(), VmError> {
+    let mut seen = std::collections::BTreeSet::new();
+    for _ in 0..r.len()? {
+        let id = read_form_id(r)?;
+        if !seen.insert(id) {
+            return Err(bad("duplicate PACK or NAVM section record"));
+        }
+        let pack = if r.bool()? {
+            Some(PackRecordExtra {
+                form_flags: read_extra_flags(r)?,
+                waiting: r.bool()?,
+                never_run: r.bool()?,
+            })
+        } else {
+            None
+        };
+        let navmesh = if r.bool()? {
+            Some(NavmeshRecordExtra {
+                form_flags: read_extra_flags(r)?,
+                value_changed: r.bool()?,
+                full_name_changed: r.bool()?,
+            })
+        } else {
+            None
+        };
+        let value = world
+            .record_overrides
+            .get_mut(&id)
+            .ok_or_else(|| bad("PACK or NAVM section names a missing override"))?;
+        match value.record.tag {
+            tag if tag == T(b"PACK") && pack.is_some() && navmesh.is_none() => {
+                value.pack = pack;
+            }
+            tag if tag == T(b"NAVM") && navmesh.is_some() && pack.is_none() => {
+                value.navmesh = navmesh;
+            }
+            _ => return Err(bad("PACK or NAVM section has mismatched record metadata")),
+        }
+    }
+    if world.record_overrides.iter().any(|(id, value)| {
+        (value.record.tag == T(b"PACK") && value.pack.is_none())
+            || (value.record.tag == T(b"NAVM") && value.navmesh.is_none())
+            || (!seen.contains(id) && (value.pack.is_some() || value.navmesh.is_some()))
+    }) {
+        return Err(bad("PACK or NAVM section is incomplete"));
+    }
+    Ok(())
 }
 
 fn unchanged_record(record: &soe_esm::Record) -> Vec<Subrecord> {

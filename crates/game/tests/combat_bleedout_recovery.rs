@@ -6,6 +6,9 @@
 //! combat_hits.rs and combat_bleedout.rs, keeping the entry/recovery cases
 //! independent of the threshold-only tests already in combat_bleedout.rs.
 
+#[path = "common/installed.rs"]
+mod installed;
+
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::{combat::MeleeHit, npc::flags, Game};
 use soe_papyrus::{
@@ -215,25 +218,18 @@ fn cmb_13_enter_bleedout_queues_on_enter_bleedout_event() {
 /// instead of only the hand-built ACBS bytes.
 #[test]
 fn cmb_13_installed_essential_npc_reaches_a_finite_bleedout_threshold() {
-    let Some(data) = std::env::var_os("SKYRIM_DATA").map(std::path::PathBuf::from) else {
+    let Some(_data) = installed::data_dir() else {
         eprintln!("SKYRIM_DATA not set, skipping installed essential NPC check");
         return;
     };
-    let mut order = LoadOrder::new();
-    for name in [
+    let mut order = installed::owned_order(&[
         "Skyrim.esm",
         "Update.esm",
         "Dawnguard.esm",
         "HearthFires.esm",
         "Dragonborn.esm",
-    ] {
-        order
-            .add(
-                name,
-                Plugin::parse(&std::fs::read(data.join(name)).unwrap()).unwrap(),
-            )
-            .unwrap();
-    }
+    ])
+    .unwrap();
     let mut found = None;
     for (form, record) in order
         .winners_of(Tag(*b"NPC_"))

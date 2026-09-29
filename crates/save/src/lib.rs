@@ -37,12 +37,18 @@ pub mod quest;
 pub mod reference;
 pub mod table;
 
-pub use base_object::{BaseObjectChange, BaseObjectFields, LightStaticChange, StaticObjectChange};
-pub use change::{
-    BaseObjectChange as BaseObjectMarkerChange, ClassChange, FactionChange, FactionReaction,
-    FactionReactions, NavmeshChange, PackChange, RelationshipChange,
+pub use base_object::{
+    BaseObjectChange as AppaIdlmChange, BaseObjectFields, ItemChange, LightStaticChange,
+    StaticObjectChange,
 };
-pub use change::{ChangeForm, QuestStage};
+pub use change::book_note_key_flags;
+pub use change::BaseObjectMarkerChange;
+pub use change::{
+    ActivatorChange, BaseObjectChange, BookChange, CellChange, CellInteriorSeenEntry, CellSeenData,
+    ChangeForm, ClassChange, FactionChange, FactionReaction, FactionReactions, IngredientChange,
+    KeyChange, NavmeshChange, NoteChange, OpaqueSpatialChange, PackChange, ParwChange, PconChange,
+    ProjectileChange, ProjectileChangeFlag, ProjectileChangeFlags, QuestStage, RelationshipChange,
+};
 pub use created_objects::{CreatedEffect, CreatedObject, CreatedObjects};
 pub use cursor::{RefId, RefKind, WString};
 pub use dialogue_scene::{InfoChange, SceneChange, StoryManagerQuestNodeChange};

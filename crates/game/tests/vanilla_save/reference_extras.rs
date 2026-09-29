@@ -11,28 +11,21 @@ use soe_save::{reference::Field, ChangeForm};
 
 #[test]
 fn installed_lock_byte_mapping_matches_authored_levels() {
-    let (Some(data), Some(saves)) = (
+    let (Some(_data), Some(saves)) = (
         std::env::var_os("SKYRIM_DATA"),
         std::env::var_os("SOE_TEST_SAVES"),
     ) else {
         eprintln!("SKYRIM_DATA or SOE_TEST_SAVES unset, skipping lock schema survey");
         return;
     };
-    let mut order = LoadOrder::new();
-    for name in [
+    let order = installed::load_order(&[
         "Skyrim.esm",
         "Update.esm",
         "Dawnguard.esm",
         "HearthFires.esm",
         "Dragonborn.esm",
-    ] {
-        order
-            .add(
-                name,
-                Plugin::parse(&std::fs::read(Path::new(&data).join(name)).unwrap()).unwrap(),
-            )
-            .unwrap();
-    }
+    ])
+    .unwrap();
     let mut paths = vec![];
     collect_saves(Path::new(&saves), &mut paths);
     paths.sort();
@@ -348,7 +341,7 @@ fn engine_extras_reject_truncation_duplicates_and_bad_flags_atomically_and_read_
 
 #[test]
 fn installed_all_ownership_and_lock_extras_restore_and_persist() {
-    let (Some(data), Some(saves)) = (
+    let (Some(_data), Some(saves)) = (
         std::env::var_os("SKYRIM_DATA"),
         std::env::var_os("SOE_TEST_SAVES"),
     ) else {
@@ -357,21 +350,14 @@ fn installed_all_ownership_and_lock_extras_restore_and_persist() {
         );
         return;
     };
-    let mut order = LoadOrder::new();
-    for name in [
+    let order = installed::load_order(&[
         "Skyrim.esm",
         "Update.esm",
         "Dawnguard.esm",
         "HearthFires.esm",
         "Dragonborn.esm",
-    ] {
-        order
-            .add(
-                name,
-                Plugin::parse(&std::fs::read(Path::new(&data).join(name)).unwrap()).unwrap(),
-            )
-            .unwrap();
-    }
+    ])
+    .unwrap();
     let order = Arc::new(order);
     let mut paths = vec![];
     collect_saves(Path::new(&saves), &mut paths);

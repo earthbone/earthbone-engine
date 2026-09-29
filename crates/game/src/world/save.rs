@@ -62,12 +62,14 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// Version 34 retains last-visit game days for resettable encounter zones.
 /// Version 35 retains saved list flags and per-entry chance bytes in record overrides.
 /// Version 36 retains the active phase and completed action slots for each scene.
-/// Version 37 appends named section tables to the world, actor and reference
-/// records, and is the last version this constant will reach. New saved state
-/// goes into a section registered in `save_section_registry` at its owning
-/// level. World sections include SAV-53 base-object fields, SAV-42 static-object
-/// fields, SAV-44 APPA and IDLM fields, SAV-50 WOOP and MGEF markers, and
-/// SAV-48 PACK and NAVM markers.
+/// Version 37 appends named section tables (`save_sections`) to the world,
+/// actor and reference records, and is the last version this constant will
+/// reach. New saved state goes into a section registered in
+/// `save_section_registry` at its owning level. World sections include SAV-53
+/// base-object fields, SAV-42 static-object fields, SAV-44 APPA and IDLM fields,
+/// SAV-50 WOOP and MGEF markers, and SAV-48 PACK and NAVM markers. AI-88
+/// retains each actor's reserved furniture marker. The same version carries
+/// Fallout 4 struct values in saved Papyrus state.
 pub const SAVE_VERSION: u16 = 37;
 
 #[derive(Clone, Copy)]
@@ -1117,6 +1119,7 @@ impl World {
         self.encounter_levels = encounter_levels;
         self.encounter_zone_visits = encounter_zone_visits;
         self.detection = detection;
+        self.detection_events.clear();
         self.settings = settings;
         self.inventory_filters = inventory_filters;
         self.sleep_listeners = sleep_listeners;

@@ -4,6 +4,9 @@
 //! Actor initialization retains resolved skill values across world reloads.
 //! Manual DNAM skill values stay cached until race-bonus semantics are known.
 
+#[path = "common/installed.rs"]
+mod installed;
+
 use std::path::PathBuf;
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
@@ -82,22 +85,19 @@ fn prg_09_manual_skill_cache_survives_world_reload_without_reapplication() {
 
 #[test]
 fn prg_09_installed_spawned_race_skill_bonus_survives_world_reload() {
-    let Some(data) = std::env::var_os("SKYRIM_DATA").map(PathBuf::from) else {
+    let Some(_data) = std::env::var_os("SKYRIM_DATA").map(PathBuf::from) else {
         eprintln!("SKYRIM_DATA not set, skipping installed race-skill check");
         return;
     };
-    let mut order = LoadOrder::new();
-    for name in [
+    let order = installed::load_order(&[
         "Skyrim.esm",
         "Update.esm",
         "Dawnguard.esm",
         "HearthFires.esm",
         "Dragonborn.esm",
-    ] {
-        let bytes = std::fs::read(data.join(name)).unwrap();
-        order.add(name, Plugin::parse(&bytes).unwrap()).unwrap();
-    }
-    let mut game = Game::new(order);
+    ])
+    .unwrap();
+    let mut game = Game::from_shared_order(order);
     let player = game.player();
     let world = game.world();
     let candidate = world

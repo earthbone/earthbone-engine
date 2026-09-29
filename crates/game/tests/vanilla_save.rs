@@ -33,6 +33,9 @@ mod static_objects;
 #[path = "vanilla_save/woop_mgef.rs"]
 mod woop_mgef;
 
+#[path = "common/installed.rs"]
+mod installed;
+
 use std::{
     path::{Path, PathBuf},
     sync::Arc,
@@ -455,28 +458,21 @@ fn collect_saves(path: &Path, out: &mut Vec<PathBuf>) {
 
 #[test]
 fn installed_save_globals_restore_into_live_forms_and_persist() {
-    let (Some(data), Some(saves)) = (
+    let (Some(_data), Some(saves)) = (
         std::env::var_os("SKYRIM_DATA"),
         std::env::var_os("SOE_TEST_SAVES"),
     ) else {
         eprintln!("SKYRIM_DATA or SOE_TEST_SAVES not set, skipping global restoration survey");
         return;
     };
-    let mut order = LoadOrder::new();
-    for name in [
+    let order = installed::load_order(&[
         "Skyrim.esm",
         "Update.esm",
         "Dawnguard.esm",
         "HearthFires.esm",
         "Dragonborn.esm",
-    ] {
-        order
-            .add(
-                name,
-                Plugin::parse(&std::fs::read(Path::new(&data).join(name)).unwrap()).unwrap(),
-            )
-            .unwrap();
-    }
+    ])
+    .unwrap();
     let order = Arc::new(order);
     let mut paths = vec![];
     collect_saves(Path::new(&saves), &mut paths);
