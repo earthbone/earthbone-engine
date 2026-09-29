@@ -3396,3 +3396,26 @@ CK `AddForm_-_FormList.wikitext` for import order and duplicate handling, and
 FallrimTools `ChangeFormFLST.java`, `ChangeFormLeveled.java` and
 `LeveledEntry.java`. Their Java readers cannot serve as Rust runtime code, so
 the existing typed save decoder and record override layer perform the mapping.
+
+## Scripted knockback and ragdoll requests, CMB-38
+
+`ObjectReference.PushActorAway` queues a radial impulse from the calling
+reference to the supplied actor, preserving negative force as a pull.
+`KnockAreaEffect` validates a finite magnitude from 0 to 1 and a positive
+finite radius, then queues impulses for enabled actor references inside that
+radius. Its linear attenuation is an engine approximation: the CK page gives
+magnitude and radius but does not specify a falloff formula. Both operations
+mark the target actor unconscious in the shared actor state. The host consumes
+the queued vectors once; they are transient and do not enter the save.
+
+`ForceAddRagdollToWorld` and `ForceRemoveRagdollFromWorld` store an explicit
+ragdoll override in the actor state. The `CMB-38` named actor save section
+persists that override without changing `SAVE_VERSION`. An absent override
+continues to follow the death state. The CK pages do not define an impulse
+unit conversion or explosion game-setting evaluation, so those details remain
+outside this implementation.
+
+Source pages read: `engine-refs/ck-wiki/PushActorAway_-_ObjectReference.wikitext`,
+`KnockAreaEffect_-_ObjectReference.wikitext`,
+`ForceAddRagdollToWorld_-_ObjectReference.wikitext` and
+`ForceRemoveRagdollFromWorld_-_ObjectReference.wikitext`.

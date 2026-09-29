@@ -22,6 +22,7 @@ pub(crate) const WORLD_SECTIONS: &[Section<World>] = &[
 /// record.
 #[rustfmt::skip]
 pub(crate) const ACTOR_SECTIONS: &[Section<ActorState>] = &[
+    Section { name: "CMB-38", write: super::knockback::write_ragdoll_override, read: super::knockback::read_ragdoll_override },
 ];
 
 /// Sections read and written once per reference, at the end of every

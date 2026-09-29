@@ -1953,6 +1953,17 @@ existing dedicated directory accepts an absolute path or `user://`, and
 retention must be between 2 and 64. The [generation protocol](save-resilience.md#sav-63-verified-generations)
 documents integrity checks, retention and recovery diagnostics.
 
+## Scripted ragdoll and knockback requests, CMB-38
+
+`SkinnedActorNode` follows the actor's explicit CMB-38 ragdoll override when
+one is set, otherwise it follows the death or unconscious state. It drains queued impulses for
+its bound actor and applies them to the first ragdoll body through the Godot
+physics server. Impulses use the host's Skyrim-to-Godot axis map and metre
+scale. A command drained before a ragdoll exists is discarded. The host path
+uses Jolt; `SimpleWorld` has no ragdoll solver. The conversion is a host
+approximation because the CK pages do not state the force unit expected by
+the physics solver.
+
 Results are dictionaries with `ok`, generation and path. Generation IDs are
 strings to retain their full unsigned range. Rejected candidates carry an
 integrity, definitions or read reason. Recovery adds `state_loaded`, clears

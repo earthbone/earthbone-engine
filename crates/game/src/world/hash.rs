@@ -351,6 +351,11 @@ fn actor_state(h: &mut StateHasher, a: &ActorState) {
     h.u32(a.level);
     opt_form(h, a.race);
     h.bool(a.unconscious);
+    h.u8(match a.ragdoll_forced {
+        None => 0,
+        Some(false) => 1,
+        Some(true) => 2,
+    });
     h.bool(a.doing_favor);
     h.map(&a.factions, |h, k, v| {
         form(h, *k);

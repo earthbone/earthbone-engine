@@ -965,6 +965,37 @@ fn object_reference(vm: &mut Vm, w: &Shared) {
             }
         );
     }
+    method!(
+        vm,
+        w,
+        "ObjectReference",
+        "PushActorAway",
+        |world, call, me| {
+            if let Some(target) = world.form_arg(&call.arg(0)) {
+                let _ = world.push_actor_away(me, target, call.arg(1).as_float());
+            }
+            none()
+        }
+    );
+    method!(
+        vm,
+        w,
+        "ObjectReference",
+        "KnockAreaEffect",
+        |world, call, me| {
+            let _ = world.knock_area_effect(me, call.arg(0).as_float(), call.arg(1).as_float());
+            none()
+        }
+    );
+    for (name, enabled) in [
+        ("ForceAddRagdollToWorld", true),
+        ("ForceRemoveRagdollFromWorld", false),
+    ] {
+        method!(vm, w, "ObjectReference", name, |world, _call, me| {
+            let _ = world.force_ragdoll(me, enabled);
+            none()
+        });
+    }
 }
 
 fn actor(vm: &mut Vm, w: &Shared) {
@@ -3264,8 +3295,6 @@ fn stubs(vm: &mut Vm) -> usize {
         ("ObjectReference", "SetNoFavorAllowed"),
         ("ObjectReference", "ClearDestruction"),
         ("ObjectReference", "DamageObject"),
-        ("ObjectReference", "KnockAreaEffect"),
-        ("ObjectReference", "PushActorAway"),
         ("Actor", "SetEssential"),
         ("Actor", "SetVehicle"),
         ("Actor", "SetLookAt"),
@@ -3305,8 +3334,6 @@ fn stubs(vm: &mut Vm) -> usize {
         // The arrow 3d, the ragdoll and the cart tether are renderer and
         // physics work, the DLC scripts only ask for them.
         ("Actor", "ClearExtraArrows"),
-        ("ObjectReference", "ForceAddRagdollToWorld"),
-        ("ObjectReference", "ForceRemoveRagdollFromWorld"),
         ("ObjectReference", "TetherToHorse"),
         // The shader, effect and music systems the DLC scripts lean on
         // hardest. Nothing renders or sounds yet, so each one is quiet.
