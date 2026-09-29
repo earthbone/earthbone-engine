@@ -2146,6 +2146,64 @@ fn sounds_and_spells_are_recorded() {
     assert!(errors(&g).is_empty(), "{:?}", errors(&g));
 }
 
+/// SCR-70 inventory: these are the registered ShaderParticleGeometry and
+/// Sound methods and globals. Sound.psc also declares PlayAndWait and
+/// GetDescriptor, which are not registered yet.
+#[test]
+fn scr_70_registry_matches_the_audited_sound_and_shader_bindings() {
+    let g = game();
+    let methods = [
+        ("ShaderParticleGeometry", "Apply"),
+        ("ShaderParticleGeometry", "Remove"),
+        ("Sound", "Play"),
+    ];
+    for (class, name) in methods {
+        assert!(g.vm.natives.has_method(class, name), "{class}.{name}");
+        assert!(!g.vm.natives.has_global(class, name), "{class}.{name}");
+    }
+    let globals = [("Sound", "StopInstance"), ("Sound", "SetInstanceVolume")];
+    for (class, name) in globals {
+        assert!(g.vm.natives.has_global(class, name), "{class}.{name}");
+        assert!(!g.vm.natives.has_method(class, name), "{class}.{name}");
+    }
+    assert!(!g.vm.natives.has_method("Sound", "PlayAndWait"));
+    assert!(!g.vm.natives.has_method("Sound", "GetDescriptor"));
+}
+
+/// SCR-70 Sound.psc contract: Play returns a nonzero instance, volume is
+/// clamped to 0 through 1, and StopInstance removes the selected instance.
+#[test]
+fn scr_70_sound_instances_follow_the_declared_contract() {
+    let mut g = game();
+    let sound = obj(&mut g, "TestSound");
+    let source = obj(&mut g, "GuardRef");
+    let first = call(&mut g, &sound, "Play", &[source.clone()]);
+    let second = call(&mut g, &sound, "Play", &[source]);
+    assert_eq!(first, Value::Int(1));
+    assert_eq!(second, Value::Int(2));
+    let sound_id = g.form("TestSound").unwrap();
+    let source_id = g.form("GuardRef").unwrap();
+    assert_eq!(g.world().sound_instances[&2], (sound_id, source_id, 1.0));
+
+    call_global(
+        &mut g,
+        "Sound",
+        "SetInstanceVolume",
+        &[Value::Int(2), Value::Float(2.0)],
+    );
+    assert_eq!(g.world().sound_instances[&2].2, 1.0);
+    call_global(
+        &mut g,
+        "Sound",
+        "SetInstanceVolume",
+        &[Value::Int(2), Value::Float(-1.0)],
+    );
+    assert_eq!(g.world().sound_instances[&2].2, 0.0);
+
+    call_global(&mut g, "Sound", "StopInstance", &[Value::Int(1)]);
+    assert!(!g.world().sound_instances.contains_key(&1));
+}
+
 /// The Game flags: fast travel, AI driven, chargen, beast form, words
 /// (TeachWord then UnlockWord drive IsWordUnlocked), achievements, the
 /// last ridden horse, and SetGameSetting* overriding GetGameSetting*.

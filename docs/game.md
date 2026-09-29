@@ -2050,6 +2050,38 @@ cycles and output links supplied by overrides. All 48 installed footstep sound
 links prepared successfully in the existing 24-case survey. Host execution and
 its output-model limits are documented in [godot-host.md](godot-host.md).
 
+## Shader particle and Sound native audit (2026-09-29)
+
+The registry audit in `natives.rs` has two `ShaderParticleGeometry` methods,
+one `Sound` method and two `Sound` globals. `Sound.psc` in the local SKSE
+vanilla script corpus declares `Play(ObjectReference)` returning an instance
+ID, `StopInstance(int)` and `SetInstanceVolume(int, float)` as globals. The
+registered Sound names and method/global placement match those declarations.
+`SetInstanceVolume` clamps its volume argument to 0 through 1, and
+`World::play_sound` returns a fresh nonzero instance ID. `StopInstance`
+removes the selected instance from the world's sound-instance table.
+
+| Registry binding | CK contract comparison | Current implementation and assigned work |
+|---|---|---|
+| `ShaderParticleGeometry.Apply` method | The local CK function page and class declaration were not present in the crawl. The method is registered as an instance method, but its argument and duration contract remains unverified. | Quiet stub. `SCR-46` owns the effect behavior and argument checks. |
+| `ShaderParticleGeometry.Remove` method | The local CK function page and class declaration were not present in the crawl. The method is registered as an instance method, but its argument and fade contract remains unverified. | Quiet stub. `SCR-46` owns the effect behavior and argument checks. |
+| `Sound.Play` method | `Sound.psc` declares one `ObjectReference` source and an integer playback instance result. | Returns a fresh instance ID and records the source and sound. It does not route this native call to host audio playback. Physical output verification is tracked by `HST-05`. |
+| `Sound.StopInstance` global | `Sound.psc` declares one integer playback instance argument and no return value. | Removes that instance if present. |
+| `Sound.SetInstanceVolume` global | `Sound.psc` declares an instance ID and float volume, clamped between 0 and 1, with no return value. | Updates the selected instance and clamps the requested volume. |
+
+The same `Sound.psc` also declares latent `PlayAndWait(ObjectReference)` and
+`GetDescriptor()` returning `SoundDescriptor`. Neither is registered. No
+unfinished backlog row owns either native binding, so they remain an explicit
+backlog gap rather than being folded into this registry-derived inventory.
+The local CK crawl's `ATTEMPTS.md` records that CK pages were collected from
+archived pages when available. The missing ShaderParticleGeometry pages leave
+its parameter contract to the implementation row above.
+
+`scr_70_registry_matches_the_audited_sound_and_shader_bindings` checks the
+registry-derived inventory and the two unregistered Sound declarations.
+`scr_70_sound_instances_follow_the_declared_contract` checks instance IDs,
+volume bounds and stopping an instance. Neither test exercises physical audio.
+
 ## Authored locks and keys (2026-09-19)
 
 Placed references initialize their lock state and level from XLOC, which was
