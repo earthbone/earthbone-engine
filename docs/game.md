@@ -148,6 +148,18 @@ The location check supports near-reference, in-cell, near-editor-location and
 near-self modes. Other PLVD modes return a typed error. The 32-bit radius and
 location modes follow CommonLibSSE `TESFaction.h` and UESP `FACT.wikitext`.
 
+**ObjectReference.Reset.** `World::reset_reference` rebuilds a record-backed
+reference from its winning REFR or ACHR record, including authored transform,
+enable state, lock metadata, and inventory from the base object. It clears
+runtime reference fields held in `RefState`. The optional target supplies the
+destination position and cell only while the reset reference's cell is
+resident. Actor health and death state
+use the existing resurrection path; actor faction and relationship state is
+stored separately and remains unchanged. All reference fields are already in
+SOEW, so reset adds no save section. This follows the local CK
+`Reset_-_ObjectReference` contract. Dynamic references without a winning
+placement record cannot be reset.
+
 ## Conformance table
 
 Counts from `natives::register`: 364 natives with state behind them and 177
