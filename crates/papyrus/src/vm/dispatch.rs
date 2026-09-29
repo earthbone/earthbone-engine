@@ -281,6 +281,18 @@ impl Vm {
             latent_counter: &mut self.latent_counter,
             objects: &mut self.objects,
             next_object: &mut self.next_object,
+            profiling: self.profiling.clone(),
+            thread_id: self.threads[t].id,
+            stack: self.threads[t]
+                .frames
+                .iter()
+                .filter_map(|frame| {
+                    frame
+                        .script
+                        .as_ref()
+                        .map(|script| (script.name.clone(), frame.function.name.clone()))
+                })
+                .collect(),
         };
         let ret = f(&mut call);
         let thread = &mut self.threads[t];

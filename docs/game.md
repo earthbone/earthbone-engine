@@ -89,6 +89,11 @@ extender in the PAPER mould) and returns the functions it lost. First
 registration wins, the registry never replaces silently. This is the answer to
 the map's third open seam.
 
+The four `Debug` script and stack profiling natives delegate to the VM's
+transient profiler. Stop calls write Chrome trace JSON profile files, with
+per-function VM instruction time and call counts, under the configured profile
+directory. A failed file write is added to the Papyrus log.
+
 **Semantics.** Consult the local Creation Kit function pages and shipped PSC
 wrappers before implementing natives. `engine-refs/ck-wiki/` contains 402
 wikitext pages as of 2026-09-19. When an individual page is absent, class pages
