@@ -749,7 +749,27 @@ impl Game {
                 }
             }
         }
+        let completed = std::mem::take(&mut self.world.borrow_mut().completed_animation_waits);
+        for (latent, result) in completed {
+            self.vm.resolve_latent(latent, Value::Bool(result));
+        }
         n
+    }
+
+    /// Report one event emitted by a reference's behavior graph to Papyrus
+    /// listeners and any `WaitForAnimationEvent` calls.
+    pub fn report_animation_event(&mut self, source: GlobalFormId, name: &str) {
+        let vm = &mut self.vm;
+        self.world
+            .borrow_mut()
+            .animation_event(source, name, &mut |script, class| {
+                vm.create_object_of(script, class)
+            });
+    }
+
+    /// Complete waits false when the reference's behavior graph unloads.
+    pub fn animation_graph_unloaded(&mut self, source: GlobalFormId) {
+        self.world.borrow_mut().animation_graph_unloaded(source);
     }
 
     /// Alternate VM runs and pumps until nothing is runnable and nothing is

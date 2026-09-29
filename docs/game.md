@@ -289,6 +289,10 @@ Current behavior and compatibility limits:
   `PlayAnimation` and `Debug.SendAnimationEvent` fire `OnAnimationEvent` to
   listeners on that sender and name, `World::sleep_start`, `sleep_stop` and
   `line_of_sight` are the host's hooks for the other two.
+- `ObjectReference.WaitForAnimationEvent` suspends its Papyrus thread until a
+  matching graph event fires, then returns true. Graph unload or disabling the
+  reference completes the wait with false. Waiting latent IDs and completed
+  results are stored in the world `ANM-58` save section.
 - `Message.Show` puts a `DNAM` message-box message in the box queue and any
   other in the notification queue, and returns button 0. A scene starts at
   phase zero. `World::complete_scene_action` marks an action slot complete,

@@ -151,6 +151,9 @@ impl INode3D for SkinnedActorNode {
     }
 
     fn exit_tree(&mut self) {
+        if self.vm.is_some() {
+            self.signals().animation_graph_unloaded().emit();
+        }
         if let Some(mut ragdoll) = self.ragdoll.take() {
             ragdoll.free();
         }
@@ -178,6 +181,10 @@ impl SkinnedActorNode {
     /// Authored graph events emitted after the corresponding pose is installed.
     #[signal]
     pub fn animation_event(name: GString);
+
+    /// The loaded behavior graph is leaving the scene tree.
+    #[signal]
+    pub fn animation_graph_unloaded();
 
     /// Load the vanilla human character from `data_dir` and put `mesh_path`
     /// on its skeleton. Returns false and logs on failure.

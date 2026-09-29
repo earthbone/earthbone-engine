@@ -6,11 +6,60 @@
 
 use soe_esm::records::gameplay::Scene;
 use soe_esm::GlobalFormId;
+use soe_papyrus::vm::state::Writer;
+use soe_papyrus::{vm::LatentId, VmError};
 use soe_papyrus::{ObjectId, Value};
 
 use super::{Alloc, Handle, Pending, World};
 
+pub(super) fn write_animation_waits(world: &World, writer: &mut Writer) {
+    world.write_animation_waits(writer);
+}
+
+pub(super) fn read_animation_waits(
+    world: &mut World,
+    reader: &mut super::save::FormReader<'_, '_>,
+) -> Result<(), VmError> {
+    world.read_animation_waits(reader)
+}
+
 impl World {
+    pub(super) fn write_animation_waits(&self, writer: &mut Writer) {
+        writer.len(self.animation_waiters.len());
+        for waiter in &self.animation_waiters {
+            super::save::write_form_id(writer, waiter.source);
+            writer.str(&waiter.event);
+            writer.u64(waiter.latent.0);
+        }
+        writer.len(self.completed_animation_waits.len());
+        for (latent, result) in &self.completed_animation_waits {
+            writer.u64(latent.0);
+            writer.bool(*result);
+        }
+    }
+
+    pub(super) fn read_animation_waits(
+        &mut self,
+        reader: &mut super::save::FormReader<'_, '_>,
+    ) -> Result<(), VmError> {
+        let count = reader.len()?;
+        self.animation_waiters.clear();
+        for _ in 0..count {
+            self.animation_waiters.push(super::AnimationWaiter {
+                source: super::save::read_form_id(reader)?,
+                event: reader.str()?,
+                latent: LatentId(reader.u64()?),
+            });
+        }
+        let count = reader.len()?;
+        self.completed_animation_waits.clear();
+        for _ in 0..count {
+            self.completed_animation_waits
+                .push((LatentId(reader.u64()?), reader.bool()?));
+        }
+        Ok(())
+    }
+
     /// An event to the scripts on `form`, the way `OnActivate` reaches a
     /// reference: `Actor.SendVampirismStateChanged` and its siblings use it.
     pub fn form_event(
@@ -69,6 +118,7 @@ impl World {
     /// `OnAnimationEvent(source, name)` to whoever registered for it.
     pub fn animation_event(&mut self, source: GlobalFormId, name: &str, alloc: Alloc<'_>) {
         self.animation_events.push((source, name.to_string()));
+        self.finish_animation_waits(source, Some(name));
         let listeners: Vec<ObjectId> = self
             .animation_listeners
             .iter()
@@ -86,6 +136,61 @@ impl World {
                 args: vec![src.clone(), Value::string(name)],
             });
         }
+    }
+
+    /// Register one latent wait. A reference that is already disabled
+    /// completes immediately with false.
+    pub fn wait_for_animation_event(
+        &mut self,
+        source: GlobalFormId,
+        name: &str,
+        latent: soe_papyrus::vm::LatentId,
+    ) {
+        if !self
+            .reference(source)
+            .is_some_and(|reference| reference.enabled)
+        {
+            self.completed_animation_waits.push((latent, false));
+            return;
+        }
+        self.animation_waiters.push(super::AnimationWaiter {
+            source,
+            event: name.to_string(),
+            latent,
+        });
+    }
+
+    /// The graph for this reference stopped producing events.
+    pub fn animation_graph_unloaded(&mut self, source: GlobalFormId) {
+        self.finish_animation_waits(source, None);
+    }
+
+    /// Resolve waits when a reference becomes disabled.
+    pub fn set_reference_enabled(&mut self, source: GlobalFormId, enabled: bool) {
+        if let Some(reference) = self.reference(source) {
+            reference.enabled = enabled;
+        }
+        if !enabled {
+            self.finish_animation_waits(source, None);
+        }
+    }
+
+    fn finish_animation_waits(&mut self, source: GlobalFormId, event: Option<&str>) {
+        let mut remaining = Vec::with_capacity(self.animation_waiters.len());
+        for waiter in std::mem::take(&mut self.animation_waiters) {
+            if waiter.source != source {
+                remaining.push(waiter);
+            } else if let Some(name) = event {
+                if waiter.event.eq_ignore_ascii_case(name) {
+                    self.completed_animation_waits.push((waiter.latent, true));
+                } else {
+                    remaining.push(waiter);
+                }
+            } else {
+                self.completed_animation_waits.push((waiter.latent, false));
+            }
+        }
+        self.animation_waiters = remaining;
     }
 
     /// A viewer gains or loses sight of a target: `OnGainLOS` or
