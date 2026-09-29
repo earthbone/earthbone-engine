@@ -13,46 +13,52 @@ struct Stage {
     health_percent: u8,
     model_index: u8,
     flags: u8,
+    model: Option<String>,
 }
 
-fn destruction_data(
-    world: &World,
-    reference: GlobalFormId,
-) -> Option<(f32, Vec<Stage>, Vec<String>)> {
+fn destruction_data(world: &World, reference: GlobalFormId) -> Option<(f32, Vec<Stage>)> {
     let base = world.reference_ref(reference)?.base?;
     let record = world.record(base)?;
     let dest = record.find(T(b"DEST"))?;
-    if dest.len() < 4 {
+    if dest.len() < 8 {
         return None;
     }
     let health = i32::from_le_bytes(dest[..4].try_into().ok()?);
     if health <= 0 {
         return None;
     }
-    let stages: Vec<Stage> = record
-        .all(T(b"DSTD"))
-        .map(|data| {
-            if data.len() != 20 {
-                return None;
+    let mut stages = Vec::new();
+    for subrecord in &record.subrecords {
+        match subrecord.tag {
+            tag if tag == T(b"DSTD") => {
+                if subrecord.data.len() != 20 {
+                    return None;
+                }
+                stages.push(Stage {
+                    health_percent: subrecord.data[0],
+                    model_index: subrecord.data[2],
+                    flags: subrecord.data[3],
+                    model: None,
+                });
             }
-            Some(Stage {
-                health_percent: data[0],
-                model_index: data[2],
-                flags: data[3],
-            })
-        })
-        .collect::<Option<_>>()?;
+            tag if tag == T(b"DMDL") => {
+                let path = subrecord
+                    .data
+                    .split(|byte| *byte == 0)
+                    .next()
+                    .filter(|path| !path.is_empty())
+                    .map(|path| String::from_utf8_lossy(path).into_owned());
+                if let Some(stage) = stages.last_mut() {
+                    stage.model = path;
+                }
+            }
+            _ => {}
+        }
+    }
     if stages.len() != usize::from(dest[4]) {
         return None;
     }
-    let models = record
-        .all(T(b"DMDL"))
-        .filter_map(|data| {
-            let path = data.split(|byte| *byte == 0).next()?;
-            (!path.is_empty()).then(|| String::from_utf8_lossy(path).into_owned())
-        })
-        .collect();
-    Some((health as f32, stages, models))
+    Some((health as f32, stages))
 }
 
 impl World {
@@ -67,20 +73,13 @@ impl World {
     #[must_use]
     pub fn destruction_model(&self, reference: GlobalFormId) -> Option<String> {
         let reference_state = self.reference_ref(reference)?;
-        let (_, stages, models) = destruction_data(self, reference)?;
+        let (_, stages) = destruction_data(self, reference)?;
         let stage_number = usize::try_from(reference_state.destruction_stage).ok()?;
-        let model_index = usize::from(stages.get(stage_number)?.model_index);
-        if model_index == 0 {
+        let stage = stages.get(stage_number)?;
+        if stage.model_index == 0 {
             return None;
         }
-        let selected = if models.len() == stages.len() {
-            models.get(stage_number)
-        } else if models.len() == 1 {
-            models.first()
-        } else {
-            models.get(model_index - 1)
-        };
-        selected.cloned()
+        stage.model.clone()
     }
 
     /// Apply external damage and queue one stage-change event per crossed stage.
@@ -88,7 +87,7 @@ impl World {
         if !damage.is_finite() || damage <= 0.0 {
             return;
         }
-        let Some((maximum, stages, _)) = destruction_data(self, reference) else {
+        let Some((maximum, stages)) = destruction_data(self, reference) else {
             return;
         };
         let Some(state) = self.reference(reference) else {
@@ -147,7 +146,7 @@ impl World {
 
     /// Restore the authored model and health, reporting the reset stage.
     pub fn clear_destruction(&mut self, reference: GlobalFormId, alloc: Alloc<'_>) {
-        let Some((maximum, _, _)) = destruction_data(self, reference) else {
+        let Some((maximum, _)) = destruction_data(self, reference) else {
             return;
         };
         let Some(state) = self.reference(reference) else {

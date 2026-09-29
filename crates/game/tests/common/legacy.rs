@@ -3,12 +3,28 @@
 use soe_esm::GlobalFormId;
 use soe_game::world::World;
 
+fn section_table_len(bytes: &[u8], offset: usize) -> usize {
+    let mut cursor = offset;
+    let count = usize::from(u16::from_le_bytes(
+        bytes[cursor..cursor + 2].try_into().unwrap(),
+    ));
+    cursor += 2;
+    for _ in 0..count {
+        let name_len = usize::from(bytes[cursor]);
+        cursor += 1 + name_len;
+        let payload_len =
+            u32::from_le_bytes(bytes[cursor..cursor + 4].try_into().unwrap()) as usize;
+        cursor += 4 + payload_len;
+    }
+    cursor - offset
+}
+
 /// Strip uniquely marked actor fields before a fixture applies its older layout.
 /// Callers supply every initialized actor and restore the requested old header.
 /// Strips the exclusive dialogue branch version 24 added, the stagger end time
 /// version 29 added, the witnessed crime set version 31 added and the hand
 /// spell fields version 32 added, so fixtures built against any older header
-/// see none of those fields' bytes. Also strips the empty save-section table
+/// see none of those fields' bytes. Also strips the named save-section table
 /// version 37 appends to the actor's own record and, since `World::actor`
 /// requires a paired reference (`self.reference(id)` with `is_actor` set), to
 /// that reference's record too, so both records end exactly where a
@@ -171,10 +187,10 @@ pub fn without_exclusive_branches(world: &mut World, actors: &[GlobalFormId]) ->
         );
         fields.push((right_spell_offsets[0], right_spell_marker.len()));
 
-        // The right spell field is immediately followed by this actor's
-        // own empty save-section table (a `u16` count of 0, see
-        // `save_sections`), which a pre-version-37 writer never emitted.
-        fields.push((right_spell_offsets[0] + right_spell_marker.len(), 2));
+        // Remove this actor's complete section table, including any named
+        // sections added after the legacy version being simulated.
+        let actor_sections = right_spell_offsets[0] + right_spell_marker.len();
+        fields.push((actor_sections, section_table_len(&bytes, actor_sections)));
 
         // `alpha` itself is not version gated, so unlike the fields above
         // it must stay in the stream with its true value. Only the empty
@@ -191,7 +207,11 @@ pub fn without_exclusive_branches(world: &mut World, actors: &[GlobalFormId]) ->
         let alpha_offset = alpha_offsets[0];
         bytes[alpha_offset..alpha_offset + alpha_marker.len()]
             .copy_from_slice(&prior_alpha.to_le_bytes());
-        fields.push((alpha_offset + alpha_marker.len(), 2));
+        let reference_sections = alpha_offset + alpha_marker.len();
+        fields.push((
+            reference_sections,
+            section_table_len(&bytes, reference_sections),
+        ));
     }
     fields.sort_by_key(|(offset, _)| std::cmp::Reverse(*offset));
     for (offset, len) in fields {
@@ -200,13 +220,13 @@ pub fn without_exclusive_branches(world: &mut World, actors: &[GlobalFormId]) ->
     bytes
 }
 
-/// Strip the empty save-section table version 37 appends to a standalone
+/// Strip the save-section table version 37 appends to a standalone
 /// reference's own record. `without_exclusive_branches` only locates this
 /// table for a reference paired with an actor, through the actor's own
 /// alpha value. A fixture that materializes a bare reference, such as an
 /// authored loose item never turned into an actor, calls this instead
 /// before truncating the rest of the buffer to an older header. Order does
-/// not matter, an empty slice is a no-op that still round trips the state.
+/// not matter, a table with no registered sections still round trips the state.
 ///
 /// Same cross-binary sharing as `without_exclusive_branches` above: only the
 /// binaries that fixture a bare reference call this one.
@@ -241,11 +261,12 @@ pub fn without_ref_sections(world: &mut World, refs: &[GlobalFormId]) -> Vec<u8>
         assert_eq!(found.len(), 1, "reference alpha sentinel is not unique");
         let offset = found[0];
         bytes[offset..offset + marker.len()].copy_from_slice(&prior_alpha.to_le_bytes());
-        offsets.push(offset + marker.len());
+        let section_offset = offset + marker.len();
+        offsets.push((section_offset, section_table_len(&bytes, section_offset)));
     }
-    offsets.sort_by_key(|offset| std::cmp::Reverse(*offset));
-    for offset in offsets {
-        bytes.drain(offset..offset + 2);
+    offsets.sort_by_key(|(offset, _)| std::cmp::Reverse(*offset));
+    for (offset, len) in offsets {
+        bytes.drain(offset..offset + len);
     }
     bytes
 }
