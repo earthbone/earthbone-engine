@@ -149,6 +149,12 @@ pub struct Game {
     greeting_range_actors: BTreeSet<soe_esm::GlobalFormId>,
 }
 
+/// Maximum VM instructions executed in one scheduler slice.
+pub const PAPYRUS_INSTRUCTIONS_PER_SLICE: usize = 100_000;
+
+/// Maximum exterior cells the player streamer starts loading per update.
+pub const EXTERIOR_CELL_LOADS_PER_UPDATE: usize = 2;
+
 impl Game {
     pub fn new(order: LoadOrder) -> Game {
         Self::from_shared_order(std::sync::Arc::new(order))
@@ -164,7 +170,7 @@ impl Game {
             world,
             registered,
             bound: None,
-            budget: 100_000,
+            budget: PAPYRUS_INSTRUCTIONS_PER_SLICE,
             hash_log: None,
             greeting_range_actors: BTreeSet::new(),
         }
