@@ -68,7 +68,8 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// section registered in `save_section_registry`, at the level that owns
 /// it, not into a new version.
 /// Version 37 retains named world sections, including SAV-53 base-object
-/// change fields for LIGH, STAT and MSTT records.
+/// change fields for LIGH, STAT and MSTT records, and SAV-42 static-object
+/// change fields for CONT, MISC and FURN records.
 pub const SAVE_VERSION: u16 = 37;
 
 #[derive(Clone, Copy)]

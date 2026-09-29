@@ -9,6 +9,7 @@ use soe_papyrus::{vm::state::Writer, VmError};
 
 use super::record_overrides::{
     raw_words, BaseObjectRecordExtra, ListRecordExtra, NpcRecordExtra, RecordOverride,
+    StaticObjectRecordExtra,
 };
 use super::save::{read_form_id, read_opt_form_id, write_form_id, write_opt_form_id, FormReader};
 use super::{World, T};
@@ -114,6 +115,9 @@ impl World {
                             | b"LIGH"
                             | b"STAT"
                             | b"MSTT"
+                            | b"CONT"
+                            | b"MISC"
+                            | b"FURN"
                     )
                 })
             {
@@ -134,6 +138,9 @@ impl World {
                             | b"LIGH"
                             | b"STAT"
                             | b"MSTT"
+                            | b"CONT"
+                            | b"MISC"
+                            | b"FURN"
                     ) && !rec.is_deleted()
                 })
                 .ok_or_else(|| bad("missing record origin"))?;
@@ -271,6 +278,18 @@ impl World {
                 {
                     return Err(bad("invalid race skin link"));
                 }
+            } else if matches!(&record.tag.0, b"CONT" | b"MISC" | b"FURN") {
+                if list.is_some()
+                    || temporary_for.is_some()
+                    || text_origin != id
+                    || plain_full
+                    || original_race.is_some()
+                    || body_tint.is_some()
+                    || pending_form_flags.is_some()
+                    || record.subrecords != original.subrecords
+                {
+                    return Err(bad("invalid saved static-object override"));
+                }
             } else if matches!(&record.tag.0, b"LIGH" | b"STAT" | b"MSTT") {
                 if list.is_some()
                     || temporary_for.is_some()
@@ -349,6 +368,7 @@ impl World {
                 },
                 list,
                 base_object: None,
+                static_object: None,
             };
             if values.insert(id, value).is_some() {
                 return Err(bad("duplicate NPC record"));
@@ -416,6 +436,90 @@ impl World {
                 .get_mut(&id)
                 .ok_or_else(|| bad("base-object override disappeared during load"))?
                 .base_object = Some(extra);
+        }
+        Ok(())
+    }
+
+    pub(super) fn write_static_object_section(&self, w: &mut Writer) {
+        let values: Vec<_> = self
+            .record_overrides
+            .iter()
+            .filter_map(|(id, value)| value.static_object.as_ref().map(|extra| (*id, extra)))
+            .collect();
+        w.len(values.len());
+        for (id, extra) in values {
+            write_form_id(w, id);
+            w.u32(extra.change_flags);
+            w.bool(extra.form_flags.is_some());
+            if let Some((flags, unknown)) = extra.form_flags {
+                w.u32(flags);
+                w.u16(unknown);
+            }
+            w.bool(extra.value_changed);
+            w.bool(extra.full_name_changed);
+            w.bytes(&extra.opaque_suffix);
+        }
+    }
+
+    pub(super) fn read_static_object_section(
+        &mut self,
+        r: &mut FormReader<'_, '_>,
+    ) -> Result<(), VmError> {
+        let count = r.len()?;
+        if count > r.remaining() / 6 {
+            return Err(bad("static-object section count exceeds remaining bytes"));
+        }
+        let mut values = Vec::with_capacity(count);
+        let mut seen = std::collections::BTreeSet::new();
+        for _ in 0..count {
+            let id = read_form_id(r)?;
+            self.saved_record_identity(id)?;
+            let change_flags = r.u32()?;
+            let form_flags = if r.bool()? {
+                Some((r.u32()?, r.u16()?))
+            } else {
+                None
+            };
+            let value_changed = r.bool()?;
+            let full_name_changed = r.bool()?;
+            let opaque_suffix = r.bytes()?.to_vec();
+            let flags = soe_save::base_object::static_object_flags::FORM;
+            let value = soe_save::base_object::static_object_flags::VALUE;
+            let full_name = soe_save::base_object::static_object_flags::FULL_NAME;
+            let record = self
+                .record_overrides
+                .get(&id)
+                .ok_or_else(|| bad("static-object section names a missing record override"))?;
+            if !matches!(&record.record.tag.0, b"CONT" | b"MISC" | b"FURN")
+                || record.static_object.is_some()
+                || record.base_object.is_some()
+                || form_flags.is_some() != (change_flags & flags != 0)
+                || value_changed != (change_flags & value != 0)
+                || full_name_changed != (change_flags & full_name != 0)
+                || !seen.insert(id)
+            {
+                return Err(bad("invalid or duplicate static-object section entry"));
+            }
+            values.push((
+                id,
+                StaticObjectRecordExtra {
+                    change_flags,
+                    form_flags,
+                    value_changed,
+                    full_name_changed,
+                    opaque_suffix,
+                },
+            ));
+        }
+        for (id, extra) in values {
+            let record = self
+                .record_overrides
+                .get_mut(&id)
+                .ok_or_else(|| bad("static-object override disappeared during load"))?;
+            if let Some((mask, _)) = extra.form_flags {
+                record.record.flags ^= mask;
+            }
+            record.static_object = Some(extra);
         }
         Ok(())
     }

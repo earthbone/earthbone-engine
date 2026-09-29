@@ -286,19 +286,19 @@ fn record_overrides_persist_before_actor_initialization_and_old_saves_clear_them
     let before = world.save_state();
     let hash = world.state_hash();
     let mut v13 = before.clone();
-    // `empty` carries 15 more bytes of tail growth for SAV-53 than the
+    // `empty` carries 30 more bytes of tail growth for SAV-53 and SAV-42 than the
     // earlier empty world section table used to locate record overrides.
-    // It also carries the same 21 bytes of unconditional tail growth as
-    // `before` past record overrides (detection's empty pool count and the
-    // SAV-53 world section added in version 37).
-    let origin_fields = empty.len() - 57;
+    // It also carries the same 36 bytes of unconditional tail growth as
+    // `before` past record overrides (detection's empty pool count and both
+    // world sections added in version 37).
+    let origin_fields = empty.len() - 72;
     v13.drain(origin_fields..origin_fields + 13);
-    // CONTEXT: Version 13 has no list metadata byte in record overrides.
+    // CONTEXT: Version 13 predates list and static-object metadata bytes.
     v13.remove(origin_fields + 14);
-    // The extra 21 bytes beyond the old 42 are the same detection and
+    // The extra 36 bytes beyond the old 42 are the same detection and
     // world-section growth, always present at the tail
     // regardless of the simulated version.
-    v13.truncate(v13.len() - 63);
+    v13.truncate(v13.len() - 78);
     v13[4..6].copy_from_slice(&13_u16.to_le_bytes());
     let mut legacy = World::new(fixture_order());
     legacy.load_state(&v13).unwrap();
@@ -316,8 +316,8 @@ fn record_overrides_persist_before_actor_initialization_and_old_saves_clear_them
         assert_eq!(loaded.save_state(), stable);
     }
     let mut v12 = empty;
-    // Same 21-byte tail growth as v13 above plus 15 bytes for SAV-53.
-    v12.truncate(v12.len() - 67);
+    // Same 36-byte tail growth as v13 above plus 15 bytes for SAV-53.
+    v12.truncate(v12.len() - 82);
     v12[4..6].copy_from_slice(&12_u16.to_le_bytes());
     loaded.load_state(&v12).unwrap();
     assert!(loaded.restored_npc_extra(id(0, 0x800)).is_none());

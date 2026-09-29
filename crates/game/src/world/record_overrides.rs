@@ -38,6 +38,16 @@ pub struct BaseObjectRecordExtra {
     pub full_name_changed: bool,
 }
 
+/// Saved fields decoded from a CONT, MISC or FURN change form.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct StaticObjectRecordExtra {
+    pub change_flags: u32,
+    pub form_flags: Option<(u32, u16)>,
+    pub value_changed: bool,
+    pub full_name_changed: bool,
+    pub opaque_suffix: Vec<u8>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct RecordOverride {
     pub origin: GlobalFormId,
@@ -49,6 +59,7 @@ pub(super) struct RecordOverride {
     pub npc: NpcRecordExtra,
     pub list: Option<ListRecordExtra>,
     pub base_object: Option<BaseObjectRecordExtra>,
+    pub static_object: Option<StaticObjectRecordExtra>,
 }
 
 pub(super) fn raw_words(record: &Record) -> BTreeSet<u32> {
@@ -74,6 +85,7 @@ impl RecordOverride {
             npc: NpcRecordExtra::default(),
             list: None,
             base_object: None,
+            static_object: None,
         }
     }
 
@@ -138,5 +150,13 @@ impl World {
     /// Saved LIGH, STAT or MSTT metadata attached to a restored record.
     pub fn restored_base_object_extra(&self, id: GlobalFormId) -> Option<BaseObjectRecordExtra> {
         self.record_overrides.get(&id)?.base_object
+    }
+
+    /// Saved change fields for a restored CONT, MISC or FURN record.
+    pub fn restored_static_object_extra(
+        &self,
+        id: GlobalFormId,
+    ) -> Option<&StaticObjectRecordExtra> {
+        self.record_overrides.get(&id)?.static_object.as_ref()
     }
 }

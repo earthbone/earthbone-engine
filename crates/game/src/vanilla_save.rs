@@ -47,6 +47,8 @@ pub enum RestoreError {
     List { id: GlobalFormId, reason: String },
     #[error("cannot restore base object {id}: {reason}")]
     BaseObject { id: GlobalFormId, reason: String },
+    #[error("cannot restore static object {id}: {reason}")]
+    StaticObject { id: GlobalFormId, reason: String },
     #[error("cannot restore reference {id}: {reason}")]
     WorldReference { id: GlobalFormId, reason: String },
 }
