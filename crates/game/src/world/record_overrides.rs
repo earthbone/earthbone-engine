@@ -27,6 +27,17 @@ pub struct ListRecordExtra {
     pub entry_chances: Vec<u8>,
 }
 
+/// Saved LIGH, STAT and MSTT fields that have no byte-valued record replacement.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct BaseObjectRecordExtra {
+    /// Optional saved form flag mask and its trailing word.
+    pub form_flags: Option<(u32, u16)>,
+    /// Whether the value change marker is set.
+    pub value_changed: bool,
+    /// Whether the full-name change marker is set.
+    pub full_name_changed: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct RecordOverride {
     pub origin: GlobalFormId,
@@ -37,6 +48,7 @@ pub(super) struct RecordOverride {
     pub plain_full: bool,
     pub npc: NpcRecordExtra,
     pub list: Option<ListRecordExtra>,
+    pub base_object: Option<BaseObjectRecordExtra>,
 }
 
 pub(super) fn raw_words(record: &Record) -> BTreeSet<u32> {
@@ -61,6 +73,7 @@ impl RecordOverride {
             plain_full: false,
             npc: NpcRecordExtra::default(),
             list: None,
+            base_object: None,
         }
     }
 
@@ -120,5 +133,10 @@ impl World {
 
     pub fn restored_list_extra(&self, id: GlobalFormId) -> Option<&ListRecordExtra> {
         self.record_overrides.get(&id)?.list.as_ref()
+    }
+
+    /// Saved LIGH, STAT or MSTT metadata attached to a restored record.
+    pub fn restored_base_object_extra(&self, id: GlobalFormId) -> Option<BaseObjectRecordExtra> {
+        self.record_overrides.get(&id)?.base_object
     }
 }

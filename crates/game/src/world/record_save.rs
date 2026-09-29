@@ -7,7 +7,9 @@ use std::collections::BTreeMap;
 use soe_esm::{plugin::Subrecord, GlobalFormId, Slot, Tag};
 use soe_papyrus::{vm::state::Writer, VmError};
 
-use super::record_overrides::{raw_words, ListRecordExtra, NpcRecordExtra, RecordOverride};
+use super::record_overrides::{
+    raw_words, BaseObjectRecordExtra, ListRecordExtra, NpcRecordExtra, RecordOverride,
+};
 use super::save::{read_form_id, read_opt_form_id, write_form_id, write_opt_form_id, FormReader};
 use super::{World, T};
 
@@ -103,7 +105,15 @@ impl World {
                 || self.order.winner(text_origin).is_none_or(|r| {
                     !matches!(
                         &r.tag.0,
-                        b"NPC_" | b"RACE" | b"FLST" | b"LVLN" | b"LVLI" | b"LVSP"
+                        b"NPC_"
+                            | b"RACE"
+                            | b"FLST"
+                            | b"LVLN"
+                            | b"LVLI"
+                            | b"LVSP"
+                            | b"LIGH"
+                            | b"STAT"
+                            | b"MSTT"
                     )
                 })
             {
@@ -115,7 +125,15 @@ impl World {
                 .filter(|rec| {
                     matches!(
                         &rec.tag.0,
-                        b"NPC_" | b"RACE" | b"FLST" | b"LVLN" | b"LVLI" | b"LVSP"
+                        b"NPC_"
+                            | b"RACE"
+                            | b"FLST"
+                            | b"LVLN"
+                            | b"LVLI"
+                            | b"LVSP"
+                            | b"LIGH"
+                            | b"STAT"
+                            | b"MSTT"
                     ) && !rec.is_deleted()
                 })
                 .ok_or_else(|| bad("missing record origin"))?;
@@ -253,6 +271,18 @@ impl World {
                 {
                     return Err(bad("invalid race skin link"));
                 }
+            } else if matches!(&record.tag.0, b"LIGH" | b"STAT" | b"MSTT") {
+                if list.is_some()
+                    || temporary_for.is_some()
+                    || text_origin != id
+                    || plain_full
+                    || original_race.is_some()
+                    || body_tint.is_some()
+                    || pending_form_flags.is_some()
+                    || record.subrecords != original.subrecords
+                {
+                    return Err(bad("invalid saved base-object override"));
+                }
             } else {
                 let tag = if record.tag == T(b"FLST") {
                     T(b"LNAM")
@@ -318,11 +348,75 @@ impl World {
                     pending_form_flags,
                 },
                 list,
+                base_object: None,
             };
             if values.insert(id, value).is_some() {
                 return Err(bad("duplicate NPC record"));
             }
         }
         Ok(values)
+    }
+
+    pub(super) fn write_base_object_section(&self, w: &mut Writer) {
+        let values: Vec<_> = self
+            .record_overrides
+            .iter()
+            .filter_map(|(id, value)| value.base_object.map(|extra| (*id, extra)))
+            .collect();
+        w.len(values.len());
+        for (id, extra) in values {
+            write_form_id(w, id);
+            w.bool(extra.form_flags.is_some());
+            if let Some((flags, unknown)) = extra.form_flags {
+                w.u32(flags);
+                w.u16(unknown);
+            }
+            w.bool(extra.value_changed);
+            w.bool(extra.full_name_changed);
+        }
+    }
+
+    pub(super) fn read_base_object_section(
+        &mut self,
+        r: &mut FormReader<'_, '_>,
+    ) -> Result<(), VmError> {
+        let count = r.len()?;
+        if count > r.remaining() / 6 {
+            return Err(bad("base-object section count exceeds remaining bytes"));
+        }
+        let mut values = Vec::with_capacity(count);
+        let mut seen = std::collections::BTreeSet::new();
+        for _ in 0..count {
+            let id = read_form_id(r)?;
+            self.saved_record_identity(id)?;
+            let form_flags = if r.bool()? {
+                Some((r.u32()?, r.u16()?))
+            } else {
+                None
+            };
+            let extra = BaseObjectRecordExtra {
+                form_flags,
+                value_changed: r.bool()?,
+                full_name_changed: r.bool()?,
+            };
+            let value = self
+                .record_overrides
+                .get(&id)
+                .ok_or_else(|| bad("base-object section names a missing record override"))?;
+            if !matches!(&value.record.tag.0, b"LIGH" | b"STAT" | b"MSTT")
+                || value.base_object.is_some()
+                || !seen.insert(id)
+            {
+                return Err(bad("invalid or duplicate base-object section entry"));
+            }
+            values.push((id, extra));
+        }
+        for (id, extra) in values {
+            self.record_overrides
+                .get_mut(&id)
+                .ok_or_else(|| bad("base-object override disappeared during load"))?
+                .base_object = Some(extra);
+        }
+        Ok(())
     }
 }

@@ -404,7 +404,7 @@ fn without_exclusive_branches(world: &mut World) -> Vec<u8> {
         .windows(records.out.len())
         .position(|window| window == records.out)
         .expect("record override is serialized");
-    // CONTEXT: This fixture has one override with no list fields in version 23.
+    // CONTEXT: This fixture has one override with no list metadata in version 23.
     bytes.remove(at + 39);
     bytes
 }
@@ -415,9 +415,8 @@ fn sav_07_legacy_ids_migrate_through_all_nested_world_state() {
         let mut legacy = without_exclusive_branches(&mut rich_world(255));
         // Drop empty post-version-19 blocks, including zone visit and scene
         // history, the version 30 detection block's now-unconditional empty
-        // pool count, and the world-level save-section table version 37
-        // added.
-        legacy.truncate(legacy.len() - 43);
+        // pool count, and the SAV-53 world section version 37 added.
+        legacy.truncate(legacy.len() - 58);
         let tail = legacy.len() - 25;
         let mut expected = rich_world(DYNAMIC_FILE);
         match version {

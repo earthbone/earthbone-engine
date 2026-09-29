@@ -286,18 +286,19 @@ fn record_overrides_persist_before_actor_initialization_and_old_saves_clear_them
     let before = world.save_state();
     let hash = world.state_hash();
     let mut v13 = before.clone();
-    // `empty` carries the same 6 bytes of unconditional tail growth as
-    // `before` past record overrides (detection's now-unconditional empty
-    // pool count and the world-level save-section table version 37 added),
-    // so the offset grows by 6 to still land on record overrides' start.
-    let origin_fields = empty.len() - 42;
+    // `empty` carries 15 more bytes of tail growth for SAV-53 than the
+    // earlier empty world section table used to locate record overrides.
+    // It also carries the same 21 bytes of unconditional tail growth as
+    // `before` past record overrides (detection's empty pool count and the
+    // SAV-53 world section added in version 37).
+    let origin_fields = empty.len() - 57;
     v13.drain(origin_fields..origin_fields + 13);
     // CONTEXT: Version 13 has no list metadata byte in record overrides.
     v13.remove(origin_fields + 14);
-    // The extra 6 bytes beyond the old 42 are the same detection and
-    // world-level save-section growth, always present at the tail
+    // The extra 21 bytes beyond the old 42 are the same detection and
+    // world-section growth, always present at the tail
     // regardless of the simulated version.
-    v13.truncate(v13.len() - 48);
+    v13.truncate(v13.len() - 63);
     v13[4..6].copy_from_slice(&13_u16.to_le_bytes());
     let mut legacy = World::new(fixture_order());
     legacy.load_state(&v13).unwrap();
@@ -315,8 +316,8 @@ fn record_overrides_persist_before_actor_initialization_and_old_saves_clear_them
         assert_eq!(loaded.save_state(), stable);
     }
     let mut v12 = empty;
-    // Same 6-byte tail growth as v13 above, past the old 46.
-    v12.truncate(v12.len() - 52);
+    // Same 21-byte tail growth as v13 above plus 15 bytes for SAV-53.
+    v12.truncate(v12.len() - 67);
     v12[4..6].copy_from_slice(&12_u16.to_le_bytes());
     loaded.load_state(&v12).unwrap();
     assert!(loaded.restored_npc_extra(id(0, 0x800)).is_none());

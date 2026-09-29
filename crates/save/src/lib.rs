@@ -20,6 +20,7 @@
 //! the round trip test asserts.
 
 pub mod atomic;
+pub mod base_object;
 pub mod change;
 mod compress;
 pub mod created_objects;
@@ -36,6 +37,7 @@ pub mod quest;
 pub mod reference;
 pub mod table;
 
+pub use base_object::{BaseObjectFields, LightStaticChange};
 pub use change::{ChangeForm, QuestStage};
 pub use change::{
     ClassChange, FactionChange, FactionReaction, FactionReactions, RelationshipChange,
