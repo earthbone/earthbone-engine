@@ -2433,6 +2433,16 @@ import does not execute queued messages, fire timers or resume quests.
 validated active Papyrus frames. Full ESS loading and host resumption remain
 separate backlog items.
 
+The native game save stores the world clock and the VM clock state together.
+Papyrus waits retain their real-time, menu-time or accumulated game-hour
+deadline, so a reload does not reinterpret one clock domain as another.
+`tests/sav_18_wait_deadlines.rs` exercises each wait through a game save and
+load, including a timescale change and one-shot wake behavior. The CK
+`Utility_Script.wikitext` documents `WaitGameTime` in game hours, while UESP
+`Global_Variables.wikitext` defines saved globals as form IDs and floats. The
+runtime scheduler uses elapsed game hours from the saved game clock, not the
+calendar's `GameHour` field.
+
 The installed survey passes all 60 saves and all 360 calendar values, with
 exact engine-save bytes and world hashes after reloading. Synthetic checks
 cover plugin remapping, independent saved hour and elapsed days, a queued VM
