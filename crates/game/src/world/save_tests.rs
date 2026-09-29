@@ -495,9 +495,28 @@ fn sav_07_ambiguous_legacy_loadouts_fail_before_world_or_vm_mutation() {
         .notifications
         .push("keep existing state".into());
     let before = game.save_state().unwrap();
+    let mut world_at = 6;
+    let plugin_count = u32::from_le_bytes(before[world_at..world_at + 4].try_into().unwrap());
+    world_at += 4;
+    for _ in 0..plugin_count {
+        let name_len = u32::from_le_bytes(before[world_at..world_at + 4].try_into().unwrap());
+        world_at += 4 + name_len as usize + 1 + 2 + 32;
+    }
+    let script_count = u32::from_le_bytes(before[world_at..world_at + 4].try_into().unwrap());
+    world_at += 4;
+    for _ in 0..script_count {
+        let name_len = u32::from_le_bytes(before[world_at..world_at + 4].try_into().unwrap());
+        world_at += 4 + name_len as usize;
+        if before[world_at] != 0 {
+            world_at += 1 + 32;
+        } else {
+            world_at += 1;
+        }
+    }
+    world_at += 4;
     for version in 4..=18_u16 {
         let mut bytes = before.clone();
-        bytes[14..16].copy_from_slice(&version.to_le_bytes());
+        bytes[world_at + 4..world_at + 6].copy_from_slice(&version.to_le_bytes());
         assert!(game
             .load_state(&bytes)
             .unwrap_err()

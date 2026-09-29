@@ -67,6 +67,7 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// version this constant will ever reach: new saved state goes into a
 /// section registered in `save_section_registry`, at the level that owns
 /// it, not into a new version.
+/// Version 37 accompanies the provenance-aware native game save envelope.
 pub const SAVE_VERSION: u16 = 37;
 
 #[derive(Clone, Copy)]
