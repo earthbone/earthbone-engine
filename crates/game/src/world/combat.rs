@@ -104,6 +104,37 @@ impl World {
         Ok(())
     }
 
+    /// Return the actor's equipped shield, if its worn armor occupies the
+    /// shield biped slot (BOD2 bit 9).
+    ///
+    /// # Errors
+    /// Missing actor or malformed equipped armor record.
+    ///
+    /// # Panics
+    /// This method does not panic.
+    pub fn equipped_shield(&mut self, actor: GlobalFormId) -> Result<Option<GlobalFormId>, Error> {
+        let equipped = self
+            .actor(actor)
+            .ok_or(Error::Actor(actor))?
+            .equipped
+            .iter()
+            .copied()
+            .collect::<Vec<_>>();
+        for item in equipped {
+            if self.item_count(actor, item) <= 0
+                || self
+                    .record(item)
+                    .is_none_or(|record| record.tag != Tag(*b"ARMO"))
+            {
+                continue;
+            }
+            if self.combat_armor_record(item)?.slots & (1 << 9) != 0 {
+                return Ok(Some(item));
+            }
+        }
+        Ok(None)
+    }
+
     /// Set whether an actor currently holds a block stance, matching the
     /// host's animation graph. Ordinary melee contacts read this flag to
     /// decide whether shield block reduction applies. It is not part of

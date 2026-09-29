@@ -202,7 +202,7 @@ pub fn register(vm: &mut Vm, world: &Shared) -> Registered {
 
 /// Hand-kept count of the non-stub natives registered below. The test in
 /// this module checks it against the registry.
-pub const NATIVE_COUNT: usize = 366;
+pub const NATIVE_COUNT: usize = 368;
 
 fn declare_parents(vm: &mut Vm) {
     for (class, parent) in [
@@ -1353,6 +1353,25 @@ fn actor(vm: &mut Vm, w: &Shared) {
             return b(false);
         };
         b(world.actor(me).is_some_and(|a| a.equipped.contains(&item)))
+    });
+    method!(vm, w, "Actor", "GetEquippedWeapon", |world, call, me| {
+        let hand = if call.arg(0).as_bool() {
+            Hand::Left
+        } else {
+            Hand::Right
+        };
+        let weapon = world.hand_weapon(me, hand);
+        form_value(world, call, weapon)
+    });
+    method!(vm, w, "Actor", "GetEquippedShield", |world, call, me| {
+        match world.equipped_shield(me) {
+            Ok(shield) => form_value(world, call, shield),
+            Err(error) => {
+                call.log
+                    .push(call.time, format!("Actor.GetEquippedShield: {error}"));
+                none()
+            }
+        }
     });
     // "Gets the spell the actor currently has equipped in the specified
     // source", 0 left hand, 1 right hand (ck-wiki GetEquippedSpell - Actor).
@@ -3270,8 +3289,6 @@ fn stubs(vm: &mut Vm) -> usize {
         ("Actor", "ClearKeepOffsetFromActor"),
         ("Actor", "KeepOffsetFromActor"),
         ("Actor", "SetForcedLandingMarker"),
-        ("Actor", "GetEquippedWeapon"),
-        ("Actor", "GetEquippedShield"),
         ("Actor", "GetVoiceRecoveryTime"),
         ("Faction", "SendAssaultAlarm"),
         ("Faction", "SendPlayerToJail"),
