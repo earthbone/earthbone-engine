@@ -133,6 +133,14 @@ faction can legally exist without one. No Papyrus native calls this
 function yet, `SendAssaultAlarm` and similar witness-driven natives are
 later work that can build on it.
 
+**Prison flag clearing (SCR-27).** `Game.ClearPrison` clears the player's
+`ActorState::arrested` flag, the same state read by `Actor.IsArrested` and
+cleared by `Actor.ClearArrested`. The engine does not yet model served jail
+time, select a high-process witness for werewolf crime, trigger a sun-gaze
+modifier, or send controller rumble to Godot. `ServeTime`,
+`SendWereWolfTransformation`, `SetSunGazeImageSpaceModifier` and
+`ShakeController` remain stubs until those owning systems exist.
+
 **Vendor service lookup.** `Game::resolve_vendor_service` reads the winning
 `FACT` vendor flag, `VEND`, `VENC`, `VENV`, `PLVD` and faction conditions. It evaluates
 conditions for a loaded merchant with the player as target and applies the

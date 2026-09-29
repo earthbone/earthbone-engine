@@ -554,6 +554,20 @@ fn game() -> Game {
     game
 }
 
+/// CK `Game.ClearPrison` clears the prison variables on the player. The
+/// current shared actor model represents that prison flag as `arrested`.
+#[test]
+fn scr_27_clear_prison_clears_player_arrest_state() {
+    let mut game = game();
+    let player = game.world_mut().player();
+    game.world_mut().actor(player).unwrap().arrested = true;
+
+    call_global(&mut game, "Game", "ClearPrison", &[]);
+
+    assert!(!game.world_mut().actor(player).unwrap().arrested);
+    assert!(errors(&game).is_empty());
+}
+
 static PROBES: AtomicUsize = AtomicUsize::new(0);
 
 fn type_of(v: &Value) -> &'static str {

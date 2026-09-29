@@ -1718,6 +1718,15 @@ fn game(vm: &mut Vm, w: &Shared) {
         let p = world.player();
         form_value(world, call, Some(p))
     });
+    // ClearPrison clears the PlayerCharacter's prison state. The runtime's
+    // current prison state is the arrested flag also exposed by Actor natives.
+    global!(vm, w, "Game", "ClearPrison", |world, _call| {
+        let player = world.player();
+        if let Some(actor) = world.actor(player) {
+            actor.arrested = false;
+        }
+        none()
+    });
     for name in ["GetForm", "GetFormEx"] {
         global!(vm, w, "Game", name, |world, call| {
             let id = world.from_runtime_id(call.arg(0).as_int() as u32);
@@ -3350,7 +3359,6 @@ fn stubs(vm: &mut Vm) -> usize {
         // systems the engine has not written yet.
         ("Game", "SendWereWolfTransformation"),
         ("Game", "ServeTime"),
-        ("Game", "ClearPrison"),
         ("Game", "SetSunGazeImageSpaceModifier"),
         ("Message", "ResetHelpMessage"),
         ("Game", "ShakeController"),
