@@ -4,8 +4,8 @@
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
-use soe_godot_host::data_source::DataSource;
 use soe_esm::tag;
+use soe_godot_host::data_source::DataSource;
 
 #[test]
 fn edt_03_cell_tree_covers_every_winning_cell_including_empty_cells() {
@@ -17,16 +17,19 @@ fn edt_03_cell_tree_covers_every_winning_cell_including_empty_cells() {
     let order = source.shared_order();
     let expected: BTreeSet<String> = order
         .winners()
-        .filter_map(|(id, record_ref)| {
-            (order.record(record_ref).tag == tag::CELL).then(|| id.to_string())
-        })
+        .filter(|(_, record_ref)| order.record(*record_ref).tag == tag::CELL)
+        .map(|(id, _)| id.to_string())
         .collect();
     let cells = source.editor_cells();
     let actual: BTreeSet<String> = cells.iter().map(|cell| cell.id.clone()).collect();
 
     assert_eq!(actual, expected, "cell tree omitted or duplicated a winner");
     assert!(cells.iter().any(|cell| cell.references == 0));
-    assert_eq!(cells, source.editor_cells(), "tree ordering changed between reads");
+    assert_eq!(
+        cells,
+        source.editor_cells(),
+        "tree ordering changed between reads"
+    );
 }
 
 #[test]
