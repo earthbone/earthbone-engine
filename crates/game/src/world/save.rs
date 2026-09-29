@@ -1428,6 +1428,7 @@ fn read_ref_state(r: &mut FormReader<'_, '_>, version: u16) -> Result<RefState, 
         anim_ints,
         anim_bools,
         alpha,
+        translation: None,
     };
     if version >= 37 {
         save_sections::read_sections(r, "reference", &mut state, REF_SECTIONS)?;

@@ -204,6 +204,32 @@ fn ref_state(h: &mut StateHasher, s: &RefState) {
         h.bool(*v);
     }
     h.f32(s.alpha);
+    if let Some(translation) = s.translation {
+        h.u8(1);
+        for value in translation
+            .start_position
+            .into_iter()
+            .chain(translation.target_position)
+            .chain(translation.start_rotation)
+            .chain(translation.target_rotation)
+        {
+            h.f32(value);
+        }
+        h.f32(translation.speed);
+        h.f32(translation.max_rotation_speed);
+        match translation.path {
+            super::TranslationPath::Linear => h.u8(0),
+            super::TranslationPath::Spline { tangent_magnitude } => {
+                h.u8(1);
+                h.f32(tangent_magnitude);
+            }
+        }
+        h.f32(translation.elapsed);
+        h.f32(translation.duration);
+        h.bool(translation.almost_complete_fired);
+    } else {
+        h.u8(0);
+    }
 }
 
 fn form_set(h: &mut StateHasher, set: &BTreeSet<GlobalFormId>) {

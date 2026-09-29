@@ -622,6 +622,9 @@ impl Game {
             let before = w.clock.game_days;
             w.advance_clock(real_seconds);
             w.tick_image_space(real_seconds);
+            w.tick_translations(real_seconds, &mut |name, class| {
+                vm.create_object_of(name, class)
+            });
             let errors = w.tick_magic(real_seconds, &mut |n, c| vm.create_object_of(n, c));
             for error in errors {
                 vm.log.push(vm.time(), error.to_string());

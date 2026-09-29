@@ -92,8 +92,10 @@ mod save_sections;
 mod template_restore;
 mod templates;
 pub use template_restore::TemplateRestoreReport;
+mod reference_translation;
 mod timers;
 mod transition;
+pub use reference_translation::{RefTranslation, TranslationPath};
 
 pub use contact::{ContactActor, DEFAULT_COMBAT_DISTANCE};
 pub use doorway::{Doorway, InteriorDestination, Side, Threshold, THRESHOLD_BAND, UNITS_PER_METRE};
@@ -164,6 +166,8 @@ pub struct RefState {
     pub anim_bools: BTreeMap<String, bool>,
     /// `SetAlpha`, the fade the Dawnguard and Dragonborn scripts use.
     pub alpha: f32,
+    /// An in-flight `TranslateTo` or `SplineTranslateTo` action.
+    pub translation: Option<reference_translation::RefTranslation>,
 }
 
 impl RefState {
@@ -199,6 +203,7 @@ impl RefState {
             anim_ints: BTreeMap::new(),
             anim_bools: BTreeMap::new(),
             alpha: 1.0,
+            translation: None,
         }
     }
 }
