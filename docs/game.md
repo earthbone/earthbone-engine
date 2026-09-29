@@ -1800,6 +1800,33 @@ The rest returned explicit unsupported reasons. The installed startup still ran
 attached 27,563 scripts, with seven missing scripts and 88 missing properties,
 because MGEF script attachments wait until an application exists.
 
+### Werewolf, MAG-57
+
+Direct casts execute MGEF archetype 36 by resolving its associated item to a
+winning `RACE` form. The race's `SPLO` `SPEL` abilities and `SHOU` entries are
+added to the target's state, constant-effect abilities are applied through
+the existing ability path, and the target's current race changes to the
+authored race.
+Removing or expiring that effect restores the prior race only if the actor
+still has the transformed race. It removes only spells and active ability
+applications this transform added, retaining pre-existing race and spell
+state. Actor-owned transform metadata is saved in the `MAG-57` actor section.
+
+`TES5Edit/Core/wbDefinitionsTES5.pas` names archetype 36 Werewolf and
+identifies its related form as a race. The local
+`uesp-modfileformat/MGEF.wikitext` independently says the related ID is a
+race, and `RACE.wikitext` defines `SPLO` entries as `SPEL` or `SHOU` links.
+The cloned CK wiki has no Magic Effect archetype page, so the record meaning
+comes from xEdit and UESP. `ck-wiki/Actor_Script.wikitext` describes
+`SendLycanthropyStateChanged` as notifying listeners; this executor does not
+raise that event. Host appearance refresh is not handled here.
+
+`mag_57_transformation_uses_authored_race_and_grants_its_ability`,
+`mag_57_reversion_restores_only_race_and_abilities_owned_by_transform` and
+`mag_57_saved_transform_restores_owned_state_after_load` cover the synthetic
+record path. The check names no installed records, so it has no
+`SKYRIM_DATA`-gated case.
+
 ### Direct hostile hits, MAG-01
 
 The `magic-hostile` branch accepts hostile effects on live, non-ghost actor

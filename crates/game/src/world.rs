@@ -264,6 +264,8 @@ pub struct ActorState {
     pub vampire: bool,
     /// The last state `SendLycanthropyStateChanged` announced.
     pub werewolf: bool,
+    /// Race and race effects owned by one active Werewolf archetype effect.
+    pub(crate) werewolf_transform: Option<WerewolfTransformState>,
     /// `SetEyeTexture`, the Dawnguard vampire eyes.
     pub eye_texture: Option<GlobalFormId>,
     /// `SetCriticalStage`, the death-by-critical stages.
@@ -286,6 +288,16 @@ pub struct ActorState {
     /// `FactionState`, this is the actor's own memory of who it saw do it.
     /// See `World::record_witnessed_crime`.
     pub witnessed_crimes: BTreeSet<GlobalFormId>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct WerewolfTransformState {
+    pub effect: crate::world::magic::EffectId,
+    pub prior_race: Option<GlobalFormId>,
+    pub transformed_race: GlobalFormId,
+    pub added_spells: BTreeSet<GlobalFormId>,
+    pub added_shouts: BTreeSet<GlobalFormId>,
+    pub added_effects: BTreeSet<crate::world::magic::EffectId>,
 }
 
 /// One `LVLO` entry of a leveled list.
