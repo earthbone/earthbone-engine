@@ -6,6 +6,8 @@
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::{npc, Game};
 use soe_godot_host::training_menu;
+use soe_papyrus::asm::{ident, s, FunctionBuilder, ScriptBuilder};
+use soe_papyrus::{Opcode, Value};
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
 
@@ -50,7 +52,32 @@ fn ui_16_papyrus_request_opens_the_trainer_offer_and_purchase_obeys_dlg_16() {
         .unwrap();
     game.world_mut().add_item(player, id(0x800), 2_000);
 
-    assert!(game.world_mut().request_training_menu(trainer));
+    let function = FunctionBuilder::new("Run", "None")
+        .global()
+        .param("trainer", "Actor")
+        .local("result", "None")
+        .ins(
+            Opcode::CallStatic,
+            vec![
+                s("Game"),
+                s("ShowTrainingMenu"),
+                ident("result"),
+                ident("trainer"),
+            ],
+        )
+        .ins(Opcode::Return, vec![])
+        .build();
+    game.load_script(
+        &ScriptBuilder::new("TrainingMenuProbe", "Form")
+            .function(function)
+            .bytes(),
+    )
+    .unwrap();
+    let trainer_object = Value::Object(game.object_of_form(trainer));
+    game.vm
+        .call_global("TrainingMenuProbe", "Run", &[trainer_object])
+        .unwrap();
+    assert!(game.run_until_idle(16));
     assert_eq!(game.world_mut().take_training_menu_request(), Some(trainer));
     let offer = training_menu::entry(&mut game, trainer).unwrap();
     assert_eq!(offer.skill, "onehanded");

@@ -6,11 +6,9 @@
 //! ids and a percentage. This module maps that state onto the named morph
 //! targets present on a head mesh, leaving unrelated targets untouched.
 //!
-//! The local nifly `include/Animation.hpp` defines `NiMorphData` as frames of
-//! vertex deltas and `NiGeomMorpherController` as their controller. The
-//! current `soe-nif` output does not expose those targets, and nifly's checked
-//! in sources do not provide a Skyrim `.tri` reader, so this module implements
-//! the CK name mapping only.
+//! `soe-nif::tri` parses Skyrim FaceGen `.tri` morph deltas. The actor surface
+//! loader and Godot server mesh path do not apply those deltas as blend shapes,
+//! so this module currently implements the CK name mapping only.
 
 use std::collections::BTreeMap;
 

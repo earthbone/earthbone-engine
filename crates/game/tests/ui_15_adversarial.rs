@@ -3,8 +3,8 @@
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::Game;
-use soe_papyrus::{Opcode::*, Value};
 use soe_papyrus::asm::{ident, s, FunctionBuilder, ScriptBuilder};
+use soe_papyrus::{Opcode::*, Value};
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
 const ACTOR: u32 = 0x901;
@@ -33,8 +33,12 @@ fn call_gift(game: &mut Game, giver: GlobalFormId, giving: bool) -> soe_papyrus:
         .param("favor", "Bool")
         .native()
         .build();
-    game.load_script(&ScriptBuilder::new("Actor", "ObjectReference").function(native).bytes())
-        .unwrap();
+    game.load_script(
+        &ScriptBuilder::new("Actor", "ObjectReference")
+            .function(native)
+            .bytes(),
+    )
+    .unwrap();
     let function = FunctionBuilder::new("Run", "Int")
         .global()
         .param("actor", "Actor")
@@ -57,8 +61,12 @@ fn call_gift(game: &mut Game, giver: GlobalFormId, giving: bool) -> soe_papyrus:
         )
         .ins(Return, vec![ident("result")])
         .build();
-    game.load_script(&ScriptBuilder::new("GiftAdversarial", "Form").function(function).bytes())
-        .unwrap();
+    game.load_script(
+        &ScriptBuilder::new("GiftAdversarial", "Form")
+            .function(function)
+            .bytes(),
+    )
+    .unwrap();
     let actor = Value::Object(game.object_of_form(giver));
     game.vm
         .call_global(
