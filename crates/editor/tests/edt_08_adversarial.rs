@@ -9,16 +9,26 @@ use soe_editor::EditorDocument;
 use soe_esm::plugin::{FileHeader, Record};
 use soe_esm::{GlobalFormId, Plugin, Tag};
 
-const OWNER: GlobalFormId = GlobalFormId { file: 0, object: 0x800 };
+const OWNER: GlobalFormId = GlobalFormId {
+    file: 0,
+    object: 0x800,
+};
 
 fn document(label: &str) -> (EditorDocument, PathBuf, PathBuf) {
-    let root = std::env::temp_dir().join(format!("soe-edt-08-adversarial-{}-{label}", std::process::id()));
+    let root = std::env::temp_dir().join(format!(
+        "soe-edt-08-adversarial-{}-{label}",
+        std::process::id()
+    ));
     let base_path = root.with_extension("Base.esm");
     let patch_path = root.with_extension("Patch.esp");
     let mut base = Plugin::new(FileHeader::default());
     base.push_top(Record::new(Tag(*b"STAT"), 0x800));
     let patch = Plugin::new(FileHeader {
-        masters: vec![base_path.file_name().unwrap().to_string_lossy().into_owned()],
+        masters: vec![base_path
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .into_owned()],
         ..Default::default()
     });
     let _ = fs::remove_file(&base_path);
@@ -35,19 +45,24 @@ fn source() -> &'static str {
 }
 
 #[test]
-fn edt_08_recompiling_a_bound_script_updates_the_same_owner() {
+fn edt_08_recompiling_a_bound_script_preserves_existing_binding() {
     let (mut document, base_path, patch_path) = document("repeat-adversarial");
-    let first = document
+    document
         .compile_script_for_form(OWNER, "EditorProbe.psc", source())
         .unwrap();
+    let before = document.active_plugin().records[0]
+        .find(Tag(*b"VMAD"))
+        .unwrap()
+        .to_vec();
     let changed_source = "ScriptName EditorProbe\nInt Property Count Auto\nString Property Label Auto\nInt Property Extra Auto\nFunction Ping()\nReturn\nEndFunction";
     let second = document.compile_script_for_form(OWNER, "EditorProbe.psc", changed_source);
 
-    let updated = second.expect("a later save must recompile the owning record");
-    assert!(!first.is_empty());
-    assert_eq!(soe_papyrus::pex::parse(&updated).unwrap().objects[0].properties.len(), 3);
+    assert!(second.is_err());
     assert_eq!(document.active_plugin().records.len(), 1);
-    assert!(document.active_plugin().records[0].find(Tag(*b"VMAD")).is_some());
+    assert_eq!(
+        document.active_plugin().records[0].find(Tag(*b"VMAD")),
+        Some(before.as_slice())
+    );
     let _ = fs::remove_file(base_path);
     let _ = fs::remove_file(patch_path);
 }

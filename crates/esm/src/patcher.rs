@@ -64,6 +64,11 @@ impl<'a> PatcherSession<'a> {
             if candidate == original {
                 continue;
             }
+            if candidate.tag != source.tag {
+                return Err(Error::Invalid(format!(
+                    "cannot change the record signature of STAT form {form}"
+                )));
+            }
             if source
                 .subrecords
                 .iter()

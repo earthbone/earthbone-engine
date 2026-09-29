@@ -13,7 +13,10 @@ fn edt_24_callback_cannot_change_the_overridden_record_signature() {
     order.add("Base.esm", base).unwrap();
     let mut session = PatcherSession::new(
         &order,
-        Plugin::new(FileHeader { masters: vec!["Base.esm".into()], ..Default::default() }),
+        Plugin::new(FileHeader {
+            masters: vec!["Base.esm".into()],
+            ..Default::default()
+        }),
     )
     .unwrap();
 
@@ -24,5 +27,14 @@ fn edt_24_callback_cannot_change_the_overridden_record_signature() {
 
     assert!(matches!(result, Err(Error::Invalid(_))));
     assert!(session.output().records.is_empty());
-    assert_eq!(order.winner(GlobalFormId { file: 0, object: 0x800 }).unwrap().tag, Tag(*b"STAT"));
+    assert_eq!(
+        order
+            .winner(GlobalFormId {
+                file: 0,
+                object: 0x800
+            })
+            .unwrap()
+            .tag,
+        Tag(*b"STAT")
+    );
 }
