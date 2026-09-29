@@ -27,6 +27,7 @@ fn edt_20_second_action_edit_survives_reload_and_preserves_first_action() {
         .sub(Tag(*b"NEXT"), Vec::new())
         .sub(Tag(*b"NEXT"), Vec::new())
         .sub(Tag(*b"WNAM"), 100_u32.to_le_bytes())
+        .sub(Tag(*b"HNAM"), Vec::new())
         .sub(Tag(*b"ANAM"), 0_u16.to_le_bytes())
         .zsub(Tag(*b"NAM0"), "First")
         .sub(Tag(*b"ALID"), (-1_i32).to_le_bytes())
@@ -42,7 +43,6 @@ fn edt_20_second_action_edit_survives_reload_and_preserves_first_action() {
         .sub(Tag(*b"SNAM"), 0_u32.to_le_bytes())
         .sub(Tag(*b"ENAM"), 0_u32.to_le_bytes())
         .sub(Tag(*b"DATA"), 0x0000_0801_u32.to_le_bytes())
-        .sub(Tag(*b"ANAM"), Vec::new())
         .sub(Tag(*b"ANAM"), Vec::new())
         .sub(Tag(*b"PNAM"), 0x0000_0800_u32.to_le_bytes());
     source.push_top(scene);
