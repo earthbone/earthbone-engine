@@ -25,6 +25,9 @@ mod lists;
 #[path = "common/installed.rs"]
 mod installed;
 
+#[path = "vanilla_save/activators.rs"]
+mod activators;
+
 use std::{
     path::{Path, PathBuf},
     sync::Arc,

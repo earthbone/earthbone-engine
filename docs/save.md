@@ -106,6 +106,9 @@ does not claim runtime support for opaque payloads.
   factions, spells, AI data, names, skills, class, race, face, gender and outfits.
 - `ChangeForm::class_change`, `faction_change` and `relationship_change` decode
   CLAS, FACT and RELA change sections on demand.
+- `ChangeForm::activator_change` decodes ACTI, TACT and DOOR form flags and
+  their value, full-name and TACT speaker change markers. The markers consume
+  no payload bytes, as defined by xEdit.
 - Type 107, quest static data, including its two event arrays, three reference
   arrays, reference-keyed values and final byte.
 - Type 1001, the Papyrus block: the string table, the script definitions with
@@ -144,6 +147,12 @@ Change form payloads stay as original bytes and typed readers decode supported
 types on demand. Unsupported types remain opaque. The Papyrus auxiliary data
 after the save-file version stays raw, as does the original payload used when
 writing the save body.
+
+`World::restore_vanilla_activators` applies ACTI, TACT and DOOR form-flag
+invert masks to shared live records. It retains the value, full-name and TACT
+speaker markers as record metadata because xEdit defines those fields with no
+payload bytes. A malformed or duplicate change leaves every record unchanged.
+SOEW version 37 persists this metadata.
 
 Most decoded state remains inspection data. The game crate can apply globals
 and quest state, but neither stack execution nor pending calls can be resumed from a
@@ -981,9 +990,13 @@ the required fixtures and SAV-17's separate live-record restoration boundary.
 
 ## Base-object value and full-name field evidence
 
-SAV-53 remains blocked on exact Skyrim field-layout evidence. The local and
-current public xEdit definitions leave both target payloads as placeholders.
-Additional public readers do not supply the missing boundaries. The audit
-records pinned sources, the limits of the existing corpus result and the
-controlled observations required to proceed in
-[saved base-object fields](save-base-fields.md). No decoder was added.
+`ChangeForm::base_object_fields` decodes the shared prefix used by ACTI, TACT,
+ARMO, BOOK, CONT, DOOR, LIGH, MISC, APPA, STAT, MSTT, FURN, WEAP, AMMO, KEYM,
+ALCH, IDLM, NAVM, WOOP, MGEF and ENCH. xEdit defines optional six-byte form
+flags followed by `CHANGE_BASE_OBJECT_VALUE` and
+`CHANGE_BASE_OBJECT_FULLNAME`. Their masks are `0x2` and `0x4`. The xEdit
+`wbNull` definition maps to zero bytes in `TwbByteArrayDef.GetSize`, so these
+flags do not consume payload. The decoder returns the byte boundary and
+remaining suffix length for type-specific readers. It does not restore a
+value or name. See [saved base-object fields](save-base-fields.md) for the
+source audit and scope.

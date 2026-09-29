@@ -20,6 +20,7 @@
 //! the round trip test asserts.
 
 pub mod atomic;
+pub mod base_object;
 pub mod change;
 mod compress;
 pub mod created_objects;
@@ -36,10 +37,12 @@ pub mod quest;
 pub mod reference;
 pub mod table;
 
-pub use change::{ChangeForm, QuestStage};
+pub use base_object::BaseObjectFields;
 pub use change::{
-    ClassChange, FactionChange, FactionReaction, FactionReactions, RelationshipChange,
+    ActivatorChange, ClassChange, FactionChange, FactionReaction, FactionReactions,
+    RelationshipChange,
 };
+pub use change::{ChangeForm, QuestStage};
 pub use created_objects::{CreatedEffect, CreatedObject, CreatedObjects};
 pub use cursor::{RefId, RefKind, WString};
 pub use dialogue_scene::{InfoChange, SceneChange, StoryManagerQuestNodeChange};

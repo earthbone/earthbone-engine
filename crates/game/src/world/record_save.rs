@@ -7,7 +7,9 @@ use std::collections::BTreeMap;
 use soe_esm::{plugin::Subrecord, GlobalFormId, Slot, Tag};
 use soe_papyrus::{vm::state::Writer, VmError};
 
-use super::record_overrides::{raw_words, ListRecordExtra, NpcRecordExtra, RecordOverride};
+use super::record_overrides::{
+    raw_words, ActivatorRecordExtra, ListRecordExtra, NpcRecordExtra, RecordOverride,
+};
 use super::save::{read_form_id, read_opt_form_id, write_form_id, write_opt_form_id, FormReader};
 use super::{World, T};
 
@@ -65,6 +67,17 @@ impl World {
                 w.bool(list.section_present);
                 w.bytes(&list.entry_chances);
             }
+            w.bool(value.activator.is_some());
+            if let Some(activator) = value.activator {
+                w.bool(activator.form_flags.is_some());
+                if let Some((flags, unknown)) = activator.form_flags {
+                    w.u32(flags);
+                    w.u16(unknown);
+                }
+                w.bool(activator.value_changed);
+                w.bool(activator.full_name_changed);
+                w.bool(activator.speaker_changed);
+            }
             w.len(value.links.len());
             for (raw, link) in &value.links {
                 w.u32(*raw);
@@ -103,7 +116,15 @@ impl World {
                 || self.order.winner(text_origin).is_none_or(|r| {
                     !matches!(
                         &r.tag.0,
-                        b"NPC_" | b"RACE" | b"FLST" | b"LVLN" | b"LVLI" | b"LVSP"
+                        b"NPC_"
+                            | b"RACE"
+                            | b"FLST"
+                            | b"LVLN"
+                            | b"LVLI"
+                            | b"LVSP"
+                            | b"ACTI"
+                            | b"TACT"
+                            | b"DOOR"
                     )
                 })
             {
@@ -115,7 +136,15 @@ impl World {
                 .filter(|rec| {
                     matches!(
                         &rec.tag.0,
-                        b"NPC_" | b"RACE" | b"FLST" | b"LVLN" | b"LVLI" | b"LVSP"
+                        b"NPC_"
+                            | b"RACE"
+                            | b"FLST"
+                            | b"LVLN"
+                            | b"LVLI"
+                            | b"LVSP"
+                            | b"ACTI"
+                            | b"TACT"
+                            | b"DOOR"
                     ) && !rec.is_deleted()
                 })
                 .ok_or_else(|| bad("missing record origin"))?;
@@ -159,6 +188,21 @@ impl World {
             } else {
                 None
             };
+            let activator = if version >= 37 && r.bool()? {
+                let form_flags = if r.bool()? {
+                    Some((r.u32()?, r.u16()?))
+                } else {
+                    None
+                };
+                Some(ActivatorRecordExtra {
+                    form_flags,
+                    value_changed: r.bool()?,
+                    full_name_changed: r.bool()?,
+                    speaker_changed: r.bool()?,
+                })
+            } else {
+                None
+            };
             let mut links = BTreeMap::new();
             let used = raw_words(original);
             let count = r.len()?;
@@ -184,6 +228,11 @@ impl World {
                 subrecords.push(Subrecord { tag, data });
             }
             record.subrecords = subrecords;
+            if record.tag == T(b"ACTI") || record.tag == T(b"TACT") || record.tag == T(b"DOOR") {
+                if let Some((flags, _)) = activator.and_then(|extra| extra.form_flags) {
+                    record.flags ^= flags;
+                }
+            }
             let present = raw_words(&record);
             if links.keys().any(|raw| !present.contains(raw)) {
                 return Err(bad("unused link token"));
@@ -196,7 +245,24 @@ impl World {
                     .order
                     .winner_ref(text_origin)
                     .is_some_and(|owner| self.order.file(owner.file).plugin.header.is_localized());
-            if record.tag == T(b"NPC_") {
+            if record.tag == T(b"ACTI") || record.tag == T(b"TACT") || record.tag == T(b"DOOR") {
+                let extra = activator.ok_or_else(|| bad("activator metadata missing"))?;
+                if list.is_some()
+                    || original_race.is_some()
+                    || body_tint.is_some()
+                    || pending_form_flags.is_some()
+                    || plain_full
+                    || temporary_for.is_some()
+                    || text_origin != id
+                    || (extra.speaker_changed && record.tag != T(b"TACT"))
+                    || !links.is_empty()
+                    || record.subrecords != original.subrecords
+                {
+                    return Err(bad("invalid activator override"));
+                }
+            } else if activator.is_some() {
+                return Err(bad("non-activator has activator metadata"));
+            } else if record.tag == T(b"NPC_") {
                 if list.is_some() {
                     return Err(bad("NPC has list metadata"));
                 }
@@ -318,6 +384,7 @@ impl World {
                     pending_form_flags,
                 },
                 list,
+                activator,
             };
             if values.insert(id, value).is_some() {
                 return Err(bad("duplicate NPC record"));

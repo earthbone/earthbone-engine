@@ -71,6 +71,12 @@ Papyrus native path and engine save state. This is one restoration component,
 not a full ESS load or resumed game. See [save.md](save.md) for mapping rules,
 failure behavior and the remaining world and VM work.
 
+`World::restore_vanilla_activators` applies decoded ACTI, TACT and DOOR flag
+masks to shared records. It validates the full change set before publishing
+record overrides, so consumers such as `World::record` and `World::name_of`
+observe one restored result. Marker-only saved fields are available through
+`World::restored_activator_extra`.
+
 **Forms, not structs.** Every native takes and returns forms by
 `GlobalFormId`. The VM sees them as objects created on first use with the
 class the record's signature implies (`QUST` is a `Quest`, `ACHR` an `Actor`),
