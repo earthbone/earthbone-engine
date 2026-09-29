@@ -11,6 +11,14 @@ separate unfinished rows. See [combat](combat.md) and BACKLOG.csv.
 Crate `crates/game`. Round 2 of `ENGINE-PLAN.md`, written 2026-09-14. The map's
 week 6 to 9 gate.
 
+`world::commonlib` projects existing world state into the MIT CommonLib shim:
+ExtraWorn flags from inventory stacks, GameSettingCollection reads through the
+runtime override and winning GMST path, placed HAZD reference identity and
+placement, the actor's combat target and stagger window, and HitData from an
+accepted melee result. The adapter owns no parallel state. Hazard ticking,
+head tracking, animation sequence state and executable hit dispatch remain
+unsupported hooks with named reasons. The C++ contract has no Rust ABI bridge.
+
 ## What is in it
 
 - `world`: the runtime form table. A `LoadOrder` from `soe-esm` plus the state
