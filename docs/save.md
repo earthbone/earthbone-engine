@@ -145,19 +145,23 @@ types on demand. Unsupported types remain opaque. The Papyrus auxiliary data
 after the save-file version stays raw, as does the original payload used when
 writing the save body.
 
-Most decoded state remains inspection data. The game crate can apply globals
-and quest state, but neither stack execution nor pending calls can be resumed from a
-vanilla save. The explicit instance-import API below can apply decoded
-variables to a prepared VM, but it is not a complete save loader.
+Most decoded state remains inspection data. The game crate can apply globals,
+quest state, Papyrus instances and active script frames. Queued messages,
+suspended stack tables, latent native waits and other world state are not
+resumed by this path. This is not a complete save loader.
 
 ## Runtime instance import
 
 `Papyrus::restore_instances` joins parent-first member descriptors to saved
-slots by ID. The host must supply an explicit map from each saved instance or
-reference ID to an existing VM object. A value-only reference may map to
-`None` when the host explicitly determines it is unresolved. Missing mappings
-are errors. Saved form/script pairs are not used as unique identities, since
-the corpus contains repeated pairs and unbound instances.
+slots by ID. Its low-level API takes an explicit map from each saved instance
+or reference ID to a VM object. `Game::restore_vanilla_papyrus` builds that map
+from the ESS plugin list, FormID array and RefIDs. Script instances share the
+VM object for their resolved live form. Reference-only objects use their saved
+runtime type. An instance whose signed `unknown` field is `-1` ignores its
+RefID and gets a standalone VM object. A missing plugin, invalid bound RefID or
+form absent from the current world is an error. Saved form/script pairs are
+not used as unique identities, since the corpus contains repeated pairs and
+unbound instances.
 
 Arrays are allocated once per saved ID, then filled and shared by every
 variable naming that ID. Scalar, object and array references become VM values.
@@ -182,6 +186,14 @@ instances, inheritance cycles, missing identities, invalid array elements
 and unsupported variant/struct runtime values. Arrays use the existing VM
 allocation ceiling. It also refuses to replace instances beneath existing
 threads. It does not invent a form or alias binding from an opaque saved ID.
+
+`Papyrus::restore_execution` converts active script frames after instance
+import. It resolves frame owners through the supplied saved-object mapping,
+checks saved instruction bodies against loaded PEX, and validates frame
+positions and local slots before scheduling any thread. A nested call returns
+through the destination operand in the saved caller instruction. Invalid
+frame references leave the VM thread list unchanged. Queued messages and
+suspended stack tables remain decoded data.
 
 ## Quest change and static data
 

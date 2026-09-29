@@ -66,10 +66,29 @@ week 6 to 9 gate.
 
 `vanilla_save::SavedFormMap` remaps ESS references through saved plugin names,
 including regular and light slots. `World::restore_vanilla_globals` atomically
-applies the global table to winning GLOB forms. Values reach the existing
-Papyrus native path and engine save state. This is one restoration component,
-not a full ESS load or resumed game. See [save.md](save.md) for mapping rules,
-failure behavior and the remaining world and VM work.
+applies the global table to winning GLOB forms. `Game::restore_vanilla_papyrus`
+resolves saved script-instance RefIDs to live form objects and imports their
+saved variables into the VM. `Game::restore_vanilla_papyrus_execution` also
+converts and schedules validated active script frames, rolling back VM state
+if the import fails. Saved reference-only objects are created using their
+saved runtime type. Instances whose signed
+`unknown` field is `-1` ignore their saved RefID and receive standalone VM
+objects. Values reach the existing Papyrus native path and engine save state.
+Queued messages and suspended stacks remain inert. This is not a full ESS load
+or resumed game. See
+[save.md](save.md) for mapping rules, failure behavior and the remaining work.
+
+Reference placement reserves created identities found in saved change forms,
+the FormID array and the four Created Objects tables before runtime placement
+can allocate another identity. Regular and light plugin IDs map by their saved
+owner names. Their masks follow Mutagen's `FormID.cs`, while the FormID array
+and Created Objects table order follow UESP's save format. The reservation
+keeps identities stable, but it does not materialize saved enchantment, potion
+or poison definitions as live records. Inventory restoration accepts a
+missing base identity listed in those tables, applies item deltas by saved
+identity and reports items without live records. Created Objects decoding
+follows UESP `Created_Objects` and skymp's reader and writer field order in
+`soe-save`.
 
 **Forms, not structs.** Every native takes and returns forms by
 `GlobalFormId`. The VM sees them as objects created on first use with the
@@ -2307,9 +2326,11 @@ save decoding, identity mapping, global import, ticking and serialization are
 reused. No parser, dependency or host node was added.
 
 SAV-08 has no backlog prerequisite. It establishes calendar values before
-execution. SAV-18 separately restores scheduler epochs and deadlines. Import
-does not execute queued scripts, fire timers or resume quests. Full ESS loading
-and host resumption remain separate backlog items.
+execution. SAV-18 separately restores scheduler epochs and deadlines. Calendar
+import does not execute queued messages, fire timers or resume quests.
+`restore_vanilla_papyrus_execution` separately restores instances and schedules
+validated active Papyrus frames. Full ESS loading and host resumption remain
+separate backlog items.
 
 The installed survey passes all 60 saves and all 360 calendar values, with
 exact engine-save bytes and world hashes after reloading. Synthetic checks

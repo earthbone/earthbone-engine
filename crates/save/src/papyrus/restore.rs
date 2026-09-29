@@ -18,6 +18,7 @@ use super::{bad, MemberDesc, Papyrus, Result, ScriptDef, StringRef, Value, Value
 pub struct RestoredInstances {
     pub instances: BTreeMap<u64, InstanceId>,
     pub arrays: BTreeMap<u64, ArrayRef>,
+    pub objects: BTreeMap<u64, Option<ObjectId>>,
 }
 
 impl Papyrus {
@@ -105,8 +106,178 @@ impl Papyrus {
         Ok(RestoredInstances {
             instances: saved_ids.into_iter().zip(ids).collect(),
             arrays: values.arrays,
+            objects: objects.clone(),
         })
     }
+
+    /// Convert decoded active-script frames into runnable VM threads.
+    /// Active script order, frame order, and saved instruction positions are
+    /// retained. Queued and suspended calls are not scheduled by this method.
+    ///
+    /// # Errors
+    ///
+    /// Missing owner mappings, unsupported frame values, malformed return
+    /// targets or incompatibility with the loaded PEX return an error before
+    /// the VM thread list is changed.
+    pub fn restore_execution(
+        &self,
+        vm: &mut Vm,
+        restored: &RestoredInstances,
+    ) -> Result<Vec<soe_papyrus::ThreadId>> {
+        use soe_papyrus::pex::{Instruction as RuntimeInstruction, Operand as RuntimeOperand};
+        use soe_papyrus::vm::restore::{SavedFrame, SavedThread};
+
+        let mut threads = Vec::new();
+        for active in &self.execution.active_data {
+            if active.frames.is_empty() {
+                continue;
+            }
+            let mut frames = Vec::with_capacity(active.frames.len());
+            for (index, frame) in active.frames.iter().enumerate() {
+                let RuntimeValue::Object(object) = runtime_value(self, restored, &frame.owner)?
+                else {
+                    return Err(bad("saved stack frame owner is not a resolved object"));
+                };
+                let script = text(self, frame.script_name)?.to_owned();
+                let function = text(self, frame.base_name)?.to_owned();
+                let mut locals = Vec::with_capacity(frame.variables.len());
+                for (member, value) in frame
+                    .parameters
+                    .iter()
+                    .chain(&frame.locals)
+                    .zip(&frame.variables)
+                {
+                    locals.push((
+                        text(self, member.name)?.to_owned(),
+                        runtime_value(self, restored, value)?,
+                    ));
+                }
+                if locals.len() != frame.variables.len() {
+                    return Err(bad(
+                        "saved frame variable count differs from its descriptors",
+                    ));
+                }
+                let mut code = Vec::with_capacity(frame.instructions.len());
+                for instruction in &frame.instructions {
+                    let mut operands = Vec::with_capacity(instruction.operands.len());
+                    let (fixed, variable) = instruction.opcode.arity();
+                    if variable
+                        && !matches!(
+                            instruction.operands.get(fixed),
+                            Some(super::Operand::Integer(_))
+                        )
+                    {
+                        return Err(bad("saved call argument count is invalid"));
+                    }
+                    let source_operands = if variable {
+                        instruction
+                            .operands
+                            .iter()
+                            .enumerate()
+                            .filter(|(index, _)| *index != fixed)
+                            .map(|(_, operand)| operand)
+                            .collect::<Vec<_>>()
+                    } else {
+                        instruction.operands.iter().collect::<Vec<_>>()
+                    };
+                    for operand in source_operands {
+                        operands.push(match operand {
+                            super::Operand::Null => RuntimeOperand::None,
+                            super::Operand::Identifier(reference) => {
+                                RuntimeOperand::Identifier(text(self, *reference)?.to_owned())
+                            }
+                            super::Operand::String(reference) => {
+                                RuntimeOperand::Str(text(self, *reference)?.to_owned())
+                            }
+                            super::Operand::Integer(value) => RuntimeOperand::Int(*value),
+                            super::Operand::Float(value) => RuntimeOperand::Float(*value),
+                            super::Operand::Boolean(value) => RuntimeOperand::Bool(*value != 0),
+                            super::Operand::Unknown8(_) => {
+                                return Err(bad("unknown saved operand cannot be resumed"))
+                            }
+                        });
+                    }
+                    code.push(RuntimeInstruction {
+                        op: instruction.opcode,
+                        args: operands,
+                    });
+                }
+                let return_dest = if index == 0 {
+                    None
+                } else {
+                    let caller = &active.frames[index - 1];
+                    let prior = caller
+                        .pointer
+                        .checked_sub(1)
+                        .and_then(|pc| caller.instructions.get(pc as usize))
+                        .ok_or_else(|| {
+                            bad("saved caller instruction pointer does not identify a call")
+                        })?;
+                    let destination = match prior.opcode {
+                        soe_papyrus::Opcode::CallMethod | soe_papyrus::Opcode::CallStatic => {
+                            prior.operands.get(2)
+                        }
+                        soe_papyrus::Opcode::CallParent => prior.operands.get(1),
+                        _ => None,
+                    };
+                    match destination {
+                        Some(super::Operand::Identifier(reference)) => {
+                            Some(text(self, *reference)?.to_owned())
+                        }
+                        _ => return Err(bad("saved caller has no return destination")),
+                    }
+                };
+                frames.push(SavedFrame {
+                    object,
+                    script,
+                    function,
+                    pc: frame.pointer as usize,
+                    locals,
+                    code,
+                    return_dest,
+                });
+            }
+            threads.push(SavedThread { frames });
+        }
+        vm.restore_threads(&threads)
+            .map_err(|error| bad(error.to_string()))
+    }
+}
+
+fn runtime_value(
+    papyrus: &Papyrus,
+    restored: &RestoredInstances,
+    value: &Value,
+) -> Result<RuntimeValue> {
+    Ok(match value {
+        Value::Null(_) => RuntimeValue::None,
+        Value::Reference { id, .. } => restored
+            .objects
+            .get(id)
+            .copied()
+            .flatten()
+            .map_or(RuntimeValue::None, RuntimeValue::Object),
+        Value::String(reference) => RuntimeValue::string(text(papyrus, *reference)?),
+        Value::Integer(value) => RuntimeValue::Int(*value),
+        Value::Float(value) => RuntimeValue::Float(*value),
+        Value::Boolean(value) => RuntimeValue::Bool(*value != 0),
+        Value::Array { id, .. } => {
+            if *id == 0 {
+                RuntimeValue::None
+            } else {
+                RuntimeValue::Array(
+                    restored
+                        .arrays
+                        .get(id)
+                        .cloned()
+                        .ok_or_else(|| bad(format!("saved frame array {id:#x} has no mapping")))?,
+                )
+            }
+        }
+        Value::Variant(_) | Value::Struct { .. } => {
+            return Err(bad("saved frame variant or struct is unsupported"))
+        }
+    })
 }
 
 fn text(papyrus: &Papyrus, reference: StringRef) -> Result<&str> {
