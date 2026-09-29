@@ -350,11 +350,13 @@ Additional local sources read for this increment:
 
 ### Live contact prerequisites
 
-CMB-28 requires a central owner for actor collision RIDs and pose-derived
-weapon segments. The current SkinnedActorNode is a locomotion demo without a
-shared actor identity. Loaded actor state alone does not prove cell residency.
-The live contact owner must derive residency and placement from the shared Game,
-advance an authored attack in the physics step, and cancel on location changes.
+PlayerNode now owns actor collision RIDs keyed by the shared World's resident
+actors. A SkinnedActorNode bound to that World supplies its model-space weapon
+attachment pose at HitFrame. The one-handed graph emits the authored marker,
+and PlayerNode queries the first actor or obstruction using the selected
+weapon's reach. The installed-data contact script runs the path across a load
+door. Input binding remains CMB-04, and the host script forwards the relevant
+HitFrame marker while a swing is armed.
 
 CMB-29 exposes and validates character controller metadata first. The local
 serde-hkx hkbCharacterDataCharacterControllerInfo declaration places height,

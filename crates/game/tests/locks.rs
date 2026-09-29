@@ -51,6 +51,7 @@ fn events(game: &Game) -> Vec<String> {
         .filter_map(|event| match event {
             Pending::Event { name, .. } => Some(name.clone()),
             Pending::Call { .. }
+            | Pending::CallScript { .. }
             | Pending::BindEffect { .. }
             | Pending::DeferredDeath { .. }
             | Pending::ActorDeath { .. } => None,

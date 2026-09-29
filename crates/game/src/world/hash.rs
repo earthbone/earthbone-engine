@@ -570,6 +570,21 @@ impl World {
                         h.value(a);
                     }
                 }
+                Pending::CallScript {
+                    object,
+                    script,
+                    function,
+                    args,
+                } => {
+                    h.u8(5);
+                    h.u64(object.0);
+                    h.str(script);
+                    h.str(function);
+                    h.len(args.len());
+                    for a in args {
+                        h.value(a);
+                    }
+                }
             }
         }
         let pending = h.finish();
@@ -641,6 +656,11 @@ impl World {
         for (id, level) in &self.encounter_levels {
             form(&mut h, *id);
             h.u16(*level);
+        }
+        h.len(self.encounter_zone_visits.len());
+        for (id, day) in &self.encounter_zone_visits {
+            form(&mut h, *id);
+            h.f64(*day);
         }
         h.len(self.detection.pools.len());
         for (target, pool) in &self.detection.pools {
@@ -727,6 +747,15 @@ impl World {
 
         let mut h = StateHasher::new();
         form_set(&mut h, &self.scenes);
+        h.len(self.scene_runs.len());
+        for (id, run) in &self.scene_runs {
+            form(&mut h, *id);
+            h.u32(run.phase);
+            h.len(run.completed_actions.len());
+            for slot in &run.completed_actions {
+                h.u32(*slot);
+            }
+        }
         h.len(self.sound_instances.len());
         for (id, (sound, source, volume)) in &self.sound_instances {
             h.i32(*id);

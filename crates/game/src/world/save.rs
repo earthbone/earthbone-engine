@@ -59,7 +59,11 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// Version 33 retains the spawned reference owned by each Summon Creature effect.
 /// Version 34 retains suspended Stacked package child state.
 /// Version 35 retains the active Patrol mount reference.
-pub const SAVE_VERSION: u16 = 35;
+/// Version 36 retains last-visit game days for resettable encounter zones.
+/// Version 37 retains saved list flags and per-entry chance bytes in record overrides.
+/// Version 38 retains the active phase and completed action slots for each scene.
+/// Version 39 retains script-qualified package fragment calls in the pending queue.
+pub const SAVE_VERSION: u16 = 39;
 
 #[derive(Clone, Copy)]
 pub(crate) enum FormNamespace {
@@ -207,6 +211,21 @@ impl World {
                 } => {
                     body.u8(1);
                     body.u64(object.0);
+                    body.str(function);
+                    body.len(args.len());
+                    for v in args {
+                        pool.write_value(&mut body, v);
+                    }
+                }
+                Pending::CallScript {
+                    object,
+                    script,
+                    function,
+                    args,
+                } => {
+                    body.u8(5);
+                    body.u64(object.0);
+                    body.str(script);
                     body.str(function);
                     body.len(args.len());
                     for v in args {
@@ -415,7 +434,17 @@ impl World {
         self.write_image_space(&mut body);
         self.write_loose_items(&mut body);
         self.write_encounter_levels(&mut body);
+        self.write_encounter_zone_visits(&mut body);
         self.write_dialogue_repeats(&mut body);
+        body.len(self.scene_runs.len());
+        for (id, run) in &self.scene_runs {
+            write_form_id(&mut body, *id);
+            body.u32(run.phase);
+            body.len(run.completed_actions.len());
+            for slot in &run.completed_actions {
+                body.u32(*slot);
+            }
+        }
         self.write_detection(&mut body);
         let mut out = Writer::new();
         out.out.extend_from_slice(SAVE_MAGIC);
@@ -617,6 +646,22 @@ impl World {
                     }
                     pending.push(Pending::Call {
                         object,
+                        function,
+                        args,
+                    });
+                }
+                5 if version >= 39 => {
+                    let object = ObjectId(r.u64()?);
+                    let script = r.str()?;
+                    let function = r.str()?;
+                    let k = r.len()?;
+                    let mut args = Vec::with_capacity(k);
+                    for _ in 0..k {
+                        args.push(table.read_value(&mut r)?);
+                    }
+                    pending.push(Pending::CallScript {
+                        object,
+                        script,
                         function,
                         args,
                     });
@@ -975,10 +1020,65 @@ impl World {
         } else {
             BTreeMap::new()
         };
+        let encounter_zone_visits = if version >= 36 {
+            self.read_encounter_zone_visits(&mut r)?
+        } else {
+            BTreeMap::new()
+        };
         let dialogue_repeats = if version >= 28 {
             crate::dialogue::read_dialogue_repeats(&mut r)?
         } else {
             BTreeMap::new()
+        };
+        let scene_runs = if version >= 38 {
+            let count = r.len()?;
+            let mut runs = BTreeMap::new();
+            for _ in 0..count {
+                let id = read_form_id(&mut r)?;
+                let phase = r.u32()?;
+                let action_count = r.len()?;
+                let mut completed_actions = BTreeSet::new();
+                for _ in 0..action_count {
+                    if !completed_actions.insert(r.u32()?) {
+                        return Err(VmError::State("duplicate completed scene action".into()));
+                    }
+                }
+                let scene_record = self.record(id).ok_or_else(|| {
+                    VmError::State("scene runtime state names a missing form".into())
+                })?;
+                let scene = soe_esm::records::gameplay::Scene::from_record(scene_record).map_err(
+                    |error| VmError::State(format!("invalid scene runtime record: {error}")),
+                )?;
+                if !scenes.contains(&id)
+                    || phase as usize >= scene.phases.len()
+                    || completed_actions.iter().any(|slot| {
+                        scene
+                            .actions
+                            .get(*slot as usize)
+                            .is_none_or(|action| action.end_phase != Some(phase))
+                    })
+                    || runs
+                        .insert(
+                            id,
+                            super::SceneRunState {
+                                phase,
+                                completed_actions,
+                            },
+                        )
+                        .is_some()
+                {
+                    return Err(VmError::State("invalid scene runtime state".into()));
+                }
+            }
+            if runs.len() != scenes.len() || scenes.iter().any(|id| !runs.contains_key(id)) {
+                return Err(VmError::State("scene runtime state is incomplete".into()));
+            }
+            runs
+        } else {
+            scenes
+                .iter()
+                .map(|id| (*id, super::SceneRunState::default()))
+                .collect()
         };
         let detection = if version >= 30 {
             super::detection::read_detection(&mut r)?
@@ -1027,6 +1127,7 @@ impl World {
         self.actor_bases = actor_bases;
         self.cells = cells;
         self.encounter_levels = encounter_levels;
+        self.encounter_zone_visits = encounter_zone_visits;
         self.detection = detection;
         self.settings = settings;
         self.inventory_filters = inventory_filters;
@@ -1045,6 +1146,7 @@ impl World {
         self.last_ridden_horse = last_ridden_horse;
         self.perk_points = perk_points;
         self.scenes = scenes;
+        self.scene_runs = scene_runs;
         self.sound_instances = sound_instances;
         self.next_sound = next_sound;
         self.spell_casts = spell_casts;

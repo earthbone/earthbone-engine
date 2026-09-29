@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! Encounter-zone levels from xEdit ECZN/XEZN and CK Encounter Zone.
-//! Installed SkyrimSE getters and initialization establish scaling and locking.
+//! Encounter-zone levels and resets from xEdit ECZN/XEZN and CK encounter data.
+//! CommonLib and installed getters establish scaling and locking semantics.
 
 use std::collections::BTreeMap;
 
+use soe_esm::plugin::flags as record_flags;
 use soe_esm::{Error, GlobalFormId};
 use soe_papyrus::vm::state::Writer;
 use soe_papyrus::{Value, VmError};
@@ -56,13 +57,33 @@ impl World {
     }
 
     /// Lock a zone on its first entry. Later calls retain the saved level.
-    /// Runtime zero denotes an unlocked zone and is never saved as a lock.
+    /// After ten game days, a resettable zone restores cached references and
+    /// locks again at the current encounter level. Runtime zero is not saved.
     ///
     /// # Errors
     /// Invalid zone records, player level or scaling settings.
     pub fn enter_encounter_zone(&mut self, zone: GlobalFormId) -> Result<u32, Error> {
         if self.no_zone(zone) {
             return self.player_encounter_level();
+        }
+        let (_, _, flags) = self.zone_data(zone)?;
+        let now = self.clock.game_days;
+        if !now.is_finite() || now < 0.0 {
+            return Err(invalid("invalid encounter-zone game time"));
+        }
+        if flags & 1 == 0 {
+            if let Some(last_visit) = self.encounter_zone_visits.get(&zone).copied() {
+                if now - last_visit >= 10.0 {
+                    let level = self.calculate_zone_level(zone)?;
+                    self.encounter_levels.remove(&zone);
+                    if level != 0 {
+                        self.encounter_levels.insert(zone, level);
+                    }
+                    self.encounter_zone_visits.insert(zone, now);
+                    self.reset_zone_references(zone);
+                    return Ok(u32::from(level).max(1));
+                }
+            }
         }
         let level = if let Some(level) = self.encounter_levels.get(&zone) {
             *level
@@ -73,7 +94,29 @@ impl World {
             }
             level
         };
+        if flags & 1 == 0 {
+            self.encounter_zone_visits.insert(zone, now);
+        }
         Ok(u32::from(level).max(1))
+    }
+
+    fn reset_zone_references(&mut self, zone: GlobalFormId) {
+        let ids: Vec<_> = self.refs.keys().copied().collect();
+        for id in ids {
+            if id.file == super::DYNAMIC_FILE || self.player == Some(id) {
+                continue;
+            }
+            let persistent = self.order.winner_ref(id).is_some_and(|record_ref| {
+                self.order.record(record_ref).flags & record_flags::PERSISTENT != 0
+            });
+            if persistent || self.encounter_zone(id).ok().flatten() != Some(zone) {
+                continue;
+            }
+            self.refs.remove(&id);
+            self.actors.remove(&id);
+            self.actor_templates.remove(&id);
+            let _ = self.reference(id);
+        }
     }
 
     fn no_zone(&self, zone: GlobalFormId) -> bool {
@@ -210,6 +253,14 @@ impl World {
         }
     }
 
+    pub(super) fn write_encounter_zone_visits(&self, out: &mut Writer) {
+        out.len(self.encounter_zone_visits.len());
+        for (zone, day) in &self.encounter_zone_visits {
+            super::save::write_form_id(out, *zone);
+            out.f64(*day);
+        }
+    }
+
     pub(super) fn read_encounter_levels(
         &self,
         input: &mut FormReader<'_, '_>,
@@ -229,6 +280,28 @@ impl World {
             }
         }
         Ok(levels)
+    }
+
+    pub(super) fn read_encounter_zone_visits(
+        &self,
+        input: &mut FormReader<'_, '_>,
+    ) -> Result<BTreeMap<GlobalFormId, f64>, VmError> {
+        let mut visits = BTreeMap::new();
+        for _ in 0..input.len()? {
+            let zone = super::save::read_form_id(input)?;
+            let day = input.f64()?;
+            if self.no_zone(zone)
+                || self.zone_data(zone).is_err()
+                || !day.is_finite()
+                || day < 0.0
+                || visits.insert(zone, day).is_some()
+            {
+                return Err(VmError::State(
+                    "invalid or duplicate encounter-zone visit".into(),
+                ));
+            }
+        }
+        Ok(visits)
     }
 }
 

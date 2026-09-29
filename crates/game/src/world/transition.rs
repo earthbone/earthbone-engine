@@ -92,6 +92,9 @@ impl World {
                 "invalid host cell residency delta".into(),
             ));
         }
+        if self.loaded_cell != Some(focus) {
+            self.enter_cell_zone(focus)?;
+        }
         let mut out = CellTransition {
             from: self.loaded_cell,
             to: Some(focus),
