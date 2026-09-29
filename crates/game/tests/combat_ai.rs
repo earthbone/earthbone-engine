@@ -3,6 +3,9 @@
 
 //! NPC AI data and template sources, following xEdit's NPC_ AIDT definition.
 
+#[path = "common/installed.rs"]
+mod installed;
+
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::{
     npc::{self, AiData, Config, Stats},
@@ -122,20 +125,17 @@ fn ai_data_follows_winning_templates_without_replacing_child_stats() {
 
 #[test]
 fn installed_npc_ai_data_decodes_across_the_five_masters() {
-    let Ok(data) = std::env::var("SKYRIM_DATA") else {
+    let Ok(_data) = std::env::var("SKYRIM_DATA") else {
         return;
     };
-    let mut order = LoadOrder::new();
-    for name in [
+    let order = installed::load_order(&[
         "Skyrim.esm",
         "Update.esm",
         "Dawnguard.esm",
         "HearthFires.esm",
         "Dragonborn.esm",
-    ] {
-        let bytes = std::fs::read(std::path::Path::new(&data).join(name)).unwrap();
-        order.add(name, Plugin::parse(&bytes).unwrap()).unwrap();
-    }
+    ])
+    .unwrap();
     let mut seen = 0;
     let mut with_ai = 0;
     for (_, record) in order.winners_of(Tag(*b"NPC_")) {

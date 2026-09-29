@@ -3,6 +3,9 @@
 
 //! Independent WEAP/ARMO bytes, physical hit outcomes and CK event contracts.
 
+#[path = "common/installed.rs"]
+mod installed;
+
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::{
     combat::{
@@ -537,7 +540,7 @@ fn malformed_unarmed_race_rejects_the_hit() {
 
 #[test]
 fn installed_race_backed_unarmed_hits_execute() {
-    let Some(data) = std::env::var_os("SKYRIM_DATA").map(std::path::PathBuf::from) else {
+    let Some(_data) = installed::data_dir() else {
         eprintln!("SKYRIM_DATA not set, skipping race-backed unarmed survey");
         return;
     };
@@ -548,15 +551,7 @@ fn installed_race_backed_unarmed_hits_execute() {
         "HearthFires.esm",
         "Dragonborn.esm",
     ];
-    let mut order = LoadOrder::new();
-    for name in masters {
-        order
-            .add(
-                name,
-                Plugin::parse(&std::fs::read(data.join(name)).unwrap()).unwrap(),
-            )
-            .unwrap();
-    }
+    let mut order = installed::owned_order(&masters).unwrap();
     let races: Vec<_> = order
         .winners_of(Tag(*b"RACE"))
         .filter(|(_, record)| !record.is_deleted())
@@ -962,25 +957,18 @@ fn npc_hits_baseless_player_and_essential_attacker_can_deal_damage() {
 
 #[test]
 fn installed_weapon_and_armor_fields_decode_and_ordinary_weapons_execute() {
-    let Some(data) = std::env::var_os("SKYRIM_DATA").map(std::path::PathBuf::from) else {
+    let Some(_data) = installed::data_dir() else {
         eprintln!("SKYRIM_DATA not set, skipping weapon/armor survey");
         return;
     };
-    let mut order = LoadOrder::new();
-    for name in [
+    let mut order = installed::owned_order(&[
         "Skyrim.esm",
         "Update.esm",
         "Dawnguard.esm",
         "HearthFires.esm",
         "Dragonborn.esm",
-    ] {
-        order
-            .add(
-                name,
-                Plugin::parse(&std::fs::read(data.join(name)).unwrap()).unwrap(),
-            )
-            .unwrap();
-    }
+    ])
+    .unwrap();
     let mut weapons = Vec::new();
     let mut armors = 0;
     for (form, record) in order
@@ -1060,6 +1048,29 @@ fn installed_weapon_and_armor_fields_decode_and_ordinary_weapons_execute() {
         "Combat records: {} weapons, {armors} armors. Executed {accepted}, excluded {excluded:?}",
         weapons.len()
     );
+}
+
+#[test]
+fn tst_14_combat_hits_reuses_the_installed_parse_and_isolates_games() {
+    let masters = [
+        "Skyrim.esm",
+        "Update.esm",
+        "Dawnguard.esm",
+        "HearthFires.esm",
+        "Dragonborn.esm",
+    ];
+    let Some(order) = installed::load_order(&masters) else {
+        eprintln!("SKYRIM_DATA not set, skipping TST-14 installed parse check");
+        return;
+    };
+    let cached = installed::load_order(&masters).unwrap();
+    assert!(std::sync::Arc::ptr_eq(&order, &cached));
+
+    let first = Game::from_shared_order(order.clone());
+    let second = Game::from_shared_order(cached);
+    first.world_mut().perk_points = 7;
+    assert_eq!(first.world().perk_points, 7);
+    assert_eq!(second.world().perk_points, 0);
 }
 
 #[test]

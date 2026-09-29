@@ -504,6 +504,17 @@ impl Plugin {
         out
     }
 
+    /// Remap plugin-local FormIDs in record identities, known FormID fields,
+    /// group labels, the override list and typed VMAD object links.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if a mapped structured field has an invalid size or
+    /// a VMAD property cannot be parsed. The plugin is unchanged on error.
+    pub fn remap_form_ids(&mut self, mapping: &std::collections::HashMap<u32, u32>) -> Result<()> {
+        crate::renumber::remap_plugin(self, mapping)
+    }
+
     /// SHA-256 of this plugin's serialized definition. This does not depend
     /// on its load slot or on another file's overrides.
     pub fn fingerprint(&self) -> [u8; 32] {

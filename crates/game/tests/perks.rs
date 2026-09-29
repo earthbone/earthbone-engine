@@ -3,6 +3,9 @@
 
 //! PERK purchase transactions, NNAM rank identities and installed-data survey.
 
+#[path = "common/installed.rs"]
+mod installed;
+
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::{
     conditions,
@@ -313,26 +316,19 @@ fn externally_granted_ranks_are_retained_without_charging_them_again() {
 
 #[test]
 fn installed_perk_purchase_survey() {
-    let Some(data) = std::env::var_os("SKYRIM_DATA").map(std::path::PathBuf::from) else {
+    let Some(_data) = installed::data_dir() else {
         eprintln!("SKYRIM_DATA not set, skipping perk survey");
         return;
     };
-    let mut order = LoadOrder::new();
-    for name in [
+    let order = installed::load_order(&[
         "Skyrim.esm",
         "Update.esm",
         "Dawnguard.esm",
         "HearthFires.esm",
         "Dragonborn.esm",
-    ] {
-        order
-            .add(
-                name,
-                Plugin::parse(&std::fs::read(data.join(name)).unwrap()).unwrap(),
-            )
-            .unwrap();
-    }
-    let mut game = Game::new(order);
+    ])
+    .unwrap();
+    let mut game = Game::from_shared_order(order);
     let mut distribution = BTreeMap::new();
     let mut targets = BTreeSet::new();
     let mut roots = Vec::new();
