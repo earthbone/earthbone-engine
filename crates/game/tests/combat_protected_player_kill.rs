@@ -7,6 +7,9 @@
 //! with both a player attacker and a baseless NPC attacker against the same
 //! protected target, so both halves of the CMB-34 exception sit in one file.
 
+#[path = "common/installed.rs"]
+mod installed;
+
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::{combat::MeleeHit, npc::flags, Game};
 
@@ -189,25 +192,18 @@ fn cmb_34_player_lethal_hit_does_not_kill_essential_target() {
 /// ACBS bytes.
 #[test]
 fn cmb_34_installed_protected_npc_takes_the_player_exception() {
-    let Some(data) = std::env::var_os("SKYRIM_DATA").map(std::path::PathBuf::from) else {
+    let Some(_data) = installed::data_dir() else {
         eprintln!("SKYRIM_DATA not set, skipping installed protected NPC check");
         return;
     };
-    let mut order = LoadOrder::new();
-    for name in [
+    let mut order = installed::owned_order(&[
         "Skyrim.esm",
         "Update.esm",
         "Dawnguard.esm",
         "HearthFires.esm",
         "Dragonborn.esm",
-    ] {
-        order
-            .add(
-                name,
-                Plugin::parse(&std::fs::read(data.join(name)).unwrap()).unwrap(),
-            )
-            .unwrap();
-    }
+    ])
+    .unwrap();
     let mut found = None;
     for (form, record) in order
         .winners_of(Tag(*b"NPC_"))
