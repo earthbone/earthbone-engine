@@ -301,7 +301,10 @@ or `.spriggit` configuration reader is implemented.
 `EditorDocument::search_forms` filters the load order's winning forms by an optional record
 signature and a case-insensitive substring of `EDID`. It yields `GlobalFormId` values, so a
 caller can fetch a winning record when selected instead of building a Godot resource for
-every form. The query walks `soe-esm::LoadOrder::winners`. The Godot editor's
+every form. `EditorDocument::override_chain` returns the selected form's versions in load
+order, with each source plugin and record and a winner flag. The final version is the winner,
+including when the selected form has only one version. This is the record-chain data for the
+conflict dock. The Godot editor's
 `tutorials/plugins/editor/making_plugins.rst` and `inspector_plugins.rst` describe the dock
 and inspector controls that can display those results. This row implements the Rust search
 operation only, not the Godot dock or inspector controls.
@@ -352,3 +355,6 @@ not add stages, log entries, objectives or targets, and it does not edit DIAL, I
 `crates/editor/tests/edt_07_quest_stages.rs` covers saving and reparsing both text changes,
 undo, duplicate stage and objective numbers, preserved targets and safe rejection of
 localized text.
+
+The override-chain API follows Mutagen's winning-override rule and Wrye Bash's description
+of whole-record override resolution. It does not compare individual fields or run patchers.

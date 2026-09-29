@@ -104,6 +104,16 @@ pub struct StatModelField {
     pub winning_source: String,
 }
 
+/// One version of a form in a selected load order.
+pub struct OverrideVersion<'a> {
+    /// Plugin that defines this version.
+    pub plugin_name: &'a str,
+    /// Record data authored by the plugin.
+    pub record: &'a Record,
+    /// Whether this is the version used by the load order.
+    pub is_winner: bool,
+}
+
 /// An opened load order and its editable active plugin.
 pub struct EditorDocument {
     load_order: LoadOrder,
@@ -158,6 +168,24 @@ impl EditorDocument {
     /// Return the opened load order.
     pub fn load_order(&self) -> &LoadOrder {
         &self.load_order
+    }
+
+    /// Return every version of a selected form in load-order sequence.
+    ///
+    /// Earlier versions are marked as losing and the final version is marked
+    /// as winning. A form without overrides has one winning version. An
+    /// unknown form produces an empty chain.
+    pub fn override_chain(&self, form: GlobalFormId) -> Vec<OverrideVersion<'_>> {
+        let overrides = self.load_order.overrides(form);
+        overrides
+            .iter()
+            .enumerate()
+            .map(|(index, record_ref)| OverrideVersion {
+                plugin_name: &self.load_order.file(record_ref.file).name,
+                record: self.load_order.record(*record_ref),
+                is_winner: index + 1 == overrides.len(),
+            })
+            .collect()
     }
 
     /// Search winning forms by optional record signature and editor ID text.
