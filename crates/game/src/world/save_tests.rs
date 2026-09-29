@@ -77,6 +77,21 @@ fn sav_07_full_load_order_and_created_references_round_trip_without_aliases() {
     }
 }
 
+#[test]
+fn cmb_38_ragdoll_override_round_trips_in_named_actor_section() {
+    let mut world = rich_world(DYNAMIC_FILE);
+    let actor_id = id(DYNAMIC_FILE, 0x800);
+    world.actors.get_mut(&actor_id).unwrap().ragdoll_forced = Some(false);
+    let saved = world.save_state();
+    let mut loaded = World::from_shared_order(world.order.clone());
+    loaded.load_state(&saved).unwrap();
+    assert_eq!(
+        loaded.actor_ref(actor_id).unwrap().ragdoll_forced,
+        Some(false)
+    );
+    assert_eq!(loaded.save_state(), saved);
+}
+
 fn legacy_order() -> LoadOrder {
     let mut plugin = Plugin::new(FileHeader::default());
     plugin.push_top(crate::npc::build_record(

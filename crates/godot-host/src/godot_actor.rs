@@ -159,6 +159,7 @@ impl INode3D for SkinnedActorNode {
 
     fn process(&mut self, delta: f64) {
         self.sync_death_rendering();
+        self.apply_queued_impulses();
         if self.ragdoll.is_some() {
             self.refresh_appearance();
             self.push_pose();
@@ -590,12 +591,17 @@ impl SkinnedActorNode {
         let Some(binding) = &self.appearance else {
             return;
         };
-        let dead = binding
-            .world
-            .borrow_mut()
-            .actor(binding.actor)
-            .is_some_and(|state| state.dead);
-        match (ActorRenderMode::for_dead(dead), self.ragdoll.is_some()) {
+        let mode = binding.world.borrow_mut().actor(binding.actor).map_or(
+            ActorRenderMode::Animated,
+            |state| {
+                ActorRenderMode::for_dead(crate::ragdoll::actor_uses_ragdoll(
+                    state.dead,
+                    state.unconscious,
+                    state.ragdoll_forced,
+                ))
+            },
+        );
+        match (mode, self.ragdoll.is_some()) {
             (ActorRenderMode::Ragdoll, false) => {
                 let (Some(assets), Some(map)) = (self.assets, &self.ragdoll_map) else {
                     return;
@@ -641,6 +647,22 @@ impl SkinnedActorNode {
             .actor(binding.actor)
             .and_then(|actor| actor.stagger_end_time);
         binding.stagger.observe(deadline, world.clock.real_seconds)
+    }
+
+    fn apply_queued_impulses(&mut self) {
+        let Some(ragdoll) = &self.ragdoll else {
+            return;
+        };
+        let Some(binding) = &self.appearance else {
+            return;
+        };
+        let impulses = binding
+            .world
+            .borrow_mut()
+            .take_actor_impulses(binding.actor);
+        for impulse in impulses {
+            ragdoll.apply_impulse(impulse.vector);
+        }
     }
 
     fn actor_placement(&self) -> Transform3D {

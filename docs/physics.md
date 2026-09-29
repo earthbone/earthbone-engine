@@ -504,6 +504,16 @@ dependencies as the crate split in the module doc above requires. A
 non-finite or non-positive scale falls back to 1.0 inside
 `generated_controller_shape` rather than producing degenerate geometry.
 
+### Scripted ragdoll impulses, CMB-38
+
+`World` queues scripted actor impulses for the host. The Godot host forwards
+each queued Skyrim-space vector to the first body in the actor's authored
+ragdoll, converted to Godot axes and metres, through
+`PhysicsServer3D.body_apply_central_impulse`. This path uses Godot's server and
+Jolt. `SimpleWorld` remains a headless static and character-controller solver
+and does not simulate ragdolls. The CK pages do not define impulse units or
+the area effect falloff; the game's linear area attenuation is an approximation.
+
 `godot_host::DataSource::actor_controller_shape` is the only caller, and it
 has no caller of its own yet. CMB-28, host body installation, has not
 started, so a generated capsule does not currently reach a running actor.

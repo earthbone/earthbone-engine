@@ -57,6 +57,7 @@ mod forms;
 pub mod hash;
 mod inventory;
 mod inventory_restore;
+mod knockback;
 mod spell_hand;
 mod weapon_hands;
 pub use inventory_restore::InventoryRestoreReport;
@@ -222,6 +223,9 @@ pub struct ActorState {
     pub level: u32,
     pub race: Option<GlobalFormId>,
     pub unconscious: bool,
+    /// Explicit `ForceAddRagdollToWorld`/`ForceRemoveRagdollFromWorld` override.
+    /// `None` follows death or unconscious state.
+    pub ragdoll_forced: Option<bool>,
     pub doing_favor: bool,
     pub factions: HashMap<GlobalFormId, i32>,
     pub spells: BTreeSet<GlobalFormId>,
@@ -511,6 +515,8 @@ pub struct World {
     pub notifications: Vec<String>,
     pub message_boxes: Vec<String>,
     pub animation_events: Vec<(GlobalFormId, String)>,
+    /// One-shot impulses waiting for the host's ragdoll bodies.
+    pub actor_impulses: Vec<ActorImpulse>,
     pub player_controls: bool,
     pub ini: HashMap<String, String>,
     /// The package driver's per-world caches, see `crate::ai`.
@@ -555,6 +561,14 @@ pub struct World {
     pub(crate) detection: crate::detection::DetectionState,
     /// Detection sounds awaiting one host observation step.
     pub(crate) detection_events: Vec<crate::detection::DetectionEvent>,
+}
+
+/// An impulse queued by a Papyrus reference native for a host actor.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ActorImpulse {
+    pub actor: GlobalFormId,
+    /// Skyrim-space vector in game units per second.
+    pub vector: [f32; 3],
 }
 
 impl World {
@@ -613,6 +627,7 @@ impl World {
             notifications: Vec::new(),
             message_boxes: Vec::new(),
             animation_events: Vec::new(),
+            actor_impulses: Vec::new(),
             player_controls: true,
             ini: HashMap::new(),
             ai: crate::ai::AiWorld::default(),
