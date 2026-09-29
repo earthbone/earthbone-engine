@@ -48,6 +48,16 @@ rendering and collision at the next tick. That direction (World to host) is
 separate from what HST-12 still owns, physics-driven rigid bodies pushing a
 pose back into World, and this row does not narrow HST-12's remaining scope.
 
+### Papyrus Debug host requests, SCR-20
+
+`PlayerNode::advance_game` drains the transient `World::debug_host_requests`
+queue. Quit requests call Godot's `SceneTree.quit`. Cell-center requests move
+the player to the destination CELL origin, run the normal World cell
+transition, and pass the new placement through `sync_game_pose` so the shared
+streamer replaces cell rendering and collision. A `CenterOnCellAndWait`
+latent id is resolved after that sync succeeds. The Game crate owns name
+resolution and rejects unknown CELL editor ids before queuing a request.
+
 ### Spawn Hazard prerequisites, MAG-61
 
 The MAG-61 audit on 2026-09-20 found no host path for HAZD or PHZD.

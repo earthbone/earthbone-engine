@@ -7,6 +7,7 @@ use super::{
     godot_error, godot_print, CameraMotion, CharacterSettings, GlobalFormId, PhysicsWorld,
     PlayerNode, Vec3,
 };
+use godot::obj::WithBaseField;
 
 impl PlayerNode {
     pub(super) fn start_game_runtime(&mut self) -> bool {
@@ -90,15 +91,47 @@ impl PlayerNode {
         if let Some(target) = self.last_activate_reference {
             self.activate_game_reference(target);
         }
+        self.process_debug_host_requests();
         if let Some(game) = &mut self.game {
             self.menu.tick(game, delta);
             self.image_space.sync(&game.world());
         }
         if self.sync_game_pose() {
+            if let Some(game) = &mut self.game {
+                for latent in self.pending_debug_latents.drain(..) {
+                    game.vm
+                        .resolve_latent(latent, soe_papyrus::Value::Float(0.0));
+                }
+            }
             self.prefetch_nearby_interior(delta);
         } else {
             self.auto_step = false;
             godot_error!("PlayerNode: gameplay stopped because destination resources failed");
+        }
+    }
+
+    fn process_debug_host_requests(&mut self) {
+        let mut scene_tree = self.base().get_tree();
+        let Some(game) = &mut self.game else {
+            return;
+        };
+        let requests = std::mem::take(&mut game.world_mut().debug_host_requests);
+        for request in requests {
+            match request {
+                soe_game::world::DebugHostRequest::Quit => scene_tree.quit(),
+                soe_game::world::DebugHostRequest::CenterOnCell { cell, latent } => {
+                    let player = game.player();
+                    if let Some(reference) = game.world_mut().reference(player) {
+                        reference.position = [0.0; 3];
+                        reference.cell = Some(cell);
+                    }
+                    game.world_mut().change_cell(Some(cell));
+                    game.run_until_idle(64);
+                    if let Some(latent) = latent {
+                        self.pending_debug_latents.push(latent);
+                    }
+                }
+            }
         }
     }
 

@@ -95,6 +95,30 @@ wikitext pages as of 2026-09-19. When an individual page is absent, class pages
 and `engine-refs/skse64/scripts/vanilla` can establish the contract.
 [The reference audit](reference-audit.md) records missed contracts and gaps.
 
+### Debug natives, SCR-20
+
+`Debug.OpenUserLog(name)` creates one transient named log and returns false for
+an empty or already-open name. `CloseUserLog(name)` removes it and is a no-op
+when it is absent. `TraceUser(name, text, severity)` appends the formatted text
+to an open named log and the Papyrus log, and returns whether that log was
+open. User logs are runtime diagnostics and are not included in SOEW saves.
+
+`Debug.CenterOnCell(name)` resolves a CELL editor id and queues a host request
+to move the player to that cell's origin. `CenterOnCellAndWait(name)` queues
+the same request and suspends its Papyrus thread until the host installs the
+destination, then returns 0. An unknown cell logs an error and queues no
+request. `Debug.QuitGame()` queues a host request to quit the Godot scene tree.
+The Game crate does not perform rendering, cell-resource loading or process
+shutdown itself.
+
+The local CK source is `ck-wiki/Debug_Script.wikitext`, which documents the
+global names, signatures and summaries, and
+`ck-wiki/CenterOnCell_-_Debug.wikitext`, which documents the cell argument and
+notes the vanilla function can freeze. Separate named pages for the other
+four functions were absent from this corpus. SCR-20 tests cover native
+arguments, duplicate and missing names, queued host effects and latent
+completion. This host path does not reproduce the freeze note.
+
 **World reads out, host never writes back.** `World::ref_placement` (in
 `world/refs.rs`) is the read-only view a host uses to keep its own rendering
 and collision resources in step with a reference's runtime state: current
@@ -172,7 +196,7 @@ run past it.
 | Location | GetKeywordData, SetKeywordData, IsCleared, SetCleared, IsChild, HasCommonParent, IsSameLocation | IsLoaded, HasRefType, GetRefTypeAliveCount, GetRefTypeDeadCount |
 | Faction | SetAlly, SetEnemy, GetReaction, SetReaction, GetCrimeGold, GetCrimeGoldViolent, GetCrimeGoldNonViolent, SetCrimeGold, SetCrimeGoldViolent, ModCrimeGold, CanPayCrimeGold, PlayerPayCrimeGold, GetInfamy, GetInfamyViolent, GetInfamyNonViolent, IsPlayerExpelled, SetPlayerExpelled, SetPlayerEnemy, IsFactionInCrimeGroup | SendAssaultAlarm, SendPlayerToJail, ModReaction |
 | Game | GetPlayer, GetForm, GetFormEx, GetFormFromFile, EnablePlayerControls, DisablePlayerControls, GetGameSettingFloat/Int/String, SetGameSettingFloat/Int/Bool/String, GetRealHoursPassed, IncrementStat, QueryStat, IsFastTravelEnabled, EnableFastTravel, SetPlayerAIDriven, SetInChargen, SetBeastForm, TeachWord, UnlockWord, IsWordUnlocked, AddAchievement, GetPlayersLastRiddenHorse, AddPerkPoints | ShakeCamera, FadeOutGame, RequestSave, ForceFirstPerson, ShowRaceMenu, AdvanceSkill and 16 more, plus the DLC crime and sky functions: SendWereWolfTransformation, ServeTime, ClearPrison, SetSunGazeImageSpaceModifier, GetSunPositionX/Y/Z |
-| Debug | Trace, TraceUser, TraceConditional, TraceStack, Notification, MessageBox, SendAnimationEvent | OpenUserLog, CloseUserLog, QuitGame, CenterOnCell, SetGodMode and 14 more |
+| Debug | Trace, TraceUser, TraceConditional, TraceStack, Notification, MessageBox, SendAnimationEvent, OpenUserLog, CloseUserLog, QuitGame, CenterOnCell, CenterOnCellAndWait | SetGodMode and 14 more |
 | Utility | RandomInt, RandomFloat, GetCurrentGameTime, GetCurrentRealTime, GameTimeToString, SetINI\* and GetINI\* (eight) | IsInMenuMode, the frame rate and budget functions (eleven). `Wait`, `WaitMenuMode`, `WaitGameTime` are the VM's own |
 | GlobalVariable | GetValue, GetValueInt, SetValue, SetValueInt, Mod | |
 | Keyword | GetString | SendStoryEvent, SendStoryEventAndWait |

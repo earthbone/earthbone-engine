@@ -33,6 +33,7 @@ use std::sync::Arc;
 use soe_esm::records::{Text, Transform};
 use soe_esm::strings::{StringTable, StringTableKind};
 use soe_esm::{GlobalFormId, LoadOrder, RecordRef, Tag};
+use soe_papyrus::vm::LatentId;
 use soe_papyrus::{ObjectId, Value};
 
 use crate::clock::GameClock;
@@ -118,6 +119,16 @@ pub enum Handle {
     },
     /// One application of a magic effect, distinct from its MGEF definition.
     ActiveEffect(magic::EffectId),
+}
+
+/// A host action requested by a Papyrus Debug native.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DebugHostRequest {
+    Quit,
+    CenterOnCell {
+        cell: GlobalFormId,
+        latent: Option<LatentId>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -505,6 +516,10 @@ pub struct World {
     pub notifications: Vec<String>,
     pub message_boxes: Vec<String>,
     pub animation_events: Vec<(GlobalFormId, String)>,
+    /// Open Papyrus user logs and the lines written to each during this run.
+    pub user_logs: BTreeMap<String, Vec<String>>,
+    /// One-shot requests for the host, which owns process and cell streaming.
+    pub debug_host_requests: Vec<DebugHostRequest>,
     pub player_controls: bool,
     pub ini: HashMap<String, String>,
     /// The package driver's per-world caches, see `crate::ai`.
@@ -605,6 +620,8 @@ impl World {
             notifications: Vec::new(),
             message_boxes: Vec::new(),
             animation_events: Vec::new(),
+            user_logs: BTreeMap::new(),
+            debug_host_requests: Vec::new(),
             player_controls: true,
             ini: HashMap::new(),
             ai: crate::ai::AiWorld::default(),

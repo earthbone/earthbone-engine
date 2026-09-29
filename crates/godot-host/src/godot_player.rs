@@ -86,6 +86,7 @@ pub struct PlayerNode {
     character: Option<BodyId>,
     data_source: Option<Arc<DataSource>>,
     game: Option<soe_game::Game>,
+    pending_debug_latents: Vec<soe_papyrus::vm::LatentId>,
     melee_contact: crate::combat::MeleeContact,
     melee_bodies: HashMap<Rid, GlobalFormId>,
     /// One server body per loaded actor, rebuilt from the shared World on
@@ -144,6 +145,7 @@ impl INode3D for PlayerNode {
             character: None,
             data_source: None,
             game: None,
+            pending_debug_latents: Vec::new(),
             melee_contact: crate::combat::MeleeContact::default(),
             melee_bodies: HashMap::new(),
             actor_bodies: crate::godot_physics::ActorBodies::default(),

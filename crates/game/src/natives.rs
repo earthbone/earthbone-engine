@@ -19,7 +19,9 @@ use soe_papyrus::{NativeCall, NativeReturn, ObjectId, Value, Vm};
 use crate::clock::GameClock;
 use crate::combat::Hand;
 use crate::conditions;
-use crate::world::{reaction, AnimationListener, Handle, LeveledEntry, LosListener, World};
+use crate::world::{
+    reaction, AnimationListener, DebugHostRequest, Handle, LeveledEntry, LosListener, World,
+};
 
 pub type Shared = Rc<RefCell<World>>;
 
@@ -1829,15 +1831,65 @@ fn game(vm: &mut Vm, w: &Shared) {
 }
 
 fn debug(vm: &mut Vm, w: &Shared) {
-    for name in ["Trace", "TraceUser", "TraceConditional", "TraceStack"] {
+    for name in ["Trace", "TraceConditional", "TraceStack"] {
         global!(vm, w, "Debug", name, |world, call| {
             let msg = match name {
-                "TraceUser" => text_world(world, &call.arg(1)),
                 "TraceConditional" if !call.arg(1).as_bool() => return none(),
                 _ => text_world(world, &call.arg(0)),
             };
             call.log.push(call.time, msg);
             none()
+        });
+    }
+    global!(vm, w, "Debug", "TraceUser", |world, call| {
+        let log_name = text(&call.arg(0));
+        let message = text_world(world, &call.arg(1));
+        if let Some(lines) = world.user_logs.get_mut(&log_name) {
+            lines.push(message.clone());
+            call.log.push(call.time, message);
+        } else {
+            call.log.push(
+                call.time,
+                format!("error: Debug.TraceUser log is not open: {log_name}"),
+            );
+        }
+        b(world.user_logs.contains_key(&log_name))
+    });
+    global!(vm, w, "Debug", "OpenUserLog", |world, call| {
+        let name = text(&call.arg(0));
+        if name.is_empty() || world.user_logs.contains_key(&name) {
+            return b(false);
+        }
+        world.user_logs.insert(name, Vec::new());
+        b(true)
+    });
+    global!(vm, w, "Debug", "CloseUserLog", |world, call| {
+        world.user_logs.remove(&text(&call.arg(0)));
+        none()
+    });
+    global!(vm, w, "Debug", "QuitGame", |world, _call| {
+        world.debug_host_requests.push(DebugHostRequest::Quit);
+        none()
+    });
+    for (name, wait) in [("CenterOnCell", false), ("CenterOnCellAndWait", true)] {
+        global!(vm, w, "Debug", name, |world, call| {
+            let cell_name = text(&call.arg(0));
+            let Some(cell) = world.cell_by_editor_id(&cell_name) else {
+                call.log.push(
+                    call.time,
+                    format!("error: Debug.{name} cell not found: {cell_name}"),
+                );
+                return if wait { f(-1.0) } else { none() };
+            };
+            let latent = wait.then(|| call.defer());
+            world
+                .debug_host_requests
+                .push(DebugHostRequest::CenterOnCell { cell, latent });
+            if let Some(latent) = latent {
+                NativeReturn::Latent(latent)
+            } else {
+                none()
+            }
         });
     }
     global!(vm, w, "Debug", "Notification", |world, call| {
@@ -3209,7 +3261,6 @@ fn stubs(vm: &mut Vm) -> usize {
         ("Actor", "IsFlying", false),
         ("ObjectReference", "IsFurnitureMarkerInUse", false),
         ("Utility", "IsInMenuMode", false),
-        ("Debug", "OpenUserLog", true),
     ];
     for (class, name, value) in bools {
         let global = matches!(*class, "Game" | "Utility" | "Debug");
@@ -3379,10 +3430,6 @@ fn stubs(vm: &mut Vm) -> usize {
         ("Game", "FindClosestReferenceOfType"),
         ("Game", "FindRandomReferenceOfType"),
         ("Game", "GetFormEx2"),
-        ("Debug", "QuitGame"),
-        ("Debug", "CenterOnCell"),
-        ("Debug", "CenterOnCellAndWait"),
-        ("Debug", "CloseUserLog"),
         ("Debug", "SetGodMode"),
         ("Debug", "ToggleAI"),
         ("Debug", "ToggleCollisions"),
