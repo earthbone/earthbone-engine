@@ -649,12 +649,11 @@ regression test keeps this unsupported case explicit.
 
 ## Reference mask semantics, SAV-15 partial
 
-The runtime applies the first `CHANGE_FORM_FLAGS` word to authored REFR and
-ACHR `INITIALLY_DISABLED` and `PERSISTENT` bits as XOR. It accepts this
-operation only for the observed Skyrim SE tuple of ESS header version 12,
+The runtime retains both `CHANGE_FORM_FLAGS` words in the restore report and
+does not apply them to authored REFR or ACHR state. The current restore path
+accepts a mask only for the observed Skyrim SE tuple of ESS header version 12,
 form version 78 and change-form version 78. Other tuples with a mask fail
-before reference state is inserted. The second 16-bit word remains available
-in the restore report and is not assigned runtime meaning.
+before reference state is inserted.
 
 Local xEdit `Core/wbDefinitionsTES5Saves.pas`, at
 `wbUnionCHANGE_FORM_FLAGS`, names a 32-bit Mask Invert Flags followed by a
@@ -698,10 +697,9 @@ nonzero in 68,235 masks, with observed values 0x0001, 0x0004, 0x0008,
 coverage, not the resulting enable or persistence state.
 
 The runtime consumer audit found that `World::load_ref_record` derives enable
-state from the winning plugin, while `World::unload_cell` and
-`World::is_persistent_child` use the authored cell index. The placement pass
-reports both mask words without applying them. The runtime has no saved
-persistence override. Completing SAV-15 needs an independently documented
+and persistence state from the winning plugin, while `World::unload_cell` and
+`World::is_persistent_child` consume those values. The placement pass reports
+both mask words without applying them. Completing SAV-15 needs an independently documented
 operation or controlled vanilla saves with observed before/after flags for
 both authored bit values, both reference types and supported versions.
 Those outcomes must drive native enable queries and unload decisions, then

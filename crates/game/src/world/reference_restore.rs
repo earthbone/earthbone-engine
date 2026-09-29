@@ -6,7 +6,6 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use soe_esm::plugin::flags as record_flags;
 use soe_esm::GlobalFormId;
 use soe_save::{
     reference::{Initial, ReferenceHeader},
@@ -109,21 +108,6 @@ fn apply_header(
     state: &mut RefState,
     header: &ReferenceHeader,
 ) -> Result<(), RestoreError> {
-    if let Some((mask_invert, _mask_set_unknown)) = header.form_flags {
-        let invert = mask_invert & (record_flags::INITIALLY_DISABLED | record_flags::PERSISTENT);
-        if invert & record_flags::INITIALLY_DISABLED != 0 {
-            state.enabled = !state.enabled;
-            if state.deleted
-                || world
-                    .order
-                    .winner(id)
-                    .is_some_and(|record| record.is_deleted())
-            {
-                state.enabled = false;
-            }
-        }
-        state.persistent ^= invert & record_flags::PERSISTENT != 0;
-    }
     if let Some(placement) = header.initial.placement() {
         if placement
             .position

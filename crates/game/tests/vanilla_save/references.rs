@@ -57,7 +57,7 @@ fn fixture_order_with_flags(flags: u32) -> LoadOrder {
 }
 
 #[test]
-fn sav_15_saved_reference_masks_toggle_authored_enable_and_persistence_flags() {
+fn sav_15_saved_reference_masks_are_retained_without_unverified_application() {
     let mask = soe_esm::plugin::flags::INITIALLY_DISABLED | soe_esm::plugin::flags::PERSISTENT;
     let mut save = fixture();
     set_form_mask(&mut save.change_forms[1], mask, 0x50, 78);
@@ -65,19 +65,19 @@ fn sav_15_saved_reference_masks_toggle_authored_enable_and_persistence_flags() {
     let mut world = World::new(fixture_order_with_flags(mask));
     let report = world.restore_vanilla_reference_placements(&save).unwrap();
     let restored = world.reference_ref(id(0, 0xA00)).unwrap();
-    assert!(restored.enabled);
-    assert!(!restored.persistent);
+    assert!(!restored.enabled);
+    assert!(restored.persistent);
     assert_eq!(
         report.remaining[&id(0, 0xA00)].form_flags,
         Some((mask, 0x50))
     );
-    assert!(!world.is_persistent_child(id(0, 0x800), id(0, 0xA00)));
+    assert!(world.is_persistent_child(id(0, 0x800), id(0, 0xA00)));
 
     let bytes = world.save_state();
     let mut loaded = World::new(fixture_order_with_flags(mask));
     loaded.load_state(&bytes).unwrap();
-    assert!(loaded.reference_ref(id(0, 0xA00)).unwrap().enabled);
-    assert!(!loaded.reference_ref(id(0, 0xA00)).unwrap().persistent);
+    assert!(!loaded.reference_ref(id(0, 0xA00)).unwrap().enabled);
+    assert!(loaded.reference_ref(id(0, 0xA00)).unwrap().persistent);
 }
 
 #[test]
@@ -122,12 +122,12 @@ fn sav_15_saved_actor_reference_masks_follow_the_actor_header() {
     let mut world = World::new(fixture_order());
     world.restore_vanilla_reference_placements(&save).unwrap();
     let player = world.reference_ref(id(0, 0x14)).unwrap();
-    assert!(!player.enabled);
-    assert!(player.persistent);
+    assert!(player.enabled);
+    assert!(!player.persistent);
 }
 
 #[test]
-fn sav_15_installed_vanilla_reference_flags_accept_saved_overrides() {
+fn sav_15_installed_vanilla_reference_masks_do_not_change_authored_flags() {
     let Some(data) = std::env::var_os("SKYRIM_DATA").map(std::path::PathBuf::from) else {
         eprintln!("SKYRIM_DATA unset, skipping SAV-15 vanilla-reference case");
         return;
@@ -148,11 +148,11 @@ fn sav_15_installed_vanilla_reference_flags_accept_saved_overrides() {
     let restored = world.reference_ref(id(0, 0xA00)).unwrap();
     assert_eq!(
         restored.enabled,
-        (authored ^ mask) & soe_esm::plugin::flags::INITIALLY_DISABLED == 0
+        authored & soe_esm::plugin::flags::INITIALLY_DISABLED == 0
     );
     assert_eq!(
         restored.persistent,
-        (authored ^ mask) & soe_esm::plugin::flags::PERSISTENT != 0
+        authored & soe_esm::plugin::flags::PERSISTENT != 0
     );
 }
 
