@@ -312,13 +312,12 @@ instances and schedules the saved active scripts. Queued messages, suspended
 stack tables and latent native waits remain inert. Object identity mapping is
 still supplied by the host.
 
-A thread saved mid-`Utility.Wait` is a saved `Sleeping(seconds)` state on a
-frame sitting inside the wait, nothing about the scheduler is special-cased,
-so loading it back and advancing the clock past the wait resumes and
-finishes the thread exactly as if it had never been serialized. A test
-builds such a thread, saves and loads it into a fresh `Vm` with the same
-script loaded, and checks it stays asleep until the clock passes the
-deadline.
+The VM's own state format retains a thread's sleeping deadline and the clock
+values used by `Utility.Wait`. Loading it back preserves the remaining delay,
+including for waits that count menu time or game time. Once the deadline passes,
+the thread resumes once on its next run. `tests/sav_03_wait.rs` saves after two
+seconds of a five second wait, checks that the thread remains asleep through
+the remaining delay, and checks that its continuation fires once.
 
 `ArrayPool`, `ArrayTable`, `Writer` and `Reader` are public under
 `vm::state` so `crates/game/src/world.rs` writes its own state (references,
