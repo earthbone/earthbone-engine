@@ -9,10 +9,10 @@ use std::collections::BTreeSet;
 use soe_esm::{GlobalFormId, Tag};
 use soe_papyrus::Value;
 
-use super::{Alloc, Pending, World};
+use super::{Alloc, Pending, World, T};
 use crate::combat::{
     records::{Armor, PowerAttack, Weapon},
-    Difficulty, Error, HitResult, MeleeHit,
+    Difficulty, Error, FireError, HitResult, MeleeHit,
 };
 
 const UNARMED_ATTACK: u32 = 0x1F4;
@@ -35,6 +35,39 @@ const POWER_ATTACK_STAMINA_PER_WEIGHT: f32 = 2.0;
 type PoisonStack = Option<(usize, GlobalFormId)>;
 
 impl World {
+    /// Validate a Papyrus `Weapon.Fire` request against the shared form table.
+    ///
+    /// # Errors
+    /// Missing or mistyped forms, malformed weapon records, or unavailable
+    /// ranged projectile execution.
+    ///
+    /// # Panics
+    /// This method does not panic.
+    pub fn fire_weapon(
+        &mut self,
+        weapon: GlobalFormId,
+        source: GlobalFormId,
+        ammo: Option<GlobalFormId>,
+    ) -> Result<(), FireError> {
+        if !matches!(self.tag_of(source), Some(tag) if tag == T(b"REFR") || tag == T(b"ACHR")) {
+            return Err(FireError::Source);
+        }
+        let record = self
+            .record(weapon)
+            .filter(|record| record.tag == T(b"WEAP"))
+            .ok_or(FireError::Weapon(weapon))?;
+        Weapon::from_record(record)?;
+        if let Some(ammo) = ammo {
+            if self
+                .record(ammo)
+                .is_none_or(|record| record.tag != T(b"AMMO"))
+            {
+                return Err(FireError::Ammo(ammo));
+            }
+        }
+        Err(FireError::Unsupported("ranged projectile execution"))
+    }
+
     /// Return the selected difficulty tier.
     #[must_use]
     pub const fn difficulty(&self) -> Difficulty {

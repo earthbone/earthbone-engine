@@ -125,3 +125,22 @@ pub enum Error {
     #[error("unsupported combat behavior: {0}")]
     Unsupported(&'static str),
 }
+
+/// Validation and execution errors for `Weapon.Fire`.
+#[derive(Debug, thiserror::Error)]
+pub enum FireError {
+    #[error("weapon fire source argument is not a form")]
+    SourceArgument,
+    #[error("weapon fire source is not a reference")]
+    Source,
+    #[error("weapon fire weapon {0} is missing or is not a WEAP")]
+    Weapon(GlobalFormId),
+    #[error("weapon fire ammo {0} is missing or is not an AMMO")]
+    Ammo(GlobalFormId),
+    #[error("weapon fire ammo argument is not a form")]
+    AmmoArgument,
+    #[error(transparent)]
+    Record(#[from] soe_esm::Error),
+    #[error("unsupported weapon fire behavior: {0}")]
+    Unsupported(&'static str),
+}

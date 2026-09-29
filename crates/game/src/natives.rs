@@ -195,6 +195,7 @@ pub fn register(vm: &mut Vm, world: &Shared) -> Registered {
     fragments_and_effects(vm, world);
     active_magic(vm, world);
     image_space(vm, world);
+    weapon(vm, world);
     let stubs = stubs(vm);
     let natives = NATIVE_COUNT + stubs - (vm.natives.duplicates.len() - before);
     Registered { natives, stubs }
@@ -202,7 +203,7 @@ pub fn register(vm: &mut Vm, world: &Shared) -> Registered {
 
 /// Hand-kept count of the non-stub natives registered below. The test in
 /// this module checks it against the registry.
-pub const NATIVE_COUNT: usize = 366;
+pub const NATIVE_COUNT: usize = 367;
 
 fn declare_parents(vm: &mut Vm) {
     for (class, parent) in [
@@ -2523,6 +2524,34 @@ fn image_space(vm: &mut Vm, w: &Shared) {
             none()
         }
     );
+}
+
+fn weapon(vm: &mut Vm, w: &Shared) {
+    method!(vm, w, "Weapon", "Fire", |world, call, me| {
+        let Some(source) = world.form_arg(&call.arg(0)) else {
+            call.log.push(
+                call.time,
+                crate::combat::FireError::SourceArgument.to_string(),
+            );
+            return none();
+        };
+        let ammo_arg = call.arg(1);
+        let ammo = if matches!(ammo_arg, Value::None) {
+            None
+        } else if let Some(ammo) = world.form_arg(&ammo_arg) {
+            Some(ammo)
+        } else {
+            call.log.push(
+                call.time,
+                crate::combat::FireError::AmmoArgument.to_string(),
+            );
+            return none();
+        };
+        if let Err(error) = world.fire_weapon(me, source, ammo) {
+            call.log.push(call.time, format!("Weapon.Fire: {error}"));
+        }
+        none()
+    });
 }
 
 /// CK active-effect identity, queries and dispelling contracts.

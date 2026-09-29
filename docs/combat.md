@@ -6,6 +6,17 @@ settles its scripts. World::melee_hit retains the queued events for save/load
 or callers that control VM scheduling. Neither entry point performs collision
 detection or selects a hand. The caller identifies the equipped weapon.
 
+## Papyrus `Weapon.Fire`
+
+The `Weapon.Fire(ObjectReference akSource, Ammo akAmmo = None)` native reads
+the base weapon, source reference and optional ammo from the shared form table.
+It returns a typed error for missing or mistyped forms and logs that error to
+the VM. A valid request reports unsupported ranged projectile execution and
+does not change health, inventory or the event queue. `Weapon.Fire` therefore
+does not execute ranged combat yet. The local SKSE vanilla `Weapon.psc` page
+documents this signature and the source-reference contract. A projectile
+execution system is a prerequisite for completing this native.
+
 ## Record and runtime inputs
 
 Weapon DATA supplies base damage, and DNAM supplies animation, governing

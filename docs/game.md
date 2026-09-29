@@ -189,7 +189,8 @@ run past it.
 | ImageSpaceModifier | Apply, ApplyCrossFade, Remove, RemoveCrossFade, PopTo | |
 | ShaderParticleGeometry | | Apply, Remove |
 | MusicType, Topic | | Add, Remove |
-| Weather, Weapon, Scroll | | SetActive, Fire, Cast |
+| Weather, Scroll | | SetActive, Cast |
+| Weapon | Fire | |
 
 Current behavior and compatibility limits:
 
@@ -1015,6 +1016,9 @@ skips looking for one below version 37.
   actor, no entry point applies. Leveled lists are never rolled. Spell casts
   are recorded, no effect applies. Crime has bounty and infamy ledgers, no
   jail or arrest.
+- `Weapon.Fire` validates its WEAP, source reference and optional AMMO through
+  the shared form table. It logs a typed unsupported error for valid requests
+  until ranged projectile execution exists. See [combat](combat.md).
 - Faction relations from `XNAM`, location keyword data, perks and the actor
   flags were tested on the synthetic master and reached by the vanilla
   scripts at start, not checked against the game's runtime values.
