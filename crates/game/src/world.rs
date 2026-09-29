@@ -97,6 +97,7 @@ mod templates;
 pub use template_restore::TemplateRestoreReport;
 mod timers;
 mod transition;
+mod trigger;
 
 pub use contact::{ContactActor, DEFAULT_COMBAT_DISTANCE};
 pub use doorway::{Doorway, InteriorDestination, Side, Threshold, THRESHOLD_BAND, UNITS_PER_METRE};
@@ -481,6 +482,9 @@ pub struct World {
     objects: HashMap<Handle, ObjectId>,
     handles: HashMap<ObjectId, Handle>,
     refs: HashMap<GlobalFormId, RefState>,
+    /// Current occupants, derived from actor movement and XPRM placement.
+    trigger_occupants: BTreeMap<GlobalFormId, BTreeSet<GlobalFormId>>,
+    trigger_index: Option<BTreeMap<GlobalFormId, Vec<GlobalFormId>>>,
     actors: HashMap<GlobalFormId, ActorState>,
     quests: HashMap<GlobalFormId, QuestState>,
     globals: HashMap<GlobalFormId, f32>,
@@ -619,6 +623,8 @@ impl World {
             objects: HashMap::new(),
             handles: HashMap::new(),
             refs: HashMap::new(),
+            trigger_occupants: BTreeMap::new(),
+            trigger_index: None,
             actors: HashMap::new(),
             quests: HashMap::new(),
             globals: HashMap::new(),

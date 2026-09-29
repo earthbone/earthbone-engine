@@ -2739,3 +2739,13 @@ Open gaps, none closed by this row:
 - The `CellStreamer` release path in the Godot layer only follows
   `stream_exterior` grid positions. `stream_cell` by editor id does not
   record one, so `release_exterior_cell` cannot drop a cell loaded that way.
+
+## Player trigger crossings, HST-14
+
+`PlayerNode::advance_game` submits the player's previous and current world
+positions to `Game::update_trigger_actor_position` after writing the current
+pose into the shared world. The game reads XPRM trigger references in the
+player's current cell, updates occupant membership and queues Papyrus enter or
+leave events. This connects the player controller to trigger scripts without
+adding per-reference Godot nodes. Other actor movement systems submit their
+own position steps through the same game API.

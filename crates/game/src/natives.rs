@@ -554,6 +554,22 @@ fn object_reference(vm: &mut Vm, w: &Shared) {
         vm,
         w,
         "ObjectReference",
+        "GetTriggerObjectCount",
+        |world, call, me| match world.trigger_object_count(me) {
+            Some(count) => i(count as i32),
+            None => {
+                call.log.push(
+                    call.time,
+                    "Error: GetTriggerObjectCount called on a non-trigger",
+                );
+                i(0)
+            }
+        }
+    );
+    method!(
+        vm,
+        w,
+        "ObjectReference",
         "GetBaseObject",
         |world, call, me| {
             let base = world.base_of(me);
@@ -3321,6 +3337,7 @@ fn stubs(vm: &mut Vm) -> usize {
     }
     let ints: &[(&str, &str, i32)] = &[
         ("ObjectReference", "GetTriggerObjectCount", 0),
+        ("ObjectReference", "GetCurrentDestructionStage", 0),
         ("Actor", "GetCombatState", 0),
         ("Actor", "GetSleepState", 0),
         ("Actor", "GetSitState", 0),
