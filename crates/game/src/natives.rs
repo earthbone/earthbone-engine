@@ -3437,4 +3437,113 @@ mod tests {
         assert!(vm.natives.has_global("game", "getplayer"));
         assert!(vm.natives.has_method("alias", "getowningquest"));
     }
+
+    #[test]
+    fn scr_55_actorbase_alias_inventory_matches_registry() {
+        let mut vm = Vm::new();
+        let world = Rc::new(RefCell::new(World::new(LoadOrder::new())));
+        register(&mut vm, &world);
+
+        let form_methods = [
+            "GetFormID",
+            "GetName",
+            "GetType",
+            "HasKeyword",
+            "GetKeywords",
+            "RegisterForSingleUpdate",
+            "RegisterForUpdate",
+            "RegisterForSingleUpdateGameTime",
+            "RegisterForUpdateGameTime",
+            "UnregisterForUpdate",
+            "UnregisterForUpdateGameTime",
+            "RegisterForSleep",
+            "UnregisterForSleep",
+            "RegisterForTrackedStatsEvent",
+            "UnregisterForTrackedStatsEvent",
+            "RegisterForAnimationEvent",
+            "UnregisterForAnimationEvent",
+            "RegisterForLOS",
+            "RegisterForSingleLOSGain",
+            "RegisterForSingleLOSLost",
+            "UnregisterForLOS",
+        ];
+        let actor_base_methods = [
+            "GetSkin",
+            "SetSkin",
+            "GetRace",
+            "GetClass",
+            "GetSex",
+            "GetDeadCount",
+            "IsEssential",
+            "IsProtected",
+            "IsInvulnerable",
+            "IsUnique",
+            "SetEssential",
+            "SetProtected",
+            "SetInvulnerable",
+            "SetOutfit",
+            "GetGiftFilter",
+        ];
+        let alias_methods = [
+            "GetOwningQuest",
+            "GetID",
+            "GetName",
+            "GetReference",
+            "GetRef",
+            "GetActorReference",
+            "GetActorRef",
+            "ForceRefTo",
+            "ForceRefIfEmpty",
+            "Clear",
+        ];
+
+        for name in actor_base_methods {
+            assert!(
+                vm.natives.has_method("ActorBase", name),
+                "ActorBase.{name} is missing from the registry"
+            );
+            assert!(
+                !vm.natives.has_global("ActorBase", name),
+                "ActorBase.{name} was registered as a global"
+            );
+        }
+        for name in alias_methods {
+            assert!(
+                vm.natives.has_method("Alias", name),
+                "Alias.{name} is missing from the registry"
+            );
+            assert!(
+                !vm.natives.has_global("Alias", name),
+                "Alias.{name} was registered as a global"
+            );
+        }
+        for name in form_methods {
+            assert!(
+                vm.natives.has_method("Form", name),
+                "inherited Form.{name} is missing from the registry"
+            );
+        }
+
+        assert!(!vm.natives.has_global("ActorBase", "GetGiftFilter"));
+        assert!(!vm.natives.has_global("Alias", "GetOwningQuest"));
+
+        let audit = include_str!("../../../docs/reference-audit.md");
+        for name in actor_base_methods {
+            assert!(audit.contains(&format!("`ActorBase.{name}`")));
+        }
+        for name in alias_methods {
+            assert!(audit.contains(&format!("`Alias.{name}`")));
+        }
+        for name in form_methods {
+            assert!(audit.contains(&format!("`Form.{name}`")));
+        }
+        assert!(audit.contains("`ActorBase` and `Alias` have no registered global bindings"));
+        assert!(audit.contains("assigns the correction to SCR-18"));
+        assert!(audit.contains("Assign optional validation and the diagnostic to SCR-68"));
+        assert!(audit.contains("Assign reference-type validation to SCR-59"));
+        let backlog = include_str!("../../../BACKLOG.csv");
+        assert!(backlog.contains("\"SCR-18\""));
+        assert!(backlog.contains("\"SCR-68\""));
+        assert!(backlog.contains("\"SCR-59\""));
+    }
 }

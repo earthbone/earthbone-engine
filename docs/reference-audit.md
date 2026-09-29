@@ -26,6 +26,93 @@ HavokLib ancestry, so it is not an independent codec oracle. HKX2's missing
 license must be resolved before code reuse. Do not execute bundled tools
 merely because the repository includes them.
 
+## ActorBase and Alias native audit, SCR-55
+
+The inventory below is checked against the registrations made by
+`natives::register` in `scr_55_actorbase_alias_inventory_matches_registry`.
+`ActorBase` and `Alias` have no registered global bindings. The CK class pages
+also say both classes have no global functions.
+
+| Registry binding | CK contract comparison | Disposition |
+|---|---|---|
+| `ActorBase.GetSkin` | Returns the actor base skin armor. | Reads the record-backed skin. |
+| `ActorBase.SetSkin` | Sets the actor base skin armor. | Writes the record-backed skin override. |
+| `ActorBase.GetRace` | Returns the actor base race. | Reads its race form. |
+| `ActorBase.GetClass` | Returns the actor base class. | Reads its class form. |
+| `ActorBase.GetSex` | Returns the actor base sex as an integer. | Reads the female flag as 1 or 0. |
+| `ActorBase.GetDeadCount` | Returns the number of dead actors using this base. | Reads the current dead count field. |
+| `ActorBase.IsEssential` | Reports whether the base is essential. | Reads the base flag. |
+| `ActorBase.IsProtected` | Reports whether the base is protected. | Reads the base flag. |
+| `ActorBase.IsInvulnerable` | Reports whether the base is invulnerable. | Reads the base flag. |
+| `ActorBase.IsUnique` | Reports whether the base is unique. | Reads the base flag. |
+| `ActorBase.SetEssential` | Sets the essential flag. A base cannot be both essential and protected. | Current setter updates the base and initialized actors from that base. Mutual exclusion is not enforced. SCR-55 assigns the correction to SCR-18. |
+| `ActorBase.SetProtected` | Sets the protected flag. A base cannot be both protected and essential. | Current setter updates the base and initialized actors from that base. Mutual exclusion is not enforced. SCR-55 assigns the correction to SCR-18. |
+| `ActorBase.SetInvulnerable` | Sets the invulnerable flag. | Updates the base flag. |
+| `ActorBase.SetOutfit` | Sets the default or sleep outfit according to its boolean argument. | Updates the corresponding base outfit field. |
+| `ActorBase.GetGiftFilter` | Returns the actor base gift-filter FormList. | Quiet stub. Implement record-backed value access under SCR-18. |
+| `Alias.GetOwningQuest` | Returns the quest owning the alias. | Returns the quest in the alias handle. |
+| `Alias.GetID` | SKSE addition. Returns the alias ID. | Returns the alias handle ID. |
+| `Alias.GetName` | SKSE addition. Returns the alias's unique name, not its display name. | Reads the alias definition name. |
+| `Alias.GetReference` | Returns the ObjectReference held by the alias. | Returns the current alias target. |
+| `Alias.GetRef` | Shorthand for `GetReference`. | Returns the same current alias target. |
+| `Alias.GetActorReference` | Returns the held reference as an Actor. | Currently returns the target form without checking its type. Assign actor-type filtering to SCR-68. |
+| `Alias.GetActorRef` | Shorthand for `GetActorReference`. | Currently returns the target form without checking its type. Assign actor-type filtering to SCR-68. |
+| `Alias.ForceRefTo` | Forces the specified ObjectReference into the alias. | Stores the provided form in alias state without checking its record type. Assign reference-type validation to SCR-59. |
+| `Alias.ForceRefIfEmpty` | Sets the alias only when empty and reports whether it succeeded. | Preserves an occupied target and returns false, or stores and returns true without checking its record type. Assign reference-type validation to SCR-59. |
+| `Alias.Clear` | Clears an optional reference alias. A non-optional alias logs an error. | Currently clears without checking optional status. Assign optional validation and the diagnostic to SCR-68. |
+| `Form.GetFormID` inherited by `ActorBase` | Returns the form's runtime ID. | Reads the resolved form's runtime ID. |
+| `Form.GetFormID` inherited by `Alias` | Returns the form's runtime ID. | Registry contains the shared Form method; Alias runtime objects have no resolved form ID. |
+| `Form.GetName` inherited by `ActorBase` | Returns the form name. | Reads the winning form name. |
+| `Form.GetName` inherited by `Alias` | Returns the form name. Alias declares its own SKSE `GetName`, which shadows this binding. | Alias-specific binding returns the alias definition name. |
+| `Form.GetType` inherited by `ActorBase` | Returns the form type code. | Reads the resolved record type. |
+| `Form.GetType` inherited by `Alias` | Returns the form type code. | Alias runtime objects have no resolved form type. |
+| `Form.HasKeyword` inherited by `ActorBase` | Reports whether the form has the specified keyword. | Queries the form-backed keyword list. |
+| `Form.HasKeyword` inherited by `Alias` | Reports whether the form has the specified keyword. | Alias runtime objects do not resolve to forms, so the native returns false. |
+| `Form.GetKeywords` inherited by `ActorBase` | Returns the form's keyword array. | Builds an array from the form-backed keywords. |
+| `Form.GetKeywords` inherited by `Alias` | Returns the form's keyword array. | Alias runtime objects do not resolve to forms, so the native returns an empty array. |
+| `Form.RegisterForSingleUpdate` inherited by `ActorBase` | Registers one update after the given seconds. | The VM object receives one real-time update. |
+| `Form.RegisterForSingleUpdate` inherited by `Alias` | Registers one update after the given seconds. | The alias VM object receives one real-time update. |
+| `Form.RegisterForUpdate` inherited by `ActorBase` | Registers or changes repeating update seconds. | The VM object receives repeating real-time updates. |
+| `Form.RegisterForUpdate` inherited by `Alias` | Registers or changes repeating update seconds. | The alias VM object receives repeating real-time updates. |
+| `Form.RegisterForSingleUpdateGameTime` inherited by `ActorBase` | Registers one update after the given game hours. | The VM object receives one game-time update. |
+| `Form.RegisterForSingleUpdateGameTime` inherited by `Alias` | Registers one update after the given game hours. | The alias VM object receives one game-time update. |
+| `Form.RegisterForUpdateGameTime` inherited by `ActorBase` | Registers or changes repeating update game hours. | The VM object receives repeating game-time updates. |
+| `Form.RegisterForUpdateGameTime` inherited by `Alias` | Registers or changes repeating update game hours. | The alias VM object receives repeating game-time updates. |
+| `Form.UnregisterForUpdate` inherited by `ActorBase` | Cancels repeating and single real-time updates. | Removes real-time update registration. |
+| `Form.UnregisterForUpdate` inherited by `Alias` | Cancels repeating and single real-time updates. | Removes the alias's real-time update registration. |
+| `Form.UnregisterForUpdateGameTime` inherited by `ActorBase` | Cancels game-time updates. | Removes game-time update registration. |
+| `Form.UnregisterForUpdateGameTime` inherited by `Alias` | Cancels game-time updates. | Removes the alias's game-time update registration. |
+| `Form.RegisterForSleep` inherited by `ActorBase` | Registers for player sleep start and stop events. | Adds the VM object to the sleep listener set. |
+| `Form.RegisterForSleep` inherited by `Alias` | Registers for player sleep start and stop events. | Adds the alias VM object to the sleep listener set. |
+| `Form.UnregisterForSleep` inherited by `ActorBase` | Unregisters from player sleep events. | Removes the VM object from the sleep listener set. |
+| `Form.UnregisterForSleep` inherited by `Alias` | Unregisters from player sleep events. | Removes the alias VM object from the sleep listener set. |
+| `Form.RegisterForTrackedStatsEvent` inherited by `ActorBase` | Registers for tracked-stat updates. | Adds the VM object to the tracked-stat listener set. |
+| `Form.RegisterForTrackedStatsEvent` inherited by `Alias` | Registers for tracked-stat updates. | Adds the alias VM object to the tracked-stat listener set. |
+| `Form.UnregisterForTrackedStatsEvent` inherited by `ActorBase` | Unregisters from tracked-stat updates. | Removes the VM object from the listener set. |
+| `Form.UnregisterForTrackedStatsEvent` inherited by `Alias` | Unregisters from tracked-stat updates. | Removes the alias VM object from the listener set. |
+| `Form.RegisterForAnimationEvent` inherited by `ActorBase` | Registers for a named animation event on a sender. | Adds a listener for the sender and event name. |
+| `Form.RegisterForAnimationEvent` inherited by `Alias` | Registers for a named animation event on a sender. | Adds the alias VM object as listener. |
+| `Form.UnregisterForAnimationEvent` inherited by `ActorBase` | Removes a named animation event registration. | Removes matching listener entries. |
+| `Form.UnregisterForAnimationEvent` inherited by `Alias` | Removes a named animation event registration. | Removes matching alias listener entries. |
+| `Form.RegisterForLOS` inherited by `ActorBase` | Registers for gain and lost line-of-sight events for a viewer and target. | Adds a persistent viewer-target listener. |
+| `Form.RegisterForLOS` inherited by `Alias` | Registers for gain and lost line-of-sight events for a viewer and target. | Adds a persistent alias listener. |
+| `Form.RegisterForSingleLOSGain` inherited by `ActorBase` | Registers for one line-of-sight gain event. | Adds a single-gain listener. |
+| `Form.RegisterForSingleLOSGain` inherited by `Alias` | Registers for one line-of-sight gain event. | Adds a single-gain alias listener. |
+| `Form.RegisterForSingleLOSLost` inherited by `ActorBase` | Registers for one line-of-sight lost event. | Adds a single-lost listener. |
+| `Form.RegisterForSingleLOSLost` inherited by `Alias` | Registers for one line-of-sight lost event. | Adds a single-lost alias listener. |
+| `Form.UnregisterForLOS` inherited by `ActorBase` | Unregisters matching line-of-sight events. | Removes matching viewer-target listener entries. |
+| `Form.UnregisterForLOS` inherited by `Alias` | Unregisters matching line-of-sight events. | Removes matching alias listener entries. |
+
+Contract sources are `ck-wiki/ActorBase_Script.wikitext`,
+`ck-wiki/Alias_Script.wikitext`, `ck-wiki/ReferenceAlias_Script.wikitext`,
+`ck-wiki/GetClass_-_ActorBase.wikitext`,
+`ck-wiki/GetOwningQuest_-_Alias.wikitext`, and
+`ck-wiki/Clear_-_ReferenceAlias.wikitext`. The class pages define the remaining
+methods listed there. Alias reference getter and setter variants are compared
+against the ReferenceAlias class page, which includes their return types and
+shorthand relationships. The current check is synthetic because these methods
+do not require installed game records.
+
 ## Sources to use for current gaps and future systems
 
 | System and current entry point | Existing sources to use | What tes4skyrim or its references add | Boundary |
