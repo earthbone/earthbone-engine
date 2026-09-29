@@ -1369,11 +1369,12 @@ fn merge_regenerated_geometry(
         }
     }
     for link in &original.door_links {
-        if let Ok(index) = usize::try_from(link.triangle) {
-            if index < original.triangles.len() {
-                retained.insert(index);
-            }
+        let index =
+            usize::try_from(link.triangle).map_err(|_| "door link triangle index is negative")?;
+        if index >= original.triangles.len() {
+            return Err("door link triangle index is out of range");
         }
+        retained.insert(index);
     }
 
     let mut old_to_new = vec![None; original.triangles.len()];
