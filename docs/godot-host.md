@@ -40,39 +40,35 @@ With `--no-default-features` the `godot` dependency is gone and what remains is 
 
 ## Layout
 
-### Movable-reference physics prerequisite, HST-12
+### Movable reference physics, HST-12
 
-The MAG-41 prerequisite audit on 2026-09-20 confirmed that the host has no
-movable-reference body lifecycle yet. `collision::DataSource::collide_cell_id`
-filters placed colliders with `Collider::is_static` before adding them to
-`SimpleWorld`. `godot_physics::add_statics` applies the same filter and creates
-only `PhysicsServer3D` bodies in `BodyMode::STATIC`. Its `CellBodies` holds RID
-lists for freeing a cell, without a body-to-FormID map for simulated movement.
-The player gameplay path uses the static `SimpleWorld`. Render batches bake
-reference placement into surface vertices, and runtime reference placement
-changes are not generally synchronized with rendering and collision.
+`DataSource::placed_cell_colliders` retains the NIF body motion and mass from
+`soe-physics`. `add_placed_statics` installs fixed and zero-mass colliders as
+static bodies. It groups the remaining colliders by owning FormID and installs
+one `PhysicsServer3D` rigid body per reference. The body owns its shape RIDs.
+Concave triangle meshes are skipped for rigid bodies, since Godot's rigid
+solver requires convex collision. The body's local shapes include authored
+scale and NIF offsets, while its server transform carries reference position
+and rotation. This follows `nifxml/nif.xml`'s mass and motion fields and
+`godot-docs/classes/class_physicsserver3d.rst`'s body modes and state API.
 
-Local `godot-docs/classes/class_physicsserver3d.rst` documents rigid body modes,
-state synchronization callbacks and RID cleanup. Rigid bodies receive forces
-and collision responses. A callback can copy their latest pose into the shared
-World each physics tick, preserving the record-backed authority rule. This
-is a host integration task using Godot's existing physics facilities.
+Each gameplay tick first applies game-side moves and disable state to the
+bodies, then reads simulated transforms back into `World`. The same tick's
+render pass reads `World`, patches merged mesh members and updates `MultiMesh`
+instance transforms. The host writes only the existing position and rotation
+fields of an enabled reference. It frees body and shape RIDs on disable or
+despawn, creates them again on re-enable, and frees a cell's resources on
+clear, replacement, exit or exterior release. `collision_stats` reports live
+body, shape and movable counts. `movable_reference_poses` and
+`rendered_reference_pose` expose the host state for integration checks.
+`render_alignment_error` reads the uploaded mesh vertices or `MultiMesh`
+transforms and reports their largest difference from the cached World pose.
+`PlayerNode` exposes `gameplay_reference_pose`, `set_reference_enabled` and
+`despawn_reference` for host controls and integration checks.
 
-HST-04 owns reflection of runtime reference changes. HST-12 depends on it and
-owns movable-reference rigid bodies, physics-to-World pose synchronization and
-resource cleanup on disable, despawn or unload. Its acceptance run must observe
-one authored movable reference responding to collision while the shared World
-and renderer agree on its pose, then verify the body's resources are released.
-MAG-41 depends on both rows before it can manipulate an object and release it
-on interruption. The audit made no host runtime changes, added no scene nodes
-and performed no Godot run. It therefore supplies no motion, collision-cost or
-cleanup measurement.
-
-HST-04 is implemented, see "Runtime enable and placement reflection, HST-04"
-below: a script-driven or editor-driven change to `World` now reaches both
-rendering and collision at the next tick. That direction (World to host) is
-separate from what HST-12 still owns, physics-driven rigid bodies pushing a
-pose back into World, and this row does not narrow HST-12's remaining scope.
+`godot/hst_12_movable_test.gd` uses the installed Bannered Mare cell, applies
+an impulse to an authored movable reference, then checks World and rendering
+pose agreement and the disable, despawn and unload cleanup paths.
 
 ### Spawn Hazard prerequisites, MAG-61
 
@@ -155,13 +151,18 @@ record carries the deleted flag out of the drawn list and files it under
 reference still resolves through the load order and the game starts it disabled,
 so the host never draws one and never has to test for it.
 
-Budget design for the Whiterun gate: the `StreamPlan` is the unit the host schedules. The
-intended loop is one `update` per frame, loads handed to a worker pool that decodes NIF and
-builds `SurfaceArrays` off the main thread, and only `array_mesh_from` plus scene insertion
-on the main thread, capped by `max_loads_per_tick`. Triangle and byte budgets per tick are
-not in the streamer yet because nothing measures the real per-cell cost until the `nif` and
-`esm` crates land. `SurfaceArrays` carries bounds and a triangle count so that budget can be
-added without changing the plan shape.
+`StreamPlan` is the unit the host schedules. `update_with_budget` caps its selected loads by
+triangle and byte totals when the caller supplies a `StreamCost` for each candidate cell.
+Costs may be measured or estimated. Loads stay nearest first, and a cell that does not fit
+either remaining limit is deferred while later smaller cells may be selected. A zero limit
+is unlimited. The ordinary `update` keeps its cell-count behavior and does not apply mesh
+budgets. `SurfaceArrays` exposes triangle counts and its vertex and index buffers, which
+callers can use to calculate or estimate costs. The walking player path measures
+prepared surface arrays and calls `update_with_budget` when its exported
+`exterior_triangle_budget` or `exterior_byte_budget` is positive. The limits
+apply to selected mesh uploads. Preparation may decode more candidates on that
+tick so a smaller later cell can fit. Zero on both exported settings leaves
+the earlier cell-count behavior.
 
 ## Mesh
 
@@ -600,13 +601,12 @@ reports the materials a call created, not the cache size.
 A batch bakes each source surface's placement into its vertices once, at load
 time. Nothing updated a batch again after that, so a script-driven move,
 disable or Creation Kit style drag never reached the mesh or its collision
-after the first tick. `CellStreamerNode::sync_reference_changes(&World)`
+after the first tick. `CellStreamerNode::sync_reference_changes(&mut World)`
 closes that gap and is called once a tick from `PlayerNode::advance_game`,
 before anything that frame reads geometry or collision, so an enable or
-placement change lands the same tick it is written to `World`. `World` stays
-the sole source of truth throughout, satisfying the record-backed authority
-rule from the HST-12 section above: the host reads `World::ref_placement`
-every tick and never writes a pose back into it.
+placement change lands the same tick it is written to `World`. The host reads
+`World::ref_placement` every tick. HST-12 also writes simulated movable poses
+into these same fields.
 
 Collision and rendering both gate their expensive path on a per-reference
 cache of the last applied `(visible, Iso)`, called every tick but doing real
@@ -621,13 +621,10 @@ work only on an actual change:
   `add_placed_statics` used, since a Godot static body's collision shapes
   bake their world placement into their own data or local transform and
   cannot be nudged by moving the body alone.
-- Rendering (the new method above) keeps its cache on the `CellStreamerNode`
-  instead, keyed by reference across every batch, and only rebuilds a
-  batch's `ArrayMesh` when one of its members' cached value disagrees with
-  `World`. A batch can hold hundreds of members sharing one mesh, one
-  `RenderingServer` instance and one index buffer, so rebuilding every
-  batch every tick regardless of change would cost far more than the map
-  lookups the cache adds.
+- Rendering keeps its cache on the `CellStreamerNode`, keyed by reference
+  across every batch. It rebuilds a merged `ArrayMesh` when a member changes
+  and updates a `MultiMesh` member's transform when its reference changes.
+  All batches containing the changed reference update on the same tick.
 
 Either side's delta is always computed against the reference's placement at
 load time, never against the last placement applied, so a reference moved
@@ -663,13 +660,9 @@ Position, normal and tangent arrays each round trip through `units.rs`'s
 Skyrim/Godot converters before and after the delta applies, since `delta` is
 built in Skyrim space like every other placement in this crate.
 
-This is the World-to-host direction only: a reference `World` already knows
-about, moved or hidden by a script, activation or the editor. HST-12's
-physics-driven rigid bodies, their host-to-World pose sync and their
-despawn/unload cleanup remain open, as does a per-reference prune of the
-render cache on cell unload (it is cleared wholesale on `clear`/`exit_tree`
-today, so a reference's cache entry outlives the cell it belonged to until
-the whole streamer resets).
+HST-12 also reads rigid-body poses back into World on each gameplay tick. A
+per-reference prune of the render cache on cell unload remains absent. It is
+cleared wholesale on `clear` and `exit_tree`.
 
 ### Compressed textures as they are
 
@@ -894,6 +887,28 @@ The animation stack was finished and invisible: `crates/hkx` reads skeletons,
 clips and behavior graphs, and since `behavior-2` it walks the vanilla
 `mt_behavior.hkx` and plays the standing idle at full weight. Nothing reached a
 screen. This connects the two.
+
+### Runtime animation requests, HST-10
+
+An appearance-bound `SkinnedActorNode` keeps its actor `GlobalFormId` and a
+cursor into the shared world's animation event log. On each `advance`, it
+passes new events for that actor to its HKX interpreter before updating the
+graph. Events for other forms and events already present when the actor was
+bound are skipped. The cursor advances across the whole log, so one request is
+submitted at most once to that host actor. The interpreter's emitted graph
+events continue through the node's `animation_event` signal after its pose is
+uploaded, once per event returned by `take_events()`. That interpreter method
+also returns submitted input events, so the signal does not report that a
+requested animation finished. `World::animation_event` currently records both
+script requests and listener notifications. The host does not instantiate a
+graph for non actor references, which `ObjectReference.PlayAnimation` requires.
+
+This uses Godot's `RenderingServer` skeleton RIDs and
+`skeleton_bone_set_transform` for pose upload, as documented in the local
+`godot-docs/classes/class_renderingserver.rst`. The request bridge only covers
+actors explicitly bound through `PlayerNode.bind_actor_appearance`. Animated static references
+still use their NIF transform controller path, and general reference animation
+graphs are not instantiated by this bridge.
 
 Three pieces, none of which touch Godot except the last:
 
@@ -1588,14 +1603,29 @@ tested a different location. The corrected test asserts the requested
 Bannered Mare identity after startup. The first import aborted when sandbox
 restrictions denied an editor socket. Direct runtime execution succeeded.
 
-Swing animation remains unwired. Plain doors keep their authored
-mesh pose and immovable collision even when game state marks them open.
+### Animated static collision, HST-01
+
+`AnimatedStaticNode` can build a trimesh collider below each generated mesh
+when `collision_enabled` is set before `load_nif`. The controller updates the
+mesh transform, and the collider remains its descendant, so Godot applies the
+same scene transform to both. `open()` resets controller time and starts its
+per-frame evaluation. The collision option defaults off. This path is for
+small animated references and does not change bulk cell batching.
+
+The `hst_01_door_swing_test.gd` Godot check loads a synthetic NIF controller
+with a rotation track, advances it, and confirms the generated static body
+follows the visual mesh transform. It does not connect ordinary door
+activation in `PlayerNode` to an animated door instance. Plain gameplay doors
+still keep their authored mesh pose and static collision when game state marks
+them open.
+
 Locked player picks use the shared game's key check. Without the key they
 remain closed, pending lockpicking UI. Resource preparation is synchronous.
-Exterior streaming follows door landings only, not subsequent walking across
-grid boundaries. Runtime reference enable, placement and animation changes
-are not yet reflected in all drawn objects. Portal transitions and revised
-AI remain deferred until existing Skyrim gameplay works.
+Exterior walking loads and unloads nearby grid cells through the budgeted
+planner when either mesh budget is set. Ordinary door activation still does
+not instantiate `AnimatedStaticNode`, so a logical open state does not swing
+the rendered door or move its collision. Portal transitions and revised AI
+remain deferred until existing Skyrim gameplay works.
 
 ### Cold door fade fallback (2026-09-20)
 

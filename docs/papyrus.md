@@ -13,8 +13,9 @@ Crate `crates/papyrus`. Round 1 of `ENGINE-PLAN.md`, written 2026-09-06.
   every VM test. It is also the seed of an assembler for tooling.
 - `psc`: a bounded Skyrim source compiler using the assembler. It accepts a
   script header with `extends`, `Hidden` and `Conditional`, native functions
-  without parameters, and functions with literal returns. Other declarations
-  and statements return a source line error. It checks the source filename
+  without parameters, scalar `Auto` properties, and functions with literal
+  returns. Other declarations and statements return a source line error. It
+  checks the source filename
   against `ScriptName` without case, generates Skyrim's `GetState` and
   `GotoState` functions, and emits a Skyrim PEX file. The parser follows the
   Open Papyrus script header, identifier, keyword and `.psc` filename rules

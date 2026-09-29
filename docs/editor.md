@@ -258,6 +258,7 @@ year or more or blocked.
    classes the Skyrim Behavior Editor exposes, clip and event tables, and the load-time
    merge that replaces Nemesis and Pandora. Blocked on the behaviour runtime design
    (`docs/hkx.md`) for what a merged graph must preserve.
+
 10. **FaceGen and NPC editing** (L). Head part assembly, morphs, tint layers to DDS, the
     NPC dialog, and export in the paths the game expects. Needs morph support in the mesh
     pipeline.
@@ -267,3 +268,44 @@ year or more or blocked.
 12. **LOD generation** (XL, deferred). Object and terrain LOD from the form table and the
     mesh pipeline, replacing DynDOLOD and xLODGen output. Consuming their output is the
     policy until the mesh pipeline has been stable for a release cycle.
+
+### Editor core implementation
+
+`soe-editor` opens plugin paths in load-order order through `soe-esm`, keeps one active
+plugin, and updates the resolved order when an edit is applied or undone. A subrecord edit
+to a supported winning top-level `STAT` record creates an active-plugin override. Undo
+restores the prior active plugin. Saving writes the active plugin bytes and parses those
+bytes again before returning the saved plugin. The TES4 record count is updated with edits.
+
+`save_with_script` compiles PSC source through `soe-papyrus`, attaches its scalar auto
+properties to the selected record in an unfragmented Skyrim VMAD subrecord, and saves the
+active plugin. It creates the normal active-plugin override for a supported top-level STAT
+record. The editor rejects records that already have VMAD data and unsupported PSC
+declarations. PEX bytes are returned to the caller. This crate does not write PSC or PEX
+files, run a language server, edit existing script bindings, or generate quest fragments.
+The VMAD primary section follows UESP's `VMAD_Field` description and
+`TES5Edit/Core/wbDefinitionsTES5.pas`'s `wbVMAD` definition.
+
+Copying a winning record whose owner differs from the active plugin requires relocating
+FormIDs in the record and its group path. The editor currently rejects nested records and
+supports copied top-level `STAT` records only. The FMT-15 FormID renumbering and FMT-26
+master relocation rows remain open. The Spriggit output guide describes separate text files
+per record, while the current editor writes plugin files only. No text plugin translation
+or `.spriggit` configuration reader is implemented.
+
+`EditorDocument::search_forms` filters the load order's winning forms by an optional record
+signature and a case-insensitive substring of `EDID`. It yields `GlobalFormId` values, so a
+caller can fetch a winning record when selected instead of building a Godot resource for
+every form. The query walks `soe-esm::LoadOrder::winners`. The Godot editor's
+`tutorials/plugins/editor/making_plugins.rst` and `inspector_plugins.rst` describe the dock
+and inspector controls that can display those results. This row implements the Rust search
+operation only, not the Godot dock or inspector controls.
+
+The navmesh document commands edit `NAVM` records already present in the active plugin.
+They add or delete triangles and move existing vertices. Each successful operation records
+an undo snapshot, rebuilds same-mesh triangle adjacency and the NVNM spatial grid, and
+updates door and cover triangle indices after deletion. Triangle and vertex indices are
+checked against NVNM limits, malformed or degenerate edits are rejected before changing the
+plugin, and save writes the packed geometry back through the plugin writer. Editing a
+winning navmesh owned by another plugin is not supported yet because its parent, door and
+edge-link FormIDs need relocation when an override is created.

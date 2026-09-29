@@ -102,18 +102,22 @@ wikitext pages as of 2026-09-19. When an individual page is absent, class pages
 and `engine-refs/skse64/scripts/vanilla` can establish the contract.
 [The reference audit](reference-audit.md) records missed contracts and gaps.
 
-**World reads out, host never writes back.** `World::ref_placement` (in
+**Shared reference placement.** `World::ref_placement` (in
 `world/refs.rs`) is the read-only view a host uses to keep its own rendering
 and collision resources in step with a reference's runtime state: current
 position, rotation, scale and enable, in the small, `Copy` `RefPlacement`
 struct, not the mutable `RefState` a native or VM path uses to change that
-state. It returns `None` for a reference never instantiated, its
-record-authored placement is still current and there is nothing to sync, and
-for a deleted one. The host side of this contract, and the split it takes
+state. It returns `None` for a reference never instantiated, whose
+record-authored placement is still current. A deleted reference remains
+present with `visible: false` so the host can release its resources. The host
+side of this contract, and the split it takes
 between collision and rendering change detection, is documented in
 [godot-host.md](godot-host.md#runtime-enable-and-placement-reflection-hst-04).
-`World` stays the only writer of reference state either way, so no host code
-takes the mutable `reference` accessor.
+`World::set_host_ref_pose` accepts finite position and rotation from a live
+rigid body for an enabled, non-deleted, non-actor reference. The host calls it
+after a physics step, and rendering reads the resulting placement in the same
+tick. It writes the existing saved fields, so the world save format is
+unchanged. A late pose from a disabled or deleted body is rejected.
 
 **Witnessed crime.** `crime.rs` decodes `FACT.CRVA`, the bounty table a
 faction charges for murder, assault, trespass, pickpocketing, theft
@@ -287,6 +291,12 @@ Current behavior and compatibility limits:
   the class (`ReferenceAlias` or `LocationAlias`) of the VM object.
 
 ## Tests
+
+Installed integration tests use `tests/common/installed.rs`. Each test
+process caches parsed plugin files and load orders by their installed master
+set, then gives each `Game` its own mutable world over the shared immutable
+load order. `tst_14` checks in `combat_hits.rs` and `dialogue.rs` verify the
+cache reuse and world isolation.
 
 The `leveled-lists` follow-up adds `World::roll_leveled_items` for ordinary
 LVLI quantities. Callers supply the selection level and requested count.
@@ -1582,13 +1592,11 @@ Morrowind's extended activation distance, so that policy is not reused here.
 The local skymp search found enum declarations, without a Telekinesis runtime
 implementation to reuse.
 
-The host currently omits movable collision bodies and does not synchronize
-their simulated placement with the shared World and rendered references.
-[The host audit](godot-host.md#movable-reference-physics-prerequisite-hst-12)
-records those prerequisites under HST-04 and HST-12. MAG-41 retains its object
-manipulation and interruption acceptance check and stays blocked on these
-dependencies. No grab events, force policy, object eligibility, release motion
-or host runtime behavior were implemented or tested by this audit.
+The host now installs movable rigid bodies and synchronizes their simulated
+placement with the shared World and rendered references.
+[The host implementation](godot-host.md#movable-reference-physics-hst-12)
+records that path. Telekinesis grab events, object eligibility, force policy
+and release motion are not implemented here.
 
 Repeat the survey with `SKYRIM_DATA` set:
 

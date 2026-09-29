@@ -2,9 +2,9 @@
 
 Reads Skyrim SE plugin files (`.esm`, `.esp`, `.esl`) into a group tree of records,
 resolves FormIDs across a load order, and answers "which record wins" for any form.
-Typed views cover the initial world records, race phonemes and scoped dialogue,
-magic and crafting fields. Other data stays in raw subrecords and is written
-back unchanged.
+Typed views cover the initial world records, race phonemes, scoped dialogue,
+magic, crafting fields and HAZD hazards. Other data stays in raw subrecords and
+is written back unchanged.
 
 ## What the file format is
 
@@ -43,6 +43,23 @@ with a different index in every file that mentions it, so `LoadOrder` converts e
 The form table maps every global id to the list of records that carry it, in load
 order. `winner` is the last one, which is the rule the game, xEdit and Mutagen all apply.
 `overridden` lists the ids whose winner is not their owner.
+
+`Plugin::set_masters` reorders existing masters or adds new ones while retaining
+all current masters. It relocates record FormIDs, FormID group labels, TES4
+`ONAM`, and recognized four-byte links in the typed world record set. It updates
+the TES4 `MAST` and paired `DATA` entries, keeping existing master data with its
+name. Duplicate and removed masters, malformed recognized links and lists over
+255 masters return an error before changing the plugin. Unknown subrecords and
+unmodeled link fields remain byte-for-byte unchanged. In particular this method
+does not inspect nested `VMAD` links.
+
+The operation follows local Mutagen `Plugins/FormID.cs` for the master-index
+and object-id split, and `docs/plugins/Remapping-FormLinks.md` for the rule that
+links must retain their target identity while a mod is reorganized. Spriggit's
+`docs/spriggit-file.md` describes stable plugin identity across text
+serialization. The Rust plugin model retains raw subrecords instead of
+Mutagen's complete typed record graph, so this implementation relocates its
+known typed links and preserves other fields unchanged.
 
 Each `LoadedFile` exposes a SHA-256 fingerprint of its plugin's serialized
 definition before the load order adds engine-owned forms. It is independent of
@@ -86,11 +103,47 @@ not the complete set of Skyrim hardcoded forms.
 
 ## Typed views
 
-`records::{cell, refr, wrld, land, lctn, navm, stat, race}` and `records::gameplay`
+`records::{cell, refr, wrld, land, lctn, navm, stat, race, hazd}` and `records::gameplay`
 expose `from_record`. Views copy
 the named fields and leave the record intact, so an unknown subrecord is never lost.
 FormIDs inside views are raw, as written in the file, so a view can be built without a
 load order and resolved later.
+
+`Cell::lighting` decodes XCLL's ambient, directional, fog, rotation and six
+directional ambient-color fields. Color values retain all four bytes,
+including xEdit's unused fourth byte. The optional fields after those six
+colors are specular color, Fresnel power, far-fog color, fog maximum, light
+fade distances and inheritance flags. Float values encode through their
+original IEEE-754 bits. The reader accepts complete prefixes of the optional
+fields from 64 to 92 bytes. This follows xEdit's `wbAmbientColors` and
+`SetOptionalFrom(11)` definitions in `wbDefinitionsTES5.pas`. UESP
+`CELL.wikitext` describes the same fields and notes a 64-byte duplicate cell.
+Repeated XCLL fields and partial optional fields are errors. No existing Rust
+reader exposes these fields with byte-exact re-encoding.
+`tests/fmt_01_cell_lighting.rs` checks malformed sizes, each optional-field
+prefix, float bit preservation and every winning installed CELL XCLL when
+`SKYRIM_DATA` is set.
+
+`Plugin::remap_form_ids` applies a caller-provided map to record identities,
+group labels that contain FormIDs and the TES4 ONAM override list. It also
+updates the FormID fields currently decoded by the CELL, WRLD, LCTN, REFR,
+LTEX, NAVM, MGEF, HAZD and selected INFO views. This covers cell water,
+owner, location, image space, music, acoustic space, encounter zone, weather
+and region links. It covers worldspace parent, climate, water, location,
+encounter zone and music links, plus location parents and markers. REFR base,
+owner, location, layer, encounter zone, emittance, teleport door, enable
+parent, lock key, linked reference, navmesh door, location ref type and idle
+links are remapped. Texture set and grass links, navmesh base object lists,
+magic effect DATA links, keywords and counter effect lists, SCEN and DIAL
+quest links, INFO topic, response and response-sound links, WEAP and ARMO
+enchantments, and HAZD image-space and DATA
+links are remapped at their documented offsets. Scalar values remain intact.
+The REFR field layouts follow local xEdit `wbDefinitionsTES5.pas` and UESP
+`REFR.wikitext`. VMAD object
+properties and arrays in object formats 1 and 2 are remapped while trailing
+fragment bytes are preserved. An invalid or unsupported VMAD property makes
+the operation fail without changing the plugin. Other raw subrecords remain
+untouched because their fields have not been modeled as FormIDs here.
 
 `Refr::lock` reads XLOC level, key and flags. Presence means initially locked,
 including level zero. Level 255 requires a key. The reader accepts the 20-byte
@@ -99,6 +152,17 @@ tail fields. Other lengths return a size error. The serialized flags retain
 bit 2 for leveled locks. They are distinct from the runtime locked bit.
 Sources are local xEdit's REFR XLOC, UESP REFR, Mutagen PlacedObject.xml and
 OpenMW's esm4 loadrefr.cpp. A bounds-checked Rust view fits the existing parser.
+
+`Refr::primitive` decodes XPRM's 32 bytes as three bounds floats, four color
+floats and a raw 32-bit kind. It preserves float bit patterns when encoded,
+including values it does not interpret. xEdit names kinds 0 through 4 as none,
+box, sphere, portal box and line. UESP describes 1 through 3 as box, sphere and
+portal box, and lists 4 as unknown, so the view keeps the numeric kind. XPRM
+must occur at most once and must have exactly 32 bytes. The layout follows local
+xEdit `Core/wbDefinitionsTES5.pas` and UESP `REFR.wikitext`, cross-checked with
+UESP `Raw_Data.wikitext`. `tests/fmt_16_reference_primitives.rs` checks field
+decoding, exact encoding, invalid sizes, duplicates and the installed winning
+REFR XPRM survey when `SKYRIM_DATA` is set.
 
 `Land::heights` keeps the gradient form and `decode` produces the 33 by 33 absolute
 heights in world units, using the row-start plus running-sum rule OpenMW uses.
@@ -117,6 +181,30 @@ checked against OpenMW's `components/esm4/loadltex.cpp` for `GNAM`'s repeated si
 FormID shape. `godot-host` resolves a cell's `LAND` alpha layers through `LTEX` to
 `GRAS` for procedural grass placement (`docs/godot-host.md`, "Grass placement").
 
+## Parsed plugin cache
+
+`read_plugin_cached(path, cache_dir)` stores and reuses the parsed `Plugin`
+tree in the caller's cache directory. The cache filename hashes the canonical
+source path, source length, modification time at nanosecond resolution and
+cache format version. The entry repeats those fields and stores the full
+parsed tree, including placements, offsets, record order and group structure.
+It uses a compact binary encoding of the owned plugin structs, so no
+serialization crate is added.
+The local `engine-refs/godotwind/src/native/ESMCache.cs` uses a versioned
+binary ESM cache with source validation and a parse fallback. Its cache stores
+selected host-facing record projections, so it cannot restore this crate's
+complete raw records, subrecords and group tree. The cache here keeps the
+existing `Plugin` model intact.
+
+Each cache file has a magic value, payload length and SHA-256 digest. A cache
+hit requires matching identity fields, a valid digest and complete decoding of
+the payload. Invalid, truncated or stale entries are ignored. A successful
+source parse replaces the current entry through a temporary file and rename.
+Cache directory and cache write failures do not prevent source parsing.
+`tests/fmt_29_cache.rs` covers fixture equality, canonical-path reuse, changed
+file identity and modification time, cache format version, corrupt and
+truncated entries, and all five installed masters.
+
 ## Tests
 
 - Unit tests in every module: round trips, compressed and `XXXX` records, truncation
@@ -127,6 +215,25 @@ FormID shape. `godot-host` resolves a cell's `LAND` alpha layers through `LTEX` 
 - `tests/real_files.rs`: gated on `SKYRIM_DATA`. Loads the five base masters, prints
   `file  TAG  count` lines for diffing against xDump, and checks that every CELL and
   REFR under Tamriel resolves and every REFR base is in the table.
+
+## Scripted patch passes
+
+`PatcherSession` applies a callback to winning top-level `STAT` records in resolved
+FormID order. The output plugin must include each changed record's owner as a master and
+preserve the source plugin's master order, with that source immediately after its masters.
+Changed records keep their FormID and are appended to the output, while unchanged records
+are omitted. An existing output override is reused on later passes, and the TES4 record
+count is synchronized. The pass rejects nested records, incompatible master layouts,
+known FormID subrecords and `VMAD` rather than moving group paths or remapping embedded
+FormIDs. It currently applies only to top-level `STAT` records.
+
+The API follows Mutagen's local `docs/loadorder/Winning-Overrides.md` and
+`docs/plugins/Create,-Duplicate,-and-Override.md` for winner selection and preserving form
+identity in an override. Wrye Bash's local `[dev]-PBash-Patching-Procedure.md` informed the
+ordered passes and omission of records no patcher changed. The Rust implementation uses
+the existing raw record model because the crate does not provide Mutagen's generated typed
+record graph. `tests/edt_24_patcher.rs` verifies deterministic output, reloads the patch,
+checks the new winner, and confirms unchanged records are not emitted.
 
 ```text
 SKYRIM_DATA="/run/host/media/pengolodh/Data/SteamLibrary/steamapps/common/Skyrim Special Edition/Data" \
@@ -145,8 +252,11 @@ parser change was needed, every record type the checks touch read cleanly.
 
 - Typed gameplay views do not evaluate conditions or implement game systems.
   Their coverage and remaining raw fields are listed below.
-- No writer beyond the round trip: no FormID renumbering, no master list editing.
-- `XCLL` lighting and `XPRM` primitives are kept as bytes.
+- `Plugin::set_masters` relocates structural identities and the recognized
+  links listed above. It does not inspect nested VMAD links or arbitrary
+  unmodeled fields. `Plugin::remap_form_ids` applies an explicit map to the
+  typed VMAD object links and other fields listed above.
+- Typed `XCLL` lighting and `XPRM` primitives retain exact byte encoding.
 - No fuzzing harness beyond the malformed-input unit tests. `cargo-fuzz` over
   `Plugin::parse` and `Geometry::parse` is the obvious next step.
 - The xDump diff is printed, not automated: xDump is a Windows binary.
@@ -290,12 +400,13 @@ and do not create another form database. They introduce no dependencies.
 | `MagicEffect`, MGEF | Name, description, keywords, counter effects, conditions and the DATA subset below |
 | `Recipe`, COBJ | Declared ingredient count, ordered signed ingredient quantities, per-ingredient COED owner/union/condition, conditions, optional output object/count and workbench keyword |
 
-The MGEF DATA subset is flags, base cost, associated item, magic skill,
-resistance, declared counter-effect count, minimum skill, area, casting time,
-taper curve and duration, secondary actor-value weight, archetype, both actor
-values, cast type, delivery, skill usage multiplier, equip ability and perk.
-Taper weight, projectile/explosion links, dual-cast scale, AI score/delay and
-visual/audio fields remain in the source record. This is not a full MGEF API.
+The MGEF DATA view reads flags, base cost, associated item, magic skill,
+resistance, declared counter-effect count, taper weight, minimum skill, area,
+casting time, taper curve and duration, secondary actor-value weight, archetype,
+both actor values, projectile and explosion links, cast type, delivery, skill
+usage multiplier, dual-cast scale, equip ability, perk, and script AI score and
+delay. Other DATA fields remain in the source record. This is not a full MGEF
+API.
 
 `Condition` preserves CTDA flags, comparison number or GLOB FormID, function,
 raw parameter unions, run-on fields and following CIS1/CIS2 strings. Conditions
@@ -431,6 +542,25 @@ For SE, English uses Windows-1252. Other languages try UTF-8 first and then
 their language-specific fallback. Japanese and Chinese require UTF-8.
 Tests cover all three layouts, invalid offsets and termination, UTF-8 text,
 and a legacy French fallback.
+
+## HAZD view, FMT-28 (2026-09-27)
+
+`records::hazd::Hazard::from_record` reads HAZD's required 40-byte DATA block:
+limit, radius, lifetime, image-space radius, target interval, flags, spell,
+light, impact data set and sound. It also reads the optional MNAM image-space
+modifier. DATA and MNAM links remain raw FormIDs for resolution with the file
+that supplied the winning override. Unknown flag bits and unknown subrecords
+are retained. Missing or repeated DATA, repeated MNAM and incorrect fixed
+field sizes return errors.
+
+`Plugin::remap_form_ids` remaps MNAM and only the four FormID words at the end
+of DATA. It preserves the scalar values and flag word. The field sizes and
+link types follow local xEdit `wbDefinitionsTES5.pas` HAZD, UESP
+`HAZD.wikitext`, Mutagen `Hazard.xml` and CommonLibSSE-NG `BGSHazard.h`.
+These sources describe the format and runtime structure rather than a Rust
+reader, so the implementation uses the existing bounds-checked `Fields` API.
+The gated HAZD survey checks all non-deleted winners in the five installed
+masters and resolves each non-null link relative to the winning plugin.
 
 ## GRAS and LTEX views, RND-11 (2026-09-24)
 
