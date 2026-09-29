@@ -31,4 +31,5 @@ pub(crate) const ACTOR_SECTIONS: &[Section<ActorState>] = &[
 #[rustfmt::skip]
 pub(crate) const REF_SECTIONS: &[Section<RefState>] = &[
     super::destruction::SECTION,
+    Section { name: "HST-16", write: super::reference_translation::write_section, read: super::reference_translation::read_section },
 ];

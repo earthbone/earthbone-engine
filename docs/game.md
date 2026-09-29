@@ -861,6 +861,20 @@ gap next door: the `ACHR` reader ignored `XLKR`, so an actor reference had
 no linked references at all. Actor references carry them the same way a
 `REFR` does, and the DLC scripts use them to find a coffin or a cart.
 
+`ObjectReference.TranslateTo`, `SplineTranslateTo` and `StopTranslation`
+advance from the unpaused game tick using absolute world targets. Linear and
+cubic spline paths move at their configured units per second. Rotations are
+stored in radians, use the Papyrus degree-per-second limit, and do not finish
+before the position. A spline snaps to its authored endpoint when complete.
+At 90 percent positional progress the runtime queues
+`OnTranslationAlmostComplete`, even if rotation is still in progress.
+Completion queues `OnTranslationComplete`; stopping, blocking, replacing an
+active request, or advancing a disabled or deleted reference queues
+`OnTranslationFailed` and leaves its current placement in place. The in-flight
+action is saved in the reference section `HST-16` and included in the
+deterministic world hash. These paths update the shared world placement; the
+host reflects that placement through the existing `ref_placement` contract.
+
 Against the installed game after the round: 423 quests started, 81 distinct
 natives reached through 1,388 calls, **zero unresolved calls**, 87 log lines,
 in 0.1 seconds in a release build. The gated test asserts the zero, so a new

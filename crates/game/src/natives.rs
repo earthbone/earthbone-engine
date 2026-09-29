@@ -654,6 +654,70 @@ fn object_reference(vm: &mut Vm, w: &Shared) {
         }
         none()
     });
+    method!(
+        vm,
+        w,
+        "ObjectReference",
+        "TranslateTo",
+        |world, call, me| {
+            world.start_translation(
+                me,
+                [
+                    call.arg(0).as_float(),
+                    call.arg(1).as_float(),
+                    call.arg(2).as_float(),
+                ],
+                [
+                    call.arg(3).as_float().to_radians(),
+                    call.arg(4).as_float().to_radians(),
+                    call.arg(5).as_float().to_radians(),
+                ],
+                call.arg(6).as_float(),
+                call.args.get(7).map_or(0.0, Value::as_float),
+                crate::world::TranslationPath::Linear,
+                alloc!(call),
+            );
+            none()
+        }
+    );
+    method!(
+        vm,
+        w,
+        "ObjectReference",
+        "SplineTranslateTo",
+        |world, call, me| {
+            world.start_translation(
+                me,
+                [
+                    call.arg(0).as_float(),
+                    call.arg(1).as_float(),
+                    call.arg(2).as_float(),
+                ],
+                [
+                    call.arg(3).as_float().to_radians(),
+                    call.arg(4).as_float().to_radians(),
+                    call.arg(5).as_float().to_radians(),
+                ],
+                call.arg(7).as_float(),
+                call.args.get(8).map_or(0.0, Value::as_float),
+                crate::world::TranslationPath::Spline {
+                    tangent_magnitude: call.arg(6).as_float(),
+                },
+                alloc!(call),
+            );
+            none()
+        }
+    );
+    method!(
+        vm,
+        w,
+        "ObjectReference",
+        "StopTranslation",
+        |world, call, me| {
+            world.stop_translation(me, alloc!(call));
+            none()
+        }
+    );
     method!(vm, w, "ObjectReference", "MoveTo", |world, call, me| {
         let offset = [
             call.arg(1).as_float(),
@@ -3423,6 +3487,7 @@ fn stubs(vm: &mut Vm) -> usize {
         ("ObjectReference", "TranslateTo"),
         ("ObjectReference", "SplineTranslateTo"),
         ("ObjectReference", "StopTranslation"),
+        ("ObjectReference", "CreateDetectionEvent"),
         ("ObjectReference", "Reset"),
         ("Actor", "MoveToPackageLocation"),
         ("Actor", "WillIntimidateSucceed"),
