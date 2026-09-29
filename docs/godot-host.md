@@ -2584,3 +2584,11 @@ Open gaps, none closed by this row:
 - The `CellStreamer` release path in the Godot layer only follows
   `stream_exterior` grid positions. `stream_cell` by editor id does not
   record one, so `release_exterior_cell` cannot drop a cell loaded that way.
+
+## Papyrus screenshot capture, HST-19
+
+The `PlayerNode` gameplay tick drains transient screenshot paths queued by
+`Debug.TakeScreenshot` and saves the active viewport image as PNG. The node's
+`take_screenshot(path)` entry point calls the same Papyrus native and services
+its request immediately. `godot/hst_19_screenshot_capture_test.gd`
+checks that this path writes a PNG under Godot headless with installed data.

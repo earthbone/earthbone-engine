@@ -3395,3 +3395,17 @@ CK `AddForm_-_FormList.wikitext` for import order and duplicate handling, and
 FallrimTools `ChangeFormFLST.java`, `ChangeFormLeveled.java` and
 `LeveledEntry.java`. Their Java readers cannot serve as Rust runtime code, so
 the existing typed save decoder and record override layer perform the mapping.
+
+## Host screenshot requests, HST-19
+
+`Debug.TakeScreenshot(path)` queues the caller's string in `World` for the
+host. The queue is transient and is not part of saved state. `PlayerNode`
+drains requests after its gameplay tick and asks the active viewport texture
+for an image saved as PNG at each supplied path. A request made without an
+active viewport or a path that Godot cannot write is reported to the Godot
+log.
+
+`hst_19_screenshot_request.rs` calls the native through a Papyrus probe and
+checks that the path is queued once and consumed. The headless Godot check is
+`godot/hst_19_screenshot_capture_test.gd`; it requires installed data to start
+the host gameplay runtime and checks the resulting PNG file.

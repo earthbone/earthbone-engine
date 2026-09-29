@@ -636,6 +636,25 @@ impl PlayerNode {
         self.start_game_runtime()
     }
 
+    /// Queue and immediately capture a screenshot through the host request path.
+    #[allow(clippy::needless_pass_by_value)]
+    #[func]
+    pub fn take_screenshot(&mut self, path: GString) -> bool {
+        let Some(game) = self.game.as_mut() else {
+            return false;
+        };
+        if let Err(error) = game.vm.call_global(
+            "Debug",
+            "TakeScreenshot",
+            &[soe_papyrus::Value::string(&path.to_string())],
+        ) {
+            godot_error!("PlayerNode: Debug.TakeScreenshot failed: {error}");
+            return false;
+        }
+        game.run_until_idle(64);
+        self.capture_screenshot_requests()
+    }
+
     /// Current derived image-space stack for host diagnostics.
     #[func]
     pub fn gameplay_image_space(&self) -> Array<VarDictionary> {
