@@ -124,4 +124,6 @@ pub enum Error {
     Number,
     #[error("unsupported combat behavior: {0}")]
     Unsupported(&'static str),
+    #[error("perk entry point: {0}")]
+    Perk(#[from] crate::perks::DispatchError),
 }

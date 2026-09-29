@@ -1,5 +1,26 @@
 # Physical melee execution
 
+## Perk hit damage, CMB-09
+
+Ordinary non-bash hits evaluate owned winning PERK records for entry point 35
+(`ModAttackDamage`) on the attacker and entry point 36
+(`ModIncomingDamage`) on the target. Each entry receives the authored tabs:
+owner, weapon, target for outgoing damage, and owner, attacker, weapon for
+incoming damage. Entry CTDAs use the shared condition evaluator. Outgoing
+operations run before incoming operations, after weapon skill, power attack,
+`AttackDamageMult` and item quality, and before armor, block, resistance and
+difficulty reduction.
+
+The numeric functions supported for these two entry points are set, add,
+multiply, absolute value, negative absolute value, add actor-value multiplier,
+set actor-value multiplier, multiply actor-value multiplier and multiply by
+one plus actor-value multiplier. Handler data and actor values are validated
+before damage or events commit. Unsupported functions and malformed data
+reject the contact. Eligible operations follow the dispatcher's current
+winning-record load order and each PERK record's section order. Local sources
+do not establish priority ties, acquisition ordering, or exact versus
+cumulative PRKE rank selection, so those remain unverified.
+
 The combat-hits worktree builds on the frozen 63-file NPC and death-lifecycle
 review. Game::melee_hit accepts a host-confirmed ordinary melee contact and
 settles its scripts. World::melee_hit retains the queued events for save/load

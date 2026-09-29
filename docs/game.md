@@ -3029,6 +3029,16 @@ also return errors before that entry's handler runs. Non-complex PRKE sections
 are not dispatched. Handler changes are applied as the dispatcher reaches
 each eligible section.
 
+The combat entry points `ModAttackDamage` (35) and `ModIncomingDamage` (36)
+are consumed by `World::melee_hit`. CMB-09 applies supported numeric functions
+to the staged weapon damage, with outgoing effects before incoming effects.
+Their condition tabs are owner/weapon/target and owner/attacker/weapon,
+respectively. Malformed function payloads, unknown actor values, unsupported
+functions and condition errors reject the hit before health or events change.
+This path retains the dispatcher's winning-record and source-section order.
+It does not claim the unresolved priority-tie, acquisition-order or exact
+versus cumulative rank behavior documented above.
+
 ## Leveled item entry extras
 
 `World::roll_leveled_inventory` returns the existing `Inventory` model with
