@@ -1414,6 +1414,53 @@ fn actor_base_flags_and_setters() {
     assert!(errors(&g).is_empty(), "{:?}", errors(&g));
 }
 
+/// SCR-12: expression setters validate CK ranges and restore record mood on
+/// clear. Head tracking uses the CK default, accepts its optional argument,
+/// and persists an explicit value through the actor section.
+#[test]
+fn scr_12_expression_and_head_tracking_actor_natives() {
+    let mut g = game();
+    let guard = obj(&mut g, "GuardRef");
+    let id = g.form("GuardRef").unwrap();
+    assert_eq!(g.world_mut().head_tracking(id), Some(true));
+
+    call(&mut g, &guard, "SetHeadTracking", &[Value::Bool(false)]);
+    assert_eq!(g.world_mut().head_tracking(id), Some(false));
+    call(&mut g, &guard, "SetHeadTracking", &[]);
+    assert_eq!(g.world_mut().head_tracking(id), Some(true));
+    call(&mut g, &guard, "SetHeadTracking", &[Value::Bool(false)]);
+
+    call(
+        &mut g,
+        &guard,
+        "SetExpressionOverride",
+        &[Value::Int(12), Value::Int(45)],
+    );
+    assert_eq!(g.world_mut().facial_expression(id), Some((12, 45)));
+    call(&mut g, &guard, "ClearExpressionOverride", &[]);
+    let cleared = g.world_mut().facial_expression(id);
+    assert_ne!(cleared, Some((12, 45)));
+
+    call(
+        &mut g,
+        &guard,
+        "SetExpressionOverride",
+        &[Value::Int(17), Value::Int(45)],
+    );
+    assert!(g
+        .world_mut()
+        .set_expression_override(id, 17, 45)
+        .unwrap_err()
+        .contains("expression mood 17"));
+    assert_eq!(g.world_mut().facial_expression(id), cleared);
+
+    let saved = g.world_mut().save_state();
+    let loaded = game();
+    loaded.world_mut().load_state(&saved).unwrap();
+    let loaded_id = loaded.form("GuardRef").unwrap();
+    assert_eq!(loaded.world_mut().head_tracking(loaded_id), Some(false));
+}
+
 // ----- references, cells, ownership -----
 
 /// GetActorOwner "gets the ActorBase that owns this object", None when

@@ -157,6 +157,14 @@ override is an actor save section named `ANM-59` and participates in the
 determinism hash. The host maps expression ids to head blend shape names;
 loading Skyrim `.tri` morph targets into actor surfaces is not implemented.
 
+**Head tracking flag, SCR-12.** `Actor.SetHeadTracking` stores the requested
+boolean on an actor. `World::head_tracking` returns that value, or `true` when
+no script has set it. The explicit value is persisted in the actor section
+`SCR-12` and included in the determinism hash. The host does not yet apply the
+flag to authored head-tracking bones. `ClearLookAt` has no target state to
+clear because `SetLookAt` remains a stub. `ShowGiftMenu` remains a stub until
+UI-15 supplies the gift menu and inventory transaction path.
+
 ## Conformance table
 
 Counts from `natives::register`: 364 natives with state behind them and 177

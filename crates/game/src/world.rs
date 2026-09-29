@@ -288,6 +288,8 @@ pub struct ActorState {
     pub witnessed_crimes: BTreeSet<GlobalFormId>,
     /// Papyrus expression override, retained until `ClearExpressionOverride`.
     pub expression_override: Option<ExpressionOverride>,
+    /// Explicit `SetHeadTracking` value. `None` keeps the engine default enabled.
+    pub head_tracking: Option<bool>,
 }
 
 /// A CK facial expression id and its 0 to 100 strength.
