@@ -1648,9 +1648,44 @@ dependencies and the current direct-cast rejection boundary.
 The runtime provides `World::cast_spell` for direct scripted casts
 of Script, Value Modifier, Dual Value Modifier and Dispel effects, including hostile hits. Definitions
 come from winning SPEL and MGEF records, with each FormID resolved in its winning
-plugin. Self and target-actor delivery are supported for constant and fire-and-forget
-casts. `Spell.Cast` credits an actor source. `RemoteCast` credits its explicit
-blame actor. Player charging, costs and hand input are separate unfinished work.
+plugin. Self, aimed actor and target-actor delivery are supported for constant
+and fire-and-forget casts when the caller supplies an actor target. `Spell.Cast`
+credits an actor source. `RemoteCast` credits its explicit
+blame actor. Player charge progress and hand input remain unfinished.
+
+`World::spell_charge_time` returns authored SPIT charge time when Manual Cost
+Calc is set, otherwise the maximum MGEF casting time in the SPEL effect list.
+`World::spell_cost` returns authored SPIT base cost for manual-cost spells.
+Auto-calculated cost sums each MGEF base cost scaled by magnitude and duration,
+with magnitude below one raised to one, zero duration treated as ten, and
+concentration duration treated as ten. It applies the SPEL half-cost perk when
+the caster owns that perk. `World::cast_charged_spell` validates the cast and
+available magicka before debiting the cost once and applying effects. This
+one-shot API does not model charge progress or concentration ticks. These rules
+follow local `uesp-modfileformat/SPEL.wikitext` and
+`TES5Edit/Core/wbDefinitionsTES5.pas`; `tests/magic/mag_09_cast_cost.rs`
+checks authored and calculated timing and costs, perk adjustment, and rejection
+without state changes when magicka is insufficient.
+The one-shot charged gameplay path sends `OnSpellCast` once after validation and payment.
+The CK `ck-wiki/OnSpellCast_-_ObjectReference.wikitext` contract says the event
+fires once when concentration begins and is not detected for Papyrus casts, so
+the direct scripted `World::cast_spell` path does not send it.
+
+`World::begin_concentration_cast` starts one held concentration spell after
+validating its execution path and available magicka. `Game::tick` advances the
+held effect and drains magicka at one tenth of the spell's calculated cost per
+unpaused simulation second. This rate uses the concentration ten-second cost
+duration in local `uesp-modfileformat/SPEL.wikitext`. Effect changes are applied
+in 0.1-second slices, with a final partial slice when magicka runs out. Self,
+aimed actor and target actor deliveries work, with the caller supplying the
+actor target for aimed and target-actor spells. `release_concentration_cast`
+ends the held cast, and exhaustion ends it automatically. The held gameplay
+path sends `OnSpellCast` once at the start. Menu-paused ticks do not advance
+held casts. Held input is transient and is not stored in SOEW, so loading a save
+does not resume casting. `tests/magic/mag_03_concentration.rs` checks these
+behaviors and a gated installed-data cast. Concentration fields follow xEdit's
+SPEL/SPIT definition, and the one-time event follows local
+`ck-wiki/OnSpellCast_-_ObjectReference.wikitext`.
 
 Each SPEL effect group's CTDAs run before that group is prepared. MGEF CTDAs
 run separately, with FormIDs resolved against their owning MGEF. Both use the
