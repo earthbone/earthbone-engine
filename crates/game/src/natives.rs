@@ -2154,6 +2154,20 @@ fn faction(vm: &mut Vm, w: &Shared) {
         }
         none()
     });
+    method!(vm, w, "Faction", "ModReaction", |world, call, me| {
+        let amount = call.arg(1).as_int();
+        if let Some(other) = world.form_arg(&call.arg(0)) {
+            if let Some(f) = world.faction(me) {
+                let reaction = f
+                    .reactions
+                    .get(&other)
+                    .copied()
+                    .unwrap_or(reaction::NEUTRAL);
+                f.reactions.insert(other, reaction.saturating_add(amount));
+            }
+        }
+        none()
+    });
     method!(vm, w, "Faction", "GetCrimeGold", |world, call, me| i(world
         .faction(me)
         .map_or(0, |f| f.crime_gold_violent + f.crime_gold_nonviolent)));
@@ -3275,7 +3289,6 @@ fn stubs(vm: &mut Vm) -> usize {
         ("Actor", "GetVoiceRecoveryTime"),
         ("Faction", "SendAssaultAlarm"),
         ("Faction", "SendPlayerToJail"),
-        ("Faction", "ModReaction"),
         ("Keyword", "SendStoryEvent"),
         ("ActorBase", "GetGiftFilter"),
         ("ObjectReference", "WaitForAnimationEvent"),
