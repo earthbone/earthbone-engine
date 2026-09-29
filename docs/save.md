@@ -14,6 +14,14 @@ The projectile and hazard decoder tasks share a missing subtype-layout
 prerequisite. See [saved projectile layouts](save-projectile-layouts.md) for
 the xEdit dispatch gap, runtime type boundaries and evidence needed by SAV-55.
 
+The SAV-55 regression test pins the type indices for PMIS, PGRE, PBEA, PFLA,
+PHZD, PBAR, PCON and PARW and checks the generic change-form header preserves
+flags and payload bytes. It does not assign subtype fields. The inspected
+Skyrim xEdit definitions have empty subtype dispatch structures, FallrimTools
+keeps these payloads raw, and CommonLib runtime inheritance does not define
+save serialization. See [saved projectile layouts](save-projectile-layouts.md)
+for the source review and remaining evidence requirement.
+
 The format was not reverse engineered. It is documented and it has a mature
 open implementation, so both were read first.
 
@@ -754,6 +762,11 @@ checks payload decompression through the existing reader. It does not claim
 typed decoding or typed re-encoding. Before its first run, it required at
 least 50 saves and more than 100,000 inspected change forms. The 60-save run
 inspected 1,344,172 changes and found:
+
+SAV-11 regression tests round-trip the three record indices, header flag words
+and opaque payload bytes, and reject every truncated prefix of each synthetic
+change form. The corpus test requires PMIS and PGRE records and reports the
+PBEA count, including zero. These checks cover the generic envelope only.
 
 | Type | Change flags | Count | Decompressed payload bytes |
 |---|---|---:|---:|
