@@ -36,8 +36,14 @@ fn fmt_29_cache_write_failure_does_not_prevent_repeated_source_parses() {
     let cache_dir = cache_blocker.join("nested");
     let fresh = read_plugin(&source).unwrap().unwrap();
 
-    assert_eq!(read_plugin_cached(&source, &cache_dir).unwrap().unwrap(), fresh);
-    assert_eq!(read_plugin_cached(&source, &cache_dir).unwrap().unwrap(), fresh);
+    assert_eq!(
+        read_plugin_cached(&source, &cache_dir).unwrap().unwrap(),
+        fresh
+    );
+    assert_eq!(
+        read_plugin_cached(&source, &cache_dir).unwrap().unwrap(),
+        fresh
+    );
     std::fs::remove_dir_all(root).unwrap();
 }
 

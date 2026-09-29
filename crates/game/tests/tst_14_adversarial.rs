@@ -22,7 +22,11 @@ fn tst_14_repeated_installed_loads_share_forms_but_not_world_state() {
     let repeated_order = installed::load_order(&masters).unwrap();
     assert!(std::sync::Arc::ptr_eq(&first_order, &repeated_order));
     assert_eq!(
-        first_order.files().iter().map(|file| file.name.as_str()).collect::<Vec<_>>(),
+        first_order
+            .files()
+            .iter()
+            .map(|file| file.name.as_str())
+            .collect::<Vec<_>>(),
         masters
     );
 
