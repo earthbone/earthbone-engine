@@ -516,6 +516,8 @@ pub struct World {
     pub settings: HashMap<String, Value>,
     /// Inventory event filters per listening object.
     pub inventory_filters: HashMap<ObjectId, Vec<GlobalFormId>>,
+    /// The active Papyrus gift menu request, if one is waiting for the host.
+    pub gift_menu: Option<GiftMenuRequest>,
     pub sleep_listeners: Vec<ObjectId>,
     pub stats_listeners: Vec<ObjectId>,
     pub animation_listeners: Vec<AnimationListener>,
@@ -547,6 +549,19 @@ pub struct World {
     pub(crate) image_space: image_space::ImageSpaceState,
     /// Stealth-point pools by target, each with its observers' awareness.
     pub(crate) detection: crate::detection::DetectionState,
+}
+
+/// A latent gift menu requested by `Actor.ShowGiftMenu`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GiftMenuRequest {
+    pub latent: soe_papyrus::vm::LatentId,
+    pub giver: GlobalFormId,
+    pub source: GlobalFormId,
+    pub target: GlobalFormId,
+    pub filter: Option<GlobalFormId>,
+    pub show_stolen: bool,
+    pub use_favor_points: bool,
+    pub favor_points: i32,
 }
 
 impl World {
@@ -612,6 +627,7 @@ impl World {
             difficulty: crate::combat::Difficulty::default(),
             settings: HashMap::new(),
             inventory_filters: HashMap::new(),
+            gift_menu: None,
             sleep_listeners: Vec::new(),
             stats_listeners: Vec::new(),
             animation_listeners: Vec::new(),

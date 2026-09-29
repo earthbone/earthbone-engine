@@ -1926,6 +1926,13 @@ enumerating container forms, and `OnContainerChanged_-_ObjectReference.wikitext`
 documents reference moves between holders. These host rows show inventory
 totals, not a separate list of loose references.
 
+The UI-15 gift presenter opens when Game has a pending `ShowGiftMenu` request.
+It lists positive inventory totals after applying the optional form or keyword
+filter. Selecting a row transfers one item through `Game::gift_menu_transfer`
+and refreshes the rows. Closing the modal menu resolves the latent Papyrus call
+with the accumulated nonnegative gift value. Both giving and taking use the
+same source and target transaction path.
+
 The `inv_04_` inventory presenter tests activate a synthetic container, check
 its listed contents, verify both rows after a successful transfer, and verify
 both inventories remain unchanged when recipient quantity overflow rejects a

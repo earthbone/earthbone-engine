@@ -499,6 +499,14 @@ impl PlayerNode {
     /// instead of relying on frame timing.
     #[func]
     pub fn advance(&mut self, delta: f64) {
+        if !self.menu.is_open()
+            && self
+                .game
+                .as_ref()
+                .is_some_and(|game| game.gift_menu_request().is_some())
+        {
+            self.open_gift_menu();
+        }
         if self.menu.is_open() {
             if let Some(game) = &mut self.game {
                 self.menu.tick(game, delta);

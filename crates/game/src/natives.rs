@@ -202,7 +202,7 @@ pub fn register(vm: &mut Vm, world: &Shared) -> Registered {
 
 /// Hand-kept count of the non-stub natives registered below. The test in
 /// this module checks it against the registry.
-pub const NATIVE_COUNT: usize = 366;
+pub const NATIVE_COUNT: usize = 367;
 
 fn declare_parents(vm: &mut Vm) {
     for (class, parent) in [
@@ -956,6 +956,36 @@ fn object_reference(vm: &mut Vm, w: &Shared) {
 }
 
 fn actor(vm: &mut Vm, w: &Shared) {
+    {
+        let w = w.clone();
+        vm.natives.register_method(
+            "Actor",
+            "ShowGiftMenu",
+            Box::new(move |call| {
+                let mut world = w.borrow_mut();
+                let Some(giver) = call.self_object.and_then(|object| world.form_of(object)) else {
+                    return i(0);
+                };
+                if world.gift_menu.is_some() {
+                    return i(0);
+                }
+                let player = world.player();
+                let giving = matches!(call.arg(0), Value::Bool(true));
+                let request = crate::world::GiftMenuRequest {
+                    latent: call.defer(),
+                    giver,
+                    source: if giving { player } else { giver },
+                    target: if giving { giver } else { player },
+                    filter: world.form_arg(&call.arg(1)),
+                    show_stolen: matches!(call.arg(2), Value::Bool(true)),
+                    use_favor_points: !matches!(call.arg(3), Value::Bool(false)),
+                    favor_points: 0,
+                };
+                world.gift_menu = Some(request.clone());
+                NativeReturn::Latent(request.latent)
+            }),
+        );
+    }
     for name in ["GetActorValue", "GetAV"] {
         method!(vm, w, "Actor", name, |world, call, me| f(
             world.actor_value(me, &text(&call.arg(0)))
@@ -3261,7 +3291,6 @@ fn stubs(vm: &mut Vm) -> usize {
         ("Actor", "SetHeadTracking"),
         ("Actor", "SetExpressionOverride"),
         ("Actor", "ClearExpressionOverride"),
-        ("Actor", "ShowGiftMenu"),
         ("Actor", "ShowBarterMenu"),
         ("Actor", "OpenInventory"),
         ("Actor", "SendTrespassAlarm"),
