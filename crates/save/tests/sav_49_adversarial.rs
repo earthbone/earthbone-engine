@@ -62,8 +62,14 @@ fn sav_49_compressed_truncation_corruption_and_size_mismatch_reject() {
         encoder.write_all(&bytes).unwrap();
         let mut compressed = encoder.finish().unwrap();
         compressed.pop();
-        assert!(decode(&form(kind, 1, compressed, 6)).is_err(), "kind={kind}");
-        assert!(decode(&form(kind, 1, vec![0xFF, 0], 6)).is_err(), "kind={kind}");
+        assert!(
+            decode(&form(kind, 1, compressed, 6)).is_err(),
+            "kind={kind}"
+        );
+        assert!(
+            decode(&form(kind, 1, vec![0xFF, 0], 6)).is_err(),
+            "kind={kind}"
+        );
 
         let mut encoder =
             flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::default());
