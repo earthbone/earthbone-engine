@@ -294,9 +294,8 @@ fn record_overrides_persist_before_actor_initialization_and_old_saves_clear_them
     v13.drain(origin_fields..origin_fields + 13);
     // CONTEXT: Version 13 has no list metadata byte in record overrides.
     v13.remove(origin_fields + 14);
-    // The extra 6 bytes beyond the old 42 are the same detection and
-    // world-level save-section growth, always present at the tail
-    // regardless of the simulated version.
+    // The extra 6 bytes beyond the old 42 are unconditional tail growth from
+    // detection and the version 37 world-level section table.
     v13.truncate(v13.len() - 48);
     v13[4..6].copy_from_slice(&13_u16.to_le_bytes());
     let mut legacy = World::new(fixture_order());
@@ -386,27 +385,20 @@ fn unresolved_links_and_unapplied_form_masks_are_retained_and_reported() {
 
 #[test]
 fn installed_npc_changes_restore_into_shared_records_and_persist() {
-    let (Some(data), Some(saves)) = (
+    let (Some(_data), Some(saves)) = (
         std::env::var_os("SKYRIM_DATA"),
         std::env::var_os("SOE_TEST_SAVES"),
     ) else {
         return;
     };
-    let mut order = LoadOrder::new();
-    for name in [
+    let order = installed::load_order(&[
         "Skyrim.esm",
         "Update.esm",
         "Dawnguard.esm",
         "HearthFires.esm",
         "Dragonborn.esm",
-    ] {
-        order
-            .add(
-                name,
-                Plugin::parse(&std::fs::read(Path::new(&data).join(name)).unwrap()).unwrap(),
-            )
-            .unwrap();
-    }
+    ])
+    .unwrap();
     let order = Arc::new(order);
     let mut paths = vec![];
     collect_saves(Path::new(&saves), &mut paths);

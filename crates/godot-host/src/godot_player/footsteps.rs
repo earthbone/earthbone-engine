@@ -140,6 +140,7 @@ impl PlayerNode {
                     >= 0
                 {
                     self.footstep_count += 1;
+                    game.world_mut().create_detection_event(player, player, 20);
                 } else {
                     self.footstep_errors += 1;
                     godot_error!("footstep playback failed");

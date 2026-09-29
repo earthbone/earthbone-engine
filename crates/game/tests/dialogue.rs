@@ -4,6 +4,9 @@
 //! Conversations over authored DIAL groups, INFO conditions and VMAD fragments.
 //! Assertions cover quest state changes and response timing, not just parsing.
 
+#[path = "common/installed.rs"]
+mod installed;
+
 use soe_esm::{Entry, FileHeader, GlobalFormId, Group, GroupKind, LoadOrder, Plugin, Record, Tag};
 use soe_game::dialogue::Error;
 use soe_game::vmad::{InfoFragment, InfoFragments, ScriptEntry, Vmad};
@@ -942,25 +945,18 @@ fn dlg_06_separate_interiors_do_not_share_dialogue_range() {
 
 #[test]
 fn dlg_06_installed_distance_record_drives_walk_away() {
-    let Some(data) = std::env::var_os("SKYRIM_DATA").map(std::path::PathBuf::from) else {
+    let Some(_data) = installed::data_dir() else {
         return;
     };
-    let mut order = LoadOrder::new();
-    for name in [
+    let order = installed::load_order(&[
         "Skyrim.esm",
         "Update.esm",
         "Dawnguard.esm",
         "HearthFires.esm",
         "Dragonborn.esm",
-    ] {
-        order
-            .add(
-                name,
-                Plugin::parse(&std::fs::read(data.join(name)).unwrap()).unwrap(),
-            )
-            .unwrap();
-    }
-    let world = soe_game::World::new(order);
+    ])
+    .unwrap();
+    let world = soe_game::World::from_shared_order(order);
     let setting = world.form("fAIInDialogueModeWithPlayerDistance").unwrap();
     assert_eq!(
         world.game_setting("fAIInDialogueModeWithPlayerDistance"),
@@ -1716,22 +1712,19 @@ fn cell_and_location_keyword_conditions_follow_current_world_state() {
 
 #[test]
 fn installed_dialogue_preserves_ownership_fragments_and_order() {
-    let Some(data) = std::env::var_os("SKYRIM_DATA").map(std::path::PathBuf::from) else {
+    let Some(data) = installed::data_dir() else {
         eprintln!("SKYRIM_DATA unset, skipping installed dialogue survey");
         return;
     };
-    let mut order = LoadOrder::new();
-    for name in [
+    let order = installed::load_order(&[
         "Skyrim.esm",
         "Update.esm",
         "Dawnguard.esm",
         "HearthFires.esm",
         "Dragonborn.esm",
-    ] {
-        let bytes = std::fs::read(data.join(name)).unwrap();
-        order.add(name, Plugin::parse(&bytes).unwrap()).unwrap();
-    }
-    let mut game = Game::new(order);
+    ])
+    .unwrap();
+    let mut game = Game::from_shared_order(order);
     let mut infos = 0;
     let mut fragments = 0;
     let mut topics = std::collections::BTreeSet::new();
@@ -1881,4 +1874,27 @@ fn installed_dialogue_preserves_ownership_fragments_and_order() {
     for (reason, count) in rejected {
         eprintln!("  rejected {count}: {reason}");
     }
+}
+
+#[test]
+fn tst_14_dialogue_reuses_the_installed_parse_and_isolates_games() {
+    let masters = [
+        "Skyrim.esm",
+        "Update.esm",
+        "Dawnguard.esm",
+        "HearthFires.esm",
+        "Dragonborn.esm",
+    ];
+    let Some(order) = installed::load_order(&masters) else {
+        eprintln!("SKYRIM_DATA not set, skipping TST-14 installed parse check");
+        return;
+    };
+    let cached = installed::load_order(&masters).unwrap();
+    assert!(std::sync::Arc::ptr_eq(&order, &cached));
+
+    let first = Game::from_shared_order(order);
+    let second = Game::from_shared_order(cached);
+    first.world_mut().perk_points = 9;
+    assert_eq!(first.world().perk_points, 9);
+    assert_eq!(second.world().perk_points, 0);
 }

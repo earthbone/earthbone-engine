@@ -590,9 +590,7 @@ impl Vm {
                     self.err(t, "struct_set operand must be a struct");
                 }
             }
-            ArrayFindStruct
-            | ArrayRFindStruct
-            | ArrayGetAllMatchingStructs => {
+            ArrayFindStruct | ArrayRFindStruct | ArrayGetAllMatchingStructs => {
                 self.err(
                     t,
                     &format!("opcode {op:?} is a Fallout 4 opcode, not supported"),
