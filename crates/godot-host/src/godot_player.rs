@@ -95,6 +95,7 @@ pub struct PlayerNode {
     last_melee_target: Option<GlobalFormId>,
     last_melee_obstruction: Option<Rid>,
     image_space: crate::image_space::ImageSpaceStack,
+    effect_shaders: crate::effect_shader::EffectShaderStack,
     sound_bank: Option<Gd<crate::godot_audio::SoundBank>>,
     footstep_cadence: crate::audio::FootstepCadence,
     footstep_count: u64,
@@ -150,6 +151,7 @@ impl INode3D for PlayerNode {
             last_melee_target: None,
             last_melee_obstruction: None,
             image_space: crate::image_space::ImageSpaceStack::default(),
+            effect_shaders: crate::effect_shader::EffectShaderStack::default(),
             sound_bank: None,
             footstep_cadence: crate::audio::FootstepCadence::default(),
             footstep_count: 0,
@@ -400,6 +402,7 @@ impl PlayerNode {
                 self.data_source = Some(Arc::new(source));
                 self.game = None;
                 self.image_space = crate::image_space::ImageSpaceStack::default();
+                self.effect_shaders = crate::effect_shader::EffectShaderStack::default();
                 self.exterior = None;
                 self.game_streamer = None;
                 true
@@ -431,6 +434,7 @@ impl PlayerNode {
         self.data_source = Some(source);
         self.game = None;
         self.image_space = crate::image_space::ImageSpaceStack::default();
+        self.effect_shaders = crate::effect_shader::EffectShaderStack::default();
         self.exterior = None;
         self.game_streamer = Some(streamer);
         true
@@ -645,6 +649,23 @@ impl PlayerNode {
             row.set("modifier", &GString::from(&layer.modifier.to_string()));
             row.set("strength", layer.strength);
             row.set("age", layer.age);
+            result.push(&row);
+        }
+        result
+    }
+
+    /// Current EffectShader applications for host presentation diagnostics.
+    #[func]
+    pub fn gameplay_effect_shaders(&self) -> Array<VarDictionary> {
+        let mut result = Array::new();
+        for playback in self.effect_shaders.playbacks() {
+            let mut row = VarDictionary::new();
+            row.set("shader", &GString::from(&playback.shader.to_string()));
+            row.set("target", &GString::from(&playback.target.to_string()));
+            row.set("infinite", playback.remaining.is_none());
+            if let Some(remaining) = playback.remaining {
+                row.set("remaining", remaining);
+            }
             result.push(&row);
         }
         result

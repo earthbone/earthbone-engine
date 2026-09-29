@@ -185,7 +185,8 @@ run past it.
 | Scene, Package | GetOwningQuest | |
 | TopicInfo | GetOwningQuest | |
 | ActiveMagicEffect | RegisterForUpdate, RegisterForSingleUpdate, RegisterForUpdateGameTime, RegisterForSingleUpdateGameTime, UnregisterForUpdate, UnregisterForUpdateGameTime, RegisterForAnimationEvent, UnregisterForAnimationEvent, GetBaseObject, GetTargetActor, GetCasterActor, Dispel, AddInventoryEventFilter, RemoveInventoryEventFilter, RemoveAllInventoryEventFilters | |
-| EffectShader, VisualEffect | | Play, Stop |
+| EffectShader | Play, Stop | |
+| VisualEffect | | Play, Stop |
 | ImageSpaceModifier | Apply, ApplyCrossFade, Remove, RemoveCrossFade, PopTo | |
 | ShaderParticleGeometry | | Apply, Remove |
 | MusicType, Topic | | Add, Remove |
@@ -2552,6 +2553,26 @@ accepted item consumed exactly one item, including pre-existing inventory.
 Run `installed_ingestible_survey_reports_supported_applications` with
 `SKYRIM_DATA` to repeat the survey. These counts describe this branch before
 integration with the other magic milestones.
+
+## Effect shader playback, SCR-24
+
+`EffectShader.Play` and `EffectShader.Stop` update a world-owned set keyed by
+the EFSH form and target reference. Play requires an EFSH form, a REFR or ACHR
+target and a finite duration. The shipped
+`skse64/scripts/vanilla/EffectShader.psc` sets the default duration to -1
+seconds and defines negative values as infinite. A zero duration leaves no
+active playback. Repeating Play replaces that shader and target pair without
+changing other pairs. Stop removes only its requested pair. Timed playbacks
+expire against unpaused world time and survive SOEW save/load in the `SCR-24`
+world section. Invalid arguments log a native error and leave active playback
+unchanged.
+
+The supplied CK wiki corpus has no named EffectShader function page. The
+shipped PSC supplies the signatures and duration rule. xEdit
+`Core/wbDefinitionsTES5.pas` identifies EFSH as Effect Shader. The host
+synchronizes playback identities and remaining durations for presentation;
+it does not yet apply the authored EFSH textures, colors or particle settings
+to rendered references.
 
 ## Image-space modifier lifetimes, MAG-25
 

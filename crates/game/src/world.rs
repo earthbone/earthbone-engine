@@ -50,6 +50,7 @@ mod death;
 mod detection;
 mod doorway;
 mod driver;
+pub mod effect_shader;
 mod encounter_zones;
 mod events;
 mod forms;
@@ -545,6 +546,7 @@ pub struct World {
     pub(crate) active_effects: BTreeMap<magic::EffectId, magic::ActiveEffect>,
     pub(crate) next_effect: u64,
     pub(crate) image_space: image_space::ImageSpaceState,
+    pub(crate) effect_shaders: effect_shader::EffectShaderState,
     /// Stealth-point pools by target, each with its observers' awareness.
     pub(crate) detection: crate::detection::DetectionState,
 }
@@ -637,6 +639,7 @@ impl World {
             active_effects: BTreeMap::new(),
             next_effect: 1,
             image_space: image_space::ImageSpaceState::default(),
+            effect_shaders: effect_shader::EffectShaderState::default(),
             detection: crate::detection::DetectionState::default(),
         }
     }

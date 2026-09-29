@@ -23,6 +23,7 @@ pub mod combat;
 pub mod data_source;
 pub mod dialogue_menu;
 pub mod door_fade;
+pub mod effect_shader;
 pub mod image_space;
 pub mod input;
 pub mod interior_prefetch;

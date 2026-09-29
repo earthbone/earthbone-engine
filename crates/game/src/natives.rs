@@ -195,6 +195,7 @@ pub fn register(vm: &mut Vm, world: &Shared) -> Registered {
     fragments_and_effects(vm, world);
     active_magic(vm, world);
     image_space(vm, world);
+    effect_shader(vm, world);
     let stubs = stubs(vm);
     let natives = NATIVE_COUNT + stubs - (vm.natives.duplicates.len() - before);
     Registered { natives, stubs }
@@ -202,7 +203,7 @@ pub fn register(vm: &mut Vm, world: &Shared) -> Registered {
 
 /// Hand-kept count of the non-stub natives registered below. The test in
 /// this module checks it against the registry.
-pub const NATIVE_COUNT: usize = 366;
+pub const NATIVE_COUNT: usize = 368;
 
 fn declare_parents(vm: &mut Vm) {
     for (class, parent) in [
@@ -2525,6 +2526,48 @@ fn image_space(vm: &mut Vm, w: &Shared) {
     );
 }
 
+/// Shipped EffectShader calls retain target and duration in the shared world.
+fn effect_shader(vm: &mut Vm, w: &Shared) {
+    method!(vm, w, "EffectShader", "Play", |world, call, me| {
+        let Some(target) = world.form_arg(&call.arg(0)) else {
+            call.log.push(
+                call.time,
+                "EffectShader.Play: target must be a placed reference",
+            );
+            return none();
+        };
+        let duration = match call.args.get(1) {
+            None | Some(Value::None) => -1.0,
+            Some(Value::Float(value)) => *value,
+            Some(Value::Int(value)) => *value as f32,
+            Some(_) => {
+                call.log
+                    .push(call.time, "EffectShader.Play: duration must be numeric");
+                return none();
+            }
+        };
+        if let Err(error) = world.play_effect_shader(me, target, duration) {
+            call.log
+                .push(call.time, format!("EffectShader.Play: {error}"));
+        }
+        none()
+    });
+    method!(vm, w, "EffectShader", "Stop", |world, call, me| {
+        let Some(target) = world.form_arg(&call.arg(0)) else {
+            call.log.push(
+                call.time,
+                "EffectShader.Stop: target must be a placed reference",
+            );
+            return none();
+        };
+        if let Err(error) = world.stop_effect_shader(me, target) {
+            call.log
+                .push(call.time, format!("EffectShader.Stop: {error}"));
+        }
+        none()
+    });
+}
+
 /// CK active-effect identity, queries and dispelling contracts.
 fn active_magic(vm: &mut Vm, w: &Shared) {
     method!(vm, w, "Actor", "HasMagicEffect", |world, call, me| {
@@ -3296,10 +3339,7 @@ fn stubs(vm: &mut Vm) -> usize {
         ("ObjectReference", "ForceAddRagdollToWorld"),
         ("ObjectReference", "ForceRemoveRagdollFromWorld"),
         ("ObjectReference", "TetherToHorse"),
-        // The shader, effect and music systems the DLC scripts lean on
-        // hardest. Nothing renders or sounds yet, so each one is quiet.
-        ("EffectShader", "Play"),
-        ("EffectShader", "Stop"),
+        // The remaining effect and music systems do not have runtime owners.
         ("VisualEffect", "Play"),
         ("VisualEffect", "Stop"),
         ("ShaderParticleGeometry", "Apply"),
