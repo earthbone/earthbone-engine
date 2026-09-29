@@ -506,6 +506,10 @@ pub struct World {
     pub message_boxes: Vec<String>,
     pub animation_events: Vec<(GlobalFormId, String)>,
     pub player_controls: bool,
+    /// The state requested by `Debug.SetFootIK` for host actor presentation.
+    pub debug_foot_ik: bool,
+    /// References requested by `Debug.ShowRefPosition` for development markers.
+    pub(crate) debug_ref_positions: BTreeSet<GlobalFormId>,
     pub ini: HashMap<String, String>,
     /// The package driver's per-world caches, see `crate::ai`.
     pub ai: crate::ai::AiWorld,
@@ -606,6 +610,8 @@ impl World {
             message_boxes: Vec::new(),
             animation_events: Vec::new(),
             player_controls: true,
+            debug_foot_ik: true,
+            debug_ref_positions: BTreeSet::new(),
             ini: HashMap::new(),
             ai: crate::ai::AiWorld::default(),
             mod_data: crate::moddata::ModDataState::default(),

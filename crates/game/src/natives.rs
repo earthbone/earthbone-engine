@@ -202,7 +202,7 @@ pub fn register(vm: &mut Vm, world: &Shared) -> Registered {
 
 /// Hand-kept count of the non-stub natives registered below. The test in
 /// this module checks it against the registry.
-pub const NATIVE_COUNT: usize = 366;
+pub const NATIVE_COUNT: usize = 370;
 
 fn declare_parents(vm: &mut Vm) {
     for (class, parent) in [
@@ -1857,6 +1857,38 @@ fn debug(vm: &mut Vm, w: &Shared) {
             None => b(false),
         }
     });
+    global!(vm, w, "Debug", "SetFootIK", |world, call| {
+        world.set_debug_foot_ik(call.arg(0).as_bool());
+        none()
+    });
+    global!(vm, w, "Debug", "ShowRefPosition", |world, call| {
+        match world.form_arg(&call.arg(0)) {
+            Some(reference) if world.show_debug_ref_position(reference) => none(),
+            _ => {
+                call.log
+                    .push(call.time, "Debug.ShowRefPosition: invalid reference");
+                none()
+            }
+        }
+    });
+    global!(vm, w, "Debug", "PlayerMoveToAndWait", |world, call| {
+        let target = world.form(&text(&call.arg(0)));
+        let success = target.is_some_and(|target| world.debug_player_move_to_reference(target));
+        if !success {
+            call.log.push(
+                call.time,
+                "Debug.PlayerMoveToAndWait: destination reference not found",
+            );
+        }
+        f(if success { 1.0 } else { 0.0 })
+    });
+    global!(vm, w, "Debug", "MoveToCell", |world, call| {
+        if !world.debug_player_move_to_cell(&text(&call.arg(0))) {
+            call.log
+                .push(call.time, "Debug.MoveToCell: destination cell not found");
+        }
+        none()
+    });
 }
 
 fn utility(vm: &mut Vm, w: &Shared) {
@@ -3393,10 +3425,6 @@ fn stubs(vm: &mut Vm) -> usize {
         ("Debug", "StartStackProfiling"),
         ("Debug", "StopStackProfiling"),
         ("Debug", "TakeScreenshot"),
-        ("Debug", "SetFootIK"),
-        ("Debug", "ShowRefPosition"),
-        ("Debug", "PlayerMoveToAndWait"),
-        ("Debug", "MoveToCell"),
         ("Utility", "CaptureFrameRate"),
         ("Utility", "StartFrameRateCapture"),
         ("Utility", "EndFrameRateCapture"),
