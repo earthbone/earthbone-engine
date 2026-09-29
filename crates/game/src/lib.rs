@@ -579,6 +579,27 @@ impl Game {
         Ok(result)
     }
 
+    /// Consume one equipped arrow or bolt and return the host's flight request.
+    ///
+    /// # Errors
+    /// Invalid equipment, records, launch vectors or inventory state.
+    pub fn release_projectile(
+        &mut self,
+        attacker: GlobalFormId,
+        weapon: GlobalFormId,
+        origin: [f32; 3],
+        direction: [f32; 3],
+    ) -> Result<combat::FlightRequest, combat::Error> {
+        let vm = &mut self.vm;
+        self.world.borrow_mut().release_projectile(
+            attacker,
+            weapon,
+            origin,
+            direction,
+            &mut |name, class| vm.create_object_of(name, class),
+        )
+    }
+
     /// Activate a reference the way a player click would, then settle.
     pub fn activate(&mut self, target: GlobalFormId, activator: GlobalFormId) -> bool {
         let ok = self.activate_no_settle(target, activator);

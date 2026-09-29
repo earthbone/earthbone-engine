@@ -1886,6 +1886,44 @@ and installed survey. The host examples `controller_geometry_survey` and
 copying assets. CMB-28 installs and synchronizes actor bodies, and CMB-33
 supplies generated controller geometry when authored geometry is absent.
 
+## Ranged release latch, CMB-08
+
+`combat::RangedRelease` stores the actor and bow or crossbow selected when a
+shot is armed. It calls `Game::release_projectile` once on `bowRelease` and
+clears the pending shot on `attackStop` or `bowCancel`. The returned request
+contains the launch vector and winning AMMO/PROJ inputs. This latch does not
+move projectiles or resolve impacts, which remain CMB-22 work.
+
+The synthetic host tests cover one returned request, duplicate release markers
+and cancellation with the ammunition count unchanged. No Godot node or
+per-reference resource is created for this release state.
+
+## Projectile flight, CMB-22
+
+`combat::ProjectileFlight` advances the release request with fixed-step
+gravity, checks each segment through `PhysicsDirectSpaceState3D.intersect_ray`,
+and stops on its first actor or obstruction. Actor bodies resolve through the
+existing World-owned RID map, and the firing actor's bodies are excluded. The
+flight ends at PROJ range if it has no contact. Contact is latched once, so
+later updates cannot report another target or obstruction. Flight state is
+transient and adds no node or per-reference resource.
+
+Synthetic tests exercise configured gravity, repeatable fixed steps, range
+termination and one-time actor and obstruction contacts. The query uses a
+segment ray, so PROJ collision radius and actor impact damage are not applied
+by this increment.
+
+## Recoverable missed arrows, CMB-23
+
+`ProjectileFlight::recover_missed_arrow` consumes one recorded world
+obstruction impact and asks the shared `Game` to create a dynamic AMMO
+reference at that point. A second call cannot create another reference.
+Recoverable state comes from an arrow AMMO record whose header and DATA flags
+allow play. Actor contacts and range expiry do not leave an arrow reference.
+The host flight itself remains transient. SOEW persists the placed reference
+through the existing reference table. No scene node or extra save payload is
+added for the arrow.
+
 ## Actor contact bodies and pose segments, CMB-28
 
 `godot_physics::ActorBodies` gives every resident actor one static query body
