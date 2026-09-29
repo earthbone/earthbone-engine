@@ -77,11 +77,19 @@ The mapping follows the Rust API while adapting Rust names and types to C++, inc
 `NativeRegistry::register`, which is emitted as `register_native` because `register` is a C++
 keyword.
 
+`RE/World.h` exposes a `WorldState` contract for actor critical stages,
+actor-value modifier components, the selected AI package and procedure,
+authored `XAPR` activation parents, and active-effect applications. The game
+adapter binds those calls to live `World` state. Engine-internal `AIProcess`
+hooks that require character controllers or scene nodes return an explicit
+unsupported-hook error.
+
 ## Untested
 
-The SHM-01 test compiles the generated umbrella headers with a C++20 compiler and checks C++
-signatures for the Rust methods they project. No sample plugin has been compiled against the
-headers, and the declarations are not linked to engine behavior. The counts are token counts,
+The SHM-01 and SHM-03 tests compile the generated headers with a C++20 compiler and check C++
+signatures for the Rust methods they project. A game-side SHM-03 test calls the adapter over
+live actor and AI state. No sample plugin has been compiled against the headers, and the C++
+declarations are not linked through an FFI bridge. The counts are token counts,
 so a name mentioned only in a comment is counted and a type reached only through `auto` is not.
 Four plugins are a sample, not the population: the map's 70 to 90 percent open-source estimate
 is from a six-plugin sample and the shimmable share here is 3 of 4 by plugin, far less by hook

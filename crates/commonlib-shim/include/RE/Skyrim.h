@@ -5,3 +5,4 @@
 #include "RE/Events.h"
 #include "RE/Utility.h"
 #include "RE/VirtualMachine.h"
+#include "RE/World.h"

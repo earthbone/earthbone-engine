@@ -1645,6 +1645,14 @@ dependencies and the current direct-cast rejection boundary.
 
 ### Direct active-effect foundation
 
+The MIT CommonLib shim adapter in `shim_world` reads actor critical stages,
+actor-value components, the AI driver's current package and procedure, authored
+`XAPR` activation parents and live active-effect applications from `World`.
+Activation-parent FormIDs resolve in the owning reference's load-order context.
+Unavailable actor, reference and effect identities produce typed shim errors.
+Engine-internal `AIProcess` hooks that need a character controller or scene
+node produce an unsupported-hook error.
+
 The runtime provides `World::cast_spell` for direct scripted casts
 of Script, Value Modifier, Dual Value Modifier and Dispel effects, including hostile hits. Definitions
 come from winning SPEL and MGEF records, with each FormID resolved in its winning
