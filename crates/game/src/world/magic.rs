@@ -245,9 +245,10 @@ impl World {
             if entry.data.area != 0 || data.area != 0 || data.taper_duration != 0.0 {
                 return Err(MagicError::Unsupported("area or taper"));
             }
-            if data.perk != 0 || data.equip_ability != 0 {
-                return Err(MagicError::Unsupported("perk or equip ability"));
+            if data.perk != 0 {
+                return Err(MagicError::Unsupported("perk application"));
             }
+            self.validate_equip_ability(effect, data.equip_ability)?;
             let magnitude = if data.flags & NO_MAGNITUDE != 0 {
                 0.0
             } else {
@@ -382,7 +383,7 @@ impl World {
         target: Option<GlobalFormId>,
         alloc: Alloc<'_>,
     ) -> Result<Vec<EffectId>, MagicError> {
-        let prepared = self.prepare_spell_cast(spell, source, caster, target)?;
+        let prepared = self.prepare_spell(spell, source, caster, target)?;
         self.apply_prepared_effects(prepared, alloc)
     }
 
@@ -464,7 +465,7 @@ impl World {
         target: Option<GlobalFormId>,
         alloc: Alloc<'_>,
     ) -> Result<Vec<EffectId>, MagicError> {
-        let prepared = self.prepare_spell_cast(spell, source, Some(caster), target)?;
+        let prepared = self.prepare_spell(spell, source, Some(caster), target)?;
         let prepared = self.prepare_effect_actions(prepared)?;
         let cost = self.spell_cost(spell, caster)?;
         let actor = self.actor(caster).ok_or(MagicError::Target)?;
@@ -480,7 +481,45 @@ impl World {
         self.apply_prepared_actions(prepared, alloc)
     }
 
-    fn prepare_spell_cast(
+    /// Apply constant-effect abilities from an actor's resolved spell list.
+    ///
+    pub(crate) fn apply_actor_abilities(&mut self, actor: GlobalFormId) {
+        let Some(state) = self.actor(actor) else {
+            return;
+        };
+        let spells = state.spells.clone();
+        for spell in spells {
+            let Ok(definition) = self.spell(spell) else {
+                continue;
+            };
+            if definition.data.spell_type != 4
+                || definition.data.cast_type != 0
+                || definition.data.delivery != 0
+            {
+                continue;
+            }
+            let Ok(prepared) = self.prepare_spell(spell, actor, Some(actor), Some(actor)) else {
+                continue;
+            };
+            let Ok(prepared) = self.prepare_effect_actions(prepared) else {
+                continue;
+            };
+            for prepared in prepared {
+                let id = prepared.effect.id;
+                self.next_effect = id.0 + 1;
+                if prepared.effect.recover || prepared.effect.duration == Some(0.0) {
+                    if let Some(state) = self.actors.get_mut(&prepared.effect.target) {
+                        if change_values(&mut state.values, &prepared.effect, 1.0).is_err() {
+                            continue;
+                        }
+                    }
+                }
+                self.active_effects.insert(id, prepared.effect.clone());
+            }
+        }
+    }
+
+    fn prepare_spell(
         &mut self,
         spell: GlobalFormId,
         source: GlobalFormId,
@@ -540,9 +579,10 @@ impl World {
             if data.taper_duration != 0.0 {
                 return Err(MagicError::Unsupported("taper"));
             }
-            if data.perk != 0 || data.equip_ability != 0 {
-                return Err(MagicError::Unsupported("perk or equip ability"));
+            if data.perk != 0 {
+                return Err(MagicError::Unsupported("perk application"));
             }
+            self.validate_equip_ability(effect, data.equip_ability)?;
             if data.cast_type != definition.data.cast_type
                 || data.delivery != definition.data.delivery
             {
@@ -824,6 +864,45 @@ impl World {
         self.active_effects
             .values()
             .any(|e| e.target == target && e.effect == effect)
+    }
+
+    /// Check an actor's known spells and active MGEF equip-ability grants.
+    pub fn has_spell(&mut self, actor: GlobalFormId, spell: GlobalFormId) -> bool {
+        if self
+            .actor(actor)
+            .is_some_and(|state| state.spells.contains(&spell))
+        {
+            return true;
+        }
+        let effects: Vec<_> = self
+            .active_effects
+            .values()
+            .filter(|effect| effect.target == actor)
+            .map(|effect| effect.effect)
+            .collect();
+        effects.into_iter().any(|effect| {
+            self.magic_effect(effect).is_ok_and(|definition| {
+                self.resolve_from(effect, definition.data.equip_ability) == Some(spell)
+            })
+        })
+    }
+
+    fn validate_equip_ability(&self, effect: GlobalFormId, raw: u32) -> Result<(), MagicError> {
+        if raw == 0 {
+            return Ok(());
+        }
+        let ability = self
+            .resolve_from(effect, raw)
+            .ok_or(MagicError::Missing(effect))?;
+        let rref = self
+            .order
+            .winner_ref(ability)
+            .ok_or(MagicError::Missing(ability))?;
+        if self.order.record(rref).is_deleted() || self.tag_of(ability) != Some(super::T(b"SPEL")) {
+            return Err(MagicError::Missing(ability));
+        }
+        self.spell(ability)?;
+        Ok(())
     }
 
     /// Match keywords on each active effect's winning definition.
