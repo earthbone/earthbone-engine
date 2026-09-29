@@ -77,6 +77,13 @@ The mapping follows the Rust API while adapting Rust names and types to C++, inc
 `NativeRegistry::register`, which is emitted as `register_native` because `register` is a C++
 keyword.
 
+The event batch declares `TESContainerChangedEvent`, `TESDeathEvent`,
+`TESEnterBleedoutEvent`, `TESFormDeleteEvent` and `TESFurnitureEvent` payloads. `EventState`
+defines queries for current inventory count, death, bleedout, deletion and furniture occupancy
+for an engine binding to implement against live world state. Missing objects return
+`std::nullopt`. Vtable and call-site patch requests return the `UNSUPPORTED_VTABLE_HOOK`
+description because those addresses have no meaning in this runtime.
+
 ## Untested
 
 The SHM-01 test compiles the generated umbrella headers with a C++20 compiler and checks C++
