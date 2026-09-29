@@ -1050,3 +1050,15 @@ bits, incomplete form flags and trailing payload bytes. The typed fields
 rebuild the same flags and payload bytes. SAV-39 tests all eight defined flag
 combinations for each record type and reports record counts, distinct flag
 sets and payload bytes from `SOE_TEST_SAVES` when that corpus is configured.
+
+`ChangeForm::apparatus_change` and `ChangeForm::idle_marker_change` decode
+APPA and IDLM payloads from the xEdit `Change APPA Data` and `Change IDLM Data`
+definitions. Both have an optional six-byte form-flags section. The value and
+full-name change flags consume no payload bytes. The complete change-flags
+word, including unnamed bits, is retained. Typed payloads re-encode the known
+fields, and trailing or truncated form-flags data returns an error. FallrimTools
+keeps both types raw. The gated SAV-43 survey accounts for both types across
+the external save corpus and checks exact typed re-encoding. The 60-save corpus
+contains no APPA or IDLM changes, so payload coverage comes from synthetic
+fixtures. UESP's local mod-file format pages describe the APPA and IDLM records,
+not their save payloads.
