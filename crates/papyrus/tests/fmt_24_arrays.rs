@@ -97,6 +97,7 @@ fn fmt_24_array_mutation_continuation_restores_shared_array() {
         .local("items", "Int[]")
         .local("alias", "Int[]")
         .local("result", "Int")
+        .local("value", "Int")
         .ins(ArrayCreate, vec![ident("items"), i(1)])
         .ins(ArraySetElement, vec![ident("items"), i(0), i(7)])
         .ins(Assign, vec![ident("alias"), ident("items")])
@@ -104,21 +105,26 @@ fn fmt_24_array_mutation_continuation_restores_shared_array() {
         .ins(ArrayInsert, vec![ident("alias"), i(9), i(1)])
         .ins(ArrayRemove, vec![ident("alias"), i(2), i(1)])
         .ins(ArrayRemoveLast, vec![ident("alias")])
+        .ins(ArrayClear, vec![ident("alias")])
+        .ins(ArrayAdd, vec![ident("alias"), i(8), i(1)])
         .ins(ArraySetElement, vec![ident("alias"), i(0), i(12)])
-        .ins(ArrayGetElement, vec![ident("result"), ident("items"), i(0)])
+        .ins(ArrayLength, vec![ident("result"), ident("items")])
+        .ins(IMul, vec![ident("result"), ident("result"), i(100)])
+        .ins(ArrayGetElement, vec![ident("value"), ident("items"), i(0)])
+        .ins(IAdd, vec![ident("result"), ident("result"), ident("value")])
         .ins(Return, vec![ident("result")])
         .build();
     let bytes = ScriptBuilder::new("Fmt24", "").function(function).bytes();
     let mut uninterrupted = vm_with(&bytes);
     let thread = uninterrupted.call_global("Fmt24", "Continue", &[]).unwrap();
-    assert_eq!(uninterrupted.run(7), 7);
+    assert_eq!(uninterrupted.run(8), 8);
     let saved = uninterrupted.save_state().unwrap();
     let mut resumed = vm_with(&bytes);
     resumed.load_state(&saved).unwrap();
     assert!(resumed.run_until_idle(1000));
-    assert_eq!(resumed.thread_result(thread), Some(Value::Int(12)));
+    assert_eq!(resumed.thread_result(thread), Some(Value::Int(112)));
     assert!(uninterrupted.run_until_idle(1000));
-    assert_eq!(uninterrupted.thread_result(thread), Some(Value::Int(12)));
+    assert_eq!(uninterrupted.thread_result(thread), Some(Value::Int(112)));
     assert_eq!(
         resumed.save_state().unwrap(),
         uninterrupted.save_state().unwrap()
