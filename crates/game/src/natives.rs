@@ -2082,6 +2082,33 @@ fn location(vm: &mut Vm, w: &Shared) {
     method!(vm, w, "Location", "IsCleared", |world, call, me| b(world
         .location(me)
         .is_some_and(|l| l.cleared)));
+    method!(vm, w, "Location", "IsLoaded", |world, _call, me| b(
+        world.location_is_loaded(me)
+    ));
+    method!(vm, w, "Location", "HasRefType", |world, call, me| {
+        let Some(ref_type) = world
+            .form_arg(&call.arg(0))
+            .filter(|form| world.tag_of(*form) == Some(Tag::new(b"LCRT")))
+        else {
+            return b(false);
+        };
+        b(world.location_has_ref_type(me, ref_type))
+    });
+    for (name, dead) in [
+        ("GetRefTypeAliveCount", false),
+        ("GetRefTypeDeadCount", true),
+    ] {
+        method!(vm, w, "Location", name, |world, call, me| {
+            let Some(ref_type) = world
+                .form_arg(&call.arg(0))
+                .filter(|form| world.tag_of(*form) == Some(Tag::new(b"LCRT")))
+            else {
+                return i(0);
+            };
+            let counts = world.location_ref_type_counts(me, ref_type);
+            i(if dead { counts.1 } else { counts.0 })
+        });
+    }
     method!(vm, w, "Location", "SetCleared", |world, call, me| {
         let on = call.args.first().is_none_or(Value::as_bool);
         if let Some(l) = world.location(me) {
@@ -3200,8 +3227,6 @@ fn stubs(vm: &mut Vm) -> usize {
         ("Quest", "IsStarting", false),
         ("Quest", "IsStopping", false),
         ("Cell", "IsAttached", true),
-        ("Location", "IsLoaded", false),
-        ("Location", "HasRefType", false),
         ("Scene", "IsActionComplete", false),
         ("Keyword", "SendStoryEventAndWait", false),
         ("Game", "IsPlayerSungazing", false),
@@ -3229,8 +3254,6 @@ fn stubs(vm: &mut Vm) -> usize {
         ("Actor", "GetSleepState", 0),
         ("Actor", "GetSitState", 0),
         ("Actor", "GetFlyingState", 0),
-        ("Location", "GetRefTypeAliveCount", 0),
-        ("Location", "GetRefTypeDeadCount", 0),
     ];
     for (class, name, value) in ints {
         let global = *class == "Game";
