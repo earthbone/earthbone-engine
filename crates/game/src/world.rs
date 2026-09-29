@@ -76,6 +76,7 @@ mod record_overrides;
 mod skins;
 mod temporary_npc;
 pub use record_overrides::{NavmeshRecordExtra, NpcRecordExtra, PackRecordExtra};
+pub use record_overrides::{UnresolvedRecord, UnresolvedRecordId};
 mod quest_restore;
 mod quest_save;
 mod quests;
@@ -467,6 +468,8 @@ pub struct World {
     localized_strings: BTreeMap<(u16, StringTableKind), StringTable>,
     order: Arc<LoadOrder>,
     record_overrides: BTreeMap<GlobalFormId, record_overrides::RecordOverride>,
+    unresolved_records:
+        BTreeMap<record_overrides::UnresolvedRecordId, record_overrides::UnresolvedRecord>,
     editor_ids: HashMap<String, GlobalFormId>,
     objects: HashMap<Handle, ObjectId>,
     handles: HashMap<ObjectId, Handle>,
@@ -589,6 +592,7 @@ impl World {
         World {
             order,
             record_overrides: BTreeMap::new(),
+            unresolved_records: BTreeMap::new(),
             editor_ids,
             objects: HashMap::new(),
             handles: HashMap::new(),

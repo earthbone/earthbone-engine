@@ -8,7 +8,8 @@ use soe_esm::{plugin::Subrecord, GlobalFormId, Slot, Tag};
 use soe_papyrus::{vm::state::Writer, VmError};
 
 use super::record_overrides::{
-    raw_words, ListRecordExtra, NavmeshRecordExtra, NpcRecordExtra, PackRecordExtra, RecordOverride,
+    normalize_unresolved_id, raw_words, ListRecordExtra, NavmeshRecordExtra, NpcRecordExtra,
+    PackRecordExtra, RecordOverride, UnresolvedRecord, UnresolvedRecordId,
 };
 use super::save::{read_form_id, read_opt_form_id, write_form_id, write_opt_form_id, FormReader};
 use super::{World, T};
@@ -470,4 +471,67 @@ pub(super) fn read_pack_navmesh_section(
 
 fn unchanged_record(record: &soe_esm::Record) -> Vec<Subrecord> {
     record.subrecords.clone()
+}
+
+pub(super) fn write_unresolved_records(world: &World, w: &mut Writer) {
+    if world.unresolved_records.is_empty() {
+        return;
+    }
+    w.len(world.unresolved_records.len());
+    for (id, value) in &world.unresolved_records {
+        write_unresolved_id(w, id);
+        w.bytes(&value.payload);
+        w.len(value.links.len());
+        for link in &value.links {
+            write_unresolved_id(w, link);
+        }
+    }
+}
+
+pub(super) fn read_unresolved_records(
+    world: &mut World,
+    r: &mut FormReader<'_, '_>,
+) -> Result<(), VmError> {
+    let mut records = BTreeMap::new();
+    let count = r.len()?;
+    if count > r.remaining() / 13 {
+        return Err(bad("unresolved record count exceeds remaining bytes"));
+    }
+    for _ in 0..count {
+        let mut id = read_unresolved_id(r)?;
+        normalize_unresolved_id(&mut id).map_err(|error| bad(&error))?;
+        let payload = r.bytes()?.to_vec();
+        let link_count = r.len()?;
+        if link_count > r.remaining() / 13 {
+            return Err(bad("unresolved link count exceeds remaining bytes"));
+        }
+        let mut links = Vec::with_capacity(link_count);
+        for _ in 0..link_count {
+            let mut link = read_unresolved_id(r)?;
+            normalize_unresolved_id(&mut link).map_err(|error| bad(&error))?;
+            links.push(link);
+        }
+        if records
+            .insert(id.clone(), UnresolvedRecord { id, payload, links })
+            .is_some()
+        {
+            return Err(bad("duplicate unresolved record identity"));
+        }
+    }
+    world.unresolved_records = records;
+    Ok(())
+}
+
+fn write_unresolved_id(w: &mut Writer, id: &UnresolvedRecordId) {
+    w.str(&id.plugin);
+    w.bool(id.light);
+    w.u32(id.object);
+}
+
+fn read_unresolved_id(r: &mut FormReader<'_, '_>) -> Result<UnresolvedRecordId, VmError> {
+    Ok(UnresolvedRecordId {
+        plugin: r.str()?,
+        light: r.bool()?,
+        object: r.u32()?,
+    })
 }

@@ -4,9 +4,9 @@
 //! VM's, one after the other inside a small envelope of their own.
 //!
 //! Plugin and loaded-script fingerprints travel in the file as provenance.
-//! The caller still supplies those definitions before `load_state`. The
-//! loader rejects changed dependencies and slot movement before replacing
-//! world or VM state.
+//! The caller supplies those definitions before `load_state`. Plugin identity
+//! changes reject loading, while VM script fingerprints determine whether
+//! saved execution state loads or remains suspended.
 
 use soe_esm::Slot;
 use soe_papyrus::vm::state::{Reader, Writer};
@@ -236,11 +236,6 @@ fn check_provenance(saved: &SaveProvenance, current: &SaveProvenance) -> Result<
                 "current plugin {extra} was not in the save"
             )));
         }
-    }
-    if saved.scripts != current.scripts {
-        return Err(VmError::State(
-            "loaded script fingerprints differ from the save".into(),
-        ));
     }
     Ok(())
 }
@@ -497,10 +492,11 @@ impl Game {
         Ok(out.out)
     }
 
-    /// Replace the world and VM state with a saved one. The `Game` must
-    /// already carry the same scripts the save was written with, and
-    /// should not have been bound or started, `load_state` overwrites
-    /// object and instance state wholesale rather than merging it.
+    /// Replace the world and VM state with a saved one. Compatible scripts
+    /// should be loaded first. Missing or changed Papyrus definitions suspend
+    /// the saved VM state until compatible scripts load. The game should not
+    /// have been bound or started, `load_state` overwrites object and instance
+    /// state wholesale rather than merging it.
     ///
     /// # Errors
     ///
@@ -508,6 +504,7 @@ impl Game {
     /// `World::load_state` or `Vm::load_state` reject.
     pub fn load_state(&mut self, bytes: &[u8]) -> Result<(), VmError> {
         let _span = soe_trace::Span::with_payload("game.load_state", "game", bytes.len() as u64);
+        self.validate_saved_state(bytes)?;
         let (saved, world_bytes, vm_bytes) = read_envelope(bytes)?;
         check_provenance(&saved, &current_provenance(self))?;
         self.world.borrow_mut().load_state(world_bytes)?;

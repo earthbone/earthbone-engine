@@ -960,7 +960,7 @@ either.
 
 `World::save_state(&self) -> Vec<u8>` and `World::load_state(&mut self,
 bytes) -> Result<(), VmError>` write and read the run-time half of the form
-table, magic `SOEW`, version 29. Versions 4 to 6 use legacy actor values,
+table, magic `SOEW`, version 39. Versions 4 to 6 use legacy actor values,
 version 5 adds active magic, version 6 adds dialogue, version 7 adds actor-value
 components, version 8 adds dialogue to those components, and version 9 adds
 active magic. Version 10 adds per-reference leveled template choices.
@@ -989,6 +989,11 @@ finished state. Loading an engine save lets the driver continue that branch.
 Vanilla ESS package state is not connected to this cursor: named Sequence and
 Stacked procedure payloads are not decoded, so a saved actor cannot yet resume
 its vanilla procedure.
+The world-level `SAV-58` section retains opaque unresolved record payloads and
+plugin-relative links outside the live form table. Its named section is part of
+frozen SOEW version 37. Papyrus SOEV version 4 carries script source
+fingerprints so missing or changed definitions keep the saved VM state
+suspended.
 version 5 adds active magic, version 6 adds dialogue, version 7 adds actor-value
 components, version 8 adds dialogue to those components, version 9 adds
 active magic. Version 10 adds per-reference leveled template choices.
@@ -1017,6 +1022,15 @@ at most 255 loaded plugins. At 256 or more, the old namespace is ambiguous
 and loading fails before world or VM mutation. Engine saves still require
 the identical load order used to write them. This change does not infer a
 missing or reordered plugin list from the legacy format.
+
+`World::retain_unresolved_record` stores opaque bytes under a normalized plugin
+filename, regular/light kind and local object number. Link identities use the
+same fields. SOEW version 38 preserves these values without resolving them
+through the current load order, so removed plugins and compacted slots cannot
+alias these retained records. This storage API does not populate itself from
+ESS change forms. Whole-game `Game::load_state` still requires matching plugin
+provenance, and ordinary world state does not yet remap identities for removed
+plugins.
 
 The local UESP `Save_File_Format.wikitext` created RefID rule and Mutagen
 `Plugins/FormID.cs` and `docs/plugins/Compaction.md` informed this change.
@@ -1056,11 +1070,15 @@ from.
 `SOEG`, version 2. The envelope stores sorted plugin names, regular/light
 kind, load-order slot and SHA-256 plugin fingerprints, followed by loaded
 script names and optional SHA-256 PEX fingerprints. `Game::saved_provenance`
-reads this evidence. `load_state` checks it before replacing state, rejecting
-missing or changed plugins, slot movement and changed script fingerprints.
-This prevents a reordered plugin from silently retargeting saved form IDs.
-Programmatically loaded scripts have unknown source fingerprints. Each world
-and VM blob remains length-prefixed. The caller loads the same definitions
+reads this evidence. `load_state` rejects missing or changed plugins and slot
+movement before replacing state, preventing a reordered plugin from silently
+retargeting saved form IDs. Script provenance is reported by
+`preflight_dependencies`, while the VM's saved script fingerprints validate
+the definitions that saved instances and frames actually use. Missing or
+changed definitions keep the whole VM payload suspended until compatible PEX
+loads. World and VM state are both validated in scratch state before either is
+replaced. Programmatically loaded scripts have unknown source fingerprints.
+Each world and VM blob remains length-prefixed. The caller loads definitions
 before restoring into a game that has not been bound or started.
 
 `Game::preflight_dependencies` compares native save provenance with the

@@ -314,11 +314,13 @@ fn engine_extras_reject_truncation_duplicates_and_bad_flags_atomically_and_read_
     duplicate.extend_from_slice(entry);
     duplicate.extend_from_slice(entry);
     duplicate.extend_from_slice(&before[before.len() - 39..]);
-    assert!(world
-        .load_state(&duplicate)
-        .unwrap_err()
-        .to_string()
-        .contains("duplicate reference extras"));
+    let duplicate_error = world.load_state(&duplicate).unwrap_err();
+    assert!(
+        duplicate_error
+            .to_string()
+            .contains("duplicate reference extras"),
+        "{duplicate_error}"
+    );
     let mut bad_key = before.clone();
     let at = bad_key.len() - 27;
     bad_key[at..at + 4].copy_from_slice(&0x811_u32.to_le_bytes());
