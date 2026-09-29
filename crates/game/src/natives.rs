@@ -1042,6 +1042,32 @@ fn actor(vm: &mut Vm, w: &Shared) {
     method!(vm, w, "Actor", "IsDead", |world, call, me| b(world
         .actor(me)
         .is_some_and(|a| a.dead)));
+    method!(
+        vm,
+        w,
+        "Actor",
+        "SetExpressionOverride",
+        |world, call, me| {
+            let mood = call.args.first().map_or(-1, Value::as_int);
+            let strength = call.args.get(1).map_or(100, Value::as_int);
+            if let Err(error) = world.set_expression_override(me, mood, strength) {
+                call.log.push(call.time, error);
+            }
+            none()
+        }
+    );
+    method!(
+        vm,
+        w,
+        "Actor",
+        "ClearExpressionOverride",
+        |world, call, me| {
+            if let Err(error) = world.clear_expression_override(me) {
+                call.log.push(call.time, error);
+            }
+            none()
+        }
+    );
     method!(vm, w, "Actor", "Kill", |world, call, me| {
         let killer = world.form_arg(&call.arg(0));
         world.kill_actor(me, killer);
@@ -3370,8 +3396,6 @@ fn stubs(vm: &mut Vm) -> usize {
         ("Actor", "SetLookAt"),
         ("Actor", "ClearLookAt"),
         ("Actor", "SetHeadTracking"),
-        ("Actor", "SetExpressionOverride"),
-        ("Actor", "ClearExpressionOverride"),
         ("Actor", "ShowGiftMenu"),
         ("Actor", "ShowBarterMenu"),
         ("Actor", "OpenInventory"),

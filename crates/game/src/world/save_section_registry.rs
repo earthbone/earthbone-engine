@@ -23,6 +23,7 @@ pub(crate) const WORLD_SECTIONS: &[Section<World>] = &[
 /// record.
 #[rustfmt::skip]
 pub(crate) const ACTOR_SECTIONS: &[Section<ActorState>] = &[
+    Section { name: "ANM-59", write: World::write_expression_override, read: World::read_expression_override },
 ];
 
 /// Sections read and written once per reference, at the end of every
