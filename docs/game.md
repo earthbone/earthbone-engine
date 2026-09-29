@@ -2743,6 +2743,31 @@ Tempering formulas, learned enchantments, recipe eligibility, poison use and
 host menus belong to their separate backlog items. These tests do not compare
 selection policy against the original runtime or load installed save files.
 
+## Quest and reference alias native contracts (SCR-68)
+
+The Papyrus registry exposes sorted method and global binding names. The
+SCR-68 inventory derives the Quest, Alias and ReferenceAlias bindings from
+that registry and compares them with the method lists and descriptions in
+`Quest_Script.wikitext`, `Alias_Script.wikitext` and
+`ReferenceAlias_Script.wikitext`. The local corpus also has individual pages
+for `CompleteAllObjectives`, `GetOwningQuest` and `Clear`. Most linked native
+pages for these classes are not present in the corpus, so their class-page
+contract is the comparison source.
+
+Quest stage getters both return the highest completed stage, matching the CK
+page for `GetStage`. `SetStage` and `SetCurrentStageID` share stage execution.
+Alias getters resolve the owning quest, alias ID, name or assigned form from
+the quest record and runtime alias state. ReferenceAlias inventory filters
+use the same filter state as ObjectReference filters. `Clear` empties an
+optional alias. The QUST alias `FNAM` Optional flag is bit 1, as specified by
+xEdit and the UESP QUST layout. Calling `Clear` on a required alias logs an
+error and leaves the assigned reference unchanged, matching
+`Clear_-_ReferenceAlias.wikitext`.
+
+Quest `IsStarting` and `IsStopping` appear in the CK class page and are
+registered as quiet false stubs. They do not report the startup and shutdown
+transitions described by CK. SCR-43 owns their behavior and regression tests.
+
 ## Alias-backed dialogue eligibility (DLG-13)
 
 Dialogue already evaluates `GetIsAliasRef` (CTDA 566) against the current

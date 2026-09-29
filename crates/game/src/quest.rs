@@ -27,6 +27,10 @@ pub mod stage_flags {
     pub const SHUT_DOWN: u8 = 0x04;
 }
 
+pub mod alias_flags {
+    pub const OPTIONAL: u32 = 0x0000_0002;
+}
+
 pub mod entry_flags {
     pub const COMPLETE_QUEST: u8 = 0x01;
     pub const FAIL_QUEST: u8 = 0x02;
@@ -338,10 +342,27 @@ pub fn with_objective(rec: Record, index: u16, text: &str) -> Record {
 }
 
 pub fn with_alias(rec: Record, id: u32, name: &str, forced_ref: Option<u32>) -> Record {
+    with_alias_flags(rec, id, name, forced_ref, 0)
+}
+
+/// Add a reference alias with the supplied QUST alias flags.
+///
+/// # Errors
+/// This builder does not return errors.
+///
+/// # Panics
+/// This builder does not panic.
+pub fn with_alias_flags(
+    rec: Record,
+    id: u32,
+    name: &str,
+    forced_ref: Option<u32>,
+    flags: u32,
+) -> Record {
     let rec = rec
         .sub(Tag::new(b"ALST"), id.to_le_bytes())
         .zsub(Tag::new(b"ALID"), name)
-        .sub(Tag::new(b"FNAM"), 0u32.to_le_bytes());
+        .sub(Tag::new(b"FNAM"), flags.to_le_bytes());
     let rec = match forced_ref {
         Some(r) => rec.sub(Tag::new(b"ALFR"), r.to_le_bytes()),
         None => rec,
