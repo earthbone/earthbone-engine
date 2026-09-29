@@ -36,7 +36,9 @@ pub mod quest;
 pub mod reference;
 pub mod table;
 
-pub use change::{ChangeForm, QuestStage};
+pub use change::{
+    CellChange, CellInteriorSeenEntry, CellSeenData, ChangeForm, OpaqueSpatialChange, QuestStage,
+};
 pub use change::{
     ClassChange, FactionChange, FactionReaction, FactionReactions, ProjectileChange,
     ProjectileChangeFlag, ProjectileChangeFlags, RelationshipChange,

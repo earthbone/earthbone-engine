@@ -6,9 +6,16 @@ it that describes progress into scenario expectations the harness in
 table and quest change forms using saved plugin names. Full world restoration
 remains unfinished.
 
-CELL, LCTN and ECZN decoding remains blocked on missing serialized layouts.
-See [saved spatial fields](save-spatial-fields.md) for the source boundary and
-60-save coverage census supporting SAV-27 and its SAV-66 prerequisite.
+CELL has a typed decoder for its common form flags, cell flags, full name,
+owner and xEdit-defined seen-data shape. Seen data precedes the full name and
+owner. The interior/exterior choice validates the suffix against xEdit's
+32-byte exterior and repeated 34-byte interior shapes. A truncated interior
+that leaves 32 bytes is indistinguishable from exterior data. CELL flags 28 to 30 are rejected
+because xEdit does not define their serialized fields. ECZN and LCTN decode
+their common form flags and retain other flagged bytes as opaque payloads,
+because the available schema marks those fields as placeholders. See
+[saved spatial fields](save-spatial-fields.md) for the source boundary and
+60-save corpus accounting. Live restoration remains unfinished.
 
 The projectile and hazard decoder tasks share a missing subtype-layout
 prerequisite. See [saved projectile layouts](save-projectile-layouts.md) for
@@ -115,6 +122,8 @@ does not claim runtime support for opaque payloads.
   factions, spells, AI data, names, skills, class, race, face, gender and outfits.
 - `ChangeForm::class_change`, `faction_change` and `relationship_change` decode
   CLAS, FACT and RELA change sections on demand.
+- `ChangeForm::cell_change` decodes defined CELL fields, and the ECZN/LCTN
+  decoders retain their placeholder payload bytes with the common form flags.
 - Type 107, quest static data, including its two event arrays, three reference
   arrays, reference-keyed values and final byte.
 - Type 1001, the Papyrus block: the string table, the script definitions with
