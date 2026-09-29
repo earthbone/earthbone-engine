@@ -202,7 +202,7 @@ pub fn register(vm: &mut Vm, world: &Shared) -> Registered {
 
 /// Hand-kept count of the non-stub natives registered below. The test in
 /// this module checks it against the registry.
-pub const NATIVE_COUNT: usize = 366;
+pub const NATIVE_COUNT: usize = 369;
 
 fn declare_parents(vm: &mut Vm) {
     for (class, parent) in [
@@ -1050,6 +1050,71 @@ fn actor(vm: &mut Vm, w: &Shared) {
         .is_some_and(|a| a.in_combat)));
     method!(vm, w, "Actor", "EvaluatePackage", |world, call, me| {
         world.evaluate_package(me, alloc!(call));
+        none()
+    });
+    method!(
+        vm,
+        w,
+        "Actor",
+        "MoveToPackageLocation",
+        |world, call, me| {
+            if !call.args.is_empty() {
+                call.log.push(
+                    call.time,
+                    "Actor.MoveToPackageLocation expects no arguments",
+                );
+            } else if !world.move_to_package_location(me) {
+                call.log.push(
+                    call.time,
+                    "Actor.MoveToPackageLocation has no package location",
+                );
+            }
+            none()
+        }
+    );
+    method!(
+        vm,
+        w,
+        "Actor",
+        "WillIntimidateSucceed",
+        |world, call, me| {
+            if !call.args.is_empty() {
+                call.log.push(
+                    call.time,
+                    "Actor.WillIntimidateSucceed expects no arguments",
+                );
+                return b(false);
+            }
+            match crate::conditions::will_intimidate_succeed(world, me) {
+                Ok(succeeds) => b(succeeds),
+                Err(error) => {
+                    call.log
+                        .push(call.time, format!("Actor.WillIntimidateSucceed: {error}"));
+                    b(false)
+                }
+            }
+        }
+    );
+    method!(vm, w, "Actor", "DoCombatSpellApply", |world, call, me| {
+        let Some(spell) = call.args.first().and_then(|value| world.form_arg(value)) else {
+            call.log
+                .push(call.time, "Actor.DoCombatSpellApply requires a spell form");
+            return none();
+        };
+        let Some(target) = call.args.get(1).and_then(|value| world.form_arg(value)) else {
+            call.log
+                .push(call.time, "Actor.DoCombatSpellApply requires a target form");
+            return none();
+        };
+        if call.args.len() != 2 {
+            call.log
+                .push(call.time, "Actor.DoCombatSpellApply expects two arguments");
+            return none();
+        }
+        if let Err(error) = world.cast_spell(spell, me, Some(me), Some(target), alloc!(call)) {
+            call.log
+                .push(call.time, format!("Actor.DoCombatSpellApply: {error}"));
+        }
         none()
     });
     method!(vm, w, "Actor", "GetCurrentPackage", |world, call, me| {
@@ -3310,14 +3375,11 @@ fn stubs(vm: &mut Vm) -> usize {
         ("Weather", "SetActive"),
         ("Weapon", "Fire"),
         ("Scroll", "Cast"),
-        ("Actor", "DoCombatSpellApply"),
         ("ObjectReference", "CreateDetectionEvent"),
         ("ObjectReference", "TranslateTo"),
         ("ObjectReference", "SplineTranslateTo"),
         ("ObjectReference", "StopTranslation"),
         ("ObjectReference", "Reset"),
-        ("Actor", "MoveToPackageLocation"),
-        ("Actor", "WillIntimidateSucceed"),
         ("Cell", "Reset"),
     ];
     for (class, name) in methods_none {

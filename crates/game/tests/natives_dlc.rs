@@ -60,6 +60,8 @@ const TURN_QUEST: u32 = 0xA17;
 const FEED_SCENE: u32 = 0xA18;
 const HUNT_PACKAGE: u32 = 0xA19;
 const HAND_SPELL: u32 = 0xA1A;
+const COMBAT_EFFECT: u32 = 0xA1B;
+const COMBAT_SPELL: u32 = 0xA1C;
 
 fn le(v: u32) -> [u8; 4] {
     v.to_le_bytes()
@@ -140,7 +142,11 @@ fn test_plugin() -> Plugin {
         p.push_top(
             Record::new(T(b"NPC_"), id)
                 .zsub(EDID, edid)
-                .sub(T(b"ACBS"), acbs(0)),
+                .sub(T(b"ACBS"), acbs(0))
+                .sub(
+                    T(b"AIDT"),
+                    [0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                ),
         );
     }
     p.push_top(Record::new(T(b"SHOU"), SHOUT_A).zsub(EDID, "ShoutDrainVitality"));
@@ -152,6 +158,31 @@ fn test_plugin() -> Plugin {
         Record::new(T(b"SPEL"), HAND_SPELL)
             .zsub(EDID, "TestFlames")
             .sub(T(b"SPIT"), spit(0)),
+    );
+    let mut effect = vec![0_u8; 152];
+    effect[0..4].copy_from_slice(&4_u32.to_le_bytes());
+    effect[16..20].copy_from_slice(&u32::MAX.to_le_bytes());
+    effect[64..68].copy_from_slice(&0_u32.to_le_bytes());
+    effect[68..72].copy_from_slice(&24_u32.to_le_bytes());
+    effect[80..84].copy_from_slice(&1_u32.to_le_bytes());
+    effect[84..88].copy_from_slice(&3_u32.to_le_bytes());
+    p.push_top(
+        Record::new(T(b"MGEF"), COMBAT_EFFECT)
+            .zsub(EDID, "Scr17CombatEffect")
+            .sub(T(b"DATA"), effect),
+    );
+    let mut targeted = vec![0_u8; 36];
+    targeted[16..20].copy_from_slice(&1_u32.to_le_bytes());
+    targeted[20..24].copy_from_slice(&3_u32.to_le_bytes());
+    let mut effect_entry = 12.0_f32.to_le_bytes().to_vec();
+    effect_entry.extend_from_slice(&0_u32.to_le_bytes());
+    effect_entry.extend_from_slice(&0_u32.to_le_bytes());
+    p.push_top(
+        Record::new(T(b"SPEL"), COMBAT_SPELL)
+            .zsub(EDID, "Scr17CombatSpell")
+            .sub(T(b"SPIT"), targeted)
+            .sub(T(b"EFID"), le(COMBAT_EFFECT))
+            .sub(T(b"EFIT"), effect_entry),
     );
     p.push_top(Record::new(T(b"MISC"), ASH_PILE).zsub(EDID, "AshPileBase"));
     p.push_top(Record::new(T(b"KYWD"), VAMPIRE_KEYWORD).zsub(EDID, "VampireDress"));
@@ -908,6 +939,117 @@ fn the_systems_without_an_engine_answer_quietly() {
     call(&mut g, &player, "ForceAddRagdollToWorld", &[]);
     call(&mut g, &player, "ForceRemoveRagdollFromWorld", &[]);
     assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
+/// SCR-17: DoCombatSpellApply uses the actor as caster and applies the target
+/// actor spell effect through the world magic system.
+#[test]
+fn scr_17_do_combat_spell_apply_changes_target_and_rejects_bad_arguments() {
+    let mut g = game();
+    let caster = obj(&mut g, "VampireRef");
+    let target = obj(&mut g, "PlayerRef");
+    let spell_id = form(&g, "Scr17CombatSpell");
+    let spell = Value::Object(g.object_of_form(spell_id));
+    let target_id = form(&g, "PlayerRef");
+    g.world_mut()
+        .set_actor_value(target_id, "health", 100.0)
+        .unwrap();
+    call(
+        &mut g,
+        &caster,
+        "DoCombatSpellApply",
+        &[spell.clone(), target.clone()],
+    );
+    assert_eq!(g.world_mut().actor_value(target_id, "health"), 88.0);
+    assert!(g.world().active_effects().next().is_some());
+    call(&mut g, &caster, "DoCombatSpellApply", &[spell, Value::None]);
+    assert_eq!(g.world_mut().actor_value(target_id, "health"), 88.0);
+    assert!(g
+        .traces()
+        .iter()
+        .any(|trace| trace.contains("DoCombatSpellApply requires a target form")));
+    call(
+        &mut g,
+        &caster,
+        "DoCombatSpellApply",
+        &[Value::None, target],
+    );
+    assert_eq!(g.world_mut().actor_value(target_id, "health"), 88.0);
+    assert!(g
+        .traces()
+        .iter()
+        .any(|trace| trace.contains("DoCombatSpellApply requires a spell form")));
+}
+
+/// SCR-17: MoveToPackageLocation moves an actor to the current package center
+/// and updates its cell.
+#[test]
+fn scr_17_move_to_package_location_moves_to_selected_center() {
+    let mut g = game();
+    let actor = obj(&mut g, "VampireRef");
+    let id = form(&g, "VampireRef");
+    let cell = form(&g, "DragonPeak");
+    let destination = [512.0, 640.0, 32.0];
+    {
+        let mut world = g.world_mut();
+        let state = world.actor(id).unwrap();
+        state.ai.center = Some(destination);
+        state.ai.center_cell = Some(cell);
+        let reference = world.reference(id).unwrap();
+        reference.position = [0.0, 0.0, 0.0];
+    }
+    call(&mut g, &actor, "MoveToPackageLocation", &[]);
+    let mut world = g.world_mut();
+    assert_eq!(world.reference(id).unwrap().position, destination);
+    assert_eq!(world.reference(id).unwrap().cell, Some(cell));
+    assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
+/// SCR-17: MoveToPackageLocation leaves the actor in place and logs a missing
+/// package location instead of fabricating a destination.
+#[test]
+fn scr_17_move_to_package_location_reports_missing_location() {
+    let mut g = game();
+    let actor = obj(&mut g, "VampireRef");
+    let id = form(&g, "VampireRef");
+    let original = g.world_mut().reference(id).unwrap().position;
+    call(&mut g, &actor, "MoveToPackageLocation", &[]);
+    assert_eq!(g.world_mut().reference(id).unwrap().position, original);
+    assert!(g
+        .traces()
+        .iter()
+        .any(|trace| trace.contains("MoveToPackageLocation has no package location")));
+}
+
+/// SCR-17: WillIntimidateSucceed uses the existing condition system's
+/// Speechcraft versus Confidence approximation and rejects extra arguments.
+#[test]
+fn scr_17_will_intimidate_succeed_uses_speechcraft_and_confidence() {
+    let mut g = game();
+    let target = obj(&mut g, "VampireRef");
+    let player = form(&g, "PlayerRef");
+    g.world_mut()
+        .set_actor_value(player, "speechcraft", 49.0)
+        .unwrap();
+    assert_eq!(
+        call(&mut g, &target, "WillIntimidateSucceed", &[]),
+        Value::Bool(false)
+    );
+    g.world_mut()
+        .set_actor_value(player, "speechcraft", 50.0)
+        .unwrap();
+    assert_eq!(
+        call(&mut g, &target, "WillIntimidateSucceed", &[]),
+        Value::Bool(true)
+    );
+    assert_eq!(
+        call(&mut g, &target, "WillIntimidateSucceed", &[Value::Int(1)]),
+        Value::Bool(false)
+    );
+    assert!(g
+        .traces()
+        .iter()
+        .any(|trace| trace.contains("WillIntimidateSucceed expects no arguments")));
 }
 
 // ----- the animation graph on a reference -----
