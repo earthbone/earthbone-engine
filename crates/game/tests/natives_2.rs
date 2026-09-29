@@ -2089,6 +2089,63 @@ fn messages_show_by_their_flag() {
     assert!(errors(&g).is_empty(), "{:?}", errors(&g));
 }
 
+#[test]
+fn scr_36_reset_help_message_global_reenables_event_notification() {
+    let mut g = game();
+    let note = obj(&mut g, "NoteMessage");
+    let args = [
+        Value::string("Jump"),
+        Value::Float(1.0),
+        Value::Float(1.0),
+        Value::Int(1),
+    ];
+
+    call(&mut g, &note, "ShowAsHelpMessage", &args);
+    call(&mut g, &note, "ShowAsHelpMessage", &args);
+    assert_eq!(g.world().notifications, vec!["Hello note"]);
+
+    assert_eq!(
+        call_global(
+            &mut g,
+            "Message",
+            "ResetHelpMessage",
+            &[Value::string("Jump")]
+        ),
+        Value::None
+    );
+    call(&mut g, &note, "ShowAsHelpMessage", &args);
+    assert_eq!(g.world().notifications, vec!["Hello note", "Hello note"]);
+    assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
+#[test]
+fn scr_36_reset_help_message_method_uses_event_argument() {
+    let mut g = game();
+    let note = obj(&mut g, "NoteMessage");
+    let args = [Value::string("Activate")];
+
+    call(&mut g, &note, "ShowAsHelpMessage", &args);
+    assert_eq!(call(&mut g, &note, "ResetHelpMessage", &args), Value::None);
+    call(&mut g, &note, "ShowAsHelpMessage", &args);
+    assert_eq!(g.world().notifications, vec!["Hello note", "Hello note"]);
+    assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
+#[test]
+fn scr_36_reset_help_message_empty_event_is_a_noop() {
+    let mut g = game();
+    let note = obj(&mut g, "NoteMessage");
+    let args = [Value::string("")];
+
+    call(&mut g, &note, "ShowAsHelpMessage", &args);
+    assert_eq!(
+        call_global(&mut g, "Message", "ResetHelpMessage", &args),
+        Value::None
+    );
+    assert!(g.world().notifications.is_empty());
+    assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
 /// Scene.Start marks it playing and delivers OnBegin to the scene's
 /// scripts, Stop delivers OnEnd, IsPlaying reads the flag.
 #[test]

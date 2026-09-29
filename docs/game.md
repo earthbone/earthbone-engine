@@ -178,7 +178,7 @@ run past it.
 | Keyword | GetString | SendStoryEvent, SendStoryEventAndWait |
 | Cell | IsInterior, GetActorOwner, GetFactionOwner, SetActorOwner, SetFactionOwner, SetPublic | IsAttached, Reset |
 | FormList | GetSize, GetAt, HasForm, Find, AddForm | |
-| Message | Show, ShowAsHelpMessage | ResetHelpMessage |
+| Message | Show, ShowAsHelpMessage, ResetHelpMessage | |
 | Scene | Start, ForceStart, Stop, IsPlaying | IsActionComplete |
 | Sound | Play, StopInstance, SetInstanceVolume | |
 | Spell | Cast, RemoteCast | |
@@ -268,7 +268,11 @@ Current behavior and compatibility limits:
   listeners on that sender and name, `World::sleep_start`, `sleep_stop` and
   `line_of_sight` are the host's hooks for the other two.
 - `Message.Show` puts a `DNAM` message-box message in the box queue and any
-  other in the notification queue, and returns button 0. A scene starts at
+  other in the notification queue, and returns button 0. `ShowAsHelpMessage`
+  queues one notification for each nonempty input-event name until reset.
+  `ResetHelpMessage` accepts the event name in method and global calls and
+  clears that event's shown status. Help-message duration, repetition limits,
+  and input-event integration are not implemented. A scene starts at
   phase zero. `World::complete_scene_action` marks an action slot complete,
   and `World::advance_scene_phase` waits for every action ending in the current
   phase before advancing. Reaching the last phase stops the scene and delivers

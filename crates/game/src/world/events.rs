@@ -11,6 +11,20 @@ use soe_papyrus::{ObjectId, Value};
 use super::{Alloc, Handle, Pending, World};
 
 impl World {
+    /// Queue a help notification once for an input event until it is reset.
+    pub fn show_help_message(&mut self, event: &str, message: String) {
+        if !event.is_empty() && self.help_message_events.insert(event.to_string()) {
+            self.notifications.push(message);
+        }
+    }
+
+    /// Allow a help notification for `event` to be shown again.
+    pub fn reset_help_message(&mut self, event: &str) {
+        if !event.is_empty() {
+            self.help_message_events.remove(event);
+        }
+    }
+
     /// An event to the scripts on `form`, the way `OnActivate` reaches a
     /// reference: `Actor.SendVampirismStateChanged` and its siblings use it.
     pub fn form_event(
