@@ -299,6 +299,8 @@ pub struct ActorState {
     pub witnessed_crimes: BTreeSet<GlobalFormId>,
     /// Partial use experience for each actor skill, keyed by lowercase name.
     pub skill_experience: BTreeMap<String, f32>,
+    /// Cumulative in-game days served in prison.
+    pub days_in_jail: u32,
 }
 
 /// One `LVLO` entry of a leveled list.

@@ -1737,6 +1737,17 @@ fn game(vm: &mut Vm, w: &Shared) {
         let _ = world.advance_skill(player, &skill, magnitude);
         none()
     });
+    global!(vm, w, "Game", "ServeTime", |world, _call| {
+        let player = world.player();
+        if let Some(faction) = world.actor(player).and_then(|actor| actor.crime_faction) {
+            let _ = world.serve_jail_time(faction);
+        }
+        none()
+    });
+    global!(vm, w, "Game", "ClearPrison", |world, _call| {
+        world.clear_prison();
+        none()
+    });
     for name in ["GetForm", "GetFormEx"] {
         global!(vm, w, "Game", name, |world, call| {
             let id = world.from_runtime_id(call.arg(0).as_int() as u32);
@@ -3364,11 +3375,9 @@ fn stubs(vm: &mut Vm) -> usize {
     }
     let globals_none: &[(&str, &str)] = &[
         ("Game", "ShakeCamera"),
-        // Werewolf crime, jail time and sun gazing are crime and weather
-        // systems the engine has not written yet.
+        // Werewolf crime and sun gazing are crime and weather systems not
+        // implemented by the runtime yet.
         ("Game", "SendWereWolfTransformation"),
-        ("Game", "ServeTime"),
-        ("Game", "ClearPrison"),
         ("Game", "SetSunGazeImageSpaceModifier"),
         ("Message", "ResetHelpMessage"),
         ("Game", "ShakeController"),

@@ -213,6 +213,30 @@ faction can legally exist without one. No Papyrus native calls this
 function yet, `SendAssaultAlarm` and similar witness-driven natives are
 later work that can build on it.
 
+**Jail sentence accounting.** `Game.ServeTime` serves the player's tracked
+crime faction at one in-game day per 100 gold of bounty, rounded up and
+capped at seven days. It advances the shared clock, clears that faction's
+violent and nonviolent bounty, clears partial skill-use experience, and adds
+the served days to the player's `days_in_jail`. That counter is stored in the
+`PRG-13` actor save section. `Game.ClearPrison` clears the counter. Crime
+record references `JAIL`, `STOL`, `PLCN` and `JOUT` are not yet consumed by
+this path, so prison placement and stolen-item confiscation or belongings
+restoration are not implemented.
+
+**Guard arrest choices, PRG-12.** `World::arrest_options` offers payment only
+when the player has enough `Gold001`, jail for a positive bounty, and
+resistance for any valid arrest. It reads arrest policy from the first byte
+of the winning faction's `CRVA` and requires the faction's `DATA` Track Crime
+flag. `World::resolve_arrest` applies only the selected choice. Payment
+deducts the combined bounty and clears its violent and nonviolent ledgers.
+Jail uses `serve_jail_time`, including its clock and skill-progress effects.
+Resistance leaves the purse, bounty, infamy and jail state unchanged.
+The `FACT.DATA`, `CRVA`, `JAIL`, `STOL`, `PLCN` and `JOUT` fields follow
+`TES5Edit/Core/wbDefinitionsTES5.pas` and `uesp-modfileformat/FACT.wikitext`.
+The arrest flag and `IsArrested` status name the local CK faction and actor
+contracts. Jail marker travel, evidence storage, belongings restoration and
+combat behavior after resistance are not handled here.
+
 **Vendor service lookup.** `Game::resolve_vendor_service` reads the winning
 `FACT` vendor flag, `VEND`, `VENC`, `VENV`, `PLVD` and faction conditions. It evaluates
 conditions for a loaded merchant with the player as target and applies the
@@ -1116,8 +1140,9 @@ skips looking for one below version 37.
   timer lifetimes, and repeat-while-conditions behavior are not implemented.
   Perks are a set on the
   actor, no entry point applies. Leveled lists are never rolled. Spell casts
-  are recorded, no effect applies. Crime has bounty and infamy ledgers, no
-  jail or arrest.
+  are recorded, no effect applies. Arrest choice accounting and jail
+  sentences exist, but guard movement, jail placement and resistance combat
+  are not implemented.
 - Faction relations from `XNAM`, location keyword data, perks and the actor
   flags were tested on the synthetic master and reached by the vanilla
   scripts at start, not checked against the game's runtime values.
