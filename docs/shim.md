@@ -87,6 +87,29 @@ Four plugins are a sample, not the population: the map's 70 to 90 percent open-s
 is from a six-plugin sample and the shimmable share here is 3 of 4 by plugin, far less by hook
 site because TDM dominates. The alandtse fork's 390 added headers were counted, not read.
 
+## Event binding batch SHM-18
+
+`RE::BSEventNotifyControl`, `BSTEventSink` and `BSTEventSource` project to
+`NotifyControl`, `EventSink` and `EventSource`. A source delivers sinks in
+registration order and stops after the first `Stop`. `ActorKill::Event`
+contains killer and victim runtime identities. `CriticalHit::Event` contains
+aggressor and weapon runtime identities plus the sneak-hit flag. The runtime
+identities are 64-bit keys composed from the engine's load-order file index
+and object id. These source-level payloads do not use Skyrim pointer layout.
+
+`World::actor_kill_events` reports a non-silent death with a valid actor
+killer after the victim enters dead state. Silent kills and deaths without a
+valid actor killer do not raise this channel. `World::report_critical_hit`
+validates the aggressor and winning WEAP form before reporting the caller's
+confirmed outcome. It does not calculate critical chance or damage. Binary
+call, branch and vtable hooks remain unsupported through
+`SKSE::TRAMPOLINE`, which exposes the reason as data.
+
+The event type declarations follow CommonLibSSE-NG-alandtse
+`include/RE/A/ActorKill.h`, `include/RE/C/CriticalHit.h` and
+`include/RE/B/BSTEvent.h`. The C++ contract fixture checks payload fields,
+sizes, notify-control values, dispatch and the unsupported hook result.
+
 ## Appendix: the 349 names by group
 
 **Forms and record enums** (86): `AlchemyItem`, `BGSArtObject`, `BGSAssociationType`, `BGSBaseAlias`, `BGSBipedObjectForm`, `BGSBodyPart`, `BGSBodyPartData`, `BGSBodyPartDefs`, `BGSColorForm`, `BGSConstructibleObject`, `BGSDebris`, `BGSFootstepSet`, `BGSHazard`, `BGSHazardData`, `BGSHeadPart`, `BGSIdleCollection`, `BGSImpactDataSet`, `BGSKeyword`, `BGSKeywordForm`, `BGSLightingTemplate`, `BGSListForm`, `BGSLocation`, `BGSMaterialObject`, `BGSMessage`, `BGSMovementType`, `BGSOutfit`, `BGSPerk`, `BGSProjectile`, `BGSRefAlias`, `BGSReferenceEffect`, `BGSRelationship`, `BGSScene`, `BGSSoundDescriptorForm`, `BGSTextureSet`, `BIPED_MODEL`, `BIPED_OBJECT`, `COL_LAYER`, `Effect`, `EffectSetting`, `EnchantmentItem`, `FACTION_RANK`, `FormID`, `FormType`, `MATERIAL_ID`, `MagicItem`, `OBJECT_TYPE`, `OBJ_BOOK`, `PackageNS`, `QUEST_DATA`, `RACE_SIZE`, `SEX`, `ScrollItem`, `SpellItem`, `TESAmmo`, `TESBoundObject`, `TESDescription`, `TESEffectShader`, `TESFaction`, `TESForm`, `TESFurniture`, `TESGlobal`, `TESIdleForm`, `TESImageSpaceModifier`, `TESKey`, `TESLevCharacter`, `TESLevItem`, `TESLevSpell`, `TESLeveledList`, `TESNPC`, `TESObjectARMA`, `TESObjectARMO`, `TESObjectBOOK`, `TESObjectCELL`, `TESObjectLIGH`, `TESObjectWEAP`, `TESPackage`, `TESQuest`, `TESRace`, `TESRegion`, `TESRegionList`, `TESShout`, `TESSound`, `TESTopicInfo`, `TESWeather`, `TESWorldSpace`, `TES_LIGHT_FLAGS`

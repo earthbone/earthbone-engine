@@ -148,6 +148,15 @@ The location check supports near-reference, in-cell, near-editor-location and
 near-self modes. Other PLVD modes return a typed error. The 32-bit radius and
 location modes follow CommonLibSSE `TESFaction.h` and UESP `FACT.wikitext`.
 
+**CommonLib event channels.** The shared world exposes the MIT shim's
+`ActorKill` and `CriticalHit` event sources. Non-silent deaths with a valid
+actor killer dispatch `ActorKill` after the victim enters dead state. The
+critical-hit reporting method validates an actor and winning WEAP record,
+then sends the caller-confirmed event. Critical chance and damage modifiers
+are not calculated by this reporting method. The listeners live only for the
+current World instance and are not saved. See [shim](shim.md#event-binding-batch-shm-18)
+for the projected C++ payload contract and unsupported binary hook boundary.
+
 ## Conformance table
 
 Counts from `natives::register`: 364 natives with state behind them and 177
