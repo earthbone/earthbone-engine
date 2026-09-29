@@ -6,13 +6,36 @@ it that describes progress into scenario expectations the harness in
 table and quest change forms using saved plugin names. Full world restoration
 remains unfinished.
 
-CELL, LCTN and ECZN decoding remains blocked on missing serialized layouts.
-See [saved spatial fields](save-spatial-fields.md) for the source boundary and
-60-save coverage census supporting SAV-27 and its SAV-66 prerequisite.
+CELL has a typed decoder for its common form flags, cell flags, full name,
+owner and xEdit-defined seen-data shape. Seen data precedes the full name and
+owner. The interior/exterior choice validates the suffix against xEdit's
+32-byte exterior and repeated 34-byte interior shapes. A truncated interior
+that leaves 32 bytes is indistinguishable from exterior data. CELL flags 28 to 30 are rejected
+because xEdit does not define their serialized fields. ECZN and LCTN decode
+their common form flags and retain other flagged bytes as opaque payloads,
+because the available schema marks those fields as placeholders. See
+[saved spatial fields](save-spatial-fields.md) for the source boundary and
+60-save corpus accounting. Live restoration remains unfinished.
 
 The projectile and hazard decoder tasks share a missing subtype-layout
 prerequisite. See [saved projectile layouts](save-projectile-layouts.md) for
 the xEdit dispatch gap, runtime type boundaries and evidence needed by SAV-55.
+
+The SAV-55 regression test pins the type indices for PMIS, PGRE, PBEA, PFLA,
+PHZD, PBAR, PCON and PARW and checks the generic change-form header preserves
+flags and payload bytes. SAV-11 exposes all 32 xEdit-defined PMIS, PGRE and
+PBEA change flag bits through `saved_projectile_change`. SAV-23 exposes the
+same flag positions for PFLA, PHZD and PBAR through `projectile_change`. Both
+retain their inflated subtype payload as exact bytes. The payload fields
+remain undecoded:
+xEdit's subtype dispatch structures are empty and FallrimTools uses its raw
+fallback. PCON and PARW expose typed envelopes containing their change flags,
+version, compression length and exact stored bytes. Their
+subtype payloads remain opaque because the inspected Skyrim xEdit structures
+are empty and FallrimTools has no typed reader. SAV-25 tests envelope
+truncation and reports PCON/PARW flag and byte coverage across the external
+save corpus. See [saved projectile layouts](save-projectile-layouts.md) for
+the source review and remaining evidence requirement.
 
 The format was not reverse engineered. It is documented and it has a mature
 open implementation, so both were read first.
@@ -99,6 +122,8 @@ does not claim runtime support for opaque payloads.
 - Type 3, the global variable table, as references and floats.
 - Every change form header. `ChangeForm::quest_change` decodes documented QUST
   flags, stages, objectives, runtime aliases/events and quest instances.
+- PCON and PARW change-form envelopes, with original stored payload bytes
+  retained without subtype interpretation.
 - `ChangeForm::info_change`, `story_manager_quest_node_change` and
   `scene_change` decode the defined INFO, SMQN and SCEN flag sections and state
   markers.
@@ -111,6 +136,8 @@ does not claim runtime support for opaque payloads.
   retains optional form flags plus base-object value and full-name markers.
   The four markers after the form flags have no payload bytes in xEdit's
   definitions, so typed output re-encodes to the exact source payload.
+- `ChangeForm::cell_change` decodes defined CELL fields, and the ECZN/LCTN
+  decoders retain their placeholder payload bytes with the common form flags.
 - Type 107, quest static data, including its two event arrays, three reference
   arrays, reference-keyed values and final byte.
 - Type 1001, the Papyrus block: the string table, the script definitions with
@@ -154,6 +181,18 @@ Most decoded state remains inspection data. The game crate can apply globals,
 quest state, Papyrus instances and active script frames. Queued messages,
 suspended stack tables, latent native waits and other world state are not
 resumed by this path. This is not a complete save loader.
+PFLA, PHZD and PBAR expose their shared xEdit change flag word as typed flag
+positions, including unnamed bits. Their subtype payload fields remain raw
+because the inspected sources do not establish subtype field layouts. The
+decoder accepts every flag word without dropping bits and preserves the exact
+inflated payload bytes. It does not infer that a set change flag corresponds
+to a specific serialized payload field.
+
+Most decoded state remains inspection data. The game crate can apply globals,
+quest state, Papyrus instances and active script frames. Queued messages,
+suspended stack tables, latent native waits and other world state are not
+resumed by this path. The explicit instance-import API below can apply decoded
+variables to a prepared VM, but this is not a complete save loader.
 
 ## Runtime instance import
 
@@ -776,6 +815,11 @@ checks payload decompression through the existing reader. It does not claim
 typed decoding or typed re-encoding. Before its first run, it required at
 least 50 saves and more than 100,000 inspected change forms. The 60-save run
 inspected 1,344,172 changes and found:
+
+SAV-11 regression tests round-trip the three record indices, header flag words
+and opaque payload bytes, and reject every truncated prefix of each synthetic
+change form. The corpus test requires PMIS and PGRE records and reports the
+PBEA count, including zero. These checks cover the generic envelope only.
 
 | Type | Change flags | Count | Decompressed payload bytes |
 |---|---|---:|---:|

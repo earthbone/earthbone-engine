@@ -6,6 +6,7 @@ members = [
     "crates/bsa",
     "crates/commonlib-shim",
     "crates/dds",
+    "crates/editor",
     "crates/esm",
     "crates/game",
     "crates/godot-host",

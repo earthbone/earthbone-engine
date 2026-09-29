@@ -38,9 +38,10 @@ pub mod reference;
 pub mod table;
 
 pub use base_object::BaseObjectFields;
-pub use change::{ChangeForm, QuestStage};
 pub use change::{
-    ClassChange, FactionChange, FactionReaction, FactionReactions, NavmeshChange, PackChange,
+    CellChange, CellInteriorSeenEntry, CellSeenData, ChangeForm, ClassChange, FactionChange,
+    FactionReaction, FactionReactions, NavmeshChange, OpaqueSpatialChange, PackChange, ParwChange,
+    PconChange, ProjectileChange, ProjectileChangeFlag, ProjectileChangeFlags, QuestStage,
     RelationshipChange,
 };
 pub use created_objects::{CreatedEffect, CreatedObject, CreatedObjects};

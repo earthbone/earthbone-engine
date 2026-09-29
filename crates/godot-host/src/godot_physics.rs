@@ -17,7 +17,7 @@
 
 use std::collections::HashMap;
 
-use godot::classes::physics_server_3d::{BodyMode, BodyState};
+use godot::classes::physics_server_3d::{BodyMode, BodyParameter, BodyState};
 use godot::classes::PhysicsServer3D;
 use godot::prelude::*;
 
@@ -27,7 +27,7 @@ use soe_physics::{Collider, Iso, Shape, Vec3};
 
 use crate::collision::PlacedCollider;
 use crate::combat::{plan_body_sync, BodySyncPlan};
-use crate::units::{SkyrimPos, METRES_PER_UNIT};
+use crate::units::{direction_to_skyrim, placement_to_godot, GodotPos, SkyrimPos, METRES_PER_UNIT};
 
 /// What went into the space, so a caller can report it the way the cell
 /// streamer reports its surfaces.
@@ -66,20 +66,74 @@ struct StaticEntry {
     shapes: Vec<Rid>,
 }
 
-/// The server side handles for one cell's collision, so a caller can free
+struct MovableEntry {
+    reference: GlobalFormId,
+    original: Iso,
+    source: Collider,
+    shape_scale: f32,
+    body: Rid,
+    shapes: Vec<Rid>,
+    synced: Option<(bool, Iso)>,
+}
+
+/// The server side handles for one cell's static and movable collision, so a caller can free
 /// them when the cell unloads. Dropping this does not free anything, the
 /// server owns the ids, call [`CellBodies::free`].
 #[derive(Default)]
 pub struct CellBodies {
     entries: Vec<StaticEntry>,
+    movable: Vec<MovableEntry>,
     pub stats: GodotCollisionStats,
 }
 
 impl CellBodies {
-    /// Every static body's RID, in insertion order. Diagnostic callers may
+    /// Every live body's RID, in insertion order. Diagnostic callers may
     /// inspect these handles, but must not free them, `free` owns that.
     pub fn body_rids(&self) -> impl Iterator<Item = Rid> + '_ {
-        self.entries.iter().map(|entry| entry.body)
+        self.entries.iter().map(|entry| entry.body).chain(
+            self.movable
+                .iter()
+                .map(|entry| entry.body)
+                .filter(Rid::is_valid),
+        )
+    }
+
+    /// Number of live movable bodies in this cell.
+    #[must_use]
+    pub fn movable_count(&self) -> usize {
+        self.movable
+            .iter()
+            .filter(|entry| entry.body.is_valid())
+            .count()
+    }
+
+    /// Materializes movable references before their first visibility sync.
+    pub fn ensure_references(&self, world: &mut soe_game::World) {
+        for entry in &self.movable {
+            world.reference(entry.reference);
+        }
+    }
+
+    /// Sample live rigid-body positions for host diagnostics.
+    pub fn movable_poses(&self) -> Array<VarDictionary> {
+        let mut result = Array::new();
+        let server = PhysicsServer3D::singleton();
+        for entry in self.movable.iter().filter(|entry| entry.body.is_valid()) {
+            let Ok(pose) = server
+                .body_get_state(entry.body, BodyState::TRANSFORM)
+                .try_to::<Transform3D>()
+            else {
+                continue;
+            };
+            let position = GodotPos::new(pose.origin.x, pose.origin.y, pose.origin.z).to_skyrim();
+            let mut row = VarDictionary::new();
+            row.set("file", i64::from(entry.reference.file));
+            row.set("object", i64::from(entry.reference.object));
+            row.set("body", entry.body);
+            row.set("position", Vector3::new(position.x, position.y, position.z));
+            result.push(&row);
+        }
+        result
     }
 
     /// Releases every id back to the server. A cell that unloads must call
@@ -87,7 +141,17 @@ impl CellBodies {
     pub fn free(&mut self) {
         let mut server = PhysicsServer3D::singleton();
         for entry in self.entries.drain(..) {
-            server.free_rid(entry.body);
+            if entry.body.is_valid() {
+                server.free_rid(entry.body);
+            }
+            for shape in entry.shapes {
+                server.free_rid(shape);
+            }
+        }
+        for entry in self.movable.drain(..) {
+            if entry.body.is_valid() {
+                server.free_rid(entry.body);
+            }
             for shape in entry.shapes {
                 server.free_rid(shape);
             }
@@ -144,7 +208,13 @@ impl CellBodies {
             for shape in entry.shapes.drain(..) {
                 server.free_rid(shape);
             }
-            match build_body(&mut server, space, &moved, &mut self.stats) {
+            match build_body(
+                &mut server,
+                space,
+                &moved,
+                BodyMode::STATIC,
+                &mut self.stats,
+            ) {
                 Some((body, shapes)) => {
                     entry.body = body;
                     entry.shapes = shapes;
@@ -155,6 +225,88 @@ impl CellBodies {
                     entry.body = server.body_create();
                     entry.shapes = Vec::new();
                 }
+            }
+        }
+        for entry in &mut self.movable {
+            let Some(target) = world.ref_placement(entry.reference) else {
+                continue;
+            };
+            let iso = Iso::placement(target.position, target.rotation, target.scale);
+            let key = (target.visible, iso);
+            if entry.synced == Some(key) {
+                continue;
+            }
+            entry.synced = Some(key);
+            if target.visible {
+                if entry.body.is_valid() && entry.shape_scale != iso.scale {
+                    server.free_rid(entry.body);
+                    for shape in entry.shapes.drain(..) {
+                        server.free_rid(shape);
+                        self.stats.shapes = self.stats.shapes.saturating_sub(1);
+                    }
+                    self.stats.bodies = self.stats.bodies.saturating_sub(1);
+                    entry.body = Rid::Invalid;
+                }
+                if !entry.body.is_valid() {
+                    let mut source = entry.source.clone();
+                    source.transform.scale = iso.scale / entry.original.scale;
+                    if let Some((body, shapes)) =
+                        build_movable_body(&mut server, space, &source, iso, &mut self.stats)
+                    {
+                        entry.body = body;
+                        entry.shapes = shapes;
+                        entry.shape_scale = iso.scale;
+                    }
+                    continue;
+                }
+                server.body_set_space(entry.body, space);
+                server.body_set_state(
+                    entry.body,
+                    BodyState::TRANSFORM,
+                    &body_transform(&iso).to_variant(),
+                );
+            } else if entry.body.is_valid() {
+                server.free_rid(entry.body);
+                for shape in entry.shapes.drain(..) {
+                    server.free_rid(shape);
+                    self.stats.shapes = self.stats.shapes.saturating_sub(1);
+                }
+                self.stats.bodies = self.stats.bodies.saturating_sub(1);
+                entry.body = Rid::Invalid;
+            }
+        }
+        self.movable.retain(|entry| {
+            !world
+                .reference_ref(entry.reference)
+                .is_some_and(|state| state.deleted)
+        });
+    }
+
+    /// Copies the latest simulated pose into the record-backed World.
+    /// Call after `sync_placements` so a game-side move wins before polling.
+    pub fn poll_movable(&mut self, world: &mut soe_game::World) {
+        let server = PhysicsServer3D::singleton();
+        for entry in &mut self.movable {
+            if !entry.body.is_valid()
+                || !world
+                    .reference(entry.reference)
+                    .is_some_and(|state| state.enabled && !state.deleted)
+            {
+                continue;
+            }
+            let Ok(transform) = server
+                .body_get_state(entry.body, BodyState::TRANSFORM)
+                .try_to::<Transform3D>()
+            else {
+                continue;
+            };
+            let position =
+                GodotPos::new(transform.origin.x, transform.origin.y, transform.origin.z)
+                    .to_skyrim();
+            let rotation = skyrim_rotation(transform.basis);
+            let pose = [position.x, position.y, position.z];
+            if world.set_host_ref_pose(entry.reference, pose, rotation) {
+                entry.synced = Some((true, Iso::placement(pose, rotation, entry.shape_scale)));
             }
         }
     }
@@ -170,7 +322,13 @@ pub fn add_statics(space: Rid, colliders: &[Collider]) -> CellBodies {
     let mut out = CellBodies::default();
 
     for collider in colliders.iter().filter(|c| c.is_static()) {
-        if let Some((body, shapes)) = build_body(&mut server, space, collider, &mut out.stats) {
+        if let Some((body, shapes)) = build_body(
+            &mut server,
+            space,
+            collider,
+            BodyMode::STATIC,
+            &mut out.stats,
+        ) {
             out.entries.push(StaticEntry {
                 reference: None,
                 original: None,
@@ -184,18 +342,21 @@ pub fn add_statics(space: Rid, colliders: &[Collider]) -> CellBodies {
     out
 }
 
-/// Adds every static collider to `space`, keeping each body's owning
-/// reference and load-time placement so [`CellBodies::sync_placements`] can
-/// later hide or move it. The reference-tracked sibling of [`add_statics`].
+/// Adds placed static and movable collision to `space`, keeping each body's
+/// owning reference and load-time placement for runtime synchronization.
 pub fn add_placed_statics(space: Rid, colliders: &[PlacedCollider]) -> CellBodies {
     let _span = soe_trace::Span::new("host.godot_physics", "host");
     let mut server = PhysicsServer3D::singleton();
     let mut out = CellBodies::default();
 
     for placed in colliders.iter().filter(|p| p.collider.is_static()) {
-        if let Some((body, shapes)) =
-            build_body(&mut server, space, &placed.collider, &mut out.stats)
-        {
+        if let Some((body, shapes)) = build_body(
+            &mut server,
+            space,
+            &placed.collider,
+            BodyMode::STATIC,
+            &mut out.stats,
+        ) {
             out.entries.push(StaticEntry {
                 reference: Some(placed.reference),
                 original: Some(placed.original),
@@ -206,7 +367,105 @@ pub fn add_placed_statics(space: Rid, colliders: &[PlacedCollider]) -> CellBodie
             });
         }
     }
+    let mut groups: Vec<(GlobalFormId, Iso, Vec<&Collider>)> = Vec::new();
+    for placed in colliders.iter().filter(|p| !p.collider.is_static()) {
+        if let Some((_, _, shapes)) = groups
+            .iter_mut()
+            .find(|(reference, _, _)| *reference == placed.reference)
+        {
+            shapes.push(&placed.collider);
+        } else {
+            groups.push((placed.reference, placed.original, vec![&placed.collider]));
+        }
+    }
+    for (reference, original, colliders) in groups {
+        let children = colliders
+            .iter()
+            .map(|collider| {
+                let relative = original.inverse().then(&collider.transform);
+                let local = Iso {
+                    translation: relative.translation * original.scale,
+                    scale: relative.scale * original.scale,
+                    ..relative
+                };
+                (local, collider.shape.clone())
+            })
+            .collect();
+        let mut combined = colliders[0].clone();
+        combined.mass = colliders
+            .iter()
+            .map(|collider| collider.mass.max(0.0))
+            .sum();
+        combined.shape = Shape::Compound(children);
+        combined.transform = Iso::IDENTITY;
+        if let Some((body, shapes)) =
+            build_movable_body(&mut server, space, &combined, original, &mut out.stats)
+        {
+            out.movable.push(MovableEntry {
+                reference,
+                original,
+                source: combined,
+                shape_scale: original.scale,
+                body,
+                shapes,
+                synced: Some((true, original)),
+            });
+        }
+    }
     out
+}
+
+fn body_transform(pose: &Iso) -> Transform3D {
+    let t = placement_to_godot(
+        pose.rotation.rows,
+        [pose.translation.x, pose.translation.y, pose.translation.z],
+        1.0,
+    );
+    let b = t.basis;
+    Transform3D::new(
+        Basis::from_rows(
+            Vector3::new(b[0][0], b[0][1], b[0][2]),
+            Vector3::new(b[1][0], b[1][1], b[1][2]),
+            Vector3::new(b[2][0], b[2][1], b[2][2]),
+        ),
+        Vector3::new(t.origin.x, t.origin.y, t.origin.z),
+    )
+}
+
+fn skyrim_rotation(basis: Basis) -> [f32; 3] {
+    let axis = |v: Vector3| direction_to_skyrim([v.x, v.y, v.z]);
+    let x = axis(basis * Vector3::RIGHT);
+    let y = axis(basis * Vector3::FORWARD);
+    let z = axis(basis * Vector3::UP);
+    let r = [[x[0], y[0], z[0]], [x[1], y[1], z[1]], [x[2], y[2], z[2]]];
+    let pitch = (-r[0][2]).clamp(-1.0, 1.0).asin();
+    let roll = if pitch.cos().abs() > 1e-5 {
+        r[1][2].atan2(r[2][2])
+    } else {
+        (-r[1][0] * r[0][2]).atan2(r[1][1])
+    };
+    let yaw = if pitch.cos().abs() > 1e-5 {
+        r[0][1].atan2(r[0][0])
+    } else {
+        0.0
+    };
+    [roll, pitch, yaw]
+}
+
+fn build_movable_body(
+    server: &mut Gd<PhysicsServer3D>,
+    space: Rid,
+    collider: &Collider,
+    pose: Iso,
+    stats: &mut GodotCollisionStats,
+) -> Option<(Rid, Vec<Rid>)> {
+    let (body, shapes) = build_body(server, space, collider, BodyMode::RIGID, stats)?;
+    server.body_set_state(
+        body,
+        BodyState::TRANSFORM,
+        &body_transform(&pose).to_variant(),
+    );
+    Some((body, shapes))
 }
 
 /// Flattens `collider` and builds one static body with one shape per
@@ -219,16 +478,25 @@ fn build_body(
     server: &mut Gd<PhysicsServer3D>,
     space: Rid,
     collider: &Collider,
+    mode: BodyMode,
     stats: &mut GodotCollisionStats,
 ) -> Option<(Rid, Vec<Rid>)> {
     let mut prims = Vec::new();
     flatten(&collider.shape, &collider.transform, &mut prims);
+    if mode == BodyMode::RIGID {
+        let count = prims.len();
+        prims.retain(|prim| !matches!(prim, GodotPrim::Trimesh(_)));
+        stats.skipped += count - prims.len();
+    }
     if prims.is_empty() {
         stats.skipped += 1;
         return None;
     }
     let body = server.body_create();
-    server.body_set_mode(body, godot::classes::physics_server_3d::BodyMode::STATIC);
+    server.body_set_mode(body, mode);
+    if mode == BodyMode::RIGID {
+        server.body_set_param(body, BodyParameter::MASS, &collider.mass.to_variant());
+    }
     server.body_set_space(body, space);
     let mut shapes = Vec::with_capacity(prims.len());
     for prim in prims {
@@ -562,6 +830,23 @@ fn godot_point(v: Vec3) -> Vector3 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn hst_12_body_pose_round_trips_rotation_and_position() {
+        let pose = Iso::placement([100.0, -200.0, 300.0], [0.2, -0.3, 0.4], 1.0);
+        let host = body_transform(&pose);
+        let rotation = skyrim_rotation(host.basis);
+        let round_trip = Iso::placement([100.0, -200.0, 300.0], rotation, 1.0);
+        for axis in [Vec3::new(1.0, 0.0, 0.0), Vec3::new(0.0, 1.0, 0.0), Vec3::Z] {
+            let actual = round_trip.apply_direction(axis);
+            let expected = pose.apply_direction(axis);
+            assert!((actual - expected).length() < 1e-4);
+        }
+        let position = GodotPos::new(host.origin.x, host.origin.y, host.origin.z).to_skyrim();
+        assert!((position.x - 100.0).abs() < 1e-4);
+        assert!((position.y + 200.0).abs() < 1e-4);
+        assert!((position.z - 300.0).abs() < 1e-4);
+    }
 
     fn close(a: Vector3, b: Vector3) {
         assert!((a - b).length() < 1e-5, "{a:?} != {b:?}");

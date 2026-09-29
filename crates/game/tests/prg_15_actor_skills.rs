@@ -16,7 +16,8 @@
 //! independently chosen numbers so the two files do not simply repeat each
 //! other's arithmetic.
 
-use std::path::PathBuf;
+#[path = "common/installed.rs"]
+mod installed;
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::{
@@ -234,22 +235,19 @@ fn prg_15_winning_race_and_class_overrides_both_apply_together() {
 // `actor_values_live.rs`'s own gate.
 #[test]
 fn prg_15_vanilla_manual_and_automatic_actors_stay_in_bounds() {
-    let Some(data) = std::env::var_os("SKYRIM_DATA").map(PathBuf::from) else {
+    let Some(_data) = installed::data_dir() else {
         eprintln!("SKYRIM_DATA not set, skipping prg_15 vanilla actor survey");
         return;
     };
-    let mut order = LoadOrder::new();
-    for name in [
+    let order = installed::load_order(&[
         "Skyrim.esm",
         "Update.esm",
         "Dawnguard.esm",
         "HearthFires.esm",
         "Dragonborn.esm",
-    ] {
-        let bytes = std::fs::read(data.join(name)).unwrap();
-        order.add(name, Plugin::parse(&bytes).unwrap()).unwrap();
-    }
-    let game = Game::new(order);
+    ])
+    .unwrap();
+    let game = Game::from_shared_order(order);
     let world = game.world();
     let mut manual = 0usize;
     let mut class_formula_eligible = 0usize;
