@@ -47,6 +47,7 @@ mod combat;
 mod contact;
 mod crime;
 mod death;
+mod destruction;
 mod detection;
 mod doorway;
 mod driver;
@@ -155,6 +156,9 @@ pub struct RefState {
     pub on_map: bool,
     pub fast_travel: bool,
     pub destroyed: bool,
+    /// Remaining health and active DEST stage for this placed object.
+    pub destruction_health: Option<f32>,
+    pub destruction_stage: i32,
     pub ignore_friendly_hits: bool,
     /// Animation graph variables set through `SetAnimationVariable*`, keyed
     /// by lowercase name. The graph has one value per name, the three
@@ -194,6 +198,8 @@ impl RefState {
             on_map: false,
             fast_travel: false,
             destroyed: false,
+            destruction_health: None,
+            destruction_stage: -1,
             ignore_friendly_hits: false,
             anim_floats: BTreeMap::new(),
             anim_ints: BTreeMap::new(),

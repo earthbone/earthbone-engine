@@ -463,6 +463,33 @@ fn object_reference(vm: &mut Vm, w: &Shared) {
             none()
         }
     );
+    method!(
+        vm,
+        w,
+        "ObjectReference",
+        "DamageObject",
+        |world, call, me| {
+            world.damage_object(me, call.arg(0).as_float(), alloc!(call));
+            none()
+        }
+    );
+    method!(
+        vm,
+        w,
+        "ObjectReference",
+        "GetCurrentDestructionStage",
+        |world, call, me| i(world.destruction_stage(me))
+    );
+    method!(
+        vm,
+        w,
+        "ObjectReference",
+        "ClearDestruction",
+        |world, call, me| {
+            world.clear_destruction(me, alloc!(call));
+            none()
+        }
+    );
     for name in ["Enable", "EnableNoWait"] {
         method!(vm, w, "ObjectReference", name, |world, call, me| {
             if let Some(r) = world.reference(me) {
@@ -3236,7 +3263,6 @@ fn stubs(vm: &mut Vm) -> usize {
     }
     let ints: &[(&str, &str, i32)] = &[
         ("ObjectReference", "GetTriggerObjectCount", 0),
-        ("ObjectReference", "GetCurrentDestructionStage", 0),
         ("Actor", "GetCombatState", 0),
         ("Actor", "GetSleepState", 0),
         ("Actor", "GetSitState", 0),
@@ -3262,8 +3288,6 @@ fn stubs(vm: &mut Vm) -> usize {
         ("ObjectReference", "SetMotionType"),
         ("ObjectReference", "ApplyHavokImpulse"),
         ("ObjectReference", "SetNoFavorAllowed"),
-        ("ObjectReference", "ClearDestruction"),
-        ("ObjectReference", "DamageObject"),
         ("ObjectReference", "KnockAreaEffect"),
         ("ObjectReference", "PushActorAway"),
         ("Actor", "SetEssential"),
