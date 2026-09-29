@@ -972,6 +972,14 @@ The `sav_63_` tests also corrupt a newly published generation after an
 interrupted rotation, then recover the older verified state and finish a
 bounded retry.
 
+The `sav_61_` tests cover the available recovery boundary: an accepted native
+generation lives in a separate directory and leaves the source save bytes
+unchanged, while a generation written against a different script schema is
+rejected without changing the live game. Dependency preflight, unresolved
+record and script preservation, and reconnection are not implemented in this
+tree, so these checks do not establish missing-mod recovery play or a host
+recovery scenario.
+
 A test in `tests/quest_flow.rs` calls the new `Game::activate_no_settle`
 (the part of `Game::activate` before `run_until_idle`) on the lever so the
 `OnActivate` event is queued but not yet run, saves, loads the bytes into a
