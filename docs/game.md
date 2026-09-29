@@ -1801,6 +1801,26 @@ Automatic ability application from AddSpell or NPC spell lists, enchantments,
 potions, resistance and absorption, effect artwork and sounds, actor-event
 forwarding and VM object reclamation remain unfinished.
 
+### Vampire Lord transformation, MAG-67
+
+MGEF archetype 46 resolves its associated item as a RACE form. Applying it
+sets the target actor's runtime race to that winning form and adds the race's
+direct SPLO entries whose winning SPEL records have the Ability type. Only
+spells newly inserted by that transformation are owned by it. Their constant
+effects are applied through the actor ability path. The `MAG-67` world save
+section retains the previous race, assigned race, added spells and resulting
+effect identities. Dispel or expiry restores the previous race only if the
+actor still has the race this effect assigned, then removes its added spells
+and their active effects. A spell that was already known remains known.
+
+The local `TES5Edit/Core/wbDefinitionsTES5.pas` MGEF archetype enum and
+`uesp-modfileformat/MGEF.wikitext` identify archetype 46 and its associated
+RACE link. xEdit's `wbSPLOs` definition identifies race SPLO entries as actor
+effects. The requested CK Magic Effect page is absent from the local CK wiki
+dump. The available CK `GetRace`, `AddSpell` and `RemoveSpell` pages establish
+the actor race and spell operations used here. Race SPLO entries that are
+leveled lists or shouts are not applied by this path.
+
 resistance and absorption, effect artwork and sounds, actor-event
 forwarding, effect inventory filters and VM object reclamation remain unfinished.
 
