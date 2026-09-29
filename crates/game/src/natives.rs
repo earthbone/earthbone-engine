@@ -2552,6 +2552,47 @@ fn active_magic(vm: &mut Vm, w: &Shared) {
         world.dispel_all_spells(me, alloc!(call));
         none()
     });
+    method!(vm, w, "Actor", "UnequipAll", |world, call, me| {
+        let items: Vec<_> = world
+            .reference(me)
+            .map(|reference| reference.inventory.iter().map(|(item, _)| *item).collect())
+            .unwrap_or_default();
+        for item in items {
+            if let Err(error) = world.unequip_item(me, item) {
+                call.log
+                    .push(call.time, format!("Actor.UnequipAll: {error}"));
+                return none();
+            }
+        }
+        if let Some(actor) = world.actor(me) {
+            actor.equipped.clear();
+            actor.left_weapon = None;
+            actor.right_weapon = None;
+            actor.left_spell = None;
+            actor.right_spell = None;
+            actor.equipped_shout = None;
+        }
+        none()
+    });
+    method!(vm, w, "Actor", "RemoveAllSpells", |world, _call, me| {
+        if let Some(actor) = world.actor(me) {
+            let spells = actor.spells.clone();
+            actor.spells.clear();
+            actor.left_spell = None;
+            actor.right_spell = None;
+            actor.equipped.retain(|item| !spells.contains(item));
+        }
+        none()
+    });
+    method!(vm, w, "Actor", "StartVampireFeed", |world, call, me| {
+        if let Some(target) = world.form_arg(&call.arg(0)) {
+            if world.actor(target).is_some() {
+                let target = world.form_value(Some(target), alloc!(call));
+                world.form_event(me, "OnVampireFeed", vec![target], alloc!(call));
+            }
+        }
+        none()
+    });
     self_method!(
         vm,
         w,
@@ -3286,10 +3327,7 @@ fn stubs(vm: &mut Vm) -> usize {
         ("Message", "ResetHelpMessage"),
         ("Actor", "Dismount"),
         ("Actor", "Trespass"),
-        ("Actor", "UnequipAll"),
-        ("Actor", "RemoveAllSpells"),
         ("Actor", "StartCannibal"),
-        ("Actor", "StartVampireFeed"),
         // The arrow 3d, the ragdoll and the cart tether are renderer and
         // physics work, the DLC scripts only ask for them.
         ("Actor", "ClearExtraArrows"),
