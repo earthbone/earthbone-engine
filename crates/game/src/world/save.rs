@@ -1071,18 +1071,17 @@ impl World {
         } else {
             crate::detection::DetectionState::default()
         };
-        // World-level sections are read straight into `self`, unlike every
-        // field above, which lands in a local and is only committed to
-        // `self` in the block below once the whole stream has parsed
-        // cleanly. A registered section may touch any field on `World`, so
-        // there is no local `World` to stage it in. If a section later in
-        // this table fails, sections read earlier in the same call have
-        // already mutated `self`, and the `Err` this function returns
-        // tells the caller to discard it.
+        // The SAV-46 reader needs the candidate overrides to validate its
+        // entries. Temporarily expose that candidate, then restore the live
+        // map before continuing validation so a failed load stays atomic.
         if version >= 37 {
-            self.record_overrides.clone_from(&record_overrides);
-            save_sections::read_sections(&mut r, "world", self, WORLD_SECTIONS)?;
+            let previous_overrides =
+                std::mem::replace(&mut self.record_overrides, record_overrides.clone());
+            let section_result =
+                save_sections::read_sections(&mut r, "world", self, WORLD_SECTIONS);
             record_overrides.clone_from(&self.record_overrides);
+            self.record_overrides = previous_overrides;
+            section_result?;
         }
         r.expect_end()?;
         for id in super::detection::detection_actors(&detection) {

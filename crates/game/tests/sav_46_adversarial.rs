@@ -62,7 +62,11 @@ fn save() -> Save {
         unused: [0; 15],
     }
     .write(&mut bytes);
-    soe_save::GlobalData { kind: 1000, data: vec![] }.write(&mut bytes);
+    soe_save::GlobalData {
+        kind: 1000,
+        data: vec![],
+    }
+    .write(&mut bytes);
     bytes.extend_from_slice(&[0; 8]);
     let mut save = Save::parse(&bytes).unwrap();
     save.plugins = vec![WString::from_text("Skyrim.esm")];
@@ -105,15 +109,23 @@ fn sav_46_relationship_rank_enum_end_survives_engine_save_load() {
     let mut saved = save();
     // RELA's saved rank is a four byte value. Plugin rank 8 is Archnemesis,
     // which the actor-facing rank scale represents as -4.
-    saved.change_forms.push(change(RELA, 39, 2, 8_i32.to_le_bytes().to_vec()));
+    saved
+        .change_forms
+        .push(change(RELA, 39, 2, 8_i32.to_le_bytes().to_vec()));
     let mut world = World::from_shared_order(order.clone());
     assert_eq!(world.restore_vanilla_record_changes(&saved).unwrap(), 1);
-    assert_eq!(world.relationship_record_rank(id(0, PARENT), id(0, CHILD)), Some(-4));
+    assert_eq!(
+        world.relationship_record_rank(id(0, PARENT), id(0, CHILD)),
+        Some(-4)
+    );
 
     let bytes = world.save_state();
     let mut loaded = World::from_shared_order(order);
     loaded.load_state(&bytes).unwrap();
-    assert_eq!(loaded.relationship_record_rank(id(0, PARENT), id(0, CHILD)), Some(-4));
+    assert_eq!(
+        loaded.relationship_record_rank(id(0, PARENT), id(0, CHILD)),
+        Some(-4)
+    );
 }
 
 #[test]
@@ -126,13 +138,23 @@ fn sav_46_present_empty_faction_reactions_clear_warm_record_consumer() {
     saved.change_forms.push(change(FACT, 31, 4, vec![0]));
     assert_eq!(world.restore_vanilla_record_changes(&saved).unwrap(), 1);
     assert!(world.faction(id(0, FACT)).unwrap().reactions.is_empty());
-    assert!(world.record(id(0, FACT)).unwrap().all(Tag(*b"XNAM")).next().is_none());
+    assert!(world
+        .record(id(0, FACT))
+        .unwrap()
+        .all(Tag(*b"XNAM"))
+        .next()
+        .is_none());
 
     let bytes = world.save_state();
     let mut loaded = World::from_shared_order(order);
     loaded.load_state(&bytes).unwrap();
     assert!(loaded.faction(id(0, FACT)).unwrap().reactions.is_empty());
-    assert!(loaded.record(id(0, FACT)).unwrap().all(Tag(*b"XNAM")).next().is_none());
+    assert!(loaded
+        .record(id(0, FACT))
+        .unwrap()
+        .all(Tag(*b"XNAM"))
+        .next()
+        .is_none());
 }
 
 #[test]
@@ -151,5 +173,10 @@ fn sav_46_unresolved_faction_reaction_does_not_apply_prior_record_changes() {
     let before = world.save_state();
     assert!(world.restore_vanilla_record_changes(&saved).is_err());
     assert_eq!(world.save_state(), before);
-    assert!(world.record(id(0, FACT)).unwrap().all(Tag(*b"XNAM")).next().is_some());
+    assert!(world
+        .record(id(0, FACT))
+        .unwrap()
+        .all(Tag(*b"XNAM"))
+        .next()
+        .is_some());
 }

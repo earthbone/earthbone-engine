@@ -363,17 +363,16 @@ fn engine_extras_reject_truncation_duplicates_and_bad_flags_atomically_and_read_
     // Both references' own save-section tables (version 37) are
     // stripped here, since version 19 predates them.
     let mut legacy = legacy::without_ref_sections(&mut world, &[id(0, 0x100), id(0, 0x101)]);
-    // The extra 6 bytes beyond the old 37 are detection's now-unconditional
-    // empty pool count and the world-level save-section table version 37
-    // added, both always present at the tail regardless of the simulated
-    // version.
-    legacy.truncate(legacy.len() - 43);
+    // The extra 21 bytes beyond the old 37 are detection's now-unconditional
+    // empty pool count and the world-level save-section table, both always
+    // present at the tail regardless of the simulated version.
+    legacy.truncate(legacy.len() - 58);
     legacy[4..6].copy_from_slice(&19_u16.to_le_bytes());
     let mut save = save();
     save.change_forms = vec![change(0x400100, 0x400811, 0, 5, 0x400801)];
     world.restore_vanilla_reference_extras(&save).unwrap();
     let before = world.save_state();
-    let body_end = before.len() - 6;
+    let body_end = before.len() - 21;
     let mut bad_flags = before.clone();
     let at = body_end - 42;
     bad_flags[at] |= 1;
