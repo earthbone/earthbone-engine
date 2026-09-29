@@ -37,6 +37,11 @@ fn light_plugin_form_link_keeps_its_special_marker() {
 }
 
 #[test]
-fn out_of_range_master_link_tracks_the_plugin_self_index() {
-    assert_eq!(relocated_link(0x0500_1234), 0x0300_1234);
+fn unresolved_out_of_range_master_link_is_preserved() {
+    assert_eq!(relocated_link(0x0500_1234), 0x0500_1234);
+}
+
+#[test]
+fn plugin_self_link_tracks_the_new_self_index() {
+    assert_eq!(relocated_link(0x0200_1234), 0x0300_1234);
 }

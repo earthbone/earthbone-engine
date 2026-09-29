@@ -526,6 +526,15 @@ impl Plugin {
                 return Err(Error::Invalid(format!("cannot remove master {master}")));
             }
         }
+        let master_indices: Vec<usize> = old
+            .iter()
+            .map(|master| {
+                masters
+                    .iter()
+                    .position(|new| new.eq_ignore_ascii_case(master))
+                    .ok_or_else(|| Error::Invalid(format!("cannot remove master {master}")))
+            })
+            .collect::<Result<_>>()?;
         for record in &self.records {
             for subrecord in &record.subrecords {
                 if is_form_id_field(record.tag, subrecord.tag) && subrecord.data.len() % 4 != 0 {
@@ -554,13 +563,15 @@ impl Plugin {
 
         let relocate = |raw: u32| {
             let old_index = (raw >> 24) as usize;
+            if raw == 0 || old_index == 0xFE || old_index > old.len() {
+                return raw;
+            }
             let object = raw & 0x00FF_FFFF;
-            let new_index = old.get(old_index).and_then(|name| {
-                masters
-                    .iter()
-                    .position(|new| new.eq_ignore_ascii_case(name))
-            });
-            let index = new_index.unwrap_or(masters.len());
+            let index = if old_index == old.len() {
+                masters.len()
+            } else {
+                master_indices[old_index]
+            };
             ((index as u32) << 24) | object
         };
 
