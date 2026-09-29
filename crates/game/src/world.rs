@@ -77,6 +77,8 @@ pub use record_overrides::NpcRecordExtra;
 mod quest_restore;
 mod quest_save;
 mod quests;
+mod story_manager;
+pub use story_manager::StoryError;
 mod record_save;
 pub use quest_restore::QuestRestoreReport;
 mod reference_extras;
@@ -547,6 +549,8 @@ pub struct World {
     pub(crate) image_space: image_space::ImageSpaceState,
     /// Stealth-point pools by target, each with its observers' awareness.
     pub(crate) detection: crate::detection::DetectionState,
+    pub(crate) story_history: BTreeMap<GlobalFormId, (u32, f64)>,
+    pub(crate) story_selection: BTreeMap<GlobalFormId, BTreeSet<GlobalFormId>>,
 }
 
 impl World {
@@ -638,6 +642,8 @@ impl World {
             next_effect: 1,
             image_space: image_space::ImageSpaceState::default(),
             detection: crate::detection::DetectionState::default(),
+            story_history: BTreeMap::new(),
+            story_selection: BTreeMap::new(),
         }
     }
 

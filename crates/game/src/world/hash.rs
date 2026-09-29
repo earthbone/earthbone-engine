@@ -497,6 +497,20 @@ impl World {
             form(h, *id);
             quest_state(h, q);
         });
+        h.len(self.story_history.len());
+        for (quest, (starts, deadline)) in &self.story_history {
+            form(&mut h, *quest);
+            h.u32(*starts);
+            h.f64(*deadline);
+        }
+        h.len(self.story_selection.len());
+        for (node, selected) in &self.story_selection {
+            form(&mut h, *node);
+            h.len(selected.len());
+            for quest in selected {
+                form(&mut h, *quest);
+            }
+        }
         let quests = h.finish();
 
         let mut h = StateHasher::new();
