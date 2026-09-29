@@ -101,8 +101,12 @@ fn game() -> Game {
     let mut order = LoadOrder::new();
     order.add("Skyrim.esm", plugin).unwrap();
     let mut game = Game::new(order);
-    game.load_script(&ScriptBuilder::new("BoundScript", "").auto_state("Saved").bytes())
-        .unwrap();
+    game.load_script(
+        &ScriptBuilder::new("BoundScript", "")
+            .auto_state("Saved")
+            .bytes(),
+    )
+    .unwrap();
     game
 }
 
@@ -113,8 +117,17 @@ fn saved_refid_resolves_form_without_a_caller_mapping() {
         .restore_vanilla_papyrus(&save(0x800, 0, [0, 0, 1]))
         .expect("RefID maps through save table");
     assert_eq!(imported.instances.len(), 1);
-    let object = game.object_of_form(soe_esm::GlobalFormId { file: 0, object: 0x800 });
-    assert_eq!(game.world().form_of(object), Some(soe_esm::GlobalFormId { file: 0, object: 0x800 }));
+    let object = game.object_of_form(soe_esm::GlobalFormId {
+        file: 0,
+        object: 0x800,
+    });
+    assert_eq!(
+        game.world().form_of(object),
+        Some(soe_esm::GlobalFormId {
+            file: 0,
+            object: 0x800
+        })
+    );
 }
 
 #[test]
@@ -124,7 +137,14 @@ fn invalid_bound_refid_fails_without_creating_a_form_object() {
         .restore_vanilla_papyrus(&save(0x800, 0, [0, 0, 2]))
         .unwrap_err();
     assert!(matches!(error, RestoreError::Reference(2)));
-    assert_eq!(game.world().object_id(soe_game::Handle::Form(soe_esm::GlobalFormId { file: 0, object: 0x800 })), None);
+    assert_eq!(
+        game.world()
+            .object_id(soe_game::Handle::Form(soe_esm::GlobalFormId {
+                file: 0,
+                object: 0x800
+            })),
+        None
+    );
 }
 
 #[test]
@@ -134,5 +154,12 @@ fn signed_minus_one_ignores_even_an_invalid_refid() {
         .restore_vanilla_papyrus(&save(0x800, u16::MAX, [0, 0, 0x7f]))
         .expect("unbound instance has no form binding");
     assert_eq!(imported.instances.len(), 1);
-    assert_eq!(game.world().object_id(soe_game::Handle::Form(soe_esm::GlobalFormId { file: 0, object: 0x800 })), None);
+    assert_eq!(
+        game.world()
+            .object_id(soe_game::Handle::Form(soe_esm::GlobalFormId {
+                file: 0,
+                object: 0x800
+            })),
+        None
+    );
 }
