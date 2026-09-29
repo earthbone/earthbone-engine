@@ -684,7 +684,7 @@ fn fallout_4_opcodes_abort_the_thread_with_the_line() {
             FunctionBuilder::new("Bad", "Int")
                 .local("r", "Int")
                 .ins(Assign, vec![ident("r"), i(1)])
-                .ins(ArrayClear, vec![ident("r")])
+                .ins(StructCreate, vec![ident("r")])
                 .ins(Return, vec![ident("r")])
                 .lines(&[20, 21, 22])
                 .build(),
@@ -696,7 +696,7 @@ fn fallout_4_opcodes_abort_the_thread_with_the_line() {
     assert_eq!(vm.thread_state(tid), Some(ThreadState::Done));
     let msg = vm.log.messages().join("\n");
     assert!(
-        msg.contains("ArrayClear") && msg.contains("Fo4.Bad line 21"),
+        msg.contains("StructCreate") && msg.contains("Fo4.Bad line 21"),
         "{msg}"
     );
 }
