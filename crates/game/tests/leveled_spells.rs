@@ -3,6 +3,9 @@
 
 //! LVSP actor initialization, record ownership and saved concrete selections.
 
+#[path = "common/installed.rs"]
+mod installed;
+
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::{
     npc::{self, Config, Stats},
@@ -303,32 +306,25 @@ fn excessive_depth_and_expansion_return_errors() {
 
 #[test]
 fn installed_leveled_spell_lists_resolve_only_concrete_spells() {
-    let Some(data) = std::env::var_os("SKYRIM_DATA").map(std::path::PathBuf::from) else {
+    let Some(_data) = std::env::var_os("SKYRIM_DATA").map(std::path::PathBuf::from) else {
         eprintln!("SKYRIM_DATA not set, skipping leveled spell survey");
         return;
     };
-    let mut order = LoadOrder::new();
-    for name in [
+    let order = installed::load_order(&[
         "Skyrim.esm",
         "Update.esm",
         "Dawnguard.esm",
         "HearthFires.esm",
         "Dragonborn.esm",
-    ] {
-        order
-            .add(
-                name,
-                Plugin::parse(&std::fs::read(data.join(name)).unwrap()).unwrap(),
-            )
-            .unwrap();
-    }
+    ])
+    .unwrap();
     let lists: Vec<_> = order
         .winners_of(T(b"LVSP"))
         .filter(|(_, record)| !record.is_deleted())
         .map(|(id, _)| id)
         .collect();
     assert!(!lists.is_empty(), "installed load order contains no LVSP");
-    let mut world = World::new(order);
+    let mut world = World::from_shared_order(order);
     let mut selected = 0;
     let mut flags = std::collections::BTreeMap::<u8, usize>::new();
     for list in &lists {

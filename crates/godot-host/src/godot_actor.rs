@@ -28,6 +28,7 @@ use soe_hkx::pose::to_model_space_into;
 use soe_hkx::QsTransform;
 
 use crate::actor::{ActorAssets, ActorSurface, HUMAN_SKELETON};
+use crate::animation_dispatch::{report_graph_events, AnimationEventCursor};
 use crate::data_source::DataSource;
 use crate::godot_layer::array_mesh_from;
 use crate::skinned::{skinning_transforms_into, Affine};
@@ -63,6 +64,7 @@ struct AppearanceBinding {
     source: Arc<DataSource>,
     actor: soe_esm::GlobalFormId,
     cache: crate::actor::AppearanceCache,
+    animation_cursor: AnimationEventCursor,
 }
 
 /// One animated character. Call `load_character`, then let it process.
@@ -303,17 +305,21 @@ impl SkinnedActorNode {
     #[func]
     pub fn advance(&mut self, delta: f32) {
         self.refresh_appearance();
+        let requests = self.take_animation_requests();
         let (Some(assets), Some(vm)) = (self.assets, self.vm.as_mut()) else {
             return;
         };
         let _span = soe_trace::Span::new("host.actor_tick", "host");
+        for request in requests {
+            vm.send_event_named(&request);
+        }
         vm.update(delta);
-        let events: Vec<GString> = vm
+        let mut events: Vec<String> = vm
             .take_events()
             .into_iter()
             .filter_map(|event| usize::try_from(event.id).ok())
             .filter_map(|id| assets.graph.data.event_names.get(id))
-            .map(GString::from)
+            .cloned()
             .collect();
         self.elapsed += f64::from(delta);
         if let Err(e) = to_model_space_into(&assets.skeleton, vm.pose(), &mut self.model) {
@@ -322,9 +328,9 @@ impl SkinnedActorNode {
         }
         self.push_pose();
         // Authored events follow the pose they belong to.
-        for event in events {
-            self.signals().animation_event().emit(&event);
-        }
+        report_graph_events(&mut events, |event| {
+            self.signals().animation_event().emit(&GString::from(event));
+        });
     }
 
     fn push_pose(&mut self) {
@@ -492,11 +498,16 @@ impl SkinnedActorNode {
             .map_err(|error| error.to_string())?
             .ok_or("initial appearance was not prepared")?;
         self.replace_surfaces(update.surfaces)?;
+        let animation_cursor = {
+            let world = world.borrow();
+            AnimationEventCursor::at_end(&world.animation_events)
+        };
         self.appearance = Some(AppearanceBinding {
             world,
             source,
             actor,
             cache,
+            animation_cursor,
         });
         Ok(())
     }
@@ -521,6 +532,16 @@ impl SkinnedActorNode {
         if let Err(error) = self.replace_surfaces(update.surfaces) {
             godot_error!("SkinnedActorNode appearance: {error}");
         }
+    }
+
+    fn take_animation_requests(&mut self) -> Vec<String> {
+        let Some(binding) = &mut self.appearance else {
+            return Vec::new();
+        };
+        let world = binding.world.borrow();
+        binding
+            .animation_cursor
+            .take_for(&world.animation_events, binding.actor)
     }
 
     fn replace_surfaces(&mut self, surfaces: Vec<ActorSurface>) -> Result<(), String> {

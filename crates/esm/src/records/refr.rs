@@ -39,6 +39,48 @@ pub struct Lock {
     pub flags: u8,
 }
 
+/// The XPRM primitive shape and its display color.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Primitive {
+    /// Half extents on the X, Y and Z axes.
+    pub bounds: [f32; 3],
+    /// RGBA float color as stored by the plugin.
+    pub color: [f32; 4],
+    /// xEdit lists 0 as none, 1 as box, 2 as sphere, 3 as portal box and 4 as line.
+    /// The raw value is retained so unknown values can still round-trip.
+    pub kind: u32,
+}
+
+impl Primitive {
+    /// Decodes the fixed-size XPRM structure.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error unless the field is exactly 32 bytes.
+    pub fn decode(data: &[u8]) -> Result<Self> {
+        let mut field = Fields::new(tag::REFR, Tag::new(b"XPRM"), data);
+        field.exact(32)?;
+        let bounds = [field.f32()?, field.f32()?, field.f32()?];
+        let color = [field.f32()?, field.f32()?, field.f32()?, field.f32()?];
+        let kind = field.u32()?;
+        Ok(Self {
+            bounds,
+            color,
+            kind,
+        })
+    }
+
+    /// Encodes bounds, color and type in the XPRM field order.
+    pub fn encode(&self) -> [u8; 32] {
+        let mut bytes = [0; 32];
+        for (index, value) in self.bounds.iter().chain(self.color.iter()).enumerate() {
+            bytes[index * 4..index * 4 + 4].copy_from_slice(&value.to_bits().to_le_bytes());
+        }
+        bytes[28..32].copy_from_slice(&self.kind.to_le_bytes());
+        bytes
+    }
+}
+
 impl Lock {
     pub fn from_bytes(data: &[u8]) -> Result<Self> {
         let mut field = Fields::new(tag::REFR, Tag::new(b"XLOC"), data);
@@ -74,8 +116,8 @@ pub struct Refr {
     pub encounter_zone: Option<u32>,
     pub emittance: Option<u32>,
     pub linked_refs: Vec<LinkedRef>,
-    /// XPRM as stored: a primitive's bounds, colour and kind.
-    pub primitive: Option<Vec<u8>>,
+    /// XPRM primitive bounds, color and kind.
+    pub primitive: Option<Primitive>,
     pub cell: Option<u32>,
     pub world: Option<u32>,
     /// From the group tree: in the cell's persistent children group.
@@ -157,6 +199,16 @@ impl Refr {
                 }
             }
         }
+        let mut primitives = rec.all(Tag::new(b"XPRM"));
+        let primitive = match (primitives.next(), primitives.next()) {
+            (None, _) => None,
+            (Some(_), Some(_)) => {
+                return Err(crate::error::Error::Invalid(
+                    "REFR contains repeated XPRM primitives".into(),
+                ));
+            }
+            (Some(data), None) => Some(Primitive::decode(data)?),
+        };
         Ok(Refr {
             form_id: rec.form_id,
             record_flags: rec.flags,
@@ -177,7 +229,7 @@ impl Refr {
             encounter_zone: form_id(rec, Tag::new(b"XEZN"))?,
             emittance: form_id(rec, Tag::new(b"XEMI"))?,
             linked_refs,
-            primitive: rec.find(Tag::new(b"XPRM")).map(<[u8]>::to_vec),
+            primitive,
             cell: rec.placement.cell,
             world: rec.placement.world,
             in_persistent_group: matches!(

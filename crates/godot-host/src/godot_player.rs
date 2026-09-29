@@ -76,6 +76,12 @@ pub struct PlayerNode {
     /// Stick look rate in mouse units per second, before camera sensitivity.
     #[export]
     gamepad_look_speed: f32,
+    /// Maximum exterior mesh triangles uploaded by one walking tick. Zero is unlimited.
+    #[export]
+    exterior_triangle_budget: i64,
+    /// Maximum exterior vertex and index bytes uploaded by one walking tick.
+    #[export]
+    exterior_byte_budget: i64,
     rig: CameraRig,
     motion: CameraMotion,
     bindings: Bindings,
@@ -134,6 +140,8 @@ impl INode3D for PlayerNode {
             capture_mouse: true,
             auto_step: true,
             gamepad_look_speed: 800.0,
+            exterior_triangle_budget: 0,
+            exterior_byte_budget: 0,
             rig: CameraRig::default(),
             motion: CameraMotion::new(Vec3::ZERO, CharacterSettings::default().height),
             bindings: Bindings::default(),
@@ -634,6 +642,72 @@ impl PlayerNode {
     #[func]
     pub fn start_gameplay(&mut self) -> bool {
         self.start_game_runtime()
+    }
+
+    /// Read one reference's current simulated placement in Skyrim units.
+    #[func]
+    pub fn gameplay_reference_pose(&self, file: i32, object: i64) -> VarDictionary {
+        let mut result = VarDictionary::new();
+        let (Ok(file), Ok(object)) = (u16::try_from(file), u32::try_from(object)) else {
+            return result;
+        };
+        let Some(game) = &self.game else {
+            return result;
+        };
+        let world = game.world();
+        let Some(pose) = world.ref_placement(GlobalFormId { file, object }) else {
+            return result;
+        };
+        result.set(
+            "position",
+            Vector3::new(pose.position[0], pose.position[1], pose.position[2]),
+        );
+        result.set(
+            "rotation",
+            Vector3::new(pose.rotation[0], pose.rotation[1], pose.rotation[2]),
+        );
+        result.set("visible", pose.visible);
+        result
+    }
+
+    /// Set a reference's enabled state through the shared World.
+    #[func]
+    pub fn set_reference_enabled(&mut self, file: i32, object: i64, enabled: bool) -> bool {
+        let (Ok(file), Ok(object), Some(game)) = (
+            u16::try_from(file),
+            u32::try_from(object),
+            self.game.as_mut(),
+        ) else {
+            return false;
+        };
+        let mut world = game.world_mut();
+        let Some(reference) = world.reference(GlobalFormId { file, object }) else {
+            return false;
+        };
+        if reference.deleted {
+            return false;
+        }
+        reference.enabled = enabled;
+        true
+    }
+
+    /// Remove a reference from its host presentation on the next tick.
+    #[func]
+    pub fn despawn_reference(&mut self, file: i32, object: i64) -> bool {
+        let (Ok(file), Ok(object), Some(game)) = (
+            u16::try_from(file),
+            u32::try_from(object),
+            self.game.as_mut(),
+        ) else {
+            return false;
+        };
+        let mut world = game.world_mut();
+        let Some(reference) = world.reference(GlobalFormId { file, object }) else {
+            return false;
+        };
+        reference.deleted = true;
+        reference.enabled = false;
+        true
     }
 
     /// Current derived image-space stack for host diagnostics.
