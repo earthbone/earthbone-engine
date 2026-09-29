@@ -3476,3 +3476,17 @@ fixture exercises both record types, query results, failure atomicity and
 engine save/load. `sav_48_installed_pack_and_navmesh_records_accept_restored_markers`
 checks installed Skyrim.esm records when `SKYRIM_DATA` is set. The field order
 and marker meanings follow xEdit `Core/wbDefinitionsTES5Saves.pas`.
+
+## Host screenshot requests, HST-19
+
+`Debug.TakeScreenshot(path)` queues the caller's string in `World` for the
+host. The queue is transient and is not part of saved state. `PlayerNode`
+drains requests after its gameplay tick and asks the active viewport texture
+for an image saved as PNG at each supplied path. A request made without an
+active viewport or a path that Godot cannot write is reported to the Godot
+log.
+
+`hst_19_screenshot_request.rs` calls the native through a Papyrus probe and
+checks that the path is queued once and consumed. The headless Godot check is
+`godot/hst_19_screenshot_capture_test.gd`; it requires installed data to start
+the host gameplay runtime and checks the resulting PNG file.

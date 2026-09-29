@@ -202,7 +202,7 @@ pub fn register(vm: &mut Vm, world: &Shared) -> Registered {
 
 /// Hand-kept count of the non-stub natives registered below. The test in
 /// this module checks it against the registry.
-pub const NATIVE_COUNT: usize = 369;
+pub const NATIVE_COUNT: usize = 370;
 
 fn declare_parents(vm: &mut Vm) {
     for (class, parent) in [
@@ -1885,6 +1885,10 @@ fn debug(vm: &mut Vm, w: &Shared) {
         world.message_boxes.push(text(&call.arg(0)));
         none()
     });
+    global!(vm, w, "Debug", "TakeScreenshot", |world, call| {
+        world.request_screenshot(text(&call.arg(0)));
+        none()
+    });
     global!(vm, w, "Debug", "SendAnimationEvent", |world, call| {
         match world.form_arg(&call.arg(0)) {
             Some(target) => {
@@ -3423,7 +3427,6 @@ fn stubs(vm: &mut Vm) -> usize {
         ("Debug", "StopScriptProfiling"),
         ("Debug", "StartStackProfiling"),
         ("Debug", "StopStackProfiling"),
-        ("Debug", "TakeScreenshot"),
         ("Debug", "SetFootIK"),
         ("Debug", "ShowRefPosition"),
         ("Debug", "PlayerMoveToAndWait"),

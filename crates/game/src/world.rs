@@ -528,6 +528,8 @@ pub struct World {
     pub timers: Vec<UpdateTimer>,
     pub notifications: Vec<String>,
     pub message_boxes: Vec<String>,
+    /// Screenshot paths requested by Papyrus for the host to capture.
+    pub screenshot_requests: Vec<String>,
     pub animation_events: Vec<(GlobalFormId, String)>,
     pub player_controls: bool,
     /// Camera state requested by Papyrus and consumed by the host.
@@ -634,6 +636,7 @@ impl World {
             timers: Vec::new(),
             notifications: Vec::new(),
             message_boxes: Vec::new(),
+            screenshot_requests: Vec::new(),
             animation_events: Vec::new(),
             player_controls: true,
             camera_controls: CameraControls::default(),
@@ -675,6 +678,16 @@ impl World {
 
     pub fn order(&self) -> &LoadOrder {
         &self.order
+    }
+
+    /// Queue a host screenshot request for the supplied path.
+    pub fn request_screenshot(&mut self, path: String) {
+        self.screenshot_requests.push(path);
+    }
+
+    /// Take pending host screenshot paths in request order.
+    pub fn take_screenshot_requests(&mut self) -> Vec<String> {
+        std::mem::take(&mut self.screenshot_requests)
     }
 }
 

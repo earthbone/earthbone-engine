@@ -7,6 +7,7 @@ use super::{
     godot_error, godot_print, CameraMotion, CharacterSettings, GlobalFormId, PhysicsWorld,
     PlayerNode, Vec3,
 };
+use godot::obj::WithBaseField;
 
 impl PlayerNode {
     pub(super) fn start_game_runtime(&mut self) -> bool {
@@ -93,6 +94,7 @@ impl PlayerNode {
             self.menu.tick(game, delta);
             self.image_space.sync(&game.world());
         }
+        self.capture_screenshot_requests();
         if self.sync_game_pose() {
             self.prefetch_nearby_interior(delta);
         } else {
@@ -109,6 +111,37 @@ impl PlayerNode {
         self.camera_state.apply(controls);
         self.rig
             .set_camera_yaw_offset_degrees(self.camera_state.sitting_rotation_degrees());
+    }
+
+    pub(super) fn capture_screenshot_requests(&mut self) -> bool {
+        let requests = self
+            .game
+            .as_mut()
+            .map(|game| game.world_mut().take_screenshot_requests())
+            .unwrap_or_default();
+        let mut succeeded = true;
+        for path in requests {
+            let Some(viewport) = self.base().get_viewport() else {
+                godot_error!("PlayerNode: screenshot has no viewport for {path}");
+                succeeded = false;
+                continue;
+            };
+            let Some(texture) = viewport.get_texture() else {
+                godot_error!("PlayerNode: screenshot viewport has no texture for {path}");
+                succeeded = false;
+                continue;
+            };
+            let Some(image) = texture.get_image() else {
+                godot_error!("PlayerNode: screenshot viewport has no image for {path}");
+                succeeded = false;
+                continue;
+            };
+            if image.save_png(&path) != godot::global::Error::OK {
+                godot_error!("PlayerNode: failed to save screenshot to {path}");
+                succeeded = false;
+            }
+        }
+        succeeded
     }
 
     fn prefetch_nearby_interior(&mut self, delta: f64) {
