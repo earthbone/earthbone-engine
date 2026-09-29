@@ -6,7 +6,7 @@
 
 use crate::{
     conditions,
-    inventory::{Error as InventoryError, Extra, Field, Inventory, StackSource},
+    inventory::{Error as InventoryError, Extra, Field, Inventory, Selection, StackSource},
     Game, World,
 };
 use soe_esm::{
@@ -57,6 +57,14 @@ pub enum Error {
     Ingredient(GlobalFormId),
     #[error("the ingredients have no shared eligible effects")]
     NoSharedEffects,
+    #[error("enchanting actor {0} is missing, disabled, dead or unconscious")]
+    EnchantActor(GlobalFormId),
+    #[error("enchanting item must be one unenchanted weapon or armor instance")]
+    EnchantItem,
+    #[error("enchantment {0} is invalid or not in the supplied learned effects")]
+    Enchantment(GlobalFormId),
+    #[error("soul gem selection is not one valid filled soul gem")]
+    SoulGem,
 }
 
 /// A potion created from two ingredients and their common eligible effects.
@@ -361,6 +369,128 @@ impl Game {
             created,
             effects: effect_ids,
         })
+    }
+
+    /// Enchant one selected weapon or armor instance and consume one selected filled soul gem.
+    /// `learned_enchantments` is the caller's learned-effect set until the
+    /// runtime has an owning learned-enchantment store.
+    ///
+    /// # Errors
+    /// Rejects an invalid actor, selection, soul gem, target item or unknown enchantment.
+    pub fn enchant_item(
+        &mut self,
+        actor: GlobalFormId,
+        item: &Selection,
+        soul_gem: &Selection,
+        enchantment: GlobalFormId,
+        learned_enchantments: &[GlobalFormId],
+    ) -> Result<(), Error> {
+        if item.count() != 1 {
+            return Err(Error::EnchantItem);
+        }
+        if soul_gem.count() != 1 {
+            return Err(Error::SoulGem);
+        }
+        if !learned_enchantments.contains(&enchantment) {
+            return Err(Error::Enchantment(enchantment));
+        }
+
+        let mut world = self.world.borrow_mut();
+        if world
+            .reference(actor)
+            .is_none_or(|r| !r.enabled || r.deleted)
+            || world.actor(actor).is_none_or(|a| a.dead || a.unconscious)
+        {
+            return Err(Error::EnchantActor(actor));
+        }
+        let enchantment_record = world
+            .record(enchantment)
+            .filter(|record| !record.is_deleted() && record.tag == Tag(*b"ENCH"))
+            .ok_or(Error::Enchantment(enchantment))?;
+        let effect_ids: Vec<_> = enchantment_record
+            .all(Tag(*b"EFID"))
+            .filter(|effect| effect.len() == 4)
+            .map(|effect| u32::from_le_bytes([effect[0], effect[1], effect[2], effect[3]]))
+            .collect();
+        let effect_data_count = enchantment_record
+            .all(Tag(*b"EFIT"))
+            .filter(|data| data.len() == 12)
+            .count();
+        if enchantment_record
+            .find(Tag(*b"ENIT"))
+            .is_none_or(|data| data.len() < 32)
+            || effect_ids.is_empty()
+            || effect_data_count != effect_ids.len()
+        {
+            return Err(Error::Enchantment(enchantment));
+        }
+        for raw_effect in effect_ids {
+            let effect = world
+                .resolve_from(enchantment, raw_effect)
+                .ok_or(Error::Enchantment(enchantment))?;
+            if world
+                .record(effect)
+                .is_none_or(|record| record.is_deleted() || record.tag != Tag(*b"MGEF"))
+            {
+                return Err(Error::Enchantment(enchantment));
+            }
+        }
+
+        let inventory = world
+            .reference(actor)
+            .ok_or(Error::EnchantActor(actor))?
+            .inventory
+            .clone();
+        world
+            .record(item.item())
+            .filter(|record| {
+                !record.is_deleted() && matches!(record.tag.as_bytes(), b"WEAP" | b"ARMO")
+            })
+            .ok_or(Error::EnchantItem)?;
+        let item_stack = inventory.selected_stack(item)?;
+        if item_stack.is_some_and(|stack| stack.extra(155).is_some()) {
+            return Err(Error::EnchantItem);
+        }
+
+        let gem_record = world
+            .record(soul_gem.item())
+            .filter(|record| !record.is_deleted() && record.tag == Tag(*b"SLGM"))
+            .ok_or(Error::SoulGem)?;
+        let capacity = gem_record
+            .find(Tag(*b"SLCP"))
+            .and_then(|data| data.first())
+            .copied()
+            .ok_or(Error::SoulGem)?;
+        let gem_stack = inventory.selected_stack(soul_gem)?;
+        gem_stack
+            .and_then(|stack| stack.extra(156))
+            .and_then(|extra| match extra.fields.as_slice() {
+                [Field::Byte(level)] => Some(*level),
+                _ => None,
+            })
+            .filter(|level| *level > 0 && *level <= capacity)
+            .ok_or(Error::SoulGem)?;
+
+        let mut prepared = inventory.clone();
+        prepared.update_selected(
+            item,
+            vec![Extra {
+                kind: 155,
+                fields: vec![Field::Form(Some(enchantment)), Field::Short(0)],
+            }],
+        )?;
+        let gem_selection =
+            prepared.select(soul_gem.item(), soul_gem.source(), soul_gem.count())?;
+        prepared.take_selected(&gem_selection)?;
+
+        let vm = &mut self.vm;
+        world
+            .reference(actor)
+            .ok_or(Error::EnchantActor(actor))?
+            .inventory = prepared;
+        let alloc = &mut |name: &str, class: &str| vm.create_object_of(name, class);
+        world.inventory_event(actor, soul_gem.item(), -1, None, alloc);
+        Ok(())
     }
 
     /// Test this recipe against current world and VM state without spending ingredients.
