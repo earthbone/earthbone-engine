@@ -120,10 +120,12 @@ impl World {
                             | b"FURN"
                             | b"APPA"
                             | b"IDLM"
+                            | b"WOOP"
+                            | b"MGEF"
                     )
                 })
             {
-                return Err(bad("invalid NPC origin or temporary identity"));
+                return Err(bad("invalid record origin or temporary identity"));
             }
             let original = self
                 .order
@@ -145,6 +147,8 @@ impl World {
                             | b"FURN"
                             | b"APPA"
                             | b"IDLM"
+                            | b"WOOP"
+                            | b"MGEF"
                     ) && !rec.is_deleted()
                 })
                 .ok_or_else(|| bad("missing record origin"))?;
@@ -218,7 +222,7 @@ impl World {
                 return Err(bad("unused link token"));
             }
             if record.editor_id() != original.editor_id() {
-                return Err(bad("NPC override changed editor identity"));
+                return Err(bad("record override changed editor identity"));
             }
             let localized = !plain_full
                 && self
@@ -319,6 +323,23 @@ impl World {
                 {
                     return Err(bad("invalid saved APPA or IDLM override"));
                 }
+            } else if matches!(&record.tag.0, b"WOOP" | b"MGEF") {
+                if list.is_some()
+                    || temporary_for.is_some()
+                    || text_origin != id
+                    || plain_full
+                    || original_race.is_some()
+                    || body_tint.is_some()
+                    || pending_form_flags.is_some()
+                    || record != *original
+                    || !links.is_empty()
+                {
+                    return Err(bad("invalid saved WOOP or MGEF override"));
+                }
+                if record.tag == T(b"MGEF") {
+                    soe_esm::records::gameplay::MagicEffect::from_record(&record, localized)
+                        .map_err(|e| VmError::State(e.to_string()))?;
+                }
             } else {
                 let tag = if record.tag == T(b"FLST") {
                     T(b"LNAM")
@@ -388,7 +409,7 @@ impl World {
                 static_object: None,
             };
             if values.insert(id, value).is_some() {
-                return Err(bad("duplicate NPC record"));
+                return Err(bad("duplicate record override"));
             }
         }
         Ok(values)
@@ -444,6 +465,7 @@ impl World {
                     | (u32::from(full_name_changed) << 2),
                 value_changed,
                 full_name_changed,
+                unnamed_flags: 0,
             };
             let value = self
                 .record_overrides
@@ -461,6 +483,95 @@ impl World {
             self.record_overrides
                 .get_mut(&id)
                 .ok_or_else(|| bad("base-object override disappeared during load"))?
+                .base_object = Some(extra);
+        }
+        Ok(())
+    }
+
+    pub(super) fn write_woop_mgef_section(&self, w: &mut Writer) {
+        let values: Vec<_> = self
+            .record_overrides
+            .iter()
+            .filter_map(|(id, value)| {
+                (matches!(&value.record.tag.0, b"WOOP" | b"MGEF"))
+                    .then(|| value.base_object.map(|extra| (*id, extra)))
+                    .flatten()
+            })
+            .collect();
+        w.len(values.len());
+        for (id, extra) in values {
+            write_form_id(w, id);
+            w.u32(extra.change_flags);
+            w.bool(extra.form_flags.is_some());
+            if let Some((flags, unknown)) = extra.form_flags {
+                w.u32(flags);
+                w.u16(unknown);
+            }
+            w.bool(extra.value_changed);
+            w.bool(extra.full_name_changed);
+            w.u32(extra.unnamed_flags);
+        }
+    }
+
+    pub(super) fn read_woop_mgef_section(
+        &mut self,
+        r: &mut FormReader<'_, '_>,
+    ) -> Result<(), VmError> {
+        let count = r.len()?;
+        if count > r.remaining() / 15 {
+            return Err(bad("WOOP/MGEF section count exceeds remaining bytes"));
+        }
+        let mut values = Vec::with_capacity(count);
+        let mut seen = std::collections::BTreeSet::new();
+        for _ in 0..count {
+            let id = read_form_id(r)?;
+            self.saved_record_identity(id)?;
+            let change_flags = r.u32()?;
+            let form_flags = if r.bool()? {
+                Some((r.u32()?, r.u16()?))
+            } else {
+                None
+            };
+            let value_changed = r.bool()?;
+            let full_name_changed = r.bool()?;
+            let unnamed_flags = r.u32()?;
+            let record = self
+                .record_overrides
+                .get(&id)
+                .ok_or_else(|| bad("WOOP/MGEF section names a missing record override"))?;
+            if !matches!(&record.record.tag.0, b"WOOP" | b"MGEF")
+                || record.base_object.is_some()
+                || form_flags.is_some() != (change_flags & 1 != 0)
+                || value_changed != (change_flags & 2 != 0)
+                || full_name_changed != (change_flags & 4 != 0)
+                || unnamed_flags != (change_flags & !7)
+                || !seen.insert(id)
+            {
+                return Err(bad("invalid or duplicate WOOP/MGEF section entry"));
+            }
+            if record.record.tag == T(b"MGEF") {
+                let localized = self
+                    .order
+                    .winner_ref(id)
+                    .is_some_and(|r| self.order.file(r.file).plugin.header.is_localized());
+                soe_esm::records::gameplay::MagicEffect::from_record(&record.record, localized)
+                    .map_err(|error| bad(&error.to_string()))?;
+            }
+            values.push((
+                id,
+                BaseObjectRecordExtra {
+                    form_flags,
+                    change_flags,
+                    value_changed,
+                    full_name_changed,
+                    unnamed_flags,
+                },
+            ));
+        }
+        for (id, extra) in values {
+            self.record_overrides
+                .get_mut(&id)
+                .ok_or_else(|| bad("WOOP/MGEF override disappeared during load"))?
                 .base_object = Some(extra);
         }
         Ok(())
@@ -535,6 +646,7 @@ impl World {
                     change_flags,
                     value_changed,
                     full_name_changed,
+                    unnamed_flags: 0,
                 },
             ));
         }

@@ -37,12 +37,12 @@ pub mod quest;
 pub mod reference;
 pub mod table;
 
-pub use base_object::BaseObjectChange;
-pub use base_object::{BaseObjectFields, LightStaticChange, StaticObjectChange};
-pub use change::{ChangeForm, QuestStage};
+pub use base_object::{BaseObjectChange, BaseObjectFields, LightStaticChange, StaticObjectChange};
 pub use change::{
-    ClassChange, FactionChange, FactionReaction, FactionReactions, RelationshipChange,
+    BaseObjectChange as BaseObjectMarkerChange, ClassChange, FactionChange, FactionReaction,
+    FactionReactions, RelationshipChange,
 };
+pub use change::{ChangeForm, QuestStage};
 pub use created_objects::{CreatedEffect, CreatedObject, CreatedObjects};
 pub use cursor::{RefId, RefKind, WString};
 pub use dialogue_scene::{InfoChange, SceneChange, StoryManagerQuestNodeChange};

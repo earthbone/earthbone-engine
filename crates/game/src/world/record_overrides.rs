@@ -27,17 +27,14 @@ pub struct ListRecordExtra {
     pub entry_chances: Vec<u8>,
 }
 
-/// Saved LIGH, STAT and MSTT fields that have no byte-valued record replacement.
+/// Saved fields decoded from base-object, WOOP and MGEF change forms.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct BaseObjectRecordExtra {
-    /// Optional saved form flag mask and its trailing word.
     pub form_flags: Option<(u32, u16)>,
-    /// The complete saved change-flags word.
     pub change_flags: u32,
-    /// Whether the value change marker is set.
     pub value_changed: bool,
-    /// Whether the full-name change marker is set.
     pub full_name_changed: bool,
+    pub unnamed_flags: u32,
 }
 
 /// Saved fields decoded from a CONT, MISC or FURN change form.

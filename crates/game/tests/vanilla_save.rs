@@ -28,6 +28,8 @@ mod appa_idlm;
 mod base_objects;
 #[path = "vanilla_save/static_objects.rs"]
 mod static_objects;
+#[path = "vanilla_save/woop_mgef.rs"]
+mod woop_mgef;
 
 use std::{
     path::{Path, PathBuf},

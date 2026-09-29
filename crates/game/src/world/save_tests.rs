@@ -404,7 +404,7 @@ fn without_exclusive_branches(world: &mut World) -> Vec<u8> {
         .windows(records.out.len())
         .position(|window| window == records.out)
         .expect("record override is serialized");
-    // CONTEXT: This fixture has one override with no list metadata in version 23.
+    // CONTEXT: Version 23 predates list metadata. Remove its list marker.
     bytes.remove(at + 39);
     bytes
 }
