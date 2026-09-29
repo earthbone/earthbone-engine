@@ -12,6 +12,9 @@
 //! `crates/game/src/world/save.rs`'s own version log, which documents
 //! version 31 as the one that added `witnessed_crimes`.
 
+#[path = "common/legacy.rs"]
+mod legacy;
+
 use soe_esm::plugin::flags;
 use soe_esm::{Entry, FileHeader, GlobalFormId, Group, GroupKind, LoadOrder, Plugin, Record, Tag};
 use soe_game::crime::CrimeType;
@@ -182,7 +185,10 @@ fn a_genuine_pre_prg_06_save_loads_cleanly_with_no_witnessed_crimes() {
     };
     let mut w = game.world_mut();
     w.actor(witness).unwrap().witnessed_crimes.insert(sentinel);
-    let mut bytes = w.save_state();
+    // The witness's paired reference ends with its own empty save-section
+    // table version 37 added, in the references block ahead of the actors
+    // block this test searches below. Strip it before anything else.
+    let mut bytes = legacy::without_ref_sections(&mut w, &[witness]);
 
     // `witnessed_crimes` is a length-prefixed set, written last in
     // `write_actor_state`. With a single entry it serializes as a u32
@@ -209,10 +215,12 @@ fn a_genuine_pre_prg_06_save_loads_cleanly_with_no_witnessed_crimes() {
         [0, 0],
         "an actor with no hand spells must write two unset presence bytes after its crime set"
     );
-    bytes.drain(offsets[0]..end + 2);
-    // Version 29 predates the learned-enchantment set at the save tail.
-    assert_eq!(bytes[bytes.len() - 4..], [0; 4]);
-    bytes.truncate(bytes.len() - 4);
+    // Remove the actor fields and its empty version 37 section table in one
+    // span so later offsets stay aligned.
+    bytes.drain(offsets[0]..end + 4);
+    // Version 29 predates encounter-zone visits, detection and world-level
+    // sections. Scene runtime data is inside the section table.
+    bytes.truncate(bytes.len() - 40);
     // Roll the header back to a real pre-witness-tracking version.
     bytes[4..6].copy_from_slice(&29u16.to_le_bytes());
 

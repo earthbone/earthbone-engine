@@ -34,6 +34,9 @@ pub const HUMAN_SKELETON: &str = "character assets/skeleton.hkx";
 /// `behavior-2` work proved out, and it names the idle and walk clips.
 pub const LOCOMOTION_BEHAVIOR: &str = "behaviors/mt_behavior.hkx";
 
+/// Vanilla one-handed melee behavior, with authored attack markers.
+pub const ONE_HAND_BEHAVIOR: &str = "behaviors/1hm_behavior.hkx";
+
 /// What went wrong assembling a character.
 #[derive(Debug, thiserror::Error)]
 pub enum ActorError {
@@ -196,6 +199,18 @@ impl ActorAssets {
     /// when the mesh carries no skinned shape.
     pub fn load(vfs: &Vfs, mesh_path: &str) -> Result<ActorAssets, ActorError> {
         Self::load_with_rig(vfs, mesh_path, HUMAN_SKELETON, LOCOMOTION_BEHAVIOR)
+    }
+
+    /// Load the human character with an explicitly selected behavior graph.
+    ///
+    /// # Errors
+    /// A required rig, graph, animation or mesh cannot be read or decoded.
+    pub fn load_with_behavior(
+        vfs: &Vfs,
+        mesh_path: &str,
+        behavior: &str,
+    ) -> Result<ActorAssets, ActorError> {
+        Self::load_with_rig(vfs, mesh_path, HUMAN_SKELETON, behavior)
     }
 
     /// Load the current actor race's sex-specific rig and appearance.

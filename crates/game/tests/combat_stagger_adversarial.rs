@@ -20,6 +20,9 @@
 //! exercise this field. This file builds its own weapon record with a
 //! configurable Stagger fraction instead.
 
+#[path = "common/legacy.rs"]
+mod legacy;
+
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::{combat::MeleeHit, Game};
 
@@ -401,7 +404,12 @@ fn cmb_14_version_28_save_loads_with_no_actor_staggered() {
             world.actor(actor).unwrap().stagger_end_time = Some(value);
         }
     }
-    let mut bytes = game.world().save_state();
+    // Each of the three actors above is a paired reference too, and that
+    // reference's own record ends with an empty save-section table version
+    // 37 added, positioned in the refs block ahead of the actors block this
+    // loop searches below. Strip those three tables before anything else.
+    let mut bytes =
+        legacy::without_ref_sections(&mut game.world_mut(), &[id(0x14), id(0x900), id(0x901)]);
     for (_, value) in sentinels {
         let mut marker = vec![1_u8];
         marker.extend_from_slice(&value.to_le_bytes());
@@ -431,16 +439,22 @@ fn cmb_14_version_28_save_loads_with_no_actor_staggered() {
             [0, 0],
             "an actor with no hand spells must write two unset presence bytes after its crime set"
         );
-        bytes.drain(positions[0]..end + 6);
+        // The right spell field is immediately followed by this actor's own
+        // empty save-section table, a `u16` count of zero, which a version
+        // 28 writer never emitted either.
+        bytes.drain(positions[0]..end + 6 + 2);
     }
     assert_eq!(
         u16::from_le_bytes([bytes[4], bytes[5]]),
         soe_game::world::SAVE_VERSION,
         "the save must carry the current world state version before the patch"
     );
-    // Version 28 predates the learned-enchantment set at the save tail.
-    assert_eq!(bytes[bytes.len() - 4..], [0; 4]);
-    bytes.truncate(bytes.len() - 4);
+    // Detection and the named world sections are not part of a version 28
+    // save. Strip their four-byte detection payload and the section table.
+    bytes.truncate(bytes.len() - 36);
+    let visit_count = bytes.len() - 12;
+    assert_eq!(bytes[visit_count..visit_count + 4], [0; 4]);
+    bytes.drain(visit_count..visit_count + 4);
     bytes[4..6].copy_from_slice(&28_u16.to_le_bytes());
 
     let loaded = fixture(

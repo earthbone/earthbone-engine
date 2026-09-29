@@ -3,6 +3,9 @@
 
 //! Distinct stacks must survive quantity operations and engine-save boundaries.
 
+#[path = "common/legacy.rs"]
+mod legacy;
+
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::{
     inventory::{Error, Extra, Field, Inventory, Stack, StackSource},
@@ -190,6 +193,13 @@ fn version_eleven_counts_load_as_plain_items() {
     w.add_item(id(0x900), id(0x801), 17);
     let mut bytes = w.save_state();
     bytes.truncate(bytes.len() - 46);
+    // `add_item` materializes the holder as a reference, and that reference's
+    // own record ends with an empty save-section table version 37 added.
+    // Strip it before truncating the rest of the buffer to an older header.
+    let mut bytes = legacy::without_ref_sections(&mut w, &[id(0x900)]);
+    // The old tail is 50 bytes. The world-level version 37 sections add
+    // another 26 bytes, which an older version does not read.
+    bytes.truncate(bytes.len() - 82);
     bytes[4..6].copy_from_slice(&11_u16.to_le_bytes());
     let mut loaded = world();
     loaded.load_state(&bytes).unwrap();

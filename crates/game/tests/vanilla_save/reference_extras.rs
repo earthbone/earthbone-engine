@@ -2,6 +2,9 @@
 
 //! Saved ownership and lock state through shared reference queries and activation.
 
+#[path = "../common/legacy.rs"]
+mod legacy;
+
 use super::*;
 use soe_game::Handle;
 use soe_save::{reference::Field, ChangeForm};
@@ -289,33 +292,44 @@ fn engine_extras_reject_truncation_duplicates_and_bad_flags_atomically_and_read_
     let mut world = World::new(fixture_order());
     world.reference(id(0, 0x100)).unwrap();
     world.reference(id(0, 0x101)).unwrap();
-    let mut legacy = world.save_state();
-    legacy.truncate(legacy.len() - 33);
-    legacy[4..6].copy_from_slice(&19_u16.to_le_bytes());
+    // Both references' own empty save-section tables (version 37) are
+    // stripped here, since version 19 predates them.
+    let mut legacy = legacy::without_ref_sections(&mut world, &[id(0, 0x100), id(0, 0x101)]);
     let mut save = save();
     save.change_forms = vec![change(0x400100, 0x400811, 0, 5, 0x400801)];
     world.restore_vanilla_reference_extras(&save).unwrap();
     let before = world.save_state();
+    let mut marker = 1_u32.to_le_bytes().to_vec();
+    marker.extend_from_slice(&0_u16.to_le_bytes());
+    marker.extend_from_slice(&0x100_u32.to_le_bytes());
+    let starts: Vec<_> = before
+        .windows(marker.len())
+        .enumerate()
+        .filter_map(|(offset, window)| (window == marker).then_some(offset))
+        .collect();
+    assert_eq!(starts.len(), 1, "reference extras marker is unique");
+    let start = starts[0];
+    // Version 19 ends just before the reference extras count. Its fixture
+    // lacks the two reference section tables present in `before`.
+    legacy.truncate(start - 4);
+    legacy[4..6].copy_from_slice(&19_u16.to_le_bytes());
     let mut bad_flags = before.clone();
-    let at = bad_flags.len() - 38;
-    bad_flags[at] |= 1;
-    let start = legacy.len();
-    // The extras block is followed by the package cursor block, so repeat the
-    // entry inside the extras block rather than past the end of the save.
-    let entry = &before[start + 4..before.len() - 29];
+    bad_flags[start + 20] |= 1;
+    // The entry is one reference id and its fixed owner and lock fields.
+    let entry_end = start + 4 + 25;
+    let entry = &before[start + 4..entry_end];
     let mut duplicate = before[..start].to_vec();
     duplicate.extend_from_slice(&2_u32.to_le_bytes());
     duplicate.extend_from_slice(entry);
     duplicate.extend_from_slice(entry);
-    duplicate.extend_from_slice(&before[before.len() - 29..]);
-    assert!(world
-        .load_state(&duplicate)
-        .unwrap_err()
-        .to_string()
-        .contains("duplicate reference extras"));
+    duplicate.extend_from_slice(&before[entry_end..]);
+    let duplicate_error = world.load_state(&duplicate).unwrap_err().to_string();
+    assert!(
+        duplicate_error.contains("duplicate reference extras"),
+        "{duplicate_error}"
+    );
     let mut bad_key = before.clone();
-    let at = bad_key.len() - 17;
-    bad_key[at..at + 4].copy_from_slice(&0x811_u32.to_le_bytes());
+    bad_key[start + 16..start + 20].copy_from_slice(&0x811_u32.to_le_bytes());
     let mut cases = vec![bad_flags, duplicate, bad_key];
     for cut in 1..=28 {
         cases.push(before[..before.len() - cut].to_vec());

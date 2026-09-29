@@ -8,6 +8,10 @@ use soe_game::combat::{Error, Hand, HitResult, MeleeHit};
 use soe_game::Game;
 use soe_hkx::behavior::{BehaviorGraph, ClipTrigger, EventInfo, EventProperty, NodeKind};
 use soe_hkx::interp::ClipLibrary;
+use soe_hkx::skeleton::Skeleton;
+use soe_hkx::QsTransform;
+
+use crate::skinned::Affine;
 
 /// Convert decoded combat annotations to the graph's existing trigger model.
 /// The Havok clip flag 16 disables annotation conversion. Crop offsets follow
@@ -184,6 +188,29 @@ pub fn weapon_bones(hand: Hand) -> &'static [&'static str] {
         Hand::Right => &["WEAPON", "Weapon", "NPC R Hand [RHnd]"],
         Hand::Left => &["SHIELD", "Shield", "NPC L Hand [LHnd]"],
     }
+}
+
+/// Find the armed weapon node in an animated model pose and convert its
+/// transform to Godot axes and metres. The pose is the same model-space buffer
+/// used to skin the actor, before inverse bind transforms are applied.
+///
+/// # Errors
+/// The rig has no weapon or hand node, or the pose is missing that bone.
+pub fn posed_weapon_bone(
+    skeleton: &Skeleton,
+    model: &[QsTransform],
+    hand: Hand,
+) -> Result<Affine, Error> {
+    let index = weapon_bones(hand)
+        .iter()
+        .find_map(|name| skeleton.bone_index(name))
+        .ok_or(Error::Unsupported(
+            "rig has no weapon bone for the swing hand",
+        ))?;
+    let pose = model
+        .get(index)
+        .ok_or(Error::Unsupported("animated weapon bone has no pose"))?;
+    Ok(Affine::from_qs(pose).to_godot())
 }
 
 /// A swing's blade as a segment from the weapon node's origin along its

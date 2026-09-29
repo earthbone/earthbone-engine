@@ -22,6 +22,7 @@ pub mod collision;
 pub mod combat;
 pub mod crafting_menu;
 pub mod data_source;
+pub mod dialogue_menu;
 pub mod door_fade;
 pub mod image_space;
 pub mod input;

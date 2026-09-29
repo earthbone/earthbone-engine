@@ -49,12 +49,14 @@ pub mod quest;
 pub mod race;
 pub mod save;
 pub mod save_generations;
+pub mod services;
 pub mod sound;
 pub mod vanilla_save;
 pub mod vmad;
 pub mod world;
 
 use std::cell::{Ref, RefCell, RefMut};
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
@@ -145,6 +147,8 @@ pub struct Game {
     hash_log: Option<Vec<determinism::TickHash>>,
     /// Parsed OAR submods, ordered by descending priority.
     oar_submods: Vec<soe_moddata::oar::SubMod>,
+    /// Actors that were in greeting range on the previous gameplay tick.
+    greeting_range_actors: BTreeSet<soe_esm::GlobalFormId>,
 }
 
 impl Game {
@@ -165,6 +169,7 @@ impl Game {
             budget: 100_000,
             hash_log: None,
             oar_submods: Vec::new(),
+            greeting_range_actors: BTreeSet::new(),
         }
     }
 
@@ -272,6 +277,21 @@ impl Game {
 
     pub fn world_mut(&self) -> RefMut<'_, World> {
         self.world.borrow_mut()
+    }
+
+    /// Resolve a vendor faction's current service for an actor.
+    ///
+    /// # Errors
+    /// Returns malformed vendor data, unsupported faction conditions or
+    /// invalid merchandise errors from [`services::resolve_vendor_service`].
+    pub fn resolve_vendor_service(
+        &mut self,
+        faction: GlobalFormId,
+        merchant: GlobalFormId,
+    ) -> Result<Option<services::VendorService>, services::VendorError> {
+        let vm = &self.vm;
+        let mut world = self.world.borrow_mut();
+        services::resolve_vendor_service(&mut world, vm, faction, merchant)
     }
 
     /// Return the selected damage difficulty tier.
@@ -676,6 +696,9 @@ impl Game {
         self.run_until_idle(64);
         if !menu_mode {
             if let Err(error) = self.update_dialogue_range() {
+                self.vm.log.push(self.vm.time(), error.to_string());
+            }
+            if let Err(error) = self.update_automatic_greetings() {
                 self.vm.log.push(self.vm.time(), error.to_string());
             }
         }

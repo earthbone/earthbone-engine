@@ -286,9 +286,29 @@ fn record_overrides_persist_before_actor_initialization_and_old_saves_clear_them
     let before = world.save_state();
     let hash = world.state_hash();
     let mut v13 = before.clone();
-    let origin_fields = empty.len() - 32;
-    v13.drain(origin_fields..origin_fields + 13);
-    v13.truncate(v13.len() - 38);
+    let mut marker = 1_u32.to_le_bytes().to_vec();
+    marker.extend_from_slice(&0_u16.to_le_bytes());
+    marker.extend_from_slice(&0x800_u32.to_le_bytes());
+    let offsets: Vec<_> = before
+        .windows(marker.len())
+        .enumerate()
+        .filter_map(|(offset, window)| (window == marker).then_some(offset))
+        .collect();
+    assert_eq!(offsets.len(), 1, "record override marker is unique");
+    let origin_fields = offsets[0];
+    // Version 13 has no origin identities or list metadata byte.
+    v13.drain(origin_fields + 10..origin_fields + 23);
+    let mut list_flag = origin_fields + 11;
+    for payload_size in [6, 4, 6] {
+        let present = v13[list_flag] != 0;
+        list_flag += 1;
+        if present {
+            list_flag += payload_size;
+        }
+    }
+    v13.remove(list_flag);
+    // Version 13 ends after record overrides. Remove every later field.
+    v13.truncate(origin_fields + 4 + before.len() - empty.len() - 14);
     v13[4..6].copy_from_slice(&13_u16.to_le_bytes());
     let mut legacy = World::new(fixture_order());
     legacy.load_state(&v13).unwrap();
@@ -306,7 +326,8 @@ fn record_overrides_persist_before_actor_initialization_and_old_saves_clear_them
         assert_eq!(loaded.save_state(), stable);
     }
     let mut v12 = empty;
-    v12.truncate(v12.len() - 42);
+    // Version 12 predates the record override count and every later field.
+    v12.truncate(origin_fields);
     v12[4..6].copy_from_slice(&12_u16.to_le_bytes());
     loaded.load_state(&v12).unwrap();
     assert!(loaded.restored_npc_extra(id(0, 0x800)).is_none());

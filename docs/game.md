@@ -137,6 +137,21 @@ perpetrator set and the faction's violent bounty are updated through the
 existing crime recorder. Other `SendAssaultAlarm` and witness-driven natives
 remain later work.
 
+**Vendor service lookup.** `Game::resolve_vendor_service` reads the winning
+`FACT` vendor flag, `VEND`, `VENC`, `VENV`, `PLVD` and faction conditions. It evaluates
+conditions for a loaded merchant with the player as target and applies the
+authored hours. It filters direct and leveled stock from the merchant container
+through the buy/sell list, including its inverse-list flag, and reads gold
+from the same container. An unloaded merchant has an
+unavailable service with no exposed merchandise or gold, matching the CK
+`ShowBarterMenu_-_Actor` note. The result retains the service radius and
+stolen-item policy. Leveled stock uses the shared LVLI resolver, which
+retains entry metadata. This is service data for a caller. Trade transactions
+and the barter menu are separate work.
+The location check supports near-reference, in-cell, near-editor-location and
+near-self modes. Other PLVD modes return a typed error. The 32-bit radius and
+location modes follow CommonLibSSE `TESFaction.h` and UESP `FACT.wikitext`.
+
 ## Conformance table
 
 Counts from `natives::register`: 364 natives with state behind them and 177
@@ -209,12 +224,15 @@ Current behavior and compatibility limits:
   GetActorValueMax/GetAVMax includes permanent and temporary modifiers.
   GetActorValuePercentage uses that maximum and follows the CK exceptions
   for zero maximum and CarryWeight.
-- Health, magicka and stamina use race starting values plus NPC offsets for
-  manual stats. Auto-calculated actors use their authored DNAM cache pending
-  live class/level calculation. Stats and traits follow separate template
-  chains with links resolved in each winning file. Leveled templates return
-  an error pending spawn selection. Missing race DATA retains the old
-  DNAM-plus-offset fallback for synthetic records. See [actor values](actor-values.md).
+- Actor initialization resolves separate stats and traits template chains.
+  Manual attributes use race starting values plus NPC offsets. Manual skills
+  preserve the DNAM cache while race-bonus semantics remain unresolved.
+  Fixed-level auto-calculated skills
+  use class weights, actor level and race boosts. `PC_LEVEL_MULT`, missing
+  class and zero-weight cases keep the authored DNAM skill cache. SOEW saves
+  initialized actor values, so reload does not seed bonuses again. Leveled
+  templates return an error pending spawn selection. Missing race DATA
+  retains the synthetic-record fallback. See [actor values](actor-values.md).
 - PlayerRef keeps form 0x14 and binds to the Player NPC base when available.
   A base-less synthetic player starts at 100 for the three main values.
   Health reaching zero uses the shared death lifecycle, including essential
@@ -254,8 +272,17 @@ Current behavior and compatibility limits:
   listeners on that sender and name, `World::sleep_start`, `sleep_stop` and
   `line_of_sight` are the host's hooks for the other two.
 - `Message.Show` puts a `DNAM` message-box message in the box queue and any
-  other in the notification queue, and returns button 0. `Scene.Start` and
-  `Stop` deliver `OnBegin` and `OnEnd` to the scene's scripts. `Sound.Play`
+  other in the notification queue, and returns button 0. A scene starts at
+  phase zero. `World::complete_scene_action` marks an action slot complete,
+  and `World::advance_scene_phase` waits for every action ending in the current
+  phase before advancing. Reaching the last phase stops the scene and delivers
+  `OnEnd`. `Scene.Start` and `Stop` deliver `OnBegin` and `OnEnd` to the
+  scene's scripts. SOEW version 36 stores the current phase and completed
+  action slots. Action slots use zero-based positions from the SCEN action
+  list because two vanilla scenes reuse action numbers. The SCEN layout follows
+  `TES5Edit/Core/wbDefinitionsTES5.pas` and
+  `uesp-modfileformat/SCEN.wikitext`. Timer expiry, CTDA evaluation, automatic
+  action dispatch, and the scene flags are not implemented. `Sound.Play`
   hands out instance ids. `Spell.Cast` records the cast, no effect applies.
 - `SetGameSetting*` writes an overlay `GetGameSetting*` reads first.
 - A quest start delivers `OnInit` to its alias objects too, the ones a
@@ -945,6 +972,9 @@ callbacks and does not mutate the running game.
 newest one loadable under the current definitions. `recover_generation` loads
 those verified bytes. Retention preserves loadable fallbacks before intact
 incompatible files, with a minimum configured limit of two generations.
+The `sav_63_` tests also corrupt a newly published generation after an
+interrupted rotation, then recover the older verified state and finish a
+bounded retry.
 
 A test in `tests/quest_flow.rs` calls the new `Game::activate_no_settle`
 (the part of `Game::activate` before `run_until_idle`) on the lever so the
@@ -955,6 +985,25 @@ until idle and checks it reaches the same end state as
 the objective completed, the gold given, the lever disabled, the
 notification fired, and the alias resolved to the lever.
 
+### Save sections
+
+Version 37 is the last `SAVE_VERSION` bump, and appends a named section
+table (`crates/game/src/world/save_sections.rs`) after the world's own
+saved fields, after each actor record and after each reference record.
+A table is a `u16` count then, per section, a name and a length-prefixed
+payload, read through the same `FormReader` context (so a section that
+stores a FormId resolves it the way the rest of that record does). A row
+that adds saved state registers a `Section` in
+`crates/game/src/world/save_section_registry.rs`, at the level that owns
+the field, named after the row (for example `"MAG-39"`), instead of
+raising `SAVE_VERSION` again. The registry file carries `.gitattributes`
+`merge=union` so two branches adding sections in parallel merge without a
+conflict. An absent section leaves its field at the default. An unknown
+section name, a truncated payload or a payload a section's reader does not
+fully consume are all load errors naming the section and the level.
+Versions before 37 have no section table at any level, and the reader
+skips looking for one below version 37.
+
 ## Not done, and known gaps
 
 - Race starting attributes are read. Live class/level calculations, racial
@@ -963,8 +1012,10 @@ notification fired, and the alias resolved to the lever.
   inheritance boundaries documented in [actor-values.md](actor-values.md).
 - Weapon combat remains unfinished. Dialogue and magic have the limited
   execution paths documented below. Packages run three
-  procedures, see the Packages section for the rest. Scenes play as a flag
-  with `OnBegin` and `OnEnd`, no phases or actions. Perks are a set on the
+  procedures, see the Packages section for the rest. Scene phase advancement
+  is action-gated, but action execution, phase and scene CTDA evaluation,
+  timer lifetimes, and repeat-while-conditions behavior are not implemented.
+  Perks are a set on the
   actor, no entry point applies. Leveled lists are never rolled. Spell casts
   are recorded, no effect applies. Crime has bounty and infamy ledgers, no
   jail or arrest.
@@ -1292,6 +1343,20 @@ subtype's meaning is not established by any of the three. This engine applies
 the same rule wherever the byte is set, which is what xEdit and CommonLib
 describe, and no capture from the game contradicts it.
 
+When no accepted INFO in a topic passes its conditions, the selector can use
+an eligible INFO marked Info Refusal (INFO response flag bit 4). The refusal
+INFO's own conditions still apply. It is a fallback and does not replace an
+accepted INFO whose conditions pass.
+
+When an INFO has Invisible Continue (response flag bit 6) and its response
+finishes, the conversation automatically selects the first ranked eligible
+linked topic and starts its response. Conditions and other INFO eligibility
+rules still apply. The host receives the next response directly, without a
+choice prompt. Each INFO's begin and end fragments run once for its own
+selection and completion. The flag and linked-topic fields follow xEdit
+`wbDefinitionsTES5.pas` and UESP `INFO.wikitext`. The available CK dialogue
+pages document dialogue target state, but not this continuation lifecycle.
+
 When a DIAL sets Do All Before Repeating, selection first applies those INFO
 eligibility rules, then suppresses the INFO records already selected for that
 DIAL's current cycle. When every currently eligible INFO has been selected,
@@ -1367,12 +1432,48 @@ verify named fragments changing quest stages. DLG-12 now resolves the localized
 text through the conversation API. Subtitle widgets and audible lines remain
 outside this test.
 
-Remaining dialogue work includes missing conditions, automatic greetings and
-ForceGreet, refusal/invisible continuation,
-do-all-before-repeating, walk-away topic selection, scenes,
-services, complete alias behavior and interruption rules. Godot activation,
+Remaining dialogue work includes missing conditions, ForceGreet approach
+packages, walk-away topic selection, scene action execution and timers,
+barter transactions, complete alias behavior and wider interruption rules. Godot activation,
 menus, voice assets, LIP and idle playback are not connected to this API. This increment does not establish playable dialogue
 or complete the broader gameplay goal.
+
+DLG-02 starts a greeting when a driven, living actor enters the current
+`fAIInDialogueModeWithPlayerDistance` range of the player in the same cell or
+exterior worldspace. The DIAL must use the Player category and ForceGreet
+subtype, encoded as legacy DATA subtype 1 or SNAM `PFGT`. The normal dialogue
+choice path evaluates its quest and INFO conditions and starts the highest
+priority greeting among actors entering range on that tick. A per-Game actor
+set records which actors were already in range, so another gameplay tick does
+not start the line again.
+Leaving range clears that actor's entry and allows a later greeting. Actors
+that are dead, in combat, unconscious, disallowed from PC dialogue, disabled,
+or translucent without the ghost flag are skipped. The range latch is runtime
+state and is not part of the engine save.
+
+CTDA function 123, `IsGreetingPlayer`, takes no parameters and returns true for
+the current actor while automatic ForceGreet choices are evaluated. Ordinary
+conversation choices return false for that predicate.
+
+The DIAL category and legacy subtype fields follow xEdit
+`wbDefinitionsTES5.pas`. The SNAM subtype names and the fact that SNAM replaces
+the legacy subtype follow UESP `DIAL.wikitext`. The alpha and ghost eligibility
+rule follows CK `SetAlpha_-_Actor.wikitext`. CK `MoveTo_-_ObjectReference`
+describes ForceGreet as an approach procedure. This increment selects dialogue
+after an actor is already in range and does not move actors toward the player.
+
+DLG-21 lets an eligible ForceGreet topic interrupt an open conversation when
+its owning quest has strictly higher priority than the current topic's quest.
+The incoming topic uses the ordinary quest and INFO condition checks. An
+active INFO's end fragment runs before its conversation closes and the new
+greeting starts. If it has no end fragment, closure still proceeds. Equal or
+lower priority and ineligible greetings leave the conversation in place. The
+range-entry latch prevents the same actor from interrupting again until it
+leaves and re-enters range. xEdit `wbRecord(QUST)` and UESP `QUST.wikitext`
+place quest priority in `DNAM` and describe its range as 0 to 100. The local
+CK dialogue corpus contains actor dialogue-state pages, but no page describing
+the interruption lifecycle. The callback sequence here reuses the existing
+INFO fragment lifecycle.
 
 DLG-07 adds the persuasion and intimidation CTDA functions: IsIntimidatedbyPlayer
 (116), GetPersuasionNumber (225), GetTotalPersuasionNumber (315) and
@@ -1397,8 +1498,9 @@ LastBribedIntimidated yet either, so `IsIntimidatedbyPlayer` reads false until
 a bribe or intimidate native writes it.
 
 DLG-04 implements favor spending, INFO response DATA/ENAM flag bit 14 in
-`wbDefinitionsTES5.pas` ("Spends Favor Points"). `info_eligible` now only
-rejects the refusal and invisible-continuation bits with `Error::Unsupported`.
+`wbDefinitionsTES5.pas` ("Spends Favor Points"). `info_eligible` now treats
+refusal records as fallback responses. Invisible continuation runs after an
+INFO response completes.
 A favor-spending response instead reads the INFO's CNAM favor level (0 None,
 1 Small, 2 Medium, 3 Large) and drops the topic from `dialogue_choices`
 (`Ok(false)`, no error) once the speaker's balance cannot cover that level's
@@ -2814,15 +2916,22 @@ feed the zone level into existing leveled-template selection. Template choices
 retain their existing once-per-reference lifetime. If the player level changes
 between prefetch and entry, prefetched actors retain the earlier selection even
 when entry locks a different zone level. Refreshing unobserved prefetched actors
-is not implemented. Zone locks survive unloading
-and later entry. Explicit `enter_encounter_zone` provides a fallible entry API.
-SOEW version 17 appends sorted zone locks after the version-16 item extension,
-rejects duplicate or invalid locks before changing state, and reads older saves
-with an empty lock table. Zone locks contribute to the form-state hash.
+is not implemented. Zone locks survive unloading and later entry. Explicit
+`enter_encounter_zone` provides a fallible entry API. After ten game days since
+the prior entry, a zone without the ECZN Never Resets flag clears its previous
+level lock and rebuilds its cached nonpersistent references from their winning
+records. This restores authored placement and contents. Persistent and dynamic
+references keep their state. Uncached references already read from their records
+need no work. Each entry, including an exterior streaming focus change,
+restarts the interval. The new lock uses the current player level. SOEW version 34 adds
+sorted last-visit game days, rejects duplicate or invalid entries before
+changing state, and reads older saves with empty zone history. Both zone tables
+contribute to the form-state hash.
 
 Sources are local xEdit ECZN/XEZN declarations, UESP ECZN and CommonLib
-`BGSEncounterZone.h`, plus primary CK
-[Encounter Zone](https://ck.uesp.net/wiki/Encounter_Zone) documentation.
+`BGSEncounterZone.h`, plus CK Reset documentation. xEdit and CommonLib define
+Never Resets as flag bit zero. The CK Reset reference describes restoring the
+authored reference state, which this reset applies to cached references.
 The installed SkyrimSE executable, SHA256
 `846efccf0c1374d71f892907f46549560f2fcb0a75cb87a3eed438baa0f1402f`, supplied
 read-only checks of zone lookup at `0x140300ab0`, receiver level at
@@ -2834,7 +2943,8 @@ selection already accepts an explicit level without computing NPC attributes.
 This work supplies zone levels to the existing LVLF selection rules. The CK
 LeveledCharacter page also describes XLCM difficulty-specific selection,
 including Easy weighting and Very Hard tier advancement. Those selector rules
-are a separate gap. Zone reset and lock clearing remain owned by PRG-10.
+are a separate gap. PRG-10 adds zone reset and lock clearing for cached
+nonpersistent references.
 Importing vanilla ESS encounter-zone changes is outside this selection contract.
 
 ## Ordinary perk purchases (PRG-02)
@@ -2929,6 +3039,24 @@ low-skill purchase. Root eligibility across the installed corpus is 11
 already owned, 154 eligible, 32 not playable and 200 with a false
 prerequisite. These tests do not establish original-runtime parity for
 malformed graph policy, effect execution or menu behavior.
+
+## Perk entry-point dispatch (PRG-08)
+
+`EntryPointDispatcher` registers handlers by entry-point ID and visits an
+actor's owned winning PERK records in load-order order, then each record's
+complex entry sections in file order. It passes the PRKE rank as a one-based
+value, so a stored zero is rank one, and includes priority and EPFT/EPFD data
+for the handler. The dispatcher does not sort by priority. The local sources
+do not establish equal-priority execution order or exact versus cumulative
+effect-rank selection.
+
+Each PRKC tab evaluates its own CTDA conditions against the matching supplied
+tab subject. Conditions within a tab use the shared evaluator's file-order
+AND/OR behavior. A matching entry without a registered handler returns a
+typed error. Malformed data, missing tab subjects and unsupported conditions
+also return errors before that entry's handler runs. Non-complex PRKE sections
+are not dispatched. Handler changes are applied as the dispatcher reaches
+each eligible section.
 
 ## Leveled item entry extras
 
@@ -3304,3 +3432,28 @@ animation system, it does not replace a live Havok clip yet.
 
 `anm_09_` tests use authored records and synthetic OAR directories to check
 conditioned selection, priority order and unsupported-condition rejection.
+
+## Saved list changes, SAV-52
+
+`World::restore_vanilla_lists` applies decoded FLST, LVLN, LVLI and LVSP
+changes to record overrides. Saved references map through plugin names before
+any override is installed. The record retains decoded additions, including
+duplicate and null references. FormList queries follow the CK saved-addition
+rule: they skip duplicates and nulls, with created forms before authored forms.
+The method preserves form flag words, optional section presence and leveled
+entry chance bytes. Leveled additions become twelve-byte LVLO subrecords and
+update LLCT when present. Warm form-list
+caches receive the same visible entries as cold queries. Warm leveled-list
+caches receive the saved additions. Malformed changes, duplicate targets,
+missing records and count overflow leave
+all four list types unchanged.
+
+The record overrides feed form-list queries, leveled selection and other
+record readers. SOEW version 35 stores the saved flag words and entry chance
+bytes alongside the overridden records. The chance byte remains available as
+saved data without altering leveled selection probability. The implementation
+follows local xEdit `Core/wbDefinitionsTES5Saves.pas` change types 43 to 46,
+CK `AddForm_-_FormList.wikitext` for import order and duplicate handling, and
+FallrimTools `ChangeFormFLST.java`, `ChangeFormLeveled.java` and
+`LeveledEntry.java`. Their Java readers cannot serve as Rust runtime code, so
+the existing typed save decoder and record override layer perform the mapping.

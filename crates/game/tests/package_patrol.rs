@@ -371,7 +371,11 @@ fn patrol_hash_and_save_validation_retain_direction_and_deadline() {
     let original = game.world().save_state();
     let mut old = legacy::without_exclusive_branches(&mut game.world_mut(), &[id(ACTOR)]);
     // Version 22 predates the image-space, loose-item and zone blocks.
-    old.truncate(old.len() - 25);
+    // Version 22 predates the image-space, loose-item and zone blocks, and
+    // also predates detection (read gate version 30) and save sections
+    // (version 37), so the extra 6 bytes those two now always write at the
+    // tail, regardless of version, must be truncated away too.
+    old.truncate(old.len() - 61);
     old[4..6].copy_from_slice(&22u16.to_le_bytes());
     game.world_mut().load_state(&old).unwrap();
     assert_eq!(game.world().save_state(), original);
@@ -390,6 +394,11 @@ fn patrol_hash_and_save_validation_retain_direction_and_deadline() {
     let mut old = legacy::without_exclusive_branches(&mut game.world_mut(), &[id(ACTOR)]);
     // Version 22 predates the image-space, loose-item and zone blocks.
     old.truncate(old.len() - 25);
+    // Version 22 predates the image-space, loose-item and zone blocks, and
+    // also predates detection (read gate version 30) and save sections
+    // (version 37), so the extra 6 bytes those two now always write at the
+    // tail, regardless of version, must be truncated away too.
+    old.truncate(old.len() - 36);
     old[4..6].copy_from_slice(&22u16.to_le_bytes());
     assert!(game.world_mut().load_state(&old).is_err());
     assert_eq!(game.world().save_state(), original);

@@ -285,7 +285,9 @@ fn version_nine_loads_static_actors_without_a_selection_table() {
     world.actor(id(ACTOR)).unwrap();
     let hash = world.state_hash();
     let mut bytes = legacy::without_exclusive_branches(&mut world, &[id(ACTOR)]);
-    bytes.truncate(bytes.len() - 54);
+    // Remove the version 10 to 36 blocks, detection's empty pool count, and
+    // the version 37 world sections that this version 9 save cannot carry.
+    bytes.truncate(bytes.len() - 90);
     bytes[4..6].copy_from_slice(&9u16.to_le_bytes());
     world.load_state(&bytes).unwrap();
     assert_eq!(world.state_hash(), hash);

@@ -14,6 +14,17 @@ use soe_game::combat::{Error, Hand};
 use crate::combat::{weapon_bones, weapon_segment};
 use crate::units::METRES_PER_UNIT;
 
+/// The first object met by an authored weapon segment.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ContactHit {
+    /// The segment crossed empty space.
+    Empty,
+    /// A resident actor owns the first body.
+    Actor(GlobalFormId),
+    /// A world body blocks the actor behind it.
+    Obstruction(Rid),
+}
+
 /// Query one authored weapon segment in Godot world coordinates, in metres.
 /// Actor body RIDs map to the existing form table through `owners`, which
 /// holds the host-registered bodies and the World-synchronized ones. An
@@ -28,7 +39,7 @@ pub fn first_contact<S: BuildHasher>(
     attacker: GlobalFormId,
     from: Vector3,
     to: Vector3,
-) -> Result<Option<GlobalFormId>, Error> {
+) -> Result<ContactHit, Error> {
     if !from.is_finite() || !to.is_finite() || from == to {
         return Err(Error::Number);
     }
@@ -46,10 +57,16 @@ pub fn first_contact<S: BuildHasher>(
         .space_get_direct_state(space)
         .ok_or(Error::Unsupported("unavailable physics contact space"))?;
     let result = state.intersect_ray(&query);
-    Ok(result
+    let Some(rid) = result
         .get("rid")
         .and_then(|value| value.try_to::<Rid>().ok())
-        .and_then(|rid| owners.iter().find_map(|map| map.get(&rid).copied())))
+    else {
+        return Ok(ContactHit::Empty);
+    };
+    Ok(match owners.iter().find_map(|map| map.get(&rid).copied()) {
+        Some(actor) => ContactHit::Actor(actor),
+        None => ContactHit::Obstruction(rid),
+    })
 }
 
 /// World-space pose of the swing hand's weapon node in `skeleton`, trying
