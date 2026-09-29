@@ -6,10 +6,11 @@ use soe_game::world::World;
 /// Strip uniquely marked actor fields before a fixture applies its older layout.
 /// Callers supply every initialized actor and restore the requested old header.
 /// Strips the exclusive dialogue branch version 24 added, the stagger end time
-/// version 29 added, the witnessed crime set version 31 added and the hand
-/// spell fields version 32 added, so fixtures built against any older header
-/// see none of those fields' bytes. Also strips the empty save-section table
-/// version 37 appends to the actor's own record and, since `World::actor`
+/// version 29 added, the witnessed crime set version 31 added, the hand spell
+/// fields version 32 added and the MAG-57 actor section, so fixtures built
+/// against an older header see none of those fields' bytes. Also strips the
+/// actor's named section table and the reference's empty save-section table
+/// version 37 appends to those records and, since `World::actor`
 /// requires a paired reference (`self.reference(id)` with `is_actor` set), to
 /// that reference's record too, so both records end exactly where a
 /// pre-version-37 writer would have left them.
@@ -170,11 +171,22 @@ pub fn without_exclusive_branches(world: &mut World, actors: &[GlobalFormId]) ->
             "right spell sentinel is not unique"
         );
         fields.push((right_spell_offsets[0], right_spell_marker.len()));
-
-        // The right spell field is immediately followed by this actor's
-        // own empty save-section table (a `u16` count of 0, see
-        // `save_sections`), which a pre-version-37 writer never emitted.
-        fields.push((right_spell_offsets[0] + right_spell_marker.len(), 2));
+        let section_start = right_spell_offsets[0] + right_spell_marker.len();
+        let section_count =
+            u16::from_le_bytes([bytes[section_start], bytes[section_start + 1]]) as usize;
+        let mut section_end = section_start + 2;
+        for _ in 0..section_count {
+            let name_len = usize::from(bytes[section_end]);
+            section_end += 1 + name_len;
+            let payload_len = u32::from_le_bytes([
+                bytes[section_end],
+                bytes[section_end + 1],
+                bytes[section_end + 2],
+                bytes[section_end + 3],
+            ]) as usize;
+            section_end += 4 + payload_len;
+        }
+        fields.push((section_start, section_end - section_start));
 
         // `alpha` itself is not version gated, so unlike the fields above
         // it must stay in the stream with its true value. Only the empty

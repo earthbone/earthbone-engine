@@ -6,6 +6,8 @@
 //! elapsed time and reversible actor-value deltas belong to the world.
 //! Unsupported delivery and archetypes return errors before applying effects.
 
+use std::collections::BTreeSet;
+
 use soe_esm::records::gameplay::{Effect, Ingestible, MagicEffect, Spell};
 use soe_esm::GlobalFormId;
 use soe_papyrus::{ObjectId, Value};
@@ -17,7 +19,7 @@ use crate::conditions::{self, Context};
 use super::{Alloc, Handle, Pending, World};
 
 mod state;
-pub(super) use state::read_magic;
+pub(super) use state::{read_magic, read_werewolf_transform, write_werewolf_transform};
 
 const HOSTILE: u32 = 1;
 const RECOVER: u32 = 1 << 1;
@@ -88,6 +90,7 @@ enum DispelRule {
 struct PreparedEffect {
     effect: ActiveEffect,
     summon_base: Option<GlobalFormId>,
+    werewolf_race: Option<(GlobalFormId, BTreeSet<GlobalFormId>, BTreeSet<GlobalFormId>)>,
     no_recast: bool,
     hit_event: bool,
     dispel_rules: Vec<DispelRule>,
@@ -335,6 +338,7 @@ impl World {
                 },
                 no_recast: data.flags & NO_RECAST != 0,
                 summon_base: None,
+                werewolf_race: None,
                 hit_event: false,
                 dispel_rules,
                 dispel: Vec::new(),
@@ -509,6 +513,24 @@ impl World {
             return;
         };
         let spells = state.spells.clone();
+        self.apply_abilities(actor, spells);
+    }
+
+    fn apply_abilities(
+        &mut self,
+        actor: GlobalFormId,
+        spells: BTreeSet<GlobalFormId>,
+    ) -> BTreeSet<EffectId> {
+        self.apply_abilities_with_alloc(actor, spells, None)
+    }
+
+    fn apply_abilities_with_alloc(
+        &mut self,
+        actor: GlobalFormId,
+        spells: BTreeSet<GlobalFormId>,
+        mut alloc: Option<Alloc<'_>>,
+    ) -> BTreeSet<EffectId> {
+        let mut owned = BTreeSet::new();
         for spell in spells {
             let Ok(definition) = self.spell(spell) else {
                 continue;
@@ -527,6 +549,7 @@ impl World {
             };
             for prepared in prepared {
                 let id = prepared.effect.id;
+                owned.insert(id);
                 self.next_effect = id.0 + 1;
                 if prepared.effect.recover || prepared.effect.duration == Some(0.0) {
                     if let Some(state) = self.actors.get_mut(&prepared.effect.target) {
@@ -536,7 +559,124 @@ impl World {
                     }
                 }
                 self.active_effects.insert(id, prepared.effect.clone());
+                if let Some(alloc) = alloc.as_deref_mut() {
+                    let object = self.object_of(Handle::ActiveEffect(id), alloc);
+                    self.pending.push(Pending::BindEffect {
+                        object,
+                        effect: prepared.effect.effect,
+                    });
+                    let target = self.form_value(Some(actor), alloc);
+                    let caster = self.form_value(Some(actor), alloc);
+                    self.pending.push(Pending::Event {
+                        object,
+                        name: "OnEffectStart".into(),
+                        args: vec![target, caster.clone()],
+                    });
+                    let effect = self.form_value(Some(prepared.effect.effect), alloc);
+                    self.form_event(actor, "OnMagicEffectApply", vec![caster, effect], alloc);
+                }
             }
+        }
+        owned
+    }
+
+    fn race_effects(
+        &self,
+        race: GlobalFormId,
+    ) -> Result<(BTreeSet<GlobalFormId>, BTreeSet<GlobalFormId>), MagicError> {
+        let record = self.record(race).ok_or(MagicError::Missing(race))?;
+        let mut spells = BTreeSet::new();
+        let mut shouts = BTreeSet::new();
+        for raw in record.all(super::T(b"SPLO")) {
+            if raw.len() != 4 {
+                return Err(MagicError::Unsupported("werewolf race effect layout"));
+            }
+            let raw = u32::from_le_bytes([raw[0], raw[1], raw[2], raw[3]]);
+            let spell = self
+                .resolve_from(race, raw)
+                .ok_or(MagicError::Missing(race))?;
+            match self.tag_of(spell) {
+                Some(tag) if tag == super::T(b"SPEL") => {
+                    self.spell(spell)?;
+                    spells.insert(spell);
+                }
+                Some(tag) if tag == super::T(b"SHOU") => {
+                    shouts.insert(spell);
+                }
+                _ => return Err(MagicError::Unsupported("werewolf race effect")),
+            }
+        }
+        Ok((spells, shouts))
+    }
+
+    fn start_werewolf_transform(
+        &mut self,
+        actor: GlobalFormId,
+        effect: EffectId,
+        race: GlobalFormId,
+        race_spells: BTreeSet<GlobalFormId>,
+        race_shouts: BTreeSet<GlobalFormId>,
+        alloc: Alloc<'_>,
+    ) -> Result<(), MagicError> {
+        let state = self.actor(actor).ok_or(MagicError::Target)?;
+        if state.werewolf_transform.is_some() {
+            return Err(MagicError::Unsupported("actor already transformed"));
+        }
+        let prior_race = state.race;
+        let added_spells = race_spells
+            .difference(&state.spells)
+            .copied()
+            .collect::<BTreeSet<_>>();
+        let added_shouts = race_shouts
+            .difference(&state.shouts)
+            .copied()
+            .collect::<BTreeSet<_>>();
+        state.race = Some(race);
+        state.spells.extend(race_spells);
+        state.shouts.extend(race_shouts);
+        let added_effects =
+            self.apply_abilities_with_alloc(actor, added_spells.clone(), Some(alloc));
+        let state = self.actors.get_mut(&actor).ok_or(MagicError::Target)?;
+        state.werewolf_transform = Some(super::WerewolfTransformState {
+            effect,
+            prior_race,
+            transformed_race: race,
+            added_spells: added_spells.clone(),
+            added_shouts,
+            added_effects,
+        });
+        Ok(())
+    }
+
+    fn finish_werewolf_transform(
+        &mut self,
+        actor: GlobalFormId,
+        effect: EffectId,
+        alloc: Alloc<'_>,
+    ) {
+        let Some(state) = self.actors.get(&actor) else {
+            return;
+        };
+        let Some(transform) = state.werewolf_transform.clone() else {
+            return;
+        };
+        if transform.effect != effect {
+            return;
+        }
+        if let Some(state) = self.actors.get_mut(&actor) {
+            if state.race == Some(transform.transformed_race) {
+                state.race = transform.prior_race;
+            }
+            for spell in &transform.added_spells {
+                state.spells.remove(spell);
+            }
+            for shout in &transform.added_shouts {
+                state.shouts.remove(shout);
+            }
+            state.werewolf_transform = None;
+        }
+        for id in transform.added_effects {
+            self.dispel_effect(id, alloc);
         }
     }
 
@@ -596,7 +736,7 @@ impl World {
             }
             if !matches!(
                 data.archetype,
-                0 | 1 | 2 | 5 | 18 | PARALYSIS_ARCHETYPE | CURE_PARALYSIS_ARCHETYPE
+                0 | 1 | 2 | 5 | 18 | PARALYSIS_ARCHETYPE | CURE_PARALYSIS_ARCHETYPE | 36
             ) {
                 return Err(MagicError::Unsupported("effect archetype"));
             }
@@ -659,6 +799,20 @@ impl World {
             } else {
                 None
             };
+            let werewolf_race = if data.archetype == 36 {
+                let race = self
+                    .resolve_from(effect, data.associated_item)
+                    .ok_or(MagicError::Missing(effect))?;
+                if self.tag_of(race) != Some(super::T(b"RACE"))
+                    || self.record(race).is_none_or(|record| record.is_deleted())
+                {
+                    return Err(MagicError::Unsupported("werewolf race"));
+                }
+                let (spells, shouts) = self.race_effects(race)?;
+                Some((race, spells, shouts))
+            } else {
+                None
+            };
             let duration = if definition.data.cast_type == 0 {
                 None
             } else {
@@ -689,7 +843,11 @@ impl World {
             } else {
                 entry.data.area as f32
             };
-            let mut recipients = self.area_targets(target, radius);
+            let mut recipients = if werewolf_race.is_some() {
+                vec![target]
+            } else {
+                self.area_targets(target, radius)
+            };
             if data.flags & HOSTILE != 0 {
                 recipients.retain(|&id| {
                     self.actor(id)
@@ -715,6 +873,7 @@ impl World {
                     },
                     no_recast: data.flags & NO_RECAST != 0,
                     summon_base,
+                    werewolf_race: werewolf_race.clone(),
                     hit_event: data.flags & (HOSTILE | NO_HIT_EVENT) == HOSTILE,
                     dispel_rules: dispel_rules.clone(),
                     dispel: Vec::new(),
@@ -740,6 +899,8 @@ impl World {
     ) -> Result<Vec<EffectId>, MagicError> {
         let mut applied = Vec::new();
         for mut prepared in prepared {
+            let id = prepared.effect.id;
+            self.next_effect = id.0 + 1;
             if let Some(base) = prepared.summon_base {
                 let summon = self.place_at(base, prepared.effect.source, false);
                 let owner = prepared.effect.caster.unwrap_or(prepared.effect.target);
@@ -747,6 +908,16 @@ impl World {
                     reference.owner = Some(owner);
                 }
                 prepared.effect.summoned = Some(summon);
+            }
+            if let Some((race, spells, shouts)) = prepared.werewolf_race {
+                self.start_werewolf_transform(
+                    prepared.effect.target,
+                    prepared.effect.id,
+                    race,
+                    spells,
+                    shouts,
+                    alloc,
+                )?;
             }
             if prepared.hit_event {
                 let aggressor = self.form_value(
@@ -772,8 +943,6 @@ impl World {
                     });
                 }
             }
-            let id = prepared.effect.id;
-            self.next_effect += 1;
             let object = self.object_of(Handle::ActiveEffect(id), alloc);
             self.pending.push(Pending::BindEffect {
                 object,
@@ -1012,6 +1181,7 @@ impl World {
                 reference.enabled = false;
             }
         }
+        self.finish_werewolf_transform(effect.target, effect.id, alloc);
         self.active_effects.remove(&id);
         if let Some(object) = self.object_id(Handle::ActiveEffect(id)) {
             self.timers.retain(|t| t.object != object);

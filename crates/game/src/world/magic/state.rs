@@ -12,6 +12,7 @@ use super::{ActiveEffect, EffectId, World};
 use crate::world::save::{
     read_form_id, read_opt_form_id, write_form_id, write_opt_form_id, FormReader,
 };
+use crate::world::{ActorState, WerewolfTransformState};
 
 impl World {
     pub(crate) fn write_magic(&self, w: &mut Writer) {
@@ -112,4 +113,73 @@ pub(in crate::world) fn read_magic(
         return Err(VmError::State("invalid next effect identity".into()));
     }
     Ok((next, effects))
+}
+
+pub(in crate::world) fn write_werewolf_transform(actor: &ActorState, w: &mut Writer) {
+    let Some(transform) = &actor.werewolf_transform else {
+        w.bool(false);
+        return;
+    };
+    w.bool(true);
+    w.u64(transform.effect.0);
+    write_opt_form_id(w, transform.prior_race);
+    write_form_id(w, transform.transformed_race);
+    w.len(transform.added_spells.len());
+    for spell in &transform.added_spells {
+        write_form_id(w, *spell);
+    }
+    w.len(transform.added_shouts.len());
+    for shout in &transform.added_shouts {
+        write_form_id(w, *shout);
+    }
+    w.len(transform.added_effects.len());
+    for effect in &transform.added_effects {
+        w.u64(effect.0);
+    }
+}
+
+pub(in crate::world) fn read_werewolf_transform(
+    actor: &mut ActorState,
+    r: &mut FormReader<'_, '_>,
+) -> Result<(), VmError> {
+    if !r.bool()? {
+        return Ok(());
+    }
+    let effect = EffectId(r.u64()?);
+    let prior_race = read_opt_form_id(r)?;
+    let transformed_race = read_form_id(r)?;
+    let count = r.len()?;
+    let mut added_spells = std::collections::BTreeSet::new();
+    for _ in 0..count {
+        if !added_spells.insert(read_form_id(r)?) {
+            return Err(VmError::State("duplicate werewolf race effect".into()));
+        }
+    }
+    let count = r.len()?;
+    let mut added_shouts = std::collections::BTreeSet::new();
+    for _ in 0..count {
+        if !added_shouts.insert(read_form_id(r)?) {
+            return Err(VmError::State("duplicate werewolf race shout".into()));
+        }
+    }
+    let count = r.len()?;
+    let mut added_effects = std::collections::BTreeSet::new();
+    for _ in 0..count {
+        let id = EffectId(r.u64()?);
+        if id.0 == 0 || !added_effects.insert(id) {
+            return Err(VmError::State("invalid owned werewolf effect".into()));
+        }
+    }
+    if effect.0 == 0 || actor.race != Some(transformed_race) || transformed_race.object == 0 {
+        return Err(VmError::State("invalid werewolf transform state".into()));
+    }
+    actor.werewolf_transform = Some(WerewolfTransformState {
+        effect,
+        prior_race,
+        transformed_race,
+        added_spells,
+        added_shouts,
+        added_effects,
+    });
+    Ok(())
 }
