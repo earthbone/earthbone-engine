@@ -658,6 +658,18 @@ persistence state with validated version-specific semantics. The byte layout
 is established, but the application operation has not been established.
 No reference behavior or engine-save layout changed in this investigation.
 
+## CELL, LCTN and ECZN application, SAV-28
+
+`World::restore_vanilla_spatial_records` applies CELL common flags, cell
+flags, full name and owner to shared record overrides. It also applies common
+form flags for LCTN and ECZN. Their flagged tails remain opaque, following the
+xEdit placeholder unions documented in [saved spatial fields](save-spatial-fields.md).
+The restore validates the full batch before committing it. CELL owner links
+use the saved plugin mapping and remain queryable through `cell_state`.
+Overrides use the existing SOEW record table and survive engine save/load.
+This does not assign runtime meanings to the LCTN keyword/cleared data or the
+ECZN zone/game data.
+
 Local xEdit `Core/wbDefinitionsTES5Saves.pas`, at
 `wbUnionCHANGE_FORM_FLAGS`, names a 32-bit Mask Invert Flags followed by a
 16-bit Mask Set unk010. It supplies record flag labels, but no application

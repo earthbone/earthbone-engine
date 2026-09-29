@@ -2098,6 +2098,13 @@ unapplied state. Inventory, actor values, extra data and saved execution remain
 separate requirements. See [save.md](save.md#reference-placements) for sources,
 validation and the limits of this intermediate reconstruction pass.
 
+`World::restore_vanilla_spatial_records` applies decoded CELL common flags,
+cell flags, full name and mapped owner links to shared record overrides. LCTN
+and ECZN common flags update their record headers. Their placeholder payload
+tails stay opaque. The pass is atomic, refreshes warm CELL state and persists
+through the existing record-override table in SOEW. CELL ownership queries
+use the mapped override link after reload.
+
 ## Inventory instances and ESS application, work in progress
 
 `RefState::inventory` now holds one canonical per-item total and ordered

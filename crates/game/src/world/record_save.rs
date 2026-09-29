@@ -103,7 +103,15 @@ impl World {
                 || self.order.winner(text_origin).is_none_or(|r| {
                     !matches!(
                         &r.tag.0,
-                        b"NPC_" | b"RACE" | b"FLST" | b"LVLN" | b"LVLI" | b"LVSP"
+                        b"NPC_"
+                            | b"RACE"
+                            | b"FLST"
+                            | b"LVLN"
+                            | b"LVLI"
+                            | b"LVSP"
+                            | b"CELL"
+                            | b"LCTN"
+                            | b"ECZN"
                     )
                 })
             {
@@ -115,7 +123,15 @@ impl World {
                 .filter(|rec| {
                     matches!(
                         &rec.tag.0,
-                        b"NPC_" | b"RACE" | b"FLST" | b"LVLN" | b"LVLI" | b"LVSP"
+                        b"NPC_"
+                            | b"RACE"
+                            | b"FLST"
+                            | b"LVLN"
+                            | b"LVLI"
+                            | b"LVSP"
+                            | b"CELL"
+                            | b"LCTN"
+                            | b"ECZN"
                     ) && !rec.is_deleted()
                 })
                 .ok_or_else(|| bad("missing record origin"))?;
@@ -184,6 +200,59 @@ impl World {
                 subrecords.push(Subrecord { tag, data });
             }
             record.subrecords = subrecords;
+            if matches!(record.tag.as_bytes(), b"CELL" | b"LCTN" | b"ECZN") {
+                if (plain_full && record.tag != T(b"CELL"))
+                    || original_race.is_some()
+                    || body_tint.is_some()
+                    || list.is_some()
+                    || temporary_for.is_some()
+                    || text_origin != id
+                {
+                    return Err(bad("spatial record has unrelated override metadata"));
+                }
+                let unchanged = |candidate: &soe_esm::Record| {
+                    candidate
+                        .subrecords
+                        .iter()
+                        .filter(|sub| {
+                            record.tag != T(b"CELL")
+                                || !matches!(&sub.tag.0, b"DATA" | b"FULL" | b"XOWN")
+                        })
+                        .cloned()
+                        .collect::<Vec<_>>()
+                };
+                if unchanged(original) != unchanged(&record) {
+                    return Err(bad("spatial override changed unrelated subrecords"));
+                }
+                if let Some((flags, _)) = pending_form_flags {
+                    record.flags = flags;
+                }
+                if links.keys().any(|raw| {
+                    !record
+                        .all(T(b"XOWN"))
+                        .any(|bytes| bytes == raw.to_le_bytes())
+                }) {
+                    return Err(bad("spatial link is not used by XOWN"));
+                }
+                let value = RecordOverride {
+                    origin,
+                    text_origin,
+                    temporary_for,
+                    record,
+                    links,
+                    plain_full,
+                    npc: NpcRecordExtra {
+                        original_race,
+                        body_tint,
+                        pending_form_flags,
+                    },
+                    list,
+                };
+                if values.insert(id, value).is_some() {
+                    return Err(bad("duplicate record override"));
+                }
+                continue;
+            }
             let present = raw_words(&record);
             if links.keys().any(|raw| !present.contains(raw)) {
                 return Err(bad("unused link token"));
