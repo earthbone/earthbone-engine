@@ -1897,7 +1897,7 @@ the caster owns that perk. `World::cast_charged_spell` validates the cast and
 available magicka before debiting the cost once and applying effects. This
 one-shot API does not model charge progress or concentration ticks. These rules
 follow local `uesp-modfileformat/SPEL.wikitext` and
-`TES5Edit/Core/wbDefinitionsTES5.pas`; `tests/magic/mag_09_cast_cost.rs`
+`TES5Edit/Core/wbDefinitionsTES5.pas`. `tests/magic/mag_09_cast_cost.rs`
 checks authored and calculated timing and costs, perk adjustment, and rejection
 without state changes when magicka is insufficient.
 The charged gameplay path sends `OnSpellCast` once after validation and payment.
@@ -2141,7 +2141,7 @@ identifies its related form as a race. The local
 race, and `RACE.wikitext` defines `SPLO` entries as `SPEL` or `SHOU` links.
 The cloned CK wiki has no Magic Effect archetype page, so the record meaning
 comes from xEdit and UESP. `ck-wiki/Actor_Script.wikitext` describes
-`SendLycanthropyStateChanged` as notifying listeners; this executor does not
+`SendLycanthropyStateChanged` as notifying listeners. This executor does not
 raise that event. Host appearance refresh is not handled here.
 
 `mag_57_transformation_uses_authored_race_and_grants_its_ability`,

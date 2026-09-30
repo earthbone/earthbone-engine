@@ -888,13 +888,9 @@ impl World {
         } else {
             (1, BTreeMap::new())
         };
-        for (id, effect) in &active_effects {
-            if !objects.contains_key(&Handle::ActiveEffect(*id))
-                || !actors.contains_key(&effect.target)
-            {
-                return Err(VmError::State(
-                    "active effect without object or actor".into(),
-                ));
+        for effect in active_effects.values() {
+            if !actors.contains_key(&effect.target) {
+                return Err(VmError::State("active effect without actor".into()));
             }
             let entry = self
                 .magic_item_effect(effect.spell, effect.effect_index)
@@ -928,7 +924,11 @@ impl World {
         }
         for handle in objects.keys() {
             if let Handle::ActiveEffect(id) = handle {
-                if !(version == 5 || version >= 9) || id.0 == 0 || id.0 >= next_effect {
+                if !(version == 5 || version >= 9)
+                    || id.0 == 0
+                    || id.0 >= next_effect
+                    || !active_effects.contains_key(id)
+                {
                     return Err(VmError::State("invalid active effect handle".into()));
                 }
             }
