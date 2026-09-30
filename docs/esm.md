@@ -45,7 +45,9 @@ order. `winner` is the last one, which is the rule the game, xEdit and Mutagen a
 `overridden` lists the ids whose winner is not their owner.
 
 `Plugin::set_masters` reorders existing masters or adds new ones while retaining
-all current masters. It relocates record FormIDs, FormID group labels, TES4
+all current masters. It relocates valid master and plugin-self FormIDs while
+preserving null, light-plugin and out-of-range unresolved FormIDs. It relocates
+record FormIDs, FormID group labels, TES4
 `ONAM`, and recognized four-byte links in the typed world record set. It updates
 the TES4 `MAST` and paired `DATA` entries, keeping existing master data with its
 name. Duplicate and removed masters, malformed recognized links and lists over
@@ -69,6 +71,11 @@ the loaded definition rather than the exact source file bytes. A changed
 definition changes its fingerprint. This is dependency evidence, not an
 authenticity check. `tests/sav_67_fingerprints.rs` covers slot reordering,
 same-name replacements and the engine-added global.
+
+`LoadOrder::fingerprint` hashes each plugin's ASCII case-folded name and
+serialized-definition fingerprint in load order. It is suitable as a cache
+identity for data derived from this resolved order. It does not fingerprint
+loose assets or archive contents.
 
 OpenMW's `apps/openmw/mwstate/savegame.hpp` writes content file names to saves,
 and `loadgame.hpp` checks dependencies and maps saved indices on load.

@@ -3,22 +3,6 @@
 use soe_esm::GlobalFormId;
 use soe_game::world::World;
 
-fn section_table_len(bytes: &[u8], offset: usize) -> usize {
-    let mut cursor = offset;
-    let count = usize::from(u16::from_le_bytes(
-        bytes[cursor..cursor + 2].try_into().unwrap(),
-    ));
-    cursor += 2;
-    for _ in 0..count {
-        let name_len = usize::from(bytes[cursor]);
-        cursor += 1 + name_len;
-        let payload_len =
-            u32::from_le_bytes(bytes[cursor..cursor + 4].try_into().unwrap()) as usize;
-        cursor += 4 + payload_len;
-    }
-    cursor - offset
-}
-
 /// Strip uniquely marked actor fields before a fixture applies its older layout.
 /// Callers supply every initialized actor and restore the requested old header.
 /// Strips the exclusive dialogue branch version 24 added, the stagger end time
@@ -193,7 +177,7 @@ pub fn without_exclusive_branches(world: &mut World, actors: &[GlobalFormId]) ->
         fields.push((actor_sections, section_table_len(&bytes, actor_sections)));
 
         // `alpha` itself is not version gated, so unlike the fields above
-        // it must stay in the stream with its true value. Only the empty
+        // it must stay in the stream with its true value. Only the named
         // save-section table that follows it is a version 37 addition and
         // gets stripped. The marker bytes are overwritten back to
         // `prior_alpha` in place rather than added to `fields`.
@@ -217,10 +201,11 @@ pub fn without_exclusive_branches(world: &mut World, actors: &[GlobalFormId]) ->
     for (offset, len) in fields {
         bytes.drain(offset..offset + len);
     }
+    normalize_world_sections(&mut bytes);
     bytes
 }
 
-/// Strip the save-section table version 37 appends to a standalone
+/// Strip the named save-section table version 37 appends to a standalone
 /// reference's own record. `without_exclusive_branches` only locates this
 /// table for a reference paired with an actor, through the actor's own
 /// alpha value. A fixture that materializes a bare reference, such as an
@@ -268,7 +253,69 @@ pub fn without_ref_sections(world: &mut World, refs: &[GlobalFormId]) -> Vec<u8>
     for (offset, len) in offsets {
         bytes.drain(offset..offset + len);
     }
+    normalize_world_sections(&mut bytes);
     bytes
+}
+
+#[allow(dead_code)]
+pub fn section_table_len(bytes: &[u8], start: usize) -> usize {
+    let count = usize::from(u16::from_le_bytes([bytes[start], bytes[start + 1]]));
+    let mut cursor = start + 2;
+    for _ in 0..count {
+        let name_len = usize::from(bytes[cursor]);
+        cursor += 1 + name_len;
+        let payload_len = u32::from_le_bytes([
+            bytes[cursor],
+            bytes[cursor + 1],
+            bytes[cursor + 2],
+            bytes[cursor + 3],
+        ]) as usize;
+        cursor += 4 + payload_len;
+    }
+    cursor - start
+}
+
+/// Remove the world save-section table appended at the end of a version 37
+/// save when constructing a pre-version-37 fixture.
+#[allow(dead_code)]
+pub fn strip_world_sections(bytes: &mut Vec<u8>) -> usize {
+    let start = (0..bytes.len())
+        .find(|start| section_table_end(bytes, *start) == Some(bytes.len()))
+        .expect("world save-section table is present at the end of the save");
+    let length = bytes.len() - start;
+    bytes.truncate(start);
+    length
+}
+
+pub fn normalize_world_sections(bytes: &mut Vec<u8>) {
+    let _ = strip_world_sections(bytes);
+    bytes.extend_from_slice(&0u16.to_le_bytes());
+}
+
+#[allow(dead_code)]
+fn section_table_end(bytes: &[u8], start: usize) -> Option<usize> {
+    let mut cursor = start;
+    let count = usize::from(u16::from_le_bytes([
+        *bytes.get(cursor)?,
+        *bytes.get(cursor.checked_add(1)?)?,
+    ]));
+    cursor = cursor.checked_add(2)?;
+    for _ in 0..count {
+        let name_len = usize::from(*bytes.get(cursor)?);
+        cursor = cursor.checked_add(1)?.checked_add(name_len)?;
+        let payload_len = usize::try_from(u32::from_le_bytes([
+            *bytes.get(cursor)?,
+            *bytes.get(cursor.checked_add(1)?)?,
+            *bytes.get(cursor.checked_add(2)?)?,
+            *bytes.get(cursor.checked_add(3)?)?,
+        ]))
+        .ok()?;
+        cursor = cursor.checked_add(4)?.checked_add(payload_len)?;
+        if cursor > bytes.len() {
+            return None;
+        }
+    }
+    Some(cursor)
 }
 
 /// One actor's replaced fields and the sentinels written in their place.

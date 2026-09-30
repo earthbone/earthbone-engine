@@ -60,6 +60,11 @@ impl World {
         Ok(())
     }
 
+    /// Take queued Story Manager inputs for the scheduler.
+    pub fn take_story_manager_events(&mut self) -> Vec<crate::quest::state::StoryManagerEvent> {
+        std::mem::take(&mut self.story_manager_events)
+    }
+
     /// An event to the scripts on `form`, the way `OnActivate` reaches a
     /// reference: `Actor.SendVampirismStateChanged` and its siblings use it.
     pub fn form_event(

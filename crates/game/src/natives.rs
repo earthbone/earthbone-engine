@@ -1639,7 +1639,28 @@ fn quest(vm: &mut Vm, w: &Shared) {
     });
     method!(vm, w, "Quest", "IsRunning", |world, call, me| b(world
         .quest_state(me)
-        .is_some_and(|q| q.running)));
+        .is_some_and(|q| {
+            q.running
+                && !matches!(
+                    q.lifecycle_task,
+                    Some(
+                        crate::quest::state::LifecycleTask::Starting
+                            | crate::quest::state::LifecycleTask::Stopping
+                    )
+                )
+        })));
+    method!(vm, w, "Quest", "IsStarting", |world, call, me| b(world
+        .quest_state(me)
+        .is_some_and(|q| matches!(
+            q.lifecycle_task,
+            Some(crate::quest::state::LifecycleTask::Starting)
+        ))));
+    method!(vm, w, "Quest", "IsStopping", |world, call, me| b(world
+        .quest_state(me)
+        .is_some_and(|q| matches!(
+            q.lifecycle_task,
+            Some(crate::quest::state::LifecycleTask::Stopping)
+        ))));
     method!(vm, w, "Quest", "IsCompleted", |world, call, me| b(world
         .quest_state(me)
         .is_some_and(|q| q.completed)));
@@ -1923,6 +1944,13 @@ fn game(vm: &mut Vm, w: &Shared) {
     global!(vm, w, "Game", "GetPlayer", |world, call| {
         let p = world.player();
         form_value(world, call, Some(p))
+    });
+    global!(vm, w, "Game", "AdvanceSkill", |world, call| {
+        let skill = text(&call.arg(0));
+        let magnitude = call.arg(1).as_float();
+        let player = world.player();
+        let _ = world.advance_skill(player, &skill, magnitude);
+        none()
     });
     for name in ["GetForm", "GetFormEx"] {
         global!(vm, w, "Game", name, |world, call| {
@@ -3402,8 +3430,6 @@ fn stubs(vm: &mut Vm) -> usize {
         ("Actor", "IsDetectedBy", true),
         ("Actor", "HasLOS", true),
         ("Actor", "PathToReference", true),
-        ("Quest", "IsStarting", false),
-        ("Quest", "IsStopping", false),
         ("Cell", "IsAttached", true),
         ("Location", "IsLoaded", false),
         ("Location", "HasRefType", false),
@@ -3563,7 +3589,6 @@ fn stubs(vm: &mut Vm) -> usize {
         ("Game", "ShowRaceMenu"),
         ("Game", "TriggerScreenBlood"),
         ("Game", "PlayBink"),
-        ("Game", "AdvanceSkill"),
         ("Game", "PrecacheCharGen"),
         ("Game", "PrecacheCharGenClear"),
         ("Game", "ShowTrainingMenu"),

@@ -176,6 +176,17 @@ apply to selected mesh uploads. Preparation may decode more candidates on that
 tick so a smaller later cell can fit. Zero on both exported settings leaves
 the earlier cell-count behavior.
 
+`CellStreamerNode::stream_object_lod` reads and draws existing BTO object LOD
+blocks from `meshes/terrain/<world>/Objects`. It uses the world's LOD settings
+for the block anchor and level, and the same capped distance streamer and byte
+budget as BTR terrain LOD. Blocks inside the full resolution radius are not
+requested. Each rendered block remains keyed by its worldspace and
+`LodBlockCoord`, and release or budget eviction frees its instances. Use
+`update_object_lod` to move the BTO streamer as the focus changes, and
+`clear_object_lod` to release it. BTO surfaces retain the worldspace form as
+their source identity because the merged file does not encode individual
+placed-reference identities.
+
 ## Mesh
 
 `mesh::MeshSource` is a trait shaped like the `nif` crate's neutral output: positions,
@@ -1091,8 +1102,8 @@ The last step, a speaker. These tests prove the chain up to the exact bytes
 `AudioStreamWav` is handed, which is where a conversion bug lives. Whether a
 device makes noise needs a windowed Godot run with a `SoundBank` in the tree,
 `open_data` pointed at the install, and `play_effect` called with a footstep
-path. Nothing yet drives `SoundBank` from the game loop, so footsteps are not
-wired to the character controller and voice lines are not wired to dialogue.
+path. Footsteps are driven by the character controller. Dialogue response
+audio is now driven by the dialogue menu.
 `SoundBank::open_data` and the profile-taking `DataSource` entry point build
 their VFS from resolved profile archives and loose roots. Both direct paths
 retain the supplied data directory. The selected
@@ -1585,6 +1596,25 @@ controller pose into the game, dispatches activation, ticks the VM, then
 applies script moves and door landings back to the host. The movement-only
 tests can still run without starting the game.
 
+### Furniture seating, HST-09
+
+Player activation of a FURN reference reserves an active Sit marker in the
+shared game state and moves the actor to the furniture reference transform.
+The player releases the reservation after moving more than 24 Skyrim units
+from that transform or changing cells. Activating the same furniture again
+also releases the reservation. The marker selection and saved actor state are
+described in [game.md](game.md#furniture-activation-hst-09).
+
+### Player sleep, HST-11
+
+Activating a FURN reference with an available active Sleep marker completes
+an eight-hour player sleep through `Game::sleep_player_at_furniture`. The
+shared game path emits the sleep events, advances the calendar, and releases
+the marker on wake. The sleep marker requirements and interruption result are
+described in [game.md](game.md#player-sleep-hst-11). The host activation path
+currently always completes normally. The game API accepts an interruption
+result for interrupted completion callers.
+
 The ordinary load-door path uses deferred activation, including
 `arm_doorway`, `commit_doorway` and later `settle_unload`. Destination geometry
 and collision are prepared together before replacing host resources. Exterior
@@ -1609,6 +1639,21 @@ Startup loaded 14,026 scripts, attached 28,143 instances and started 423
 quests, reporting nine missing script attachments. These are not resolved
 by the host integration. No rendered-image or speaker-output claim follows
 from the headless test.
+
+## Lockpick activation requests (HST-03)
+
+When player activation reaches a locked, non-key-only reference without a
+matching key, `PlayerNode` retains its FormID as the pending lockpick target if
+the player carries a `Lockpick`. `pending_lockpick` exposes the target and
+authored lock level to an interaction UI. `resolve_pending_lockpick` applies
+the UI result through `Game::resolve_lockpick`. Success then resumes ordinary
+deferred activation, while failure consumes a pick and leaves the reference
+locked. Keyed activation remains on the regular game path.
+
+The UI-08 draft is absent from this worktree, so no lockpick minigame is
+presented and the player cannot resolve the pending request through the
+current host controls. The public host methods provide the handoff point. No
+Godot interaction test exercises that handoff yet.
 
 The integration gate passed with 915 Rust tests and 11 Python runner tests.
 All three clippy passes and every lint tool ran. The cell-index API change
@@ -1769,6 +1814,34 @@ with selection limits described in [game.md](game.md). Animation timing,
 landing/scuff sounds and NPC footstep delivery remain pending. The current
 controller does not supply submerged state to audio.
 
+## Dialogue voice playback
+
+When a selected INFO response starts, the dialogue menu resolves its voice
+asset from the response and current speaker. An explicit TRDT sound override
+does not use the generated voice path. Otherwise the path uses the response
+INFO's owning plugin filename, the DIAL and QUST editor IDs, the response
+INFO's local FormID, its response number and the speaker's VTYP editor ID.
+NPC speakers take VTCK from their Traits template source. Talking activators
+take VNAM. The current speaker reference position is converted from Skyrim
+units to Godot metres and passed to `AudioStreamPlayer3D`. The filename rule
+follows `../engine-refs/Mutagen/Mutagen.Bethesda.Skyrim/Records/Assets/VoiceType/VoiceTypeAssetLookup.cs`.
+The runtime already has the selected speaker, so it resolves that speaker's
+voice type rather than enumerating the static candidate set used by the asset
+lookup.
+
+The menu remembers the voice slot returned by `SoundBank`. Starting a later
+response stops the prior dialogue slot first. Closing the dialogue menu and
+advancing past the final response also stop the tracked voice. SoundBank
+refuses to stop a slot that has since been released or reused for an effect.
+
+The selected FUZ's LIP block is decoded with the voice buffer. SoundBank
+samples the native mouth targets against that player's playback position,
+spreading the stored frames over the decoded voice duration. The
+`dialogue_mouth_weights` method returns the current weights in LIP target
+order. Stopping or finishing the voice clears the track and returns its
+weights to zero. Lines without a decodable LIP block keep the mouth weights
+empty or neutral.
+
 `godot/sound_descriptor_test.gd` verifies real descriptor playback and cache
 reuse through AudioEffectCapture. Its Godot 4.7.2 run captured 20,480 frames with
 peak 0.01579 and exactly one decode across two plays. This is mixer output,
@@ -1844,6 +1917,18 @@ and installed survey. The host examples `controller_geometry_survey` and
 `character_metadata_survey` inspect the installed NIF and HKX sources without
 copying assets. CMB-28 installs and synchronizes actor bodies, and CMB-33
 supplies generated controller geometry when authored geometry is absent.
+
+## Ranged release latch, CMB-08
+
+`combat::RangedRelease` stores the actor and bow or crossbow selected when a
+shot is armed. It calls `Game::release_projectile` once on `bowRelease` and
+clears the pending shot on `attackStop` or `bowCancel`. The returned request
+contains the launch vector and winning AMMO/PROJ inputs. This latch does not
+move projectiles or resolve impacts, which remain CMB-22 work.
+
+The synthetic host tests cover one returned request, duplicate release markers
+and cancellation with the ammunition count unchanged. No Godot node or
+per-reference resource is created for this release state.
 
 ## Actor contact bodies and pose segments, CMB-28
 
@@ -2285,6 +2370,31 @@ checks failed-model rollback, null skins and unchanged inventory. Its cached-vie
 cost threshold is 2 ms per actor, written before measurement. A five-race survey
 checks authored human and beast addon paths against the installed archives.
 
+## Facial viseme pose mapping (ANM-13)
+
+`facial::sample_facial_pose` samples a `VisemeTrack`, maps its shapes through
+the supplied race's `PHTN` target names and `PHWT` weights, then applies matching
+FaceGen TRI deltas to the TRI base vertices. The returned weights retain every
+race target in record order. Targets without a matching TRI morph remain in the
+weight list and leave the geometry unchanged. Each sample starts from base
+vertices, so an idle cue whose authored weights are zero restores the neutral
+pose without accumulating prior frames. `sample_shape_weights` accepts weighted
+shapes directly for consumers of native LIP curves.
+
+The bridge uses `audio::viseme::morph_weights`, `nif::HeadTri::apply_morph`,
+and the race parser. The local `nifly/include/Animation.hpp` models the
+`NiMorphData` NIF block as named frame morph vectors, while `nifxml/nif.xml`
+documents that block and its controller separately from FaceGen TRI. The
+`TES5Edit/Core/wbDefinitionsTES5.pas` and Mutagen Skyrim `Race.xml` sources
+confirm that `PHTN` carries target names and `PHWT` stores per-phoneme weights.
+This API returns evaluated positions for the caller to install on a face mesh.
+It does not load a race-specific TRI or update a Godot rendering instance.
+
+`anm_13_viseme_sequence_drives_race_declared_morphs_and_returns_to_neutral`
+checks that a sequence applies its race-declared target to the matching TRI
+morph, leaves unrelated vertices unchanged, and returns the head to its base
+pose for an authored idle cue.
+
 The installed five-race survey assembles six model paths and 22 shapes, including
 Argonian and Khajiit tails. Both tails name `TailBone01` through `TailBone05`, which
 the current human rig does not contain. Live binding reports this mismatch and
@@ -2426,6 +2536,30 @@ unrelated to the `.nif` collision phantoms this method reads. When CMB-28
 adds the actor body pipeline, this is the function it resolves shape and
 transform from, with `game::World::actor_controller_scale` (`docs/game.md`)
 supplying the scale argument.
+
+## Generated object LOD, EDT-25
+
+`DataSource::load_object_lod_block` reads a shipped BTO through the NIF
+reader and surface builder. If the BTO path is absent, it calls
+`generate_object_lod_block`, which walks winning REFR records in the resolved
+load order and selects the matching level's authored MNAM mesh from each
+visible distant STAT. If that mesh is missing, it uses the STAT's MODL mesh
+and samples one triangle in every 4, 8, 16 or 32 triangles for levels 4, 8,
+16 or 32, compacting the referenced vertex attributes. It excludes deleted
+and initially disabled references, references with enable parents unless
+visible when distant, and persistent references marked never fade or full
+LOD. The reference transform, scale,
+worldspace LOD anchor and block origin are applied before each shape reaches
+the same surface builder and texture cache used by BTO geometry.
+
+The implementation follows TES5Edit's `Core/wbLOD.pas`, especially
+`TwbLodSettings.BlockForCell` and the Skyrim object export in
+`BuildObjectsLOD`. The row's named `tes4skyrim/terrain_lod.py` was not present
+in the local reference corpus. Generated blocks report contributing reference
+count, built and source triangle counts and the NIF mesh byte estimate used
+by the same residency budget as BTO blocks. The generated result is held in
+memory and is not serialized to a BTO file. Skyrim tree billboard generation
+and atlas baking are not part of this path.
 
 ## Distant-terrain LOD residency, RND-03
 

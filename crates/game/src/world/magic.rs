@@ -169,6 +169,19 @@ impl World {
         self.spell_casts_in_progress.get(&caster).copied()
     }
 
+    pub(crate) fn create_brewed_potion(
+        &mut self,
+        effects: Vec<(GlobalFormId, f32, u32, u32)>,
+    ) -> GlobalFormId {
+        self.next_dynamic = self.next_dynamic.saturating_add(1);
+        let id = GlobalFormId {
+            file: super::DYNAMIC_FILE,
+            object: self.next_dynamic,
+        };
+        self.brewed_potions.insert(id, effects);
+        id
+    }
+
     /// All currently applied effects, in application order.
     pub fn active_effects(&self) -> impl Iterator<Item = &ActiveEffect> {
         self.active_effects.values()
@@ -206,6 +219,35 @@ impl World {
 
     /// Read the current winning ALCH definition.
     pub fn ingestible(&self, id: GlobalFormId) -> Result<Ingestible, MagicError> {
+        if let Some(effects) = self.brewed_potions.get(&id) {
+            return Ok(Ingestible {
+                form_id: id.object,
+                editor_id: None,
+                name: Some(soe_esm::records::Text::Plain("Potion".into())),
+                description: None,
+                data: soe_esm::records::gameplay::IngestibleData {
+                    value: 0,
+                    flags: 0,
+                    addiction: 0,
+                    addiction_chance: 0.0,
+                    consume_sound: 0,
+                },
+                effects: effects
+                    .iter()
+                    .map(
+                        |(_, magnitude, area, duration)| soe_esm::records::gameplay::Effect {
+                            base_effect: 0,
+                            data: soe_esm::records::gameplay::EffectData {
+                                magnitude: *magnitude,
+                                area: *area,
+                                duration: *duration,
+                            },
+                            conditions: Vec::new(),
+                        },
+                    )
+                    .collect(),
+            });
+        }
         let rref = self.order.winner_ref(id).ok_or(MagicError::Missing(id))?;
         Ok(Ingestible::from_record(
             self.order.record(rref),
@@ -303,7 +345,11 @@ impl World {
         let mut prepared = Vec::new();
         for (index, entry) in effects.iter().enumerate() {
             let effect = self
-                .resolve_from(item, entry.base_effect)
+                .brewed_potions
+                .get(&item)
+                .and_then(|entries| entries.get(index))
+                .map(|entry| entry.0)
+                .or_else(|| self.resolve_from(item, entry.base_effect))
                 .ok_or(MagicError::Missing(item))?;
             let base = self.magic_effect(effect)?;
             let data = &base.data;

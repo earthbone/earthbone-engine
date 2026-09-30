@@ -308,7 +308,9 @@ fn corrupt_loose_metadata_and_duplicate_reference_identity_reject_atomically() {
     // (4 bytes) and the world-level save-section table version 37 added
     // (2 bytes). This is a same-version round trip, so no section table
     // needs stripping, only the flipped byte's position shifted by 6.
-    let last = corrupt.len() - 23;
+    let mut without_world_sections = corrupt.clone();
+    legacy::strip_world_sections(&mut without_world_sections);
+    let last = without_world_sections.len() - 21;
     corrupt[last] ^= 1;
     let mut changed = world(1);
     changed.load_state(&corrupt).unwrap();
