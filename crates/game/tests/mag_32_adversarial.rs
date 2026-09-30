@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+#![allow(dead_code, unused_imports)]
 
 //! Spell execution through the world and Papyrus, using xEdit-shaped records.
 //! CK lifecycle, recover, expiry and dispel contracts are asserted independently
 //! of whether a spell remains learned or equipped.
 
+#[allow(dead_code)]
 #[path = "common/legacy.rs"]
 mod legacy;
 
