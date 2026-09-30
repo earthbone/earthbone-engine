@@ -170,6 +170,18 @@ material, with no scene node. The current material is a generic blue emissive
 fill. EFSH texture inputs, authored colors, blend modes, fade curves and
 attachment to skinned surfaces are not read yet.
 
+## Invisibility rendering, MAG-34
+
+`SkinnedActorNode` reads invisibility from the actor's shared World state and
+sets visibility on every RenderingServer mesh instance. The initial appearance
+bind reads that state before creating instances, and later appearance rebuilds
+reuse the same cached state. Animated and ragdoll poses share these mesh
+instances, so the visibility change applies in either render mode. A later
+process update restores visibility after the effect expires or breaks. The
+game tests cover detection and break actions, while host unit tests cover the
+RenderingServer visibility mapping. Live Godot coverage of actors outside
+`SkinnedActorNode` remains open.
+
 `godot/` holds a project stub and `soe.gdextension` pointing at `target/`, so `cargo build`
 plus opening `godot/` in a 4.4 or later editor loads the extension. The initial
 round had no Godot binary. Later sections record actual host runs, and the
