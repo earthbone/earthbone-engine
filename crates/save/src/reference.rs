@@ -120,14 +120,14 @@ fn placement(r: &mut Cursor<'_>) -> Result<Placement> {
 }
 
 impl ChangeForm {
-    /// Read the placement prefix of a REFR or ACHR payload.
+    /// Read the placement prefix of a REFR, ACHR, PCON or PARW payload.
     ///
     /// # Errors
     /// A malformed compressed payload, invalid identity tag, truncated prefix
     /// or a Havok count exceeding the payload. The reported remainder is not
     /// validated, decoded or implicitly considered restored.
     pub fn reference_header(&self, form_version: u8) -> Result<Option<ReferenceHeader>> {
-        if !matches!(self.type_index(), 0 | 1) {
+        if !matches!(self.type_index(), 0 | 1 | 42 | 47) {
             return Ok(None);
         }
         if self.form.kind() == RefKind::Invalid {
@@ -169,17 +169,20 @@ impl ChangeForm {
         } else {
             None
         };
-        let form_flags = if flags & flags::FORM != 0 {
+        // xEdit models PCON and PARW with the shared initial placement data
+        // but empty subtype structs. Keep any tail opaque for these types.
+        let has_reference_data = matches!(self.type_index(), 0 | 1);
+        let form_flags = if has_reference_data && flags & flags::FORM != 0 {
             Some((r.u32()?, r.u16()?))
         } else {
             None
         };
-        let base = if flags & flags::BASE != 0 {
+        let base = if has_reference_data && flags & flags::BASE != 0 {
             Some(r.ref_id()?)
         } else {
             None
         };
-        let scale = if flags & flags::SCALE != 0 {
+        let scale = if has_reference_data && flags & flags::SCALE != 0 {
             Some(if form_version == 55 {
                 Scale::Percent(r.u16()?)
             } else {
