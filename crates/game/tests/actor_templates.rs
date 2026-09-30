@@ -288,10 +288,11 @@ fn version_nine_loads_static_actors_without_a_selection_table() {
     world.actor(id(ACTOR)).unwrap();
     let hash = world.state_hash();
     let mut bytes = legacy::without_exclusive_branches(&mut world, &[id(ACTOR)]);
-    // The trailing 64 bytes are the version 10 to 36 blocks this legacy save
+    // The trailing 65 bytes are the version 10 to 36 blocks this legacy save
     // omits, plus detection's now-unconditional empty pool count (4 bytes)
+    // and version 35's absent weather image-space selection flag (1 byte)
     // and the world-level save-section table version 37 added (2 bytes).
-    bytes.truncate(bytes.len() - 64);
+    bytes.truncate(bytes.len() - 65);
     bytes[4..6].copy_from_slice(&9u16.to_le_bytes());
     world.load_state(&bytes).unwrap();
     assert_eq!(world.state_hash(), hash);
