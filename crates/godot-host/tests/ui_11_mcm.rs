@@ -1,8 +1,15 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin};
+use soe_esm::{plugin::flags, FileHeader, GlobalFormId, LoadOrder, Plugin, Tag};
+use soe_game::quest::{self, flags as quest_flags};
+use soe_game::vmad::{ScriptEntry, Vmad};
 use soe_game::Game;
 use soe_godot_host::mcm_menu::{ConfigPage, OptionKind, OPTION_FLAG_DISABLED};
+use soe_papyrus::asm::{i, ident, s, FunctionBuilder, ScriptBuilder};
+use soe_papyrus::Opcode::{Assign, CallMethod, IAdd, PropSet};
+use soe_papyrus::Value;
+
+const CONFIG_QUEST: u32 = 0x800;
 
 fn game() -> Game {
     let mut order = LoadOrder::new();
@@ -10,6 +17,143 @@ fn game() -> Game {
         .add("Fixture.esp", Plugin::new(FileHeader::default()))
         .unwrap();
     Game::new(order)
+}
+
+fn skyui_fixture() -> Game {
+    let vmad = Vmad {
+        scripts: vec![ScriptEntry::new("ConfigFixture")],
+        ..Default::default()
+    };
+    let mut plugin = Plugin::new(FileHeader {
+        flags: flags::MASTER,
+        ..Default::default()
+    });
+    plugin.push_top(
+        quest::build_record(
+            CONFIG_QUEST,
+            "ConfigFixtureQuest",
+            quest_flags::START_GAME_ENABLED,
+        )
+        .sub(Tag::new(b"VMAD"), vmad.write(Tag::new(b"QUST"))),
+    );
+    let mut order = LoadOrder::new();
+    order.add("ConfigFixture.esm", plugin).unwrap();
+    let mut game = Game::new(order);
+
+    let base = ScriptBuilder::new("SKI_ConfigBase", "Quest")
+        .auto_property("ModName", "String", s(""))
+        .auto_property("Pages", "String[]", soe_papyrus::asm::none())
+        .function(
+            FunctionBuilder::new("OnInit", "None")
+                .ins(
+                    CallMethod,
+                    vec![s("OnConfigInit"), ident("self"), ident("::nonevar")],
+                )
+                .build(),
+        )
+        .function(
+            FunctionBuilder::new("OpenConfig", "None")
+                .ins(
+                    CallMethod,
+                    vec![
+                        s("SetPage"),
+                        ident("self"),
+                        ident("::nonevar"),
+                        s(""),
+                        i(-1),
+                    ],
+                )
+                .ins(
+                    CallMethod,
+                    vec![s("OnConfigOpen"), ident("self"), ident("::nonevar")],
+                )
+                .build(),
+        )
+        .function(
+            FunctionBuilder::new("SetPage", "None")
+                .param("page", "String")
+                .param("index", "Int")
+                .ins(
+                    CallMethod,
+                    vec![
+                        s("OnPageReset"),
+                        ident("self"),
+                        ident("::nonevar"),
+                        ident("page"),
+                    ],
+                )
+                .build(),
+        )
+        .function(
+            FunctionBuilder::new("CloseConfig", "None")
+                .ins(
+                    CallMethod,
+                    vec![s("OnConfigClose"), ident("self"), ident("::nonevar")],
+                )
+                .build(),
+        )
+        .bytes();
+    let child = ScriptBuilder::new("ConfigFixture", "SKI_ConfigBase")
+        .variable("register_count", "Int", i(0))
+        .variable("open_count", "Int", i(0))
+        .variable("reset_count", "Int", i(0))
+        .variable("selection_count", "Int", i(0))
+        .variable("selected_option", "Int", i(-1))
+        .function(
+            FunctionBuilder::new("OnConfigInit", "None")
+                .local("pages", "String[]")
+                .ins(PropSet, vec![s("ModName"), ident("self"), s("Fixture Mod")])
+                .ins(soe_papyrus::Opcode::ArrayCreate, vec![ident("pages"), i(1)])
+                .ins(
+                    soe_papyrus::Opcode::ArraySetElement,
+                    vec![ident("pages"), i(0), s("General")],
+                )
+                .ins(PropSet, vec![s("Pages"), ident("self"), ident("pages")])
+                .build(),
+        )
+        .function(
+            FunctionBuilder::new("OnConfigRegister", "None")
+                .ins(
+                    IAdd,
+                    vec![ident("register_count"), ident("register_count"), i(1)],
+                )
+                .build(),
+        )
+        .function(
+            FunctionBuilder::new("OnConfigOpen", "None")
+                .ins(IAdd, vec![ident("open_count"), ident("open_count"), i(1)])
+                .build(),
+        )
+        .function(
+            FunctionBuilder::new("OnPageReset", "None")
+                .param("page", "String")
+                .ins(IAdd, vec![ident("reset_count"), ident("reset_count"), i(1)])
+                .build(),
+        )
+        .function(
+            FunctionBuilder::new("OnOptionSelect", "None")
+                .param("option", "Int")
+                .ins(
+                    IAdd,
+                    vec![ident("selection_count"), ident("selection_count"), i(1)],
+                )
+                .ins(Assign, vec![ident("selected_option"), ident("option")])
+                .build(),
+        )
+        .bytes();
+    game.load_script(&base).unwrap();
+    game.load_script(&child).unwrap();
+    game.start();
+    game
+}
+
+fn fixture_var(game: &mut Game, name: &str) -> Value {
+    let form = GlobalFormId {
+        file: 0,
+        object: CONFIG_QUEST,
+    };
+    let object = game.object_of_form(form);
+    game.vm.get_var(object, "ConfigFixture", name).unwrap()
 }
 
 #[test]
@@ -82,4 +226,34 @@ fn ui_11_page_capacity_matches_skyui_slots() {
         assert_eq!(page.add_text("Entry", "", 0), Some(0x100 + slot));
     }
     assert_eq!(page.add_text("Overflow", "", 0), None);
+}
+
+#[test]
+fn ui_11_ski_config_fixture_builds_rows_updates_flags_and_calls_once() {
+    let mut game = skyui_fixture();
+    let form = GlobalFormId {
+        file: 0,
+        object: CONFIG_QUEST,
+    };
+
+    assert_eq!(game.mcm_configs()[0].name, "Fixture Mod");
+    assert!(game.mcm_open(form));
+    assert_eq!(fixture_var(&mut game, "register_count"), Value::Int(1));
+    assert_eq!(fixture_var(&mut game, "reset_count"), Value::Int(1));
+    assert_eq!(fixture_var(&mut game, "open_count"), Value::Int(1));
+
+    let mut page = ConfigPage::new(0);
+    let text = page.add_text("Status", "Ready", 0).unwrap();
+    let toggle = page.add_toggle("Enabled", true, 0).unwrap();
+    assert_eq!((text, toggle), (0, 1));
+    assert!(page.set_enabled(toggle, false));
+    assert!(!page.rows()[1].enabled());
+    assert!(page.set_enabled(toggle, true));
+    assert!(page.rows()[1].enabled());
+    assert!(page.set_enabled(toggle, false));
+
+    assert!(page.select(&mut game, form, text));
+    assert!(!page.select(&mut game, form, toggle));
+    assert_eq!(fixture_var(&mut game, "selection_count"), Value::Int(1));
+    assert_eq!(fixture_var(&mut game, "selected_option"), Value::Int(0));
 }

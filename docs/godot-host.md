@@ -2235,10 +2235,12 @@ configured script form.
 The local SkyUI `SKI_ConfigBase.psc` header and source define the text/toggle
 option types, disabled and hidden flags, page-strided option IDs, 128 positions
 per page and selection event shape. Godot Controls replace its Scaleform
-presentation under the project intent. UI-05 script registration and page
-lifecycle work is not present in this worktree, so the option model and
-presenter are callable host pieces rather than a complete unmodified MCM script
-execution path. UI-11 tests exercise their protocol without Skyrim data.
+presentation under the project intent. The UI-11 fixture starts a Papyrus quest
+using the `SKI_ConfigBase` lifecycle shape, then adds text and toggle rows,
+changes toggle enabled state and checks the `OnOptionSelect` callback count.
+The test uses a focused script fixture rather than executing SkyUI's complete
+source scripts. The host menu manager and Scaleform APIs remain outside this
+path.
 
 ### MCM slider and menu dialogs, UI-12
 
