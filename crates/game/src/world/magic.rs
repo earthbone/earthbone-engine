@@ -18,6 +18,7 @@ use super::{Alloc, Handle, Pending, World};
 
 mod state;
 pub(super) use state::read_magic;
+pub(crate) use state::SECTION as SAVE_SECTION;
 
 const HOSTILE: u32 = 1;
 const RECOVER: u32 = 1 << 1;
@@ -35,6 +36,12 @@ const INGESTIBLE_POISON: u32 = 1 << 17;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct EffectId(pub u64);
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PriorOwner {
+    Unowned,
+    Owned(GlobalFormId),
+}
+
 /// Mutable state of one application. Actor values include the recoverable
 /// deltas until this instance ends, so loading must never apply them again.
 #[derive(Debug, Clone, PartialEq)]
@@ -51,6 +58,8 @@ pub struct ActiveEffect {
     pub elapsed: f64,
     /// Runtime actor created by a Summon Creature effect, dismissed with it.
     pub summoned: Option<GlobalFormId>,
+    /// Previous runtime owner while this effect commands a summoned actor.
+    pub(crate) restore_owner: Option<PriorOwner>,
     pub(crate) recover: bool,
     pub(crate) changes: Vec<(String, f32)>,
 }
@@ -83,6 +92,7 @@ enum DispelRule {
 struct PreparedEffect {
     effect: ActiveEffect,
     summon_base: Option<GlobalFormId>,
+    command_owner: Option<GlobalFormId>,
     no_recast: bool,
     hit_event: bool,
     dispel_rules: Vec<DispelRule>,
@@ -352,11 +362,13 @@ impl World {
                     }),
                     elapsed: 0.0,
                     summoned: None,
+                    restore_owner: None,
                     recover: data.flags & RECOVER != 0,
                     changes,
                 },
                 no_recast: data.flags & NO_RECAST != 0,
                 summon_base: None,
+                command_owner: None,
                 hit_event: false,
                 dispel_rules,
                 dispel: Vec::new(),
@@ -444,6 +456,7 @@ impl World {
         }
         let caster = caster.filter(|id| self.actor(*id).is_some());
         let mut prepared = Vec::new();
+        let mut commanded_targets = std::collections::BTreeSet::new();
         for (index, entry) in definition.effects.iter().enumerate() {
             let effect = self
                 .resolve_from(spell, entry.base_effect)
@@ -473,7 +486,7 @@ impl World {
                     return Err(MagicError::Target);
                 }
             }
-            if !matches!(data.archetype, 0 | 1 | 2 | 5 | 18) {
+            if !matches!(data.archetype, 0 | 1 | 2 | 5 | 10 | 18) {
                 return Err(MagicError::Unsupported("effect archetype"));
             }
             if data.taper_duration != 0.0 {
@@ -532,6 +545,11 @@ impl World {
             } else {
                 None
             };
+            let command_owner = if data.archetype == 10 {
+                caster.or_else(|| self.actor(source).map(|_| source))
+            } else {
+                None
+            };
             let duration = if definition.data.cast_type == 0 {
                 None
             } else {
@@ -567,6 +585,34 @@ impl World {
                 });
             }
             for recipient in recipients {
+                let restore_owner = if data.archetype == 10 {
+                    let is_summoned = self
+                        .active_effects
+                        .values()
+                        .any(|active| active.summoned == Some(recipient));
+                    let is_already_commanded = self
+                        .active_effects
+                        .values()
+                        .any(|active| active.target == recipient && active.restore_owner.is_some());
+                    if command_owner.is_none()
+                        || !is_summoned
+                        || is_already_commanded
+                        || !commanded_targets.insert(recipient)
+                    {
+                        continue;
+                    }
+                    Some(
+                        match self
+                            .reference_ref(recipient)
+                            .and_then(|reference| reference.owner)
+                        {
+                            Some(owner) => PriorOwner::Owned(owner),
+                            None => PriorOwner::Unowned,
+                        },
+                    )
+                } else {
+                    None
+                };
                 prepared.push(PreparedEffect {
                     effect: ActiveEffect {
                         id: EffectId(0),
@@ -580,11 +626,13 @@ impl World {
                         duration,
                         elapsed: 0.0,
                         summoned: None,
+                        restore_owner,
                         recover: data.flags & RECOVER != 0,
                         changes: changes.clone(),
                     },
                     no_recast: data.flags & NO_RECAST != 0,
                     summon_base,
+                    command_owner,
                     hit_event: data.flags & (HOSTILE | NO_HIT_EVENT) == HOSTILE,
                     dispel_rules: dispel_rules.clone(),
                     dispel: Vec::new(),
@@ -609,6 +657,12 @@ impl World {
                     reference.owner = Some(owner);
                 }
                 prepared.effect.summoned = Some(summon);
+            }
+            if let Some(previous_owner) = prepared.effect.restore_owner {
+                if let Some(reference) = self.reference(prepared.effect.target) {
+                    reference.owner = prepared.command_owner;
+                }
+                prepared.effect.restore_owner = Some(previous_owner);
             }
             if prepared.hit_event {
                 let aggressor = self.form_value(
@@ -824,6 +878,14 @@ impl World {
             if let Some(reference) = self.reference(summon) {
                 reference.deleted = true;
                 reference.enabled = false;
+            }
+        }
+        if let Some(previous_owner) = effect.restore_owner {
+            if let Some(reference) = self.reference(effect.target) {
+                reference.owner = match previous_owner {
+                    PriorOwner::Unowned => None,
+                    PriorOwner::Owned(owner) => Some(owner),
+                };
             }
         }
         self.active_effects.remove(&id);

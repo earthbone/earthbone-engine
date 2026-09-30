@@ -8,10 +8,17 @@ use std::collections::BTreeMap;
 use soe_papyrus::vm::state::Writer;
 use soe_papyrus::VmError;
 
-use super::{ActiveEffect, EffectId, World};
+use super::{ActiveEffect, EffectId, PriorOwner, World};
 use crate::world::save::{
     read_form_id, read_opt_form_id, write_form_id, write_opt_form_id, FormReader,
 };
+
+pub(crate) const SECTION: crate::world::save_sections::Section<World> =
+    crate::world::save_sections::Section {
+        name: "MAG-33",
+        write: write_command_owners,
+        read: read_command_owners,
+    };
 
 impl World {
     pub(crate) fn write_magic(&self, w: &mut Writer) {
@@ -40,6 +47,52 @@ impl World {
             }
         }
     }
+}
+
+fn write_command_owners(world: &World, w: &mut Writer) {
+    let commanded: Vec<_> = world
+        .active_effects
+        .values()
+        .filter_map(|effect| effect.restore_owner.map(|owner| (effect.id, owner)))
+        .collect();
+    w.len(commanded.len());
+    for (id, owner) in commanded {
+        w.u64(id.0);
+        match owner {
+            PriorOwner::Unowned => w.bool(false),
+            PriorOwner::Owned(form) => {
+                w.bool(true);
+                write_form_id(w, form);
+            }
+        }
+    }
+}
+
+fn read_command_owners(world: &mut World, r: &mut FormReader<'_, '_>) -> Result<(), VmError> {
+    let count = r.len()?;
+    if count > r.remaining() / 9 {
+        return Err(VmError::State(
+            "MAG-33 command count exceeds remaining bytes".into(),
+        ));
+    }
+    let mut seen = std::collections::BTreeSet::new();
+    for _ in 0..count {
+        let id = EffectId(r.u64()?);
+        if !seen.insert(id) {
+            return Err(VmError::State("MAG-33 duplicate effect identity".into()));
+        }
+        let owner = if r.bool()? {
+            PriorOwner::Owned(read_form_id(r)?)
+        } else {
+            PriorOwner::Unowned
+        };
+        let effect = world
+            .active_effects
+            .get_mut(&id)
+            .ok_or_else(|| VmError::State("MAG-33 missing active effect".into()))?;
+        effect.restore_owner = Some(owner);
+    }
+    Ok(())
 }
 
 pub(in crate::world) fn read_magic(
@@ -101,6 +154,7 @@ pub(in crate::world) fn read_magic(
             duration,
             elapsed,
             summoned,
+            restore_owner: None,
             recover,
             changes,
         };

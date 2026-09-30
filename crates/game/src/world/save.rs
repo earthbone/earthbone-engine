@@ -886,49 +886,13 @@ impl World {
                 return Err(VmError::State("dialogue cursor without actors".into()));
             }
         }
-        let (next_effect, active_effects) = if version == 5 || version >= 9 {
+        let (next_effect, mut active_effects) = if version == 5 || version >= 9 {
             super::magic::read_magic(&mut r, version >= 33)?
         } else {
             (1, BTreeMap::new())
         };
-        for (id, effect) in &active_effects {
-            if !objects.contains_key(&Handle::ActiveEffect(*id))
-                || !actors.contains_key(&effect.target)
-            {
-                return Err(VmError::State(
-                    "active effect without object or actor".into(),
-                ));
-            }
-            let entry = self
-                .magic_item_effect(effect.spell, effect.effect_index)
-                .map_err(|e| VmError::State(e.to_string()))?;
-            if self.resolve_from(effect.spell, entry.base_effect) != Some(effect.effect) {
-                return Err(VmError::State("active effect definition mismatch".into()));
-            }
-            let definition = self
-                .magic_effect(effect.effect)
-                .map_err(|e| VmError::State(e.to_string()))?;
-            if let Some(summoned) = effect.summoned {
-                let base = self
-                    .resolve_from(effect.effect, definition.data.associated_item)
-                    .filter(|base| self.tag_of(*base) == Some(super::T(b"NPC_")));
-                let reference = refs.get(&summoned);
-                let owner = Some(effect.caster.unwrap_or(effect.target));
-                if definition.data.archetype != 18
-                    || base.is_none()
-                    || reference.is_none_or(|reference| {
-                        reference.base != base
-                            || reference.owner != owner
-                            || !reference.is_actor
-                            || reference.deleted
-                    })
-                {
-                    return Err(VmError::State("invalid summoned actor state".into()));
-                }
-            } else if definition.data.archetype == 18 && version >= 33 {
-                return Err(VmError::State("summon effect without actor".into()));
-            }
-        }
+        // Validate candidate effects after the version 37 section table is
+        // read, since MAG-33 stores its additional owner state there.
         for handle in objects.keys() {
             if let Handle::ActiveEffect(id) = handle {
                 if !(version == 5 || version >= 9) || id.0 == 0 || id.0 >= next_effect {
@@ -1080,11 +1044,13 @@ impl World {
         let previous_quests = std::mem::replace(&mut self.quests, quests);
         let previous_unresolved = std::mem::take(&mut self.unresolved_records);
         let previous_brewed = std::mem::take(&mut self.brewed_potions);
+        let previous_effects = std::mem::replace(&mut self.active_effects, active_effects);
         let section_result = if version >= 37 {
             save_sections::read_sections(&mut r, "world", self, WORLD_SECTIONS)
         } else {
             Ok(())
         };
+        active_effects = std::mem::replace(&mut self.active_effects, previous_effects);
         let unresolved_records = std::mem::take(&mut self.unresolved_records);
         let brewed_potions = std::mem::take(&mut self.brewed_potions);
         quests = std::mem::replace(&mut self.quests, previous_quests);
@@ -1093,6 +1059,71 @@ impl World {
         self.brewed_potions = previous_brewed;
         section_result?;
         r.expect_end()?;
+        for (id, effect) in &active_effects {
+            if !objects.contains_key(&Handle::ActiveEffect(*id))
+                || !actors.contains_key(&effect.target)
+            {
+                return Err(VmError::State(
+                    "active effect without object or actor".into(),
+                ));
+            }
+            let entry = self
+                .magic_item_effect(effect.spell, effect.effect_index)
+                .map_err(|e| VmError::State(e.to_string()))?;
+            if self.resolve_from(effect.spell, entry.base_effect) != Some(effect.effect) {
+                return Err(VmError::State("active effect definition mismatch".into()));
+            }
+            let definition = self
+                .magic_effect(effect.effect)
+                .map_err(|e| VmError::State(e.to_string()))?;
+            if let Some(summoned) = effect.summoned {
+                let base = self
+                    .resolve_from(effect.effect, definition.data.associated_item)
+                    .filter(|base| self.tag_of(*base) == Some(super::T(b"NPC_")));
+                let reference = refs.get(&summoned);
+                let owner = active_effects
+                    .values()
+                    .find(|command| command.target == summoned && command.restore_owner.is_some())
+                    .and_then(|command| {
+                        command.caster.or_else(|| {
+                            actors
+                                .contains_key(&command.source)
+                                .then_some(command.source)
+                        })
+                    })
+                    .or(Some(effect.caster.unwrap_or(effect.target)));
+                if definition.data.archetype != 18
+                    || base.is_none()
+                    || reference.is_none_or(|reference| {
+                        reference.base != base
+                            || reference.owner != owner
+                            || !reference.is_actor
+                            || reference.deleted
+                    })
+                {
+                    return Err(VmError::State("invalid summoned actor state".into()));
+                }
+            } else if definition.data.archetype == 18 && version >= 33 {
+                return Err(VmError::State("summon effect without actor".into()));
+            }
+            if effect.restore_owner.is_some() {
+                let summoned_by_target = active_effects
+                    .values()
+                    .any(|summon| summon.summoned == Some(effect.target));
+                let command_owner = effect
+                    .caster
+                    .or_else(|| actors.contains_key(&effect.source).then_some(effect.source));
+                if definition.data.archetype != 10
+                    || !summoned_by_target
+                    || command_owner.is_none()
+                    || refs
+                        .get(&effect.target)
+                        .is_none_or(|reference| reference.owner != command_owner)
+                {
+                    return Err(VmError::State("invalid commanded actor state".into()));
+                }
+            }
+        }
         for id in super::detection::detection_actors(&detection) {
             let actor = refs.get(&id).map_or_else(
                 || {

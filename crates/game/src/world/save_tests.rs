@@ -360,6 +360,7 @@ fn rich_world(namespace: u16) -> World {
             duration: Some(60.0),
             elapsed: 1.0,
             summoned: None,
+            restore_owner: None,
             recover: false,
             changes: vec![],
         },
@@ -389,7 +390,8 @@ fn rich_world(namespace: u16) -> World {
 /// dialogue branch field that version 24 added, the stagger end time field
 /// that version 29 added, the witnessed crimes set that version 31 added,
 /// the hand spell fields that version 32 added, and the summon actor link
-/// that version 33 added, plus the record metadata byte from version 35.
+/// that version 33 added, the command owner field from version 37, plus the
+/// record metadata byte from version 35.
 /// Each is set to a unique sentinel so its serialized
 /// bytes can be located exactly, then cut back out.
 fn without_exclusive_branches(world: &mut World) -> Vec<u8> {
@@ -463,6 +465,11 @@ fn without_exclusive_branches(world: &mut World) -> Vec<u8> {
     summon_marker.extend_from_slice(&summon_sentinel.file.to_le_bytes());
     summon_marker.extend_from_slice(&summon_sentinel.object.to_le_bytes());
     markers.push(summon_marker);
+    world
+        .active_effects
+        .get_mut(&EffectId(1))
+        .unwrap()
+        .restore_owner = None;
     let mut bytes = world.save_state();
     // Version 36 predates named section tables. Locate each actor and
     // reference record, then remove its section table while retaining the
