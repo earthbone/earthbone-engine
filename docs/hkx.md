@@ -213,6 +213,15 @@ initial variable values. Ids in nodes index these tables directly.
 rotation, bone index, and validity fields. Its optional bone-index array
 restricts which entries can affect the output pose.
 
+`hkbTransformVectorModifier` reads its rotation, translation, input and output
+vectors, enable and transform flags from the x86 or x64 layout declared by
+serde-hkx. When active, it rotates the input and adds translation unless
+`rotateOnly` is set. With `inverse`, it removes translation first and applies
+the conjugate rotation. The output binding publishes the computed vector.
+`computeOnActivate` computes the first active result and `computeOnModify`
+recomputes it on later active updates. Variable bindings can supply vectorIn,
+rotation and translation as quad variables.
+
 ## 5. Interpreter design
 
 Skyrim drives every actor through one `hkbBehaviorGraph` per

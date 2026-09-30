@@ -405,6 +405,7 @@ fn remap_node(node: &mut Node, map: &SymbolMap, offset: usize) {
         | NodeKind::KeyframeBonesModifier { .. }
         | NodeKind::PoweredRagdollControls { .. }
         | NodeKind::RigidBodyRagdollControlsModifier { .. }
+        | NodeKind::TransformVector { .. }
         | NodeKind::Modifier { .. }
         | NodeKind::Unknown => {}
     }
