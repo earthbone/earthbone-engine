@@ -189,6 +189,7 @@ impl World {
             }
             a.spells = self.expand_actor_spell_lists(&a.spells, a.level).ok()?;
             self.actors.insert(id, a);
+            self.apply_actor_abilities(id);
         }
         self.actors.get_mut(&id)
     }

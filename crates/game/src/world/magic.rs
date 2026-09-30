@@ -551,6 +551,45 @@ impl World {
         Ok(charge_time)
     }
 
+    /// Apply constant-effect abilities from an actor's resolved spell list.
+    ///
+    pub(crate) fn apply_actor_abilities(&mut self, actor: GlobalFormId) {
+        let Some(state) = self.actor(actor) else {
+            return;
+        };
+        let spells = state.spells.clone();
+        for spell in spells {
+            let Ok(definition) = self.spell(spell) else {
+                continue;
+            };
+            if definition.data.spell_type != 4
+                || definition.data.cast_type != 0
+                || definition.data.delivery != 0
+            {
+                continue;
+            }
+            let Ok(prepared) = self.prepare_spell_cast(spell, actor, Some(actor), Some(actor))
+            else {
+                continue;
+            };
+            let Ok(prepared) = self.prepare_effect_actions(prepared) else {
+                continue;
+            };
+            for prepared in prepared {
+                let id = prepared.effect.id;
+                self.next_effect = id.0 + 1;
+                if prepared.effect.recover || prepared.effect.duration == Some(0.0) {
+                    if let Some(state) = self.actors.get_mut(&prepared.effect.target) {
+                        if change_values(&mut state.values, &prepared.effect, 1.0).is_err() {
+                            continue;
+                        }
+                    }
+                }
+                self.active_effects.insert(id, prepared.effect.clone());
+            }
+        }
+    }
+
     /// Magicka expenditure for a spell and caster, including the authored
     /// manual or auto-calculated cost and its half-cost perk.
     pub fn spell_cost(
@@ -835,6 +874,21 @@ impl World {
         }
         let target = match definition.data.delivery {
             0 => source,
+            1 => {
+                let target = target.ok_or(MagicError::Target)?;
+                if !definition.data.range.is_finite() || definition.data.range < 0.0 {
+                    return Err(MagicError::Number);
+                }
+                let distance = self.distance(source, target);
+                if self.reference(source).is_none()
+                    || self.actor(target).is_none()
+                    || !distance.is_finite()
+                    || distance > definition.data.range
+                {
+                    return Err(MagicError::Target);
+                }
+                target
+            }
             2 | 3 => target.ok_or(MagicError::Target)?,
             _ => {
                 return Err(MagicError::Unsupported(
@@ -876,6 +930,11 @@ impl World {
                 if actor.dead || actor.ghost {
                     return Err(MagicError::Target);
                 }
+            }
+            if data.archetype == 40 {
+                return Err(MagicError::Unsupported(
+                    "spawn hazard requires the typed HAZD view from FMT-28",
+                ));
             }
             if !matches!(
                 data.archetype,

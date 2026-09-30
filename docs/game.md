@@ -41,6 +41,10 @@ week 6 to 9 gate.
 - `npc`: the `NPC_` view. `ACBS` configuration, `DNAM` stats and skills,
   spells, factions, items, race, class and template, with the template flags
   applied one level. `World::actor` follows each component's template chain.
+  When actor state is first built, its resolved spell list applies
+  constant-effect `SPEL` abilities to that actor without a cast. Unsupported
+  or malformed ability effects are skipped. Their active effect state uses
+  the existing SOEW active-effect table and survives save/load.
   AIDT supplies its six AI actor values, see [combat AI](combat-ai.md) for
   sources, validation and combat target selection.
 - `detection`: the detection value from sneak GMSTs, and stealth-point pools
@@ -1908,10 +1912,14 @@ The active-effect tick and finish paths only handle actor applications, with
 no owned hazard cleanup. [The host audit](godot-host.md#spawn-hazard-prerequisites-mag-61)
 records the corresponding resource boundary.
 
-MAG-61 stays blocked with its original acceptance check. No hazard spawning,
-target selection, contact application, save continuation or expiry cleanup
-was implemented or validated by this audit. The survey establishes record
-dependencies and the current direct-cast rejection boundary.
+The current worktree has no FMT-28 draft or typed HAZD view. Archetype 40
+therefore returns a specific unsupported error before any effect or world
+state changes. `mag_61_spawn_hazard_requires_typed_hazard_view_without_changes`
+checks this rejection. The row's acceptance check remains incomplete: no hazard
+is spawned at a target, and no owned collision or effect is removed on expiry.
+Target selection, contact application and save continuation also remain
+unimplemented. The survey establishes record dependencies and the direct-cast
+rejection boundary.
 
 ### Direct active-effect foundation
 
@@ -1956,6 +1964,17 @@ does not resume casting. `tests/magic/mag_03_concentration.rs` checks these
 behaviors and a gated installed-data cast. Concentration fields follow xEdit's
 SPEL/SPIT definition, and the one-time event follows local
 `ck-wiki/OnSpellCast_-_ObjectReference.wikitext`.
+
+Touch delivery resolves only the supplied actor target and measures its
+three-dimensional distance from the source reference against the SPEL SPIT
+range, including a target exactly at that boundary. Missing targets, non-actor
+targets, targets beyond reach and non-finite distances reject the whole cast
+before any effects apply. A touch spell with a negative or non-finite authored
+range returns the typed invalid-number error. The layout and delivery enum
+come from local `TES5Edit/Core/wbDefinitionsTES5.pas`. The CK
+`DoCombatSpellApply_-_Actor.wikitext` page says its separate combat native
+applies a Target Actor spell regardless of battlefield distance, so that
+target-actor behavior is not used for touch delivery.
 
 Each SPEL effect group's CTDAs run before that group is prepared. MGEF CTDAs
 run separately, with FormIDs resolved against their owning MGEF. Both use the
@@ -2069,9 +2088,9 @@ or ALCH record. Restoring an active potion effect retains its consumed inventory
 state and its existing modifier, then expires it from its saved elapsed time.
 
 Unsupported casts return a typed error before applying any of their effects,
-and Papyrus casts log that error. This includes projectiles, contact and
-location delivery, concentration, taper, perk adjustments, equip abilities and
-other archetypes. Area selection is covered separately below, under Area
+and Papyrus casts log that error. This includes aimed and location delivery,
+concentration, taper, perk adjustments, equip abilities and other archetypes.
+Area selection is covered separately below, under Area
 targeting, MAG-06.
 An MGEF with the Dispel with Keywords flag reads its KWDA entries as the
 cancellation list. Casting that effect, or applying it from an ingestible,
