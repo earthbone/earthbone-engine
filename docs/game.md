@@ -2465,6 +2465,7 @@ variables through both spell natives. The ambiguous-variable case confirms a
 failed predicate applies no effect and queues no callbacks. The CK Papyrus
 introduction describes scripts as variables read by engine functions. The
 conditional flag and ambiguity rules come from the local VM contract.
+
 ### Frenzy, MAG-31
 
 Direct casts execute MGEF archetype 8 by applying its signed magnitude to the
@@ -2550,17 +2551,9 @@ active while the armor stays equipped.
 
 Unsupported casts return a typed error before applying effects, and Papyrus casts log that error. Direct, charged and concentration casts, projectile contact, target-location selection and area targeting use their supported execution paths. Unsupported archetypes, equip abilities and unsupported resistance values remain rejected before changing state. Area selection is described below under Area targeting, MAG-06.
 
-### Calm archetype, MAG-29
-
-MGEF archetype 6 applies a temporary reduction to the target's `aggression` actor value, regardless of the MGEF's serialized primary actor value or detrimental flag. Recoverable effect state restores the prior value when the effect expires or is dispelled. The combat driver drops an existing combat target when the actor's live aggression falls below 1, matching its target acquisition threshold. This supports Calm delivery through the existing spell and ingestible effect paths.
-
 ### Cure Disease and Absorb archetypes, MAG-27 and MAG-28
 
 Archetype 3 removes active applications whose winning MGEF has the `MagicDisease` keyword, using the ordinary dispel lifecycle. Archetype 4 selects its actor value from MGEF `PrimaryAV`, damages that value on the recipient and restores the same amount to the credited caster over the effect duration. `No Magnitude` suppresses both changes, while `No Duration` transfers the value immediately.
-
-### Frenzy, MAG-31
-
-Archetype 8 applies its signed magnitude to Aggression and marks the actor as Frenzied while the active effect remains. Combat acquisition may then select detected teammates, which ordinary acquisition skips. When the last Frenzy application ends or expires, its actor leaves the current engagement and ordinary target rules resume. Target acquisition still requires Combat-level awareness.
 
 ### Disarm, Invisibility, Lock, Open, Light and Bound Weapon, MAG-32 to MAG-38
 

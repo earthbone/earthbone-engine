@@ -394,14 +394,14 @@ fn rich_world(namespace: u16) -> World {
     world
 }
 
-/// Save `world` the way a version 23 engine would, without the exclusive
+/// Save `world` the way a version 19 engine would, without the exclusive
 /// dialogue branch field that version 24 added, the stagger end time field
 /// that version 29 added, the witnessed crimes set that version 31 added,
 /// the hand spell fields that version 32 added, the summon actor link that
 /// version 33 added, the command owner field from version 37, the record
-/// metadata byte from version 35, and movement flags from version 36. Each is
-/// set to a unique sentinel so its serialized bytes can be located exactly,
-/// then cut back out.
+/// metadata byte from version 35, and movement flags and taper values from
+/// version 36. Sentinels locate newer fields to remove, and the current
+/// writers locate the section tables and post-version-19 trailing blocks.
 fn without_exclusive_branches(world: &mut World) -> Vec<u8> {
     let ids: Vec<_> = world.actors.keys().copied().collect();
     let mut markers = Vec::new();
@@ -487,13 +487,22 @@ fn without_exclusive_branches(world: &mut World) -> Vec<u8> {
         .get_mut(&EffectId(1))
         .unwrap()
         .restore_owner = None;
+    let effect = world.active_effects.get_mut(&EffectId(1)).unwrap();
+    effect.taper_weight = 1_234_567.0;
+    effect.taper_curve = 7_654_321.0;
+    effect.taper_duration = 1_000_000_000.0;
+    let mut taper_marker = Writer::new();
+    taper_marker.f32(effect.taper_weight);
+    taper_marker.f32(effect.taper_curve);
+    taper_marker.f64(effect.taper_duration);
+    markers.push(taper_marker.out);
     let mut bytes = world.save_state();
     // Every actor and reference record now ends with its save-section table,
     // which a pre-version-37 writer never emitted. The actor table includes
     // the PRG-01 skill-experience section. Locate each record's own tail by
     // re-serializing it exactly as `save_state` just did, form id then
     // state, while the sentinels set above are still in place, then drop
-    // the matched span's last two bytes. `rich_world`'s two references
+    // the matched section table. `rich_world`'s two references
     // carry identical `RefState` content, so the form id prefix is what
     // tells their tails apart.
     for id in &ids {
@@ -562,6 +571,10 @@ fn without_exclusive_branches(world: &mut World) -> Vec<u8> {
         bytes.drain(table_start..at + probe.out.len());
     }
     world.active_effects.get_mut(&EffectId(1)).unwrap().summoned = None;
+    let effect = world.active_effects.get_mut(&EffectId(1)).unwrap();
+    effect.taper_weight = 1.0;
+    effect.taper_curve = 0.0;
+    effect.taper_duration = 0.0;
     for id in &ids {
         let actor = world.actors.get_mut(id).unwrap();
         actor.exclusive_branch = None;
@@ -592,7 +605,25 @@ fn without_exclusive_branches(world: &mut World) -> Vec<u8> {
     // Drop the world section table for the legacy fixture.
     let mut world_sections = Writer::new();
     save_sections::write_sections(&mut world_sections, world, WORLD_SECTIONS);
+    assert!(bytes.ends_with(&world_sections.out));
     bytes.truncate(bytes.len() - world_sections.out.len());
+
+    // CONTEXT: These blocks follow weapon hands but did not exist in version 19.
+    let mut trailing = Writer::new();
+    world.write_reference_extras(&mut trailing);
+    assert!(world.actors.values().all(|actor| actor.ai.tree.is_none()));
+    trailing.len(0);
+    world.write_image_space(&mut trailing);
+    world.write_loose_items(&mut trailing);
+    world.write_encounter_levels(&mut trailing);
+    world.write_encounter_zone_visits(&mut trailing);
+    world.write_dialogue_repeats(&mut trailing);
+    assert!(world.scene_runs.is_empty());
+    trailing.len(0);
+    world.write_detection(&mut trailing);
+    world.write_weather_image_space(&mut trailing);
+    assert!(bytes.ends_with(&trailing.out));
+    bytes.truncate(bytes.len() - trailing.out.len());
     bytes
 }
 
@@ -600,10 +631,6 @@ fn without_exclusive_branches(world: &mut World) -> Vec<u8> {
 fn sav_07_legacy_ids_migrate_through_all_nested_world_state() {
     for version in 15..=18_u16 {
         let mut legacy = without_exclusive_branches(&mut rich_world(255));
-        // Drop empty post-version-19 blocks, including zone visit and scene
-        // history, the version 30 detection block's now-unconditional empty
-        // pool count, and the 17-byte empty SAV-46 world section table.
-        legacy.truncate(legacy.len() - 41);
         let tail = legacy.len() - 25;
         let mut expected = rich_world(DYNAMIC_FILE);
         for actor in expected.actors.values_mut() {
@@ -689,9 +716,6 @@ fn sav_16_extras_preserve_created_namespace_and_all_existing_world_state() {
     assert_eq!(loaded.state_hash(), world.state_hash());
 
     let mut legacy = without_exclusive_branches(&mut rich_world(DYNAMIC_FILE));
-    // See sav_07_legacy_ids_migrate_through_all_nested_world_state for what
-    // these trailing bytes are.
-    legacy.truncate(legacy.len() - 41);
     legacy[4..6].copy_from_slice(&19_u16.to_le_bytes());
     loaded.load_state(&legacy).unwrap();
     let mut expected = rich_world(DYNAMIC_FILE);
@@ -807,9 +831,6 @@ fn sav_07_legacy_migration_boundary_is_the_first_colliding_plugin_position() {
             .unwrap();
     }
     let mut legacy = without_exclusive_branches(&mut rich_world(255));
-    // See sav_07_legacy_ids_migrate_through_all_nested_world_state for what
-    // these trailing bytes are.
-    legacy.truncate(legacy.len() - 41);
     legacy[4..6].copy_from_slice(&18_u16.to_le_bytes());
     let mut world = World::new(order);
     world.load_state(&legacy).unwrap();
