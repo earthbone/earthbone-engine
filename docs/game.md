@@ -907,6 +907,9 @@ placed `DOOR` references (0 for other references, 1 open and 3 closed),
 `GetIsCurrentPackage` against the subject actor's selected package,
 `GetDestroyed` from reference state, and `GetDefaultOpen` from a placed
 reference's `ONAM` marker. `ONAM` also initializes the runtime open state.
+The CK state values 2 (opening) and 4 (closing) require animation progress,
+which the current reference state does not track, so those transitions remain
+unavailable.
 `GetCurrentAIProcedure`, `IsContinuingPackagePCNear`, `GetVampireFeed` and
 `GetCannibal` remain unsupported with a function diagnostic because the local
 sources name them without defining query results.
@@ -1754,10 +1757,12 @@ linked-reference keyword pairs, `WornHasKeyword` and
 `WornApparelHasKeywordCount` against worn ARMO forms, `IsCommandedActor` against
 live command effects. `DoesNotExist` is supported for declared quest aliases
 run on that alias and returns true when it is unfilled. The batch returns
-`conditions::Error::Contract` for `GetActivatorHeight`, `GetTargetHeight` and
+`conditions::Error::Contract` for `GetActivatorHeight` and
 `GetKnockedStateEnum`, since the local CK corpus provides no usable runtime
-contract or state representation for them. Invalid actors, forms, parameters,
-and undeclared aliases return explicit errors. xEdit's local
+contract or state representation for them. `GetTargetHeight` returns the
+signed Z difference from the subject reference to its parameter reference,
+as defined by UESP's local raw function table. Invalid actors, forms,
+parameters, and undeclared aliases return explicit errors. xEdit's local
 `wbDefinitionsTES5.pas` supplies the function IDs and parameter types. CK's
 `IsCommandedActor_-_Actor.wikitext`, `WornHasKeyword_-_Actor.wikitext` and
 `GetLinkedRef_-_ObjectReference.wikitext` supply the behavior used for those

@@ -838,7 +838,21 @@ fn function_value(
                 }),
             )
         }
-        680 | 720 | 725 => return Err(Error::Contract(c.function)),
+        680 | 725 => return Err(Error::Contract(c.function)),
+        720 => {
+            let target = resolve_reference(world, context.owner, raw)?;
+            let subject_z = world
+                .reference(subject)
+                .filter(|reference| !reference.deleted)
+                .ok_or(Error::Form(subject))?
+                .position[2];
+            let target_z = world
+                .reference(target)
+                .filter(|reference| !reference.deleted)
+                .ok_or(Error::Form(target))?
+                .position[2];
+            target_z - subject_z
+        }
         682 | 722 => {
             if c.parameters[1] != 0 {
                 return Err(Error::Parameter(c.function, c.parameters[1]));
@@ -2037,19 +2051,21 @@ mod ai_condition_tests {
     }
 
     #[test]
-    fn ai_78_target_height_reports_missing_contract() {
+    fn ai_78_target_height_returns_signed_vertical_delta() {
         let game = fixture();
+        game.world_mut().reference(id(0x900)).unwrap().position[2] = 4.0;
+        game.world_mut().reference(id(0x901)).unwrap().position[2] = 9.0;
         assert_eq!(
             evaluate(&game, id(0x900), &condition_full(720, 0x901, 0, 5.0)),
-            Err(Error::Contract(720))
+            Ok(true)
         );
         assert_eq!(
             evaluate(&game, id(0x900), &condition_full(720, 0x901, 0, -5.0)),
-            Err(Error::Contract(720))
+            Ok(false)
         );
         assert_eq!(
             evaluate(&game, id(0x900), &condition_full(720, 0x910, 0, 0.0)),
-            Err(Error::Contract(720))
+            Err(Error::Form(id(0x910)))
         );
     }
 
