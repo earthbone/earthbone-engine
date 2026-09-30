@@ -3,6 +3,9 @@
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::{quest, Game};
+use soe_papyrus::asm::{i, ident, FunctionBuilder, ScriptBuilder};
+use soe_papyrus::Opcode::*;
+use soe_papyrus::Value;
 
 const PLAYER: u32 = 0x14;
 const BASE: u32 = 0x800;
@@ -13,6 +16,8 @@ const INGREDIENT: u32 = 0x804;
 const OUTPUT: u32 = 0x805;
 const RECIPE: u32 = 0x806;
 const QUEST: u32 = 0x807;
+const EVENT_NODE: u32 = 0x808;
+const QUEST_NODE: u32 = 0x809;
 
 fn game() -> Game {
     let mut plugin = Plugin::new(FileHeader::default());
@@ -28,6 +33,22 @@ fn game() -> Game {
     );
     plugin.push_top(Record::new(Tag(*b"REFR"), BENCH).sub(Tag(*b"NAME"), FURNITURE.to_le_bytes()));
     plugin.push_top(quest::build_record(QUEST, "CraftQuest", 0));
+    plugin.push_top(
+        Record::new(Tag(*b"SMEN"), EVENT_NODE)
+            .sub(Tag(*b"PNAM"), 0u32.to_le_bytes())
+            .sub(Tag(*b"DNAM"), 0u32.to_le_bytes())
+            .sub(Tag(*b"ENAM"), u32::from_le_bytes(*b"CRFT").to_le_bytes()),
+    );
+    plugin.push_top(
+        Record::new(Tag(*b"SMQN"), QUEST_NODE)
+            .sub(Tag(*b"PNAM"), EVENT_NODE.to_le_bytes())
+            .sub(Tag(*b"DNAM"), 0u32.to_le_bytes())
+            .sub(Tag(*b"XNAM"), 1u32.to_le_bytes())
+            .sub(Tag(*b"MNAM"), 1u32.to_le_bytes())
+            .sub(Tag(*b"NNAM"), QUEST.to_le_bytes())
+            .sub(Tag(*b"FNAM"), [0])
+            .sub(Tag(*b"RNAM"), 0.0f32.to_le_bytes()),
+    );
     plugin.push_top(
         Record::new(Tag(*b"COBJ"), RECIPE)
             .sub(Tag(*b"CNAM"), OUTPUT.to_le_bytes())
@@ -45,6 +66,96 @@ fn game() -> Game {
     let mut order = LoadOrder::new();
     order.add("Craft.esm", plugin).unwrap();
     Game::new(order)
+}
+
+#[test]
+fn crf_05_successful_craft_routes_authored_event_once_with_ck_arguments() {
+    let mut game = game();
+    let player = id(&game, PLAYER);
+    let bench = id(&game, BENCH);
+    let quest_id = id(&game, QUEST);
+    let ingredient = id(&game, INGREDIENT);
+    let output = id(&game, OUTPUT);
+    let recipe = id(&game, RECIPE);
+    let story_script = ScriptBuilder::new("CraftStoryReceiver", "Quest")
+        .variable("events", "Int", i(0))
+        .function(
+            FunctionBuilder::new("OnStoryCraftItem", "None")
+                .param("bench", "ObjectReference")
+                .param("location", "Location")
+                .param("item", "Form")
+                .ins(IAdd, vec![ident("events"), ident("events"), i(1)])
+                .build(),
+        )
+        .bytes();
+    game.load_script(&story_script).unwrap();
+    let quest_object = game.object_of_form(quest_id);
+    game.vm.attach(quest_object, "CraftStoryReceiver").unwrap();
+    game.world_mut().add_item(player, ingredient, 1);
+
+    game.craft(player, bench, recipe).unwrap();
+    game.run_until_idle(64);
+    assert_eq!(
+        game.vm
+            .get_var(quest_object, "CraftStoryReceiver", "events"),
+        Some(Value::Int(1))
+    );
+
+    let world = game.world();
+    let quest = world.quest(quest_id).unwrap();
+    assert!(quest.running);
+    let event = quest
+        .runtime
+        .run_data
+        .as_ref()
+        .unwrap()
+        .event
+        .as_ref()
+        .unwrap();
+    assert_eq!(event.code, *b"CRFT");
+    assert_eq!(event.parameters.len(), 3);
+    assert!(matches!(
+        event.parameters[0],
+        soe_game::quest::state::StoryParameter::Reference {
+            kind: 0,
+            reference: Some(reference)
+        } if reference == bench
+    ));
+    assert!(matches!(
+        event.parameters[1],
+        soe_game::quest::state::StoryParameter::Reference {
+            kind: 2,
+            reference: None
+        }
+    ));
+    assert!(matches!(
+        event.parameters[2],
+        soe_game::quest::state::StoryParameter::Reference {
+            kind: 1,
+            reference: Some(reference)
+        } if reference == output
+    ));
+}
+
+#[test]
+fn crf_05_rejected_craft_does_not_route_authored_event() {
+    let mut game = game();
+    let player = id(&game, PLAYER);
+    let bench = id(&game, BENCH);
+    let quest_id = id(&game, QUEST);
+    let recipe = id(&game, RECIPE);
+
+    assert!(game.craft(player, bench, recipe).is_err());
+    game.pump();
+
+    assert!(game
+        .world_mut()
+        .quest_state(quest_id)
+        .is_some_and(|quest| !quest.running && quest.runtime.run_data.is_none()));
+    assert!(!game.world().pending.iter().any(|pending| matches!(
+        pending,
+        soe_game::Pending::Event { name, .. } if name == "OnStoryCraftItem"
+    )));
 }
 
 fn id(game: &Game, raw: u32) -> GlobalFormId {
