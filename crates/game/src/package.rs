@@ -348,11 +348,7 @@ impl Package {
                     .idles
                     .extend(d.as_chunks::<4>().0.iter().map(|c| u32::from_le_bytes(*c))),
                 b"IDLF" => p.idle_flags = d.first().copied().unwrap_or(0),
-                b"IDLT" => {
-                    if d.len() >= 4 {
-                        p.idle_timer = f32_at(d, 0);
-                    }
-                }
+                b"IDLT" if d.len() >= 4 => p.idle_timer = f32_at(d, 0),
                 b"QNAM" => {
                     if matches!(section, Section::Header) {
                         p.owner_quest = Some(u32_at_checked(d, "QNAM")?);

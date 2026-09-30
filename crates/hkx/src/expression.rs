@@ -24,6 +24,105 @@ pub(crate) enum Expression {
     Variable { index: usize, property: bool },
     Unary(&'static str, Box<Self>),
     Binary(&'static str, Box<Self>, Box<Self>),
+    Function(Function, Vec<Self>),
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum Function {
+    Rand01,
+    Sin,
+    Cos,
+    Asin,
+    Acos,
+    Sqrt,
+    Abs,
+    Ceil,
+    Floor,
+    SqrtInv,
+    Pow,
+    Max,
+    Min,
+    RandRange,
+    Atan2Approx,
+    Clamp,
+    Mod,
+    Deg2Rad,
+    Rad2Deg,
+    CosD,
+    SinD,
+    AcosD,
+    AsinD,
+    Atan2ApproxD,
+    Sign,
+    Lerp,
+    Clerp,
+    Cond,
+}
+
+impl Function {
+    fn from_name(name: &str) -> Option<Self> {
+        Some(match name {
+            "rand01" => Self::Rand01,
+            "sin" => Self::Sin,
+            "cos" => Self::Cos,
+            "asin" => Self::Asin,
+            "acos" => Self::Acos,
+            "sqrt" => Self::Sqrt,
+            "fabs" => Self::Abs,
+            "ceil" => Self::Ceil,
+            "floor" => Self::Floor,
+            "sqrtinv" => Self::SqrtInv,
+            "pow" => Self::Pow,
+            "max" => Self::Max,
+            "min" => Self::Min,
+            "randrange" => Self::RandRange,
+            "atan2approx" => Self::Atan2Approx,
+            "clamp" => Self::Clamp,
+            "mod" => Self::Mod,
+            "deg2rad" => Self::Deg2Rad,
+            "rad2deg" => Self::Rad2Deg,
+            "cosd" => Self::CosD,
+            "sind" => Self::SinD,
+            "acosd" => Self::AcosD,
+            "asind" => Self::AsinD,
+            "atan2approxd" => Self::Atan2ApproxD,
+            "sign" => Self::Sign,
+            "lerp" => Self::Lerp,
+            "clerp" => Self::Clerp,
+            "cond" => Self::Cond,
+            _ => return None,
+        })
+    }
+
+    fn arity(self) -> usize {
+        match self {
+            Self::Rand01 => 0,
+            Self::Sin
+            | Self::Cos
+            | Self::Asin
+            | Self::Acos
+            | Self::Sqrt
+            | Self::Abs
+            | Self::Ceil
+            | Self::Floor
+            | Self::SqrtInv
+            | Self::Deg2Rad
+            | Self::Rad2Deg
+            | Self::CosD
+            | Self::SinD
+            | Self::AcosD
+            | Self::AsinD
+            | Self::Sign => 1,
+            Self::Pow
+            | Self::Max
+            | Self::Min
+            | Self::RandRange
+            | Self::Atan2Approx
+            | Self::Mod
+            | Self::Atan2ApproxD => 2,
+            Self::Clamp | Self::Lerp | Self::Clerp | Self::Cond => 3,
+        }
+    }
 }
 
 impl Expression {
@@ -49,7 +148,12 @@ impl Expression {
         Ok(expression)
     }
 
-    pub(crate) fn evaluate(&self, variables: &Variables, properties: &Variables) -> Result<f32> {
+    pub(crate) fn evaluate(
+        &self,
+        variables: &Variables,
+        properties: &Variables,
+        random_state: &mut u64,
+    ) -> Result<f32> {
         let value = match self {
             Self::Number(value) => *value,
             Self::Variable { index, property } => {
@@ -65,7 +169,7 @@ impl Expression {
                 }
             }
             Self::Unary(op, expression) => {
-                let value = expression.evaluate(variables, properties)?;
+                let value = expression.evaluate(variables, properties, random_state)?;
                 match *op {
                     "!" => truth(value == 0.0),
                     "-" => -value,
@@ -73,14 +177,14 @@ impl Expression {
                 }
             }
             Self::Binary(op, left, right) => {
-                let left = left.evaluate(variables, properties)?;
+                let left = left.evaluate(variables, properties, random_state)?;
                 if *op == "&&" && left == 0.0 {
                     return Ok(0.0);
                 }
                 if *op == "||" && left != 0.0 {
                     return Ok(1.0);
                 }
-                let right = right.evaluate(variables, properties)?;
+                let right = right.evaluate(variables, properties, random_state)?;
                 match *op {
                     "+" => left + right,
                     "-" => left - right,
@@ -97,6 +201,13 @@ impl Expression {
                     _ => return Err(ExpressionError::InvalidValue),
                 }
             }
+            Self::Function(function, arguments) => {
+                let mut values = Vec::with_capacity(arguments.len());
+                for argument in arguments {
+                    values.push(argument.evaluate(variables, properties, random_state)?);
+                }
+                evaluate_function(*function, &values, random_state)?
+            }
         };
         if value.is_finite() {
             Ok(value)
@@ -104,6 +215,82 @@ impl Expression {
             Err(ExpressionError::InvalidValue)
         }
     }
+}
+
+fn evaluate_function(function: Function, values: &[f32], random_state: &mut u64) -> Result<f32> {
+    if values.len() != function.arity() {
+        return Err(ExpressionError::InvalidValue);
+    }
+    let first = values.first().copied().unwrap_or_default();
+    let second = values.get(1).copied().unwrap_or_default();
+    let third = values.get(2).copied().unwrap_or_default();
+    let degrees = std::f32::consts::PI / 180.0;
+    let value = match function {
+        Function::Rand01 => next_random(random_state),
+        Function::Sin => first.sin(),
+        Function::Cos => first.cos(),
+        Function::Asin => first.asin(),
+        Function::Acos => first.acos(),
+        Function::Sqrt => first.sqrt(),
+        Function::Abs => first.abs(),
+        Function::Ceil => first.ceil(),
+        Function::Floor => first.floor(),
+        Function::SqrtInv => first.sqrt().recip(),
+        Function::Pow => first.powf(second),
+        Function::Max => first.max(second),
+        Function::Min => first.min(second),
+        Function::RandRange => first + (second - first) * next_random(random_state),
+        Function::Atan2Approx => first.atan2(second),
+        Function::Clamp => {
+            if second > third {
+                return Err(ExpressionError::InvalidValue);
+            }
+            first.clamp(second, third)
+        }
+        Function::Mod => first % second,
+        Function::Deg2Rad => first * degrees,
+        Function::Rad2Deg => first / degrees,
+        Function::CosD => (first * degrees).cos(),
+        Function::SinD => (first * degrees).sin(),
+        Function::AcosD => first.acos() / degrees,
+        Function::AsinD => first.asin() / degrees,
+        Function::Atan2ApproxD => first.atan2(second) / degrees,
+        Function::Sign => {
+            if first > 0.0 {
+                1.0
+            } else if first < 0.0 {
+                -1.0
+            } else {
+                0.0
+            }
+        }
+        Function::Lerp => first + (second - first) * third,
+        Function::Clerp => {
+            let delta = (second - first + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU)
+                - std::f32::consts::PI;
+            first + delta * third
+        }
+        Function::Cond => {
+            if first == 0.0 {
+                third
+            } else {
+                second
+            }
+        }
+    };
+    if value.is_finite() {
+        Ok(value)
+    } else {
+        Err(ExpressionError::InvalidValue)
+    }
+}
+
+fn next_random(state: &mut u64) -> f32 {
+    *state ^= *state >> 12;
+    *state ^= *state << 25;
+    *state ^= *state >> 27;
+    let bits = state.wrapping_mul(0x2545_f491_4f6c_dd1d) >> 40;
+    bits as f32 / (1_u32 << 24) as f32
 }
 
 fn truth(value: bool) -> f32 {
@@ -244,6 +431,26 @@ impl Parser<'_> {
             "false" => return Ok(Expression::Number(0.0)),
             _ => {}
         }
+        if self.consume("(") {
+            let function = Function::from_name(name)
+                .ok_or_else(|| ExpressionError::UnknownSymbol(name.to_string()))?;
+            let mut arguments = Vec::new();
+            if !self.consume(")") {
+                loop {
+                    arguments.push(self.expression(0)?);
+                    if self.consume(")") {
+                        break;
+                    }
+                    if !self.consume(",") {
+                        return Err(ExpressionError::Syntax(self.offset));
+                    }
+                }
+            }
+            if arguments.len() != function.arity() {
+                return Err(ExpressionError::Syntax(self.offset));
+            }
+            return Ok(Expression::Function(function, arguments));
+        }
         let variable = self.variables.index(name).filter(|_| {
             self.scope
                 .is_none_or(|scope| scope.variables.iter().any(|variable| variable == name))
@@ -282,7 +489,12 @@ mod tests {
 
     fn evaluate(source: &str) -> Result<f32> {
         let variables = Variables::default();
-        Expression::compile(source, &variables, &variables, None)?.evaluate(&variables, &variables)
+        let mut random_state = 0x4d59_5df4_d0f3_3173;
+        Expression::compile(source, &variables, &variables, None)?.evaluate(
+            &variables,
+            &variables,
+            &mut random_state,
+        )
     }
 
     #[test]
@@ -304,8 +516,22 @@ mod tests {
     #[test]
     fn malformed_or_unsupported_inputs_return_errors() {
         for source in [
-            "", "(", "1 +", "1 2", "1 = 1", "1 & 1", "1e+", "2..0", "unknown", "sin(1)", "1 / 0",
-            "1e99", "\u{00e9}",
+            "",
+            "(",
+            "1 +",
+            "1 2",
+            "1 = 1",
+            "1 & 1",
+            "1e+",
+            "2..0",
+            "unknown",
+            "sin()",
+            "sin(1, 2)",
+            "rand01(0)",
+            "unknown(1)",
+            "1 / 0",
+            "1e99",
+            "\u{00e9}",
         ] {
             assert!(evaluate(source).is_err(), "{source}");
         }
@@ -313,6 +539,50 @@ mod tests {
             evaluate(&"!".repeat(300)).unwrap_err(),
             ExpressionError::TooComplex
         );
+    }
+
+    #[test]
+    fn anm_49_authored_math_functions_match_scalar_results() {
+        for (source, expected) in [
+            ("sin(0)", 0.0),
+            ("cos(0)", 1.0),
+            ("asin(1)", std::f32::consts::FRAC_PI_2),
+            ("acos(1)", 0.0),
+            ("sqrt(9)", 3.0),
+            ("fabs(-3)", 3.0),
+            ("ceil(1.2)", 2.0),
+            ("floor(1.8)", 1.0),
+            ("sqrtinv(4)", 0.5),
+            ("pow(2, 3)", 8.0),
+            ("max(2, 3)", 3.0),
+            ("min(2, 3)", 2.0),
+            ("clamp(4, 0, 3)", 3.0),
+            ("mod(5, 2)", 1.0),
+            ("deg2rad(180)", std::f32::consts::PI),
+            ("rad2deg(3.1415927)", 180.0),
+            ("cosd(60)", 0.5),
+            ("sind(30)", 0.5),
+            ("acosd(1)", 0.0),
+            ("asind(1)", 90.0),
+            ("atan2approx(1, 1)", std::f32::consts::FRAC_PI_4),
+            ("atan2approxd(1, 1)", 45.0),
+            ("sign(-3)", -1.0),
+            ("lerp(2, 6, .25)", 3.0),
+            ("clerp(3, -3, .5)", std::f32::consts::PI),
+            ("cond(1, 7, 9)", 7.0),
+        ] {
+            let actual = evaluate(source).unwrap();
+            assert!((actual - expected).abs() < 0.0001, "{source}: {actual}");
+        }
+    }
+
+    #[test]
+    fn anm_49_random_functions_replay_from_a_fixed_seed() {
+        for source in ["rand01()", "randrange(-2, 3)"] {
+            let first = evaluate(source).unwrap();
+            let replay = evaluate(source).unwrap();
+            assert_eq!(first, replay, "{source}");
+        }
     }
 
     #[test]
@@ -346,10 +616,19 @@ mod tests {
             None,
         )
         .unwrap();
-        assert_eq!(expression.evaluate(&variables, &properties).unwrap(), 1.0);
-        variables.set_real(4, f32::NAN);
+        let mut random_state = 0x4d59_5df4_d0f3_3173;
         assert_eq!(
-            expression.evaluate(&variables, &properties).unwrap_err(),
+            expression
+                .evaluate(&variables, &properties, &mut random_state)
+                .unwrap(),
+            1.0
+        );
+        variables.set_real(4, f32::NAN);
+        let mut random_state = 0x4d59_5df4_d0f3_3173;
+        assert_eq!(
+            expression
+                .evaluate(&variables, &properties, &mut random_state)
+                .unwrap_err(),
             ExpressionError::InvalidValue
         );
     }
@@ -365,6 +644,12 @@ mod tests {
         );
         let variables = Variables::default();
         let expression = Expression::compile("scale == 0", &variables, &properties, None).unwrap();
-        assert_eq!(expression.evaluate(&variables, &properties).unwrap(), 1.0);
+        let mut random_state = 0x4d59_5df4_d0f3_3173;
+        assert_eq!(
+            expression
+                .evaluate(&variables, &properties, &mut random_state)
+                .unwrap(),
+            1.0
+        );
     }
 }

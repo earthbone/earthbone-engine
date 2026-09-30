@@ -78,9 +78,12 @@ mod temporary_npc;
 pub use record_overrides::NpcRecordExtra;
 pub use record_overrides::{NavmeshRecordExtra, PackRecordExtra};
 pub use record_overrides::{UnresolvedRecord, UnresolvedRecordId};
+mod projectiles;
 mod quest_restore;
 mod quest_save;
 mod quests;
+mod story_manager;
+pub use story_manager::StoryError;
 mod record_save;
 pub use quest_restore::QuestRestoreReport;
 mod reference_extras;
@@ -101,6 +104,7 @@ mod transition;
 
 pub use contact::{ContactActor, DEFAULT_COMBAT_DISTANCE};
 pub use doorway::{Doorway, InteriorDestination, Side, Threshold, THRESHOLD_BAND, UNITS_PER_METRE};
+pub use projectiles::RangedEquipment;
 pub use reference_extras::{ReferenceExtrasRestoreReport, ReferenceLock};
 pub use save::{SAVE_MAGIC, SAVE_VERSION};
 pub use transition::CellTransition;
@@ -559,9 +563,13 @@ pub struct World {
     pub spell_casts: Vec<(GlobalFormId, GlobalFormId, Option<GlobalFormId>)>,
     pub(crate) active_effects: BTreeMap<magic::EffectId, magic::ActiveEffect>,
     pub(crate) next_effect: u64,
+    /// Effect records and magnitudes for potions created by alchemy.
+    pub(crate) brewed_potions: BTreeMap<GlobalFormId, Vec<(GlobalFormId, f32, u32, u32)>>,
     pub(crate) image_space: image_space::ImageSpaceState,
     /// Stealth-point pools by target, each with its observers' awareness.
     pub(crate) detection: crate::detection::DetectionState,
+    pub(crate) story_history: BTreeMap<GlobalFormId, (u32, f64)>,
+    pub(crate) story_selection: BTreeMap<GlobalFormId, BTreeSet<GlobalFormId>>,
     /// Detection sounds awaiting one host observation step.
     pub(crate) detection_events: Vec<crate::detection::DetectionEvent>,
 }
@@ -655,8 +663,11 @@ impl World {
             localized_strings: BTreeMap::new(),
             active_effects: BTreeMap::new(),
             next_effect: 1,
+            brewed_potions: BTreeMap::new(),
             image_space: image_space::ImageSpaceState::default(),
             detection: crate::detection::DetectionState::default(),
+            story_history: BTreeMap::new(),
+            story_selection: BTreeMap::new(),
             detection_events: Vec::new(),
         }
     }

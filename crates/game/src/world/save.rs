@@ -67,6 +67,7 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// version this constant will ever reach: new saved state goes into a
 /// section registered in `save_section_registry`, at the level that owns
 /// it, not into a new version.
+/// Version 37 accompanies the provenance-aware native game save envelope.
 /// The same version carries Fallout 4 struct values in saved Papyrus state.
 /// AI-88 retains each actor's reserved furniture marker in an actor section.
 /// Version 37 retains pending quest start and stop promotion tasks.
@@ -1078,6 +1079,7 @@ impl World {
         // this table fails, sections read earlier in the same call have
         // already mutated `self`, and the `Err` this function returns
         // tells the caller to discard it.
+        self.brewed_potions.clear();
         let unresolved_records = if version >= 37 {
             let previous_overrides =
                 std::mem::replace(&mut self.record_overrides, record_overrides);
@@ -1108,6 +1110,22 @@ impl World {
             }
         }
         super::death::validate_pending(&actors, &pending)?;
+        for (id, effects) in &self.brewed_potions {
+            if id.file != super::DYNAMIC_FILE
+                || id.object == 0
+                || id.object > next_dynamic
+                || refs.contains_key(id)
+                || record_overrides.contains_key(id)
+                || effects.is_empty()
+                || effects.iter().any(|(effect, magnitude, _, _)| {
+                    self.tag_of(*effect) != Some(super::T(b"MGEF"))
+                        || !magnitude.is_finite()
+                        || *magnitude < 0.0
+                })
+            {
+                return Err(VmError::State("invalid brewed potion definition".into()));
+            }
+        }
 
         for (&id, value) in &record_overrides {
             let Some(actor) = value.temporary_for else {
@@ -1720,3 +1738,38 @@ impl World {
 #[cfg(test)]
 #[path = "save_tests.rs"]
 mod tests;
+
+pub(super) fn write_brewed_potions(world: &World, w: &mut Writer) {
+    w.len(world.brewed_potions.len());
+    for (id, effects) in &world.brewed_potions {
+        write_form_id(w, *id);
+        w.len(effects.len());
+        for (effect, magnitude, area, duration) in effects {
+            write_form_id(w, *effect);
+            w.f32(*magnitude);
+            w.u32(*area);
+            w.u32(*duration);
+        }
+    }
+}
+
+pub(super) fn read_brewed_potions(
+    world: &mut World,
+    r: &mut FormReader<'_, '_>,
+) -> Result<(), VmError> {
+    let count = r.len()?;
+    let mut potions = BTreeMap::new();
+    for _ in 0..count {
+        let id = read_form_id(r)?;
+        let effect_count = r.len()?;
+        let mut effects = Vec::with_capacity(effect_count);
+        for _ in 0..effect_count {
+            effects.push((read_form_id(r)?, r.f32()?, r.u32()?, r.u32()?));
+        }
+        if potions.insert(id, effects).is_some() {
+            return Err(VmError::State("duplicate brewed potion identity".into()));
+        }
+    }
+    world.brewed_potions = potions;
+    Ok(())
+}

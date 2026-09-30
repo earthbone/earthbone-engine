@@ -389,8 +389,7 @@ fn rich_world(namespace: u16) -> World {
 /// dialogue branch field that version 24 added, the stagger end time field
 /// that version 29 added, the witnessed crimes set that version 31 added,
 /// the hand spell fields that version 32 added, and the summon actor link
-/// that version 33 added, the furniture marker field from version 37, plus
-/// the record metadata byte from version 35.
+/// that version 33 added, plus the record metadata byte from version 35.
 /// Each is set to a unique sentinel so its serialized
 /// bytes can be located exactly, then cut back out.
 fn without_exclusive_branches(world: &mut World) -> Vec<u8> {
@@ -447,7 +446,6 @@ fn without_exclusive_branches(world: &mut World) -> Vec<u8> {
         right_spell_marker.extend_from_slice(&right_spell_sentinel.file.to_le_bytes());
         right_spell_marker.extend_from_slice(&right_spell_sentinel.object.to_le_bytes());
         markers.push(right_spell_marker);
-
         let furniture_sentinel = GlobalFormId {
             file: u16::MAX,
             object: 0xE300_0000 + index as u32,
@@ -466,37 +464,37 @@ fn without_exclusive_branches(world: &mut World) -> Vec<u8> {
     summon_marker.extend_from_slice(&summon_sentinel.object.to_le_bytes());
     markers.push(summon_marker);
     let mut bytes = world.save_state();
-    // Pre-version-37 writers did not emit named section tables. Re-serialize
-    // each table from its registry and remove that exact tail from the saved
-    // record. `rich_world`'s two references carry identical state, so the
-    // form id prefix is what tells their tails apart.
+    // Version 36 predates named section tables. Locate each actor and
+    // reference record, then remove its section table while retaining the
+    // versioned fields before it. `rich_world`'s two references carry
+    // identical `RefState` content, so the form id prefix distinguishes them.
     for id in &ids {
         let actor = world.actors.get(id).unwrap();
         let mut probe = Writer::new();
         write_form_id(&mut probe, *id);
         write_actor_state(&mut probe, actor);
-        let mut sections = Writer::new();
-        save_sections::write_sections(&mut sections, actor, ACTOR_SECTIONS);
+        let mut section_table = Writer::new();
+        save_sections::write_sections(&mut section_table, actor, ACTOR_SECTIONS);
         let at = bytes
             .windows(probe.out.len())
             .position(|window| window == probe.out)
             .expect("actor record is serialized");
-        let section_start = at + probe.out.len() - sections.out.len();
-        bytes.drain(section_start..section_start + sections.out.len());
+        let table_start = at + probe.out.len() - section_table.out.len();
+        bytes.drain(table_start..at + probe.out.len());
     }
     for id in world.refs.keys().copied().collect::<Vec<_>>() {
         let reference = world.refs.get(&id).unwrap();
         let mut probe = Writer::new();
         write_form_id(&mut probe, id);
         write_ref_state(&mut probe, reference);
-        let mut sections = Writer::new();
-        save_sections::write_sections(&mut sections, reference, REF_SECTIONS);
+        let mut section_table = Writer::new();
+        save_sections::write_sections(&mut section_table, reference, REF_SECTIONS);
         let at = bytes
             .windows(probe.out.len())
             .position(|window| window == probe.out)
             .expect("reference record is serialized");
-        let section_start = at + probe.out.len() - sections.out.len();
-        bytes.drain(section_start..section_start + sections.out.len());
+        let table_start = at + probe.out.len() - section_table.out.len();
+        bytes.drain(table_start..at + probe.out.len());
     }
     world.active_effects.get_mut(&EffectId(1)).unwrap().summoned = None;
     for id in &ids {
@@ -506,7 +504,6 @@ fn without_exclusive_branches(world: &mut World) -> Vec<u8> {
         actor.witnessed_crimes.clear();
         actor.left_spell = None;
         actor.right_spell = None;
-        actor.furniture_seat = None;
     }
     for marker in markers {
         let at = bytes
@@ -523,6 +520,10 @@ fn without_exclusive_branches(world: &mut World) -> Vec<u8> {
         .expect("record override is serialized");
     // CONTEXT: This fixture has one override with no list fields in version 23.
     bytes.remove(at + 39);
+    // Drop the world section table for the legacy fixture.
+    let mut world_sections = Writer::new();
+    save_sections::write_sections(&mut world_sections, world, WORLD_SECTIONS);
+    bytes.truncate(bytes.len() - world_sections.out.len());
     bytes
 }
 
@@ -532,8 +533,9 @@ fn sav_07_legacy_ids_migrate_through_all_nested_world_state() {
         let mut legacy = without_exclusive_branches(&mut rich_world(255));
         // Drop empty post-version-19 blocks, including zone visit and scene
         // history, the version 30 detection block's now-unconditional empty
-        // pool count and the world-level version 37 section table.
-        legacy.truncate(legacy.len() - 43);
+        // pool count, and the world-level save-section table version 37
+        // added.
+        legacy.truncate(legacy.len() - 41);
         let tail = legacy.len() - 25;
         let mut expected = rich_world(DYNAMIC_FILE);
         match version {
@@ -598,7 +600,7 @@ fn sav_16_extras_preserve_created_namespace_and_all_existing_world_state() {
     let mut legacy = without_exclusive_branches(&mut rich_world(DYNAMIC_FILE));
     // See sav_07_legacy_ids_migrate_through_all_nested_world_state for what
     // these trailing bytes are.
-    legacy.truncate(legacy.len() - 43);
+    legacy.truncate(legacy.len() - 41);
     legacy[4..6].copy_from_slice(&19_u16.to_le_bytes());
     loaded.load_state(&legacy).unwrap();
     assert_eq!(loaded.save_state(), rich_world(DYNAMIC_FILE).save_state());
@@ -682,7 +684,7 @@ fn sav_07_legacy_migration_boundary_is_the_first_colliding_plugin_position() {
     let mut legacy = without_exclusive_branches(&mut rich_world(255));
     // See sav_07_legacy_ids_migrate_through_all_nested_world_state for what
     // these trailing bytes are.
-    legacy.truncate(legacy.len() - 43);
+    legacy.truncate(legacy.len() - 41);
     legacy[4..6].copy_from_slice(&18_u16.to_le_bytes());
     let mut world = World::new(order);
     world.load_state(&legacy).unwrap();
