@@ -86,6 +86,23 @@ entry point. It rejects an unnamed hook, a missing export, an invalid manifest a
 entry point. The loader does not supply engine interfaces. Its ABI is separate from SKSE's
 Windows DLL ABI.
 
+The event batch adds typed `DisarmedEvent`, `DragonSoulsGained`, `LevelIncrease`
+and `LocationDiscovery` payloads, with one source for each on
+`ScriptEventSourceHolder`. Payload form identities are the load-order file
+index and object id packed into a `u64`. The engine owns the holder and sends
+events after the corresponding gameplay operation succeeds. Sink delivery
+keeps registration order and stops after a sink returns `Stop`. A requested
+binary call, branch or vtable hook is reported by the module manifest without
+installing a hook. These generated declarations remain source-level only and
+do not connect a separately compiled plugin to a running engine by themselves.
+
+The payload fields follow the local alandtse CommonLib headers
+`RE/D/DisarmedEvent.h`, `RE/D/DragonSoulsGained.h`, `RE/L/LevelIncrease.h`,
+`RE/L/LocationDiscovery.h` and `RE/S/ScriptEventSourceHolder.h`. Only their
+published field meaning and event source names informed this API. The Rust
+surface uses engine independent form identities and owns its own event source
+implementation.
+
 ## Untested
 
 The SHM-01 test compiles the generated umbrella headers with a C++20 compiler and checks C++

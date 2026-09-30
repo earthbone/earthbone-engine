@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 
-//! `RE::BSTEventSource` and `RE::BSTEventSink`: typed channels with the
-//! continue-or-stop control a sink returns.
+//! Typed event sources exposed through the source-level CommonLib API.
 
 /// `RE::BSEventNotifyControl`.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -14,8 +13,7 @@ pub trait EventSink<E> {
     fn process(&mut self, event: &E) -> NotifyControl;
 }
 
-/// A source owns its sinks and delivers in registration order, stopping
-/// at the first sink that says so, as the game's does.
+/// An in-process event source. Sinks run in registration order.
 pub struct EventSource<E> {
     sinks: Vec<Box<dyn EventSink<E>>>,
 }
@@ -44,10 +42,79 @@ impl<E> EventSource<E> {
     }
 }
 
-/// The story and script events the sample plugins subscribe to, one
-/// variant per `RE::TES*Event` in `docs/shim.md`. Payloads are filled in
-/// when the `game` crate defines them, the names are fixed now so a
-/// plugin's sink list can be written against them.
+/// A stable load-order identity represented without depending on the engine.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FormIdentity(pub u64);
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct DisarmedEvent {
+    pub source: FormIdentity,
+    pub target: FormIdentity,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct DragonSoulsGained {
+    pub souls: f32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LevelIncrease {
+    pub player: FormIdentity,
+    pub new_level: u16,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LocationDiscovery {
+    pub map_marker: FormIdentity,
+    pub worldspace_id: Option<String>,
+}
+
+/// Live event channels corresponding to the CommonLib source names in this
+/// API batch. The engine owns this value and emits events into its channels.
+#[derive(Default)]
+pub struct ScriptEventSourceHolder {
+    disarmed: EventSource<DisarmedEvent>,
+    dragon_souls_gained: EventSource<DragonSoulsGained>,
+    level_increase: EventSource<LevelIncrease>,
+    location_discovery: EventSource<LocationDiscovery>,
+}
+
+impl ScriptEventSourceHolder {
+    pub fn disarmed(&mut self) -> &mut EventSource<DisarmedEvent> {
+        &mut self.disarmed
+    }
+
+    pub fn dragon_souls_gained(&mut self) -> &mut EventSource<DragonSoulsGained> {
+        &mut self.dragon_souls_gained
+    }
+
+    pub fn level_increase(&mut self) -> &mut EventSource<LevelIncrease> {
+        &mut self.level_increase
+    }
+
+    pub fn location_discovery(&mut self) -> &mut EventSource<LocationDiscovery> {
+        &mut self.location_discovery
+    }
+}
+
+/// A hook that requires patching executable code cannot be installed through
+/// the source-level compatibility API.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct UnsupportedHook {
+    pub name: &'static str,
+}
+
+impl UnsupportedHook {
+    pub const fn new(name: &'static str) -> Self {
+        Self { name }
+    }
+}
+
+pub fn install_hook(hook: UnsupportedHook) -> Result<(), UnsupportedHook> {
+    Err(hook)
+}
+
+/// The story and script event names subscribed to by the surveyed plugins.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum ScriptEvent {
@@ -84,8 +151,8 @@ mod tests {
     use std::rc::Rc;
 
     struct Counter(Rc<Cell<u32>>, NotifyControl);
-    impl EventSink<ScriptEvent> for Counter {
-        fn process(&mut self, _: &ScriptEvent) -> NotifyControl {
+    impl<E> EventSink<E> for Counter {
+        fn process(&mut self, _: &E) -> NotifyControl {
             self.0.set(self.0.get() + 1);
             self.1
         }

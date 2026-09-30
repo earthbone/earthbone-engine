@@ -31,6 +31,7 @@ soe-audio = { path = "../audio" }
 # disagree about how fast an actor walks. `physics` depends on `trace` and
 # `nif` only, so there is no cycle.
 soe-physics = { path = "../physics" }
+soe-commonlib-shim = { path = "../commonlib-shim" }
 
 [lints]
 workspace = true
