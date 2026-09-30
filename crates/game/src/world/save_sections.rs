@@ -18,7 +18,7 @@
 //! the surrounding record uses, so a section that stores a `FormId` resolves
 //! it the same way the rest of that record does.
 
-use soe_papyrus::vm::state::{Reader, Writer};
+use soe_papyrus::vm::state::{ArrayPool, ArrayTable, Reader, Writer};
 use soe_papyrus::VmError;
 
 use super::save::FormReader;
@@ -29,17 +29,28 @@ use super::save::FormReader;
 /// table leaves the field it would have set at that default.
 pub(crate) struct Section<T> {
     pub(crate) name: &'static str,
-    pub(crate) write: fn(&T, &mut Writer),
-    pub(crate) read: fn(&mut T, &mut FormReader<'_, '_>) -> Result<(), VmError>,
+    pub(crate) write: fn(&T, &mut Writer, &mut ArrayPool),
+    pub(crate) read: fn(&mut T, &mut FormReader<'_, '_>, &ArrayTable) -> Result<(), VmError>,
 }
 
 /// Write every registered section with a nonempty payload, in registry order.
+#[cfg(test)]
 pub(crate) fn write_sections<T>(w: &mut Writer, value: &T, sections: &[Section<T>]) {
+    let mut pool = ArrayPool::new();
+    write_sections_with_pool(w, value, sections, &mut pool);
+}
+
+pub(crate) fn write_sections_with_pool<T>(
+    w: &mut Writer,
+    value: &T,
+    sections: &[Section<T>],
+    pool: &mut ArrayPool,
+) {
     let payloads: Vec<_> = sections
         .iter()
         .filter_map(|section| {
             let mut payload = Writer::new();
-            (section.write)(value, &mut payload);
+            (section.write)(value, &mut payload, pool);
             (!payload.out.is_empty()).then_some((section, payload.out))
         })
         .collect();
@@ -61,11 +72,24 @@ pub(crate) fn write_sections<T>(w: &mut Writer, value: &T, sections: &[Section<T
 /// example `"world"`, `"actor"` or `"reference"`), matching the unknown
 /// version error's shape. A truncated payload and a payload its reader
 /// does not fully consume are both errors too.
+#[cfg(test)]
 pub(crate) fn read_sections<T>(
     r: &mut FormReader<'_, '_>,
     level: &str,
     value: &mut T,
     sections: &[Section<T>],
+) -> Result<(), VmError> {
+    let mut empty_pool = Reader::new(&[0, 0, 0, 0]);
+    let table = ArrayTable::read_pool(&mut empty_pool)?;
+    read_sections_with_table(r, level, value, sections, &table)
+}
+
+pub(crate) fn read_sections_with_table<T>(
+    r: &mut FormReader<'_, '_>,
+    level: &str,
+    value: &mut T,
+    sections: &[Section<T>],
+    table: &ArrayTable,
 ) -> Result<(), VmError> {
     let n = r.u16()?;
     for _ in 0..n {
@@ -81,7 +105,7 @@ pub(crate) fn read_sections<T>(
         };
         let mut sub_reader = Reader::new(payload);
         let mut sub = FormReader::new(&mut sub_reader, r.namespace());
-        (section.read)(value, &mut sub)
+        (section.read)(value, &mut sub, table)
             .map_err(|error| VmError::State(format!("section {name} at {level}: {error}")))?;
         sub.expect_end()
             .map_err(|_| VmError::State(format!("section {name} at {level} left unread bytes")))?;
@@ -100,22 +124,34 @@ mod tests {
         b: u16,
     }
 
-    fn write_a(v: &Fixture, w: &mut Writer) {
+    fn write_a(v: &Fixture, w: &mut Writer, _pool: &mut ArrayPool) {
         w.u32(v.a);
     }
-    fn read_a(v: &mut Fixture, r: &mut FormReader<'_, '_>) -> Result<(), VmError> {
+    fn read_a(
+        v: &mut Fixture,
+        r: &mut FormReader<'_, '_>,
+        _table: &ArrayTable,
+    ) -> Result<(), VmError> {
         v.a = r.u32()?;
         Ok(())
     }
-    fn write_b(v: &Fixture, w: &mut Writer) {
+    fn write_b(v: &Fixture, w: &mut Writer, _pool: &mut ArrayPool) {
         w.u16(v.b);
     }
-    fn read_b(v: &mut Fixture, r: &mut FormReader<'_, '_>) -> Result<(), VmError> {
+    fn read_b(
+        v: &mut Fixture,
+        r: &mut FormReader<'_, '_>,
+        _table: &ArrayTable,
+    ) -> Result<(), VmError> {
         v.b = r.u16()?;
         Ok(())
     }
     /// Leaves a byte unread, to exercise the "left unread bytes" error.
-    fn read_b_partial(_v: &mut Fixture, r: &mut FormReader<'_, '_>) -> Result<(), VmError> {
+    fn read_b_partial(
+        _v: &mut Fixture,
+        r: &mut FormReader<'_, '_>,
+        _table: &ArrayTable,
+    ) -> Result<(), VmError> {
         r.u8()?;
         Ok(())
     }
@@ -137,6 +173,15 @@ mod tests {
 
     fn form_reader<'reader, 'data>(r: &'reader mut Reader<'data>) -> FormReader<'reader, 'data> {
         FormReader::new(r, FormNamespace::Current)
+    }
+
+    fn section_error(bytes: &[u8], level: &str, sections: &[Section<Fixture>]) -> String {
+        let mut restored = Fixture::default();
+        let mut r = Reader::new(bytes);
+        let mut fr = form_reader(&mut r);
+        read_sections(&mut fr, level, &mut restored, sections)
+            .unwrap_err()
+            .to_string()
     }
 
     #[test]
@@ -178,16 +223,14 @@ mod tests {
         let mut w = Writer::new();
         write_sections(&mut w, &value, &both_sections());
 
-        let mut restored = Fixture::default();
-        let mut r = Reader::new(&w.out);
-        let mut fr = form_reader(&mut r);
         let only_a = vec![Section {
             name: "a",
             write: write_a,
             read: read_a,
         }];
-        let err = read_sections(&mut fr, "reference", &mut restored, &only_a).unwrap_err();
-        assert!(err.to_string().contains("unknown section b at reference"));
+        assert!(
+            section_error(&w.out, "reference", &only_a).contains("unknown section b at reference")
+        );
     }
 
     #[test]
@@ -209,9 +252,6 @@ mod tests {
         let mut w = Writer::new();
         write_sections(&mut w, &value, &both_sections());
 
-        let mut restored = Fixture::default();
-        let mut r = Reader::new(&w.out);
-        let mut fr = form_reader(&mut r);
         let partial = vec![
             Section {
                 name: "a",
@@ -224,7 +264,6 @@ mod tests {
                 read: read_b_partial,
             },
         ];
-        let err = read_sections(&mut fr, "fixture", &mut restored, &partial).unwrap_err();
-        assert!(err.to_string().contains("left unread bytes"));
+        assert!(section_error(&w.out, "fixture", &partial).contains("left unread bytes"));
     }
 }

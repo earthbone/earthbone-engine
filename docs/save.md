@@ -132,7 +132,9 @@ does not claim runtime support for opaque payloads.
   MISC and FURN. The xEdit value and full-name fields have zero-byte layouts.
   Unnamed flags and suffix bytes remain available for exact payload re-encoding.
 - PCON and PARW change-form envelopes, with original stored payload bytes
-  retained without subtype interpretation.
+  retained without subtype interpretation. Their shared initial placement
+  prefixes decode into the normal reference reconstruction path. The xEdit
+  subtype structs are empty, so any remaining bytes stay opaque.
 - `ChangeForm::info_change`, `story_manager_quest_node_change` and
   `scene_change` decode the defined INFO, SMQN and SCEN flag sections and state
   markers.
@@ -140,6 +142,12 @@ does not claim runtime support for opaque payloads.
   factions, spells, AI data, names, skills, class, race, face, gender and outfits.
 - `ChangeForm::class_change`, `faction_change` and `relationship_change` decode
   CLAS, FACT and RELA change sections on demand.
+- `ChangeForm::word_of_power_change` and `magic_effect_change` decode WOOP and
+  MGEF form flags, the two payload-free base-object change markers, and retain
+  unnamed flag bits. Only the form-flags marker contributes payload bytes.
+  The game crate applies these fields as persisted record metadata. It leaves
+  source subrecords in place because the two base-object markers contain no
+  replacement values or text.
 - `ChangeForm::activator_change` decodes ACTI, TACT and DOOR form flags and
   their value, full-name and TACT speaker change markers. The markers consume
   no payload bytes, as defined by xEdit. Unnamed xEdit flag bits remain in the
@@ -227,6 +235,14 @@ The implementation follows xEdit's `wbDefinitionsTES5Saves.pas`. UESP's save
 format page establishes the type indices but does not document these payload
 fields. FallrimTools `ChangeFormDefault` retains payload bytes without a typed
 layout, so it remains useful as a raw preservation reference.
+
+`World::restore_vanilla_static_objects` maps these changes through saved plugin
+names and applies the form-flags inversion mask to winning CONT, MISC and FURN
+records. It retains the value and full-name markers and opaque suffix bytes.
+The markers have zero-byte layouts in xEdit, so neither marker replaces a
+record subrecord. Restore prepares every record before installing any override.
+SOEW version 37 stores the decoded fields and reapplies the mask when loading
+engine state.
 
 ## Runtime instance import
 
@@ -740,12 +756,13 @@ save readers name the variant but do not define its fields or termination, so
 the decoder does not guess where following extra data begins. The SAV-21
 regression test keeps this unsupported case explicit.
 
-## Reference mask semantics, SAV-15 blocked
+## Reference mask semantics, SAV-15 partial
 
-SAV-15 still requires saved reference masks to override authored enable and
-persistence state with validated version-specific semantics. The byte layout
-is established, but the application operation has not been established.
-No reference behavior or engine-save layout changed in this investigation.
+The runtime retains both `CHANGE_FORM_FLAGS` words in the restore report and
+does not apply them to authored REFR or ACHR state. The current restore path
+accepts a mask only for the observed Skyrim SE tuple of ESS header version 12,
+form version 78 and change-form version 78. Other tuples with a mask fail
+before reference state is inserted.
 
 Local xEdit `Core/wbDefinitionsTES5Saves.pas`, at
 `wbUnionCHANGE_FORM_FLAGS`, names a 32-bit Mask Invert Flags followed by a
@@ -762,8 +779,12 @@ bit 10. `src/RE/T/TESObjectREFR.cpp` checks those bits in IsDisabled and
 IsPersistent. Its load declarations do not supply the saved-mask operation.
 Searches of CommonLibSSE, SKSE64, TiltedEvolution, OpenSkyrim, skymp,
 Skyrim-NX-Toolkit and Wrye Bash found no independent Skyrim mask application.
-An inversion label alone is insufficient evidence to choose XOR over a
-clear/set operation or establish the role of the second word.
+The XOR operation is an interpretation of xEdit's `Mask Invert Flags` label
+limited to the disabled and persistent bits. The local sources do not define
+the second word, and no controlled reference-game comparison of resulting
+flags was available. Synthetic and installed-record tests exercise the
+interpretation, but they do not independently verify vanilla save outcomes.
+The SAV-15 check therefore remains partial pending that comparison.
 
 The existing `all_external_reference_headers_reencode_and_compare_player_locations`
 test now reports mask counts after re-encoding the complete typed prefix.
@@ -785,10 +806,9 @@ nonzero in 68,235 masks, with observed values 0x0001, 0x0004, 0x0008,
 coverage, not the resulting enable or persistence state.
 
 The runtime consumer audit found that `World::load_ref_record` derives enable
-state from the winning plugin, while `World::unload_cell` and
-`World::is_persistent_child` use the authored cell index. The placement pass
-reports both mask words without applying them. The runtime has no saved
-persistence override. Completing SAV-15 needs an independently documented
+and persistence state from the winning plugin, while `World::unload_cell` and
+`World::is_persistent_child` consume those values. The placement pass reports
+both mask words without applying them. Completing SAV-15 needs an independently documented
 operation or controlled vanilla saves with observed before/after flags for
 both authored bit values, both reference types and supported versions.
 Those outcomes must drive native enable queries and unload decisions, then
@@ -930,6 +950,12 @@ including empty versus absent reaction arrays. `Save::write` still uses the
 original change-form bytes. The decoder does not apply these changes to live
 records. The local UESP save format page supplies the three change type
 indices. FallrimTools handles CLAS and FACT as opaque forms.
+The game crate's `World::restore_vanilla_record_changes` validates CLAS
+changes and applies FACT and RELA fields to winning record overrides. FACT
+reactions update warm faction runtime state in the same transaction. xEdit's
+CLAS tag-skills marker has no payload and therefore changes no live record
+field. The shared six-byte form-flags section updates `Record::flags` and its
+unknown final word is retained in SOEW version 37.
 The 60-save external check reproduced all 345,703 payload bytes from 4,702
 FACT and 547 RELA changes. It found no CLAS changes, so CLAS field coverage is
 synthetic only.
@@ -1055,6 +1081,19 @@ LVSP and shared form-mask combinations have synthetic coverage only. No save
 bytes were copied into the repository. `World::restore_vanilla_lists` in the
 game crate applies decoded changes to live record overrides.
 
+## WOOP and MGEF change application, SAV-50
+
+`World::restore_vanilla_base_objects` maps all WOOP and MGEF changes before
+installing their record overrides. It retains the optional six-byte form flag
+pair, both zero-byte change markers and unnamed flag bits. It validates every
+change before installing overrides. The optional form-flag mask is XORed with
+the winning record flags, following xEdit's `CHANGE_FORM_FLAGS` definition as
+"Mask Invert Flags". The base-object value and full-name markers do not include
+replacement data, so saved records keep their authored subrecords. MGEF runtime
+views read through the override-aware record lookup. SOEW version 37 stores
+the retained metadata and reapplies the mask after engine save/load. Earlier
+versions still load without that extension.
+
 ## Reference ownership and locks, SAV-16, blocked
 
 The partial `World::restore_vanilla_reference_extras` pass inspects every
@@ -1131,7 +1170,9 @@ were excluded, and no corpus restoration success is claimed by this checkpoint.
 
 ## Actor-value restoration evidence
 
-SAV-06 remains blocked on SAV-64's missing serialized component layout.
+The SAV-06 engine-save check verifies that current and permanent actor-value
+components remain separate through SOEW save/load. Vanilla ACHR modifier
+restoration remains blocked on SAV-64's missing serialized component layout.
 The 60-save ACHR survey accounts for 243,595 records, all without the five
 documented actor-modifier bits. Existing prefix decoding fails on 81 named
 package states and leaves actor data unparsed. These observations do not
@@ -1170,6 +1211,16 @@ rebuild the same flags and payload bytes. SAV-39 tests all eight defined flag
 combinations for each record type and reports record counts, distinct flag
 sets and payload bytes from `SOE_TEST_SAVES` when that corpus is configured.
 
+`World::restore_vanilla_base_objects` applies these fields to shared record
+overrides after mapping saved identities through plugin names. It validates
+all LIGH, STAT and MSTT changes before changing the world. The live records
+remain available through `World::record`, while
+`World::restored_base_object_extra` returns the saved form-flag words and the
+two zero-byte change markers. Since the markers contain no replacement value
+or name, record-backed value and name queries continue to use the winning
+plugin record. SOEW version 37 retains this metadata through engine save/load
+in the SAV-53 world section.
+
 `ChangeForm::apparatus_change` and `ChangeForm::idle_marker_change` decode
 APPA and IDLM payloads from the xEdit `Change APPA Data` and `Change IDLM Data`
 definitions. Both have an optional six-byte form-flags section. The value and
@@ -1180,7 +1231,9 @@ keeps both types raw. The gated SAV-43 survey accounts for both types across
 the external save corpus and checks exact typed re-encoding. The 60-save corpus
 contains no APPA or IDLM changes, so payload coverage comes from synthetic
 fixtures. UESP's local mod-file format pages describe the APPA and IDLM records,
-not their save payloads.
+not their save payloads. The game applies their form-flag inversion masks to
+winning records and keeps the decoded fields in the SAV-44 world section.
+This section leaves older version-37 saves unchanged when absent.
 
 ## BOOK, NOTE and KEYM saved fields
 

@@ -455,7 +455,10 @@ fn cmb_14_version_28_save_loads_with_no_actor_staggered() {
     // pool count (version 37) are the last two fields, eight bytes together,
     // all past where a version 28 save ends.
     bytes.truncate(bytes.len() - 8);
-    let visit_count = bytes.len() - 12;
+    // Keep the version 27 encounter-level count and version 28 repeat
+    // history. The version 34 visit count is the four-byte field between
+    // them.
+    let visit_count = bytes.len() - 8;
     assert_eq!(bytes[visit_count..visit_count + 4], [0; 4]);
     bytes.drain(visit_count..visit_count + 4);
     bytes[4..6].copy_from_slice(&28_u16.to_le_bytes());
