@@ -1081,6 +1081,37 @@ fn a_location_alias_holds_a_location() {
     assert!(errors(&g).is_empty(), "{:?}", errors(&g));
 }
 
+#[test]
+fn alias_getters_preserve_reference_and_actor_return_types() {
+    let mut g = game();
+    g.start();
+    let quest = g.form("LocQuest").unwrap();
+    let alias = Value::Object(g.object_of(Handle::Alias { quest, id: 1 }));
+    for (name, reference, actor) in [
+        ("GuardRef", true, true),
+        ("MarkerRef", true, false),
+        ("InnLoc", false, false),
+    ] {
+        let target = g.form(name).unwrap();
+        assert!(g.world_mut().force_alias(quest, 1, Some(target)));
+        let object = obj(&mut g, name);
+        for (getter, allowed) in [
+            ("GetReference", reference),
+            ("GetRef", reference),
+            ("GetActorReference", actor),
+            ("GetActorRef", actor),
+        ] {
+            let expected = if allowed { object.clone() } else { Value::None };
+            assert_eq!(
+                call(&mut g, &alias, getter, &[]),
+                expected,
+                "{getter}: {name}"
+            );
+        }
+    }
+    assert!(errors(&g).is_empty(), "{:?}", errors(&g));
+}
+
 // ----- factions -----
 
 /// GetReaction reads the record's XNAM (2 is ally), SetEnemy "sets the

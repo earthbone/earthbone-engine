@@ -451,10 +451,9 @@ fn cmb_14_version_28_save_loads_with_no_actor_staggered() {
         "the save must carry the current world state version before the patch"
     );
     legacy::strip_world_sections(&mut bytes);
-    // The scene runtime count (version 36), the now-unconditional detection
-    // pool count (version 37) are the last two fields, eight bytes together,
-    // all past where a version 28 save ends.
-    bytes.truncate(bytes.len() - 8);
+    // CONTEXT: Detection's empty pool count follows the repeat history.
+    // Version 37 stores scene runtime in the stripped section table.
+    bytes.truncate(bytes.len() - 4);
     // Keep the version 27 encounter-level count and version 28 repeat
     // history. The version 34 visit count is the four-byte field between
     // them.

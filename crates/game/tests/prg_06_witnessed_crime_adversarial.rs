@@ -221,9 +221,9 @@ fn a_genuine_pre_prg_06_save_loads_cleanly_with_no_witnessed_crimes() {
     let section_len = legacy::section_table_len(&bytes, section_start);
     bytes.drain(offsets[0]..section_start + section_len);
     legacy::strip_world_sections(&mut bytes);
-    // The scene runtime count (version 36) and detection pool count
-    // (version 37) are past where a version 29 save ends.
-    bytes.truncate(bytes.len() - 8);
+    // CONTEXT: Detection's empty pool count follows the repeat history.
+    // Version 37 stores scene runtime in the stripped section table.
+    bytes.truncate(bytes.len() - 4);
     let visit_count = bytes.len() - 12;
     assert_eq!(bytes[visit_count..visit_count + 4], [0; 4]);
     bytes.drain(visit_count..visit_count + 4);

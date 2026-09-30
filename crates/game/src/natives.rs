@@ -1713,9 +1713,22 @@ fn alias(vm: &mut Vm, w: &Shared) {
             .and_then(|q| q.def.alias(alias).map(|a| a.name.clone()))
             .unwrap_or_default())
     });
-    for name in ["GetReference", "GetRef", "GetActorReference", "GetActorRef"] {
+    for name in ["GetReference", "GetRef"] {
         alias_method!(vm, w, name, |world, call, quest, alias| {
-            let r = world.alias_ref(quest, alias);
+            let r = world.alias_ref(quest, alias).filter(|target| {
+                matches!(
+                    world.class_of(Handle::Form(*target)),
+                    "ObjectReference" | "Actor"
+                )
+            });
+            form_value(world, call, r)
+        });
+    }
+    for name in ["GetActorReference", "GetActorRef"] {
+        alias_method!(vm, w, name, |world, call, quest, alias| {
+            let r = world
+                .alias_ref(quest, alias)
+                .filter(|target| world.class_of(Handle::Form(*target)) == "Actor");
             form_value(world, call, r)
         });
     }

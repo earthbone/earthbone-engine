@@ -170,11 +170,10 @@ fn corrupt_fade_load_is_atomic_and_an_older_save_starts_without_modifiers() {
     legacy::normalize_world_sections(&mut legacy);
     // Version 24 is the last one written without an image-space block.
     legacy[4..6].copy_from_slice(&24u16.to_le_bytes());
-    // Drop the image-space block and the loose-item and zone blocks after it,
-    // plus detection's now-unconditional empty pool count (4 bytes) and the
-    // world-level save-section table version 37 added (2 bytes), both always
-    // present at the tail regardless of the simulated version.
-    legacy.truncate(legacy.len() - 35);
+    let tail = legacy::version_tail_len(&legacy, |candidate| {
+        game.world_mut().load_state(candidate).is_ok()
+    });
+    legacy.truncate(legacy.len() - tail);
     game.world_mut()
         .crossfade_image_space(Some(id(1)), 0.0)
         .unwrap();

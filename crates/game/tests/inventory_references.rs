@@ -272,16 +272,11 @@ fn version_fifteen_migrates_authored_loose_items_and_rejects_truncated_new_exten
     w.reference(id(LOOSE)).unwrap();
     let hash = w.state_hash();
     let mut bytes = legacy::without_ref_sections(&mut w, &[id(LOOSE)]);
-    // CONTEXT: One entry: table count, FormID, stack count and three typed extras.
-    let extension = 4 + 6 + 4 + 4 + (1 + 4 + 1 + 1 + 6) + 2 * (1 + 4 + 1 + 4);
-    // The extra 6 bytes beyond the old 16 are detection's now-unconditional
-    // empty pool count (4 bytes) and the world-level save-section table
-    // version 37 added (2 bytes), both always present at the tail regardless
-    // of the simulated version. LOOSE's own empty save-section table is
-    // stripped above, since it sits mid stream in the refs list rather than
-    // at this tail.
-    bytes.truncate(bytes.len() - extension - 22);
+    bytes[4..6].copy_from_slice(&25_u16.to_le_bytes());
+    let tail = legacy::version_tail_len(&bytes, |candidate| world(3).load_state(candidate).is_ok());
+    bytes.truncate(bytes.len() - tail);
     let mut loaded = world(3);
+    bytes[4..6].copy_from_slice(&soe_game::world::SAVE_VERSION.to_le_bytes());
     assert!(loaded.load_state(&bytes).is_err());
     bytes[4..6].copy_from_slice(&25_u16.to_le_bytes());
     loaded.load_state(&bytes).unwrap();
@@ -450,12 +445,10 @@ fn legacy_contained_identity_does_not_recreate_its_authored_loose_item() {
             &[id(FIRST)]
         };
         let mut bytes = legacy::without_ref_sections(&mut w, refs);
-        // The extra 6 bytes beyond the old 20 are detection's now-
-        // unconditional empty pool count (4 bytes) and the world-level
-        // save-section table version 37 added (2 bytes), both always
-        // present at the tail regardless of the simulated version.
-        bytes.truncate(bytes.len() - 26);
         bytes[4..6].copy_from_slice(&25_u16.to_le_bytes());
+        let tail =
+            legacy::version_tail_len(&bytes, |candidate| world(1).load_state(candidate).is_ok());
+        bytes.truncate(bytes.len() - tail);
         let mut loaded = world(1);
         loaded.load_state(&bytes).unwrap();
         assert!(loaded.reference_ref(id(LOOSE)).unwrap().item.is_none());

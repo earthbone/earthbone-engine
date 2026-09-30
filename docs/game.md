@@ -232,6 +232,15 @@ dependency cycle prevents resolution. The layout follows `wbRecord(QUST)` in
 establishes that aliases are objects owned by their quest. Fill selection for
 location reference types and `ALFI` forced-into copying are not implemented.
 
+Alias native getters preserve their Papyrus return types. `GetReference` and
+`GetRef` return only object references or actors. `GetActorReference` and
+`GetActorRef` return only actors, matching the `GetReference() as Actor` wrapper
+in local `engine-refs/skse64/scripts/vanilla/ReferenceAlias.psc` and the CK
+`ReferenceAlias_Script.wikitext` class page. A stored location remains visible
+through `LocationAlias.GetLocation` and returns None through reference getters.
+`alias_getters_preserve_reference_and_actor_return_types` checks these native
+calls through the VM with actor, object-reference and location targets.
+
 **World reference placement.** `World::ref_placement` (in
 `world/refs.rs`) is the read-only view a host uses to keep its own rendering
 and collision resources in step with a reference's runtime state: current
