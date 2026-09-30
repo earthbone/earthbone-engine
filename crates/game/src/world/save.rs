@@ -1640,6 +1640,11 @@ fn read_actor_state(r: &mut FormReader<'_, '_>, version: u16) -> Result<ActorSta
             "Wait procedure requires world version 22".into(),
         ));
     }
+    if version < 37 && a.ai.procedure == crate::ai::Procedure::Shout {
+        return Err(VmError::State(
+            "Shout procedure requires world version 37".into(),
+        ));
+    }
     a.perks = read_form_set(r)?;
     a.alerted = r.bool()?;
     a.sneaking = r.bool()?;

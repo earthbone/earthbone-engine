@@ -31,6 +31,7 @@ pub(crate) const ACTOR_SECTIONS: &[Section<ActorState>] = &[
     super::furniture::SECTION,
     Section { name: "PRG-01", write: super::super::progression::write_skill_experience, read: super::super::progression::read_skill_experience },
     Section { name: "AI-88", write: super::furniture::write_furniture_seat, read: super::furniture::read_furniture_seat },
+    Section { name: "AI-29", write: write_voice_recovery, read: read_voice_recovery },
 ];
 
 /// Sections read and written once per reference, at the end of every
@@ -40,6 +41,29 @@ pub(crate) const REF_SECTIONS: &[Section<RefState>] = &[
     Section { name: "SAV-15", write: write_reference_persistence, read: read_reference_persistence },
     Section { name: "MOD-03", write: write_reference_flags, read: read_reference_flags },
 ];
+
+fn write_voice_recovery(state: &ActorState, writer: &mut soe_papyrus::vm::state::Writer) {
+    writer.bool(state.voice_recovery_until.is_some());
+    if let Some(until) = state.voice_recovery_until {
+        writer.f64(until);
+    }
+}
+
+fn read_voice_recovery(
+    state: &mut ActorState,
+    reader: &mut super::save::FormReader<'_, '_>,
+) -> Result<(), soe_papyrus::VmError> {
+    if reader.bool()? {
+        let until = reader.f64()?;
+        if !until.is_finite() || until < 0.0 {
+            return Err(soe_papyrus::VmError::State(
+                "AI-29 invalid voice recovery deadline".into(),
+            ));
+        }
+        state.voice_recovery_until = Some(until);
+    }
+    Ok(())
+}
 
 fn write_reference_persistence(state: &RefState, writer: &mut soe_papyrus::vm::state::Writer) {
     writer.bool(state.persistent);

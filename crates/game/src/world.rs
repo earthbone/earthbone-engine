@@ -296,6 +296,8 @@ pub struct ActorState {
     pub ash_pile: Option<GlobalFormId>,
     pub shouts: BTreeSet<GlobalFormId>,
     pub equipped_shout: Option<GlobalFormId>,
+    /// Real-time deadline before this actor may shout again.
+    pub voice_recovery_until: Option<f64>,
     /// Real-time deadline for the stagger animation and input lock a melee
     /// hit above `fStaggerThreshold` sets, `None` when not staggered.
     /// Compared against `World::clock.real_seconds`, the lazy expiry

@@ -80,6 +80,7 @@ pub enum Procedure {
     Wait {
         stop_movement: bool,
     },
+    Shout,
     /// A procedure the driver does not run yet, by its template name. The
     /// actor holds where it stands.
     Unsupported(String),
@@ -762,6 +763,7 @@ fn begin_procedure(
         }
         Procedure::None
         | Procedure::Wait { .. }
+        | Procedure::Shout
         | Procedure::Patrol
         | Procedure::Unsupported(_) => {}
     }
@@ -1308,6 +1310,25 @@ fn step(world: &mut World, actor: GlobalFormId, dt: f32, alloc: Alloc<'_>) {
     {
         tree::succeeded(world, &mut ai);
     }
+    if ai.procedure == Procedure::Shout {
+        if let Some(until) = ai.wait_until {
+            if world.clock.real_seconds >= until {
+                tree::succeeded(world, &mut ai);
+            }
+        } else if world.voice_recovery_time(actor) <= 0.0 {
+            let target = world.actor(actor).and_then(|state| state.combat_target);
+            if let Err(error) = world.cast_shout(actor, target, alloc) {
+                ai.procedure = Procedure::Unsupported(format!("Shout: {error}"));
+            } else {
+                let recovery = world.voice_recovery_time(actor);
+                if recovery > 0.0 {
+                    ai.wait_until = Some(world.clock.real_seconds + f64::from(recovery));
+                } else {
+                    tree::succeeded(world, &mut ai);
+                }
+            }
+        }
+    }
     let hours = world.clock.game_hours();
     if ai.arrived {
         match ai.procedure {
@@ -1486,6 +1507,13 @@ pub(crate) fn write_record_state(w: &mut Writer, a: &AiState) {
                 w.f64(until);
             }
         }
+        Procedure::Shout => {
+            w.u8(7);
+            w.bool(a.wait_until.is_some());
+            if let Some(until) = a.wait_until {
+                w.f64(until);
+            }
+        }
         Procedure::Unsupported(name) => {
             w.u8(4);
             w.str(name);
@@ -1586,6 +1614,16 @@ pub(crate) fn read_state_mapped(r: &mut FormReader<'_, '_>) -> Result<AiState, V
                 a.wait_until = Some(until);
             }
             Procedure::Wait { stop_movement }
+        }
+        7 => {
+            if r.bool()? {
+                let until = r.f64()?;
+                if !until.is_finite() || until < 0.0 {
+                    return Err(VmError::State("invalid Shout deadline".into()));
+                }
+                a.wait_until = Some(until);
+            }
+            Procedure::Shout
         }
         other => return Err(VmError::State(format!("unknown procedure {other}"))),
     };

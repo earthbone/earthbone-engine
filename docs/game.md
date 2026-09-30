@@ -827,13 +827,28 @@ hours, and picks the next, or a random point in the radius when the cell
 has no markers. `Sleep` walks to the bed the location names, or the
 nearest furniture in that cell whose base carries a keyword with `bed` in
 its editor id, and holds with `sleeping` set. `Wait` holds for its real-time
-duration, with zero meaning indefinite. Walking `Patrol` follows linked markers,
-including their arrival radius and idle time. Every other procedure name
-is `Procedure::Unsupported` and the actor stands where it is. Location
+duration, with zero meaning indefinite. `Shout` casts the equipped `SHOU`'s
+highest nonzero `SNAM` spell through `World::cast_spell` and holds its tree
+branch until that word's authored recovery expires. An actor already in voice
+recovery waits before casting. Failed shout data or delivery leaves the
+procedure explicitly unsupported. Voice recovery is an absolute deadline in
+the world's real-seconds clock, exposed through `GetVoiceRecoveryTime` and
+`SetVoiceRecoveryTime`. The `AI-29` actor section stores that deadline under
+the version 37 section table. The CK package procedure page is absent from the local
+wiki snapshot. The execution uses the local `EquipShout_-_Actor` and
+`GetVoiceRecoveryTime_-_Actor` contracts, UESP `SHOU.wikitext`'s three `SNAM`
+entries, and the existing xEdit PACK and shared spell APIs. Walking `Patrol`
+follows linked markers, including their arrival radius and idle time. Every
+other procedure name is `Procedure::Unsupported` and the actor stands where
+it is. Location
 kinds near reference, in cell, near package start, near editor location,
 near linked reference, alias reference, alias location and near self resolve.
 An alias location uses its filled `LCTN` form's `MNAM` world marker as its
 destination. Location alias fill rules remain separate quest work.
+
+`tests/ai_29_shout.rs` checks authored self-target spell delivery, the selected
+word's recovery duration, waiting through an existing recovery, save/load, and
+rejection of a SHOU that does not contain exactly three 12-byte `SNAM` entries.
 
 **Walking.** `ai::nav_graph` builds `soe_navmesh::vanilla` over every
 winning `NAVM` on first use and remembers which cell each mesh sits in.
@@ -1943,7 +1958,25 @@ of Script, Value Modifier, Dual Value Modifier and Dispel effects, including hos
 come from winning SPEL and MGEF records, with each FormID resolved in its winning
 plugin. Self and target-actor delivery are supported for constant and fire-and-forget
 casts. `Spell.Cast` credits an actor source. `RemoteCast` credits its explicit
-blame actor. Player charging, costs and hand input are separate unfinished work.
+blame actor. Player charge progress and hand input remain unfinished.
+
+`World::spell_charge_time` returns authored SPIT charge time when Manual Cost
+Calc is set, otherwise the maximum MGEF casting time in the SPEL effect list.
+`World::spell_cost` returns authored SPIT base cost for manual-cost spells.
+Auto-calculated cost sums each MGEF base cost scaled by magnitude and duration,
+with magnitude below one raised to one, zero duration treated as ten, and
+concentration duration treated as ten. It applies the SPEL half-cost perk when
+the caster owns that perk. `World::cast_charged_spell` validates the cast and
+available magicka before debiting the cost once and applying effects. This
+one-shot API does not model charge progress or concentration ticks. These rules
+follow local `uesp-modfileformat/SPEL.wikitext` and
+`TES5Edit/Core/wbDefinitionsTES5.pas`; `tests/magic/mag_09_cast_cost.rs`
+checks authored and calculated timing and costs, perk adjustment, and rejection
+without state changes when magicka is insufficient.
+The charged gameplay path sends `OnSpellCast` once after validation and payment.
+The CK `ck-wiki/OnSpellCast_-_ObjectReference.wikitext` contract says the event
+fires once when concentration begins and is not detected for Papyrus casts, so
+the direct scripted `World::cast_spell` path does not send it.
 
 Touch delivery resolves only the supplied actor target and measures its
 three-dimensional distance from the source reference against the SPEL SPIT
