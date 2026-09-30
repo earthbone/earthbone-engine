@@ -1126,6 +1126,7 @@ impl<'a> Interpreter<'a> {
             NodeKind::ModifierList { enable, .. }
             | NodeKind::EventDrivenModifier { enable, .. }
             | NodeKind::TimerModifier { enable, .. }
+            | NodeKind::EventOnDeactivateModifier { enable, .. }
             | NodeKind::GetTimeStepModifier { enable, .. }
             | NodeKind::IsActiveModifier { enable, .. }
             | NodeKind::FalseToTrueModifier { enable, .. }
@@ -1532,6 +1533,7 @@ impl<'a> Interpreter<'a> {
             | NodeKind::GeneratorTransition(_)
             | NodeKind::EventDrivenModifier { .. }
             | NodeKind::TimerModifier { .. }
+            | NodeKind::EventOnDeactivateModifier { .. }
             | NodeKind::GetTimeStepModifier { .. }
             | NodeKind::DirectAt { .. }
             | NodeKind::IsActiveModifier { .. }
@@ -1555,6 +1557,9 @@ impl<'a> Interpreter<'a> {
             seen[node_id.0] = true;
             let node = &self.graph.nodes[node_id.0];
             let mut children = node.children();
+            if let NodeKind::EventOnDeactivateModifier { event, .. } = &node.kind {
+                self.raise(event.id);
+            }
             if let NodeKind::StateMachine(sm) = &node.kind {
                 if let Some(current) = self.nodes[node_id.0].current_state {
                     if let Some(state) = sm.state(current) {
@@ -2139,6 +2144,7 @@ impl<'a> Interpreter<'a> {
             | NodeKind::GeneratorTransition(_)
             | NodeKind::EventDrivenModifier { .. }
             | NodeKind::TimerModifier { .. }
+            | NodeKind::EventOnDeactivateModifier { .. }
             | NodeKind::GetTimeStepModifier { .. }
             | NodeKind::DirectAt { .. }
             | NodeKind::IsActiveModifier { .. }
