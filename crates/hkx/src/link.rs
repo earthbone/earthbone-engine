@@ -346,8 +346,14 @@ fn remap_node(node: &mut Node, map: &SymbolMap, offset: usize) {
             *offset_clip_generator = shift_opt(*offset_clip_generator, offset);
         }
         NodeKind::BoneSwitch {
-            default_generator, ..
-        } => *default_generator = shift_opt(*default_generator, offset),
+            default_generator,
+            children,
+        } => {
+            *default_generator = shift_opt(*default_generator, offset);
+            for child in children {
+                child.generator = shift_opt(child.generator, offset);
+            }
+        }
         NodeKind::EventDrivenModifier {
             modifier,
             activate_event_id,

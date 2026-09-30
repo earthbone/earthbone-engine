@@ -541,6 +541,13 @@ pub struct BlenderChild {
     pub bindings: Option<VariableBindingSet>,
 }
 
+/// One pose generator and its authored per-bone mask in a bone switch.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BoneSwitchChild {
+    pub generator: Option<NodeId>,
+    pub bone_weights: Option<Vec<f32>>,
+}
+
 /// `hkbBlenderGenerator.flags`: 1 sync, 4 smooth generator weights, 8 do
 /// not deactivate children with zero weights, 16 parametric blend, 32
 /// parametric blend is cyclic, 64 force dense pose.
@@ -669,9 +676,7 @@ pub enum NodeKind {
     },
     BoneSwitch {
         default_generator: Option<NodeId>,
-        /// Bone data children are kept as object offsets, they carry a
-        /// generator each which is not walked yet.
-        children: Vec<Option<u32>>,
+        children: Vec<BoneSwitchChild>,
     },
     EventDrivenModifier {
         enable: bool,
@@ -779,10 +784,14 @@ impl Node {
             NodeKind::GeneratorTransition(g) => out.extend(g.transition_generator),
             NodeKind::IStateTagging {
                 default_generator, ..
-            }
-            | NodeKind::BoneSwitch {
-                default_generator, ..
             } => out.extend(*default_generator),
+            NodeKind::BoneSwitch {
+                default_generator,
+                children,
+            } => {
+                out.extend(*default_generator);
+                out.extend(children.iter().filter_map(|child| child.generator));
+            }
             NodeKind::SynchronizedClip { clip_generator, .. } => out.extend(*clip_generator),
             NodeKind::CyclicBlendTransition {
                 blender_generator, ..
@@ -1180,13 +1189,20 @@ impl<'a> Loader<'a> {
             }
             "BSBoneSwitchGenerator" => {
                 let default_generator = self.opt_id(o.ptr(o.layout_offset(48, 80))?);
+                let mut children = Vec::new();
+                for child in o.array_ptrs(o.layout_offset(52, 88))?.into_iter().flatten() {
+                    child.expect_class("BSBoneSwitchGeneratorBoneData")?;
+                    children.push(BoneSwitchChild {
+                        generator: self.opt_id(child.ptr(child.layout_offset(36, 48))?),
+                        bone_weights: child
+                            .ptr(child.layout_offset(40, 56))?
+                            .map(bone_weights)
+                            .transpose()?,
+                    });
+                }
                 NodeKind::BoneSwitch {
                     default_generator,
-                    children: o
-                        .array_ptrs(o.layout_offset(52, 88))?
-                        .into_iter()
-                        .map(|p| p.map(|p| p.base))
-                        .collect(),
+                    children,
                 }
             }
             "hkbEventDrivenModifier" => {

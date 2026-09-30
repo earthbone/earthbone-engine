@@ -119,6 +119,13 @@ referenceCount).
   (pDefaultGenerator 80, pOffsetClipGenerator 96), `BSBoneSwitchGenerator`
   (pDefaultGenerator 80, ChildrenA 88).
 
+The serde-hkx `BSBoneSwitchGenerator` declaration gives `ChildrenA` as an
+array of `BSBoneSwitchGeneratorBoneData` pointers. Its child declaration gives
+`pGenerator` at 48 and `spBoneWeight` at 56. The `hkbBoneWeightArray`
+declaration stores the ordered real-valued mask. The loader resolves those
+generator pointers into graph nodes and reads the optional mask using the
+same checked array reader used for blender masks.
+
 Where activeragdoll's runtime header and serde-hkx's class table both cover
 a class (`hkbNode`, `hkbStateMachine`, `hkbBlendingTransitionEffect`,
 `hkbBehaviorGraph`) the offsets agree, which is the cross-check that the
@@ -372,9 +379,14 @@ What each node does:
   through `fOffsetRangeStart` and `fOffsetRangeEnd` to a clamped 0 to 1
   amount. The offset pose adds scaled translation, composes a scaled
   rotation, and multiplies a scaled scale into the default pose.
+- `BSBoneSwitchGenerator`: starts its default generator and each authored
+  bone child. A child with a mask overlays bones with positive entries in its
+  `hkbBoneWeightArray`, blending partial mask values and leaving other bones
+  at the default output. Missing mask entries contribute zero. A child with
+  no mask overlays every bone.
 - `hkbModifierGenerator` and Skyrim's `BS*` wrappers (`BSiStateTagging`,
-  `BSBoneSwitch`, `BSSynchronizedClip`, `BSCyclicBlendTransition`) pass
-  their generator child through.
+  `BSSynchronizedClip`, `BSCyclicBlendTransition`) pass their generator
+  child through.
   `hkbModifierGenerator` also gives an enabled modifier child activation and
   deactivation lifecycle.
 - `hkbEvaluateExpressionModifier`: compiles its expression data at graph

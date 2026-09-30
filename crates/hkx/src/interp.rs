@@ -1532,10 +1532,6 @@ impl<'a> Interpreter<'a> {
                 default_generator: generator,
                 ..
             }
-            | NodeKind::BoneSwitch {
-                default_generator: generator,
-                ..
-            }
             | NodeKind::SynchronizedClip {
                 clip_generator: generator,
                 ..
@@ -1558,6 +1554,17 @@ impl<'a> Interpreter<'a> {
                 }
                 if let Some(generator) = offset_clip_generator {
                     self.activate(*generator);
+                }
+            }
+            NodeKind::BoneSwitch {
+                default_generator,
+                children,
+            } => {
+                if let Some(generator) = default_generator {
+                    self.activate(*generator);
+                }
+                for generator in children.iter().filter_map(|child| child.generator) {
+                    self.activate(generator);
                 }
             }
             NodeKind::BehaviorReference { resolved, .. } => {
@@ -2042,10 +2049,6 @@ impl<'a> Interpreter<'a> {
                 default_generator: generator,
                 ..
             }
-            | NodeKind::BoneSwitch {
-                default_generator: generator,
-                ..
-            }
             | NodeKind::SynchronizedClip {
                 clip_generator: generator,
                 ..
@@ -2079,6 +2082,10 @@ impl<'a> Interpreter<'a> {
                 apply_pose_offset(&mut base, &offset, amount);
                 base
             }
+            NodeKind::BoneSwitch {
+                default_generator,
+                children,
+            } => self.generate_bone_switch(*default_generator, children, dt),
             // A linked reference is a pass-through to the graph that was
             // spliced under it. An unlinked one has nothing to play and is
             // reported, which is what holds the vanilla standing idle silent
@@ -2342,6 +2349,54 @@ impl<'a> Interpreter<'a> {
             bone_weights,
             weight: acc_weight.min(1.0),
         }
+    }
+
+    /// Overlay bone-switch children on the default generator's pose.
+    fn generate_bone_switch(
+        &mut self,
+        default_generator: Option<NodeId>,
+        children: &[crate::behavior::BoneSwitchChild],
+        dt: f32,
+    ) -> Output {
+        let mut output = default_generator
+            .map(|generator| {
+                self.activate(generator);
+                self.generate(generator, dt)
+            })
+            .unwrap_or_else(|| self.reference_output());
+        for child in children {
+            let Some(generator) = child.generator else {
+                continue;
+            };
+            self.activate(generator);
+            let overlay = self.generate(generator, dt);
+            for (bone, ((pose, weight), overlay_pose)) in output
+                .pose
+                .iter_mut()
+                .zip(&mut output.bone_weights)
+                .zip(&overlay.pose)
+                .enumerate()
+            {
+                let mask = child
+                    .bone_weights
+                    .as_ref()
+                    .map_or(1.0, |weights| weights.get(bone).copied().unwrap_or(0.0))
+                    .clamp(0.0, 1.0);
+                let overlay_part = mask * overlay.bone_weights.get(bone).copied().unwrap_or(0.0);
+                let default_part = *weight * (1.0 - overlay_part);
+                let combined = default_part + overlay_part;
+                if overlay_part > 0.0 && combined > 0.0 {
+                    *pose = if default_part == 0.0 {
+                        *overlay_pose
+                    } else {
+                        blend_transform(pose, overlay_pose, overlay_part / combined)
+                    };
+                }
+                *weight = combined.min(1.0);
+            }
+            output.weight = output.weight.max(overlay.weight);
+        }
+        output
     }
 
     fn sync_children(&mut self, b: &BlenderGenerator, weights: &[f32], dt: f32) {
