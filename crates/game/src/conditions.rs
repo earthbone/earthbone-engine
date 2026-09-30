@@ -202,7 +202,9 @@ pub fn supports_function(function: u16) -> bool {
             | 629
             | 630
             | 639
+            | 654
             | 655
+            | 656
             | 659
             | 683
             | 698
@@ -1094,6 +1096,22 @@ fn function_value(
                 .ok_or(Error::Form(subject))?;
             boolean(world.cell_has_worldspace_max_height_data(cell))
         }
+        654 => {
+            // GetBribeSuccess observes the player's bribe outcome. The CK
+            // SetBribed/IsBribed contract stores bribed and intimidated
+            // outcomes in LastBribedIntimidated, which is also used by
+            // IsIntimidatedbyPlayer (function 116).
+            no_parameter(c)?;
+            boolean(
+                world
+                    .actor(subject)
+                    .ok_or(Error::Form(subject))?
+                    .values
+                    .get("lastbribedintimidated")
+                    .current()
+                    != 0.0,
+            )
+        }
         225 | 315 => {
             // DLG-07 established current Speechcraft as the condition value.
             no_parameter(c)?;
@@ -1423,6 +1441,11 @@ fn function_value(
                 // dlg_07_missing_aidt_adversarial.rs).
                 boolean(false)
             }
+        }
+        656 => {
+            // CK Actor.IsArrested reports the actor's current arrest state.
+            no_parameter(c)?;
+            boolean(world.actor(subject).ok_or(Error::Form(subject))?.arrested)
         }
         659 => boolean(context.tempering_enchanted.ok_or(Error::TemperingContext)?),
         636 => {

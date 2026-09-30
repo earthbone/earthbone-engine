@@ -454,6 +454,7 @@ fn actor_state(h: &mut StateHasher, a: &ActorState) {
     if let Some(until) = a.voice_recovery_until {
         h.f64(until);
     }
+    h.u32(a.days_in_jail);
 }
 
 fn quest_state(h: &mut StateHasher, q: &QuestState) {

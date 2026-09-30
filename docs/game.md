@@ -274,6 +274,30 @@ faction can legally exist without one. No Papyrus native calls this
 function yet, `SendAssaultAlarm` and similar witness-driven natives are
 later work that can build on it.
 
+**Jail sentence accounting.** `Game.ServeTime` serves the player's tracked
+crime faction at one in-game day per 100 gold of bounty, rounded up and
+capped at seven days. It advances the shared clock, clears that faction's
+violent and nonviolent bounty, clears partial skill-use experience, and adds
+the served days to the player's `days_in_jail`. That counter is stored in the
+`PRG-13` actor save section. `Game.ClearPrison` clears the counter. Crime
+record references `JAIL`, `STOL`, `PLCN` and `JOUT` are not yet consumed by
+this path, so prison placement and stolen-item confiscation or belongings
+restoration are not implemented.
+
+**Guard arrest choices, PRG-12.** `World::arrest_options` offers payment only
+when the player has enough `Gold001`, jail for a positive bounty, and
+resistance for any valid arrest. It reads arrest policy from the first byte
+of the winning faction's `CRVA` and requires the faction's `DATA` Track Crime
+flag. `World::resolve_arrest` applies only the selected choice. Payment
+deducts the combined bounty and clears its violent and nonviolent ledgers.
+Jail uses `serve_jail_time`, including its clock and skill-progress effects.
+Resistance leaves the purse, bounty, infamy and jail state unchanged.
+The `FACT.DATA`, `CRVA`, `JAIL`, `STOL`, `PLCN` and `JOUT` fields follow
+`TES5Edit/Core/wbDefinitionsTES5.pas` and `uesp-modfileformat/FACT.wikitext`.
+The arrest flag and `IsArrested` status name the local CK faction and actor
+contracts. Jail marker travel, evidence storage, belongings restoration and
+combat behavior after resistance are not handled here.
+
 **Vendor service lookup.** `Game::resolve_vendor_service` reads the winning
 `FACT` vendor flag, `VEND`, `VENC`, `VENV`, `PLVD` and faction conditions. It evaluates
 conditions for a loaded merchant with the player as target and applies the
@@ -1357,8 +1381,9 @@ the appearance empty.
   timer lifetimes, and repeat-while-conditions behavior are not implemented.
   Perks are a set on the
   actor, no entry point applies. Leveled lists are never rolled. Spell casts
-  are recorded, no effect applies. Crime has bounty and infamy ledgers, no
-  jail or arrest.
+  are recorded, no effect applies. Arrest choice accounting and jail
+  sentences exist, but guard movement, jail placement and resistance combat
+  are not implemented.
 - Faction relations from `XNAM`, location keyword data, perks and the actor
   flags were tested on the synthetic master and reached by the vanilla
   scripts at start, not checked against the game's runtime values.
@@ -2077,6 +2102,20 @@ formula, which the engine does not run yet. The Papyrus native
 `WillIntimidateSucceed` is still a stub in `natives.rs`. No engine state sets
 LastBribedIntimidated yet either, so `IsIntimidatedbyPlayer` reads false until
 a bribe or intimidate native writes it.
+
+AI-46 adds `GetBribeSuccess` (654) and `GetArrestedState` (656). Both take no
+parameters. Bribe success reads the subject's `LastBribedIntimidated` actor
+value, the shared flag described by CK's `SetBribed` and `IsBribed` pages.
+Arrested state reads the subject actor's `arrested` field, matching CK's
+`IsArrested`. Nonzero unused parameter slots and subjects without actor state
+return explicit errors. `GetArrestingActor` (657) remains unsupported: CK's
+`IsArrestingTarget` describes a live guard arrest interaction, but the runtime
+has no arresting-target state to evaluate. Its condition is reported as
+`Error::Function(657)` instead of guessing from combat or alert state. The
+function names and parameter counts follow local xEdit
+`wbDefinitionsTES5.pas` and UESP `Raw_Function_Data.wikitext`; the actor
+contracts follow the local CK `SetBribed`, `IsBribed`, `IsArrested` and
+`IsArrestingTarget` pages.
 
 DLG-04 implements favor spending, INFO response DATA/ENAM flag bit 14 in
 `wbDefinitionsTES5.pas` ("Spends Favor Points"). `info_eligible` now treats
