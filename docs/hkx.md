@@ -188,12 +188,24 @@ bindings, and the classes an interpreter needs are decoded into
 clip generators with their triggers, blenders with their weighted
 children, manual selectors, modifier generators and lists, behavior
 references, blending and generator transition effects, the Skyrim `BS*`
-generators listed above, and event-driven, timer and expression modifiers. Any other
+generators listed above, plus event-driven, timer, expression and foot IK
+controls modifiers. Any other
 class is kept as `NodeKind::Unknown` (or `NodeKind::Modifier` with its
 enable flag when the class name ends in `Modifier`), so a vanilla or
 Nemesis-patched graph never fails to load because of an unmodelled node.
 The `0_master.hkx` test prints which classes are still unknown, which is
 the worklist for widening the model.
+
+`hkbFootIkControlsModifier` decodes its twelve `hkbFootIkGains` values, the
+per-leg ground position, ungrounded event, vertical error and contact flags,
+plus `errorOutTranslation` and `alignWithGroundRotation`. When enabled below
+an active modifier generator, those authored values appear in
+`Output::foot_ik_controls`. Referenced-graph linking remaps each leg's event
+id with the graph event table. A blender keeps the control record from the
+contributing child with the greatest normalized weight. A transition uses the
+record from its dominant side and retains a record when the other side has
+none. The control values are carried as serialized. Host ground queries and
+runtime foot placement are separate work.
 
 The graph's symbol tables come with it: event names, variable names with
 types and roles, attribute defaults, character property names, and the
@@ -549,6 +561,9 @@ Sources read locally before implementation:
   operator inventory and `hkReal` operand representation.
 - `serde-hkx/assets/classes/hkbStateMachineTransitionInfo.json` supplies
   the condition pointer and disable-condition flag.
+- `serde-hkx/assets/serde_hkx_schema.json` supplies the
+  `hkbFootIkControlsModifier`, `hkbFootIkControlData`, `hkbFootIkGains` and
+  `hkbFootIkControlsModifierLeg` layouts used by ANM-41.
 - `Skyrim-Behavior-Editor-/src/hkxclasses/behavior/hkbexpressioncondition.cpp`
   and `hkbstringcondition.cpp` preserve authored guard strings.
 - `Skyrim-Behavior-Editor-/src/hkxclasses/behavior/hkbexpressiondataarray.cpp`

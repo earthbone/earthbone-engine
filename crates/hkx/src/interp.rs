@@ -22,8 +22,9 @@ use std::collections::HashMap;
 use crate::animation::{Animation, SplineCompressedAnimation};
 use crate::behavior::{
     transition_flags, BehaviorGraph, BehaviorGraphData, BlenderGenerator, ClipGenerator, Condition,
-    NodeId, NodeKind, PassByTargetTrigger, StateMachine, TimeInterval, TransitionInfo,
-    VariableBindingSet, VariableInfo, VariableType, FALSE_TO_TRUE_SLOTS, IS_ACTIVE_SLOTS,
+    FootIkControls, NodeId, NodeKind, PassByTargetTrigger, StateMachine, TimeInterval,
+    TransitionInfo, VariableBindingSet, VariableInfo, VariableType, FALSE_TO_TRUE_SLOTS,
+    IS_ACTIVE_SLOTS,
 };
 use crate::expression::{Expression, ExpressionError};
 use crate::ragdoll::BodyIndex;
@@ -564,6 +565,8 @@ pub struct Output {
     /// Contribution per bone, retained through nested blends and transitions.
     pub bone_weights: Vec<f32>,
     pub weight: f32,
+    /// Authored foot IK controls from the active modifier path.
+    pub foot_ik_controls: Option<FootIkControls>,
 }
 
 /// Counts of what the graph asked for that the interpreter could not do.
@@ -740,6 +743,7 @@ impl<'a> Interpreter<'a> {
                 world_from_model: QsTransform::IDENTITY,
                 bone_weights: vec![0.0; reference_pose.len()],
                 weight: 0.0,
+                foot_ik_controls: None,
             },
             character_position: None,
             reference_pose,
@@ -1424,6 +1428,7 @@ impl<'a> Interpreter<'a> {
             | NodeKind::EvaluateExpression { enable, .. }
             | NodeKind::SpeedSampler { enable, .. }
             | NodeKind::DampingModifier { enable, .. }
+            | NodeKind::FootIkControls { enable, .. }
             | NodeKind::Modifier { enable } => *enable,
             _ => true,
         };
@@ -1874,6 +1879,7 @@ impl<'a> Interpreter<'a> {
             | NodeKind::DecomposeVector { .. }
             | NodeKind::SpeedSampler { .. }
             | NodeKind::DampingModifier { .. }
+            | NodeKind::FootIkControls { .. }
             | NodeKind::Modifier { .. }
             | NodeKind::Unknown => {}
         }
@@ -2265,6 +2271,7 @@ impl<'a> Interpreter<'a> {
             world_from_model: QsTransform::IDENTITY,
             bone_weights: vec![0.0; self.reference_pose.len()],
             weight: 0.0,
+            foot_ik_controls: None,
         }
     }
 
@@ -2320,6 +2327,13 @@ impl<'a> Interpreter<'a> {
                 for index in start..self.modifier_order.len() {
                     let node = self.modifier_order[index];
                     self.apply_tweener(node, &mut output, dt);
+                    if self.nodes[node.0].active {
+                        if let NodeKind::FootIkControls { controls, .. } =
+                            &self.graph.node(node).kind
+                        {
+                            output.foot_ik_controls = Some(controls.clone());
+                        }
+                    }
                 }
                 output
             }
@@ -2386,6 +2400,7 @@ impl<'a> Interpreter<'a> {
             | NodeKind::EvaluateExpression { .. }
             | NodeKind::SpeedSampler { .. }
             | NodeKind::DampingModifier { .. }
+            | NodeKind::FootIkControls { .. }
             | NodeKind::Modifier { .. } => self.reference_output(),
         }
     }
@@ -2491,6 +2506,7 @@ impl<'a> Interpreter<'a> {
             pose,
             world_from_model: QsTransform::IDENTITY,
             weight: 1.0,
+            foot_ik_controls: None,
         }
     }
 
@@ -2570,6 +2586,8 @@ impl<'a> Interpreter<'a> {
         let mut pose = self.reference_pose.clone();
         let mut bone_weights = vec![0.0; pose.len()];
         let mut acc_weight = 0.0;
+        let mut foot_ik_controls = None;
+        let mut foot_ik_contribution = 0.0;
         for (i, child) in b.children.iter().enumerate() {
             let Some(g) = child.generator else {
                 continue;
@@ -2591,6 +2609,13 @@ impl<'a> Interpreter<'a> {
                 continue;
             }
             let w = w / total;
+            let control_contribution = w * out.weight;
+            if control_contribution > foot_ik_contribution {
+                if let Some(controls) = &out.foot_ik_controls {
+                    foot_ik_controls = Some(controls.clone());
+                    foot_ik_contribution = control_contribution;
+                }
+            }
             acc_weight += w;
             for (bone, (acc, next)) in pose.iter_mut().zip(&out.pose).enumerate() {
                 let mask = child
@@ -2615,6 +2640,7 @@ impl<'a> Interpreter<'a> {
             world_from_model: QsTransform::IDENTITY,
             bone_weights,
             weight: acc_weight.min(1.0),
+            foot_ik_controls,
         }
     }
 
@@ -2851,6 +2877,11 @@ pub fn blend_outputs(from: &Output, to: &Output, alpha: f32) -> Output {
         world_from_model: blend_transform(&from.world_from_model, &to.world_from_model, alpha),
         bone_weights,
         weight: from.weight + (to.weight - from.weight) * alpha,
+        foot_ik_controls: match (&from.foot_ik_controls, &to.foot_ik_controls) {
+            (Some(a), Some(b)) => Some(if alpha < 0.5 { a.clone() } else { b.clone() }),
+            (Some(controls), None) | (None, Some(controls)) => Some(controls.clone()),
+            (None, None) => None,
+        },
     }
 }
 
@@ -4271,6 +4302,7 @@ mod tests {
             world_from_model: QsTransform::IDENTITY,
             bone_weights: vec![0.0],
             weight: 0.0,
+            foot_ik_controls: None,
         };
         let b = Output {
             pose: vec![QsTransform {
@@ -4280,6 +4312,7 @@ mod tests {
             world_from_model: QsTransform::IDENTITY,
             bone_weights: vec![1.0],
             weight: 1.0,
+            foot_ik_controls: None,
         };
         assert_eq!(blend_outputs(&a, &b, 0.1), b);
         assert_eq!(blend_outputs(&b, &a, 0.9), b);
