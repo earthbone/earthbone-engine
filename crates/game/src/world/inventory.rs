@@ -39,6 +39,66 @@ enum ReferenceSource {
 }
 
 impl World {
+    /// Exchange an exact quantity of merchandise and currency between two
+    /// holders after preparing all four inventory changes.
+    ///
+    /// # Errors
+    /// Returns an inventory error when either holder is missing, either
+    /// source lacks the requested quantity, or a recipient would overflow.
+    pub fn trade_items_notified(
+        &mut self,
+        item_source: GlobalFormId,
+        item: GlobalFormId,
+        item_count: i32,
+        item_target: GlobalFormId,
+        currency: GlobalFormId,
+        currency_count: i32,
+        alloc: Alloc<'_>,
+    ) -> Result<(), Error> {
+        if item_count <= 0 || currency_count <= 0 || item_source == item_target {
+            return Err(Error::Quantity);
+        }
+        let mut source_items = self
+            .reference(item_source)
+            .ok_or(Error::Holder)?
+            .inventory
+            .clone();
+        let mut target_items = self
+            .reference(item_target)
+            .ok_or(Error::Holder)?
+            .inventory
+            .clone();
+        if source_items.count(item) < item_count || target_items.count(currency) < currency_count {
+            return Err(Error::Selection);
+        }
+        let item_bundle = source_items.take(item, item_count);
+        let mut currency_bundle = target_items.take(currency, currency_count);
+        currency_bundle.unequip();
+        target_items.receive(item, item_bundle)?;
+        source_items.receive(currency, currency_bundle)?;
+
+        self.reference(item_source).ok_or(Error::Holder)?.inventory = source_items;
+        self.reference(item_target).ok_or(Error::Holder)?.inventory = target_items;
+
+        self.inventory_event(item_source, item, -item_count, Some(item_target), alloc);
+        self.inventory_event(item_target, item, item_count, Some(item_source), alloc);
+        self.inventory_event(
+            item_target,
+            currency,
+            -currency_count,
+            Some(item_source),
+            alloc,
+        );
+        self.inventory_event(
+            item_source,
+            currency,
+            currency_count,
+            Some(item_target),
+            alloc,
+        );
+        Ok(())
+    }
+
     /// Select a quantity from one stack or the plain remainder of a holder's items.
     ///
     /// # Errors

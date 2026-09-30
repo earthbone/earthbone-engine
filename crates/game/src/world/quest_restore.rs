@@ -277,6 +277,30 @@ impl Context<'_, '_> {
 }
 
 impl World {
+    pub(crate) fn saved_story_events(&self) -> Vec<(GlobalFormId, StoryEvent)> {
+        self.quests
+            .iter()
+            .filter_map(|(id, quest)| {
+                quest
+                    .runtime
+                    .run_data
+                    .as_ref()
+                    .and_then(|run| run.event.as_ref())
+                    .map(|event| (*id, event.clone()))
+            })
+            .collect()
+    }
+
+    pub(crate) fn clear_saved_story_event(&mut self, id: GlobalFormId) {
+        if let Some(run) = self
+            .quests
+            .get_mut(&id)
+            .and_then(|quest| quest.runtime.run_data.as_mut())
+        {
+            run.event = None;
+        }
+    }
+
     /// Apply all saved QUST change forms after validating the entire batch.
     /// Unlisted quests remain unchanged. No startup, alias-fill, fragment or
     /// story event is dispatched. The report names missing world identities.

@@ -26,6 +26,41 @@ exercise record light, occlusion inputs, cross-cell identity and sound source
 ownership. The `SKYRIM_DATA` case reads a populated vanilla interior. No
 interactive Godot sight run or frame-cost measurement is recorded here.
 
+### Character race and sex selection, UI-07
+
+`PlayerNode::show_race_menu` opens the native Control menu for race and sex
+selection. `Game.ShowRaceMenu` queues a transient host request that the player
+consumes on its next gameplay advance. The list comes from winning, non-deleted
+`RACE` records whose `DATA` playable flag is set, ordered by resolved FormID.
+Confirmation stores the chosen race and sex through the shared game's player
+actor-base state. Actor values initialize from the confirmed race when the
+player actor is first built, and later confirmations leave initialized values
+intact. The actor-base race and sex already belong to SOEW saves.
+
+The race flag and head-part field definitions were read in local
+`engine-refs/TES5Edit/Core/wbDefinitionsTES5.pas`, with the prose layouts in
+`engine-refs/uesp-modfileformat/RACE.wikitext` and
+`engine-refs/uesp-modfileformat/HDPT.wikitext`. The CK
+`engine-refs/ck-wiki/Game_Script.wikitext` describes `ShowRaceMenu` as the
+race and sex change screen. The current menu also supports the appearance
+editing described for UI-14 below.
+
+### Player head parts and morph values, UI-14
+
+The race menu lists winning, live HDPT records marked playable and compatible
+with the selected sex. Each entry uses its PNAM part type, and selection
+updates the menu's appearance preview summary. Face, Nose and Jaw morph
+controls adjust normalized values from -1 to 1 in 0.1 steps. Confirm writes
+the draft to the player's shared actor state, which SOEW stores in the UI-14
+actor section. Closing the menu discards the draft and leaves the saved actor
+appearance unchanged. The preview is a menu summary of selected records and
+morph values. It is a menu summary, not rendered character appearance.
+
+`godot/ui_07_race_menu_test.gd` opens the live menu, presses a different race
+record and sex button, and confirms through the connected Control callbacks.
+Run it with `SKYRIM_DATA` set and the extension loaded in
+`target/godot-check`.
+
 The [large world physics survey](physics.md#large-world-boundary-survey-2026-09-19)
 records the signed cell offsets, tolerances and Jolt measurements for the
 `large-world-physics` branch. Its Rust mesh conversion test and Godot server
@@ -69,6 +104,14 @@ transforms and reports their largest difference from the cached World pose.
 `godot/hst_12_movable_test.gd` uses the installed Bannered Mare cell, applies
 an impulse to an authored movable reference, then checks World and rendering
 pose agreement and the disable, despawn and unload cleanup paths.
+
+`CellBodies::grab_movable_reference` changes one resident movable body to
+kinematic mode. `move_grabbed_reference` updates its PhysicsServer3D transform
+from a finite Skyrim-space position. `release_movable_reference` returns the
+body to rigid simulation at that pose. Each `CellBodies` collection permits
+one grabbed reference at a time. The game grab state and these host operations
+are separate APIs, and PlayerNode does not yet wire a targeting or held-input
+loop between them.
 
 ### Spawn Hazard prerequisites, MAG-61
 
@@ -140,6 +183,13 @@ of a unit. Skyrim is Z up with Y north, Godot is Y up with north at -Z. The map
 draws clockwise faces as front faces. Whether Skyrim's shapes come out counter-clockwise
 after the map is not settled until a real NIF renders, so `MeshOptions::flip_winding` is a
 switch, default on, and the generated normals follow it.
+
+## Determinism
+
+`data_source::workers::ordered_map` returns builder results in input order for
+both sequential and threaded runs. The TST-02 test hashes those results into
+the game's per-tick `host.builders` partition, so worker output participates
+in the same divergence report as world and VM state.
 
 ## Streaming
 
@@ -1147,6 +1197,13 @@ reaches the same shared Game path as other melee contacts. A single-key or
 single-button action can also be pressed through Godot's Input action API,
 while chorded bindings continue to require every device input.
 
+MAG-22 adds `Left Attack/Block` and `Right Attack/Block` as held gameplay
+actions. PlayerNode compares each frame with the prior held state and calls
+`Game::begin_hand_cast` once on a press, then `Game::end_hand_cast` on release.
+The actions use the PC control map's mouse, keyboard or gamepad binding. Losing
+input focus releases both hand requests so a missed device-up event cannot
+leave a hand latched.
+
 ### The camera basis
 
 Skyrim's yaw is zero facing north and grows clockwise from above, so forward is
@@ -1815,6 +1872,12 @@ asset from the response and current speaker. An explicit TRDT sound override
 does not use the generated voice path. Otherwise the path uses the response
 INFO's owning plugin filename, the DIAL and QUST editor IDs, the response
 INFO's local FormID, its response number and the speaker's VTYP editor ID.
+For shared response data, DIAL and QUST come from the response INFO's owning
+topic.
+When their combined length exceeds 25 characters, the quest ID is capped at
+10 characters if it is longer than 10, and the topic ID is capped at 15.
+For a shorter quest ID, the topic ID may use the remaining characters up to
+the combined limit. This follows Mutagen's `GetQuestAndTopicStrings` rule.
 NPC speakers take VTCK from their Traits template source. Talking activators
 take VNAM. The current speaker reference position is converted from Skyrim
 units to Godot metres and passed to `AudioStreamPlayer3D`. The filename rule
@@ -1827,6 +1890,9 @@ The menu remembers the voice slot returned by `SoundBank`. Starting a later
 response stops the prior dialogue slot first. Closing the dialogue menu and
 advancing past the final response also stop the tracked voice. SoundBank
 refuses to stop a slot that has since been released or reused for an effect.
+Vanilla FUZ playback requires the opt-in `xwma-ffmpeg` feature and an installed
+`ffmpeg` binary. The default host build reports `Unsupported::Wma` for these
+assets. The dialogue tests use a mock output and do not verify Godot playback.
 
 The selected FUZ's LIP block is decoded with the voice buffer. SoundBank
 samples the native mouth targets against that player's playback position,
@@ -2155,6 +2221,60 @@ Closing frees presenter controls, clears held gameplay actions and restores
 prior focus and mouse mode. Mouse restoration waits for window focus when
 closing while unfocused. Repeated opens and closes do not add shell nodes.
 
+### MCM text and toggle rows, UI-11
+
+`mcm_menu::ConfigPage` stores text/value and toggle rows in authored order.
+It returns SkyUI option IDs using the page number in the high byte and a slot
+from 0 to 127 in the low byte. `set_enabled` changes the disabled flag while
+preserving other option flags. Hidden rows are omitted from presentation, and
+disabled rows remain visible without accepting selection. `render_rows`
+builds native Godot labels, buttons and check buttons. A selected enabled row
+sends one Papyrus `OnOptionSelect(int)` event with its option ID to the
+configured script form.
+
+The local SkyUI `SKI_ConfigBase.psc` header and source define the text/toggle
+option types, disabled and hidden flags, page-strided option IDs, 128 positions
+per page and selection event shape. Godot Controls replace its Scaleform
+presentation under the project intent. UI-05 script registration and page
+lifecycle work is not present in this worktree, so the option model and
+presenter are callable host pieces rather than a complete unmodified MCM script
+execution path. UI-11 tests exercise their protocol without Skyrim data.
+
+### MCM slider and menu dialogs, UI-12
+
+`ConfigPage` also stores slider rows with their current value, authored minimum,
+maximum and interval, and menu rows with their choices and selected value.
+Selecting a slider or menu row dispatches `OnOptionSliderOpen(int)` or
+`OnOptionMenuOpen(int)`. The returned dialog parameters use the row's current
+value as both slider start and default, and the current menu choice as both
+menu start and default. Accepting a slider clamps to its authored range and
+snaps to its interval before updating the row and dispatching
+`OnOptionSliderAccept(int, float)`. Accepting a menu updates the displayed
+choice and dispatches `OnOptionMenuAccept(int, int)` with its choice index.
+Cancelling closes the dialog without changing the row or dispatching an accept
+event. `SKI_ConfigBase.psc` defines no cancel event. The callback names and
+arguments match that source, while `SKI_ConfigManager.psc` confirms the manager
+routes slider and menu selection and acceptance to those callbacks. The
+`ui_12` fixtures use synthetic scripts and do not require Skyrim data.
+
+### MCM color and key-map options, UI-13
+
+`ConfigPage` adds integer color and key-map rows. A key remap sends
+`OnOptionKeyMapChange(option, keyCode, conflictControl, conflictName)` to the
+configured script, including empty conflict strings when no conflict exists.
+The callback does not change the row value. The config script can apply its
+decision with `set_keymap_value`. Opening a color dialog sends
+`OnOptionColorOpen(option)`, and accepting the active dialog sends
+`OnOptionColorAccept(option, color)`. The config script applies an accepted
+value with `set_color_value`. Cancel clears the active dialog without sending
+an accept callback or changing the row. Disabled and hidden options reject
+these callbacks. The callback names and argument order follow the local
+SkyUI `SKI_ConfigBase.psc` header and source, while conflict details follow
+`SKI_ConfigManager.psc`. Its Scaleform-bound presenter cannot serve the chosen
+native Godot UI, so this host models the public callback contract. Synthetic
+tests cover callback eligibility, conflict arguments at the API boundary,
+acceptance and cancellation without Skyrim data.
+
 The host keeps the scene tree running. PlayerNode routes its existing Game
 through MenuState::tick and Game::tick_menu_mode. While a menu is open, host
 physics, camera input and activation do not advance. The game clock, ordinary
@@ -2408,6 +2528,10 @@ paths through the shared archive and loose-file overlay. Unchanged views avoid
 mesh loading. Failed views are cached too, so unchanged bad assets do not reload
 or log on each tick. A changed view or an explicit rebind retries preparation. Failed model preparation retains the previously displayed surfaces.
 `ActorError::RigMismatch` reports missing rig bones before a live replacement.
+For a bound actor, the node also reads `World::is_invisible` and toggles the
+existing RenderingServer instances while the effect is active. It restores
+visibility when the effect expires or is dispelled. This covers bound skinned
+actor rigs, not actors drawn through another host path.
 
 The node owns the replaceable surface arrays. Only the existing animation rig
 has the loader's process-lifetime allocation, so repeated skin changes do not

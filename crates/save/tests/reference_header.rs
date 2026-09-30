@@ -125,6 +125,23 @@ fn unchanged_reference_and_actor_prefixes_remain_distinct() {
 }
 
 #[test]
+fn sav_26_pcon_parw_decode_shared_placement_and_preserve_opaque_tail() {
+    let mut data = vec![];
+    placement(&mut data, 0x400800);
+    data.extend([0xAA, 0xBB]);
+    for type_index in [42, 47] {
+        let form = change(0x400A00, false, flags::MOVE, data.clone());
+        let mut form = form;
+        form.type_field = type_index;
+        let header = form.reference_header(78).unwrap().unwrap();
+        assert!(matches!(header.initial, Initial::Moved(_)));
+        assert_eq!(header.bytes_consumed, 27);
+        assert_eq!(header.remaining_bytes, 2);
+        assert_eq!(&form.data[header.bytes_consumed..], &[0xAA, 0xBB]);
+    }
+}
+
+#[test]
 fn malformed_havok_counts_and_changed_header_presence_are_rejected() {
     let mut data = vec![];
     placement(&mut data, 0x400800);

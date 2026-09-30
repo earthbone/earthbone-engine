@@ -324,7 +324,7 @@ fn dlg_08_inverse_list_sells_unlisted_stock_and_keeps_service_open() {
 }
 
 #[test]
-fn dlg_08_vendor_location_and_full_width_radius_gate_stock() {
+fn dlg_08_vendor_location_and_u16_radius_gate_stock() {
     let mut location = Vec::new();
     location.extend_from_slice(&3_u32.to_le_bytes());
     location.extend_from_slice(&0_u64.to_le_bytes());
@@ -334,23 +334,24 @@ fn dlg_08_vendor_location_and_full_width_radius_gate_stock() {
         .iter_mut()
         .find(|sub| sub.tag == T(b"VENV"))
         .unwrap();
-    venv.data[4..8].copy_from_slice(&70_000_u32.to_le_bytes());
+    venv.data[4..6].copy_from_slice(&65_000_u16.to_le_bytes());
+    venv.data[6..8].copy_from_slice(&[0xff, 0xff]);
     let mut game = game(vendor, &[ITEM]);
-    game.world_mut().reference(id(MERCHANT)).unwrap().position = [65_536.0, 0.0, 0.0];
+    game.world_mut().reference(id(MERCHANT)).unwrap().position = [64_999.0, 0.0, 0.0];
     let service = game
         .resolve_vendor_service(id(FACTION), id(MERCHANT))
         .unwrap()
         .unwrap();
     assert_eq!(
-        service.radius, 70_000,
-        "all four VENV radius bytes are decoded"
+        service.radius, 65_000,
+        "VENV radius uses its u16 field and ignores reserved bytes"
     );
     assert!(
         service.available,
         "merchant remains inside the authored location radius"
     );
 
-    game.world_mut().reference(id(MERCHANT)).unwrap().position = [70_001.0, 0.0, 0.0];
+    game.world_mut().reference(id(MERCHANT)).unwrap().position = [65_001.0, 0.0, 0.0];
     let service = game
         .resolve_vendor_service(id(FACTION), id(MERCHANT))
         .unwrap()

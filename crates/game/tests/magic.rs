@@ -13,6 +13,7 @@ mod installed;
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+use soe_esm::records::navm::{Geometry, NavGrid, Parent, Triangle};
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::vmad::{ScriptEntry, Vmad};
 use soe_game::world::magic::{EffectId, MagicError};
@@ -30,12 +31,36 @@ const EFFECT: u32 = 0x200;
 const SPELL: u32 = 0x300;
 const POTION: u32 = 0x301;
 const KEYWORD: u32 = 0x400;
+const DISEASE_KEYWORD: u32 = 0x401;
 const ITEM: u32 = 0x600;
 const OTHER_ITEM: u32 = 0x601;
 const SUMMON_BASE: u32 = 0x501;
+const CELL: u32 = 0x800;
+const NAVM: u32 = 0x810;
+const LIGHT_BASE: u32 = 0x502;
 
+#[path = "magic/absorb.rs"]
+mod absorb;
+#[path = "magic/bound_weapon.rs"]
+mod bound_weapon;
+#[path = "magic/calm.rs"]
+mod calm;
 #[path = "magic/collection.rs"]
 mod collection;
+#[path = "magic/disarm.rs"]
+mod disarm;
+#[path = "magic/invisibility.rs"]
+mod invisibility;
+#[path = "magic/mag_03_concentration.rs"]
+mod mag_03_concentration;
+#[path = "magic/mag_09_cast_cost.rs"]
+mod mag_09_cast_cost;
+#[path = "magic/mag_22_hand_cast.rs"]
+mod mag_22_hand_cast;
+#[path = "magic/mag_41_telekinesis.rs"]
+mod mag_41_telekinesis;
+#[path = "magic/mag_70_conditions.rs"]
+mod mag_70_conditions;
 #[path = "magic/scroll.rs"]
 mod scroll;
 #[path = "magic/worn_enchantment.rs"]
@@ -72,6 +97,37 @@ fn effect_with_associated_item(
     constant: bool,
     associated_item: u32,
 ) -> Record {
+    effect_with_keywords(flags, archetype, av, constant, associated_item, &[KEYWORD])
+}
+
+fn effect_with_keywords(
+    flags: u32,
+    archetype: u32,
+    av: u32,
+    constant: bool,
+    associated_item: u32,
+    keywords: &[u32],
+) -> Record {
+    effect_with_id(
+        EFFECT,
+        flags,
+        archetype,
+        av,
+        constant,
+        associated_item,
+        keywords,
+    )
+}
+
+fn effect_with_id(
+    form: u32,
+    flags: u32,
+    archetype: u32,
+    av: u32,
+    constant: bool,
+    associated_item: u32,
+    keywords: &[u32],
+) -> Record {
     let mut data = vec![0; 152];
     put(&mut data, 0, flags);
     put(&mut data, 8, associated_item);
@@ -84,10 +140,14 @@ fn effect_with_associated_item(
         scripts: vec![ScriptEntry::new("EffectProbe")],
         ..Vmad::default()
     };
-    Record::new(T(b"MGEF"), EFFECT)
+    let keyword_data: Vec<u8> = keywords
+        .iter()
+        .flat_map(|keyword| keyword.to_le_bytes())
+        .collect();
+    Record::new(T(b"MGEF"), form)
         .zsub(T(b"EDID"), "ProbeEffect")
         .sub(T(b"DATA"), data)
-        .sub(T(b"KWDA"), KEYWORD.to_le_bytes())
+        .sub(T(b"KWDA"), keyword_data)
         .sub(T(b"VMAD"), vmad.write(T(b"MGEF")))
 }
 
@@ -117,6 +177,18 @@ fn spell_with_area(
     duration: u32,
     area: u32,
 ) -> Record {
+    spell_with_base_effect(form, kind, constant, magnitude, duration, area, EFFECT)
+}
+
+fn spell_with_base_effect(
+    form: u32,
+    kind: u32,
+    constant: bool,
+    magnitude: f32,
+    duration: u32,
+    area: u32,
+    effect: u32,
+) -> Record {
     let mut data = vec![0; 36];
     put(&mut data, 8, kind);
     put(&mut data, 16, u32::from(!constant));
@@ -126,7 +198,7 @@ fn spell_with_area(
     efit.extend_from_slice(&duration.to_le_bytes());
     Record::new(T(b"SPEL"), form)
         .sub(T(b"SPIT"), data)
-        .sub(T(b"EFID"), EFFECT.to_le_bytes())
+        .sub(T(b"EFID"), effect.to_le_bytes())
         .sub(T(b"EFIT"), efit)
 }
 
@@ -226,6 +298,8 @@ fn plugin_with_positions(
                 .sub(T(b"DATA"), data),
         );
     }
+    plugin.push_top(Record::new(T(b"ACTI"), 0x700));
+    plugin.push_top(Record::new(T(b"REFR"), 0x701).sub(T(b"NAME"), 0x700u32.to_le_bytes()));
     plugin.push_top(Record::new(T(b"KYWD"), KEYWORD).zsub(T(b"EDID"), "ProbeKeyword"));
     plugin.push_top(Record::new(T(b"MISC"), ITEM).zsub(T(b"EDID"), "AllowedItem"));
     plugin.push_top(Record::new(T(b"MISC"), OTHER_ITEM).zsub(T(b"EDID"), "RejectedItem"));
@@ -308,6 +382,44 @@ fn fixture(flags: u32, archetype: u32, magnitude: f32, duration: u32) -> Game {
     ))
 }
 
+fn mag_30_navmesh() -> Geometry {
+    Geometry {
+        version: 12,
+        location_crc: 0,
+        parent: Parent::Cell(CELL),
+        vertices: vec![
+            [0.0, 0.0, 0.0],
+            [1_000.0, 0.0, 0.0],
+            [1_000.0, 1_000.0, 0.0],
+            [0.0, 1_000.0, 0.0],
+        ],
+        triangles: vec![
+            Triangle {
+                vertices: [0, 1, 2],
+                edges: [-1, -1, 1],
+                flags: 0,
+                cover_flags: 0,
+            },
+            Triangle {
+                vertices: [0, 2, 3],
+                edges: [0, -1, -1],
+                flags: 0,
+                cover_flags: 0,
+            },
+        ],
+        edge_links: vec![],
+        door_links: vec![],
+        cover_triangles: vec![],
+        grid: NavGrid {
+            divisor: 1,
+            size: [1_000.0, 1_000.0],
+            min: [0.0, 0.0, 0.0],
+            max: [1_000.0, 1_000.0, 0.0],
+            cells: vec![vec![0, 1]],
+        },
+    }
+}
+
 #[test]
 fn mag_11_drinking_an_ingestible_consumes_it_applies_its_effect_and_expires() {
     let mut game = game(plugin(
@@ -340,6 +452,45 @@ fn mag_11_drinking_an_ingestible_consumes_it_applies_its_effect_and_expires() {
     game.tick(5.0);
     assert_eq!(game.world_mut().actor_value(id(ACTOR), "health"), 100.0);
     assert_eq!(game.world().active_effects().count(), 0);
+}
+
+#[test]
+fn mag_59_rally_modifies_confidence_for_its_duration_and_restores_prior_value() {
+    let mut game = game(plugin(
+        effect(0, 38, 24, false),
+        vec![spell(SPELL, 0, false, 4.0, 3)],
+    ));
+    game.world_mut()
+        .set_actor_value(id(ACTOR), "confidence", 2.0)
+        .unwrap();
+
+    let applied = cast(&mut game, SPELL, ACTOR).unwrap();
+    assert_eq!(applied.len(), 1);
+    assert_eq!(game.world_mut().actor_value(id(ACTOR), "confidence"), 4.0);
+    assert_eq!(game.world_mut().actor_value(id(ACTOR), "health"), 100.0);
+
+    game.tick(1.0);
+    assert_eq!(game.world_mut().actor_value(id(ACTOR), "confidence"), 4.0);
+    game.tick(2.0);
+    assert_eq!(game.world_mut().actor_value(id(ACTOR), "confidence"), 2.0);
+    assert_eq!(game.world().active_effects().count(), 0);
+}
+
+#[test]
+fn mag_59_rally_preserves_confidence_already_above_its_magnitude() {
+    let mut game = game(plugin(
+        effect(0, 38, 24, false),
+        vec![spell(SPELL, 0, false, 3.0, 2)],
+    ));
+    game.world_mut()
+        .set_actor_value(id(ACTOR), "confidence", 4.0)
+        .unwrap();
+
+    cast(&mut game, SPELL, ACTOR).unwrap();
+
+    assert_eq!(game.world_mut().actor_value(id(ACTOR), "confidence"), 4.0);
+    game.tick(2.0);
+    assert_eq!(game.world_mut().actor_value(id(ACTOR), "confidence"), 4.0);
 }
 
 #[test]
@@ -817,6 +968,56 @@ fn mag_39_summon_creature_spawns_associated_actor_owned_by_caster() {
 }
 
 #[test]
+fn mag_35_authored_light_spawns_at_target_and_is_removed_on_expiry() {
+    let light = effect_with_associated_item(0, 12, 24, false, LIGHT_BASE);
+    let mut content = plugin(light, vec![spell(SPELL, 0, false, 0.0, 4)]);
+    content.push_top(Record::new(T(b"LIGH"), LIGHT_BASE));
+    let mut original = game(content.clone());
+    let (position, rotation, cell) = {
+        let mut world = original.world_mut();
+        let reference = world.reference(id(OTHER)).unwrap();
+        reference.position = [12.0, 34.0, 56.0];
+        reference.rotation = [0.1, 0.2, 0.3];
+        (reference.position, reference.rotation, reference.cell)
+    };
+
+    cast(&mut original, SPELL, OTHER).unwrap();
+    let light_ref = original
+        .world()
+        .active_effects()
+        .next()
+        .unwrap()
+        .summoned
+        .unwrap();
+    let world = original.world();
+    let reference = world.reference_ref(light_ref).unwrap();
+    assert_eq!(reference.base, Some(id(LIGHT_BASE)));
+    assert_eq!(reference.position, position);
+    assert_eq!(reference.rotation, rotation);
+    assert_eq!(reference.cell, cell);
+    assert!(reference.enabled);
+    drop(world);
+
+    let saved = original.save_state().unwrap();
+    let mut restored = game(content);
+    restored.load_state(&saved).unwrap();
+    let light_ref = restored
+        .world()
+        .active_effects()
+        .next()
+        .unwrap()
+        .summoned
+        .unwrap();
+    restored.tick(4.0);
+
+    let world = restored.world();
+    let reference = world.reference_ref(light_ref).unwrap();
+    assert!(reference.deleted);
+    assert!(!reference.enabled);
+    assert_eq!(restored.world().active_effects().count(), 0);
+}
+
+#[test]
 fn mag_39_summon_creature_dismisses_spawned_actor_on_expiry() {
     let summon = effect_with_associated_item(0, 18, 24, false, SUMMON_BASE);
     let mut game = game(plugin(summon, vec![spell(SPELL, 0, false, 0.0, 3)]));
@@ -1011,6 +1212,132 @@ fn mag_06_area_hit_skips_ineligible_actors_in_radius() {
         "a dead actor is not an eligible recipient of a hostile effect"
     );
     assert_eq!(game.world_mut().actor_value(id(SOURCE), "health"), 85.0);
+}
+
+#[test]
+fn mag_30_demoralize_makes_eligible_actor_flee_and_lowers_confidence() {
+    let mut plugin = plugin(
+        effect(1 | 4, 7, 24, false),
+        vec![spell(SPELL, 0, false, 5.0, 3)],
+    );
+    plugin.push_top(Record::new(T(b"CELL"), CELL));
+    plugin.push_top(Record::new(T(b"NAVM"), NAVM).sub(T(b"NVNM"), mag_30_navmesh().to_bytes()));
+    let mut game = game(plugin);
+    assert!(game
+        .world_mut()
+        .move_to(id(ACTOR), id(SOURCE), [10.0, 10.0, 0.0]));
+    game.world_mut()
+        .set_actor_value(id(ACTOR), "confidence", 3.0)
+        .unwrap();
+    let shared = game.shared_world();
+    let applied = shared
+        .borrow_mut()
+        .cast_spell(
+            id(SPELL),
+            id(SOURCE),
+            Some(id(SOURCE)),
+            Some(id(ACTOR)),
+            &mut |name, class| game.vm.create_object_of(name, class),
+        )
+        .unwrap();
+
+    assert_eq!(
+        applied.len(),
+        1,
+        "the hostile effect applies to the live actor"
+    );
+    {
+        let mut world = game.world_mut();
+        let actor = world.actor(id(ACTOR)).unwrap();
+        actor.in_combat = true;
+        actor.combat_target = Some(id(OTHER));
+    }
+    let start = {
+        let mut world = game.world_mut();
+        world.reference(id(ACTOR)).unwrap().position
+    };
+    let start_distance = (start[0].powi(2) + start[1].powi(2)).sqrt();
+    let shared = game.shared_world();
+    shared.borrow_mut().ai_tick(0.1, &mut |name, class| {
+        game.vm.create_object_of(name, class)
+    });
+    assert!(
+        game.world().is_fleeing(id(ACTOR)),
+        "the active effect overrides its AI"
+    );
+    let position = {
+        let mut world = game.world_mut();
+        world.reference(id(ACTOR)).unwrap().position
+    };
+    let distance = (position[0].powi(2) + position[1].powi(2)).sqrt();
+    assert!(
+        distance > start_distance,
+        "the actor moved away from its caster"
+    );
+    assert!(!game.world().actor_ref(id(ACTOR)).unwrap().in_combat);
+    assert_eq!(
+        game.world().actor_ref(id(ACTOR)).unwrap().combat_target,
+        None
+    );
+    assert_eq!(game.world_mut().actor_value(id(ACTOR), "confidence"), -2.0);
+}
+
+#[test]
+fn mag_30_demoralize_rejects_dead_actor_without_applying_changes() {
+    let mut game = fixture(1 | 4, 7, 5.0, 3);
+    game.world_mut().actor(id(ACTOR)).unwrap().dead = true;
+    game.world_mut()
+        .set_actor_value(id(ACTOR), "confidence", 3.0)
+        .unwrap();
+    let shared = game.shared_world();
+    let result = shared.borrow_mut().cast_spell(
+        id(SPELL),
+        id(SOURCE),
+        Some(id(SOURCE)),
+        Some(id(ACTOR)),
+        &mut |name, class| game.vm.create_object_of(name, class),
+    );
+
+    assert!(
+        matches!(result, Err(MagicError::Target)),
+        "dead hostile targets are rejected"
+    );
+    assert!(
+        !game.world().is_fleeing(id(ACTOR)),
+        "a rejected actor does not flee"
+    );
+    assert_eq!(game.world_mut().actor_value(id(ACTOR), "confidence"), 3.0);
+}
+
+#[test]
+fn mag_30_demoralize_expiry_releases_flee_override_and_restores_confidence() {
+    let mut game = fixture(1 | 4, 7, 5.0, 3);
+    game.world_mut()
+        .set_actor_value(id(ACTOR), "confidence", 3.0)
+        .unwrap();
+    let shared = game.shared_world();
+    shared
+        .borrow_mut()
+        .cast_spell(
+            id(SPELL),
+            id(SOURCE),
+            Some(id(SOURCE)),
+            Some(id(ACTOR)),
+            &mut |name, class| game.vm.create_object_of(name, class),
+        )
+        .unwrap();
+    assert!(
+        game.world().is_fleeing(id(ACTOR)),
+        "the actor flees before expiry"
+    );
+
+    game.tick(3.0);
+
+    assert!(
+        !game.world().is_fleeing(id(ACTOR)),
+        "expiry releases the AI override"
+    );
+    assert_eq!(game.world_mut().actor_value(id(ACTOR), "confidence"), 3.0);
 }
 
 #[test]
@@ -1358,6 +1685,62 @@ fn extended_actor_value_effect_survives_game_save_load_without_reapplying() {
 }
 
 #[test]
+fn mag_27_cure_disease_removes_only_disease_effects_and_updates_keyword_queries() {
+    const DISEASE_EFFECT: u32 = EFFECT + 1;
+    const ORDINARY_EFFECT: u32 = EFFECT + 2;
+    const CURE_EFFECT: u32 = EFFECT + 3;
+    const DISEASE_SPELL: u32 = SPELL + 1;
+    const ORDINARY_SPELL: u32 = SPELL + 2;
+    const CURE_SPELL: u32 = SPELL + 3;
+
+    let mut disease = effect_with_keywords(1 << 8, 0, 24, false, 0, &[KEYWORD, DISEASE_KEYWORD]);
+    disease.form_id = DISEASE_EFFECT;
+    let mut ordinary = effect(0, 0, 24, false);
+    ordinary.form_id = ORDINARY_EFFECT;
+    let mut cure = effect(0, 3, 24, false);
+    cure.form_id = CURE_EFFECT;
+
+    let mut plugin = plugin(effect(0, 0, 24, false), Vec::new());
+    plugin.push_top(Record::new(T(b"KYWD"), DISEASE_KEYWORD).zsub(T(b"EDID"), "MagicDisease"));
+    plugin.push_top(disease);
+    plugin.push_top(ordinary);
+    plugin.push_top(cure);
+    for (form, effect) in [
+        (DISEASE_SPELL, DISEASE_EFFECT),
+        (ORDINARY_SPELL, ORDINARY_EFFECT),
+        (CURE_SPELL, CURE_EFFECT),
+    ] {
+        plugin.push_top(spell_with_base_effect(form, 0, false, 0.0, 0, 0, effect));
+    }
+    let mut game = game(plugin);
+
+    cast(&mut game, DISEASE_SPELL, OTHER).unwrap();
+    cast(&mut game, ORDINARY_SPELL, OTHER).unwrap();
+    assert!(game
+        .world_mut()
+        .has_magic_effect_with_keyword(id(OTHER), id(DISEASE_KEYWORD)));
+
+    cast(&mut game, CURE_SPELL, OTHER).unwrap();
+
+    assert!(!game
+        .world_mut()
+        .has_magic_effect_with_keyword(id(OTHER), id(DISEASE_KEYWORD)));
+    assert!(!game.world().has_magic_effect(id(OTHER), id(DISEASE_EFFECT)));
+    assert!(game
+        .world()
+        .has_magic_effect(id(OTHER), id(ORDINARY_EFFECT)));
+    let remaining: std::collections::BTreeSet<_> = game
+        .world()
+        .active_effects()
+        .map(|effect| effect.effect)
+        .collect();
+    assert_eq!(
+        remaining,
+        std::collections::BTreeSet::from([id(ORDINARY_EFFECT), id(CURE_EFFECT)])
+    );
+}
+
+#[test]
 fn mag_68_unnamed_archetypes_reject_without_changes() {
     for archetype in [13, 14] {
         let mut game = fixture(0, archetype, 20.0, 5);
@@ -1368,6 +1751,21 @@ fn mag_68_unnamed_archetypes_reject_without_changes() {
         ));
         assert_eq!(game.save_state().unwrap(), before);
     }
+}
+
+#[test]
+fn mag_61_spawn_hazard_requires_owned_lifecycle_without_changes() {
+    let mut game = fixture(0, 40, 20.0, 5);
+    let before = game.save_state().unwrap();
+
+    assert!(matches!(
+        cast(&mut game, SPELL, OTHER),
+        Err(MagicError::Unsupported(
+            "spawn hazard requires hazard ownership and expiry"
+        ))
+    ));
+    assert_eq!(game.save_state().unwrap(), before);
+    assert_eq!(game.world().active_effects().count(), 0);
 }
 
 #[test]

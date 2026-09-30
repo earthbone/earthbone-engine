@@ -4,7 +4,7 @@
 
 use super::*;
 
-const ENCHANTMENT: u32 = 0x700;
+const ENCHANTMENT: u32 = 0x704;
 const ARMOR: u32 = 0x701;
 const REPLACEMENT_ENCHANTMENT: u32 = 0x702;
 const REPLACEMENT_ARMOR: u32 = 0x703;
@@ -190,7 +190,7 @@ fn mag_10_false_enchantment_condition_skips_its_effect() {
         .unwrap();
     enchantment.subrecords.push(soe_esm::Subrecord::new(
         T(b"CTDA"),
-        condition(14, 24, 200.0, 0),
+        condition(14, 24, 999.0, 0),
     ));
     let mut game = game(fixture);
     let shared = game.shared_world();
