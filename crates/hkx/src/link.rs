@@ -394,6 +394,7 @@ fn remap_node(node: &mut Node, map: &SymbolMap, offset: usize) {
         | NodeKind::IsActiveModifier { .. }
         | NodeKind::DecomposeVector { .. }
         | NodeKind::SpeedSampler { .. }
+        | NodeKind::DampingModifier { .. }
         | NodeKind::Modifier { .. }
         | NodeKind::Unknown => {}
     }

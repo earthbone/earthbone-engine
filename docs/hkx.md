@@ -388,9 +388,11 @@ What each node does:
 
 Bindings resolve at construction to typed setters: `playbackSpeed`,
 `userControlledTimeFraction`, `blendParameter`, `weight` on a blender
-child (also `children:N/weight`), `selectedGeneratorIndex`, `enable`. Any
-other member path is reported in `Unsupported::unbound`. Reals live in the
-word table as their bit pattern, which is how the file stores them.
+child (also `children:N/weight`), `selectedGeneratorIndex`, `enable`, damping
+coefficients and inputs. Damping outputs publish to their bound real or quad
+variables after the modifier update. Any other member path is reported in
+`Unsupported::unbound`. Reals live in the word table as their bit pattern,
+which is how the file stores them.
 
 ### Checked against the sampler (2026-09-18)
 
@@ -880,11 +882,34 @@ Linked behavior references currently preserve word defaults only. A
 by the parent graph until the linker imports quad defaults and remaps their
 word-table slots. ANM-57 owns that linker work.
 
+### hkbDampingModifier (2026-09-28)
+
+The class fields and x86/x64 offsets come from
+`engine-refs/serde-hkx/assets/classes/hkbDampingModifier.json`. The Skyrim
+Behavior Editor's `hkbDampingModifier` class confirms the editable scalar and
+vector inputs, outputs, enable flags and three coefficients, but it contains
+no evaluation code. The interpreter keeps each instance's damped value,
+integral error and previous error across frames. For each enabled scalar or
+vector component it computes error as raw input minus damped output, updates
+the integral by `error * dt`, computes the error derivative over `dt`, then
+adds `(kP * error + kI * integral + kD * derivative) * dt` to the output.
+Bindings may set `kP`, `kI`, `kD`, `enableScalarDamping`,
+`enableVectorDamping`, `rawValue` and `rawVector`; `dampedValue` and
+`dampedVector` are output bindings. The vector path processes all four
+components. Disabled damping and non-positive or non-finite frame times do
+not advance the stored outputs or history. Tests named `anm_39_` exercise a
+changing scalar target, vector values, disabled state and invalid frame time.
+The local sources establish the class contract and field layout, but no
+original Havok runtime capture confirms this PID update equation.
+
 ## 7. Not done and next
 
-- Remaining modifier evaluation includes dynamic bone weight masks on a
-  blender, `hkbRotateCharacterModifier` and
-  `hkbEventsFromRangeModifier`. They still pass through. Their layouts are in
+- The interpreter evaluates modifier classes including
+  `BSIsActiveModifier`, `BSEventOnFalseToTrueModifier`,
+  `BSDecomposeVectorModifier`, `BSGetTimeStepModifier` and
+  `hkbDampingModifier`. Dynamic bone weight masks on a blender,
+  `hkbRotateCharacterModifier` and `hkbEventsFromRangeModifier` still pass
+  through. Their layouts are in
   `serde-hkx` like the rest.
 - Transition details: equal-priority arbitration, the `abut at end` flag,
   `hkbGeneratorTransitionEffect`, `maxSimultaneousTransitions`, delayed timeout

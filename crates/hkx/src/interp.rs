@@ -300,6 +300,19 @@ impl Variables {
         let slot = usize::try_from(self.word(index)?).ok()?;
         self.quads.get(slot).copied()
     }
+
+    fn set_quad(&mut self, index: usize, value: [f32; 4]) -> bool {
+        let Some(slot) = self.word(index).and_then(|word| usize::try_from(word).ok()) else {
+            return false;
+        };
+        match self.quads.get_mut(slot) {
+            Some(quad) => {
+                *quad = value;
+                true
+            }
+            None => false,
+        }
+    }
 }
 
 /// An event by graph-local id. Payloads are not carried yet.
@@ -361,6 +374,17 @@ enum Target {
     DecomposeVector,
     /// Output: one component of a decomposed vector.
     DecomposeComponent(usize),
+    DampingKp,
+    DampingKi,
+    DampingKd,
+    DampingEnableScalar,
+    DampingEnableVector,
+    DampingRawValue,
+    /// Output: the value after the damping step.
+    DampingValue,
+    DampingRawVector,
+    /// Output: the vector after the damping step.
+    DampingVector,
     /// Output: the elapsed time of this graph update.
     TimeStep,
     SpeedSamplerState,
@@ -382,6 +406,8 @@ impl Target {
             Target::IsActive { .. }
                 | Target::MachineIsActive
                 | Target::DecomposeComponent(_)
+                | Target::DampingValue
+                | Target::DampingVector
                 | Target::TimeStep
                 | Target::SpeedSamplerSpeedOut
         )
@@ -467,6 +493,64 @@ struct Runtime {
     speed_sampler_speed_out: f32,
     tween_start: Option<QsTransform>,
     tween_elapsed: f32,
+    damping: Option<DampingRuntime>,
+}
+
+/// Mutable PID input, output and history for one damping modifier instance.
+#[derive(Debug, Clone, Default)]
+struct DampingRuntime {
+    kp: f32,
+    ki: f32,
+    kd: f32,
+    enable_scalar: bool,
+    enable_vector: bool,
+    raw_value: f32,
+    damped_value: f32,
+    raw_vector: [f32; 4],
+    damped_vector: [f32; 4],
+    vector_error_sum: [f32; 4],
+    vector_previous_error: [f32; 4],
+    error_sum: f32,
+    previous_error: f32,
+}
+
+impl DampingRuntime {
+    fn from_kind(kind: &NodeKind) -> Option<Self> {
+        let NodeKind::DampingModifier {
+            kp,
+            ki,
+            kd,
+            enable_scalar,
+            enable_vector,
+            raw_value,
+            damped_value,
+            raw_vector,
+            damped_vector,
+            vector_error_sum,
+            vector_previous_error,
+            error_sum,
+            previous_error,
+            ..
+        } = kind
+        else {
+            return None;
+        };
+        Some(Self {
+            kp: *kp,
+            ki: *ki,
+            kd: *kd,
+            enable_scalar: *enable_scalar,
+            enable_vector: *enable_vector,
+            raw_value: *raw_value,
+            damped_value: *damped_value,
+            raw_vector: *raw_vector,
+            damped_vector: *damped_vector,
+            vector_error_sum: *vector_error_sum,
+            vector_previous_error: *vector_previous_error,
+            error_sum: *error_sum,
+            previous_error: *previous_error,
+        })
+    }
 }
 
 /// A generator's result for one frame: a local pose and how much of it
@@ -625,6 +709,7 @@ impl<'a> Interpreter<'a> {
             if let NodeKind::Blender(b) = &node.kind {
                 nodes[node.id.0].child_weights = vec![None; b.children.len()];
             }
+            nodes[node.id.0].damping = DampingRuntime::from_kind(&node.kind);
         }
         let mut interp = Interpreter {
             graph,
@@ -847,6 +932,27 @@ impl<'a> Interpreter<'a> {
                 }
                 ("speedOut", None, NodeKind::SpeedSampler { .. }) => {
                     Some(Target::SpeedSamplerSpeedOut)
+                }
+                ("kP", None, NodeKind::DampingModifier { .. }) => Some(Target::DampingKp),
+                ("kI", None, NodeKind::DampingModifier { .. }) => Some(Target::DampingKi),
+                ("kD", None, NodeKind::DampingModifier { .. }) => Some(Target::DampingKd),
+                ("enableScalarDamping", None, NodeKind::DampingModifier { .. }) => {
+                    Some(Target::DampingEnableScalar)
+                }
+                ("enableVectorDamping", None, NodeKind::DampingModifier { .. }) => {
+                    Some(Target::DampingEnableVector)
+                }
+                ("rawValue", None, NodeKind::DampingModifier { .. }) => {
+                    Some(Target::DampingRawValue)
+                }
+                ("dampedValue", None, NodeKind::DampingModifier { .. }) => {
+                    Some(Target::DampingValue)
+                }
+                ("rawVector", None, NodeKind::DampingModifier { .. }) => {
+                    Some(Target::DampingRawVector)
+                }
+                ("dampedVector", None, NodeKind::DampingModifier { .. }) => {
+                    Some(Target::DampingVector)
                 }
                 ("x", None, NodeKind::DecomposeVector { .. }) => {
                     Some(Target::DecomposeComponent(0))
@@ -1186,6 +1292,24 @@ impl<'a> Interpreter<'a> {
                         .set_real(b.variable, runtime.speed_sampler_speed_out);
                 }
             }
+            Target::DampingValue => {
+                if let Some(damping) = self
+                    .nodes
+                    .get(b.node.0)
+                    .and_then(|node| node.damping.as_ref())
+                {
+                    self.variables.set_real(b.variable, damping.damped_value);
+                }
+            }
+            Target::DampingVector => {
+                if let Some(damping) = self
+                    .nodes
+                    .get(b.node.0)
+                    .and_then(|node| node.damping.as_ref())
+                {
+                    self.variables.set_quad(b.variable, damping.damped_vector);
+                }
+            }
             _ => {}
         }
     }
@@ -1200,10 +1324,18 @@ impl<'a> Interpreter<'a> {
             } else {
                 &self.variables
             };
+            let rt = &mut self.nodes[b.node.0];
+            if b.target == Target::DampingRawVector {
+                if let Some(vector) = table.quad(b.variable) {
+                    if let Some(damping) = rt.damping.as_mut() {
+                        damping.raw_vector = vector;
+                    }
+                }
+                continue;
+            }
             let Some(value) = table.real(b.variable) else {
                 continue;
             };
-            let rt = &mut self.nodes[b.node.0];
             match b.target {
                 Target::PlaybackSpeed => rt.playback_speed = Some(value),
                 Target::UserControlledTimeFraction => rt.user_fraction = Some(value),
@@ -1225,13 +1357,47 @@ impl<'a> Interpreter<'a> {
                 Target::SpeedSamplerGoalSpeed => rt.speed_sampler_goal_speed = Some(value),
                 // Output targets are skipped above. State and direction are
                 // recognized inputs but do not affect the sampled speed.
+                Target::DampingKp => {
+                    if let Some(state) = rt.damping.as_mut() {
+                        state.kp = value;
+                    }
+                }
+                Target::DampingKi => {
+                    if let Some(state) = rt.damping.as_mut() {
+                        state.ki = value;
+                    }
+                }
+                Target::DampingKd => {
+                    if let Some(state) = rt.damping.as_mut() {
+                        state.kd = value;
+                    }
+                }
+                Target::DampingEnableScalar => {
+                    if let Some(state) = rt.damping.as_mut() {
+                        state.enable_scalar = value != 0.0;
+                    }
+                }
+                Target::DampingEnableVector => {
+                    if let Some(state) = rt.damping.as_mut() {
+                        state.enable_vector = value != 0.0;
+                    }
+                }
+                Target::DampingRawValue => {
+                    if let Some(state) = rt.damping.as_mut() {
+                        state.raw_value = value;
+                    }
+                }
+                // Written by apply_output_bindings, skipped above.
                 Target::IsActive { .. }
                 | Target::MachineIsActive
                 | Target::DecomposeComponent(_)
                 | Target::TimeStep
                 | Target::SpeedSamplerState
                 | Target::SpeedSamplerDirection
-                | Target::SpeedSamplerSpeedOut => {}
+                | Target::SpeedSamplerSpeedOut
+                | Target::DampingRawVector
+                | Target::DampingValue
+                | Target::DampingVector => {}
             }
         }
     }
@@ -1257,6 +1423,7 @@ impl<'a> Interpreter<'a> {
             | NodeKind::DecomposeVector { enable, .. }
             | NodeKind::EvaluateExpression { enable, .. }
             | NodeKind::SpeedSampler { enable, .. }
+            | NodeKind::DampingModifier { enable, .. }
             | NodeKind::Modifier { enable } => *enable,
             _ => true,
         };
@@ -1390,17 +1557,63 @@ impl<'a> Interpreter<'a> {
                 }
             }
         }
-        if let NodeKind::FalseToTrueModifier { slots, .. } = &self.graph.nodes[id.0].kind {
-            for (index, slot) in slots.iter().enumerate() {
-                let runtime = &mut self.nodes[id.0];
-                let active = runtime.edge_enabled[index].unwrap_or(slot.enable)
-                    && runtime.edge_value[index].unwrap_or(slot.variable_to_test);
-                let rising = active && !runtime.edge_previous[index];
-                runtime.edge_previous[index] = active;
-                if rising {
-                    self.raise(slot.event.id);
+        match &self.graph.nodes[id.0].kind {
+            NodeKind::FalseToTrueModifier { slots, .. } => {
+                for (index, slot) in slots.iter().enumerate() {
+                    let runtime = &mut self.nodes[id.0];
+                    let active = runtime.edge_enabled[index].unwrap_or(slot.enable)
+                        && runtime.edge_value[index].unwrap_or(slot.variable_to_test);
+                    let rising = active && !runtime.edge_previous[index];
+                    runtime.edge_previous[index] = active;
+                    if rising {
+                        self.raise(slot.event.id);
+                    }
                 }
             }
+            NodeKind::DampingModifier { .. } => {
+                let Some(state) = self.nodes[id.0].damping.as_mut() else {
+                    return;
+                };
+                if !dt.is_finite() || dt <= 0.0 {
+                    return;
+                }
+                if state.enable_scalar {
+                    let error = state.raw_value - state.damped_value;
+                    let error_sum = state.error_sum + error * dt;
+                    let derivative = (error - state.previous_error) / dt;
+                    let next = state.damped_value
+                        + (state.kp * error + state.ki * error_sum + state.kd * derivative) * dt;
+                    if error.is_finite() && error_sum.is_finite() && next.is_finite() {
+                        state.error_sum = error_sum;
+                        state.previous_error = error;
+                        state.damped_value = next;
+                    }
+                }
+                if state.enable_vector {
+                    let mut next_sum = state.vector_error_sum;
+                    let mut next_previous = state.vector_previous_error;
+                    let mut next_vector = state.damped_vector;
+                    let mut valid = true;
+                    for component in 0..4 {
+                        let error = state.raw_vector[component] - state.damped_vector[component];
+                        let error_sum = state.vector_error_sum[component] + error * dt;
+                        let derivative = (error - state.vector_previous_error[component]) / dt;
+                        let next = state.damped_vector[component]
+                            + (state.kp * error + state.ki * error_sum + state.kd * derivative)
+                                * dt;
+                        valid &= error.is_finite() && error_sum.is_finite() && next.is_finite();
+                        next_sum[component] = error_sum;
+                        next_previous[component] = error;
+                        next_vector[component] = next;
+                    }
+                    if valid {
+                        state.vector_error_sum = next_sum;
+                        state.vector_previous_error = next_previous;
+                        state.damped_vector = next_vector;
+                    }
+                }
+            }
+            _ => {}
         }
         if matches!(
             self.graph.nodes[id.0].kind,
@@ -1660,6 +1873,7 @@ impl<'a> Interpreter<'a> {
             | NodeKind::RagdollContactListener { .. }
             | NodeKind::DecomposeVector { .. }
             | NodeKind::SpeedSampler { .. }
+            | NodeKind::DampingModifier { .. }
             | NodeKind::Modifier { .. }
             | NodeKind::Unknown => {}
         }
@@ -2171,6 +2385,7 @@ impl<'a> Interpreter<'a> {
             | NodeKind::DecomposeVector { .. }
             | NodeKind::EvaluateExpression { .. }
             | NodeKind::SpeedSampler { .. }
+            | NodeKind::DampingModifier { .. }
             | NodeKind::Modifier { .. } => self.reference_output(),
         }
     }
@@ -3225,6 +3440,184 @@ mod tests {
                 ),
             ],
         }
+    }
+
+    fn damping_graph(kp: f32, ki: f32, kd: f32) -> BehaviorGraph {
+        let bindings = [
+            ("rawValue", 0, 0),
+            ("dampedValue", 1, 0),
+            ("rawVector", 2, 0),
+            ("dampedVector", 3, 0),
+        ]
+        .into_iter()
+        .map(|(member_path, variable_index, binding_type)| Binding {
+            member_path: member_path.into(),
+            variable_index,
+            bit_index: -1,
+            binding_type,
+        })
+        .collect();
+        BehaviorGraph {
+            name: "damping".into(),
+            variable_mode: 1,
+            root: Some(NodeId(0)),
+            data: BehaviorGraphData {
+                variable_names: vec![
+                    "Target".into(),
+                    "Damped".into(),
+                    "VectorTarget".into(),
+                    "DampedVector".into(),
+                ],
+                variable_infos: vec![
+                    VariableInfo {
+                        ty: VariableType::Real,
+                        ..Default::default()
+                    },
+                    VariableInfo {
+                        ty: VariableType::Real,
+                        ..Default::default()
+                    },
+                    VariableInfo {
+                        ty: VariableType::Vector4,
+                        ..Default::default()
+                    },
+                    VariableInfo {
+                        ty: VariableType::Vector4,
+                        ..Default::default()
+                    },
+                ],
+                variable_initial_values: Some(VariableValueSet {
+                    word_values: vec![10.0f32.to_bits() as i32, 0, 0, 1],
+                    quad_values: vec![[8.0, -4.0, 2.0, 1.0], [0.0; 4]],
+                    variant_values: Vec::new(),
+                }),
+                ..Default::default()
+            },
+            nodes: vec![
+                Node {
+                    id: NodeId(0),
+                    offset: 0,
+                    class: "hkbModifierGenerator".into(),
+                    name: "wrapper".into(),
+                    user_data: 0,
+                    bindings: None,
+                    kind: NodeKind::ModifierGenerator {
+                        modifier: Some(NodeId(1)),
+                        generator: None,
+                    },
+                },
+                Node {
+                    id: NodeId(1),
+                    offset: 1,
+                    class: "hkbDampingModifier".into(),
+                    name: "damping".into(),
+                    user_data: 0,
+                    bindings: Some(VariableBindingSet {
+                        bindings,
+                        index_of_binding_to_enable: -1,
+                    }),
+                    kind: NodeKind::DampingModifier {
+                        enable: true,
+                        kp,
+                        ki,
+                        kd,
+                        enable_scalar: true,
+                        enable_vector: true,
+                        raw_value: 0.0,
+                        damped_value: 0.0,
+                        raw_vector: [0.0; 4],
+                        damped_vector: [0.0; 4],
+                        vector_error_sum: [0.0; 4],
+                        vector_previous_error: [0.0; 4],
+                        error_sum: 0.0,
+                        previous_error: 0.0,
+                    },
+                },
+            ],
+        }
+    }
+
+    #[test]
+    fn anm_39_changing_scalar_input_follows_the_authored_damping_curve() {
+        let graph = damping_graph(2.0, 0.0, 0.0);
+        let clips = ClipLibrary::new();
+        let mut vm = Interpreter::new(&graph, &clips, Vec::new());
+
+        vm.update(0.25);
+        assert_eq!(vm.variables.real(1), Some(5.0));
+        vm.update(0.25);
+        assert_eq!(vm.variables.real(1), Some(7.5));
+
+        vm.variables.set_real(0, 20.0);
+        vm.update(0.25);
+        assert_eq!(vm.variables.real(1), Some(13.75));
+    }
+
+    #[test]
+    fn anm_39_vector_damping_and_disabled_damping_keep_their_contracts() {
+        let graph = damping_graph(1.0, 0.0, 0.0);
+        let clips = ClipLibrary::new();
+        let mut vm = Interpreter::new(&graph, &clips, Vec::new());
+
+        vm.update(0.25);
+        assert_eq!(vm.variables.quad(3), Some([2.0, -1.0, 0.5, 0.25]));
+        assert_eq!(vm.variables.real(1), Some(2.5));
+
+        vm.variables.set_real(0, 20.0);
+        if let Some(damping) = vm.nodes[1].damping.as_mut() {
+            damping.enable_scalar = false;
+            damping.enable_vector = false;
+        }
+        vm.update(0.25);
+        assert_eq!(vm.variables.real(1), Some(2.5));
+        assert_eq!(vm.variables.quad(3), Some([2.0, -1.0, 0.5, 0.25]));
+
+        if let Some(damping) = vm.nodes[1].damping.as_mut() {
+            damping.enable_scalar = true;
+            damping.enable_vector = true;
+        }
+        vm.nodes[1].enabled = Some(false);
+        vm.update(0.25);
+        assert_eq!(vm.variables.real(1), Some(2.5));
+        assert_eq!(vm.variables.quad(3), Some([2.0, -1.0, 0.5, 0.25]));
+    }
+
+    #[test]
+    fn anm_39_integral_gain_accumulates_error_over_frame_time() {
+        let graph = damping_graph(0.0, 1.0, 0.0);
+        let clips = ClipLibrary::new();
+        let mut vm = Interpreter::new(&graph, &clips, Vec::new());
+
+        vm.update(0.25);
+
+        assert_eq!(vm.variables.real(1), Some(0.625));
+    }
+
+    #[test]
+    fn anm_39_derivative_gain_uses_the_change_in_error() {
+        let graph = damping_graph(0.0, 0.0, 0.5);
+        let clips = ClipLibrary::new();
+        let mut vm = Interpreter::new(&graph, &clips, Vec::new());
+
+        vm.update(0.25);
+
+        assert_eq!(vm.variables.real(1), Some(5.0));
+    }
+
+    #[test]
+    fn anm_39_zero_or_invalid_time_does_not_advance_damping_history() {
+        let graph = damping_graph(2.0, 1.0, 0.5);
+        let clips = ClipLibrary::new();
+        let mut vm = Interpreter::new(&graph, &clips, Vec::new());
+
+        vm.update(0.0);
+        assert_eq!(vm.variables.real(1), Some(0.0));
+        vm.update(-0.25);
+        assert_eq!(vm.variables.real(1), Some(0.0));
+        vm.update(f32::NAN);
+        assert_eq!(vm.variables.real(1), Some(0.0));
+        vm.update(0.25);
+        assert!(vm.variables.real(1).is_some_and(f32::is_finite));
     }
 
     #[test]
