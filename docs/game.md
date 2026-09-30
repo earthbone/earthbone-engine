@@ -836,7 +836,15 @@ but no implementation. The nested-repeat behavior follows the mod author's
 No reusable interpreter exists in those sources, so this interpreter uses the
 existing world and procedure driver without a new dependency.
 
-`Travel` walks to its input location and completes on arrival.
+`Travel` walks to its input location and completes on arrival. `Guard` holds
+the actor at its input location within the authored radius, returning there
+after combat movement takes it away. It responds to a detected combat target
+only when that target is inside the guard area. The ordinary package stack
+and branch conditions determine whether the Guard procedure is active.
+SOEW version 37 stores this procedure tag with the existing center, radius and
+path fields. Earlier saves with the old unsupported `Guard` name keep their
+previous interpretation. A Guard tag under an earlier SOEW version is
+rejected before the world is replaced.
 `Sandbox` picks an idle marker or a piece of furniture (beds excluded)
 within the radius of the location, walks there, dwells 0.1 to 0.4 game
 hours, and picks the next, or a random point in the radius when the cell

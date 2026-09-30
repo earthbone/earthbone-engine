@@ -134,6 +134,7 @@ fn procedure(branch: &Branch) -> Procedure {
         Some("sleep") => Procedure::Sleep,
         Some("flee") => Procedure::Flee,
         Some("patrol") => Procedure::Patrol,
+        Some("guard") => Procedure::Guard,
         Some("wait") => Procedure::Wait {
             stop_movement: false,
         },

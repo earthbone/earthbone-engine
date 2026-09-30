@@ -747,6 +747,30 @@ fn sav_07_unknown_version_and_mixed_legacy_namespaces_are_rejected() {
 }
 
 #[test]
+fn sav_07_guard_procedure_requires_world_version_37() {
+    let actor = ActorState {
+        ai: crate::ai::AiState {
+            procedure: crate::ai::Procedure::Guard,
+            ..crate::ai::AiState::default()
+        },
+        ..ActorState::default()
+    };
+    let mut bytes = Writer::new();
+    write_actor_state(&mut bytes, &actor);
+    let mut sections = Writer::new();
+    save_sections::write_sections(&mut sections, &actor, ACTOR_SECTIONS);
+    bytes.out.truncate(bytes.out.len() - sections.out.len());
+
+    let mut reader = Reader::new(&bytes.out);
+    let mut reader = FormReader::new(&mut reader, FormNamespace::Current);
+    let error = read_actor_state(&mut reader, 36).unwrap_err().to_string();
+    assert!(
+        error.contains("Guard procedure requires world version 37"),
+        "{error}"
+    );
+}
+
+#[test]
 fn sav_07_legacy_migration_boundary_is_the_first_colliding_plugin_position() {
     let mut order = legacy_order();
     for slot in 0..254 {

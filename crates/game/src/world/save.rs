@@ -71,7 +71,8 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// pending quest lifecycle tasks and unresolved records. The native game save
 /// envelope records dependency provenance. The `CMB-37` reference section
 /// retains each reference's current destruction stage. The actor AI procedure
-/// tag also retains an active Flee package procedure in its existing field.
+/// tag also retains active Flee and Guard package procedures in its existing
+/// field.
 pub const SAVE_VERSION: u16 = 37;
 
 #[derive(Clone, Copy)]
@@ -1644,6 +1645,11 @@ fn read_actor_state(r: &mut FormReader<'_, '_>, version: u16) -> Result<ActorSta
     if version < 22 && matches!(a.ai.procedure, crate::ai::Procedure::Wait { .. }) {
         return Err(VmError::State(
             "Wait procedure requires world version 22".into(),
+        ));
+    }
+    if version < 37 && a.ai.procedure == crate::ai::Procedure::Guard {
+        return Err(VmError::State(
+            "Guard procedure requires world version 37".into(),
         ));
     }
     a.perks = read_form_set(r)?;

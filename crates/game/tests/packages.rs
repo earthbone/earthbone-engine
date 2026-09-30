@@ -1070,6 +1070,7 @@ fn the_installed_game_reads_every_package_and_evaluates_the_prisoner() {
             Procedure::Sleep => "Sleep".to_string(),
             Procedure::Flee => "Flee".to_string(),
             Procedure::Patrol => "Patrol".to_string(),
+            Procedure::Guard => "Guard".to_string(),
             Procedure::Wait { .. } => "Wait".to_string(),
             Procedure::Unsupported(n) => format!("unsupported {n}"),
         };
@@ -1080,6 +1081,7 @@ fn the_installed_game_reads_every_package_and_evaluates_the_prisoner() {
                 | Procedure::Sleep
                 | Procedure::Wait { .. }
                 | Procedure::Patrol
+                | Procedure::Guard
         ) {
             supported += 1;
         }

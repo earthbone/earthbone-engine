@@ -77,6 +77,8 @@ pub enum Procedure {
     Sleep,
     Flee,
     Patrol,
+    /// Hold an assigned location and react to detected actors within its radius.
+    Guard,
     /// A mental timer. The movement flag is retained for concurrent procedures.
     Wait {
         stop_movement: bool,
@@ -762,6 +764,17 @@ fn begin_procedure(
                 .or_else(|| place.and_then(|p| p.cell));
         }
         Procedure::Flee => ai.speed = movement_speed(world, actor, speed::RUN),
+        Procedure::Guard => {
+            let center = place.map_or(position, |p| p.position);
+            ai.center = Some(center);
+            ai.center_cell = place.and_then(|p| p.cell).or(cell);
+            ai.radius = location.map_or(0.0, |(_, l)| l.radius.max(0) as f32);
+            if distance(position, center) > ai.radius.max(ARRIVAL_DISTANCE) {
+                ai.destination = Some(center);
+            } else {
+                ai.arrived = true;
+            }
+        }
         Procedure::None
         | Procedure::Wait { .. }
         | Procedure::Patrol
@@ -1125,6 +1138,15 @@ fn acquire_combat_target(world: &mut World, actor: GlobalFormId) -> bool {
         let Some(position) = world.reference(target).map(|reference| reference.position) else {
             continue;
         };
+        let in_guard_area = world.actor(actor).is_some_and(|state| {
+            state.ai.procedure != Procedure::Guard
+                || state.ai.center.is_none_or(|center| {
+                    distance(center, position) <= state.ai.radius.max(ARRIVAL_DISTANCE)
+                })
+        });
+        if !in_guard_area {
+            continue;
+        }
         let candidate = (target, distance(from, position));
         if best.is_none_or(|current| {
             candidate
@@ -1409,6 +1431,21 @@ fn step(world: &mut World, actor: GlobalFormId, dt: f32, alloc: Alloc<'_>) {
             _ => {}
         }
     }
+    if ai.procedure == Procedure::Guard {
+        if let Some(center) = ai.center {
+            if distance(position, center) <= ai.radius.max(ARRIVAL_DISTANCE) {
+                ai.arrived = true;
+                ai.destination = None;
+                ai.path.clear();
+                ai.path_cells.clear();
+            } else if ai.destination.is_none() || ai.arrived {
+                ai.arrived = false;
+                ai.destination = Some(center);
+                ai.path.clear();
+                ai.path_cells.clear();
+            }
+        }
+    }
     if !ai.arrived && ai.destination.is_none() && ai.procedure == Procedure::Sandbox {
         let center = ai.center.unwrap_or(position);
         let markers = ai
@@ -1569,6 +1606,12 @@ pub(crate) fn write_record_state(w: &mut Writer, a: &AiState) {
             w.u8(6);
             patrol::write(w, a.patrol.as_ref());
         }
+        Procedure::Guard => {
+            // Reuse the named-procedure representation without changing the
+            // actor record layout or its save version.
+            w.u8(4);
+            w.str("AI-30 Guard");
+        }
         Procedure::Wait { stop_movement } => {
             w.u8(5);
             w.bool(*stop_movement);
@@ -1663,7 +1706,10 @@ pub(crate) fn read_state_mapped(r: &mut FormReader<'_, '_>) -> Result<AiState, V
         2 => Procedure::Sandbox,
         3 => Procedure::Sleep,
         7 => Procedure::Flee,
-        4 => Procedure::Unsupported(r.str()?),
+        4 => match r.str()?.as_str() {
+            "AI-30 Guard" => Procedure::Guard,
+            other => Procedure::Unsupported(other.to_owned()),
+        },
         6 => {
             a.patrol = Some(patrol::read(r)?);
             Procedure::Patrol
