@@ -57,6 +57,8 @@ pub enum Error {
     NonFinite,
     #[error("condition requires tempering item context")]
     TemperingContext,
+    #[error("condition function {0} needs runtime state that is not available")]
+    Unavailable(u16),
     #[error("condition item health extra is malformed or non-finite")]
     ItemHealth,
     #[error("condition function {0} has no usable runtime contract in the local sources")]
@@ -160,6 +162,9 @@ pub fn supports_function(function: u16) -> bool {
             | 639
             | 655
             | 659
+            | 683
+            | 698
+            | 704
             | 636
             | 660
             | 723
@@ -738,6 +743,30 @@ fn function_value(
             no_parameter(c)?;
             boolean(context.dual_cast.ok_or(Error::MagicContext(c.function))?)
         }
+        683 => {
+            no_parameter(c)?;
+            let actor = world.actor(subject).ok_or(Error::Form(subject))?;
+            if actor.ai.path.is_empty() || actor.ai.arrived {
+                0.0
+            } else {
+                actor.ai.speed
+            }
+        }
+        698 => {
+            no_parameter(c)?;
+            boolean(
+                world
+                    .actor(subject)
+                    .ok_or(Error::Form(subject))?
+                    .allow_flying,
+            )
+        }
+        704 => {
+            no_parameter(c)?;
+            let actor = world.actor(subject).ok_or(Error::Form(subject))?;
+            boolean(!actor.ai.path.is_empty() && !actor.ai.arrived)
+        }
+        644 | 675 | 684 | 714 | 730 => return Err(Error::Unavailable(c.function)),
         other => return Err(Error::Function(other)),
     })
 }

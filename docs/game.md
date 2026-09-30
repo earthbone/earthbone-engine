@@ -1517,9 +1517,11 @@ The condition evaluator implements functions 47, 56, 58, 59, 72, 74, 136,
 (`IsWeaponMagicOut`) and 552
 (`GetSpellUsageNum`) return typed contract diagnostics because the local xEdit
 and CK sources name their parameters but do not define a usable runtime result.
-This is a bounded set, not the entire CTDA contract. It supports ordered
-AND/OR groups, numeric or
-global comparisons, explicit references and caller-supplied quest aliases.
+Functions 644, 675, 684, 714 and 730 report when their required runtime state
+is unavailable. Functions 683, 698 and 704 read current actor package and flying
+state. This is a bounded set, not the entire CTDA contract. It supports ordered
+AND/OR groups, numeric or global comparisons, explicit references and
+caller-supplied quest aliases.
 Reserved PlayerRef resolves to the runtime player even without a placed record.
 New runtime players retain reserved FormID 00000014 and use the Player NPC
 base when present, so forced player aliases and inventory notifications agree.
@@ -1527,6 +1529,17 @@ Conditional Papyrus variables come from current attached instances, with
 ambiguous or nonnumeric values reported as errors. Unavailable targets,
 unsupported flags/functions, nonzero HasPerk parameter 2 and missing tempering
 context are explicit errors. Crafting does not invent a target or quest context.
+`GetPathingCurrentSpeed` reads the actor package speed while waypoints remain
+and the actor has not arrived. `IsPathing` uses that same pending waypoint
+state. `IsAllowedToFly` reads the actor's `SetAllowFlying` flag. `IsInFurnitureState`,
+`GetGraphVariableInt`, `GetPathingCurrentSpeedAngle`, `IsBeingRidden` and
+`IsOnFlyingMount` return an unavailable-state diagnostic. xEdit supplies their
+function and parameter definitions, but the engine has no furniture animation,
+integer graph variable, rider relation or flying mount state. The CK page for
+`IsBeingRidden` defines its result, but no shared rider relation currently
+backs it. CK semantic pages for the other four functions were absent from the
+local corpus, so their numeric results are not inferred from the function
+names. These conditions are not included in `supports_function`.
 Float comparisons are exact and have not been compared against vanilla
 near-equality behavior. `ObjectReference.GetItemCount` totals an exact base
 form, each FormList member or every carried item whose base has the supplied
@@ -1556,6 +1569,9 @@ FURN WBDT, CK `GetItemCount_-_ObjectReference.wikitext` for the query forms,
 UESP COBJ notes for missing outputs, skymp `CraftService.cpp` and
 `unit/CraftTest.cpp` for bench matching and DLC cases, Mutagen
 `Skyrim/Constants.cs` for PlayerRef, and CK inventory event/filter pages.
+For AI-67, xEdit `wbConditionFunctions` supplies the function indexes and
+parameter types. The local CK corpus supplies
+`IsBeingRidden_-_Actor.wikitext`; the remaining requested CK pages are absent.
 The skymp evaluator's unknown-function success and unresolved target mapping
 were not adopted. Mutagen labels HasPerk's second integer unused, while xEdit
 exposes it, so nonzero values need further evidence. Caprica's property
