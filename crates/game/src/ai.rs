@@ -91,6 +91,8 @@ pub enum Procedure {
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct AiState {
     pub package: Option<GlobalFormId>,
+    /// Package temporarily assigned by a running scene action.
+    pub scene_package: Option<GlobalFormId>,
     /// The quest alias the package came from, none for a base package.
     pub alias: Option<(GlobalFormId, u32)>,
     pub procedure: Procedure,
@@ -317,6 +319,12 @@ pub fn candidates(world: &mut World, actor: GlobalFormId) -> Vec<Candidate> {
 /// `Must Complete` package that still holds keeps its place.
 pub fn select(world: &mut World, actor: GlobalFormId) -> Option<Candidate> {
     world.ai.evaluations += 1;
+    if let Some(package) = world.actor(actor)?.ai.scene_package {
+        return Some(Candidate {
+            package,
+            alias: None,
+        });
+    }
     let today = world.clock.game_days.floor() as u32;
     let completed = world.actor(actor)?.ai.completed.clone();
     let candidates = candidates(world, actor);
@@ -633,6 +641,42 @@ fn function_value(
 /// scripts. Returns the package now running.
 pub fn evaluate(world: &mut World, actor: GlobalFormId, alloc: Alloc<'_>) -> Option<GlobalFormId> {
     let chosen = select(world, actor);
+    switch_to(world, actor, chosen, alloc)
+}
+
+/// Restore the package and alias saved before a scene temporarily replaced
+/// them, rebuilding the actor's procedure cursor when the package changed.
+pub(crate) fn restore_scene_package(
+    world: &mut World,
+    actor: GlobalFormId,
+    package: Option<GlobalFormId>,
+    alias: Option<(GlobalFormId, u32)>,
+    alloc: Alloc<'_>,
+) -> Option<GlobalFormId> {
+    let now = world.clock.real_seconds;
+    if let Some(state) = world.actor(actor) {
+        state.ai.scene_package = None;
+        if state.ai.package == package {
+            state.ai.alias = alias;
+            state.ai.reevaluate = false;
+            state.ai.last_evaluation = now;
+            return package;
+        }
+    }
+    switch_to(
+        world,
+        actor,
+        package.map(|package| Candidate { package, alias }),
+        alloc,
+    )
+}
+
+fn switch_to(
+    world: &mut World,
+    actor: GlobalFormId,
+    chosen: Option<Candidate>,
+    alloc: Alloc<'_>,
+) -> Option<GlobalFormId> {
     let now = world.clock.real_seconds;
     let current = world.actor(actor)?.ai.package;
     if let Some(a) = world.actor(actor) {
@@ -1984,6 +2028,7 @@ mod tests {
     fn ai_state_round_trips() {
         let mut a = AiState {
             package: Some(GlobalFormId { file: 1, object: 2 }),
+            scene_package: None,
             alias: Some((GlobalFormId { file: 1, object: 3 }, 4)),
             procedure: Procedure::Unsupported("Patrol".into()),
             tree: Some(TreeState {

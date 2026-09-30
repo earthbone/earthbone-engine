@@ -1001,6 +1001,10 @@ impl World {
                         return Err(VmError::State("duplicate completed scene action".into()));
                     }
                 }
+                let started_actions = BTreeSet::new();
+                let timer_deadlines = BTreeMap::new();
+                let prior_packages = BTreeMap::new();
+                let prior_aliases = BTreeMap::new();
                 let scene_record = self.record(id).ok_or_else(|| {
                     VmError::State("scene runtime state names a missing form".into())
                 })?;
@@ -1015,12 +1019,28 @@ impl World {
                             .get(*slot as usize)
                             .is_none_or(|action| action.end_phase != Some(phase))
                     })
+                    || started_actions
+                        .iter()
+                        .any(|slot| scene.actions.get(*slot as usize).is_none())
+                    || timer_deadlines.keys().any(|slot| {
+                        !started_actions.contains(slot)
+                            || !scene.actions.get(*slot as usize).is_some_and(|action| {
+                                matches!(
+                                    action.data,
+                                    soe_esm::records::gameplay::SceneActionData::Timer { .. }
+                                )
+                            })
+                    })
                     || runs
                         .insert(
                             id,
                             super::SceneRunState {
                                 phase,
                                 completed_actions,
+                                started_actions,
+                                timer_deadlines,
+                                prior_packages,
+                                prior_aliases,
                             },
                         )
                         .is_some()
@@ -1051,11 +1071,13 @@ impl World {
         let previous_brewed = std::mem::take(&mut self.brewed_potions);
         let previous_effects = std::mem::replace(&mut self.active_effects, active_effects);
         let previous_follower_services = std::mem::take(&mut self.follower_services);
+        let previous_scene_runs = std::mem::replace(&mut self.scene_runs, scene_runs);
         let section_result = if version >= 37 {
             save_sections::read_sections(&mut r, "world", self, WORLD_SECTIONS)
         } else {
             Ok(())
         };
+        let scene_runs = std::mem::replace(&mut self.scene_runs, previous_scene_runs);
         active_effects = std::mem::replace(&mut self.active_effects, previous_effects);
         let follower_services =
             std::mem::replace(&mut self.follower_services, previous_follower_services);

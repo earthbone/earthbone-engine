@@ -420,10 +420,14 @@ pub struct LosListener {
 }
 
 /// Runtime position and completed action slots for one playing scene.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub(crate) struct SceneRunState {
     pub phase: u32,
     pub completed_actions: BTreeSet<u32>,
+    pub started_actions: BTreeSet<u32>,
+    pub timer_deadlines: BTreeMap<u32, f64>,
+    pub prior_packages: BTreeMap<GlobalFormId, Option<GlobalFormId>>,
+    pub prior_aliases: BTreeMap<GlobalFormId, Option<(GlobalFormId, u32)>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

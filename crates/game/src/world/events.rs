@@ -2,9 +2,11 @@
 
 //! Events natives raise for registered listeners: tracked stats, sleep,
 //! animation events, line of sight, scenes and sound instances. Each one
-//! queues into `pending` for the VM to deliver.
+//! queues into `pending` for the VM to deliver. SCEN action fields follow
+//! xEdit `wbRecord(SCEN)` and the UESP SCEN layout; the local CK scene index is
+//! in `Papyrus_Introduction.wikitext`.
 
-use soe_esm::records::gameplay::Scene;
+use soe_esm::records::gameplay::{Scene, SceneActionData};
 use soe_esm::GlobalFormId;
 use soe_papyrus::{ObjectId, Value};
 
@@ -192,7 +194,17 @@ impl World {
         if !self.scenes.remove(&id) {
             return false;
         }
-        self.scene_runs.remove(&id);
+        if let Some(run) = self.scene_runs.remove(&id) {
+            for (actor, previous) in run.prior_packages {
+                crate::ai::restore_scene_package(
+                    self,
+                    actor,
+                    previous,
+                    run.prior_aliases.get(&actor).copied().flatten(),
+                    alloc,
+                );
+            }
+        }
         let object = self.object_of(Handle::Form(id), alloc);
         self.pending.push(Pending::Event {
             object,
@@ -210,6 +222,15 @@ impl World {
     /// Mark an active action slot complete.
     /// `action_slot` is its zero-based position in the SCEN Actions list.
     pub fn complete_scene_action(&mut self, id: GlobalFormId, action_slot: u32) -> bool {
+        self.complete_scene_action_inner(id, action_slot, false)
+    }
+
+    fn complete_scene_action_inner(
+        &mut self,
+        id: GlobalFormId,
+        action_slot: u32,
+        timer_expired: bool,
+    ) -> bool {
         let Some(run) = self.scene_runs.get(&id) else {
             return false;
         };
@@ -224,7 +245,8 @@ impl World {
             .actions
             .get(action_slot as usize)
             .is_none_or(|action| {
-                action.end_phase.is_none_or(|end| end < phase)
+                (matches!(action.data, SceneActionData::Timer { .. }) && !timer_expired)
+                    || action.end_phase != Some(phase)
                     || action.start_phase.is_some_and(|start| start > phase)
             })
         {
@@ -262,6 +284,49 @@ impl World {
         if !required.iter().all(|slot| completed.contains(slot)) {
             return false;
         }
+        let mut ending = Vec::new();
+        for (slot, action) in scene.actions.iter().enumerate() {
+            let slot = slot as u32;
+            if action.end_phase != Some(phase)
+                || !matches!(action.data, SceneActionData::Package { .. })
+                || !self
+                    .scene_runs
+                    .get(&id)
+                    .is_some_and(|run| run.started_actions.contains(&slot))
+            {
+                continue;
+            }
+            let Some(actor_id) = action.alias_id.filter(|alias| *alias >= 0) else {
+                continue;
+            };
+            let Some(quest) = scene.quest.and_then(|raw| self.resolve_from(id, raw)) else {
+                continue;
+            };
+            let Some(actor) = self.alias_ref(quest, actor_id as u32) else {
+                continue;
+            };
+            let previous = self
+                .scene_runs
+                .get(&id)
+                .and_then(|run| run.prior_packages.get(&actor))
+                .copied()
+                .flatten();
+            let previous_alias = self
+                .scene_runs
+                .get(&id)
+                .and_then(|run| run.prior_aliases.get(&actor))
+                .copied()
+                .flatten();
+            ending.push((slot, actor, previous, previous_alias));
+        }
+        for (slot, actor, previous, previous_alias) in ending {
+            crate::ai::restore_scene_package(self, actor, previous, previous_alias, alloc);
+            if let Some(run) = self.scene_runs.get_mut(&id) {
+                run.prior_packages.remove(&actor);
+                run.prior_aliases.remove(&actor);
+                run.started_actions.remove(&slot);
+            }
+        }
         let next = phase + 1;
         if next as usize >= scene.phases.len() {
             return self.stop_scene(id, alloc);
@@ -274,9 +339,115 @@ impl World {
                     .get(*slot as usize)
                     .is_some_and(|action| action.end_phase.is_some_and(|end| end >= next))
             });
+            run.started_actions.retain(|slot| {
+                scene
+                    .actions
+                    .get(*slot as usize)
+                    .is_some_and(|action| action.end_phase.is_some_and(|end| end > next))
+            });
             true
         } else {
             false
+        }
+    }
+
+    /// Start package and timer actions whose start phase is current, and
+    /// finish timers once their real-time duration expires.
+    pub fn tick_scene_actions(&mut self, alloc: Alloc<'_>) {
+        let scenes: Vec<_> = self.scene_runs.keys().copied().collect();
+        for id in scenes {
+            let Some(record) = self.record(id) else {
+                continue;
+            };
+            let Ok(scene) = Scene::from_record(record) else {
+                continue;
+            };
+            let phase = self.scene_phase(id).unwrap_or_default();
+            for (slot, action) in scene.actions.iter().enumerate() {
+                let slot = slot as u32;
+                let started = self
+                    .scene_runs
+                    .get(&id)
+                    .is_some_and(|run| run.started_actions.contains(&slot));
+                if action.start_phase == Some(phase) && !started {
+                    match &action.data {
+                        SceneActionData::Package { packages } => {
+                            let actor =
+                                action
+                                    .alias_id
+                                    .filter(|alias| *alias >= 0)
+                                    .and_then(|alias| {
+                                        let quest = scene
+                                            .quest
+                                            .and_then(|raw| self.resolve_from(id, raw))?;
+                                        self.alias_ref(quest, alias as u32)
+                                    });
+                            let package =
+                                packages.first().and_then(|raw| self.resolve_from(id, *raw));
+                            if let (Some(actor), Some(package)) = (actor, package) {
+                                let previous = self
+                                    .actor(actor)
+                                    .map(|state| (state.ai.package, state.ai.alias));
+                                if let Some(run) = self.scene_runs.get_mut(&id) {
+                                    run.prior_packages
+                                        .entry(actor)
+                                        .or_insert(previous.and_then(|prior| prior.0));
+                                    run.prior_aliases
+                                        .entry(actor)
+                                        .or_insert(previous.and_then(|prior| prior.1));
+                                    run.started_actions.insert(slot);
+                                }
+                                if let Some(state) = self.actor(actor) {
+                                    state.ai.scene_package = Some(package);
+                                    state.ai.reevaluate = true;
+                                    self.evaluate_package(actor, alloc);
+                                }
+                            }
+                        }
+                        SceneActionData::Timer {
+                            duration: Some(duration),
+                        } if duration.is_finite() && *duration >= 0.0 => {
+                            if let Some(run) = self.scene_runs.get_mut(&id) {
+                                run.started_actions.insert(slot);
+                                run.timer_deadlines
+                                    .insert(slot, self.clock.real_seconds + f64::from(*duration));
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            let due: Vec<_> = self.scene_runs.get(&id).map_or_else(Vec::new, |run| {
+                run.timer_deadlines
+                    .iter()
+                    .filter_map(|(slot, due)| (self.clock.real_seconds >= *due).then_some(*slot))
+                    .collect()
+            });
+            for slot in due {
+                if self.complete_scene_action_inner(id, slot, true) {
+                    if let Some(run) = self.scene_runs.get_mut(&id) {
+                        run.timer_deadlines.remove(&slot);
+                        run.started_actions.remove(&slot);
+                    }
+                }
+            }
+            let package_finishes: Vec<_> = scene
+                .actions
+                .iter()
+                .enumerate()
+                .filter_map(|(slot, action)| {
+                    (action.end_phase == Some(phase)
+                        && matches!(action.data, SceneActionData::Package { .. })
+                        && self
+                            .scene_runs
+                            .get(&id)
+                            .is_some_and(|run| run.started_actions.contains(&(slot as u32))))
+                    .then_some(slot as u32)
+                })
+                .collect();
+            for slot in package_finishes {
+                self.complete_scene_action(id, slot);
+            }
         }
     }
 

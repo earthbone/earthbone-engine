@@ -24,6 +24,7 @@ pub(crate) const WORLD_SECTIONS: &[Section<World>] = &[
     Section { name: "SAV-10", write: super::quest_save::write_lifecycle_tasks, read: super::quest_save::read_lifecycle_tasks },
     super::magic::SAVE_SECTION,
     Section { name: "DLG-17", write: write_follower_services, read: read_follower_services },
+    Section { name: "DLG-19", write: write_scene_action_progress, read: read_scene_action_progress },
 ];
 
 /// Sections read and written once per actor, at the end of every actor
@@ -36,6 +37,7 @@ pub(crate) const ACTOR_SECTIONS: &[Section<ActorState>] = &[
     Section { name: "UI-14", write: super::actors::write_ui_14, read: super::actors::read_ui_14 },
     Section { name: "DLG-14", write: write_force_greet, read: read_force_greet },
     Section { name: "DLG-17.detail", write: write_can_do_favors, read: read_can_do_favors },
+    Section { name: "DLG-19.actor", write: write_scene_package, read: read_scene_package },
 ];
 
 /// Sections read and written once per reference, at the end of every
@@ -100,6 +102,125 @@ fn read_follower_services(
         }
     }
     world.follower_services = services;
+    Ok(())
+}
+
+fn write_scene_action_progress(world: &World, writer: &mut soe_papyrus::vm::state::Writer) {
+    let saved: Vec<_> = world
+        .scene_runs
+        .iter()
+        .filter(|(_, run)| {
+            !run.started_actions.is_empty()
+                || !run.timer_deadlines.is_empty()
+                || !run.prior_packages.is_empty()
+        })
+        .collect();
+    writer.len(saved.len());
+    for (scene, run) in saved {
+        super::save::write_form_id(writer, *scene);
+        writer.len(run.started_actions.len());
+        for slot in &run.started_actions {
+            writer.u32(*slot);
+        }
+        writer.len(run.timer_deadlines.len());
+        for (slot, deadline) in &run.timer_deadlines {
+            writer.u32(*slot);
+            writer.f64(*deadline);
+        }
+        writer.len(run.prior_packages.len());
+        for (actor, package) in &run.prior_packages {
+            super::save::write_form_id(writer, *actor);
+            super::save::write_opt_form_id(writer, *package);
+            let alias = run.prior_aliases.get(actor).copied().flatten();
+            writer.bool(alias.is_some());
+            if let Some((quest, alias)) = alias {
+                super::save::write_form_id(writer, quest);
+                writer.u32(alias);
+            }
+        }
+    }
+}
+
+fn read_scene_action_progress(
+    world: &mut World,
+    reader: &mut super::save::FormReader<'_, '_>,
+) -> Result<(), soe_papyrus::VmError> {
+    let count = reader.len()?;
+    let mut seen_scenes = std::collections::BTreeSet::new();
+    for _ in 0..count {
+        let scene_id = super::save::read_form_id(reader)?;
+        if !seen_scenes.insert(scene_id) {
+            return Err(soe_papyrus::VmError::State(
+                "DLG-19 duplicate scene progress".into(),
+            ));
+        }
+        let scene_record = world.record(scene_id).ok_or_else(|| {
+            soe_papyrus::VmError::State("DLG-19 scene progress names a missing scene".into())
+        })?;
+        let scene =
+            soe_esm::records::gameplay::Scene::from_record(scene_record).map_err(|error| {
+                soe_papyrus::VmError::State(format!("DLG-19 invalid scene: {error}"))
+            })?;
+        let run = world.scene_runs.get_mut(&scene_id).ok_or_else(|| {
+            soe_papyrus::VmError::State("DLG-19 scene progress has no scene run".into())
+        })?;
+        let started_count = reader.len()?;
+        for _ in 0..started_count {
+            let slot = reader.u32()?;
+            if scene.actions.get(slot as usize).is_none() || !run.started_actions.insert(slot) {
+                return Err(soe_papyrus::VmError::State(
+                    "DLG-19 invalid or duplicate started scene action".into(),
+                ));
+            }
+        }
+        let timer_count = reader.len()?;
+        for _ in 0..timer_count {
+            let slot = reader.u32()?;
+            let deadline = reader.f64()?;
+            if !deadline.is_finite()
+                || !run.started_actions.contains(&slot)
+                || !scene.actions.get(slot as usize).is_some_and(|action| {
+                    matches!(
+                        action.data,
+                        soe_esm::records::gameplay::SceneActionData::Timer { .. }
+                    )
+                })
+                || run.timer_deadlines.insert(slot, deadline).is_some()
+            {
+                return Err(soe_papyrus::VmError::State(
+                    "DLG-19 invalid scene timer deadline".into(),
+                ));
+            }
+        }
+        let package_count = reader.len()?;
+        for _ in 0..package_count {
+            let actor = super::save::read_form_id(reader)?;
+            let package = super::save::read_opt_form_id(reader)?;
+            let alias = if reader.bool()? {
+                Some((super::save::read_form_id(reader)?, reader.u32()?))
+            } else {
+                None
+            };
+            if run.prior_packages.insert(actor, package).is_some() {
+                return Err(soe_papyrus::VmError::State(
+                    "DLG-19 duplicate prior scene package actor".into(),
+                ));
+            }
+            run.prior_aliases.insert(actor, alias);
+        }
+    }
+    Ok(())
+}
+
+fn write_scene_package(state: &ActorState, writer: &mut soe_papyrus::vm::state::Writer) {
+    super::save::write_opt_form_id(writer, state.ai.scene_package);
+}
+
+fn read_scene_package(
+    state: &mut ActorState,
+    reader: &mut super::save::FormReader<'_, '_>,
+) -> Result<(), soe_papyrus::VmError> {
+    state.ai.scene_package = super::save::read_opt_form_id(reader)?;
     Ok(())
 }
 
