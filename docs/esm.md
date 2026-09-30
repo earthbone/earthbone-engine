@@ -177,6 +177,15 @@ heights in world units, using the row-start plus running-sum rule OpenMW uses.
 the packed `NVNM` block, refuses counts that cannot fit in the remaining bytes before
 allocating, and writes itself back byte for byte.
 
+`records::land::apply_height_brush` applies a smooth circular height dab in cell-local
+world units, rewrites the VHGT gradients and regenerates VNML from the edited surface.
+It preserves other LAND subrecords and sets the LAND height and normal flag. Its record
+edit fails without changing the record when a gradient would exceed its signed-byte range.
+Its record layout and flags follow local xEdit's `Core/wbDefinitionsTES5.pas` LAND definition. The
+brush operation follows the position-based operation boundary in local Terrain3D's
+`project/addons/terrain_3d/src/operation_builder.gd`; the radial smooth falloff and
+VNML generation are implemented here for the 33 by 33 LAND grid.
+
 `records::gras::Grass::from_record` reads a `GRAS` record's `EDID`, generic `MODL`
 and 32-byte `DATA` block (density, min and max slope, water fields, position and
 height range, wave period, flags), and `fits_slope` filters a candidate placement's

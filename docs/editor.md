@@ -238,7 +238,10 @@ year or more or blocked.
    chain per field. Needs the Godot binary installed.
 3. **Cell view and render view** (M). Worldspace and cell tree, the 3D main screen driven
    by `CellStreamer`, selection, transform gizmos, drop to ground through `soe-physics`,
-   snap and align, duplicate, and the CKPE hotkey table as defaults. Play from here.
+   snap and align, duplicate, and the CKPE hotkey table as defaults. Play from here. EDT-03
+   adds the worldspace and cell tree plus a read-only `SubViewport` preview using the
+   existing host cell renderer. Reference selection, transform tools and play-from-here
+   are not part of that implementation.
 4. **Import and export pipeline** (M). NIF and DDS import plugins for preview, glTF to NIF
    and PNG to DDS export with the material and slot mappings, archive packing. Depends on
    the `soe-nif` writer and the `dds` crate.
@@ -309,3 +312,12 @@ checked against NVNM limits, malformed or degenerate edits are rejected before c
 plugin, and save writes the packed geometry back through the plugin writer. Editing a
 winning navmesh owned by another plugin is not supported yet because its parent, door and
 edge-link FormIDs need relocation when an override is created.
+
+`EditorDocument::brush_land_heights` applies a single circular dab to a LAND record already
+present in the active plugin. The dab takes its center and radius in cell-local world units
+and its strength as the center height change. It updates VHGT and derived VNML in one undo
+step, then rebuilds the load order so the edited record is the winner. Saving writes the
+edited plugin, whose LAND data can be parsed after reload. The operation uses the
+position-based builder contract in local Terrain3D's `project/addons/terrain_3d/src/operation_builder.gd`.
+It is a Rust document operation, not a Terrain3D brush UI, and it does not create an override
+for a LAND owned by another plugin.

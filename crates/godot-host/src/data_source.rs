@@ -275,6 +275,27 @@ pub struct DataSource {
     textures: TextureCache,
 }
 
+/// A winning cell record prepared for the editor's worldspace and cell tree.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EditorCell {
+    /// The resolved cell form id, formatted as `file:object`.
+    pub id: String,
+    /// The cell editor id, or its form id when it has no editor id.
+    pub name: String,
+    /// The resolved worldspace form id for an exterior cell.
+    pub world_id: Option<String>,
+    /// The worldspace editor id for an exterior cell.
+    pub world_name: Option<String>,
+    /// Whether this is an interior cell.
+    pub interior: bool,
+    /// Exterior grid X coordinate.
+    pub x: Option<i32>,
+    /// Exterior grid Y coordinate.
+    pub y: Option<i32>,
+    /// Number of live placed objects indexed under this cell.
+    pub references: usize,
+}
+
 /// Parse the base masters, on `threads` workers when more than one, and hand
 /// them back in master order so the load order stays deterministic.
 fn parse_masters(data_dir: &Path, threads: usize) -> Result<Vec<soe_esm::Plugin>, DataSourceError> {
@@ -411,6 +432,49 @@ impl DataSource {
     #[must_use]
     pub fn cell_index(&self) -> &CellIndex {
         self.order.build_cell_index()
+    }
+
+    /// Returns winning cells in a stable order for an editor tree.
+    /// Exterior cells carry their worldspace and grid coordinates. Interior
+    /// cells have no worldspace parent in the plugin record hierarchy.
+    pub fn editor_cells(&self) -> Vec<EditorCell> {
+        let index = self.cell_index();
+        let mut cells = Vec::new();
+        for (id, references) in index.cells() {
+            let Some(record) = self.order.winner(id) else {
+                continue;
+            };
+            if record.tag != tag::CELL {
+                continue;
+            }
+            let grid = index.grid_of(id);
+            let world_id = grid.map(|grid| grid.world);
+            let world_name = world_id.and_then(|world| {
+                self.order
+                    .winner(world)
+                    .and_then(|record| record.editor_id())
+            });
+            cells.push(EditorCell {
+                id: id.to_string(),
+                name: record.editor_id().unwrap_or_else(|| id.to_string()),
+                world_id: world_id.map(|world| world.to_string()),
+                world_name,
+                interior: index.is_interior(id),
+                x: grid.map(|grid| grid.x),
+                y: grid.map(|grid| grid.y),
+                references,
+            });
+        }
+        cells.sort_by(|left, right| {
+            (left.interior, &left.world_id, left.y, left.x, &left.id).cmp(&(
+                right.interior,
+                &right.world_id,
+                right.y,
+                right.x,
+                &right.id,
+            ))
+        });
+        cells
     }
 
     /// Share records and the cached cell index with the authoritative game runtime.
