@@ -2580,6 +2580,28 @@ area remains its own unsupported entry, out of this row's scope. Concentration,
 projectiles, contact and location delivery and taper stay separately
 unsupported as before.
 
+### Concussion archetype, MAG-51
+
+xEdit numbers Concussion as MGEF archetype 30. The local UESP MGEF page says
+this archetype has no extra data. Its associated-item selector does not assign
+archetype 30 a specialized association field. The existing `MagicEffect` view
+still decodes the shared DATA values, including archetype, actor values,
+casting and delivery values, and effect metadata. Those decoded fields do not
+establish which values Concussion execution reads.
+
+The local CK wiki corpus has no Magic Effect archetype page and defines no
+Concussion execution behavior. The local source evidence therefore establishes
+no live runtime contract, consumed archetype-specific fields or implementation
+to port. No execution row is warranted by this characterization.
+
+`mag_51_concussion_named_fixture_decodes_generic_mgef_data` exercises the
+shared DATA view on a named synthetic MGEF fixture with archetype 30.
+`mag_51_concussion_five_master_corpus_result` surveys the winning records in
+Skyrim, Update, Dawnguard, HearthFires and Dragonborn. On the installed data,
+the survey decoded 1,573 non-deleted winning MGEFs and found zero archetype-30
+records. This establishes absence from that five-master corpus, not absence
+from mods or behavior in the original runtime.
+
 ### Unnamed archetypes, MAG-68
 
 The five-master inventory on 2026-09-20 reads all 1,573 non-deleted winning
