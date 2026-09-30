@@ -1222,7 +1222,8 @@ pub fn tick(world: &mut World, dt: f64, alloc: Alloc<'_>) {
         if dead || unconscious {
             continue;
         }
-        if ignores_combat(world, actor) {
+        let ignore_combat = ignores_combat(world, actor);
+        if ignore_combat {
             clear_combat_engagement(world, actor);
         }
         let turn_undead_threat = world.turn_undead_threat(actor);
@@ -1265,7 +1266,10 @@ pub fn tick(world: &mut World, dt: f64, alloc: Alloc<'_>) {
                 pursue_combat_target(world, actor, dt as f32);
                 continue;
             }
-        } else if !ignores_combat(world, actor) && acquire_combat_target(world, actor) {
+        } else if !ignore_combat
+            && !ignores_combat(world, actor)
+            && acquire_combat_target(world, actor)
+        {
             pursue_combat_target(world, actor, dt as f32);
             continue;
         }
