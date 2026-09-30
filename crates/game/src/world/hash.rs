@@ -383,6 +383,7 @@ fn actor_state(h: &mut StateHasher, a: &ActorState) {
         a.swimming,
         a.running,
         a.riding_mount,
+        a.being_ridden,
         a.weapon_drawn,
         a.sprinting,
         a.restrained,

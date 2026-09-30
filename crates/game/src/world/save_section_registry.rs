@@ -88,12 +88,26 @@ pub(crate) const ACTOR_SECTIONS: &[Section<ActorState>] = &[
     super::furniture::SECTION,
     Section { name: "PRG-01", write: super::super::progression::write_skill_experience, read: super::super::progression::read_skill_experience },
     Section { name: "AI-88", write: super::furniture::write_furniture_seat, read: super::furniture::read_furniture_seat },
+    Section { name: "AI-67", write: write_being_ridden, read: read_being_ridden },
     Section { name: "MOD-06", write: write_package_overrides, read: read_package_overrides },
     Section { name: "AI-20", write: write_sit_procedure, read: read_sit_procedure },
     Section { name: "AI-29", write: write_voice_recovery, read: read_voice_recovery },
     Section { name: "AI-36", write: write_use_weapon_procedure, read: read_use_weapon_procedure },
     Section { name: "UI-14", write: super::actors::write_ui_14, read: super::actors::read_ui_14 },
 ];
+
+fn write_being_ridden(state: &ActorState, writer: &mut Writer, _pool: &mut ArrayPool) {
+    writer.bool(state.being_ridden);
+}
+
+fn read_being_ridden(
+    state: &mut ActorState,
+    reader: &mut FormReader<'_, '_>,
+    _table: &ArrayTable,
+) -> Result<(), VmError> {
+    state.being_ridden = reader.bool()?;
+    Ok(())
+}
 
 /// Sections read and written once per reference, at the end of every
 /// reference record.

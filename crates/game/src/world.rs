@@ -266,6 +266,8 @@ pub struct ActorState {
     pub running: bool,
     /// Whether the actor is currently riding a mount.
     pub riding_mount: bool,
+    /// Whether another actor is currently riding this actor.
+    pub being_ridden: bool,
     pub weapon_drawn: bool,
     /// The host movement driver's current sprint state, re-signaled after load.
     pub sprinting: bool,

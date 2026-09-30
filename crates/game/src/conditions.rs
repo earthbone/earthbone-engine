@@ -208,6 +208,7 @@ pub fn supports_function(function: u16) -> bool {
             | 698
             | 704
             | 675
+            | 714
             | 636
             | 660
             | 723
@@ -1567,7 +1568,16 @@ fn function_value(
             let actor = world.actor(subject).ok_or(Error::Form(subject))?;
             boolean(!actor.ai.path.is_empty() && !actor.ai.arrived)
         }
-        644 | 684 | 714 | 730 => return Err(Error::Unavailable(c.function)),
+        714 => {
+            no_parameter(c)?;
+            boolean(
+                world
+                    .actor(subject)
+                    .ok_or(Error::Form(subject))?
+                    .being_ridden,
+            )
+        }
+        644 | 684 | 730 => return Err(Error::Unavailable(c.function)),
         other => return Err(Error::Function(other)),
     })
 }
