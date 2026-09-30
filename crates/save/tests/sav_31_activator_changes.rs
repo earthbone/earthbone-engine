@@ -83,7 +83,7 @@ fn sav_31_preserves_unnamed_flags_and_rejects_truncated_or_trailing_payloads() {
     for (kind, name, known) in TYPES {
         for bit in 0..32 {
             let flags = 1u32 << bit;
-            if flags & !known != 0 {
+            if flags & !known != 0 && !(name != "TACT" && bit == 23) {
                 let typed = change(kind, flags, vec![])
                     .activator_change()
                     .unwrap()
@@ -110,6 +110,9 @@ fn sav_31_preserves_unnamed_flags_and_rejects_truncated_or_trailing_payloads() {
     }
     let door = change(15, 0, vec![]).activator_change().unwrap().unwrap();
     assert!(door.change_flags("ACTI").is_ok());
+    for kind in [10, 15] {
+        assert!(change(kind, 1 << 23, vec![]).activator_change().is_err());
+    }
     assert!(ActivatorChange {
         speaker_changed: true,
         ..door

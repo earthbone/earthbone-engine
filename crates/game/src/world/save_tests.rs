@@ -284,7 +284,7 @@ fn rich_world(namespace: u16) -> World {
 /// dialogue branch field that version 24 added, the stagger end time field
 /// that version 29 added, the witnessed crimes set that version 31 added,
 /// the hand spell fields that version 32 added, and the summon actor link
-/// that version 33 added, plus record metadata from versions 35 and 37.
+/// that version 33 added, plus version 35 list metadata.
 /// Each is set to a unique sentinel so its serialized
 /// bytes can be located exactly, then cut back out.
 fn without_exclusive_branches(world: &mut World) -> Vec<u8> {
@@ -413,8 +413,7 @@ fn without_exclusive_branches(world: &mut World) -> Vec<u8> {
         .windows(records.out.len())
         .position(|window| window == records.out)
         .expect("record override is serialized");
-    // CONTEXT: This fixture has one override with no later record metadata.
-    bytes.remove(at + 39);
+    // CONTEXT: The version 18 reader predates the list metadata presence byte.
     bytes.remove(at + 39);
     // Drop the world section table for the legacy fixture.
     let mut world_sections = Writer::new();

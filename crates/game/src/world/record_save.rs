@@ -8,7 +8,8 @@ use soe_esm::{plugin::Subrecord, GlobalFormId, Slot, Tag};
 use soe_papyrus::{vm::state::Writer, VmError};
 
 use super::record_overrides::{
-    raw_words, ListRecordExtra, NavmeshRecordExtra, NpcRecordExtra, PackRecordExtra, RecordOverride,
+    raw_words, ActivatorRecordExtra, BookNoteKeyRecordExtra, ItemRecordExtra, ListRecordExtra,
+    NavmeshRecordExtra, NpcRecordExtra, PackRecordExtra, RecordOverride,
 };
 use super::save::{read_form_id, read_opt_form_id, write_form_id, write_opt_form_id, FormReader};
 use super::{World, T};
@@ -129,6 +130,18 @@ impl World {
                             | b"LVSP"
                             | b"PACK"
                             | b"NAVM"
+                            | b"ACTI"
+                            | b"TACT"
+                            | b"DOOR"
+                            | b"ARMO"
+                            | b"WEAP"
+                            | b"AMMO"
+                            | b"INGR"
+                            | b"ALCH"
+                            | b"ENCH"
+                            | b"BOOK"
+                            | b"NOTE"
+                            | b"KEYM"
                     )
                 })
             {
@@ -148,6 +161,18 @@ impl World {
                             | b"LVSP"
                             | b"PACK"
                             | b"NAVM"
+                            | b"ACTI"
+                            | b"TACT"
+                            | b"DOOR"
+                            | b"ARMO"
+                            | b"WEAP"
+                            | b"AMMO"
+                            | b"INGR"
+                            | b"ALCH"
+                            | b"ENCH"
+                            | b"BOOK"
+                            | b"NOTE"
+                            | b"KEYM"
                     ) && !rec.is_deleted()
                 })
                 .ok_or_else(|| bad("missing record origin"))?;
@@ -310,6 +335,48 @@ impl World {
                     soe_esm::records::navm::NavMesh::from_record(&record)
                         .map_err(|error| VmError::State(error.to_string()))?;
                 }
+            } else if matches!(&record.tag.0, b"ACTI" | b"TACT" | b"DOOR") {
+                if temporary_for.is_some()
+                    || text_origin != id
+                    || plain_full
+                    || original_race.is_some()
+                    || body_tint.is_some()
+                    || pending_form_flags.is_some()
+                    || list.is_some()
+                    || !links.is_empty()
+                    || record.subrecords != original.subrecords
+                {
+                    return Err(bad("invalid saved activator override"));
+                }
+            } else if matches!(
+                &record.tag.0,
+                b"ARMO" | b"WEAP" | b"AMMO" | b"INGR" | b"ALCH" | b"ENCH"
+            ) {
+                if temporary_for.is_some()
+                    || text_origin != id
+                    || plain_full
+                    || original_race.is_some()
+                    || body_tint.is_some()
+                    || pending_form_flags.is_some()
+                    || list.is_some()
+                    || !links.is_empty()
+                    || record.subrecords != original.subrecords
+                {
+                    return Err(bad("invalid saved item override"));
+                }
+            } else if matches!(&record.tag.0, b"BOOK" | b"NOTE" | b"KEYM") {
+                if temporary_for.is_some()
+                    || text_origin != id
+                    || plain_full
+                    || original_race.is_some()
+                    || body_tint.is_some()
+                    || pending_form_flags.is_some()
+                    || list.is_some()
+                    || !links.is_empty()
+                    || record.subrecords != original.subrecords
+                {
+                    return Err(bad("invalid saved book, note or key override"));
+                }
             } else {
                 if pack.is_some() || navmesh.is_some() {
                     return Err(bad("list record has PACK or NAVM metadata"));
@@ -390,6 +457,220 @@ impl World {
         }
         Ok(values)
     }
+}
+
+pub(super) fn write_activator_section(world: &World, w: &mut Writer) {
+    let entries: Vec<_> = world
+        .record_overrides
+        .iter()
+        .filter_map(|(id, value)| value.activator.map(|extra| (*id, extra)))
+        .collect();
+    if entries.is_empty() {
+        return;
+    }
+    w.len(entries.len());
+    for (id, extra) in entries {
+        write_form_id(w, id);
+        write_extra_flags(w, extra.form_flags);
+        w.bool(extra.value_changed);
+        w.bool(extra.full_name_changed);
+        w.bool(extra.speaker_changed);
+    }
+}
+
+pub(super) fn read_activator_section(
+    world: &mut World,
+    r: &mut FormReader<'_, '_>,
+) -> Result<(), VmError> {
+    let mut seen = std::collections::BTreeSet::new();
+    for _ in 0..r.len()? {
+        let id = read_form_id(r)?;
+        let extra = ActivatorRecordExtra {
+            form_flags: read_extra_flags(r)?,
+            value_changed: r.bool()?,
+            full_name_changed: r.bool()?,
+            speaker_changed: r.bool()?,
+        };
+        if !seen.insert(id) {
+            return Err(bad("duplicate activator section record"));
+        }
+        let expected_flags = restored_form_flags(world, id, extra.form_flags)?;
+        let value = world
+            .record_overrides
+            .get_mut(&id)
+            .ok_or_else(|| bad("activator section names a missing override"))?;
+        if !matches!(&value.record.tag.0, b"ACTI" | b"TACT" | b"DOOR")
+            || value.activator.is_some()
+            || value.item.is_some()
+            || value.book_note_key.is_some()
+        {
+            return Err(bad("activator section has mismatched record metadata"));
+        }
+        value.record.flags = expected_flags;
+        value.activator = Some(extra);
+    }
+    if world.record_overrides.iter().any(|(id, value)| {
+        (matches!(&value.record.tag.0, b"ACTI" | b"TACT" | b"DOOR") && value.activator.is_none())
+            || (!seen.contains(id) && value.activator.is_some())
+    }) {
+        return Err(bad("activator section is incomplete"));
+    }
+    Ok(())
+}
+
+pub(super) fn write_item_section(world: &World, w: &mut Writer) {
+    let entries: Vec<_> = world
+        .record_overrides
+        .iter()
+        .filter_map(|(id, value)| value.item.as_ref().map(|extra| (*id, extra)))
+        .collect();
+    if entries.is_empty() {
+        return;
+    }
+    w.len(entries.len());
+    for (id, extra) in entries {
+        write_form_id(w, id);
+        write_extra_flags(w, extra.form_flags);
+        w.bool(extra.value_changed);
+        w.bool(extra.full_name_changed);
+        w.bool(extra.ingredient_use_changed);
+        w.bool(extra.fullname_changed);
+        w.u32(extra.unnamed_flags);
+        w.u32(extra.other_flags);
+        w.bytes(&extra.trailing_data);
+    }
+}
+
+pub(super) fn read_item_section(
+    world: &mut World,
+    r: &mut FormReader<'_, '_>,
+) -> Result<(), VmError> {
+    let mut seen = std::collections::BTreeSet::new();
+    for _ in 0..r.len()? {
+        let id = read_form_id(r)?;
+        let extra = ItemRecordExtra {
+            form_flags: read_extra_flags(r)?,
+            value_changed: r.bool()?,
+            full_name_changed: r.bool()?,
+            ingredient_use_changed: r.bool()?,
+            fullname_changed: r.bool()?,
+            unnamed_flags: r.u32()?,
+            other_flags: r.u32()?,
+            trailing_data: r.bytes()?.to_vec(),
+        };
+        if !seen.insert(id) {
+            return Err(bad("duplicate item section record"));
+        }
+        let expected_flags = restored_form_flags(world, id, extra.form_flags)?;
+        let value = world
+            .record_overrides
+            .get_mut(&id)
+            .ok_or_else(|| bad("item section names a missing override"))?;
+        if !matches!(
+            &value.record.tag.0,
+            b"ARMO" | b"WEAP" | b"AMMO" | b"INGR" | b"ALCH" | b"ENCH"
+        ) || value.activator.is_some()
+            || value.item.is_some()
+            || value.book_note_key.is_some()
+        {
+            return Err(bad("item section has mismatched record metadata"));
+        }
+        value.record.flags = expected_flags;
+        value.item = Some(extra);
+    }
+    if world.record_overrides.iter().any(|(id, value)| {
+        (matches!(
+            &value.record.tag.0,
+            b"ARMO" | b"WEAP" | b"AMMO" | b"INGR" | b"ALCH" | b"ENCH"
+        ) && value.item.is_none())
+            || (!seen.contains(id) && value.item.is_some())
+    }) {
+        return Err(bad("item section is incomplete"));
+    }
+    Ok(())
+}
+
+pub(super) fn write_book_note_key_section(world: &World, w: &mut Writer) {
+    let entries: Vec<_> = world
+        .record_overrides
+        .iter()
+        .filter_map(|(id, value)| value.book_note_key.as_ref().map(|extra| (*id, extra)))
+        .collect();
+    if entries.is_empty() {
+        return;
+    }
+    w.len(entries.len());
+    for (id, extra) in entries {
+        write_form_id(w, id);
+        write_extra_flags(w, extra.form_flags);
+        w.bool(extra.value_changed);
+        w.bool(extra.full_name_changed);
+        w.bool(extra.teaches_skill);
+        w.bool(extra.read);
+        w.bytes(&extra.opaque_suffix);
+    }
+}
+
+pub(super) fn read_book_note_key_section(
+    world: &mut World,
+    r: &mut FormReader<'_, '_>,
+) -> Result<(), VmError> {
+    let mut seen = std::collections::BTreeSet::new();
+    for _ in 0..r.len()? {
+        let id = read_form_id(r)?;
+        let extra = BookNoteKeyRecordExtra {
+            form_flags: read_extra_flags(r)?,
+            value_changed: r.bool()?,
+            full_name_changed: r.bool()?,
+            teaches_skill: r.bool()?,
+            read: r.bool()?,
+            opaque_suffix: r.bytes()?.to_vec(),
+        };
+        if !seen.insert(id) {
+            return Err(bad("duplicate book, note or key section record"));
+        }
+        let expected_flags = restored_form_flags(world, id, extra.form_flags)?;
+        let value = world
+            .record_overrides
+            .get_mut(&id)
+            .ok_or_else(|| bad("book, note or key section names a missing override"))?;
+        if !matches!(&value.record.tag.0, b"BOOK" | b"NOTE" | b"KEYM")
+            || value.activator.is_some()
+            || value.item.is_some()
+            || value.book_note_key.is_some()
+        {
+            return Err(bad(
+                "book, note or key section has mismatched record metadata",
+            ));
+        }
+        value.record.flags = expected_flags;
+        value.book_note_key = Some(extra);
+    }
+    if world.record_overrides.iter().any(|(id, value)| {
+        (matches!(&value.record.tag.0, b"BOOK" | b"NOTE" | b"KEYM")
+            && value.book_note_key.is_none())
+            || (!seen.contains(id) && value.book_note_key.is_some())
+    }) {
+        return Err(bad("book, note or key section is incomplete"));
+    }
+    Ok(())
+}
+
+fn restored_form_flags(
+    world: &World,
+    id: GlobalFormId,
+    flags: Option<(u32, u16)>,
+) -> Result<u32, VmError> {
+    let original = world
+        .order
+        .winner(id)
+        .ok_or_else(|| bad("saved marker record is missing"))?;
+    let item_form_flags_are_metadata = matches!(&original.tag.0, b"ARMO" | b"WEAP" | b"AMMO");
+    Ok(if item_form_flags_are_metadata {
+        original.flags
+    } else {
+        original.flags ^ flags.map_or(0, |(mask, _)| mask)
+    })
 }
 
 pub(super) fn write_pack_navmesh_section(world: &World, w: &mut Writer) {

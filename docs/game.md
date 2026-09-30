@@ -3670,6 +3670,7 @@ BOOK, NOTE and KEYM teaching and read markers. Opaque suffix bytes are also
 retained. Duplicate changes, missing or wrong records, and records already
 overridden by another restoration path fail without partial mutation. SOEW
 version 37 persists the record flags and saved markers.
+
 ## Saved PACK and NAVM changes, SAV-48
 
 `World::restore_vanilla_pack_navmesh` validates all decoded PACK and NAVM

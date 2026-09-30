@@ -18,6 +18,9 @@ use super::{ActorState, RefState, World};
 pub(crate) const WORLD_SECTIONS: &[Section<World>] = &[
     Section { name: "CRF-02", write: super::save::write_brewed_potions, read: super::save::read_brewed_potions },
     super::story_manager::SECTION,
+    Section { name: "SAV-32", write: super::record_save::write_activator_section, read: super::record_save::read_activator_section },
+    Section { name: "SAV-34", write: super::record_save::write_item_section, read: super::record_save::read_item_section },
+    Section { name: "SAV-36", write: super::record_save::write_book_note_key_section, read: super::record_save::read_book_note_key_section },
     Section { name: "SAV-48", write: super::record_save::write_pack_navmesh_section, read: super::record_save::read_pack_navmesh_section },
 ];
 
