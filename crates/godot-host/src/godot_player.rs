@@ -40,6 +40,7 @@ use crate::input::devices::{godot_mouse_for, godot_pad_for, Devices, PadControl}
 use crate::input::{godot_key_for, Action, Bindings, ControlMap, Driver, InputState};
 
 mod containers;
+mod detection;
 mod exterior;
 mod footsteps;
 mod gameplay;
@@ -102,6 +103,7 @@ pub struct PlayerNode {
     last_melee_obstruction: Option<Rid>,
     image_space: crate::image_space::ImageSpaceStack,
     sound_bank: Option<Gd<crate::godot_audio::SoundBank>>,
+    dialogue_voice_slot: Option<i32>,
     footstep_cadence: crate::audio::FootstepCadence,
     footstep_count: u64,
     footstep_errors: u64,
@@ -120,6 +122,7 @@ pub struct PlayerNode {
     /// GDScript so a prompt can be drawn without a second raycast.
     last_activate_hit: bool,
     last_activate_reference: Option<GlobalFormId>,
+    pending_lockpick: Option<GlobalFormId>,
     action_latches: BTreeMap<Action, u64>,
     held_actions: BTreeSet<Action>,
     devices: Devices,
@@ -159,6 +162,7 @@ impl INode3D for PlayerNode {
             last_melee_obstruction: None,
             image_space: crate::image_space::ImageSpaceStack::default(),
             sound_bank: None,
+            dialogue_voice_slot: None,
             footstep_cadence: crate::audio::FootstepCadence::default(),
             footstep_count: 0,
             footstep_errors: 0,
@@ -173,6 +177,7 @@ impl INode3D for PlayerNode {
             pending_look: (0.0, 0.0),
             last_activate_hit: false,
             last_activate_reference: None,
+            pending_lockpick: None,
             action_latches: BTreeMap::new(),
             held_actions: BTreeSet::new(),
             devices: Devices::default(),
@@ -533,6 +538,9 @@ impl PlayerNode {
         if input.toggle_pov_pressed {
             self.rig.mode = self.rig.mode.toggled();
         }
+        if input.right_attack_pressed {
+            self.begin_melee_swing(false);
+        }
 
         let camera = self.rig;
         let intent = self.driver.update(&input, &camera);
@@ -560,6 +568,16 @@ impl PlayerNode {
             activation_hit.and_then(|hit| self.collision_references.get(&hit.body).copied());
 
         self.advance_game(delta);
+        let player_motion = if input.is_moving() {
+            if input.sprint || self.driver.always_run != input.walk {
+                soe_game::detection::Motion::Running
+            } else {
+                soe_game::detection::Motion::Walking
+            }
+        } else {
+            soe_game::detection::Motion::Still
+        };
+        self.advance_detection(delta, player_motion);
         self.advance_door_fade(delta);
 
         self.motion.step(self.feet(), self.capsule_height());
@@ -797,6 +815,56 @@ impl PlayerNode {
         self.sync_game_pose() && ok
     }
 
+    /// Return the pending lockpick target and authored lock level for the UI.
+    #[func]
+    pub fn pending_lockpick(&self) -> VarDictionary {
+        let mut result = VarDictionary::new();
+        let Some(target) = self.pending_lockpick else {
+            return result;
+        };
+        let Some(game) = &self.game else {
+            return result;
+        };
+        let world = game.world();
+        let Some(reference) = world.reference_ref(target) else {
+            return result;
+        };
+        result.set("file", i64::from(target.file));
+        result.set("object", i64::from(target.object));
+        result.set("level", i64::from(reference.lock_level));
+        result
+    }
+
+    /// Resolve the pending lockpick interaction and continue normal activation
+    /// after a successful pick.
+    #[func]
+    pub fn resolve_pending_lockpick(&mut self, success: bool) -> bool {
+        let Some(target) = self.pending_lockpick.take() else {
+            return false;
+        };
+        let Some(game) = &mut self.game else {
+            return false;
+        };
+        let player = game.player();
+        let accepted = game
+            .world()
+            .reference_ref(target)
+            .is_some_and(|reference| reference.locked && reference.lock_level != 255)
+            && game
+                .world()
+                .form("Lockpick")
+                .is_some_and(|pick| game.world_mut().item_count(player, pick) > 0);
+        if !accepted {
+            return false;
+        }
+        let unlocked = game.resolve_lockpick(target, player, success);
+        if unlocked {
+            game.activate_deferred(target, player)
+        } else {
+            true
+        }
+    }
+
     /// Point the camera, used when a door or a save sets a facing.
     #[func]
     pub fn set_facing(&mut self, yaw: f32, pitch: f32) {
@@ -988,6 +1056,7 @@ impl PlayerNode {
             activate_pressed: pressed(Action::Activate),
             toggle_pov_pressed: pressed(Action::TogglePov),
             toggle_always_run_pressed: pressed(Action::ToggleAlwaysRun),
+            right_attack_pressed: pressed(Action::RightAttack),
         };
         self.held_actions = held_now;
         state

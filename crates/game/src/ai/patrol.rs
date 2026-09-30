@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! Walking linked-marker Patrol, from xEdit XLKR/XPRD and UNI's Patrol tests.
+//! Walking linked-marker Patrol, from xEdit XLKR/XPRD, Mutagen's Patrol fields,
+//! and UNI's Patrol tests.
 //! Route definitions remain on winning references. Only traversal progress is saved.
 
 use super::{distance, tree, AiState, Procedure, World};
 use crate::package::{DataValue, Target};
+use crate::world::Alloc;
 use soe_esm::{GlobalFormId, Tag};
 use soe_papyrus::vm::state::{Reader, Writer};
 use soe_papyrus::VmError;
@@ -75,15 +77,13 @@ fn next_link(
     Ok(target)
 }
 
-fn marker(
-    world: &mut World,
-    id: GlobalFormId,
-) -> Result<([f32; 3], Option<GlobalFormId>, f32), &'static str> {
+fn marker(world: &mut World, id: GlobalFormId) -> Result<Marker, &'static str> {
     let rec = world.record(id).ok_or("missing Patrol marker")?;
     if rec.tag != T(b"REFR") || rec.is_deleted() {
         return Err("invalid Patrol marker record");
     }
     let mut dwell = None;
+    let mut idle = None;
     let mut in_patrol = false;
     for sub in &rec.subrecords {
         match sub.tag.as_bytes() {
@@ -105,14 +105,24 @@ fn marker(
                 }
             }
             b"INAM" if in_patrol => {
-                if sub.data != [0; 4] {
-                    return Err("Patrol marker idle, AI-88");
+                let raw = sub
+                    .data
+                    .as_slice()
+                    .try_into()
+                    .map_err(|_| "invalid Patrol marker idle")?;
+                let raw = u32::from_le_bytes(raw);
+                if raw != 0 {
+                    let form = world
+                        .resolve_from(id, raw)
+                        .ok_or("missing Patrol marker idle")?;
+                    if world.tag_of(form) != Some(T(b"IDLE")) {
+                        return Err("invalid Patrol marker idle form");
+                    }
+                    idle = Some(form);
                 }
             }
             b"PDTO" if in_patrol => {
-                if sub.data != [0; 8] {
-                    return Err("Patrol marker topic, AI-88");
-                }
+                validate_topic(world, id, &sub.data)?;
             }
             b"SCHR" | b"SCTX" if in_patrol => {}
             _ => in_patrol = false,
@@ -127,15 +137,49 @@ fn marker(
     {
         return Err("unavailable Patrol marker");
     }
-    let result = (reference.position, reference.cell, dwell);
-    let base = reference.base;
-    if base
-        .and_then(|id| world.tag_of(id))
-        .is_some_and(|tag| tag == T(b"FURN") || tag == T(b"IDLM"))
-    {
-        return Err("Patrol furniture or idle marker use, AI-88");
+    Ok(Marker {
+        position: reference.position,
+        cell: reference.cell,
+        dwell,
+        idle,
+        furniture: reference
+            .base
+            .is_some_and(|base| world.tag_of(base) == Some(T(b"FURN"))),
+    })
+}
+
+struct Marker {
+    position: [f32; 3],
+    cell: Option<GlobalFormId>,
+    dwell: f32,
+    idle: Option<GlobalFormId>,
+    furniture: bool,
+}
+
+fn validate_topic(world: &World, marker: GlobalFormId, data: &[u8]) -> Result<(), &'static str> {
+    let kind = data.get(..4).ok_or("invalid Patrol marker topic")?;
+    let kind = u32::from_le_bytes(kind.try_into().map_err(|_| "invalid Patrol marker topic")?);
+    let payload = data.get(4..).ok_or("invalid Patrol marker topic")?;
+    match kind {
+        0 => {
+            let raw = u32::from_le_bytes(
+                payload
+                    .try_into()
+                    .map_err(|_| "invalid Patrol marker topic reference")?,
+            );
+            if raw != 0 {
+                let topic = world
+                    .resolve_from(marker, raw)
+                    .ok_or("missing Patrol marker topic")?;
+                if world.tag_of(topic) != Some(T(b"DIAL")) {
+                    return Err("invalid Patrol marker topic form");
+                }
+            }
+        }
+        1 if payload.len() == 4 => {}
+        _ => return Err("invalid Patrol marker topic type"),
     }
-    Ok(result)
+    Ok(())
 }
 
 fn route(
@@ -189,9 +233,9 @@ fn destination(
     ai: &mut AiState,
     current: GlobalFormId,
 ) -> Result<(), &'static str> {
-    let (position, cell, _) = marker(world, current)?;
-    ai.destination = Some(position);
-    ai.center_cell = cell;
+    let marker = marker(world, current)?;
+    ai.destination = Some(marker.position);
+    ai.center_cell = marker.cell;
     ai.arrived = false;
     ai.path.clear();
     ai.path_cells.clear();
@@ -244,7 +288,7 @@ fn start(
             .position;
         let mut best = f32::INFINITY;
         for (i, point) in points.iter().enumerate() {
-            let d = distance(position, marker(world, *point)?.0);
+            let d = distance(position, marker(world, *point)?.position);
             if d < best {
                 best = d;
                 index = i;
@@ -267,11 +311,11 @@ fn start(
     Ok(())
 }
 
-pub(super) fn tick(world: &mut World, ai: &mut AiState) {
+pub(super) fn tick(world: &mut World, actor: GlobalFormId, ai: &mut AiState, alloc: Alloc<'_>) {
     if !ai.tree.as_ref().is_some_and(|tree| tree.active) {
         return;
     }
-    if let Err(reason) = advance(world, ai) {
+    if let Err(reason) = advance(world, actor, ai, alloc) {
         fail(ai, reason);
     }
 }
@@ -286,8 +330,8 @@ pub(super) fn prepare(world: &mut World, ai: &mut AiState) {
             if !route(world, start)?.0.contains(&current) {
                 return Err("Patrol marker left its route");
             }
-            let (position, cell, _) = marker(world, current)?;
-            if ai.destination != Some(position) || ai.center_cell != cell {
+            let marker = marker(world, current)?;
+            if ai.destination != Some(marker.position) || ai.center_cell != marker.cell {
                 destination(world, ai, current)?;
                 if let Some(state) = &mut ai.patrol {
                     state.dwell_until = None;
@@ -300,11 +344,16 @@ pub(super) fn prepare(world: &mut World, ai: &mut AiState) {
     }
 }
 
-fn advance(world: &mut World, ai: &mut AiState) -> Result<(), &'static str> {
+fn advance(
+    world: &mut World,
+    actor: GlobalFormId,
+    ai: &mut AiState,
+    alloc: Alloc<'_>,
+) -> Result<(), &'static str> {
     let mut state = ai.patrol.clone().ok_or("missing Patrol progress")?;
-    let (position, _, dwell) = marker(world, state.current)?;
+    let marker = marker(world, state.current)?;
     if !ai.arrived {
-        if ai.destination != Some(position) {
+        if ai.destination != Some(marker.position) {
             destination(world, ai, state.current)?;
         }
         return Ok(());
@@ -314,7 +363,14 @@ fn advance(world: &mut World, ai: &mut AiState) -> Result<(), &'static str> {
         return Err("invalid Patrol clock");
     }
     let Some(until) = state.dwell_until else {
-        state.dwell_until = Some(now + f64::from(dwell));
+        if marker.furniture && !world.activate_furniture(state.current, actor) {
+            return Err("Patrol furniture marker unavailable");
+        }
+        if let Some(idle) = marker.idle {
+            let name = world.editor_id(idle).unwrap_or_default();
+            world.animation_event(actor, &name, alloc);
+        }
+        state.dwell_until = Some(now + f64::from(marker.dwell));
         ai.patrol = Some(state);
         return Ok(());
     };
@@ -334,15 +390,26 @@ fn advance(world: &mut World, ai: &mut AiState) -> Result<(), &'static str> {
         params.repeat,
         &mut state.reverse,
     ) {
+        release_furniture(world, actor, state.current);
         state.current = points[next];
         state.dwell_until = None;
         ai.radius = params.radius;
         destination(world, ai, state.current)?;
         ai.patrol = Some(state);
     } else {
+        release_furniture(world, actor, state.current);
         tree::succeeded(world, ai);
     }
     Ok(())
+}
+
+fn release_furniture(world: &mut World, actor: GlobalFormId, marker: GlobalFormId) {
+    if world
+        .furniture_seat(actor)
+        .is_some_and(|(furniture, _)| furniture == marker)
+    {
+        world.stand_from_furniture(actor);
+    }
 }
 
 pub(super) fn write(w: &mut Writer, state: Option<&PatrolState>) {

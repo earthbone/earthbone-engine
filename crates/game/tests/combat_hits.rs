@@ -345,6 +345,40 @@ fn cmb_15_invalid_damage_mult_rejects_without_health_or_event_changes() {
 }
 
 #[test]
+fn cmb_15_perk_driven_combat_modifiers_reject_without_applying_a_hit() {
+    let names = [
+        "onehandedmodifier",
+        "twohandedmodifier",
+        "marksmanmodifier",
+        "onehandedpowermodifier",
+        "twohandedpowermodifier",
+        "marksmanpowermodifier",
+        "lightarmormodifier",
+        "heavyarmormodifier",
+        "lightarmorpowermodifier",
+        "heavyarmorpowermodifier",
+    ];
+    for actor in [0x14, 0x901] {
+        for name in names {
+            let mut game = fixture(vec![]);
+            warm_combat_actor_base(&mut game);
+            game.world_mut()
+                .set_actor_value(id(actor), name, 10.)
+                .unwrap();
+            let before = game.save_state().unwrap();
+            assert!(
+                matches!(
+                    game.melee_hit(hit(0x14, 0x901)),
+                    Err(Error::Unsupported("combat actor-value multipliers"))
+                ),
+                "{name} on actor {actor:#x} must remain gated until its PERK effects are evaluated"
+            );
+            assert_eq!(game.save_state().unwrap(), before, "{name} changed state");
+        }
+    }
+}
+
+#[test]
 fn weapon_skill_is_independent_of_animation_and_fields_use_schema_offsets() {
     let parsed = Weapon::from_record(&weapon(0xA00, 27, 8)).unwrap();
     assert_eq!(
@@ -780,7 +814,7 @@ fn clothing_does_not_supply_rating_or_hidden_armor_and_absent_items_are_rejected
 }
 
 #[test]
-fn invalid_settings_and_unsupported_perks_do_not_apply_partial_damage_or_events() {
+fn invalid_settings_reject_but_unresolved_perk_identity_keeps_base_damage() {
     let mut game = fixture(vec![]);
     game.world_mut().actor_base(id(0x800)).unwrap();
     for value in [f32::NAN, -1., f32::INFINITY] {
@@ -801,11 +835,10 @@ fn invalid_settings_and_unsupported_perks_do_not_apply_partial_damage_or_events(
         .perks
         .insert(id(0xDEAD));
     let before = game.save_state().unwrap();
-    assert!(matches!(
-        game.melee_hit(hit(0x14, 0x901)),
-        Err(Error::Unsupported("perk entry points"))
-    ));
-    assert_eq!(game.save_state().unwrap(), before);
+    let result = game.melee_hit(hit(0x14, 0x901)).unwrap();
+    close(result.weapon_damage, 15.);
+    close(result.health_damage, 15.);
+    assert_ne!(game.save_state().unwrap(), before);
 }
 
 fn observer(game: &mut Game) -> soe_papyrus::ObjectId {
@@ -845,9 +878,12 @@ fn queued_hit_precedes_death_and_survives_game_save_without_reapplying_damage() 
     let shared = game.shared_world();
     let result = shared
         .borrow_mut()
-        .melee_hit(hit(0x14, 0x901), &mut |name, class| {
-            game.vm.create_object_of(name, class)
-        })
+        .melee_hit(
+            hit(0x14, 0x901),
+            Vec::new(),
+            Vec::new(),
+            &mut |name, class| game.vm.create_object_of(name, class),
+        )
         .unwrap();
     assert!(result.killed);
     assert_eq!(

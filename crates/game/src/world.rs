@@ -53,6 +53,7 @@ mod driver;
 mod encounter_zones;
 mod events;
 mod forms;
+mod furniture;
 pub mod hash;
 mod inventory;
 mod inventory_restore;
@@ -72,6 +73,7 @@ pub mod magic;
 mod npc_restore;
 mod objects;
 mod outfits;
+mod package_navmesh_restore;
 pub use npc_restore::NpcRestoreReport;
 mod record_overrides;
 mod skins;
@@ -79,9 +81,13 @@ mod temporary_npc;
 pub use record_overrides::{
     ActivatorRecordExtra, BookNoteKeyRecordExtra, ItemRecordExtra, NpcRecordExtra,
 };
+pub use record_overrides::{NavmeshRecordExtra, PackRecordExtra};
+mod projectiles;
 mod quest_restore;
 mod quest_save;
 mod quests;
+mod story_manager;
+pub use story_manager::StoryError;
 mod record_save;
 pub use quest_restore::QuestRestoreReport;
 mod reference_extras;
@@ -102,6 +108,7 @@ mod transition;
 
 pub use contact::{ContactActor, DEFAULT_COMBAT_DISTANCE};
 pub use doorway::{Doorway, InteriorDestination, Side, Threshold, THRESHOLD_BAND, UNITS_PER_METRE};
+pub use projectiles::RangedEquipment;
 pub use reference_extras::{ReferenceExtrasRestoreReport, ReferenceLock};
 pub use save::{SAVE_MAGIC, SAVE_VERSION};
 pub use transition::CellTransition;
@@ -265,6 +272,9 @@ pub struct ActorState {
     pub allow_flying: bool,
     /// Between `StartDeferredKill` and `EndDeferredKill` death waits.
     pub deferred_kill: bool,
+    /// The furniture reference and zero-based marker currently reserved by
+    /// this actor. The marker remains reserved until the actor stands.
+    pub furniture_seat: Option<(GlobalFormId, u16)>,
     /// The last state `SendVampirismStateChanged` announced for this actor.
     pub vampire: bool,
     /// The last state `SendLycanthropyStateChanged` announced.
@@ -291,6 +301,8 @@ pub struct ActorState {
     /// `FactionState`, this is the actor's own memory of who it saw do it.
     /// See `World::record_witnessed_crime`.
     pub witnessed_crimes: BTreeSet<GlobalFormId>,
+    /// Partial use experience for each actor skill, keyed by lowercase name.
+    pub skill_experience: BTreeMap<String, f32>,
 }
 
 /// One `LVLO` entry of a leveled list.
@@ -506,6 +518,8 @@ pub struct World {
     rng: u64,
     pub clock: GameClock,
     pub pending: Vec<Pending>,
+    /// Story Manager inputs awaiting PRG-14 node selection.
+    pub story_manager_events: Vec<crate::quest::state::StoryManagerEvent>,
     pub timers: Vec<UpdateTimer>,
     pub notifications: Vec<String>,
     pub message_boxes: Vec<String>,
@@ -549,9 +563,15 @@ pub struct World {
     pub spell_casts: Vec<(GlobalFormId, GlobalFormId, Option<GlobalFormId>)>,
     pub(crate) active_effects: BTreeMap<magic::EffectId, magic::ActiveEffect>,
     pub(crate) next_effect: u64,
+    /// Effect records and magnitudes for potions created by alchemy.
+    pub(crate) brewed_potions: BTreeMap<GlobalFormId, Vec<(GlobalFormId, f32, u32, u32)>>,
     pub(crate) image_space: image_space::ImageSpaceState,
     /// Stealth-point pools by target, each with its observers' awareness.
     pub(crate) detection: crate::detection::DetectionState,
+    pub(crate) story_history: BTreeMap<GlobalFormId, (u32, f64)>,
+    pub(crate) story_selection: BTreeMap<GlobalFormId, BTreeSet<GlobalFormId>>,
+    /// Detection sounds awaiting one host observation step.
+    pub(crate) detection_events: Vec<crate::detection::DetectionEvent>,
 }
 
 impl World {
@@ -606,6 +626,7 @@ impl World {
             rng: 0x9E37_79B9_7F4A_7C15,
             clock: GameClock::default(),
             pending: Vec::new(),
+            story_manager_events: Vec::new(),
             timers: Vec::new(),
             notifications: Vec::new(),
             message_boxes: Vec::new(),
@@ -641,8 +662,12 @@ impl World {
             localized_strings: BTreeMap::new(),
             active_effects: BTreeMap::new(),
             next_effect: 1,
+            brewed_potions: BTreeMap::new(),
             image_space: image_space::ImageSpaceState::default(),
             detection: crate::detection::DetectionState::default(),
+            story_history: BTreeMap::new(),
+            story_selection: BTreeMap::new(),
+            detection_events: Vec::new(),
         }
     }
 

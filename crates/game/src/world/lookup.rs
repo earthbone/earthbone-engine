@@ -24,20 +24,24 @@ impl World {
 
     pub fn exists(&self, id: GlobalFormId) -> bool {
         self.refs.contains_key(&id)
+            || self.brewed_potions.contains_key(&id)
             || self.record_overrides.contains_key(&id)
             || self.order.contains(id)
     }
 
     pub fn tag_of(&self, id: GlobalFormId) -> Option<Tag> {
-        self.record(id).map(|record| record.tag).or_else(|| {
-            self.refs.get(&id).map(|reference| {
-                if reference.is_actor {
-                    T(b"ACHR")
-                } else {
-                    T(b"REFR")
-                }
+        self.record(id)
+            .map(|record| record.tag)
+            .or_else(|| self.brewed_potions.contains_key(&id).then_some(T(b"ALCH")))
+            .or_else(|| {
+                self.refs.get(&id).map(|reference| {
+                    if reference.is_actor {
+                        T(b"ACHR")
+                    } else {
+                        T(b"REFR")
+                    }
+                })
             })
-        })
     }
 
     pub fn editor_id(&self, id: GlobalFormId) -> Option<String> {
@@ -46,6 +50,9 @@ impl World {
 
     /// The `FULL` name of a form, or of a reference's base object.
     pub fn name_of(&self, id: GlobalFormId) -> Option<String> {
+        if self.brewed_potions.contains_key(&id) {
+            return Some("Potion".into());
+        }
         if let Some(r) = self.refs.get(&id) {
             if let Some(n) = &r.display_name {
                 return Some(n.clone());
@@ -215,6 +222,20 @@ impl World {
         let mut out = index.references(cell).to_vec();
         out.extend_from_slice(index.deleted_references(cell));
         out
+    }
+
+    /// Loaded references created at runtime in a cell, in FormID order.
+    #[must_use]
+    pub fn runtime_references_in_cell(&self, cell: GlobalFormId) -> Vec<GlobalFormId> {
+        let mut references = self
+            .refs
+            .iter()
+            .filter_map(|(&id, reference)| {
+                (id.file == DYNAMIC_FILE && reference.cell == Some(cell)).then_some(id)
+            })
+            .collect::<Vec<_>>();
+        references.sort_unstable();
+        references
     }
 
     /// Associated keywords, including Keyword Item Distributor additions.

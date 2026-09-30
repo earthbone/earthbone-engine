@@ -1,10 +1,18 @@
 # Saved cell, location and encounter-zone fields
 
-SAV-27 remains blocked on SAV-66 as of 2026-09-20. The source audit and corpus
-census below do not implement a typed decoder or live restoration. SAV-28
-continues to depend on SAV-27. Its original completion check is unchanged.
+SAV-27 has partial typed decoding. CELL's documented fields and seen-data
+shape are decoded, while the high CELL flags with missing schemas are rejected.
+ECZN and LCTN common form flags are decoded and their other flagged bytes are
+retained as one opaque tail. This does not identify the fields inside those
+tails or implement live restoration. SAV-28 continues to depend on complete
+decoding from SAV-27.
 
 ## Source boundary
+
+SAV-66 audit result: the named public sources establish several flag names and
+runtime fields, but they do not establish the requested serialized boundaries
+for every high-flag combination. Do not treat these runtime declarations as a
+save payload schema.
 
 Local xEdit `6dbbed51d92456e39ffb916eece56040e91114b5`,
 `Core/wbDefinitionsTES5Saves.pas`, supplies CELL's u16 flags, length-prefixed
@@ -24,6 +32,15 @@ ECZN's Zone Flags and Game Data unions are placeholders. LCTN's KeywordData and
 Cleared unions are also placeholders. A flag name does not establish its field
 width or a zero-length payload. The current corpus contains nonempty payloads
 using these flags.
+
+The CommonLibSSE-NG headers confirm runtime CELL flag names, the LCTN runtime
+keyword-data entry shape and cleared booleans, and ECZN runtime data and game
+data member types. They declare `SaveGame` and `LoadGame`, but the checked
+headers do not define those method bodies. Those runtime shapes therefore do
+not establish the corresponding ESS encodings. FallrimTools
+`ChangeForm.java::getData` also has no typed dispatch for these records and
+retains their bytes as raw payloads. No controlled vanilla save fixtures in
+this worktree isolate the flagged sections.
 
 FallrimTools `61bb57d895f023617cb55045a4907849fd1ff566`,
 `src/main/java/resaver/ess/ChangeForm.java::getData`, has no CELL, LCTN or ECZN
@@ -81,3 +98,29 @@ Once those boundaries are established, SAV-27 can implement typed fields,
 exact encodings and malformed-input checks for all supported combinations.
 The census does not satisfy that decoder completion check. No user save was
 modified or copied into this repository.
+
+`ChangeForm::cell_change` decodes CELL bits 0 to 3 and 31 in xEdit's order:
+common flags, cell flags, seen data, full name and ownership. It checks the
+remaining bytes against the 32-byte exterior shape or repeated interior
+entries of two one-byte fields plus 32 bytes, then validates the following
+name and owner. A truncated interior that leaves exactly 32 bytes remains
+indistinguishable from exterior data. CELL bits 28 to 30 remain unsupported
+because xEdit gives them placeholder unions and does not dispatch them in the
+CELL schema.
+
+`ChangeForm::encounter_zone_change` accepts ECZN bits 0, 1 and 31, and
+`ChangeForm::location_change` accepts LCTN bits 0, 30 and 31. They decode the
+six-byte common form flags when present and retain the remaining bytes as an
+opaque tail. The source does not provide section boundaries inside that tail,
+so this does not reject truncations in those fields or name their values.
+`sav_27_spatial_changes.rs` covers source-defined flag combinations, exact
+re-encoding and known truncation cases. The existing external corpus survey
+continues to report per-type flag and payload-size counts without interpreting
+the opaque fields.
+
+The survey also tries the typed decoders and checks exact bytes for every
+successful result. Its 60-save run decoded 7,754 CELL records and preserved
+71,052 other CELL payloads as rejected or unsupported. All 4,135 LCTN and 573
+ECZN records retained their payload bytes through the partial decoders. This
+accounts for the corpus without treating successful opaque preservation as a
+field interpretation.

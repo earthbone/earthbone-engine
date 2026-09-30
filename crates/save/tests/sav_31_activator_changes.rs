@@ -79,14 +79,19 @@ fn sav_31_every_source_flag_combination_round_trips() {
 }
 
 #[test]
-fn sav_31_rejects_truncated_flags_unknown_bits_and_trailing_bytes() {
+fn sav_31_preserves_unnamed_flags_and_rejects_truncated_or_trailing_payloads() {
     for (kind, name, known) in TYPES {
         for bit in 0..32 {
             let flags = 1u32 << bit;
             if flags & !known != 0 {
-                assert!(
-                    change(kind, flags, vec![]).activator_change().is_err(),
-                    "{name} unknown flags {flags:#010x}"
+                let typed = change(kind, flags, vec![])
+                    .activator_change()
+                    .unwrap()
+                    .unwrap();
+                assert_eq!(
+                    typed.change_flags(name).unwrap(),
+                    flags,
+                    "{name} unnamed flags {flags:#010x}"
                 );
             }
         }

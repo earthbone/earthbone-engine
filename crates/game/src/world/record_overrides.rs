@@ -27,7 +27,7 @@ pub struct ListRecordExtra {
     pub entry_chances: Vec<u8>,
 }
 
-/// Saved ACTI, TACT and DOOR fields that have no serialized subrecord value.
+/// Saved ACTI, TACT and DOOR fields without serialized subrecord values.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct ActivatorRecordExtra {
     pub form_flags: Option<(u32, u16)>,
@@ -49,7 +49,7 @@ pub struct ItemRecordExtra {
     pub trailing_data: Vec<u8>,
 }
 
-/// Saved BOOK, NOTE or KEYM fields that have no plugin-subrecord equivalent.
+/// Saved BOOK, NOTE or KEYM fields without plugin-subrecord equivalents.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct BookNoteKeyRecordExtra {
     pub form_flags: Option<(u32, u16)>,
@@ -58,6 +58,22 @@ pub struct BookNoteKeyRecordExtra {
     pub teaches_skill: bool,
     pub read: bool,
     pub opaque_suffix: Vec<u8>,
+}
+
+/// Saved change markers that have no plugin-subrecord representation.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct PackRecordExtra {
+    pub form_flags: Option<(u32, u16)>,
+    pub waiting: bool,
+    pub never_run: bool,
+}
+
+/// Saved NAVM change markers that have no plugin-subrecord representation.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct NavmeshRecordExtra {
+    pub form_flags: Option<(u32, u16)>,
+    pub value_changed: bool,
+    pub full_name_changed: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -73,6 +89,8 @@ pub(super) struct RecordOverride {
     pub activator: Option<ActivatorRecordExtra>,
     pub item: Option<ItemRecordExtra>,
     pub book_note_key: Option<BookNoteKeyRecordExtra>,
+    pub pack: Option<PackRecordExtra>,
+    pub navmesh: Option<NavmeshRecordExtra>,
 }
 
 pub(super) fn raw_words(record: &Record) -> BTreeSet<u32> {
@@ -100,6 +118,8 @@ impl RecordOverride {
             activator: None,
             item: None,
             book_note_key: None,
+            pack: None,
+            navmesh: None,
         }
     }
 
@@ -161,8 +181,6 @@ impl World {
         self.record_overrides.get(&id)?.list.as_ref()
     }
 
-    /// Return the decoded saved fields attached to an item record.
-    #[must_use]
     pub fn restored_item_extra(&self, id: GlobalFormId) -> Option<&ItemRecordExtra> {
         self.record_overrides.get(&id)?.item.as_ref()
     }
@@ -172,5 +190,15 @@ impl World {
         id: GlobalFormId,
     ) -> Option<&BookNoteKeyRecordExtra> {
         self.record_overrides.get(&id)?.book_note_key.as_ref()
+    }
+
+    /// Saved PACK markers used by package consumers.
+    pub fn restored_pack_extra(&self, id: GlobalFormId) -> Option<PackRecordExtra> {
+        self.record_overrides.get(&id)?.pack
+    }
+
+    /// Saved NAVM markers used by navmesh consumers.
+    pub fn restored_navmesh_extra(&self, id: GlobalFormId) -> Option<NavmeshRecordExtra> {
+        self.record_overrides.get(&id)?.navmesh
     }
 }

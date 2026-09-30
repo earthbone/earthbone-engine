@@ -8,14 +8,29 @@ use soe_esm::{plugin::Subrecord, GlobalFormId, Slot, Tag};
 use soe_papyrus::{vm::state::Writer, VmError};
 
 use super::record_overrides::{
-    raw_words, ActivatorRecordExtra, BookNoteKeyRecordExtra, ItemRecordExtra, ListRecordExtra,
-    NpcRecordExtra, RecordOverride,
+    raw_words, ListRecordExtra, NavmeshRecordExtra, NpcRecordExtra, PackRecordExtra, RecordOverride,
 };
 use super::save::{read_form_id, read_opt_form_id, write_form_id, write_opt_form_id, FormReader};
 use super::{World, T};
 
 fn bad(reason: &str) -> VmError {
     VmError::State(format!("record override: {reason}"))
+}
+
+fn write_extra_flags(w: &mut Writer, flags: Option<(u32, u16)>) {
+    w.bool(flags.is_some());
+    if let Some((mask, value)) = flags {
+        w.u32(mask);
+        w.u16(value);
+    }
+}
+
+fn read_extra_flags(r: &mut FormReader<'_, '_>) -> Result<Option<(u32, u16)>, VmError> {
+    if r.bool()? {
+        Ok(Some((r.u32()?, r.u16()?)))
+    } else {
+        Ok(None)
+    }
 }
 
 impl World {
@@ -68,60 +83,6 @@ impl World {
                 w.bool(list.section_present);
                 w.bytes(&list.entry_chances);
             }
-            // Versions before this extension already wrote NPC, race and
-            // leveled-list overrides without a marker here. Keep those
-            // version-37 records byte-compatible by writing the added
-            // metadata only for the newly supported base-object record tags.
-            if value.activator.is_some() || value.item.is_some() || value.book_note_key.is_some() {
-                w.bool(true);
-                let form_flags = value
-                    .activator
-                    .as_ref()
-                    .and_then(|extra| extra.form_flags)
-                    .or_else(|| value.item.as_ref().and_then(|extra| extra.form_flags))
-                    .or_else(|| {
-                        value
-                            .book_note_key
-                            .as_ref()
-                            .and_then(|extra| extra.form_flags)
-                    });
-                w.bool(form_flags.is_some());
-                if let Some((flags, unknown)) = form_flags {
-                    w.u32(flags);
-                    w.u16(unknown);
-                }
-                if let Some(extra) = &value.activator {
-                    w.bool(extra.value_changed);
-                    w.bool(extra.full_name_changed);
-                    w.bool(extra.speaker_changed);
-                } else if let Some(extra) = &value.item {
-                    match value.record.tag.as_bytes() {
-                        b"INGR" => {
-                            w.bool(extra.ingredient_use_changed);
-                            w.bool(extra.value_changed);
-                            w.bool(extra.fullname_changed);
-                            w.u32(extra.other_flags);
-                        }
-                        b"ALCH" | b"ENCH" => {
-                            w.bool(extra.value_changed);
-                            w.bool(extra.fullname_changed);
-                            w.u32(extra.other_flags);
-                        }
-                        _ => {
-                            w.bool(extra.value_changed);
-                            w.bool(extra.full_name_changed);
-                            w.u32(extra.unnamed_flags);
-                            w.bytes(&extra.trailing_data);
-                        }
-                    }
-                } else if let Some(extra) = &value.book_note_key {
-                    w.bool(extra.value_changed);
-                    w.bool(extra.full_name_changed);
-                    w.bool(extra.teaches_skill);
-                    w.bool(extra.read);
-                    w.bytes(&extra.opaque_suffix);
-                }
-            }
             w.len(value.links.len());
             for (raw, link) in &value.links {
                 w.u32(*raw);
@@ -166,18 +127,8 @@ impl World {
                             | b"LVLN"
                             | b"LVLI"
                             | b"LVSP"
-                            | b"ACTI"
-                            | b"TACT"
-                            | b"DOOR"
-                            | b"ARMO"
-                            | b"WEAP"
-                            | b"AMMO"
-                            | b"BOOK"
-                            | b"NOTE"
-                            | b"KEYM"
-                            | b"INGR"
-                            | b"ALCH"
-                            | b"ENCH"
+                            | b"PACK"
+                            | b"NAVM"
                     )
                 })
             {
@@ -195,18 +146,8 @@ impl World {
                             | b"LVLN"
                             | b"LVLI"
                             | b"LVSP"
-                            | b"ACTI"
-                            | b"TACT"
-                            | b"DOOR"
-                            | b"ARMO"
-                            | b"WEAP"
-                            | b"AMMO"
-                            | b"BOOK"
-                            | b"NOTE"
-                            | b"KEYM"
-                            | b"INGR"
-                            | b"ALCH"
-                            | b"ENCH"
+                            | b"PACK"
+                            | b"NAVM"
                     ) && !rec.is_deleted()
                 })
                 .ok_or_else(|| bad("missing record origin"))?;
@@ -250,103 +191,7 @@ impl World {
             } else {
                 None
             };
-            let has_base_object_extra = version >= 37
-                && matches!(
-                    original.tag.as_bytes(),
-                    b"ACTI"
-                        | b"TACT"
-                        | b"DOOR"
-                        | b"ARMO"
-                        | b"WEAP"
-                        | b"AMMO"
-                        | b"INGR"
-                        | b"ALCH"
-                        | b"ENCH"
-                        | b"BOOK"
-                        | b"NOTE"
-                        | b"KEYM"
-                );
-            let (activator, item, book_note_key) = if has_base_object_extra {
-                if !r.bool()? {
-                    return Err(bad("base-object metadata missing"));
-                }
-                let form_flags = if r.bool()? {
-                    Some((r.u32()?, r.u16()?))
-                } else {
-                    None
-                };
-                if matches!(original.tag.as_bytes(), b"ACTI" | b"TACT" | b"DOOR") {
-                    (
-                        Some(ActivatorRecordExtra {
-                            form_flags,
-                            value_changed: r.bool()?,
-                            full_name_changed: r.bool()?,
-                            speaker_changed: r.bool()?,
-                        }),
-                        None,
-                        None,
-                    )
-                } else if matches!(original.tag.as_bytes(), b"ARMO" | b"WEAP" | b"AMMO") {
-                    (
-                        None,
-                        Some(ItemRecordExtra {
-                            form_flags,
-                            value_changed: r.bool()?,
-                            full_name_changed: r.bool()?,
-                            unnamed_flags: r.u32()?,
-                            trailing_data: r.bytes()?.to_vec(),
-                            ..ItemRecordExtra::default()
-                        }),
-                        None,
-                    )
-                } else if matches!(original.tag.as_bytes(), b"INGR" | b"ALCH" | b"ENCH") {
-                    let ingredient_use_changed = if original.tag == T(b"INGR") {
-                        r.bool()?
-                    } else {
-                        false
-                    };
-                    let value_changed = r.bool()?;
-                    let fullname_changed = r.bool()?;
-                    let other_flags = r.u32()?;
-                    (
-                        None,
-                        Some(ItemRecordExtra {
-                            form_flags,
-                            value_changed,
-                            ingredient_use_changed,
-                            fullname_changed,
-                            other_flags,
-                            ..ItemRecordExtra::default()
-                        }),
-                        None,
-                    )
-                } else if matches!(original.tag.as_bytes(), b"BOOK" | b"NOTE" | b"KEYM") {
-                    let extra = BookNoteKeyRecordExtra {
-                        form_flags,
-                        value_changed: r.bool()?,
-                        full_name_changed: r.bool()?,
-                        teaches_skill: r.bool()?,
-                        read: r.bool()?,
-                        opaque_suffix: r.bytes()?.to_vec(),
-                    };
-                    (None, None, Some(extra))
-                } else {
-                    return Err(bad("metadata on an unsupported record type"));
-                }
-            } else {
-                (None, None, None)
-            };
-            if let Some((flags, _)) = book_note_key
-                .as_ref()
-                .and_then(|extra| extra.form_flags)
-                .or_else(|| {
-                    matches!(original.tag.as_bytes(), b"INGR" | b"ALCH" | b"ENCH")
-                        .then(|| item.as_ref().and_then(|extra| extra.form_flags))
-                        .flatten()
-                })
-            {
-                record.flags ^= flags;
-            }
+            let (pack, navmesh) = (None, None);
             let mut links = BTreeMap::new();
             let used = raw_words(original);
             let count = r.len()?;
@@ -372,11 +217,6 @@ impl World {
                 subrecords.push(Subrecord { tag, data });
             }
             record.subrecords = subrecords;
-            if matches!(record.tag.as_bytes(), b"ACTI" | b"TACT" | b"DOOR") {
-                if let Some((flags, _)) = activator.as_ref().and_then(|extra| extra.form_flags) {
-                    record.flags ^= flags;
-                }
-            }
             let present = raw_words(&record);
             if links.keys().any(|raw| !present.contains(raw)) {
                 return Err(bad("unused link token"));
@@ -389,36 +229,14 @@ impl World {
                     .order
                     .winner_ref(text_origin)
                     .is_some_and(|owner| self.order.file(owner.file).plugin.header.is_localized());
-            if matches!(record.tag.as_bytes(), b"ACTI" | b"TACT" | b"DOOR") {
-                let extra = activator.ok_or_else(|| bad("activator metadata missing"))?;
-                if item.is_some()
-                    || book_note_key.is_some()
-                    || list.is_some()
-                    || original_race.is_some()
-                    || body_tint.is_some()
-                    || pending_form_flags.is_some()
-                    || plain_full
-                    || temporary_for.is_some()
-                    || text_origin != id
-                    || (extra.speaker_changed && record.tag != T(b"TACT"))
-                    || !links.is_empty()
-                    || record.subrecords != original.subrecords
-                {
-                    return Err(bad("invalid activator override"));
-                }
-            } else if activator.is_some() {
-                return Err(bad("non-activator has activator metadata"));
-            } else if record.tag == T(b"NPC_") {
-                if list.is_some() {
+            if record.tag == T(b"NPC_") {
+                if list.is_some() || pack.is_some() || navmesh.is_some() {
                     return Err(bad("NPC has list metadata"));
-                }
-                if item.is_some() || book_note_key.is_some() {
-                    return Err(bad("NPC has base-object metadata"));
                 }
                 crate::npc::Npc::from_record(&record, localized)
                     .map_err(|e| VmError::State(e.to_string()))?;
             } else if record.tag == T(b"RACE") {
-                if list.is_some() {
+                if list.is_some() || pack.is_some() || navmesh.is_some() {
                     return Err(bad("race has list metadata"));
                 }
                 // Race overrides currently expose only WNAM. Reject other
@@ -437,8 +255,6 @@ impl World {
                     || original_race.is_some()
                     || body_tint.is_some()
                     || pending_form_flags.is_some()
-                    || item.is_some()
-                    || book_note_key.is_some()
                     || unchanged(&record) != unchanged(original)
                     || record.all(T(b"WNAM")).count() != 1
                 {
@@ -470,61 +286,33 @@ impl World {
                 {
                     return Err(bad("invalid race skin link"));
                 }
-            } else if matches!(record.tag.as_bytes(), b"ARMO" | b"WEAP" | b"AMMO") {
-                if item.is_none()
-                    || book_note_key.is_some()
-                    || list.is_some()
-                    || temporary_for.is_some()
+            } else if record.tag == T(b"PACK") || record.tag == T(b"NAVM") {
+                let expected_pack = record.tag == T(b"PACK");
+                if temporary_for.is_some()
                     || text_origin != id
                     || plain_full
                     || original_race.is_some()
                     || body_tint.is_some()
                     || pending_form_flags.is_some()
+                    || list.is_some()
                     || !links.is_empty()
-                    || record != *original
+                    || (expected_pack && navmesh.is_some())
+                    || (!expected_pack && pack.is_some())
+                    || unchanged_record(&record) != unchanged_record(original)
+                    || record.editor_id() != original.editor_id()
                 {
-                    return Err(bad("invalid saved item override"));
+                    return Err(bad("invalid saved PACK or NAVM override"));
                 }
-            } else if matches!(record.tag.as_bytes(), b"INGR" | b"ALCH" | b"ENCH") {
-                if item.is_none()
-                    || book_note_key.is_some()
-                    || list.is_some()
-                    || temporary_for.is_some()
-                    || text_origin != id
-                    || plain_full
-                    || original_race.is_some()
-                    || body_tint.is_some()
-                    || pending_form_flags.is_some()
-                    || !links.is_empty()
-                    || record.subrecords != original.subrecords
-                {
-                    return Err(bad("invalid saved item change"));
-                }
-            } else if matches!(record.tag.as_bytes(), b"BOOK" | b"NOTE" | b"KEYM") {
-                let extra = book_note_key
-                    .as_ref()
-                    .ok_or_else(|| bad("BOOK, NOTE or KEYM metadata missing"))?;
-                if item.is_some()
-                    || list.is_some()
-                    || temporary_for.is_some()
-                    || text_origin != id
-                    || plain_full
-                    || original_race.is_some()
-                    || body_tint.is_some()
-                    || pending_form_flags.is_some()
-                    || (extra.teaches_skill && record.tag != T(b"BOOK"))
-                    || (extra.read && !matches!(&record.tag.0, b"BOOK" | b"NOTE"))
-                    || record.flags
-                        != extra
-                            .form_flags
-                            .map_or(original.flags, |(flags, _)| original.flags ^ flags)
-                    || record.subrecords != original.subrecords
-                {
-                    return Err(bad("invalid BOOK, NOTE or KEYM record override"));
+                if expected_pack {
+                    crate::package::Package::from_record(&record)
+                        .map_err(|error| VmError::State(error.to_string()))?;
+                } else {
+                    soe_esm::records::navm::NavMesh::from_record(&record)
+                        .map_err(|error| VmError::State(error.to_string()))?;
                 }
             } else {
-                if book_note_key.is_some() || item.is_some() {
-                    return Err(bad("unexpected base-object metadata"));
+                if pack.is_some() || navmesh.is_some() {
+                    return Err(bad("list record has PACK or NAVM metadata"));
                 }
                 let tag = if record.tag == T(b"FLST") {
                     T(b"LNAM")
@@ -558,7 +346,6 @@ impl World {
                     || original_race.is_some()
                     || body_tint.is_some()
                     || pending_form_flags.is_some()
-                    || item.is_some()
                     || unchanged(original) != unchanged(&record)
                     || !new.starts_with(&old)
                     || new
@@ -591,9 +378,11 @@ impl World {
                     pending_form_flags,
                 },
                 list,
-                activator,
-                item,
-                book_note_key,
+                activator: None,
+                item: None,
+                book_note_key: None,
+                pack,
+                navmesh,
             };
             if values.insert(id, value).is_some() {
                 return Err(bad("duplicate NPC record"));
@@ -601,4 +390,87 @@ impl World {
         }
         Ok(values)
     }
+}
+
+pub(super) fn write_pack_navmesh_section(world: &World, w: &mut Writer) {
+    let entries: Vec<_> = world
+        .record_overrides
+        .iter()
+        .filter(|(_, value)| value.pack.is_some() || value.navmesh.is_some())
+        .collect();
+    if entries.is_empty() {
+        return;
+    }
+    w.len(entries.len());
+    for (id, value) in entries {
+        write_form_id(w, *id);
+        w.bool(value.pack.is_some());
+        if let Some(pack) = value.pack {
+            write_extra_flags(w, pack.form_flags);
+            w.bool(pack.waiting);
+            w.bool(pack.never_run);
+        }
+        w.bool(value.navmesh.is_some());
+        if let Some(navmesh) = value.navmesh {
+            write_extra_flags(w, navmesh.form_flags);
+            w.bool(navmesh.value_changed);
+            w.bool(navmesh.full_name_changed);
+        }
+    }
+}
+
+pub(super) fn read_pack_navmesh_section(
+    world: &mut World,
+    r: &mut FormReader<'_, '_>,
+) -> Result<(), VmError> {
+    let mut seen = std::collections::BTreeSet::new();
+    for _ in 0..r.len()? {
+        let id = read_form_id(r)?;
+        if !seen.insert(id) {
+            return Err(bad("duplicate PACK or NAVM section record"));
+        }
+        let pack = if r.bool()? {
+            Some(PackRecordExtra {
+                form_flags: read_extra_flags(r)?,
+                waiting: r.bool()?,
+                never_run: r.bool()?,
+            })
+        } else {
+            None
+        };
+        let navmesh = if r.bool()? {
+            Some(NavmeshRecordExtra {
+                form_flags: read_extra_flags(r)?,
+                value_changed: r.bool()?,
+                full_name_changed: r.bool()?,
+            })
+        } else {
+            None
+        };
+        let value = world
+            .record_overrides
+            .get_mut(&id)
+            .ok_or_else(|| bad("PACK or NAVM section names a missing override"))?;
+        match value.record.tag {
+            tag if tag == T(b"PACK") && pack.is_some() && navmesh.is_none() => {
+                value.pack = pack;
+            }
+            tag if tag == T(b"NAVM") && navmesh.is_some() && pack.is_none() => {
+                value.navmesh = navmesh;
+            }
+            _ => return Err(bad("PACK or NAVM section has mismatched record metadata")),
+        }
+    }
+    if world.record_overrides.iter().any(|(id, value)| {
+        (value.record.tag == T(b"PACK") && value.pack.is_none())
+            || (value.record.tag == T(b"NAVM") && value.navmesh.is_none())
+            || (!seen.contains(id) && (value.pack.is_some() || value.navmesh.is_some()))
+    }) {
+        return Err(bad("PACK or NAVM section is incomplete"));
+    }
+    Ok(())
+}
+
+fn unchanged_record(record: &soe_esm::Record) -> Vec<Subrecord> {
+    record.subrecords.clone()
 }

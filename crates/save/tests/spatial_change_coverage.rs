@@ -3,7 +3,7 @@
 
 //! Coverage of saved spatial records without assigning meanings to opaque bytes.
 
-use soe_save::Save;
+use soe_save::{Error, Save};
 use std::{
     collections::BTreeMap,
     path::{Path, PathBuf},
@@ -41,6 +41,8 @@ fn sav_27_corpus_accounts_for_spatial_changes_without_guessing_fields() {
     assert!(paths.len() >= 50);
     let mut totals = BTreeMap::from([("CELL", 0_usize), ("LCTN", 0), ("ECZN", 0)]);
     let mut groups = BTreeMap::<(&str, u8, u8, u32), Coverage>::new();
+    let mut typed = BTreeMap::from([("CELL", 0_usize), ("LCTN", 0), ("ECZN", 0)]);
+    let mut opaque_or_unsupported = BTreeMap::from([("CELL", 0_usize), ("LCTN", 0), ("ECZN", 0)]);
     let mut total_changes = 0;
     for path in &paths {
         let save = Save::open(path).unwrap();
@@ -60,6 +62,39 @@ fn sav_27_corpus_accounts_for_spatial_changes_without_guessing_fields() {
             assert_eq!(again.data, change.data);
             let payload = change.payload().unwrap();
             assert_eq!(again.payload().unwrap(), payload);
+            let decoded_bytes = match change.record_type() {
+                "CELL" => change
+                    .cell_change()
+                    .map(|change| change.map(|value| value.data_bytes())),
+                "LCTN" => change
+                    .location_change()
+                    .map(|change| change.map(|value| value.data_bytes())),
+                "ECZN" => change
+                    .encounter_zone_change()
+                    .map(|change| change.map(|value| value.data_bytes())),
+                _ => unreachable!(),
+            };
+            match decoded_bytes {
+                Ok(Some(bytes)) => {
+                    assert_eq!(
+                        bytes,
+                        payload.as_ref(),
+                        "{} flags={:#010x}",
+                        change.record_type(),
+                        change.change_flags
+                    );
+                    *typed.get_mut(change.record_type()).unwrap() += 1;
+                }
+                Ok(None) => panic!("spatial decoder declined {}", change.record_type()),
+                Err(Error::SpatialChange { .. }) => {
+                    *opaque_or_unsupported.get_mut(change.record_type()).unwrap() += 1;
+                }
+                Err(error) => panic!(
+                    "{} flags={:#010x}: {error}",
+                    change.record_type(),
+                    change.change_flags
+                ),
+            }
             let group = groups
                 .entry((
                     change.record_type(),
@@ -79,7 +114,7 @@ fn sav_27_corpus_accounts_for_spatial_changes_without_guessing_fields() {
         totals.values().sum::<usize>()
     );
     eprintln!(
-        "saves={} total_change_forms={total_changes} targets={totals:?}",
+        "saves={} total_change_forms={total_changes} targets={totals:?} typed={typed:?} opaque_or_unsupported={opaque_or_unsupported:?}",
         paths.len()
     );
     for ((kind, save_version, change_version, flags), group) in groups {

@@ -81,6 +81,22 @@ pub struct StoryEvent {
     pub parameters: Vec<StoryParameter>,
 }
 
+/// Story Manager event context waiting for node selection.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StoryManagerEvent {
+    /// Event family, such as `CraftItem`.
+    pub kind: StoryManagerEventKind,
+    /// Event arguments in the order defined by the CK event contract.
+    pub parameters: Vec<Option<GlobalFormId>>,
+}
+
+/// Story Manager event families emitted by gameplay systems.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StoryManagerEventKind {
+    /// A craft transaction created an item at a bench.
+    CraftItem,
+}
+
 /// Non-target fields of the QUST runtime section.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct RunData {
