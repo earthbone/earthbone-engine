@@ -102,6 +102,7 @@ pub fn supports_function(function: u16) -> bool {
     matches!(
         function,
         1 | 14
+            | 123
             | 128
             | 277
             | 408
@@ -132,6 +133,7 @@ pub fn supports_function(function: u16) -> bool {
             | 74
             | 136
             | 182
+            | 244
             | 264
             | 289
             | 359
@@ -171,6 +173,7 @@ pub fn supports_function(function: u16) -> bool {
             | 618
             | 641
             | 170
+            | 716
     )
 }
 
@@ -637,6 +640,12 @@ fn function_value(
                     != 0.0,
             )
         }
+        123 => {
+            // IsGreetingPlayer (wbDefinitionsTES5.pas:290) takes no parameters.
+            // Its subject is true during automatic ForceGreet selection.
+            no_parameter(c)?;
+            boolean(world.dialogue.greeting_actor == Some(subject))
+        }
         225 | 315 => {
             // GetPersuasionNumber and GetTotalPersuasionNumber take no parameter
             // either (wbDefinitionsTES5.pas:340,385, Raw_Function_Data.wikitext
@@ -654,6 +663,11 @@ fn function_value(
                 .values
                 .get("speechcraft")
                 .current()
+        }
+        244 => {
+            no_parameter(c)?;
+            let actor = world.actor(subject).ok_or(Error::Form(subject))?;
+            boolean(actor.restrained && !actor.unconscious)
         }
         403 => {
             let other = resolve_reference(world, context.owner, raw)?;
@@ -891,6 +905,10 @@ fn function_value(
             }
         }
         659 => boolean(context.tempering_enchanted.ok_or(Error::TemperingContext)?),
+        716 => {
+            no_parameter(c)?;
+            (world.clock.real_seconds / 3600.0) as f32
+        }
         other => return Err(Error::Function(other)),
     })
 }

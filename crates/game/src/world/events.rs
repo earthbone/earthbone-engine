@@ -4,10 +4,11 @@
 //! animation events, line of sight, scenes and sound instances. Each one
 //! queues into `pending` for the VM to deliver.
 
+use soe_esm::records::gameplay::Scene;
 use soe_esm::GlobalFormId;
 use soe_papyrus::{ObjectId, Value};
 
-use super::{Alloc, Handle, Pending, World, T};
+use super::{Alloc, Handle, Pending, World};
 
 impl World {
     /// An event to the scripts on `form`, the way `OnActivate` reaches a
@@ -122,9 +123,25 @@ impl World {
 
     /// `Scene.Start`: playing, and `OnBegin` to the scene's scripts.
     pub fn start_scene(&mut self, id: GlobalFormId, alloc: Alloc<'_>) -> bool {
-        if self.tag_of(id) != Some(T(b"SCEN")) || !self.scenes.insert(id) {
+        let Some(record) = self.record(id) else {
+            return false;
+        };
+        let Ok(scene) = Scene::from_record(record) else {
+            return false;
+        };
+        if scene.phases.is_empty()
+            || scene
+                .actions
+                .iter()
+                .any(|action| match (action.start_phase, action.end_phase) {
+                    (Some(start), Some(end)) => start > end || end as usize >= scene.phases.len(),
+                    _ => true,
+                })
+            || !self.scenes.insert(id)
+        {
             return false;
         }
+        self.scene_runs.insert(id, super::SceneRunState::default());
         let object = self.object_of(Handle::Form(id), alloc);
         self.pending.push(Pending::Event {
             object,
@@ -139,6 +156,7 @@ impl World {
         if !self.scenes.remove(&id) {
             return false;
         }
+        self.scene_runs.remove(&id);
         let object = self.object_of(Handle::Form(id), alloc);
         self.pending.push(Pending::Event {
             object,
@@ -146,6 +164,84 @@ impl World {
             args: Vec::new(),
         });
         true
+    }
+
+    /// Current zero-based phase for a playing scene.
+    pub fn scene_phase(&self, id: GlobalFormId) -> Option<u32> {
+        self.scene_runs.get(&id).map(|run| run.phase)
+    }
+
+    /// Mark an action slot complete when it ends in the current phase.
+    /// `action_slot` is its zero-based position in the SCEN Actions list.
+    pub fn complete_scene_action(&mut self, id: GlobalFormId, action_slot: u32) -> bool {
+        let Some(run) = self.scene_runs.get(&id) else {
+            return false;
+        };
+        let phase = run.phase;
+        let Some(record) = self.record(id) else {
+            return false;
+        };
+        let Ok(scene) = Scene::from_record(record) else {
+            return false;
+        };
+        if scene
+            .actions
+            .get(action_slot as usize)
+            .is_none_or(|action| {
+                action.end_phase != Some(phase)
+                    || action.start_phase.is_some_and(|start| start > phase)
+            })
+        {
+            return false;
+        }
+        self.scene_runs
+            .get_mut(&id)
+            .is_some_and(|run| run.completed_actions.insert(action_slot))
+    }
+
+    /// Advance once every action ending in the current phase has completed.
+    /// A scene with no remaining phase ends and raises `OnEnd`.
+    pub fn advance_scene_phase(&mut self, id: GlobalFormId, alloc: Alloc<'_>) -> bool {
+        let Some(run) = self.scene_runs.get(&id) else {
+            return false;
+        };
+        let phase = run.phase;
+        let completed = &run.completed_actions;
+        let Some(record) = self.record(id) else {
+            return false;
+        };
+        let Ok(scene) = Scene::from_record(record) else {
+            return false;
+        };
+        let required: Vec<u32> = scene
+            .actions
+            .iter()
+            .enumerate()
+            .filter(|(_, action)| {
+                action.end_phase == Some(phase)
+                    && action.start_phase.is_none_or(|start| start <= phase)
+            })
+            .map(|(slot, _)| slot as u32)
+            .collect();
+        if !required.iter().all(|slot| completed.contains(slot)) {
+            return false;
+        }
+        let next = phase + 1;
+        if next as usize >= scene.phases.len() {
+            return self.stop_scene(id, alloc);
+        }
+        if let Some(run) = self.scene_runs.get_mut(&id) {
+            run.phase = next;
+            run.completed_actions.retain(|slot| {
+                scene
+                    .actions
+                    .get(*slot as usize)
+                    .is_some_and(|action| action.end_phase.is_some_and(|end| end > next))
+            });
+            true
+        } else {
+            false
+        }
     }
 
     /// `Sound.Play`: a fresh instance id, never zero.

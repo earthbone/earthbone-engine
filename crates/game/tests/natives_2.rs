@@ -339,14 +339,20 @@ fn test_plugin() -> Plugin {
             .sub(T(b"DNAM"), le(0)),
     );
     p.push_top(
-        Record::new(T(b"SCEN"), SCENE).zsub(EDID, "TestScene").sub(
-            T(b"VMAD"),
-            Vmad {
-                scripts: vec![ScriptEntry::new("SceneScript")],
-                ..Default::default()
-            }
-            .write(T(b"SCEN")),
-        ),
+        Record::new(T(b"SCEN"), SCENE)
+            .zsub(EDID, "TestScene")
+            .sub(T(b"HNAM"), [])
+            .zsub(T(b"NAM0"), "First")
+            .sub(T(b"NEXT"), [])
+            .sub(T(b"HNAM"), [])
+            .sub(
+                T(b"VMAD"),
+                Vmad {
+                    scripts: vec![ScriptEntry::new("SceneScript")],
+                    ..Default::default()
+                }
+                .write(T(b"SCEN")),
+            ),
     );
     p.push_top(Record::new(T(b"SNDR"), SOUND).zsub(EDID, "TestSound"));
     p.push_top(Record::new(T(b"WOOP"), WORD).zsub(EDID, "WordFus"));

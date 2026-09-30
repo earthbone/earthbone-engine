@@ -192,6 +192,21 @@ faction can legally exist without one. No Papyrus native calls this
 function yet, `SendAssaultAlarm` and similar witness-driven natives are
 later work that can build on it.
 
+**Vendor service lookup.** `Game::resolve_vendor_service` reads the winning
+`FACT` vendor flag, `VEND`, `VENC`, `VENV`, `PLVD` and faction conditions. It evaluates
+conditions for a loaded merchant with the player as target and applies the
+authored hours. It filters direct and leveled stock from the merchant container
+through the buy/sell list, including its inverse-list flag, and reads gold
+from the same container. An unloaded merchant has an
+unavailable service with no exposed merchandise or gold, matching the CK
+`ShowBarterMenu_-_Actor` note. The result retains the service radius and
+stolen-item policy. Leveled stock uses the shared LVLI resolver, which
+retains entry metadata. This is service data for a caller. Trade transactions
+and the barter menu are separate work.
+The location check supports near-reference, in-cell, near-editor-location and
+near-self modes. Other PLVD modes return a typed error. The 32-bit radius and
+location modes follow CommonLibSSE `TESFaction.h` and UESP `FACT.wikitext`.
+
 ## Conformance table
 
 Counts from `natives::register`: 364 natives with state behind them and 177
@@ -312,8 +327,17 @@ Current behavior and compatibility limits:
   listeners on that sender and name, `World::sleep_start`, `sleep_stop` and
   `line_of_sight` are the host's hooks for the other two.
 - `Message.Show` puts a `DNAM` message-box message in the box queue and any
-  other in the notification queue, and returns button 0. `Scene.Start` and
-  `Stop` deliver `OnBegin` and `OnEnd` to the scene's scripts. `Sound.Play`
+  other in the notification queue, and returns button 0. A scene starts at
+  phase zero. `World::complete_scene_action` marks an action slot complete,
+  and `World::advance_scene_phase` waits for every action ending in the current
+  phase before advancing. Reaching the last phase stops the scene and delivers
+  `OnEnd`. `Scene.Start` and `Stop` deliver `OnBegin` and `OnEnd` to the
+  scene's scripts. SOEW version 37 stores the current phase and completed
+  action slots. Action slots use zero-based positions from the SCEN action
+  list because two vanilla scenes reuse action numbers. The SCEN layout follows
+  `TES5Edit/Core/wbDefinitionsTES5.pas` and
+  `uesp-modfileformat/SCEN.wikitext`. Timer expiry, CTDA evaluation, automatic
+  action dispatch, and the scene flags are not implemented. `Sound.Play`
   hands out instance ids. `Spell.Cast` records the cast, no effect applies.
 - `SetGameSetting*` writes an overlay `GetGameSetting*` reads first.
 - A quest start delivers `OnInit` to its alias objects too, the ones a
@@ -1035,8 +1059,10 @@ notification fired, and the alias resolved to the lever.
   inheritance boundaries documented in [actor-values.md](actor-values.md).
 - Weapon combat remains unfinished. Dialogue and magic have the limited
   execution paths documented below. Packages run three
-  procedures, see the Packages section for the rest. Scenes play as a flag
-  with `OnBegin` and `OnEnd`, no phases or actions. Perks are a set on the
+  procedures, see the Packages section for the rest. Scene phase advancement
+  is action-gated, but action execution, phase and scene CTDA evaluation,
+  timer lifetimes, and repeat-while-conditions behavior are not implemented.
+  Perks are a set on the
   actor, no entry point applies. Leveled lists are never rolled. Spell casts
   are recorded, no effect applies. Crime has bounty and infamy ledgers, no
   jail or arrest.
@@ -1278,7 +1304,7 @@ earlier member can change inventory or queue events.
 Active-effect recipients remain pending with magic execution.
 
 The condition evaluator implements functions 47, 56, 58, 59, 72, 74, 136,
-182, 264, 277, 289, 359, 448, 543, 560, 629, 630 and 659. This is a bounded set,
+182, 244, 264, 277, 289, 359, 448, 543, 560, 629, 630, 659 and 716. This is a bounded set,
 not the entire CTDA contract. It supports ordered AND/OR groups, numeric or
 global comparisons, explicit references and caller-supplied quest aliases.
 Reserved PlayerRef resolves to the runtime player even without a placed record.
@@ -1298,6 +1324,20 @@ and an explicit condition error. The CK page records keyword failures on actor
 inventories and CK-defined reference inventories. The engine uses its shared
 inventory totals for both actors and containers, so keyword queries have the
 same defined result for either holder.
+
+Condition functions 244 and 716 implement `GetRestrained` and
+`GetRealHoursPassed`. `GetRestrained` reads actor state, rejects either parameter,
+and reports false when an actor is unconscious because the CK's `SetRestrained`
+contract excludes the restrained and unconscious states. `GetRealHoursPassed`
+returns `GameClock.real_seconds` in hours and rejects either parameter. xEdit's
+`wbConditionFunctions` declares both functions parameterless. The UESP raw function
+table describes real hours as elapsed real-life play time and identifies
+`IsWaterObject` as a drinking-animation query. No usable local CK behavior contract
+was found for functions 255, 265, 266, 267, 304 or 332. Those function IDs remain
+unsupported and return `conditions::Error::Function`, rather than inventing vendor,
+weather or water state. Sources: `TES5Edit/Core/wbDefinitionsTES5.pas`,
+`uesp-modfileformat/Raw_Function_Data.wikitext`, CK
+`SetRestrained_-_Actor.wikitext` and `Game_Script.wikitext`.
 
 Sources consulted were local xEdit `wbDefinitionsTES5.pas` for CTDA, COBJ and
 FURN WBDT, CK `GetItemCount_-_ObjectReference.wikitext` for the query forms,
@@ -1362,6 +1402,20 @@ and Scene topics and names the behaviour for Scene alone, so the Custom
 subtype's meaning is not established by any of the three. This engine applies
 the same rule wherever the byte is set, which is what xEdit and CommonLib
 describe, and no capture from the game contradicts it.
+
+When no accepted INFO in a topic passes its conditions, the selector can use
+an eligible INFO marked Info Refusal (INFO response flag bit 4). The refusal
+INFO's own conditions still apply. It is a fallback and does not replace an
+accepted INFO whose conditions pass.
+
+When an INFO has Invisible Continue (response flag bit 6) and its response
+finishes, the conversation automatically selects the first ranked eligible
+linked topic and starts its response. Conditions and other INFO eligibility
+rules still apply. The host receives the next response directly, without a
+choice prompt. Each INFO's begin and end fragments run once for its own
+selection and completion. The flag and linked-topic fields follow xEdit
+`wbDefinitionsTES5.pas` and UESP `INFO.wikitext`. The available CK dialogue
+pages document dialogue target state, but not this continuation lifecycle.
 
 When a DIAL sets Do All Before Repeating, selection first applies those INFO
 eligibility rules, then suppresses the INFO records already selected for that
@@ -1438,12 +1492,48 @@ verify named fragments changing quest stages. DLG-12 now resolves the localized
 text through the conversation API. Subtitle widgets and audible lines remain
 outside this test.
 
-Remaining dialogue work includes missing conditions, automatic greetings and
-ForceGreet, refusal/invisible continuation,
-do-all-before-repeating, walk-away topic selection, scenes,
-services, complete alias behavior and interruption rules. Godot activation,
+Remaining dialogue work includes missing conditions, ForceGreet approach
+packages, walk-away topic selection, scene action execution and timers,
+barter transactions, complete alias behavior and wider interruption rules. Godot activation,
 menus, voice assets, LIP and idle playback are not connected to this API. This increment does not establish playable dialogue
 or complete the broader gameplay goal.
+
+DLG-02 starts a greeting when a driven, living actor enters the current
+`fAIInDialogueModeWithPlayerDistance` range of the player in the same cell or
+exterior worldspace. The DIAL must use the Player category and ForceGreet
+subtype, encoded as legacy DATA subtype 1 or SNAM `PFGT`. The normal dialogue
+choice path evaluates its quest and INFO conditions and starts the highest
+priority greeting among actors entering range on that tick. A per-Game actor
+set records which actors were already in range, so another gameplay tick does
+not start the line again.
+Leaving range clears that actor's entry and allows a later greeting. Actors
+that are dead, in combat, unconscious, disallowed from PC dialogue, disabled,
+or translucent without the ghost flag are skipped. The range latch is runtime
+state and is not part of the engine save.
+
+CTDA function 123, `IsGreetingPlayer`, takes no parameters and returns true for
+the current actor while automatic ForceGreet choices are evaluated. Ordinary
+conversation choices return false for that predicate.
+
+The DIAL category and legacy subtype fields follow xEdit
+`wbDefinitionsTES5.pas`. The SNAM subtype names and the fact that SNAM replaces
+the legacy subtype follow UESP `DIAL.wikitext`. The alpha and ghost eligibility
+rule follows CK `SetAlpha_-_Actor.wikitext`. CK `MoveTo_-_ObjectReference`
+describes ForceGreet as an approach procedure. This increment selects dialogue
+after an actor is already in range and does not move actors toward the player.
+
+DLG-21 lets an eligible ForceGreet topic interrupt an open conversation when
+its owning quest has strictly higher priority than the current topic's quest.
+The incoming topic uses the ordinary quest and INFO condition checks. An
+active INFO's end fragment runs before its conversation closes and the new
+greeting starts. If it has no end fragment, closure still proceeds. Equal or
+lower priority and ineligible greetings leave the conversation in place. The
+range-entry latch prevents the same actor from interrupting again until it
+leaves and re-enters range. xEdit `wbRecord(QUST)` and UESP `QUST.wikitext`
+place quest priority in `DNAM` and describe its range as 0 to 100. The local
+CK dialogue corpus contains actor dialogue-state pages, but no page describing
+the interruption lifecycle. The callback sequence here reuses the existing
+INFO fragment lifecycle.
 
 DLG-07 adds the persuasion and intimidation CTDA functions: IsIntimidatedbyPlayer
 (116), GetPersuasionNumber (225), GetTotalPersuasionNumber (315) and
@@ -1468,8 +1558,9 @@ LastBribedIntimidated yet either, so `IsIntimidatedbyPlayer` reads false until
 a bribe or intimidate native writes it.
 
 DLG-04 implements favor spending, INFO response DATA/ENAM flag bit 14 in
-`wbDefinitionsTES5.pas` ("Spends Favor Points"). `info_eligible` now only
-rejects the refusal and invisible-continuation bits with `Error::Unsupported`.
+`wbDefinitionsTES5.pas` ("Spends Favor Points"). `info_eligible` now treats
+refusal records as fallback responses. Invisible continuation runs after an
+INFO response completes.
 A favor-spending response instead reads the INFO's CNAM favor level (0 None,
 1 Small, 2 Medium, 3 Large) and drops the topic from `dialogue_choices`
 (`Ok(false)`, no error) once the speaker's balance cannot cover that level's
