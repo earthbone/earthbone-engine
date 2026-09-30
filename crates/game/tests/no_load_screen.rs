@@ -37,6 +37,7 @@ fn events(g: &Game) -> Vec<(ObjectId, String)> {
             Pending::Event { object, name, .. } => Some((*object, name.clone())),
             Pending::Call { .. }
             | Pending::BindEffect { .. }
+            | Pending::BindReference { .. }
             | Pending::DeferredDeath { .. }
             | Pending::ActorDeath { .. } => None,
         })

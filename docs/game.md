@@ -2429,6 +2429,28 @@ save state. The check names no vanilla records, so it has no
 `SKYRIM_DATA`-gated case. Summon combat behavior, command and banish effects,
 visuals, sounds, and host presentation remain outside this check.
 
+### Spawn Scripted Ref, MAG-64
+
+A target-location cast whose effects all use archetype 43 resolves the MGEF's
+EXPL link and that explosion's placed-object link in their owning plugin
+contexts. It places one dynamic reference at the target reference's transform.
+The reference uses the placed object's Papyrus class and receives scripts and
+properties from that base object's winning VMAD. Its dynamic FormID and VM
+object state survive SOEW save/load. An invalid or missing explosion or placed
+object returns a typed error before applying the cast. Other target-location
+archetypes and mixed-archetype target-location spells remain unsupported.
+
+The layout comes from local
+`TES5Edit/Core/wbDefinitionsTES5.pas` (`MGEF.DATA` and `EXPL.DATA`) and
+`uesp-modfileformat/MGEF.wikitext` and `EXPL.wikitext`. The Creation Kit
+[Magic Effect page](https://ck.uesp.net/wiki/Magic_Effect) says Spawn Scripted
+Ref uses the explosion's placed object and identifies Throw Voice as an
+example. Script attachment follows this crate's VMAD and `Game::bind` path.
+`mag_64_spawn_scripted_ref_places_authored_base_with_scripts_and_preserves_identity_on_load`
+checks placement, base identity, VMAD attachment and save/load identity with
+synthetic records. The check names no vanilla records, so no data-gated case
+applies.
+
 Validation on the installed five-master load order found 1,354 non-deleted
 SPEL winners. The direct path accepted 178 spells and created 205 applications.
 The survey checks definitions, identity and removal without running their scripts.
