@@ -227,9 +227,11 @@ Spells, levelled spells, perks, outfits, sleep outfits, factions, packages and
 shouts reach actor state. SPID package field 5 is a zero-based insertion
 position in the actor base's `PKID` list. The actor retains those entries and
 positions in a named actor save section, and `ai::candidates` inserts them into
-the base package list before schedule and condition evaluation. Repeated shout
-rules for one form add it once to the learned shout set, which is included in
-the engine save format. Items reach the inventory. SPID `Skin` rules update
+the base package list before schedule and condition evaluation. A package
+FormList contributes its package members in list order. A package already in
+the list is not inserted again. Repeated shout rules for one form add it once
+to the learned shout set, which is included in the engine save format. Items
+reach the inventory. SPID `Skin` rules update
 the NPC base's `WNAM` override and actor appearance assembly retains the
 resolved `ARMO` identity and uses that record's armor addons. Generic `Form`
 rules infer the supported type

@@ -305,7 +305,19 @@ pub fn candidates(world: &mut World, actor: GlobalFormId) -> Vec<Candidate> {
         let mut overrides = package_overrides;
         overrides.sort_by_key(|(index, _)| *index);
         for (index, package) in overrides {
-            packages.insert(index.min(packages.len()), package);
+            let distributed = if world.tag_of(package) == Some(T(b"FLST")) {
+                world.form_list(package).cloned().unwrap_or_default()
+            } else {
+                vec![package]
+            };
+            let mut at = index.min(packages.len());
+            for package in distributed {
+                if packages.contains(&package) {
+                    continue;
+                }
+                packages.insert(at, package);
+                at += 1;
+            }
         }
         for package in packages {
             out.push(Candidate {
