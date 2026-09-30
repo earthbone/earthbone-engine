@@ -292,7 +292,7 @@ impl Game {
     /// Invalid range settings, positions, dialogue records or conditions are
     /// reported to the tick logger without changing the greeting latch.
     pub(crate) fn update_automatic_greetings(&mut self) -> Result<(), Error> {
-        let (player, range, actors) = {
+        let (player, range, actors, active_speaker) = {
             let mut world = self.world.borrow_mut();
             let player = world.player();
             let Some(Value::Float(range)) =
@@ -303,7 +303,16 @@ impl Game {
             if !range.is_finite() || range < 0.0 {
                 return Err(Error::State("invalid dialogue distance setting"));
             }
-            (player, range, world.loaded_actors())
+            (
+                player,
+                range,
+                world.loaded_actors(),
+                world
+                    .dialogue
+                    .session
+                    .as_ref()
+                    .map(|session| session.speaker),
+            )
         };
 
         let (player_position, player_cell) = {
@@ -330,6 +339,9 @@ impl Game {
                     continue;
                 }
                 let ghost = state.ghost;
+                let force_greet = world
+                    .actor(actor)
+                    .is_some_and(|state| crate::ai::is_force_greet_active(&state.ai));
                 let Some(reference) = world.reference(actor) else {
                     continue;
                 };
@@ -369,7 +381,10 @@ impl Game {
                     .sum();
                 if distance_squared <= f64::from(range).powi(2) {
                     nearby.insert(actor);
-                    if !self.greeting_range_actors.contains(&actor) {
+                    let already_greeting = active_speaker == Some(actor);
+                    if (!self.greeting_range_actors.contains(&actor) || force_greet)
+                        && !already_greeting
+                    {
                         entering.push(actor);
                     }
                 }
@@ -504,8 +519,16 @@ impl Game {
     /// An interruption that completes the line calls `finish_dialogue_info` first.
     pub fn close_dialogue(&mut self) {
         let mut world = self.world.borrow_mut();
+        let speaker = world
+            .dialogue
+            .session
+            .as_ref()
+            .map(|session| session.speaker);
         world.dialogue.session = None;
         world.dialogue.greeting_actor = None;
+        if let Some(speaker) = speaker {
+            crate::ai::finish_force_greet(&mut world, speaker);
+        }
     }
 
     /// End an out-of-range conversation and dispatch its active INFO end fragment.
@@ -1125,17 +1148,27 @@ impl Game {
         }
         self.run_until_idle(64);
         let mut world = self.world.borrow_mut();
-        if info
+        let goodbye = info
             .data
             .as_ref()
-            .is_some_and(|data| data.flags() & GOODBYE != 0)
-        {
+            .is_some_and(|data| data.flags() & GOODBYE != 0);
+        let speaker = world
+            .dialogue
+            .session
+            .as_ref()
+            .map(|session| session.speaker);
+        if goodbye {
             world.dialogue.session = None;
             world.dialogue.greeting_actor = None;
         } else if let Some(session) = &mut world.dialogue.session {
             session.current_info = None;
             session.last_info = Some(info_id);
             session.response_index = 0;
+        }
+        if goodbye {
+            if let Some(speaker) = speaker {
+                crate::ai::finish_force_greet(&mut world, speaker);
+            }
         }
         Ok(())
     }

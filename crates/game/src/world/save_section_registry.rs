@@ -33,6 +33,7 @@ pub(crate) const ACTOR_SECTIONS: &[Section<ActorState>] = &[
     Section { name: "PRG-01", write: super::super::progression::write_skill_experience, read: super::super::progression::read_skill_experience },
     Section { name: "AI-88", write: super::furniture::write_furniture_seat, read: super::furniture::read_furniture_seat },
     Section { name: "UI-14", write: super::actors::write_ui_14, read: super::actors::read_ui_14 },
+    Section { name: "DLG-14", write: write_force_greet, read: read_force_greet },
 ];
 
 /// Sections read and written once per reference, at the end of every
@@ -77,6 +78,22 @@ fn read_reference_flags(
     reader: &mut super::save::FormReader<'_, '_>,
 ) -> Result<(), soe_papyrus::VmError> {
     state.record_flags = reader.u32()?;
+    Ok(())
+}
+
+fn write_force_greet(state: &ActorState, writer: &mut soe_papyrus::vm::state::Writer) {
+    if state.ai.procedure == crate::ai::Procedure::ForceGreet {
+        writer.bool(true);
+    }
+}
+
+fn read_force_greet(
+    state: &mut ActorState,
+    reader: &mut super::save::FormReader<'_, '_>,
+) -> Result<(), soe_papyrus::VmError> {
+    if reader.bool()? {
+        state.ai.procedure = crate::ai::Procedure::ForceGreet;
+    }
     Ok(())
 }
 

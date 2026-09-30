@@ -76,6 +76,8 @@ pub enum Procedure {
     Sandbox,
     Sleep,
     Patrol,
+    /// Approach the player for an eligible ForceGreet conversation.
+    ForceGreet,
     /// A mental timer. The movement flag is retained for concurrent procedures.
     Wait {
         stop_movement: bool,
@@ -763,6 +765,7 @@ fn begin_procedure(
         Procedure::None
         | Procedure::Wait { .. }
         | Procedure::Patrol
+        | Procedure::ForceGreet
         | Procedure::Unsupported(_) => {}
     }
 }
@@ -1428,6 +1431,30 @@ fn step(world: &mut World, actor: GlobalFormId, dt: f32, alloc: Alloc<'_>) {
     } else {
         tree::enter(world, actor, &mut ai);
     }
+    if ai.procedure == Procedure::ForceGreet {
+        let procedure_active = ai
+            .tree
+            .as_ref()
+            .is_some_and(|tree| tree.active && !tree.finished);
+        let greeting_open = world
+            .dialogue
+            .session
+            .as_ref()
+            .is_some_and(|session| session.speaker == actor);
+        if procedure_active && !greeting_open {
+            let player = world.player();
+            if let Some(reference) = world.reference(player) {
+                ai.destination = Some(reference.position);
+                ai.center_cell = reference.cell;
+                ai.arrived = false;
+            }
+        } else {
+            ai.destination = None;
+            ai.path.clear();
+            ai.path_cells.clear();
+            ai.arrived = true;
+        }
+    }
     if ai.procedure == Procedure::Patrol && ai.tree.as_ref().is_some_and(|tree| tree.active) {
         patrol::prepare(world, &mut ai);
     }
@@ -1563,6 +1590,30 @@ fn step(world: &mut World, actor: GlobalFormId, dt: f32, alloc: Alloc<'_>) {
     }
 }
 
+/// Complete the active ForceGreet branch when its conversation ends.
+pub(crate) fn finish_force_greet(world: &mut World, actor: GlobalFormId) {
+    let Some(mut ai) = world
+        .actor(actor)
+        .map(|state| std::mem::take(&mut state.ai))
+    else {
+        return;
+    };
+    if ai.procedure == Procedure::ForceGreet {
+        tree::succeeded(world, &mut ai);
+    }
+    if let Some(state) = world.actor(actor) {
+        state.ai = ai;
+    }
+}
+
+pub(crate) fn is_force_greet_active(ai: &AiState) -> bool {
+    ai.procedure == Procedure::ForceGreet
+        && ai
+            .tree
+            .as_ref()
+            .is_some_and(|tree| tree.active && !tree.finished)
+}
+
 // ----- save and load -----
 
 fn write_opt_form_id(w: &mut Writer, id: Option<GlobalFormId>) {
@@ -1608,6 +1659,7 @@ pub(crate) fn write_record_state(w: &mut Writer, a: &AiState) {
             w.u8(6);
             patrol::write(w, a.patrol.as_ref());
         }
+        Procedure::ForceGreet => w.u8(7),
         Procedure::Wait { stop_movement } => {
             w.u8(5);
             w.bool(*stop_movement);
@@ -1706,6 +1758,7 @@ pub(crate) fn read_state_mapped(r: &mut FormReader<'_, '_>) -> Result<AiState, V
             a.patrol = Some(patrol::read(r)?);
             Procedure::Patrol
         }
+        7 => Procedure::ForceGreet,
         5 => {
             let stop_movement = r.bool()?;
             if r.bool()? {
