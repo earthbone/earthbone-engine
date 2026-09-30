@@ -181,7 +181,21 @@ wikitext pages as of 2026-09-19. When an individual page is absent, class pages
 and `engine-refs/skse64/scripts/vanilla` can establish the contract.
 [The reference audit](reference-audit.md) records missed contracts and gaps.
 
-**Shared reference placement.** `World::ref_placement` (in
+**Game presentation natives, SCR-29.** `Game.SetHudCartMode` updates the
+transient `World::hud_cart_mode` flag. `ShowRaceMenu`, `TriggerScreenBlood`
+and `PlayBink` enqueue typed `GameUiRequest` values for the host, preserving
+the supplied value, file name and playback flags. An empty Bink file name
+returns `GameUiError::EmptyVideoName` and queues nothing. Because these
+Papyrus calls return void, rejected requests are recorded in
+`World::native_errors`. The existing `AdvanceSkill` native delegates to
+`World::advance_skill`; invalid use is recorded there as a native diagnostic.
+The signatures and short behavior descriptions come from the local
+`ck-wiki/Game_Script.wikitext`, since individual pages for these five
+functions are absent. Skill effects use the record-backed AVIF and GMST path
+documented in [progression](progression.md).
+
+**Shared reference placement.** The host reads world state out and never
+writes it back. `World::ref_placement` (in
 `world/refs.rs`) is the read-only view a host uses to keep its own rendering
 and collision resources in step with a reference's runtime state: current
 position, rotation, scale and enable, in the small, `Copy` `RefPlacement`

@@ -19,7 +19,9 @@ use soe_papyrus::{NativeCall, NativeReturn, ObjectId, Value, Vm};
 use crate::clock::GameClock;
 use crate::combat::Hand;
 use crate::conditions;
-use crate::world::{reaction, AnimationListener, Handle, LeveledEntry, LosListener, World};
+use crate::world::{
+    reaction, AnimationListener, BinkOptions, Handle, LeveledEntry, LosListener, World,
+};
 
 pub type Shared = Rc<RefCell<World>>;
 
@@ -1772,7 +1774,36 @@ fn game(vm: &mut Vm, w: &Shared) {
         let skill = text(&call.arg(0));
         let magnitude = call.arg(1).as_float();
         let player = world.player();
-        let _ = world.advance_skill(player, &skill, magnitude);
+        if let Err(error) = world.advance_skill(player, &skill, magnitude) {
+            world.report_native_error("Game.AdvanceSkill", error.to_string());
+        }
+        none()
+    });
+    global!(vm, w, "Game", "SetHudCartMode", |world, call| {
+        world.set_hud_cart_mode(call.arg(0).as_bool());
+        none()
+    });
+    global!(vm, w, "Game", "ShowRaceMenu", |world, _call| {
+        world.show_race_menu();
+        none()
+    });
+    global!(vm, w, "Game", "TriggerScreenBlood", |world, call| {
+        world.trigger_screen_blood(call.arg(0).as_int());
+        none()
+    });
+    global!(vm, w, "Game", "PlayBink", |world, call| {
+        let file_name = text(&call.arg(0));
+        if let Err(error) = world.play_bink(
+            &file_name,
+            BinkOptions {
+                interruptible: call.arg(1).as_bool(),
+                mute_audio: call.arg(2).as_bool(),
+                mute_music: call.arg(3).as_bool(),
+                letterbox: call.arg(4).as_bool(),
+            },
+        ) {
+            world.report_native_error("Game.PlayBink", error.to_string());
+        }
         none()
     });
     global!(vm, w, "Game", "ServeTime", |world, _call| {
@@ -3418,10 +3449,6 @@ fn stubs(vm: &mut Vm) -> usize {
         ("Game", "RequestAutoSave"),
         ("Game", "ForceFirstPerson"),
         ("Game", "ForceThirdPerson"),
-        ("Game", "SetHudCartMode"),
-        ("Game", "ShowRaceMenu"),
-        ("Game", "TriggerScreenBlood"),
-        ("Game", "PlayBink"),
         ("Game", "PrecacheCharGen"),
         ("Game", "PrecacheCharGenClear"),
         ("Game", "ShowTrainingMenu"),

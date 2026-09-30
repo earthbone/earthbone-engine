@@ -116,6 +116,17 @@ unmeasured. Static world collision is not evidence of hazard execution.
 The Godot layer decides nothing. That is what keeps the tests engine-free, and it is the
 seam a VulkanSceneGraph or other host would reuse: everything above the layer is plain data.
 
+### Game native presentation signals, SCR-29
+
+`PlayerNode` drains transient `GameUiRequest` values from the shared `World`
+after each gameplay tick. It emits `race_menu_requested`,
+`screen_blood_requested(value)` and `bink_requested(file_name, interruptible,
+mute_audio, mute_music, letterbox)` with the values supplied by the Papyrus
+native. A change to `World::hud_cart_mode` emits
+`hud_cart_mode_changed(enabled)`. These signals are the host presentation
+boundary. A connected UI or media presenter supplies the corresponding race
+editor, overlay and video playback.
+
 `godot/` holds a project stub and `soe.gdextension` pointing at `target/`, so `cargo build`
 plus opening `godot/` in a 4.4 or later editor loads the extension. The initial
 round had no Godot binary. Later sections record actual host runs, and the
