@@ -102,7 +102,8 @@ pub fn resolve_vendor_service(
         .ok_or(VendorError::Invalid("missing or invalid FACT.VENV"))?;
     let start_hour = read_u16(&vendor[0..2]).ok_or(VendorError::Invalid("invalid VENV start"))?;
     let end_hour = read_u16(&vendor[2..4]).ok_or(VendorError::Invalid("invalid VENV end"))?;
-    let radius = read_u32(&vendor[4..8]).ok_or(VendorError::Invalid("invalid VENV radius"))?;
+    let radius =
+        u32::from(read_u16(&vendor[4..6]).ok_or(VendorError::Invalid("invalid VENV radius"))?);
     if vendor[8] > 1 || vendor[9] > 1 {
         return Err(VendorError::Invalid("invalid VENV trade flags"));
     }

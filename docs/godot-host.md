@@ -45,6 +45,11 @@ The race flag and head-part field definitions were read in local
 race and sex change screen. This row presents race and sex only. Head-part
 editing and appearance rendering remain outside this menu.
 
+`godot/ui_07_race_menu_test.gd` opens the live menu, presses a different race
+record and sex button, and confirms through the connected Control callbacks.
+Run it with `SKYRIM_DATA` set and the extension loaded in
+`target/godot-check`.
+
 The [large world physics survey](physics.md#large-world-boundary-survey-2026-09-19)
 records the signed cell offsets, tolerances and Jolt measurements for the
 `large-world-physics` branch. Its Rust mesh conversion test and Godot server

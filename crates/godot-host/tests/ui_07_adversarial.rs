@@ -41,5 +41,11 @@ fn ui_07_malformed_race_data_is_not_offered() {
     let entries = race_menu::entries(&Game::new(order));
 
     assert_eq!(entries.len(), 1);
-    assert_eq!(entries[0].race, GlobalFormId { file: 0, object: 0x702 });
+    assert_eq!(
+        entries[0].race,
+        GlobalFormId {
+            file: 0,
+            object: 0x702
+        }
+    );
 }

@@ -18,9 +18,14 @@ fn ui_11_option_ids_stay_within_signed_papyrus_integer_range() {
 #[test]
 fn ui_11_enabled_selection_delivers_one_callback_with_the_skyui_id() {
     let mut order = LoadOrder::new();
-    order.add("Fixture.esp", Plugin::new(FileHeader::default())).unwrap();
+    order
+        .add("Fixture.esp", Plugin::new(FileHeader::default()))
+        .unwrap();
     let mut game = Game::new(order);
-    let form = GlobalFormId { file: 0, object: 0x123 };
+    let form = GlobalFormId {
+        file: 0,
+        object: 0x123,
+    };
     let function = FunctionBuilder::new("OnOptionSelect", "None")
         .param("option", "Int")
         .ins(Assign, vec![ident("last"), ident("option")])
@@ -42,6 +47,12 @@ fn ui_11_enabled_selection_delivers_one_callback_with_the_skyui_id() {
     assert!(page.select(&mut game, form, option));
     assert!(!page.select(&mut game, form, disabled));
 
-    assert_eq!(game.vm.get_var(object, "McmObserver", "calls"), Some(Value::Int(1)));
-    assert_eq!(game.vm.get_var(object, "McmObserver", "last"), Some(Value::Int(0x100)));
+    assert_eq!(
+        game.vm.get_var(object, "McmObserver", "calls"),
+        Some(Value::Int(1))
+    );
+    assert_eq!(
+        game.vm.get_var(object, "McmObserver", "last"),
+        Some(Value::Int(0x100))
+    );
 }

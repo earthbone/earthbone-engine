@@ -242,8 +242,9 @@ per-item price, while `BarterDataSetter.as` applies buy/sell multipliers and
 rounding before the transaction callback. Price calculation, selling items
 to a merchant and the visible barter menu remain outside this API.
 The location check supports near-reference, in-cell, near-editor-location and
-near-self modes. Other PLVD modes return a typed error. The 32-bit radius and
-location modes follow CommonLibSSE `TESFaction.h` and UESP `FACT.wikitext`.
+near-self modes. Other PLVD modes return a typed error. The 16-bit `VENV`
+radius and location modes follow CommonLibSSE `TESFaction.h` and UESP
+`FACT.wikitext`.
 
 **Enchanting.** `Game::enchant_item` accepts one selected weapon or armor
 instance, one selected soul gem stack, an ENCH form and the caller's learned

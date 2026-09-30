@@ -35,17 +35,13 @@ fn fixture() -> Game {
     plugin.push_top(faction);
     plugin.push_top(Record::new(T(b"FLST"), LIST).sub(T(b"LNAM"), ITEM.to_le_bytes()));
     plugin.push_top(Record::new(T(b"MISC"), ITEM));
-    plugin.push_top(
-        Record::new(T(b"CONT"), CONTAINER_BASE)
-            .sub(T(b"CNTO"), [ITEM.to_le_bytes().as_slice(), &2_i32.to_le_bytes()].concat()),
-    );
-    plugin.push_top(
-        Record::new(T(b"REFR"), CONTAINER)
-            .sub(T(b"NAME"), CONTAINER_BASE.to_le_bytes()),
-    );
-    plugin.push_top(
-        Record::new(T(b"NPC_"), MERCHANT_BASE).sub(T(b"ACBS"), vec![0; 24]),
-    );
+    plugin.push_top(Record::new(T(b"CONT"), CONTAINER_BASE).sub(
+        T(b"CNTO"),
+        [ITEM.to_le_bytes().as_slice(), &2_i32.to_le_bytes()].concat(),
+    ));
+    plugin
+        .push_top(Record::new(T(b"REFR"), CONTAINER).sub(T(b"NAME"), CONTAINER_BASE.to_le_bytes()));
+    plugin.push_top(Record::new(T(b"NPC_"), MERCHANT_BASE).sub(T(b"ACBS"), vec![0; 24]));
     plugin.push_top(
         Record::new(T(b"ACHR"), MERCHANT)
             .sub(T(b"NAME"), MERCHANT_BASE.to_le_bytes())
@@ -53,7 +49,7 @@ fn fixture() -> Game {
     );
     let mut order = LoadOrder::new();
     order.add("Vendor.esm", plugin).unwrap();
-    let mut game = Game::new(order);
+    let game = Game::new(order);
     assert!(game.world_mut().drive_actor(id(MERCHANT)));
     game.world_mut().reference(id(CONTAINER)).unwrap().position = [200.0, 0.0, 0.0];
     game
@@ -62,7 +58,10 @@ fn fixture() -> Game {
 #[test]
 fn ui_09_vendor_radius_ignores_unknown_venv_bytes() {
     let mut game = fixture();
-    let service = game.resolve_vendor_service(id(FACTION), id(MERCHANT)).unwrap().unwrap();
+    let service = game
+        .resolve_vendor_service(id(FACTION), id(MERCHANT))
+        .unwrap()
+        .unwrap();
 
     assert!(!service.available, "resolved radius was {}", service.radius);
     assert_eq!(service.radius, 120);
