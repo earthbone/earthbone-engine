@@ -557,6 +557,21 @@ struct ActiveTransition {
     curve: i8,
 }
 
+#[derive(Debug, Clone, Copy, Default)]
+struct CyclicBlend {
+    frozen_parameter: Option<f32>,
+    transition: Option<CyclicBlendTransition>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct CyclicBlendTransition {
+    from: f32,
+    to: f32,
+    elapsed: f32,
+    duration: f32,
+    curve: i8,
+}
+
 #[derive(Debug, Clone)]
 struct DelayedTransition {
     index: usize,
@@ -601,6 +616,7 @@ struct Runtime {
     start_state: Option<i32>,
     /// A bound blend `duration`, on a transition effect.
     duration: Option<f32>,
+    cyclic_blend: CyclicBlend,
     edge_enabled: [Option<bool>; FALSE_TO_TRUE_SLOTS],
     edge_value: [Option<bool>; FALSE_TO_TRUE_SLOTS],
     edge_previous: [bool; FALSE_TO_TRUE_SLOTS],
@@ -1951,6 +1967,55 @@ impl<'a> Interpreter<'a> {
                     false
                 }
             }
+            NodeKind::CyclicBlendTransition {
+                blender_generator,
+                event_to_freeze_blend_value,
+                event_to_cross_blend,
+                blend_parameter,
+                transition_duration,
+                blend_curve,
+            } => {
+                let child_parameter =
+                    blender_generator.and_then(|blender| self.blender_parameter(blender));
+                let target_parameter = self.nodes[id.0].blend_parameter.unwrap_or(*blend_parameter);
+                if ev.id == event_to_freeze_blend_value.id && ev.id >= 0 {
+                    let parameter = child_parameter.unwrap_or(target_parameter);
+                    let runtime = &mut self.nodes[id.0].cyclic_blend;
+                    runtime.frozen_parameter = Some(parameter);
+                    runtime.transition = None;
+                    if let Some(blender) = blender_generator {
+                        self.nodes[blender.0].blend_parameter = Some(parameter);
+                    }
+                } else if ev.id == event_to_cross_blend.id && ev.id >= 0 {
+                    let from = self.nodes[id.0]
+                        .cyclic_blend
+                        .frozen_parameter
+                        .or(child_parameter)
+                        .unwrap_or(target_parameter);
+                    let runtime = &mut self.nodes[id.0].cyclic_blend;
+                    runtime.frozen_parameter = None;
+                    if *transition_duration > 0.0 {
+                        runtime.transition = Some(CyclicBlendTransition {
+                            from,
+                            to: target_parameter,
+                            elapsed: 0.0,
+                            duration: *transition_duration,
+                            curve: *blend_curve,
+                        });
+                    } else {
+                        runtime.transition = None;
+                    }
+                    if let Some(blender) = blender_generator {
+                        self.nodes[blender.0].blend_parameter =
+                            Some(if *transition_duration > 0.0 {
+                                from
+                            } else {
+                                target_parameter
+                            });
+                    }
+                }
+                blender_generator.is_some_and(|generator| self.handle_event(generator, ev))
+            }
             NodeKind::Clip(_) => false,
             _ => {
                 let mut consumed = false;
@@ -1962,6 +2027,35 @@ impl<'a> Interpreter<'a> {
                 consumed
             }
         }
+    }
+
+    fn blender_parameter(&self, id: NodeId) -> Option<f32> {
+        let NodeKind::Blender(blender) = &self.graph.node(id).kind else {
+            return None;
+        };
+        Some(
+            self.nodes[id.0]
+                .blend_parameter
+                .unwrap_or(blender.blend_parameter),
+        )
+    }
+
+    fn update_cyclic_blend(&mut self, id: NodeId, blender: NodeId, dt: f32) {
+        let runtime = &mut self.nodes[id.0].cyclic_blend;
+        let parameter = if let Some(transition) = &mut runtime.transition {
+            transition.elapsed = (transition.elapsed + dt).min(transition.duration);
+            let alpha = blend_curve(transition.curve, transition.elapsed / transition.duration);
+            let parameter = transition.from + (transition.to - transition.from) * alpha;
+            if transition.elapsed >= transition.duration {
+                runtime.transition = None;
+            }
+            parameter
+        } else if let Some(parameter) = runtime.frozen_parameter {
+            parameter
+        } else {
+            return;
+        };
+        self.nodes[blender.0].blend_parameter = Some(parameter);
     }
 
     fn active_generators_of_machine(&self, id: NodeId, sm: &StateMachine) -> Vec<NodeId> {
@@ -2270,10 +2364,6 @@ impl<'a> Interpreter<'a> {
             | NodeKind::SynchronizedClip {
                 clip_generator: generator,
                 ..
-            }
-            | NodeKind::CyclicBlendTransition {
-                blender_generator: generator,
-                ..
             } => match generator {
                 Some(g) => self.generate(*g, dt),
                 None => self.reference_output(),
@@ -2304,6 +2394,13 @@ impl<'a> Interpreter<'a> {
                 default_generator,
                 children,
             } => self.generate_bone_switch(*default_generator, children, dt),
+            NodeKind::CyclicBlendTransition {
+                blender_generator: Some(generator),
+                ..
+            } => {
+                self.update_cyclic_blend(id, *generator, dt);
+                self.generate(*generator, dt)
+            }
             // A linked reference is a pass-through to the graph that was
             // spliced under it. An unlinked one has nothing to play and is
             // reported, which is what holds the vanilla standing idle silent
@@ -2339,6 +2436,10 @@ impl<'a> Interpreter<'a> {
             | NodeKind::DecomposeVector { .. }
             | NodeKind::EvaluateExpression { .. }
             | NodeKind::RotateCharacterModifier { .. }
+            | NodeKind::CyclicBlendTransition {
+                blender_generator: None,
+                ..
+            }
             | NodeKind::Modifier { .. } => self.reference_output(),
         }
     }

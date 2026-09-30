@@ -385,8 +385,11 @@ What each node does:
   at the default output. Missing mask entries contribute zero. A child with
   no mask overlays every bone.
 - `hkbModifierGenerator` and Skyrim's `BS*` wrappers (`BSiStateTagging`,
-  `BSSynchronizedClip`, `BSCyclicBlendTransition`) pass their generator
-  child through.
+  `BSSynchronizedClip`) pass their generator child through. A cyclic blend
+  wrapper freezes its child blender's current parameter on its freeze event.
+  Its cross-blend event moves from the frozen or current parameter to
+  `fBlendParameter` over `fTransitionDuration`, applying `eBlendCurve`, then
+  leaves the child blender at the target parameter.
   `SynchronizedClipScene` coordinates two actor clip clocks through ordered,
   shared named markers. The host supplies each clip's marker times, chooses
   the lead actor, advances the scene once per frame, then sets each wrapped
