@@ -3,7 +3,9 @@
 //! VM scheduler, extracted from the interpreter described in docs/papyrus.md.
 //! The public API remains on Vm and uses the same single scheduler.
 
-use super::{Frame, LatentId, Thread, ThreadId, ThreadState, Value, Vm};
+use super::{
+    Frame, LatentId, Thread, ThreadId, ThreadState, Value, Vm, MAX_COMPLETED_THREAD_HISTORY,
+};
 
 impl Vm {
     pub(super) fn spawn(&mut self, frame: Frame) -> ThreadId {
@@ -95,6 +97,9 @@ impl Vm {
     /// Run runnable threads round-robin until the budget of instructions is
     /// spent or nothing is runnable. Returns instructions executed.
     pub fn run(&mut self, budget: usize) -> usize {
+        if self.suspended_state.is_some() {
+            return 0;
+        }
         let mut run_span = soe_trace::Span::new("vm.run", "vm");
         let slice = 64;
         let mut used = 0;
@@ -117,7 +122,31 @@ impl Vm {
                 break;
             }
         }
+        self.retain_recent_completed_threads();
         used
+    }
+
+    fn retain_recent_completed_threads(&mut self) {
+        let completed = self
+            .threads
+            .iter()
+            .filter(|thread| thread.state == ThreadState::Done)
+            .count();
+        if completed <= MAX_COMPLETED_THREAD_HISTORY {
+            return;
+        }
+
+        let first_retained = self
+            .threads
+            .iter()
+            .filter(|thread| thread.state == ThreadState::Done)
+            .nth(completed - MAX_COMPLETED_THREAD_HISTORY)
+            .map(|thread| thread.id);
+        if let Some(first_retained) = first_retained {
+            self.threads.retain(|thread| {
+                thread.state != ThreadState::Done || thread.id.0 >= first_retained.0
+            });
+        }
     }
 
     /// Run until no thread is runnable, at most `max` instructions. Sleeping

@@ -2313,6 +2313,7 @@ fn the_new_state_survives_save_and_load() {
     let mut h = game();
     h.start();
     copy_probe_scripts(&g, &mut h);
+
     h.load_state(&bytes).unwrap();
     let list = obj(&mut h, "LootList");
     assert_eq!(call(&mut h, &list, "GetNumForms", &[]), Value::Int(3));

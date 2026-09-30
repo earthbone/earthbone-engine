@@ -107,6 +107,14 @@ A native returns `Value`, `Wait(seconds)` or
 `Latent(id)`. A latent thread sleeps until the host calls `resolve_latent(id,
 value)`, and the value lands in the variable the call site named.
 
+The scheduler keeps the 4,096 most recently completed threads, including
+their return values, for `thread_state` and `thread_result`. Each `run` drops
+older completed entries while retaining all runnable, sleeping and latent
+threads. The retained history is also the completed-thread state written to
+saves and included in state hashes. `prf_01_scheduler_retention` runs 409,600
+script calls, checks the history boundary, and requires Linux process RSS growth
+to stay within 64 MiB.
+
 **Lookup order.** A method call on an object walks the attached instances in
 attach order. Inside an instance the script chain runs from the most derived
 script to the root, checking the current state and then the empty state of
@@ -273,11 +281,16 @@ inventory, and package evaluation, before combat or magic.
 -> Result<Vec<u8>, VmError>` and `Vm::load_state(&mut self, bytes) ->
 Result<(), VmError>`. No serde, an own little-endian binary format read and
 written by a small `Writer` and `Reader`, the same shape as `crates/game/src/vmad.rs`.
-`load_state` expects the caller to have loaded the same scripts first, the
-same way the VM itself never owns PEX bytes across a save, only the objects
-and threads built from them.
+`load_state` resolves saved script names against definitions already loaded.
+The VM itself does not store PEX bytes across a save, only objects and threads
+built from them.
 
-Magic `SOEV`, a `u16` version (4), then an array pool, then the VM body.
+Magic `SOEV`, a `u16` version (4), then an array pool, a sorted table of
+script source fingerprints, and the VM body. Version 4 checks that a saved
+instance or frame still refers to the same PEX bytes. A missing or changed
+definition parks the original state until compatible PEX bytes are loaded.
+Version 3 and earlier states have no source fingerprints and continue to use
+name and frame-function checks.
 Everything a script variable can hold round trips: objects by id, strings,
 ints, floats, bools, arrays and Fallout 4 struct values. Struct members are
 written in name order. An array is a shared reference
@@ -334,6 +347,15 @@ invalidate their frames. Saved state names remain valid even when the loaded
 PEX has no body for that state, as the existing `GoToState` path permits.
 Function lookup then uses its normal empty-state fallback.
 
+If `Vm::load_state` finds a missing script, changed PEX fingerprint or saved
+frame function absent from the loaded PEX, it parks the original SOEV bytes
+and clears the live objects and threads. `save_state` returns those bytes
+unchanged while parked, and the scheduler executes no work. Loading definitions
+retries restoration.
+The state becomes live only when all named scripts and frame functions resolve.
+The parked state keeps array identity, frames, latent waiters and pending return
+destinations without substituting null values.
+
 The save crate supplies the vanilla slot-to-name adapter and converts decoded
 active frames into VM frames after object identities and instances are mapped.
 `Vm::restore_threads` checks every owner, script, function, instruction body,
@@ -343,13 +365,12 @@ instances and schedules the saved active scripts. Queued messages, suspended
 stack tables and latent native waits remain inert. Object identity mapping is
 still supplied by the host.
 
-A thread saved mid-`Utility.Wait` is a saved `Sleeping(seconds)` state on a
-frame sitting inside the wait, nothing about the scheduler is special-cased,
-so loading it back and advancing the clock past the wait resumes and
-finishes the thread exactly as if it had never been serialized. A test
-builds such a thread, saves and loads it into a fresh `Vm` with the same
-script loaded, and checks it stays asleep until the clock passes the
-deadline.
+The VM's own state format retains a thread's sleeping deadline and the clock
+values used by `Utility.Wait`. Loading it back preserves the remaining delay,
+including for waits that count menu time or game time. Once the deadline passes,
+the thread resumes once on its next run. `tests/sav_03_wait.rs` saves after two
+seconds of a five second wait, checks that the thread remains asleep through
+the remaining delay, and checks that its continuation fires once.
 
 `ArrayPool`, `ArrayTable`, `Writer` and `Reader` are public under
 `vm::state` so `crates/game/src/world.rs` writes its own state (references,

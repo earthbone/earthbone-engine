@@ -27,6 +27,36 @@ pub struct ListRecordExtra {
     pub entry_chances: Vec<u8>,
 }
 
+/// Saved fields decoded from base-object, WOOP and MGEF change forms.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct BaseObjectRecordExtra {
+    pub form_flags: Option<(u32, u16)>,
+    pub change_flags: u32,
+    pub value_changed: bool,
+    pub full_name_changed: bool,
+    pub unnamed_flags: u32,
+}
+
+/// Saved fields decoded from a CONT, MISC or FURN change form.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct StaticObjectRecordExtra {
+    pub change_flags: u32,
+    pub form_flags: Option<(u32, u16)>,
+    pub value_changed: bool,
+    pub full_name_changed: bool,
+    pub opaque_suffix: Vec<u8>,
+}
+
+/// Saved runtime fields whose owning record has no plugin-subrecord equivalent.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct DialogueRecordExtra {
+    pub form_flags: Option<(u32, u16)>,
+    pub info_said_once: Option<bool>,
+    pub smqn_last_run_times: Option<Vec<u32>>,
+    pub scene_active: Option<bool>,
+    pub scene_active_data: Option<Vec<u8>>,
+}
+
 /// Saved change markers that have no plugin-subrecord representation.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct PackRecordExtra {
@@ -43,6 +73,28 @@ pub struct NavmeshRecordExtra {
     pub full_name_changed: bool,
 }
 
+/// Plugin-relative identity for a record retained while its plugin is absent.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct UnresolvedRecordId {
+    /// Original plugin filename, compared without ASCII case.
+    pub plugin: String,
+    /// Whether the identity came from the light-plugin list.
+    pub light: bool,
+    /// Local object number in the plugin's regular or light identity space.
+    pub object: u32,
+}
+
+/// Opaque source data retained without binding it into the live form table.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UnresolvedRecord {
+    /// Stable plugin-relative identity of the unavailable record.
+    pub id: UnresolvedRecordId,
+    /// Original change-form or record payload bytes.
+    pub payload: Vec<u8>,
+    /// Original plugin-relative identities referenced by the payload.
+    pub links: Vec<UnresolvedRecordId>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct RecordOverride {
     pub origin: GlobalFormId,
@@ -53,6 +105,10 @@ pub(super) struct RecordOverride {
     pub plain_full: bool,
     pub npc: NpcRecordExtra,
     pub list: Option<ListRecordExtra>,
+    pub base_object: Option<BaseObjectRecordExtra>,
+    pub static_object: Option<StaticObjectRecordExtra>,
+    pub saved_form_flags: Option<(u32, u16)>,
+    pub dialogue: Option<DialogueRecordExtra>,
     pub pack: Option<PackRecordExtra>,
     pub navmesh: Option<NavmeshRecordExtra>,
 }
@@ -79,6 +135,10 @@ impl RecordOverride {
             plain_full: false,
             npc: NpcRecordExtra::default(),
             list: None,
+            base_object: None,
+            static_object: None,
+            saved_form_flags: None,
+            dialogue: None,
             pack: None,
             navmesh: None,
         }
@@ -124,6 +184,30 @@ impl RecordOverride {
 }
 
 impl World {
+    /// Retain opaque data for a record whose plugin is not available to the live
+    /// load order. The data is kept separately from resolved forms.
+    ///
+    /// # Errors
+    /// Empty plugin names, invalid regular or light object numbers, or a
+    /// duplicate identity.
+    pub fn retain_unresolved_record(&mut self, mut record: UnresolvedRecord) -> Result<(), String> {
+        normalize_unresolved_id(&mut record.id)?;
+        for link in &mut record.links {
+            normalize_unresolved_id(link)?;
+        }
+        if self.unresolved_records.contains_key(&record.id) {
+            return Err("unresolved record identity already exists".into());
+        }
+        self.unresolved_records.insert(record.id.clone(), record);
+        Ok(())
+    }
+
+    /// Return opaque records retained for plugins absent from the live table.
+    #[must_use]
+    pub fn unresolved_records(&self) -> &BTreeMap<UnresolvedRecordId, UnresolvedRecord> {
+        &self.unresolved_records
+    }
+
     pub(super) fn record_text_localized(&self, id: GlobalFormId, tag: Tag) -> bool {
         if tag == T(b"FULL") && self.record_overrides.get(&id).is_some_and(|r| r.plain_full) {
             return false;
@@ -142,6 +226,57 @@ impl World {
         self.record_overrides.get(&id)?.list.as_ref()
     }
 
+    /// Saved change fields for a restored CONT, MISC or FURN record.
+    pub fn restored_static_object_extra(
+        &self,
+        id: GlobalFormId,
+    ) -> Option<&StaticObjectRecordExtra> {
+        self.record_overrides.get(&id)?.static_object.as_ref()
+    }
+
+    /// Return saved base-object metadata for an overridden record.
+    pub fn restored_base_object_extra(&self, id: GlobalFormId) -> Option<&BaseObjectRecordExtra> {
+        self.record_overrides.get(&id)?.base_object.as_ref()
+    }
+
+    /// Saved INFO said-once state, when a save supplied an explicit marker.
+    pub fn restored_info_said_once(&self, id: GlobalFormId) -> Option<bool> {
+        self.record_overrides
+            .get(&id)?
+            .dialogue
+            .as_ref()?
+            .info_said_once
+    }
+
+    /// The unmodified six-byte saved change-form flags for a record.
+    pub fn restored_dialogue_form_flags(&self, id: GlobalFormId) -> Option<(u32, u16)> {
+        self.record_overrides
+            .get(&id)?
+            .dialogue
+            .as_ref()?
+            .form_flags
+    }
+
+    /// Saved SMQN last-run values, retaining each value's exact float bits.
+    pub fn restored_smqn_last_run_times(&self, id: GlobalFormId) -> Option<&[u32]> {
+        self.record_overrides
+            .get(&id)?
+            .dialogue
+            .as_ref()?
+            .smqn_last_run_times
+            .as_deref()
+    }
+
+    /// Opaque runtime bytes from an active saved SCEN record.
+    pub fn restored_scene_active_data(&self, id: GlobalFormId) -> Option<&[u8]> {
+        self.record_overrides
+            .get(&id)?
+            .dialogue
+            .as_ref()?
+            .scene_active_data
+            .as_deref()
+    }
+
     /// Saved PACK markers used by package consumers.
     pub fn restored_pack_extra(&self, id: GlobalFormId) -> Option<PackRecordExtra> {
         self.record_overrides.get(&id)?.pack
@@ -151,4 +286,16 @@ impl World {
     pub fn restored_navmesh_extra(&self, id: GlobalFormId) -> Option<NavmeshRecordExtra> {
         self.record_overrides.get(&id)?.navmesh
     }
+}
+
+pub(super) fn normalize_unresolved_id(id: &mut UnresolvedRecordId) -> Result<(), String> {
+    id.plugin = id.plugin.to_ascii_lowercase();
+    if id.plugin.is_empty() || id.plugin.contains(['/', '\\', '\0']) {
+        return Err("invalid unresolved plugin name".into());
+    }
+    let limit = if id.light { 0xFFF } else { 0xFF_FFFF };
+    if id.object == 0 || id.object > limit {
+        return Err("unresolved object number is outside its identity space".into());
+    }
+    Ok(())
 }
