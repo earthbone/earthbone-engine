@@ -5,7 +5,10 @@
 
 use soe_esm::LoadOrder;
 use soe_game::{save_generations::GenerationStore, Game};
-use soe_papyrus::{asm::{i, ScriptBuilder}, Value};
+use soe_papyrus::{
+    asm::{i, ScriptBuilder},
+    Value,
+};
 use std::{
     fs,
     path::PathBuf,
@@ -81,9 +84,7 @@ fn sav_61_rejected_generation_does_not_replace_source_or_live_state() {
     let original = b"original vanilla save bytes";
     fs::write(&source, original).unwrap();
     let store = directory.store();
-    game(12, "Sav61OldSchema")
-        .write_generation(&store)
-        .unwrap();
+    game(12, "Sav61OldSchema").write_generation(&store).unwrap();
     let mut live = game(99, "Sav61CurrentSchema");
     let before = live.save_state().unwrap();
 
@@ -91,5 +92,8 @@ fn sav_61_rejected_generation_does_not_replace_source_or_live_state() {
 
     assert_eq!(live.save_state().unwrap(), before);
     assert_eq!(fs::read(source).unwrap(), original);
-    assert_eq!(fs::read_dir(directory.0.join("accepted")).unwrap().count(), 2);
+    assert_eq!(
+        fs::read_dir(directory.0.join("accepted")).unwrap().count(),
+        2
+    );
 }
