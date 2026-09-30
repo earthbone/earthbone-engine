@@ -3,6 +3,9 @@
 
 //! Distinct stacks must survive quantity operations and engine-save boundaries.
 
+#[path = "common/legacy.rs"]
+mod legacy;
+
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::{
     inventory::{Error, Extra, Field, Inventory, Stack, StackSource},
@@ -188,8 +191,15 @@ fn engine_save_retains_every_stack_field_and_failed_load_is_atomic() {
 fn version_eleven_counts_load_as_plain_items() {
     let mut w = world();
     w.add_item(id(0x900), id(0x801), 17);
-    let mut bytes = w.save_state();
-    bytes.truncate(bytes.len() - 50);
+    // `add_item` materializes the holder as a reference, and that reference's
+    // own record ends with an empty save-section table version 37 added.
+    // Strip it before truncating the rest of the buffer to an older header.
+    let mut bytes = legacy::without_ref_sections(&mut w, &[id(0x900)]);
+    // The extra 6 bytes beyond the old 50 are detection's now-unconditional
+    // empty pool count (4 bytes) and the world-level save-section table
+    // version 37 added (2 bytes), both always present at the tail regardless
+    // of the simulated version.
+    bytes.truncate(bytes.len() - 56);
     bytes[4..6].copy_from_slice(&11_u16.to_le_bytes());
     let mut loaded = world();
     loaded.load_state(&bytes).unwrap();

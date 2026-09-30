@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 //! A node that plays an authored NIF transform controller on real scene tree
-//! children.
+//! children, with optional mesh collision attached to the same animated child.
 //!
 //! Unlike `godot_actor` and the cell streamer next door, which bypass the
 //! scene tree for the update volume a character or a whole cell need, an
@@ -55,6 +55,10 @@ pub struct AnimatedStaticNode {
     /// pose standing, which is what a capture wants.
     #[export]
     playing: bool,
+    /// Build a trimesh collider below each generated mesh. Since it is a child
+    /// of the animated mesh instance, its scene transform follows that mesh.
+    #[export]
+    collision_enabled: bool,
     controller: Option<AnimatedController>,
     children: Vec<Gd<MeshInstance3D>>,
     elapsed: f32,
@@ -66,6 +70,7 @@ impl INode3D for AnimatedStaticNode {
         AnimatedStaticNode {
             base,
             playing: true,
+            collision_enabled: false,
             controller: None,
             children: Vec::new(),
             elapsed: 0.0,
@@ -144,11 +149,22 @@ impl AnimatedStaticNode {
             let mut instance = MeshInstance3D::new_alloc();
             instance.set_mesh(&array_mesh);
             self.base_mut().add_child(&instance);
+            if self.collision_enabled {
+                instance.create_trimesh_collision();
+            }
             self.children.push(instance);
         }
         self.controller = Some(controller);
         self.elapsed = 0.0;
         true
+    }
+
+    /// Start the authored controller from its initial time, as when a door
+    /// begins opening.
+    #[func]
+    pub fn open(&mut self) {
+        self.elapsed = 0.0;
+        self.playing = true;
     }
 
     /// Advance by `delta` seconds and, when the controller is active, push

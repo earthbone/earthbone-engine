@@ -2,9 +2,8 @@
 
 use std::fmt;
 
-/// Everything that can go wrong while reading a NIF. Offsets are byte
-/// positions in the input so a malformed file can be inspected in a hex
-/// viewer.
+/// Errors from NIF and FaceGen TRI readers. Offsets are byte positions in the
+/// input so malformed data can be inspected in a hex viewer.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Error {
     /// The input ended before a field could be read.
@@ -42,6 +41,12 @@ pub enum Error {
     InvalidData { block: usize, reason: String },
     /// The scene graph refers to itself.
     Cycle { block: usize },
+    /// A FaceGen head TRI file is not supported by this reader.
+    InvalidHeadTri(String),
+    /// A selected head morph does not exist in a FaceGen TRI file.
+    HeadMorphNotFound(String),
+    /// The supplied head mesh does not have the TRI file's vertex count.
+    HeadMorphVertexCount { expected: usize, actual: usize },
 }
 
 impl fmt::Display for Error {
@@ -85,6 +90,12 @@ impl fmt::Display for Error {
             }
             Error::InvalidData { block, reason } => write!(f, "block {block}: {reason}"),
             Error::Cycle { block } => write!(f, "block {block} is its own ancestor"),
+            Error::InvalidHeadTri(reason) => write!(f, "invalid head TRI: {reason}"),
+            Error::HeadMorphNotFound(name) => write!(f, "head TRI has no morph named {name:?}"),
+            Error::HeadMorphVertexCount { expected, actual } => write!(
+                f,
+                "head TRI has {expected} vertices but the mesh has {actual}"
+            ),
         }
     }
 }

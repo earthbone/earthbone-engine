@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
+#[path = "common/installed.rs"]
+mod installed;
+
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::{Game, Handle, Pending};
 use soe_papyrus::asm::{ident, s, FunctionBuilder, ScriptBuilder};
@@ -279,26 +282,19 @@ fn a_locked_load_door_requires_its_key_and_keeps_the_unlock_after_unload() {
 
 #[test]
 fn installed_locks_and_keys_resolve_from_every_winning_reference() {
-    let Some(data) = std::env::var_os("SKYRIM_DATA").map(std::path::PathBuf::from) else {
+    let Some(_data) = std::env::var_os("SKYRIM_DATA").map(std::path::PathBuf::from) else {
         eprintln!("SKYRIM_DATA not set, skipping");
         return;
     };
-    let mut order = LoadOrder::new();
-    for name in [
+    let order = installed::load_order(&[
         "Skyrim.esm",
         "Update.esm",
         "Dawnguard.esm",
         "HearthFires.esm",
         "Dragonborn.esm",
-    ] {
-        order
-            .add(
-                name,
-                Plugin::parse(&std::fs::read(data.join(name)).unwrap()).unwrap(),
-            )
-            .unwrap();
-    }
-    let mut game = Game::new(order);
+    ])
+    .unwrap();
+    let mut game = Game::from_shared_order(order);
     let locks: Vec<_> = game
         .world()
         .order()

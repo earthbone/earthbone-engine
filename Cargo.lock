@@ -1337,6 +1337,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "soe-editor"
+version = "0.1.0"
+dependencies = [
+ "soe-esm",
+ "soe-papyrus",
+ "thiserror 2.0.20",
+]
+
+[[package]]
 name = "soe-esm"
 version = "0.1.0"
 dependencies = [
@@ -1353,10 +1362,14 @@ name = "soe-game"
 version = "0.1.0"
 dependencies = [
  "crc32fast",
+ "soe-audio",
  "soe-bsa",
+ "soe-dds",
  "soe-esm",
+ "soe-hkx",
  "soe-moddata",
  "soe-navmesh",
+ "soe-nif",
  "soe-papyrus",
  "soe-physics",
  "soe-profile",
