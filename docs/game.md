@@ -3336,6 +3336,25 @@ scene action and favor values, invalid actors and slots, and explicit errors
 for the four conditions without a usable local contract. No saved state or
 save version changed.
 
+## Compatibility condition batch AI-42
+
+GetSKSEVersion (1024), GetSKSEVersionMinor (1025), GetSKSEVersionBeta (1026)
+and GetSKSERelease (1027) are parameterless condition functions. The engine
+returns zero for each component because it does not load an SKSE runtime, so
+conditions can test for SKSE absence. Nonzero integer parameters are errors.
+The CK corpus has no pages defining these SKSE-added condition functions.
+ClearInvalidRegistrations (1028) is also parameterless in xEdit and Mutagen,
+but SKSE documents it as cleanup of invalid update registrations rather than
+as a query. Evaluating it returns `NoConditionContract` instead of mutating VM
+registrations from a condition. All five still require the evaluator's normal
+run-on subject context.
+
+The function IDs come from xEdit `wbDefinitionsTES5.pas` and the parameter
+types from Mutagen Skyrim condition data. SKSE's save-load hook and change log
+document registration cleanup. The source corpus defines no CK return contract
+for the added checks, so the zero-version result expresses that SKSE is absent
+from this runtime rather than claiming an SKSE version.
+
 `condition_actor_values` checks both evaluators against independent expected
 values, high indices, invalid indices and subjects, resource fractions and the
 existing kill/resurrection lifecycle. No new authoritative actor state,
