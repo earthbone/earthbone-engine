@@ -101,6 +101,8 @@ referenceCount).
   animationBindingIndex 112, mode 114, flags 115. `hkbClipTrigger` is 32
   bytes: localTime 0, event 8, relativeToEndOfClip 24, acyclic 25,
   isAnnotation 26.
+- `hkbTimerModifier`: enable 72, alarmTimeSeconds 80, alarmEvent 88;
+  secondsElapsed at 104 is `SERIALIZE_IGNORED`.
 - `hkbBlenderGenerator`: referencePoseWeightThreshold 72, blendParameter 76,
   minCyclicBlendParameter 80, maxCyclicBlendParameter 84,
   indexOfSyncMasterChild 88, flags 90, subtractLastChild 92, children 96.
@@ -726,6 +728,22 @@ pose. The synthetic test covers enabled and disabled children, an enabled to
 disabled to enabled transition, explicit deactivation and reactivation, and a
 sampled non-reference pose.
 
+### Timer modifier (ANM-16)
+
+`hkbTimerModifier` inherits `hkbModifier.enable`, then stores
+`alarmTimeSeconds` and `alarmEvent`. The offsets and the ignored
+`secondsElapsed` runtime field are declared in
+`engine-refs/serde-hkx/assets/classes/hkbTimerModifier.json` and
+`engine-refs/hkxcmd/compat/hkbTimerModifier_1.cpp`. The interpreter tracks
+elapsed time separately for each graph node. An active timer adds the
+nonnegative update interval once per graph update. It raises its event once
+elapsed time reaches the authored alarm time and stays quiet until its next
+activation. Activation
+resets elapsed time and the one-shot flag. The event queue carries the event
+ID and does not carry the authored payload. Synthetic tests cover field
+decoding, the alarm boundary, one-shot delivery, and reset after an
+enable-controlled deactivation and activation.
+
 ### Modifier lists (2026-09-20)
 
 `hkbModifierList` inherits `hkbModifier.enable` and serializes an ordered
@@ -815,12 +833,10 @@ word-table slots. ANM-57 owns that linker work.
 
 ## 7. Not done and next
 
-- Modifier evaluation beyond the four the interpreter runs:
-  `BSIsActiveModifier`, `BSEventOnFalseToTrueModifier`,
-  `BSDecomposeVectorModifier` and `BSGetTimeStepModifier`. Dynamic bone weight
-  masks on a blender and `hkbRotateCharacterModifier` still pass through.
-  Their layouts are in
-  `serde-hkx` like the rest.
+- Modifier evaluation remains incomplete. Timer, rotate-character,
+  events-from-range and false-to-true event handling run in the interpreter.
+  Dynamic bone weight masks on a blender still pass through. The layouts are
+  in `serde-hkx` like the rest.
 - Transition details: equal-priority arbitration, the `abut at end` flag,
   `hkbGeneratorTransitionEffect`, `maxSimultaneousTransitions`, delayed timeout
   and interval boundary parity. Expression functions are ANM-49 and the

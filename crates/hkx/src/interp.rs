@@ -419,6 +419,9 @@ struct Runtime {
     delayed: Option<DelayedTransition>,
     intervals: Vec<IntervalState>,
     time_step: f32,
+    timer_elapsed: f32,
+    timer_fired: bool,
+    timer_updated_frame: u64,
     blend_parameter: Option<f32>,
     child_weights: Vec<Option<f32>>,
     selected: Option<usize>,
@@ -1141,54 +1144,71 @@ impl<'a> Interpreter<'a> {
         if !self.nodes[id.0].active {
             return;
         }
-        if let NodeKind::RotateCharacterModifier {
-            degrees_per_second,
-            speed_multiplier,
-            ..
-        } = &self.graph.nodes[id.0].kind
-        {
-            self.nodes[id.0].rotation_angle +=
-                degrees_per_second.to_radians() * speed_multiplier * dt;
-        }
-        if let NodeKind::FalseToTrueModifier { slots, .. } = &self.graph.nodes[id.0].kind {
-            for (index, slot) in slots.iter().enumerate() {
+        match &self.graph.nodes[id.0].kind {
+            NodeKind::RotateCharacterModifier {
+                degrees_per_second,
+                speed_multiplier,
+                ..
+            } => {
+                self.nodes[id.0].rotation_angle +=
+                    degrees_per_second.to_radians() * speed_multiplier * dt;
+            }
+            NodeKind::FalseToTrueModifier { slots, .. } => {
+                for (index, slot) in slots.iter().enumerate() {
+                    let runtime = &mut self.nodes[id.0];
+                    let active = runtime.edge_enabled[index].unwrap_or(slot.enable)
+                        && runtime.edge_value[index].unwrap_or(slot.variable_to_test);
+                    let rising = active && !runtime.edge_previous[index];
+                    runtime.edge_previous[index] = active;
+                    if rising {
+                        self.raise(slot.event.id);
+                    }
+                }
+            }
+            NodeKind::EventsFromRangeModifier {
+                input_value,
+                lower_bound,
+                ranges,
+                ..
+            } => {
+                let value = self.nodes[id.0].event_range_input.unwrap_or(*input_value);
+                let mut lower = *lower_bound;
+                let mut raised = Vec::new();
+                for (index, (upper, range)) in ranges.iter().enumerate() {
+                    let active = value.is_finite() && value >= lower && value < *upper;
+                    let previous = self.nodes[id.0]
+                        .event_range_previous
+                        .get(index)
+                        .copied()
+                        .unwrap_or(false);
+                    if active && (range.event_mode == 1 || !previous) {
+                        raised.push(range.event.id);
+                    }
+                    if let Some(previous) = self.nodes[id.0].event_range_previous.get_mut(index) {
+                        *previous = active;
+                    }
+                    lower = *upper;
+                }
+                for event in raised {
+                    self.raise(event);
+                }
+            }
+            NodeKind::TimerModifier {
+                alarm_time_seconds,
+                alarm_event,
+                ..
+            } => {
                 let runtime = &mut self.nodes[id.0];
-                let active = runtime.edge_enabled[index].unwrap_or(slot.enable)
-                    && runtime.edge_value[index].unwrap_or(slot.variable_to_test);
-                let rising = active && !runtime.edge_previous[index];
-                runtime.edge_previous[index] = active;
-                if rising {
-                    self.raise(slot.event.id);
+                if !runtime.timer_fired && runtime.timer_updated_frame != self.frame {
+                    runtime.timer_updated_frame = self.frame;
+                    runtime.timer_elapsed += dt.max(0.0);
+                    if runtime.timer_elapsed >= *alarm_time_seconds {
+                        runtime.timer_fired = true;
+                        self.raise(alarm_event.id);
+                    }
                 }
             }
-        } else if let NodeKind::EventsFromRangeModifier {
-            input_value,
-            lower_bound,
-            ranges,
-            ..
-        } = &self.graph.nodes[id.0].kind
-        {
-            let value = self.nodes[id.0].event_range_input.unwrap_or(*input_value);
-            let mut lower = *lower_bound;
-            let mut raised = Vec::new();
-            for (index, (upper, range)) in ranges.iter().enumerate() {
-                let active = value.is_finite() && value >= lower && value < *upper;
-                let previous = self.nodes[id.0]
-                    .event_range_previous
-                    .get(index)
-                    .copied()
-                    .unwrap_or(false);
-                if active && (range.event_mode == 1 || !previous) {
-                    raised.push(range.event.id);
-                }
-                if let Some(previous) = self.nodes[id.0].event_range_previous.get_mut(index) {
-                    *previous = active;
-                }
-                lower = *upper;
-            }
-            for event in raised {
-                self.raise(event);
-            }
+            _ => {}
         }
         if matches!(
             self.graph.nodes[id.0].kind,
@@ -1351,6 +1371,11 @@ impl<'a> Interpreter<'a> {
             NodeKind::RotateCharacterModifier { .. } => {
                 self.nodes[id.0].rotation_angle = 0.0;
             }
+            NodeKind::TimerModifier { .. } => {
+                self.nodes[id.0].timer_elapsed = 0.0;
+                self.nodes[id.0].timer_fired = false;
+                self.nodes[id.0].timer_updated_frame = 0;
+            }
             NodeKind::Clip(c) => {
                 let rt = &mut self.nodes[id.0];
                 rt.local_time = c.start_time.max(0.0);
@@ -1434,7 +1459,6 @@ impl<'a> Interpreter<'a> {
             | NodeKind::BlendingTransition(_)
             | NodeKind::GeneratorTransition(_)
             | NodeKind::EventDrivenModifier { .. }
-            | NodeKind::TimerModifier { .. }
             | NodeKind::EventsFromRangeModifier { .. }
             | NodeKind::GetTimeStepModifier { .. }
             | NodeKind::IsActiveModifier { .. }
