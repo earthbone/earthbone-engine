@@ -11,9 +11,9 @@ use std::hash::BuildHasher;
 #[cfg(feature = "godot")]
 use godot::builtin::Rid;
 use soe_esm::GlobalFormId;
-use soe_game::combat::{
-    Error, FlightMotion, FlightRequest, FlightSegment, Hand, HitResult, MeleeHit,
-};
+use soe_game::combat::{Error, FlightRequest, Hand, HitResult, MeleeHit};
+#[cfg(feature = "godot")]
+use soe_game::combat::{FlightMotion, FlightSegment};
 use soe_game::Game;
 use soe_hkx::behavior::{BehaviorGraph, ClipTrigger, EventInfo, EventProperty, NodeKind};
 use soe_hkx::interp::ClipLibrary;
@@ -123,6 +123,7 @@ pub struct ProjectileContact {
 
 /// Result of advancing one transient arrow or bolt.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg(feature = "godot")]
 pub enum ProjectileUpdate {
     /// The projectile moved without reaching its configured range.
     Flying { position: [f32; 3] },
@@ -137,12 +138,14 @@ pub enum ProjectileUpdate {
 
 /// Deterministic, transient flight and one-contact latch for a released shot.
 #[derive(Debug, Clone, Copy)]
+#[cfg(feature = "godot")]
 pub struct ProjectileFlight {
     attacker: GlobalFormId,
     motion: FlightMotion,
     finished: bool,
 }
 
+#[cfg(feature = "godot")]
 impl ProjectileFlight {
     /// Start flight from the host's record-backed release request.
     #[must_use]
