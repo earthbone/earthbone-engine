@@ -201,11 +201,11 @@ fn ai_48_implemented_dialogue_and_scene_predicates_match_runtime_state() {
     );
     assert_eq!(
         evaluate(&game, id(0x800), &condition(434, [0, 0], 0.0)),
-        Ok(true)
+        Err(conditions::Error::Form(id(0x800)))
     );
     assert_eq!(
         evaluate(&game, id(0x800), &condition(435, [0, 0], 0.0)),
-        Ok(true)
+        Err(conditions::Error::Form(id(0x800)))
     );
 }
 

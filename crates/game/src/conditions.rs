@@ -337,6 +337,7 @@ fn function_value(
         }
         711 => {
             no_parameter(c)?;
+            world.actor(subject).ok_or(Error::Form(subject))?;
             context
                 .light_level
                 .filter(|value| value.is_finite() && (0.0..=150.0).contains(value))
@@ -422,6 +423,12 @@ fn function_value(
         }
         434 | 435 => {
             no_parameter(c)?;
+            if world
+                .reference(subject)
+                .is_none_or(|reference| reference.deleted)
+            {
+                return Err(Error::Form(subject));
+            }
             let Some(session) = world
                 .dialogue_session()
                 .filter(|session| session.speaker == subject)
@@ -456,14 +463,8 @@ fn function_value(
             )
         }
         731 => {
-            // The CK CanFlyHere contract is a no-argument actor query. The
-            // matching Papyrus native uses the actor's SetAllowFlying state
-            // and its current cell's interior flag.
+            // CanFlyHere reads the current worldspace's max-height data.
             no_parameter(c)?;
-            let allow_flying = world
-                .actor(subject)
-                .ok_or(Error::Form(subject))?
-                .allow_flying;
             if world
                 .reference(subject)
                 .is_none_or(|reference| reference.deleted)
@@ -474,7 +475,7 @@ fn function_value(
                 .reference(subject)
                 .and_then(|reference| reference.cell)
                 .ok_or(Error::Form(subject))?;
-            boolean(allow_flying && !world.cell_is_interior(cell))
+            boolean(world.cell_has_worldspace_max_height_data(cell))
         }
         225 | 315 => {
             // DLG-07 established current Speechcraft as the condition value.

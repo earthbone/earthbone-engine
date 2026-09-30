@@ -17,8 +17,14 @@ fn fixture() -> Game {
     let mut plugin = Plugin::new(FileHeader::default());
     plugin.push_top(Record::new(Tag(*b"NPC_"), 0x800));
     plugin.push_top(Record::new(Tag(*b"ACHR"), 0x900).sub(Tag(*b"NAME"), 0x800_u32.to_le_bytes()));
-    plugin.push_top(Record::new(Tag(*b"CELL"), 0x810).sub(Tag(*b"DATA"), [0_u8, 0]));
-    plugin.push_top(Record::new(Tag(*b"CELL"), 0x811).sub(Tag(*b"DATA"), [1_u8, 0]));
+    plugin.push_top(Record::new(Tag(*b"WRLD"), 0x830).sub(Tag(*b"MHDT"), [0_u8; 8]));
+    plugin.push_top(Record::new(Tag(*b"WRLD"), 0x831));
+    let mut cell_with_data = Record::new(Tag(*b"CELL"), 0x810).sub(Tag(*b"DATA"), [0_u8, 0]);
+    cell_with_data.placement.world = Some(0x830);
+    plugin.push_top(cell_with_data);
+    let mut cell_without_data = Record::new(Tag(*b"CELL"), 0x811).sub(Tag(*b"DATA"), [0_u8, 0]);
+    cell_without_data.placement.world = Some(0x831);
+    plugin.push_top(cell_without_data);
     plugin.push_top(Record::new(Tag(*b"STAT"), 0x820));
     let mut order = LoadOrder::new();
     order.add("FlyingConditions.esm", plugin).unwrap();
@@ -58,18 +64,17 @@ fn evaluate(game: &Game, subject: GlobalFormId, c: &Condition) -> Result<bool, c
 }
 
 #[test]
-fn ai_68_can_fly_here_uses_allow_flying_and_exterior_cell() {
+fn ai_68_can_fly_here_uses_worldspace_max_height_data() {
     let game = fixture();
     let can_fly = condition(731, 1.0);
     assert!(conditions::supports_function(731));
-    assert_eq!(evaluate(&game, id(0x900), &can_fly), Ok(false));
-
-    game.world_mut().actor(id(0x900)).unwrap().allow_flying = true;
     assert_eq!(evaluate(&game, id(0x900), &can_fly), Ok(true));
-    assert_eq!(evaluate(&game, id(0x900), &condition(731, 0.0)), Ok(false));
 
     game.world_mut().reference(id(0x900)).unwrap().cell = Some(id(0x811));
     assert_eq!(evaluate(&game, id(0x900), &can_fly), Ok(false));
+    game.world_mut().reference(id(0x900)).unwrap().cell = Some(id(0x810));
+    assert_eq!(evaluate(&game, id(0x900), &can_fly), Ok(true));
+    assert_eq!(evaluate(&game, id(0x900), &condition(731, 0.0)), Ok(false));
 }
 
 #[test]

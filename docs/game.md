@@ -838,7 +838,7 @@ who cares" by pushing `OnVampirismStateChanged` and
 `OnLycanthropyStateChanged` onto the pending queue for the scripts attached
 to that actor, the same delivery `OnActivate` takes. Around them sit the
 dragon riding flags (`SetAllowFlying`, `SetAllowFlyingEx`, `IsAllowedToFly`,
-and `CanFlyHere`, which wants the permission and an exterior cell), the
+and `CanFlyHere`, which checks worldspace max-height data), the
 deferred kill pair with `KillSilent`, shouts, the spell dispel and equip
 functions, `SetRace`, `SetEyeTexture`, `SetCriticalStage`, `AttachAshPile`,
 the bleedout and AI flags, `WornHasKeyword`, `IsPlayersLastRiddenHorse` and
@@ -858,8 +858,7 @@ Decisions taken rather than read, since no wiki page states them:
 - `PlaySubGraphAnimation` routes to the animation event path, so a script
   registered for that event name hears it. The behavior graph has no sub
   graph concept yet.
-- `CanFlyHere` reads the interior flag of the actor's cell. The real engine
-  also asks the navmesh and the weather.
+- `CanFlyHere` returns whether the actor's worldspace has max-height data.
 
 A second pass added the reference animation graph (`SetAnimationVariable`
 and `GetAnimationVariable` in all three types, one store per type on the
@@ -1327,16 +1326,16 @@ for the skill action numbers. No CK page defines GetActorWarmth's condition
 contract. The evaluator uses caller-supplied light and skill-use context because
 the runtime does not calculate either value.
 
-`CanFlyHere` (731) follows the CK no-argument actor query and the existing
-`Actor.CanFlyHere` native: it is true when `SetAllowFlying` has enabled flight
-and the actor has a current exterior cell. Missing, deleted, non-actor and
-cell-less subjects return a form error. A nonzero unused parameter is rejected.
+`CanFlyHere` (731) follows the CK no-argument actor query and CommonLib's
+`Actor::CanFlyHere`: it is true when the actor's current worldspace has `MHDT`
+max-height data. Missing, deleted, non-actor and cell-less subjects return a
+form error. A nonzero unused parameter is rejected. The worldspace `MHDT`
+layout is documented in UESP `WRLD.wikitext`.
 xEdit and CommonLib name `IsFlyingMountPatrolQueud` (732) and
 `IsFlyingMountFastTravelling` (733), but the local CK pages do not define their
 behavior. They remain unsupported and return an explicit function error. The
-local CK sources used were `CanFlyHere_-_Actor.wikitext` and, to check for a
-flight-state contract, `IsFlying_-_Actor.wikitext` and
-`GetFlyingState_-_Actor.wikitext`. `ai_68_flying_conditions` covers positive
+local sources used were CK `CanFlyHere_-_Actor.wikitext`, CommonLib
+`src/RE/A/Actor.cpp` and UESP `WRLD.wikitext`. `ai_68_flying_conditions` covers positive
 and negative CanFlyHere comparisons, invalid actor context and explicit
 diagnostics for both undocumented mount queries. It does not use installed
 Skyrim records.
@@ -2450,9 +2449,10 @@ implemented predicates.
 
 ## Dialogue condition batch AI-48
 
-GetDialogueEmotion (434) and GetDialogueEmotionValue (435) read the emotion
-type and 0 to 100 value from the current response of the active dialogue INFO
-for its speaker. They return zero when that speaker has no current response.
+GetDialogueEmotion (434) and GetDialogueEmotionValue (435) require a reference
+subject, then read the emotion type and 0 to 100 value from the current response
+of the active dialogue INFO for its speaker. They return zero when that
+reference has no current response.
 IsSceneActionComplete (550) resolves its SCEN and action slot and reads the
 scene's completed-action set for the current phase. IsInFavorState (635) reads
 the actor's existing `doing_favor` flag. Invalid scene slots and non-actor
