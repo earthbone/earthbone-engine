@@ -399,7 +399,7 @@ fn patrol_hash_and_save_validation_retain_direction_and_deadline() {
     // also predates detection (read gate version 30) and save sections
     // (version 37), so the extra 6 bytes those two now always write at the
     // tail, regardless of version, must be truncated away too.
-    old.truncate(old.len() - 35);
+    old.truncate(old.len() - 31);
     old[4..6].copy_from_slice(&22u16.to_le_bytes());
     game.world_mut().load_state(&old).unwrap();
     assert_eq!(game.world().save_state(), original);
@@ -420,7 +420,7 @@ fn patrol_hash_and_save_validation_retain_direction_and_deadline() {
     // also predates detection (read gate version 30) and save sections
     // (version 37), so the extra 6 bytes those two now always write at the
     // tail, regardless of version, must be truncated away too.
-    old.truncate(old.len() - 35);
+    old.truncate(old.len() - 31);
     old[4..6].copy_from_slice(&22u16.to_le_bytes());
     assert!(game.world_mut().load_state(&old).is_err());
     assert_eq!(game.world().save_state(), original);

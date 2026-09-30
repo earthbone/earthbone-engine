@@ -537,7 +537,7 @@ fn version_ten_current_globals_migrate_to_one_journal_instance() {
     // The extra 21 bytes beyond the old 50 are detection's now-unconditional
     // empty pool count and the world-level save-section table, both always
     // present at the tail regardless of the simulated version.
-    bytes.truncate(bytes.len() - extension_bytes - 56);
+    bytes.truncate(bytes.len() - extension_bytes - 52);
     bytes[4..6].copy_from_slice(&10_u16.to_le_bytes());
     let restored = fixture();
     restored.world_mut().load_state(&bytes).unwrap();

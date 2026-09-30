@@ -356,7 +356,7 @@ fn engine_extras_reject_truncation_duplicates_and_bad_flags_atomically_and_read_
     // The extra 21 bytes beyond the old 37 are detection's now-unconditional
     // empty pool count and the world-level save-section table, both always
     // present at the tail regardless of the simulated version.
-    legacy.truncate(legacy.len() - 43);
+    legacy.truncate(legacy.len() - 39);
     legacy[4..6].copy_from_slice(&19_u16.to_le_bytes());
     let mut save = save();
     save.change_forms = vec![change(0x400100, 0x400811, 0, 5, 0x400801)];

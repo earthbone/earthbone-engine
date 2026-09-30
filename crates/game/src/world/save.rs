@@ -1079,6 +1079,7 @@ impl World {
         // Read world sections against candidate state while keeping the live
         // world unchanged if any section rejects its payload.
         let previous_pending = std::mem::replace(&mut self.pending, pending);
+        let previous_scenes = std::mem::replace(&mut self.scenes, scenes);
         let previous_scene_runs = std::mem::replace(&mut self.scene_runs, scene_runs);
         let previous_overrides = std::mem::replace(&mut self.record_overrides, record_overrides);
         let previous_quests = std::mem::replace(&mut self.quests, quests);
@@ -1091,6 +1092,7 @@ impl World {
             Ok(())
         };
         pending = std::mem::replace(&mut self.pending, previous_pending);
+        let scenes = std::mem::replace(&mut self.scenes, previous_scenes);
         let scene_runs = std::mem::replace(&mut self.scene_runs, previous_scene_runs);
         active_effects = std::mem::replace(&mut self.active_effects, previous_effects);
         let unresolved_records = std::mem::take(&mut self.unresolved_records);

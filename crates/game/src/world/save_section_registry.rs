@@ -259,8 +259,13 @@ fn read_scene_runtime(
             soe_esm::records::gameplay::Scene::from_record(scene_record).map_err(|error| {
                 soe_papyrus::VmError::State(format!("DLG-09 invalid scene: {error}"))
             })?;
+        let valid_phase = if scene.phases.is_empty() {
+            phase == 0 && completed_actions.is_empty()
+        } else {
+            (phase as usize) < scene.phases.len()
+        };
         if !world.scenes.contains(&id)
-            || phase as usize >= scene.phases.len()
+            || !valid_phase
             || completed_actions.iter().any(|slot| {
                 scene
                     .actions

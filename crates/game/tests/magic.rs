@@ -1939,7 +1939,7 @@ fn version_eight_worlds_load_without_active_effects() {
     // version 37 added (2 bytes), both always present at the tail regardless
     // of the simulated version. `without_exclusive_branches` already strips
     // each actor's and reference's own mid-stream section table.
-    old.truncate(old.len() - 76);
+    old.truncate(old.len() - 72);
     old[4..6].copy_from_slice(&8u16.to_le_bytes());
     cast(&mut game, SPELL, OTHER).unwrap();
     game.world_mut().load_state(&old).unwrap();
