@@ -85,6 +85,13 @@ fn validate_fields(fields: &[Field], depth: usize) -> Result<(), Error> {
 }
 
 impl Stack {
+    pub(crate) fn plain_one() -> Self {
+        Self {
+            count: 1,
+            extras: Vec::new(),
+        }
+    }
+
     /// Build a stack, rejecting duplicate counts and malformed quantities.
     ///
     /// # Errors

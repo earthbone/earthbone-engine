@@ -64,6 +64,9 @@ impl Vm {
                     };
                     work.extend(items.iter().cloned());
                 }
+                Value::Struct(value) => {
+                    work.extend(value.fields.borrow().values().cloned());
+                }
                 _ => {}
             }
         }

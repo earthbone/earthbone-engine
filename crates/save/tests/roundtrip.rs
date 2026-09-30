@@ -190,6 +190,42 @@ fn an_uncompressed_save_round_trips_byte_for_byte() {
 }
 
 #[test]
+fn sav_64_achr_modifier_flags_keep_their_payload_opaque_and_byte_exact() {
+    let payload = Save::parse(&build(Compression::None))
+        .expect("parses fixture")
+        .change_forms
+        .first()
+        .expect("fixture has one change form")
+        .data
+        .clone();
+    let modifier_flags = [1 << 19, 1 << 20, 1 << 21, 1 << 22, 1 << 23];
+    let all_modifier_flags = modifier_flags.into_iter().fold(0, |bits, flag| bits | flag);
+
+    for flags in modifier_flags.into_iter().chain([all_modifier_flags]) {
+        let mut save = Save::parse(&build(Compression::None)).expect("parses fixture");
+        let form = save
+            .change_forms
+            .first_mut()
+            .expect("fixture has one change form");
+        form.change_flags = flags;
+        form.type_field = 1;
+
+        let bytes = save.write().expect("writes fixture");
+        let reparsed = Save::parse(&bytes).expect("parses written fixture");
+        let form = reparsed
+            .change_forms
+            .first()
+            .expect("written fixture has one change form");
+
+        assert_eq!(
+            form.change_flags, flags,
+            "modifier flag mask must round trip"
+        );
+        assert_eq!(form.data, payload, "unknown ACHR bytes must round trip");
+    }
+}
+
+#[test]
 fn sav_65_created_objects_block_is_optional_but_duplicate_or_bad_data_fails() {
     let mut save = Save::parse(&build(Compression::None)).unwrap();
     assert!(save.created_objects().unwrap().is_none());

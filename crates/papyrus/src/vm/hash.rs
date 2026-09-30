@@ -158,6 +158,16 @@ impl StateHasher {
                     self.value_at(item, depth + 1);
                 }
             }
+            Value::Struct(s) => {
+                self.u8(7);
+                self.str(&s.name);
+                let fields = s.fields.borrow();
+                self.len(fields.len());
+                for (name, value) in fields.iter() {
+                    self.str(name);
+                    self.value_at(value, depth + 1);
+                }
+            }
         }
     }
 

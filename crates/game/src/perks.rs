@@ -66,6 +66,8 @@ pub struct EntryPointContext {
     pub tabs: Vec<GlobalFormId>,
     pub target: Option<GlobalFormId>,
     pub quest: Option<GlobalFormId>,
+    /// Skill-use inputs for EPModSkillUsage entry point conditions.
+    pub skill_use: Option<conditions::SkillUseContext>,
 }
 
 /// The decoded fields needed by an entry point handler.
@@ -131,42 +133,58 @@ impl EntryPointDispatcher {
             .get(&entry_point)
             .ok_or(DispatchError::Unregistered(entry_point))?;
         let mut world = game.world_mut();
-        let owned = world
-            .actor(actor)
-            .map(|state| state.perks.clone())
-            .unwrap_or_default();
-        let entries = world
-            .order()
-            .winners_of(Tag(*b"PERK"))
-            .filter(|(perk, record)| owned.contains(perk) && !record.is_deleted())
-            .map(|(perk, record)| {
-                entry_point_sections(record, perk).map(|sections| (perk, sections))
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        let mut count = 0;
-        for (perk_id, sections) in entries {
-            for section in sections {
-                if section.entry_point != entry_point {
-                    continue;
-                }
-                if !entry_conditions(&mut world, &game.vm, perk_id, &section, context)? {
-                    continue;
-                }
-                let invocation = EntryPointInvocation {
-                    actor,
-                    perk: perk_id,
-                    rank: u16::from(section.rank) + 1,
-                    priority: section.priority,
-                    function: section.function,
-                    data_type: section.data_type,
-                    data: section.data,
-                };
-                handler(&mut world, &invocation);
-                count += 1;
-            }
+        let invocations =
+            entry_point_invocations(&mut world, &game.vm, actor, entry_point, context)?;
+        for invocation in &invocations {
+            handler(&mut world, invocation);
         }
-        Ok(count)
+        Ok(invocations.len())
     }
+}
+
+/// Collect eligible entry-point operations in winning-record and source order.
+///
+/// # Errors
+/// Malformed sections, missing tab subjects and unsupported conditions.
+pub fn entry_point_invocations(
+    world: &mut World,
+    vm: &soe_papyrus::Vm,
+    actor: GlobalFormId,
+    entry_point: u8,
+    context: &EntryPointContext,
+) -> Result<Vec<EntryPointInvocation>, DispatchError> {
+    let owned = world
+        .actor(actor)
+        .map(|state| state.perks.clone())
+        .unwrap_or_default();
+    let entries = world
+        .order()
+        .winners_of(Tag(*b"PERK"))
+        .filter(|(perk, record)| owned.contains(perk) && !record.is_deleted())
+        .map(|(perk, record)| entry_point_sections(record, perk).map(|sections| (perk, sections)))
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut invocations = Vec::new();
+    for (perk_id, sections) in entries {
+        for section in sections {
+            if section.entry_point != entry_point {
+                continue;
+            }
+            if !entry_conditions(world, vm, perk_id, &section, context)? {
+                continue;
+            }
+            let invocation = EntryPointInvocation {
+                actor,
+                perk: perk_id,
+                rank: u16::from(section.rank) + 1,
+                priority: section.priority,
+                function: section.function,
+                data_type: section.data_type,
+                data: section.data,
+            };
+            invocations.push(invocation);
+        }
+    }
+    Ok(invocations)
 }
 
 struct EntrySection {
@@ -336,6 +354,8 @@ fn entry_conditions(
             target: context.target,
             quest: context.quest,
             tempering_enchanted: None,
+            skill_use: context.skill_use,
+            light_level: None,
         };
         if !conditions::evaluate(world, vm, condition_context, conditions)
             .map_err(|error| DispatchError::Condition(perk, error))?
@@ -429,6 +449,8 @@ impl Game {
             target: None,
             quest: None,
             tempering_enchanted: None,
+            skill_use: None,
+            light_level: None,
         };
         if !conditions::evaluate(&mut world, &self.vm, context, &perk.conditions)? {
             return Err(Error::Ineligible);

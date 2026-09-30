@@ -29,12 +29,14 @@ pub mod error;
 pub mod header;
 pub mod mesh;
 pub mod stream;
+pub mod tri;
 pub mod types;
 pub mod vertex;
 
 pub use error::{Error, Result};
 pub use header::Header;
 pub use mesh::{Material, Mesh};
+pub use tri::{parse_head_tri, HeadMorph, HeadTri};
 pub use types::{BlockRef, Bound, Mat33, Transform, Vec3};
 
 use blocks::Block;

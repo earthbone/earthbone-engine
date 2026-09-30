@@ -225,7 +225,10 @@ impl World {
     }
 
     /// Resolve shared response data without transferring conditions or fragments.
-    fn response_data(&self, info: GlobalFormId) -> Result<(GlobalFormId, DialogueInfo), Error> {
+    pub(crate) fn response_data(
+        &self,
+        info: GlobalFormId,
+    ) -> Result<(GlobalFormId, DialogueInfo), Error> {
         let mut current = info;
         let mut visited = std::collections::BTreeSet::new();
         loop {
@@ -606,6 +609,9 @@ impl Game {
         };
         let (candidates, rejected) = match linked_topics {
             Some(topics) => (topics, Vec::new()),
+            None if session.last_info.is_none() && session.topic.is_some() => {
+                (session.topic.into_iter().collect(), Vec::new())
+            }
             None => self.root_dialogue_topics(&session),
         };
         let mut out = Choices {
@@ -769,6 +775,8 @@ impl Game {
             target: Some(session.listener),
             quest: Some(quest),
             tempering_enchanted: None,
+            skill_use: None,
+            light_level: None,
         };
         if !conditions::evaluate(&mut world, &self.vm, context, &quest_conditions)? {
             return Ok(Candidates {
@@ -856,6 +864,8 @@ impl Game {
             target: Some(session.listener),
             quest: Some(quest),
             tempering_enchanted: None,
+            skill_use: None,
+            light_level: None,
         };
         if !conditions::evaluate(world, vm, context, &info.conditions)? {
             return Ok(false);

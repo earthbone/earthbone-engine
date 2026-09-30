@@ -13,6 +13,9 @@ mod npcs;
 #[path = "vanilla_save/references.rs"]
 mod references;
 
+#[path = "vanilla_save/projectiles.rs"]
+mod projectiles;
+
 #[path = "vanilla_save/inventory.rs"]
 mod inventory;
 
@@ -21,6 +24,20 @@ mod actor_sources;
 
 #[path = "vanilla_save/lists.rs"]
 mod lists;
+
+#[path = "vanilla_save/record_changes.rs"]
+mod record_changes;
+
+#[path = "vanilla_save/sav_30_dialogue_scene.rs"]
+mod sav_30_dialogue_scene;
+
+#[path = "vanilla_save/pack_navmesh.rs"]
+mod pack_navmesh;
+
+#[path = "common/installed.rs"]
+mod installed;
+#[path = "common/legacy.rs"]
+mod legacy;
 
 use std::{
     path::{Path, PathBuf},
@@ -366,6 +383,37 @@ fn late_invalid_or_repeated_globals_leave_the_entire_game_unchanged() {
 }
 
 #[test]
+fn sav_09_last_papyrus_pass_error_restores_world_and_vm() {
+    let mut game = Game::new(references::fixture_order());
+    let global = id(3, 0x800);
+    game.world_mut().set_global(global, 7.0);
+    game.vm.create_object("prior VM object");
+    let before = game.save_state().unwrap();
+
+    let mut save = references::fixture();
+    save.form_id_array.push(0x0100_0800);
+    save.table_1.push(GlobalData {
+        kind: GlobalData::GLOBAL_VARIABLES,
+        data: GlobalVariables {
+            variables: vec![GlobalVariable {
+                form: reference(3),
+                value: 42.5,
+            }],
+        }
+        .write()
+        .unwrap(),
+    });
+    save.table_3 = vec![GlobalData {
+        kind: GlobalData::PAPYRUS,
+        data: vec![0xff],
+    }];
+
+    let result = game.restore_vanilla_world_and_vm(&save);
+    assert!(matches!(result, Err(RestoreError::Save(_))), "{result:?}");
+    assert_eq!(game.save_state().unwrap(), before);
+}
+
+#[test]
 fn deleted_and_wrong_type_winners_are_not_restored_as_globals() {
     for tag in [Tag(*b"BOOK"), Tag(*b"GLOB")] {
         let mut order = order();
@@ -444,28 +492,21 @@ fn collect_saves(path: &Path, out: &mut Vec<PathBuf>) {
 
 #[test]
 fn installed_save_globals_restore_into_live_forms_and_persist() {
-    let (Some(data), Some(saves)) = (
+    let (Some(_data), Some(saves)) = (
         std::env::var_os("SKYRIM_DATA"),
         std::env::var_os("SOE_TEST_SAVES"),
     ) else {
         eprintln!("SKYRIM_DATA or SOE_TEST_SAVES not set, skipping global restoration survey");
         return;
     };
-    let mut order = LoadOrder::new();
-    for name in [
+    let order = installed::load_order(&[
         "Skyrim.esm",
         "Update.esm",
         "Dawnguard.esm",
         "HearthFires.esm",
         "Dragonborn.esm",
-    ] {
-        order
-            .add(
-                name,
-                Plugin::parse(&std::fs::read(Path::new(&data).join(name)).unwrap()).unwrap(),
-            )
-            .unwrap();
-    }
+    ])
+    .unwrap();
     let order = Arc::new(order);
     let mut paths = vec![];
     collect_saves(Path::new(&saves), &mut paths);

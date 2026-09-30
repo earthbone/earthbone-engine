@@ -10,6 +10,15 @@ use soe_papyrus::{ObjectId, Value};
 
 use super::{Alloc, Handle, Pending, World};
 
+/// A transient request for the host to display one EffectShader on a reference.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct EffectShaderRequest {
+    pub shader: GlobalFormId,
+    pub target: GlobalFormId,
+    pub duration: f32,
+    pub playing: bool,
+}
+
 impl World {
     /// The active scene whose quest alias currently names `reference`.
     pub fn current_scene(&mut self, reference: GlobalFormId) -> Option<GlobalFormId> {
@@ -32,6 +41,33 @@ impl World {
             }
         }
         None
+    }
+
+    /// Queue a shader start or stop for the renderer. Repeated starts replace
+    /// the lifetime for the same shader and target when the host consumes it.
+    pub fn effect_shader(
+        &mut self,
+        shader: GlobalFormId,
+        target: GlobalFormId,
+        duration: f32,
+        playing: bool,
+    ) {
+        self.effect_shader_requests.push(EffectShaderRequest {
+            shader,
+            target,
+            duration,
+            playing,
+        });
+    }
+
+    /// Drain visual requests after the host has reconciled them.
+    pub fn take_effect_shader_requests(&mut self) -> Vec<EffectShaderRequest> {
+        std::mem::take(&mut self.effect_shader_requests)
+    }
+
+    /// Take queued Story Manager inputs for the scheduler.
+    pub fn take_story_manager_events(&mut self) -> Vec<crate::quest::state::StoryManagerEvent> {
+        std::mem::take(&mut self.story_manager_events)
     }
 
     /// An event to the scripts on `form`, the way `OnActivate` reaches a
@@ -192,6 +228,20 @@ impl World {
     /// Current zero-based phase for a playing scene.
     pub fn scene_phase(&self, id: GlobalFormId) -> Option<u32> {
         self.scene_runs.get(&id).map(|run| run.phase)
+    }
+
+    /// Whether a valid SCEN action slot has completed. A valid action on a
+    /// stopped scene is not complete.
+    pub fn scene_action_complete(&self, id: GlobalFormId, action_slot: u32) -> Option<bool> {
+        let record = self.record(id)?;
+        let scene = Scene::from_record(record).ok()?;
+        let slot = usize::try_from(action_slot).ok()?;
+        scene.actions.get(slot)?;
+        Some(
+            self.scene_runs
+                .get(&id)
+                .is_some_and(|run| run.completed_actions.contains(&action_slot)),
+        )
     }
 
     /// Mark an action slot complete when it ends in the current phase.

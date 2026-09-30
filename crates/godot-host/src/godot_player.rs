@@ -40,12 +40,16 @@ use crate::input::devices::{godot_mouse_for, godot_pad_for, Devices, PadControl}
 use crate::input::{godot_key_for, Action, Bindings, ControlMap, Driver, InputState};
 
 mod containers;
+mod detection;
 mod exterior;
 mod footsteps;
 mod gameplay;
+mod hud;
+mod lockpicking;
 mod magic;
 mod melee;
 mod menu;
+mod race;
 mod saves;
 
 /// How far ahead of the eye an activate ray reaches, in Skyrim units. The
@@ -76,6 +80,12 @@ pub struct PlayerNode {
     /// Stick look rate in mouse units per second, before camera sensitivity.
     #[export]
     gamepad_look_speed: f32,
+    /// Maximum exterior mesh triangles uploaded by one walking tick. Zero is unlimited.
+    #[export]
+    exterior_triangle_budget: i64,
+    /// Maximum exterior vertex and index bytes uploaded by one walking tick.
+    #[export]
+    exterior_byte_budget: i64,
     rig: CameraRig,
     motion: CameraMotion,
     bindings: Bindings,
@@ -104,6 +114,7 @@ pub struct PlayerNode {
     loaded_cell: Option<GlobalFormId>,
     door_fade: DoorFade,
     door_fade_view: Option<DoorFadeView>,
+    hud_view: Option<hud::HudView>,
     exterior: Option<exterior::ExteriorRuntime>,
     interior_prefetch: crate::interior_prefetch::InteriorPrefetch,
     interior_prefetch_elapsed: f64,
@@ -115,6 +126,7 @@ pub struct PlayerNode {
     /// GDScript so a prompt can be drawn without a second raycast.
     last_activate_hit: bool,
     last_activate_reference: Option<GlobalFormId>,
+    pending_lockpick: Option<GlobalFormId>,
     action_latches: BTreeMap<Action, u64>,
     held_actions: BTreeSet<Action>,
     devices: Devices,
@@ -122,8 +134,15 @@ pub struct PlayerNode {
     menu: crate::ui::MenuState,
     inventory_category: crate::inventory_menu::Category,
     magic_hand: soe_game::combat::Hand,
+    race_choice: Option<(GlobalFormId, bool)>,
+    appearance_choice: Option<soe_game::appearance::PlayerAppearance>,
     menu_view: Option<menu::MenuView>,
+    quest_journal_snapshot: Option<Vec<crate::quest_journal::Entry>>,
+    mcm_config: Option<GlobalFormId>,
     container_menu: Option<(GlobalFormId, crate::inventory_menu::Category)>,
+    lockpick_target: Option<GlobalFormId>,
+    lockpick_angle: f32,
+    lockpick_status: Option<Gd<godot::classes::Label>>,
     restore_mouse_on_focus: Option<godot::classes::input::MouseMode>,
 }
 
@@ -135,6 +154,8 @@ impl INode3D for PlayerNode {
             capture_mouse: true,
             auto_step: true,
             gamepad_look_speed: 800.0,
+            exterior_triangle_budget: 0,
+            exterior_byte_budget: 0,
             rig: CameraRig::default(),
             motion: CameraMotion::new(Vec3::ZERO, CharacterSettings::default().height),
             bindings: Bindings::default(),
@@ -167,6 +188,7 @@ impl INode3D for PlayerNode {
             pending_look: (0.0, 0.0),
             last_activate_hit: false,
             last_activate_reference: None,
+            pending_lockpick: None,
             action_latches: BTreeMap::new(),
             held_actions: BTreeSet::new(),
             devices: Devices::default(),
@@ -174,9 +196,17 @@ impl INode3D for PlayerNode {
             menu: crate::ui::MenuState::default(),
             inventory_category: crate::inventory_menu::Category::All,
             magic_hand: soe_game::combat::Hand::Right,
+            race_choice: None,
+            appearance_choice: None,
             menu_view: None,
+            quest_journal_snapshot: None,
+            mcm_config: None,
             container_menu: None,
+            lockpick_target: None,
+            lockpick_angle: 0.0,
+            lockpick_status: None,
             restore_mouse_on_focus: None,
+            hud_view: None,
         }
     }
 
@@ -192,6 +222,7 @@ impl INode3D for PlayerNode {
         self.register_actions();
         self.create_camera();
         self.create_door_fade();
+        self.create_hud();
 
         self.create_menu();
         if self.capture_mouse {
@@ -231,6 +262,17 @@ impl INode3D for PlayerNode {
                 && !key.is_echo()
                 && !self.menu.is_open()
                 && self.open_magic_menu()
+            {
+                if let Some(mut viewport) = self.base().get_viewport() {
+                    viewport.set_input_as_handled();
+                }
+                return;
+            }
+            if key.get_keycode() == Key::J
+                && key.is_pressed()
+                && !key.is_echo()
+                && !self.menu.is_open()
+                && self.open_quest_journal()
             {
                 if let Some(mut viewport) = self.base().get_viewport() {
                     viewport.set_input_as_handled();
@@ -289,6 +331,9 @@ impl INode3D for PlayerNode {
     }
 
     fn process(&mut self, delta: f64) {
+        if self.menu.title() == Some("Quests") {
+            self.refresh_quest_journal();
+        }
         if self.auto_step && !self.menu.is_open() {
             self.look_stick(delta);
             let (dx, dy) = std::mem::take(&mut self.pending_look);
@@ -296,6 +341,13 @@ impl INode3D for PlayerNode {
             let fraction = Engine::singleton().get_physics_interpolation_fraction() as f32;
             let (feet, height) = self.motion.sample(fraction);
             self.place_camera(feet, height);
+        }
+        if let Some(game) = self.game.as_mut() {
+            if let Some(view) = self.hud_view.as_mut() {
+                view.refresh(game, self.rig.yaw());
+            }
+        } else if let Some(view) = self.hud_view.as_mut() {
+            view.hide();
         }
     }
 
@@ -310,6 +362,7 @@ impl INode3D for PlayerNode {
             Input::singleton().set_mouse_mode(godot::classes::input::MouseMode::VISIBLE);
         }
         self.camera = None;
+        self.hud_view = None;
     }
 }
 
@@ -326,6 +379,11 @@ impl PlayerNode {
     #[func]
     fn input_focus_lost(&mut self) {
         self.input_focused = false;
+        if let Some(game) = self.game.as_mut() {
+            let player = game.player();
+            let _ = game.end_hand_cast(player, soe_game::combat::Hand::Left);
+            let _ = game.end_hand_cast(player, soe_game::combat::Hand::Right);
+        }
         self.devices = Devices::default();
         self.pending_look = (0.0, 0.0);
         self.action_latches.clear();
@@ -523,9 +581,25 @@ impl PlayerNode {
         let (dx, dy) = std::mem::take(&mut self.pending_look);
         self.rig.look(dx, dy);
 
+        let previous_held = self.held_actions.clone();
         let input = self.gather();
+        self.route_hand_casts(
+            magic::HandCastInput {
+                was_held: previous_held.contains(&Action::LeftAttackBlock),
+                held: input.left_attack_held,
+                pressed: input.left_attack_pressed,
+            },
+            magic::HandCastInput {
+                was_held: previous_held.contains(&Action::RightAttackBlock),
+                held: input.right_attack_held,
+                pressed: input.right_attack_pressed,
+            },
+        );
         if input.toggle_pov_pressed {
             self.rig.mode = self.rig.mode.toggled();
+        }
+        if input.right_attack_pressed {
+            self.begin_melee_swing(false);
         }
 
         let camera = self.rig;
@@ -554,6 +628,16 @@ impl PlayerNode {
             activation_hit.and_then(|hit| self.collision_references.get(&hit.body).copied());
 
         self.advance_game(delta);
+        let player_motion = if input.is_moving() {
+            if input.sprint || self.driver.always_run != input.walk {
+                soe_game::detection::Motion::Running
+            } else {
+                soe_game::detection::Motion::Walking
+            }
+        } else {
+            soe_game::detection::Motion::Still
+        };
+        self.advance_detection(delta, player_motion);
         self.advance_door_fade(delta);
 
         self.motion.step(self.feet(), self.capsule_height());
@@ -636,6 +720,72 @@ impl PlayerNode {
     #[func]
     pub fn start_gameplay(&mut self) -> bool {
         self.start_game_runtime()
+    }
+
+    /// Read one reference's current simulated placement in Skyrim units.
+    #[func]
+    pub fn gameplay_reference_pose(&self, file: i32, object: i64) -> VarDictionary {
+        let mut result = VarDictionary::new();
+        let (Ok(file), Ok(object)) = (u16::try_from(file), u32::try_from(object)) else {
+            return result;
+        };
+        let Some(game) = &self.game else {
+            return result;
+        };
+        let world = game.world();
+        let Some(pose) = world.ref_placement(GlobalFormId { file, object }) else {
+            return result;
+        };
+        result.set(
+            "position",
+            Vector3::new(pose.position[0], pose.position[1], pose.position[2]),
+        );
+        result.set(
+            "rotation",
+            Vector3::new(pose.rotation[0], pose.rotation[1], pose.rotation[2]),
+        );
+        result.set("visible", pose.visible);
+        result
+    }
+
+    /// Set a reference's enabled state through the shared World.
+    #[func]
+    pub fn set_reference_enabled(&mut self, file: i32, object: i64, enabled: bool) -> bool {
+        let (Ok(file), Ok(object), Some(game)) = (
+            u16::try_from(file),
+            u32::try_from(object),
+            self.game.as_mut(),
+        ) else {
+            return false;
+        };
+        let mut world = game.world_mut();
+        let Some(reference) = world.reference(GlobalFormId { file, object }) else {
+            return false;
+        };
+        if reference.deleted {
+            return false;
+        }
+        reference.enabled = enabled;
+        true
+    }
+
+    /// Remove a reference from its host presentation on the next tick.
+    #[func]
+    pub fn despawn_reference(&mut self, file: i32, object: i64) -> bool {
+        let (Ok(file), Ok(object), Some(game)) = (
+            u16::try_from(file),
+            u32::try_from(object),
+            self.game.as_mut(),
+        ) else {
+            return false;
+        };
+        let mut world = game.world_mut();
+        let Some(reference) = world.reference(GlobalFormId { file, object }) else {
+            return false;
+        };
+        reference.deleted = true;
+        reference.enabled = false;
+        true
     }
 
     /// Current derived image-space stack for host diagnostics.
@@ -723,6 +873,56 @@ impl PlayerNode {
         };
         let ok = self.activate_game_reference(GlobalFormId { file, object });
         self.sync_game_pose() && ok
+    }
+
+    /// Return the pending lockpick target and authored lock level for the UI.
+    #[func]
+    pub fn pending_lockpick(&self) -> VarDictionary {
+        let mut result = VarDictionary::new();
+        let Some(target) = self.pending_lockpick else {
+            return result;
+        };
+        let Some(game) = &self.game else {
+            return result;
+        };
+        let world = game.world();
+        let Some(reference) = world.reference_ref(target) else {
+            return result;
+        };
+        result.set("file", i64::from(target.file));
+        result.set("object", i64::from(target.object));
+        result.set("level", i64::from(reference.lock_level));
+        result
+    }
+
+    /// Resolve the pending lockpick interaction and continue normal activation
+    /// after a successful pick.
+    #[func]
+    pub fn resolve_pending_lockpick(&mut self, success: bool) -> bool {
+        let Some(target) = self.pending_lockpick.take() else {
+            return false;
+        };
+        let Some(game) = &mut self.game else {
+            return false;
+        };
+        let player = game.player();
+        let accepted = game
+            .world()
+            .reference_ref(target)
+            .is_some_and(|reference| reference.locked && reference.lock_level != 255)
+            && game
+                .world()
+                .form("Lockpick")
+                .is_some_and(|pick| game.world_mut().item_count(player, pick) > 0);
+        if !accepted {
+            return false;
+        }
+        let unlocked = game.resolve_lockpick(target, player, success);
+        if unlocked {
+            game.activate_deferred(target, player)
+        } else {
+            true
+        }
     }
 
     /// Point the camera, used when a door or a save sets a facing.
@@ -916,6 +1116,10 @@ impl PlayerNode {
             activate_pressed: pressed(Action::Activate),
             toggle_pov_pressed: pressed(Action::TogglePov),
             toggle_always_run_pressed: pressed(Action::ToggleAlwaysRun),
+            right_attack_pressed: pressed(Action::RightAttack),
+            left_attack_held: held(Action::LeftAttackBlock),
+            right_attack_held: held(Action::RightAttackBlock),
+            left_attack_pressed: pressed(Action::LeftAttackBlock),
         };
         self.held_actions = held_now;
         state
