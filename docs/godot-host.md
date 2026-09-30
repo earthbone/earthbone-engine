@@ -73,6 +73,22 @@ Crate `soe-godot-host` (`crates/godot-host`). A GDExtension in Rust on godot-rus
 because Jolt became the built-in physics there. The crate builds and tests with cargo alone.
 With `--no-default-features` the `godot` dependency is gone and what remains is the logic.
 
+### Editor forms dock, EDT-02
+
+`godot/addons/soe_forms` is a Godot editor plugin. It opens plugin paths in load-order order
+and names the active plugin, then filters winning forms by an optional four-character
+signature and case-insensitive Editor ID substring. `SoeFormTable.search` returns encoded
+FormIDs only, with at most 200 results per page. Selecting a row calls `selected_form`, which
+creates one `SoeFormResource` for the inspector with its resolved FormID, signature, Editor
+ID and winning plugin. The resource is a view and does not expose record editing.
+
+The dock uses Godot's `EditorPlugin` dock API, and the inspector uses the standard Resource
+property display. Local `engine-refs/godot-docs/tutorials/plugins/editor/making_plugins.rst`,
+`inspector_plugins.rst` and `classes/class_editorinspectorplugin.rst` describe these host APIs.
+The plugin must be enabled in the Godot project's Plugins settings after building the
+extension. The dock does not implement record editing or an `EditorInspectorPlugin` custom
+field editor.
+
 ## Layout
 
 ### Movable reference physics, HST-12
