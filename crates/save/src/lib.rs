@@ -38,11 +38,14 @@ pub mod reference;
 pub mod table;
 
 pub use base_object::{
-    AppaIdleMarkerChange, BaseObjectFields, LightStaticChange, StaticObjectChange,
+    AppaIdleMarkerChange, BaseObjectFields, ItemChange, LightStaticChange, StaticObjectChange,
 };
+pub use change::book_note_key_flags;
 pub use change::{
-    BaseObjectChange, ChangeForm, ClassChange, FactionChange, FactionReaction, FactionReactions,
-    NavmeshChange, PackChange, QuestStage, RelationshipChange,
+    ActivatorChange, BaseObjectChange, BookChange, CellChange, CellInteriorSeenEntry, CellSeenData,
+    ChangeForm, ClassChange, FactionChange, FactionReaction, FactionReactions, IngredientChange,
+    KeyChange, NavmeshChange, NoteChange, OpaqueSpatialChange, PackChange, ParwChange, PconChange,
+    ProjectileChange, ProjectileChangeFlag, ProjectileChangeFlags, QuestStage, RelationshipChange,
 };
 pub use created_objects::{CreatedEffect, CreatedObject, CreatedObjects};
 pub use cursor::{RefId, RefKind, WString};

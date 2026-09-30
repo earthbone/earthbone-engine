@@ -216,14 +216,14 @@ fn a_genuine_pre_prg_06_save_loads_cleanly_with_no_witnessed_crimes() {
         "an actor with no hand spells must write two unset presence bytes after its crime set"
     );
     // The right spell field is immediately followed by this actor's own
-    // empty save-section table, a `u16` count of zero, which a version 29
-    // writer never emitted either.
-    bytes.drain(offsets[0]..end + 2 + 2);
-    // The scene runtime count (version 36), the now-unconditional detection
-    // pool count (version 37) and the empty world-level save-section table
-    // (version 37) are the last three fields, ten bytes together, all past
-    // where a version 29 save ends.
-    bytes.truncate(bytes.len() - 10);
+    // named save-section table, which a version 29 writer never emitted.
+    let section_start = end + 2;
+    let section_len = legacy::section_table_len(&bytes, section_start);
+    bytes.drain(offsets[0]..section_start + section_len);
+    legacy::strip_world_sections(&mut bytes);
+    // The scene runtime count (version 36) and detection pool count
+    // (version 37) are past where a version 29 save ends.
+    bytes.truncate(bytes.len() - 8);
     let visit_count = bytes.len() - 12;
     assert_eq!(bytes[visit_count..visit_count + 4], [0; 4]);
     bytes.drain(visit_count..visit_count + 4);

@@ -7,7 +7,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use soe_esm::GlobalFormId;
 use soe_save::Save;
 
-use super::{World, T};
+use super::{World, DYNAMIC_FILE, T};
 use crate::vanilla_save::{RestoreError, SavedFormMap};
 
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -38,6 +38,22 @@ impl World {
         save: &Save,
     ) -> Result<InventoryRestoreReport, RestoreError> {
         let mapping = SavedFormMap::new(save, &self.order)?;
+        let mut created_bases = BTreeSet::new();
+        if let Some(objects) = save.created_objects()? {
+            for object in objects
+                .weapon_enchantments
+                .iter()
+                .chain(&objects.armor_enchantments)
+                .chain(&objects.potions)
+                .chain(&objects.poisons)
+            {
+                if let Some(id) = mapping.reference(object.form)? {
+                    if id.file == DYNAMIC_FILE {
+                        created_bases.insert(id);
+                    }
+                }
+            }
+        }
         let mut prepared = BTreeMap::new();
         let mut report = InventoryRestoreReport::default();
         for change in &save.change_forms {
@@ -54,7 +70,7 @@ impl World {
             let base = state
                 .base
                 .ok_or_else(|| bad(id, "missing reference base"))?;
-            if self.order.winner(base).is_none() {
+            if self.order.winner(base).is_none() && !created_bases.contains(&base) {
                 return Err(bad(id, "restore created base records first"));
             }
             if self.tag_of(base) == Some(T(b"NPC_")) {
