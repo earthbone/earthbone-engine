@@ -34,6 +34,7 @@ pub(crate) const ACTOR_SECTIONS: &[Section<ActorState>] = &[
     Section { name: "PRG-01", write: super::super::progression::write_skill_experience, read: super::super::progression::read_skill_experience },
     Section { name: "AI-88", write: super::furniture::write_furniture_seat, read: super::furniture::read_furniture_seat },
     Section { name: "UI-14", write: super::actors::write_ui_14, read: super::actors::read_ui_14 },
+    Section { name: "AI-43", write: write_trespassing, read: read_trespassing },
 ];
 
 /// Sections read and written once per reference, at the end of every
@@ -44,6 +45,23 @@ pub(crate) const REF_SECTIONS: &[Section<RefState>] = &[
     Section { name: "MOD-03", write: write_reference_flags, read: read_reference_flags },
     Section { name: "CMB-37", write: write_destruction_stage, read: read_destruction_stage },
 ];
+
+fn write_trespassing(
+    state: &ActorState,
+    writer: &mut soe_papyrus::vm::state::Writer,
+    _pool: &mut soe_papyrus::vm::state::ArrayPool,
+) {
+    writer.bool(state.trespassing);
+}
+
+fn read_trespassing(
+    state: &mut ActorState,
+    reader: &mut super::save::FormReader<'_, '_>,
+    _table: &soe_papyrus::vm::state::ArrayTable,
+) -> Result<(), soe_papyrus::VmError> {
+    state.trespassing = reader.bool()?;
+    Ok(())
+}
 
 fn write_destruction_stage(
     state: &RefState,

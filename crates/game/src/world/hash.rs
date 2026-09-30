@@ -435,6 +435,7 @@ fn actor_state(h: &mut StateHasher, a: &ActorState) {
     } else {
         h.bool(false);
     }
+    h.bool(a.trespassing);
 }
 
 fn quest_state(h: &mut StateHasher, q: &QuestState) {

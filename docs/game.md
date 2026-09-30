@@ -266,6 +266,20 @@ faction can legally exist without one. No Papyrus native calls this
 function yet, `SendAssaultAlarm` and similar witness-driven natives are
 later work that can build on it.
 
+**Crime conditions, AI-43.** `IsIntimidatedbyPlayer` (116) reads the subject's
+`LastBribedIntimidated` actor value, as documented by CK `IsIntimidated -
+Actor` and `SetIntimidated - Actor`. `IsTrespassing` (145) reads the subject's
+runtime `trespassing` flag, which is saved in the `AI-43` actor section.
+`GetIsCrimeFaction`
+(152) compares the subject's crime faction with its required `FACT` parameter,
+matching CK `GetCrimeFaction - Actor`. These predicates reject nonzero unused
+parameters and invalid actor or faction context. The trespassing flag is also
+included in the world state hash. `GetCrime` (122),
+`GetTrespassWarningLevel` (144), `IsPCAMurderer` (176),
+`GetAmountSoldStolen` (190) and `GetIgnoreCrime` (192) remain unsupported with
+`conditions::Error::Function`: TES5Edit gives their signatures, but the local
+CK corpus supplies no usable return contract for these condition functions.
+
 **Vendor service lookup.** `Game::resolve_vendor_service` reads the winning
 `FACT` vendor flag, `VEND`, `VENC`, `VENV`, `PLVD` and faction conditions. It evaluates
 conditions for a loaded merchant with the player as target and applies the
