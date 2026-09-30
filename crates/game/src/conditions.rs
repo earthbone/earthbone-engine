@@ -54,6 +54,8 @@ pub enum Error {
     Unavailable(u16),
     #[error("condition requires the subject's current location {0}")]
     LocationContext(GlobalFormId),
+    #[error("condition function {function} has no usable runtime contract: {reason}")]
+    UnavailableState { function: u16, reason: &'static str },
     #[error("condition count overflow or cyclic form list")]
     Inventory,
 }
@@ -210,6 +212,9 @@ pub fn supports_function(function: u16) -> bool {
             | 125
             | 127
             | 513
+            | 580
+            | 694
+            | 701
     )
 }
 
@@ -353,6 +358,10 @@ fn no_second_parameter(c: &Condition) -> Result<(), Error> {
     } else {
         Err(Error::Parameter(c.function, c.parameters[1]))
     }
+}
+
+fn first_parameter_only(c: &Condition) -> Result<(), Error> {
+    no_second_parameter(c)
 }
 
 /// Mutagen Skyrim.Constants.Player is reserved even without a placed ACHR record.
@@ -1161,6 +1170,8 @@ fn function_value(
             }
         }
         659 => boolean(context.tempering_enchanted.ok_or(Error::TemperingContext)?),
+        580 | 694 | 701 => actor_query(world, context.owner, subject, c.function, raw)?,
+        672 | 673 | 674 | 678 | 697 => unavailable_combat_query(world, context.owner, subject, c)?,
         other => return Err(Error::Function(other)),
     })
 }
@@ -1178,6 +1189,26 @@ pub(crate) fn actor_query(
         .is_none_or(|reference| reference.deleted)
     {
         return Err(Error::Form(subject));
+    }
+    if matches!(function, 580 | 694 | 701) {
+        if parameter != 0 {
+            return Err(Error::Parameter(function, parameter));
+        }
+        let value = match function {
+            580 => {
+                let actor = world.actor(subject).ok_or(Error::Form(subject))?;
+                actor.unconscious && !actor.dead
+            }
+            694 => {
+                world
+                    .actor(subject)
+                    .ok_or(Error::Form(subject))?
+                    .no_bleedout_recovery
+            }
+            701 => world.is_staggered(subject),
+            _ => return Err(Error::Function(function)),
+        };
+        return Ok(boolean(value));
     }
     if function == 408 {
         let other = resolve_reference(world, owner, parameter)?;
@@ -1206,6 +1237,49 @@ pub(crate) fn actor_query(
     } else {
         Err(Error::NonFinite)
     }
+}
+
+fn unavailable_combat_query(
+    world: &mut World,
+    owner: GlobalFormId,
+    subject: GlobalFormId,
+    c: &Condition,
+) -> Result<f32, Error> {
+    if world
+        .reference(subject)
+        .is_none_or(|reference| reference.deleted)
+    {
+        return Err(Error::Form(subject));
+    }
+    let parameter = c.parameters[0];
+    match c.function {
+        672..=674 => no_parameter(c)?,
+        678 => {
+            first_parameter_only(c)?;
+            let actor = resolve_reference(world, owner, parameter)?;
+            if world.actor(actor).is_none() {
+                return Err(Error::Form(actor));
+            }
+        }
+        697 => {
+            first_parameter_only(c)?;
+            resolve(world, owner, parameter, Some(*b"KYWD"))?;
+        }
+        _ => return Err(Error::Function(c.function)),
+    }
+    world.actor(subject).ok_or(Error::Form(subject))?;
+    let reason = match c.function {
+        672 => "the runtime has no live attack-state producer",
+        673 => "MeleeHit records confirmed contacts, not the active animation state",
+        674 => "the runtime does not track the actor's last hostile identity",
+        678 => "no damage forecast contract is documented for this condition",
+        697 => "the runtime has no active attack type to compare with the keyword",
+        _ => return Err(Error::Function(c.function)),
+    };
+    Err(Error::UnavailableState {
+        function: c.function,
+        reason,
+    })
 }
 
 /// GetItemCount totals a base, FormList or keyword, and selects one item reference.
