@@ -877,6 +877,7 @@ impl World {
         for rule in &self.mod_data.actor_rules {
             form(&mut h, rule.base);
             form(&mut h, rule.what);
+            h.str(&format!("{:?}", rule.record_type));
             h.u64(rule.distribution.line_seed);
             h.f32(rule.distribution.chance);
             h.i32(rule.count);

@@ -23,15 +23,12 @@ use soe_hkx::{Packfile, QsTransform};
 
 const CHARACTER: &str = "meshes/actors/character/";
 const PASSTHROUGH_MODIFIERS: &[(&str, usize, &str)] = &[
-    ("BSDecomposeVectorModifier", 1, "ANM-24"),
     ("BSDirectAtModifier", 23, "ANM-25"),
     ("BSEventEveryNEventsModifier", 85, "ANM-26"),
     ("BSEventOnDeactivateModifier", 98, "ANM-27"),
-    ("BSEventOnFalseToTrueModifier", 23, "ANM-03"),
-    ("BSGetTimeStepModifier", 1, "ANM-28"),
     ("BSIStateManagerModifier", 3, "ANM-29"),
-    ("BSInterpValueModifier", 36, "ANM-30"),
     ("BSLimbIKModifier", 1, "ANM-31"),
+    ("BSInterpValueModifier", 36, "ANM-30"),
     ("BSLookAtModifier", 128, "ANM-32"),
     ("BSModifyOnceModifier", 26, "ANM-33"),
     ("BSPassByTargetTriggerModifier", 1, "ANM-34"),
@@ -674,4 +671,52 @@ fn every_shipped_false_to_true_modifier_decodes_all_three_slots() {
     assert!(graphs >= 428, "only {graphs} behavior graphs scanned");
     assert!(modifiers > 0, "the survey did not reach any edge modifiers");
     println!("{graphs} graphs, {modifiers} false-to-true modifiers, {enabled_slots} enabled slots, {payloads} slot payloads");
+}
+
+#[test]
+fn anm_26_vanilla_every_n_modifiers_decode_authored_intervals() {
+    let Some(archive) = animations_archive() else {
+        eprintln!("SKYRIM_DATA not set, skipping");
+        return;
+    };
+    let mut graphs = 0;
+    let mut modifiers = 0;
+    for name in archive
+        .files()
+        .iter()
+        .filter(|name| name.to_lowercase().ends_with(".hkx"))
+    {
+        let bytes = archive.read(name).unwrap();
+        let pack = Packfile::parse(&bytes).unwrap();
+        for object in pack.objects_of("hkbBehaviorGraph") {
+            let graph = BehaviorGraph::from_obj(object).unwrap();
+            graphs += 1;
+            for node in graph.nodes_of_class("BSEventEveryNEventsModifier") {
+                let soe_hkx::behavior::NodeKind::EveryNEventsModifier {
+                    event_to_check_for,
+                    event_to_send,
+                    number_of_events_before_send,
+                    minimum_number_of_events_before_send,
+                    ..
+                } = node.kind
+                else {
+                    panic!("{name}: {} was not decoded", node.name)
+                };
+                assert!(event_to_check_for.id >= -1, "{name}: invalid input event");
+                assert!(event_to_send.id >= -1, "{name}: invalid output event");
+                assert!(number_of_events_before_send >= 0, "{name}: invalid maximum");
+                assert!(
+                    minimum_number_of_events_before_send >= 0,
+                    "{name}: invalid minimum"
+                );
+                modifiers += 1;
+            }
+        }
+    }
+    assert!(graphs >= 428, "only {graphs} behavior graphs scanned");
+    assert!(
+        modifiers >= 85,
+        "only {modifiers} every-N modifiers decoded"
+    );
+    println!("{graphs} graphs, {modifiers} every-N modifiers decoded from Skyrim - Animations.bsa");
 }

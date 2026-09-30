@@ -9,13 +9,20 @@
 //! `Section { name: "MAG-39", write: magic::write_summons, read: magic::read_summons },`.
 //! The lists skip rustfmt so it never splits an entry across lines.
 
+use super::save::FormReader;
 use super::save_sections::Section;
 use super::{ActorState, RefState, World};
+use soe_papyrus::vm::state::{ArrayPool, ArrayTable, Writer};
+use soe_papyrus::VmError;
 
 /// Sections read and written once, at the end of [`World::save_state`]
 /// and [`World::load_state`].
 #[rustfmt::skip]
 pub(crate) const WORLD_SECTIONS: &[Section<World>] = &[
+    Section { name: "SAV-53", write: write_base_object_section, read: read_base_object_section },
+    Section { name: "SAV-42", write: write_static_object_section, read: read_static_object_section },
+    Section { name: "SAV-44", write: write_appa_idlm_section, read: read_appa_idlm_section },
+    Section { name: "SAV-50", write: write_woop_mgef_section, read: read_woop_mgef_section },
     Section { name: "AI-16", write: super::save::write_script_calls, read: super::save::read_script_calls },
     Section { name: "SAV-46", write: write_saved_form_flags, read: read_saved_form_flags },
     Section { name: "CRF-02", write: super::save::write_brewed_potions, read: super::save::read_brewed_potions },
@@ -26,6 +33,54 @@ pub(crate) const WORLD_SECTIONS: &[Section<World>] = &[
     super::magic::SAVE_SECTION,
 ];
 
+fn write_base_object_section(world: &World, writer: &mut Writer, _pool: &mut ArrayPool) {
+    World::write_base_object_section(world, writer);
+}
+
+fn read_base_object_section(
+    world: &mut World,
+    reader: &mut FormReader<'_, '_>,
+    _table: &ArrayTable,
+) -> Result<(), VmError> {
+    World::read_base_object_section(world, reader)
+}
+
+fn write_static_object_section(world: &World, writer: &mut Writer, _pool: &mut ArrayPool) {
+    World::write_static_object_section(world, writer);
+}
+
+fn read_static_object_section(
+    world: &mut World,
+    reader: &mut FormReader<'_, '_>,
+    _table: &ArrayTable,
+) -> Result<(), VmError> {
+    World::read_static_object_section(world, reader)
+}
+
+fn write_appa_idlm_section(world: &World, writer: &mut Writer, _pool: &mut ArrayPool) {
+    World::write_appa_idlm_section(world, writer);
+}
+
+fn read_appa_idlm_section(
+    world: &mut World,
+    reader: &mut FormReader<'_, '_>,
+    _table: &ArrayTable,
+) -> Result<(), VmError> {
+    World::read_appa_idlm_section(world, reader)
+}
+
+fn write_woop_mgef_section(world: &World, writer: &mut Writer, _pool: &mut ArrayPool) {
+    World::write_woop_mgef_section(world, writer);
+}
+
+fn read_woop_mgef_section(
+    world: &mut World,
+    reader: &mut FormReader<'_, '_>,
+    _table: &ArrayTable,
+) -> Result<(), VmError> {
+    World::read_woop_mgef_section(world, reader)
+}
+
 /// Sections read and written once per actor, at the end of every actor
 /// record.
 #[rustfmt::skip]
@@ -34,6 +89,7 @@ pub(crate) const ACTOR_SECTIONS: &[Section<ActorState>] = &[
     Section { name: "PRG-01", write: super::super::progression::write_skill_experience, read: super::super::progression::read_skill_experience },
     Section { name: "AI-88", write: super::furniture::write_furniture_seat, read: super::furniture::read_furniture_seat },
     Section { name: "AI-60", write: write_voice_recovery, read: read_voice_recovery },
+    Section { name: "MOD-06", write: write_package_overrides, read: read_package_overrides },
     Section { name: "AI-20", write: write_sit_procedure, read: read_sit_procedure },
     Section { name: "AI-29", write: write_voice_recovery, read: read_voice_recovery },
     Section { name: "AI-36", write: write_use_weapon_procedure, read: read_use_weapon_procedure },
@@ -48,6 +104,37 @@ pub(crate) const REF_SECTIONS: &[Section<RefState>] = &[
     Section { name: "MOD-03", write: write_reference_flags, read: read_reference_flags },
     Section { name: "CMB-37", write: write_destruction_stage, read: read_destruction_stage },
 ];
+
+fn write_package_overrides(
+    state: &ActorState,
+    writer: &mut soe_papyrus::vm::state::Writer,
+    _pool: &mut soe_papyrus::vm::state::ArrayPool,
+) {
+    writer.len(state.package_overrides.len());
+    for (index, package) in &state.package_overrides {
+        writer.len(*index);
+        super::save::write_form_id(writer, *package);
+    }
+}
+
+fn read_package_overrides(
+    state: &mut ActorState,
+    reader: &mut super::save::FormReader<'_, '_>,
+    _table: &soe_papyrus::vm::state::ArrayTable,
+) -> Result<(), soe_papyrus::VmError> {
+    let count = reader.len()?;
+    if count > reader.remaining() / 8 {
+        return Err(soe_papyrus::VmError::State(
+            "MOD-06 package count exceeds remaining bytes".into(),
+        ));
+    }
+    for _ in 0..count {
+        let index = reader.len()?;
+        let package = super::save::read_form_id(reader)?;
+        state.package_overrides.push((index, package));
+    }
+    Ok(())
+}
 
 fn write_voice_recovery(
     state: &ActorState,

@@ -839,7 +839,8 @@ different things per section, so the reader is a state machine like the
 **The stack.** `ai::candidates` lists the alias packages of every running
 quest that holds the actor in an alias, higher quest priority first, then
 the `PKID` list of the actor's base (through one level of `TPLT` when the
-template flags say so). `ai::select` walks it and the first package whose
+template flags say so), with SPID package entries inserted at their configured
+zero-based positions in that base list. `ai::select` walks it and the first package whose
 schedule and conditions hold wins. `Once Per Day` skips a package that ran
 to completion on the current game day. `ai::evaluate` switches the actor
 when the winner changed and queues `OnPackageEnd`, `OnPackageChange` and
@@ -852,6 +853,9 @@ once, `Actor.GetCurrentPackage` returns the running package, and the
 driver re-evaluates every actor once a real second and whenever it has no
 package. The natives table rows above still list both natives as stubbed,
 they moved to the implemented column with this section.
+
+Built actors retain their distributed package entries and insertion positions
+in SOEW version 37, so package selection uses the same stack after load.
 
 The `POBA`, `POCA` and `POEA` actions also start their authored idle or
 dialogue topic at the matching boundary. Idle delivery uses the actor's
@@ -3081,7 +3085,13 @@ Default outfits initialize through the reference path described below. Runtime
 skin overrides are not supplied by this path.
 
 Outfit auto-equipping is not supplied by this path. Runtime skin overrides use
-the shared appearance view described below.
+the shared appearance view described below. SPID `Skin` distributions are
+selected before the NPC's direct skin and the race fallback when assembling an
+actor's appearance. The selected `ARMO` keeps its resolved `GlobalFormId`, and
+its armor addons enter the same body-part selection as an authored skin. The
+distribution is keyed by the NPC base and comes from the current load-time
+mod-data pass. Per-actor SPID lifecycle and deterministic seeding remain
+unsupported.
 
 Outfit auto-equipping and runtime skin overrides are not supplied by this path.
 The World footstep path supplies the selected trait source for leveled actors.
@@ -3275,8 +3285,11 @@ ACBS, AIDT, DNAM, factions, spells, class, race, face, gender and outfit changes
 become their corresponding NPC subrecords. Saved names retain Windows-1252
 bytes and are treated as plain text even if the winning plugin is localized.
 Form and NPC text queries reuse the ESM Windows-1252 decoder. Shouts initialize
-the actor's shout collection separately from spells. PRG-11 expands leveled
-spell lists during actor initialization, as described below.
+the actor's learned shout collection separately from spells. SPID shout
+distributions add to that same collection during actor initialization, with
+repeated forms stored once. The collection is written in SOEW version 3 and
+later. PRG-11 expands leveled spell lists during actor initialization, as
+described below.
 
 CommonLib names originalRace and bodyTintColor as runtime NPC fields. The
 original race and exact four tint bytes are retained alongside the record.
@@ -3307,6 +3320,17 @@ opaque bytes, non-ASCII names, live actor queries, Papyrus health, restoration
 before actor initialization, failed late imports and old saves clearing state.
 The temporary-base follow-up below adds inline NPC application. Complete
 actor state, save resumption and saved package execution remain open.
+
+## Restoring light and static base objects
+
+`World::restore_vanilla_base_objects` maps LIGH, STAT and MSTT changes through
+the saved plugin list, validates every target and payload, then installs all
+records together. The shared record lookup and name query continue to read the
+winning record's fields. `World::restored_base_object_extra` exposes the saved
+form-flag words and the value and full-name changed markers. xEdit defines the
+last two markers as zero-byte fields, so they carry no replacement value or
+name. These fields persist in SOEW version 37 and participate in the world
+hash.
 
 ## Temporary actor bases
 
@@ -4720,6 +4744,19 @@ The row's range-exit and recorded-end checks are covered. TWAT reply selection,
 walk-away menu flags, voice cancellation and original-engine timing comparison
 are outside this range-exit implementation.
 
+## Saved static-object changes, SAV-42
+
+`World::restore_vanilla_static_objects` maps CONT, MISC and FURN references
+through the saved plugin names, then applies all prepared record overrides
+together. The xEdit form-flags word is an inversion mask over the live record
+flags. The value and full-name fields consume zero bytes, so their markers and
+opaque suffix bytes remain saved metadata without replacing record subrecords.
+Record lookup, names and container inventory read through the shared overridden
+record table. Duplicate, missing or malformed changes do not install a partial
+set. SOEW version 37 saves the decoded fields and reapplies the mask on load.
+Tests `sav_42_` cover all three record types, independent queries, engine
+save/load and rollback after a late invalid target.
+
 ## Saved list changes, SAV-52
 
 `World::restore_vanilla_lists` applies decoded FLST, LVLN, LVLI and LVSP
@@ -4744,6 +4781,18 @@ CK `AddForm_-_FormList.wikitext` for import order and duplicate handling, and
 FallrimTools `ChangeFormFLST.java`, `ChangeFormLeveled.java` and
 `LeveledEntry.java`. Their Java readers cannot serve as Rust runtime code, so
 the existing typed save decoder and record override layer perform the mapping.
+
+## Saved APPA, IDLM, WOOP and MGEF changes, SAV-44 and SAV-50
+
+`World::restore_vanilla_base_objects` maps and validates these changes before
+installing record overrides. APPA and IDLM form-flag masks are XORed with the
+winning record flags. WOOP and MGEF retain their six-byte form flags, value and
+full-name markers, and unnamed change bits in the SAV-50 world section. xEdit
+defines the value and full-name fields as zero-byte unions, so no record
+subrecords are replaced. A malformed or duplicate later change leaves every
+record unchanged. SOEW version 37 persists the metadata in named world sections.
+The layouts follow local xEdit `Core/wbDefinitionsTES5Saves.pas` change types
+19, 27, 34 and 35.
 
 ## Saved PACK and NAVM changes, SAV-48
 

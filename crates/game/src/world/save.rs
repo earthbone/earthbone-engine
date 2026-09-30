@@ -120,17 +120,21 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// Version 35 retains saved list flags and per-entry chance bytes in record overrides.
 /// Version 36 retains BOS record flags on instantiated references and the
 /// active phase and completed action slots for each scene.
-/// Version 36 retains the active phase and completed action slots for each scene.
 /// Version 37 appends named sections at world, actor and reference levels after
-/// the owning record fields. This is the last version this constant will reach.
-/// New state goes into a named section registered in `save_section_registry`
+/// the owning record fields. This is the last version this constant will
+/// reach. New state goes into a section registered in `save_section_registry`
 /// at the level that owns it. Versions before 37 have no section tables.
-/// Version 37 also retains INFO, SMQN and SCEN runtime fields, Papyrus struct
-/// values, pending quest lifecycle tasks and unresolved records. The native
-/// game save envelope records dependency provenance. `AI-16` stores
-/// script-qualified package fragment calls. `CMB-37` retains each reference's
-/// current destruction stage. Actor state retains voice recovery deadlines,
-/// Shout, Flee, Guard and UseWeapon procedure state.
+/// World sections include SAV-53 base-object fields, SAV-42 static-object
+/// fields, SAV-44 APPA and IDLM fields, SAV-50 WOOP and MGEF markers, SAV-48
+/// PACK and NAVM markers, and AI-16 script-qualified package fragment calls.
+/// They also retain Fallout 4 struct values in saved Papyrus state, INFO,
+/// SMQN and SCEN runtime fields, pending quest lifecycle tasks, unresolved
+/// records and native game-save dependency provenance. AI-88 retains each
+/// actor's reserved furniture marker, and AI-36 retains the UseWeapon
+/// package procedure. Actor sections also retain voice recovery deadlines,
+/// Shout, Flee and Guard procedure state. Reference sections retain
+/// persistence, world record flags and the current destruction stage through
+/// CMB-37.
 pub const SAVE_VERSION: u16 = 37;
 
 #[derive(Clone, Copy)]
