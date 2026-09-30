@@ -176,6 +176,43 @@ const RE_EVENTS: &str = r#"// Generated from crates/commonlib-shim/src/events.rs
 #include <vector>
 
 namespace RE {
+struct TESContainerChangedEvent {
+    std::optional<FormId> oldContainer;
+    std::optional<FormId> newContainer;
+    FormId baseObj;
+    std::int32_t itemCount;
+    ObjectRefHandle reference;
+    std::uint16_t uniqueID;
+};
+struct TESDeathEvent {
+    ObjectRefHandle actorDying;
+    std::optional<ObjectRefHandle> actorKiller;
+    bool dead;
+};
+struct TESEnterBleedoutEvent { ObjectRefHandle actor; };
+struct TESFormDeleteEvent { FormId formID; };
+enum class FurnitureEventType : std::uint32_t { Enter = 0, Exit = 1 };
+struct TESFurnitureEvent {
+    ObjectRefHandle actor;
+    ObjectRefHandle targetFurniture;
+    FurnitureEventType type;
+};
+
+class EventState {
+public:
+    virtual ~EventState() = default;
+    virtual std::optional<std::int32_t> inventory_count(FormId container, FormId item) const = 0;
+    virtual std::optional<bool> is_dead(ActorHandle actor) const = 0;
+    virtual std::optional<bool> is_in_bleedout(ActorHandle actor) const = 0;
+    virtual std::optional<bool> is_form_deleted(FormId form) const = 0;
+    virtual std::optional<TESFurnitureEvent> furniture_event(ActorHandle actor) const = 0;
+};
+
+struct UnsupportedHook { const char* name; const char* reason; };
+inline constexpr UnsupportedHook UNSUPPORTED_VTABLE_HOOK{
+    "vtable and call-site hooks target Skyrim machine code, which this engine does not use",
+    "vtable and call-site hooks target Skyrim machine code, which this engine does not use"};
+
 enum class NotifyControl { Continue, Stop };
 
 template <class Event>
@@ -220,7 +257,6 @@ private:
     EventSource<LocationDiscovery> location_discovery_;
 };
 
-struct UnsupportedHook { const char* name; };
 struct HookResult { bool installed; UnsupportedHook unsupported; };
 inline HookResult install_hook(UnsupportedHook hook) noexcept { return {false, hook}; }
 

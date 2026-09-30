@@ -113,6 +113,13 @@ published field meaning and event source names informed this API. The Rust
 surface uses engine independent form identities and owns its own event source
 implementation.
 
+The event batch declares `TESContainerChangedEvent`, `TESDeathEvent`,
+`TESEnterBleedoutEvent`, `TESFormDeleteEvent` and `TESFurnitureEvent` payloads. `EventState`
+defines queries for current inventory count, death, bleedout, deletion and furniture occupancy
+for an engine binding to implement against live world state. Missing objects return
+`std::nullopt`. Vtable and call-site patch requests return the `UNSUPPORTED_VTABLE_HOOK`
+description because those addresses have no meaning in this runtime.
+
 ## Untested
 
 The SHM-01 test compiles the generated umbrella headers with a C++20 compiler and checks C++

@@ -3,7 +3,53 @@
 //! Typed event sources exposed through the source-level CommonLib API.
 
 use crate::form::FormId;
-use crate::refr::{ActorHandle, ActorValue};
+use crate::refr::{ActorHandle, ActorValue, ObjectRefHandle};
+
+/// Inventory transfer data delivered after the engine changes a container.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ContainerChangedEvent {
+    pub old_container: FormId,
+    pub new_container: FormId,
+    pub base_object: FormId,
+    pub item_count: i32,
+    pub reference: ObjectRefHandle,
+    pub unique_id: u16,
+}
+
+/// An actor death transition and its optional killer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DeathEvent {
+    pub actor_dying: ObjectRefHandle,
+    pub actor_killer: Option<ObjectRefHandle>,
+    pub dead: bool,
+}
+
+/// An actor entered bleedout.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct EnterBleedoutEvent {
+    pub actor: ObjectRefHandle,
+}
+
+/// A form was removed from live use.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FormDeleteEvent {
+    pub form_id: FormId,
+}
+
+/// An actor entered or left a furniture reference.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FurnitureEvent {
+    pub actor: ObjectRefHandle,
+    pub target_furniture: ObjectRefHandle,
+    pub kind: FurnitureEventKind,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u32)]
+pub enum FurnitureEventKind {
+    Enter = 0,
+    Exit = 1,
+}
 
 /// `RE::BSEventNotifyControl`.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -138,13 +184,19 @@ impl ScriptEventSourceHolder {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct UnsupportedHook {
     pub name: &'static str,
+    pub reason: &'static str,
 }
 
 impl UnsupportedHook {
     pub const fn new(name: &'static str) -> Self {
-        Self { name }
+        Self { name, reason: name }
     }
 }
+
+pub const UNSUPPORTED_VTABLE_HOOK: UnsupportedHook = UnsupportedHook {
+    name: "vtable and call-site hooks target Skyrim machine code, which this engine does not use",
+    reason: "vtable and call-site hooks target Skyrim machine code, which this engine does not use",
+};
 
 pub fn install_hook(hook: UnsupportedHook) -> Result<(), UnsupportedHook> {
     Err(hook)
@@ -178,6 +230,16 @@ pub enum ScriptEvent {
     SkillIncrease,
     SoulsTrapped,
     SpellsLearned,
+}
+
+/// The live state operations event adapters may request from the engine.
+/// Implementations must read current state rather than maintain a parallel copy.
+pub trait EventState {
+    fn inventory_count(&self, container: FormId, item: FormId) -> Option<i32>;
+    fn is_dead(&self, actor: ActorHandle) -> Option<bool>;
+    fn is_in_bleedout(&self, actor: ActorHandle) -> Option<bool>;
+    fn is_form_deleted(&self, form: FormId) -> Option<bool>;
+    fn furniture_event(&self, actor: ActorHandle) -> Option<FurnitureEvent>;
 }
 
 #[cfg(test)]
