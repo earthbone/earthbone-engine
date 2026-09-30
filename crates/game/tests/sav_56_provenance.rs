@@ -119,6 +119,7 @@ fn sav_56_slot_reordering_is_distinct_from_same_name_replacement() {
         .iter()
         .find(|p| p.name == "Second.esp")
         .unwrap();
+    assert_eq!(saved_second.slot, changed_second.slot);
     assert_ne!(saved_second.fingerprint, changed_second.fingerprint);
     assert!(replacement
         .load_state(&bytes)
@@ -132,6 +133,10 @@ fn sav_56_script_replacement_is_rejected_before_state_restore() {
     let source = game(&[], "Int Function Value()\n  Return 1\nEndFunction");
     let bytes = source.save_state().unwrap();
     let mut replacement = game(&[], "Int Function Value()\n  Return 2\nEndFunction");
+    let saved = Game::saved_provenance(&bytes).unwrap();
+    let current = saved_provenance(&replacement);
+    assert_eq!(saved.scripts[0].name, current.scripts[0].name);
+    assert_ne!(saved.scripts[0].fingerprint, current.scripts[0].fingerprint);
     assert!(replacement
         .load_state(&bytes)
         .unwrap_err()
