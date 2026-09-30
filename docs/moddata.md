@@ -110,12 +110,17 @@ open ended and no fixed list would stay correct. Each condition keeps its name,
 its negation, the plugin it needs and its raw parameters, which is enough to
 report what a mod asks for and to implement the common ones later.
 
-For a modern submod, `user.json` replaces its priority and condition list. The
-author `config.json` still supplies the required name. The priority in either
-data file must fit an `i32`, since it orders the scanned submods. A legacy
+For a modern submod, `config.json` must supply its name. A sibling `user.json`
+replaces the submod's data, including its required priority, conditions and
+optional disabled flag, while retaining the name from `config.json`. The
+priority must fit an `i32`, since it orders the scanned submods. A legacy
 numbered directory with `_conditions.txt` accepts `user.json` as an OAR
-override, using its priority and condition list instead of the directory number
-and text conditions. The scan sorts both layouts by the resulting priority.
+override, using its priority, conditions and optional disabled flag instead of
+the directory number and text conditions. `AnimationMod::select_submod`
+returns the highest-priority enabled submod accepted by a caller-provided
+condition matcher. Equal priorities retain scan order. The condition matcher
+remains outside this crate because OAR condition types can be registered by
+other plugins.
 
 ## Conflicts resolve by file name
 
@@ -155,6 +160,7 @@ yet.
 |---|---|---|
 | `src/*` unit | 64 | Each grammar, BOS property operations, KID exclusive group entries, each filter rule, the ini dialect, the form reference ambiguity |
 | `tests/resolve.rs` | 13 | Resolution against a synthetic load order, including absent forms and patch provenance for all three ini formats |
+| `tests/mod_04_adversarial.rs` | 3 | A user priority override changes selection, disabled overrides exclude submods, and user conditions replace author conditions |
 
 ## Not done
 
@@ -182,7 +188,7 @@ That is a current limitation, not a claim of matching SPID's actor lifecycle.
 | `_KID.ini` | At load | Merged into `World::keywords` itself |
 | `_DISTR.ini` | At load, keyed by base | Read when an actor's state is built |
 | `_SWAP.ini` | Held, applied per reference | Read when a reference is built |
-| OAR | Counted only | The animation system will read the trees |
+| OAR | Selection API available | Animation systems can select the highest-priority enabled submod whose conditions match |
 
 The keyword merge is the one worth stating plainly. A distributed keyword goes
 into the same list `World::keywords` returns for a record's own `KWDA`, so
@@ -190,6 +196,10 @@ into the same list `World::keywords` returns for a record's own `KWDA`, so
 from a shipped one. A side table this module alone consulted would have passed
 a weaker test and failed a real mod, which is why the lookup changed rather
 than gaining a neighbour.
+
+`AnimationMod::select_submod` selects among parsed OAR submods using a caller's
+condition matcher. Applying mod data still only counts OAR trees. The game does
+not yet bind conditions to actors, resolve animation files, or replace clips.
 
 Distribution is keyed by `NPC_` base rather than applied to loaded actors,
 because an actor's state is built from its base on first use. A reference that
