@@ -4,7 +4,11 @@
 //! Recipe transactions and CK inventory notifications, including script callbacks.
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
-use soe_game::{crafting::Error, quest, Game, Handle, Pending};
+use soe_game::{
+    crafting::Error,
+    inventory::{Extra, Field, StackSource},
+    quest, Game, Handle, Pending,
+};
 use soe_papyrus::asm::{b, i, ident, none, s, FunctionBuilder, ScriptBuilder};
 use soe_papyrus::{Opcode::*, Value};
 
@@ -20,6 +24,9 @@ const QUEST: u32 = 0x807;
 const EMPTY: u32 = 0x808;
 const ITEMS: u32 = 0x809;
 const NESTED: u32 = 0x80a;
+const GEM: u32 = 0x80b;
+const ARMOR: u32 = 0x80c;
+const ENCHANTMENT: u32 = 0x80d;
 
 fn recipe(ingredients: &[(u32, i32)], output: u32, count: u16) -> Record {
     let mut record = Record::new(Tag(*b"COBJ"), RECIPE)
@@ -35,6 +42,8 @@ fn recipe(ingredients: &[(u32, i32)], output: u32, count: u16) -> Record {
 }
 
 fn game(record: Record, bench_type: u8) -> Game {
+    let mut enchantment_data = vec![0; 36];
+    enchantment_data[20..24].copy_from_slice(&6_u32.to_le_bytes());
     let mut plugin = Plugin::new(FileHeader::default());
     for (tag, id) in [
         (*b"NPC_", BASE),
@@ -55,10 +64,49 @@ fn game(record: Record, bench_type: u8) -> Game {
     );
     plugin.push_top(Record::new(Tag(*b"REFR"), BENCH).sub(Tag(*b"NAME"), FURN.to_le_bytes()));
     plugin.push_top(quest::build_record(QUEST, "CraftQuest", 0));
+    plugin.push_top(Record::new(Tag(*b"SLGM"), GEM).sub(Tag(*b"SLCP"), [5]));
+    plugin.push_top(Record::new(Tag(*b"ARMO"), ARMOR));
+    plugin.push_top(
+        Record::new(Tag(*b"ENCH"), ENCHANTMENT)
+            .sub(Tag(*b"ENIT"), enchantment_data)
+            .sub(Tag(*b"EFID"), 0x900u32.to_le_bytes())
+            .sub(Tag(*b"EFIT"), [0; 12]),
+    );
+    plugin.push_top(Record::new(Tag(*b"MGEF"), 0x900));
     plugin.push_top(record);
     let mut order = LoadOrder::new();
     order.add("Craft.esm", plugin).unwrap();
     Game::new(order)
+}
+
+fn enchanting_game() -> Game {
+    let g = game(recipe(&[(IRON, 1)], NAILS, 1), 1);
+    let player = id(&g, PLAYER);
+    let gem = id(&g, GEM);
+    let armor = id(&g, ARMOR);
+    {
+        let mut w = g.world_mut();
+        w.add_item(player, gem, 2);
+        w.add_item(player, armor, 2);
+        let selected = w
+            .reference(player)
+            .unwrap()
+            .inventory
+            .select(gem, StackSource::Plain, 1)
+            .unwrap();
+        w.reference(player)
+            .unwrap()
+            .inventory
+            .update_selected(
+                &selected,
+                vec![Extra {
+                    kind: 156,
+                    fields: vec![Field::Byte(4)],
+                }],
+            )
+            .unwrap();
+    }
+    g
 }
 
 fn id(game: &Game, raw: u32) -> GlobalFormId {
@@ -86,12 +134,92 @@ fn pending(game: &Game) -> Vec<(soe_papyrus::ObjectId, String, Vec<Value>)> {
         .map(|event| match event {
             Pending::Event { object, name, args } => (*object, name.clone(), args.clone()),
             Pending::Call { .. } => panic!("unexpected function call"),
+            Pending::CallScript { .. } => panic!("unexpected script function call"),
             Pending::BindEffect { .. } => panic!("unexpected magic effect binding"),
             Pending::DeferredDeath { .. } | Pending::ActorDeath { .. } => {
                 panic!("unexpected actor death")
             }
         })
         .collect()
+}
+
+#[test]
+fn crf_07_consumes_a_filled_gem_and_enchants_one_item_instance() {
+    let mut g = enchanting_game();
+    let player = id(&g, PLAYER);
+    let item = id(&g, ARMOR);
+    let gem = id(&g, GEM);
+    let item_selection = g
+        .world_mut()
+        .select_item(player, item, StackSource::Plain, 1)
+        .unwrap();
+    let gem_selection = g
+        .world_mut()
+        .select_item(player, gem, StackSource::Extra(0), 1)
+        .unwrap();
+    let enchantment = id(&g, ENCHANTMENT);
+
+    g.enchant_item(
+        player,
+        &item_selection,
+        &gem_selection,
+        enchantment,
+        &[enchantment],
+    )
+    .unwrap();
+
+    let mut w = g.world_mut();
+    let inventory = &w.reference(player).unwrap().inventory;
+    assert_eq!(inventory.count(gem), 1);
+    assert_eq!(inventory.count(item), 2);
+    assert!(inventory.stacks(item).iter().any(|stack| {
+        stack.count() == 1
+            && stack.extra(155).is_some_and(|extra| {
+                extra.fields == [Field::Form(Some(enchantment)), Field::Short(0)]
+            })
+    }));
+    drop(w);
+    assert_eq!(pending(&g).len(), 1);
+    assert_eq!(pending(&g)[0].1, "OnItemRemoved");
+}
+
+#[test]
+fn crf_07_rejects_unfilled_gems_and_effects_outside_the_learned_set_atomically() {
+    let mut g = enchanting_game();
+    let player = id(&g, PLAYER);
+    let item = id(&g, ARMOR);
+    let gem = id(&g, GEM);
+    let enchantment = id(&g, ENCHANTMENT);
+    let item_selection = g
+        .world_mut()
+        .select_item(player, item, StackSource::Plain, 1)
+        .unwrap();
+    let unfilled = g
+        .world_mut()
+        .select_item(player, gem, StackSource::Plain, 1)
+        .unwrap();
+    assert_eq!(
+        g.enchant_item(
+            player,
+            &item_selection,
+            &unfilled,
+            enchantment,
+            &[enchantment]
+        ),
+        Err(Error::SoulGem)
+    );
+    assert_eq!(g.world_mut().item_count(player, gem), 2);
+
+    let filled = g
+        .world_mut()
+        .select_item(player, gem, StackSource::Extra(0), 1)
+        .unwrap();
+    assert_eq!(
+        g.enchant_item(player, &item_selection, &filled, enchantment, &[]),
+        Err(Error::Enchantment(enchantment))
+    );
+    assert_eq!(g.world_mut().item_count(player, gem), 2);
+    assert!(pending(&g).is_empty());
 }
 
 #[test]
@@ -122,6 +250,37 @@ fn duplicate_ingredients_are_gross_requirements_and_failure_is_atomic() {
     assert_eq!(events[0].2[1..], [Value::Int(5), Value::None, Value::None]);
     assert_eq!(events[1].1, "OnItemAdded");
     assert_eq!(events[1].2[1], Value::Int(10));
+}
+
+#[test]
+fn crf_05_successful_craft_queues_one_authored_event_context() {
+    let mut g = game(recipe(&[(IRON, 1)], NAILS, 10), 1);
+    stock(&g, IRON, 1);
+
+    craft(&mut g).unwrap();
+
+    let expected_parameters = vec![Some(id(&g, BENCH)), None, Some(id(&g, NAILS))];
+    let mut world = g.world_mut();
+    let events = world.take_story_manager_events();
+    assert_eq!(events.len(), 1);
+    assert_eq!(
+        events[0].kind,
+        soe_game::quest::state::StoryManagerEventKind::CraftItem
+    );
+    assert_eq!(events[0].parameters, expected_parameters);
+    assert!(world.take_story_manager_events().is_empty());
+}
+
+#[test]
+fn crf_05_rejected_craft_queues_no_story_event() {
+    let mut g = game(recipe(&[(IRON, 2)], NAILS, 10), 1);
+    stock(&g, IRON, 1);
+
+    assert!(matches!(
+        craft(&mut g),
+        Err(Error::MissingIngredient { .. })
+    ));
+    assert!(g.world_mut().take_story_manager_events().is_empty());
 }
 
 #[test]

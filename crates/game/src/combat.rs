@@ -47,7 +47,7 @@ impl Difficulty {
 }
 
 /// Weapon hand, matching CK GetEquippedWeapon's left-hand argument.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Hand {
     Left,
     Right,
@@ -68,6 +68,31 @@ pub struct MeleeHit {
     /// for the target's block stance. Not derived here from an actor value
     /// such as `IsPowerAttacking`, see docs/combat.md CMB-21.
     pub is_power_attack: bool,
+}
+
+/// Record-backed request to start one arrow or bolt flight.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct FlightRequest {
+    /// Actor that released the projectile.
+    pub attacker: GlobalFormId,
+    /// Bow or crossbow used for the release.
+    pub weapon: GlobalFormId,
+    /// One consumed AMMO form.
+    pub ammunition: GlobalFormId,
+    /// Winning PROJ record linked by the ammunition.
+    pub projectile: GlobalFormId,
+    /// World-space spawn point supplied by the host.
+    pub origin: [f32; 3],
+    /// Normalized world-space launch direction.
+    pub direction: [f32; 3],
+    /// PROJ gravity value.
+    pub gravity: f32,
+    /// PROJ launch speed.
+    pub speed: f32,
+    /// PROJ maximum range.
+    pub range: f32,
+    /// AMMO base damage.
+    pub damage: f32,
 }
 
 /// Components of one applied physical hit, before any later script effects.
@@ -124,4 +149,6 @@ pub enum Error {
     Number,
     #[error("unsupported combat behavior: {0}")]
     Unsupported(&'static str),
+    #[error("perk entry point: {0}")]
+    Perk(#[from] crate::perks::DispatchError),
 }

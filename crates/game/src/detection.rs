@@ -66,6 +66,21 @@ pub struct Observation {
     pub motion: Motion,
     /// Loudness of the target's current action, such as a weapon swing.
     pub action_sound: f32,
+    /// A separate emitted sound's distance from the observer. `None` means
+    /// the target made the sound at its own position.
+    pub action_sound_distance: Option<f32>,
+    /// Sight to an emitted sound's source. `None` uses target sight.
+    pub action_sound_line_of_sight: Option<bool>,
+}
+
+/// A one-step sound at a reference's location, credited to its actor owner.
+/// The source need not be the owner, as a trap can make noise for an actor.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct DetectionEvent {
+    pub owner: GlobalFormId,
+    pub cell: GlobalFormId,
+    pub position: [f32; 3],
+    pub sound_level: f32,
 }
 
 /// The actor record values one observation reads.
@@ -240,7 +255,19 @@ pub fn detection_value(
     } else {
         s.sound_los_mult
     };
-    let sound = s.sounds_mult * (movement + action) * los;
+    let sound = s.sounds_mult * movement * los;
+    let event_distance = o.action_sound_distance.unwrap_or(o.distance);
+    let event_attenuation = if event_distance >= s.max_distance {
+        0.0
+    } else {
+        ((s.max_distance - event_distance) / s.max_distance).powf(s.attenuation_exponent)
+    };
+    let event_los = if o.action_sound_line_of_sight.unwrap_or(o.line_of_sight) {
+        1.0
+    } else {
+        s.sound_los_mult
+    };
+    let action_sound = s.sounds_mult * action * event_los * event_attenuation;
 
     let visual = if o.line_of_sight {
         let motion_mult = 1.0
@@ -269,6 +296,7 @@ pub fn detection_value(
 
     let value = s.base_value
         + (sound + visual + observer_skill) * attenuation
+        + action_sound
         + (observer_skill - target_skill);
     if value.is_finite() {
         Ok(value)

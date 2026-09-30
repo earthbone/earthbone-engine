@@ -358,18 +358,48 @@ fn remap_node(node: &mut Node, map: &SymbolMap, offset: usize) {
             *activate_event_id = map.event(*activate_event_id);
             *deactivate_event_id = map.event(*deactivate_event_id);
         }
+        NodeKind::IStateManager {
+            state_variable,
+            state_data,
+            ..
+        } => {
+            *state_variable = map.variable(*state_variable);
+            for entry in state_data {
+                entry.state_machine = shift(entry.state_machine, offset);
+            }
+        }
         NodeKind::TimerModifier { alarm_event, .. } => remap_event_property(alarm_event, map),
+        NodeKind::EventOnDeactivateModifier { event, .. } => remap_event_property(event, map),
         NodeKind::FalseToTrueModifier { slots, .. } => {
             for slot in slots {
                 remap_event_property(&mut slot.event, map);
             }
         }
+        NodeKind::EvaluateExpression { expressions, .. } => {
+            for expression in expressions {
+                expression.assignment_variable_index =
+                    map.variable(expression.assignment_variable_index);
+                expression.assignment_event_index = map.event(expression.assignment_event_index);
+            }
+        }
+        NodeKind::EveryNEventsModifier {
+            event_to_check_for,
+            event_to_send,
+            ..
+        } => {
+            remap_event_property(event_to_check_for, map);
+            remap_event_property(event_to_send, map);
+        }
         // Nothing here carries a node id, an event or a variable. A blending
         // transition effect is timing only, the rest are leaves.
         NodeKind::BlendingTransition(_)
         | NodeKind::GetTimeStepModifier { .. }
+        | NodeKind::DirectAt { .. }
+        | NodeKind::InterpValue { .. }
         | NodeKind::IsActiveModifier { .. }
         | NodeKind::DecomposeVector { .. }
+        | NodeKind::LookAtModifier { .. }
+        | NodeKind::LimbIk { .. }
         | NodeKind::Modifier { .. }
         | NodeKind::Unknown => {}
     }
@@ -511,7 +541,7 @@ impl BehaviorGraph {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::behavior::{BehaviorGraphData, Node, VariableValueSet};
+    use crate::behavior::{BehaviorGraphData, ExpressionData, Node, VariableValueSet};
 
     fn data(events: &[&str], variables: &[&str]) -> BehaviorGraphData {
         BehaviorGraphData {
@@ -598,6 +628,40 @@ mod tests {
             panic!("expected the spliced clip");
         };
         assert_eq!(c.triggers[0].event.id, 0);
+    }
+
+    #[test]
+    fn anm_40_linked_expression_targets_follow_symbol_maps() {
+        let mut parent = reference_graph();
+        let expression = ExpressionData {
+            expression: "subVar".into(),
+            assignment_variable_index: 0,
+            assignment_event_index: 0,
+            event_mode: 0,
+        };
+        let sub = BehaviorGraph {
+            name: "expression subgraph".into(),
+            variable_mode: 0,
+            root: Some(NodeId(0)),
+            data: data(&["subOnly", "shared"], &["subVar", "Speed"]),
+            nodes: vec![node(
+                0,
+                "evaluate",
+                "hkbEvaluateExpressionModifier",
+                NodeKind::EvaluateExpression {
+                    enable: true,
+                    expressions: vec![expression],
+                },
+            )],
+        };
+
+        parent.link_reference(NodeId(0), sub).unwrap();
+
+        let NodeKind::EvaluateExpression { expressions, .. } = &parent.nodes[1].kind else {
+            panic!("linked expression modifier was not retained");
+        };
+        assert_eq!(expressions[0].assignment_variable_index, 1);
+        assert_eq!(expressions[0].assignment_event_index, 2);
     }
 
     #[test]

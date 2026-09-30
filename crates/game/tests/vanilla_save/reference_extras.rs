@@ -2,34 +2,31 @@
 
 //! Saved ownership and lock state through shared reference queries and activation.
 
+use super::legacy;
 use super::*;
 use soe_game::Handle;
-use soe_save::{reference::Field, ChangeForm};
+use soe_save::{
+    reference::{Field, PlayerLocation},
+    ChangeForm,
+};
 
 #[test]
 fn installed_lock_byte_mapping_matches_authored_levels() {
-    let (Some(data), Some(saves)) = (
+    let (Some(_data), Some(saves)) = (
         std::env::var_os("SKYRIM_DATA"),
         std::env::var_os("SOE_TEST_SAVES"),
     ) else {
         eprintln!("SKYRIM_DATA or SOE_TEST_SAVES unset, skipping lock schema survey");
         return;
     };
-    let mut order = LoadOrder::new();
-    for name in [
+    let order = installed::load_order(&[
         "Skyrim.esm",
         "Update.esm",
         "Dawnguard.esm",
         "HearthFires.esm",
         "Dragonborn.esm",
-    ] {
-        order
-            .add(
-                name,
-                Plugin::parse(&std::fs::read(Path::new(&data).join(name)).unwrap()).unwrap(),
-            )
-            .unwrap();
-    }
+    ])
+    .unwrap();
     let mut paths = vec![];
     collect_saves(Path::new(&saves), &mut paths);
     paths.sort();
@@ -224,6 +221,71 @@ fn sav_16_restored_extras_drive_natives_activation_and_engine_roundtrip() {
 }
 
 #[test]
+fn sav_16_placed_reference_extras_drive_native_queries_and_activation() {
+    let mut save = save();
+    save.form_id_array = vec![0x0100_0811, 0xFE00_0801];
+    save.table_1.push(GlobalData {
+        kind: 1,
+        data: PlayerLocation {
+            next_object_id: 0xFF00_0100,
+            world: reference(0),
+            coordinates: [0; 2],
+            cell_or_world: reference(0),
+            position: [0.0; 3],
+            unknown: 0,
+        }
+        .data_bytes(),
+    });
+    save.change_forms = vec![
+        ChangeForm {
+            form: reference(0x400014),
+            change_flags: 0,
+            type_field: 1,
+            version: 0,
+            data: vec![0; 8],
+            uncompressed_len: 0,
+        },
+        change(0x400100, 1, 0, 1, 2),
+    ];
+
+    let mut game = Game::new(fixture_order());
+    let placements = game
+        .world_mut()
+        .restore_vanilla_reference_placements(&save)
+        .unwrap();
+    assert_eq!(placements.references, 2);
+    let extras = game
+        .world_mut()
+        .restore_vanilla_reference_extras(&save)
+        .unwrap();
+    assert_eq!((extras.owners, extras.locks), (1, 1));
+
+    let owner = game
+        .world()
+        .reference_ref(id(0, 0x100))
+        .unwrap()
+        .owner
+        .unwrap();
+    let key = game.world().key(id(0, 0x100)).unwrap();
+    assert_eq!(
+        call(&mut game, id(0, 0x100), "GetActorOwner"),
+        Value::Object(game.object_of(Handle::Form(owner)))
+    );
+    assert_eq!(
+        call(&mut game, id(0, 0x100), "GetKey"),
+        Value::Object(game.object_of(Handle::Form(key)))
+    );
+    assert_eq!(call(&mut game, id(0, 0x100), "IsLocked"), Value::Bool(true));
+    assert!(game.world().pending.is_empty());
+
+    let player = game.player();
+    game.world_mut().add_item(player, id(0, 0x800), 1);
+    assert!(!game.activate_no_settle(id(0, 0x100), player));
+    game.world_mut().add_item(player, id(4, 0x801), 1);
+    assert!(game.activate_no_settle(id(0, 0x100), player));
+}
+
+#[test]
 fn extras_failure_after_a_valid_entry_leaves_all_state_and_events_unchanged() {
     let mut world = World::new(fixture_order());
     for object in [0x100, 0x101] {
@@ -289,39 +351,63 @@ fn engine_extras_reject_truncation_duplicates_and_bad_flags_atomically_and_read_
     let mut world = World::new(fixture_order());
     world.reference(id(0, 0x100)).unwrap();
     world.reference(id(0, 0x101)).unwrap();
-    let mut legacy = world.save_state();
-    legacy.truncate(legacy.len() - 37);
+    let clean = world.save_state();
+    // Both references' own empty save-section tables (version 37) are
+    // stripped here, since version 19 predates them.
+    let mut legacy = legacy::without_ref_sections(&mut world, &[id(0, 0x100), id(0, 0x101)]);
+    let reference_sections = clean.len() - legacy.len() - legacy::world_section_growth(&clean);
     legacy[4..6].copy_from_slice(&19_u16.to_le_bytes());
+    let tail = legacy::version_tail_len(&legacy, |candidate| {
+        World::new(fixture_order()).load_state(candidate).is_ok()
+    });
+    legacy.truncate(legacy.len() - tail);
     let mut save = save();
     save.change_forms = vec![change(0x400100, 0x400811, 0, 5, 0x400801)];
     world.restore_vanilla_reference_extras(&save).unwrap();
     let before = world.save_state();
+    let start = legacy.len() + reference_sections;
+    let end = before.len() - legacy::common_suffix_len(&clean, &before);
+    let state = world.reference_ref(id(0, 0x100)).unwrap();
+    let rank_len = usize::from(state.owner_rank.is_some()) * 4;
+    let global_len = usize::from(state.owner_global.is_some()) * 6;
+    let key_len = usize::from(
+        state
+            .lock_extra
+            .as_ref()
+            .is_some_and(|lock| lock.key.is_some()),
+    ) * 6;
+    let mut fields = start + 4 + 6;
+    fields += 1 + rank_len;
+    fields += 1 + global_len;
+    fields += 1;
+    let key_object = fields + 1 + 2;
+    let flags = fields + 1 + key_len;
     let mut bad_flags = before.clone();
-    let at = bad_flags.len() - 42;
-    bad_flags[at] |= 1;
-    let start = legacy.len();
-    // The extras block is followed by the package cursor block, so repeat the
-    // entry inside the extras block rather than past the end of the save.
-    let entry = &before[start + 4..before.len() - 33];
+    bad_flags[flags] |= 1;
+    let entry = &before[start + 4..end];
     let mut duplicate = before[..start].to_vec();
     duplicate.extend_from_slice(&2_u32.to_le_bytes());
     duplicate.extend_from_slice(entry);
     duplicate.extend_from_slice(entry);
-    duplicate.extend_from_slice(&before[before.len() - 33..]);
-    assert!(world
-        .load_state(&duplicate)
-        .unwrap_err()
-        .to_string()
-        .contains("duplicate reference extras"));
+    duplicate.extend_from_slice(&before[end..]);
+    let duplicate_error = world.load_state(&duplicate).unwrap_err();
+    assert!(
+        duplicate_error
+            .to_string()
+            .contains("duplicate reference extras"),
+        "{duplicate_error}"
+    );
     let mut bad_key = before.clone();
-    let at = bad_key.len() - 21;
-    bad_key[at..at + 4].copy_from_slice(&0x811_u32.to_le_bytes());
+    bad_key[key_object..key_object + 4].copy_from_slice(&0x811_u32.to_le_bytes());
     let mut cases = vec![bad_flags, duplicate, bad_key];
     for cut in 1..=28 {
         cases.push(before[..before.len() - cut].to_vec());
     }
-    for malformed in cases {
-        assert!(world.load_state(&malformed).is_err());
+    for (index, malformed) in cases.into_iter().enumerate() {
+        assert!(
+            world.load_state(&malformed).is_err(),
+            "malformed case {index}"
+        );
         assert_eq!(world.save_state(), before);
     }
     world.load_state(&legacy).unwrap();
@@ -335,7 +421,7 @@ fn engine_extras_reject_truncation_duplicates_and_bad_flags_atomically_and_read_
 
 #[test]
 fn installed_all_ownership_and_lock_extras_restore_and_persist() {
-    let (Some(data), Some(saves)) = (
+    let (Some(_data), Some(saves)) = (
         std::env::var_os("SKYRIM_DATA"),
         std::env::var_os("SOE_TEST_SAVES"),
     ) else {
@@ -344,21 +430,14 @@ fn installed_all_ownership_and_lock_extras_restore_and_persist() {
         );
         return;
     };
-    let mut order = LoadOrder::new();
-    for name in [
+    let order = installed::load_order(&[
         "Skyrim.esm",
         "Update.esm",
         "Dawnguard.esm",
         "HearthFires.esm",
         "Dragonborn.esm",
-    ] {
-        order
-            .add(
-                name,
-                Plugin::parse(&std::fs::read(Path::new(&data).join(name)).unwrap()).unwrap(),
-            )
-            .unwrap();
-    }
+    ])
+    .unwrap();
     let order = Arc::new(order);
     let mut paths = vec![];
     collect_saves(Path::new(&saves), &mut paths);
