@@ -849,20 +849,22 @@ their payload fields. xEdit plus the UESP null-field convention establish the
 shared fields, while the FallrimTools fallback supports retaining unclassified
 bytes. No in-memory plugin record layout is used for the save payload.
 
-The gated `sav_33_corpus_reports_item_change_field_coverage` survey records
-save version, change version, record type, flags, payload size and count in
-sorted order. Its threshold is at least 50 saves. The 2026-09-20 corpus run
-read all 60 external saves and found zero ARMO, WEAP and AMMO change forms.
-Each subsequently observed item payload is decoded and re-encoded byte for
-byte by the survey. External saves are read in place and are not copied into
-the repository.
+The `sav_33_corpus_reports_item_change_field_coverage` survey reads the
+external corpus at the documented default path or `SOE_TEST_SAVES`, and
+records save version, change version, record type, flags, payload size and
+count in sorted order. Its threshold is at least 50 saves. The 2026-09-20
+corpus run read all 60 external saves and found zero ARMO, WEAP and AMMO
+change forms. Each subsequently observed item payload is decoded and
+re-encoded byte for byte by the survey. External saves are read in place and
+are not copied into the repository.
 
 Synthetic `sav_33_` tests cover all eight combinations of the three named
 flags across all three item types, preservation of unnamed bits and remaining
-bytes, and truncation at every byte boundary of the six-byte form-flags
-section. An installed-data test checks that Skyrim.esm contains all three
-vanilla record types. Decoding does not assign meaning to unnamed flag bits or
-remaining bytes, and the external corpus currently has no item change forms.
+bytes, exact payload-byte re-encoding, and truncation at every byte boundary
+of the six-byte form-flags section for all three item types. An installed-data
+test checks that Skyrim.esm contains all three vanilla record types. Decoding
+does not assign meaning to unnamed flag bits or remaining bytes, and the
+external corpus currently has no item change forms.
 
 ## Projectile payload source audit
 
