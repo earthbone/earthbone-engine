@@ -396,6 +396,7 @@ fn remap_node(node: &mut Node, map: &SymbolMap, offset: usize) {
         | NodeKind::GetTimeStepModifier { .. }
         | NodeKind::DirectAt { .. }
         | NodeKind::InterpValue { .. }
+        | NodeKind::GetUpModifier { .. }
         | NodeKind::IsActiveModifier { .. }
         | NodeKind::DecomposeVector { .. }
         | NodeKind::LookAtModifier { .. }

@@ -41,7 +41,7 @@ const PASSTHROUGH_MODIFIERS: &[(&str, usize, &str)] = &[
     ("hkbEventDrivenModifier", 158, "ANM-17"),
     ("hkbEventsFromRangeModifier", 3, "ANM-15"),
     ("hkbFootIkControlsModifier", 25, "ANM-41"),
-    ("hkbGetUpModifier", 46, "ANM-43"),
+    ("hkbFootIkModifier", 2, "ANM-42"),
     ("hkbKeyframeBonesModifier", 91, "ANM-44"),
     ("hkbModifierGenerator", 1909, "ANM-52"),
     ("hkbModifierList", 708, "ANM-51"),

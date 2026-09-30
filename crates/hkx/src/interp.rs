@@ -488,10 +488,14 @@ struct Runtime {
 
     /// A bound vector input for `BSDecomposeVectorModifier`.
     vector: Option<[f32; 4]>,
+
     expression_raised: Vec<bool>,
     expression_previous: Vec<bool>,
     /// A target supplied by the host for `BSLimbIKModifier`.
     limb_ik_target: Option<[f32; 3]>,
+
+    /// Elapsed update time for `hkbGetUpModifier`.
+    get_up_elapsed: f32,
 }
 
 /// A generator's result for one frame: a local pose and how much of it
@@ -582,21 +586,6 @@ fn normalize(vector: [f32; 3]) -> Option<[f32; 3]> {
     let length = dot(vector, vector).sqrt();
     (length.is_finite() && length > f32::EPSILON)
         .then(|| [vector[0] / length, vector[1] / length, vector[2] / length])
-}
-
-fn multiply_quaternions(a: [f32; 4], b: [f32; 4]) -> [f32; 4] {
-    let result = [
-        a[3] * b[0] + a[0] * b[3] + a[1] * b[2] - a[2] * b[1],
-        a[3] * b[1] - a[0] * b[2] + a[1] * b[3] + a[2] * b[0],
-        a[3] * b[2] + a[0] * b[1] - a[1] * b[0] + a[2] * b[3],
-        a[3] * b[3] - a[0] * b[0] - a[1] * b[1] - a[2] * b[2],
-    ];
-    let length = result.iter().map(|value| value * value).sum::<f32>().sqrt();
-    if length > f32::EPSILON && length.is_finite() {
-        result.map(|value| value / length)
-    } else {
-        b
-    }
 }
 
 fn apply_foot_ik(
@@ -1331,6 +1320,7 @@ impl<'a> Interpreter<'a> {
             | NodeKind::IStateManager { enable, .. }
             | NodeKind::LimbIk { enable, .. }
             | NodeKind::FootIk { enable, .. }
+            | NodeKind::GetUpModifier { enable, .. }
             | NodeKind::Modifier { enable } => *enable,
             _ => true,
         };
@@ -1638,6 +1628,9 @@ impl<'a> Interpreter<'a> {
                     *randomize_number_of_events,
                 );
             }
+
+            NodeKind::GetUpModifier { .. } => self.nodes[id.0].get_up_elapsed = 0.0,
+
             NodeKind::FalseToTrueModifier { .. } => {
                 self.nodes[id.0].edge_previous = [false; FALSE_TO_TRUE_SLOTS];
             }
@@ -1777,6 +1770,9 @@ impl<'a> Interpreter<'a> {
             }
             self.nodes[node_id.0].active = false;
             self.nodes[node_id.0].time_step = 0.0;
+            if matches!(node.kind, NodeKind::GetUpModifier { .. }) {
+                self.nodes[node_id.0].get_up_elapsed = 0.0;
+            }
             stack.extend(children);
         }
     }
@@ -2238,6 +2234,7 @@ impl<'a> Interpreter<'a> {
                 generator,
             } => {
                 let modifier_start = self.modifier_order.len();
+
                 if let Some(modifier) = modifier {
                     self.sync_modifier(*modifier);
                     for index in modifier_start..self.modifier_order.len() {
@@ -2249,6 +2246,7 @@ impl<'a> Interpreter<'a> {
                     Some(generator) => self.generate(*generator, dt),
                     None => self.reference_output(),
                 };
+
                 let applied_modifiers = self.modifier_order[modifier_start..].to_vec();
                 for modifier in applied_modifiers {
                     if !self.nodes[modifier.0].active {
@@ -2310,6 +2308,9 @@ impl<'a> Interpreter<'a> {
                                 *ground_ascending_gain,
                                 *ground_descending_gain,
                             );
+                        }
+                        NodeKind::GetUpModifier { .. } => {
+                            self.apply_get_up_modifier(modifier, dt, &mut output);
                         }
                         _ => {}
                     }
@@ -2380,6 +2381,7 @@ impl<'a> Interpreter<'a> {
             | NodeKind::IStateManager { .. }
             | NodeKind::LimbIk { .. }
             | NodeKind::FootIk { .. }
+            | NodeKind::GetUpModifier { .. }
             | NodeKind::Modifier { .. } => self.reference_output(),
         }
     }
@@ -2450,7 +2452,90 @@ impl<'a> Interpreter<'a> {
         let (sin, cos) = (angle / bone_count * 0.5).sin_cos();
         let correction = [axis[0] * sin, axis[1] * sin, axis[2] * sin, cos];
         for transform in output.pose.iter_mut().take(end + 1).skip(start) {
-            transform.rotation = multiply_quaternions(correction, transform.rotation);
+            transform.rotation = quat_mul(correction, transform.rotation);
+            if let Some(rotation) = normalize_quaternion(transform.rotation) {
+                transform.rotation = rotation;
+            }
+        }
+    }
+
+    /// Apply ground alignment to the three bones selected by the modifier.
+    fn apply_get_up_modifier(&mut self, id: NodeId, dt: f32, output: &mut Output) {
+        let NodeKind::GetUpModifier {
+            ground_normal,
+            duration,
+            align_with_ground_duration,
+            root_bone_index,
+            other_bone_index,
+            another_bone_index,
+            ..
+        } = &self.graph.node(id).kind
+        else {
+            return;
+        };
+        if !self.nodes[id.0].active || !dt.is_finite() || dt <= 0.0 {
+            return;
+        }
+        let normal_length = ground_normal[..3]
+            .iter()
+            .map(|component| component * component)
+            .sum::<f32>()
+            .sqrt();
+        if !normal_length.is_finite() || normal_length <= f32::EPSILON {
+            return;
+        }
+        let normal = [
+            ground_normal[0] / normal_length,
+            ground_normal[1] / normal_length,
+            ground_normal[2] / normal_length,
+        ];
+        self.nodes[id.0].get_up_elapsed += dt;
+        let elapsed = self.nodes[id.0].get_up_elapsed;
+        let align = if align_with_ground_duration.is_finite() && *align_with_ground_duration > 0.0 {
+            (elapsed / align_with_ground_duration).clamp(0.0, 1.0)
+        } else {
+            1.0
+        };
+        let fade = if duration.is_finite() && *duration > 0.0 {
+            (1.0 - elapsed / duration).clamp(0.0, 1.0)
+        } else {
+            1.0
+        };
+        let amount = align * fade;
+        if amount <= 0.0 {
+            return;
+        }
+        let dot = normal[2].clamp(-1.0, 1.0);
+        let mut correction = if dot < -0.999_999 {
+            [1.0, 0.0, 0.0, 0.0]
+        } else {
+            [-normal[1], normal[0], 0.0, 1.0 + dot]
+        };
+        correction = normalize_quaternion(correction).unwrap_or(QsTransform::IDENTITY.rotation);
+        let partial = blend_transform(
+            &QsTransform::IDENTITY,
+            &QsTransform {
+                rotation: correction,
+                ..QsTransform::IDENTITY
+            },
+            amount,
+        )
+        .rotation;
+        let mut visited = Vec::with_capacity(3);
+        for index in [*root_bone_index, *other_bone_index, *another_bone_index] {
+            let Ok(index) = usize::try_from(index) else {
+                continue;
+            };
+            if visited.contains(&index) {
+                continue;
+            }
+            visited.push(index);
+            let Some(bone) = output.pose.get_mut(index) else {
+                continue;
+            };
+            let original = bone.rotation;
+            bone.rotation = normalize_quaternion(quat_mul(original, partial))
+                .unwrap_or(QsTransform::IDENTITY.rotation);
         }
     }
 
