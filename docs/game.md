@@ -2178,53 +2178,13 @@ failed predicate applies no effect and queues no callbacks. The CK Papyrus
 introduction describes scripts as variables read by engine functions. The
 conditional flag and ambiguity rules come from the local VM contract.
 
-Recover modifiers change the target once and reverse their own delta at the end.
-Other value modifiers integrate magnitude over unpaused simulation seconds, with
-the final tick clipped to the remaining duration. Zero-duration effects apply
-once. Healing health, magicka and stamina is limited to the maximum, including permanent and temporary modifiers. No Recast prevents a second live application of the
-same MGEF on the same actor. Death removes effects unless No Death Dispel is set.
-For timed effects, taper adds its authored duration after EFIT duration.
-Non-RECOVER value changes integrate `magnitude * weight * (1 - taper_time /
-taper_duration)^curve` over that interval. RECOVER changes keep full magnitude
-and reverse at the end of the taper interval. The CK Magic Effect page defines
-this curve and its recover exception. Curves at or below -1 with positive taper
-duration are rejected because their total is unbounded. SOEW version 36 stores
-identity, source, caster, target, magnitude, elapsed time, duration, taper
-values and value deltas, including pending script attachment. Loading never
+Recover modifiers apply once and reverse their own actor-value delta when the effect ends. Other value modifiers integrate magnitude over unpaused simulation time, with the final tick clipped to the remaining duration. Zero-duration effects apply once. Healing health, magicka and stamina is limited to the maximum, including permanent and temporary modifiers. No Recast prevents a second live application of the same MGEF on an actor, and death removes effects unless No Death Dispel is set.
 
-once. Hostile magic effects first apply the target's current `resistmagic`, then
-the MGEF `Resist Value` actor value when it names poison, fire, shock, frost,
-magic or disease resistance. Each term is clamped from 0 to 85 percent and
-reductions multiply. `DamageResist` and other MGEF resistance indices return an
-unsupported behavior error before the cast changes state. The `-1` sentinel
-omits the specific resistance. Non-hostile effects bypass resistance. Current
-values include the actor-value store's base, permanent, temporary and damage
-components. Healing health, magicka and stamina is limited to the maximum,
-including permanent and temporary modifiers. No Recast prevents a second live
-application of the same MGEF on the same actor. Death removes effects unless No
-Death Dispel is set.
-SOEW version 9 stores identity, source, caster, target, magnitude, elapsed time,
-duration and value deltas, including pending script attachment. Loading never
-reapplies a saved modifier. The deterministic scenes hash includes this state.
+For timed effects, taper adds its authored duration after EFIT duration. Non-RECOVER value changes integrate `magnitude * weight * (1 - taper_time / taper_duration)^curve` over that interval. RECOVER changes keep full magnitude and reverse at the end of the taper interval. Curves at or below -1 with positive taper duration are rejected because their total is unbounded. Active spell conditions are reevaluated at whole-second boundaries, and a false condition ends the application. Concentration recasts evaluate conditions in each 0.1-second slice. SOEW version 36 stores active-effect taper values. Version 37 stores granted perks and command-owner data in named sections. Loading restores existing modifiers without applying them again.
 
-MGEF's `Resist Value` field and its enum come from local
-`TES5Edit/Core/wbDefinitionsTES5.pas`. Its actor-value indices map through
-`crates/game/src/actor_values.rs`. The local skymp magic action handler leaves
-magic-effect application as a TODO, so it supplies no resistance formula. The
-85 percent cap and order are the runtime's selected behavior. Keeping magic
-and specific resistance as separate terms preserves their independent actor
-values.
+Hostile effects first apply the target's current `resistmagic`, then the MGEF `Resist Value` actor value when it names poison, fire, shock, frost, magic or disease resistance. Each term is clamped from 0 to 85 percent and reductions multiply. `DamageResist` and unsupported resistance indices return an error before state changes. The `-1` sentinel omits specific resistance, and non-hostile effects bypass resistance. Current values include base, permanent, temporary and damage components.
 
-The source contracts are CK [Magic Effect](https://ck.uesp.net/wiki/Magic_Effect),
-local `ck-wiki/AddInventoryEventFilter_-_ObjectReference.wikitext`,
-`DispelSpell_-_Actor.wikitext` and
-`DispelAllSpells_-_Actor.wikitext`, the shipped
-`skse64/scripts/vanilla/ActiveMagicEffect.psc`, xEdit's SPEL/MGEF definitions, and
-CommonLibSSE-NG `ActorValues.h` and `MagicSystem.h`. The skymp
-`ActiveMagicEffectsMap` was read for comparison. Its one-effect-per-actor-value
-map and wall-clock expiry do not fit independent applications or menu pause, so
-those policies were not reused. `thiserror` is now a direct game dependency for
-typed cast errors. It was already present transitively, with no new package.
+The taper fields follow local xEdit `Core/wbDefinitionsTES5.pas` and the CK [Magic Effect](https://ck.uesp.net/wiki/Magic_Effect) page. Resistance fields and enums also follow xEdit, with actor-value indices mapped by `crates/game/src/actor_values.rs`. The selected 85 percent cap and order preserve separate magic and specific resistance values. Other sources include local CK pages for inventory filters and dispel natives, the shipped `ActiveMagicEffect.psc`, and CommonLibSSE-NG `ActorValues.h` and `MagicSystem.h`. The skymp `ActiveMagicEffectsMap` uses one effect per actor value and wall-clock expiry, so those policies do not fit independent applications or menu pause. `thiserror` is a direct game dependency for typed cast errors and was already present transitively.
 
 `World::drink_ingestible` reads a winning ALCH record, validates every EFID and
 EFIT group, then consumes one item from the drinker's inventory and applies the
@@ -2259,15 +2219,24 @@ retains its inventory state and existing modifier without applying the effect
 again. Potion effects expire from their saved elapsed time. Worn effects remain
 active while the armor stays equipped.
 
-Unsupported casts return a typed error before applying any of their effects,
-and Papyrus casts log that error. This includes projectiles, contact and
-location delivery, concentration, perk adjustments, equip abilities and other
-archetypes. Area selection is covered separately below, under Area
+Unsupported casts return a typed error before applying effects, and Papyrus casts log that error. Direct, charged and concentration casts, projectile contact, target-location selection and area targeting use their supported execution paths. Unsupported archetypes, equip abilities and unsupported resistance values remain rejected before changing state. Area selection is described below under Area targeting, MAG-06.
 
-and Papyrus casts log that error. This includes aimed and location delivery,
-concentration, taper, perk adjustments, equip abilities and other archetypes.
-Area selection is covered separately below, under Area
-targeting, MAG-06.
+### Calm archetype, MAG-29
+
+MGEF archetype 6 applies a temporary reduction to the target's `aggression` actor value, regardless of the MGEF's serialized primary actor value or detrimental flag. Recoverable effect state restores the prior value when the effect expires or is dispelled. The combat driver drops an existing combat target when the actor's live aggression falls below 1, matching its target acquisition threshold. This supports Calm delivery through the existing spell and ingestible effect paths.
+
+### Cure Disease and Absorb archetypes, MAG-27 and MAG-28
+
+Archetype 3 removes active applications whose winning MGEF has the `MagicDisease` keyword, using the ordinary dispel lifecycle. Archetype 4 selects its actor value from MGEF `PrimaryAV`, damages that value on the recipient and restores the same amount to the credited caster over the effect duration. `No Magnitude` suppresses both changes, while `No Duration` transfers the value immediately.
+
+### Frenzy, MAG-31
+
+Archetype 8 applies its signed magnitude to Aggression and marks the actor as Frenzied while the active effect remains. Combat acquisition may then select detected teammates, which ordinary acquisition skips. When the last Frenzy application ends or expires, its actor leaves the current engagement and ordinary target rules resume. Target acquisition still requires Combat-level awareness.
+
+### Disarm, Invisibility, Lock, Open, Light and Bound Weapon, MAG-32 to MAG-38
+
+Disarm drops one eligible hand weapon as a loose reference when the target's level is within the effect magnitude. Invisibility derives from the active MGEF and ends on expiry, dispel, another spell cast, an accepted melee hit or reference activation. Lock and Open update eligible door and container references through shared lock state. Light spawns a runtime LIGH reference that the active effect removes on expiry or dispel. Bound Weapon grants the authored weapon temporarily and removes only its granted copy when the effect ends.
+
 An MGEF with the Dispel with Keywords flag reads its KWDA entries as the
 cancellation list. Casting that effect, or applying it from an ingestible,
 ends only live effects on the recipient whose winning MGEF carries a matching
