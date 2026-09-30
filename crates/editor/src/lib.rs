@@ -314,7 +314,7 @@ impl EditorDocument {
         cover_flags: u16,
     ) -> Result<(), EditorError> {
         self.edit_navmesh(form, |geometry| {
-            if geometry.triangles.len() >= i16::MAX as usize {
+            if geometry.triangles.len() > i16::MAX as usize {
                 return Err("triangle count exceeds NVNM signed index capacity");
             }
             geometry.triangles.push(Triangle {
@@ -552,7 +552,7 @@ fn normalize_geometry(geometry: &mut Geometry) -> Result<(), &'static str> {
     if geometry.vertices.is_empty() || geometry.vertices.len() > u16::MAX as usize + 1 {
         return Err("vertex count exceeds NVNM unsigned index capacity");
     }
-    if geometry.triangles.len() > i16::MAX as usize {
+    if geometry.triangles.len() > i16::MAX as usize + 1 {
         return Err("triangle count exceeds NVNM signed index capacity");
     }
     if geometry

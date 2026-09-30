@@ -304,8 +304,10 @@ operation only, not the Godot dock or inspector controls.
 The navmesh document commands edit `NAVM` records already present in the active plugin.
 They add or delete triangles and move existing vertices. Each successful operation records
 an undo snapshot, rebuilds same-mesh triangle adjacency and the NVNM spatial grid, and
-updates door and cover triangle indices after deletion. Triangle and vertex indices are
-checked against NVNM limits, malformed or degenerate edits are rejected before changing the
-plugin, and save writes the packed geometry back through the plugin writer. Editing a
-winning navmesh owned by another plugin is not supported yet because its parent, door and
-edge-link FormIDs need relocation when an override is created.
+updates door and cover triangle indices after deletion. External edge-link indices are
+retained when triangle indices change. Triangle and vertex indices are checked against NVNM
+limits, including the full range of signed 16-bit triangle indices. Malformed or degenerate
+edits are rejected before changing the plugin, and save writes the packed geometry back
+through the plugin writer. Editing a winning navmesh owned by another plugin is not supported
+yet because its parent, door and edge-link FormIDs need relocation when an override is
+created.
