@@ -696,6 +696,16 @@ pub enum NodeKind {
         enable: bool,
         slots: [FalseToTrueSlot; FALSE_TO_TRUE_SLOTS],
     },
+    /// `BSEventEveryNEventsModifier`: raises its output after matching inputs
+    /// reach the authored interval.
+    EveryNEventsModifier {
+        enable: bool,
+        event_to_check_for: EventProperty,
+        event_to_send: EventProperty,
+        number_of_events_before_send: i8,
+        minimum_number_of_events_before_send: i8,
+        randomize_number_of_events: bool,
+    },
     /// `BSDecomposeVectorModifier`: copies the four components of `vector`
     /// into its real outputs.
     DecomposeVector {
@@ -829,6 +839,7 @@ impl Node {
             | NodeKind::DirectAt { .. }
             | NodeKind::IsActiveModifier { .. }
             | NodeKind::FalseToTrueModifier { .. }
+            | NodeKind::EveryNEventsModifier { .. }
             | NodeKind::DecomposeVector { .. }
             | NodeKind::EvaluateExpression { .. }
             | NodeKind::LookAtModifier { .. }
@@ -1290,6 +1301,14 @@ impl<'a> Loader<'a> {
                     ],
                 }
             }
+            "BSEventEveryNEventsModifier" => NodeKind::EveryNEventsModifier {
+                enable: o.bool(o.layout_offset(40, 72))?,
+                event_to_check_for: EventProperty::read(o, o.layout_offset(44, 80))?,
+                event_to_send: EventProperty::read(o, o.layout_offset(52, 96))?,
+                number_of_events_before_send: o.i8(o.layout_offset(60, 112))?,
+                minimum_number_of_events_before_send: o.i8(o.layout_offset(61, 113))?,
+                randomize_number_of_events: o.bool(o.layout_offset(62, 114))?,
+            },
 
             "BSDecomposeVectorModifier" => NodeKind::DecomposeVector {
                 enable: o.bool(o.layout_offset(40, 72))?,
