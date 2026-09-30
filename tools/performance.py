@@ -108,7 +108,19 @@ def assess(samples, args):
             growth = max(rss) - rss[0]
             if growth > args.max_growth_mib:
                 reasons.append(f"RSS growth {growth:.3f} MiB exceeds {args.max_growth_mib}")
-        if samples[-1].get("elapsed_s", 0) < args.duration and not reasons:
+        elapsed = [row.get("elapsed_s") for row in samples]
+        elapsed_valid = all(
+            not isinstance(value, bool) and isinstance(value, (int, float))
+            and math.isfinite(value) and value >= 0
+            for value in elapsed
+        )
+        if not elapsed_valid:
+            if not reasons:
+                return ["soak needs elapsed-time telemetry in every window"], True
+        elif len(elapsed) < 2 or any(later <= earlier for earlier, later in zip(elapsed, elapsed[1:])):
+            if not reasons:
+                return ["soak windows need increasing elapsed-time telemetry"], True
+        elif elapsed[-1] < args.duration and not reasons:
             return ["soak ended before requested duration"], True
     return reasons, False
 

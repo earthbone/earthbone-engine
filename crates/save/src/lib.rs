@@ -37,8 +37,12 @@ pub mod quest;
 pub mod reference;
 pub mod table;
 
-pub use base_object::{BaseObjectFields, ItemChange};
+pub use base_object::{
+    AppaIdleMarkerChange, AppaIdleMarkerChange as AppaIdlmChange, BaseObjectFields, ItemChange,
+    LightStaticChange, StaticObjectChange,
+};
 pub use change::book_note_key_flags;
+pub use change::BaseObjectMarkerChange;
 pub use change::{
     ActivatorChange, BaseObjectChange, BookChange, CellChange, CellInteriorSeenEntry, CellSeenData,
     ChangeForm, ClassChange, FactionChange, FactionReaction, FactionReactions, IngredientChange,
