@@ -182,7 +182,12 @@ fn ai_05_door_unlock_flags_apply_at_start_and_when_leaving_package() {
         let mut alloc = |_: &str, _: &str| ObjectId(1);
         let actor = id(ACTOR);
         let door = id(DOOR);
-        game.world_mut().reference(door).unwrap().locked = true;
+        {
+            let mut world = game.world_mut();
+            let door_ref = world.reference(door).unwrap();
+            door_ref.locked = true;
+            door_ref.owner = Some(id(BASE));
+        }
         if flags & package::flags::UNLOCK_DOORS_AT_START != 0 {
             game.world_mut().evaluate_package(actor, &mut alloc);
         } else {
@@ -198,14 +203,25 @@ fn ai_05_door_unlock_flags_apply_at_start_and_when_leaving_package() {
 }
 
 #[test]
-fn ai_05_start_unlock_keeps_unowned_cell_doors_locked() {
-    let mut game = fixture(package::flags::UNLOCK_DOORS_AT_START, 0, 0);
-    let door = id(DOOR);
-    game.world_mut().reference(door).unwrap().locked = true;
-    game.world_mut().reference(door).unwrap().owner = None;
-    let mut alloc = |_: &str, _: &str| ObjectId(1);
+fn ai_05_unlock_flags_leave_unowned_cell_doors_locked() {
+    for flag in [
+        package::flags::UNLOCK_DOORS_AT_START,
+        package::flags::UNLOCK_DOORS_ON_CHANGE,
+    ] {
+        let mut game = fixture(flag, 0, 0);
+        let actor = id(ACTOR);
+        let door = id(DOOR);
+        game.world_mut().reference(door).unwrap().locked = true;
+        let mut alloc = |_: &str, _: &str| ObjectId(1);
+        if flag == package::flags::UNLOCK_DOORS_ON_CHANGE {
+            set_current(&mut game);
+        }
 
-    game.world_mut().evaluate_package(id(ACTOR), &mut alloc);
+        game.world_mut().evaluate_package(actor, &mut alloc);
 
-    assert!(game.world_mut().reference(door).unwrap().locked);
+        assert!(
+            game.world_mut().reference(door).unwrap().locked,
+            "unowned door unlocked for PKDT flag {flag:#x}"
+        );
+    }
 }

@@ -183,16 +183,21 @@ fn crf_08_installed_forge_recipe_awards_smithing_skill_use() {
     assert!(game.world().skill_experience(player, "smithing").unwrap() > 0.0);
 }
 
-
 #[test]
 fn crf_08_partial_skill_use_survives_engine_save_and_load() {
     let mut original = game("forge", 1, 20);
     original.world_mut().add_item(id(PLAYER), id(INPUT), 1);
     craft(&mut original).unwrap();
-    let experience = original.world().skill_experience(id(PLAYER), "smithing").unwrap();
+    let experience = original
+        .world()
+        .skill_experience(id(PLAYER), "smithing")
+        .unwrap();
     let saved = original.save_state().unwrap();
 
     let mut loaded = game("forge", 1, 20);
     loaded.load_state(&saved).unwrap();
-    assert_eq!(loaded.world().skill_experience(id(PLAYER), "smithing"), Some(experience));
+    assert_eq!(
+        loaded.world().skill_experience(id(PLAYER), "smithing"),
+        Some(experience)
+    );
 }

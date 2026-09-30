@@ -755,10 +755,10 @@ it when `Interrupt Override` is Combat or `Observe combat behavior` is set in
 the PKDT interrupt flags. `Ignore Combat` leaves package movement in control
 instead of acquiring or pursuing a combat target. `No Combat Alert` records
 combat engagement without setting the actor's alerted state. `At Package Start
-Unlock Doors` unlocks locked doors in the actor's current cell when that
-package starts. `On Package Change Unlock Doors` does the same when leaving the
-flagged package. Unlocking uses the shared reference lock state and emits the
-ordinary lock state event.
+Unlock Doors` unlocks locked doors owned by the actor in its current cell when
+that package starts. `On Package Change Unlock Doors` does the same when leaving
+the flagged package. Unlocking uses the shared reference lock state and emits
+the ordinary lock state event.
 
 **Schedules.** `hour` `-1` is any time. A window starts at `hour:minute`
 and lasts `duration` minutes, wrapping past midnight, a zero duration

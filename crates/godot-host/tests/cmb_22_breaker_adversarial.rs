@@ -98,5 +98,10 @@ fn cmb_22_contact_at_range_endpoint_preempts_range_completion_once() {
         flight.advance_with(0.2, |_| Ok(Some(contact))).unwrap(),
         ProjectileUpdate::Contact(contact)
     );
-    assert_eq!(flight.advance_with(0.1, |_| panic!("queried after terminal contact")).unwrap(), ProjectileUpdate::Finished);
+    assert_eq!(
+        flight
+            .advance_with(0.1, |_| panic!("queried after terminal contact"))
+            .unwrap(),
+        ProjectileUpdate::Finished
+    );
 }

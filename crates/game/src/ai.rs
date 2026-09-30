@@ -734,12 +734,22 @@ fn unlock_cell_doors(world: &mut World, actor: GlobalFormId, alloc: Alloc<'_>) {
     let Some(cell) = world.reference(actor).and_then(|reference| reference.cell) else {
         return;
     };
+    let owner_base = world.base_of(actor);
     let doors = world.cell_doors(cell);
     for (door, _) in doors {
-        if world
+        let Some((owner, locked)) = world
             .reference(door)
-            .is_some_and(|reference| reference.locked)
-        {
+            .map(|reference| (reference.owner, reference.locked))
+        else {
+            continue;
+        };
+        let owned_by_actor = owner.is_some_and(|owner| {
+            owner_base == Some(owner)
+                || world
+                    .actor(actor)
+                    .is_some_and(|state| state.factions.contains_key(&owner))
+        });
+        if locked && owned_by_actor {
             world.set_locked(door, false, alloc);
         }
     }

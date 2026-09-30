@@ -182,7 +182,12 @@ fn ai_05_door_unlock_flags_apply_at_start_and_when_leaving_package() {
         let mut alloc = |_: &str, _: &str| ObjectId(1);
         let actor = id(ACTOR);
         let door = id(DOOR);
-        game.world_mut().reference(door).unwrap().locked = true;
+        {
+            let mut world = game.world_mut();
+            let door_ref = world.reference(door).unwrap();
+            door_ref.locked = true;
+            door_ref.owner = Some(id(BASE));
+        }
         if flags & package::flags::UNLOCK_DOORS_AT_START != 0 {
             game.world_mut().evaluate_package(actor, &mut alloc);
         } else {
