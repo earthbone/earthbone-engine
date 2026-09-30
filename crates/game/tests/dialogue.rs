@@ -1306,13 +1306,12 @@ fn old_world_save_starts_without_dialogue_state() {
     let mut game = game(plugin(vec![info(INFO, 0, &["New conversation"], false)]));
     let mut old = game.world().save_state();
     // CONTEXT: Legacy state ends before the empty dialogue and magic tables.
-    // The extra 6 bytes beyond the old 75 are detection's now-unconditional
-    // empty pool count (4 bytes) and the world-level save-section table
-    // version 37 added (2 bytes), both always present at the tail regardless
-    // of the simulated version. No actor or reference exists yet at this
+    // The normalized tail is 77 bytes, including detection's empty pool
+    // count and the empty world section table. Scene history is section-owned
+    // and is stripped by normalization. No actor or reference exists yet at this
     // point, so neither carries its own section table to strip.
     legacy::normalize_world_sections(&mut old);
-    old.truncate(old.len() - 81);
+    old.truncate(old.len() - 77);
     old[4..6].copy_from_slice(&4u16.to_le_bytes());
     open(&mut game);
     game.choose_dialogue(id(TOPIC)).unwrap();

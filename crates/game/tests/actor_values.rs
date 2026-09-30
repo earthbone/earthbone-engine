@@ -253,10 +253,10 @@ fn version_seven_components_load_without_dialogue_state() {
     let hash = original.world().state_hash();
     let mut old = legacy::without_exclusive_branches(&mut original.world_mut(), &[actor]);
     // Version 7 predates the empty dialogue cursor and history appended in v8.
-    // The extra 6 bytes are detection's now-unconditional empty pool count
-    // (4 bytes) and the world-level save-section table version 37 added
-    // (2 bytes), both always present regardless of the simulated version.
-    old.truncate(old.len() - 81);
+    // The normalized tail is 77 bytes, including detection's empty pool
+    // count and the empty world section table. Scene history is section-owned
+    // and was already stripped by the legacy helper.
+    old.truncate(old.len() - 77);
     old[4..6].copy_from_slice(&7u16.to_le_bytes());
     let (restored, _) = fresh();
     restored.world_mut().load_state(&old).unwrap();
