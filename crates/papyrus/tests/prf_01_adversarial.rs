@@ -30,7 +30,10 @@ fn prf_01_late_completion_is_retained_and_survives_save_load() {
 
     let late = vm.call_global("RetentionOrder", "Late", &[]).unwrap();
     vm.run(MAX_COMPLETED_THREAD_HISTORY * 4);
-    assert!(matches!(vm.thread_state(late), Some(ThreadState::Sleeping(_))));
+    assert!(matches!(
+        vm.thread_state(late),
+        Some(ThreadState::Sleeping(_))
+    ));
 
     for _ in 0..=MAX_COMPLETED_THREAD_HISTORY {
         vm.call_global("RetentionOrder", "Quick", &[]).unwrap();

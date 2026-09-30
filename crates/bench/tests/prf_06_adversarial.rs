@@ -53,3 +53,41 @@ fn prf_06_allocation_regression_fails_the_performance_gate() {
     );
     let _ = std::fs::remove_dir_all(out);
 }
+
+#[test]
+fn prf_06_each_cpu_scenario_reports_allocation_counts() {
+    for scenario in ["scripts", "actors", "navigation", "streaming", "mixed"] {
+        let result = Command::new(env!("CARGO_BIN_EXE_soe-bench"))
+            .args([
+                "stress",
+                scenario,
+                "--load",
+                "1",
+                "--samples",
+                "1",
+                "--warmup",
+                "1",
+            ])
+            .output()
+            .expect("run CPU scenario");
+
+        assert!(
+            result.status.success(),
+            "{scenario} failed: {}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        let output = String::from_utf8_lossy(&result.stdout);
+        let sample = output
+            .lines()
+            .find(|line| line.starts_with("SOE_SAMPLE "))
+            .unwrap_or_else(|| panic!("{scenario} did not emit a sample: {output}"));
+        assert!(
+            sample.contains("\"peak_allocations\":"),
+            "{scenario} omitted peak allocation count: {sample}"
+        );
+        assert!(
+            sample.contains("\"peak_allocation_bytes\":"),
+            "{scenario} omitted peak allocation bytes: {sample}"
+        );
+    }
+}
