@@ -149,9 +149,10 @@ actor. The host currently completes an eight-hour sleep on bed activation.
 `vanilla_save::SavedFormMap` remaps ESS references through saved plugin names,
 including regular and light slots. `Game::restore_vanilla_world_and_vm` runs
 the supported restore passes in dependency order and restores the prior SOEG
-snapshot if any pass fails. The passes cover globals, NPC changes, reference
-placement, actor templates, inventories, reference extras, quests, lists and
-Papyrus execution. The individual world passes validate before applying their
+snapshot if any pass fails. The passes cover globals, NPC changes,
+CLAS/FACT/RELA record changes, reference placement, actor templates,
+inventories, reference extras, quests, lists and Papyrus execution. The
+individual world passes validate before applying their
 own changes. Saved reference-only objects are created using their saved
 runtime type. Instances whose signed
 `unknown` field is `-1` ignore their saved RefID and receive standalone VM
