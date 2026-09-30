@@ -163,8 +163,10 @@ public:
 } // namespace RE
 ";
 
-const RE_EVENTS: &str = r"// Generated from crates/commonlib-shim/src/events.rs. Do not edit.
+const RE_EVENTS: &str = r#"// Generated from crates/commonlib-shim/src/events.rs. Do not edit.
 #pragma once
+#include "RE/Form.h"
+#include "RE/Reference.h"
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -229,8 +231,14 @@ enum class ScriptEvent {
     CriticalHit, DragonSoulsGained, LevelIncrease, LocationDiscovery,
     ShoutAttack, SkillIncrease, SoulsTrapped, SpellsLearned
 };
+
+struct ShoutAttack { FormId shout; };
+struct SkillIncrease { ActorHandle player; ActorValue actor_value; };
+struct SoulsTrapped { ActorHandle trapper; ActorHandle target; };
+struct SpellsLearned { FormId spell; };
+struct TESCellFullyLoadedEvent { FormId cell; };
 } // namespace RE
-";
+"#;
 
 const RE_UTILITY: &str = r"// Generated from crates/commonlib-shim/src/util.rs. Do not edit.
 #pragma once

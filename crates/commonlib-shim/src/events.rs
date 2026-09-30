@@ -2,6 +2,9 @@
 
 //! Typed event sources exposed through the source-level CommonLib API.
 
+use crate::form::FormId;
+use crate::refr::{ActorHandle, ActorValue};
+
 /// `RE::BSEventNotifyControl`.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum NotifyControl {
@@ -13,7 +16,40 @@ pub trait EventSink<E> {
     fn process(&mut self, event: &E) -> NotifyControl;
 }
 
-/// An in-process event source. Sinks run in registration order.
+/// `RE::ShoutAttack::Event`, identifying the shout form used by the actor.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ShoutAttack {
+    pub shout: FormId,
+}
+
+/// `RE::SkillIncrease::Event`, identifying the player and advanced skill.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SkillIncrease {
+    pub player: ActorHandle,
+    pub actor_value: ActorValue,
+}
+
+/// `RE::SoulsTrapped::Event`, identifying the actor and its target.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SoulsTrapped {
+    pub trapper: ActorHandle,
+    pub target: ActorHandle,
+}
+
+/// `RE::SpellsLearned::Event`, identifying the spell form learned.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SpellsLearned {
+    pub spell: FormId,
+}
+
+/// `RE::TESCellFullyLoadedEvent`, identifying the cell that finished loading.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TESCellFullyLoadedEvent {
+    pub cell: FormId,
+}
+
+/// An in-process event source. Sinks run in registration order and delivery
+/// stops at the first sink that returns `Stop`.
 pub struct EventSource<E> {
     sinks: Vec<Box<dyn EventSink<E>>>,
 }
