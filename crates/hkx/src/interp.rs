@@ -452,6 +452,12 @@ struct Runtime {
     edge_previous: [bool; FALSE_TO_TRUE_SLOTS],
     pass_by_previous_position: Option<[f32; 3]>,
     pass_by_target_passed: bool,
+    /// Elapsed active time for `BSTimerModifier`.
+    timer_elapsed: f32,
+    /// Prevents a non-resetting alarm from firing again during one activation.
+    timer_fired: bool,
+    /// A shared modifier node can be visited more than once in one update.
+    timer_frame: u64,
 
     /// A bound vector input for `BSDecomposeVectorModifier`.
     vector: Option<[f32; 4]>,
@@ -1234,6 +1240,7 @@ impl<'a> Interpreter<'a> {
             NodeKind::ModifierList { enable, .. }
             | NodeKind::EventDrivenModifier { enable, .. }
             | NodeKind::TimerModifier { enable, .. }
+            | NodeKind::BsTimerModifier { enable, .. }
             | NodeKind::GetTimeStepModifier { enable, .. }
             | NodeKind::IsActiveModifier { enable, .. }
             | NodeKind::FalseToTrueModifier { enable, .. }
@@ -1300,9 +1307,41 @@ impl<'a> Interpreter<'a> {
     }
 
     /// Evaluate edge slots only during update, after list enable state is known.
-    fn update_modifier(&mut self, id: NodeId) {
+    fn update_modifier(&mut self, id: NodeId, dt: f32) {
         if !self.nodes[id.0].active {
             return;
+        }
+        if let NodeKind::BsTimerModifier {
+            alarm_time_seconds,
+            alarm_event,
+            reset_alarm,
+            ..
+        } = &self.graph.nodes[id.0].kind
+        {
+            if self.nodes[id.0].timer_frame != self.frame {
+                let alarm_time_seconds = *alarm_time_seconds;
+                let alarm_event_id = alarm_event.id;
+                let reset_alarm = *reset_alarm;
+                let runtime = &mut self.nodes[id.0];
+                runtime.timer_frame = self.frame;
+                let mut fire = false;
+                if !runtime.timer_fired {
+                    if dt.is_finite() && dt > 0.0 {
+                        runtime.timer_elapsed += dt;
+                    }
+                    if runtime.timer_elapsed >= alarm_time_seconds {
+                        fire = true;
+                        if reset_alarm {
+                            runtime.timer_elapsed = 0.0;
+                        } else {
+                            runtime.timer_fired = true;
+                        }
+                    }
+                }
+                if fire {
+                    self.raise(alarm_event_id);
+                }
+            }
         }
         if let NodeKind::FalseToTrueModifier { slots, .. } = &self.graph.nodes[id.0].kind {
             for (index, slot) in slots.iter().enumerate() {
@@ -1469,6 +1508,12 @@ impl<'a> Interpreter<'a> {
                 self.nodes[id.0].expression_raised = vec![false; expressions.len()];
                 self.nodes[id.0].expression_previous = vec![false; expressions.len()];
             }
+            NodeKind::BsTimerModifier { .. } => {
+                let runtime = &mut self.nodes[id.0];
+                runtime.timer_elapsed = 0.0;
+                runtime.timer_fired = false;
+                runtime.timer_frame = 0;
+            }
             NodeKind::Clip(c) => {
                 let rt = &mut self.nodes[id.0];
                 rt.local_time = c.start_time.max(0.0);
@@ -1591,7 +1636,7 @@ impl<'a> Interpreter<'a> {
                 self.sync_modifier(*child);
                 for index in start..self.modifier_order.len() {
                     let child_node = self.modifier_order[index];
-                    self.update_modifier(child_node);
+                    self.update_modifier(child_node, 0.0);
                 }
             }
             if let NodeKind::StateMachine(sm) = &node.kind {
@@ -1999,7 +2044,7 @@ impl<'a> Interpreter<'a> {
                     self.sync_modifier(*modifier);
                     for index in start..self.modifier_order.len() {
                         let node = self.modifier_order[index];
-                        self.update_modifier(node);
+                        self.update_modifier(node, dt);
                     }
                 }
                 match generator {
@@ -2058,6 +2103,7 @@ impl<'a> Interpreter<'a> {
             | NodeKind::GeneratorTransition(_)
             | NodeKind::EventDrivenModifier { .. }
             | NodeKind::TimerModifier { .. }
+            | NodeKind::BsTimerModifier { .. }
             | NodeKind::GetTimeStepModifier { .. }
             | NodeKind::IsActiveModifier { .. }
             | NodeKind::FalseToTrueModifier { .. }
@@ -2722,6 +2768,49 @@ mod tests {
         }
     }
 
+    fn bstimer_graph(enable: bool, alarm_time_seconds: f32, reset_alarm: bool) -> BehaviorGraph {
+        BehaviorGraph {
+            name: "timer".into(),
+            variable_mode: 0,
+            root: Some(NodeId(0)),
+            data: BehaviorGraphData {
+                event_names: vec!["Alarm".into()],
+                ..Default::default()
+            },
+            nodes: vec![
+                Node {
+                    id: NodeId(0),
+                    offset: 0,
+                    class: "hkbModifierGenerator".into(),
+                    name: "wrapper".into(),
+                    user_data: 0,
+                    bindings: None,
+                    kind: NodeKind::ModifierGenerator {
+                        modifier: Some(NodeId(1)),
+                        generator: None,
+                    },
+                },
+                Node {
+                    id: NodeId(1),
+                    offset: 1,
+                    class: "BSTimerModifier".into(),
+                    name: "alarm".into(),
+                    user_data: 0,
+                    bindings: None,
+                    kind: NodeKind::BsTimerModifier {
+                        enable,
+                        alarm_time_seconds,
+                        alarm_event: crate::behavior::EventProperty {
+                            id: 0,
+                            has_payload: false,
+                        },
+                        reset_alarm,
+                    },
+                },
+            ],
+        }
+    }
+
     fn nested_time_step_graph() -> BehaviorGraph {
         BehaviorGraph {
             name: "nested time step".into(),
@@ -3339,6 +3428,89 @@ mod tests {
         assert_eq!(vm.variables.real(0), Some(1.0 / 60.0));
         vm.update(0.125);
         assert_eq!(vm.variables.real(0), Some(0.125));
+    }
+
+    #[test]
+    fn anm_37_enabled_timer_emits_its_event_at_the_declared_elapsed_time() {
+        let graph = bstimer_graph(true, 0.75, false);
+        let lib = ClipLibrary::new();
+        let mut vm = Interpreter::new(&graph, &lib, Vec::new());
+
+        vm.update(0.25);
+        assert!(vm.take_events().is_empty(), "the alarm is not due yet");
+        vm.update(0.5);
+        assert_eq!(vm.take_events(), vec![Event { id: 0 }]);
+    }
+
+    #[test]
+    fn anm_37_disabled_timer_does_not_emit_its_event() {
+        let graph = bstimer_graph(false, 0.5, false);
+        let lib = ClipLibrary::new();
+        let mut vm = Interpreter::new(&graph, &lib, Vec::new());
+
+        vm.update(1.0);
+
+        assert!(vm.take_events().is_empty(), "a disabled alarm stays silent");
+    }
+
+    #[test]
+    fn anm_37_reset_alarm_restarts_its_elapsed_time_after_emitting() {
+        let graph = bstimer_graph(true, 0.5, true);
+        let lib = ClipLibrary::new();
+        let mut vm = Interpreter::new(&graph, &lib, Vec::new());
+
+        vm.update(0.5);
+        assert_eq!(vm.take_events(), vec![Event { id: 0 }]);
+        vm.update(0.25);
+        assert!(
+            vm.take_events().is_empty(),
+            "the reset interval is incomplete"
+        );
+        vm.update(0.25);
+        assert_eq!(vm.take_events(), vec![Event { id: 0 }]);
+    }
+
+    #[test]
+    fn anm_37_nonresetting_alarm_fires_once_per_activation() {
+        let graph = bstimer_graph(true, 0.5, false);
+        let lib = ClipLibrary::new();
+        let mut vm = Interpreter::new(&graph, &lib, Vec::new());
+
+        vm.update(0.5);
+        assert_eq!(vm.take_events(), vec![Event { id: 0 }]);
+        vm.update(1.0);
+        assert!(vm.take_events().is_empty(), "a spent alarm does not repeat");
+    }
+
+    #[test]
+    fn anm_37_reactivation_restarts_the_runtime_timer() {
+        let mut graph = bstimer_graph(true, 0.5, false);
+        graph.data.variable_names.push("Enabled".into());
+        graph.data.variable_infos.push(VariableInfo::default());
+        graph.nodes[1].bindings = Some(VariableBindingSet {
+            bindings: vec![Binding {
+                member_path: "enable".into(),
+                variable_index: 0,
+                bit_index: -1,
+                binding_type: 0,
+            }],
+            index_of_binding_to_enable: -1,
+        });
+        let lib = ClipLibrary::new();
+        let mut vm = Interpreter::new(&graph, &lib, Vec::new());
+        vm.variables.set_word(0, 1);
+
+        vm.update(0.25);
+        vm.variables.set_word(0, 0);
+        vm.update(0.25);
+        vm.variables.set_word(0, 1);
+        vm.update(0.25);
+        assert!(
+            vm.take_events().is_empty(),
+            "the reactivated timer starts at zero"
+        );
+        vm.update(0.25);
+        assert_eq!(vm.take_events(), vec![Event { id: 0 }]);
     }
 
     #[test]

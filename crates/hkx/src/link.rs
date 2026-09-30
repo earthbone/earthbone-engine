@@ -358,7 +358,8 @@ fn remap_node(node: &mut Node, map: &SymbolMap, offset: usize) {
             *activate_event_id = map.event(*activate_event_id);
             *deactivate_event_id = map.event(*deactivate_event_id);
         }
-        NodeKind::TimerModifier { alarm_event, .. } => remap_event_property(alarm_event, map),
+        NodeKind::TimerModifier { alarm_event, .. }
+        | NodeKind::BsTimerModifier { alarm_event, .. } => remap_event_property(alarm_event, map),
         NodeKind::FalseToTrueModifier { slots, .. } => {
             for slot in slots {
                 remap_event_property(&mut slot.event, map);

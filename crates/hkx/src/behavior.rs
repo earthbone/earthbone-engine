@@ -685,6 +685,13 @@ pub enum NodeKind {
         alarm_time_seconds: f32,
         alarm_event: EventProperty,
     },
+    /// `BSTimerModifier`: emits its alarm event after elapsed graph time.
+    BsTimerModifier {
+        enable: bool,
+        alarm_time_seconds: f32,
+        alarm_event: EventProperty,
+        reset_alarm: bool,
+    },
     /// `BSGetTimeStepModifier`: writes the current graph update interval to
     /// its `timeStep` output binding.
     GetTimeStepModifier {
@@ -821,6 +828,7 @@ impl Node {
             NodeKind::Clip(_)
             | NodeKind::BlendingTransition(_)
             | NodeKind::TimerModifier { .. }
+            | NodeKind::BsTimerModifier { .. }
             | NodeKind::GetTimeStepModifier { .. }
             | NodeKind::IsActiveModifier { .. }
             | NodeKind::FalseToTrueModifier { .. }
@@ -1224,6 +1232,12 @@ impl<'a> Loader<'a> {
                 alarm_time_seconds: o.f32(o.layout_offset(44, 80))?,
                 alarm_event: EventProperty::read(o, o.layout_offset(48, 88))?,
             },
+            "BSTimerModifier" => NodeKind::BsTimerModifier {
+                enable: o.bool(o.layout_offset(40, 72))?,
+                alarm_time_seconds: o.f32(o.layout_offset(44, 80))?,
+                alarm_event: EventProperty::read(o, o.layout_offset(48, 88))?,
+                reset_alarm: o.bool(o.layout_offset(56, 104))?,
+            },
             "BSGetTimeStepModifier" => NodeKind::GetTimeStepModifier {
                 enable: o.bool(o.layout_offset(40, 72))?,
                 time_step: o.f32(o.layout_offset(44, 80))?,
@@ -1611,6 +1625,36 @@ mod tests {
                 contact_event: EventProperty { id: 17, .. },
                 ref bones,
             } if bones == &[1, 4]
+        ));
+    }
+
+    #[test]
+    fn anm_37_bstimer_modifier_decodes_its_authored_alarm_fields() {
+        let mut b = PackfileBuilder::new();
+        let root = b.object("hkRootLevelContainer", 16);
+        let graph = b.object("hkbBehaviorGraph", 304);
+        let variant = b.array_structs(root, 0, 24, 1);
+        b.string(variant, 8, "hkbBehaviorGraph");
+        b.ptr(variant, 16, graph);
+        let timer = b.object("BSTimerModifier", 112);
+        b.ptr(graph, 128, timer);
+        b.string(timer, 56, "alarm");
+        b.set_bool(timer, 72, true);
+        b.set_f32(timer, 80, 1.25);
+        b.set_i32(timer, 88, 7);
+        b.set_bool(timer, 104, true);
+
+        let packfile = Packfile::parse(&b.finish()).unwrap();
+        let graph = BehaviorGraph::from_packfile(&packfile).unwrap();
+        let timer = graph.node(graph.root.unwrap());
+        assert!(matches!(
+            timer.kind,
+            NodeKind::BsTimerModifier {
+                enable: true,
+                alarm_time_seconds,
+                alarm_event: EventProperty { id: 7, has_payload: false },
+                reset_alarm: true,
+            } if alarm_time_seconds == 1.25
         ));
     }
 

@@ -657,19 +657,16 @@ gated `installed_behavior_passthrough_modifier_inventory` test parses every
 `hkbBehaviorGraph` object and fails if any graph cannot decode. It counts every
 modifier path that the interpreter does not execute: generic `NodeKind::Modifier`,
 `ModifierGenerator`, `ModifierList`, `EventDrivenModifier` and `TimerModifier`.
-It found 4,176 nodes across 32 classes. `BSIsActiveModifier` is excluded because
+It finds 4,149 nodes across 27 classes. `BSIsActiveModifier` is excluded because
 its bound activity slots already write their output variables. The test freezes
 the sorted names and counts, and checks that every class has a bounded backlog
 row whose title names that class.
 
 | Class | Nodes | Follow-up |
 | --- | ---: | --- |
-| `BSDecomposeVectorModifier` | 1 | [ANM-24](../BACKLOG.csv) |
 | `BSDirectAtModifier` | 23 | [ANM-25](../BACKLOG.csv) |
 | `BSEventEveryNEventsModifier` | 85 | [ANM-26](../BACKLOG.csv) |
 | `BSEventOnDeactivateModifier` | 98 | [ANM-27](../BACKLOG.csv) |
-| `BSEventOnFalseToTrueModifier` | 23 | [ANM-03](../BACKLOG.csv) |
-| `BSGetTimeStepModifier` | 1 | [ANM-28](../BACKLOG.csv) |
 | `BSIStateManagerModifier` | 3 | [ANM-29](../BACKLOG.csv) |
 | `BSInterpValueModifier` | 36 | [ANM-30](../BACKLOG.csv) |
 | `BSLimbIKModifier` | 1 | [ANM-31](../BACKLOG.csv) |
@@ -677,7 +674,6 @@ row whose title names that class.
 | `BSModifyOnceModifier` | 26 | [ANM-33](../BACKLOG.csv) |
 | `BSRagdollContactListenerModifier` | 50 | [ANM-35](../BACKLOG.csv) |
 | `BSSpeedSamplerModifier` | 42 | [ANM-36](../BACKLOG.csv) |
-| `BSTimerModifier` | 1 | [ANM-37](../BACKLOG.csv) |
 | `BSTweenerModifier` | 5 | [ANM-38](../BACKLOG.csv) |
 | `hkbDampingModifier` | 41 | [ANM-39](../BACKLOG.csv) |
 | `hkbEvaluateExpressionModifier` | 438 | [ANM-40](../BACKLOG.csv) |
@@ -713,6 +709,21 @@ output binding report the authored active state without changing the generated
 pose. The synthetic test covers enabled and disabled children, an enabled to
 disabled to enabled transition, explicit deactivation and reactivation, and a
 sampled non-reference pose.
+
+### Skyrim timer modifier (ANM-37)
+
+`BSTimerModifier` reads `enable`, `alarmTimeSeconds`, `alarmEvent` and
+`resetAlarm` from the local serde-hkx class layout. Its `secondsElapsed` field
+is marked `SERIALIZE_IGNORED`, so each activation starts at zero. While active,
+the interpreter advances elapsed time by finite positive update intervals and
+raises the authored event when the alarm time is reached. A reset alarm starts
+another interval after each event. A non-resetting alarm fires once per
+activation. Event ids are remapped when linked behavior graphs append their
+event tables.
+
+ANM-37 synthetic checks cover class field decoding, the elapsed-time boundary,
+disabled timers, repeating reset alarms and one-shot alarms. The implementation
+uses the crate's event queue and does not carry event payload objects.
 
 ### Modifier lists (2026-09-20)
 
