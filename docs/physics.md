@@ -128,7 +128,7 @@ The layout and scale version gate follow `engine-refs/nifxml/nif.xml` for
 `bhkNiTriStripsShape`. OpenMW's `components/nif/physics.cpp` cross-checks the
 field order and filter list. The NIF reader applies alternating triangle
 winding and drops degenerate triangles. Jolt's `MeshShape` accepts triangle
-geometry, which matches the neutral triangle-mesh representation; this
+geometry, which matches the neutral triangle-mesh representation. This
 decoder does not add a separate Jolt dependency. The synthetic
 `fmt_09_strips_fixture_preserves_collision_triangles_and_winding` test checks
 the output triangles, material and scale.
@@ -218,8 +218,10 @@ stepped by integrating gravity, moving, then resolving penetration up to
 six times against the closest point between the capsule axis and each
 nearby primitive (Ericson's segment-triangle, segment-segment and
 point-triangle routines). Contact normals above `max_slope_cos` set
-`on_ground` and cancel downward velocity. The fall per step is capped at
-one radius so a thin floor cannot be tunnelled. Rays test triangles,
+`on_ground` and cancel downward velocity. Downward snapping accepts only the
+current probe step, so a larger drop continues as a fall across ticks instead
+of moving the character to the lower floor at once. The fall per step is
+capped at one radius so a thin floor cannot be tunnelled. Rays test triangles,
 spheres and capsules (cylinder plus caps) and return the nearest hit with
 its normal and the body id. Layers that do not block characters (water,
 triggers, non collidable, char controller, zones) are skipped by the
