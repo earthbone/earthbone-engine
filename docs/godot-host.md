@@ -1724,13 +1724,24 @@ mesh transform, and the collider remains its descendant, so Godot applies the
 same scene transform to both. `open()` resets controller time and starts its
 per-frame evaluation. The collision option defaults off. This path is for
 small animated references and does not change bulk cell batching.
+Godot's `MeshInstance3D.create_trimesh_collision` creates a `StaticBody3D`
+with a concave shape from that mesh. The controller is advanced by the host
+node's process callback, matching Godot's documented process-frame animation
+updates.
+
+When player activation opens a non-teleport DOOR, `PlayerNode` resolves its
+winning model through the shared load order and VFS, loads the NIF bytes into
+an `AnimatedStaticNode`, enables trimesh collision, places it at the reference
+transform and starts its controller. A NIF with a supported transform
+controller is selected automatically. These nodes are freed when the host
+replaces the loaded location. `gameplay_swing_doors` and `swing_door_count`
+expose the current targets and attached-node count to host tests. Load doors
+keep the transition path and do not start a swing controller.
 
 The `hst_01_door_swing_test.gd` Godot check loads a synthetic NIF controller
 with a rotation track, advances it, and confirms the generated static body
-follows the visual mesh transform. It does not connect ordinary door
-activation in `PlayerNode` to an animated door instance. Plain gameplay doors
-still keep their authored mesh pose and static collision when game state marks
-them open.
+follows the visual mesh transform. The player activation path loads animated
+swing-door NIFs from the VFS and starts the node after game activation.
 
 Locked player picks use the shared game's key check. Without the key they
 remain closed, pending lockpicking UI. Resource preparation is synchronous.
