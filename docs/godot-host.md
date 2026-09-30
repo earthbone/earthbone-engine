@@ -1766,6 +1766,24 @@ Unrestricted runs received SIGTERM while loading, before reaching the assertions
 The full lint gate passed with 1,169 Rust and 11 Python tests, with all optional
 lint tools present. Installed-data checks are separate from that gate.
 
+## Music playback (AUD-05)
+
+`PlayerNode.select_music_type(file, object, draw)` resolves the supplied MUSC
+through the shared `Game`, evaluates MUST conditions against the player, and
+passes the selected leaf to its SoundBank. A silent MUST fades the current
+music out. Other tracks decode through the active VFS into stereo
+`AudioStreamWav` resources and use two non-positional `AudioStreamPlayer`
+children. A transition fades the old MUST using its authored fade-out and
+brings in the selected track using the MUSC fade. Abrupt transitions skip both
+ramps. Starting another transition stops the earlier outgoing slot, so it
+cannot continue under the latest selection.
+
+Loose `.xwm` music and xWMA files in FUZ require the optional
+`xwma-ffmpeg` feature. The host does not apply the MUSC ducking amount, queue
+policy, or track cycle/order flags. It uses those records' eligible ordered
+entries to select one track per call. Mixer playback is implemented, while
+physical speaker output remains unverified.
+
 ## Footstep audio integration (2026-09-19)
 
 Starting PlayerNode gameplay now creates a SoundBank sharing the same immutable

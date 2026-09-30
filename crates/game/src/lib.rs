@@ -43,6 +43,7 @@ pub mod inventory;
 pub mod lockpicking;
 pub mod mcm;
 pub mod moddata;
+pub mod music;
 pub mod natives;
 pub mod npc;
 pub mod package;

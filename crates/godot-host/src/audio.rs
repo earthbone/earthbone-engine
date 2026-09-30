@@ -118,6 +118,47 @@ pub struct Playing {
     pub started: u64,
 }
 
+/// Linear two-slot music fade progress, independent of the Godot node layer.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct MusicFade {
+    from_level: f32,
+    elapsed: f32,
+    fade_in: f32,
+    fade_out: f32,
+}
+
+impl MusicFade {
+    /// Start at the current outgoing level. Abrupt transitions have no ramp.
+    #[must_use]
+    pub fn new(from_level: f32, fade_in: f32, fade_out: f32, abrupt: bool) -> Self {
+        Self {
+            from_level: from_level.clamp(0.0, 1.0),
+            elapsed: 0.0,
+            fade_in: if abrupt { 0.0 } else { fade_in.max(0.0) },
+            fade_out: if abrupt { 0.0 } else { fade_out.max(0.0) },
+        }
+    }
+
+    /// Return outgoing and incoming linear gains and whether both ramps ended.
+    pub fn advance(&mut self, seconds: f32) -> (f32, f32, bool) {
+        if seconds.is_finite() && seconds > 0.0 {
+            self.elapsed += seconds;
+        }
+        let outgoing = if self.fade_out == 0.0 {
+            0.0
+        } else {
+            self.from_level * (1.0 - (self.elapsed / self.fade_out).clamp(0.0, 1.0))
+        };
+        let incoming = if self.fade_in == 0.0 {
+            1.0
+        } else {
+            (self.elapsed / self.fade_in).clamp(0.0, 1.0)
+        };
+        let finished = self.elapsed >= self.fade_in.max(self.fade_out);
+        (outgoing, incoming, finished)
+    }
+}
+
 /// A fixed set of playback slots.
 ///
 /// Fixed because the alternative is one node per sound with nothing bounding
