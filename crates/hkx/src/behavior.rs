@@ -864,6 +864,14 @@ pub enum NodeKind {
         world_from_model: WorldFromModelModeData,
         bone_weights: Vec<f32>,
     },
+    /// `hkbRigidBodyRagdollControlsModifier`: hierarchy controller values,
+    /// blend duration, and an optional list of controlled bone indices.
+    RigidBodyRagdollControlsModifier {
+        enable: bool,
+        control_data: [f32; 12],
+        duration_to_blend: f32,
+        bones: Option<Vec<i16>>,
+    },
     /// Any other `hkbModifier` subclass: only the enable flag is read.
     Modifier {
         enable: bool,
@@ -965,6 +973,7 @@ impl Node {
             | NodeKind::FootIk { .. }
             | NodeKind::KeyframeBonesModifier { .. }
             | NodeKind::PoweredRagdollControls { .. }
+            | NodeKind::RigidBodyRagdollControlsModifier { .. }
             | NodeKind::Modifier { .. }
             | NodeKind::Unknown => {}
         }
@@ -1672,6 +1681,27 @@ impl<'a> Loader<'a> {
                         mode: o.i8(world_offset + 6)?,
                     },
                     bone_weights,
+                }
+            }
+            "hkbRigidBodyRagdollControlsModifier" => {
+                let data = o.layout_offset(48, 80);
+                let mut control_data = [0.0; 12];
+                for (i, value) in control_data.iter_mut().enumerate() {
+                    *value = o.f32(data + u32::try_from(i * 4).unwrap_or(0))?;
+                }
+                let bone_offset = o.layout_offset(112, 144);
+                let bones = o
+                    .ptr(bone_offset)?
+                    .map(|array| {
+                        array.expect_class("hkbBoneIndexArray")?;
+                        array.array_i16(array.layout_offset(28, 48))
+                    })
+                    .transpose()?;
+                NodeKind::RigidBodyRagdollControlsModifier {
+                    enable: o.bool(o.layout_offset(40, 72))?,
+                    control_data,
+                    duration_to_blend: o.f32(data + 48)?,
+                    bones,
                 }
             }
             c if c.ends_with("Modifier") => NodeKind::Modifier {

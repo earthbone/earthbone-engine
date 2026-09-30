@@ -509,6 +509,8 @@ pub struct Output {
     pub weight: f32,
     /// Powered ragdoll controls emitted by active modifiers, with blend weight applied.
     pub ragdoll_controls: Vec<RagdollControlOutput>,
+    /// Rigid-body ragdoll controls supplied by active behavior modifiers.
+    pub rigid_body_ragdoll_controls: Vec<RigidBodyRagdollControlOutput>,
 }
 
 /// One bone's powered ragdoll control contribution.
@@ -517,6 +519,18 @@ pub struct RagdollControlOutput {
     pub bone: i16,
     pub control: PoweredRagdollControlData,
     pub world_from_model: WorldFromModelModeData,
+    pub weight: f32,
+}
+/// One authored `hkbRigidBodyRagdollControlsModifier` contribution.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RigidBodyRagdollControlOutput {
+    /// Hierarchy gain, velocity damping, acceleration gain, velocity gain,
+    /// position gain and limits, then snap gain and limits, in Havok order.
+    pub control_data: [f32; 12],
+    pub duration_to_blend: f32,
+    /// `None` leaves the modifier's bone selection unspecified.
+    pub bones: Option<Vec<i16>>,
+    /// Contribution weight after the graph's blender or transition weight.
     pub weight: f32,
 }
 
@@ -708,6 +722,7 @@ impl<'a> Interpreter<'a> {
                 bone_weights: vec![0.0; reference_pose.len()],
                 weight: 0.0,
                 ragdoll_controls: Vec::new(),
+                rigid_body_ragdoll_controls: Vec::new(),
             },
             foot_ik_ground_targets: Vec::new(),
             reference_pose,
@@ -1369,6 +1384,7 @@ impl<'a> Interpreter<'a> {
             | NodeKind::GetUpModifier { enable, .. }
             | NodeKind::KeyframeBonesModifier { enable, .. }
             | NodeKind::PoweredRagdollControls { enable, .. }
+            | NodeKind::RigidBodyRagdollControlsModifier { enable, .. }
             | NodeKind::Modifier { enable } => *enable,
             _ => true,
         };
@@ -1782,6 +1798,7 @@ impl<'a> Interpreter<'a> {
             | NodeKind::FootIk { .. }
             | NodeKind::KeyframeBonesModifier { .. }
             | NodeKind::PoweredRagdollControls { .. }
+            | NodeKind::RigidBodyRagdollControlsModifier { .. }
             | NodeKind::Modifier { .. }
             | NodeKind::Unknown => {}
         }
@@ -2244,6 +2261,7 @@ impl<'a> Interpreter<'a> {
             bone_weights: vec![0.0; self.reference_pose.len()],
             weight: 0.0,
             ragdoll_controls: Vec::new(),
+            rigid_body_ragdoll_controls: Vec::new(),
         }
     }
 
@@ -2380,6 +2398,21 @@ impl<'a> Interpreter<'a> {
                                     }
                                 }));
                         }
+                        NodeKind::RigidBodyRagdollControlsModifier {
+                            control_data,
+                            duration_to_blend,
+                            bones,
+                            ..
+                        } => {
+                            output.rigid_body_ragdoll_controls.push(
+                                RigidBodyRagdollControlOutput {
+                                    control_data: *control_data,
+                                    duration_to_blend: *duration_to_blend,
+                                    bones: bones.clone(),
+                                    weight: 1.0,
+                                },
+                            );
+                        }
                         _ => {}
                     }
                 }
@@ -2452,6 +2485,7 @@ impl<'a> Interpreter<'a> {
             | NodeKind::GetUpModifier { .. }
             | NodeKind::KeyframeBonesModifier { .. }
             | NodeKind::PoweredRagdollControls { .. }
+            | NodeKind::RigidBodyRagdollControlsModifier { .. }
             | NodeKind::Modifier { .. } => self.reference_output(),
         }
     }
@@ -2710,6 +2744,7 @@ impl<'a> Interpreter<'a> {
             pose,
             weight: 1.0,
             ragdoll_controls: Vec::new(),
+            rigid_body_ragdoll_controls: Vec::new(),
         }
     }
 
@@ -2836,6 +2871,7 @@ impl<'a> Interpreter<'a> {
         let mut pose = self.reference_pose.clone();
         let mut bone_weights = vec![0.0; pose.len()];
         let mut ragdoll_controls = Vec::new();
+        let mut rigid_body_ragdoll_controls = Vec::new();
         let mut acc_weight = 0.0;
         for (i, child) in b.children.iter().enumerate() {
             let Some(g) = child.generator else {
@@ -2861,6 +2897,12 @@ impl<'a> Interpreter<'a> {
                     ..*control
                 }
             }));
+            rigid_body_ragdoll_controls.extend(out.rigid_body_ragdoll_controls.into_iter().map(
+                |mut control| {
+                    control.weight *= w;
+                    control
+                },
+            ));
             if out.weight <= 0.0 {
                 continue;
             }
@@ -2888,6 +2930,7 @@ impl<'a> Interpreter<'a> {
             bone_weights,
             weight: acc_weight.min(1.0),
             ragdoll_controls,
+            rigid_body_ragdoll_controls,
         }
     }
 
@@ -3185,8 +3228,7 @@ pub fn blend_transform(a: &QsTransform, b: &QsTransform, alpha: f32) -> QsTransf
     }
 }
 
-/// Blend two outputs. A side at weight zero contributes nothing, so a
-/// transition out of a reference pose is a cut to the other side.
+/// Blend pose outputs and their independent ragdoll control contributions.
 pub fn blend_outputs(from: &Output, to: &Output, alpha: f32) -> Output {
     if alpha <= 0.0 {
         return from.clone();
@@ -3194,19 +3236,40 @@ pub fn blend_outputs(from: &Output, to: &Output, alpha: f32) -> Output {
     if alpha >= 1.0 {
         return to.clone();
     }
+    let ragdoll_controls = from
+        .rigid_body_ragdoll_controls
+        .iter()
+        .cloned()
+        .map(|mut control| {
+            control.weight *= 1.0 - alpha;
+            control
+        })
+        .chain(
+            to.rigid_body_ragdoll_controls
+                .iter()
+                .cloned()
+                .map(|mut control| {
+                    control.weight *= alpha;
+                    control
+                }),
+        )
+        .collect();
     if from.weight <= 0.0 && to.weight <= 0.0 {
         let mut output = from.clone();
         output.ragdoll_controls = blend_ragdoll_controls(from, to, alpha);
+        output.rigid_body_ragdoll_controls = ragdoll_controls;
         return output;
     }
     if from.weight <= 0.0 {
         let mut output = to.clone();
         output.ragdoll_controls = blend_ragdoll_controls(from, to, alpha);
+        output.rigid_body_ragdoll_controls = ragdoll_controls;
         return output;
     }
     if to.weight <= 0.0 {
         let mut output = from.clone();
         output.ragdoll_controls = blend_ragdoll_controls(from, to, alpha);
+        output.rigid_body_ragdoll_controls = ragdoll_controls;
         return output;
     }
     let mut pose = from.pose.clone();
@@ -3225,6 +3288,7 @@ pub fn blend_outputs(from: &Output, to: &Output, alpha: f32) -> Output {
         bone_weights,
         weight: from.weight + (to.weight - from.weight) * alpha,
         ragdoll_controls: blend_ragdoll_controls(from, to, alpha),
+        rigid_body_ragdoll_controls: ragdoll_controls,
     }
 }
 
@@ -4937,6 +5001,7 @@ mod tests {
             bone_weights: vec![1.0],
             weight: 1.0,
             ragdoll_controls: vec![control],
+            rigid_body_ragdoll_controls: Vec::new(),
         };
         let blended = blend_outputs(&output, &output, 0.25);
         assert_eq!(blended.ragdoll_controls.len(), 2);
@@ -4988,6 +5053,7 @@ mod tests {
             bone_weights: vec![0.0],
             weight: 0.0,
             ragdoll_controls: Vec::new(),
+            rigid_body_ragdoll_controls: Vec::new(),
         };
         let b = Output {
             pose: vec![QsTransform {
@@ -4997,6 +5063,7 @@ mod tests {
             bone_weights: vec![1.0],
             weight: 1.0,
             ragdoll_controls: Vec::new(),
+            rigid_body_ragdoll_controls: Vec::new(),
         };
         assert_eq!(blend_outputs(&a, &b, 0.1), b);
         assert_eq!(blend_outputs(&b, &a, 0.9), b);

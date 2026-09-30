@@ -105,6 +105,106 @@ fn load(root: &Root) -> BehaviorGraph {
     BehaviorGraph::from_packfile(&pf).unwrap()
 }
 
+fn rigid_body_ragdoll_graph(enable: bool) -> BehaviorGraph {
+    use soe_hkx::writer::PackfileBuilder;
+
+    let mut b = PackfileBuilder::new();
+    let container = b.object("hkRootLevelContainer", 16);
+    let graph = b.object("hkbBehaviorGraph", 304);
+    let variant = b.array_structs(container, 0, 24, 1);
+    b.string(variant, 0, "hkbBehaviorGraph");
+    b.string(variant, 8, "hkbBehaviorGraph");
+    b.ptr(variant, 16, graph);
+    b.string(graph, 56, "ANM-46");
+
+    let data = b.object("hkbBehaviorGraphData", 128);
+    let strings = b.object("hkbBehaviorGraphStringData", 80);
+    let values = b.object("hkbVariableValueSet", 64);
+    b.ptr(graph, 136, data);
+    b.ptr(data, 120, strings);
+    b.ptr(data, 112, values);
+    b.array_strings(strings, 16, &[]);
+    b.array_strings(strings, 48, &[]);
+    b.array_u32(data, 64, &[]);
+    b.array_i32(values, 16, &[]);
+
+    let wrapper = b.object("hkbModifierGenerator", 88);
+    let modifier = b.object("hkbRigidBodyRagdollControlsModifier", 160);
+    let bones = b.object("hkbBoneIndexArray", 64);
+    b.ptr(graph, 128, wrapper);
+    b.string(wrapper, 56, "ControlsWrapper");
+    b.ptr(wrapper, 72, modifier);
+    b.string(modifier, 56, "RigidBodyControls");
+    b.set_bool(modifier, 72, enable);
+    for (index, value) in [
+        0.1, 0.2, 0.3, 0.4, 0.5, 6.0, 7.0, 0.8, 9.0, 10.0, 11.0, 12.0,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        b.set_f32(modifier, 80 + u32::try_from(index * 4).unwrap(), value);
+    }
+    b.set_f32(modifier, 128, 0.75);
+    b.array_i16(bones, 48, &[1, 5, 12]);
+    b.ptr(modifier, 144, bones);
+
+    let pf = Packfile::parse(&b.finish()).unwrap();
+    BehaviorGraph::from_packfile(&pf).unwrap()
+}
+
+fn rigid_body_ragdoll_blender_graph() -> BehaviorGraph {
+    use soe_hkx::writer::PackfileBuilder;
+
+    let mut b = PackfileBuilder::new();
+    let container = b.object("hkRootLevelContainer", 16);
+    let graph = b.object("hkbBehaviorGraph", 304);
+    let variant = b.array_structs(container, 0, 24, 1);
+    b.string(variant, 0, "hkbBehaviorGraph");
+    b.string(variant, 8, "hkbBehaviorGraph");
+    b.ptr(variant, 16, graph);
+    b.string(graph, 56, "ANM-46 blender");
+
+    let data = b.object("hkbBehaviorGraphData", 128);
+    let strings = b.object("hkbBehaviorGraphStringData", 80);
+    let values = b.object("hkbVariableValueSet", 64);
+    b.ptr(graph, 136, data);
+    b.ptr(data, 120, strings);
+    b.ptr(data, 112, values);
+    b.array_strings(strings, 16, &[]);
+    b.array_strings(strings, 48, &[]);
+    b.array_u32(data, 64, &[]);
+    b.array_i32(values, 16, &[]);
+
+    let blender = b.object("hkbBlenderGenerator", 112);
+    b.ptr(graph, 128, blender);
+    b.string(blender, 56, "ControlBlender");
+    b.set_i16(blender, 88, -1);
+    let children = [
+        b.object("hkbBlenderGeneratorChild", 72),
+        b.object("hkbBlenderGeneratorChild", 72),
+    ];
+    for (index, ((child, child_weight), value)) in children
+        .into_iter()
+        .zip([1.0, 3.0])
+        .zip([2.0, 4.0])
+        .enumerate()
+    {
+        let wrapper = b.object("hkbModifierGenerator", 88);
+        let modifier = b.object("hkbRigidBodyRagdollControlsModifier", 160);
+        b.ptr(child, 48, wrapper);
+        b.set_f32(child, 64, child_weight);
+        b.string(wrapper, 56, &format!("Wrapper{index}"));
+        b.ptr(wrapper, 72, modifier);
+        b.string(modifier, 56, &format!("Controls{index}"));
+        b.set_bool(modifier, 72, true);
+        b.set_f32(modifier, 80, value);
+    }
+    b.array_ptrs(blender, 96, &children);
+
+    let pf = Packfile::parse(&b.finish()).unwrap();
+    BehaviorGraph::from_packfile(&pf).unwrap()
+}
+
 fn clip_named(g: &BehaviorGraph, name: &str) -> NodeId {
     g.find_by_name(name).unwrap().id
 }
@@ -117,6 +217,82 @@ fn the_sampler_and_the_clip_agree_on_the_ramp() {
     assert!(close(sampled_x(&lib, "mt_idle", 1.0), 20.0));
     assert!(close(sampled_x(&lib, "MT_WALKFORWARD", 0.25), 105.0));
     assert_eq!(lib.get("mt_idle").unwrap().track_to_bone(), &[1]);
+}
+
+#[test]
+fn anm_46_authored_rigid_body_controls_reach_output_with_declared_values() {
+    let graph = rigid_body_ragdoll_graph(true);
+    let library = ClipLibrary::new();
+    let mut vm = Interpreter::new(&graph, &library, reference_pose());
+    let output = vm.update(1.0 / 60.0);
+    assert_eq!(output.rigid_body_ragdoll_controls.len(), 1);
+    let controls = &output.rigid_body_ragdoll_controls[0];
+    assert_eq!(
+        controls.control_data,
+        [0.1, 0.2, 0.3, 0.4, 0.5, 6.0, 7.0, 0.8, 9.0, 10.0, 11.0, 12.0]
+    );
+    assert_eq!(controls.duration_to_blend, 0.75);
+    assert_eq!(controls.bones.as_deref(), Some(&[1, 5, 12][..]));
+    assert_eq!(controls.weight, 1.0);
+}
+
+#[test]
+fn anm_46_disabled_rigid_body_controls_do_not_reach_output() {
+    let graph = rigid_body_ragdoll_graph(false);
+    let library = ClipLibrary::new();
+    let mut vm = Interpreter::new(&graph, &library, reference_pose());
+    assert!(vm.update(1.0 / 60.0).rigid_body_ragdoll_controls.is_empty());
+}
+
+#[test]
+fn anm_46_transition_weights_scale_rigid_body_controls() {
+    use soe_hkx::interp::{blend_outputs, Output, RigidBodyRagdollControlOutput};
+    let mut from = Output {
+        pose: reference_pose(),
+        bone_weights: vec![0.0; 2],
+        weight: 0.0,
+        ragdoll_controls: Vec::new(),
+        rigid_body_ragdoll_controls: vec![RigidBodyRagdollControlOutput {
+            control_data: [1.0; 12],
+            duration_to_blend: 0.5,
+            bones: None,
+            weight: 1.0,
+        }],
+    };
+    let to = Output {
+        pose: reference_pose(),
+        bone_weights: vec![0.0; 2],
+        weight: 0.0,
+        ragdoll_controls: Vec::new(),
+        rigid_body_ragdoll_controls: vec![RigidBodyRagdollControlOutput {
+            control_data: [2.0; 12],
+            duration_to_blend: 1.0,
+            bones: Some(vec![3]),
+            weight: 1.0,
+        }],
+    };
+    from.rigid_body_ragdoll_controls[0].weight = 0.25;
+    let output = blend_outputs(&from, &to, 0.4);
+    assert_eq!(output.rigid_body_ragdoll_controls.len(), 2);
+    assert_eq!(output.rigid_body_ragdoll_controls[0].weight, 0.15);
+    assert_eq!(output.rigid_body_ragdoll_controls[1].weight, 0.4);
+}
+
+#[test]
+fn anm_46_blender_weights_scale_rigid_body_controls() {
+    let graph = rigid_body_ragdoll_blender_graph();
+    let library = ClipLibrary::new();
+    let mut vm = Interpreter::new(&graph, &library, reference_pose());
+    let output = vm.update(1.0 / 60.0);
+    assert_eq!(output.rigid_body_ragdoll_controls.len(), 2);
+    assert_eq!(
+        output
+            .rigid_body_ragdoll_controls
+            .iter()
+            .map(|control| control.weight)
+            .collect::<Vec<_>>(),
+        [0.25, 0.75]
+    );
 }
 
 #[test]
@@ -412,6 +588,7 @@ fn transition_blends_preserve_a_zero_mask_through_nested_outputs() {
         bone_weights: vec![1.0, 0.0],
         weight: 1.0,
         ragdoll_controls: Vec::new(),
+        rigid_body_ragdoll_controls: Vec::new(),
     };
     let b = Output {
         pose: vec![
@@ -424,6 +601,7 @@ fn transition_blends_preserve_a_zero_mask_through_nested_outputs() {
         bone_weights: vec![0.0, 1.0],
         weight: 1.0,
         ragdoll_controls: Vec::new(),
+        rigid_body_ragdoll_controls: Vec::new(),
     };
     let output = blend_outputs(&a, &b, 0.5);
     assert_eq!(output.pose[0].translation[0], 10.0);
@@ -471,12 +649,14 @@ fn masked_transition_endpoints_equal_their_authored_outputs() {
         bone_weights: vec![1.0],
         weight: 1.0,
         ragdoll_controls: Vec::new(),
+        rigid_body_ragdoll_controls: Vec::new(),
     };
     let to = Output {
         pose: vec![QsTransform::IDENTITY],
         bone_weights: vec![0.0],
         weight: 1.0,
         ragdoll_controls: Vec::new(),
+        rigid_body_ragdoll_controls: Vec::new(),
     };
     assert_eq!(blend_outputs(&from, &to, 0.0), from);
     assert_eq!(blend_outputs(&from, &to, 1.0), to);
