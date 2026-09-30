@@ -138,6 +138,7 @@ fn procedure(branch: &Branch) -> Procedure {
         Some("wait") => Procedure::Wait {
             stop_movement: false,
         },
+        Some("shout") => Procedure::Shout,
         Some(_) => Procedure::Unsupported(branch.procedure.clone().unwrap_or_default()),
         None => Procedure::Unsupported(branch.kind.clone()),
     }

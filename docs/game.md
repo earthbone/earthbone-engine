@@ -284,6 +284,15 @@ and CommonLibSSE-NG `ExtraEnchantment.h`, `ExtraSoul.h` and `TESSoulGem.h`.
 The runtime does not yet own learned enchantment state, so the caller supplies
 that set. Enchantment strength and charge calculation are not part of this
 transaction.
+**Magic conditions.** CTDA function 571 returns the cast type when its selected
+left or right spell is the actor's held concentration cast. Function 595 checks
+that same current spell, while 596 checks the selected spell's magic effect
+keywords. Function 579 compares the equipped shout, and 632 reports a held
+concentration cast. Casting source values outside Left, Right, Voice and
+Instant return a parameter error. Voice and Instant have no selected spell in
+this runtime, so spell comparisons return false and casting type returns zero.
+Functions 602, 627 and 676 return an unavailable-state diagnostic because ward
+state, dual-cast animation state and active voice variation are not tracked.
 
 ## Conformance table
 
@@ -897,6 +906,20 @@ applies `Success Completes Package` and the following branch rules. If no
 reachable point increases distance, the actor holds position until the target
 or navmesh changes. Every other procedure name is `Procedure::Unsupported`
 and the actor stands where it is. Location
+duration, with zero meaning indefinite. `Shout` casts the equipped `SHOU`'s
+highest nonzero `SNAM` spell through `World::cast_spell` and holds its tree
+branch until that word's authored recovery expires. An actor already in voice
+recovery waits before casting. Failed shout data or delivery leaves the
+procedure explicitly unsupported. Voice recovery is an absolute deadline in
+the world's real-seconds clock, exposed through `GetVoiceRecoveryTime` and
+`SetVoiceRecoveryTime`. SOEW version 37 stores that deadline and the active
+Shout branch deadline. The CK package procedure page is absent from the local
+wiki snapshot. The execution uses the local `EquipShout_-_Actor` and
+`GetVoiceRecoveryTime_-_Actor` contracts, UESP `SHOU.wikitext`'s three `SNAM`
+entries, and the existing xEdit PACK and shared spell APIs. Walking `Patrol`
+follows linked markers, including their arrival radius and idle time. Every
+other procedure name is `Procedure::Unsupported` and the actor stands where
+it is. Location
 kinds near reference, in cell, near package start, near editor location,
 near linked reference, alias reference, alias location and near self resolve.
 An alias location uses its filled `LCTN` form's `MNAM` world marker as its
@@ -908,6 +931,9 @@ completion uses xEdit's `PRCB` flags and the UESP PACK layout. Route selection
 uses the shared combat target and vanilla NAVM graph already used by combat
 movement. No procedure-specific source in the local corpus defines Flee's
 destination choice.
+`tests/ai_29_shout.rs` checks authored self-target spell delivery, the selected
+word's recovery duration, waiting through an existing recovery, save/load, and
+rejection of a SHOU that does not contain exactly three 12-byte `SNAM` entries.
 
 **Walking.** `ai::nav_graph` builds `soe_navmesh::vanilla` over every
 winning `NAVM` on first use and remembers which cell each mesh sits in.
@@ -2106,9 +2132,44 @@ dependencies and the current direct-cast rejection boundary.
 The runtime provides `World::cast_spell` for direct scripted casts
 of Script, Value Modifier, Dual Value Modifier and Dispel effects, including hostile hits. Definitions
 come from winning SPEL and MGEF records, with each FormID resolved in its winning
-plugin. Self and target-actor delivery are supported for constant and fire-and-forget
-casts. `Spell.Cast` credits an actor source. `RemoteCast` credits its explicit
-blame actor. Player charging, costs and hand input are separate unfinished work.
+plugin. Self, aimed actor and target-actor delivery are supported for constant
+and fire-and-forget casts when the caller supplies an actor target. `Spell.Cast`
+credits an actor source. `RemoteCast` credits its explicit
+blame actor. Player charge progress and hand input remain unfinished.
+
+`World::spell_charge_time` returns authored SPIT charge time when Manual Cost
+Calc is set, otherwise the maximum MGEF casting time in the SPEL effect list.
+`World::spell_cost` returns authored SPIT base cost for manual-cost spells.
+Auto-calculated cost sums each MGEF base cost scaled by magnitude and duration,
+with magnitude below one raised to one, zero duration treated as ten, and
+concentration duration treated as ten. It applies the SPEL half-cost perk when
+the caster owns that perk. `World::cast_charged_spell` validates the cast and
+available magicka before debiting the cost once and applying effects. This
+one-shot API does not model charge progress or concentration ticks. These rules
+follow local `uesp-modfileformat/SPEL.wikitext` and
+`TES5Edit/Core/wbDefinitionsTES5.pas`; `tests/magic/mag_09_cast_cost.rs`
+checks authored and calculated timing and costs, perk adjustment, and rejection
+without state changes when magicka is insufficient.
+The one-shot charged gameplay path sends `OnSpellCast` once after validation and payment.
+The CK `ck-wiki/OnSpellCast_-_ObjectReference.wikitext` contract says the event
+fires once when concentration begins and is not detected for Papyrus casts, so
+the direct scripted `World::cast_spell` path does not send it.
+
+`World::begin_concentration_cast` starts one held concentration spell after
+validating its execution path and available magicka. `Game::tick` advances the
+held effect and drains magicka at one tenth of the spell's calculated cost per
+unpaused simulation second. This rate uses the concentration ten-second cost
+duration in local `uesp-modfileformat/SPEL.wikitext`. Effect changes are applied
+in 0.1-second slices, with a final partial slice when magicka runs out. Self,
+aimed actor and target actor deliveries work, with the caller supplying the
+actor target for aimed and target-actor spells. `release_concentration_cast`
+ends the held cast, and exhaustion ends it automatically. The held gameplay
+path sends `OnSpellCast` once at the start. Menu-paused ticks do not advance
+held casts. Held input is transient and is not stored in SOEW, so loading a save
+does not resume casting. `tests/magic/mag_03_concentration.rs` checks these
+behaviors and a gated installed-data cast. Concentration fields follow xEdit's
+SPEL/SPIT definition, and the one-time event follows local
+`ck-wiki/OnSpellCast_-_ObjectReference.wikitext`.
 
 Touch delivery resolves only the supplied actor target and measures its
 three-dimensional distance from the source reference against the SPEL SPIT

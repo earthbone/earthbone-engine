@@ -305,6 +305,8 @@ pub struct ActorState {
     pub ash_pile: Option<GlobalFormId>,
     pub shouts: BTreeSet<GlobalFormId>,
     pub equipped_shout: Option<GlobalFormId>,
+    /// Real-time deadline before this actor may shout again.
+    pub voice_recovery_until: Option<f64>,
     /// Real-time deadline for the stagger animation and input lock a melee
     /// hit above `fStaggerThreshold` sets, `None` when not staggered.
     /// Compared against `World::clock.real_seconds`, the lazy expiry
@@ -585,6 +587,7 @@ pub struct World {
     pub(crate) next_effect: u64,
     /// Effect records and magnitudes for potions created by alchemy.
     pub(crate) brewed_potions: BTreeMap<GlobalFormId, Vec<(GlobalFormId, f32, u32, u32)>>,
+    pub(crate) concentration_cast: Option<magic::ConcentrationCast>,
     pub(crate) image_space: image_space::ImageSpaceState,
     /// Stealth-point pools by target, each with its observers' awareness.
     pub(crate) detection: crate::detection::DetectionState,
@@ -685,6 +688,7 @@ impl World {
             active_effects: BTreeMap::new(),
             next_effect: 1,
             brewed_potions: BTreeMap::new(),
+            concentration_cast: None,
             image_space: image_space::ImageSpaceState::default(),
             detection: crate::detection::DetectionState::default(),
             story_history: BTreeMap::new(),

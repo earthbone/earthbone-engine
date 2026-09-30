@@ -158,7 +158,14 @@ pub fn supports_function(function: u16) -> bool {
             | 448
             | 543
             | 560
+            | 571
+            | 579
+            | 595
+            | 596
+            | 602
             | 606
+            | 627
+            | 632
             | 629
             | 630
             | 655
@@ -219,6 +226,7 @@ pub fn supports_function(function: u16) -> bool {
             | 701
             | 707
             | 710
+            | 676
     )
 }
 
@@ -1010,6 +1018,71 @@ fn function_value(
             let quest = context.quest.ok_or(Error::Target(5))?;
             boolean(world.alias_ref(quest, raw) == Some(subject))
         }
+        571 => {
+            no_second_parameter(c)?;
+            let spell = casting_spell(world, subject, c.function, raw)?;
+            let current = world.concentration_spell(subject);
+            match spell.filter(|spell| Some(*spell) == current) {
+                Some(spell) => {
+                    world
+                        .spell(spell)
+                        .map_err(|_| Error::Form(spell))?
+                        .data
+                        .cast_type as f32
+                }
+                None => 0.0,
+            }
+        }
+        579 => {
+            no_second_parameter(c)?;
+            let shout = resolve(world, context.owner, raw, Some(*b"SHOU"))?;
+            let actor = world.actor(subject).ok_or(Error::Form(subject))?;
+            boolean(actor.equipped_shout == Some(shout))
+        }
+        595 => {
+            let spell = resolve(world, context.owner, raw, Some(*b"SPEL"))?;
+            let source = casting_spell(world, subject, c.function, c.parameters[1])?;
+            boolean(source == Some(spell) && world.concentration_spell(subject) == Some(spell))
+        }
+        596 => {
+            let source = casting_spell(world, subject, c.function, raw)?;
+            let keyword = resolve(world, context.owner, c.parameters[1], Some(*b"KYWD"))?;
+            let has_keyword = if let Some(spell) = source {
+                let definition = world.spell(spell).map_err(|_| Error::Form(spell))?;
+                definition.effects.iter().any(|effect| {
+                    world
+                        .resolve_from(spell, effect.base_effect)
+                        .is_some_and(|effect| world.has_keyword(effect, keyword))
+                })
+            } else {
+                false
+            };
+            boolean(has_keyword)
+        }
+        602 => {
+            no_second_parameter(c)?;
+            if raw > 2 {
+                return Err(Error::Parameter(c.function, raw));
+            }
+            world.actor(subject).ok_or(Error::Form(subject))?;
+            return Err(Error::UnavailableContract(
+                c.function,
+                "ward animation state is not supplied by the host",
+            ));
+        }
+        627 => {
+            no_parameter(c)?;
+            world.actor(subject).ok_or(Error::Form(subject))?;
+            return Err(Error::UnavailableContract(
+                c.function,
+                "dual-cast animation state is not tracked",
+            ));
+        }
+        632 => {
+            no_parameter(c)?;
+            world.actor(subject).ok_or(Error::Form(subject))?;
+            boolean(world.is_concentration_casting(subject))
+        }
         47 => {
             let item = resolve(world, context.owner, raw, None)?;
             inventory_count(world, subject, item, &mut Vec::new())? as f32
@@ -1223,6 +1296,14 @@ fn function_value(
         659 => boolean(context.tempering_enchanted.ok_or(Error::TemperingContext)?),
         580 | 694 | 701 => actor_query(world, context.owner, subject, c.function, raw)?,
         672 | 673 | 674 | 678 | 697 => unavailable_combat_query(world, context.owner, subject, c)?,
+        676 => {
+            no_parameter(c)?;
+            world.actor(subject).ok_or(Error::Form(subject))?;
+            return Err(Error::UnavailableContract(
+                c.function,
+                "active voice variation is not tracked",
+            ));
+        }
         other => return Err(Error::Function(other)),
     })
 }
@@ -1233,6 +1314,23 @@ fn no_parameter_second(c: &Condition) -> Result<(), Error> {
         Ok(())
     } else {
         Err(Error::Parameter(c.function, c.parameters[1]))
+    }
+}
+
+/// Resolve an equipped casting source. Voice and instant sources have no
+/// spell selection in the current runtime model.
+fn casting_spell(
+    world: &mut World,
+    subject: GlobalFormId,
+    function: u16,
+    source: u32,
+) -> Result<Option<GlobalFormId>, Error> {
+    world.actor(subject).ok_or(Error::Form(subject))?;
+    match source {
+        0 => Ok(world.hand_spell(subject, crate::combat::Hand::Left)),
+        1 => Ok(world.hand_spell(subject, crate::combat::Hand::Right)),
+        2 | 3 => Ok(None),
+        _ => Err(Error::Parameter(function, source)),
     }
 }
 

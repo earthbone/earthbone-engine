@@ -36,6 +36,10 @@ const SUMMON_BASE: u32 = 0x501;
 
 #[path = "magic/collection.rs"]
 mod collection;
+#[path = "magic/mag_03_concentration.rs"]
+mod mag_03_concentration;
+#[path = "magic/mag_09_cast_cost.rs"]
+mod mag_09_cast_cost;
 #[path = "magic/scroll.rs"]
 mod scroll;
 #[path = "magic/worn_enchantment.rs"]

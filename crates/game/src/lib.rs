@@ -774,6 +774,10 @@ impl Game {
             for error in errors {
                 vm.log.push(vm.time(), error.to_string());
             }
+            let errors = w.tick_concentration(real_seconds, &mut |n, c| vm.create_object_of(n, c));
+            for error in errors {
+                vm.log.push(vm.time(), error.to_string());
+            }
             game_hours = (w.clock.game_days - before) * 24.0;
             w.fire_timers();
             w.ai_tick(real_seconds, &mut |n, c| vm.create_object_of(n, c));

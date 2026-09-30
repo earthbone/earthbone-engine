@@ -73,6 +73,8 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// retains each reference's current destruction stage. The actor AI procedure
 /// tag also retains active Flee and Guard package procedures in its existing
 /// field.
+/// Version 36 retains the active phase and completed action slots for each scene.
+/// Version 37 retains actor voice recovery deadlines and the Shout procedure state.
 pub const SAVE_VERSION: u16 = 37;
 
 #[derive(Clone, Copy)]
@@ -1650,6 +1652,11 @@ fn read_actor_state(r: &mut FormReader<'_, '_>, version: u16) -> Result<ActorSta
     if version < 37 && a.ai.procedure == crate::ai::Procedure::Guard {
         return Err(VmError::State(
             "Guard procedure requires world version 37".into(),
+        ));
+    }
+    if version < 37 && a.ai.procedure == crate::ai::Procedure::Shout {
+        return Err(VmError::State(
+            "Shout procedure requires world version 37".into(),
         ));
     }
     a.perks = read_form_set(r)?;
