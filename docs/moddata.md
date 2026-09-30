@@ -230,8 +230,11 @@ in a named actor save section, and `ai::candidates` inserts them into the base
 package list before schedule and condition evaluation. Shouts join the actor's
 learned shout set, where repeated rules for the same form add only one entry.
 That set is already part of the engine save format. Items reach the inventory.
-Skins and bare forms are resolved, held in `mod_data` and counted in the
-report, but are not yet connected to actor behavior.
+A `Skin` distribution is selected by actor
+appearance assembly before the NPC's direct skin and race fallback. It retains
+the resolved `ARMO` identity and uses that record's armor addons. Bare forms
+remain resolved, held in `mod_data` and counted in the report, but are not
+connected to actor behavior.
 
 A distribution's actor level, skill levels, class skill weights, sex, unique,
 summonable, child, leveled and teammate filters are checked against the
