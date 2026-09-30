@@ -4,7 +4,8 @@
 //! DispelAllSpells contracts, xEdit SPEL/MGEF fields and CommonLib MagicSystem
 //! enums. Definitions stay in the winning records. Per-cast magnitudes,
 //! elapsed time and reversible actor-value deltas belong to the world.
-//! Unsupported delivery and archetypes return errors before applying effects.
+//! Werewolf Feed follows CK's `StartCannibal` dead-actor contract. Unsupported
+//! delivery and archetypes return errors before applying effects.
 
 use soe_esm::records::gameplay::{Effect, Ingestible, MagicEffect, Spell};
 use soe_esm::GlobalFormId;
@@ -34,6 +35,7 @@ const PARALYSIS_ARCHETYPE: u32 = 21;
 const DETECT_LIFE_ARCHETYPE: u32 = 19;
 const REANIMATE_ARCHETYPE: u32 = 22;
 const SOUL_TRAP_ARCHETYPE: u32 = 23;
+const WEREWOLF_FEED: u32 = 26;
 
 /// Identity of one effect application, independent of its MGEF FormID.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -646,6 +648,8 @@ impl World {
             return Err(MagicError::Target);
         }
         let caster = caster.filter(|id| self.actor(*id).is_some());
+        let feeder = caster.unwrap_or(source);
+        let mut feed_targets = std::collections::BTreeSet::new();
         let mut prepared = Vec::new();
         for (index, entry) in definition.effects.iter().enumerate() {
             let effect = self
@@ -693,6 +697,7 @@ impl World {
                     | REANIMATE_ARCHETYPE
                     | SOUL_TRAP_ARCHETYPE
                     | 25
+                    | WEREWOLF_FEED
             ) {
                 return Err(MagicError::Unsupported("effect archetype"));
             }
@@ -706,6 +711,14 @@ impl World {
                 || data.delivery != definition.data.delivery
             {
                 return Err(MagicError::Unsupported("mixed casting types or delivery"));
+            }
+            if data.archetype == WEREWOLF_FEED {
+                if entry.data.area != 0 {
+                    return Err(MagicError::Unsupported("area werewolf feed"));
+                }
+                self.validate_feed_target(feeder, target)?;
+                feed_targets.insert(target);
+                continue;
             }
             let magnitude =
                 if data.flags & NO_MAGNITUDE != 0 && data.archetype != REANIMATE_ARCHETYPE {
@@ -830,7 +843,39 @@ impl World {
                 });
             }
         }
-        self.apply_prepared_effects(prepared, alloc)
+        let applied = self.apply_prepared_effects(prepared, alloc)?;
+        for corpse in feed_targets {
+            self.feed_corpse(corpse)?;
+        }
+        Ok(applied)
+    }
+
+    fn validate_feed_target(
+        &mut self,
+        feeder: GlobalFormId,
+        corpse: GlobalFormId,
+    ) -> Result<(), MagicError> {
+        if self.actor(feeder).is_none() {
+            return Err(MagicError::Target);
+        }
+        let dead_actor = self.actor(corpse).is_some_and(|actor| actor.dead);
+        let eligible_reference = self
+            .reference(corpse)
+            .is_some_and(|reference| reference.is_actor && reference.enabled && !reference.deleted);
+        if !dead_actor || !eligible_reference {
+            return Err(MagicError::Target);
+        }
+        Ok(())
+    }
+
+    fn feed_corpse(&mut self, corpse: GlobalFormId) -> Result<(), MagicError> {
+        let reference = self.reference(corpse).ok_or(MagicError::Target)?;
+        if !reference.is_actor || !reference.enabled || reference.deleted {
+            return Err(MagicError::Target);
+        }
+        reference.deleted = true;
+        reference.enabled = false;
+        Ok(())
     }
 
     fn reanimate_eligible(&mut self, target: GlobalFormId, magnitude: f32) -> bool {
