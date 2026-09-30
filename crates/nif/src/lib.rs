@@ -28,6 +28,7 @@ pub mod controller;
 pub mod error;
 pub mod header;
 pub mod mesh;
+pub mod serialize;
 pub mod stream;
 pub mod tri;
 pub mod types;
@@ -75,6 +76,15 @@ impl NifFile {
     /// Type names of every block, useful when a file fails to yield meshes.
     pub fn block_types(&self) -> Vec<&str> {
         self.blocks.iter().map(Block::type_name).collect()
+    }
+
+    /// Serialize the supported Skyrim SE collision graph to NIF bytes.
+    ///
+    /// This currently writes `NiNode` blocks and opaque Havok collision
+    /// blocks, which is the graph produced by `soe-physics` collision export.
+    /// Other parsed block types return `Error::UnsupportedWrite`.
+    pub fn to_bytes(&self) -> Result<Vec<u8>> {
+        serialize::to_bytes(self)
     }
 }
 

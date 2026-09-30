@@ -43,6 +43,8 @@ pub enum Error {
     Cycle { block: usize },
     /// A FaceGen head TRI file is not supported by this reader.
     InvalidHeadTri(String),
+    /// The in-memory NIF contains a block that the byte writer does not support.
+    UnsupportedWrite(String),
     /// A selected head morph does not exist in a FaceGen TRI file.
     HeadMorphNotFound(String),
     /// The supplied head mesh does not have the TRI file's vertex count.
@@ -91,6 +93,7 @@ impl fmt::Display for Error {
             Error::InvalidData { block, reason } => write!(f, "block {block}: {reason}"),
             Error::Cycle { block } => write!(f, "block {block} is its own ancestor"),
             Error::InvalidHeadTri(reason) => write!(f, "invalid head TRI: {reason}"),
+            Error::UnsupportedWrite(reason) => write!(f, "unsupported NIF write: {reason}"),
             Error::HeadMorphNotFound(name) => write!(f, "head TRI has no morph named {name:?}"),
             Error::HeadMorphVertexCount { expected, actual } => write!(
                 f,

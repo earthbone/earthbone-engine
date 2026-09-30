@@ -54,6 +54,19 @@ draws that full list for each selected BTO block.
 - `controller`: `NiTransformController` and its interpolators, see below.
 - `mesh`: the neutral output, see below, and the scene walk that produces
   it. Cycle protection and a depth limit make the walk safe on any input.
+- `serialize`: writes Skyrim SE files containing `NiNode` blocks and opaque
+  collision blocks, including the header tables, block sizes and root footer.
+  It rejects other typed block kinds and strings outside Windows-1252.
+
+The byte writer is scoped to the collision graph produced by `soe-physics`.
+It is not a general writer for parsed meshes. Its node fields follow the
+`NiNode` and `NiAVObject` layouts in
+`../engine-refs/nifxml/nif.xml`, and its NIF header follows
+`tests/common/mod.rs`, which was written independently from that schema.
+The EDT-17 shape fields were checked against nifly's
+`src/bhk.cpp::bhkConvexVerticesShape::Sync` and TES5Edit's
+`Core/wbDataFormatNif.pas` definitions. PyNifly was named as another source
+for this row but is not present in the local reference corpus.
 
 ## The neutral mesh
 
