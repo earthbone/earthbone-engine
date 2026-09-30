@@ -32,9 +32,19 @@ fn anm_35_contact_from_any_mapped_declared_bone_emits_once() {
     let graph = contact_graph();
     let clips = ClipLibrary::new();
     let mut vm = Interpreter::new(&graph, &clips, vec![]);
-    vm.send_ragdoll_contact(BodyIndex(9), &[None, Some(BodyIndex(9))], RagdollContactKind::Contact);
+    vm.send_ragdoll_contact(
+        BodyIndex(9),
+        &[None, Some(BodyIndex(9))],
+        RagdollContactKind::Contact,
+    );
     vm.update(0.0);
-    assert_eq!(vm.take_events().iter().map(|event| event.id).collect::<Vec<_>>(), [17]);
+    assert_eq!(
+        vm.take_events()
+            .iter()
+            .map(|event| event.id)
+            .collect::<Vec<_>>(),
+        [17]
+    );
 }
 
 #[test]
@@ -42,8 +52,16 @@ fn anm_35_unmapped_or_undeclared_bodies_emit_nothing() {
     let graph = contact_graph();
     let clips = ClipLibrary::new();
     let mut vm = Interpreter::new(&graph, &clips, vec![]);
-    vm.send_ragdoll_contact(BodyIndex(8), &[None, Some(BodyIndex(9))], RagdollContactKind::Contact);
-    vm.send_ragdoll_contact(BodyIndex(9), &[None, Some(BodyIndex(8))], RagdollContactKind::Throw);
+    vm.send_ragdoll_contact(
+        BodyIndex(8),
+        &[None, Some(BodyIndex(9))],
+        RagdollContactKind::Contact,
+    );
+    vm.send_ragdoll_contact(
+        BodyIndex(9),
+        &[None, Some(BodyIndex(8))],
+        RagdollContactKind::Throw,
+    );
     vm.update(0.0);
     assert!(vm.take_events().is_empty());
 }
@@ -53,7 +71,17 @@ fn anm_35_throw_from_mapped_declared_bone_emits_contact_event() {
     let graph = contact_graph();
     let clips = ClipLibrary::new();
     let mut vm = Interpreter::new(&graph, &clips, vec![]);
-    vm.send_ragdoll_contact(BodyIndex(12), &[None, None, None, None, Some(BodyIndex(12))], RagdollContactKind::Throw);
+    vm.send_ragdoll_contact(
+        BodyIndex(12),
+        &[None, None, None, None, Some(BodyIndex(12))],
+        RagdollContactKind::Throw,
+    );
     vm.update(0.0);
-    assert_eq!(vm.take_events().iter().map(|event| event.id).collect::<Vec<_>>(), [17]);
+    assert_eq!(
+        vm.take_events()
+            .iter()
+            .map(|event| event.id)
+            .collect::<Vec<_>>(),
+        [17]
+    );
 }

@@ -57,7 +57,13 @@ fn anm_37_alarm_waits_for_elapsed_time_and_fires_at_boundary() {
     vm.update(0.4);
     assert!(vm.take_events().is_empty());
     vm.update(0.6);
-    assert_eq!(vm.take_events().iter().map(|event| event.id).collect::<Vec<_>>(), [6]);
+    assert_eq!(
+        vm.take_events()
+            .iter()
+            .map(|event| event.id)
+            .collect::<Vec<_>>(),
+        [6]
+    );
     vm.update(2.0);
     assert!(vm.take_events().is_empty());
 }

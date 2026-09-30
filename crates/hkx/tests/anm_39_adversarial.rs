@@ -76,7 +76,10 @@ fn anm_39_scalar_input_moves_toward_target_without_overshooting_for_small_step()
     let clips = ClipLibrary::new();
     let mut vm = Interpreter::new(&graph, &clips, vec![]);
     vm.update(0.1);
-    let out = vm.variables.real(vm.variables.index("damped").unwrap()).unwrap();
+    let out = vm
+        .variables
+        .real(vm.variables.index("damped").unwrap())
+        .unwrap();
     assert!((out - 0.2).abs() < 0.0001);
 }
 
@@ -87,6 +90,9 @@ fn anm_39_nonpositive_or_nonfinite_time_does_not_corrupt_damped_value() {
     let mut vm = Interpreter::new(&graph, &clips, vec![]);
     vm.update(0.0);
     vm.update(-1.0);
-    let out = vm.variables.real(vm.variables.index("damped").unwrap()).unwrap();
+    let out = vm
+        .variables
+        .real(vm.variables.index("damped").unwrap())
+        .unwrap();
     assert_eq!(out, 0.0);
 }
