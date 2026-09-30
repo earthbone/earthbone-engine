@@ -158,7 +158,7 @@ horizontal position and rotation and replaces its vertical position with the
 surface height. `GroundDrop::undo` returns the original transform for an
 editor undo action. Non-finite collision heights are rejected.
 
-`records::npc::NpcFace` reads NPC_ `PNAM` head-part links in file order and the
+`records::npc::NpcFace` reads `NPC_` `PNAM` head-part links in file order and the
 19 floats in `NAM9`. `edit_record` replaces those fields while preserving the
 other NPC subrecords, checks each link against the active load order for a
 winning `HDPT`, and rejects malformed links or non-finite morph values. The
