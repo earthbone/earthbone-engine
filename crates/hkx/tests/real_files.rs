@@ -35,6 +35,7 @@ const PASSTHROUGH_MODIFIERS: &[(&str, usize, &str)] = &[
     ("BSRagdollContactListenerModifier", 50, "ANM-35"),
     ("BSSpeedSamplerModifier", 42, "ANM-36"),
     ("BSTweenerModifier", 5, "ANM-38"),
+    ("BSTimerModifier", 1, "ANM-37"),
     ("hkbDampingModifier", 41, "ANM-39"),
     ("hkbEvaluateExpressionModifier", 438, "ANM-40"),
     ("hkbEventDrivenModifier", 158, "ANM-17"),

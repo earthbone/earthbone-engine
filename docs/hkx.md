@@ -650,6 +650,26 @@ Invalid fixed bounds fail closed. Event mode ignores fixed-time fields.
 event windows, condition-only transitions, state reentry, wildcard reset,
 deactivation, priority protection and accepted requests outliving trigger windows.
 
+### BSTweenerModifier (ANM-38)
+
+`BSTweenerModifier` is decoded from its class-table fields and runs inside a
+`hkbModifierGenerator`. It captures the incoming world-from-model transform
+when first applied, then moves the enabled position and rotation channels
+toward `targetPosition` and `targetRotation`. Rotation uses normalized
+shortest-arc interpolation. With `useTweenDuration`, `tweenDuration` controls
+the interpolation time. Without it, the runtime-only duration has no
+serialized value, so this interpreter applies the target immediately. Other
+transform channels pass through unchanged. The world-from-model transform is
+kept separately from the local bone pose in `Output`.
+
+The member offsets and the distinction between serialized targets and
+runtime-only `duration`, `startTransform` and `time` come from local
+`serde-hkx/assets/classes/BSTweenerModifier.json`. The class table gives no
+update semantics, so duration fallback and interpolation are interpreter
+rules, not claims from a Havok runtime capture.
+`tests/anm_38_tweener.rs` checks decoded fields, midpoint and endpoint values,
+channel flags and modifier enable state.
+
 ### Installed passthrough modifier inventory (2026-09-20)
 
 The installed `Skyrim - Animations.bsa` contains 428 behavior graphs. The
