@@ -4801,6 +4801,7 @@ Source pages read: `engine-refs/ck-wiki/PushActorAway_-_ObjectReference.wikitext
 `KnockAreaEffect_-_ObjectReference.wikitext`,
 `ForceAddRagdollToWorld_-_ObjectReference.wikitext` and
 `ForceRemoveRagdollFromWorld_-_ObjectReference.wikitext`.
+
 ## Trigger occupants, HST-14
 
 `World::update_trigger_actor_position` reads winning placed `REFR` records in
