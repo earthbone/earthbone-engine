@@ -1969,6 +1969,14 @@ the spellcaster. The common SPEL/MGEF context is inferred from that statement
 and the shared Effect Item layout, with the recipient as default subject and
 the caster as default target.
 
+An active spell application checks its SPEL and MGEF conditions again at each
+whole second of its elapsed lifetime. A false condition ends that application.
+The elapsed lifetime is already part of SOEW magic state, so a save between
+checks retains the time remaining until the next check. Concentration builds
+fresh effect applications for each 0.1-second cast slice and evaluates their
+conditions during that reapplication. Ingestibles do not use the spell
+reevaluation cadence.
+
 Each application gets an `EffectId` and a distinct `ActiveMagicEffect` VM object.
 MGEF scripts are attached when an effect is applied, rather than attached to the
 MGEF form at startup. VMAD properties use the winning MGEF's plugin context.
