@@ -26,6 +26,9 @@ expect traces-match captures/lever/Papyrus.0.log
 failed line. `expect traces-match` compares the engine's `Debug.Trace` output
 with a Papyrus log captured in vanilla: every expected line must appear in
 order, extra engine lines are allowed. The full grammar is in the module doc.
+`Scenario::append_papyrus_log_expectations` adds a parsed capture to a scenario
+as one ordered expectation. A mismatch reports every expected trace that was
+not found, including later missing lines after an earlier divergence.
 
 ## Capturing the oracle in vanilla
 

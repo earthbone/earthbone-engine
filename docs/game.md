@@ -76,6 +76,9 @@ week 6 to 9 gate.
   It parses plugins, BSA/BA2 members, NIF, HKX, DDS, PEX, FUZ/LIP, xWMA and
   WAV containers. Wabbajack's local README describes modlists as reproduced
   without bundling assets, so the sweep reads the installed files in place.
+- `Scenario::append_papyrus_log_expectations` adds a vanilla log's ordered
+  trace lines as one expectation. Differential reports list every missing
+  expected trace and allow extra runtime output.
 - `Game`: owns the VM and the world. `load_scripts_from_data` builds the load
   order's `soe_bsa::Vfs` (each plugin's `<stem> - Misc.bsa` or `<stem>.bsa`
   archive if the install shipped one, loose files on top) and loads every
