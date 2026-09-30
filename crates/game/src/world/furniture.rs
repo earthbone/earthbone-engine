@@ -16,7 +16,11 @@ use super::{ActorState, World, T};
 const SIT_MARKER: u16 = 0x0001;
 const SLEEP_MARKER: u16 = 0x0002;
 
-pub(crate) fn write_furniture_seat(state: &super::ActorState, writer: &mut Writer) {
+pub(crate) fn write_furniture_seat(
+    state: &super::ActorState,
+    writer: &mut Writer,
+    _pool: &mut soe_papyrus::vm::state::ArrayPool,
+) {
     writer.bool(state.furniture_seat.is_some());
     if let Some((furniture, marker)) = state.furniture_seat {
         write_form_id(writer, furniture);
@@ -27,6 +31,7 @@ pub(crate) fn write_furniture_seat(state: &super::ActorState, writer: &mut Write
 pub(crate) fn read_furniture_seat(
     state: &mut super::ActorState,
     reader: &mut FormReader<'_, '_>,
+    _table: &soe_papyrus::vm::state::ArrayTable,
 ) -> Result<(), VmError> {
     if reader.bool()? {
         state.furniture_seat = Some((read_form_id(reader)?, reader.u16()?));
@@ -34,7 +39,11 @@ pub(crate) fn read_furniture_seat(
     Ok(())
 }
 
-fn write_seat(actor: &ActorState, writer: &mut Writer) {
+fn write_seat(
+    actor: &ActorState,
+    writer: &mut Writer,
+    _pool: &mut soe_papyrus::vm::state::ArrayPool,
+) {
     writer.bool(actor.furniture_seat.is_some());
     if let Some((furniture, marker)) = actor.furniture_seat {
         write_form_id(writer, furniture);
@@ -42,7 +51,11 @@ fn write_seat(actor: &ActorState, writer: &mut Writer) {
     }
 }
 
-fn read_seat(actor: &mut ActorState, reader: &mut FormReader<'_, '_>) -> Result<(), VmError> {
+fn read_seat(
+    actor: &mut ActorState,
+    reader: &mut FormReader<'_, '_>,
+    _table: &soe_papyrus::vm::state::ArrayTable,
+) -> Result<(), VmError> {
     if reader.bool()? {
         actor.furniture_seat = Some((read_form_id(reader)?, reader.u16()?));
     }
@@ -180,10 +193,9 @@ impl World {
             return self.stand_from_furniture(actor);
         }
 
-        let Some((base, position, rotation, enabled, deleted)) =
+        let Some((position, rotation, enabled, deleted)) =
             self.reference(furniture).map(|reference| {
                 (
-                    reference.base,
                     reference.position,
                     reference.rotation,
                     reference.enabled,
@@ -193,15 +205,41 @@ impl World {
         else {
             return false;
         };
-        let Some(base) = base.filter(|base| self.tag_of(*base) == Some(T(b"FURN"))) else {
-            return false;
-        };
-        if !enabled || deleted || !self.is_actor_reference(actor) {
+        if !enabled || deleted {
             return false;
         }
-        let Some(record) = self.record(base) else {
+        if self.reserve_furniture_marker(furniture, actor).is_none() {
             return false;
-        };
+        }
+        if let Some(reference) = self.refs.get_mut(&actor) {
+            reference.position = position;
+            reference.rotation = rotation;
+        }
+        true
+    }
+
+    /// Reserve the first enabled, unreserved Sit marker without moving the actor.
+    ///
+    /// Returns its zero-based `FNPR` index, or `None` when the furniture or actor
+    /// cannot use a marker.
+    pub fn reserve_furniture_marker(
+        &mut self,
+        furniture: GlobalFormId,
+        actor: GlobalFormId,
+    ) -> Option<u16> {
+        if let Some((current, marker)) = self.furniture_seat(actor) {
+            if current == furniture {
+                return Some(marker);
+            }
+        }
+        let (base, enabled, deleted) = self
+            .reference(furniture)
+            .map(|reference| (reference.base, reference.enabled, reference.deleted))?;
+        let base = base.filter(|base| self.tag_of(*base) == Some(T(b"FURN")))?;
+        if !enabled || deleted || !self.is_actor_reference(actor) {
+            return None;
+        }
+        let record = self.record(base)?;
         let active_markers = record
             .find(T(b"MNAM"))
             .filter(|data| data.len() >= 4)
@@ -226,18 +264,10 @@ impl World {
                     && !occupied.contains(&marker))
                 .then_some(marker)
             });
-        let Some(marker) = marker else {
-            return false;
-        };
-        let Some(state) = self.actor(actor) else {
-            return false;
-        };
+        let marker = marker?;
+        let state = self.actor(actor)?;
         state.furniture_seat = Some((furniture, marker));
-        if let Some(reference) = self.refs.get_mut(&actor) {
-            reference.position = position;
-            reference.rotation = rotation;
-        }
-        true
+        Some(marker)
     }
 
     /// Release an actor's furniture marker reservation when it stands.

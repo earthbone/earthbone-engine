@@ -2,17 +2,32 @@
 
 //! SOEW versions 5 and 37 store active applications after the world body.
 //! Loaded actor values already contain recoverable modifiers. Version 36
-//! stores authored taper values, and version 37 stores granted perks.
+//! stores authored taper values. Version 37 stores granted perks in the
+//! `MAG-21` world section and command owners in the `MAG-33` section.
 
 use std::collections::BTreeMap;
 
-use soe_papyrus::vm::state::Writer;
+use soe_papyrus::vm::state::{ArrayPool, ArrayTable, Writer};
 use soe_papyrus::VmError;
 
-use super::{ActiveEffect, EffectId, World};
+use super::{ActiveEffect, EffectId, PriorOwner, World};
 use crate::world::save::{
     read_form_id, read_opt_form_id, write_form_id, write_opt_form_id, FormReader,
 };
+
+pub(crate) const SECTION: crate::world::save_sections::Section<World> =
+    crate::world::save_sections::Section {
+        name: "MAG-33",
+        write: write_command_owners,
+        read: read_command_owners,
+    };
+
+pub(crate) const PERK_SECTION: crate::world::save_sections::Section<World> =
+    crate::world::save_sections::Section {
+        name: "MAG-21",
+        write: write_granted_perks,
+        read: read_granted_perks,
+    };
 
 impl World {
     pub(crate) fn write_magic(&self, w: &mut Writer) {
@@ -36,7 +51,6 @@ impl World {
             }
             w.f64(effect.elapsed);
             write_opt_form_id(w, effect.summoned);
-            write_opt_form_id(w, effect.granted_perk);
             w.bool(effect.recover);
             w.len(effect.changes.len());
             for (name, amount) in &effect.changes {
@@ -47,11 +61,100 @@ impl World {
     }
 }
 
+fn write_granted_perks(world: &World, w: &mut Writer, _pool: &mut ArrayPool) {
+    let granted: Vec<_> = world
+        .active_effects
+        .values()
+        .filter_map(|effect| effect.granted_perk.map(|perk| (effect.id, perk)))
+        .collect();
+    w.len(granted.len());
+    for (id, perk) in granted {
+        w.u64(id.0);
+        write_form_id(w, perk);
+    }
+}
+
+fn read_granted_perks(
+    world: &mut World,
+    r: &mut FormReader<'_, '_>,
+    _table: &ArrayTable,
+) -> Result<(), VmError> {
+    let count = r.len()?;
+    if count > r.remaining() / 14 {
+        return Err(VmError::State(
+            "MAG-21 grant count exceeds remaining bytes".into(),
+        ));
+    }
+    let mut seen = std::collections::BTreeSet::new();
+    for _ in 0..count {
+        let id = EffectId(r.u64()?);
+        let perk = read_form_id(r)?;
+        if !seen.insert(id) {
+            return Err(VmError::State("MAG-21 duplicate effect identity".into()));
+        }
+        let effect = world
+            .active_effects
+            .get_mut(&id)
+            .ok_or_else(|| VmError::State("MAG-21 missing active effect".into()))?;
+        effect.granted_perk = Some(perk);
+    }
+    Ok(())
+}
+
+fn write_command_owners(world: &World, w: &mut Writer, _pool: &mut ArrayPool) {
+    let commanded: Vec<_> = world
+        .active_effects
+        .values()
+        .filter_map(|effect| effect.restore_owner.map(|owner| (effect.id, owner)))
+        .collect();
+    w.len(commanded.len());
+    for (id, owner) in commanded {
+        w.u64(id.0);
+        match owner {
+            PriorOwner::Unowned => w.bool(false),
+            PriorOwner::Owned(form) => {
+                w.bool(true);
+                write_form_id(w, form);
+            }
+        }
+    }
+}
+
+fn read_command_owners(
+    world: &mut World,
+    r: &mut FormReader<'_, '_>,
+    _table: &ArrayTable,
+) -> Result<(), VmError> {
+    let count = r.len()?;
+    if count > r.remaining() / 9 {
+        return Err(VmError::State(
+            "MAG-33 command count exceeds remaining bytes".into(),
+        ));
+    }
+    let mut seen = std::collections::BTreeSet::new();
+    for _ in 0..count {
+        let id = EffectId(r.u64()?);
+        if !seen.insert(id) {
+            return Err(VmError::State("MAG-33 duplicate effect identity".into()));
+        }
+        let owner = if r.bool()? {
+            PriorOwner::Owned(read_form_id(r)?)
+        } else {
+            PriorOwner::Unowned
+        };
+        let effect = world
+            .active_effects
+            .get_mut(&id)
+            .ok_or_else(|| VmError::State("MAG-33 missing active effect".into()))?;
+        effect.restore_owner = Some(owner);
+    }
+    Ok(())
+}
+
 pub(in crate::world) fn read_magic(
     r: &mut FormReader<'_, '_>,
     has_summoned_reference: bool,
     has_taper_values: bool,
-    has_granted_perk: bool,
 ) -> Result<(u64, BTreeMap<EffectId, ActiveEffect>), VmError> {
     let next = r.u64()?;
     let count = r.len()?;
@@ -73,11 +176,6 @@ pub(in crate::world) fn read_magic(
         let duration = if r.bool()? { Some(r.f64()?) } else { None };
         let elapsed = r.f64()?;
         let summoned = if has_summoned_reference {
-            read_opt_form_id(r)?
-        } else {
-            None
-        };
-        let granted_perk = if has_granted_perk {
             read_opt_form_id(r)?
         } else {
             None
@@ -126,7 +224,8 @@ pub(in crate::world) fn read_magic(
             taper_duration,
             elapsed,
             summoned,
-            granted_perk,
+            granted_perk: None,
+            restore_owner: None,
             recover,
             changes,
         };

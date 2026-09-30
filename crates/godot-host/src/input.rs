@@ -366,6 +366,8 @@ pub enum Action {
     TogglePov,
     ReadyWeapon,
     RightAttack,
+    LeftAttackBlock,
+    RightAttackBlock,
 }
 
 impl Action {
@@ -386,12 +388,13 @@ impl Action {
             Action::Activate => "Activate",
             Action::TogglePov => "Toggle POV",
             Action::ReadyWeapon => "Ready Weapon",
-            Action::RightAttack => "Right Attack/Block",
+            Action::RightAttack | Action::RightAttackBlock => "Right Attack/Block",
+            Action::LeftAttackBlock => "Left Attack/Block",
         }
     }
 
     #[must_use]
-    pub fn all() -> [Action; 13] {
+    pub fn all() -> [Action; 15] {
         [
             Action::Forward,
             Action::Back,
@@ -406,6 +409,8 @@ impl Action {
             Action::TogglePov,
             Action::ReadyWeapon,
             Action::RightAttack,
+            Action::LeftAttackBlock,
+            Action::RightAttackBlock,
         ]
     }
 }
@@ -445,14 +450,21 @@ impl Bindings {
             (Action::TogglePov, scan::F),
             (Action::ReadyWeapon, scan::R),
         ];
+        let mut keyboard: BTreeMap<Action, Binding> = pairs
+            .into_iter()
+            .map(|(a, k)| (a, Binding::key(k)))
+            .collect();
+        keyboard.insert(Action::LeftAttackBlock, Binding::unmapped());
+        keyboard.insert(Action::RightAttackBlock, Binding::unmapped());
         Bindings {
-            keyboard: pairs
-                .into_iter()
-                .map(|(a, k)| (a, Binding::key(k)))
-                .collect(),
-            // The PC fallback uses the same primary button as Skyrim's
-            // Right Attack action. A loaded control map replaces this value.
-            mouse: BTreeMap::from([(Action::RightAttack, Binding::key(0))]),
+            keyboard,
+            // The fallback follows Skyrim's primary and secondary hand buttons.
+            // A loaded control map replaces these values.
+            mouse: BTreeMap::from([
+                (Action::LeftAttackBlock, Binding::key(1)),
+                (Action::RightAttack, Binding::key(0)),
+                (Action::RightAttackBlock, Binding::key(0)),
+            ]),
             gamepad: BTreeMap::new(),
             movement: Binding::unmapped(),
             look: Binding::unmapped(),
@@ -531,6 +543,12 @@ pub struct InputState {
     pub activate_pressed: bool,
     pub toggle_pov_pressed: bool,
     pub toggle_always_run_pressed: bool,
+    /// The player's left attack input is held.
+    pub left_attack_held: bool,
+    /// The player's right attack input is held.
+    pub right_attack_held: bool,
+    /// The player's left attack input went down this frame.
+    pub left_attack_pressed: bool,
     /// Edge triggered press for Skyrim's right-hand attack action.
     pub right_attack_pressed: bool,
 }
@@ -569,6 +587,9 @@ impl InputState {
             toggle_pov_pressed: pressed(Action::TogglePov),
             toggle_always_run_pressed: pressed(Action::ToggleAlwaysRun),
             right_attack_pressed: pressed(Action::RightAttack),
+            left_attack_held: now(Action::LeftAttackBlock),
+            right_attack_held: now(Action::RightAttackBlock),
+            left_attack_pressed: pressed(Action::LeftAttackBlock),
         }
     }
 
@@ -680,6 +701,42 @@ PreviousFocus\t0x10+0x09,0xa1+0x09\t0xff\t0x0100\t0\t0\t0\t0x10
         let m = map();
         assert!(m.find("Left Attack/Block").is_some());
         assert!(m.find("Toggle POV").is_some());
+    }
+
+    #[test]
+    fn mag_22_press_and_release_tracks_both_casting_hands() {
+        let map = ControlMap::parse(
+            "Left Attack/Block\t0x2e\t0xff\t0xff\t1\t1\t1\nRight Attack/Block\t0x30\t0xff\t0xff\t1\t1\t1",
+        );
+        let mut bindings = Bindings::default();
+        bindings.apply_control_map(&map);
+        let pressed = InputState::gather(
+            &bindings,
+            &|key| key == 0x2e || key == 0x30,
+            &|_| false,
+            0.0,
+            0.0,
+        );
+        assert!(pressed.left_attack_held);
+        assert!(pressed.right_attack_held);
+        assert!(pressed.left_attack_pressed);
+        assert!(pressed.right_attack_pressed);
+
+        let left_released = InputState::gather(
+            &bindings,
+            &|key| key == 0x30,
+            &|key| key == 0x2e || key == 0x30,
+            0.0,
+            0.0,
+        );
+        assert!(!left_released.left_attack_held);
+        assert!(left_released.right_attack_held);
+        assert!(!left_released.left_attack_pressed);
+        assert!(!left_released.right_attack_pressed);
+
+        let released = InputState::gather(&bindings, &|_| false, &|key| key == 0x30, 0.0, 0.0);
+        assert!(!released.left_attack_held);
+        assert!(!released.right_attack_held);
     }
 
     #[test]

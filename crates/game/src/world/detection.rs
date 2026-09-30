@@ -171,6 +171,7 @@ impl World {
         let observer_sneak = observer.values.get("sneak").current();
         let blindness = observer.values.get("blindness").current();
         let fighting = observer.combat_target;
+        let magic_invisible = self.is_invisible(o.target);
         let target = self.actor(o.target).ok_or(Error::Actor(o.target))?;
         let target_sneak = target.values.get("sneak").current();
         let muffle = if target.values.contains("movementnoisemult") {
@@ -178,7 +179,7 @@ impl World {
         } else {
             1.0
         };
-        let invisible = target.values.get("invisibility").current() > 0.0;
+        let invisible = target.values.get("invisibility").current() > 0.0 || magic_invisible;
         let worn = target.equipped.clone();
 
         let mut armor_weight = 0.0_f32;

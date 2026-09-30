@@ -41,6 +41,7 @@ use crate::quest::Quest;
 mod actor_seeds;
 mod actor_spells;
 mod actors;
+mod base_object_restore;
 mod bleedout;
 mod calendar;
 mod combat;
@@ -78,16 +79,18 @@ mod record_change_restore;
 mod record_overrides;
 mod skins;
 mod temporary_npc;
-pub use record_overrides::NpcRecordExtra;
+pub use record_overrides::{BaseObjectRecordExtra, NpcRecordExtra, StaticObjectRecordExtra};
 pub use record_overrides::{NavmeshRecordExtra, PackRecordExtra};
 pub use record_overrides::{UnresolvedRecord, UnresolvedRecordId};
 mod projectiles;
 mod quest_restore;
 mod quest_save;
 mod quests;
+pub use quests::AliasResolutionError;
 mod story_manager;
 pub use story_manager::StoryError;
 mod record_save;
+mod static_object_restore;
 pub use quest_restore::QuestRestoreReport;
 mod reference_extras;
 mod reference_restore;
@@ -252,6 +255,10 @@ pub struct ActorState {
     pub right_spell: Option<GlobalFormId>,
     /// The package driver's state, see `crate::ai`.
     pub ai: crate::ai::AiState,
+    /// SPID packages and their zero-based insertion positions in the base
+    /// package list. Persisted with the actor because distribution is not
+    /// rerun when SOEW restores an existing actor.
+    pub package_overrides: Vec<(usize, GlobalFormId)>,
     pub perks: BTreeSet<GlobalFormId>,
     pub alerted: bool,
     pub sneaking: bool,
@@ -262,6 +269,8 @@ pub struct ActorState {
     /// Whether the actor is currently riding a mount.
     pub riding_mount: bool,
     pub weapon_drawn: bool,
+    /// The host movement driver's current sprint state, re-signaled after load.
+    pub sprinting: bool,
     /// The host animation graph's current block stance. Unlike the other
     /// combat stance flags above, this is not part of saved state: the host
     /// re-signals it from the live graph after load, through
@@ -284,6 +293,8 @@ pub struct ActorState {
     /// Behavior graph floats set through `SetSubGraphFloatVariable`, keyed
     /// by lowercase name.
     pub graph_floats: BTreeMap<String, f32>,
+    /// Integer values reported by the live behavior graph, keyed by lowercase name.
+    pub graph_ints: BTreeMap<String, i32>,
     /// `SetAllowFlying`, the Dawnguard dragon riding flag.
     pub allow_flying: bool,
     /// Between `StartDeferredKill` and `EndDeferredKill` death waits.
@@ -297,6 +308,10 @@ pub struct ActorState {
     pub werewolf: bool,
     /// `SetEyeTexture`, the Dawnguard vampire eyes.
     pub eye_texture: Option<GlobalFormId>,
+    /// Player character head parts selected in the race menu, keyed by HDPT type.
+    pub head_parts: BTreeMap<u32, GlobalFormId>,
+    /// Player character morph controls selected in the race menu.
+    pub face_morphs: BTreeMap<String, f32>,
     /// `SetCriticalStage`, the death-by-critical stages.
     pub critical_stage: i32,
     /// `SetNoBleedoutRecovery`: this actor stays down once it bleeds out.
@@ -307,6 +322,8 @@ pub struct ActorState {
     pub ash_pile: Option<GlobalFormId>,
     pub shouts: BTreeSet<GlobalFormId>,
     pub equipped_shout: Option<GlobalFormId>,
+    /// Real-time deadline before this actor may shout again.
+    pub voice_recovery_until: Option<f64>,
     /// Real-time deadline for the stagger animation and input lock a melee
     /// hit above `fStaggerThreshold` sets, `None` when not staggered.
     /// Compared against `World::clock.real_seconds`, the lazy expiry
@@ -381,6 +398,13 @@ pub struct ActorBaseState {
     pub outfit: Option<GlobalFormId>,
     pub sleep_outfit: Option<GlobalFormId>,
     pub dead_count: i32,
+}
+
+/// A host menu request raised by a Papyrus native.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MenuRequest {
+    /// Open the player's race and sex selection screen.
+    Race,
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -468,6 +492,12 @@ pub enum Pending {
         function: String,
         args: Vec<Value>,
     },
+    CallScript {
+        object: ObjectId,
+        script: String,
+        function: String,
+        args: Vec<Value>,
+    },
     /// Attach the winning MGEF's scripts before delivering its lifecycle events.
     BindEffect {
         object: ObjectId,
@@ -542,6 +572,8 @@ pub struct World {
     pub story_manager_events: Vec<crate::quest::state::StoryManagerEvent>,
     pub timers: Vec<UpdateTimer>,
     pub notifications: Vec<String>,
+    /// Host-facing requests raised by UI natives. These are transient commands.
+    pub menu_requests: Vec<MenuRequest>,
     pub message_boxes: Vec<String>,
     pub animation_events: Vec<(GlobalFormId, String)>,
     pub player_controls: bool,
@@ -590,6 +622,10 @@ pub struct World {
     pub(crate) next_effect: u64,
     /// Effect records and magnitudes for potions created by alchemy.
     pub(crate) brewed_potions: BTreeMap<GlobalFormId, Vec<(GlobalFormId, f32, u32, u32)>>,
+    pub(crate) concentration_cast: Option<magic::ConcentrationCast>,
+    /// A transient reference held by one Telekinesis concentration cast.
+    /// Physics handles are host-owned, so this state is never serialized.
+    pub(crate) telekinesis_grab: Option<(GlobalFormId, GlobalFormId)>,
     pub(crate) image_space: image_space::ImageSpaceState,
     pub(crate) weather_image_space: Option<image_space::WeatherSelection>,
     /// Stealth-point pools by target, each with its observers' awareness.
@@ -656,6 +692,7 @@ impl World {
             story_manager_events: Vec::new(),
             timers: Vec::new(),
             notifications: Vec::new(),
+            menu_requests: Vec::new(),
             message_boxes: Vec::new(),
             animation_events: Vec::new(),
             player_controls: true,
@@ -692,6 +729,8 @@ impl World {
             visual_effects: BTreeMap::new(),
             next_effect: 1,
             brewed_potions: BTreeMap::new(),
+            concentration_cast: None,
+            telekinesis_grab: None,
             image_space: image_space::ImageSpaceState::default(),
             weather_image_space: None,
             detection: crate::detection::DetectionState::default(),
