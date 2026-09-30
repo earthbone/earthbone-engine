@@ -102,7 +102,9 @@ does not execute SkyUI's Scaleform panel or its option APIs. The lifecycle
 order and limit come from the local SkyUI `SKI_ConfigBase.psc` and
 `SKI_ConfigManager.psc` sources.
 The tests assemble equivalent lifecycle methods in Papyrus bytecode. They do
-not execute an unmodified SkyUI script, so full script compatibility is
+not execute an unmodified SkyUI script. `ui_05_original_skyui_source_defines_lifecycle_order`
+checks the original source when `SOE_SKYUI_CONFIG_BASE` names its
+`SKI_ConfigBase.psc` path. Full compatibility with the compiled script remains
 unverified.
 
 ### Furniture activation, HST-09
