@@ -8,7 +8,59 @@ use super::{
     PlayerNode, Vec3,
 };
 
+fn restored_player_destination(
+    cell: Option<GlobalFormId>,
+    position: [f32; 3],
+    rotation: [f32; 3],
+) -> Option<(GlobalFormId, [f32; 3], [f32; 3])> {
+    let cell = cell?;
+    (position.into_iter().chain(rotation).all(f32::is_finite)).then_some((cell, position, rotation))
+}
+
 impl PlayerNode {
+    /// Attach a Game whose vanilla-save restoration has already succeeded.
+    /// Installs the restored location and camera, then advances one host frame.
+    /// The caller must replace its active Game only after this returns true.
+    pub fn attach_restored_game(&mut self, mut game: soe_game::Game) -> bool {
+        if self.data_source.is_none()
+            || self
+                .game_streamer
+                .as_ref()
+                .is_none_or(|streamer| !streamer.is_instance_valid())
+        {
+            return false;
+        }
+        let player = game.player();
+        let destination = {
+            let world = game.world();
+            world.reference_ref(player).and_then(|reference| {
+                restored_player_destination(reference.cell, reference.position, reference.rotation)
+            })
+        };
+        if destination.is_none() {
+            return false;
+        }
+
+        self.game = Some(game);
+        self.melee_contact.cancel();
+        self.melee_bodies.clear();
+        self.last_activate_reference = None;
+        self.footstep_cadence.reset();
+        if !self.sync_game_pose() {
+            self.game = None;
+            return false;
+        }
+
+        self.advance(1.0 / 60.0);
+        self.game.is_some()
+            && self.character.is_some()
+            && self.loaded_cell.is_some()
+            && self
+                .camera
+                .as_ref()
+                .is_some_and(|camera| camera.is_instance_valid())
+    }
+
     pub(super) fn start_game_runtime(&mut self) -> bool {
         if self.game.is_some() {
             return true;
@@ -373,5 +425,23 @@ impl PlayerNode {
         self.rig.set_facing(rotation[2], -rotation[0]);
         self.update_camera();
         true
+    }
+}
+
+#[cfg(test)]
+mod sav_19_tests {
+    use super::restored_player_destination;
+    use soe_esm::GlobalFormId;
+
+    #[test]
+    fn sav_19_restored_player_destination_requires_cell_and_finite_pose() {
+        let cell = GlobalFormId {
+            file: 0,
+            object: 0x1234,
+        };
+        let pose = restored_player_destination(Some(cell), [1.0, 2.0, 3.0], [0.0; 3]);
+        assert_eq!(pose, Some((cell, [1.0, 2.0, 3.0], [0.0; 3])));
+        assert!(restored_player_destination(None, [1.0, 2.0, 3.0], [0.0; 3]).is_none());
+        assert!(restored_player_destination(Some(cell), [f32::NAN, 2.0, 3.0], [0.0; 3]).is_none());
     }
 }
