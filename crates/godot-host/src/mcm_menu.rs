@@ -216,6 +216,7 @@ impl ConfigPage {
             return None;
         }
         let id = self.page * PAGE_STRIDE + u32::try_from(self.next_slot).ok()?;
+        i32::try_from(id).ok()?;
         self.rows.push(OptionRow {
             id,
             label,

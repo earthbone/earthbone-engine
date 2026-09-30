@@ -6,6 +6,11 @@ use soe_game::{
     npc::{self, Config, Stats},
     Game,
 };
+use soe_papyrus::{
+    asm::{ident, s, FunctionBuilder, ScriptBuilder},
+    Opcode::CallStatic,
+    Value,
+};
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
 fn id(object: u32) -> GlobalFormId {
@@ -41,6 +46,37 @@ fn game() -> Game {
     let mut order = LoadOrder::new();
     order.add("Ui07.esm", plugin).unwrap();
     Game::new(order)
+}
+
+#[test]
+fn ui_07_show_race_menu_native_queues_the_host_menu_request() {
+    let mut game = game();
+    game.load_script(
+        &ScriptBuilder::new("Ui07RaceMenuProbe", "")
+            .function(
+                FunctionBuilder::new("Run", "None")
+                    .global()
+                    .local("result", "None")
+                    .ins(
+                        CallStatic,
+                        vec![s("Game"), s("ShowRaceMenu"), ident("result")],
+                    )
+                    .build(),
+            )
+            .bytes(),
+    )
+    .unwrap();
+    let thread = game
+        .vm
+        .call_global("Ui07RaceMenuProbe", "Run", &[])
+        .unwrap();
+    game.run_until_idle(32);
+
+    assert_eq!(game.vm.thread_result(thread), Some(Value::None));
+    assert_eq!(
+        game.world().menu_requests,
+        [soe_game::world::MenuRequest::Race]
+    );
 }
 
 #[test]
