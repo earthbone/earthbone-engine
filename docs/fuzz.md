@@ -48,7 +48,7 @@ PATH="$HOME/.cargo/bin:$PATH" "$HOME/.cargo/bin/cargo" +nightly fuzz run \
 | `fuzz-vm-run` | `soe-papyrus` | Generated bounded VM execution |
 | `fuzz-save` | `soe-save` | Save parse and decompressed-body round trip |
 | `fuzz-dds-grammar` | `soe-dds` | Generated DDS decode |
-| `fuzz-bsa-grammar` | `soe-bsa` | Generated archive round trips |
+| `fuzz-bsa-grammar` | `soe-bsa` | Generated BSA and BA2 record reads, including DX10 DDS rebuilds |
 | `fuzz-audio` | `soe-audio` | FUZ, LIP, RIFF and xWMA containers |
 | `fuzz-profile` | `soe-profile` | INI, plugins.txt and loadorder.txt |
 | `fuzz-moddata` | `soe-moddata` | SPID, KID and Base Object Swapper text |
@@ -60,6 +60,10 @@ not compressor output, which can differ without losing data. The VM-state
 target preloads a probe script, allowing mutated valid frames to execute.
 Profile round trips cover named INI sections and representable plugin names,
 while arbitrary malformed text still exercises the parsers.
+The archive grammar target generates BSA, BA2 GNRL and BA2 DX10 layouts. DX10
+cases include raw and zlib-compressed chunks, exercise `Archive::read_record`,
+and check the rebuilt DDS header and payload. Truncation remains fuzzer
+controlled so accepted indexes also reach record error handling.
 
 ## Seeds and corpus
 
