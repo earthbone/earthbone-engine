@@ -104,14 +104,15 @@ pub struct StreamPlan {
     pub unload: Vec<CellCoord>,
 }
 
-/// Measured or estimated mesh work for one cell load.
+/// Measured or estimated render work for one cell load.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct StreamCost {
     pub triangles: usize,
+    /// Mesh array bytes plus texture payload bytes required by the cell.
     pub bytes: usize,
 }
 
-/// Maximum mesh work selected for one streaming tick. A zero limit is
+/// Maximum render work selected for one streaming tick. A zero limit is
 /// unlimited, matching the cell-count limits in [`StreamConfig`].
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct StreamBudget {
