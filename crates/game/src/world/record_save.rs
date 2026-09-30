@@ -616,18 +616,27 @@ impl World {
     }
 }
 
-pub(super) fn write_unresolved_records(world: &World, w: &mut Writer) {
+pub(super) fn write_unresolved_records(
+    world: &World,
+    w: &mut Writer,
+    _pool: &mut soe_papyrus::vm::state::ArrayPool,
+) {
     World::write_unresolved_records(world, w);
 }
 
 pub(super) fn read_unresolved_records(
     world: &mut World,
     r: &mut FormReader<'_, '_>,
+    _table: &soe_papyrus::vm::state::ArrayTable,
 ) -> Result<(), VmError> {
     World::read_unresolved_records(world, r)
 }
 
-pub(super) fn write_pack_navmesh_section(world: &World, w: &mut Writer) {
+pub(super) fn write_pack_navmesh_section(
+    world: &World,
+    w: &mut Writer,
+    _pool: &mut soe_papyrus::vm::state::ArrayPool,
+) {
     let entries: Vec<_> = world
         .record_overrides
         .iter()
@@ -657,6 +666,7 @@ pub(super) fn write_pack_navmesh_section(world: &World, w: &mut Writer) {
 pub(super) fn read_pack_navmesh_section(
     world: &mut World,
     r: &mut FormReader<'_, '_>,
+    _table: &soe_papyrus::vm::state::ArrayTable,
 ) -> Result<(), VmError> {
     let mut seen = std::collections::BTreeSet::new();
     for _ in 0..r.len()? {

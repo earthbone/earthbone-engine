@@ -984,8 +984,12 @@ fn the_installed_game_reads_every_package_and_evaluates_the_prisoner() {
             Procedure::Travel => "Travel".to_string(),
             Procedure::Sandbox => "Sandbox".to_string(),
             Procedure::Sleep => "Sleep".to_string(),
+            Procedure::Sit => "Sit".to_string(),
             Procedure::Patrol => "Patrol".to_string(),
+            Procedure::UseMagic => "UseMagic".to_string(),
+            Procedure::UseWeapon => "UseWeapon".to_string(),
             Procedure::Wait { .. } => "Wait".to_string(),
+            Procedure::Shout => "Shout".to_string(),
             Procedure::Unsupported(n) => format!("unsupported {n}"),
         };
         if matches!(
@@ -993,8 +997,12 @@ fn the_installed_game_reads_every_package_and_evaluates_the_prisoner() {
             Procedure::Travel
                 | Procedure::Sandbox
                 | Procedure::Sleep
+                | Procedure::Sit
                 | Procedure::Wait { .. }
                 | Procedure::Patrol
+                | Procedure::Shout
+                | Procedure::UseMagic
+                | Procedure::UseWeapon
         ) {
             supported += 1;
         }

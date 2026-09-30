@@ -457,6 +457,16 @@ fn object_reference(vm: &mut Vm, w: &Shared) {
         vm,
         w,
         "ObjectReference",
+        "GetCurrentScene",
+        |world, call, me| {
+            let scene = world.current_scene(me);
+            form_value(world, call, scene)
+        }
+    );
+    method!(
+        vm,
+        w,
+        "ObjectReference",
         "CreateDetectionEvent",
         |world, call, me| {
             if let Some(owner) = world.form_arg(&call.arg(0)) {
@@ -2841,6 +2851,17 @@ fn dlc(vm: &mut Vm, w: &Shared) {
         let shout = world.actor(me).and_then(|a| a.equipped_shout);
         form_value(world, call, shout)
     });
+    method!(
+        vm,
+        w,
+        "Actor",
+        "GetVoiceRecoveryTime",
+        |world, _call, me| f(world.voice_recovery_time(me))
+    );
+    method!(vm, w, "Actor", "SetVoiceRecoveryTime", |world, call, me| {
+        world.set_voice_recovery_time(me, call.arg(0).as_float());
+        none()
+    });
     // "Flags this actor as whether they are allowed to fly or not (lands
     // them if they are flying and not allowed to)." There is no flight to
     // land, so the flag is the whole of it. The Ex form adds the crash and
@@ -3325,7 +3346,6 @@ fn stubs(vm: &mut Vm, world: &Shared) -> usize {
         n += 1;
     }
     let methods_none: &[(&str, &str)] = &[
-        ("ObjectReference", "GetCurrentScene"),
         ("ObjectReference", "PlayAnimationAndWait"),
         ("ObjectReference", "PlayGamebryoAnimation"),
         ("ObjectReference", "SetMotionType"),
@@ -3353,7 +3373,6 @@ fn stubs(vm: &mut Vm, world: &Shared) -> usize {
         ("Actor", "SetForcedLandingMarker"),
         ("Actor", "GetEquippedWeapon"),
         ("Actor", "GetEquippedShield"),
-        ("Actor", "GetVoiceRecoveryTime"),
         ("Faction", "SendAssaultAlarm"),
         ("Faction", "SendPlayerToJail"),
         ("Faction", "ModReaction"),

@@ -100,10 +100,11 @@ pub fn voice_asset(game: &mut Game, line: &Line) -> Option<VoiceAsset> {
         return None;
     }
     let mut world = game.world_mut();
-    let topic = world.record(line.topic)?;
+    let response_topic = world.dialogue_topic_of(line.response_info)?;
+    let topic = world.record(response_topic)?;
     let raw_quest = topic.find(soe_esm::Tag(*b"QNAM"))?;
     let raw_quest = u32::from_le_bytes(raw_quest.try_into().ok()?);
-    let quest_id = world.resolve_from(line.topic, raw_quest)?;
+    let quest_id = world.resolve_from(response_topic, raw_quest)?;
     let quest = world.record(quest_id)?;
     let quest_name = quest.editor_id()?;
     let topic_name = topic.editor_id()?;
@@ -136,6 +137,22 @@ pub fn voice_asset(game: &mut Game, line: &Line) -> Option<VoiceAsset> {
     let raw_voice = u32::from_le_bytes(raw_voice.try_into().ok()?);
     let voice_id = world.resolve_from(voice_owner, raw_voice)?;
     let voice_name = world.record(voice_id)?.editor_id()?;
+    let (quest_name, topic_name) = if quest_name.chars().count() + topic_name.chars().count() > 25 {
+        if quest_name.chars().count() > 10 {
+            (
+                quest_name.chars().take(10).collect(),
+                topic_name.chars().take(15).collect(),
+            )
+        } else {
+            let remaining = 25 - quest_name.chars().count();
+            (
+                quest_name.clone(),
+                topic_name.chars().take(remaining).collect(),
+            )
+        }
+    } else {
+        (quest_name.clone(), topic_name.clone())
+    };
     let position = crate::units::SkyrimPos::new(
         speaker_position[0],
         speaker_position[1],

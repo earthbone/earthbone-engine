@@ -192,6 +192,13 @@ impl Game {
             target: target_ref,
             quest: Some(quest),
             tempering_enchanted: None,
+            tempering_item: None,
+            alchemy_making_poison: None,
+            alchemy_effect: None,
+            magic_item: None,
+            dual_cast: None,
+            skill_use: None,
+            light_level: None,
         };
         conditions::evaluate(&mut world, &self.vm, context, &conditions)
     }
@@ -663,11 +670,19 @@ impl Game {
                 tabs: vec![hit.attacker, hit.weapon, hit.target],
                 target: Some(hit.target),
                 quest: None,
+                tempering_item: None,
+                alchemy_making_poison: None,
+                alchemy_effect: None,
+                skill_use: None,
             };
             let incoming_context = perks::EntryPointContext {
                 tabs: vec![hit.target, hit.attacker, hit.weapon],
                 target: Some(hit.attacker),
                 quest: None,
+                tempering_item: None,
+                alchemy_making_poison: None,
+                alchemy_effect: None,
+                skill_use: None,
             };
             (
                 perks::entry_point_invocations(
@@ -1048,6 +1063,18 @@ impl Game {
                         self.vm
                             .log
                             .push(self.vm.time(), format!("fragment {function}: {e}"));
+                    }
+                }
+                Pending::CallScript {
+                    object,
+                    script,
+                    function,
+                    args,
+                } => {
+                    if let Err(e) = self.vm.call_script(object, &script, &function, &args) {
+                        self.vm
+                            .log
+                            .push(self.vm.time(), format!("fragment {script}.{function}: {e}"));
                     }
                 }
             }
