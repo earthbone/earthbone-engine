@@ -1,20 +1,27 @@
 // Generated from crates/commonlib-shim/src/headers.rs. Do not edit.
 #pragma once
-#include <cstddef>
 #include <cstdint>
 
 namespace SKSE {
-inline constexpr std::uint32_t SOE_PLUGIN_ABI_VERSION = 1;
+class QueryInterface;
+class LoadInterface;
 
-struct SoePluginManifest {
-    std::uint32_t abi_version;
+struct PluginInfo {
+    static constexpr std::uint32_t kVersion = 1;
+    std::uint32_t infoVersion;
     const char* name;
-    const char* const* unsupported_hooks;
-    std::size_t unsupported_hook_count;
+    std::uint32_t version;
 };
 
-using SoePluginLoad = bool (*)();
+// CommonLibSSE-NG PluginVersionData prefix, read by the SKSE loader.
+struct PluginVersionData {
+    static constexpr std::uint32_t kVersion = 1;
+    std::uint32_t dataVersion{kVersion};
+    std::uint32_t pluginVersion{};
+    char pluginName[256]{};
+};
 } // namespace SKSE
 
-#define SOE_PLUGIN_MANIFEST extern "C" const SKSE::SoePluginManifest SOEPlugin_Manifest
-#define SOE_PLUGIN_LOAD extern "C" bool SOEPlugin_Load()
+#define SKSE_PLUGIN_QUERY(...) extern "C" bool SKSEPlugin_Query(__VA_ARGS__)
+#define SKSE_PLUGIN_LOAD(...) extern "C" bool SKSEPlugin_Load(__VA_ARGS__)
+#define SKSE_PLUGIN_VERSION extern "C" const SKSE::PluginVersionData SKSEPlugin_Version
