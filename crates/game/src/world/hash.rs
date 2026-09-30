@@ -852,6 +852,7 @@ impl World {
         // directly rather than through the sorting helper the `HashMap` fields
         // need.
         let mut h = StateHasher::new();
+        h.u64(self.player_character_id());
         h.len(self.mod_data.added_keywords.len());
         for (id, kws) in &self.mod_data.added_keywords {
             form(&mut h, *id);

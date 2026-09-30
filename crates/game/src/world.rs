@@ -561,6 +561,8 @@ pub struct World {
     pending_unload: Option<GlobalFormId>,
     next_dynamic: u32,
     player: Option<GlobalFormId>,
+    /// Save character ID used by deterministic SPID distribution rules.
+    player_character_id: u64,
     /// What `PC_LEVEL_MULT` actors scale against.
     pub player_level: u32,
     rng: u64,
@@ -631,6 +633,20 @@ pub struct World {
 }
 
 impl World {
+    /// Set the current save character ID used by deterministic SPID rules.
+    ///
+    /// The host supplies the ID from the active save identity. New games use
+    /// zero until the host sets one.
+    pub fn set_player_character_id(&mut self, id: u64) {
+        self.player_character_id = id;
+    }
+
+    /// Return the current save character ID used by deterministic SPID rules.
+    #[must_use]
+    pub const fn player_character_id(&self) -> u64 {
+        self.player_character_id
+    }
+
     pub fn new(order: LoadOrder) -> World {
         Self::from_shared_order(std::sync::Arc::new(order))
     }
@@ -679,6 +695,7 @@ impl World {
             pending_unload: None,
             next_dynamic: 0x1000,
             player: None,
+            player_character_id: 0,
             player_level: 1,
             rng: 0x9E37_79B9_7F4A_7C15,
             clock: GameClock::default(),

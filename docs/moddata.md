@@ -162,7 +162,7 @@ yet.
 - Keyword Item Distributor's exclusive groups, which share the file under other
   keys and are currently reported as skipped lines.
 - The two fields left as written.
-- Exact chance selection and actor lifecycle compatibility, detailed below.
+- Exact ordinary SPID and KID chance selection, detailed below.
 
 ## Applying, added 2026-09-18
 
@@ -172,8 +172,8 @@ under them, resolves it and applies it. `Game::apply_mod_data_from` takes a
 resolved `soe_profile::Loadout` instead, which already knows those roots in
 order.
 
-Call it before `Game::start`. This engine applies distributions once at load.
-That is a current limitation, not a claim of matching SPID's actor lifecycle.
+Call it before `Game::start`. The load pass resolves rules. Deterministic SPID
+rules are evaluated for each actor as its state is built.
 
 ### Where each format lands, and why there
 
@@ -209,17 +209,22 @@ Tests cover `0!`, `50!`, `100!`, ordinary percentages and malformed values.
 
 Ordinary SPID chance rolls occur per matching NPC base using the world's
 seeded generator. Deterministic `0!` and `100!` work without a random choice.
-Fractional deterministic rules are skipped and counted in
-`skipped_unsupported_chance`. Their per-actor seed and lifecycle are not
-implemented. References are SPID `SPID/src/LookupConfigs.h`, `Defs.h` and
-`LookupFilters.cpp`, especially `ChanceComponentParser` and the deterministic
-branch combining line seed, player ID and actor FormID.
+Fractional deterministic rules are evaluated for each actor when its state is
+built. Their seed combines the parsed entry seed, the active save character ID
+and the actor runtime FormID, following SPID's `LookupFilters.cpp`. The host
+sets the active ID with `World::set_player_character_id`; this input metadata
+is not serialized by the engine. SPID obtains the value from its save manager,
+or from the character ID in a standard save filename. References are SPID
+`SPID/src/LookupConfigs.h`, `Defs.h`, `LookupFilters.cpp` and
+`PCLevelMultManager.cpp`, especially `ChanceComponentParser` and
+`GetPlayerIDFromSave`.
 
 KID uses a different deterministic seed in `src/Data/BaseFilters.cpp`, based
 on keyword editor ID and target form. Our KID application still rolls once
-per rule with the world RNG. Neither distributor should be described as
-matching upstream chance selection. The `world.mod_data` hash covers the
-resulting keywords, distributions and swaps for engine replay.
+per rule with the world RNG. Ordinary chance and the conversion from a
+deterministic SPID seed to a draw remain engine policy, not an exact upstream
+random sequence. The `world.mod_data` hash covers the resulting keywords,
+distributions and swaps for engine replay.
 
 ### What is applied and what is only carried
 
