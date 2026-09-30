@@ -109,6 +109,16 @@ referenceCount).
 - `hkbBlendingTransitionEffect`: selfTransitionMode 72, eventMode 73,
   duration 80, toGeneratorStartTimeFraction 84, flags 88, endMode 90,
   blendCurve 91.
+- `hkbPoweredRagdollControlsModifier`: the shared `controlData` fields
+  start at 80 (`maxForce`, `tau`, `damping`, proportional and constant
+  recovery velocities), `bones` is 112, `worldFromModelModeData` is 120,
+  and `boneWeights` is 128. The nested 8-byte mode data contains three
+  pose-matching bone indices and a mode enum. `hkbBoneIndexArray` and
+  `hkbBoneWeightArray` hold the ordered per-bone indices and weights. These
+  offsets and member meanings come from serde-hkx's local
+  `hkbPoweredRagdollControlsModifier`, `hkbPoweredRagdollControlData`,
+  `hkbWorldFromModelModeData`, `hkbBoneIndexArray`, and
+  `hkbBoneWeightArray` class descriptions.
 - Skyrim's own: `BSiStateTaggingGenerator` (pDefaultGenerator 80,
   iStateToSetAs 88, iPriority 92), `BSSynchronizedClipGenerator`
   (pClipGenerator 80, SyncAnimPrefix 88, ...), `BSCyclicBlendTransitionGenerator`
@@ -335,9 +345,9 @@ run-time record per node. `update(dt)` runs the order the SDK headers
 publish: apply variable bindings, activate the root if it is not, deliver
 the queued external events outermost first, generate children before
 parents, then deliver the events nodes raised during the frame (bounded
-to eight rounds). The result is `Output { pose, weight }`, a local-space
-pose with one transform per bone and weight zero when nothing had a pose
-to give. `active_states`, `active_clips`, `take_changes` and
+to eight rounds). The result contains a local-space pose, per-bone pose
+weights and powered ragdoll control entries. Pose weight is zero when
+nothing had a pose to give. `active_states`, `active_clips`, `take_changes` and
 `take_events` expose the observables the replay harness in 5.4 diffs.
 
 What each node does:
@@ -403,11 +413,16 @@ What each node does:
   unchanged. The entry layout comes from serde-hkx's
   `BSIStateManagerModifier` and `BSIStateManagerModifierBSiStateData` class
   descriptions.
-  deactivation lifecycle.
-  `hkbKeyframeBonesModifier` replaces position and
-  rotation for valid, in-range entries when enabled. A present
-  `keyframedBonesList` further restricts those entries. Scale and bones
-  outside the selected entries retain the generator output.
+- `hkbKeyframeBonesModifier` replaces position and rotation for valid,
+  in-range entries when enabled. A present `keyframedBonesList` further
+  restricts those entries. Scale and bones outside the selected entries
+  retain the generator output.
+- `hkbPoweredRagdollControlsModifier`: emits one control entry per ordered
+  bone and weight pair, preserving the shared control values and
+  world-from-model mode. The modifier enable state gates emission. Blender
+  child weights and transition alpha scale the emitted weights. This exposes
+  authored controls in behavior output. It does not solve ragdoll physics or
+  apply controls to a host physics world.
 - `hkbBehaviorReferenceGenerator` and unmodelled classes yield the
   reference pose at weight zero and are listed in `Unsupported`.
 

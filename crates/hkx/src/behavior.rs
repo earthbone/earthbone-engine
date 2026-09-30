@@ -621,6 +621,22 @@ pub struct KeyframeInfo {
     pub bone_index: i16,
     pub is_valid: bool,
 }
+/// Control values authored by `hkbPoweredRagdollControlsModifier`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PoweredRagdollControlData {
+    pub max_force: f32,
+    pub tau: f32,
+    pub damping: f32,
+    pub proportional_recovery_velocity: f32,
+    pub constant_recovery_velocity: f32,
+}
+
+/// World-from-model selection carried by a powered ragdoll modifier.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WorldFromModelModeData {
+    pub pose_matching_bones: [i16; 3],
+    pub mode: i8,
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum NodeKind {
@@ -840,6 +856,14 @@ pub enum NodeKind {
         keyframe_info: Vec<KeyframeInfo>,
         keyframed_bones: Option<Vec<i16>>,
     },
+    /// `hkbPoweredRagdollControlsModifier`: per-bone weights and shared controls.
+    PoweredRagdollControls {
+        enable: bool,
+        control: PoweredRagdollControlData,
+        bones: Vec<i16>,
+        world_from_model: WorldFromModelModeData,
+        bone_weights: Vec<f32>,
+    },
     /// Any other `hkbModifier` subclass: only the enable flag is read.
     Modifier {
         enable: bool,
@@ -940,6 +964,7 @@ impl Node {
             | NodeKind::LimbIk { .. }
             | NodeKind::FootIk { .. }
             | NodeKind::KeyframeBonesModifier { .. }
+            | NodeKind::PoweredRagdollControls { .. }
             | NodeKind::Modifier { .. }
             | NodeKind::Unknown => {}
         }
@@ -1607,6 +1632,48 @@ impl<'a> Loader<'a> {
                     keyframed_bones,
                 }
             }
+            "hkbPoweredRagdollControlsModifier" => {
+                let control_offset = o.layout_offset(48, 80);
+                let bones = o
+                    .ptr(o.layout_offset(80, 112))?
+                    .map(|array| {
+                        array.expect_class("hkbBoneIndexArray")?;
+                        array.array_i16(array.layout_offset(28, 48))
+                    })
+                    .transpose()?
+                    .unwrap_or_default();
+                let bone_weights = o
+                    .ptr(o.layout_offset(92, 128))?
+                    .map(bone_weights)
+                    .transpose()?
+                    .unwrap_or_default();
+                if !bone_weights.is_empty() && bone_weights.len() != bones.len() {
+                    return Err(crate::Error::Unsupported(
+                        "powered ragdoll bone and weight counts differ".into(),
+                    ));
+                }
+                let world_offset = o.layout_offset(84, 120);
+                NodeKind::PoweredRagdollControls {
+                    enable: o.bool(o.layout_offset(40, 72))?,
+                    control: PoweredRagdollControlData {
+                        max_force: o.f32(control_offset)?,
+                        tau: o.f32(control_offset + 4)?,
+                        damping: o.f32(control_offset + 8)?,
+                        proportional_recovery_velocity: o.f32(control_offset + 12)?,
+                        constant_recovery_velocity: o.f32(control_offset + 16)?,
+                    },
+                    bones,
+                    world_from_model: WorldFromModelModeData {
+                        pose_matching_bones: [
+                            o.i16(world_offset)?,
+                            o.i16(world_offset + 2)?,
+                            o.i16(world_offset + 4)?,
+                        ],
+                        mode: o.i8(world_offset + 6)?,
+                    },
+                    bone_weights,
+                }
+            }
             c if c.ends_with("Modifier") => NodeKind::Modifier {
                 enable: o.bool(o.layout_offset(40, 72))?,
             },
@@ -2041,5 +2108,54 @@ mod tests {
             ),
             "{e}"
         );
+    }
+
+    #[test]
+    fn anm_45_decodes_powered_ragdoll_controls_and_ordered_weights() {
+        let mut b = PackfileBuilder::new();
+        let root = b.object("hkRootLevelContainer", 16);
+        let graph = b.object("hkbBehaviorGraph", 304);
+        let modifier = b.object("hkbPoweredRagdollControlsModifier", 144);
+        let bones = b.object("hkbBoneIndexArray", 64);
+        let weights = b.object("hkbBoneWeightArray", 64);
+        let variant = b.array_structs(root, 0, 24, 1);
+        b.string(variant, 8, "hkbBehaviorGraph");
+        b.ptr(variant, 16, graph);
+        b.ptr(graph, 128, modifier);
+        b.ptr(modifier, 112, bones);
+        b.ptr(modifier, 128, weights);
+        b.set_bool(modifier, 72, true);
+        for (index, value) in [120.0, 0.7, 0.2, 3.0, 0.5].into_iter().enumerate() {
+            b.set_f32(modifier, 80 + 4 * u32::try_from(index).unwrap(), value);
+        }
+        b.set_i16(modifier, 120, 1);
+        b.set_i16(modifier, 122, 2);
+        b.set_i16(modifier, 124, 3);
+        b.set_i8(modifier, 126, 4);
+        b.array_i16(bones, 48, &[7, 12]);
+        b.array_f32(weights, 48, &[0.25, 0.75]);
+
+        let bytes = b.finish();
+        let pf = Packfile::parse(&bytes).unwrap();
+        let graph = BehaviorGraph::from_packfile(&pf).unwrap();
+        let NodeKind::PoweredRagdollControls {
+            control,
+            bones,
+            world_from_model,
+            bone_weights,
+            ..
+        } = &graph.node(NodeId(0)).kind
+        else {
+            panic!("powered ragdoll node was not decoded");
+        };
+        assert_eq!(control.max_force, 120.0);
+        assert_eq!(control.tau, 0.7);
+        assert_eq!(control.damping, 0.2);
+        assert_eq!(control.proportional_recovery_velocity, 3.0);
+        assert_eq!(control.constant_recovery_velocity, 0.5);
+        assert_eq!(bones, &[7, 12]);
+        assert_eq!(world_from_model.pose_matching_bones, [1, 2, 3]);
+        assert_eq!(world_from_model.mode, 4);
+        assert_eq!(bone_weights, &[0.25, 0.75]);
     }
 }
