@@ -324,8 +324,8 @@ actor. `ClearExpressionOverride` removes it. `World::facial_expression`
 returns the active override, or maps the actor's record-backed AIDT mood to
 the corresponding mood expression at full strength after clearing. The
 override is an actor save section named `ANM-59` and participates in the
-determinism hash. The host maps expression ids to head blend shape names;
-loading Skyrim `.tri` morph targets into actor surfaces is not implemented.
+determinism hash. The host maps expression ids to head blend shape names.
+Loading Skyrim `.tri` morph targets into actor surfaces is not implemented.
 
 **Enchanting.** `Game::enchant_item` accepts one selected weapon or armor
 instance, one selected soul gem stack, an ENCH form and the caller's learned
@@ -4841,5 +4841,5 @@ log.
 
 `hst_19_screenshot_request.rs` calls the native through a Papyrus probe and
 checks that the path is queued once and consumed. The headless Godot check is
-`godot/hst_19_screenshot_capture_test.gd`; it requires installed data to start
+`godot/hst_19_screenshot_capture_test.gd`. It requires installed data to start
 the host gameplay runtime and checks the resulting PNG file.
