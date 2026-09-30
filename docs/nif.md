@@ -119,7 +119,7 @@ array behavior follows the vanilla skeleton files covered by
 `tri::parse_head_tri` reads FaceGen `FRTRI003` files. It retains the base
 positions and named morph deltas. Each morph stores three signed 16-bit values
 per vertex, multiplied by its file scale. The reader consumes topology, UVs
-and modifier lists to reach the morph data, while retaining only positions and
+and modifier lists to reach the morph data, while retaining positions and
 morphs. The layout follows `TriHeadFile::Read` in the local
 `BodySlide-and-Outfit-Studio/src/files/TriFile.cpp` reference. A PyNifly source
 was not present in the local corpus. nif.xml's `NiMorphData` describes a
@@ -127,10 +127,15 @@ separate NIF animation format, not this FaceGen TRI file. Race `PHTN` and
 `PHWT` are FaceFX phoneme name and weight records, not geometry morphs, as
 shown by Mutagen's Skyrim `Race.xml` and xEdit's `wbPHWT` definition.
 
-`HeadTri::apply_morph` adds a selected morph to caller supplied base positions.
-It checks that the mesh and TRI vertex counts match, returns an exact copy at
-zero weight, and does not mutate the caller's positions. Callers can evaluate
-each frame from the same base to avoid accumulating deltas.
+`HeadTri::apply_morph` adds one selected morph to caller supplied base
+positions. `apply_morphs` adds several named morphs in file vertex order.
+Both check that the mesh and TRI vertex counts match, preserve exact positions
+at zero weight, and leave the input unchanged. `apply_to_mesh` uses those
+operations on a resolved head-part mesh, checks its base positions against the
+TRI within 0.0001 game units, and clears its stale normals and tangents when
+any morph changes geometry. The NIF topology, UVs, material and transform
+remain attached to the output mesh. Resolving NPC `PNAM` links and mapping its
+`NAM9` values to named TRI morphs remains caller work.
 
 ## Transform controllers (2026-09-24, in progress)
 
