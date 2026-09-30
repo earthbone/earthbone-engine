@@ -3604,6 +3604,57 @@ mod tests {
     }
 
     #[test]
+    fn anm_57_linked_child_quad_default_drives_bound_vector_modifier() {
+        let mut parent = BehaviorGraph {
+            name: "parent with a quad default".into(),
+            variable_mode: 0,
+            root: Some(NodeId(0)),
+            data: BehaviorGraphData {
+                variable_names: vec!["parent vector".into()],
+                variable_infos: vec![VariableInfo {
+                    ty: VariableType::Vector4,
+                    ..Default::default()
+                }],
+                variable_initial_values: Some(VariableValueSet {
+                    word_values: vec![0],
+                    quad_values: vec![[90.0, 80.0, 70.0, 60.0]],
+                    variant_values: Vec::new(),
+                }),
+                ..Default::default()
+            },
+            nodes: vec![Node {
+                id: NodeId(0),
+                offset: 0,
+                class: "hkbBehaviorReferenceGenerator".into(),
+                name: "child graph".into(),
+                user_data: 0,
+                bindings: None,
+                kind: NodeKind::BehaviorReference {
+                    behavior_name: "child.hkx".into(),
+                    resolved: None,
+                },
+            }],
+        };
+        parent
+            .link_reference(NodeId(0), decompose_graph(true, true))
+            .unwrap();
+
+        let clips = ClipLibrary::new();
+        let mut vm = Interpreter::new(&parent, &clips, Vec::new());
+        vm.update(1.0 / 60.0);
+
+        assert_eq!(
+            [
+                vm.variables.real(1),
+                vm.variables.real(2),
+                vm.variables.real(3),
+                vm.variables.real(4),
+            ],
+            [Some(1.25), Some(-2.5), Some(3.75), Some(-4.0)]
+        );
+    }
+
+    #[test]
     fn a_disabled_decompose_vector_modifier_preserves_its_outputs() {
         let graph = decompose_graph(false, true);
         let lib = ClipLibrary::new();
