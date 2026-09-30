@@ -598,9 +598,7 @@ impl PlayerNode {
         if input.toggle_pov_pressed {
             self.rig.mode = self.rig.mode.toggled();
         }
-        if input.right_attack_pressed {
-            self.begin_melee_swing(false);
-        }
+        self.begin_melee_swing_from_input(input.right_attack_pressed);
 
         let camera = self.rig;
         let intent = self.driver.update(&input, &camera);

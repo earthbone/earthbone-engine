@@ -411,9 +411,10 @@ fn cmb_04_injected_right_attack_press_applies_one_shared_game_hit() {
     assert_eq!(Action::RightAttack.event_name(), "Right Attack/Block");
 
     let mut contact = MeleeContact::default();
-    if input.right_attack_pressed {
-        contact.begin(&game, id(0x14), Hand::Right).unwrap();
-    }
+    assert!(contact
+        .begin_from_attack_press(&mut game, input.right_attack_pressed)
+        .unwrap());
+    assert!(!contact.begin_from_attack_press(&mut game, false).unwrap());
     assert_eq!(contact.armed(), Some((id(0x14), Hand::Right)));
     assert!(contact
         .event(&mut game, "HitFrame", |_| Ok(Some(id(0x900))))

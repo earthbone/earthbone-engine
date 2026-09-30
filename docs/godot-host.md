@@ -1191,11 +1191,13 @@ is named `Run` in that file, and Toggle Always Run uses Caps Lock. Camera
 offsets remain this engine's choices, as `camera` documents separately.
 
 The `Right Attack/Block` gameplay event is also registered from the PC control
-map. Its press edge arms one right-hand melee contact in PlayerNode. The
+map. PlayerNode passes its press edge to `MeleeContact::begin_from_attack_press`,
+which arms the player's right-hand contact once and ignores held frames. The
 authored animation's `HitFrame` marker still supplies the contact pose and
-reaches the same shared Game path as other melee contacts. A single-key or
-single-button action can also be pressed through Godot's Input action API,
-while chorded bindings continue to require every device input.
+reaches the same shared Game path as other melee contacts. The CMB-04 test
+injects the mapped keyboard press and verifies one hit in that Game. A
+single-key or single-button action can also be pressed through Godot's Input
+action API, while chorded bindings continue to require every device input.
 
 MAG-22 adds `Left Attack/Block` and `Right Attack/Block` as held gameplay
 actions. PlayerNode compares each frame with the prior held state and calls
