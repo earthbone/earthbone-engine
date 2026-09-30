@@ -895,36 +895,26 @@ mod tests {
     }
 
     #[test]
-    fn fmt_03_pack_begin_fragment_reproduces_authored_bytes() {
-        let bytes = authored_pack_bytes(0b001, &[(2, "TIF__000A0001", "Fragment_0")]);
-        let v = Vmad::parse(&bytes, PACK).unwrap();
-        let frags = v.pack_fragments.as_ref().unwrap();
-        assert_eq!(frags.begin.as_ref().unwrap().function, "Fragment_0");
-        assert!(frags.end.is_none());
-        assert!(frags.change.is_none());
-        assert_eq!(v.write(PACK), bytes);
-    }
-
-    #[test]
-    fn fmt_03_pack_end_fragment_reproduces_authored_bytes() {
-        let bytes = authored_pack_bytes(0b010, &[(2, "TIF__000A0001", "Fragment_1")]);
-        let v = Vmad::parse(&bytes, PACK).unwrap();
-        let frags = v.pack_fragments.as_ref().unwrap();
-        assert!(frags.begin.is_none());
-        assert_eq!(frags.end.as_ref().unwrap().function, "Fragment_1");
-        assert!(frags.change.is_none());
-        assert_eq!(v.write(PACK), bytes);
-    }
-
-    #[test]
-    fn fmt_03_pack_change_fragment_reproduces_authored_bytes() {
-        let bytes = authored_pack_bytes(0b100, &[(2, "TIF__000A0001", "Fragment_2")]);
-        let v = Vmad::parse(&bytes, PACK).unwrap();
-        let frags = v.pack_fragments.as_ref().unwrap();
-        assert!(frags.begin.is_none());
-        assert!(frags.end.is_none());
-        assert_eq!(frags.change.as_ref().unwrap().function, "Fragment_2");
-        assert_eq!(v.write(PACK), bytes);
+    fn fmt_03_pack_fragments_reproduce_authored_bytes() {
+        for (flag, function, selected) in [
+            (0b001, "Fragment_0", 0),
+            (0b010, "Fragment_1", 1),
+            (0b100, "Fragment_2", 2),
+        ] {
+            let bytes = authored_pack_bytes(flag, &[(2, "TIF__000A0001", function)]);
+            let parsed = Vmad::parse(&bytes, PACK).unwrap();
+            let fragments = parsed.pack_fragments.as_ref().unwrap();
+            assert_eq!(fragments.begin.is_some(), selected == 0);
+            assert_eq!(fragments.end.is_some(), selected == 1);
+            assert_eq!(fragments.change.is_some(), selected == 2);
+            let actual = match selected {
+                0 => &fragments.begin,
+                1 => &fragments.end,
+                _ => &fragments.change,
+            };
+            assert_eq!(actual.as_ref().unwrap().function, function);
+            assert_eq!(parsed.write(PACK), bytes);
+        }
     }
 
     #[test]

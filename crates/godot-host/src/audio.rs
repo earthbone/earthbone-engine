@@ -150,7 +150,9 @@ impl VoicePool {
     /// How many are playing right now.
     #[must_use]
     pub fn busy(&self) -> usize {
-        self.slots.iter().filter(|s| s.is_some()).count()
+        self.slots
+            .iter()
+            .fold(0, |count, slot| count + usize::from(slot.is_some()))
     }
 
     /// Picks the slot a new sound of `kind` should use, or `None` when every

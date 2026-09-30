@@ -743,12 +743,10 @@ fn an_actor_state_before_version_24_defaults_an_absent_exclusive_branch() {
 
 #[test]
 fn no_section_name_repeats_within_or_across_the_three_registries() {
-    fn names<T>(sections: &[save_sections::Section<T>]) -> Vec<&'static str> {
-        sections.iter().map(|s| s.name).collect()
-    }
-    let mut all = names(WORLD_SECTIONS);
-    all.extend(names(ACTOR_SECTIONS));
-    all.extend(names(REF_SECTIONS));
+    let mut all = Vec::new();
+    all.extend(WORLD_SECTIONS.iter().map(|section| section.name));
+    all.extend(ACTOR_SECTIONS.iter().map(|section| section.name));
+    all.extend(REF_SECTIONS.iter().map(|section| section.name));
     let mut sorted = all.clone();
     sorted.sort_unstable();
     sorted.dedup();
