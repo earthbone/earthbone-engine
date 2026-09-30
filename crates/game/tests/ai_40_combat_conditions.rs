@@ -144,25 +144,17 @@ fn ai_40_no_bleedout_recovery_reads_flag_independent_of_current_bleedout() {
 }
 
 #[test]
-fn ai_40_staggered_reads_active_real_time_stagger_deadline() {
+fn ai_40_staggered_condition_diagnoses_missing_contract_even_with_live_state() {
     let game = fixture();
     game.world_mut().clock.real_seconds = 5.0;
     game.world_mut().actor(id(0x900)).unwrap().stagger_end_time = Some(6.0);
-    assert!(conditions::supports_function(701));
+    assert!(!conditions::supports_function(701));
     assert_eq!(
         evaluate(&game, id(0x900), &condition(701, 0, 1.0)),
-        Ok(true)
-    );
-    assert_eq!(
-        evaluate(&game, id(0x900), &condition(701, 0, 0.0)),
-        Ok(false)
-    );
-    assert!(package_evaluate(&game, id(0x900), &condition(701, 0, 1.0)));
-    assert!(!package_evaluate(&game, id(0x900), &condition(701, 0, 0.0)));
-    game.world_mut().clock.real_seconds = 6.0;
-    assert_eq!(
-        evaluate(&game, id(0x900), &condition(701, 0, 0.0)),
-        Ok(true)
+        Err(conditions::Error::UnavailableContract(
+            701,
+            "the local CK corpus does not define IsStaggered condition behavior"
+        ))
     );
 }
 
@@ -217,13 +209,23 @@ fn ai_40_attack_state_without_a_runtime_contract_returns_explicit_diagnostics() 
             0x920,
             "the runtime has no active attack type to compare with the keyword",
         ),
+        (
+            701,
+            0,
+            "the local CK corpus does not define IsStaggered condition behavior",
+        ),
     ];
     for (function, parameter, reason) in cases {
         assert!(!conditions::supports_function(function));
         for expected in [0.0, 1.0] {
+            let error = if function == 701 {
+                conditions::Error::UnavailableContract(function, reason)
+            } else {
+                conditions::Error::UnavailableState { function, reason }
+            };
             assert_eq!(
                 evaluate(&game, id(0x900), &condition(function, parameter, expected)),
-                Err(conditions::Error::UnavailableState { function, reason }),
+                Err(error),
                 "function {function} must diagnose instead of inventing a boolean"
             );
         }

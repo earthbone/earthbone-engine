@@ -17,6 +17,7 @@ fn fixture() -> Game {
     let mut plugin = Plugin::new(FileHeader::default());
     plugin.push_top(Record::new(Tag(*b"NPC_"), 0x800));
     plugin.push_top(Record::new(Tag(*b"ACHR"), 0x900).sub(Tag(*b"NAME"), 0x800_u32.to_le_bytes()));
+    plugin.push_top(Record::new(Tag(*b"ACHR"), 0x901).sub(Tag(*b"NAME"), 0x800_u32.to_le_bytes()));
     plugin.push_top(Record::new(Tag(*b"STAT"), 0x810));
     plugin.push_top(Record::new(Tag(*b"REFR"), 0x910).sub(Tag(*b"NAME"), 0x810_u32.to_le_bytes()));
     let mut order = LoadOrder::new();
@@ -87,6 +88,12 @@ fn ai_38_combat_state_reports_unengaged_and_engaged_values() {
         Ok(true)
     );
     game.world_mut().actor(id(0x900)).unwrap().in_combat = true;
+    assert_eq!(
+        evaluate(&game, id(0x900), &condition(323, 0, 0, 2.0)),
+        Ok(true),
+        "an engaged actor with no target is searching"
+    );
+    game.world_mut().actor(id(0x900)).unwrap().combat_target = Some(id(0x901));
     assert_eq!(
         evaluate(&game, id(0x900), &condition(323, 0, 0, 1.0)),
         Ok(true)

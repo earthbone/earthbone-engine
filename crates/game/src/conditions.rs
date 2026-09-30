@@ -226,7 +226,6 @@ pub fn supports_function(function: u16) -> bool {
             | 513
             | 580
             | 694
-            | 701
             | 707
             | 710
             | 676
@@ -1355,12 +1354,16 @@ fn function_value(
         }
         289 => boolean(world.actor(subject).is_some_and(|actor| actor.in_combat)),
         323 => {
-            // CK GetCombatState defines 0 as not in combat, 1 as in combat,
-            // and 2 as searching. The runtime currently models engagement as
-            // a boolean, so the searchable state has no producer yet.
+            // An engaged actor without a current target is still searching.
             no_parameter(c)?;
             let actor = world.actor(subject).ok_or(Error::Form(subject))?;
-            f32::from(actor.in_combat)
+            if !actor.in_combat {
+                0.0
+            } else if actor.combat_target.is_some() {
+                1.0
+            } else {
+                2.0
+            }
         }
         338 => {
             no_parameter(c)?;
@@ -1479,8 +1482,10 @@ fn function_value(
             }
         }
         659 => boolean(context.tempering_enchanted.ok_or(Error::TemperingContext)?),
-        580 | 694 | 701 => actor_query(world, context.owner, subject, c.function, raw)?,
-        672 | 673 | 674 | 678 | 697 => unavailable_combat_query(world, context.owner, subject, c)?,
+        580 | 694 => actor_query(world, context.owner, subject, c.function, raw)?,
+        672 | 673 | 674 | 678 | 697 | 701 => {
+            unavailable_combat_query(world, context.owner, subject, c)?
+        }
         676 => {
             no_parameter(c)?;
             world.actor(subject).ok_or(Error::Form(subject))?;
@@ -1557,7 +1562,7 @@ pub(crate) fn actor_query(
     {
         return Err(Error::Form(subject));
     }
-    if matches!(function, 580 | 694 | 701) {
+    if matches!(function, 580 | 694) {
         if parameter != 0 {
             return Err(Error::Parameter(function, parameter));
         }
@@ -1572,7 +1577,6 @@ pub(crate) fn actor_query(
                     .ok_or(Error::Form(subject))?
                     .no_bleedout_recovery
             }
-            701 => world.is_staggered(subject),
             _ => return Err(Error::Function(function)),
         };
         return Ok(boolean(value));
@@ -1620,7 +1624,7 @@ fn unavailable_combat_query(
     }
     let parameter = c.parameters[0];
     match c.function {
-        672..=674 => no_parameter(c)?,
+        672..=674 | 701 => no_parameter(c)?,
         678 => {
             first_parameter_only(c)?;
             let actor = resolve_reference(world, owner, parameter)?;
@@ -1641,6 +1645,12 @@ fn unavailable_combat_query(
         674 => "the runtime does not track the actor's last hostile identity",
         678 => "no damage forecast contract is documented for this condition",
         697 => "the runtime has no active attack type to compare with the keyword",
+        701 => {
+            return Err(Error::UnavailableContract(
+                c.function,
+                "the local CK corpus does not define IsStaggered condition behavior",
+            ));
+        }
         _ => return Err(Error::Function(c.function)),
     };
     Err(Error::UnavailableState {

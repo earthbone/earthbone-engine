@@ -500,7 +500,7 @@ fn function_value(
             let r = form(world, c.param1)?;
             world.distance(subject, r)
         }
-        14 | 128 | 277 | 408 | 430 | 494 | 580 | 694 | 701 => {
+        14 | 128 | 277 | 408 | 430 | 494 | 580 | 694 => {
             crate::conditions::actor_query(world, package_id, subject, c.function, c.param1).ok()?
         }
         18 => world.calendar().hour as f32,

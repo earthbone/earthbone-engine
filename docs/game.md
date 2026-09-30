@@ -336,11 +336,11 @@ Condition functions 84 (`GetDeadCount`), 323 (`GetCombatState`) and 338
 (`GetIgnoreFriendlyHits`) use the local CK contracts and xEdit function
 identities. Dead count reads the number of runtime-dead actors for an NPC
 base, increasing on death and decreasing on resurrection. Combat state reports
-0 or 1 from the runtime engagement flag. CK also defines state 2 for searching,
-which the runtime does not currently represent. Ignore-friendly-hits reads the
-reference flag used by its Papyrus native. The condition functions 63, 66, 118,
-288 and 361 remain unsupported with explicit function diagnostics because the
-local CK corpus does not provide usable condition semantics for them.
+0 when the actor is not engaged, 1 when it has a current combat target, and 2
+when it remains engaged without a target and is searching. Ignore-friendly-hits
+reads the reference flag used by its Papyrus native. The condition functions 63,
+66, 118, 288 and 361 remain unsupported with explicit function diagnostics
+because the local CK corpus does not provide usable condition semantics for them.
 
 Current behavior and compatibility limits:
 
@@ -1864,7 +1864,7 @@ The shared condition evaluator reuses the crafting implementation and adds
 speaker/listener and owning-quest context. Supported function IDs are 1, 18,
 46, 47, 56, 58, 59, 67, 69, 70, 71, 72, 73, 74, 80, 136, 182, 264, 277, 289, 359,
 99, 142, 159, 162, 163, 175, 403, 448, 543, 560, 566, 580, 606, 629, 630,
-659, 694 and 701. Function 99
+659 and 694. Function 99
 measures the signed horizontal angle from a placed reference's heading to the
 target reference. Function 142 reads the race's resolved walk movement speed
 and falls back to the package driver's walk speed when race movement data is
