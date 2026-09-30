@@ -1640,6 +1640,21 @@ quests, reporting nine missing script attachments. These are not resolved
 by the host integration. No rendered-image or speaker-output claim follows
 from the headless test.
 
+## Lockpick activation requests (HST-03)
+
+When player activation reaches a locked, non-key-only reference without a
+matching key, `PlayerNode` retains its FormID as the pending lockpick target if
+the player carries a `Lockpick`. `pending_lockpick` exposes the target and
+authored lock level to an interaction UI. `resolve_pending_lockpick` applies
+the UI result through `Game::resolve_lockpick`. Success then resumes ordinary
+deferred activation, while failure consumes a pick and leaves the reference
+locked. Keyed activation remains on the regular game path.
+
+The UI-08 draft is absent from this worktree, so no lockpick minigame is
+presented and the player cannot resolve the pending request through the
+current host controls. The public host methods provide the handoff point. No
+Godot interaction test exercises that handoff yet.
+
 The integration gate passed with 915 Rust tests and 11 Python runner tests.
 All three clippy passes and every lint tool ran. The cell-index API change
 also removed unused mutable bindings in the benchmark and navmesh test,
@@ -1902,6 +1917,18 @@ and installed survey. The host examples `controller_geometry_survey` and
 `character_metadata_survey` inspect the installed NIF and HKX sources without
 copying assets. CMB-28 installs and synchronizes actor bodies, and CMB-33
 supplies generated controller geometry when authored geometry is absent.
+
+## Ranged release latch, CMB-08
+
+`combat::RangedRelease` stores the actor and bow or crossbow selected when a
+shot is armed. It calls `Game::release_projectile` once on `bowRelease` and
+clears the pending shot on `attackStop` or `bowCancel`. The returned request
+contains the launch vector and winning AMMO/PROJ inputs. This latch does not
+move projectiles or resolve impacts, which remain CMB-22 work.
+
+The synthetic host tests cover one returned request, duplicate release markers
+and cancellation with the ammunition count unchanged. No Godot node or
+per-reference resource is created for this release state.
 
 ## Actor contact bodies and pose segments, CMB-28
 

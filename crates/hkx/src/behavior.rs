@@ -584,6 +584,19 @@ pub struct FalseToTrueSlot {
     pub event: EventProperty,
 }
 
+/// One `hkbExpressionData` entry in an expression modifier.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExpressionData {
+    /// The scalar expression source.
+    pub expression: String,
+    /// Graph variable index to receive the result, or a negative value.
+    pub assignment_variable_index: i32,
+    /// Graph event index to raise, or a negative value.
+    pub assignment_event_index: i32,
+    /// `ExpressionEventMode` from the Havok class definition.
+    pub event_mode: i8,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum NodeKind {
     StateMachine(StateMachine),
@@ -689,6 +702,11 @@ pub enum NodeKind {
         enable: bool,
         vector: [f32; 4],
     },
+    /// `hkbEvaluateExpressionModifier`: evaluates entries in array order.
+    EvaluateExpression {
+        enable: bool,
+        expressions: Vec<ExpressionData>,
+    },
     /// Any other `hkbModifier` subclass: only the enable flag is read.
     Modifier {
         enable: bool,
@@ -765,6 +783,7 @@ impl Node {
             | NodeKind::IsActiveModifier { .. }
             | NodeKind::FalseToTrueModifier { .. }
             | NodeKind::DecomposeVector { .. }
+            | NodeKind::EvaluateExpression { .. }
             | NodeKind::Modifier { .. }
             | NodeKind::Unknown => {}
         }
@@ -1414,6 +1433,33 @@ impl<'a> Loader<'a> {
                 enable: o.bool(o.layout_offset(40, 72))?,
                 vector: o.vec4(o.layout_offset(48, 80))?,
             },
+            "hkbEvaluateExpressionModifier" => {
+                let expressions = o
+                    .ptr(o.layout_offset(44, 80))?
+                    .map(|array| {
+                        array.expect_class("hkbExpressionDataArray")?;
+                        array
+                            .array_structs(array.layout_offset(8, 16), array.layout_offset(16, 24))?
+                            .into_iter()
+                            .map(|entry| {
+                                Ok(ExpressionData {
+                                    expression: entry.string_or_empty(0)?,
+                                    assignment_variable_index: entry
+                                        .i32(entry.layout_offset(4, 8))?,
+                                    assignment_event_index: entry
+                                        .i32(entry.layout_offset(8, 12))?,
+                                    event_mode: entry.i8(entry.layout_offset(12, 16))?,
+                                })
+                            })
+                            .collect::<Result<Vec<_>>>()
+                    })
+                    .transpose()?
+                    .unwrap_or_default();
+                NodeKind::EvaluateExpression {
+                    enable: o.bool(o.layout_offset(40, 72))?,
+                    expressions,
+                }
+            }
             c if c.ends_with("Modifier") => NodeKind::Modifier {
                 enable: o.bool(o.layout_offset(40, 72))?,
             },

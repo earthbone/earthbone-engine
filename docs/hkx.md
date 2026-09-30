@@ -188,7 +188,7 @@ bindings, and the classes an interpreter needs are decoded into
 clip generators with their triggers, blenders with their weighted
 children, manual selectors, modifier generators and lists, behavior
 references, blending and generator transition effects, the Skyrim `BS*`
-generators listed above, and event-driven and timer modifiers. Any other
+generators listed above, and event-driven, timer and expression modifiers. Any other
 class is kept as `NodeKind::Unknown` (or `NodeKind::Modifier` with its
 enable flag when the class name ends in `Modifier`), so a vanilla or
 Nemesis-patched graph never fails to load because of an unmodelled node.
@@ -370,6 +370,19 @@ What each node does:
   `BSCyclicBlendTransition`) pass their generator child through.
   `hkbModifierGenerator` also gives an enabled modifier child activation and
   deactivation lifecycle.
+- `hkbEvaluateExpressionModifier`: compiles its expression data at graph
+  construction and evaluates active entries in serialized order each update.
+  A nonnegative assignment variable index writes the finite scalar result to
+  a bool, integer or real graph variable. Unsupported syntax, assignment
+  targets, event indices and event modes are reported in
+  `Unsupported::expression_modifiers`. The four event modes follow
+  `hkbExpressionData`'s `ExpressionEventMode` values: send once after the first
+  true result, send on every true frame, send on a false-to-true edge, or keep
+  sending every frame after the first true result. The source field layout and
+  enum names come from serde-hkx's `assets/classes/hkbEvaluateExpressionModifier.json`,
+  `hkbExpressionDataArray.json` and `hkbExpressionData.json`. The runtime
+  evaluator uses this crate's scalar `Expression` parser because serde-hkx
+  describes serialized fields but does not execute them.
 - `hkbBehaviorReferenceGenerator` and unmodelled classes yield the
   reference pose at weight zero and are listed in `Unsupported`.
 
@@ -520,7 +533,16 @@ scopes compiles separately.
 
 Supported scalar syntax includes parentheses, decimal and exponent literals,
 `true` and `false`, unary `!`, `+`, `-`, arithmetic `+`, `-`, `*`, `/`, `%`,
-comparisons `==`, `!=`, `<`, `<=`, `>`, `>=`, and short-circuit `&&`, `||`.
+comparisons `==`, `!=`, `<`, `<=`, `>`, `>=`, short-circuit `&&`, `||`, and
+function calls. The function names map to the operator inventory in
+`hkbCompiledExpressionSetToken`: `rand01`, `sin`, `cos`, `asin`, `acos`,
+`sqrt`, `fabs`, `ceil`, `floor`, `sqrtinv`, `pow`, `max`, `min`, `randrange`,
+`atan2approx`, `clamp`, `mod`, `deg2rad`, `rad2deg`, `cosd`, `sind`, `acosd`,
+`asind`, `atan2approxd`, `sign`, `lerp`, `clerp`, and `cond`. `rand01()` takes
+no arguments, unary math functions take one, binary functions take two, and
+`clamp`, `lerp`, `clerp` and `cond` take three. Random functions consume a
+deterministic per-interpreter stream initialized from a fixed seed. Invalid
+arity, unknown functions and non-finite results keep the guard closed.
 Bool, signed 8-bit, signed 16-bit, signed 32-bit and real values use their
 stored types. Numeric expression operands use `hkReal` precision. Pointer,
 vector and quaternion operands, unknown symbols, malformed source and
@@ -545,23 +567,29 @@ Sources read locally before implementation:
 - `serde-hkx/assets/classes/hkbStateMachineTransitionInfo.json` supplies
   the condition pointer and disable-condition flag.
 - `Skyrim-Behavior-Editor-/src/hkxclasses/behavior/hkbexpressioncondition.cpp`
-  and `hkbstringcondition.cpp` preserve authored expression strings.
+  and `hkbstringcondition.cpp` preserve authored guard strings.
+- `Skyrim-Behavior-Editor-/src/hkxclasses/behavior/hkbexpressiondataarray.cpp`
+  preserves authored expression strings and assignments, but does not
+  evaluate them.
 - Nemesis local `test environment/mod` examples confirm named variables,
   ordinary scalar comparisons and logical operators in authored conditions.
 
 Neither the class tables nor the editor implement expression evaluation, so
 this crate uses its own bounded scalar parser instead of adding a dependency
-on a serializer or a Qt editor. Function calls are rejected and tracked by
-ANM-49, including seeded random evaluation. No Havok runtime capture was used
-and timing arbitration outside these guards remains separate work.
+on a serializer or a Qt editor. The operator inventory supplies names and
+operand data types, not runtime formulas. ANM-49 implements the listed scalar
+functions and deterministic random evaluation. Tests compare the supported
+math functions with their scalar results and replay random guards from the
+same interpreter seed. No Havok runtime capture was used and timing
+arbitration outside these guards remains separate work.
 
 `tests/conditions.rs` covers binary decoding, bool/int/real changes, false
 guards, condition-only polling, cycles, disabled conditions, malformed or
 unknown input, parent/subgraph symbol reordering, child-only properties,
-variable/property name collisions, repeated linking and property binding IDs.
-Expression unit tests
-cover precedence, short circuiting, typed storage, character properties and
-malformed-input limits.
+variable/property name collisions, repeated linking and property binding IDs,
+math-function guards and seeded random guard replay. Expression unit tests
+cover precedence, short circuiting, typed storage, character properties,
+operator function results, random replay and malformed-input limits.
 
 The installed-data survey visits 428 behavior graphs and 814 guarded
 transitions. It checks every serialized expression/string condition appears

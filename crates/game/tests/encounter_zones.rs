@@ -3,6 +3,9 @@
 
 //! Encounter-zone level sources, first-entry locks and saved actor selection.
 
+#[path = "common/legacy.rs"]
+mod legacy;
+
 use soe_esm::plugin::flags as record_flags;
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::{npc, World};
@@ -244,6 +247,7 @@ fn old_save_clears_zone_locks_and_corrupt_zone_extension_is_atomic() {
     // version 37 added (2 bytes), both always present at the tail regardless
     // of the simulated version. No reference is materialized yet at this
     // point, so none carries its own section table to strip.
+    legacy::normalize_world_sections(&mut old);
     old.truncate(old.len() - 22);
     // Version 26 predates encounter locks, visits and dialogue repeats.
     old[4..6].copy_from_slice(&26_u16.to_le_bytes());
@@ -478,6 +482,7 @@ fn prg_10_saved_visit_time_expires_zone_after_reload() {
         // empty world-level save-section table version 37 added (2 bytes)
         // are always past a version 36 or older save's end, since a genuine
         // save that old never wrote either.
+        legacy::normalize_world_sections(&mut saved);
         saved.truncate(saved.len() - 6);
         if version < 36 {
             // CONTEXT: Versions 34 and 35 end before the scene-run table.

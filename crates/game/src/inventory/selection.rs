@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 //! Exact selection over CommonLib's count/extra-list model. Crafting patches use
-//! ExtraHealth, ExtraCharge, ExtraPoison and ExtraEnchantment save field layouts.
+//! ExtraHealth, ExtraCharge, ExtraPoison, ExtraEnchantment and ExtraSoul save
+//! field layouts from CommonLibSSE-NG.
 
 use std::sync::Arc;
 
@@ -34,6 +35,11 @@ impl Selection {
     pub fn count(&self) -> i32 {
         self.count
     }
+
+    /// The stack source selected from the inventory.
+    pub fn source(&self) -> StackSource {
+        self.source
+    }
 }
 
 fn validate_patch(extra: &Extra) -> Result<(), Error> {
@@ -44,6 +50,7 @@ fn validate_patch(extra: &Extra) -> Result<(), Error> {
         }
         (62, [Field::Form(Some(_)), Field::Word(count)]) => *count > 0,
         (155, [Field::Form(Some(_)), Field::Short(_)]) => true,
+        (156, [Field::Byte(level)]) => (1..=5).contains(level),
         _ => false,
     };
     if valid {
@@ -82,6 +89,27 @@ impl Inventory {
             count,
             revision: Arc::clone(&self.revision),
         })
+    }
+
+    /// Select one item from the undescribed remainder or first available stack.
+    ///
+    /// # Errors
+    /// Missing items, ambiguous overlapping stack counts or insufficient quantity.
+    pub fn select_any(&self, item: GlobalFormId, count: i32) -> Result<Selection, Error> {
+        match self.select(item, StackSource::Plain, count) {
+            Ok(selected) => return Ok(selected),
+            Err(Error::AmbiguousStacks) => return Err(Error::AmbiguousStacks),
+            Err(_) => {}
+        }
+        let entry = self.entries.get(&item).ok_or(Error::Selection)?;
+        for (index, stack) in entry.stacks.iter().enumerate() {
+            if stack.count >= count {
+                if let Ok(selected) = self.select(item, StackSource::Extra(index), count) {
+                    return Ok(selected);
+                }
+            }
+        }
+        Err(Error::Selection)
     }
 
     /// Inspect the selected metadata. Plain items return `None`.
