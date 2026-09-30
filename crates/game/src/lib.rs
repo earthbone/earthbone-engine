@@ -40,6 +40,8 @@ pub mod footsteps;
 mod game_settings;
 pub mod harness;
 pub mod inventory;
+pub mod lockpicking;
+pub mod mcm;
 pub mod moddata;
 pub mod natives;
 pub mod npc;
@@ -52,6 +54,7 @@ pub mod save;
 pub mod save_generations;
 pub mod services;
 pub mod sound;
+pub mod validation_runner;
 pub mod vanilla_save;
 pub mod vmad;
 pub mod world;
@@ -147,11 +150,59 @@ pub struct Game {
     pub budget: usize,
     /// One hash per tick once [`Game::record_hashes`] turned it on.
     hash_log: Option<Vec<determinism::TickHash>>,
+    mcm_registered: Vec<GlobalFormId>,
+    mcm_active: Option<GlobalFormId>,
     /// Actors that were in greeting range on the previous gameplay tick.
     greeting_range_actors: BTreeSet<soe_esm::GlobalFormId>,
+    /// Hands currently held by direct player or scripted cast input.
+    active_hand_casts: BTreeSet<(soe_esm::GlobalFormId, combat::Hand)>,
 }
 
 impl Game {
+    /// Evaluate one objective target's QSTA conditions against the current world and VM.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when a target condition is unsupported or lacks runtime context.
+    pub fn objective_target_conditions_met(
+        &mut self,
+        quest: GlobalFormId,
+        objective: u16,
+        target_index: usize,
+    ) -> Result<bool, conditions::Error> {
+        let mut world = self.world.borrow_mut();
+        let Some(state) = world.quest_state(quest) else {
+            return Ok(false);
+        };
+        let Some(target) = state
+            .def
+            .objective(objective)
+            .and_then(|definition| definition.targets.get(target_index))
+        else {
+            return Ok(false);
+        };
+        let Some(alias) = u32::try_from(target.alias).ok() else {
+            return Ok(false);
+        };
+        let target_ref = state.aliases.get(&alias).copied().flatten();
+        let conditions = target.conditions.clone();
+        let context = conditions::Context {
+            owner: quest,
+            subject: world.player(),
+            target: target_ref,
+            quest: Some(quest),
+            tempering_enchanted: None,
+            tempering_item: None,
+            alchemy_making_poison: None,
+            alchemy_effect: None,
+            magic_item: None,
+            dual_cast: None,
+            skill_use: None,
+            light_level: None,
+        };
+        conditions::evaluate(&mut world, &self.vm, context, &conditions)
+    }
+
     pub fn new(order: LoadOrder) -> Game {
         Self::from_shared_order(std::sync::Arc::new(order))
     }
@@ -168,7 +219,10 @@ impl Game {
             bound: None,
             budget: 100_000,
             hash_log: None,
+            mcm_registered: Vec::new(),
+            mcm_active: None,
             greeting_range_actors: BTreeSet::new(),
+            active_hand_casts: BTreeSet::new(),
         }
     }
 
@@ -304,6 +358,56 @@ impl Game {
         let vm = &self.vm;
         let mut world = self.world.borrow_mut();
         services::resolve_vendor_service(&mut world, vm, faction, merchant)
+    }
+
+    /// Buy an exact quantity from an available vendor, exchanging gold and
+    /// merchandise as one inventory transaction.
+    ///
+    /// `unit_price` is the already-adjusted menu price per item. A caller
+    /// applies the barter multiplier and rounding before calling this method.
+    ///
+    /// # Errors
+    /// Returns an error when vendor service data is invalid or unavailable,
+    /// the item is not listed, the price is invalid, or either holder cannot
+    /// complete the full exchange.
+    pub fn buy_vendor_item(
+        &mut self,
+        faction: GlobalFormId,
+        merchant: GlobalFormId,
+        item: GlobalFormId,
+        count: i32,
+        unit_price: i32,
+    ) -> Result<(), services::TradeError> {
+        if count <= 0 || unit_price <= 0 {
+            return Err(services::TradeError::Price);
+        }
+        let service = self
+            .resolve_vendor_service(faction, merchant)?
+            .filter(|service| service.available)
+            .ok_or(services::TradeError::Unavailable)?;
+        if service.merchandise.count(item) < count {
+            return Err(services::TradeError::Stock);
+        }
+        let total = count
+            .checked_mul(unit_price)
+            .ok_or(services::TradeError::Price)?;
+        let currency = self.form("Gold001").unwrap_or(GlobalFormId {
+            file: 0,
+            object: 0xF,
+        });
+        let player = self.player();
+        let vm = &mut self.vm;
+        self.world.borrow_mut().trade_items_notified(
+            service.merchant_container,
+            item,
+            count,
+            player,
+            currency,
+            total,
+            &mut |name, class| vm.create_object_of(name, class),
+        )?;
+        self.run_until_idle(64);
+        Ok(())
     }
 
     /// Return the selected damage difficulty tier.
@@ -521,6 +625,7 @@ impl Game {
             }
         }
         self.run_until_idle(64);
+        self.mcm_configs();
         self.bound = Some(report.clone());
         report
     }
@@ -565,11 +670,19 @@ impl Game {
                 tabs: vec![hit.attacker, hit.weapon, hit.target],
                 target: Some(hit.target),
                 quest: None,
+                tempering_item: None,
+                alchemy_making_poison: None,
+                alchemy_effect: None,
+                skill_use: None,
             };
             let incoming_context = perks::EntryPointContext {
                 tabs: vec![hit.target, hit.attacker, hit.weapon],
                 target: Some(hit.attacker),
                 quest: None,
+                tempering_item: None,
+                alchemy_making_poison: None,
+                alchemy_effect: None,
+                skill_use: None,
             };
             (
                 perks::entry_point_invocations(
@@ -612,6 +725,64 @@ impl Game {
             direction,
             &mut |name, class| vm.create_object_of(name, class),
         )
+    }
+
+    /// Begin a costed cast from an actor's equipped hand spell.
+    ///
+    /// Repeated begins while that hand remains held do not request another
+    /// cast. Fire-and-forget spells execute on the initial press, while
+    /// concentration spells remain active until the hand is released.
+    ///
+    /// # Errors
+    /// Returns the magic validation, delivery, or magicka error for the spell.
+    pub fn begin_hand_cast(
+        &mut self,
+        actor: soe_esm::GlobalFormId,
+        hand: combat::Hand,
+        target: Option<soe_esm::GlobalFormId>,
+    ) -> Result<bool, world::magic::MagicError> {
+        let key = (actor, hand);
+        if self.active_hand_casts.contains(&key) {
+            return Ok(false);
+        }
+        let spell = self.world.borrow_mut().hand_spell(actor, hand);
+        let Some(spell) = spell else {
+            return Ok(false);
+        };
+        let vm = &mut self.vm;
+        let result = {
+            let mut world = self.world.borrow_mut();
+            if world.spell(spell)?.data.cast_type == 2 {
+                world
+                    .begin_concentration_cast(spell, actor, actor, target, &mut |name, class| {
+                        vm.create_object_of(name, class)
+                    })
+                    .map(|()| Vec::new())
+            } else {
+                world.cast_charged_spell(spell, actor, actor, target, &mut |name, class| {
+                    vm.create_object_of(name, class)
+                })
+            }
+        };
+        match result {
+            Ok(_) => {
+                self.active_hand_casts.insert(key);
+                self.run_until_idle(64);
+                Ok(true)
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    /// Release a casting hand after its input is lifted.
+    #[must_use]
+    pub fn end_hand_cast(&mut self, actor: soe_esm::GlobalFormId, hand: combat::Hand) -> bool {
+        let was_active = self.active_hand_casts.remove(&(actor, hand));
+        let stopped_concentration = {
+            let mut world = self.world.borrow_mut();
+            world.is_concentration_casting(actor) && world.release_concentration_cast()
+        };
+        was_active || stopped_concentration
     }
 
     /// Activate a reference the way a player click would, then settle.
@@ -783,9 +954,39 @@ impl Game {
             for error in errors {
                 vm.log.push(vm.time(), error.to_string());
             }
+            let errors = w.tick_concentration(real_seconds, &mut |n, c| vm.create_object_of(n, c));
+            for error in errors {
+                vm.log.push(vm.time(), error.to_string());
+            }
             game_hours = (w.clock.game_days - before) * 24.0;
             w.fire_timers();
             w.ai_tick(real_seconds, &mut |n, c| vm.create_object_of(n, c));
+        }
+        if !menu_mode {
+            let activations = crate::ai::activate_ready(&mut self.world.borrow_mut());
+            for (actor, target) in activations {
+                self.activate(target, actor);
+            }
+        }
+        if !menu_mode {
+            let greetings = crate::ai::force_greet_ready(&mut self.world.borrow_mut());
+            for (speaker, listener, topic) in greetings {
+                if self.begin_dialogue(speaker, listener).is_err() {
+                    continue;
+                }
+                crate::ai::force_greet_started(&mut self.world.borrow_mut(), speaker);
+                if self.choose_dialogue(topic).is_err() {
+                    self.close_dialogue();
+                }
+            }
+        }
+        if !menu_mode {
+            let starts = crate::ai::dialogue_activate_ready(&mut self.world.borrow_mut());
+            for (speaker, listener) in starts {
+                if self.begin_dialogue(speaker, listener).is_ok() {
+                    crate::ai::dialogue_activate_started(&mut self.world.borrow_mut(), speaker);
+                }
+            }
         }
         self.vm.advance_clocks(real_seconds, game_hours, menu_mode);
         self.run_until_idle(64);
@@ -888,6 +1089,18 @@ impl Game {
                         self.vm
                             .log
                             .push(self.vm.time(), format!("fragment {function}: {e}"));
+                    }
+                }
+                Pending::CallScript {
+                    object,
+                    script,
+                    function,
+                    args,
+                } => {
+                    if let Err(e) = self.vm.call_script(object, &script, &function, &args) {
+                        self.vm
+                            .log
+                            .push(self.vm.time(), format!("fragment {script}.{function}: {e}"));
                     }
                 }
             }
