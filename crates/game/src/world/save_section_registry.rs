@@ -17,6 +17,11 @@ use super::{ActorState, RefState, World};
 #[rustfmt::skip]
 pub(crate) const WORLD_SECTIONS: &[Section<World>] = &[
     Section { name: "MAG-67", write: super::magic::write_vampire_lord_state, read: super::magic::read_vampire_lord_state },
+    Section { name: "CRF-02", write: super::save::write_brewed_potions, read: super::save::read_brewed_potions },
+    super::story_manager::SECTION,
+    Section { name: "SAV-48", write: super::record_save::write_pack_navmesh_section, read: super::record_save::read_pack_navmesh_section },
+    Section { name: "SAV-59", write: super::record_save::write_unresolved_records, read: super::record_save::read_unresolved_records },
+    Section { name: "SAV-10", write: super::quest_save::write_lifecycle_tasks, read: super::quest_save::read_lifecycle_tasks },
 ];
 
 /// Sections read and written once per actor, at the end of every actor
@@ -24,6 +29,9 @@ pub(crate) const WORLD_SECTIONS: &[Section<World>] = &[
 #[rustfmt::skip]
 pub(crate) const ACTOR_SECTIONS: &[Section<ActorState>] = &[
     Section { name: "MAG-57", write: super::magic::write_werewolf_transform, read: super::magic::read_werewolf_transform },
+    super::furniture::SECTION,
+    Section { name: "PRG-01", write: super::super::progression::write_skill_experience, read: super::super::progression::read_skill_experience },
+    Section { name: "AI-88", write: super::furniture::write_furniture_seat, read: super::furniture::read_furniture_seat },
 ];
 
 /// Sections read and written once per reference, at the end of every

@@ -262,3 +262,46 @@ pub(super) fn read_quest_aux(
     }
     Ok(())
 }
+
+pub(super) fn write_lifecycle_tasks(world: &World, w: &mut Writer) {
+    let tasks: BTreeMap<_, _> = world
+        .quests
+        .iter()
+        .filter_map(|(id, quest)| quest.lifecycle_task.map(|task| (*id, task)))
+        .collect();
+    if tasks.is_empty() {
+        return;
+    }
+    w.len(tasks.len());
+    for (id, task) in tasks {
+        write_form_id(w, id);
+        w.u8(match task {
+            crate::quest::state::LifecycleTask::Starting => 1,
+            crate::quest::state::LifecycleTask::Stopping => 2,
+        });
+    }
+}
+
+pub(super) fn read_lifecycle_tasks(
+    world: &mut World,
+    r: &mut FormReader<'_, '_>,
+) -> Result<(), VmError> {
+    let mut seen = BTreeSet::new();
+    for _ in 0..r.len()? {
+        let id = read_form_id(r)?;
+        if !seen.insert(id) {
+            return Err(bad("duplicate quest lifecycle task"));
+        }
+        let task = match r.u8()? {
+            1 => crate::quest::state::LifecycleTask::Starting,
+            2 => crate::quest::state::LifecycleTask::Stopping,
+            _ => return Err(bad("invalid quest lifecycle task")),
+        };
+        let quest = world
+            .quests
+            .get_mut(&id)
+            .ok_or_else(|| bad("lifecycle task names an unknown quest"))?;
+        quest.lifecycle_task = Some(task);
+    }
+    Ok(())
+}

@@ -45,6 +45,7 @@ pub mod natives;
 pub mod npc;
 pub mod package;
 pub mod perks;
+pub mod progression;
 pub mod quest;
 pub mod race;
 pub mod save;
@@ -66,6 +67,7 @@ use soe_papyrus::{ArrayRef, ObjectId, ThreadId, Value, Vm, VmError};
 
 pub use clock::GameClock;
 pub use natives::Registered;
+pub use world::StoryError;
 pub use world::{Handle, Pending, RefPlacement, World};
 
 use vmad::{ObjectRef, PropertyValue, ScriptEntry, Vmad};
@@ -274,6 +276,19 @@ impl Game {
 
     pub fn world_mut(&self) -> RefMut<'_, World> {
         self.world.borrow_mut()
+    }
+
+    /// Route an authored Story Manager event through the shared runtime.
+    ///
+    /// # Errors
+    /// Returns malformed record, condition, or reset data errors.
+    pub fn send_story_event(
+        &mut self,
+        event: &crate::quest::state::StoryEvent,
+    ) -> Result<Vec<GlobalFormId>, StoryError> {
+        let vm = &mut self.vm;
+        let mut world = self.world.borrow_mut();
+        world.send_story_event(vm, event)
     }
 
     /// Resolve a vendor faction's current service for an actor.
@@ -578,6 +593,27 @@ impl Game {
         Ok(result)
     }
 
+    /// Consume one equipped arrow or bolt and return the host's flight request.
+    ///
+    /// # Errors
+    /// Invalid equipment, records, launch vectors or inventory state.
+    pub fn release_projectile(
+        &mut self,
+        attacker: GlobalFormId,
+        weapon: GlobalFormId,
+        origin: [f32; 3],
+        direction: [f32; 3],
+    ) -> Result<combat::FlightRequest, combat::Error> {
+        let vm = &mut self.vm;
+        self.world.borrow_mut().release_projectile(
+            attacker,
+            weapon,
+            origin,
+            direction,
+            &mut |name, class| vm.create_object_of(name, class),
+        )
+    }
+
     /// Activate a reference the way a player click would, then settle.
     pub fn activate(&mut self, target: GlobalFormId, activator: GlobalFormId) -> bool {
         let ok = self.activate_no_settle(target, activator);
@@ -598,6 +634,44 @@ impl Game {
         );
         self.run_until_idle(64);
         ok
+    }
+
+    /// Apply a lockpick result supplied by the host interaction UI.
+    ///
+    /// A broken pick is removed from inventory. Successful picks unlock the
+    /// reference through the shared lock state and run its lock event.
+    pub fn resolve_lockpick(
+        &mut self,
+        target: GlobalFormId,
+        activator: GlobalFormId,
+        success: bool,
+    ) -> bool {
+        let vm = &mut self.vm;
+        let unlocked = self.world.borrow_mut().resolve_lockpick(
+            target,
+            activator,
+            success,
+            &mut |name, class| vm.create_object_of(name, class),
+        );
+        self.run_until_idle(64);
+        unlocked
+    }
+
+    /// Complete player sleep at a furniture reference and deliver its sleep events.
+    pub fn sleep_player_at_furniture(
+        &mut self,
+        furniture: GlobalFormId,
+        elapsed_hours: f64,
+        interrupted: bool,
+    ) -> bool {
+        let slept =
+            self.world
+                .borrow_mut()
+                .sleep_at_furniture(furniture, elapsed_hours, interrupted);
+        if slept {
+            self.run_until_idle(64);
+        }
+        slept
     }
 
     /// Move an inventory item between two references through the same notified
@@ -645,6 +719,7 @@ impl Game {
     pub fn tick_menu_mode(&mut self, real_seconds: f64, menu_mode: bool) {
         let mut game_hours = 0.0;
         if !menu_mode {
+            self.resume_quest_lifecycle_tasks();
             let vm = &mut self.vm;
             let mut w = self.world.borrow_mut();
             let before = w.clock.game_days;
@@ -669,6 +744,20 @@ impl Game {
             }
         }
         self.push_tick_hash();
+    }
+
+    fn resume_quest_lifecycle_tasks(&mut self) {
+        let tasks = self.world.borrow().lifecycle_tasks();
+        for (id, task) in tasks {
+            match task {
+                quest::state::LifecycleTask::Starting => {
+                    self.start_quest(id);
+                }
+                quest::state::LifecycleTask::Stopping => {
+                    self.world.borrow_mut().stop_quest(id);
+                }
+            }
+        }
     }
 
     /// Drain queued events and calls into the VM. Returns how many.
