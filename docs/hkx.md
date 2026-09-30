@@ -188,8 +188,9 @@ bindings, and the classes an interpreter needs are decoded into
 clip generators with their triggers, blenders with their weighted
 children, manual selectors, modifier generators and lists, behavior
 references, blending and generator transition effects, the Skyrim `BS*`
-generators listed above, and event-driven, timer and expression modifiers. Any other
-class is kept as `NodeKind::Unknown` (or `NodeKind::Modifier` with its
+generators listed above, and event-driven, timer, expression and
+deactivation-event modifiers. Any other class is kept as `NodeKind::Unknown`
+(or `NodeKind::Modifier` with its
 enable flag when the class name ends in `Modifier`), so a vanilla or
 Nemesis-patched graph never fails to load because of an unmodelled node.
 The `0_master.hkx` test prints which classes are still unknown, which is
@@ -225,7 +226,8 @@ track by track. That is the model to reproduce.
   are raised from outside (`SendAnimationEvent`, the game's AI and input
   code), from clip triggers (`hkbClipTrigger` at a local time, relative to
   the clip's end when flagged), from state enter and exit notify lists,
-  from modifiers (timer, events-from-range, event-driven), and from the
+  from modifiers (timer, events-from-range, event-driven, and
+  `BSEventOnDeactivateModifier` when it becomes inactive), and from the
   state machine itself (`eventToSendWhenStateOrTransitionChanges`).
 - Delivery is a queue drained during the graph update. State machines
   consume events by matching `TransitionInfo::event_id` against the queue
@@ -276,8 +278,10 @@ Per frame, for one graph instance:
 3. Drain the event queue into the state machines, outermost first. A
    matching transition with a satisfied interval and condition starts a
    transition effect: a blending effect crossfades the two generator
-   outputs over `duration` with the given curve, a generator effect plays
-   a third generator in between. `max_simultaneous_transitions` bounds
+   outputs over `duration` with the given curve. A generator effect blends
+   into its authored transition generator, samples it until it ends, then
+   blends into the destination. Its separate blend-in and blend-out
+   durations control the two joins. `max_simultaneous_transitions` bounds
    nesting. Exit notify events fire for the state left, enter notify
    events for the state entered.
 4. Update generators bottom up with the frame's delta time. Clips
@@ -354,8 +358,12 @@ What each node does:
   A blending transition effect with a duration crossfades the old and new
   generators with `blend_curve` (0 smooth, 1 linear, 2 linear to smooth, 3
   smooth to linear) and keeps the old one active until it ends. Without
-  an effect the switch is a cut. Exit and enter notify events and the
-  state-change event are raised.
+  an effect the switch is a cut. A generator transition effect blends into
+  its authored generator for `blendInDuration`, samples it until the
+  generator reports its end, then blends to the destination for
+  `blendOutDuration`. Exit and enter notify events and the state-change
+  event are raised. The `serde-hkx` class declarations provide the serialized
+  generator pointer and both duration fields used by this path.
 - `hkbClipGenerator`: local time advances by `playbackSpeed` times `dt`.
   Mode 0 stops at the end, 1 loops, 2 follows `userControlledTimeFraction`,
   3 ping pongs. Triggers fire when the playhead crosses their time, end
@@ -390,6 +398,15 @@ What each node does:
   `hkbExpressionDataArray.json` and `hkbExpressionData.json`. The runtime
   evaluator uses this crate's scalar `Expression` parser because serde-hkx
   describes serialized fields but does not execute them.
+- `BSEventOnDeactivateModifier` reads its authored event property and raises
+  that event once when an active instance is deactivated.
+- `BSIStateManagerModifier` reads `iStateVar` as an index into the graph's
+  variable table. After generation, an active modifier finds the first
+  `stateData` entry whose state machine is in the listed state, then writes
+  `iStateToSetAs` into that variable. An unmatched state leaves the variable
+  unchanged. The entry layout comes from serde-hkx's
+  `BSIStateManagerModifier` and `BSIStateManagerModifierBSiStateData` class
+  descriptions.
 - `hkbBehaviorReferenceGenerator` and unmodelled classes yield the
   reference pose at weight zero and are listed in `Unsupported`.
 
@@ -408,6 +425,10 @@ ends on the walk, the wildcard cuts back to a restarted idle, a bound
 `Speed` doubles the walk's advance, a looping clip fires its end trigger
 on every wrap and its acyclic trigger once, both blender modes and the
 selector follow their bound variables, a missing clip is reported.
+
+`tests/anm_27_deactivation.rs` parses a synthetic SE packfile containing a
+`BSEventOnDeactivateModifier`, disables it through its bound `enable` value,
+and checks that its authored event is emitted once.
 
 `tests/real_files.rs` runs the same graph over the vanilla human skeleton
 (`character assets/skeleton.hkx`, 99 bones) and the clips `mt_behavior`
@@ -657,6 +678,17 @@ Invalid fixed bounds fail closed. Event mode ignores fixed-time fields.
 event windows, condition-only transitions, state reentry, wildcard reset,
 deactivation, priority protection and accepted requests outliving trigger windows.
 
+### `BSLookAtModifier` pose execution (ANM-32)
+
+The behavior decoder reads `BSLookAtModifier` target settings and both authored
+bone lists from the fields declared by serde-hkx. During generation, an enabled
+modifier rotates enabled listed bones toward its authored target location, or
+its authored camera location when camera look is selected. Each rotation uses
+the smaller of the modifier and bone angle limits and the selected global or
+per-bone on gain. Unlisted, disabled and out-of-range bones keep their input
+transforms. The interpreter applies these rotations to the generated local pose
+without skeleton hierarchy data.
+
 ### Installed passthrough modifier inventory (2026-09-20)
 
 The installed `Skyrim - Animations.bsa` contains 428 behavior graphs. The
@@ -664,22 +696,19 @@ gated `installed_behavior_passthrough_modifier_inventory` test parses every
 `hkbBehaviorGraph` object and fails if any graph cannot decode. It counts every
 modifier path that the interpreter does not execute: generic `NodeKind::Modifier`,
 `ModifierGenerator`, `ModifierList`, `EventDrivenModifier` and `TimerModifier`.
-It found 4,176 nodes across 32 classes. `BSIsActiveModifier` is excluded because
+It found 4,175 nodes across 31 classes. `BSIsActiveModifier` is excluded because
 its bound activity slots already write their output variables. The test freezes
 the sorted names and counts, and checks that every class has a bounded backlog
 row whose title names that class.
 
 | Class | Nodes | Follow-up |
 | --- | ---: | --- |
-| `BSDecomposeVectorModifier` | 1 | [ANM-24](../BACKLOG.csv) |
 | `BSDirectAtModifier` | 23 | [ANM-25](../BACKLOG.csv) |
 | `BSEventEveryNEventsModifier` | 85 | [ANM-26](../BACKLOG.csv) |
 | `BSEventOnDeactivateModifier` | 98 | [ANM-27](../BACKLOG.csv) |
-| `BSEventOnFalseToTrueModifier` | 23 | [ANM-03](../BACKLOG.csv) |
-| `BSGetTimeStepModifier` | 1 | [ANM-28](../BACKLOG.csv) |
 | `BSIStateManagerModifier` | 3 | [ANM-29](../BACKLOG.csv) |
-| `BSInterpValueModifier` | 36 | [ANM-30](../BACKLOG.csv) |
 | `BSLimbIKModifier` | 1 | [ANM-31](../BACKLOG.csv) |
+| `BSInterpValueModifier` | 36 | [ANM-30](../BACKLOG.csv) |
 | `BSLookAtModifier` | 128 | [ANM-32](../BACKLOG.csv) |
 | `BSModifyOnceModifier` | 26 | [ANM-33](../BACKLOG.csv) |
 | `BSPassByTargetTriggerModifier` | 1 | [ANM-34](../BACKLOG.csv) |
@@ -741,6 +770,32 @@ serialized order, a shared output with invert, a nested output, list and child
 enable transitions, authored disable, cleanup, malformed cycles and deep
 lists, and pose preservation.
 
+### Direct-at modifier
+
+`BSDirectAtModifier` reads the target mode, source bone, inclusive start and
+end bone indices, heading and pitch limits, heading and pitch offsets, gains,
+target and camera locations, user info, active flag and current offsets from
+the class layout in local serde-hkx `BSDirectAtModifier.json`. The saved
+current offsets seed its runtime smoothing state. The matching hkxcmd
+compatibility declaration confirms those fields but does not contain a runtime
+algorithm.
+The interpreter runs it after its wrapped generator. It measures heading and
+pitch from the source bone translation to the target, adds the authored
+offsets, clamps each angle symmetrically to its authored limit and applies
+equal local rotations across the declared index range. The target location is
+used when `directAtTarget` is set. The camera vector takes precedence when
+`directAtCamera` is set. `onGain` and `offGain` approach the target angles by
+`gain * frameDelta`, clamped to one. Disabling both target modes approaches zero.
+Translations and scales stay unchanged. A disabled modifier, a zero-weight
+pose or an invalid bone range leaves the pose unchanged.
+
+The interpreter does not receive the skeleton parent table, so this path uses
+the authored contiguous bone indices and model-space target coordinates as
+local pose inputs. Its heading and pitch axes are Z and X, with Y as the
+forward axis. The direct-at synthetic tests cover clamping, chain scope,
+offsets, gains, target modes, enable state and invalid ranges. These choices
+are not verified against a captured Havok runtime.
+
 ### False-to-true event slots (2026-09-20)
 
 ANM-03 decodes all three `BSEventOnFalseToTrueModifier` slots. Local
@@ -775,6 +830,27 @@ installed scan found 428 graphs, 23 edge modifiers and 29 enabled slots, with
 no slot payloads. The linked locomotion run now resolves 195 bindings with
 four unbound, compared with the historical 194 and five above.
 
+### Every-N event modifier (2026-09-28)
+
+ANM-26 decodes and executes `BSEventEveryNEventsModifier`. The field layout
+comes from `engine-refs/serde-hkx/assets/classes/BSEventEveryNEventsModifier.json`
+and its generated Rust class. The modifier forwards matching input event IDs
+through the graph and raises its output event after the configured number of
+matches. Other event IDs do not change its count. It resets its count when the
+modifier activates and after each output. The serialized `numberOfEventsSeen`
+and `calculatedNumberOfEventsBeforeSend` fields are ignored because the class
+metadata marks them `SERIALIZE_IGNORED`.
+
+When randomization is enabled, each interval is selected deterministically
+within the authored minimum and maximum. This preserves replay stability, but
+does not reproduce Skyrim's random sequence. Nonpositive authored limits are
+treated as one event, and an inverted range collapses to the maximum. The
+interpreter's event value carries IDs only, so event payload objects are not
+forwarded by this modifier. Synthetic tests cover matching and nonmatching
+inputs, interval boundaries, randomized bounds, ignored runtime counters and
+event remapping when behavior graphs are linked. An installed-data test scans
+behavior graphs in `Skyrim - Animations.bsa`.
+
 ### Get time step modifier (2026-09-20)
 
 `BSGetTimeStepModifier` inherits the `hkbModifier` enable field and stores an
@@ -788,6 +864,23 @@ preserve the existing serialized traversal order for those outputs. The
 synthetic packfile test checks the class field and binding decode, while the
 interpreter tests check zero, unequal update intervals, disabled output and a
 nested list. No original-runtime capture establishes finer behavior here.
+
+### BSInterpValueModifier
+
+`BSInterpValueModifier` inherits the `hkbModifier` enable field and stores
+`source`, `target`, `result` and `gain` as reals at 80, 84, 88 and 92 in the
+64-bit layout. Those fields and their 32-bit offsets come from
+`engine-refs/serde-hkx/assets/classes/BSInterpValueModifier.json`. Its
+`timeStep` field is serialization-ignored. The interpreter treats `source`
+and `target` bindings as inputs and `result` as an output. Each active update
+moves the source value toward the target by `gain * dt`, limiting the step to
+the remaining distance. The result reaches the target without overshooting
+in either direction. Modifier-list order controls when its output is
+published. `serde-hkx` supplies the field layout. The local Nemesis example
+confirms the input and output binding paths but does not define the arithmetic,
+so the interpreter follows the backlog's rate and target contract. The
+synthetic tests cover decoding, the rate, both directions, and target
+clamping. No original-runtime capture checks numerical parity.
 
 ### BSDecomposeVectorModifier (2026-09-20)
 
@@ -809,12 +902,32 @@ Linked behavior references currently preserve word defaults only. A
 by the parent graph until the linker imports quad defaults and remaps their
 word-table slots. ANM-57 owns that linker work.
 
+### BSLimbIKModifier (ANM-31)
+
+The class fields come from
+`engine-refs/serde-hkx/assets/classes/BSLimbIKModifier.json`: the enable flag,
+maximum angle in degrees, signed start and end bone indices, gain, bone radius
+and cast offset. The reader rejects non-finite real fields, negative limits or
+radii, negative start indices and end indices that do not follow the start.
+`currentAngle`, `timeStep` and `pSkeletonMemory` are runtime-only serialized
+fields and are ignored.
+
+The interpreter accepts a model-space target from its host through
+`set_limb_ik_target`. With an enabled modifier and a valid target, it rotates
+the local bone rotations from `startBoneIndex` through `endBoneIndex` toward
+the target. The angular correction is scaled by gain and capped at
+`limitAngleDegrees`. Bones outside that range and all transform translations
+remain unchanged. A missing target leaves the pose unchanged. The host owns
+collision casts because the HKX interpreter has no world query.
+
+The two authored-field tests check x86 and x64 class layout values and ignored
+runtime fields. The four other
+`anm_31_` tests cover movement inside the declared range, the angular cap,
+disabled and absent targets, and invalid authored ranges.
+
 ## 7. Not done and next
 
-- Modifier evaluation beyond the four the interpreter runs:
-  `BSIsActiveModifier`, `BSEventOnFalseToTrueModifier`,
-  `BSDecomposeVectorModifier` and `BSGetTimeStepModifier`. Dynamic bone weight
-  masks on a blender, `hkbRotateCharacterModifier` and
+- Dynamic bone weight masks on a blender, `hkbRotateCharacterModifier` and
   `hkbEventsFromRangeModifier` still pass through. Their layouts are in
   `serde-hkx` like the rest.
 - Transition details: equal-priority arbitration, the `abut at end` flag,

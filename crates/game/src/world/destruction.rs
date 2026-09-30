@@ -169,7 +169,11 @@ impl World {
     }
 }
 
-pub(super) fn write(value: &RefState, writer: &mut soe_papyrus::vm::state::Writer) {
+pub(super) fn write(
+    value: &RefState,
+    writer: &mut soe_papyrus::vm::state::Writer,
+    _pool: &mut soe_papyrus::vm::state::ArrayPool,
+) {
     writer.bool(value.destruction_health.is_some());
     if let Some(health) = value.destruction_health {
         writer.f32(health);
@@ -180,6 +184,7 @@ pub(super) fn write(value: &RefState, writer: &mut soe_papyrus::vm::state::Write
 pub(super) fn read(
     value: &mut RefState,
     reader: &mut super::save::FormReader<'_, '_>,
+    _table: &soe_papyrus::vm::state::ArrayTable,
 ) -> Result<(), VmError> {
     let health = if reader.bool()? {
         let health = reader.f32()?;

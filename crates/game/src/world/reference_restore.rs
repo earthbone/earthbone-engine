@@ -249,6 +249,14 @@ impl World {
             let Some(header) = form.reference_header(save.form_version)? else {
                 continue;
             };
+            if header.form_flags.is_some()
+                && (save.header.version != 12 || save.form_version != 78 || form.version != 78)
+            {
+                return Err(invalid(
+                    GlobalFormId { file: 0, object: PLAYER_OBJECT },
+                    "reference mask semantics are only validated for save version 12 and form versions 78",
+                ));
+            }
             let id = mapping
                 .reference(form.form)?
                 .ok_or(RestoreError::Reference(form.form.raw()))?;
@@ -271,13 +279,13 @@ impl World {
                     .order
                     .winner(id)
                     .ok_or_else(|| invalid(id, "missing reference record"))?;
-                if record.tag
-                    != if form.type_index() == 1 {
-                        T(b"ACHR")
-                    } else {
-                        T(b"REFR")
-                    }
-                {
+                let expected = match form.type_index() {
+                    1 => T(b"ACHR"),
+                    42 => T(b"PCON"),
+                    47 => T(b"PARW"),
+                    _ => T(b"REFR"),
+                };
+                if record.tag != expected {
                     return Err(invalid(id, "reference record type differs from save"));
                 }
                 self.load_ref_record(id)

@@ -264,6 +264,44 @@ fn close(actual: f32, expected: f32) {
 }
 
 #[test]
+fn mag_34_melee_hit_ends_attacker_invisibility() {
+    let mut data = vec![0; 152];
+    put(&mut data, 64, 11);
+    put(&mut data, 80, 1);
+    let mut spell_data = vec![0; 36];
+    put(&mut spell_data, 16, 1);
+    let invisibility = Record::new(Tag(*b"MGEF"), 0xB10).sub(Tag(*b"DATA"), data);
+    let spell = Record::new(Tag(*b"SPEL"), 0xB11)
+        .sub(Tag(*b"SPIT"), spell_data)
+        .sub(Tag(*b"EFID"), 0xB10_u32.to_le_bytes())
+        .sub(
+            Tag(*b"EFIT"),
+            [
+                1.0_f32.to_le_bytes(),
+                0_u32.to_le_bytes(),
+                20_u32.to_le_bytes(),
+            ]
+            .concat(),
+        );
+    let mut game = fixture(vec![invisibility, spell]);
+    let shared = game.shared_world();
+    shared
+        .borrow_mut()
+        .cast_spell(
+            id(0xB11),
+            id(0x14),
+            Some(id(0x14)),
+            None,
+            &mut |name, class| game.vm.create_object_of(name, class),
+        )
+        .unwrap();
+    assert!(game.world().is_invisible(id(0x14)));
+
+    game.melee_hit(hit(0x14, 0x901)).unwrap();
+    assert!(!game.world().is_invisible(id(0x14)));
+}
+
+#[test]
 fn cmb_15_attack_damage_mult_uses_shared_components_and_survives_save() {
     let records = vec![armor(0xB00, 10_000, 1 << 2, 1)];
     let mut game = fixture(records.clone());

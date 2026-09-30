@@ -492,6 +492,9 @@ impl World {
     /// group rather than its temporary one. A persistent child outlives the
     /// cell, so an unload leaves it alone.
     pub fn is_persistent_child(&mut self, cell: GlobalFormId, id: GlobalFormId) -> bool {
+        if let Some(reference) = self.refs.get(&id) {
+            return reference.persistent;
+        }
         if self.order.cell_index().is_none() {
             self.order.build_cell_index();
         }

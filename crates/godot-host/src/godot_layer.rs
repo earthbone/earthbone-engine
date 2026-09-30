@@ -24,7 +24,7 @@ use godot::classes::mesh::{ArrayType, PrimitiveType};
 use godot::classes::multi_mesh::TransformFormat;
 use godot::classes::{
     ArrayMesh, Cubemap, INode3D, Image, ImageTexture, Material, MultiMesh, Node3D, RenderingServer,
-    Shader, ShaderMaterial, StandardMaterial3D,
+    Shader, ShaderMaterial, SphereMesh, StandardMaterial3D,
 };
 use godot::prelude::*;
 use soe_esm::GlobalFormId;
@@ -88,6 +88,8 @@ pub struct CellStreamerNode {
     /// sees them: a batch is a mesh RID and an instance RID in this node's
     /// scenario, freed in `exit_tree`, so a cell costs no `Node3D` at all.
     instances: Vec<Instance>,
+    /// Temporary shader visuals keyed by their authored shader and target.
+    effect_shaders: std::collections::HashMap<(GlobalFormId, GlobalFormId), EffectShaderInstance>,
     /// The `CELL` each streamed exterior grid position resolved to, so
     /// `release_exterior_cell` can find that cell's instances by the grid
     /// coordinate `cell_unload_requested` carries.
@@ -186,6 +188,16 @@ struct Instance {
 enum InstanceMesh {
     Array(Gd<ArrayMesh>),
     Multi(Gd<MultiMesh>),
+}
+
+/// One transient RenderingServer visual and the resources it references.
+#[allow(dead_code)]
+struct EffectShaderInstance {
+    rid: Rid,
+    mesh: Gd<SphereMesh>,
+    material: Gd<StandardMaterial3D>,
+    remaining: Option<f32>,
+    cell: Option<GlobalFormId>,
 }
 
 impl Drop for CellStreamerNode {
@@ -315,6 +327,7 @@ impl INode3D for CellStreamerNode {
             data_source: None,
             data_load: None,
             instances: Vec::new(),
+            effect_shaders: std::collections::HashMap::new(),
             exterior_cells: std::collections::HashMap::new(),
             materials: MaterialMap::new(),
             bounds: None,
@@ -336,6 +349,7 @@ impl INode3D for CellStreamerNode {
 
     fn exit_tree(&mut self) {
         self.free_instances();
+        self.free_effect_shaders();
         self.clear_terrain_lod();
         self.collision.free();
         self.tethers.free();
@@ -364,6 +378,110 @@ impl INode3D for CellStreamerNode {
 }
 
 impl CellStreamerNode {
+    /// Apply queued game requests and advance finite shader durations.
+    pub(crate) fn sync_effect_shaders(
+        &mut self,
+        world: &soe_game::World,
+        requests: Vec<soe_game::world::EffectShaderRequest>,
+        delta: f32,
+    ) {
+        let mut server = RenderingServer::singleton();
+        for request in requests {
+            let key = (request.shader, request.target);
+            if !request.playing {
+                if let Some(effect) = self.effect_shaders.remove(&key) {
+                    server.free_rid(effect.rid);
+                }
+                continue;
+            }
+            let Some(placement) = world.ref_placement(request.target) else {
+                continue;
+            };
+            let Some(scenario) = self.scenario() else {
+                continue;
+            };
+            let position = SkyrimPos::new(
+                placement.position[0],
+                placement.position[1],
+                placement.position[2],
+            )
+            .to_godot();
+            let transform = Transform3D::new(
+                Basis::IDENTITY.scaled(Vector3::splat(placement.scale.max(0.01))),
+                Vector3::new(position.x, position.y, position.z),
+            );
+            if let Some(effect) = self.effect_shaders.get_mut(&key) {
+                effect.remaining = (request.duration >= 0.0).then_some(request.duration);
+                effect.cell = world
+                    .reference_ref(request.target)
+                    .and_then(|reference| reference.cell);
+                server.instance_set_transform(effect.rid, transform);
+                continue;
+            }
+            let mut mesh = SphereMesh::new_gd();
+            mesh.set_radius(0.75);
+            mesh.set_height(1.5);
+            let mut material = StandardMaterial3D::new_gd();
+            material.set_shading_mode(godot::classes::base_material_3d::ShadingMode::UNSHADED);
+            material.set_transparency(Transparency::ALPHA);
+            material.set_albedo(Color::from_rgba(0.35, 0.65, 1.0, 0.45));
+            material.set_feature(Feature::EMISSION, true);
+            material.set_emission(Color::from_rgb(0.25, 0.55, 1.0));
+            let rid = server.instance_create2(mesh.get_rid(), scenario);
+            server.instance_set_transform(rid, transform);
+            server.instance_geometry_set_material_override(rid, material.get_rid());
+            self.effect_shaders.insert(
+                key,
+                EffectShaderInstance {
+                    rid,
+                    mesh,
+                    material,
+                    remaining: (request.duration >= 0.0).then_some(request.duration),
+                    cell: world
+                        .reference_ref(request.target)
+                        .and_then(|reference| reference.cell),
+                },
+            );
+        }
+        self.effect_shaders.retain(|(_, target), effect| {
+            let Some(placement) = world.ref_placement(*target).filter(|p| p.visible) else {
+                server.free_rid(effect.rid);
+                return false;
+            };
+            let position = SkyrimPos::new(
+                placement.position[0],
+                placement.position[1],
+                placement.position[2],
+            )
+            .to_godot();
+            let transform = Transform3D::new(
+                Basis::IDENTITY.scaled(Vector3::splat(placement.scale.max(0.01))),
+                Vector3::new(position.x, position.y, position.z),
+            );
+            server.instance_set_transform(effect.rid, transform);
+            effect.cell = world
+                .reference_ref(*target)
+                .and_then(|reference| reference.cell);
+            let Some(remaining) = effect.remaining.as_mut() else {
+                return true;
+            };
+            *remaining -= delta.max(0.0);
+            if *remaining <= 0.0 {
+                server.free_rid(effect.rid);
+                false
+            } else {
+                true
+            }
+        });
+    }
+
+    fn free_effect_shaders(&mut self) {
+        let mut server = RenderingServer::singleton();
+        for (_, effect) in self.effect_shaders.drain() {
+            server.free_rid(effect.rid);
+        }
+    }
+
     pub(crate) fn shared_source(&self) -> Option<Arc<DataSource>> {
         self.data_source.clone()
     }
@@ -384,6 +502,14 @@ impl CellStreamerNode {
             self.add_cell(cell.id, &cell.loaded, scenario, &mut totals);
         }
         let mut server = RenderingServer::singleton();
+        self.effect_shaders.retain(|_, effect| {
+            if effect.cell.is_some_and(|cell| departed.contains(&cell)) {
+                server.free_rid(effect.rid);
+                false
+            } else {
+                true
+            }
+        });
         self.instances.retain(|instance| {
             if departed.contains(&instance.cell) {
                 server.free_rid(instance.rid);
@@ -1377,6 +1503,7 @@ impl CellStreamerNode {
         self.collision_space = None;
         self.collision_cell = None;
         self.free_instances();
+        self.free_effect_shaders();
         self.exterior_cells.clear();
         self.ref_cache.clear();
         self.clear_terrain_lod();

@@ -113,6 +113,70 @@ class CapacityTests(unittest.TestCase):
         finally:
             perf.command = old
 
+    def test_prf_04_full_day_soak_records_memory_and_frame_time(self):
+        args = arguments(mode="soak", duration=86400)
+        rows = [sample(elapsed_s=86390, rss_mib=128),
+                sample(elapsed_s=86400, rss_mib=150, p99_ms=8, worst_ms=20)]
+
+        reasons, invalid = perf.assess(rows, args)
+
+        self.assertEqual(reasons, [])
+        self.assertFalse(invalid)
+
+    def test_prf_04_soak_requires_all_memory_windows_and_stays_under_growth_budget(self):
+        args = arguments(mode="soak", duration=86400)
+        rows = [sample(elapsed_s=300, rss_mib=128), sample(elapsed_s=600, rss_mib=None)]
+
+        reasons, invalid = perf.assess(rows, args)
+
+        self.assertTrue(invalid)
+        self.assertIn("RSS observations", reasons[0])
+
+        rows = [sample(elapsed_s=300, rss_mib=128), sample(elapsed_s=600, rss_mib=193)]
+        reasons, invalid = perf.assess(rows, args)
+
+        self.assertFalse(invalid)
+        self.assertIn("RSS growth", reasons[0])
+
+    def test_prf_04_soak_requires_frame_times_under_both_budgets(self):
+        args = arguments(mode="soak", duration=600)
+        rows = [sample(elapsed_s=300, p99_ms=17, worst_ms=20),
+                sample(elapsed_s=600, p99_ms=10, worst_ms=34)]
+
+        reasons, invalid = perf.assess(rows, args)
+
+        self.assertFalse(invalid)
+        self.assertIn("p99_ms", reasons[0])
+        self.assertIn("worst_ms", reasons[1])
+
+    def test_prf_04_soak_requires_monotonic_elapsed_time_for_full_duration(self):
+        args = arguments(mode="soak", duration=86400)
+        rows = [sample(elapsed_s=500, rss_mib=128), sample(elapsed_s=None, rss_mib=129)]
+
+        reasons, invalid = perf.assess(rows, args)
+
+        self.assertTrue(invalid)
+        self.assertIn("elapsed-time telemetry", reasons[0])
+
+        rows = [sample(elapsed_s=500, rss_mib=128), sample(elapsed_s=499, rss_mib=129)]
+
+        reasons, invalid = perf.assess(rows, args)
+
+        self.assertTrue(invalid)
+        self.assertIn("increasing elapsed-time", reasons[0])
+
+        rows = [sample(elapsed_s=86399, rss_mib=128), sample(elapsed_s=86399, rss_mib=129)]
+        reasons, invalid = perf.assess(rows, args)
+
+        self.assertTrue(invalid)
+        self.assertIn("increasing elapsed-time", reasons[0])
+
+        rows = [sample(elapsed_s=86390, rss_mib=128), sample(elapsed_s=86399, rss_mib=129)]
+        reasons, invalid = perf.assess(rows, args)
+
+        self.assertTrue(invalid)
+        self.assertIn("requested duration", reasons[0])
+
 
 if __name__ == "__main__":
     unittest.main()
