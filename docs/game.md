@@ -21,6 +21,10 @@ unsupported hooks with named reasons. The C++ contract has no Rust ABI bridge.
 
 ## What is in it
 
+- `commonlib`: source-level views of loaded form-factory descriptors, reference inventory
+  stacks and reference handles for the MIT `commonlib-shim` crate. Factory allocation, inventory
+  mutation, and Scaleform item-list selection and refresh return typed unsupported results.
+
 - `world`: the runtime form table. A `LoadOrder` from `soe-esm` plus the state
   a running game adds per form: references (position, cell, enable state,
   inventory, links, door teleports), actors (actor values, death, combat,

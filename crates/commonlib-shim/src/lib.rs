@@ -22,4 +22,5 @@ pub mod skse;
 pub mod support;
 pub mod util;
 pub mod vm;
+pub mod world;
 pub mod world_types;
