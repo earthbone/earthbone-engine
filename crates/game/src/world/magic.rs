@@ -33,6 +33,7 @@ pub(super) const DISPEL_WITH_KEYWORDS: u32 = 1 << 8;
 const INGESTIBLE_POISON: u32 = 1 << 17;
 const DEMORALIZE: u32 = 7;
 const FRENZY_ARCHETYPE: u32 = 8;
+const TURN_UNDEAD: u32 = 24;
 
 /// Identity of one effect application, independent of its MGEF FormID.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -125,6 +126,40 @@ impl World {
         };
         self.brewed_potions.insert(id, effects);
         id
+    }
+
+    /// The source of an active Turn Undead effect that currently makes this
+    /// actor flee. Teammates do not flee until their combat state begins.
+    pub(crate) fn turn_undead_threat(&mut self, target: GlobalFormId) -> Option<GlobalFormId> {
+        let actor = self.actor(target)?;
+        if actor.dead || actor.ghost || actor.teammate && !actor.in_combat {
+            return None;
+        }
+        let undead = self.form("ActorTypeUndead")?;
+        if !self.has_keyword(target, undead) {
+            return None;
+        }
+        let effects: Vec<_> = self
+            .active_effects
+            .values()
+            .filter(|effect| {
+                effect.target == target
+                    && effect
+                        .duration
+                        .is_some_and(|duration| duration > effect.elapsed)
+            })
+            .map(|effect| (effect.effect, effect.caster, effect.source))
+            .collect();
+        effects.into_iter().find_map(|(effect, caster, source)| {
+            self.magic_effect(effect)
+                .is_ok_and(|definition| definition.data.archetype == TURN_UNDEAD)
+                .then(|| {
+                    caster
+                        .filter(|id| self.reference(*id).is_some())
+                        .unwrap_or(source)
+                })
+                .filter(|id| self.reference(*id).is_some())
+        })
     }
 
     /// All currently applied effects, in application order.
@@ -840,9 +875,16 @@ impl World {
             }
             if !matches!(
                 data.archetype,
-                0 | 1 | 2 | 5 | 6 | 10 | 18 | 20 | DEMORALIZE | FRENZY_ARCHETYPE
+                0 | 1 | 2 | 5 | 6 | 10 | 18 | 20 | DEMORALIZE | FRENZY_ARCHETYPE | TURN_UNDEAD
             ) {
                 return Err(MagicError::Unsupported("effect archetype"));
+            }
+            if data.archetype == TURN_UNDEAD
+                && self
+                    .form("ActorTypeUndead")
+                    .is_none_or(|keyword| !self.has_keyword(target, keyword))
+            {
+                continue;
             }
             if data.taper_duration != 0.0 {
                 return Err(MagicError::Unsupported("taper"));
@@ -914,7 +956,7 @@ impl World {
             } else {
                 None
             };
-            let duration = if definition.data.cast_type == 0 {
+            let duration = if definition.data.cast_type == 0 && data.archetype != TURN_UNDEAD {
                 None
             } else {
                 Some(if data.flags & NO_DURATION != 0 {

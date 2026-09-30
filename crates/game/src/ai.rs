@@ -1009,7 +1009,8 @@ pub fn tick(world: &mut World, dt: f64, alloc: Alloc<'_>) {
         if ignores_combat(world, actor) {
             clear_combat_engagement(world, actor);
         }
-        if world.is_fleeing(actor) {
+        let turn_undead_threat = world.turn_undead_threat(actor);
+        if world.is_fleeing(actor) || turn_undead_threat.is_some() {
             if let Some(state) = world.actor(actor) {
                 state.in_combat = false;
                 state.combat_target = None;
@@ -1019,7 +1020,9 @@ pub fn tick(world: &mut World, dt: f64, alloc: Alloc<'_>) {
                 state.ai.destination = None;
                 state.ai.arrived = false;
             }
-            if let Some(source) = world.flee_source(actor) {
+            if let Some(threat) = turn_undead_threat {
+                flee_turn_undead(world, actor, threat, dt as f32);
+            } else if let Some(source) = world.flee_source(actor) {
                 flee_from(world, actor, source, dt as f32);
             }
             continue;
@@ -1097,6 +1100,61 @@ fn flee_from(world: &mut World, actor: GlobalFormId, source: GlobalFormId, dt: f
         }
         if budget <= 0.0 {
             break;
+        }
+    }
+    if let Some(reference) = world.reference(actor) {
+        reference.position = position;
+        if cell.is_some() {
+            reference.cell = cell;
+        }
+    }
+}
+
+/// Run away from the caster while a Turn Undead application is active.
+fn flee_turn_undead(world: &mut World, actor: GlobalFormId, threat: GlobalFormId, dt: f32) {
+    let Some((mut position, mut cell)) = world
+        .reference(actor)
+        .map(|reference| (reference.position, reference.cell))
+    else {
+        return;
+    };
+    let Some(threat_position) = world.reference(threat).map(|reference| reference.position) else {
+        return;
+    };
+    let mut direction = [
+        position[0] - threat_position[0],
+        position[1] - threat_position[1],
+        position[2] - threat_position[2],
+    ];
+    let length = distance(position, threat_position);
+    if length <= f32::EPSILON {
+        direction = [1.0, 0.0, 0.0];
+    } else {
+        for component in &mut direction {
+            *component /= length;
+        }
+    }
+    let destination = std::array::from_fn(|axis| position[axis] + direction[axis] * 512.0);
+    let (path, cells) = plan(world, position, destination, cell);
+    let speed = movement_speed(world, actor, speed::RUN);
+    let mut budget = speed * dt.max(0.0);
+    for (index, next) in path.iter().enumerate() {
+        if budget <= 0.0 {
+            break;
+        }
+        let distance = distance(position, *next);
+        if distance <= budget {
+            position = *next;
+            budget -= distance;
+            if let Some(Some(next_cell)) = cells.get(index) {
+                cell = Some(*next_cell);
+            }
+        } else if distance > 0.0 {
+            let fraction = budget / distance;
+            position = std::array::from_fn(|axis| {
+                position[axis] + (next[axis] - position[axis]) * fraction
+            });
+            budget = 0.0;
         }
     }
     if let Some(reference) = world.reference(actor) {
