@@ -124,6 +124,7 @@ pub struct SkinnedActorNode {
     uploaded_skins: Vec<Transform3D>,
     stats: VarDictionary,
     elapsed: f64,
+    invisible: bool,
     ragdoll_map: Option<RagdollBoneMap>,
     ragdoll: Option<LiveRagdoll>,
 }
@@ -145,6 +146,7 @@ impl INode3D for SkinnedActorNode {
             uploaded_skins: Vec::new(),
             stats: VarDictionary::new(),
             elapsed: 0.0,
+            invisible: false,
             ragdoll_map: None,
             ragdoll: None,
         }
@@ -165,6 +167,7 @@ impl INode3D for SkinnedActorNode {
             return;
         }
         if !self.playing {
+            self.sync_invisibility();
             self.refresh_appearance();
             return;
         }
@@ -273,6 +276,7 @@ impl SkinnedActorNode {
             let mesh = array_mesh_from(&surface.arrays);
             let instance = server.instance_create2(mesh.get_rid(), scenario);
             server.instance_set_transform(instance, Transform3D::IDENTITY);
+            server.instance_set_visible(instance, visible_for_invisibility(self.invisible));
             server.instance_attach_skeleton(instance, skeleton);
             self.shapes.push(ShapeRids { instance, skeleton });
             self.meshes.push(mesh);
@@ -355,6 +359,7 @@ impl SkinnedActorNode {
     /// this while `playing`, and a test can call it directly.
     #[func]
     pub fn advance(&mut self, delta: f32) {
+        self.sync_invisibility();
         self.sync_death_rendering();
         self.refresh_appearance();
         if self.ragdoll.is_some() {
@@ -586,6 +591,21 @@ impl SkinnedActorNode {
 }
 
 impl SkinnedActorNode {
+    fn sync_invisibility(&mut self) {
+        let invisible = self
+            .appearance
+            .as_ref()
+            .is_some_and(|binding| binding.world.borrow().is_invisible(binding.actor));
+        if self.invisible == invisible {
+            return;
+        }
+        self.invisible = invisible;
+        let mut server = RenderingServer::singleton();
+        for shape in &self.shapes {
+            server.instance_set_visible(shape.instance, visible_for_invisibility(invisible));
+        }
+    }
+
     fn sync_death_rendering(&mut self) {
         let Some(binding) = &self.appearance else {
             return;
@@ -753,6 +773,25 @@ impl SkinnedActorNode {
         self.update_surface_stats();
         self.push_pose();
         Ok(())
+    }
+}
+
+fn visible_for_invisibility(invisible: bool) -> bool {
+    !invisible
+}
+
+#[cfg(test)]
+mod invisibility_tests {
+    use super::visible_for_invisibility;
+
+    #[test]
+    fn mag_34_invisibility_hides_skinned_actor_instances() {
+        assert!(!visible_for_invisibility(true));
+    }
+
+    #[test]
+    fn mag_34_visible_actor_keeps_skinned_actor_instances_visible() {
+        assert!(visible_for_invisibility(false));
     }
 }
 

@@ -36,6 +36,13 @@ pub struct ActorAppearance {
     pub parts: Vec<ArmorPart>,
 }
 
+/// Editable player head-part and morph selection stored with the player actor.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct PlayerAppearance {
+    pub head_parts: BTreeMap<u32, GlobalFormId>,
+    pub morphs: BTreeMap<String, f32>,
+}
+
 #[derive(Default)]
 struct Traits {
     race: Option<GlobalFormId>,
@@ -51,16 +58,27 @@ enum Records<'a> {
 impl World {
     /// Resolve current race, sex, skin and equipment from authoritative state.
     pub fn actor_appearance(&mut self, actor: GlobalFormId) -> Result<ActorAppearance> {
-        let base = if self.reference(actor).and_then(|r| r.base).is_some() {
+        let base = self.reference(actor).and_then(|r| r.base);
+        let traits_source = if base.is_some() {
             Some(self.actor_component_source(actor, crate::npc::template::TRAITS)?)
         } else {
             None
         };
-        let traits = if let Some(base) = base {
+        let traits = if let Some(source) = traits_source {
+            let distributed_skin = base.and_then(|base| {
+                self.mod_data
+                    .for_base(base)
+                    .iter()
+                    .rev()
+                    .find(|distribution| {
+                        distribution.record_type == soe_moddata::spid::RecordType::Skin
+                    })
+                    .map(|distribution| distribution.what)
+            });
             Traits {
-                race: self.actor_base_race(base)?,
-                skin: self.skin(base)?,
-                female: self.npc_record(base)?.is_female(),
+                race: self.actor_base_race(source)?,
+                skin: distributed_skin.or(self.skin(source)?),
+                female: self.npc_record(source)?.is_female(),
             }
         } else {
             Traits::default()

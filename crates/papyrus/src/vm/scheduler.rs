@@ -3,7 +3,9 @@
 //! VM scheduler, extracted from the interpreter described in docs/papyrus.md.
 //! The public API remains on Vm and uses the same single scheduler.
 
-use super::{Frame, LatentId, Thread, ThreadId, ThreadState, Value, Vm};
+use super::{
+    Frame, LatentId, Thread, ThreadId, ThreadState, Value, Vm, MAX_COMPLETED_THREAD_HISTORY,
+};
 
 impl Vm {
     pub(super) fn spawn(&mut self, frame: Frame) -> ThreadId {
@@ -120,7 +122,31 @@ impl Vm {
                 break;
             }
         }
+        self.retain_recent_completed_threads();
         used
+    }
+
+    fn retain_recent_completed_threads(&mut self) {
+        let completed = self
+            .threads
+            .iter()
+            .filter(|thread| thread.state == ThreadState::Done)
+            .count();
+        if completed <= MAX_COMPLETED_THREAD_HISTORY {
+            return;
+        }
+
+        let first_retained = self
+            .threads
+            .iter()
+            .filter(|thread| thread.state == ThreadState::Done)
+            .nth(completed - MAX_COMPLETED_THREAD_HISTORY)
+            .map(|thread| thread.id);
+        if let Some(first_retained) = first_retained {
+            self.threads.retain(|thread| {
+                thread.state != ThreadState::Done || thread.id.0 >= first_retained.0
+            });
+        }
     }
 
     /// Run until no thread is runnable, at most `max` instructions. Sleeping

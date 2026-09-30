@@ -265,6 +265,48 @@ impl World {
 }
 
 impl crate::Game {
+    /// Restore the currently supported vanilla world and VM state as one
+    /// transaction. A failure in any pass restores the prior SOEG state.
+    ///
+    /// Passes run in dependency order: globals, NPC changes, reference
+    /// placement, actor templates, inventories, reference extras, quests,
+    /// lists and Papyrus execution. Queued messages and suspended stacks remain
+    /// inert, and unsupported change-form types are not imported here.
+    ///
+    /// # Errors
+    /// The save cannot be mapped or one of its supported state passes fails.
+    pub fn restore_vanilla_world_and_vm(&mut self, save: &Save) -> Result<(), RestoreError> {
+        let before = self.save_state().map_err(|error| {
+            RestoreError::PapyrusExecution(format!("cannot snapshot game before import: {error}"))
+        })?;
+        let bound = self.bound.clone();
+        let result = self.restore_vanilla_world_and_vm_inner(save);
+        if let Err(error) = result {
+            if let Err(rollback) = self.load_state(&before) {
+                return Err(RestoreError::PapyrusExecution(format!(
+                    "{error}; game rollback failed: {rollback}"
+                )));
+            }
+            self.bound = bound;
+            return Err(error);
+        }
+        Ok(())
+    }
+
+    fn restore_vanilla_world_and_vm_inner(&mut self, save: &Save) -> Result<(), RestoreError> {
+        self.world_mut().restore_vanilla_globals(save)?;
+        self.world_mut().restore_vanilla_npcs(save)?;
+        self.world_mut()
+            .restore_vanilla_reference_placements(save)?;
+        self.world_mut().restore_vanilla_actor_templates(save)?;
+        self.world_mut().restore_vanilla_inventories(save)?;
+        self.world_mut().restore_vanilla_reference_extras(save)?;
+        self.world_mut().restore_vanilla_quests(save)?;
+        self.world_mut().restore_vanilla_lists(save)?;
+        self.restore_vanilla_papyrus_execution(save)?;
+        Ok(())
+    }
+
     /// Import saved Papyrus state, binding each script instance to its live
     /// form through the save's plugin names and RefID table.
     ///
