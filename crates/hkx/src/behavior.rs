@@ -596,6 +596,14 @@ pub struct ExpressionData {
     /// `ExpressionEventMode` from the Havok class definition.
     pub event_mode: i8,
 }
+/// `BSPassByTargetTriggerModifier`: crossing parameters and the event to emit.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PassByTargetTrigger {
+    pub target_position: [f32; 4],
+    pub radius: f32,
+    pub movement_direction: [f32; 4],
+    pub trigger_event: EventProperty,
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum NodeKind {
@@ -703,6 +711,10 @@ pub enum NodeKind {
         on_activate: Option<NodeId>,
         on_deactivate: Option<NodeId>,
     },
+    PassByTargetTrigger {
+        enable: bool,
+        trigger: PassByTargetTrigger,
+    },
     /// `BSDecomposeVectorModifier`: copies the four components of `vector`
     /// into its real outputs.
     DecomposeVector {
@@ -797,6 +809,7 @@ impl Node {
             | NodeKind::GetTimeStepModifier { .. }
             | NodeKind::IsActiveModifier { .. }
             | NodeKind::FalseToTrueModifier { .. }
+            | NodeKind::PassByTargetTrigger { .. }
             | NodeKind::DecomposeVector { .. }
             | NodeKind::EvaluateExpression { .. }
             | NodeKind::Modifier { .. }
@@ -1271,6 +1284,15 @@ impl<'a> Loader<'a> {
                     expressions,
                 }
             }
+            "BSPassByTargetTriggerModifier" => NodeKind::PassByTargetTrigger {
+                enable: o.bool(o.layout_offset(40, 72))?,
+                trigger: PassByTargetTrigger {
+                    target_position: o.vec4(o.layout_offset(48, 80))?,
+                    radius: o.f32(o.layout_offset(64, 96))?,
+                    movement_direction: o.vec4(o.layout_offset(80, 112))?,
+                    trigger_event: EventProperty::read(o, o.layout_offset(96, 128))?,
+                },
+            },
             c if c.ends_with("Modifier") => NodeKind::Modifier {
                 enable: o.bool(o.layout_offset(40, 72))?,
             },

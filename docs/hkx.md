@@ -675,7 +675,6 @@ row whose title names that class.
 | `BSLimbIKModifier` | 1 | [ANM-31](../BACKLOG.csv) |
 | `BSLookAtModifier` | 128 | [ANM-32](../BACKLOG.csv) |
 | `BSModifyOnceModifier` | 26 | [ANM-33](../BACKLOG.csv) |
-| `BSPassByTargetTriggerModifier` | 1 | [ANM-34](../BACKLOG.csv) |
 | `BSRagdollContactListenerModifier` | 50 | [ANM-35](../BACKLOG.csv) |
 | `BSSpeedSamplerModifier` | 42 | [ANM-36](../BACKLOG.csv) |
 | `BSTimerModifier` | 1 | [ANM-37](../BACKLOG.csv) |
@@ -796,6 +795,27 @@ components. Outputs follow modifier-list traversal order, including nested
 lists, so a later serialized modifier wins when two components share a target
 variable. The synthetic tests cover authored and bound vectors, all four
 components, disabled lifecycle and nested-list order.
+
+### BSPassByTargetTriggerModifier
+
+The decoder reads `targetPosition`, `radius`, `movementDirection` and
+`triggerEvent` from the layout in
+`engine-refs/serde-hkx/assets/classes/BSPassByTargetTriggerModifier.json`.
+The serialized `targetPassed` field is marked ignored by the class metadata, so
+each interpreter instance starts with its own false one-shot latch. The caller
+supplies the character world position with
+`Interpreter::set_character_position` before each update. When an enabled
+modifier sees a forward crossing of the plane through `targetPosition`, it
+projects the crossing point onto the plane and requires that point to be no
+farther than `radius` from the target. `movementDirection` supplies the plane
+normal. A zero or non-finite direction and a negative or non-finite radius do
+not trigger. The configured event enters the ordinary raised-event queue, and
+the latch prevents a second event for that modifier instance. This geometric
+interpretation follows the authored field names and done check. The local
+serde-hkx source defines the record layout but does not document runtime
+crossing details, and no original-runtime capture validates the geometry.
+`pass_by_target` synthetic tests cover decoding, forward and reverse crossings,
+radius filtering, one-shot behavior and the ignored serialized latch.
 
 Linked behavior references currently preserve word defaults only. A
 `BSDecomposeVectorModifier` inside a linked sub-graph needs its vector supplied
