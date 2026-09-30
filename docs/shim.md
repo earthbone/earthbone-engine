@@ -120,12 +120,32 @@ for an engine binding to implement against live world state. Missing objects ret
 `std::nullopt`. Vtable and call-site patch requests return the `UNSUPPORTED_VTABLE_HOOK`
 description because those addresses have no meaning in this runtime.
 
+The event API includes payloads for `TESGrabReleaseEvent`,
+`TESHarvestedEvent::ItemHarvested`, `TESHitEvent`, `TESObjectLoadedEvent` and
+`TESQuestStageEvent`. References and actors use the shim's `ObjectRefHandle`
+and `ActorHandle`, form identities use `FormId`, hit flags retain their
+CommonLib bit values, and the executable quest callback pointer is omitted.
+`EventSource` sends each typed payload to registered sinks in registration
+order and stops when a sink returns `Stop`. `request_hook` returns an explicit
+`Unsupported` error for call-site, branch and vtable hooks. The SHM-22 C++
+fixture routes all five payloads into stateful receiver methods and checks the
+three hook results. It exercises the source-level API contract and does not
+link a plugin to a running game process.
+
+The payload field layout was checked against the alandtse
+`TESGrabReleaseEvent.h`, `ItemHarvested.h`, `TESHitEvent.h`,
+`TESObjectLoadedEvent.h` and `TESQuestStageEvent.h` headers. The Rust handles
+and omission of executable callback state follow this shim's source-level
+boundary rather than copying CommonLib's pointer representation.
+
 ## Untested
 
 The SHM-01 test compiles the generated umbrella headers with a C++20 compiler and checks C++
 signatures for the Rust methods they project. The SHM-02 test compiles and loads a small C++
 module through the new entry point and checks its unsupported hook report. SHM-20 compiles the
 five typed event payload contracts and checks sink dispatch against synthetic state fixtures.
+SHM-22 checks the additional payload contracts, live-state receiver calls and unsupported hook
+results in Rust and C++ fixtures.
 Runtime event production is not wired to these channels, and no surveyed plugin has been
 compiled against the headers or loaded. The declarations are not linked to engine behavior.
 The counts are token counts,

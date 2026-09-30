@@ -94,6 +94,80 @@ pub struct TESCellFullyLoadedEvent {
     pub cell: FormId,
 }
 
+/// `RE::TESGrabReleaseEvent`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct TesGrabReleaseEvent {
+    pub reference: ObjectRefHandle,
+    pub grabbed: bool,
+}
+
+/// `RE::TESHarvestedEvent::ItemHarvested` from `RE/I/ItemHarvested.h`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct TesHarvestedEvent {
+    pub produce_item: FormId,
+    pub harvester: ActorHandle,
+}
+
+/// `RE::TESHitEvent::Flag`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub struct HitFlags(pub u8);
+
+impl HitFlags {
+    pub const POWER_ATTACK: Self = Self(1 << 0);
+    pub const SNEAK_ATTACK: Self = Self(1 << 1);
+    pub const BASH_ATTACK: Self = Self(1 << 2);
+    pub const HIT_BLOCKED: Self = Self(1 << 3);
+
+    /// Whether the event includes this flag.
+    pub const fn contains(self, flag: Self) -> bool {
+        self.0 & flag.0 == flag.0
+    }
+}
+
+/// `RE::TESHitEvent`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct TesHitEvent {
+    pub target: ObjectRefHandle,
+    pub cause: ObjectRefHandle,
+    pub source: FormId,
+    pub projectile: FormId,
+    pub flags: HitFlags,
+}
+
+/// `RE::TESObjectLoadedEvent`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct TesObjectLoadedEvent {
+    pub form_id: FormId,
+    pub loaded: bool,
+}
+
+/// `RE::TESQuestStageEvent`. The executable callback pointer is omitted.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct TesQuestStageEvent {
+    pub quest: FormId,
+    pub stage: u16,
+    pub item_index: u8,
+}
+
+/// Hook sites that cannot be represented as engine events or settings.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum HookKind {
+    CallSite,
+    Branch,
+    Vtable,
+}
+
+/// Result for a request to install a binary hook.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum HookError {
+    Unsupported(HookKind),
+}
+
+/// Rejects binary patch hooks, which target Skyrim executable addresses.
+pub const fn request_hook(kind: HookKind) -> Result<(), HookError> {
+    Err(HookError::Unsupported(kind))
+}
+
 /// An in-process event source. Sinks run in registration order and delivery
 /// stops at the first sink that returns `Stop`.
 pub struct EventSource<E> {

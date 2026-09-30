@@ -273,6 +273,41 @@ struct SkillIncrease { ActorHandle player; ActorValue actor_value; };
 struct SoulsTrapped { ActorHandle trapper; ActorHandle target; };
 struct SpellsLearned { FormId spell; };
 struct TESCellFullyLoadedEvent { FormId cell; };
+struct TESGrabReleaseEvent {
+    ObjectRefHandle reference;
+    bool grabbed;
+};
+struct TESHarvestedEvent {
+    FormId produceItem;
+    ActorHandle harvester;
+};
+struct HitFlags {
+    std::uint8_t value{};
+    constexpr bool contains(std::uint8_t flag) const noexcept { return (value & flag) == flag; }
+};
+struct TESHitEvent {
+    ObjectRefHandle target;
+    ObjectRefHandle cause;
+    FormId source;
+    FormId projectile;
+    HitFlags flags;
+};
+struct TESObjectLoadedEvent {
+    FormId formID;
+    bool loaded;
+};
+struct TESQuestStageEvent {
+    FormId formID;
+    std::uint16_t stage;
+    std::uint8_t itemIndex;
+};
+
+enum class HookKind { CallSite, Branch, Vtable };
+enum class HookErrorCode { Unsupported };
+struct HookError { HookErrorCode code; HookKind kind; };
+constexpr HookError request_hook(HookKind kind) noexcept {
+    return {HookErrorCode::Unsupported, kind};
+}
 } // namespace RE
 "#;
 
