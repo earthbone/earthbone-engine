@@ -2179,6 +2179,24 @@ arguments match that source, while `SKI_ConfigManager.psc` confirms the manager
 routes slider and menu selection and acceptance to those callbacks. The
 `ui_12` fixtures use synthetic scripts and do not require Skyrim data.
 
+### MCM color and key-map options, UI-13
+
+`ConfigPage` adds integer color and key-map rows. A key remap sends
+`OnOptionKeyMapChange(option, keyCode, conflictControl, conflictName)` to the
+configured script, including empty conflict strings when no conflict exists.
+The callback does not change the row value. The config script can apply its
+decision with `set_keymap_value`. Opening a color dialog sends
+`OnOptionColorOpen(option)`, and accepting the active dialog sends
+`OnOptionColorAccept(option, color)`. The config script applies an accepted
+value with `set_color_value`. Cancel clears the active dialog without sending
+an accept callback or changing the row. Disabled and hidden options reject
+these callbacks. The callback names and argument order follow the local
+SkyUI `SKI_ConfigBase.psc` header and source, while conflict details follow
+`SKI_ConfigManager.psc`. Its Scaleform-bound presenter cannot serve the chosen
+native Godot UI, so this host models the public callback contract. Synthetic
+tests cover callback eligibility, conflict arguments at the API boundary,
+acceptance and cancellation without Skyrim data.
+
 The host keeps the scene tree running. PlayerNode routes its existing Game
 through MenuState::tick and Game::tick_menu_mode. While a menu is open, host
 physics, camera input and activation do not advance. The game clock, ordinary
