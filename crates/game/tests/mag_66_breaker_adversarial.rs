@@ -137,14 +137,21 @@ fn mag_66_grab_actor_survives_engine_reload_and_finishes_once() {
     let saved = game.save_state().unwrap();
     let mut loaded = fixture(30);
     loaded.load_state(&saved).unwrap();
-    assert_eq!(loaded.world().grab_actor_effect_on(id(TARGET)).unwrap().id, effect);
+    assert_eq!(
+        loaded.world().grab_actor_effect_on(id(TARGET)).unwrap().id,
+        effect
+    );
 
     let shared = loaded.shared_world();
-    assert!(shared.borrow_mut().dispel_effect(effect, &mut |name, class| {
-        loaded.vm.create_object_of(name, class)
-    }));
-    assert!(!shared.borrow_mut().dispel_effect(effect, &mut |name, class| {
-        loaded.vm.create_object_of(name, class)
-    }));
+    assert!(shared
+        .borrow_mut()
+        .dispel_effect(effect, &mut |name, class| {
+            loaded.vm.create_object_of(name, class)
+        }));
+    assert!(!shared
+        .borrow_mut()
+        .dispel_effect(effect, &mut |name, class| {
+            loaded.vm.create_object_of(name, class)
+        }));
     assert!(loaded.world().grab_actor_effect_on(id(TARGET)).is_none());
 }
