@@ -40,6 +40,8 @@ pub mod footsteps;
 mod game_settings;
 pub mod harness;
 pub mod inventory;
+pub mod lockpicking;
+pub mod mcm;
 pub mod moddata;
 pub mod natives;
 pub mod npc;
@@ -52,6 +54,7 @@ pub mod save;
 pub mod save_generations;
 pub mod services;
 pub mod sound;
+pub mod validation_runner;
 pub mod vanilla_save;
 pub mod vmad;
 pub mod world;
@@ -147,11 +150,50 @@ pub struct Game {
     pub budget: usize,
     /// One hash per tick once [`Game::record_hashes`] turned it on.
     hash_log: Option<Vec<determinism::TickHash>>,
+    mcm_registered: Vec<GlobalFormId>,
+    mcm_active: Option<GlobalFormId>,
     /// Actors that were in greeting range on the previous gameplay tick.
     greeting_range_actors: BTreeSet<soe_esm::GlobalFormId>,
 }
 
 impl Game {
+    /// Evaluate one objective target's QSTA conditions against the current world and VM.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when a target condition is unsupported or lacks runtime context.
+    pub fn objective_target_conditions_met(
+        &mut self,
+        quest: GlobalFormId,
+        objective: u16,
+        target_index: usize,
+    ) -> Result<bool, conditions::Error> {
+        let mut world = self.world.borrow_mut();
+        let Some(state) = world.quest_state(quest) else {
+            return Ok(false);
+        };
+        let Some(target) = state
+            .def
+            .objective(objective)
+            .and_then(|definition| definition.targets.get(target_index))
+        else {
+            return Ok(false);
+        };
+        let Some(alias) = u32::try_from(target.alias).ok() else {
+            return Ok(false);
+        };
+        let target_ref = state.aliases.get(&alias).copied().flatten();
+        let conditions = target.conditions.clone();
+        let context = conditions::Context {
+            owner: quest,
+            subject: world.player(),
+            target: target_ref,
+            quest: Some(quest),
+            tempering_enchanted: None,
+        };
+        conditions::evaluate(&mut world, &self.vm, context, &conditions)
+    }
+
     pub fn new(order: LoadOrder) -> Game {
         Self::from_shared_order(std::sync::Arc::new(order))
     }
@@ -168,6 +210,8 @@ impl Game {
             bound: None,
             budget: 100_000,
             hash_log: None,
+            mcm_registered: Vec::new(),
+            mcm_active: None,
             greeting_range_actors: BTreeSet::new(),
         }
     }
@@ -521,6 +565,7 @@ impl Game {
             }
         }
         self.run_until_idle(64);
+        self.mcm_configs();
         self.bound = Some(report.clone());
         report
     }
