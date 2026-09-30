@@ -223,10 +223,10 @@ and child wording comes from the corresponding CK pages. The local CK corpus
 has no usable semantics for `GetClassDefaultMatch` or `GetIsCreatureType`, so
 both return the evaluator's explicit unsupported-function error.
 The CTDA evaluator also reads actor ghost and unconscious flags for functions
-237 and 242, checks a tested reference's explicit XOWN against an NPC_ or
+237 and 242, checks a tested reference's explicit XOWN against an `NPC_` or
 FACT owner for function 278, and reads the tested reference's parent CELL
 interior flag for function 300. `IsOwner` with no owner parameter checks the
-player's NPC_ base, matching the optional-owner note in
+player's `NPC_` base, matching the optional-owner note in
 `TES5Edit/Core/wbDefinitionsTES5.pas`. The local CK corpus has no usable
 semantics for functions 262 `IsWarningAbout`, 274 `IsSmallBump`, 285
 `IsLeftUp` or 305 `GetPlayerAction`, so these remain unsupported with a
@@ -244,7 +244,7 @@ not represented. The reference conditions are covered by
 `ai_79_relationship_conditions.rs` covers condition functions 42 `SameFaction`,
 43 `SameRace`, 44 `SameSex`, 60 `GetFactionRankDifference`, 68 `GetIsClass`,
 129 `GetPCIsClass` and 130 `GetPCIsRace`. These read actor factions, race,
-sex and class from the runtime actor and its winning NPC_ base. Function 60
+sex and class from the runtime actor and its winning `NPC_` base. Function 60
 subtracts the parameter actor's rank in the requested faction from the tested
 actor's rank, treating an absent faction as rank -2 and preserving authored
 rank -1 membership. Function 64 `GetIsCreature` remains unsupported because
@@ -1676,7 +1676,6 @@ held reference identity against its materialized or authored state before an
 earlier member can change inventory or queue events.
 Active-effect recipients remain pending with magic execution.
 
-
 The condition evaluator implements functions 47, 56, 58, 59, 72, 74, 136,
 182, 244, 264, 277, 289, 359, 448, 543, 560, 629, 630, 659 and 716. This is a bounded set,
 not the entire CTDA contract. It supports ordered AND/OR groups, numeric or
@@ -1743,7 +1742,6 @@ and an explicit condition error. The CK page records keyword failures on actor
 inventories and CK-defined reference inventories. The engine uses its shared
 inventory totals for both actors and containers, so keyword queries have the
 same defined result for either holder.
-
 
 Condition functions 244 and 716 implement `GetRestrained` and
 `GetRealHoursPassed`. `GetRestrained` reads actor state, rejects either parameter,
@@ -1858,7 +1856,6 @@ for locations or aliases. xEdit `wbConditionFunctions` supplies IDs and
 parameter types, and the local UESP raw function table supplies the matching
 Papyrus signatures. The CK corpus has no individual condition pages for this
 batch.
-
 
 Sources consulted were local xEdit `wbDefinitionsTES5.pas` for CTDA, COBJ and
 FURN WBDT, CK `GetItemCount_-_ObjectReference.wikitext` for the query forms,
@@ -3613,7 +3610,6 @@ values, high indices, invalid indices and subjects, resource fractions and the
 existing kill/resurrection lifecycle. No new authoritative actor state,
 dependency or save format was added.
 
-
 ## Player identity and faction conditions (AI-80)
 
 The shared CTDA evaluator implements GetPCIsSex (131), GetPCInFaction (132),
@@ -3708,7 +3704,6 @@ The contracts follow local xEdit `wbDefinitionsTES5.pas`, UESP
 results, actor and non-actor contexts, both invalid parameter slots and the
 three unavailable animation queries. SOEW version 36 stores the swimming,
 running and mount flags, with older saves loading them as false.
-
 
 ### Sequential package validation
 
