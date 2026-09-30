@@ -4560,3 +4560,22 @@ fixture exercises both record types, query results, failure atomicity and
 engine save/load. `sav_48_installed_pack_and_navmesh_records_accept_restored_markers`
 checks installed Skyrim.esm records when `SKYRIM_DATA` is set. The field order
 and marker meanings follow xEdit `Core/wbDefinitionsTES5Saves.pas`.
+
+## Equipment conditions, AI-49
+
+CTDA functions 41, 48, 102, 103, 108 and 109 read the subject actor's
+equipped forms. Clothing value totals equipped ARMO records whose BOD2/BODT
+type is clothing, gold counts `Gold001` in inventory, torch and shield
+conditions check equipped LIGH and shield-slot ARMO records, and the weapon
+queries use the right hand before the left. The IDs and parameter types come
+from xEdit `wbConditionFunctions` in
+`TES5Edit/Core/wbDefinitionsTES5.pas`. The Papyrus Extender condition parser
+also confirms the ActorValue and FormType parameter encodings. Armor and
+weapon fields use the transient views in `combat/records.rs`.
+
+The CK wiki dump has no contract pages for these CTDA function names.
+`GetIsUsedItem` and `GetIsUsedItemType` therefore return
+`conditions::Error::UsedItemContext`: runtime state does not retain the
+action's used item, and the local CK corpus does not define a substitute
+interpretation. Invalid subjects and malformed equipment records fail with
+typed condition errors.

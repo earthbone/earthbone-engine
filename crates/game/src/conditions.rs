@@ -74,6 +74,10 @@ pub enum Error {
     Unavailable(u16),
     #[error("condition requires the subject's current location {0}")]
     LocationContext(GlobalFormId),
+    #[error("condition function {0} requires a used-item action context")]
+    UsedItemContext(u16),
+    #[error("condition function {0} cannot read its equipment record")]
+    EquipmentRecord(u16),
     #[error("condition count overflow or cyclic form list")]
     Inventory,
     #[error("condition function {0} has no usable query contract")]
@@ -185,6 +189,14 @@ pub fn supports_function(function: u16) -> bool {
             | 606
             | 629
             | 630
+            | 41
+            | 48
+            | 102
+            | 103
+            | 108
+            | 109
+            | 246
+            | 247
             | 655
             | 659
             | 640
@@ -664,7 +676,104 @@ fn function_value(
             world.distance(subject, other)
         }
         18 => world.calendar().hour as f32,
+        41 => {
+            no_parameter(c)?;
+            let items: Vec<_> = world
+                .actor(subject)
+                .ok_or(Error::Form(subject))?
+                .equipped
+                .iter()
+                .copied()
+                .collect();
+            let mut total = 0i32;
+            for item in items {
+                let Some(record) = world.record(item) else {
+                    return Err(Error::EquipmentRecord(c.function));
+                };
+                if record.tag != Tag(*b"ARMO") {
+                    continue;
+                }
+                let armor = crate::combat::records::Armor::from_record(record)
+                    .map_err(|_| Error::EquipmentRecord(c.function))?;
+                if armor.kind == Some(2) {
+                    total = total
+                        .checked_add(armor.value.ok_or(Error::EquipmentRecord(c.function))?)
+                        .ok_or(Error::EquipmentRecord(c.function))?;
+                }
+            }
+            total as f32
+        }
+        48 => {
+            no_parameter(c)?;
+            world.reference(subject).ok_or(Error::Form(subject))?;
+            let gold = world.form("Gold001").unwrap_or(GlobalFormId {
+                file: 0,
+                object: 0xF,
+            });
+            inventory_count(world, subject, gold, &mut Vec::new())? as f32
+        }
         46 => boolean(world.actor(subject).is_some_and(|actor| actor.dead)),
+        102 | 103 => {
+            no_parameter(c)?;
+            let items: Vec<_> = world
+                .actor(subject)
+                .ok_or(Error::Form(subject))?
+                .equipped
+                .iter()
+                .copied()
+                .collect();
+            let mut equipped = false;
+            for item in items {
+                let tag = world.tag_of(item);
+                if c.function == 102 && tag == Some(Tag(*b"LIGH")) {
+                    equipped = true;
+                    break;
+                }
+                if c.function == 103 && tag == Some(Tag(*b"ARMO")) {
+                    let record = world
+                        .record(item)
+                        .ok_or(Error::EquipmentRecord(c.function))?;
+                    let armor = crate::combat::records::Armor::from_record(record)
+                        .map_err(|_| Error::EquipmentRecord(c.function))?;
+                    if armor.slots & 0x200 != 0 {
+                        equipped = true;
+                        break;
+                    }
+                }
+            }
+            boolean(equipped)
+        }
+        108 | 109 => {
+            let (right, left) = {
+                let actor = world.actor(subject).ok_or(Error::Form(subject))?;
+                (actor.right_weapon, actor.left_weapon)
+            };
+            let equipped = right.or(left);
+            let Some(weapon) = equipped else {
+                if c.function == 108 {
+                    no_parameter(c)?;
+                    return Ok(0.0);
+                }
+                if c.parameters[1] != 0 {
+                    return Err(Error::Parameter(c.function, c.parameters[1]));
+                }
+                return Ok(0.0);
+            };
+            let record = world
+                .record(weapon)
+                .ok_or(Error::EquipmentRecord(c.function))?;
+            let data = crate::combat::records::Weapon::from_record(record)
+                .map_err(|_| Error::EquipmentRecord(c.function))?;
+            if c.function == 108 {
+                no_parameter(c)?;
+                f32::from(data.animation)
+            } else {
+                if c.parameters[1] != 0 {
+                    return Err(Error::Parameter(c.function, c.parameters[1]));
+                }
+                boolean(data.skill >= 0 && data.skill as u32 == raw)
+            }
+        }
         67 => {
             let cell = resolve(world, context.owner, raw, Some(*b"CELL"))?;
             boolean(
@@ -1157,6 +1266,16 @@ fn function_value(
         47 => {
             let item = resolve(world, context.owner, raw, None)?;
             inventory_count(world, subject, item, &mut Vec::new())? as f32
+        }
+        246 | 247 => {
+            world.actor(subject).ok_or(Error::Form(subject))?;
+            if c.parameters[1] != 0 {
+                return Err(Error::Parameter(c.function, c.parameters[1]));
+            }
+            if c.function == 246 {
+                let _ = resolve(world, context.owner, raw, None)?;
+            }
+            return Err(Error::UsedItemContext(c.function));
         }
         56 | 58 | 59 | 543 => {
             let quest = resolve(world, context.owner, raw, Some(*b"QUST"))?;
