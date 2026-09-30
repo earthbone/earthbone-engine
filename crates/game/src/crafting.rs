@@ -48,6 +48,8 @@ pub enum Error {
         needed: i32,
         available: i32,
     },
+    #[error("crafting skill progression: {0}")]
+    Progression(String),
     #[error("item {0} cannot be tempered")]
     TemperItem(GlobalFormId),
     #[error("recipe {0} does not describe one temperable item")]
@@ -100,6 +102,7 @@ pub struct TemperOutcome {
 struct Prepared {
     outcome: Outcome,
     inventory: crate::inventory::Inventory,
+    smithing_use: Option<f32>,
 }
 
 impl Game {
@@ -535,8 +538,13 @@ impl Game {
         recipe: GlobalFormId,
     ) -> Result<Outcome, Error> {
         let prepared = self.prepare_craft(actor, bench, recipe)?;
-        let vm = &mut self.vm;
         let mut world = self.world.borrow_mut();
+        if let Some(magnitude) = prepared.smithing_use {
+            world
+                .advance_skill(actor, "smithing", magnitude)
+                .map_err(|error| Error::Progression(error.to_string()))?;
+        }
+        let vm = &mut self.vm;
         let holder = world.reference(actor).ok_or(Error::Actor(actor))?;
         holder.inventory = prepared.inventory;
         let alloc = &mut |name: &str, class: &str| vm.create_object_of(name, class);
@@ -598,6 +606,9 @@ impl Game {
             .filter(|raw| *raw != 0)
             .ok_or(Error::Recipe(recipe_id))?;
         let keyword = conditions::resolve(&world, recipe_id, keyword, Some(*b"KYWD"))?;
+        let smithing = world
+            .editor_id(keyword)
+            .is_some_and(|id| id.to_ascii_lowercase().starts_with("craftingsmithing"));
         validate_bench(&mut world, bench, keyword)?;
         let context = conditions::Context {
             owner: recipe_id,
@@ -641,6 +652,11 @@ impl Game {
             inventory.take(item, needed);
         }
         inventory.add(created, count).map_err(|_| Error::Quantity)?;
+        let smithing_use = if smithing {
+            smithing_skill_use(&world, created, count)
+        } else {
+            None
+        };
         Ok(Prepared {
             outcome: Outcome {
                 recipe: recipe_id,
@@ -649,6 +665,7 @@ impl Game {
                 count,
             },
             inventory,
+            smithing_use,
         })
     }
 }
@@ -728,6 +745,29 @@ fn validate_alchemy_bench(world: &mut World, bench: GlobalFormId) -> Result<(), 
         return Err(Error::Bench(bench));
     }
     Ok(())
+}
+
+/// Return the skill-use magnitude for the created output stack when its record
+/// exposes a value used by the vanilla Smithing formula.
+fn smithing_skill_use(world: &World, output: GlobalFormId, count: i32) -> Option<f32> {
+    let record = world.record(output)?;
+    let (value, signed) = match record.tag.as_bytes() {
+        b"ALCH" => (record.find(Tag(*b"ENIT"))?.get(..4)?, true),
+        b"AMMO" => (record.find(Tag(*b"DATA"))?.get(12..16)?, false),
+        b"ARMO" | b"INGR" | b"KEYM" | b"MISC" => (record.find(Tag(*b"DATA"))?.get(..4)?, true),
+        b"SLGM" | b"SCRL" | b"WEAP" => (record.find(Tag(*b"DATA"))?.get(..4)?, false),
+        b"BOOK" => (record.find(Tag(*b"DATA"))?.get(8..12)?, false),
+        _ => return None,
+    };
+    let value = if signed {
+        i32::from_le_bytes(value.try_into().ok()?).max(0) as f64
+    } else {
+        u32::from_le_bytes(value.try_into().ok()?) as f64
+    };
+    let per_item = 3.0 * value.powf(0.65) + 25.0;
+    let total = per_item * f64::from(count);
+    let magnitude = total as f32;
+    magnitude.is_finite().then_some(magnitude)
 }
 
 fn inventory_form(world: &World, id: GlobalFormId) -> bool {
