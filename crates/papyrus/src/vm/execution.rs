@@ -398,15 +398,22 @@ impl Vm {
                     .is_some_and(|s| s.game_id == 2 && s.major == 3 && s.minor >= 9);
                 if supported {
                     let target = match args.get(2) {
-                        Some(Operand::Identifier(name) | Operand::Str(name))
-                            if !name.is_empty() =>
-                        {
-                            Some(name.as_str())
-                        }
+                        Some(Operand::Identifier(name)) if !name.is_empty() => Some(name.as_str()),
                         _ => None,
                     };
-                    let Some(target) = target else {
-                        self.err(t, "Is type operand must be a nonempty name");
+                    let destination_type = {
+                        let frame = self.threads[t].frames.last().unwrap();
+                        dest_name(0).and_then(|dest| Self::type_of(&self.instances, frame, &dest))
+                    };
+                    let Some(target) = target.filter(|_| {
+                        destination_type
+                            .as_deref()
+                            .is_some_and(|name| name.eq_ignore_ascii_case("Bool"))
+                    }) else {
+                        self.err(
+                            t,
+                            "Is requires a Bool destination and a nonempty identifier type operand",
+                        );
                         set(self, 0, Value::Bool(false));
                         return;
                     };
@@ -483,7 +490,14 @@ impl Vm {
                     .last()
                     .and_then(|f| f.script.as_ref())
                     .is_some_and(|s| s.game_id == 2 && s.major == 3 && s.minor >= 9);
-                let field = name_at(2).to_ascii_lowercase();
+                let field = match args.get(2) {
+                    Some(Operand::Str(field)) if !field.is_empty() => field.to_ascii_lowercase(),
+                    _ => {
+                        self.err(t, "struct_get member operand must be a nonempty string");
+                        set(self, 0, Value::None);
+                        return;
+                    }
+                };
                 if !supported {
                     self.err(t, "struct_get requires a Fallout 4 3.9 or newer script");
                     set(self, 0, Value::None);
@@ -510,9 +524,9 @@ impl Vm {
                             dest_name(0)
                                 .and_then(|dest| Self::type_of(&self.instances, frame, &dest))
                         };
-                        if destination_type
+                        if !destination_type
                             .as_deref()
-                            .is_some_and(|target| !target.eq_ignore_ascii_case(&member.type_name))
+                            .is_some_and(|target| target.eq_ignore_ascii_case(&member.type_name))
                         {
                             self.err(
                                 t,
@@ -540,7 +554,13 @@ impl Vm {
                     .last()
                     .and_then(|f| f.script.as_ref())
                     .is_some_and(|s| s.game_id == 2 && s.major == 3 && s.minor >= 9);
-                let field = name_at(1).to_ascii_lowercase();
+                let field = match args.get(1) {
+                    Some(Operand::Str(field)) if !field.is_empty() => field.to_ascii_lowercase(),
+                    _ => {
+                        self.err(t, "struct_set member operand must be a nonempty string");
+                        return;
+                    }
+                };
                 if !supported {
                     self.err(t, "struct_set requires a Fallout 4 3.9 or newer script");
                 } else if let Value::Struct(s) = &vals[0] {
