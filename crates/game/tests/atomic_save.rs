@@ -461,7 +461,7 @@ mod failures {
     }
 
     #[test]
-    fn process_termination_at_every_boundary_preserves_a_readable_generation() {
+    fn tst_06_process_termination_at_every_boundary_preserves_a_readable_generation() {
         let mut cases = 0;
         for format in FORMATS {
             for step in STEPS {
