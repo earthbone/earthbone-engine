@@ -952,12 +952,25 @@ has no markers. `Sleep` walks to the bed the location names, or the
 nearest furniture in that cell whose base carries a keyword with `bed` in
 its editor id, and holds with `sleeping` set. `Wait` holds for its real-time
 duration, with zero meaning indefinite. Walking `Patrol` follows linked markers,
-including their arrival radius and idle time. Every other procedure name
-is `Procedure::Unsupported` and the actor stands where it is. Location
+including their arrival radius and idle time. `Flee` chooses a reachable
+navmesh triangle whose centroid increases distance from its live combat target,
+runs there at the race's run speed, then succeeds the active tree branch. When
+the target leaves combat, Flee succeeds immediately. The existing tree cursor
+applies `Success Completes Package` and the following branch rules. If no
+reachable point increases distance, the actor holds position until the target
+or navmesh changes. Every other procedure name is `Procedure::Unsupported`
+and the actor stands where it is. Location
 kinds near reference, in cell, near package start, near editor location,
 near linked reference, alias reference, alias location and near self resolve.
 An alias location uses its filled `LCTN` form's `MNAM` world marker as its
 destination. Location alias fill rules remain separate quest work.
+
+The local CK `EvaluatePackage - Actor` and `GetCurrentPackage - Actor` pages
+define package evaluation and observation, not Flee movement. PACK branch
+completion uses xEdit's `PRCB` flags and the UESP PACK layout. Route selection
+uses the shared combat target and vanilla NAVM graph already used by combat
+movement. No procedure-specific source in the local corpus defines Flee's
+destination choice.
 
 **Walking.** `ai::nav_graph` builds `soe_navmesh::vanilla` over every
 winning `NAVM` on first use and remembers which cell each mesh sits in.
@@ -1590,14 +1603,14 @@ Active-effect recipients remain pending with magic execution.
 
 The condition evaluator implements functions 1, 14, 18, 46, 47, 56, 58, 59,
 67, 69, 70, 71, 72, 73, 74, 80, 116, 123, 128, 136, 182, 225, 248, 249,
-264, 277, 289, 315, 359, 403, 408, 430, 434, 435, 448, 494, 543, 550, 560,
-566, 606, 629, 630, 635, 640, 655, 659, 691, 692, 711, 731, 734 and 735.
-It also implements functions 53, 79, 230, 250, 280, 310, 325, 360, 444, 445,
-446, 470, 491, 519, 528, 561, 562, 563, 565, 567, 569, 591, 592, 598, 600,
-601, 603, 604, 605, 610, 625, 626, 651, 718, 185, 219, 286, 287, 313, 318,
-327, 339, 91, 98, 106, 107, 110, 111, 125 and 127.
-This is a bounded set, not the entire CTDA contract. It supports ordered
-AND/OR groups, numeric or
+264, 277, 289, 312, 314, 315, 329, 353, 354, 359, 362, 403, 408, 430, 434,
+435, 448, 494, 543, 550, 560, 566, 606, 629, 630, 635, 640, 655, 659, 691,
+692, 711, 731, 734 and 735. It also implements functions 53, 79, 230, 250,
+280, 310, 325, 360, 444, 445, 446, 470, 491, 519, 528, 561, 562, 563, 565,
+567, 569, 591, 592, 598, 600, 601, 603, 604, 605, 610, 625, 626, 651, 718,
+185, 219, 286, 287, 313, 318, 327, 339, 91, 98, 106, 107, 110, 111, 125
+and 127. This is a bounded set, not the entire CTDA contract. It supports
+ordered AND/OR groups, numeric or
 global comparisons, explicit references and caller-supplied quest aliases.
 Reserved PlayerRef resolves to the runtime player even without a placed record.
 New runtime players retain reserved FormID 00000014 and use the Player NPC
@@ -1715,6 +1728,26 @@ for locations or aliases. xEdit `wbConditionFunctions` supplies IDs and
 parameter types, and the local UESP raw function table supplies the matching
 Papyrus signatures. The CK corpus has no individual condition pages for this
 batch.
+
+AI-74 adds `GetPCMiscStat` (312), `IsActorAVictim` (314), `IsFleeing` (329),
+`IsActor` (353), `IsEssential` (354) and `HasLinkedRef` (362). Misc-stat
+parameter values and names follow xEdit's `wbMiscStatEnum`, and values read
+the same tracked-stat table as `Game.QueryStat`. Victim state uses the saved
+`witnessed_crimes` relation: an actor is reported as a victim when any actor
+has recorded witnessing a crime by that actor. Fleeing reads the active package
+procedure, essential reads live actor state, and linked-reference checks match
+the requested keyword. The xEdit and UESP tables identify 367 and 368 as
+player-action queries, but the local CK references do not define their result
+or state semantics, so evaluation returns an explicit unsupported-function
+error for both.
+
+AI-74 also consults local xEdit `TES5Edit/Core/wbDefinitionsTES5.pas` for the
+condition function IDs, parameter types, miscellaneous-stat enum and player
+action enum, UESP `Raw_Function_Data.wikitext` for function names, and CK
+`ActorBase_Script.wikitext`, `Actor_Script.wikitext` and
+`ObjectReference_Script.wikitext` for the related essential and linked-ref
+contracts. Existing witnessed-crime state comes from
+`World::record_witnessed_crime`.
 
 Sources consulted were local xEdit `wbDefinitionsTES5.pas` for CTDA, COBJ and
 FURN WBDT, CK `GetItemCount_-_ObjectReference.wikitext` for the query forms,

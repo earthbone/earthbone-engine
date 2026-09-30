@@ -57,6 +57,13 @@ impl World {
         }
     }
 
+    /// Whether any actor has witnessed a crime committed by `actor`.
+    pub fn is_actor_victim(&self, actor: GlobalFormId) -> bool {
+        self.actors
+            .values()
+            .any(|witness| witness.witnessed_crimes.contains(&actor))
+    }
+
     /// Records a crime `perpetrator` commits, seen by `witness`. Prices it
     /// from `perpetrator`'s own crime faction's `CRVA` table
     /// (`Actor.GetCrimeFaction`) and adds the result to that faction's

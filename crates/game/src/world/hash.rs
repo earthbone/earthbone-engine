@@ -282,6 +282,7 @@ fn ai_state(h: &mut StateHasher, a: &AiState) {
         Procedure::Travel => h.u8(1),
         Procedure::Sandbox => h.u8(2),
         Procedure::Sleep => h.u8(3),
+        Procedure::Flee => h.u8(7),
         Procedure::Patrol => {
             h.u8(6);
             h.bool(a.patrol.is_some());

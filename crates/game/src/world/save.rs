@@ -129,7 +129,8 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// Version 37 also retains INFO, SMQN and SCEN runtime fields, Papyrus struct
 /// values, pending quest lifecycle tasks and unresolved records. The native
 /// game save envelope records dependency provenance. The `CMB-37` reference
-/// section retains each reference's current destruction stage.
+/// section retains each reference's current destruction stage and actor
+/// records retain the active Flee package procedure.
 pub const SAVE_VERSION: u16 = 37;
 
 #[derive(Clone, Copy)]
