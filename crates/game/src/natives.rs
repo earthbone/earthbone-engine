@@ -2957,6 +2957,19 @@ fn dlc(vm: &mut Vm, w: &Shared) {
     method!(vm, w, "Actor", "IsAllowedToFly", |world, call, me| b(world
         .actor(me)
         .is_some_and(|a| a.allow_flying)));
+    // The Hover package owns the only flight state implemented by the driver.
+    method!(vm, w, "Actor", "GetFlyingState", |world, _call, me| i(
+        i32::from(
+            world
+                .actor(me)
+                .is_some_and(|actor| actor.ai.procedure == crate::ai::Procedure::Hover)
+        ) * 3
+    ));
+    method!(vm, w, "Actor", "IsFlying", |world, _call, me| b(world
+        .actor(me)
+        .is_some_and(
+            |actor| actor.ai.procedure == crate::ai::Procedure::Hover
+        )));
     // "Can this actor fly here?" Allowed to fly, and out under the sky.
     method!(vm, w, "Actor", "CanFlyHere", |world, call, me| {
         if !world.actor(me).is_some_and(|a| a.allow_flying) {
@@ -3372,8 +3385,7 @@ fn stubs(vm: &mut Vm, _world: &Shared) -> usize {
         ("Scene", "IsActionComplete", false),
         ("Keyword", "SendStoryEventAndWait", false),
         ("Game", "IsPlayerSungazing", false),
-        // CONTEXT: Flight and ragdoll execution are not implemented.
-        ("Actor", "IsFlying", false),
+        // CONTEXT: Ragdoll execution is not implemented.
         ("ObjectReference", "IsFurnitureMarkerInUse", false),
         ("Utility", "IsInMenuMode", false),
         ("Debug", "OpenUserLog", true),
@@ -3393,7 +3405,6 @@ fn stubs(vm: &mut Vm, _world: &Shared) -> usize {
         ("ObjectReference", "GetTriggerObjectCount", 0),
         ("ObjectReference", "GetCurrentDestructionStage", 0),
         ("Actor", "GetSitState", 0),
-        ("Actor", "GetFlyingState", 0),
         ("Location", "GetRefTypeAliveCount", 0),
         ("Location", "GetRefTypeDeadCount", 0),
     ];

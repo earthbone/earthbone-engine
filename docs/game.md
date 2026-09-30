@@ -348,13 +348,13 @@ parameter type but provide no usable evaluation contract.
 
 ## Conformance table
 
-`natives::register` has 369 stateful registrations, including
+`natives::register` has 369 stateful registrations and 178 quiet stubs,
+including
 `CreateDetectionEvent`, `Actor.IsAlarmed` and `Actor.IsBleedingOut`.
 `IsAlarmed` reads the actor's alert flag. `IsBleedingOut` requires an actor to
 be unconscious, alive and at or below its record-derived bleedout threshold.
-Quiet stubs still return an idle
-value so vanilla scripts can continue when their owning system has no behavior
-yet.
+A quiet stub returns the idle value the game gives when nothing is going on,
+so vanilla scripts can continue when their owning system has no behavior yet.
 
 | Class | Implemented | Stubbed |
 |---|---|---|
@@ -981,6 +981,11 @@ No reusable interpreter exists in those sources, so this interpreter uses the
 existing world and procedure driver without a new dependency.
 
 `Travel` walks to its input location and completes on arrival.
+`Find` selects the nearest enabled placed reference matching its authored
+Object ID, or the known Object Type value for any weapon, in its search cell.
+An authored location radius limits the search. Equal distances choose the
+lower resolved FormID. The selected identity is available as the actor's
+`AiState::found_reference`.
 `Sandbox` picks an idle marker or a piece of furniture (beds excluded)
 within the radius of the location, walks there, dwells 0.1 to 0.4 game
 hours, and picks the next, or a random point in the radius when the cell
@@ -1023,6 +1028,123 @@ near linked reference, alias reference, alias location and near self resolve.
 An alias location uses its filled `LCTN` form's `MNAM` world marker as its
 destination. Location alias fill rules remain separate quest work.
 
+`Follow` resolves its `PTDA` target as a specific reference, alias, linked
+reference or self. Its first two float inputs set catch-up and follow radii,
+defaulting to 20 and 5 units when omitted. Invalid radii or unresolved targets
+leave an unsupported procedure. Each driver tick recalculates a route to a
+point at the follow radius from the target, stops inside that radius, and
+selects run speed outside the catch-up radius. Routes use the same navmesh and
+cell updates described below. The CK wiki's `KeepOffsetFromActor - Actor`
+page defines the catch-up and follow thresholds. PACK input layout follows
+local xEdit `wbRecord(PACK)` and Mutagen Skyrim `Package.xml`. The `AI-21`
+actor section in SOEW version 37 saves the Follow procedure tag.
+
+`UseIdleMarker` selects an enabled IDLM reference in the procedure location's
+cell and radius, skips deleted and destroyed markers, walks the actor to it,
+and holds that marker. An actor with an active
+`UseIdleMarker` procedure reserves its selected marker. Other actors skip that
+reservation when choosing a marker. Changing or ending the package clears the
+reservation with the procedure state. This uses the PACK input layout from
+local xEdit `wbRecord(PACK)` and the CK wiki's `IsFurnitureMarkerInUse`
+reservation semantics. It does not play the marker's authored idle animation.
+The `AI-21` actor section in SOEW version 37 saves the selected marker and
+procedure tag.
+
+`HoldPosition` resolves the branch location and holds within the driver's four
+unit arrival tolerance of that position. Without a location input, it holds at
+the position where the branch began. If the actor moves outside the tolerance,
+the driver routes it back. The procedure stays active until its package stops
+winning. The local CK wiki corpus has no HoldPosition procedure page. CommonLib
+names the procedure type, while the package location layout comes from xEdit's
+`wbRecord(PACK)`. The `AI-21` actor section in SOEW version 37 saves the tag.
+
+`ForceGreet` resolves its branch target and dialogue topic, walks to the target,
+then opens the assigned eligible topic when it arrives. It attempts the greeting
+once per branch. An actor below full alpha cannot start the dialogue unless it
+is a ghost, matching the CK wiki's `SetAlpha - Actor` rule. The attempt state and
+procedure tag are saved in the `AI-21` actor section in SOEW version 37. The package remains active after the
+greeting, and a later branch or package selection resets the attempt state.
+
+`Activate` resolves the branch's target input to a placed reference, walks the
+actor to it, and calls the shared game activation path once on arrival. The
+actor is the activator, so default processing and `OnActivate` use the same
+behavior as other game activations. The attempt flag is saved in the `AI-21`
+actor section in SOEW version 37 and resets when the package or procedure branch changes. The local CK wiki
+`Activate - ObjectReference` page defines the default-processing and event
+rules. The target's event uses the local `OnActivate - ObjectReference`
+contract.
+
+`DialogueActivate` resolves the branch target through the package template
+chain, walks toward it and starts a dialogue session with the package actor as
+speaker once both actors are in the same space and within
+`fAIInDialogueModeWithPlayerDistance`. The ordinary dialogue choice path
+selects eligible topics. A busy conversation leaves the procedure ready to
+retry. The attempt state and procedure tag are saved in the `AI-21` actor
+section in SOEW version 37.
+Changing the package or procedure branch clears the attempt state. The local CK
+corpus has no DialogueActivate procedure page. Package target inputs follow
+`wbRecord(PACK)` in xEdit. Range follows the existing dialogue distance rule
+in `dialogue.rs`.
+
+`ForceGreet`, `Activate` and `DialogueActivate` recalculate the assigned
+target's position while approaching it, so movement before the attempt does
+not leave the actor heading for an old position.
+
+`Find` reads the branch's target input through its package template chain.
+Object ID matches a placed reference's resolved base form. Object Type values
+1 to 15 match the base types in CommonLib's `PACKAGE_OBJECT_TYPE`. Values 14
+and 15 distinguish potions from food through the `ALCH.ENIT` Food Item flag.
+Unknown Object Type values and other target selectors are unsupported. A
+negative authored radius is unsupported. The search uses the
+authored location's cell and optional radius,
+or the actor's current cell when there is no location. Disabled, deleted,
+destroyed, invalid-position and self references are skipped. An unresolved
+authored location does not fall back to the actor's cell. The nearest match wins, with
+resolved FormID as the deterministic tie break. The local CK corpus has no
+Find procedure page. The target layout and Object Type label follow xEdit's
+`wbRecord(PACK)` and the UESP PACK page, which documents value 11 as any
+weapon. CommonLib's `TESPackage.h` defines the remaining object types, and
+xEdit's `wbRecord(ALCH)` defines the Food Item flag. No reusable local runtime
+implementation covers Find.
+
+The `AI-21` actor section in SOEW version 37 saves the selected reference with
+the active Find procedure.
+
+`Hover` reads a location and finite height from its branch inputs, moves to
+the location's X and Y at its Z plus that height, and holds there. The actor
+reports flying state 3 and `IsFlying` true while Hover runs. Replacing the
+package clears its target and height, ending the flight state. The height and
+procedure state are saved in the `AI-21` actor section in SOEW version 37.
+xEdit's `wbRecord(PACK)` defines package location and float inputs. The CK
+wiki's `GetFlyingState - Actor` page defines 3 as Hovering, and its
+`IsFlying - Actor` page defines the Boolean query. The corpus has no Hover
+procedure contract page.
+
+`Orbit` resolves its `TargetLocation` input on every driver tick, then moves
+around that point at the authored `Height`. It keeps the actor between the
+authored `InnerRadius` and `OuterRadius`, and advances only when the arc
+stays inside both bounds and over a navmesh. Missing inputs, non-finite values,
+negative inner radii or an outer radius below the inner radius leave an
+unsupported procedure. The package input names and radius meanings follow the
+Creation Kit `Orbit (Procedure)` page. SOEW version 39 saves the active Orbit
+height.
+
+`Escort` resolves its assigned placed-reference target and the branch's
+authored location. The escorting actor routes to that location while keeping
+within the target's authored distance when the target is behind. It waits when
+the target falls outside that distance, and can keep advancing when the target
+is closer to the destination. It completes when both the actor and target are
+within the driver's four unit arrival tolerance of the destination. Missing or
+unresolved target and location inputs, negative distances and non-reference
+target selectors leave an unsupported procedure. Object search, pickup and
+carrying are not implemented. Local CK package pages do not describe Escort
+procedure behavior. The PACK target and location input layouts follow xEdit's
+`wbRecord(PACK)`. The destination, target distance and actor escort behavior
+follow the GECK Escort package page, since the local CK dump has no Escort
+procedure page. No existing local implementation covered this procedure. The
+actor's Escort procedure tag is saved in SOEW version 40, and earlier world
+saves reject that tag.
+
 `tests/ai_29_shout.rs` checks authored self-target spell delivery, the selected
 word's recovery duration, waiting through an existing recovery, save/load, and
 rejection of a SHOU that does not contain exactly three 12-byte `SNAM` entries.
@@ -1053,12 +1175,12 @@ unaggressive rejection, the package flag, navmesh pursuit and death cleanup.
 
 **Live run (2026-09-18).** Every one of the 5,961 `PACK` records in
 `Skyrim.esm` parses (104 templates, 2,384 with conditions, 1,545 with a
-scheduled hour) in 7.9 s including the plugin parse. 5,013 packages
-resolve to a procedure the driver runs: 2,467 `Travel`, 1,841 `Sandbox`,
-327 `Sleep`, 300 `Sit`, 52 `UseMagic` and 26 `Shout`. The rest by template
-procedure: Patrol 378, HoldPosition 141, Follow 128, UseIdleMarker 61, Orbit 47,
-Escort 45, Activate 40, ForceGreet 31, Guard 24, Hover 14, Flee
-13, Find 11, Wait 11, DialogueActivate 2, UseWeapon 2. The `Prisoner`
+scheduled hour) in 7.9 s including the plugin parse. An earlier survey had
+4,635 supported packages: 2,467 `Travel`, 1,841 `Sandbox` and 327 `Sleep`.
+The updated driver supports 5,013: those procedures plus 300 `Sit`, 52
+`UseMagic` and 26 `Shout`. Remaining template procedures: Patrol 378,
+HoldPosition 141, Follow 128, UseIdleMarker 61, Orbit 47, Escort 45, Activate
+40, ForceGreet 31, Guard 24, Hover 14, Flee13, Find 11, Wait 11, DialogueActivate 2, UseWeapon 2. The `Prisoner`
 base carries no `PKID` list at all, so the innkeeper `Hulda` stands in:
 her stack is `WhiterunInnkeeperPackage`, which resolves to `Sandbox` at
 every hour tried, and no condition function on the way was unsupported.
@@ -1069,7 +1191,7 @@ package over the base list, switch at once from a script's
 `EvaluatePackage`, and keep walking after a save and load.
 
 **Not done.** Simultaneous and stacked branches (AI-14 and AI-15),
-the other 16 procedures and the Patrol modes tracked by AI-88 through AI-91,
+the six remaining named procedures and the Patrol modes tracked by AI-88 through AI-91,
 calling the `On Begin`, `On End` and `On Change` package fragments at
 package boundaries (`vmad::Vmad` decodes them from `VMAD` on `PACK`, the
 driver does not yet call them, AI-04), idles and topics, once per day for
@@ -1229,6 +1351,15 @@ version 29 an actor's stagger end time. Version 30 appends shared stealth-point
 pools with each observer's detection level and timers, written only when a pool
 exists. Version 31 adds the set of perpetrators an actor witnessed committing a
 tracked crime.
+Version 32 stores assigned hand spells, version 33 retains summoned actors,
+version 34 retains encounter-zone visit days, version 35 retains list change
+metadata, version 36 retains scene progress, and version 37 retains PACK and
+NAVM change markers in record overrides. Version 37 is the last version bump.
+It adds named world, actor and reference section tables. New actor procedure
+state, from Hover through DialogueActivate, is stored in the `AI-21` actor
+section. The provenance-aware native game save envelope and Fallout 4 struct
+values in saved Papyrus state also use version 37.
+
 Versions 32 to 36 add assigned hand spells, summoned references, encounter-zone
 visit times, saved list flags and chances, active scene phase state, and BOS
 record flags on instantiated references. Version

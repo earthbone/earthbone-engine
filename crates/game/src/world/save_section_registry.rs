@@ -125,6 +125,7 @@ fn read_woop_mgef_section(
 pub(crate) const ACTOR_SECTIONS: &[Section<ActorState>] = &[
     super::furniture::SECTION,
     Section { name: "PRG-01", write: super::super::progression::write_skill_experience, read: super::super::progression::read_skill_experience },
+    Section { name: "AI-21", write: super::save::write_driver_state_section, read: super::save::read_driver_state_section },
     Section { name: "AI-88", write: super::furniture::write_furniture_seat, read: super::furniture::read_furniture_seat },
     Section { name: "PRG-07", write: write_character_progression, read: read_character_progression },
     Section { name: "PRG-13", write: write_days_in_jail, read: read_days_in_jail },
