@@ -53,6 +53,7 @@ mod doorway;
 mod driver;
 mod encounter_zones;
 mod events;
+pub use events::EffectShaderRequest;
 mod forms;
 mod furniture;
 pub mod hash;
@@ -138,6 +139,8 @@ pub struct RefState {
     pub position: [f32; 3],
     pub rotation: [f32; 3],
     pub scale: f32,
+    /// Runtime record flags changed by Base Object Swapper.
+    pub record_flags: u32,
     pub enabled: bool,
     pub persistent: bool,
     pub deleted: bool,
@@ -167,6 +170,8 @@ pub struct RefState {
     pub on_map: bool,
     pub fast_travel: bool,
     pub destroyed: bool,
+    /// Current destruction stage, with -1 meaning undamaged.
+    pub destruction_stage: i32,
     pub ignore_friendly_hits: bool,
     /// Animation graph variables set through `SetAnimationVariable*`, keyed
     /// by lowercase name. The graph has one value per name, the three
@@ -186,6 +191,7 @@ impl RefState {
             position: [0.0; 3],
             rotation: [0.0; 3],
             scale: 1.0,
+            record_flags: 0,
             enabled: true,
             persistent: false,
             deleted: false,
@@ -207,6 +213,7 @@ impl RefState {
             on_map: false,
             fast_travel: false,
             destroyed: false,
+            destruction_stage: -1,
             ignore_friendly_hits: false,
             anim_floats: BTreeMap::new(),
             anim_ints: BTreeMap::new(),
@@ -246,6 +253,12 @@ pub struct ActorState {
     pub perks: BTreeSet<GlobalFormId>,
     pub alerted: bool,
     pub sneaking: bool,
+    /// The actor's current swimming state, supplied by runtime movement.
+    pub swimming: bool,
+    /// The actor's current running state, supplied by runtime movement.
+    pub running: bool,
+    /// Whether the actor is currently riding a mount.
+    pub riding_mount: bool,
     pub weapon_drawn: bool,
     /// The host animation graph's current block stance. Unlike the other
     /// combat stance flags above, this is not part of saved state: the host
@@ -564,6 +577,8 @@ pub struct World {
     /// source and the volume.
     pub sound_instances: BTreeMap<i32, (GlobalFormId, GlobalFormId, f32)>,
     next_sound: i32,
+    /// Transient renderer requests for EffectShader Play and Stop.
+    pub(crate) effect_shader_requests: Vec<events::EffectShaderRequest>,
     /// `(spell, source, target)` per `Spell.Cast`, in order.
     pub spell_casts: Vec<(GlobalFormId, GlobalFormId, Option<GlobalFormId>)>,
     pub(crate) active_effects: BTreeMap<magic::EffectId, magic::ActiveEffect>,
@@ -663,6 +678,7 @@ impl World {
             scene_runs: BTreeMap::new(),
             sound_instances: BTreeMap::new(),
             next_sound: 0,
+            effect_shader_requests: Vec::new(),
             spell_casts: Vec::new(),
             dialogue_index: std::sync::OnceLock::new(),
             dialogue: crate::dialogue::State::default(),

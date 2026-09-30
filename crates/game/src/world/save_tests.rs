@@ -271,6 +271,9 @@ fn rich_world(namespace: u16) -> World {
         killer: Some(other),
         ash_pile: Some(other),
         deferred_kill: true,
+        swimming: true,
+        running: true,
+        riding_mount: true,
         left_weapon: Some(temporary),
         right_weapon: Some(other),
         ..ActorState::default()
@@ -388,10 +391,10 @@ fn rich_world(namespace: u16) -> World {
 /// Save `world` the way a version 23 engine would, without the exclusive
 /// dialogue branch field that version 24 added, the stagger end time field
 /// that version 29 added, the witnessed crimes set that version 31 added,
-/// the hand spell fields that version 32 added, and the summon actor link
-/// that version 33 added, plus the record metadata byte from version 35.
-/// Each is set to a unique sentinel so its serialized
-/// bytes can be located exactly, then cut back out.
+/// the hand spell fields that version 32 added, the summon actor link that
+/// version 33 added, and movement flags from version 36. Each is set to a
+/// unique sentinel so its serialized bytes can be located exactly, then cut
+/// back out.
 fn without_exclusive_branches(world: &mut World) -> Vec<u8> {
     let ids: Vec<_> = world.actors.keys().copied().collect();
     let mut markers = Vec::new();
@@ -453,6 +456,10 @@ fn without_exclusive_branches(world: &mut World) -> Vec<u8> {
         let furniture_marker = 0xA000_u16 + index as u16;
         world.actors.get_mut(id).unwrap().furniture_seat =
             Some((furniture_sentinel, furniture_marker));
+        let actor = world.actors.get_mut(id).unwrap();
+        actor.swimming = false;
+        actor.running = false;
+        actor.riding_mount = false;
     }
     let summon_sentinel = GlobalFormId {
         file: u16::MAX,
@@ -483,6 +490,43 @@ fn without_exclusive_branches(world: &mut World) -> Vec<u8> {
         let table_start = at + probe.out.len() - section_table.out.len();
         bytes.drain(table_start..at + probe.out.len());
     }
+
+    for id in &ids {
+        let actor = world.actors.get(id).unwrap();
+        let mut with_movement = actor.clone();
+        with_movement.swimming = true;
+        with_movement.riding_mount = true;
+        let mut sentinel = Writer::new();
+        write_actor_state(&mut sentinel, &with_movement);
+        let mut baseline = Writer::new();
+        write_actor_state(&mut baseline, actor);
+        let movement_offset = sentinel
+            .out
+            .iter()
+            .zip(&baseline.out)
+            .take_while(|(left, right)| left == right)
+            .count();
+        assert_eq!(
+            &sentinel.out[movement_offset..movement_offset + 3],
+            &[1, 0, 1]
+        );
+        let mut exclusive_marker = vec![1];
+        let exclusive = actor.exclusive_branch.unwrap();
+        exclusive_marker.extend_from_slice(&exclusive.file.to_le_bytes());
+        exclusive_marker.extend_from_slice(&exclusive.object.to_le_bytes());
+        let marker_at = bytes
+            .windows(exclusive_marker.len())
+            .position(|window| window == exclusive_marker)
+            .expect("exclusive branch sentinel is serialized");
+        let exclusive_offset = baseline
+            .out
+            .windows(exclusive_marker.len())
+            .position(|window| window == exclusive_marker)
+            .expect("exclusive branch sentinel is in actor state");
+        let actor_start = marker_at - exclusive_offset - 6;
+        bytes.drain(actor_start + 6 + movement_offset..actor_start + 6 + movement_offset + 3);
+    }
+
     for id in world.refs.keys().copied().collect::<Vec<_>>() {
         let reference = world.refs.get(&id).unwrap();
         let mut probe = Writer::new();
@@ -505,6 +549,9 @@ fn without_exclusive_branches(world: &mut World) -> Vec<u8> {
         actor.witnessed_crimes.clear();
         actor.left_spell = None;
         actor.right_spell = None;
+        actor.swimming = false;
+        actor.running = false;
+        actor.riding_mount = false;
     }
     for marker in markers {
         let at = bytes
@@ -533,12 +580,18 @@ fn sav_07_legacy_ids_migrate_through_all_nested_world_state() {
     for version in 15..=18_u16 {
         let mut legacy = without_exclusive_branches(&mut rich_world(255));
         // Drop empty post-version-19 blocks, including zone visit and scene
-        // history, the version 30 detection block's now-unconditional empty
-        // pool count, and the 17-byte empty SAV-46 world section table.
+        // history, the version 30 detection block's
+        // now-unconditional empty pool count, and the 17-byte empty SAV-46
+        // world section table.
         legacy.truncate(legacy.len() - 41);
 
         let tail = legacy.len() - 25;
         let mut expected = rich_world(DYNAMIC_FILE);
+        for actor in expected.actors.values_mut() {
+            actor.swimming = false;
+            actor.running = false;
+            actor.riding_mount = false;
+        }
         match version {
             15 => legacy.truncate(tail),
             16 => legacy.truncate(tail + 1),
@@ -558,11 +611,29 @@ fn sav_07_legacy_ids_migrate_through_all_nested_world_state() {
         }
         legacy[4..6].copy_from_slice(&version.to_le_bytes());
         let mut loaded = World::new(legacy_order());
-        loaded.load_state(&legacy).unwrap();
-        assert_eq!(
-            loaded.save_state(),
-            expected.save_state(),
-            "version {version}"
+        loaded
+            .load_state(&legacy)
+            .unwrap_or_else(|error| panic!("version {version}: {error}"));
+        for (id, expected_actor) in &expected.actors {
+            let loaded_actor = loaded.actors.get(id).unwrap();
+            assert_eq!(loaded_actor.swimming, expected_actor.swimming, "{id:?}");
+            assert_eq!(loaded_actor.running, expected_actor.running, "{id:?}");
+            assert_eq!(
+                loaded_actor.riding_mount, expected_actor.riding_mount,
+                "{id:?}"
+            );
+        }
+        let actual_bytes = loaded.save_state();
+        let expected_bytes = expected.save_state();
+        let first_difference = actual_bytes
+            .iter()
+            .zip(&expected_bytes)
+            .position(|(actual, expected)| actual != expected);
+        assert!(
+            actual_bytes == expected_bytes,
+            "version {version}, first differing byte {first_difference:?}, actual {:?}, expected {:?}",
+            &actual_bytes[first_difference.unwrap_or(0)..first_difference.unwrap_or(0) + 12],
+            &expected_bytes[first_difference.unwrap_or(0)..first_difference.unwrap_or(0) + 12]
         );
         assert_eq!(loaded.state_hash(), expected.state_hash());
         let current = loaded.save_state();
@@ -605,7 +676,13 @@ fn sav_16_extras_preserve_created_namespace_and_all_existing_world_state() {
 
     legacy[4..6].copy_from_slice(&19_u16.to_le_bytes());
     loaded.load_state(&legacy).unwrap();
-    assert_eq!(loaded.save_state(), rich_world(DYNAMIC_FILE).save_state());
+    let mut expected = rich_world(DYNAMIC_FILE);
+    for actor in expected.actors.values_mut() {
+        actor.swimming = false;
+        actor.running = false;
+        actor.riding_mount = false;
+    }
+    assert_eq!(loaded.save_state(), expected.save_state());
 }
 
 #[test]
@@ -727,6 +804,9 @@ fn an_actor_state_before_version_24_defaults_an_absent_exclusive_branch() {
         object: 0x5678,
     });
     actor.graph_floats.insert("speed".into(), 1.5);
+    actor.swimming = true;
+    actor.running = false;
+    actor.riding_mount = true;
     let mut writer = Writer::new();
     write_actor_state(&mut writer, &actor);
     let marker = [1, 0, 0, 3, 0x19, 0, 0];
@@ -737,6 +817,29 @@ fn an_actor_state_before_version_24_defaults_an_absent_exclusive_branch() {
         .expect("exclusive branch is serialized");
     writer.out.drain(offset..offset + marker.len());
     actor.exclusive_branch = None;
+    let mut baseline_actor = actor.clone();
+    baseline_actor.swimming = false;
+    baseline_actor.running = false;
+    baseline_actor.riding_mount = false;
+    let mut baseline = Writer::new();
+    write_actor_state(&mut baseline, &baseline_actor);
+    let movement_offset = writer
+        .out
+        .iter()
+        .zip(&baseline.out)
+        .take_while(|(left, right)| left == right)
+        .count();
+    assert_eq!(
+        &writer.out[movement_offset..movement_offset + 3],
+        &[1, 0, 1]
+    );
+    writer.out.drain(movement_offset..movement_offset + 3);
+    actor.swimming = false;
+    actor.running = false;
+    actor.riding_mount = false;
+    let mut sections = Writer::new();
+    save_sections::write_sections(&mut sections, &actor, ACTOR_SECTIONS);
+    writer.out.truncate(writer.out.len() - sections.out.len());
 
     let mut reader = Reader::new(&writer.out);
     let mut reader = FormReader::new(&mut reader, FormNamespace::Current);
@@ -854,9 +957,8 @@ fn write_sections_and_read_sections_round_trip_for_world_actor_and_reference() {
     assert_eq!(restored_ref.scale, 2.5);
 }
 
-/// Version 36 predates the save-section table. Its writer produces none (the
-/// production registries are empty today, so the table is a bare zero
-/// count), and the reader must not look for one below version 37.
+/// Version 36 predates the save-section table, and the reader must not look
+/// for one below version 37.
 #[test]
 fn a_reference_saved_at_version_36_loads_without_its_absent_section_table() {
     let mut reference = RefState::new(Some(GlobalFormId {
@@ -874,8 +976,9 @@ fn a_reference_saved_at_version_36_loads_without_its_absent_section_table() {
     });
     let mut writer = Writer::new();
     write_ref_state(&mut writer, &reference);
-    assert_eq!(&writer.out[writer.out.len() - 2..], &[0, 0]);
-    writer.out.truncate(writer.out.len() - 2);
+    let mut sections = Writer::new();
+    save_sections::write_sections(&mut sections, &reference, REF_SECTIONS);
+    writer.out.truncate(writer.out.len() - sections.out.len());
 
     let mut reader = Reader::new(&writer.out);
     let mut reader = FormReader::new(&mut reader, FormNamespace::Current);

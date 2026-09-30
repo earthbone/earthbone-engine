@@ -38,7 +38,21 @@ pub(crate) const ACTOR_SECTIONS: &[Section<ActorState>] = &[
 #[rustfmt::skip]
 pub(crate) const REF_SECTIONS: &[Section<RefState>] = &[
     Section { name: "SAV-15", write: write_reference_persistence, read: read_reference_persistence },
+    Section { name: "MOD-03", write: write_reference_flags, read: read_reference_flags },
+    Section { name: "CMB-37", write: write_destruction_stage, read: read_destruction_stage },
 ];
+
+fn write_destruction_stage(state: &RefState, writer: &mut soe_papyrus::vm::state::Writer) {
+    writer.i32(state.destruction_stage);
+}
+
+fn read_destruction_stage(
+    state: &mut RefState,
+    reader: &mut super::save::FormReader<'_, '_>,
+) -> Result<(), soe_papyrus::VmError> {
+    state.destruction_stage = reader.i32()?;
+    Ok(())
+}
 
 fn write_reference_persistence(state: &RefState, writer: &mut soe_papyrus::vm::state::Writer) {
     writer.bool(state.persistent);
@@ -49,6 +63,18 @@ fn read_reference_persistence(
     reader: &mut super::save::FormReader<'_, '_>,
 ) -> Result<(), soe_papyrus::VmError> {
     state.persistent = reader.bool()?;
+    Ok(())
+}
+
+fn write_reference_flags(state: &RefState, writer: &mut soe_papyrus::vm::state::Writer) {
+    writer.u32(state.record_flags);
+}
+
+fn read_reference_flags(
+    state: &mut RefState,
+    reader: &mut super::save::FormReader<'_, '_>,
+) -> Result<(), soe_papyrus::VmError> {
+    state.record_flags = reader.u32()?;
     Ok(())
 }
 

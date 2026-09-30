@@ -8,7 +8,7 @@ use soe_save::{
     ChangeForm,
 };
 
-fn fixture_order() -> LoadOrder {
+pub(super) fn fixture_order() -> LoadOrder {
     fixture_order_with_flags(0)
 }
 
@@ -41,6 +41,13 @@ fn fixture_order_with_flags(flags: u32) -> LoadOrder {
         .sub(Tag(*b"NAME"), 0x900_u32.to_le_bytes().to_vec());
     placed.placement.cell = Some(0x800);
     master.push_top(placed);
+    for (tag, object, base) in [(b"PCON", 0xA02, 0x900_u32), (b"PARW", 0xA03, 0x901_u32)] {
+        let mut projectile = Record::new(Tag(*tag), object)
+            .sub(Tag(*b"NAME"), base.to_le_bytes().to_vec())
+            .sub(Tag(*b"DATA"), vec![0; 24]);
+        projectile.placement.cell = Some(0x800);
+        master.push_top(projectile);
+    }
     let mut order = LoadOrder::new();
     order.add("Skyrim.esm", master).unwrap();
     for (name, light) in [
@@ -203,7 +210,7 @@ fn set_form_mask(change: &mut ChangeForm, mask: u32, second: u16, version: u8) {
     );
 }
 
-fn fixture() -> Save {
+pub(super) fn fixture() -> Save {
     let mut save = save();
     save.form_id_array = vec![0x0100_0900, 0xFE00_0900];
     save.table_1.push(GlobalData {
