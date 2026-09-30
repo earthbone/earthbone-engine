@@ -1,7 +1,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use soe_audio::Lip;
-use soe_godot_host::dialogue_menu::DialogueMouth;
+use soe_godot_host::dialogue_menu::{DialogueMouth, DialogueVoice};
 
 fn lip_track() -> soe_audio::LipWeightTrack {
     let weights = [[0.1_f32, 0.2], [0.3, 0.4], [0.5, 0.6], [0.7, 0.8]];
@@ -55,4 +55,19 @@ fn dlg_20_interrupted_voice_resets_mouth_weights_to_neutral() {
 
     mouth.start(None, 2.0);
     assert_eq!(mouth.weights(), [0.0, 0.0]);
+}
+
+#[test]
+fn dlg_20_live_voice_playback_updates_mouth_and_interrupt_resets_weights() {
+    let mut voice = DialogueVoice::default();
+    voice.start(4, Some(lip_track()), 2.0);
+
+    voice.update(4, true, 0.5);
+    assert_eq!(voice.weights(), [0.3, 0.4]);
+
+    voice.stop(4);
+    assert_eq!(voice.weights(), [0.0, 0.0]);
+
+    voice.update(4, true, 1.0);
+    assert_eq!(voice.weights(), [0.0, 0.0]);
 }

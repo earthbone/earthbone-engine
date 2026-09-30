@@ -59,8 +59,7 @@ pub struct SoundBank {
     decoded_count: u64,
     pool: VoicePool,
     players: Vec<Gd<AudioStreamPlayer3D>>,
-    dialogue_mouth: crate::dialogue_menu::DialogueMouth,
-    dialogue_mouth_slot: Option<usize>,
+    dialogue_voice: crate::dialogue_menu::DialogueVoice,
     last_error: GString,
 }
 
@@ -92,8 +91,7 @@ impl INode3D for SoundBank {
             decoded_count: 0,
             pool: VoicePool::new(SLOTS),
             players: Vec::new(),
-            dialogue_mouth: crate::dialogue_menu::DialogueMouth::default(),
-            dialogue_mouth_slot: None,
+            dialogue_voice: crate::dialogue_menu::DialogueVoice::default(),
             last_error: GString::new(),
         }
     }
@@ -114,17 +112,15 @@ impl INode3D for SoundBank {
         // wiring the `finished` signal keeps the release in one place and
         // costs one bool per slot per frame.
         for i in 0..self.players.len() {
-            if !self.players[i].is_playing() && self.pool.peek(i).is_some() {
+            let playing = self.players[i].is_playing();
+            if !playing && self.pool.peek(i).is_some() {
                 self.pool.release(i);
-                if self.dialogue_mouth_slot == Some(i) {
-                    self.dialogue_mouth.clear();
-                    self.dialogue_mouth_slot = None;
-                }
             }
-            if self.dialogue_mouth_slot == Some(i) && self.players[i].is_playing() {
-                self.dialogue_mouth
-                    .sample(f64::from(self.players[i].get_playback_position()));
-            }
+            self.dialogue_voice.update(
+                i,
+                playing,
+                f64::from(self.players[i].get_playback_position()),
+            );
         }
     }
 }
@@ -273,10 +269,7 @@ impl SoundBank {
         };
         player.stop();
         self.pool.release(slot);
-        if self.dialogue_mouth_slot == Some(slot) {
-            self.dialogue_mouth.clear();
-            self.dialogue_mouth_slot = None;
-        }
+        self.dialogue_voice.stop(slot);
         true
     }
 
@@ -289,7 +282,7 @@ impl SoundBank {
     /// Mouth target weights from the active dialogue voice, in LIP order.
     #[func]
     fn dialogue_mouth_weights(&self) -> PackedFloat32Array {
-        PackedFloat32Array::from(self.dialogue_mouth.weights().to_vec())
+        PackedFloat32Array::from(self.dialogue_voice.weights().to_vec())
     }
 
     /// Why the last call that returned false or -1 failed.
@@ -427,8 +420,7 @@ impl SoundBank {
         });
         player.play();
         if kind == Kind::Voice {
-            self.dialogue_mouth.start(lip, duration);
-            self.dialogue_mouth_slot = Some(slot);
+            self.dialogue_voice.start(slot, lip, duration);
         }
         self.last_error = GString::new();
         slot as i32
