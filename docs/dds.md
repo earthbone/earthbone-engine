@@ -70,6 +70,22 @@ level with this crate, resizes with Lanczos3 when the size differs, and encodes,
 write, BC6H included on the encode side only. Two block compressors never agree byte for
 byte, so a re-encoded texture is checked by header, not by hash, as Wabbajack does.
 
+`encode::export_png` decodes a PNG and writes a slot-profiled DDS. `SlotFormat` selects BC1 sRGB
+for opaque diffuse color, BC3 sRGB for diffuse with alpha, linear BC3 for Skyrim tangent-space
+normals, or linear BC4 for a single-channel mask. The tangent-normal profile keeps alpha because
+PyNifly's Skyrim shader notes identify it as specular input. `MipChain` selects the base image,
+the complete chain, or an exact count including the base. Explicit counts larger than the full
+chain are rejected. The output keeps the source dimensions. BC1 drops alpha,
+and BC4 keeps only the red channel of the decoded image.
+
+The editor import plan calls for PNG-to-DDS export with material and slot mappings in
+`docs/editor.md`, milestone 4. `nifly/include/Shaders.hpp` defines the texture set as ordered
+texture paths, and `nifly/src/Shaders.cpp` sizes that list by NIF version. PyNifly's
+[shader reference](https://github.com/BadDogSkyrim/PyNifly/wiki/Shaders) explains Skyrim texture
+channel roles and its preference for PNG source images. The export uses the existing
+`image_dds` encoder, and keeps slot selection explicit because the NIF slot identifies texture
+meaning while compression is an export choice.
+
 ## Tests
 
 Unit tests build headers and blocks by hand: the plan's synthetic BC1 block decodes to the
@@ -81,7 +97,8 @@ unsigned BC6H modes with `image_dds`, checks signed DXGI handling, and covers ed
 `tests/real_data.rs` runs when `SKYRIM_DATA` names a
 Skyrim SE `Data/` folder and reads the textures straight out of the archives through
 `soe-bsa`, `SOE_DDS_SAMPLE` sets how many per archive (default 150). `tests/bc7_roundtrip.rs`
-needs the `encode` feature.
+needs the `encode` feature. `tests/edt_16_png_export.rs` checks PNG conversion, slot format and
+color-space declarations, mip dimensions, tolerance after DDS reload, and invalid input rejection.
 
 ## Live run (2026-09-14)
 

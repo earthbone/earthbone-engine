@@ -106,9 +106,14 @@ impl World {
             if id.file == super::DYNAMIC_FILE || self.player == Some(id) {
                 continue;
             }
-            let persistent = self.order.winner_ref(id).is_some_and(|record_ref| {
-                self.order.record(record_ref).flags & record_flags::PERSISTENT != 0
-            });
+            let persistent = self.refs.get(&id).map_or_else(
+                || {
+                    self.order.winner_ref(id).is_some_and(|record_ref| {
+                        self.order.record(record_ref).flags & record_flags::PERSISTENT != 0
+                    })
+                },
+                |reference| reference.persistent,
+            );
             if persistent || self.encounter_zone(id).ok().flatten() != Some(zone) {
                 continue;
             }
