@@ -50,6 +50,21 @@ pub enum VendorError {
     Invalid(&'static str),
 }
 
+/// Errors while committing a vendor purchase.
+#[derive(Debug, thiserror::Error)]
+pub enum TradeError {
+    #[error("vendor service is unavailable")]
+    Unavailable,
+    #[error("vendor does not have enough of this item")]
+    Stock,
+    #[error("invalid trade quantity or price")]
+    Price,
+    #[error("vendor service: {0}")]
+    Vendor(#[from] VendorError),
+    #[error("inventory trade: {0}")]
+    Inventory(#[from] crate::inventory::Error),
+}
+
 /// Resolve the service exposed by `faction` to `merchant` at the current time.
 /// A non-vendor faction returns `Ok(None)`. Conditions run with the merchant
 /// as subject and the player as target, matching the barter invocation.
