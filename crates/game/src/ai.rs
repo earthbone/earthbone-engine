@@ -172,7 +172,7 @@ pub fn package(world: &World, id: GlobalFormId) -> Option<Package> {
     Some(package)
 }
 
-fn movement_speed(world: &mut World, actor: GlobalFormId, preferred: u8) -> f32 {
+pub(crate) fn movement_speed(world: &mut World, actor: GlobalFormId, preferred: u8) -> f32 {
     let (default_tag, offset, fallback) = movement_input(preferred);
     let Some(race) = world.actor(actor).and_then(|state| state.race) else {
         return fallback;

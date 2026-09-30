@@ -227,6 +227,12 @@ pub fn supports_function(function: u16) -> bool {
             | 707
             | 710
             | 676
+            | 99
+            | 142
+            | 159
+            | 162
+            | 163
+            | 175
     )
 }
 
@@ -599,6 +605,62 @@ fn function_value(
         1 => {
             let other = resolve_reference(world, context.owner, raw)?;
             world.distance(subject, other)
+        }
+        99 => {
+            if c.parameters[1] != 0 {
+                return Err(Error::Parameter(c.function, c.parameters[1]));
+            }
+            let other = resolve_reference(world, context.owner, raw)?;
+            let (position, heading) = world
+                .reference(subject)
+                .map(|reference| (reference.position, reference.rotation[2]))
+                .ok_or(Error::Form(subject))?;
+            let target = world
+                .reference(other)
+                .map(|reference| reference.position)
+                .ok_or(Error::Form(other))?;
+            let dx = target[0] - position[0];
+            let dy = target[1] - position[1];
+            let bearing = dy.atan2(dx).to_degrees();
+            let heading = heading.to_degrees();
+            (bearing - heading + 180.0).rem_euclid(360.0) - 180.0
+        }
+        142 => {
+            no_parameter(c)?;
+            if world.actor(subject).is_none() {
+                return Err(Error::Form(subject));
+            }
+            crate::ai::movement_speed(world, subject, crate::package::speed::WALK)
+        }
+        159 => {
+            no_parameter(c)?;
+            boolean(furniture_marker_type(world, subject, 1)?)
+        }
+        162 | 163 => {
+            let furniture = if c.function == 162 {
+                resolve_reference(world, context.owner, raw)?
+            } else {
+                resolve(world, context.owner, raw, Some(*b"FURN"))?
+            };
+            if c.parameters[1] != 0 {
+                return Err(Error::Parameter(c.function, c.parameters[1]));
+            }
+            let Some((current, _)) = world.furniture_seat(subject) else {
+                if world.actor(subject).is_none() {
+                    return Err(Error::Form(subject));
+                }
+                return Ok(0.0);
+            };
+            if c.function == 162 {
+                boolean(current == furniture)
+            } else {
+                boolean(world.reference_ref(current).and_then(|r| r.base) == Some(furniture))
+            }
+        }
+        175 => {
+            no_parameter(c)?;
+            let player = world.player();
+            boolean(furniture_marker_type(world, player, 2)?)
         }
         18 => world.calendar().hour as f32,
         46 => boolean(world.actor(subject).is_some_and(|actor| actor.dead)),
@@ -1332,6 +1394,30 @@ fn casting_spell(
         2 | 3 => Ok(None),
         _ => Err(Error::Parameter(function, source)),
     }
+}
+
+fn furniture_marker_type(
+    world: &mut World,
+    actor: GlobalFormId,
+    marker_type: u16,
+) -> Result<bool, Error> {
+    let Some((furniture, marker)) = world.furniture_seat(actor) else {
+        if world.actor(actor).is_none() {
+            return Err(Error::Form(actor));
+        }
+        return Ok(false);
+    };
+    let reference = world.reference(furniture).ok_or(Error::Form(furniture))?;
+    let base = reference.base.ok_or(Error::Form(furniture))?;
+    let record = world.record(base).ok_or(Error::Form(base))?;
+    if record.tag != Tag(*b"FURN") {
+        return Err(Error::Form(base));
+    }
+    Ok(record
+        .all(Tag(*b"FNPR"))
+        .nth(usize::from(marker))
+        .and_then(|data| data.get(..2))
+        .is_some_and(|data| u16::from_le_bytes([data[0], data[1]]) == marker_type))
 }
 
 /// Shared actor queries keep package and gameplay predicates on the same state.

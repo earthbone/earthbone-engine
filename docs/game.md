@@ -837,6 +837,11 @@ IsHostileToActor return per-function diagnostics because the runtime does not
 model recoil animation state, actor-to-actor assistance, combat group
 membership or the faction and crime rules that determine hostility.
 
+The motion condition increment also adds GetHeadingAngle, GetWalkSpeed,
+GetSitting, IsCurrentFurnitureRef, IsCurrentFurnitureObj and IsPCSleeping. It
+reads reference transforms, race movement records and current furniture marker
+reservations. IsIdlePlaying and GetWindSpeed return explicit unsupported
+function errors because this runtime has no idle playback or wind state.
 The AI-01 increment also shares GetStaminaPercentage,
 GetBaseActorValue, IsKiller, GetHealthPercentage and GetPermanentActorValue
 with the gameplay evaluator. Any other function fails its condition and is
@@ -1553,11 +1558,10 @@ earlier member can change inventory or queue events.
 Active-effect recipients remain pending with magic execution.
 
 The condition evaluator implements functions 47, 53, 56, 58, 59, 72, 74, 79,
-136, 182, 230, 250, 264, 277, 280, 289, 310, 325, 359, 360, 444, 445, 446,
-448, 470, 491, 519, 528, 543, 560, 561, 562, 563, 565, 567, 569, 591, 592,
-598, 600, 601, 603, 629, 630 and 659.
-This is a bounded set, not the entire CTDA contract. It supports ordered
-AND/OR groups, numeric or
+99, 136, 142, 182, 230, 250, 264, 277, 280, 289, 310, 325, 359, 360, 444,
+445, 446, 448, 470, 491, 519, 528, 543, 560, 561, 562, 563, 565, 567, 569,
+591, 592, 598, 600, 601, 603, 629, 630 and 659. This is a bounded set, not
+the entire CTDA contract. It supports ordered AND/OR groups, numeric or
 global comparisons, explicit references and caller-supplied quest aliases.
 Reserved PlayerRef resolves to the runtime player even without a placed record.
 New runtime players retain reserved FormID 00000014 and use the Player NPC
@@ -1838,7 +1842,21 @@ worktrees, including NPC Player base data when present.
 The shared condition evaluator reuses the crafting implementation and adds
 speaker/listener and owning-quest context. Supported function IDs are 1, 18,
 46, 47, 56, 58, 59, 67, 69, 70, 71, 72, 73, 74, 80, 136, 182, 264, 277, 289, 359,
-403, 448, 543, 560, 566, 580, 606, 629, 630, 659, 694 and 701. Run-on subject, target,
+99, 142, 159, 162, 163, 175, 403, 448, 543, 560, 566, 580, 606, 629, 630,
+659, 694 and 701. Function 99
+measures the signed horizontal angle from a placed reference's heading to the
+target reference. Function 142 reads the race's resolved walk movement speed
+and falls back to the package driver's walk speed when race movement data is
+absent. Function 159 checks whether the subject has reserved a Sit marker.
+Functions 162 and 163 compare that reservation with a furniture reference or
+FURN base. Function 175 checks whether the player has reserved a Sleep marker.
+The furniture predicates use shared occupied-marker state. Function 112
+(`IsIdlePlaying`) and 147 (`GetWindSpeed`) return typed unsupported function
+errors because the runtime has no idle playback or weather wind state. The xEdit
+table and UESP `Raw_Function_Data.wikitext` establish these function identities
+and parameters. CK's `GetHeadingAngle` and `GetSitState` pages define the
+heading and sit-state contracts. The local CK dump does not define usable
+behavior for idle playback or wind speed. Run-on subject, target,
 explicit reference and quest alias are supported when their context exists.
 Conditions use current shared actor, quest, inventory and location state.
 Papyrus variable queries require conditional flags and reject ambiguous names.
