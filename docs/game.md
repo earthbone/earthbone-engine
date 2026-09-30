@@ -1808,21 +1808,25 @@ SLGM records whose capacity meets the target's soul size. Soul size follows
 `iLesserSoulActorLevel`, `iCommonSoulActorLevel`, `iGreaterSoulActorLevel` and
 `iGrandSoulActorLevel`, with engine defaults 4, 16, 28 and 38. The smallest
 eligible capacity wins, with FormID as the tie-breaker. An eligible gem needs a
-valid `NAM0` link to a filled SLGM record. Capture replaces one empty gem with
-one filled gem and queues both inventory count events. The Soul Trap
-all matching applications end on the first death resolution, even when the
+valid `NAM0` link to a filled SLGM record. For targets marked by the
+`ActorTypeNPC` keyword on their NPC base or race, the empty gem must also have
+record flag bit 17, `Can Hold NPC Soul`, from xEdit's SLGM definition. Capture
+replaces one empty gem with one filled gem and queues both inventory count
+events. All matching Soul Trap applications end on the first death resolution, even when the
 selected caster has no eligible gem, so repeated applications cannot fill
 multiple gems from the same death.
 
 The local xEdit MGEF table identifies archetype 23 as Soul Trap. Its SLGM
 definition and UESP `SLGM.wikitext` define current soul, capacity, filled gem
-link and the record flag for NPC souls. UESP `MGEF.wikitext` says Soul Trap has
+link and the record flag for NPC souls. xEdit assigns that flag to bit 17.
+UESP `MGEF.wikitext` says Soul Trap has
 no archetype-specific data. CK `TrapSoul_-_Actor.wikitext` describes capture
 as a success or failure, while the local CK Magic Effect archetype page is not
 present in the corpus. The runtime reuses the active-effect target and caster,
-the existing death queue and the shared inventory event path. Soul eligibility
-currently uses level-derived capacity and does not distinguish humanoid black
-souls from creature souls.
+the existing death queue and the shared inventory event path. The local CK
+archetype page is absent, so `ActorTypeNPC` is used as the available target
+classification marker. `mag_44_npc_soul_requires_a_soul_gem_marked_for_npc_souls`
+checks that NPC marked targets require the authored gem flag.
 
 ### Paralysis, MAG-42
 
@@ -1910,10 +1914,9 @@ Local `TES5Edit/Core/wbDefinitionsTES5.pas` and
 `uesp-modfileformat/MGEF.wikitext` name archetype 26 Werewolf Feed and specify
 no extra MGEF data. CK's local
 `ck-wiki/StartCannibal_-_Actor.wikitext` describes feeding on a dead actor.
-`mag_47_werewolf_feed_consumes_a_dead_actor_corpse_once`,
-`mag_47_werewolf_feed_rejects_a_living_actor_without_changing_it` and
-`mag_47_werewolf_feed_rejects_a_disabled_dead_actor_without_changing_it`
-cover the eligible corpse transition and its repeat and ineligible cases.
+`mag_47_feed_consumes_corpse_once_and_rejects_a_repeated_cast` and
+`mag_47_feed_does_not_consume_a_living_target_or_other_corpse` cover the
+eligible corpse transition, repeated use and ineligible targets.
 
 ### Direct hostile hits, MAG-01
 

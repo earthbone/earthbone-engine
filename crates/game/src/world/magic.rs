@@ -119,6 +119,7 @@ struct SoulGem {
     current: u8,
     capacity: u8,
     filled: GlobalFormId,
+    can_hold_npc_soul: bool,
 }
 
 impl World {
@@ -1247,6 +1248,7 @@ impl World {
             return;
         };
         let soul_size = self.soul_size(level);
+        let npc_soul = self.is_npc_soul_target(target);
         let candidates: Vec<_> = self
             .reference_ref(caster)
             .into_iter()
@@ -1256,6 +1258,7 @@ impl World {
                     .then(|| self.soul_gem(item))
                     .flatten()
                     .filter(|gem| gem.current == 0 && gem.capacity >= soul_size)
+                    .filter(|gem| !npc_soul || gem.can_hold_npc_soul)
                     .map(|gem| (gem.capacity, item, gem.filled))
             })
             .collect();
@@ -1297,6 +1300,22 @@ impl World {
         }
     }
 
+    fn is_npc_soul_target(&mut self, target: GlobalFormId) -> bool {
+        let Some(keyword) = self.form("ActorTypeNPC") else {
+            return false;
+        };
+        let Some(base) = self.base_of(target) else {
+            return false;
+        };
+        if self.has_keyword(base, keyword) {
+            return true;
+        }
+        self.actor_base_race(base)
+            .ok()
+            .flatten()
+            .is_some_and(|race| self.has_keyword(race, keyword))
+    }
+
     fn soul_gem(&self, id: GlobalFormId) -> Option<SoulGem> {
         let rref = self.order.winner_ref(id)?;
         let record = self.order.record(rref);
@@ -1325,6 +1344,7 @@ impl World {
             current,
             capacity,
             filled,
+            can_hold_npc_soul: record.flags & (1 << 17) != 0,
         })
     }
 

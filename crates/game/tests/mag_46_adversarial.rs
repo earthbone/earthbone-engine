@@ -186,7 +186,10 @@ fn mag_46_guide_skips_a_disabled_alias_target_and_clears_route() {
     let mut game = fixture();
     apply_guide(&mut game);
     game.world_mut()
-        .reference(GlobalFormId { file: 0, object: DESTINATION })
+        .reference(GlobalFormId {
+            file: 0,
+            object: DESTINATION,
+        })
         .unwrap()
         .enabled = false;
     assert!(game.world_mut().guide_route().is_none());
@@ -199,6 +202,15 @@ fn mag_46_guide_returns_finite_points_for_the_live_objective_target() {
     let mut game = fixture();
     apply_guide(&mut game);
     let route = game.world_mut().guide_route().unwrap();
-    assert_eq!(route.destination, GlobalFormId { file: 0, object: DESTINATION });
-    assert!(route.points.iter().all(|point| point.iter().all(|n| n.is_finite())));
+    assert_eq!(
+        route.destination,
+        GlobalFormId {
+            file: 0,
+            object: DESTINATION
+        }
+    );
+    assert!(route
+        .points
+        .iter()
+        .all(|point| point.iter().all(|n| n.is_finite())));
 }

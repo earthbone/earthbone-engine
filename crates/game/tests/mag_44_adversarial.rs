@@ -19,14 +19,18 @@ const EMPTY_COMMON: u32 = 0x402;
 const FILLED_COMMON: u32 = 0x403;
 const EMPTY_GRAND: u32 = 0x404;
 const FILLED_GRAND: u32 = 0x405;
+const NPC_KEYWORD: u32 = 0x500;
+const EMPTY_BLACK: u32 = 0x406;
+const FILLED_BLACK: u32 = 0x407;
 
 fn id(object: u32) -> GlobalFormId {
     GlobalFormId { file: 0, object }
 }
 
-fn soul_gem(plugin: &mut Plugin, empty: u32, filled: u32, capacity: u8, current: u8) {
+fn soul_gem(plugin: &mut Plugin, empty: u32, filled: u32, capacity: u8, current: u8, flags: u32) {
     plugin.push_top(
         Record::new(Tag::new(b"SLGM"), empty)
+            .with_flags(flags)
             .sub(Tag::new(b"SOUL"), [current])
             .sub(Tag::new(b"SLCP"), [capacity])
             .sub(Tag::new(b"NAM0"), filled.to_le_bytes()),
@@ -38,10 +42,19 @@ fn soul_gem(plugin: &mut Plugin, empty: u32, filled: u32, capacity: u8, current:
     );
 }
 
-fn fixture() -> Game {
+fn fixture(npc_target: bool) -> Game {
     let mut plugin = Plugin::new(FileHeader::default());
+    if npc_target {
+        plugin.push_top(
+            Record::new(Tag::new(b"KYWD"), NPC_KEYWORD).zsub(Tag::new(b"EDID"), "ActorTypeNPC"),
+        );
+    }
     for base in [CASTER_BASE, TARGET_BASE] {
-        plugin.push_top(Record::new(Tag::new(b"NPC_"), base).sub(Tag::new(b"ACBS"), vec![0; 24]));
+        let mut record = Record::new(Tag::new(b"NPC_"), base).sub(Tag::new(b"ACBS"), vec![0; 24]);
+        if npc_target && base == TARGET_BASE {
+            record = record.sub(Tag::new(b"KWDA"), NPC_KEYWORD.to_le_bytes());
+        }
+        plugin.push_top(record);
     }
     for (reference, base) in [(CASTER, CASTER_BASE), (TARGET, TARGET_BASE)] {
         plugin.push_top(
@@ -76,9 +89,10 @@ fn fixture() -> Game {
                 .concat(),
             ),
     );
-    soul_gem(&mut plugin, EMPTY_SMALL, FILLED_SMALL, 2, 0);
-    soul_gem(&mut plugin, EMPTY_COMMON, FILLED_COMMON, 3, 0);
-    soul_gem(&mut plugin, EMPTY_GRAND, FILLED_GRAND, 5, 0);
+    soul_gem(&mut plugin, EMPTY_SMALL, FILLED_SMALL, 2, 0, 0);
+    soul_gem(&mut plugin, EMPTY_COMMON, FILLED_COMMON, 3, 0, 0);
+    soul_gem(&mut plugin, EMPTY_GRAND, FILLED_GRAND, 5, 0, 0);
+    soul_gem(&mut plugin, EMPTY_BLACK, FILLED_BLACK, 5, 0, 1 << 17);
 
     let mut order = LoadOrder::new();
     order.add("SoulTrap.esp", plugin).unwrap();
@@ -107,7 +121,7 @@ fn cast(game: &mut Game) {
 
 #[test]
 fn mag_44_soul_trap_fills_the_smallest_eligible_gem_once_on_death() {
-    let mut game = fixture();
+    let mut game = fixture(false);
     {
         let mut world = game.world_mut();
         let inventory = &mut world.reference(id(CASTER)).unwrap().inventory;
@@ -133,7 +147,7 @@ fn mag_44_soul_trap_fills_the_smallest_eligible_gem_once_on_death() {
 
 #[test]
 fn mag_44_soul_trap_consumes_death_without_filling_an_ineligible_gem() {
-    let mut game = fixture();
+    let mut game = fixture(false);
     game.world_mut()
         .reference(id(CASTER))
         .unwrap()
@@ -150,5 +164,27 @@ fn mag_44_soul_trap_consumes_death_without_filling_an_ineligible_gem() {
     let inventory = &world.reference_ref(id(CASTER)).unwrap().inventory;
     assert_eq!(inventory.count(id(EMPTY_SMALL)), 1);
     assert_eq!(inventory.count(id(FILLED_SMALL)), 0);
+    assert_eq!(game.world().active_effects().count(), 0);
+}
+
+#[test]
+fn mag_44_npc_soul_requires_a_soul_gem_marked_for_npc_souls() {
+    let mut game = fixture(true);
+    {
+        let mut world = game.world_mut();
+        let inventory = &mut world.reference(id(CASTER)).unwrap().inventory;
+        inventory.add(id(EMPTY_GRAND), 1).unwrap();
+        inventory.add(id(EMPTY_BLACK), 1).unwrap();
+    }
+    cast(&mut game);
+    assert!(game.world_mut().kill_actor(id(TARGET), Some(id(CASTER))));
+    game.pump();
+    game.pump();
+    let world = game.world();
+    let inventory = &world.reference_ref(id(CASTER)).unwrap().inventory;
+    assert_eq!(inventory.count(id(EMPTY_GRAND)), 1);
+    assert_eq!(inventory.count(id(FILLED_GRAND)), 0);
+    assert_eq!(inventory.count(id(EMPTY_BLACK)), 0);
+    assert_eq!(inventory.count(id(FILLED_BLACK)), 1);
     assert_eq!(game.world().active_effects().count(), 0);
 }
