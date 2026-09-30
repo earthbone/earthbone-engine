@@ -844,12 +844,25 @@ has no markers. `Sleep` walks to the bed the location names, or the
 nearest furniture in that cell whose base carries a keyword with `bed` in
 its editor id, and holds with `sleeping` set. `Wait` holds for its real-time
 duration, with zero meaning indefinite. Walking `Patrol` follows linked markers,
-including their arrival radius and idle time. Every other procedure name
-is `Procedure::Unsupported` and the actor stands where it is. Location
+including their arrival radius and idle time. `Flee` chooses a reachable
+navmesh triangle whose centroid increases distance from its live combat target,
+runs there at the race's run speed, then succeeds the active tree branch. When
+the target leaves combat, Flee succeeds immediately. The existing tree cursor
+applies `Success Completes Package` and the following branch rules. If no
+reachable point increases distance, the actor holds position until the target
+or navmesh changes. Every other procedure name is `Procedure::Unsupported`
+and the actor stands where it is. Location
 kinds near reference, in cell, near package start, near editor location,
 near linked reference, alias reference, alias location and near self resolve.
 An alias location uses its filled `LCTN` form's `MNAM` world marker as its
 destination. Location alias fill rules remain separate quest work.
+
+The local CK `EvaluatePackage - Actor` and `GetCurrentPackage - Actor` pages
+define package evaluation and observation, not Flee movement. PACK branch
+completion uses xEdit's `PRCB` flags and the UESP PACK layout. Route selection
+uses the shared combat target and vanilla NAVM graph already used by combat
+movement. No procedure-specific source in the local corpus defines Flee's
+destination choice.
 
 **Walking.** `ai::nav_graph` builds `soe_navmesh::vanilla` over every
 winning `NAVM` on first use and remembers which cell each mesh sits in.
