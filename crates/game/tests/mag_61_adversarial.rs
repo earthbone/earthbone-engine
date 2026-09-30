@@ -62,7 +62,9 @@ fn game() -> Game {
     Game::new(order)
 }
 
-fn cast(game: &mut Game) -> Result<Vec<soe_game::world::magic::EffectId>, soe_game::world::magic::MagicError> {
+fn cast(
+    game: &mut Game,
+) -> Result<Vec<soe_game::world::magic::EffectId>, soe_game::world::magic::MagicError> {
     let shared = game.shared_world();
     let result = shared.borrow_mut().cast_spell(
         id(SPELL),
@@ -104,8 +106,7 @@ fn mag_61_expiry_removes_the_owned_hazard_application() {
     game.tick(5.0);
 
     assert_eq!(game.world().active_effects().count(), 0);
-    assert!(applied.into_iter().all(|id| game
-        .world()
-        .active_effects()
-        .all(|effect| effect.id != id)));
+    assert!(applied
+        .into_iter()
+        .all(|id| game.world().active_effects().all(|effect| effect.id != id)));
 }

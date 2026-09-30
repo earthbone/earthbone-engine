@@ -4,7 +4,7 @@
 #[path = "support/magic_adversarial.rs"]
 mod support;
 
-use soe_esm::{Record, Tag};
+use soe_esm::Tag;
 use support::*;
 
 const T: fn(&[u8; 4]) -> Tag = Tag::new;
