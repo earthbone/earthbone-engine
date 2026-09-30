@@ -113,6 +113,7 @@ unmeasured. Static world collision is not evidence of hazard execution.
 | `input` | no | the vanilla `controlmap.txt`, key bindings, and a frame of input into movement intent |
 | `godot_layer` | yes | the `CellStreamer` node, `RenderingServer` instances, `array_mesh_from`, `heightmap_image_from` |
 | `godot_player` | yes | the `PlayerNode`: devices in, physics character and camera out |
+| `facegen` | no | apply named TRI morph weights to head-part meshes, and compose ordered NPC tint masks into DDS files |
 
 The Godot layer decides nothing. That is what keeps the tests engine-free, and it is the
 seam a VulkanSceneGraph or other host would reuse: everything above the layer is plain data.
@@ -122,6 +123,22 @@ seam a VulkanSceneGraph or other host would reuse: everything above the layer is
 passes the changed geometry through the same axis conversion, bounds and surface validation
 as streamed meshes. Normals are generated from the changed geometry. The caller resolves
 the NPC's `PNAM` head-part links and maps `NAM9` values to morph names.
+
+## FaceGen tint textures, EDT-23
+
+`facegen::generate_face_tint` accepts decoded RGBA8 masks in the order supplied by the
+caller. Each mask alpha is multiplied by its layer opacity, and its color is blended over
+black. The result is encoded as one 512 by 512 BC1 sRGB DDS level. `face_tint_path` returns
+`textures/actors/character/facegendata/facetint/<plugin>/<FORMID>.dds`, where `FORMID` is
+the eight digit uppercase local form id used by Skyrim asset tools.
+
+The path follows Mutagen's `Npc.GetResolvedAssetLinks` implementation. xEdit's TES5
+definitions identify each race tint asset by layer index, texture path and mask type.
+TiltedEvolution's `FaceGenSystem` passes each tint texture, color, alpha and type to the
+engine tint renderer and allocates a 512 by 512 surface. Its `CreateTints` call is an engine
+function, so the blend arithmetic here is a deterministic editor export rule covered by a
+synthetic fixture. PyNifly was named in the backlog read-first list but is absent from the
+local reference corpus, which was unavailable from this worktree during conflict resolution.
 
 `godot/` holds a project stub and `soe.gdextension` pointing at `target/`, so `cargo build`
 plus opening `godot/` in a 4.4 or later editor loads the extension. The initial
