@@ -817,6 +817,17 @@ IsAttacking, IsPowerAttacking, IsLastHostileActor, ShouldAttackKill and
 IsAttackType return a typed condition error: local xEdit metadata gives their
 identities and parameter types, but the CK corpus has no usable condition
 contract and the runtime lacks their live attack or hostile-state producers.
+GetCombatTargetHasKeyword and IsIgnoringCombat. The
+combat-target keyword condition resolves the subject actor's current combat
+target and checks that target's winning base keywords. It is false when the
+subject has no combat target. IsIgnoringCombat reads the active package's
+`Ignore Combat` flag. Both conditions reject a non-actor subject, and the
+keyword condition also rejects a missing combat target form or invalid
+keyword. IsRecoiling, GetShouldHelp, GetCombatGroupMemberCount and
+IsHostileToActor return per-function diagnostics because the runtime does not
+model recoil animation state, actor-to-actor assistance, combat group
+membership or the faction and crime rules that determine hostility.
+
 The AI-01 increment also shares GetStaminaPercentage,
 GetBaseActorValue, IsKiller, GetHealthPercentage and GetPermanentActorValue
 with the gameplay evaluator. Any other function fails its condition and is

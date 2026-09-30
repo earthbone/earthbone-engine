@@ -56,6 +56,8 @@ pub enum Error {
     LocationContext(GlobalFormId),
     #[error("condition function {function} has no usable runtime contract: {reason}")]
     UnavailableState { function: u16, reason: &'static str },
+    #[error("condition function {0} has no usable runtime contract: {1}")]
+    UnavailableContract(u16, &'static str),
     #[error("condition count overflow or cyclic form list")]
     Inventory,
 }
@@ -215,6 +217,8 @@ pub fn supports_function(function: u16) -> bool {
             | 580
             | 694
             | 701
+            | 707
+            | 710
     )
 }
 
@@ -955,6 +959,53 @@ fn function_value(
                     == Some(target),
             )
         }
+        702 => {
+            return Err(Error::UnavailableContract(
+                c.function,
+                "the runtime tracks stagger state, but no recoil state",
+            ));
+        }
+        705 => {
+            return Err(Error::UnavailableContract(
+                c.function,
+                "CK does not define the actor-to-actor help decision",
+            ));
+        }
+        707 => {
+            no_parameter_second(c)?;
+            let keyword = resolve(world, context.owner, raw, Some(*b"KYWD"))?;
+            let target = world
+                .actor(subject)
+                .ok_or(Error::Form(subject))?
+                .combat_target;
+            let Some(target) = target else {
+                return Ok(0.0);
+            };
+            if world.actor(target).is_none() {
+                return Err(Error::Form(target));
+            }
+            boolean(world.has_keyword(target, keyword))
+        }
+        709 => {
+            return Err(Error::UnavailableContract(
+                c.function,
+                "the runtime does not model combat group membership",
+            ));
+        }
+        710 => {
+            no_parameter(c)?;
+            let package = world.actor(subject).ok_or(Error::Form(subject))?.ai.package;
+            boolean(package.is_some_and(|id| {
+                crate::ai::package(world, id)
+                    .is_some_and(|pack| pack.has_flag(crate::package::flags::IGNORE_COMBAT))
+            }))
+        }
+        719 => {
+            return Err(Error::UnavailableContract(
+                c.function,
+                "CK names hostility but does not define its faction and crime rules",
+            ));
+        }
         566 => {
             let quest = context.quest.ok_or(Error::Target(5))?;
             boolean(world.alias_ref(quest, raw) == Some(subject))
@@ -1174,6 +1225,15 @@ fn function_value(
         672 | 673 | 674 | 678 | 697 => unavailable_combat_query(world, context.owner, subject, c)?,
         other => return Err(Error::Function(other)),
     })
+}
+
+/// Reject a nonzero unused second parameter for one-argument conditions.
+fn no_parameter_second(c: &Condition) -> Result<(), Error> {
+    if c.parameters[1] == 0 {
+        Ok(())
+    } else {
+        Err(Error::Parameter(c.function, c.parameters[1]))
+    }
 }
 
 /// Shared actor queries keep package and gameplay predicates on the same state.
