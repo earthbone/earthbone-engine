@@ -102,6 +102,14 @@ fn evaluate_subject(
             target: None,
             quest: None,
             tempering_enchanted: None,
+
+            tempering_item: None,
+            alchemy_making_poison: None,
+            alchemy_effect: None,
+            magic_item: None,
+            dual_cast: None,
+            skill_use: None,
+            light_level: None,
         },
         c,
     )
@@ -198,7 +206,9 @@ fn ai_60_untracked_ward_dual_cast_and_voice_state_return_specific_diagnostics() 
         assert!(conditions::supports_function(function));
         assert_eq!(
             evaluate(&game, &condition(function, parameter, 0, 0.0)),
-            Err(conditions::Error::UnavailableContract(function, detail))
+            Err(conditions::Error::UnavailableContractReason(
+                function, detail
+            ))
         );
     }
     assert_eq!(

@@ -111,6 +111,16 @@ impl PlayerNode {
             self.menu.tick(game, delta);
             self.image_space.sync(&game.world());
         }
+        let requests = self.game.as_mut().map_or_else(Vec::new, |game| {
+            std::mem::take(&mut game.world_mut().menu_requests)
+        });
+        for request in requests {
+            match request {
+                soe_game::world::MenuRequest::Race => {
+                    self.show_race_menu();
+                }
+            }
+        }
         if let (Some(game), Some(streamer)) = (&mut self.game, self.game_streamer.as_mut()) {
             let requests = game.world_mut().take_effect_shader_requests();
             let world = game.world();

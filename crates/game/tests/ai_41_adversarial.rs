@@ -58,6 +58,14 @@ fn evaluate(game: &Game, subject: GlobalFormId, c: &Condition) -> Result<bool, c
             target: None,
             quest: None,
             tempering_enchanted: None,
+
+            tempering_item: None,
+            alchemy_making_poison: None,
+            alchemy_effect: None,
+            magic_item: None,
+            dual_cast: None,
+            skill_use: None,
+            light_level: None,
         },
         c,
     )
@@ -147,7 +155,9 @@ fn ai_41_conditions_without_usable_contract_return_named_diagnostics() {
         assert!(!conditions::supports_function(function));
         assert_eq!(
             evaluate(&game, id(SUBJECT), &condition(function, 0, 0, 0.0)),
-            Err(conditions::Error::UnavailableContract(function, reason)),
+            Err(conditions::Error::UnavailableContractReason(
+                function, reason
+            )),
             "function {function}"
         );
     }

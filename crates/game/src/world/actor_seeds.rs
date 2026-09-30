@@ -187,17 +187,18 @@ impl World {
     pub fn initial_actor_values(&self, base: GlobalFormId) -> Result<Vec<(String, f32)>, Error> {
         let source = self.npc_component_source(base, npc::template::STATS)?;
         let traits = self.npc_component_source(base, npc::template::TRAITS)?;
-        self.actor_values_from_sources(source, traits)
+        self.actor_values_from_sources(source, traits, None)
     }
 
     pub(super) fn actor_values_from_sources(
         &self,
         source: GlobalFormId,
         traits: GlobalFormId,
+        race_override: Option<GlobalFormId>,
     ) -> Result<Vec<(String, f32)>, Error> {
         let npc = self.npc_record(source)?;
         let mut values = npc.base_values();
-        let race = self.npc_race(traits)?;
+        let race = race_override.or(self.npc_race(traits)?);
         let attributes = race
             .and_then(|id| self.record(id))
             .map(Attributes::from_record)

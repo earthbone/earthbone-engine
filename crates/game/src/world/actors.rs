@@ -5,7 +5,10 @@
 
 use std::collections::BTreeSet;
 
-use soe_esm::GlobalFormId;
+use soe_papyrus::vm::state::Writer;
+use soe_papyrus::VmError;
+
+use soe_esm::{Error, GlobalFormId, Tag};
 
 use super::{ActorState, World};
 use crate::moddata::Distributed;
@@ -42,6 +45,131 @@ fn apply_distributed(a: &mut ActorState, d: Distributed) {
 }
 
 impl World {
+    /// Current head-part and morph selections for the player.
+    pub fn player_appearance(&mut self) -> Option<crate::appearance::PlayerAppearance> {
+        let player = self.player();
+        let actor = self.actor(player)?;
+        Some(crate::appearance::PlayerAppearance {
+            head_parts: actor.head_parts.clone(),
+            morphs: actor.face_morphs.clone(),
+        })
+    }
+
+    /// Set one playable HDPT of the requested part type for the player's sex.
+    ///
+    /// # Errors
+    /// Rejects missing, deleted, non-playable, sex-incompatible or wrong-type HDPT records.
+    pub fn set_player_head_part(
+        &mut self,
+        part_type: u32,
+        part: GlobalFormId,
+    ) -> Result<(), Error> {
+        let player = self.player();
+        let female = self
+            .player_character_traits()
+            .ok_or_else(|| Error::Invalid("player has no character traits".into()))?
+            .1;
+        self.validate_player_head_part(part_type, part, female)?;
+        let actor = self
+            .actor(player)
+            .ok_or_else(|| Error::Invalid("player is not an actor".into()))?;
+        actor.head_parts.insert(part_type, part);
+        Ok(())
+    }
+
+    /// Validate a playable head part for a selected sex without changing the world.
+    pub fn validate_player_head_part(
+        &self,
+        part_type: u32,
+        part: GlobalFormId,
+        female: bool,
+    ) -> Result<(), Error> {
+        let selected = self
+            .record(part)
+            .filter(|record| record.tag == Tag(*b"HDPT") && !record.is_deleted())
+            .ok_or_else(|| Error::Invalid("missing player head part".into()))?;
+        let data = selected
+            .find(Tag(*b"DATA"))
+            .filter(|data| data.len() == 1)
+            .ok_or_else(|| Error::Invalid("invalid player head part flags".into()))?;
+        let type_bytes = selected
+            .find(Tag(*b"PNAM"))
+            .filter(|bytes| bytes.len() == 4)
+            .ok_or_else(|| Error::Invalid("invalid player head part type".into()))?;
+        let flags = data[0];
+        if flags & 1 == 0 {
+            return Err(Error::Invalid("player head part is not playable".into()));
+        }
+        let sex_flag = if female { 4 } else { 2 };
+        if flags & sex_flag == 0 {
+            return Err(Error::Invalid("player head part does not match sex".into()));
+        }
+        if u32::from_le_bytes([type_bytes[0], type_bytes[1], type_bytes[2], type_bytes[3]])
+            != part_type
+        {
+            return Err(Error::Invalid("player head part type mismatch".into()));
+        }
+        Ok(())
+    }
+
+    /// Replace a player morph value in the supported normalized range.
+    ///
+    /// # Errors
+    /// Rejects empty names, non-finite values, values outside -1 to 1 and missing player actors.
+    pub fn set_player_face_morph(&mut self, name: &str, value: f32) -> Result<(), Error> {
+        if name.trim().is_empty() || !value.is_finite() || !(-1.0..=1.0).contains(&value) {
+            return Err(Error::Invalid("invalid player face morph".into()));
+        }
+        let player = self.player();
+        let actor = self
+            .actor(player)
+            .ok_or_else(|| Error::Invalid("player is not an actor".into()))?;
+        actor.face_morphs.insert(name.to_owned(), value);
+        Ok(())
+    }
+
+    /// Return the player's selected race and sex, initializing the base view from its record.
+    pub fn player_character_traits(&mut self) -> Option<(GlobalFormId, bool)> {
+        let player = self.player();
+        let base = self.reference_ref(player)?.base?;
+        let state = self.actor_base(base)?;
+        Some((state.race?, state.female))
+    }
+
+    /// Apply a playable race and sex to the player without rebuilding initialized actor values.
+    ///
+    /// # Errors
+    /// Rejects a missing player base or a race record that is not playable.
+    pub fn set_player_character_traits(
+        &mut self,
+        race: GlobalFormId,
+        female: bool,
+    ) -> Result<(), Error> {
+        let data = self
+            .record(race)
+            .filter(|record| record.tag == Tag(*b"RACE") && !record.is_deleted())
+            .and_then(|record| record.find(Tag(*b"DATA")))
+            .ok_or_else(|| Error::Invalid("missing player race data".into()))?;
+        if data.len() < 36 || u32::from_le_bytes([data[32], data[33], data[34], data[35]]) & 1 == 0
+        {
+            return Err(Error::Invalid("player race is not playable".into()));
+        }
+        let player = self.player();
+        let base = self
+            .reference_ref(player)
+            .and_then(|reference| reference.base)
+            .ok_or_else(|| Error::Invalid("player has no NPC base".into()))?;
+        let state = self
+            .actor_base(base)
+            .ok_or_else(|| Error::Invalid("player NPC base is invalid".into()))?;
+        state.race = Some(race);
+        state.female = female;
+        if let Some(actor) = self.actors.get_mut(&player) {
+            actor.race = Some(race);
+        }
+        Ok(())
+    }
+
     /// The `NPC_` view of an actor base, with one level of `TPLT` applied.
     pub fn npc(&self, base: GlobalFormId) -> Option<Npc> {
         let mut npc = self.npc_record(base).ok()?;
@@ -101,8 +229,11 @@ impl World {
                         a.values.set_base(name, f32::from(value)).ok()?;
                     }
                 }
+                let race_override = base
+                    .and_then(|base| self.actor_bases.get(&base))
+                    .and_then(|state| state.race);
                 for (name, value) in self
-                    .actor_values_from_sources(stats_source, traits_source)
+                    .actor_values_from_sources(stats_source, traits_source, race_override)
                     .ok()?
                 {
                     a.values.set_base(&name, value).ok()?;
@@ -117,7 +248,7 @@ impl World {
                     .get(&flags_source)
                     .map_or_else(|| flags.is_protected(), |base| base.protected);
                 a.ghost = flags.config.flags & crate::npc::flags::GHOST != 0;
-                a.race = self.npc_race(traits_source).ok()?;
+                a.race = race_override.or(self.npc_race(traits_source).ok()?);
                 a.perks = spells
                     .perks
                     .iter()
@@ -387,4 +518,48 @@ impl World {
         }
         Ok(())
     }
+}
+
+pub(crate) fn write_ui_14(
+    actor: &super::ActorState,
+    writer: &mut Writer,
+    _pool: &mut soe_papyrus::vm::state::ArrayPool,
+) {
+    writer.len(actor.head_parts.len());
+    for (part_type, part) in &actor.head_parts {
+        writer.u32(*part_type);
+        super::save::write_form_id(writer, *part);
+    }
+    writer.len(actor.face_morphs.len());
+    for (name, value) in &actor.face_morphs {
+        writer.str(name);
+        writer.f32(*value);
+    }
+}
+
+pub(crate) fn read_ui_14(
+    actor: &mut super::ActorState,
+    reader: &mut super::save::FormReader<'_, '_>,
+    _table: &soe_papyrus::vm::state::ArrayTable,
+) -> Result<(), VmError> {
+    let part_count = reader.len()?;
+    for _ in 0..part_count {
+        let part_type = reader.u32()?;
+        let part = super::save::read_form_id(reader)?;
+        if actor.head_parts.insert(part_type, part).is_some() {
+            return Err(VmError::State("duplicate UI-14 head part type".into()));
+        }
+    }
+    let morph_count = reader.len()?;
+    for _ in 0..morph_count {
+        let name = reader.str()?;
+        let value = reader.f32()?;
+        if name.trim().is_empty() || !value.is_finite() || !(-1.0..=1.0).contains(&value) {
+            return Err(VmError::State("invalid UI-14 morph value".into()));
+        }
+        if actor.face_morphs.insert(name, value).is_some() {
+            return Err(VmError::State("duplicate UI-14 morph name".into()));
+        }
+    }
+    Ok(())
 }

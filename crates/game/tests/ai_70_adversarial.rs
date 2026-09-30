@@ -103,6 +103,13 @@ fn evaluate(game: &Game, subject: GlobalFormId, c: &Condition) -> Result<bool, c
             target: None,
             quest: None,
             tempering_enchanted: None,
+            tempering_item: None,
+            alchemy_making_poison: None,
+            alchemy_effect: None,
+            magic_item: None,
+            dual_cast: None,
+            skill_use: None,
+            light_level: None,
         },
         c,
     )
@@ -196,7 +203,7 @@ fn ai_70_unavailable_contracts_report_explicit_diagnostics() {
         assert!(!conditions::supports_function(function));
         assert_eq!(
             evaluate(&game, id(0x900), &condition(function, 0, 1.0)),
-            Err(conditions::Error::UnavailableContract(
+            Err(conditions::Error::UnavailableContractReason(
                 function,
                 "the local CK corpus does not define a runtime contract",
             ))

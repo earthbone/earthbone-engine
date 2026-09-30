@@ -278,11 +278,12 @@ fn ai_state(h: &mut StateHasher, a: &AiState) {
         }
     }
     match &a.procedure {
-        Procedure::None => h.u8(0),
+        Procedure::None | Procedure::UseMagic => h.u8(0),
         Procedure::Travel => h.u8(1),
         Procedure::Sandbox => h.u8(2),
         Procedure::Sleep => h.u8(3),
         Procedure::Flee => h.u8(7),
+        Procedure::Sit => h.u8(9),
         Procedure::Patrol => {
             h.u8(6);
             h.bool(a.patrol.is_some());
@@ -297,6 +298,7 @@ fn ai_state(h: &mut StateHasher, a: &AiState) {
             }
         }
         Procedure::Guard => h.u8(8),
+        Procedure::UseWeapon => h.u8(10),
         Procedure::Wait { stop_movement } => {
             h.u8(5);
             h.bool(*stop_movement);
@@ -384,6 +386,7 @@ fn actor_state(h: &mut StateHasher, a: &ActorState) {
         a.running,
         a.riding_mount,
         a.weapon_drawn,
+        a.sprinting,
         a.restrained,
         a.arrested,
         a.attack_on_sight,
@@ -411,6 +414,11 @@ fn actor_state(h: &mut StateHasher, a: &ActorState) {
     for (k, v) in &a.graph_floats {
         h.str(k);
         h.f32(*v);
+    }
+    h.len(a.graph_ints.len());
+    for (k, v) in &a.graph_ints {
+        h.str(k);
+        h.i32(*v);
     }
     h.len(a.skill_experience.len());
     for (skill, experience) in &a.skill_experience {
@@ -613,6 +621,21 @@ impl World {
                 } => {
                     h.u8(1);
                     h.u64(object.0);
+                    h.str(function);
+                    h.len(args.len());
+                    for a in args {
+                        h.value(a);
+                    }
+                }
+                Pending::CallScript {
+                    object,
+                    script,
+                    function,
+                    args,
+                } => {
+                    h.u8(5);
+                    h.u64(object.0);
+                    h.str(script);
                     h.str(function);
                     h.len(args.len());
                     for a in args {

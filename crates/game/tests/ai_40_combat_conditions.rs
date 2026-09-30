@@ -55,6 +55,14 @@ fn evaluate(
             target: None,
             quest: None,
             tempering_enchanted: None,
+
+            tempering_item: None,
+            alchemy_making_poison: None,
+            alchemy_effect: None,
+            magic_item: None,
+            dual_cast: None,
+            skill_use: None,
+            light_level: None,
         },
         condition,
     )
@@ -151,7 +159,7 @@ fn ai_40_staggered_condition_diagnoses_missing_contract_even_with_live_state() {
     assert!(!conditions::supports_function(701));
     assert_eq!(
         evaluate(&game, id(0x900), &condition(701, 0, 1.0)),
-        Err(conditions::Error::UnavailableContract(
+        Err(conditions::Error::UnavailableContractReason(
             701,
             "the local CK corpus does not define IsStaggered condition behavior"
         ))
@@ -219,7 +227,7 @@ fn ai_40_attack_state_without_a_runtime_contract_returns_explicit_diagnostics() 
         assert!(!conditions::supports_function(function));
         for expected in [0.0, 1.0] {
             let error = if function == 701 {
-                conditions::Error::UnavailableContract(function, reason)
+                conditions::Error::UnavailableContractReason(function, reason)
             } else {
                 conditions::Error::UnavailableState { function, reason }
             };

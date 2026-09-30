@@ -16,12 +16,14 @@ use super::{ActorState, RefState, World};
 /// and [`World::load_state`].
 #[rustfmt::skip]
 pub(crate) const WORLD_SECTIONS: &[Section<World>] = &[
+    Section { name: "AI-16", write: super::save::write_script_calls, read: super::save::read_script_calls },
     Section { name: "SAV-46", write: write_saved_form_flags, read: read_saved_form_flags },
     Section { name: "CRF-02", write: super::save::write_brewed_potions, read: super::save::read_brewed_potions },
     super::story_manager::SECTION,
     Section { name: "SAV-48", write: super::record_save::write_pack_navmesh_section, read: super::record_save::read_pack_navmesh_section },
     Section { name: "SAV-59", write: super::record_save::write_unresolved_records, read: super::record_save::read_unresolved_records },
     Section { name: "SAV-10", write: super::quest_save::write_lifecycle_tasks, read: super::quest_save::read_lifecycle_tasks },
+    super::magic::SAVE_SECTION,
 ];
 
 /// Sections read and written once per actor, at the end of every actor
@@ -32,6 +34,10 @@ pub(crate) const ACTOR_SECTIONS: &[Section<ActorState>] = &[
     Section { name: "PRG-01", write: super::super::progression::write_skill_experience, read: super::super::progression::read_skill_experience },
     Section { name: "AI-88", write: super::furniture::write_furniture_seat, read: super::furniture::read_furniture_seat },
     Section { name: "AI-60", write: write_voice_recovery, read: read_voice_recovery },
+    Section { name: "AI-20", write: write_sit_procedure, read: read_sit_procedure },
+    Section { name: "AI-29", write: write_voice_recovery, read: read_voice_recovery },
+    Section { name: "AI-36", write: write_use_weapon_procedure, read: read_use_weapon_procedure },
+    Section { name: "UI-14", write: super::actors::write_ui_14, read: super::actors::read_ui_14 },
 ];
 
 /// Sections read and written once per reference, at the end of every
@@ -43,7 +49,11 @@ pub(crate) const REF_SECTIONS: &[Section<RefState>] = &[
     Section { name: "CMB-37", write: write_destruction_stage, read: read_destruction_stage },
 ];
 
-fn write_voice_recovery(state: &ActorState, writer: &mut soe_papyrus::vm::state::Writer) {
+fn write_voice_recovery(
+    state: &ActorState,
+    writer: &mut soe_papyrus::vm::state::Writer,
+    _pool: &mut soe_papyrus::vm::state::ArrayPool,
+) {
     writer.bool(state.voice_recovery_until.is_some());
     if let Some(until) = state.voice_recovery_until {
         writer.f64(until);
@@ -53,6 +63,7 @@ fn write_voice_recovery(state: &ActorState, writer: &mut soe_papyrus::vm::state:
 fn read_voice_recovery(
     state: &mut ActorState,
     reader: &mut super::save::FormReader<'_, '_>,
+    _table: &soe_papyrus::vm::state::ArrayTable,
 ) -> Result<(), soe_papyrus::VmError> {
     if reader.bool()? {
         let until = reader.f64()?;
@@ -66,43 +77,100 @@ fn read_voice_recovery(
     Ok(())
 }
 
-fn write_destruction_stage(state: &RefState, writer: &mut soe_papyrus::vm::state::Writer) {
+fn write_sit_procedure(
+    state: &ActorState,
+    writer: &mut soe_papyrus::vm::state::Writer,
+    _pool: &mut soe_papyrus::vm::state::ArrayPool,
+) {
+    writer.bool(state.ai.procedure == crate::ai::Procedure::Sit);
+}
+
+fn read_sit_procedure(
+    state: &mut ActorState,
+    reader: &mut super::save::FormReader<'_, '_>,
+    _table: &soe_papyrus::vm::state::ArrayTable,
+) -> Result<(), soe_papyrus::VmError> {
+    if reader.bool()? {
+        state.ai.procedure = crate::ai::Procedure::Sit;
+    }
+    Ok(())
+}
+
+fn write_use_weapon_procedure(
+    state: &ActorState,
+    writer: &mut soe_papyrus::vm::state::Writer,
+    _pool: &mut soe_papyrus::vm::state::ArrayPool,
+) {
+    writer.bool(state.ai.procedure == crate::ai::Procedure::UseWeapon);
+}
+
+fn read_use_weapon_procedure(
+    state: &mut ActorState,
+    reader: &mut super::save::FormReader<'_, '_>,
+    _table: &soe_papyrus::vm::state::ArrayTable,
+) -> Result<(), soe_papyrus::VmError> {
+    if reader.bool()? {
+        state.ai.procedure = crate::ai::Procedure::UseWeapon;
+    }
+    Ok(())
+}
+
+fn write_destruction_stage(
+    state: &RefState,
+    writer: &mut soe_papyrus::vm::state::Writer,
+    _pool: &mut soe_papyrus::vm::state::ArrayPool,
+) {
     writer.i32(state.destruction_stage);
 }
 
 fn read_destruction_stage(
     state: &mut RefState,
     reader: &mut super::save::FormReader<'_, '_>,
+    _table: &soe_papyrus::vm::state::ArrayTable,
 ) -> Result<(), soe_papyrus::VmError> {
     state.destruction_stage = reader.i32()?;
     Ok(())
 }
 
-fn write_reference_persistence(state: &RefState, writer: &mut soe_papyrus::vm::state::Writer) {
+fn write_reference_persistence(
+    state: &RefState,
+    writer: &mut soe_papyrus::vm::state::Writer,
+    _pool: &mut soe_papyrus::vm::state::ArrayPool,
+) {
     writer.bool(state.persistent);
 }
 
 fn read_reference_persistence(
     state: &mut RefState,
     reader: &mut super::save::FormReader<'_, '_>,
+    _table: &soe_papyrus::vm::state::ArrayTable,
 ) -> Result<(), soe_papyrus::VmError> {
     state.persistent = reader.bool()?;
     Ok(())
 }
 
-fn write_reference_flags(state: &RefState, writer: &mut soe_papyrus::vm::state::Writer) {
+fn write_reference_flags(
+    state: &RefState,
+    writer: &mut soe_papyrus::vm::state::Writer,
+    _pool: &mut soe_papyrus::vm::state::ArrayPool,
+) {
     writer.u32(state.record_flags);
 }
 
 fn read_reference_flags(
     state: &mut RefState,
     reader: &mut super::save::FormReader<'_, '_>,
+    _table: &soe_papyrus::vm::state::ArrayTable,
 ) -> Result<(), soe_papyrus::VmError> {
     state.record_flags = reader.u32()?;
     Ok(())
 }
 
-fn write_saved_form_flags(world: &World, writer: &mut soe_papyrus::vm::state::Writer) {
+fn write_saved_form_flags(
+    world: &World,
+    writer: &mut soe_papyrus::vm::state::Writer,
+    _pool: &mut soe_papyrus::vm::state::ArrayPool,
+) {
     let saved: Vec<_> = world
         .record_overrides
         .iter()
@@ -119,6 +187,7 @@ fn write_saved_form_flags(world: &World, writer: &mut soe_papyrus::vm::state::Wr
 fn read_saved_form_flags(
     world: &mut World,
     reader: &mut super::save::FormReader<'_, '_>,
+    _table: &soe_papyrus::vm::state::ArrayTable,
 ) -> Result<(), soe_papyrus::VmError> {
     let count = reader.len()?;
     if count > reader.remaining() / 12 {

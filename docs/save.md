@@ -136,7 +136,9 @@ does not claim runtime support for opaque payloads.
   MISC and FURN. The xEdit value and full-name fields have zero-byte layouts.
   Unnamed flags and suffix bytes remain available for exact payload re-encoding.
 - PCON and PARW change-form envelopes, with original stored payload bytes
-  retained without subtype interpretation.
+  retained without subtype interpretation. Their shared initial placement
+  prefixes decode into the normal reference reconstruction path. The xEdit
+  subtype structs are empty, so any remaining bytes stay opaque.
 - `ChangeForm::info_change`, `story_manager_quest_node_change` and
   `scene_change` decode the defined INFO, SMQN and SCEN flag sections and state
   markers.

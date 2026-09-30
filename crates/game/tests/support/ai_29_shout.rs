@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
-
-//! AI-29 shout execution uses the equipped SHOU, shared spell delivery and
-//! the actor's saved voice recovery deadline.
+// AI-29 shout execution uses the equipped SHOU, shared spell delivery and
+// the actor's saved voice recovery deadline.
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::ai::Procedure;
