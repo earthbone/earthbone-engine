@@ -10,6 +10,8 @@
 //! between idle markers around a place, `Sleep` walks to a bed and holds,
 //! and `Sit` reserves furniture before walking to it.
 //! `Wait` uses the non-menu clock and holds until its duration expires.
+//! `UseMagic` resolves a package target and casts an assigned hand spell once
+//! through the charged magic path.
 //! Walking follows the vanilla navmesh graph (`soe_navmesh::vanilla`)
 //! built once per world, and crossing into another navmesh moves the actor
 //! into that navmesh's cell. Its rates come from the actor race's `WKMV` and
@@ -78,6 +80,7 @@ pub enum Procedure {
     Sleep,
     Sit,
     Patrol,
+    UseMagic,
     /// A mental timer. The movement flag is retained for concurrent procedures.
     Wait {
         stop_movement: bool,
@@ -689,7 +692,7 @@ pub fn evaluate(world: &mut World, actor: GlobalFormId, alloc: Alloc<'_>) -> Opt
                 },
             );
         }
-        tree::start(world, actor, &mut ai);
+        tree::start(world, actor, &mut ai, &mut *alloc);
         let new_value = world.form_value(Some(c.package), alloc);
         world.pending.push(Pending::Event {
             object,
@@ -793,6 +796,7 @@ fn begin_procedure(
         | Procedure::Wait { .. }
         | Procedure::Shout
         | Procedure::Patrol
+        | Procedure::UseMagic
         | Procedure::Unsupported(_) => {}
     }
 }
@@ -1061,9 +1065,9 @@ pub fn tick(world: &mut World, dt: f64, alloc: Alloc<'_>) {
                 || now - a.ai.last_evaluation >= EVALUATION_INTERVAL
         });
         if due {
-            evaluate(world, actor, alloc);
+            evaluate(world, actor, &mut *alloc);
         }
-        step(world, actor, dt as f32, alloc);
+        step(world, actor, dt as f32, &mut *alloc);
     }
 }
 
@@ -1324,9 +1328,9 @@ fn step(world: &mut World, actor: GlobalFormId, dt: f32, alloc: Alloc<'_>) {
         return;
     };
     if ai.tree.is_none() && ai.package.is_some() {
-        tree::start(world, actor, &mut ai);
+        tree::start(world, actor, &mut ai, &mut *alloc);
     } else {
-        tree::enter(world, actor, &mut ai);
+        tree::enter(world, actor, &mut ai, &mut *alloc);
     }
     if ai.procedure == Procedure::Patrol && ai.tree.as_ref().is_some_and(|tree| tree.active) {
         patrol::prepare(world, &mut ai);
@@ -1533,7 +1537,7 @@ fn write_record_state_inner(w: &mut Writer, a: &AiState, include_sit: bool) {
         None => w.bool(false),
     }
     match &a.procedure {
-        Procedure::None => w.u8(0),
+        Procedure::None | Procedure::UseMagic => w.u8(0),
         Procedure::Travel => w.u8(1),
         Procedure::Sandbox => w.u8(2),
         Procedure::Sleep => w.u8(3),

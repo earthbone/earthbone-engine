@@ -921,6 +921,7 @@ fn the_installed_game_reads_every_package_and_evaluates_the_prisoner() {
             Procedure::Sleep => "Sleep".to_string(),
             Procedure::Sit => "Sit".to_string(),
             Procedure::Patrol => "Patrol".to_string(),
+            Procedure::UseMagic => "UseMagic".to_string(),
             Procedure::Wait { .. } => "Wait".to_string(),
             Procedure::Shout => "Shout".to_string(),
             Procedure::Unsupported(n) => format!("unsupported {n}"),
@@ -934,6 +935,7 @@ fn the_installed_game_reads_every_package_and_evaluates_the_prisoner() {
                 | Procedure::Wait { .. }
                 | Procedure::Patrol
                 | Procedure::Shout
+                | Procedure::UseMagic
         ) {
             supported += 1;
         }
