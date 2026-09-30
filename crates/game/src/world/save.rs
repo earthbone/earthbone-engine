@@ -120,8 +120,20 @@ pub const SAVE_MAGIC: &[u8; 4] = b"SOEW";
 /// Version 35 retains saved list flags and per-entry chance bytes in record overrides.
 /// Version 36 retains BOS record flags on instantiated references and the
 /// active phase and completed action slots for each scene.
-/// Version 37 appends named sections at world, actor and reference levels, including saved reference persistence and world record flags. This is the last version this constant will reach. New state goes into a named section registered in `save_section_registry` at the level that owns it. Version 37 appends each table after the owning record fields, and versions before 37 have no section tables.
-/// The `AI-16` world section retains script-qualified package fragment calls. The `CMB-37` reference section retains each reference's current destruction stage. Version 37 also retains INFO, SMQN and SCEN runtime fields, Papyrus struct values, pending quest lifecycle tasks and unresolved records. The native game save envelope records dependency provenance. The `AI-36` actor section retains the UseWeapon package procedure.
+/// Version 37 appends named section tables (`save_sections`) to the world,
+/// actor and reference records, after each record's saved fields. Versions
+/// before 37 have no section tables. This is the last version this constant
+/// will reach. New saved state goes into a section registered in
+/// `save_section_registry` at its owning level.
+/// World sections include SAV-53 base-object fields, SAV-42 static-object
+/// fields, SAV-44 APPA and IDLM fields, SAV-50 WOOP and MGEF markers, SAV-48
+/// PACK and NAVM markers, and AI-16 script-qualified package fragment calls.
+/// They also retain Fallout 4 struct values in saved Papyrus state, INFO,
+/// SMQN and SCEN runtime fields, pending quest lifecycle tasks, unresolved
+/// records and native game-save dependency provenance. AI-88 retains each
+/// actor's reserved furniture marker, and AI-36 retains the UseWeapon
+/// package procedure. Reference sections retain persistence, world record
+/// flags and the current destruction stage through CMB-37.
 pub const SAVE_VERSION: u16 = 37;
 
 #[derive(Clone, Copy)]

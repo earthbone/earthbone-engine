@@ -12,8 +12,8 @@ use soe_game::world::World;
 /// Also strips the named save-section table
 /// version 37 appends to the actor's own record and, since `World::actor`
 /// requires a paired reference (`self.reference(id)` with `is_actor` set), to
-/// that reference's record too, so both records end exactly where a
-/// pre-version-37 writer would have left them.
+/// that reference's record too. It also reduces world-level section payloads
+/// to the empty table expected by legacy fixture offsets.
 ///
 /// This file is pulled into many test binaries through `#[path]`, and each
 /// binary compiles its own copy. Only some of them call this particular
@@ -380,6 +380,48 @@ pub fn section_table_len(bytes: &[u8], start: usize) -> usize {
         cursor += 4 + payload_len;
     }
     cursor - start
+}
+
+/// Normalize a version 37 fixture to an empty world-level section table.
+#[allow(dead_code)]
+pub fn empty_world_sections(bytes: &mut Vec<u8>) {
+    normalize_world_sections(bytes);
+}
+
+#[allow(dead_code)]
+pub fn world_section_growth(bytes: &[u8]) -> usize {
+    let mut normalized = bytes.to_vec();
+    normalize_world_sections(&mut normalized);
+    bytes.len() - normalized.len()
+}
+
+/// Return the number of trailing bytes a versioned reader rejects before the
+/// first prefix it accepts. The callback should parse with a fresh fixture.
+#[allow(dead_code)]
+pub fn version_tail_len(bytes: &[u8], accepts: impl Fn(&[u8]) -> bool) -> usize {
+    (0..=bytes.len())
+        .find(|cut| accepts(&bytes[..bytes.len() - cut]))
+        .expect("a legacy save prefix is accepted")
+}
+
+#[allow(dead_code)]
+pub fn unique_offset(bytes: &[u8], marker: &[u8]) -> usize {
+    let offsets: Vec<_> = bytes
+        .windows(marker.len())
+        .enumerate()
+        .filter_map(|(offset, window)| (window == marker).then_some(offset))
+        .collect();
+    assert_eq!(offsets.len(), 1, "save marker is not unique");
+    offsets[0]
+}
+
+#[allow(dead_code)]
+pub fn common_suffix_len(left: &[u8], right: &[u8]) -> usize {
+    left.iter()
+        .rev()
+        .zip(right.iter().rev())
+        .take_while(|(left, right)| left == right)
+        .count()
 }
 
 /// Remove the world save-section table appended at the end of a version 37
