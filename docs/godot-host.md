@@ -108,6 +108,13 @@ draws clockwise faces as front faces. Whether Skyrim's shapes come out counter-c
 after the map is not settled until a real NIF renders, so `MeshOptions::flip_winding` is a
 switch, default on, and the generated normals follow it.
 
+## Determinism
+
+`data_source::workers::ordered_map` returns builder results in input order for
+both sequential and threaded runs. The TST-02 test hashes those results into
+the game's per-tick `host.builders` partition, so worker output participates
+in the same divergence report as world and VM state.
+
 ## Streaming
 
 `CellStreamer::update(focus)` returns a `StreamPlan`: cells to load, nearest first, and cells

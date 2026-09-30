@@ -981,6 +981,25 @@ until idle and checks it reaches the same end state as
 the objective completed, the gold given, the lever disabled, the
 notification fired, and the alias resolved to the lever.
 
+### Save sections
+
+Version 37 is the last `SAVE_VERSION` bump, and appends a named section
+table (`crates/game/src/world/save_sections.rs`) after the world's own
+saved fields, after each actor record and after each reference record.
+A table is a `u16` count then, per section, a name and a length-prefixed
+payload, read through the same `FormReader` context (so a section that
+stores a FormId resolves it the way the rest of that record does). A row
+that adds saved state registers a `Section` in
+`crates/game/src/world/save_section_registry.rs`, at the level that owns
+the field, named after the row (for example `"MAG-39"`), instead of
+raising `SAVE_VERSION` again. The registry file carries `.gitattributes`
+`merge=union` so two branches adding sections in parallel merge without a
+conflict. An absent section leaves its field at the default. An unknown
+section name, a truncated payload or a payload a section's reader does not
+fully consume are all load errors naming the section and the level.
+Versions before 37 have no section table at any level, and the reader
+skips looking for one below version 37.
+
 ## Not done, and known gaps
 
 - Race starting attributes are read. Live class/level calculations, racial
@@ -1068,6 +1087,10 @@ because it describes that same set. `tests/determinism.rs` walks out and back
 twice from one seed and compares every tick, in one process and across two.
 The save carries the resident cell as well, so a loaded game knows what it is
 holding.
+
+`TickHash::with_host_builder_hash` adds or replaces a `host.builders` part
+and recomputes the total. A host caller can attach its per-tick builder result
+hash to the game hash, then use the same comparison and text log format.
 
 ### Not done
 
