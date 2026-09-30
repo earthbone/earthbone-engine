@@ -435,6 +435,7 @@ fn actor_state(h: &mut StateHasher, a: &ActorState) {
     } else {
         h.bool(false);
     }
+    h.u32(a.days_in_jail);
 }
 
 fn quest_state(h: &mut StateHasher, q: &QuestState) {

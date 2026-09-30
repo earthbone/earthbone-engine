@@ -175,7 +175,15 @@ pub fn supports_function(function: u16) -> bool {
             | 359
             | 448
             | 543
+            | 458
+            | 459
+            | 497
+            | 499
+            | 533
+            | 534
+            | 535
             | 560
+            | 652
             | 606
             | 629
             | 630
@@ -1056,6 +1064,80 @@ fn function_value(
                 .actor(subject)
                 .and_then(|actor| actor.relationships.get(&other).copied())
                 .unwrap_or(0) as f32
+        }
+        458 => {
+            // The CK corpus has no page for this condition. Witness memory
+            // records perpetrators, so the player is an enemy after this
+            // subject witnesses the player's crime.
+            no_parameter(c)?;
+            let player = world.player();
+            boolean(
+                world
+                    .actor(subject)
+                    .ok_or(Error::Form(subject))?
+                    .witnessed_crimes
+                    .contains(&player),
+            )
+        }
+        459 | 533 | 534 | 535 => {
+            if c.parameters[1] != 0 {
+                return Err(Error::Parameter(c.function, c.parameters[1]));
+            }
+            // xEdit marks the faction parameter nullable. A zero parameter
+            // uses the subject's own crime faction, as named by GetCrimeFaction.
+            let faction = if raw == 0 {
+                world
+                    .actor(subject)
+                    .ok_or(Error::Form(subject))?
+                    .crime_faction
+                    .ok_or(Error::Form(subject))?
+            } else {
+                resolve(world, context.owner, raw, Some(*b"FACT"))?
+            };
+            let state = world.faction(faction).ok_or(Error::Form(faction))?;
+            (match c.function {
+                459 => state
+                    .crime_gold_violent
+                    .saturating_add(state.crime_gold_nonviolent),
+                533 => state.infamy_violent.saturating_add(state.infamy_nonviolent),
+                534 => state.infamy_violent,
+                _ => state.infamy_nonviolent,
+            }) as f32
+        }
+        497 => {
+            no_parameter(c)?;
+            let faction = world
+                .actor(subject)
+                .ok_or(Error::Form(subject))?
+                .crime_faction
+                .ok_or(Error::Form(subject))?;
+            let state = world.faction(faction).ok_or(Error::Form(faction))?;
+            let owed = state
+                .crime_gold_violent
+                .saturating_add(state.crime_gold_nonviolent)
+                .max(0);
+            let player = world.player();
+            let gold = world
+                .form("Gold001")
+                .map_or(0, |gold| world.item_count(player, gold));
+            boolean(gold >= owed)
+        }
+        499 => {
+            no_parameter(c)?;
+            let player = world.player();
+            world.actor(player).ok_or(Error::Form(player))?.days_in_jail as f32
+        }
+        652 => {
+            if c.parameters[1] != 0 {
+                return Err(Error::Parameter(c.function, c.parameters[1]));
+            }
+            let other = resolve_reference(world, context.owner, raw)?;
+            let subject_faction = world
+                .actor(subject)
+                .ok_or(Error::Form(subject))?
+                .crime_faction;
+            let other_faction = world.actor(other).ok_or(Error::Form(other))?.crime_faction;
+            boolean(subject_faction.is_some() && subject_faction == other_faction)
         }
         566 => {
             let quest = context.quest.ok_or(Error::Target(5))?;

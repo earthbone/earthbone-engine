@@ -274,6 +274,30 @@ faction can legally exist without one. No Papyrus native calls this
 function yet, `SendAssaultAlarm` and similar witness-driven natives are
 later work that can build on it.
 
+**Jail sentence accounting.** `Game.ServeTime` serves the player's tracked
+crime faction at one in-game day per 100 gold of bounty, rounded up and
+capped at seven days. It advances the shared clock, clears that faction's
+violent and nonviolent bounty, clears partial skill-use experience, and adds
+the served days to the player's `days_in_jail`. That counter is stored in the
+`PRG-13` actor save section. `Game.ClearPrison` clears the counter. Crime
+record references `JAIL`, `STOL`, `PLCN` and `JOUT` are not yet consumed by
+this path, so prison placement and stolen-item confiscation or belongings
+restoration are not implemented.
+
+**Crime conditions.** CTDA functions 458, 459, 497, 499, 533 to 535 and 652
+read the actor witness set, faction crime ledgers, player gold and jail-day
+counter, or actor crime-faction links. Functions 459 and 533 to 535 accept an
+explicit `FACT` parameter or use the evaluated actor's crime faction when the
+parameter is null. Function 497 compares that actor faction's bounty with the
+player's `Gold001` count. Function 499 reads the player's accumulated served
+days. Function 458 is true when the evaluated actor witnessed the player
+commit a crime. Function 652 compares the evaluated actor's crime faction with
+the actor reference parameter. xEdit names these conditions and their
+parameters. The CK corpus has no pages for the CTDA condition functions, so
+their detailed behavior is inferred from the matching Papyrus faction and
+actor contracts and the runtime crime state. Invalid actor and form context
+returns a condition error.
+
 **Vendor service lookup.** `Game::resolve_vendor_service` reads the winning
 `FACT` vendor flag, `VEND`, `VENC`, `VENV`, `PLVD` and faction conditions. It evaluates
 conditions for a loaded merchant with the player as target and applies the
