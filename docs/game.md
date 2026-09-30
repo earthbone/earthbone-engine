@@ -2038,7 +2038,7 @@ AI-40 follows local `TES5Edit/Core/wbDefinitionsTES5.pas` and
 `uesp-modfileformat/Raw_Function_Data.wikitext` for condition ids and parameter
 types. CK `IsBleedingOut` and `GetNoBleedoutRecovery` define their actor flags.
 The CK corpus has no usable contract for the attack-state predicates or
-`IsStaggered`; stagger uses the existing `World::is_staggered` deadline from
+`IsStaggered`. Stagger uses the existing `World::is_staggered` deadline from
 CMB-14. Unsupported attack-state reads diagnose instead of inferring a result
 from melee contacts, actor values or target selection.
 
