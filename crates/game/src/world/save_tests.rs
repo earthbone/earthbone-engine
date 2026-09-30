@@ -520,7 +520,6 @@ fn without_exclusive_branches(world: &mut World) -> Vec<u8> {
         .position(|window| window == records.out)
         .expect("record override is serialized");
     // CONTEXT: This fixture has one override with no list or projectile fields in version 23.
-    bytes.remove(at + 40);
     bytes.remove(at + 39);
     // Drop the world section table for the legacy fixture.
     let mut world_sections = Writer::new();

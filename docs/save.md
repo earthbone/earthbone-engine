@@ -34,9 +34,9 @@ change flags, version, compression length and exact stored bytes. Their
 subtype payloads remain opaque because the inspected Skyrim xEdit structures
 are empty and FallrimTools has no typed reader. SAV-25 tests envelope
 truncation and reports PCON/PARW flag and byte coverage across the external
-save corpus. Only PCON has an xEdit-defined initial placement prefix. The
-xEdit initial-data dispatch omits PARW type 47, so its payload is not
-interpreted as reference placement. See [saved projectile layouts](save-projectile-layouts.md)
+save corpus. PCON's initial placement prefix is xEdit-defined. The xEdit
+initial-data dispatch omits PARW type 47, but the common PCON/PARW placement
+prefix is decoded and the remaining subtype bytes stay opaque. See [saved projectile layouts](save-projectile-layouts.md)
 for the source review and remaining evidence requirement.
 
 The format was not reverse engineered. It is documented and it has a mature
@@ -134,9 +134,9 @@ does not claim runtime support for opaque payloads.
   MISC and FURN. The xEdit value and full-name fields have zero-byte layouts.
   Unnamed flags and suffix bytes remain available for exact payload re-encoding.
 - PCON and PARW change-form envelopes, with original stored payload bytes
-  retained without subtype interpretation. PCON's initial placement prefix
-  decodes into the normal reference reconstruction path. The xEdit
-  initial-data dispatch omits PARW type 47, so PARW placement remains opaque.
+  retained without subtype interpretation. Their common initial placement
+  prefix decodes into the normal reference reconstruction path. The xEdit
+  initial-data dispatch omits PARW type 47, so its subtype bytes remain opaque.
 - `ChangeForm::info_change`, `story_manager_quest_node_change` and
   `scene_change` decode the defined INFO, SMQN and SCEN flag sections and state
   markers.

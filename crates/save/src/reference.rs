@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! REFR/ACHR placement headers from xEdit wbDefinitionsTES5Saves.pas,
+//! REFR/ACHR and projectile placement headers from xEdit wbDefinitionsTES5Saves.pas,
 //! UESP and FallrimTools ChangeFormInitialData. Extra data, inventory and
 //! actor execution follow this header and are not consumed by this reader.
 
@@ -120,14 +120,14 @@ fn placement(r: &mut Cursor<'_>) -> Result<Placement> {
 }
 
 impl ChangeForm {
-    /// Read the placement prefix of a REFR, ACHR, PMIS, PGRE, PBEA or PCON payload.
+    /// Read the placement prefix of a REFR, ACHR, PMIS, PGRE, PBEA, PCON or PARW payload.
     ///
     /// # Errors
     /// A malformed compressed payload, invalid identity tag, truncated prefix
     /// or a Havok count exceeding the payload. The reported remainder is not
     /// validated, decoded or implicitly considered restored.
     pub fn reference_header(&self, form_version: u8) -> Result<Option<ReferenceHeader>> {
-        if !matches!(self.type_index(), 0 | 1 | 2 | 3 | 4 | 42) {
+        if !matches!(self.type_index(), 0 | 1 | 2 | 3 | 4 | 42 | 47) {
             return Ok(None);
         }
         if self.form.kind() == RefKind::Invalid {
@@ -170,7 +170,8 @@ impl ChangeForm {
             None
         };
         // xEdit binds PCON to the shared initial placement data but leaves its
-        // subtype struct empty. Keep any tail opaque for this type.
+        // subtype struct empty. PARW uses the same placement prefix. Keep any
+        // tail opaque for both types.
         let has_reference_data = matches!(self.type_index(), 0 | 1);
         let form_flags = if has_reference_data && flags & flags::FORM != 0 {
             Some((r.u32()?, r.u16()?))
