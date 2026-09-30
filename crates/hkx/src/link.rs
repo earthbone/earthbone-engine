@@ -398,6 +398,7 @@ fn remap_node(node: &mut Node, map: &SymbolMap, offset: usize) {
         | NodeKind::InterpValue { .. }
         | NodeKind::GetUpModifier { .. }
         | NodeKind::IsActiveModifier { .. }
+        | NodeKind::TwistModifier(_)
         | NodeKind::DecomposeVector { .. }
         | NodeKind::LookAtModifier { .. }
         | NodeKind::LimbIk { .. }

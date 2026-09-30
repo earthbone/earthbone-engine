@@ -50,7 +50,6 @@ const PASSTHROUGH_MODIFIERS: &[(&str, usize, &str)] = &[
     ("hkbRotateCharacterModifier", 6, "ANM-14"),
     ("hkbTransformVectorModifier", 1, "ANM-47"),
     ("hkbTimerModifier", 59, "ANM-16"),
-    ("hkbTwistModifier", 17, "ANM-48"),
 ];
 
 fn animations_archive() -> Option<Archive> {
@@ -427,6 +426,52 @@ fn installed_behavior_passthrough_modifier_inventory() {
             "{class} has no follow-up row {row} named for that class"
         );
     }
+}
+
+#[test]
+fn anm_48_installed_twist_modifiers_decode_authored_bone_spans() {
+    let Some(archive) = animations_archive() else {
+        eprintln!("SKYRIM_DATA not set, skipping");
+        return;
+    };
+    let mut graphs = 0usize;
+    let mut twists = 0usize;
+    for name in archive
+        .files()
+        .iter()
+        .filter(|name| name.to_ascii_lowercase().ends_with(".hkx"))
+    {
+        let bytes = archive.read(name).unwrap_or_else(|e| panic!("{name}: {e}"));
+        let pack = Packfile::parse(&bytes).unwrap_or_else(|e| panic!("{name}: {e}"));
+        for object in pack.objects_of("hkbBehaviorGraph") {
+            let graph = BehaviorGraph::from_obj(object)
+                .unwrap_or_else(|e| panic!("{name}: behavior graph: {e}"));
+            graphs += 1;
+            for node in graph.nodes_of_class("hkbTwistModifier") {
+                let NodeKind::TwistModifier(twist) = &node.kind else {
+                    panic!("{} in {name} did not decode as a twist modifier", node.name);
+                };
+                assert!(twist.start_bone_index >= 0, "{} in {name}", node.name);
+                assert!(twist.end_bone_index >= 0, "{} in {name}", node.name);
+                assert!(
+                    matches!(twist.set_angle_method, 0 | 1),
+                    "{} in {name}",
+                    node.name
+                );
+                assert!(
+                    matches!(twist.rotation_axis_coordinates, 0 | 1),
+                    "{} in {name}",
+                    node.name
+                );
+                twists += 1;
+            }
+        }
+    }
+    assert!(graphs >= 428, "only {graphs} behavior graphs scanned");
+    assert_eq!(
+        twists, 17,
+        "the installed vanilla archive's twist inventory changed"
+    );
 }
 
 #[test]

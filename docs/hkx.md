@@ -735,12 +735,12 @@ gated `installed_behavior_passthrough_modifier_inventory` test parses every
 `hkbBehaviorGraph` object and fails if any graph cannot decode. It counts every
 modifier path that the interpreter does not execute: generic `NodeKind::Modifier`,
 `ModifierGenerator`, `ModifierList`, `EventDrivenModifier` and `TimerModifier`.
-
-The inventory excludes `BSIsActiveModifier` because its bound activity slots
-already write their output variables. `hkbGetUpModifier` is also excluded now
-that ANM-43 executes its ground alignment. The test freezes the sorted names
-and counts of the remaining passthrough classes, and checks that every class
-has a bounded backlog row whose title names that class.
+The inventory found 4,134 nodes across 28 classes. It excludes
+`BSIsActiveModifier` because its bound activity slots already write their
+output variables, and `hkbGetUpModifier` because ANM-43 executes its ground
+alignment. The test freezes the sorted names and counts of the remaining
+passthrough classes, and checks that every class has a bounded backlog row
+whose title names that class.
 
 | Class | Nodes | Follow-up |
 | --- | ---: | --- |
@@ -773,7 +773,6 @@ has a bounded backlog row whose title names that class.
 | `hkbRotateCharacterModifier` | 6 | [ANM-14](../BACKLOG.csv) |
 | `hkbTimerModifier` | 59 | [ANM-16](../BACKLOG.csv) |
 | `hkbTransformVectorModifier` | 1 | [ANM-47](../BACKLOG.csv) |
-| `hkbTwistModifier` | 17 | [ANM-48](../BACKLOG.csv) |
 
 `hkbModifierList` traverses each listed modifier while decoding, and
 `hkbModifierGenerator` traverses both its modifier and generator children.
@@ -811,7 +810,6 @@ synthetic tests cover two direct outputs, an arena order different from the
 serialized order, a shared output with invert, a nested output, list and child
 enable transitions, authored disable, cleanup, malformed cycles and deep
 lists, and pose preservation.
-
 
 ### Direct-at modifier
 
@@ -878,6 +876,26 @@ inherited disable and ignored serialized timer values. The local class source
 defines layout, not the Havok runtime algorithm, so this timing and rotation
 policy is interpreter behavior and has not been compared with Skyrim.
 
+### Twist modifier (2026-09-28)
+
+`hkbTwistModifier` decodes `axisOfRotation`, `twistAngle`, the start and end
+bone indices, both enum fields, `isAdditive` and the inherited enable flag
+from the paired x86 and x64 offsets in
+`engine-refs/serde-hkx/assets/classes/hkbTwistModifier.json`. That class marks
+`boneChainIndices` and `parentBoneIndices` as serialization-ignored runtime
+caches. The interpreter applies the twist to the inclusive index span between
+the authored start and end bones. It leaves all other pose entries unchanged
+and skips negative, out-of-pose, non-finite or unsupported inputs.
+
+The twist runs after the wrapped generator samples its pose. `LINEAR` divides
+the angle into equal increments. `RAMPED` increases each successive increment
+in proportion to its position in the span while keeping their sum equal to the
+authored angle. Additive local-axis rotations post-multiply the bone rotation;
+model-axis rotations pre-multiply it. When `isAdditive` is false, the generated
+rotation is replaced by the twist rotation. The `twistAngle` variable binding
+overrides the authored angle. Synthetic ANM-48 tests check chain boundaries,
+angle distribution, disabled behavior and malformed indices. The installed
+archive test checks all 17 vanilla twist modifiers when `SKYRIM_DATA` is set.
 
 ### False-to-true event slots (2026-09-20)
 
