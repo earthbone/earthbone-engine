@@ -173,15 +173,17 @@ pub fn without_exclusive_branches(world: &mut World, actors: &[GlobalFormId]) ->
 
         // The right spell field is immediately followed by this actor's
         // named save-section table, which a pre-version-37 writer never
-        // emitted.
-        let actor_table = right_spell_offsets[0] + right_spell_marker.len();
-        fields.push((actor_table, section_table_len(&bytes, actor_table)));
+        // emitted. Read each length so this stays correct as sections are
+        // added to the actor registry.
+        let table_offset = right_spell_offsets[0] + right_spell_marker.len();
+        fields.push((table_offset, section_table_len(&bytes, table_offset)));
 
         // `alpha` itself is not version gated, so unlike the fields above
         // it must stay in the stream with its true value. Only the named
         // save-section table that follows it is a version 37 addition and
         // gets stripped. The marker bytes are overwritten back to
         // `prior_alpha` in place rather than added to `fields`.
+
         let alpha_marker = alpha_sentinel.to_le_bytes().to_vec();
         let alpha_offsets: Vec<_> = bytes
             .windows(alpha_marker.len())
@@ -199,7 +201,7 @@ pub fn without_exclusive_branches(world: &mut World, actors: &[GlobalFormId]) ->
     for (offset, len) in fields {
         bytes.drain(offset..offset + len);
     }
-    empty_world_sections(&mut bytes);
+    normalize_world_sections(&mut bytes);
     bytes
 }
 
@@ -251,7 +253,7 @@ pub fn without_ref_sections(world: &mut World, refs: &[GlobalFormId]) -> Vec<u8>
     for (offset, len) in offsets {
         bytes.drain(offset..offset + len);
     }
-    empty_world_sections(&mut bytes);
+    normalize_world_sections(&mut bytes);
     bytes
 }
 
@@ -273,68 +275,17 @@ pub fn section_table_len(bytes: &[u8], start: usize) -> usize {
     cursor - start
 }
 
-/// Restore the empty world-level table used by legacy fixtures before newer
-/// branches added saved world sections.
+/// Normalize a version 37 fixture to an empty world-level section table.
+#[allow(dead_code)]
 pub fn empty_world_sections(bytes: &mut Vec<u8>) {
-    let names = ["SAV-53", "SAV-42", "SAV-44", "SAV-50", "SAV-48"];
-    for start in (6..bytes.len().saturating_sub(1)).rev() {
-        let count = usize::from(u16::from_le_bytes([bytes[start], bytes[start + 1]]));
-        if count == 0 || count > names.len() {
-            continue;
-        }
-        let mut cursor = start + 2;
-        let mut valid = true;
-        for _ in 0..count {
-            if cursor >= bytes.len() {
-                valid = false;
-                break;
-            }
-            let name_len = usize::from(bytes[cursor]);
-            cursor += 1;
-            let Some(name_end) = cursor.checked_add(name_len) else {
-                valid = false;
-                break;
-            };
-            if name_end + 4 > bytes.len() {
-                valid = false;
-                break;
-            }
-            let name = std::str::from_utf8(&bytes[cursor..name_end]).ok();
-            if !name.is_some_and(|name| names.contains(&name)) {
-                valid = false;
-                break;
-            }
-            cursor = name_end;
-            let payload_len = u32::from_le_bytes([
-                bytes[cursor],
-                bytes[cursor + 1],
-                bytes[cursor + 2],
-                bytes[cursor + 3],
-            ]) as usize;
-            cursor += 4;
-            let Some(payload_end) = cursor.checked_add(payload_len) else {
-                valid = false;
-                break;
-            };
-            if payload_end > bytes.len() {
-                valid = false;
-                break;
-            }
-            cursor = payload_end;
-        }
-        if valid && cursor == bytes.len() {
-            bytes.truncate(start);
-            bytes.extend_from_slice(&[0, 0]);
-            return;
-        }
-    }
+    normalize_world_sections(bytes);
 }
 
 #[allow(dead_code)]
 pub fn world_section_growth(bytes: &[u8]) -> usize {
-    let mut reduced = bytes.to_vec();
-    empty_world_sections(&mut reduced);
-    bytes.len() - reduced.len()
+    let mut normalized = bytes.to_vec();
+    normalize_world_sections(&mut normalized);
+    bytes.len() - normalized.len()
 }
 
 /// Return the number of trailing bytes a versioned reader rejects before the
@@ -364,6 +315,49 @@ pub fn common_suffix_len(left: &[u8], right: &[u8]) -> usize {
         .zip(right.iter().rev())
         .take_while(|(left, right)| left == right)
         .count()
+}
+
+/// Remove the world save-section table appended at the end of a version 37
+/// save when constructing a pre-version-37 fixture.
+#[allow(dead_code)]
+pub fn strip_world_sections(bytes: &mut Vec<u8>) -> usize {
+    let start = (0..bytes.len())
+        .find(|start| section_table_end(bytes, *start) == Some(bytes.len()))
+        .expect("world save-section table is present at the end of the save");
+    let length = bytes.len() - start;
+    bytes.truncate(start);
+    length
+}
+
+pub fn normalize_world_sections(bytes: &mut Vec<u8>) {
+    let _ = strip_world_sections(bytes);
+    bytes.extend_from_slice(&0u16.to_le_bytes());
+}
+
+#[allow(dead_code)]
+fn section_table_end(bytes: &[u8], start: usize) -> Option<usize> {
+    let mut cursor = start;
+    let count = usize::from(u16::from_le_bytes([
+        *bytes.get(cursor)?,
+        *bytes.get(cursor.checked_add(1)?)?,
+    ]));
+    cursor = cursor.checked_add(2)?;
+    for _ in 0..count {
+        let name_len = usize::from(*bytes.get(cursor)?);
+        cursor = cursor.checked_add(1)?.checked_add(name_len)?;
+        let payload_len = usize::try_from(u32::from_le_bytes([
+            *bytes.get(cursor)?,
+            *bytes.get(cursor.checked_add(1)?)?,
+            *bytes.get(cursor.checked_add(2)?)?,
+            *bytes.get(cursor.checked_add(3)?)?,
+        ]))
+        .ok()?;
+        cursor = cursor.checked_add(4)?.checked_add(payload_len)?;
+        if cursor > bytes.len() {
+            return None;
+        }
+    }
+    Some(cursor)
 }
 
 /// One actor's replaced fields and the sentinels written in their place.

@@ -140,7 +140,7 @@ does not claim runtime support for opaque payloads.
   factions, spells, AI data, names, skills, class, race, face, gender and outfits.
 - `ChangeForm::class_change`, `faction_change` and `relationship_change` decode
   CLAS, FACT and RELA change sections on demand.
-- `ChangeForm::word_of_power_change` and `magic_effect_change` decode WOOP and
+ - `ChangeForm::word_of_power_change` and `magic_effect_change` decode WOOP and
   MGEF form flags, the two payload-free base-object change markers, and retain
   unnamed flag bits. Only the form-flags marker contributes payload bytes.
   The game crate applies these fields as persisted record metadata. It leaves
@@ -162,6 +162,10 @@ does not claim runtime support for opaque payloads.
   retains optional form flags plus base-object value and full-name markers.
   The four markers after the form flags have no payload bytes in xEdit's
   definitions, so typed output re-encodes to the exact source payload.
+- `ChangeForm::word_of_power_change` and `magic_effect_change` decode WOOP and
+  MGEF form flags, the two payload-free base-object change markers, and retain
+  unnamed flag bits. Only the form-flags marker contributes payload bytes.
+
 - `ChangeForm::cell_change` decodes defined CELL fields, and the ECZN/LCTN
   decoders retain their placeholder payload bytes with the common form flags.
 - Type 107, quest static data, including its two event arrays, three reference
@@ -203,10 +207,6 @@ types on demand. Unsupported types remain opaque. The Papyrus auxiliary data
 after the save-file version stays raw, as does the original payload used when
 writing the save body.
 
-Most decoded state remains inspection data. The game crate can apply globals,
-quest state, Papyrus instances and active script frames. Queued messages,
-suspended stack tables, latent native waits and other world state are not
-resumed by this path. This is not a complete save loader.
 PFLA, PHZD and PBAR expose their shared xEdit change flag word as typed flag
 positions, including unnamed bits. Their subtype payload fields remain raw
 because the inspected sources do not establish subtype field layouts. The
@@ -338,9 +338,9 @@ Their event arrays are empty in this corpus and have synthetic coverage only.
 Synthetic tests cover all 512 section-presence combinations, wide counts,
 every truncated fixture prefix, compressed payloads and rejected mutations.
 
-The game application path below uses the decoded quest state. Story-event and
-quest lifecycle task resumption still need implementation. Flags alone cannot
-establish whether a quest is starting, stopping or waiting for a scheduled task.
+The game application path below uses the decoded quest state. Story-event
+execution remains unimplemented. Transitional QUST flags restore a pending
+start or stop promotion task, and those task states survive SOEW save/load.
 Full ESS restoration remains unfinished.
 
 ## Applying saved quests
@@ -377,24 +377,27 @@ quest alias maps are sorted during serialization. Hashes include the extension.
 No OnInit, startup stage, fragment, alias-fill or story event is dispatched by
 restoration. The report lists identities missing from both current records and
 resident references, and quests carrying stage-wait. Created references retain
-their identity even before world change forms allocate them. This report does
-not prove that saved VM objects or lifecycle tasks are bound and ready to run.
-In particular, the existing running flag receives the saved enabled bit, which
-cannot represent an in-flight promotion task. IsStarting and IsStopping remain
-stubs until execution restoration supplies that state.
+their identity even before world change forms allocate them. QUST's transitional
+stop/start flag word restores a pending promotion task. IsStarting and
+IsStopping report its direction, and IsRunning remains false until the task
+completes. SOEW version 37 persists pending quest promotion tasks. Older world
+states load without a pending task.
 
 The first 60-save application survey restores 32,256 quests and preserves every
 engine-save byte and the world hash after reloading. It reports 6,816 unresolved
 world identities across saves and one stage-wait quest. Synthetic checks cover
 plugin reordering, native queries, all objective statuses, created aliases,
-current versus historical globals, metadata persistence, old saves and atomic
-failure. Runtime reference alias kind one has synthetic coverage only. The
-corpus contains kind zero. No game has resumed its quests from an ESS yet.
+current versus historical globals, metadata persistence, old saves, lifecycle
+task resumption and atomic failure. Runtime reference alias kind one has
+synthetic coverage only. The corpus contains kind zero. No game has resumed
+its quests from an ESS yet.
 
 Sources were local Quest.psc, UESP QUST_Changeform, xEdit's QUST save definitions,
-CommonLib TESQuest.h and QuestObjectiveStates.h. Existing form mapping, World,
-VM native and binary state paths are reused. No dependency was added. Type-107
-quest-static state remains decoded inspection data. The remaining work includes
+CommonLib TESQuest.h, TESQuest.cpp and QuestObjectiveStates.h. CommonLib's
+reserved stop/start flag and the CK Quest_Script descriptions define the
+restored lifecycle task direction. Existing form mapping, World, VM native and
+binary state paths are reused. No dependency was added. Type-107 quest-static
+state remains decoded inspection data. The remaining work includes
 created/world forms, live Papyrus object bindings, scheduler state,
 saved stacks and latent calls, atomic whole-game loading and host resumption.
 
@@ -751,12 +754,13 @@ save readers name the variant but do not define its fields or termination, so
 the decoder does not guess where following extra data begins. The SAV-21
 regression test keeps this unsupported case explicit.
 
-## Reference mask semantics, SAV-15 blocked
+## Reference mask semantics, SAV-15 partial
 
-SAV-15 still requires saved reference masks to override authored enable and
-persistence state with validated version-specific semantics. The byte layout
-is established, but the application operation has not been established.
-No reference behavior or engine-save layout changed in this investigation.
+The runtime retains both `CHANGE_FORM_FLAGS` words in the restore report and
+does not apply them to authored REFR or ACHR state. The current restore path
+accepts a mask only for the observed Skyrim SE tuple of ESS header version 12,
+form version 78 and change-form version 78. Other tuples with a mask fail
+before reference state is inserted.
 
 Local xEdit `Core/wbDefinitionsTES5Saves.pas`, at
 `wbUnionCHANGE_FORM_FLAGS`, names a 32-bit Mask Invert Flags followed by a
@@ -773,8 +777,12 @@ bit 10. `src/RE/T/TESObjectREFR.cpp` checks those bits in IsDisabled and
 IsPersistent. Its load declarations do not supply the saved-mask operation.
 Searches of CommonLibSSE, SKSE64, TiltedEvolution, OpenSkyrim, skymp,
 Skyrim-NX-Toolkit and Wrye Bash found no independent Skyrim mask application.
-An inversion label alone is insufficient evidence to choose XOR over a
-clear/set operation or establish the role of the second word.
+The XOR operation is an interpretation of xEdit's `Mask Invert Flags` label
+limited to the disabled and persistent bits. The local sources do not define
+the second word, and no controlled reference-game comparison of resulting
+flags was available. Synthetic and installed-record tests exercise the
+interpretation, but they do not independently verify vanilla save outcomes.
+The SAV-15 check therefore remains partial pending that comparison.
 
 The existing `all_external_reference_headers_reencode_and_compare_player_locations`
 test now reports mask counts after re-encoding the complete typed prefix.
@@ -796,10 +804,9 @@ nonzero in 68,235 masks, with observed values 0x0001, 0x0004, 0x0008,
 coverage, not the resulting enable or persistence state.
 
 The runtime consumer audit found that `World::load_ref_record` derives enable
-state from the winning plugin, while `World::unload_cell` and
-`World::is_persistent_child` use the authored cell index. The placement pass
-reports both mask words without applying them. The runtime has no saved
-persistence override. Completing SAV-15 needs an independently documented
+and persistence state from the winning plugin, while `World::unload_cell` and
+`World::is_persistent_child` consume those values. The placement pass reports
+both mask words without applying them. Completing SAV-15 needs an independently documented
 operation or controlled vanilla saves with observed before/after flags for
 both authored bit values, both reference types and supported versions.
 Those outcomes must drive native enable queries and unload decisions, then
@@ -941,6 +948,12 @@ including empty versus absent reaction arrays. `Save::write` still uses the
 original change-form bytes. The decoder does not apply these changes to live
 records. The local UESP save format page supplies the three change type
 indices. FallrimTools handles CLAS and FACT as opaque forms.
+The game crate's `World::restore_vanilla_record_changes` validates CLAS
+changes and applies FACT and RELA fields to winning record overrides. FACT
+reactions update warm faction runtime state in the same transaction. xEdit's
+CLAS tag-skills marker has no payload and therefore changes no live record
+field. The shared six-byte form-flags section updates `Record::flags` and its
+unknown final word is retained in SOEW version 37.
 The 60-save external check reproduced all 345,703 payload bytes from 4,702
 FACT and 547 RELA changes. It found no CLAS changes, so CLAS field coverage is
 synthetic only.
@@ -1155,7 +1168,9 @@ were excluded, and no corpus restoration success is claimed by this checkpoint.
 
 ## Actor-value restoration evidence
 
-SAV-06 remains blocked on SAV-64's missing serialized component layout.
+The SAV-06 engine-save check verifies that current and permanent actor-value
+components remain separate through SOEW save/load. Vanilla ACHR modifier
+restoration remains blocked on SAV-64's missing serialized component layout.
 The 60-save ACHR survey accounts for 243,595 records, all without the five
 documented actor-modifier bits. Existing prefix decoding fails on 81 named
 package states and leaves actor data unparsed. These observations do not

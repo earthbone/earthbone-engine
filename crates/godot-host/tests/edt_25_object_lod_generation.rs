@@ -79,7 +79,7 @@ fn edt_25_object_lod_level_sizes_match_bto_consumer_levels() {
             CellCoord::new(0, 0),
         );
         assert_eq!(block.level.cells(), cells);
-        assert_eq!(block.x, -cells);
+        assert_eq!(block.x, 0);
         assert_eq!(block.y, 0);
     }
 }

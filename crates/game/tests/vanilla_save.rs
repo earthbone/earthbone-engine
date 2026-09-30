@@ -26,8 +26,13 @@ mod lists;
 mod appa_idlm;
 #[path = "vanilla_save/base_objects.rs"]
 mod base_objects;
+#[path = "vanilla_save/record_changes.rs"]
+mod record_changes;
+
 #[path = "vanilla_save/pack_navmesh.rs"]
 mod pack_navmesh;
+#[path = "vanilla_save/sav_30_dialogue_scene.rs"]
+mod sav_30_dialogue_scene;
 #[path = "vanilla_save/static_objects.rs"]
 mod static_objects;
 #[path = "vanilla_save/woop_mgef.rs"]

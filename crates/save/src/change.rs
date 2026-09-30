@@ -398,41 +398,6 @@ impl ChangeForm {
         }))
     }
 
-    /// Decode the source-defined WOOP payload sections.
-    ///
-    /// # Errors
-    /// Rejects truncated form flags and trailing payload bytes.
-    pub fn word_of_power_change(&self) -> Result<Option<BaseObjectMarkerChange>> {
-        self.base_object_change_for_record("WOOP")
-    }
-
-    /// Decode the source-defined MGEF payload sections.
-    ///
-    /// # Errors
-    /// Rejects truncated form flags and trailing payload bytes.
-    pub fn magic_effect_change(&self) -> Result<Option<BaseObjectMarkerChange>> {
-        self.base_object_change_for_record("MGEF")
-    }
-
-    fn base_object_change_for_record(
-        &self,
-        expected: &'static str,
-    ) -> Result<Option<BaseObjectMarkerChange>> {
-        if self.record_type() != expected {
-            return Ok(None);
-        }
-        let payload = self.payload()?;
-        let mut cursor = Cursor::new(&payload, "base object change");
-        let form_flags = record_form_flags(&mut cursor, self.change_flags)?;
-        finish_record(&cursor)?;
-        Ok(Some(BaseObjectMarkerChange {
-            form_flags,
-            base_object_value_changed: self.change_flags & (1 << 1) != 0,
-            base_object_fullname_changed: self.change_flags & (1 << 2) != 0,
-            unnamed_flags: self.change_flags & !0b111,
-        }))
-    }
-
     /// Decode ACTI, TACT and DOOR base-object change fields.
     ///
     /// xEdit defines zero-byte markers for value, full-name and TACT speaker
@@ -511,6 +476,9 @@ impl ChangeForm {
             value_changed: self.change_flags & 2 != 0,
             fullname_changed: self.change_flags & 4 != 0,
             other_flags: self.change_flags & !7,
+            base_object_value_changed: false,
+            base_object_fullname_changed: false,
+            unnamed_flags: 0,
         })
     }
     /// Decode the saved package flags and their zero-byte markers.
@@ -552,6 +520,40 @@ impl ChangeForm {
             form_flags,
             value_changed: self.change_flags & 2 != 0,
             full_name_changed: self.change_flags & 4 != 0,
+        }))
+    }
+    /// Decode the source-defined WOOP payload sections.
+    ///
+    /// # Errors
+    /// Rejects truncated form flags and trailing payload bytes.
+    pub fn word_of_power_change(&self) -> Result<Option<BaseObjectChange>> {
+        self.word_magic_change("WOOP")
+    }
+
+    /// Decode the source-defined MGEF payload sections.
+    ///
+    /// # Errors
+    /// Rejects truncated form flags and trailing payload bytes.
+    pub fn magic_effect_change(&self) -> Result<Option<BaseObjectChange>> {
+        self.word_magic_change("MGEF")
+    }
+
+    fn word_magic_change(&self, expected: &'static str) -> Result<Option<BaseObjectChange>> {
+        if self.record_type() != expected {
+            return Ok(None);
+        }
+        let payload = self.payload()?;
+        let mut cursor = Cursor::new(&payload, "base object change");
+        let form_flags = record_form_flags(&mut cursor, self.change_flags)?;
+        finish_record(&cursor)?;
+        Ok(Some(BaseObjectChange {
+            form_flags,
+            value_changed: self.change_flags & (1 << 1) != 0,
+            fullname_changed: self.change_flags & (1 << 2) != 0,
+            other_flags: self.change_flags & !0b111,
+            base_object_value_changed: self.change_flags & (1 << 1) != 0,
+            base_object_fullname_changed: self.change_flags & (1 << 2) != 0,
+            unnamed_flags: self.change_flags & !0b111,
         }))
     }
     /// Decode the CELL fields whose serialized layouts xEdit defines.
@@ -842,23 +844,32 @@ impl IngredientChange {
     }
 }
 
-/// Saved ALCH or ENCH sections. Marker bits carry no payload in xEdit.
+/// Saved base-object sections. Marker bits carry no payload in xEdit.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct BaseObjectChange {
     pub form_flags: Option<FormFlags>,
+    /// Value marker, also exposed under the legacy WOOP/MGEF field name below.
     pub value_changed: bool,
+    /// Full-name marker, also exposed under the legacy WOOP/MGEF field name below.
     pub fullname_changed: bool,
     /// Bits that xEdit labels unnamed, retained without assigning meaning.
     pub other_flags: u32,
+    /// WOOP/MGEF alias for `value_changed`.
+    pub base_object_value_changed: bool,
+    /// WOOP/MGEF alias for `fullname_changed`.
+    pub base_object_fullname_changed: bool,
+    /// WOOP/MGEF alias for `other_flags`.
+    pub unnamed_flags: u32,
 }
 
 impl BaseObjectChange {
     /// Rebuild all source-defined and unnamed change bits.
     pub fn change_flags(self) -> u32 {
         u32::from(self.form_flags.is_some())
-            | (u32::from(self.value_changed) << 1)
-            | (u32::from(self.fullname_changed) << 2)
+            | (u32::from(self.value_changed || self.base_object_value_changed) << 1)
+            | (u32::from(self.fullname_changed || self.base_object_fullname_changed) << 2)
             | self.other_flags
+            | self.unnamed_flags
     }
 
     /// Rebuild the typed payload.
@@ -1382,32 +1393,8 @@ pub struct RelationshipChange {
     pub rank: Option<i32>,
 }
 
-/// Saved WOOP or MGEF change sections. The two named base-object sections
-/// carry no payload bytes in xEdit's schema. Unnamed change bits remain raw.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct BaseObjectMarkerChange {
-    pub form_flags: Option<FormFlags>,
-    pub base_object_value_changed: bool,
-    pub base_object_fullname_changed: bool,
-    pub unnamed_flags: u32,
-}
-
-impl BaseObjectMarkerChange {
-    /// Rebuild the complete change flag word.
-    pub fn change_flags(self) -> u32 {
-        u32::from(self.form_flags.is_some())
-            | (u32::from(self.base_object_value_changed) << 1)
-            | (u32::from(self.base_object_fullname_changed) << 2)
-            | (self.unnamed_flags & !0b111)
-    }
-
-    /// Rebuild the source-defined payload bytes.
-    pub fn data_bytes(self) -> Vec<u8> {
-        let mut out = Vec::new();
-        write_record_form_flags(self.form_flags, &mut out);
-        out
-    }
-}
+/// Compatibility name for the WOOP/MGEF view of [`BaseObjectChange`].
+pub type BaseObjectMarkerChange = BaseObjectChange;
 
 /// Saved PACK fields. Waiting and never-run are zero-byte change markers.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

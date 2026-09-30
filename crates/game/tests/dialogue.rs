@@ -1311,7 +1311,7 @@ fn old_world_save_starts_without_dialogue_state() {
     // version 37 added (2 bytes), both always present at the tail regardless
     // of the simulated version. No actor or reference exists yet at this
     // point, so neither carries its own section table to strip.
-    legacy::empty_world_sections(&mut old);
+    legacy::normalize_world_sections(&mut old);
     old.truncate(old.len() - 81);
     old[4..6].copy_from_slice(&4u16.to_le_bytes());
     open(&mut game);

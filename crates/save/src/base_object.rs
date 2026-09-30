@@ -47,38 +47,6 @@ pub struct BaseObjectFields {
     pub remaining_bytes: usize,
 }
 
-/// Fully decoded LIGH, STAT or MSTT change data.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct LightStaticChange {
-    /// The optional six-byte form flag section.
-    pub form_flags: Option<FormFlags>,
-    /// Whether xEdit's zero-byte base-object value marker is set.
-    pub value_changed: bool,
-    /// Whether xEdit's zero-byte base-object full-name marker is set.
-    pub full_name_changed: bool,
-}
-
-impl LightStaticChange {
-    /// Rebuild the defined change flag bits.
-    #[must_use]
-    pub fn change_flags(self) -> u32 {
-        u32::from(self.form_flags.is_some())
-            | (u32::from(self.value_changed) << 1)
-            | (u32::from(self.full_name_changed) << 2)
-    }
-
-    /// Rebuild the exact source-defined payload bytes.
-    #[must_use]
-    pub fn data_bytes(self) -> Vec<u8> {
-        let mut out = Vec::with_capacity(if self.form_flags.is_some() { 6 } else { 0 });
-        if let Some(flags) = self.form_flags {
-            out.extend(flags.flags.to_le_bytes());
-            out.extend(flags.unknown.to_le_bytes());
-        }
-        out
-    }
-}
-
 /// Decoded ARMO, WEAP or AMMO change payload.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ItemChange {
@@ -115,6 +83,38 @@ impl ItemChange {
             out.extend(unknown.to_le_bytes());
         }
         out.extend_from_slice(&self.trailing_data);
+        out
+    }
+}
+
+/// Fully decoded LIGH, STAT or MSTT change data.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LightStaticChange {
+    /// The optional six-byte form flag section.
+    pub form_flags: Option<FormFlags>,
+    /// Whether xEdit's zero-byte base-object value marker is set.
+    pub value_changed: bool,
+    /// Whether xEdit's zero-byte base-object full-name marker is set.
+    pub full_name_changed: bool,
+}
+
+impl LightStaticChange {
+    /// Rebuild the defined change flag bits.
+    #[must_use]
+    pub fn change_flags(self) -> u32 {
+        u32::from(self.form_flags.is_some())
+            | (u32::from(self.value_changed) << 1)
+            | (u32::from(self.full_name_changed) << 2)
+    }
+
+    /// Rebuild the exact source-defined payload bytes.
+    #[must_use]
+    pub fn data_bytes(self) -> Vec<u8> {
+        let mut out = Vec::with_capacity(if self.form_flags.is_some() { 6 } else { 0 });
+        if let Some(flags) = self.form_flags {
+            out.extend(flags.flags.to_le_bytes());
+            out.extend(flags.unknown.to_le_bytes());
+        }
         out
     }
 }
@@ -292,7 +292,7 @@ impl ChangeForm {
     ///
     /// # Panics
     /// Does not panic for malformed payloads.
-    pub fn apparatus_change(&self) -> Result<Option<BaseObjectChange>> {
+    pub fn apparatus_change(&self) -> Result<Option<AppaIdleMarkerChange>> {
         if self.record_type() != "APPA" {
             return Ok(None);
         }
@@ -307,7 +307,7 @@ impl ChangeForm {
     ///
     /// # Panics
     /// Does not panic for malformed payloads.
-    pub fn idle_marker_change(&self) -> Result<Option<BaseObjectChange>> {
+    pub fn idle_marker_change(&self) -> Result<Option<AppaIdleMarkerChange>> {
         if self.record_type() != "IDLM" {
             return Ok(None);
         }
@@ -317,7 +317,7 @@ impl ChangeForm {
 
 /// The fields shared by APPA and IDLM change forms.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct BaseObjectChange {
+pub struct AppaIdleMarkerChange {
     /// The complete change-flags word, including unnamed bits.
     pub change_flags: u32,
     /// The optional six-byte form-flags section.
@@ -328,7 +328,7 @@ pub struct BaseObjectChange {
     pub full_name_changed: bool,
 }
 
-impl BaseObjectChange {
+impl AppaIdleMarkerChange {
     /// Rebuild the payload from the decoded fields.
     ///
     /// # Panics
@@ -344,7 +344,7 @@ impl BaseObjectChange {
     }
 }
 
-fn decode_base_object_change(change: &ChangeForm) -> Result<Option<BaseObjectChange>> {
+fn decode_base_object_change(change: &ChangeForm) -> Result<Option<AppaIdleMarkerChange>> {
     let payload = change.payload()?;
     let mut cursor = Cursor::new(&payload, "base-object change");
     let form_flags = if change.change_flags & flags::FORM != 0 {
@@ -357,7 +357,7 @@ fn decode_base_object_change(change: &ChangeForm) -> Result<Option<BaseObjectCha
             reason: "trailing base-object change bytes".into(),
         });
     }
-    Ok(Some(BaseObjectChange {
+    Ok(Some(AppaIdleMarkerChange {
         change_flags: change.change_flags,
         form_flags,
         value_changed: change.change_flags & flags::VALUE != 0,

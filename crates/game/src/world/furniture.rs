@@ -10,7 +10,8 @@ use soe_papyrus::vm::state::Writer;
 use soe_papyrus::VmError;
 
 use super::save::{read_form_id, write_form_id, FormReader};
-use super::{World, T};
+use super::save_sections::Section;
+use super::{ActorState, World, T};
 
 const SIT_MARKER: u16 = 0x0001;
 const SLEEP_MARKER: u16 = 0x0002;
@@ -32,6 +33,27 @@ pub(crate) fn read_furniture_seat(
     }
     Ok(())
 }
+
+fn write_seat(actor: &ActorState, writer: &mut Writer) {
+    writer.bool(actor.furniture_seat.is_some());
+    if let Some((furniture, marker)) = actor.furniture_seat {
+        write_form_id(writer, furniture);
+        writer.u16(marker);
+    }
+}
+
+fn read_seat(actor: &mut ActorState, reader: &mut FormReader<'_, '_>) -> Result<(), VmError> {
+    if reader.bool()? {
+        actor.furniture_seat = Some((read_form_id(reader)?, reader.u16()?));
+    }
+    Ok(())
+}
+
+pub(super) const SECTION: Section<ActorState> = Section {
+    name: "HST-09",
+    write: write_seat,
+    read: read_seat,
+};
 
 impl World {
     /// Whether an enabled sleep marker on furniture can be reserved by the player.

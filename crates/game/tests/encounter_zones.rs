@@ -242,6 +242,13 @@ fn old_save_clears_zone_locks_and_corrupt_zone_extension_is_atomic() {
     let mut world = fixture(6, 20, 0);
     world.player_level = 10;
     let mut old = world.save_state();
+    // The extra 6 bytes beyond the old 16 are detection's now-unconditional
+    // empty pool count (4 bytes) and the world-level save-section table
+    // version 37 added (2 bytes), both always present at the tail regardless
+    // of the simulated version. No reference is materialized yet at this
+    // point, so none carries its own section table to strip.
+    legacy::normalize_world_sections(&mut old);
+    old.truncate(old.len() - 22);
     // Version 26 predates encounter locks, visits and dialogue repeats.
     old[4..6].copy_from_slice(&26_u16.to_le_bytes());
     let tail = legacy::version_tail_len(&old, |candidate| {
@@ -476,6 +483,16 @@ fn prg_10_saved_visit_time_expires_zone_after_reload() {
     let current = world.save_state();
     for version in [34_u16, 35, 36] {
         let mut saved = current.clone();
+        // Detection's now-unconditional empty pool count (4 bytes) and the
+        // empty world-level save-section table version 37 added (2 bytes)
+        // are always past a version 36 or older save's end, since a genuine
+        // save that old never wrote either.
+        legacy::normalize_world_sections(&mut saved);
+        saved.truncate(saved.len() - 6);
+        if version < 36 {
+            // CONTEXT: Versions 34 and 35 end before the scene-run table.
+            saved.truncate(saved.len() - 4);
+        }
         saved[4..6].copy_from_slice(&version.to_le_bytes());
         let tail = legacy::version_tail_len(&saved, |candidate| {
             reset_fixture(0).load_state(candidate).is_ok()

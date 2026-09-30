@@ -304,12 +304,13 @@ fn corrupt_loose_metadata_and_duplicate_reference_identity_reject_atomically() {
         assert_eq!(w.state_hash(), hash);
     }
     let mut corrupt = bytes.clone();
-    let section_growth = legacy::world_section_growth(&bytes);
     // The extra 6 bytes are detection's now-unconditional empty pool count
     // (4 bytes) and the world-level save-section table version 37 added
     // (2 bytes). This is a same-version round trip, so no section table
     // needs stripping, only the flipped byte's position shifted by 6.
-    let last = corrupt.len() - 23 - section_growth;
+    let mut without_world_sections = corrupt.clone();
+    legacy::strip_world_sections(&mut without_world_sections);
+    let last = without_world_sections.len() - 21;
     corrupt[last] ^= 1;
     let mut changed = world(1);
     changed.load_state(&corrupt).unwrap();

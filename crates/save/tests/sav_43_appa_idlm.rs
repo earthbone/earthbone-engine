@@ -20,7 +20,7 @@ fn change(kind: u8, change_flags: u32, data: Vec<u8>) -> ChangeForm {
     }
 }
 
-fn decoded(form: &ChangeForm) -> soe_save::Result<Option<soe_save::AppaIdlmChange>> {
+fn decoded(form: &ChangeForm) -> soe_save::Result<Option<soe_save::AppaIdleMarkerChange>> {
     match form.record_type() {
         "APPA" => form.apparatus_change(),
         "IDLM" => form.idle_marker_change(),

@@ -5,7 +5,10 @@
 use super::legacy;
 use super::*;
 use soe_game::Handle;
-use soe_save::{reference::Field, ChangeForm};
+use soe_save::{
+    reference::{Field, PlayerLocation},
+    ChangeForm,
+};
 
 #[test]
 fn installed_lock_byte_mapping_matches_authored_levels() {
@@ -215,6 +218,71 @@ fn sav_16_restored_extras_drive_natives_activation_and_engine_roundtrip() {
         assert!(game.world().reference_ref(id(0, 0x100)).unwrap().opened);
         assert!(game.activate_no_settle(id(0, 0x101), player));
     }
+}
+
+#[test]
+fn sav_16_placed_reference_extras_drive_native_queries_and_activation() {
+    let mut save = save();
+    save.form_id_array = vec![0x0100_0811, 0xFE00_0801];
+    save.table_1.push(GlobalData {
+        kind: 1,
+        data: PlayerLocation {
+            next_object_id: 0xFF00_0100,
+            world: reference(0),
+            coordinates: [0; 2],
+            cell_or_world: reference(0),
+            position: [0.0; 3],
+            unknown: 0,
+        }
+        .data_bytes(),
+    });
+    save.change_forms = vec![
+        ChangeForm {
+            form: reference(0x400014),
+            change_flags: 0,
+            type_field: 1,
+            version: 0,
+            data: vec![0; 8],
+            uncompressed_len: 0,
+        },
+        change(0x400100, 1, 0, 1, 2),
+    ];
+
+    let mut game = Game::new(fixture_order());
+    let placements = game
+        .world_mut()
+        .restore_vanilla_reference_placements(&save)
+        .unwrap();
+    assert_eq!(placements.references, 2);
+    let extras = game
+        .world_mut()
+        .restore_vanilla_reference_extras(&save)
+        .unwrap();
+    assert_eq!((extras.owners, extras.locks), (1, 1));
+
+    let owner = game
+        .world()
+        .reference_ref(id(0, 0x100))
+        .unwrap()
+        .owner
+        .unwrap();
+    let key = game.world().key(id(0, 0x100)).unwrap();
+    assert_eq!(
+        call(&mut game, id(0, 0x100), "GetActorOwner"),
+        Value::Object(game.object_of(Handle::Form(owner)))
+    );
+    assert_eq!(
+        call(&mut game, id(0, 0x100), "GetKey"),
+        Value::Object(game.object_of(Handle::Form(key)))
+    );
+    assert_eq!(call(&mut game, id(0, 0x100), "IsLocked"), Value::Bool(true));
+    assert!(game.world().pending.is_empty());
+
+    let player = game.player();
+    game.world_mut().add_item(player, id(0, 0x800), 1);
+    assert!(!game.activate_no_settle(id(0, 0x100), player));
+    game.world_mut().add_item(player, id(4, 0x801), 1);
+    assert!(game.activate_no_settle(id(0, 0x100), player));
 }
 
 #[test]
