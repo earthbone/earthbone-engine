@@ -2268,15 +2268,22 @@ The active-effect tick and finish paths only handle actor applications, with
 no owned hazard cleanup. [The host audit](godot-host.md#spawn-hazard-prerequisites-mag-61)
 records the corresponding resource boundary.
 
-The typed HAZD view from FMT-28 is available, but the game world has no owned
-hazard state or expiry path. Archetype 40 therefore returns a specific
-unsupported error before any effect or world state changes.
-`mag_61_valid_hazard_cast_rejects_without_owned_lifecycle` checks this
-boundary. The row's acceptance check remains incomplete: no hazard is spawned
-at a target, and no owned collision or effect is removed on expiry. Target
-selection, contact application and save continuation also remain unimplemented.
-The survey establishes record dependencies and the direct-cast rejection
-boundary.
+Archetype 40 resolves its associated item as a winning HAZD record and reads it
+through the FMT-28 typed view. A valid cast places that base at the selected
+target's placement, assigns the caster as owner (or the source when no actor
+caster is available), and stores the reference on the active effect. The
+HAZD's inherited-duration flag selects the spell effect duration; otherwise
+its positive authored lifetime controls the active effect lifetime. Expiry or
+dispel disables and marks the owned hazard reference deleted through the
+existing summoned-reference cleanup. Missing, malformed or invalid HAZD data
+is rejected during preparation before applying effects. Tests
+`mag_61_cast_spawns_authored_hazard_at_target_with_caster_owner` and
+`mag_61_expiry_disables_only_its_owned_hazard` cover placement and cleanup.
+
+The HAZD record also supplies radius and target interval, but hazard collision,
+periodic contact selection and contact spell application are not implemented.
+Save continuation uses the existing active-effect and dynamic-reference save
+paths, but no installed-save survey covers a live hazard.
 
 ### Direct active-effect foundation
 
