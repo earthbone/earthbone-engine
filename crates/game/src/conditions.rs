@@ -175,6 +175,7 @@ pub fn supports_function(function: u16) -> bool {
             | 713
             | 721
             | 724
+            | 447
     )
 }
 
@@ -522,6 +523,17 @@ fn function_value(
                     .actor(subject)
                     .is_some_and(|actor| actor.perks.contains(&perk)),
             )
+        }
+        447 => {
+            let name = c.strings[0]
+                .as_deref()
+                .ok_or_else(|| Error::Variable("missing CIS1".into()))?;
+            let actor = world.actor(subject).ok_or(Error::Form(subject))?;
+            actor
+                .graph_floats
+                .get(&name.to_ascii_lowercase())
+                .copied()
+                .ok_or_else(|| Error::Variable(name.into()))?
         }
         560 => {
             let keyword = resolve(world, context.owner, raw, Some(*b"KYWD"))?;
