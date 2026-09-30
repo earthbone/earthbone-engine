@@ -2437,6 +2437,29 @@ The rest returned explicit unsupported reasons. The installed startup still ran
 attached 27,563 scripts, with seven missing scripts and 88 missing properties,
 because MGEF script attachments wait until an application exists.
 
+### Banish, MAG-63
+
+Direct casts execute MGEF archetype 42 against the actor reference selected by
+the spell. The target is eligible when it is the live actor reference retained
+by an active Summon Creature effect and its actor level does not exceed the
+effect magnitude. Banish ends that summon effect through the normal
+effect-finish path, which deletes and disables its spawned actor. An ordinary
+actor reference, an over-level summon or a different summon is left unchanged.
+This does not apply a Confidence value modifier.
+
+The local xEdit MGEF table names archetype 42 as Banish and assigns Confidence
+as its primary actor value. The local UESP MGEF table also records that actor
+value. The Creation Kit [Magic Effect page](https://ck.uesp.net/wiki/Magic_Effect)
+states that Banish affects summoned actors up to the effect magnitude. The local
+CK dump has no Magic Effect archetype page. The implementation uses the summon
+reference retained by MAG-39 and the existing effect-ending path; it does not
+use the actor value as a modifier. Synthetic checks
+`mag_63_banish_dismisses_the_targeted_summon` and
+`mag_63_banish_leaves_persistent_actors_and_other_summons_unchanged` cover
+target eligibility and dismissal. `mag_63_banish_does_not_dismiss_a_summon_above_its_magnitude_level`
+covers the level cap. No vanilla records are named by this check, so it has no
+`SKYRIM_DATA`-gated case.
+
 ### Direct hostile hits, MAG-01
 
 The `magic-hostile` branch accepts hostile effects on live, non-ghost actor

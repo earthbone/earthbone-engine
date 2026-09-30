@@ -388,6 +388,30 @@ fn fixture(flags: u32, archetype: u32, magnitude: f32, duration: u32) -> Game {
     ))
 }
 
+fn summon_and_banish_game(banish_magnitude: f32) -> Game {
+    const BANISH_EFFECT: u32 = EFFECT + 1;
+    const BANISH_SPELL: u32 = SPELL + 1;
+    let summon = effect_with_associated_item(0, 18, 24, false, SUMMON_BASE);
+    let mut banish = effect(1, 42, 24, false);
+    banish.form_id = BANISH_EFFECT;
+    let mut banish_spell = spell(BANISH_SPELL, 0, false, banish_magnitude, 0);
+    banish_spell.subrecords[1].data = BANISH_EFFECT.to_le_bytes().to_vec();
+    let mut plugin = plugin(summon, vec![spell(SPELL, 0, false, 0.0, 30), banish_spell]);
+    let summon_base = plugin
+        .records
+        .iter_mut()
+        .find(|record| record.tag == T(b"NPC_") && record.form_id == SUMMON_BASE)
+        .unwrap();
+    let acbs = summon_base
+        .subrecords
+        .iter_mut()
+        .find(|subrecord| subrecord.tag == T(b"ACBS"))
+        .unwrap();
+    put(&mut acbs.data, 8, 10);
+    plugin.push_top(banish);
+    game(plugin)
+}
+
 #[test]
 fn mag_11_drinking_an_ingestible_consumes_it_applies_its_effect_and_expires() {
     let mut game = game(plugin(
@@ -598,12 +622,20 @@ fn mag_11_malformed_effect_group_leaves_the_ingestible_in_inventory() {
 }
 
 fn cast(game: &mut Game, spell: u32, target: u32) -> Result<Vec<EffectId>, MagicError> {
+    cast_form(game, spell, id(target))
+}
+
+fn cast_form(
+    game: &mut Game,
+    spell: u32,
+    target: GlobalFormId,
+) -> Result<Vec<EffectId>, MagicError> {
     let shared = game.shared_world();
     let result = shared.borrow_mut().cast_spell(
         id(spell),
         id(ACTOR),
         Some(id(ACTOR)),
-        Some(id(target)),
+        Some(target),
         &mut |name, class| game.vm.create_object_of(name, class),
     );
     result
@@ -1147,6 +1179,78 @@ fn mag_35_authored_light_spawns_at_target_and_is_removed_on_expiry() {
     assert!(reference.deleted);
     assert!(!reference.enabled);
     assert_eq!(restored.world().active_effects().count(), 0);
+}
+
+#[test]
+fn mag_63_banish_dismisses_the_targeted_summon() {
+    let mut game = summon_and_banish_game(10.0);
+    cast(&mut game, SPELL, ACTOR).unwrap();
+    let summoned = game
+        .world()
+        .active_effects()
+        .find_map(|effect| effect.summoned)
+        .unwrap();
+
+    cast_form(&mut game, SPELL + 1, summoned).unwrap();
+
+    let world = game.world();
+    let reference = world.reference_ref(summoned).unwrap();
+    assert!(reference.deleted, "Banish deletes its linked summon");
+    assert!(!reference.enabled, "Banish disables its linked summon");
+    assert!(world
+        .active_effects()
+        .all(|effect| effect.summoned != Some(summoned)));
+}
+
+#[test]
+fn mag_63_banish_leaves_persistent_actors_and_other_summons_unchanged() {
+    let mut game = summon_and_banish_game(10.0);
+    cast(&mut game, SPELL, ACTOR).unwrap();
+    let summoned = game
+        .world()
+        .active_effects()
+        .find_map(|effect| effect.summoned)
+        .unwrap();
+
+    cast(&mut game, SPELL + 1, OTHER).unwrap();
+
+    let world = game.world();
+    let persistent = world.reference_ref(id(OTHER)).unwrap();
+    assert!(
+        !persistent.deleted,
+        "Banish must preserve persistent actors"
+    );
+    assert!(
+        persistent.enabled,
+        "Banish must leave persistent actors enabled"
+    );
+    let summon = world.reference_ref(summoned).unwrap();
+    assert!(!summon.deleted, "a different summon is not the target");
+    assert!(summon.enabled, "a different summon remains enabled");
+    assert!(world
+        .active_effects()
+        .any(|effect| effect.summoned == Some(summoned)));
+}
+
+#[test]
+fn mag_63_banish_does_not_dismiss_a_summon_above_its_magnitude_level() {
+    let mut game = summon_and_banish_game(9.0);
+    cast(&mut game, SPELL, ACTOR).unwrap();
+    let summoned = game
+        .world()
+        .active_effects()
+        .find_map(|effect| effect.summoned)
+        .unwrap();
+
+    cast_form(&mut game, SPELL + 1, summoned).unwrap();
+
+    let world = game.world();
+    let reference = world.reference_ref(summoned).unwrap();
+    assert!(!reference.deleted, "a higher-level summon resists Banish");
+    assert!(reference.enabled, "a higher-level summon remains enabled");
+    assert!(world
+        .active_effects()
+        .any(|effect| effect.summoned == Some(summoned)));
 }
 
 #[test]
