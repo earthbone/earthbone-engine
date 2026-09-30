@@ -91,7 +91,7 @@ Windows DLL ABI.
 
 SHM-11 adds `RE/WorldTypes.h`. Its `WorldTypes` interface groups the five planned concepts behind
 one caller-owned adapter, while `GameSettingCollection` exposes a read-only setting query.
-Unsupported executable hooks return a named `UnsupportedHook` with a reason. C++ fixtures execute
+Unsupported executable hooks return a named `UnsupportedHookInfo` with a reason. C++ fixtures execute
 against a contract fixture, and game tests exercise the Rust adapter against `World` state. A C++
 plugin cannot directly call the Rust adapter until a native bridge is added.
 The public alandtse CommonLib headers read for this batch were
@@ -119,6 +119,15 @@ CommonLibSSE-NG `IFormFactory.h`, `InventoryChanges.h`, `InventoryEntryData.h`, 
 are original MIT code and do not copy upstream implementation code. These views are not binary
 compatible with Skyrim's objects or handle representation.
 
+The SHM-13 `RE/Magic.h` projects interfaces for favorite forms, cast rejection reasons, active
+magic target queries and dispel, map-marker visibility and travel flags, and the supported subset
+of equip parameters. Binary-address calls and vtable patches have explicit unsupported-hook
+values. Equip options outside the supported plain single-item operation are reported through
+`UnsupportedEquipOption`. The C++ fixture checks these declarations with in-process test doubles.
+They do not call the Rust `World` or prove a live engine binding. `game` currently owns actor
+spell hands, active effects, reference map flags and inventory equipment, but this source-level
+shim has no bridge from C++ into that state.
+
 ## Untested
 
 The SHM-01 test compiles the generated umbrella headers with a C++20 compiler and checks C++
@@ -126,7 +135,9 @@ signatures for the Rust methods they project. The SHM-02 test compiles and loads
 module through the new entry point and checks its unsupported hook report. SHM-11 C++ fixtures
 check the world type contract, and game tests exercise the Rust adapter against `World`. No
 surveyed plugin has been compiled against the headers or loaded. The declarations are not linked
-to engine behavior. The counts are token counts,
+to engine behavior. The counts are token counts. The SHM-13 fixture checks magic API contracts
+with test doubles, not the live game state. No sample plugin has been compiled against the
+headers, and the declarations are not linked to engine behavior.
 so a name mentioned only in a comment is counted and a type reached only through `auto` is not.
 Four plugins are a sample, not the population: the map's 70 to 90 percent open-source estimate
 is from a six-plugin sample and the shimmable share here is 3 of 4 by plugin, far less by hook

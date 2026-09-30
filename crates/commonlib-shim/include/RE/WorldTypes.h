@@ -6,6 +6,10 @@
 #include <string>
 
 namespace RE {
+enum class UnsupportedHook {
+    FormCreation, InventoryMutation, ItemSelection, ItemListUpdate,
+    BinaryAddress, VtablePatch, UnsupportedEquipOption
+};
 struct SettingValue {
     enum class Kind { Bool, Int, Float, String };
     Kind kind;
@@ -32,7 +36,7 @@ struct HitData {
     bool blocked;
     bool killed;
 };
-struct UnsupportedHook { std::string type_name; std::string hook_name; std::string reason; };
+struct UnsupportedHookInfo { std::string type_name; std::string hook_name; std::string reason; };
 
 class GameSettingCollection {
 public:
@@ -46,6 +50,6 @@ public:
     virtual std::optional<HazardState> hazard(FormId reference) const = 0;
     virtual std::optional<HighProcessState> high_process(FormId actor) const = 0;
     virtual std::optional<HitData> resolve_hit(FormId attacker, FormId target, FormId weapon) = 0;
-    virtual UnsupportedHook unsupported_hook(const std::string& type_name, const std::string& hook_name) const = 0;
+    virtual UnsupportedHookInfo unsupported_hook(const std::string& type_name, const std::string& hook_name) const = 0;
 };
 } // namespace RE

@@ -13,7 +13,7 @@ fn crate_root() -> PathBuf {
 fn shm_11_generated_headers_include_the_world_type_contract() {
     let include = crate_root().join("include");
     let generated = soe_commonlib_shim::headers::generated_headers();
-    assert_eq!(generated.len(), 11);
+    assert_eq!(generated.len(), 13);
     for (relative, expected) in generated {
         let path = include.join(relative);
         assert_eq!(
@@ -57,7 +57,7 @@ struct Fixture final : RE::WorldTypes, RE::GameSettingCollection {
     std::optional<RE::HitData> resolve_hit(RE::FormId attacker, RE::FormId target, RE::FormId weapon) override {
         return RE::HitData{attacker, target, weapon, 12.0F, 0.2F, 9.6F, false, false};
     }
-    RE::UnsupportedHook unsupported_hook(const std::string& type, const std::string& hook) const override {
+    RE::UnsupportedHookInfo unsupported_hook(const std::string& type, const std::string& hook) const override {
         if (type == "Hazard" && hook == "tick") return {type, hook, "hazard simulation is not implemented"};
         return {type, hook, "hook is outside the implemented source-level boundary"};
     }

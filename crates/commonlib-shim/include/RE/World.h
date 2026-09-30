@@ -1,13 +1,13 @@
 // Generated from crates/commonlib-shim/src/world.rs. Do not edit.
 #pragma once
 #include "RE/Reference.h"
+#include "RE/WorldTypes.h"
 #include <cstdint>
 #include <string>
 #include <utility>
 #include <vector>
 
 namespace RE {
-enum class UnsupportedHook { FormCreation, InventoryMutation, ItemSelection, ItemListUpdate };
 struct IFormFactory {
     std::string name;
     FormType form_type;
