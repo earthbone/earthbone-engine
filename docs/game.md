@@ -232,7 +232,14 @@ dependency cycle prevents resolution. The layout follows `wbRecord(QUST)` in
 establishes that aliases are objects owned by their quest. Fill selection for
 location reference types and `ALFI` forced-into copying are not implemented.
 
-**World reference placement.** `World::ref_placement` (in
+**Quest transition queries.** `Quest.IsStarting` and `Quest.IsStopping` are
+registered natives backed by restored quest lifecycle tasks. Quest start and
+stop normally complete synchronously, so both queries return false then. A
+transitional startup or shutdown task restored from a save is reported until
+the lifecycle scheduler resumes it. See SAV-10 in BACKLOG.csv.
+
+**World reference placement. World reads out, host never writes back.**
+`World::ref_placement` (in
 `world/refs.rs`) is the read-only view a host uses to keep its own rendering
 and collision resources in step with a reference's runtime state: current
 position, rotation, scale and enable, in the small, `Copy` `RefPlacement`
