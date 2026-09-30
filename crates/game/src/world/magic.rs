@@ -1340,7 +1340,7 @@ impl World {
             }
             if !matches!(
                 data.archetype,
-                0 | 1 | 2 | 3 | 4 | 5 | 9 | 11 | 12 | LOCK | OPEN | 17 | 18
+                0 | 1 | 2 | 3 | 4 | 5 | 9 | 11 | 12 | LOCK | OPEN | 17 | 18 | 39
             ) {
                 return Err(MagicError::Unsupported("effect archetype"));
             }
@@ -1421,6 +1421,14 @@ impl World {
             };
             let lock_level = (data.archetype == LOCK).then(|| magnitude.round() as i32);
             let disarm = data.archetype == 9;
+            if data.archetype == 39 {
+                let enchantment = self
+                    .resolve_from(effect, data.associated_item)
+                    .ok_or(MagicError::Missing(effect))?;
+                if self.tag_of(enchantment) != Some(super::T(b"ENCH")) {
+                    return Err(MagicError::Unsupported("enhance weapon association"));
+                }
+            }
             let duration = if definition.data.cast_type == 0 {
                 None
             } else {

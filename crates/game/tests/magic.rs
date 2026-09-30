@@ -14,6 +14,7 @@ mod installed;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
+use soe_game::combat::MeleeHit;
 use soe_game::vmad::{ScriptEntry, Vmad};
 use soe_game::world::magic::{EffectId, MagicError};
 use soe_game::world::{Handle, Pending};
@@ -861,6 +862,128 @@ fn mag_16_touch_spell_rejects_an_invalid_authored_reach() {
     ));
     assert_eq!(game.world().active_effects().count(), 0);
     assert_eq!(game.world_mut().actor_value(id(OTHER), "health"), 100.0);
+}
+
+fn mag_60_weapon(object: u32, damage: u16) -> Record {
+    let mut data = vec![0; 10];
+    put(&mut data, 4, 8_f32.to_bits());
+    data[8..10].copy_from_slice(&damage.to_le_bytes());
+    let mut dnam = vec![0; 100];
+    dnam[0] = 1;
+    put(&mut dnam, 4, 1_f32.to_bits());
+    put(&mut dnam, 8, 1.1_f32.to_bits());
+    put(&mut dnam, 76, 6);
+    put(&mut dnam, 88, u32::MAX);
+    Record::new(T(b"WEAP"), object)
+        .sub(T(b"DATA"), data)
+        .sub(T(b"DNAM"), dnam)
+}
+
+fn mag_60_close(actual: f32, expected: f32) {
+    assert!((actual - expected).abs() < 0.001, "{actual} != {expected}");
+}
+
+#[test]
+fn mag_60_enhance_weapon_enchantment_applies_to_equipped_melee_weapon() {
+    const ENCHANTMENT: u32 = 0x710;
+    const ENCHANT_EFFECT: u32 = 0x711;
+    const WEAPON: u32 = 0x712;
+    const UNEQUIPPED: u32 = 0x713;
+
+    let enhance = effect_with_associated_item(0, 39, 0, false, ENCHANTMENT);
+    let mut strike = effect(1 << 2, 0, 24, true);
+    strike.form_id = ENCHANT_EFFECT;
+    let mut efit = 5_f32.to_le_bytes().to_vec();
+    efit.extend_from_slice(&0_u32.to_le_bytes());
+    efit.extend_from_slice(&0_u32.to_le_bytes());
+    let enchantment = Record::new(T(b"ENCH"), ENCHANTMENT)
+        .sub(T(b"ENIT"), vec![0; 8])
+        .sub(T(b"EFID"), ENCHANT_EFFECT.to_le_bytes())
+        .sub(T(b"EFIT"), efit);
+    let mut plugin = plugin(enhance, vec![spell(SPELL, 0, false, 1.0, 1)]);
+    plugin.push_top(strike);
+    plugin.push_top(enchantment);
+    plugin.push_top(mag_60_weapon(WEAPON, 10));
+    plugin.push_top(mag_60_weapon(UNEQUIPPED, 10));
+    let mut game = game(plugin);
+    game.world_mut().add_item(id(ACTOR), id(WEAPON), 1);
+    game.world_mut().equip_item(id(ACTOR), id(WEAPON)).unwrap();
+    assert_eq!(cast(&mut game, SPELL, ACTOR).unwrap().len(), 1);
+
+    let result = game
+        .melee_hit(MeleeHit {
+            attacker: id(ACTOR),
+            target: id(OTHER),
+            weapon: id(WEAPON),
+            is_bash: false,
+            is_power_attack: false,
+        })
+        .unwrap();
+    mag_60_close(result.weapon_damage, 15.0);
+    mag_60_close(result.health_damage, 15.0);
+    let health_after_hit = game
+        .world()
+        .actor_ref(id(OTHER))
+        .unwrap()
+        .values
+        .get("health")
+        .current();
+    assert!(game
+        .melee_hit(MeleeHit {
+            attacker: id(ACTOR),
+            target: id(OTHER),
+            weapon: id(UNEQUIPPED),
+            is_bash: false,
+            is_power_attack: false,
+        })
+        .is_err());
+    mag_60_close(
+        game.world()
+            .actor_ref(id(OTHER))
+            .unwrap()
+            .values
+            .get("health")
+            .current(),
+        health_after_hit,
+    );
+}
+
+#[test]
+fn mag_60_enhance_weapon_stops_contributing_when_effect_expires() {
+    const ENCHANTMENT: u32 = 0x720;
+    const ENCHANT_EFFECT: u32 = 0x721;
+    const WEAPON: u32 = 0x722;
+
+    let enhance = effect_with_associated_item(0, 39, 0, false, ENCHANTMENT);
+    let mut strike = effect(1 << 2, 0, 24, true);
+    strike.form_id = ENCHANT_EFFECT;
+    let mut efit = 5_f32.to_le_bytes().to_vec();
+    efit.extend_from_slice(&0_u32.to_le_bytes());
+    efit.extend_from_slice(&0_u32.to_le_bytes());
+    let enchantment = Record::new(T(b"ENCH"), ENCHANTMENT)
+        .sub(T(b"ENIT"), vec![0; 8])
+        .sub(T(b"EFID"), ENCHANT_EFFECT.to_le_bytes())
+        .sub(T(b"EFIT"), efit);
+    let mut plugin = plugin(enhance, vec![spell(SPELL, 0, false, 1.0, 1)]);
+    plugin.push_top(strike);
+    plugin.push_top(enchantment);
+    plugin.push_top(mag_60_weapon(WEAPON, 10));
+    let mut game = game(plugin);
+    game.world_mut().add_item(id(ACTOR), id(WEAPON), 1);
+    game.world_mut().equip_item(id(ACTOR), id(WEAPON)).unwrap();
+    cast(&mut game, SPELL, ACTOR).unwrap();
+    game.tick(2.0);
+
+    let result = game
+        .melee_hit(MeleeHit {
+            attacker: id(ACTOR),
+            target: id(OTHER),
+            weapon: id(WEAPON),
+            is_bash: false,
+            is_power_attack: false,
+        })
+        .unwrap();
+    mag_60_close(result.weapon_damage, 10.0);
 }
 
 #[test]

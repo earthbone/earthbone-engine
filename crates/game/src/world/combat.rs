@@ -345,6 +345,9 @@ impl World {
                         * f64::from(power_attack.stamina_mult),
                 )?);
             }
+            weapon_damage = finite(
+                f64::from(weapon_damage) + f64::from(self.enhance_weapon_damage(hit.attacker)?),
+            )?;
             (
                 weapon_damage,
                 weapon.stagger,
@@ -555,6 +558,86 @@ impl World {
             bashed: hit.is_bash,
             poisoned,
         })
+    }
+
+    /// Damage from supported enchantments attached by live Enhance Weapon
+    /// effects. The owning actor and equipped melee weapon are both required.
+    fn enhance_weapon_damage(&self, attacker: GlobalFormId) -> Result<f32, Error> {
+        let mut total = 0.0_f32;
+        for active in self
+            .active_effects
+            .values()
+            .filter(|active| active.target == attacker)
+        {
+            let effect = self.magic_effect(active.effect)?;
+            if effect.data.archetype != 39 {
+                continue;
+            }
+            let enchantment = self
+                .resolve_from(active.effect, effect.data.associated_item)
+                .ok_or(Error::Equipment)?;
+            let record = self.record(enchantment).ok_or(Error::Equipment)?;
+            if record.tag != Tag(*b"ENCH") {
+                return Err(Error::Unsupported("enhance weapon association"));
+            }
+            let mut magnitude = None;
+            let mut pending_effect = false;
+            for subrecord in &record.subrecords {
+                match subrecord.tag.as_bytes() {
+                    b"EFID" => {
+                        if pending_effect || magnitude.is_some() {
+                            return Err(Error::Unsupported("multiple enhance weapon effects"));
+                        }
+                        if subrecord.data.len() != 4 {
+                            return Err(
+                                soe_esm::Error::Invalid("invalid ENCH EFID length".into()).into()
+                            );
+                        }
+                        let raw =
+                            u32::from_le_bytes(subrecord.data[..4].try_into().map_err(|_| {
+                                soe_esm::Error::Invalid("invalid ENCH EFID".into())
+                            })?);
+                        let base = self
+                            .resolve_from(enchantment, raw)
+                            .ok_or(Error::Equipment)?;
+                        let base = self.magic_effect(base)?;
+                        if base.data.archetype != 0
+                            || base.data.primary_actor_value != 24
+                            || base.data.flags & (1 << 2) == 0
+                            || !base.conditions.is_empty()
+                        {
+                            return Err(Error::Unsupported("enhance weapon enchantment effect"));
+                        }
+                        pending_effect = true;
+                    }
+                    b"EFIT" => {
+                        if subrecord.data.len() != 12 || !pending_effect || magnitude.is_some() {
+                            return Err(soe_esm::Error::Invalid("invalid ENCH EFIT".into()).into());
+                        }
+                        let raw =
+                            f32::from_le_bytes(subrecord.data[..4].try_into().map_err(|_| {
+                                soe_esm::Error::Invalid("invalid ENCH EFIT magnitude".into())
+                            })?);
+                        if !raw.is_finite() || raw < 0.0 {
+                            return Err(Error::Number);
+                        }
+                        magnitude = Some(raw);
+                        pending_effect = false;
+                    }
+                    b"CTDA" | b"CIS1" | b"CIS2" => {
+                        return Err(Error::Unsupported("enhance weapon enchantment conditions"));
+                    }
+                    _ => {}
+                }
+            }
+            if pending_effect {
+                return Err(Error::Unsupported("incomplete weapon enchantment"));
+            }
+            let entry_magnitude =
+                magnitude.ok_or(Error::Unsupported("empty weapon enchantment"))?;
+            total = finite(f64::from(total) + f64::from(entry_magnitude * active.magnitude))?;
+        }
+        Ok(total)
     }
 
     /// Whether an actor is inside its stagger window right now. Lazily
