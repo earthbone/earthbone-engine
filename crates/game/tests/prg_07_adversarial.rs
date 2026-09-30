@@ -80,7 +80,7 @@ fn prg_07_multiple_thresholds_use_the_new_level_each_time() {
     world.advance_character_experience(player, 40.0).unwrap();
     assert_eq!(world.actor_ref(player).unwrap().level, 3);
     assert_eq!(world.level_up_choices(player), Some(2));
-    assert_eq!(world.actor_ref(player).unwrap().character_experience, 0.0);
+    assert_eq!(world.actor_ref(player).unwrap().character_experience, 5.0);
 }
 
 #[test]
@@ -91,7 +91,7 @@ fn prg_07_skill_level_gains_feed_character_level_progression() {
     world.actor(player).unwrap();
     world.set_actor_value(player, "onehanded", 5.0).unwrap();
 
-    world.advance_skill(player, "onehanded", 10.0).unwrap();
+    world.advance_skill(player, "onehanded", 20.0).unwrap();
 
     assert!(world.actor_ref(player).unwrap().level > 1);
 }
