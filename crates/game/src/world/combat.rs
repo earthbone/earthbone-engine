@@ -228,6 +228,7 @@ impl World {
         // record, the row summary's "shield becomes the weapon" reading.
         // Unarmed contacts have no WEAP record to carry a Stagger fraction,
         // so they never stagger. No corpus source states an unarmed default.
+        let mut enhance_stamina_damage = 0.0_f32;
         let mut bash_stamina_cost = None;
         let mut poison_stack: PoisonStack = None;
         let (
@@ -351,9 +352,10 @@ impl World {
                         * f64::from(power_attack.stamina_mult),
                 )?);
             }
-            weapon_damage = finite(
-                f64::from(weapon_damage) + f64::from(self.enhance_weapon_damage(hit.attacker)?),
-            )?;
+            let (enhance_damage, stamina_damage) =
+                self.enhance_weapon_contribution(hit.attacker)?;
+            enhance_stamina_damage = stamina_damage;
+            weapon_damage = finite(f64::from(weapon_damage) + f64::from(enhance_damage))?;
             (
                 weapon_damage,
                 weapon.stagger,
@@ -464,6 +466,7 @@ impl World {
             .values
             .clone();
         values.damage("health", health_damage)?;
+        values.damage("stamina", enhance_stamina_damage)?;
         // A protected or essential target's health is clamped at its bleedout
         // threshold instead of falling through it, matching the installed
         // runtime's comparison at 0x1406cf330 (docs/combat.md, CMB-13).
@@ -568,8 +571,9 @@ impl World {
 
     /// Damage from supported enchantments attached by live Enhance Weapon
     /// effects. The owning actor and equipped melee weapon are both required.
-    fn enhance_weapon_damage(&self, attacker: GlobalFormId) -> Result<f32, Error> {
-        let mut total = 0.0_f32;
+    fn enhance_weapon_contribution(&self, attacker: GlobalFormId) -> Result<(f32, f32), Error> {
+        let mut health_damage = 0.0_f32;
+        let mut stamina_damage = 0.0_f32;
         for active in self
             .active_effects
             .values()
@@ -587,6 +591,7 @@ impl World {
                 return Err(Error::Unsupported("enhance weapon association"));
             }
             let mut magnitude = None;
+            let mut actor_value = None;
             let mut pending_effect = false;
             for subrecord in &record.subrecords {
                 match subrecord.tag.as_bytes() {
@@ -608,12 +613,13 @@ impl World {
                             .ok_or(Error::Equipment)?;
                         let base = self.magic_effect(base)?;
                         if base.data.archetype != 0
-                            || base.data.primary_actor_value != 24
+                            || !matches!(base.data.primary_actor_value, 24 | 25)
                             || base.data.flags & (1 << 2) == 0
                             || !base.conditions.is_empty()
                         {
                             return Err(Error::Unsupported("enhance weapon enchantment effect"));
                         }
+                        actor_value = Some(base.data.primary_actor_value);
                         pending_effect = true;
                     }
                     b"EFIT" => {
@@ -641,9 +647,18 @@ impl World {
             }
             let entry_magnitude =
                 magnitude.ok_or(Error::Unsupported("empty weapon enchantment"))?;
-            total = finite(f64::from(total) + f64::from(entry_magnitude * active.magnitude))?;
+            let contribution = entry_magnitude * active.magnitude;
+            match actor_value.ok_or(Error::Unsupported("empty weapon enchantment"))? {
+                24 => {
+                    health_damage = finite(f64::from(health_damage) + f64::from(contribution))?;
+                }
+                25 => {
+                    stamina_damage = finite(f64::from(stamina_damage) + f64::from(contribution))?;
+                }
+                _ => return Err(Error::Unsupported("enhance weapon actor value")),
+            }
         }
-        Ok(total)
+        Ok((health_damage, stamina_damage))
     }
 
     /// Whether an actor is inside its stagger window right now. Lazily

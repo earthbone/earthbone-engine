@@ -2181,14 +2181,19 @@ queued during `OnEffectFinish`. VM storage checks are described in
 
 Enhance Weapon (MGEF archetype 39) reads its associated ENCH record when a live
 effect's target lands an ordinary melee hit with an equipped weapon. Supported
-ENCH entries add direct detrimental Health value-modifier magnitude to that
-weapon's damage for the hit. The contribution ends with the active effect and
-does not change unarmed damage, another actor's hit or an unequipped item.
-Conditioned enchantment entries, multiple entries and non-Health effects return
-an unsupported-combat error before the hit changes state. The contract comes
-from the CK Magic Effect archetype table, xEdit's MGEF archetype and associated
-item fields, and Mutagen's ENCH association type. `tests/magic.rs` covers a
-single supported equipped-weapon contribution and its expiry.
+ENCH entries with direct detrimental Health modifiers add their magnitude to
+that weapon's damage for the hit. Direct detrimental Stamina modifiers reduce
+the target's Stamina on the same hit. Both contributions end with the active
+effect and do not change unarmed damage, another actor's hit or an unequipped
+item. Conditioned enchantment entries, multiple entries and other actor values
+return an unsupported-combat error before the hit changes state. The contract
+comes from the CK Magic Effect archetype table, xEdit's MGEF archetype and
+associated item fields, and Mutagen's ENCH association type.
+`mag_60_enhance_weapon_enchantment_applies_to_equipped_melee_weapon` covers
+Health damage and expiry. The adversarial `mag_60_supports_a_valid_non_health_associated_enchantment_on_melee_hit`
+case covers Stamina damage, and
+`mag_60_effect_does_not_benefit_a_different_attackers_weapon` covers attacker
+ownership.
 
 Recover modifiers change the target once and reverse their own delta at the end.
 Other value modifiers integrate magnitude over unpaused simulation seconds, with
@@ -2443,6 +2448,8 @@ properties from that base object's winning VMAD. Its dynamic FormID and VM
 object state survive SOEW save/load. An invalid or missing explosion or placed
 object returns a typed error before applying the cast. Other target-location
 archetypes and mixed-archetype target-location spells remain unsupported.
+EXPL DATA accepts the documented 40, 44, 48 and 52 byte layouts. Other lengths
+are rejected before placement.
 
 The layout comes from local
 `TES5Edit/Core/wbDefinitionsTES5.pas` (`MGEF.DATA` and `EXPL.DATA`) and
@@ -2452,8 +2459,9 @@ Ref uses the explosion's placed object and identifies Throw Voice as an
 example. Script attachment follows this crate's VMAD and `Game::bind` path.
 `mag_64_spawn_scripted_ref_places_authored_base_with_scripts_and_preserves_identity_on_load`
 checks placement, base identity, VMAD attachment and save/load identity with
-synthetic records. The check names no vanilla records, so no data-gated case
-applies.
+synthetic records. `mag_64_rejects_truncated_expl_data_before_spawning` checks
+that a short DATA payload is rejected before application. The check names no
+vanilla records, so no data-gated case applies.
 
 Validation on the installed five-master load order found 1,354 non-deleted
 SPEL winners. The direct path accepted 178 spells and created 205 applications.

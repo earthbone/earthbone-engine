@@ -1,3 +1,5 @@
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
 #[path = "common/mag_adversarial.rs"]
 mod common;
 use common::{cast, effect, game, id, spell, ACTOR, OTHER, SPELL};

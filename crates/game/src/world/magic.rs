@@ -1639,7 +1639,7 @@ impl World {
         }
         let data = explosion_record
             .find(super::T(b"DATA"))
-            .filter(|data| data.len() >= 20)
+            .filter(|data| matches!(data.len(), 40 | 44 | 48 | 52))
             .ok_or(MagicError::Unsupported("scripted reference explosion data"))?;
         let base_raw = u32::from_le_bytes([data[16], data[17], data[18], data[19]]);
         self.resolve_from(explosion, base_raw)
