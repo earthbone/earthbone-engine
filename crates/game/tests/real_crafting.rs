@@ -121,6 +121,13 @@ fn installed_forge_executes_vanilla_and_hearthfires_recipes() {
             target: None,
             quest: None,
             tempering_enchanted: None,
+            tempering_item: None,
+            alchemy_making_poison: None,
+            alchemy_effect: None,
+            magic_item: None,
+            dual_cast: None,
+            skill_use: None,
+            light_level: None,
         };
         assert!(soe_game::conditions::evaluate_one(
             &mut game.world_mut(),
