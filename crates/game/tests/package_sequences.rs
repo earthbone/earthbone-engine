@@ -407,7 +407,7 @@ fn a_world_saved_before_cursors_existed_starts_its_authored_tree() {
     // now-unconditional empty pool count and the empty world-level
     // save-section table version 37 added, six bytes always past those
     // blocks regardless of version. What remains is the cursor count.
-    bytes.truncate(bytes.len() - 35);
+    bytes.truncate(bytes.len() - 31);
     assert_eq!(&bytes[bytes.len() - 4..], &[0; 4]);
     bytes.truncate(bytes.len() - 4);
     // Version 20 is the last one written without a cursor block.

@@ -147,7 +147,7 @@ fn ai_15_multiple_higher_priority_children_run_once_then_resume_saved_route() {
             order.push_top(
                 Record::new(T(b"GLOB"), global)
                     .sub(T(b"FNAM"), b"f")
-                    .sub(T(b"FLTV"), 1.0f32.to_le_bytes()),
+                    .sub(T(b"FLTV"), 0.0f32.to_le_bytes()),
             );
         }
         let mut load_order = LoadOrder::new();
