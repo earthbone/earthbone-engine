@@ -314,6 +314,11 @@ pub struct ActorState {
     /// Compared against `World::clock.real_seconds`, the lazy expiry
     /// `ai::AiState::wait_until` also uses, see `World::is_staggered`.
     pub stagger_end_time: Option<f64>,
+    /// Magnitude passed to the shared stagger lifecycle by the latest hit or
+    /// magic effect.
+    pub stagger_magnitude: f64,
+    /// Form that supplied the latest stagger direction.
+    pub stagger_direction: Option<GlobalFormId>,
     /// Perpetrators this actor has witnessed committing a crime against a
     /// faction that tracks crime. The bounty itself lives on
     /// `FactionState`, this is the actor's own memory of who it saw do it.

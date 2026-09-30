@@ -2204,6 +2204,15 @@ magic-effect application as a TODO, so it supplies no resistance formula. The
 and specific resistance as separate terms preserves their independent actor
 values.
 
+The runtime executes MGEF archetype 33, Stagger, for spells and ingestibles.
+Each prepared Stagger application passes its authored magnitude and caster
+form, falling back to the cast source, to the shared stagger lifecycle once.
+It uses the same `fStaggerDuration` real-time deadline as melee stagger. Actor
+state retains the latest magnitude and direction source with that deadline,
+serialized in the `MAG-54` actor save section under SOEW version 37. Local
+xEdit and UESP MGEF layouts name archetype 33 and specify no archetype-specific
+data. The local CK wiki dump has no page that defines its runtime behavior.
+
 The source contracts are CK [Magic Effect](https://ck.uesp.net/wiki/Magic_Effect),
 local `ck-wiki/AddInventoryEventFilter_-_ObjectReference.wikitext`,
 `DispelSpell_-_Actor.wikitext` and

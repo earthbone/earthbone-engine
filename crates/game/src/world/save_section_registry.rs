@@ -28,11 +28,32 @@ pub(crate) const WORLD_SECTIONS: &[Section<World>] = &[
 /// record.
 #[rustfmt::skip]
 pub(crate) const ACTOR_SECTIONS: &[Section<ActorState>] = &[
+    Section { name: "MAG-54", write: write_stagger_metadata, read: read_stagger_metadata },
     super::furniture::SECTION,
     Section { name: "PRG-01", write: super::super::progression::write_skill_experience, read: super::super::progression::read_skill_experience },
     Section { name: "AI-88", write: super::furniture::write_furniture_seat, read: super::furniture::read_furniture_seat },
     Section { name: "UI-14", write: super::actors::write_ui_14, read: super::actors::read_ui_14 },
 ];
+
+fn write_stagger_metadata(state: &ActorState, writer: &mut soe_papyrus::vm::state::Writer) {
+    writer.f64(state.stagger_magnitude);
+    super::save::write_opt_form_id(writer, state.stagger_direction);
+}
+
+fn read_stagger_metadata(
+    state: &mut ActorState,
+    reader: &mut super::save::FormReader<'_, '_>,
+) -> Result<(), soe_papyrus::VmError> {
+    let magnitude = reader.f64()?;
+    if !magnitude.is_finite() || magnitude < 0.0 {
+        return Err(soe_papyrus::VmError::State(
+            "invalid stagger magnitude".into(),
+        ));
+    }
+    state.stagger_magnitude = magnitude;
+    state.stagger_direction = super::save::read_opt_form_id(reader)?;
+    Ok(())
+}
 
 /// Sections read and written once per reference, at the end of every
 /// reference record.

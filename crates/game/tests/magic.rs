@@ -922,6 +922,47 @@ fn mag_16_touch_spell_rejects_an_invalid_authored_reach() {
 }
 
 #[test]
+fn mag_54_stagger_forwards_authored_magnitude_and_caster_direction_once_through_reload() {
+    let authored_magnitude = 0.65;
+    let effect_record = effect(0, 33, 24, false);
+    let mut original = game(plugin(
+        effect_record,
+        vec![spell(SPELL, 0, false, authored_magnitude, 0)],
+    ));
+
+    let applied = cast(&mut original, SPELL, OTHER).unwrap();
+    assert_eq!(applied.len(), 1);
+    let deadline = {
+        let world = original.world();
+        let actor = world.actor_ref(id(OTHER)).unwrap();
+        assert_eq!(actor.stagger_magnitude, f64::from(authored_magnitude));
+        assert_eq!(actor.stagger_direction, Some(id(ACTOR)));
+        actor.stagger_end_time.unwrap()
+    };
+
+    original.tick(0.25);
+    {
+        let world = original.world();
+        let actor = world.actor_ref(id(OTHER)).unwrap();
+        assert_eq!(actor.stagger_end_time, Some(deadline));
+        assert_eq!(actor.stagger_magnitude, f64::from(authored_magnitude));
+        assert_eq!(actor.stagger_direction, Some(id(ACTOR)));
+    }
+
+    let saved = original.save_state().unwrap();
+    let mut restored = game(plugin(
+        effect(0, 33, 24, false),
+        vec![spell(SPELL, 0, false, authored_magnitude, 0)],
+    ));
+    restored.load_state(&saved).unwrap();
+    let world = restored.world();
+    let actor = world.actor_ref(id(OTHER)).unwrap();
+    assert_eq!(actor.stagger_end_time, Some(deadline));
+    assert_eq!(actor.stagger_magnitude, f64::from(authored_magnitude));
+    assert_eq!(actor.stagger_direction, Some(id(ACTOR)));
+}
+
+#[test]
 fn mag_39_summon_creature_spawns_associated_actor_owned_by_caster() {
     let summon = effect_with_associated_item(0, 18, 24, false, SUMMON_BASE);
     let mut game = game(plugin(summon, vec![spell(SPELL, 0, false, 0.0, 10)]));
