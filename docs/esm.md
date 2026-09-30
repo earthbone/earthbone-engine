@@ -152,6 +152,12 @@ fragment bytes are preserved. An invalid or unsupported VMAD property makes
 the operation fail without changing the plugin. Other raw subrecords remain
 untouched because their fields have not been modeled as FormIDs here.
 
+`records::Transform::drop_to_ground` creates a `GroundDrop` edit from a
+collision height in Skyrim world units. The placed transform keeps its
+horizontal position and rotation and replaces its vertical position with the
+surface height. `GroundDrop::undo` returns the original transform for an
+editor undo action. Non-finite collision heights are rejected.
+
 `Refr::lock` reads XLOC level, key and flags. Presence means initially locked,
 including level zero. Level 255 requires a key. The reader accepts the 20-byte
 layout and the 9- and 12-byte forms obtained by omitting xEdit's optional unused
