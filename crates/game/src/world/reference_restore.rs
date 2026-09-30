@@ -15,7 +15,8 @@ use soe_save::{
 use super::{RefState, World, DYNAMIC_FILE, PLAYER_OBJECT, T};
 use crate::vanilla_save::{RestoreError, SavedFormMap};
 
-/// Reference state that this placement-only pass has not applied.
+/// Reference data left outside placement restoration, with applied mask words
+/// retained for audit.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ReferenceRemainder {
     pub change_flags: u32,
@@ -148,6 +149,13 @@ fn apply_header(
             report.missing_bases.insert(base);
         }
     }
+    if let Some((invert_flags, _unknown)) = header.form_flags {
+        let disabled = soe_esm::plugin::flags::INITIALLY_DISABLED;
+        let persistent = soe_esm::plugin::flags::PERSISTENT;
+        state.enabled = (state.record_flags ^ invert_flags) & disabled == 0
+            && state.record_flags & soe_esm::plugin::flags::DELETED == 0;
+        state.persistent = (state.record_flags ^ invert_flags) & persistent != 0;
+    }
     if state.cell.is_none() {
         report.unplaced.insert(id);
     }
@@ -171,7 +179,8 @@ fn apply_header(
 impl World {
     /// Build saved REFR/ACHR identities and placements in a fresh reference table.
     /// This is one pass of save reconstruction. The report lists unapplied
-    /// payloads. No inventory, actor, script, cell or activation event runs.
+    /// payloads and retains applied mask words. No inventory, actor, script,
+    /// cell or activation event runs.
     ///
     /// # Errors
     /// Existing references/actors, invalid mapping, malformed placement headers,
