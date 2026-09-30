@@ -75,6 +75,8 @@ week 6 to 9 gate.
   It parses plugins, BSA/BA2 members, NIF, HKX, DDS, PEX, FUZ/LIP, xWMA and
   WAV containers. Wabbajack's local README describes modlists as reproduced
   without bundling assets, so the sweep reads the installed files in place.
+  Synthetic tests check each finding category and verify findings stay scoped
+  to their owning mod. The external sweep skips when `SOE_MOD_CORPUS` is unset.
 - `Game`: owns the VM and the world. `load_scripts_from_data` builds the load
   order's `soe_bsa::Vfs` (each plugin's `<stem> - Misc.bsa` or `<stem>.bsa`
   archive if the install shipped one, loose files on top) and loads every
