@@ -36,13 +36,23 @@ fn condition(function: u16, parameter: u32, expected: f32) -> Condition {
     }
 }
 
-fn evaluate(game: &Game, function: u16, parameter: u32, expected: f32) -> Result<bool, conditions::Error> {
+fn evaluate(
+    game: &Game,
+    function: u16,
+    parameter: u32,
+    expected: f32,
+) -> Result<bool, conditions::Error> {
     conditions::evaluate_one(
         &mut game.world_mut(),
         &game.vm,
         conditions::Context {
-            owner: id(0x800), subject: id(0x900), target: None, quest: None,
-            tempering_enchanted: None, skill_use: None, light_level: None,
+            owner: id(0x800),
+            subject: id(0x900),
+            target: None,
+            quest: None,
+            tempering_enchanted: None,
+            skill_use: None,
+            light_level: None,
         },
         &condition(function, parameter, expected),
     )

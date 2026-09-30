@@ -817,7 +817,7 @@ fn function_value(
             let mut equipped = false;
             for item in items {
                 let tag = world.tag_of(item);
-                if c.function == 102 && tag == Some(Tag(*b"LIGH")) {
+                if c.function == 102 && is_equipped_torch(world, item) {
                     equipped = true;
                     break;
                 }

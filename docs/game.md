@@ -4628,8 +4628,11 @@ and marker meanings follow xEdit `Core/wbDefinitionsTES5Saves.pas`.
 
 CTDA functions 41, 48, 102, 103, 108 and 109 read the subject actor's
 equipped forms. Clothing value totals equipped ARMO records whose BOD2/BODT
-type is clothing, gold counts `Gold001` in inventory, torch and shield
-conditions check equipped LIGH and shield-slot ARMO records, and the weapon
+type is clothing, gold counts `Gold001` in inventory, torch conditions require
+an equipped LIGH with DATA flag 0x0002, and shield conditions check shield-slot
+ARMO records. UESP `LIGH.wikitext` names 0x0002 as "Can be carried". The local
+CK corpus has no condition page for `IsTorchOut`, so this follows that authored
+light flag rather than treating every LIGH as a torch. The weapon
 queries use the right hand before the left. The IDs and parameter types come
 from xEdit `wbConditionFunctions` in
 `TES5Edit/Core/wbDefinitionsTES5.pas`. The Papyrus Extender condition parser

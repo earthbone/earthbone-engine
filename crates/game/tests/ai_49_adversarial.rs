@@ -68,7 +68,9 @@ fn fixture() -> Game {
     );
     plugin.push_top(armor(0x812, "Armor", 80, 2, 0));
     plugin.push_top(armor(0x813, "Shield", 40, 0x200, 0));
-    plugin.push_top(record(*b"LIGH", 0x814, "Torch"));
+    let mut torch_data = vec![0; 16];
+    torch_data[12..16].copy_from_slice(&2_u32.to_le_bytes());
+    plugin.push_top(record(*b"LIGH", 0x814, "Torch").sub(Tag(*b"DATA"), torch_data));
     plugin.push_top(weapon(0x815, "Sword", 3, 8));
     plugin.push_top(record(*b"MISC", 0x816, "OtherItem"));
     let mut order = LoadOrder::new();
@@ -219,8 +221,18 @@ fn non_torch_light_does_not_satisfy_torch_out() {
     let mut order = LoadOrder::new();
     order.add("NonTorch.esm", plugin).unwrap();
     let game = Game::new(order);
-    game.world_mut().actor(id(0x801)).unwrap().equipped.insert(id(0x814));
+    game.world_mut()
+        .actor(id(0x801))
+        .unwrap()
+        .equipped
+        .insert(id(0x814));
 
-    assert_eq!(eval(&game, id(0x801), &condition(102, [0, 0], 1.0)), Ok(false));
-    assert_eq!(eval(&game, id(0x801), &condition(306, [0, 0], 1.0)), Ok(false));
+    assert_eq!(
+        eval(&game, id(0x801), &condition(102, [0, 0], 1.0)),
+        Ok(false)
+    );
+    assert_eq!(
+        eval(&game, id(0x801), &condition(306, [0, 0], 1.0)),
+        Ok(false)
+    );
 }
