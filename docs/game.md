@@ -19,6 +19,13 @@ week 6 to 9 gate.
 
 ## What is in it
 
+`commonlib_world` implements the MIT shim's save/load and leveled-list
+contracts on `World`. Its calculated entries resolve LVLI FormIDs through the
+load order, retain supported COED owner, rank, global and condition data, and
+use the same stateful RNG path as native leveled-list rolls.
+Beam projectile impacts and Havok character-controller flags return named
+unsupported-hook results because the runtime has no corresponding state.
+
 - `world`: the runtime form table. A `LoadOrder` from `soe-esm` plus the state
   a running game adds per form: references (position, cell, enable state,
   inventory, links, door teleports), actors (actor values, death, combat,

@@ -112,8 +112,6 @@ unsupported-hook error.
 
 ## SHM-05 world contracts
 
-## SHM-05 world contracts
-
 `RE/World.h` exposes `ActorValueList` reads and writes through an `ActorValueWorldState`
 provider. Its name and index lookups use the game's vanilla actor-value name
 table. Actor reads and writes map FormIDs to the existing component store.
@@ -136,6 +134,17 @@ behavior and vtable callbacks that are not implemented. Skyrim's binary save
 buffer is not the engine's `FormReader` and is not exposed as a shim buffer.
 The C++ fixture compiles and executes the supported provider dispatch and
 checks the unsupported hook identifiers.
+
+The world API binds `BGSSaveLoadGame` and `BGSSaveLoadManager` to the
+world's engine save bytes, and `CALCED_OBJECT` form, count and supported COED
+metadata to record-backed LVLI selection. The `BeamProjectile::AddImpact` and
+`bhkCharacterController::flags` hooks return named unsupported-hook results
+because aimed projectile delivery and per-character Havok state have no
+runtime path yet. `CHARACTER_FLAGS` preserves the source enum names and bit
+values. Change-map queries and filename-based save catalog operations also
+return named unsupported-hook results. The generated headers and fixtures check this
+source-level API. The shim has no C ABI, so C++ declarations alone cannot call
+into the Rust engine from a compiled binary.
 
 ## Untested
 
