@@ -763,6 +763,24 @@ serialized order, a shared output with invert, a nested output, list and child
 enable transitions, authored disable, cleanup, malformed cycles and deep
 lists, and pose preservation.
 
+### Event-driven modifier (2026-09-28)
+
+`hkbEventDrivenModifier` inherits the modifier enable flag and wraps one
+modifier. The local `engine-refs/serde-hkx/assets/classes/hkbEventDrivenModifier.json`
+declares `activateEventId`, `deactivateEventId` and `activeByDefault`, and marks
+its serialized `isActive` field as ignored. The interpreter initializes a
+per-instance interval from `activeByDefault` when the wrapper activates. Its
+activate and deactivate events open and close the interval. The child modifier
+is active only while the wrapper is enabled and the interval is open. Other
+events reach the child while it is active. Deactivating the wrapper also
+deactivates its child.
+
+`tests/event_driven_modifier.rs` checks activation, deactivation, default
+activity, wrapper disable, ignored serialized state and decoded event and child
+fields through a synthetic packfile. These tests establish the declared layout
+and the interpreter policy. They do not compare event ordering with a Havok
+runtime capture.
+
 ### False-to-true event slots (2026-09-20)
 
 ANM-03 decodes all three `BSEventOnFalseToTrueModifier` slots. Local
@@ -833,10 +851,12 @@ word-table slots. ANM-57 owns that linker work.
 
 ## 7. Not done and next
 
-- Modifier evaluation remains incomplete. Timer, rotate-character,
-  events-from-range and false-to-true event handling run in the interpreter.
-  Dynamic bone weight masks on a blender still pass through. The layouts are
-  in `serde-hkx` like the rest.
+- Modifier evaluation remains incomplete. `BSIsActiveModifier`,
+  `BSEventOnFalseToTrueModifier`, `BSDecomposeVectorModifier`,
+  `BSGetTimeStepModifier`, `hkbEventDrivenModifier`, timer,
+  rotate-character and events-from-range handling run in the interpreter.
+  Dynamic bone-weight mask bindings and other unimplemented modifier classes
+  still pass through. Their layouts are in `serde-hkx` like the rest.
 - Transition details: equal-priority arbitration, the `abut at end` flag,
   `hkbGeneratorTransitionEffect`, `maxSimultaneousTransitions`, delayed timeout
   and interval boundary parity. Expression functions are ANM-49 and the
