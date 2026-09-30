@@ -4,7 +4,9 @@
 use soe_esm::{plugin::flags, FileHeader, LoadOrder, Plugin, Record, Tag};
 use soe_game::npc::{self, Config, Stats};
 use soe_game::Game;
-use std::fs;
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+static NEXT_CASE: AtomicUsize = AtomicUsize::new(0);
 
 const EDID: Tag = Tag::new(b"EDID");
 const NPC: u32 = 0x800;
@@ -38,13 +40,17 @@ fn game() -> Game {
 }
 
 fn apply(line: &str) -> soe_game::moddata::ModDataReport {
-    let root = std::env::temp_dir().join(format!("soe-mod05-{}", std::process::id()));
-    let _ = fs::remove_dir_all(&root);
-    fs::create_dir_all(&root).unwrap();
-    fs::write(root.join("Filters_DISTR.ini"), line).unwrap();
+    let root = std::env::temp_dir().join(format!(
+        "soe-mod05-{}-{}",
+        std::process::id(),
+        NEXT_CASE.fetch_add(1, Ordering::Relaxed)
+    ));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::write(root.join("Filters_DISTR.ini"), line).unwrap();
     let mut game = game();
     let report = game.apply_mod_data(std::slice::from_ref(&root));
-    fs::remove_dir_all(root).unwrap();
+    std::fs::remove_dir_all(root).unwrap();
     report
 }
 
