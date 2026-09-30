@@ -1009,6 +1009,21 @@ pub fn tick(world: &mut World, dt: f64, alloc: Alloc<'_>) {
         if ignores_combat(world, actor) {
             clear_combat_engagement(world, actor);
         }
+        if world.is_fleeing(actor) {
+            if let Some(state) = world.actor(actor) {
+                state.in_combat = false;
+                state.combat_target = None;
+                state.ai.reevaluate = true;
+                state.ai.path.clear();
+                state.ai.path_cells.clear();
+                state.ai.destination = None;
+                state.ai.arrived = false;
+            }
+            if let Some(source) = world.flee_source(actor) {
+                flee_from(world, actor, source, dt as f32);
+            }
+            continue;
+        }
         let active_target = combat_target(world, actor);
         if active_target.is_some() && !ignores_combat(world, actor) {
             let due = world.actor(actor).is_some_and(|a| {
@@ -1034,6 +1049,61 @@ pub fn tick(world: &mut World, dt: f64, alloc: Alloc<'_>) {
             evaluate(world, actor, alloc);
         }
         step(world, actor, dt as f32, alloc);
+    }
+}
+
+/// Move away from a live hostile effect source along the vanilla navmesh.
+fn flee_from(world: &mut World, actor: GlobalFormId, source: GlobalFormId, dt: f32) {
+    let Some((position, cell)) = world
+        .reference(actor)
+        .map(|reference| (reference.position, reference.cell))
+    else {
+        return;
+    };
+    let Some(threat) = world.reference(source).map(|reference| reference.position) else {
+        return;
+    };
+    let offset = [
+        position[0] - threat[0],
+        position[1] - threat[1],
+        position[2] - threat[2],
+    ];
+    let length = distance(position, threat);
+    if length <= f32::EPSILON {
+        return;
+    }
+    let destination = std::array::from_fn(|axis| position[axis] + offset[axis] / length * 512.0);
+    let Some((path, cells)) = plan_combat(world, position, destination, cell) else {
+        return;
+    };
+    let speed = movement_speed(world, actor, speed::RUN);
+    let mut budget = speed * dt.max(0.0);
+    let mut position = position;
+    let mut cell = cell;
+    for (index, next) in path.iter().enumerate() {
+        let d = distance(position, *next);
+        if d <= budget {
+            position = *next;
+            budget -= d;
+            if let Some(Some(next_cell)) = cells.get(index) {
+                cell = Some(*next_cell);
+            }
+        } else if d > 0.0 {
+            let fraction = budget / d;
+            position = std::array::from_fn(|axis| {
+                position[axis] + (next[axis] - position[axis]) * fraction
+            });
+            break;
+        }
+        if budget <= 0.0 {
+            break;
+        }
+    }
+    if let Some(reference) = world.reference(actor) {
+        reference.position = position;
+        if cell.is_some() {
+            reference.cell = cell;
+        }
     }
 }
 

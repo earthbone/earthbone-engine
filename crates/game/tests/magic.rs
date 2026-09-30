@@ -13,6 +13,7 @@ mod installed;
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+use soe_esm::records::navm::{Geometry, NavGrid, Parent, Triangle};
 use soe_esm::{FileHeader, GlobalFormId, LoadOrder, Plugin, Record, Tag};
 use soe_game::vmad::{ScriptEntry, Vmad};
 use soe_game::world::magic::{EffectId, MagicError};
@@ -33,6 +34,8 @@ const KEYWORD: u32 = 0x400;
 const ITEM: u32 = 0x600;
 const OTHER_ITEM: u32 = 0x601;
 const SUMMON_BASE: u32 = 0x501;
+const CELL: u32 = 0x800;
+const NAVM: u32 = 0x810;
 
 #[path = "magic/calm.rs"]
 mod calm;
@@ -244,6 +247,44 @@ fn fixture(flags: u32, archetype: u32, magnitude: f32, duration: u32) -> Game {
         effect(flags, archetype, 24, false),
         vec![spell(SPELL, 0, false, magnitude, duration)],
     ))
+}
+
+fn mag_30_navmesh() -> Geometry {
+    Geometry {
+        version: 12,
+        location_crc: 0,
+        parent: Parent::Cell(CELL),
+        vertices: vec![
+            [0.0, 0.0, 0.0],
+            [1_000.0, 0.0, 0.0],
+            [1_000.0, 1_000.0, 0.0],
+            [0.0, 1_000.0, 0.0],
+        ],
+        triangles: vec![
+            Triangle {
+                vertices: [0, 1, 2],
+                edges: [-1, -1, 1],
+                flags: 0,
+                cover_flags: 0,
+            },
+            Triangle {
+                vertices: [0, 2, 3],
+                edges: [0, -1, -1],
+                flags: 0,
+                cover_flags: 0,
+            },
+        ],
+        edge_links: vec![],
+        door_links: vec![],
+        cover_triangles: vec![],
+        grid: NavGrid {
+            divisor: 1,
+            size: [1_000.0, 1_000.0],
+            min: [0.0, 0.0, 0.0],
+            max: [1_000.0, 1_000.0, 0.0],
+            cells: vec![vec![0, 1]],
+        },
+    }
 }
 
 #[test]
@@ -592,6 +633,132 @@ fn mag_06_area_hit_skips_ineligible_actors_in_radius() {
         "a dead actor is not an eligible recipient of a hostile effect"
     );
     assert_eq!(game.world_mut().actor_value(id(SOURCE), "health"), 85.0);
+}
+
+#[test]
+fn mag_30_demoralize_makes_eligible_actor_flee_and_lowers_confidence() {
+    let mut plugin = plugin(
+        effect(1 | 4, 7, 24, false),
+        vec![spell(SPELL, 0, false, 5.0, 3)],
+    );
+    plugin.push_top(Record::new(T(b"CELL"), CELL));
+    plugin.push_top(Record::new(T(b"NAVM"), NAVM).sub(T(b"NVNM"), mag_30_navmesh().to_bytes()));
+    let mut game = game(plugin);
+    assert!(game
+        .world_mut()
+        .move_to(id(ACTOR), id(SOURCE), [10.0, 10.0, 0.0]));
+    game.world_mut()
+        .set_actor_value(id(ACTOR), "confidence", 3.0)
+        .unwrap();
+    let shared = game.shared_world();
+    let applied = shared
+        .borrow_mut()
+        .cast_spell(
+            id(SPELL),
+            id(SOURCE),
+            Some(id(SOURCE)),
+            Some(id(ACTOR)),
+            &mut |name, class| game.vm.create_object_of(name, class),
+        )
+        .unwrap();
+
+    assert_eq!(
+        applied.len(),
+        1,
+        "the hostile effect applies to the live actor"
+    );
+    {
+        let mut world = game.world_mut();
+        let actor = world.actor(id(ACTOR)).unwrap();
+        actor.in_combat = true;
+        actor.combat_target = Some(id(OTHER));
+    }
+    let start = {
+        let mut world = game.world_mut();
+        world.reference(id(ACTOR)).unwrap().position
+    };
+    let start_distance = (start[0].powi(2) + start[1].powi(2)).sqrt();
+    let shared = game.shared_world();
+    shared.borrow_mut().ai_tick(0.1, &mut |name, class| {
+        game.vm.create_object_of(name, class)
+    });
+    assert!(
+        game.world().is_fleeing(id(ACTOR)),
+        "the active effect overrides its AI"
+    );
+    let position = {
+        let mut world = game.world_mut();
+        world.reference(id(ACTOR)).unwrap().position
+    };
+    let distance = (position[0].powi(2) + position[1].powi(2)).sqrt();
+    assert!(
+        distance > start_distance,
+        "the actor moved away from its caster"
+    );
+    assert!(!game.world().actor_ref(id(ACTOR)).unwrap().in_combat);
+    assert_eq!(
+        game.world().actor_ref(id(ACTOR)).unwrap().combat_target,
+        None
+    );
+    assert_eq!(game.world_mut().actor_value(id(ACTOR), "confidence"), -2.0);
+}
+
+#[test]
+fn mag_30_demoralize_rejects_dead_actor_without_applying_changes() {
+    let mut game = fixture(1 | 4, 7, 5.0, 3);
+    game.world_mut().actor(id(ACTOR)).unwrap().dead = true;
+    game.world_mut()
+        .set_actor_value(id(ACTOR), "confidence", 3.0)
+        .unwrap();
+    let shared = game.shared_world();
+    let result = shared.borrow_mut().cast_spell(
+        id(SPELL),
+        id(SOURCE),
+        Some(id(SOURCE)),
+        Some(id(ACTOR)),
+        &mut |name, class| game.vm.create_object_of(name, class),
+    );
+
+    assert!(
+        matches!(result, Err(MagicError::Target)),
+        "dead hostile targets are rejected"
+    );
+    assert!(
+        !game.world().is_fleeing(id(ACTOR)),
+        "a rejected actor does not flee"
+    );
+    assert_eq!(game.world_mut().actor_value(id(ACTOR), "confidence"), 3.0);
+}
+
+#[test]
+fn mag_30_demoralize_expiry_releases_flee_override_and_restores_confidence() {
+    let mut game = fixture(1 | 4, 7, 5.0, 3);
+    game.world_mut()
+        .set_actor_value(id(ACTOR), "confidence", 3.0)
+        .unwrap();
+    let shared = game.shared_world();
+    shared
+        .borrow_mut()
+        .cast_spell(
+            id(SPELL),
+            id(SOURCE),
+            Some(id(SOURCE)),
+            Some(id(ACTOR)),
+            &mut |name, class| game.vm.create_object_of(name, class),
+        )
+        .unwrap();
+    assert!(
+        game.world().is_fleeing(id(ACTOR)),
+        "the actor flees before expiry"
+    );
+
+    game.tick(3.0);
+
+    assert!(
+        !game.world().is_fleeing(id(ACTOR)),
+        "expiry releases the AI override"
+    );
+    assert_eq!(game.world_mut().actor_value(id(ACTOR), "confidence"), 3.0);
 }
 
 #[test]

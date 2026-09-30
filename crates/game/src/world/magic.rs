@@ -31,6 +31,7 @@ const NO_RECAST: u32 = 1 << 17;
 const NO_DEATH_DISPEL: u32 = 1 << 28;
 pub(super) const DISPEL_WITH_KEYWORDS: u32 = 1 << 8;
 const INGESTIBLE_POISON: u32 = 1 << 17;
+const DEMORALIZE: u32 = 7;
 
 /// Identity of one effect application, independent of its MGEF FormID.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -116,6 +117,27 @@ impl World {
     /// All currently applied effects, in application order.
     pub fn active_effects(&self) -> impl Iterator<Item = &ActiveEffect> {
         self.active_effects.values()
+    }
+
+    /// Whether a live Demoralize application is making this actor flee.
+    pub fn is_fleeing(&self, target: GlobalFormId) -> bool {
+        self.active_effects.values().any(|effect| {
+            effect.target == target
+                && self
+                    .magic_effect(effect.effect)
+                    .is_ok_and(|base| base.data.archetype == DEMORALIZE)
+        })
+    }
+
+    /// The source reference that a fleeing actor should move away from.
+    pub(crate) fn flee_source(&self, target: GlobalFormId) -> Option<GlobalFormId> {
+        self.active_effects.values().find_map(|effect| {
+            (effect.target == target
+                && self
+                    .magic_effect(effect.effect)
+                    .is_ok_and(|base| base.data.archetype == DEMORALIZE))
+            .then_some(effect.caster.unwrap_or(effect.source))
+        })
     }
 
     /// The live application represented by a Papyrus ActiveMagicEffect object.
@@ -293,7 +315,7 @@ impl World {
                     return Err(MagicError::Target);
                 }
             }
-            if !matches!(data.archetype, 0 | 1 | 2 | 5 | 6) {
+            if !matches!(data.archetype, 0 | 1 | 2 | 5 | 6 | DEMORALIZE) {
                 return Err(MagicError::Unsupported("effect archetype"));
             }
             if entry.data.area != 0 || data.area != 0 || data.taper_duration != 0.0 {
@@ -331,6 +353,8 @@ impl World {
                 }
             } else if data.archetype == 6 {
                 changes.push(("aggression".to_string(), -magnitude));
+            } else if data.archetype == DEMORALIZE {
+                changes.push(("confidence".to_string(), -magnitude));
             }
             // An ingestible's effects carry the same dispel archetype and
             // keyword flags a cast spell's do.
@@ -365,7 +389,7 @@ impl World {
                     elapsed: 0.0,
                     summoned: None,
                     restore_owner: None,
-                    recover: data.flags & RECOVER != 0,
+                    recover: data.flags & RECOVER != 0 || data.archetype == DEMORALIZE,
                     changes,
                 },
                 no_recast: data.flags & NO_RECAST != 0,
@@ -488,7 +512,7 @@ impl World {
                     return Err(MagicError::Target);
                 }
             }
-            if !matches!(data.archetype, 0 | 1 | 2 | 5 | 6 | 10 | 18) {
+            if !matches!(data.archetype, 0 | 1 | 2 | 5 | 6 | 10 | 18 | DEMORALIZE) {
                 return Err(MagicError::Unsupported("effect archetype"));
             }
             if data.taper_duration != 0.0 {
@@ -531,6 +555,8 @@ impl World {
                 }
             } else if data.archetype == 6 {
                 changes.push(("aggression".to_string(), -magnitude));
+            } else if data.archetype == DEMORALIZE {
+                changes.push(("confidence".to_string(), -magnitude));
             }
             let summon_base = if data.archetype == 18 {
                 let base = self
@@ -631,7 +657,7 @@ impl World {
                         elapsed: 0.0,
                         summoned: None,
                         restore_owner,
-                        recover: data.flags & RECOVER != 0,
+                        recover: data.flags & RECOVER != 0 || data.archetype == DEMORALIZE,
                         changes: changes.clone(),
                     },
                     no_recast: data.flags & NO_RECAST != 0,
