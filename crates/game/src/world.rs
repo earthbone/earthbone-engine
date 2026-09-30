@@ -568,6 +568,8 @@ pub struct World {
     pub pending: Vec<Pending>,
     /// Story Manager inputs awaiting PRG-14 node selection.
     pub story_manager_events: Vec<crate::quest::state::StoryManagerEvent>,
+    /// Script events submitted by Papyrus and waiting for Story Manager routing.
+    pub(crate) pending_story_events: Vec<crate::quest::state::StoryEvent>,
     pub timers: Vec<UpdateTimer>,
     pub notifications: Vec<String>,
     /// Host-facing requests raised by UI natives. These are transient commands.
@@ -684,6 +686,7 @@ impl World {
             clock: GameClock::default(),
             pending: Vec::new(),
             story_manager_events: Vec::new(),
+            pending_story_events: Vec::new(),
             timers: Vec::new(),
             notifications: Vec::new(),
             menu_requests: Vec::new(),

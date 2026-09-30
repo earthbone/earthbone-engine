@@ -204,7 +204,7 @@ pub fn register(vm: &mut Vm, world: &Shared) -> Registered {
 
 /// Hand-kept count of the non-stub natives registered below. The test in
 /// this module checks it against the registry.
-pub const NATIVE_COUNT: usize = 367;
+pub const NATIVE_COUNT: usize = 368;
 
 fn declare_parents(vm: &mut Vm) {
     for (class, parent) in [
@@ -2004,6 +2004,30 @@ fn globals_and_lists(vm: &mut Vm, w: &Shared) {
     method!(vm, w, "Keyword", "GetString", |world, call, me| s(&world
         .editor_id(me)
         .unwrap_or_default()));
+    method!(vm, w, "Keyword", "SendStoryEvent", |world, call, me| {
+        let reference = |value: &Value, kind| crate::quest::state::StoryParameter::Reference {
+            kind,
+            reference: world.form_arg(value),
+        };
+        world
+            .pending_story_events
+            .push(crate::quest::state::StoryEvent {
+                id: me.object,
+                code: *b"SCPT",
+                parameters: vec![
+                    crate::quest::state::StoryParameter::Reference {
+                        kind: 1,
+                        reference: Some(me),
+                    },
+                    reference(&call.arg(0), 2),
+                    reference(&call.arg(1), 0),
+                    reference(&call.arg(2), 0),
+                    crate::quest::state::StoryParameter::Integer(call.arg(3).as_int() as u32),
+                    crate::quest::state::StoryParameter::Integer(call.arg(4).as_int() as u32),
+                ],
+            });
+        none()
+    });
     method!(vm, w, "Cell", "IsInterior", |world, call, me| b(world
         .record(me)
         .is_some_and(|r| r.placement.world.is_none())));
@@ -3387,7 +3411,6 @@ fn stubs(vm: &mut Vm, world: &Shared) -> usize {
         ("Faction", "SendAssaultAlarm"),
         ("Faction", "SendPlayerToJail"),
         ("Faction", "ModReaction"),
-        ("Keyword", "SendStoryEvent"),
         ("ActorBase", "GetGiftFilter"),
         ("ObjectReference", "WaitForAnimationEvent"),
         ("ObjectReference", "InterruptCast"),
