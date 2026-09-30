@@ -2463,6 +2463,32 @@ fn finite_nonnegative(value: f32) -> Result<f32, MagicError> {
     }
 }
 
+#[cfg(test)]
+impl World {
+    pub(crate) fn make_commanded_for_test(&mut self, target: GlobalFormId) {
+        let id = EffectId(1);
+        self.active_effects.insert(
+            id,
+            ActiveEffect {
+                id,
+                spell: target,
+                effect: target,
+                effect_index: 0,
+                source: target,
+                caster: None,
+                target,
+                magnitude: 1.0,
+                duration: None,
+                elapsed: 0.0,
+                summoned: None,
+                restore_owner: Some(PriorOwner::Unowned),
+                recover: false,
+                changes: Vec::new(),
+            },
+        );
+    }
+}
+
 fn change_values(
     values: &mut crate::actor_values::Values,
     effect: &ActiveEffect,

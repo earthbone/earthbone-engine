@@ -1604,13 +1604,13 @@ Active-effect recipients remain pending with magic execution.
 The condition evaluator implements functions 1, 14, 18, 46, 47, 56, 58, 59,
 67, 69, 70, 71, 72, 73, 74, 80, 116, 123, 128, 136, 182, 225, 248, 249,
 264, 277, 289, 312, 314, 315, 329, 353, 354, 359, 362, 403, 408, 430, 434,
-435, 448, 494, 543, 550, 560, 566, 606, 629, 630, 635, 640, 655, 659, 691,
-692, 711, 731, 734 and 735. It also implements functions 53, 79, 230, 250,
-280, 310, 325, 360, 444, 445, 446, 470, 491, 519, 528, 561, 562, 563, 565,
-567, 569, 591, 592, 598, 600, 601, 603, 604, 605, 610, 625, 626, 651, 718,
-185, 219, 286, 287, 313, 318, 327, 339, 91, 98, 106, 107, 110, 111, 125
-and 127. This is a bounded set, not the entire CTDA contract. It supports
-ordered AND/OR groups, numeric or
+435, 448, 494, 543, 550, 560, 566, 606, 629, 630, 635, 640, 650, 655, 659,
+680, 682, 691, 692, 700, 711, 720, 722, 725, 726, 731, 734 and 735. It also
+implements functions 53, 79, 230, 250, 280, 310, 325, 360, 444, 445, 446,
+470, 491, 519, 528, 561, 562, 563, 565, 567, 569, 591, 592, 598, 600, 601,
+603, 604, 605, 610, 625, 626, 651, 718, 185, 219, 286, 287, 313, 318, 327,
+339, 91, 98, 106, 107, 110, 111, 125 and 127. This is a bounded set, not the
+entire CTDA contract. It supports ordered AND/OR groups, numeric or
 global comparisons, explicit references and caller-supplied quest aliases.
 Reserved PlayerRef resolves to the runtime player even without a placed record.
 New runtime players retain reserved FormID 00000014 and use the Player NPC
@@ -1748,6 +1748,21 @@ action enum, UESP `Raw_Function_Data.wikitext` for function names, and CK
 `ObjectReference_Script.wikitext` for the related essential and linked-ref
 contracts. Existing witnessed-crime state comes from
 `World::record_witnessed_crime`.
+
+The later condition batch checks `IsLinkedTo` against the subject reference's
+linked-reference keyword pairs, `WornHasKeyword` and
+`WornApparelHasKeywordCount` against worn ARMO forms, `IsCommandedActor` against
+live command effects. `DoesNotExist` is supported for declared quest aliases
+run on that alias and returns true when it is unfilled. The batch returns
+`conditions::Error::Contract` for `GetActivatorHeight`, `GetTargetHeight` and
+`GetKnockedStateEnum`, since the local CK corpus provides no usable runtime
+contract or state representation for them. Invalid actors, forms, parameters,
+and undeclared aliases return explicit errors. xEdit's local
+`wbDefinitionsTES5.pas` supplies the function IDs and parameter types. CK's
+`IsCommandedActor_-_Actor.wikitext`, `WornHasKeyword_-_Actor.wikitext` and
+`GetLinkedRef_-_ObjectReference.wikitext` supply the behavior used for those
+queries. The other condition IDs appear in xEdit's function table, but that
+schema does not establish their runtime behavior.
 
 Sources consulted were local xEdit `wbDefinitionsTES5.pas` for CTDA, COBJ and
 FURN WBDT, CK `GetItemCount_-_ObjectReference.wikitext` for the query forms,
