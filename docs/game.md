@@ -218,7 +218,7 @@ and ASTP association, and read the ASTP Family Association flag.
 `HasParentRelationship` respects RELA's authored parent-to-child direction.
 `GetFactionCombatReaction` reads the first FACT's XNAM entry for the second
 FACT, defaulting to neutral when no relation is authored. These record layouts
-come from `TES5Edit/Core/wbDefinitionsTES5.pas`; association, family, parent
+come from `TES5Edit/Core/wbDefinitionsTES5.pas`. Association, family, parent
 and child wording comes from the corresponding CK pages. The local CK corpus
 has no usable semantics for `GetClassDefaultMatch` or `GetIsCreatureType`, so
 both return the evaluator's explicit unsupported-function error.
