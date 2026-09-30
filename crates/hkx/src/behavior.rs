@@ -613,6 +613,14 @@ pub struct FootIkLeg {
     pub max_ankle_height: f32,
     pub min_ankle_height: f32,
 }
+/// One authored transform from `hkbKeyframeBonesModifier`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct KeyframeInfo {
+    pub position: [f32; 4],
+    pub rotation: [f32; 4],
+    pub bone_index: i16,
+    pub is_valid: bool,
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum NodeKind {
@@ -824,6 +832,14 @@ pub enum NodeKind {
         ground_ascending_gain: f32,
         ground_descending_gain: f32,
     },
+    /// `hkbKeyframeBonesModifier`: valid entries replace the selected local
+    /// bone positions and rotations. A present bone list further restricts
+    /// the entries that can run.
+    KeyframeBonesModifier {
+        enable: bool,
+        keyframe_info: Vec<KeyframeInfo>,
+        keyframed_bones: Option<Vec<i16>>,
+    },
     /// Any other `hkbModifier` subclass: only the enable flag is read.
     Modifier {
         enable: bool,
@@ -923,6 +939,7 @@ impl Node {
             | NodeKind::LookAtModifier { .. }
             | NodeKind::LimbIk { .. }
             | NodeKind::FootIk { .. }
+            | NodeKind::KeyframeBonesModifier { .. }
             | NodeKind::Modifier { .. }
             | NodeKind::Unknown => {}
         }
@@ -1562,6 +1579,32 @@ impl<'a> Loader<'a> {
                     vertical_offset: o.f32(o.layout_offset(160, 192))?,
                     ground_ascending_gain: o.f32(gains + 4)?,
                     ground_descending_gain: o.f32(gains + 8)?,
+                }
+            }
+            "hkbKeyframeBonesModifier" => {
+                let keyframe_info = o
+                    .array_structs(o.layout_offset(44, 80), 48)?
+                    .into_iter()
+                    .map(|info| {
+                        Ok(KeyframeInfo {
+                            position: info.vec4(0)?,
+                            rotation: info.vec4(16)?,
+                            bone_index: info.i16(32)?,
+                            is_valid: info.bool(34)?,
+                        })
+                    })
+                    .collect::<Result<Vec<_>>>()?;
+                let keyframed_bones = o
+                    .ptr(o.layout_offset(56, 96))?
+                    .map(|list| {
+                        list.expect_class("hkbBoneIndexArray")?;
+                        list.array_i16(list.layout_offset(28, 48))
+                    })
+                    .transpose()?;
+                NodeKind::KeyframeBonesModifier {
+                    enable: o.bool(o.layout_offset(40, 72))?,
+                    keyframe_info,
+                    keyframed_bones,
                 }
             }
             c if c.ends_with("Modifier") => NodeKind::Modifier {

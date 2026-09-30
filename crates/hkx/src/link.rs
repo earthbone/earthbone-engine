@@ -402,6 +402,7 @@ fn remap_node(node: &mut Node, map: &SymbolMap, offset: usize) {
         | NodeKind::LookAtModifier { .. }
         | NodeKind::LimbIk { .. }
         | NodeKind::FootIk { .. }
+        | NodeKind::KeyframeBonesModifier { .. }
         | NodeKind::Modifier { .. }
         | NodeKind::Unknown => {}
     }
