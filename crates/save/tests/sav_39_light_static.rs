@@ -5,7 +5,7 @@
 
 use std::{
     collections::{BTreeMap, BTreeSet},
-    path::Path,
+    path::{Path, PathBuf},
 };
 
 use soe_save::quest::FormFlags;
@@ -106,13 +106,21 @@ fn collect(path: &Path, paths: &mut Vec<std::path::PathBuf>) {
 
 #[test]
 fn sav_39_external_corpus_accounts_for_all_light_static_changes() {
-    let Some(root) = std::env::var_os("SOE_TEST_SAVES") else {
-        eprintln!("SOE_TEST_SAVES unset, skipping LIGH/STAT/MSTT corpus survey");
-        return;
-    };
+    let root = std::env::var_os("SOE_TEST_SAVES").map_or_else(
+        || {
+            PathBuf::from(
+                "/var/home/pengolodh/Data/Projects/Programming/skyrim-modclients/engine-refs/saves",
+            )
+        },
+        PathBuf::from,
+    );
     let mut paths = Vec::new();
-    collect(Path::new(&root), &mut paths);
+    collect(&root, &mut paths);
     paths.sort();
+    if paths.is_empty() {
+        eprintln!("no external saves found, skipping SAV-39 corpus accounting");
+        return;
+    }
     assert!(paths.len() >= 50, "survey requires at least 50 saves");
 
     let mut counts = BTreeMap::from([("LIGH", 0usize), ("STAT", 0), ("MSTT", 0)]);

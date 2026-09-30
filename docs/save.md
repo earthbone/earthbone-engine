@@ -1209,7 +1209,9 @@ the value and full-name markers as zero-byte fields. It rejects other flag
 bits, incomplete form flags and trailing payload bytes. The typed fields
 rebuild the same flags and payload bytes. SAV-39 tests all eight defined flag
 combinations for each record type and reports record counts, distinct flag
-sets and payload bytes from `SOE_TEST_SAVES` when that corpus is configured.
+sets and payload bytes from `SOE_TEST_SAVES`, falling back to the local
+`engine-refs/saves` corpus. The 60-save survey found no LIGH, STAT or MSTT
+change forms, so it accounted for zero records and zero payload bytes.
 
 `World::restore_vanilla_base_objects` applies these fields to shared record
 overrides after mapping saved identities through plugin names. It validates
